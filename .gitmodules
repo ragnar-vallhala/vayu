@@ -1,0 +1,6 @@
+[submodule "extern/NavHAL"]
+	path = extern/NavHAL
+	url = https://github.com/ragnar-vallhala/NavHAL.git
+[submodule "extern/vaios"]
+	path = extern/vaios
+	url = https://github.com/ragnar-vallhala/vaios.git
