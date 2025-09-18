@@ -10,4 +10,8 @@
 // IMU Sensor
 #define BMX160_I2C_ADDR 0x68
 
-#endif //!VAYU_VARIABLES_H
+// Control Declarations
+#define BMX160_ACC_LOGGING_UART 1
+#define BMX160_GYR_LOGGING_UART 1
+#define BMX160_MAG_LOGGING_UART 1
+#endif //! VAYU_VARIABLES_H

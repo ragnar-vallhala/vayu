@@ -10,17 +10,6 @@
 #define IS_DROPPED_TO_CMD(val) (val & (1 << 6))
 #define IS_FATAL_ERR(val) (val & 1)
 
-typedef enum {
-  NO_ERR = 0,
-  ERR0 = 1,
-  ERR1 = 2,
-  LP_MODE_USE_PFD = 3,
-  ODR_NO_MATCH_HEAD_LESS = 6,
-  PFD_USE_IN_LP = 7,
-  INVALID_DATA_READ = 8
-
-} bmx160_err_type;
-
 #define BMX160_PMU_STAT_ADDR 0x03
 
 #define BMX160_MAGX_LOW_ADDR 0x04
@@ -65,29 +54,134 @@ typedef enum {
 
 #define BMX160_FIFO_DATA_ADDR 0x24
 
-#define BMX160_CMD_REG 0x7E
-#define BMX160_PWR_CONF_REG 0x6B
-#define BMX160_PWR_CTRL_REG 0x6C
+#define BMX160_ACC_CONF_ADDR 0x40
+#define BMX160_ACC_RANGE_ADDR 0x41
+#define BMX160_GYR_CONF_ADDR 0x42
+#define BMX160_GYR_RANGE_ADDR 0x43
+#define BMX160_MAG_CONF_ADDR 0x44
 
-#define BMX160_ACC_CONF_REG 0x40
-#define BMX160_ACC_RANGE_REG 0x41
-#define BMX160_GYR_CONF_REG 0x42
-#define BMX160_GYR_RANGE_REG 0x43
+#define BMX160_MAG_IF_3_ADDR 0x4F
+#define BMX160_MAG_IF_2_ADDR 0x4E
+#define BMX160_MAG_IF_1_ADDR 0x4D
+#define BMX160_MAG_IF_0_ADDR 0x4C
+
+#define BMX160_PWR_CONF_ADDR 0x6B
+#define BMX160_PWR_CTRL_ADDR 0x6C
+
+#define BMX160_CMD_ADDR 0x7E
 
 // BMX160 commands
 #define BMX160_CMD_ACC_NORMAL 0x11
 #define BMX160_CMD_GYR_NORMAL 0x15
 #define BMX160_CMD_MAG_NORMAL 0x19
+// Error options
 
+typedef enum {
+  NO_ERR = 0,
+  ERR0 = 1,
+  ERR1 = 2,
+  LP_MODE_USE_PFD = 3,
+  ODR_NO_MATCH_HEAD_LESS = 6,
+  PFD_USE_IN_LP = 7,
+  INVALID_DATA_READ = 8
+} bmx160_err_type;
+// Option enums
+typedef enum {
+  BMX160_ACC_2G = 2,
+  BMX160_ACC_4G = 4,
+  BMX160_ACC_8G = 8,
+  BMX160_ACC_16G = 16,
+} bmx160_acc_range_t;
+
+typedef enum {
+  BMX160_GYR_2000 = 2000,
+  BMX160_GYR_1000 = 1000,
+  BMX160_GYR_500 = 500,
+  BMX160_GYR_250 = 250,
+  BMX160_GYR_125 = 125,
+} bmx160_gyr_range_t;
+
+// Config structures
+typedef struct {
+  // Accelerometer configuration
+  uint8_t bmx160_acc_odr; // 4 bit number converted to ODR in Hz
+  uint8_t bmx160_acc_bwp; // 3 bit defining the bandwidth pass
+  uint8_t bmx160_acc_us;  // 1 bit defining under-sampling
+  bmx160_acc_range_t bmx160_acc_range;
+  // Gyro configuration
+  uint8_t bmx160_gyr_odr; // 4 bit number converted to ODR in Hz
+  uint8_t bmx160_gyr_bwp; // 2 bit defining the bandwidth pass
+  bmx160_gyr_range_t bmx160_gyr_range;
+  // Mag configuration
+  uint8_t bmx160_mag_odr; // 4 bit number converted to ODR in Hz
+} bmx160_config_t;
+// Reading structures
+typedef struct {
+  int16_t acc[3];
+  int16_t gyr[3];
+  int16_t mag[3];
+} bmx160_all_raw_reading_t;
+
+typedef struct {
+  float acc[3];
+  float gyr[3];
+  float mag[3];
+} bmx160_all_converted_reading_t;
+
+typedef union {
+  bmx160_all_converted_reading_t converted;
+  bmx160_all_raw_reading_t raw;
+} bmx160_all_reading_t;
+
+// Control APIs
 hal_i2c_status_t bmx160_init(void);
 uint16_t bmx160_get_chip_id(void);
+bmx160_err_type bmx160_soft_reset(void); //[TODO]
+// Power APIs
+bmx160_err_type bmx160_sleep(void);  //[TODO]
+bmx160_err_type bmx160_wakeup(void); //[TODO]
+
+// Temp APIs
 int16_t bmx160_read_temp_raw(void);
-bmx160_err_type bmx160_convert_raw_temp_to_celcius(int16_t raw_temp,
-                                                   float *celcius);
 bmx160_err_type bmx160_read_temp_celcius(float *celcius);
 
+// IMU raw APIs
 bmx160_err_type bmx160_read_acc_raw(int16_t *raw);
 bmx160_err_type bmx160_read_gyr_raw(int16_t *raw);
 bmx160_err_type bmx160_read_mag_raw(int16_t *raw);
+bmx160_err_type bmx160_read_all_raw(bmx160_all_reading_t *raw);
 
+// IMU converted APIs
+bmx160_err_type bmx160_read_acc_mps2(float *data);                     //[TODO]
+bmx160_err_type bmx160_read_gyr_dps(float *data);                      //[TODO]
+bmx160_err_type bmx160_read_mag_uT(float *data);                       //[TODO]
+bmx160_err_type bmx160_read_all_converted(bmx160_all_reading_t *data); //[TODO]
+
+// Config APIs
+bmx160_err_type bmx160_read_config(bmx160_config_t *config);
+bmx160_err_type bmx160_read_acc_config(bmx160_config_t *config);
+bmx160_err_type bmx160_read_gyr_config(bmx160_config_t *config);
+bmx160_err_type bmx160_read_mag_config(bmx160_config_t *config);
+
+bmx160_err_type bmx160_write_config(bmx160_config_t *config);
+bmx160_err_type bmx160_write_acc_config(bmx160_config_t *config);
+bmx160_err_type bmx160_write_gyr_config(bmx160_config_t *config);
+bmx160_err_type bmx160_write_mag_config(bmx160_config_t *config);
+
+// Config helpers
+float bmx160_raw_acc_to_mps2(int16_t raw);
+float bmx160_raw_gyr_to_dps(int16_t raw);
+float bmx160_raw_mag_to_uT(int16_t raw);
+
+float bmx160_acc_odr_to_hz(uint8_t raw); //[TODO]
+float bmx160_acc_bwp_to_hz(uint8_t raw); //[TODO]
+
+float bmx160_gyr_odr_to_hz(uint8_t raw); //[TODO]
+float bmx160_gyr_bwp_to_hz(uint8_t raw); //[TODO]
+
+float bmx160_mag_odr_to_hz(uint8_t raw); //[TODO]
+
+// Getters and Setter for static variables
+bmx160_config_t bmx160_get_current_config(void);
+void bmx160_set_current_config(bmx160_config_t *cfg);
 #endif // !VAYU_BMX160_H
