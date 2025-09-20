@@ -52,14 +52,16 @@ set(CMAKE_ASM_FLAGS "-mcpu=${CMAKE_SYSTEM_PROCESSOR} -mthumb")
 
 set(CMAKE_EXE_LINKER_FLAGS "-T ${LINKER_FILE} -nostdlib") # can be
 
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include  ${CMAKE_CURRENT_SOURCE_DIR}/drivers)
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include  ${CMAKE_CURRENT_SOURCE_DIR}/drivers ${CMAKE_CURRENT_SOURCE_DIR}/maths)
 
 if(CMAKE_SYSTEM_PROCESSOR STREQUAL "cortex-m4")
   add_compile_definitions(CORTEX_M4)
 endif()
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
+
 add_subdirectory(drivers) # implementations for specific architectures (context switching, interrupt handling)
+add_subdirectory(maths) # implementations for specific architectures (context switching, interrupt handling)
 # add_subdirectory(kernel) # The heart of your RTOS (scheduling, tasks, synchronization, etc.) — totally architecture independent
 if(SENSOR)
 add_subdirectory(sensor) # Small test apps showing how to use the RTOS

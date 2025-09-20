@@ -31,7 +31,7 @@ static bmx160_config_t bmx160_cfg = {
 static void bmx160_set_mag_conf();
 static bmx160_err_type bmx160_convert_raw_temp_to_celcius(int16_t raw_temp,
                                                           float *celcius);
-hal_i2c_status_t bmx160_init(void) {
+bmx160_err_type bmx160_init(void) {
   // I2C configuration
   hal_i2c_config_t i2c_config = {.clock_speed = STANDARD_MODE,
                                  .own_address = I2C_MASTER,
@@ -67,11 +67,13 @@ hal_i2c_status_t bmx160_init(void) {
     hal_i2c_write(I2C_BUS, BMX160_I2C_ADDR, tx_buf, 2);
     v_delay(100);
     bmx160_set_mag_conf();
+  }else{
+    return ERR0;
   }
 
   // Config for components
   bmx160_read_config(&bmx160_cfg);
-  return status;
+  return NO_ERR;
 }
 
 static void bmx160_set_mag_conf() {

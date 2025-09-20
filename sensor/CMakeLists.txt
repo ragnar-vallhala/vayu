@@ -1,4 +1,4 @@
-include_directories(${CMAKE_SOURCE_DIR}/include)
+# include_directories(${CMAKE_SOURCE_DIR}/include)
 message(STATUS "Startup File: ${STARTUP_FILE}")
 
 if(NOT NAVHAL)
@@ -15,12 +15,14 @@ target_link_libraries(main PRIVATE
     -lgcc
     vaios
     drivers
+    nav_maths
 )
 else()
 target_link_libraries(main PRIVATE
     -lgcc
     vaios
     drivers
+    nav_maths
 )
 endif()
 
