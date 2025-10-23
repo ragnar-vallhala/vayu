@@ -3,10 +3,10 @@
 set(CMSISCORE ${CMAKE_CURRENT_SOURCE_DIR}/../extern/CMSIS_5/CMSIS/Core)
 set(CMSISDSP ${CMAKE_CURRENT_SOURCE_DIR}/../extern/CMSIS-DSP)
 add_subdirectory(${CMSISDSP}/Source bin_dsp)
-include_directories(${CMSISDSP}/Include)
+# include_directories(${CMSISDSP}/Include 
+# ${CMAKE_CURRENT_SOURCE_DIR})
 
-
-include_directories(${CMAKE_CURRENT_SOURCE_DIR})
+message(STATUS "${CMSISDSP}/Include")
 FILE(GLOB_RECURSE SOURCE_FILES ./*.c)
 message(STATUS "Maths sources: ${SOURCE_FILES}")
 add_library(nav_maths ${SOURCE_FILES})

@@ -15,7 +15,7 @@ target_link_libraries(main PRIVATE
     -lgcc
     vaios
     drivers
-    maths
+    nav_maths
 )
 else()
 target_link_libraries(main PRIVATE
@@ -23,6 +23,7 @@ target_link_libraries(main PRIVATE
     vaios
     drivers
     maths
+    nav_maths
 )
 endif()
 

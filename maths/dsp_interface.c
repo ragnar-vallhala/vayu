@@ -4,6 +4,7 @@
 #include <math.h>
 #include <stddef.h>
 #include <stdlib.h>
+#include <stdint.h>
 //========================
 // DSP Math Fucntions
 // =======================
