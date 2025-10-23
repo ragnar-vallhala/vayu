@@ -3,11 +3,14 @@
 #include "utils.h"
 #include "vaios.h"
 #include <stdint.h>
+#include "sensor_fusion.h"
 
-void run_bmx() {
-  bmx160_err_type status = bmx160_init();
+void run_bmx()
+{
+  hal_i2c_status_t status = bmx160_init();
   v_log(LOG_DEBUG, "BMX160 init status: %d", status);
   float temp = 0;
+  attitude_t orientation;
   bmx160_config_t cfg;
   bmx160_all_reading_t data;
   // --- Accelerometer config ---
@@ -27,10 +30,22 @@ void run_bmx() {
   // --- Write configuration ---
   bmx160_write_config(&cfg);
 
-  while (1) {
+  while (1)
+  {
     bmx160_read_temp_celcius(&temp);
-    bmx160_read_all_converted(&data);
-    
+
+    bmx160_err_type err = bmx160_read_all_converted(&data);
+    if (err != NO_ERR)
+    {
+      v_log(LOG_ERROR, "Error reading BMX160 data: %d", err);
+      continue;
+    }
+    sf_acc_mag(data.converted.acc[0], data.converted.acc[1],
+               data.converted.acc[2], data.converted.mag[0],
+               data.converted.mag[1], data.converted.mag[2], &orientation);
+    v_log(LOG_INFO, "[ATTITUDE] %f, %f, %f",
+          orientation.roll,
+          orientation.pitch, orientation.yaw);
     v_delay(10);
   }
 }
