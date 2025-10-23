@@ -7,7 +7,6 @@ int main() {
   v_init();
     v_log(LOG_INFO, "Hello from Vayu!");
   while (1) {
-    v_log(LOG_INFO, "Hello from Vayu!");
     run_bmx();
   }
 }

@@ -15,12 +15,14 @@ target_link_libraries(main PRIVATE
     -lgcc
     vaios
     drivers
+    maths
 )
 else()
 target_link_libraries(main PRIVATE
     -lgcc
     vaios
     drivers
+    maths
 )
 endif()
 
