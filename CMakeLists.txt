@@ -50,8 +50,12 @@ set(CMAKE_C_FLAGS
 
 set(CMAKE_ASM_FLAGS "-mcpu=${CMAKE_SYSTEM_PROCESSOR} -mthumb -mfloat-abi=soft")
 
+set(EXTERNAL_LINKER YES)
+if(EXTERNAL_LINKER)
+  set(CMAKE_EXE_LINKER_FLAGS "-T ${CMAKE_CURRENT_SOURCE_DIR}/linker.ld -lnosys -lc -mfloat-abi=soft") # can be
+else()
 set(CMAKE_EXE_LINKER_FLAGS "-T ${LINKER_FILE} -lnosys -lc -mfloat-abi=soft") # can be
-
+endif()
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include  ${CMAKE_CURRENT_SOURCE_DIR}/drivers ${CMAKE_CURRENT_SOURCE_DIR}/maths)
 
 if(CMAKE_SYSTEM_PROCESSOR STREQUAL "cortex-m4")

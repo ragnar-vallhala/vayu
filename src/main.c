@@ -1,6 +1,5 @@
 #include "utils.h"
 #include "vaios.h"
-#include "navhal.h"
 
 int main() {
   v_init();
