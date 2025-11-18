@@ -1,9 +1,11 @@
-#include "maths_interface.h"
+#include "maths/maths_interface.h"
 #ifdef USE_STANDARD_MATH
 #include <math.h>
 #else
 #error "Math backend not implemented"
 #endif
+#include <stddef.h>
+
 float sf_sin(float x)
 {
 #ifdef USE_STANDARD_MATH

@@ -1,5 +1,6 @@
 #ifndef VAYU_VARIABLES_H
 #define VAYU_VARIABLES_H
+#include "config.h"
 #include "navhal.h"
 
 // I2C Control

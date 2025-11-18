@@ -1,6 +1,6 @@
 #ifndef VAYU_BMX160_H
 #define VAYU_BMX160_H
-
+#include "config.h"
 #include "navhal.h"
 #include <stdint.h>
 
@@ -134,7 +134,7 @@ typedef union {
 } bmx160_all_reading_t;
 
 // Control APIs
-bmx160_err_type bmx160_init(void);
+hal_i2c_status_t bmx160_init(void);
 uint16_t bmx160_get_chip_id(void);
 bmx160_err_type bmx160_soft_reset(void); //[TODO]
 // Power APIs
@@ -152,10 +152,10 @@ bmx160_err_type bmx160_read_mag_raw(int16_t *raw);
 bmx160_err_type bmx160_read_all_raw(bmx160_all_reading_t *raw);
 
 // IMU converted APIs
-bmx160_err_type bmx160_read_acc_mps2(float *data);                     
-bmx160_err_type bmx160_read_gyr_dps(float *data);                      
-bmx160_err_type bmx160_read_mag_uT(float *data);                       
-bmx160_err_type bmx160_read_all_converted(bmx160_all_reading_t *data); 
+bmx160_err_type bmx160_read_acc_mps2(float *data);                     //[TODO]
+bmx160_err_type bmx160_read_gyr_dps(float *data);                      //[TODO]
+bmx160_err_type bmx160_read_mag_uT(float *data);                       //[TODO]
+bmx160_err_type bmx160_read_all_converted(bmx160_all_reading_t *data); //[TODO]
 
 // Config APIs
 bmx160_err_type bmx160_read_config(bmx160_config_t *config);
