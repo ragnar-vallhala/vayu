@@ -1,6 +1,6 @@
 #ifndef MATHS_SENSOR_FUSION_H
 #define MATHS_SENSOR_FUSION_H
-#define USE_STANDARD_MATH
+// #define USE_STANDARD_MATH
 #define PI 3.14159265358979323846f
 
 float sf_sin(float x);

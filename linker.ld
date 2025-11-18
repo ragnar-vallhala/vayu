@@ -21,8 +21,16 @@ SECTIONS {
     
   } > FLASH
 
-
-  .data : AT (ADDR(.text) + SIZEOF(.text)) {
+  __exidx_start = .;
+    .ARM.exidx :
+    {
+      KEEP(*(.ARM.exidx*))
+      KEEP(*(.gnu.linkonce.armexidx.*))
+    } > FLASH
+     __exidx_end = .;
+  . = ALIGN(4);           
+__flash_end__ = __exidx_end;
+  .data : AT (__flash_end__) {
     _sdata = .;
     *(.data*)
     . = ALIGN(4);
