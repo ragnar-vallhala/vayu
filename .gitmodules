@@ -7,6 +7,6 @@
 [submodule "extern/CMSIS-DSP"]
 	path = extern/CMSIS-DSP
 	url = https://github.com/ragnar-vallhala/CMSIS-DSP.git
-[submodule "extern/extern/CMSIS_5"]
-	path = extern/extern/CMSIS_5
+[submodule "extern/CMSIS_5"]
+	path = extern/CMSIS_5
 	url = https://github.com/ragnar-vallhala/CMSIS_5.git
