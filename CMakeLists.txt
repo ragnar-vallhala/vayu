@@ -58,14 +58,24 @@ set(BASE_C_FLAGS
 )
 set(BASE_ASM_FLAGS "-mcpu=${CMAKE_SYSTEM_PROCESSOR} -mthumb -mfloat-abi=soft")
 
-# Put functions/data in sections so linker can gc unused code
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${BASE_C_FLAGS} -ffunction-sections -fdata-sections")
-set(CMAKE_ASM_FLAGS "${CMAKE_ASM_FLAGS} ${BASE_ASM_FLAGS}")
-# Linker flags: use nano.specs to reduce newlib overhead, enable gc-sections
-message(STATUS "Linker file is: ${LINKER_FILE}")
-message(STATUS "Startup file is: ${STARTUP_FILE}")
+set(EXTERNAL_LINKER YES)
 if(EXTERNAL_LINKER)
-    set(CMAKE_EXE_LINKER_FLAGS "-T ${CMAKE_CURRENT_SOURCE_DIR}/linker.ld -specs=nano.specs -Wl,--gc-sections -Wl,-Map=${CMAKE_CURRENT_BINARY_DIR}/main.map -mfloat-abi=soft -lc -lgcc ")
+  set(CMAKE_EXE_LINKER_FLAGS "-T ${CMAKE_CURRENT_SOURCE_DIR}/linker.ld -lnosys -lc -mfloat-abi=soft") # can be
+else()
+set(CMAKE_EXE_LINKER_FLAGS "-T ${LINKER_FILE} -lnosys -lc -mfloat-abi=soft") # can be
+endif()
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include  ${CMAKE_CURRENT_SOURCE_DIR}/drivers ${CMAKE_CURRENT_SOURCE_DIR}/maths)
+
+if(CMAKE_SYSTEM_PROCESSOR STREQUAL "cortex-m4")
+  add_compile_definitions(CORTEX_M4)
+endif()
+
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
+add_subdirectory(drivers) # implementations for specific architectures (context switching, interrupt handling)
+add_subdirectory(maths) # Maths library (vectors, matrices, quaternions, etc.)
+# add_subdirectory(kernel) # The heart of your RTOS (scheduling, tasks, synchronization, etc.) — totally architecture independent
+if(SENSOR)
+add_subdirectory(sensor) # Small test apps showing how to use the RTOS
 else()
     set(CMAKE_EXE_LINKER_FLAGS "-T ${LINKER_FILE} -specs=nano.specs -Wl,--gc-sections -Wl,-Map=${CMAKE_CURRENT_BINARY_DIR}/main.map -mfloat-abi=soft -lc -lgcc ")
 endif()
