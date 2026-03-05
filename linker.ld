@@ -29,15 +29,15 @@ SECTIONS {
     } > FLASH
      __exidx_end = .;
   . = ALIGN(4);           
-__flash_end__ = __exidx_end;
-  .data : AT (__flash_end__) {
+  .data :
+  {
     _sdata = .;
     *(.data*)
     . = ALIGN(4);
     _edata = .;
     *(.init*)
     *(.fini*)
-  } > RAM
+  } > RAM AT > FLASH
 
   .bss : {
     _sbss = .;

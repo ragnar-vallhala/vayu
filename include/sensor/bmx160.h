@@ -1,6 +1,5 @@
 #ifndef VAYU_BMX160_H
 #define VAYU_BMX160_H
-#include "config.h"
 #include "navhal.h"
 #include <stdint.h>
 

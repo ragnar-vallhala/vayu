@@ -1,4 +1,4 @@
-#include "config.h"
+// #include "config.h"
 #include "sensor/bmx160.h"
 #include "navhal.h"
 #include "utils.h"

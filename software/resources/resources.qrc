@@ -1,0 +1,6 @@
+<!DOCTYPE RCC><RCC version="1.0">
+<qresource prefix="/">
+    <!-- Add icons and assets here as project grows -->
+    <!-- <file>icons/drone.svg</file> -->
+</qresource>
+</RCC>
