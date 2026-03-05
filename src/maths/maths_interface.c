@@ -1,30 +1,44 @@
 #include "maths/maths_interface.h"
-#include <math.h>
 
 // -------------------------
 // sin(x)
 // -------------------------
-float sf_sin(float x) { return sinf(x); }
+float m_sin(float x) {
+  // TODO: Implement custom sin algorithm
+  return 0.0f;
+}
 
 // -------------------------
 // cos(x)
 // -------------------------
-float sf_cos(float x) { return cosf(x); }
+float m_cos(float x) {
+  // TODO: Implement custom cos algorithm
+  return 0.0f;
+}
 
 // -------------------------
 // atan2(y, x)
 // -------------------------
-float sf_atan2(float y, float x) { return atan2f(y, x); }
+float m_atan2(float y, float x) {
+  // TODO: Implement custom atan2 algorithm
+  return 0.0f;
+}
 
 // -------------------------
 // sqrt(x)
 // -------------------------
-float sf_sqrt(float x) { return sqrtf(x); }
+float m_sqrt(float x) {
+  // TODO: Implement custom sqrt algorithm
+  return 0.0f;
+}
 
 // -------------------------
 // pow(base, exp)
 // -------------------------
-float sf_pow(float base, float exp) { return powf(base, exp); }
+float m_pow(float base, float exp) {
+  // TODO: Implement custom pow algorithm
+  return 0.0f;
+}
 
 // -------------------------
 // normalize vector
@@ -38,7 +52,7 @@ void normalize_vector(vector_t *v) {
   for (int i = 0; i < v->length; i++)
     norm += v->values[i] * v->values[i];
 
-  norm = sf_sqrt(norm);
+  norm = m_sqrt(norm);
 
   if (norm > 0.0f) {
     for (int i = 0; i < v->length; i++)
