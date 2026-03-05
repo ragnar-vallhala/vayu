@@ -4,9 +4,3 @@
 [submodule "extern/vaios"]
 	path = extern/vaios
 	url = https://github.com/ragnar-vallhala/vaios.git
-[submodule "extern/CMSIS-DSP"]
-	path = extern/CMSIS-DSP
-	url = https://github.com/ragnar-vallhala/CMSIS-DSP.git
-[submodule "extern/CMSIS_5"]
-	path = extern/CMSIS_5
-	url = https://github.com/ragnar-vallhala/CMSIS_5.git

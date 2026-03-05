@@ -48,9 +48,7 @@ set_target_properties(main PROPERTIES COMPILE_FLAGS "${BASE_C_FLAGS}")
 #-------------------------
 # Math backend options
 #-------------------------
-option(USE_STANDARD_MATH "Use standard math.h backend" OFF)
-option(USE_ARM_DSP "Use ARM CMSIS DSP math backend (small fast-math)" ON)
-option(USE_ARM_DSP_TABLES "Include fast-math lookup tables (bigger flash)" OFF)
+option(USE_STANDARD_MATH "Use standard math.h backend" ON)
 
 #-------------------------
 # Compiler flags (embedded friendly)
@@ -92,41 +90,6 @@ endif()
 # Do NOT link -lm globally (it pulls in bulky libm implementations).
 target_link_libraries(main PRIVATE hal vaios -lgcc -lm)
 
-#-------------------------
-# CMSIS fast-math minimal lib
-#-------------------------
-if(USE_ARM_DSP)
-    # ensure we define CPU for CMSIS
-    add_compile_definitions(ARM_MATH_CM4)
-    # include directories used by the small dsp lib
-    set(CMSIS_CORE_INC extern/CMSIS_5/CMSIS/Core/Include)
-    set(CMSIS_DSP_INC  extern/CMSIS-DSP/Include)
-    set(CMSIS_DSP_PRI_INC  extern/CMSIS-DSP/PrivateInclude)
-    include_directories(${CMSIS_CORE_INC} ${CMSIS_DSP_INC} ${CMSIS_DSP_PRI_INC})
-
-    # Build a tiny library containing ONLY the fast sin/cos (and tables if enabled).
-    # NOTE: arm_common_tables.c needs core include path (arm_compiler_specific.h, etc)
-    set(CMSIS_FAST_SOURCES
-        ${CMAKE_SOURCE_DIR}/extern/CMSIS-DSP/Source/FastMathFunctions/arm_sin_f32.c
-        ${CMAKE_SOURCE_DIR}/extern/CMSIS-DSP/Source/FastMathFunctions/arm_cos_f32.c
-        ${CMAKE_SOURCE_DIR}/extern/CMSIS-DSP/Source/CommonTables/arm_common_tables.c
-    )
-
-    if(USE_ARM_DSP_TABLES)
-        # include the fast math tables implementation (this is the large table file)
-        list(APPEND CMSIS_FAST_SOURCES
-            ${CMAKE_SOURCE_DIR}/extern/CMSIS-DSP/Source/FastMathFunctions/arm_fast_math_tables.c
-        )
-        add_compile_definitions(ARM_FAST_MATH_TABLES)
-    endif()
-
-    add_library(cmsis_fast_math STATIC ${CMSIS_FAST_SOURCES})
-    target_include_directories(cmsis_fast_math PUBLIC ${CMSIS_CORE_INC} ${CMSIS_DSP_INC})
-    # Link only the small library
-    target_link_libraries(main PRIVATE cmsis_fast_math)
-    # Also expose USE_ARM_DSP macro to project sources
-    target_compile_definitions(main PRIVATE USE_ARM_DSP)
-endif()
 
 #-------------------------
 # Post build: binary + size
@@ -146,5 +109,3 @@ add_custom_command(
 
 message(STATUS "C FLAGS: ${CMAKE_C_FLAGS}")
 message(STATUS "Linker FLAGS: ${CMAKE_EXE_LINKER_FLAGS}")
-message(STATUS "USE_ARM_DSP = ${USE_ARM_DSP}")
-message(STATUS "USE_ARM_DSP_TABLES = ${USE_ARM_DSP_TABLES}")
