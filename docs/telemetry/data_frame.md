@@ -12,7 +12,7 @@
 
 The packets sent from and recieved by Vayu is of following standard format:
 
-:::mermaid
+```mermaid
 packet-beta
     0-7: "Sync (0x56) [0:7]"
     8-11: "Protocol Version [8:11]"
@@ -22,7 +22,7 @@ packet-beta
     32-63: "Timestamp [32:63]"
     64-127: "Generic Payload [64:NR]"
     128-159: "CRC32 [128:NR+32]"
-:::
+```
 **Sync** is used to synchronize the receiver with the sender. It is a 8-bit value that is used to identify the sync. Only value it has is 0x56.
 
 **Protocol Version** is used to identify the protocol version. It is a 4-bit value that is used to identify the protocol version. This will start from 1 and will increment by 1 for each new version till 0xE. 0xF is reserved for future use.

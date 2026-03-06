@@ -6,7 +6,7 @@ This is a header only packet. It does not have any payload. The length of the pa
 
 ## Packet Structure
 
-:::mermaid
+```mermaid
 packet-beta
     0-7: "Sync (0x56) [0:7]"
     8-11: "Protocol Version [8:11]"
@@ -15,7 +15,7 @@ packet-beta
     24-31: "Device ID [24:31]"
     32-63: "Timestamp [32:63]"
     64-95: "CRC32 [64:95]"
-:::
+```
 
 ## Changelog
 

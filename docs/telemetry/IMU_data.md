@@ -9,7 +9,7 @@ There are two types of IMU data packets:
 
 ## Packet Structure
 
-:::mermaid
+```mermaid
 packet-beta
     0-7: "Sync (0x56) [0:7]"
     8-11: "Protocol Version [8:11]"
@@ -27,7 +27,7 @@ packet-beta
     176-191: "Magnetometer Y [176:191]"
     192-207: "Magnetometer Z [192:207]"
     208-239: "CRC32 [208:239]"
-:::
+```
 
 ## Changelog
 
