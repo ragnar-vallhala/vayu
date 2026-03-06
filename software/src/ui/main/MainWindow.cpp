@@ -34,8 +34,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   m_elapsed.start();
 
   // Wire serial → protocol → UI
-  connect(m_serial, &SerialManager::packetReceived, m_protocol,
-          &DroneProtocol::parseLine);
+  connect(m_serial, &SerialManager::dataReceived, m_protocol,
+          &DroneProtocol::processData);
 
   connect(m_protocol, &DroneProtocol::imuReceived, this,
           &MainWindow::onImuReceived);
@@ -61,11 +61,41 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   connect(m_uiTimer, &QTimer::timeout, this, &MainWindow::onUiTimer);
   m_uiTimer->start(50);
 
-  buildUi();
+  m_stackedWidget = new QStackedWidget(this);
+  setCentralWidget(m_stackedWidget);
+
+  buildUi(); // Built as m_homeWidget
+
+  // Build Packet Analyzer
+  m_analyzerWidget = new PacketAnalyzerWidget(this);
+  m_stackedWidget->addWidget(m_analyzerWidget);
+
+  // Wire Protocol and Serial to Analyzer
+  connect(m_protocol, &DroneProtocol::packetReceived, m_analyzerWidget,
+          &PacketAnalyzerWidget::logRxPacket);
+  connect(m_protocol, &DroneProtocol::unknownPacket, m_analyzerWidget,
+          &PacketAnalyzerWidget::logRxPacket);
+  connect(m_serial, &SerialManager::dataSent, m_analyzerWidget,
+          &PacketAnalyzerWidget::logTxPacket);
+  connect(m_analyzerWidget, &PacketAnalyzerWidget::backToHomeRequested, this,
+          &MainWindow::showHome);
+
   buildMenuBar();
   buildToolBar();
   onRefreshPorts(); // populate port list on startup
   setConnected(false);
+
+  showHome();
+}
+
+// ---------------------------------------------------------------------------
+// Navigation
+// ---------------------------------------------------------------------------
+
+void MainWindow::showHome() { m_stackedWidget->setCurrentWidget(m_homeWidget); }
+
+void MainWindow::showPacketAnalyzer() {
+  m_stackedWidget->setCurrentWidget(m_analyzerWidget);
 }
 
 // ---------------------------------------------------------------------------
@@ -73,16 +103,16 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
 // ---------------------------------------------------------------------------
 
 void MainWindow::buildUi() {
-  auto *central = new QWidget(this);
-  auto *rootVBox = new QVBoxLayout(central);
+  m_homeWidget = new QWidget(this);
+  auto *rootVBox = new QVBoxLayout(m_homeWidget);
   rootVBox->setSpacing(8);
   rootVBox->setContentsMargins(8, 8, 8, 8);
 
   // ---- Top row: attitude + attitude labels + IMU panel ----
-  auto *topSplitter = new QSplitter(Qt::Horizontal, central);
+  auto *topSplitter = new QSplitter(Qt::Horizontal, m_homeWidget);
 
   // ---- Attitude group ----
-  auto *attGroup = new QGroupBox("Attitude", central);
+  auto *attGroup = new QGroupBox("Attitude", m_homeWidget);
   auto *attLayout = new QVBoxLayout(attGroup);
 
   m_attitude = new AttitudeWidget(attGroup);
@@ -113,25 +143,25 @@ void MainWindow::buildUi() {
   topSplitter->addWidget(attGroup);
 
   // ---- IMU Panel ----
-  m_imuPanel = new ImuPanel(central);
+  m_imuPanel = new ImuPanel(m_homeWidget);
   topSplitter->addWidget(m_imuPanel);
 
   topSplitter->setStretchFactor(0, 1);
   topSplitter->setStretchFactor(1, 2);
 
   // ---- Bottom: Log panel ----
-  m_logPanel = new LogPanel(central);
+  m_logPanel = new LogPanel(m_homeWidget);
   m_logPanel->setMinimumHeight(180);
 
   // ---- Vertical splitter: attitude+imu / log ----
-  auto *vSplitter = new QSplitter(Qt::Vertical, central);
+  auto *vSplitter = new QSplitter(Qt::Vertical, m_homeWidget);
   vSplitter->addWidget(topSplitter);
   vSplitter->addWidget(m_logPanel);
   vSplitter->setStretchFactor(0, 3);
   vSplitter->setStretchFactor(1, 1);
 
   rootVBox->addWidget(vSplitter);
-  setCentralWidget(central);
+  m_stackedWidget->addWidget(m_homeWidget);
 
   // ---- Status bar ----
   m_connStatus = new QLabel("  ● Disconnected  ", this);
@@ -156,6 +186,16 @@ void MainWindow::buildMenuBar() {
       "QMenu::item:selected { background: #3E4452; color: #FFFFFF; }");
 
   QMenu *fileMenu = menu->addMenu("&File");
+
+  m_homeAction =
+      fileMenu->addAction("&Home Screen", this, &MainWindow::showHome);
+  m_homeAction->setShortcut(QKeySequence("Ctrl+H"));
+
+  m_analyzerAction = fileMenu->addAction("&Packet Analyzer", this,
+                                         &MainWindow::showPacketAnalyzer);
+  m_analyzerAction->setShortcut(QKeySequence("Ctrl+P"));
+
+  fileMenu->addSeparator();
 
   QAction *exitAction = fileMenu->addAction("E&xit");
   exitAction->setShortcut(QKeySequence::Quit);
@@ -416,7 +456,7 @@ void MainWindow::onUiTimer() {
   qint64 now = QDateTime::currentMSecsSinceEpoch();
   qint64 elapsed = now - m_lastHbTime;
 
-  if (elapsed < 2000) {
+  if (elapsed < 1000) {
     // Exponential decay: e^(-5 * t / 2000)
     double factor = std::exp(-5.0 * elapsed / 2000.0);
     int alpha = static_cast<int>(255 * factor);

@@ -43,7 +43,11 @@ void SerialManager::close() {
 bool SerialManager::write(const QByteArray &data) {
   if (!m_port.isOpen())
     return false;
-  return m_port.write(data) == data.size();
+  bool ok = m_port.write(data) == data.size();
+  if (ok) {
+    emit dataSent(data);
+  }
+  return ok;
 }
 
 bool SerialManager::isOpen() const { return m_port.isOpen(); }
@@ -61,20 +65,9 @@ QStringList SerialManager::availablePorts() {
 // Private slots
 // ---------------------------------------------------------------------------
 void SerialManager::onReadyRead() {
-  m_buffer += m_port.readAll();
-
-  // Emit each complete newline-terminated line
-  while (true) {
-    int idx = m_buffer.indexOf('\n');
-    if (idx == -1)
-      break;
-
-    QByteArray line = m_buffer.left(idx + 1).trimmed();
-    m_buffer.remove(0, idx + 1);
-
-    if (!line.isEmpty()) {
-      emit packetReceived(line);
-    }
+  QByteArray data = m_port.readAll();
+  if (!data.isEmpty()) {
+    emit dataReceived(data);
   }
 }
 

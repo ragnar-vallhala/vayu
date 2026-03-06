@@ -33,10 +33,10 @@ typedef struct channel_s {
   struct channel_s *next;
 } channel_t;
 
-err_t get_handler(channel_type_t channel_type, channel_t *handler, void *args);
+err_t get_handler(channel_type_t channel_type, channel_t *handler, void *args,
+                  void (*onRecieve)(void));
 err_t del_handler(channel_t *handler);
 err_t write_channel(channel_t channel, byte *data, uint16_t length);
-err_t read_channel(channel_t channel, byte *data, uint16_t length);
 err_t flush_channel(channel_t channel);
 
 void flush_task(void *args);

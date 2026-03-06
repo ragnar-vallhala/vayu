@@ -1,5 +1,6 @@
 #include "comm/channel.h"
 #include "common/hal_types.h"
+#include "core/cortex-m4/interrupt_reg.h"
 #include "core/cortex-m4/uart.h"
 #include "utils/types.h"
 #include "variables.h"
@@ -9,10 +10,11 @@ typedef struct {
   uint32_t baud_rate;
   hal_uart_t uart;
   uint16_t timeout;
-  byte buffers[2][512];  // Ping-Pong buffers
-  uint16_t buf_lens[2];  // Length of data in each buffer
-  uint8_t active_idx;    // Buffer currently being filled (0 or 1)
-  volatile uint8_t busy; // 1 if a DMA transfer is in progress
+  byte buffers[2][512];          // Ping-Pong buffers
+  uint16_t buf_lens[2];          // Length of data in each buffer
+  uint8_t active_idx;            // Buffer currently being filled (0 or 1)
+  volatile uint8_t busy;         // 1 if a DMA transfer is in progress
+  uint8_t is_interrupt_attached; // 1 if a attached
 } serial_channel_handle_t;
 
 typedef struct {
@@ -36,7 +38,8 @@ static void _dma_complete_callback(void) {
   }
 }
 
-static err_t get_handler_serial(channel_t *handler, void *args) {
+static err_t get_handler_serial(channel_t *handler, void *args,
+                                void (*callback)(void)) {
   if (args == NULL || handler == NULL) {
     return USAGE;
   }
@@ -59,6 +62,14 @@ static err_t get_handler_serial(channel_t *handler, void *args) {
   // Initialize the UART peripheral
   uart_init(s_args->baud_rate, s_args->uart);
 
+  if (callback) {
+    IRQn_Type usart_irq = s_args->uart == UART1   ? USART1_IRQn
+                          : s_args->uart == UART6 ? USART6_IRQn
+                                                  : USART2_IRQn;
+    hal_interrupt_attach_callback(usart_irq, callback);
+    if (hal_enable_interrupt(usart_irq) == 0)
+      _serial_handlers[slot].is_interrupt_attached = 1;
+  }
   // Store the configuration
   _serial_handlers[slot].baud_rate =
       (uint16_t)s_args->baud_rate; // Cast to match struct
@@ -165,38 +176,6 @@ err_t write_channel(channel_t channel, byte *data, uint16_t length) {
   return USAGE;
 }
 
-err_t read_channel(channel_t channel, byte *data, uint16_t length) {
-  if (channel.handle == NULL || data == NULL || length == 0) {
-    return USAGE;
-  }
-
-  if (channel.type == CHANNEL_TYPE_SERIAL) {
-    serial_channel_handle_t *s_handle =
-        (serial_channel_handle_t *)channel.handle;
-
-    // Poll UART for data
-    for (uint16_t i = 0; i < length; i++) {
-      if (uart_available(s_handle->uart)) {
-        data[i] = uart_read_char(s_handle->uart);
-      } else {
-        return ERROR; // Or handle timeout
-      }
-    }
-    return NONE;
-  } else if (channel.type == CHANNEL_TYPE_I2C) {
-    i2c_channel_handle_t *i_handle = (i2c_channel_handle_t *)channel.handle;
-
-    // Blocking I2C read
-    if (hal_i2c_read(i_handle->bus, i_handle->dev_addr, data, length) ==
-        HAL_I2C_OK) {
-      return NONE;
-    }
-    return ERROR;
-  }
-
-  return USAGE;
-}
-
 err_t flush_channel(channel_t channel) {
   if (channel.handle == NULL) {
     return USAGE;
@@ -260,11 +239,12 @@ static err_t get_handler_default(channel_t *handler, void *args) {
   return USAGE;
 }
 
-err_t get_handler(channel_type_t channel_type, channel_t *handler, void *args) {
+err_t get_handler(channel_type_t channel_type, channel_t *handler, void *args,
+                  void (*onRecieve)(void)) {
   err_t status = USAGE;
   switch (channel_type) {
   case CHANNEL_TYPE_SERIAL:
-    status = get_handler_serial(handler, args);
+    status = get_handler_serial(handler, args, onRecieve);
     break;
   case CHANNEL_TYPE_SPI:
     status = get_handler_default(handler, args);
@@ -309,6 +289,13 @@ err_t del_handler(channel_t *handler) {
         (serial_channel_handle_t *)handler->handle;
     if (s_handle != NULL) {
       s_handle->uart = 0; // Mark slot as free
+    }
+    if (s_handle->is_interrupt_attached){
+      IRQn_Type usart_irq = s_handle->uart == UART1   ? USART1_IRQn
+                          : s_handle->uart == UART6 ? USART6_IRQn
+                                                  : USART2_IRQn;
+      if(hal_disable_interrupt(usart_irq)==1) return USAGE;
+      hal_interrupt_detach_callback(usart_irq);
     }
   } else if (handler->type == CHANNEL_TYPE_I2C) {
     i2c_channel_handle_t *i_handle = (i2c_channel_handle_t *)handler->handle;

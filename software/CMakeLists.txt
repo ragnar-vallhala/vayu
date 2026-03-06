@@ -28,6 +28,8 @@ set(GCS_SOURCES
     src/ui/widgets/AttitudeWidget.cpp
     src/ui/widgets/ImuPanel.cpp
     src/ui/widgets/LogPanel.cpp
+    src/core/crc.cpp
+    src/ui/widgets/PacketAnalyzerWidget.cpp
 )
 
 set(GCS_HEADERS
@@ -38,6 +40,8 @@ set(GCS_HEADERS
     src/ui/widgets/ImuPanel.h
     src/ui/widgets/LogPanel.h
     src/core/Types.h
+    src/core/crc.h
+    src/ui/widgets/PacketAnalyzerWidget.h
 )
 
 set(GCS_RESOURCES

@@ -23,7 +23,8 @@ public:
   static QStringList availablePorts();
 
 signals:
-  void packetReceived(const QByteArray &line);
+  void dataReceived(const QByteArray &data);
+  void dataSent(const QByteArray &data);
   void connectionStateChanged(bool connected);
   void errorOccurred(const QString &message);
 

@@ -23,8 +23,7 @@ public:
   explicit DroneProtocol(QObject *parent = nullptr);
 
 public slots:
-  /** Feed a raw trimmed line from SerialManager here. */
-  void parseLine(const QByteArray &line);
+  void processData(const QByteArray &data);
 
 signals:
   void imuReceived(const ImuData &data);
@@ -33,4 +32,9 @@ signals:
   void heartbeatReceived(uint64_t timestamp, uint8_t deviceId);
   void timeSyncRequested();
   void unknownPacket(const QByteArray &raw);
+  void packetReceived(const QByteArray &packet);
+
+private:
+  QByteArray m_buffer;
+  void parseBuffer();
 };

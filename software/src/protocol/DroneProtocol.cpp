@@ -1,119 +1,87 @@
 #include "DroneProtocol.h"
+#include "../core/crc.h"
 #include <QStringList>
 
 DroneProtocol::DroneProtocol(QObject *parent) : QObject(parent) {}
 
-void DroneProtocol::parseLine(const QByteArray &line) {
-  if (line.isEmpty())
-    return;
+void DroneProtocol::processData(const QByteArray &data) {
+  m_buffer.append(data);
+  parseBuffer();
+}
 
-  QString str = QString::fromLatin1(line);
+void DroneProtocol::parseBuffer() {
+  while (true) {
+    if (m_buffer.isEmpty())
+      break;
 
-  // ------------------------------------------------------------------ $IMU
-  if (str.contains("$IMU,")) {
-    int idx = str.indexOf("$IMU,");
-    const QStringList parts = str.mid(idx + 5).split(',');
-    if (parts.size() < 9) {
-      emit unknownPacket(line);
-      return;
+    // 1. Scan for the sync byte (0x56)
+    int syncIdx = m_buffer.indexOf(0x56);
+    if (syncIdx == -1) {
+      // Forward everything else as an unknown packet (could be plain text logs)
+      emit unknownPacket(m_buffer);
+      m_buffer.clear();
+      break;
     }
-    ImuData d;
-    bool ok = true;
-    d.acc[0] = parts[0].toFloat(&ok);
-    if (!ok)
-      goto bad;
-    d.acc[1] = parts[1].toFloat(&ok);
-    if (!ok)
-      goto bad;
-    d.acc[2] = parts[2].toFloat(&ok);
-    if (!ok)
-      goto bad;
-    d.gyr[0] = parts[3].toFloat(&ok);
-    if (!ok)
-      goto bad;
-    d.gyr[1] = parts[4].toFloat(&ok);
-    if (!ok)
-      goto bad;
-    d.gyr[2] = parts[5].toFloat(&ok);
-    if (!ok)
-      goto bad;
-    d.mag[0] = parts[6].toFloat(&ok);
-    if (!ok)
-      goto bad;
-    d.mag[1] = parts[7].toFloat(&ok);
-    if (!ok)
-      goto bad;
-    d.mag[2] = parts[8].toFloat(&ok);
-    if (!ok)
-      goto bad;
-    if (parts.size() >= 10)
-      d.tempC = parts[9].toFloat();
-    emit imuReceived(d);
-    return;
 
-  bad:
-    emit unknownPacket(line);
-    return;
+    if (syncIdx > 0) {
+      emit unknownPacket(m_buffer.left(syncIdx));
+      m_buffer.remove(0, syncIdx);
+    }
+
+    // A packet header is 8 bytes:
+    // sync (1) + type (1) + length (1) + dev_id (1) + timestamp (4)
+    if (m_buffer.size() < 8)
+      break;
+
+    // 2. Validate protocol version & extract type
+    uint8_t type_byte = m_buffer[1];
+    uint8_t protocol_version = type_byte & 0x0F;
+    uint8_t packet_type = (type_byte >> 4) & 0x0F;
+
+    if (protocol_version != 0x1) {
+      // Invalid protocol version, discard the false sync byte and continue
+      emit unknownPacket(m_buffer.left(1));
+      m_buffer.remove(0, 1);
+      continue;
+    }
+
+    // 3. Extract length (payload size)
+    uint8_t payload_length = m_buffer[2];
+    int total_packet_size = 8 + payload_length + 4; // header + payload + CRC32
+
+    if (m_buffer.size() < total_packet_size)
+      break;
+
+    // 4. Validate CRC32
+    uint32_t computed_crc = CRC32::calculate(
+        reinterpret_cast<const uint8_t *>(m_buffer.constData()),
+        8 + payload_length);
+
+    uint32_t received_crc;
+    memcpy(&received_crc, m_buffer.constData() + 8 + payload_length, 4);
+
+    if (computed_crc != received_crc) {
+      // CRC mismatch, discard false sync byte
+      emit unknownPacket(m_buffer.left(1));
+      m_buffer.remove(0, 1);
+      continue;
+    }
+
+    // 5. Valid packet! Parse contents.
+    emit packetReceived(m_buffer.left(total_packet_size));
+
+    uint8_t device_id = m_buffer[3];
+    uint32_t timestamp;
+    memcpy(&timestamp, m_buffer.constData() + 4, 4);
+
+    if (packet_type == 0x0) {
+      // HEARTBEAT
+      emit heartbeatReceived(timestamp, device_id);
+    }
+    // TODO: implement IMU_DATA_FULL and IMU_DATA_COMPRESSED handling in the
+    // future
+
+    // Remove parsed packet from the buffer
+    m_buffer.remove(0, total_packet_size);
   }
-
-  // ------------------------------------------------------------------ $ATT
-  if (str.contains("$ATT,")) {
-    int idx = str.indexOf("$ATT,");
-    const QStringList parts = str.mid(idx + 5).split(',');
-    if (parts.size() < 3) {
-      emit unknownPacket(line);
-      return;
-    }
-    AttitudeData d;
-    bool ok = true;
-    d.roll = parts[0].toFloat(&ok);
-    if (!ok) {
-      emit unknownPacket(line);
-      return;
-    }
-    d.pitch = parts[1].toFloat(&ok);
-    if (!ok) {
-      emit unknownPacket(line);
-      return;
-    }
-    d.yaw = parts[2].toFloat(&ok);
-    if (!ok) {
-      emit unknownPacket(line);
-      return;
-    }
-    emit attitudeReceived(d);
-    return;
-  }
-
-  // ------------------------------------------------------------------ $LOG
-  if (str.contains("$LOG,")) {
-    int idx = str.indexOf("$LOG,");
-    emit logReceived(str.mid(idx + 5).trimmed());
-    return;
-  }
-
-  // ------------------------------------------------------------------ $HB
-  if (str.contains("$HB,")) {
-    int idx = str.indexOf("$HB,");
-    const QStringList parts = str.mid(idx + 4).split(',');
-    if (parts.size() >= 2) {
-      bool ok1, ok2;
-      uint64_t ts = parts[0].toULongLong(&ok1);
-      uint8_t id = (uint8_t)parts[1].toUInt(&ok2);
-      if (ok1 && ok2) {
-        emit heartbeatReceived(ts, id);
-        return;
-      }
-    }
-  }
-
-  // ------------------------------------------------------------------
-  // $TIME_REQ
-  if (str.contains("$TIME_REQ")) {
-    emit timeSyncRequested();
-    return;
-  }
-
-  // Unknown — forward as-is (also catches raw v_log output)
-  emit logReceived(str.trimmed());
 }

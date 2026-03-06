@@ -5,12 +5,14 @@
 #include <QLabel>
 #include <QMainWindow>
 #include <QPushButton>
+#include <QStackedWidget>
 #include <QTimer>
 
 #include "AttitudeWidget.h"
 #include "DroneProtocol.h"
 #include "ImuPanel.h"
 #include "LogPanel.h"
+#include "PacketAnalyzerWidget.h"
 #include "SerialManager.h"
 #include "Types.h"
 
@@ -22,6 +24,9 @@ public:
   ~MainWindow() override = default;
 
 private slots:
+  // Navigation
+  void showHome();
+  void showPacketAnalyzer();
   // Toolbar actions
   void onConnectClicked();
   void onRefreshPorts();
@@ -61,6 +66,12 @@ private:
   ImuPanel *m_imuPanel = nullptr;
   AttitudeWidget *m_attitude = nullptr;
   LogPanel *m_logPanel = nullptr;
+  PacketAnalyzerWidget *m_analyzerWidget = nullptr;
+  QStackedWidget *m_stackedWidget = nullptr;
+  QWidget *m_homeWidget = nullptr;
+
+  QAction *m_homeAction = nullptr;
+  QAction *m_analyzerAction = nullptr;
 
   // ---- Attitude numeric labels ----
   QLabel *m_rollLabel = nullptr;

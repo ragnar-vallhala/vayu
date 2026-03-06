@@ -1,6 +1,7 @@
 #ifndef COMMUNICATION_TYPES_H
 #define COMMUNICATION_TYPES_H
 
+#include "common/hal_types.h"
 #include <stdint.h>
 
 #define SYNC_BYTE 0x56
@@ -21,5 +22,10 @@ typedef struct __attribute__((packed)) {
     uint8_t payload[256];
     uint32_t crc32;
 } packet_t;
+
+typedef union {
+  byte b;
+  char c;
+} byte_char_u;
 
 #endif // !COMMUNICATION_TYPES_H

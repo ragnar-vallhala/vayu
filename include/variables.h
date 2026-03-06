@@ -26,4 +26,5 @@
 
 // Comm settings
 #define MAX_SERIAL_HANDLERS 3
+#define INCOMING_PACKET_BUFFER 3
 #endif //! VAYU_VARIABLES_H
