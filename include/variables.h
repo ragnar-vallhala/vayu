@@ -1,7 +1,15 @@
 #ifndef VAYU_VARIABLES_H
 #define VAYU_VARIABLES_H
-// #include "config.h"
+
+// Include HAL Layer
+#ifndef CORTEX_M4
+#define CORTEX_M4
+#endif // !CORTEX_M4
 #include "navhal.h"
+
+// Physical Heartbeat LED
+#define _HEARTBEAT_LED_PIN GPIO_PA05
+#define _HEARTBEAT_DEFAULT_TIMEPERIOD 1000 // 1000ms
 
 // I2C Control
 #define I2C_BUS I2C1
