@@ -45,6 +45,7 @@ private slots:
 
 private:
   void buildUi();
+  void buildMenuBar();
   void buildToolBar();
   void applyDarkTheme();
   void setConnected(bool on);

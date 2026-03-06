@@ -12,7 +12,7 @@ typedef enum {
     PACKET_TYPE_IMU_DATA_COMPRESSED = 0x2,
 } packet_type_t;
 
-typedef struct {
+typedef struct __attribute__((packed)) {
     uint8_t sync;
     uint8_t protocol_packet_type; // 4 bits protocol version, 4 bits packet type
     uint8_t length;

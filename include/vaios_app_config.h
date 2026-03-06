@@ -22,13 +22,13 @@
 #define AUTHOR "ASHUTOSH VISHWAKARMA"
 #endif
 
-// Pull in NAVHAL configs
-#include "navhal.h"
 
 // Init settings
 #ifndef CORTEX_M4
 #define CORTEX_M4
 #endif
+// Pull in NAVHAL configs
+#include "navhal.h"
 
 #ifndef SYSTICK_PERIOD
 #define SYSTICK_PERIOD 1000 // in microseconds
@@ -43,7 +43,7 @@
 #endif
 
 #ifndef LOGGING_ENABLED
-#define LOGGING_ENABLED 1
+#define LOGGING_ENABLED 0
 #endif
 
 // Interrupts

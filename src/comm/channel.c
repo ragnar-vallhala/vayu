@@ -1,0 +1,341 @@
+#include "comm/channel.h"
+#include "common/hal_types.h"
+#include "core/cortex-m4/uart.h"
+#include "utils/types.h"
+#include "variables.h"
+#include <stdint.h>
+
+typedef struct {
+  uint32_t baud_rate;
+  hal_uart_t uart;
+  uint16_t timeout;
+  byte buffers[2][512];  // Ping-Pong buffers
+  uint16_t buf_lens[2];  // Length of data in each buffer
+  uint8_t active_idx;    // Buffer currently being filled (0 or 1)
+  volatile uint8_t busy; // 1 if a DMA transfer is in progress
+} serial_channel_handle_t;
+
+typedef struct {
+  hal_i2c_bus_t bus;
+  uint8_t dev_addr;
+} i2c_channel_handle_t;
+
+// Serial handlers
+static serial_channel_handle_t _serial_handlers[MAX_SERIAL_HANDLERS] = {};
+static i2c_channel_handle_t _i2c_handlers[4] =
+    {}; // Assume up to 4 I2C handlers for now
+
+static void _dma_complete_callback(void) {
+  // For now, specifically handle USART2/DMA1_S6
+  // In a more generic impl, we'd need to know which handler triggered this
+  for (int i = 0; i < MAX_SERIAL_HANDLERS; i++) {
+    if (_serial_handlers[i].uart == UART2) {
+      _serial_handlers[i].busy = 0;
+      break;
+    }
+  }
+}
+
+static err_t get_handler_serial(channel_t *handler, void *args) {
+  if (args == NULL || handler == NULL) {
+    return USAGE;
+  }
+
+  serial_args_t *s_args = (serial_args_t *)args;
+
+  // Find an available slot
+  int slot = -1;
+  for (int i = 0; i < MAX_SERIAL_HANDLERS; i++) {
+    if (_serial_handlers[i].uart == 0) {
+      slot = i;
+      break;
+    }
+  }
+
+  if (slot == -1) {
+    return ERROR;
+  }
+
+  // Initialize the UART peripheral
+  uart_init(s_args->baud_rate, s_args->uart);
+
+  // Store the configuration
+  _serial_handlers[slot].baud_rate =
+      (uint16_t)s_args->baud_rate; // Cast to match struct
+  _serial_handlers[slot].uart = s_args->uart;
+  _serial_handlers[slot].timeout = s_args->timeout;
+
+  // Set up the high-level handler
+  handler->type = CHANNEL_TYPE_SERIAL;
+  handler->handle = &_serial_handlers[slot];
+  handler->index = (uint8_t)slot;
+
+  // Initialize buffer state
+  _serial_handlers[slot].active_idx = 0;
+  _serial_handlers[slot].buf_lens[0] = 0;
+  _serial_handlers[slot].buf_lens[1] = 0;
+  _serial_handlers[slot].busy = 0;
+
+  // Attach DMA callback if using USART2
+  if (s_args->uart == UART2) {
+    hal_interrupt_attach_callback(DMA1_Stream6_IRQn, _dma_complete_callback);
+    hal_enable_interrupt(DMA1_Stream6_IRQn);
+  }
+
+  return NONE;
+}
+
+static err_t get_handler_i2c(channel_t *handler, void *args) {
+  if (args == NULL || handler == NULL) {
+    return USAGE;
+  }
+
+  i2c_args_t *i_args = (i2c_args_t *)args;
+
+  // Find an available slot
+  int slot = -1;
+  for (int i = 0; i < 4; i++) {
+    if (_i2c_handlers[i].dev_addr ==
+        0) { // Assuming 0 is an invalid/unused device address
+      slot = i;
+      break;
+    }
+  }
+
+  if (slot == -1) {
+    return ERROR; // No free I2C handlers
+  }
+
+  // Configure I2C
+  hal_i2c_config_t config = {
+      .clock_speed = i_args->speed,
+      .own_address = 0, // Master mode
+      .acknowledge = true,
+  };
+
+  if (hal_i2c_init(i_args->bus, &config) != HAL_I2C_OK) {
+    return ERROR;
+  }
+
+  // Store configuration
+  _i2c_handlers[slot].bus = i_args->bus;
+  _i2c_handlers[slot].dev_addr = i_args->dev_addr;
+
+  // Set up handler
+  handler->type = CHANNEL_TYPE_I2C;
+  handler->handle = &_i2c_handlers[slot];
+  handler->index = (uint8_t)slot;
+
+  return NONE;
+}
+
+err_t write_channel(channel_t channel, byte *data, uint16_t length) {
+  if (channel.handle == NULL || data == NULL || length == 0) {
+    return USAGE;
+  }
+
+  if (channel.type == CHANNEL_TYPE_SERIAL) {
+    serial_channel_handle_t *s_handle =
+        (serial_channel_handle_t *)channel.handle;
+    uint8_t idx = s_handle->active_idx;
+
+    // Check if buffer has space; if not, drop data
+    if (s_handle->buf_lens[idx] + length > 512) {
+      return ERROR; // Buffer full, dropping data
+    }
+
+    // Copy data to active buffer
+    for (uint16_t i = 0; i < length; i++) {
+      s_handle->buffers[idx][s_handle->buf_lens[idx] + i] = data[i];
+    }
+    s_handle->buf_lens[idx] += length;
+
+    return NONE;
+  } else if (channel.type == CHANNEL_TYPE_I2C) {
+    i2c_channel_handle_t *i_handle = (i2c_channel_handle_t *)channel.handle;
+
+    // Blocking I2C write
+    if (hal_i2c_write(i_handle->bus, i_handle->dev_addr, data, length) ==
+        HAL_I2C_OK) {
+      return NONE;
+    }
+    return ERROR;
+  }
+
+  return USAGE;
+}
+
+err_t read_channel(channel_t channel, byte *data, uint16_t length) {
+  if (channel.handle == NULL || data == NULL || length == 0) {
+    return USAGE;
+  }
+
+  if (channel.type == CHANNEL_TYPE_SERIAL) {
+    serial_channel_handle_t *s_handle =
+        (serial_channel_handle_t *)channel.handle;
+
+    // Poll UART for data
+    for (uint16_t i = 0; i < length; i++) {
+      if (uart_available(s_handle->uart)) {
+        data[i] = uart_read_char(s_handle->uart);
+      } else {
+        return ERROR; // Or handle timeout
+      }
+    }
+    return NONE;
+  } else if (channel.type == CHANNEL_TYPE_I2C) {
+    i2c_channel_handle_t *i_handle = (i2c_channel_handle_t *)channel.handle;
+
+    // Blocking I2C read
+    if (hal_i2c_read(i_handle->bus, i_handle->dev_addr, data, length) ==
+        HAL_I2C_OK) {
+      return NONE;
+    }
+    return ERROR;
+  }
+
+  return USAGE;
+}
+
+err_t flush_channel(channel_t channel) {
+  if (channel.handle == NULL) {
+    return USAGE;
+  }
+
+  if (channel.type == CHANNEL_TYPE_SERIAL) {
+    serial_channel_handle_t *s_handle =
+        (serial_channel_handle_t *)channel.handle;
+
+    // Wait if a DMA transfer is in progress
+    if (s_handle->busy) {
+      return ERROR;
+    }
+
+    uint8_t flush_idx = s_handle->active_idx;
+    uint16_t flush_len = s_handle->buf_lens[flush_idx];
+
+    if (flush_len == 0) {
+      return NONE;
+    }
+
+    // Swap buffers
+    s_handle->active_idx = 1 - s_handle->active_idx;
+    s_handle->buf_lens[s_handle->active_idx] = 0; // Clear the new active buffer
+
+    // Mark busy
+    s_handle->busy = 1;
+
+    // Trigger transmission
+    if (s_handle->uart == UART2) {
+#ifdef _UART_BACKEND_DMA
+      uart2_write_dma(s_handle->buffers[flush_idx], flush_len);
+#else
+      // Fallback if DMA not enabled
+      for (uint16_t i = 0; i < flush_len; i++) {
+        uart2_write_char((char)s_handle->buffers[flush_idx][i]);
+      }
+      s_handle->busy = 0;
+#endif
+    } else {
+      // Other UARTs (currently blocking)
+      for (uint16_t i = 0; i < flush_len; i++) {
+        uart_write_char((char)s_handle->buffers[flush_idx][i], s_handle->uart);
+      }
+      s_handle->busy = 0;
+    }
+
+    return NONE;
+  } else if (channel.type == CHANNEL_TYPE_I2C) {
+    // I2C doesn't use ping-pong buffering currently, writes happen immediately.
+    return NONE;
+  }
+
+  return USAGE;
+}
+
+// Active handlers linked list head
+static channel_t *active_handlers = NULL;
+
+static err_t get_handler_default(channel_t *handler, void *args) {
+  return USAGE;
+}
+
+err_t get_handler(channel_type_t channel_type, channel_t *handler, void *args) {
+  err_t status = USAGE;
+  switch (channel_type) {
+  case CHANNEL_TYPE_SERIAL:
+    status = get_handler_serial(handler, args);
+    break;
+  case CHANNEL_TYPE_SPI:
+    status = get_handler_default(handler, args);
+    break;
+  case CHANNEL_TYPE_I2C:
+    status = get_handler_i2c(handler, args);
+    break;
+  case CHANNEL_TYPE_USB:
+  case CHANNEL_TYPE_CAN:
+    status = get_handler_default(handler, args);
+    break;
+  default:
+    return USAGE;
+  }
+
+  if (status == NONE && handler != NULL) {
+    // Add to linked list
+    handler->next = active_handlers;
+    active_handlers = handler;
+  }
+  return status;
+}
+
+err_t del_handler(channel_t *handler) {
+  if (handler == NULL) {
+    return USAGE;
+  }
+
+  // Remove from linked list
+  channel_t **curr = &active_handlers;
+  while (*curr != NULL) {
+    if (*curr == handler) {
+      *curr = handler->next;
+      break;
+    }
+    curr = &((*curr)->next);
+  }
+
+  // Free the underlying hardware slot
+  if (handler->type == CHANNEL_TYPE_SERIAL) {
+    serial_channel_handle_t *s_handle =
+        (serial_channel_handle_t *)handler->handle;
+    if (s_handle != NULL) {
+      s_handle->uart = 0; // Mark slot as free
+    }
+  } else if (handler->type == CHANNEL_TYPE_I2C) {
+    i2c_channel_handle_t *i_handle = (i2c_channel_handle_t *)handler->handle;
+    if (i_handle != NULL) {
+      i_handle->dev_addr = 0; // Mark slot as free
+    }
+  }
+
+  handler->handle = NULL;
+  handler->next = NULL;
+
+  return NONE;
+}
+
+// We need to declare task_delay locally or include Vaios/task.h
+// Assuming task_delay or similar is available. The user includes vaios headers
+// in main... It is better to use `v_delay` or `task_delay` if we know it. We
+// can just use a volatile loop for now or include task.h
+#include "task.h"
+
+void flush_task(void *args) {
+  while (1) {
+    channel_t *curr = active_handlers;
+    while (curr != NULL) {
+      flush_channel(*curr);
+      curr = curr->next;
+    }
+    task_delay(10); // Sleep for 10ms (adjust as needed based on system tick)
+  }
+}

@@ -9,6 +9,8 @@
 #include <QHBoxLayout>
 #include <QIcon>
 #include <QLabel>
+#include <QMenu>
+#include <QMenuBar>
 #include <QMessageBox>
 #include <QSplitter>
 #include <QStatusBar>
@@ -60,6 +62,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   m_uiTimer->start(50);
 
   buildUi();
+  buildMenuBar();
   buildToolBar();
   onRefreshPorts(); // populate port list on startup
   setConnected(false);
@@ -138,6 +141,25 @@ void MainWindow::buildUi() {
   statusBar()->addPermanentWidget(m_connStatus);
   statusBar()->addPermanentWidget(m_pktStatus);
   statusBar()->setStyleSheet("background: #1A1D27; color: #ABB2BF;");
+}
+
+void MainWindow::buildMenuBar() {
+  QMenuBar *menu = menuBar();
+  menu->setStyleSheet(
+      "QMenuBar { background: #1A1D27; color: #ABB2BF; "
+      "border-bottom: 1px solid #2A3347; }"
+      "QMenuBar::item { background: transparent; padding: 4px 10px; }"
+      "QMenuBar::item:selected { background: #2A3347; color: #FFFFFF; }"
+      "QMenu { background: #21252B; color: #ABB2BF; border: 1px solid #3E4452; "
+      "}"
+      "QMenu::item { padding: 4px 24px 4px 20px; }"
+      "QMenu::item:selected { background: #3E4452; color: #FFFFFF; }");
+
+  QMenu *fileMenu = menu->addMenu("&File");
+
+  QAction *exitAction = fileMenu->addAction("E&xit");
+  exitAction->setShortcut(QKeySequence::Quit);
+  connect(exitAction, &QAction::triggered, this, &MainWindow::close);
 }
 
 void MainWindow::buildToolBar() {

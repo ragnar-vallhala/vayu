@@ -8,7 +8,7 @@
 #include "navhal.h"
 
 // Physical Heartbeat LED
-#define _HEARTBEAT_LED_PIN GPIO_PA05
+#define _HEARTBEAT_LED_PIN GPIO_PB10
 #define _HEARTBEAT_DEFAULT_TIMEPERIOD 1000 // 1000ms
 
 // I2C Control
@@ -23,4 +23,7 @@
 #define BMX160_ACC_LOGGING_UART 1
 #define BMX160_GYR_LOGGING_UART 1
 #define BMX160_MAG_LOGGING_UART 1
+
+// Comm settings
+#define MAX_SERIAL_HANDLERS 3
 #endif //! VAYU_VARIABLES_H
