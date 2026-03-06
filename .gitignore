@@ -1,4 +1,5 @@
 build
+build_tests
 .cache
 compile_commands.json
 logs
