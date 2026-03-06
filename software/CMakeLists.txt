@@ -30,6 +30,7 @@ set(GCS_SOURCES
     src/ui/widgets/LogPanel.cpp
     src/core/crc.cpp
     src/ui/widgets/PacketAnalyzerWidget.cpp
+    src/ui/main/SettingsWidget.cpp
 )
 
 set(GCS_HEADERS
@@ -42,6 +43,7 @@ set(GCS_HEADERS
     src/core/Types.h
     src/core/crc.h
     src/ui/widgets/PacketAnalyzerWidget.h
+    src/ui/main/SettingsWidget.h
 )
 
 set(GCS_RESOURCES

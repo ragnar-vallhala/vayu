@@ -27,4 +27,8 @@
 // Comm settings
 #define MAX_SERIAL_HANDLERS 3
 #define INCOMING_PACKET_BUFFER 3
+
+// Timer Callbacks
+#define MAX_TIMER_CALLBACKS 4
+#define HIGH_FREQ_TIMER_FREQ 10000 // 10kHz
 #endif //! VAYU_VARIABLES_H

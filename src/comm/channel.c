@@ -3,6 +3,7 @@
 #include "core/cortex-m4/interrupt_reg.h"
 #include "core/cortex-m4/uart.h"
 #include "utils/types.h"
+#include "vaios.h"
 #include "variables.h"
 #include <stdint.h>
 
@@ -290,11 +291,12 @@ err_t del_handler(channel_t *handler) {
     if (s_handle != NULL) {
       s_handle->uart = 0; // Mark slot as free
     }
-    if (s_handle->is_interrupt_attached){
+    if (s_handle->is_interrupt_attached) {
       IRQn_Type usart_irq = s_handle->uart == UART1   ? USART1_IRQn
-                          : s_handle->uart == UART6 ? USART6_IRQn
-                                                  : USART2_IRQn;
-      if(hal_disable_interrupt(usart_irq)==1) return USAGE;
+                            : s_handle->uart == UART6 ? USART6_IRQn
+                                                      : USART2_IRQn;
+      if (hal_disable_interrupt(usart_irq) == 1)
+        return USAGE;
       hal_interrupt_detach_callback(usart_irq);
     }
   } else if (handler->type == CHANNEL_TYPE_I2C) {
@@ -323,6 +325,6 @@ void flush_task(void *args) {
       flush_channel(*curr);
       curr = curr->next;
     }
-    task_delay(10); // Sleep for 10ms (adjust as needed based on system tick)
+    v_delay(10); // Sleep for 10ms (adjust as needed based on system tick)
   }
 }

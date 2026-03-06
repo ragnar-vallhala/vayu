@@ -14,6 +14,7 @@
 #include "LogPanel.h"
 #include "PacketAnalyzerWidget.h"
 #include "SerialManager.h"
+#include "SettingsWidget.h"
 #include "Types.h"
 
 class MainWindow : public QMainWindow {
@@ -27,6 +28,7 @@ private slots:
   // Navigation
   void showHome();
   void showPacketAnalyzer();
+  void showSettings();
   // Toolbar actions
   void onConnectClicked();
   void onRefreshPorts();
@@ -67,6 +69,7 @@ private:
   AttitudeWidget *m_attitude = nullptr;
   LogPanel *m_logPanel = nullptr;
   PacketAnalyzerWidget *m_analyzerWidget = nullptr;
+  SettingsWidget *m_settingsWidget = nullptr;
   QStackedWidget *m_stackedWidget = nullptr;
   QWidget *m_homeWidget = nullptr;
 
@@ -81,11 +84,13 @@ private:
   // ---- Status bar ----
   QLabel *m_connStatus = nullptr;
   QLabel *m_pktStatus = nullptr;
+  QLabel *m_syncStatus = nullptr;
 
   // ---- Back-end ----
   SerialManager *m_serial = nullptr;
   DroneProtocol *m_protocol = nullptr;
   QTimer *m_uiTimer = nullptr;
+  QTimer *m_syncTimer = nullptr;
   QElapsedTimer m_elapsed;
 
   // ---- State ----

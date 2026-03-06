@@ -2,7 +2,9 @@
 #define VAYU_UTILS_H
 #include <stdint.h>
 
-uint32_t get_timestamp(void);
+uint64_t get_timestamp(void);
+void increment_high_freq_timer(void);
+uint32_t get_timestamp_unix(void);
 void set_timestamp(uint32_t timestamp);
 
 uint8_t get_device_id(void);

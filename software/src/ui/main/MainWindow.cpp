@@ -1,4 +1,5 @@
 #include "MainWindow.h"
+#include "../core/crc.h"
 
 #include <QAction>
 #include <QApplication>
@@ -31,6 +32,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   m_serial = new SerialManager(this);
   m_protocol = new DroneProtocol(this);
   m_uiTimer = new QTimer(this);
+  m_syncTimer = new QTimer(this);
   m_elapsed.start();
 
   // Wire serial → protocol → UI
@@ -61,6 +63,9 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   connect(m_uiTimer, &QTimer::timeout, this, &MainWindow::onUiTimer);
   m_uiTimer->start(50);
 
+  connect(m_syncTimer, &QTimer::timeout, this,
+          &MainWindow::onTimeSyncRequested);
+
   m_stackedWidget = new QStackedWidget(this);
   setCentralWidget(m_stackedWidget);
 
@@ -80,6 +85,20 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   connect(m_analyzerWidget, &PacketAnalyzerWidget::backToHomeRequested, this,
           &MainWindow::showHome);
 
+  // Build Settings
+  m_settingsWidget = new SettingsWidget(this);
+  m_stackedWidget->addWidget(m_settingsWidget);
+  connect(m_settingsWidget, &SettingsWidget::backToHomeRequested, this,
+          &MainWindow::showHome);
+  connect(m_settingsWidget, &SettingsWidget::syncPeriodChanged, this,
+          [this](int ms) {
+            if (m_syncTimer) {
+              m_syncTimer->setInterval(ms);
+              m_logPanel->appendLog(
+                  QString("[GCS] Sync period updated to %1 ms").arg(ms));
+            }
+          });
+
   buildMenuBar();
   buildToolBar();
   onRefreshPorts(); // populate port list on startup
@@ -96,6 +115,10 @@ void MainWindow::showHome() { m_stackedWidget->setCurrentWidget(m_homeWidget); }
 
 void MainWindow::showPacketAnalyzer() {
   m_stackedWidget->setCurrentWidget(m_analyzerWidget);
+}
+
+void MainWindow::showSettings() {
+  m_stackedWidget->setCurrentWidget(m_settingsWidget);
 }
 
 // ---------------------------------------------------------------------------
@@ -166,9 +189,12 @@ void MainWindow::buildUi() {
   // ---- Status bar ----
   m_connStatus = new QLabel("  ● Disconnected  ", this);
   m_connStatus->setStyleSheet("color: #E06C75; font-weight: bold;");
+  m_syncStatus = new QLabel("  Diff: ---  ", this);
+  m_syncStatus->setStyleSheet("color: #ABB2BF; font-family: Monospace;");
   m_pktStatus = new QLabel("  Packets: 0  ", this);
 
   statusBar()->addPermanentWidget(m_connStatus);
+  statusBar()->addPermanentWidget(m_syncStatus);
   statusBar()->addPermanentWidget(m_pktStatus);
   statusBar()->setStyleSheet("background: #1A1D27; color: #ABB2BF;");
 }
@@ -194,6 +220,9 @@ void MainWindow::buildMenuBar() {
   m_analyzerAction = fileMenu->addAction("&Packet Analyzer", this,
                                          &MainWindow::showPacketAnalyzer);
   m_analyzerAction->setShortcut(QKeySequence("Ctrl+P"));
+
+  QMenu *settingsMenu = menu->addMenu("&Settings");
+  settingsMenu->addAction("&Configuration", this, &MainWindow::showSettings);
 
   fileMenu->addSeparator();
 
@@ -417,9 +446,12 @@ void MainWindow::setConnected(bool on) {
     m_portCombo->setEnabled(false);
     m_baudCombo->setEnabled(false);
     m_pktCount = 0;
+    m_syncTimer->start(5000);
+    onTimeSyncRequested();
   } else {
     m_connected = false;
     m_armed = false;
+    m_syncTimer->stop();
     m_connectBtn->setText("Connect");
     m_connectBtn->setStyleSheet("QPushButton { background: #3A5F3A; color: "
                                 "#98C379; border: 1px solid #5A8F5A; "
@@ -479,20 +511,60 @@ void MainWindow::onUiTimer() {
 void MainWindow::onHeartbeatReceived(uint64_t timestamp, uint8_t deviceId) {
   ++m_pktCount;
   m_lastHbTime = QDateTime::currentMSecsSinceEpoch();
+
+  // Calculate time difference (drone timestamp is 32-bit ms)
+  uint32_t gcs_now_32 = static_cast<uint32_t>(m_lastHbTime);
+  uint32_t drone_ts_32 = static_cast<uint32_t>(timestamp);
+
+  // Use signed 32-bit to get the shortest modular distance (handles
+  // wrap-around)
+  int32_t diff_ms = static_cast<int32_t>(gcs_now_32 - drone_ts_32);
+
+  QString diffStr =
+      QString("  Diff: %1%2ms  ").arg(diff_ms >= 0 ? "+" : "").arg(diff_ms);
+
+  m_syncStatus->setText(diffStr);
+
+  // Color grade based on error
+  int32_t absDiff = std::abs(diff_ms);
+  if (absDiff < 20) {
+    m_syncStatus->setStyleSheet(
+        "color: #98C379; font-weight: bold; font-family: Monospace;"); // Green
+  } else if (absDiff < 100) {
+    m_syncStatus->setStyleSheet("color: #D19A66; font-weight: bold; "
+                                "font-family: Monospace;"); // Yellow/Orange
+  } else {
+    m_syncStatus->setStyleSheet(
+        "color: #E06C75; font-weight: bold; font-family: Monospace;"); // Red
+  }
+
   // Optional: Update UI with heartbeat info
-  statusBar()->showMessage(
-      QString("Heartbeat from Device %1 (TS: %2)").arg(deviceId).arg(timestamp),
-      2000);
+  statusBar()->showMessage(QString("Heartbeat from Device %1").arg(deviceId),
+                           1000);
 }
 
 void MainWindow::onTimeSyncRequested() {
   if (!m_connected)
     return;
 
-  uint64_t now = QDateTime::currentMSecsSinceEpoch();
-  uint8_t id = 42; // Example fixed Device ID or could be configurable
-  QByteArray resp = QString("$TIME_SET,%1,%2\n").arg(now).arg(id).toLatin1();
-  m_serial->write(resp);
+  uint32_t now = static_cast<uint32_t>(QDateTime::currentMSecsSinceEpoch());
+  uint8_t id = 42;
+
+  // Binary PACKET_TYPE_HEARTBEAT
+  // Header (8b) + Payload (0b) + CRC (4b) = 12 bytes
+  QByteArray pkt;
+  pkt.append(static_cast<char>(0x56)); // sync
+  pkt.append(static_cast<char>(0x01)); // type 0 (heartbeat), ver 1
+  pkt.append(static_cast<char>(0x00)); // length 0
+  pkt.append(static_cast<char>(id));   // dev_id
+
+  pkt.append(reinterpret_cast<const char *>(&now), 4);
+
+  uint32_t crc =
+      CRC32::calculate(reinterpret_cast<const uint8_t *>(pkt.constData()), 8);
+  pkt.append(reinterpret_cast<const char *>(&crc), 4);
+
+  m_serial->write(pkt);
   m_logPanel->appendLog(
-      QString("[GCS] Sent Time Sync: %1, ID: %2").arg(now).arg(id));
+      QString("[GCS] Sent Binary Sync: TS=%1, ID=%2").arg(now).arg(id));
 }

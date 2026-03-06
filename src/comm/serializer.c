@@ -41,7 +41,7 @@ err_t send_packet(channel_t *channel, packet_type_t packet_type, byte *payload,
       ((packet_type & 0b1111) << 4) | (PROTOCOL_VERSION & 0b1111);
   packet.length = payload_size;
   packet.device_id = get_device_id();
-  packet.timestamp = get_timestamp();
+  packet.timestamp = get_timestamp_unix();
   if (payload != NULL && payload_size > 0)
     v_memcpy(packet.payload, payload, payload_size);
 
