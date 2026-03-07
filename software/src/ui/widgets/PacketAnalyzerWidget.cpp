@@ -1,8 +1,10 @@
 #include "PacketAnalyzerWidget.h"
+#include "PacketDetailWidget.h"
 #include <QFileDialog>
 #include <QHeaderView>
 #include <QMessageBox>
 #include <QScrollBar>
+#include <QSplitter>
 #include <QTextStream>
 
 PacketAnalyzerWidget::PacketAnalyzerWidget(QWidget *parent) : QWidget(parent) {
@@ -27,7 +29,12 @@ PacketAnalyzerWidget::PacketAnalyzerWidget(QWidget *parent) : QWidget(parent) {
   m_btnClear = new QPushButton("Clear Logs", this);
   topBar->addWidget(m_btnClear);
 
-  m_btnSave = new QPushButton("Save to File...", this);
+  m_btnStream = new QPushButton("Start Streaming", this);
+  m_btnStream->setStyleSheet(
+      "QPushButton { background: #3A5F3A; color: #98C379; }");
+  topBar->addWidget(m_btnStream);
+
+  m_btnSave = new QPushButton("Save Table...", this);
   topBar->addWidget(m_btnSave);
 
   layout->addLayout(topBar);
@@ -51,7 +58,14 @@ PacketAnalyzerWidget::PacketAnalyzerWidget(QWidget *parent) : QWidget(parent) {
                          "QTableWidget::item { padding: 4px; }"
                          "QHeaderView::section { background: #2A3347; color: "
                          "#ABB2BF; padding: 4px; border: 1px solid #3E4452; }");
-  layout->addWidget(m_table);
+  m_detailView = new PacketDetailWidget(this);
+
+  auto *splitter = new QSplitter(Qt::Vertical, this);
+  splitter->addWidget(m_table);
+  splitter->addWidget(m_detailView);
+  splitter->setStretchFactor(0, 3);
+  splitter->setStretchFactor(1, 2);
+  layout->addWidget(splitter);
 
   connect(m_btnBack, &QPushButton::clicked, this,
           &PacketAnalyzerWidget::onBackClicked);
@@ -59,6 +73,46 @@ PacketAnalyzerWidget::PacketAnalyzerWidget(QWidget *parent) : QWidget(parent) {
           &PacketAnalyzerWidget::onClearClicked);
   connect(m_btnSave, &QPushButton::clicked, this,
           &PacketAnalyzerWidget::onSaveClicked);
+  connect(m_btnStream, &QPushButton::clicked, this, [this]() {
+    if (m_isStreaming) {
+      m_isStreaming = false;
+      m_streamFile.close();
+      m_btnStream->setText("Start Streaming");
+      m_btnStream->setStyleSheet("QPushButton { background: "
+                                 "#3A5F3A; "
+                                 "color: #98C379; }");
+    } else {
+      QString fileName =
+          QFileDialog::getSaveFileName(this, "Stream Packets to CSV", "",
+                                       "CSV Files (*.csv);;All "
+                                       "Files (*)");
+      if (fileName.isEmpty())
+        return;
+
+      m_streamFile.setFileName(fileName);
+      if (m_streamFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        m_streamOut.setDevice(&m_streamFile);
+        m_streamOut << "Timestamp,Direction,Size,"
+                       "Data\n";
+        m_isStreaming = true;
+        m_btnStream->setText("Stop Streaming");
+        m_btnStream->setStyleSheet("QPushButton { background: "
+                                   "#5A3A3A; "
+                                   "color: #E06C75; }");
+      }
+    }
+  });
+
+  connect(m_table, &QTableWidget::itemClicked, this,
+          &PacketAnalyzerWidget::onItemClicked);
+  connect(m_table, &QTableWidget::itemSelectionChanged, this, [this]() {
+    auto items = m_table->selectedItems();
+    if (items.isEmpty()) {
+      m_detailView->clear();
+    } else {
+      onItemClicked(items.first());
+    }
+  });
 }
 
 void PacketAnalyzerWidget::logRxPacket(const QByteArray &data) {
@@ -100,14 +154,18 @@ void PacketAnalyzerWidget::addRow(const QString &dir, const QByteArray &data) {
   QString hexStr = data.toHex(' ').toUpper();
   auto *itemData = new QTableWidgetItem(hexStr);
   itemData->setFont(QFont("Monospace", 10));
+  itemData->setData(Qt::UserRole, data); // Store raw data for decoder
   m_table->setItem(row, 3, itemData);
 
   m_packetCount++;
 
-  // Cap at 10,000 rows to prevent crazy memory usage over long flights
-  if (m_table->rowCount() > 10000) {
+  if (m_isStreaming) {
+    writeToStream(dir, data);
+  }
+
+  // Cap at 500 rows for high-rate data performance
+  while (m_table->rowCount() > 500) {
     m_table->removeRow(0);
-    row--;
   }
 
   if (m_chkAutoScroll->isChecked()) {
@@ -115,9 +173,22 @@ void PacketAnalyzerWidget::addRow(const QString &dir, const QByteArray &data) {
   }
 }
 
+void PacketAnalyzerWidget::writeToStream(const QString &dir,
+                                         const QByteArray &data) {
+  if (!m_isStreaming)
+    return;
+  QString ts = QDateTime::currentDateTime().toString("HH:mm:ss.zzz");
+  m_streamOut << ts << "," << dir << "," << data.size() << ",\""
+              << data.toHex(' ').toUpper() << "\"\n";
+  // Flush occasionally or every time? At 100Hz every time might be slow, but
+  // safe.
+  m_streamOut.flush();
+}
+
 void PacketAnalyzerWidget::onClearClicked() {
   m_table->setRowCount(0);
   m_packetCount = 0;
+  m_detailView->clear();
 }
 
 void PacketAnalyzerWidget::onSaveClicked() {
@@ -153,3 +224,15 @@ void PacketAnalyzerWidget::onSaveClicked() {
 }
 
 void PacketAnalyzerWidget::onBackClicked() { emit backToHomeRequested(); }
+
+void PacketAnalyzerWidget::onItemClicked(QTableWidgetItem *item) {
+  if (!item)
+    return;
+  int row = item->row();
+  QTableWidgetItem *dataItem = m_table->item(row, 3);
+  if (!dataItem)
+    return;
+
+  QByteArray rawData = dataItem->data(Qt::UserRole).toByteArray();
+  m_detailView->setData(rawData);
+}

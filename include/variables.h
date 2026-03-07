@@ -13,7 +13,7 @@
 
 // I2C Control
 #define I2C_BUS I2C1
-#define I2C_MODE STANDARD_MODE
+#define I2C_MODE FAST_MODE
 #define I2C_PIN_1 GPIO_PB08
 #define I2C_PIN_2 GPIO_PB09
 // IMU Sensor
@@ -31,4 +31,4 @@
 // Timer Callbacks
 #define MAX_TIMER_CALLBACKS 4
 #define HIGH_FREQ_TIMER_FREQ 10000 // 10kHz
-#endif //! VAYU_VARIABLES_H
+#endif                             //! VAYU_VARIABLES_H

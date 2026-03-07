@@ -98,6 +98,10 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
                   QString("[GCS] Sync period updated to %1 ms").arg(ms));
             }
           });
+  connect(m_settingsWidget, &SettingsWidget::graphWindowChanged, m_imuPanel,
+          &ImuPanel::setGraphWindow);
+  connect(m_settingsWidget, &SettingsWidget::graphDropoutChanged, m_imuPanel,
+          &ImuPanel::setGraphDropout);
 
   buildMenuBar();
   buildToolBar();

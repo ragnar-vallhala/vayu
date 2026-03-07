@@ -1,6 +1,10 @@
 #include "comm/channel.h"
+#include "core/cortex-m4/dma.h"
+#include "core/cortex-m4/interrupt.h"
 #include "core/cortex-m4/uart.h"
 #include "memory.h"
+#include "sensor/bmx160.h"
+#include "sensor/imu_buffer.h"
 #include "task.h"
 #include "utils/test_file.h"
 #include "utils/timer_callbacks.h"
@@ -32,10 +36,21 @@ int main() {
     return 1;
   };
 
+  // --- BMX160 & IMU Telemetry ---
+  // 1. Initialize buffer and sensor
+  imu_buffer_init();
+  bmx160_init();
+
+  // 2. Register 1kHz read initiation callback
+  if (timer_callback_register(bmx160_initiate_read, 1000) != 0) {
+    // Logging or error handling
+  }
+
   scheduler_init();
   // Task Create
   task_create(physical_heartbeat, NULL, 512, 0);
   task_create(comm_processor_task, NULL, 1024, 0);
+  task_create(imu_telemetry_task, NULL, 2048, 0);
   task_create(flush_task, NULL, 128, 0);
   task_create(test_task, NULL, 1024, 0);
   scheduler_start();
