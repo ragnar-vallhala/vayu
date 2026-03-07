@@ -119,12 +119,14 @@ typedef struct {
   int16_t acc[3];
   int16_t gyr[3];
   int16_t mag[3];
+  int16_t temp;
 } bmx160_all_raw_reading_t;
 
 typedef struct {
   float acc[3];
   float gyr[3];
   float mag[3];
+  float temp;
 } bmx160_all_converted_reading_t;
 
 typedef union {
@@ -135,6 +137,11 @@ typedef union {
 // Control APIs
 hal_i2c_status_t bmx160_init(void);
 uint16_t bmx160_get_chip_id(void);
+// Sensor reading trigger and callback
+void bmx160_initiate_read(void);
+void bmx160_dma_callback(void);
+
+// soft reset
 bmx160_err_type bmx160_soft_reset(void); //[TODO]
 // Power APIs
 bmx160_err_type bmx160_sleep(void);  //[TODO]

@@ -1,42 +1,64 @@
-// #include "config.h"
 #include "sensor/bmx160.h"
 #include "maths/sensor_fusion.h"
 #include "navhal.h"
+#include "sensor/imu_buffer.h"
 #include "utils.h"
 #include "vaios.h"
 #include "variables.h"
 #include <stdint.h>
 
 uint8_t tx_buf[2];
-uint8_t rx_buf[12];
+uint8_t rx_buf[14]; // Increased for safer multi-byte reads
 
 // Static helper functions and variables
 static uint8_t status = 0;
 // Default BMX160 configuration
-static bmx160_config_t bmx160_cfg = {
-    // Accelerometer defaults
-    .bmx160_acc_us = 0,    // undersampling disabled
-    .bmx160_acc_bwp = 2,   // normal mode
-    .bmx160_acc_odr = 8,   // 100 Hz
-    .bmx160_acc_range = 5, // ±4g
+static bmx160_config_t bmx160_cfg;
 
-    // Gyroscope defaults
-    .bmx160_gyr_bwp = 2,   // normal mode
-    .bmx160_gyr_odr = 9,   // 200 Hz
-    .bmx160_gyr_range = 2, // ±500 dps
-
-    // Magnetometer defaults
-    .bmx160_mag_odr = 3 // 20 Hz
-};
+// DMA storage for 30 bytes (Mag[6], Hall[2], Gyr[6], Acc[6], Status[4],
+// Temp[2])
+static uint8_t _bmx_dma_rx_buffer[32] __attribute__((aligned(4)));
+static attitude_t _bmx_orientation;
+static bmx160_all_reading_t _bmx_data;
 
 static void bmx160_set_mag_conf();
 static bmx160_err_type bmx160_convert_raw_temp_to_celcius(int16_t raw_temp,
                                                           float *celcius);
+
+static void unstick_i2c_bus(void) {
+  hal_gpio_setmode(I2C_PIN_1, GPIO_OUTPUT, GPIO_PULLUP);
+  hal_gpio_setmode(I2C_PIN_2, GPIO_OUTPUT, GPIO_PULLUP);
+  hal_gpio_set_output_type(I2C_PIN_1, GPIO_OPEN_DRAIN);
+  hal_gpio_set_output_type(I2C_PIN_2, GPIO_OPEN_DRAIN);
+
+  hal_gpio_digitalwrite(I2C_PIN_2, GPIO_HIGH);
+  for (volatile int i = 0; i < 100; i++)
+    ;
+
+  for (int i = 0; i < 9; ++i) {
+    hal_gpio_digitalwrite(I2C_PIN_1, GPIO_LOW);
+    for (volatile int j = 0; j < 200; j++)
+      ;
+    hal_gpio_digitalwrite(I2C_PIN_1, GPIO_HIGH);
+    for (volatile int j = 0; j < 200; j++)
+      ;
+  }
+
+  hal_gpio_digitalwrite(I2C_PIN_2, GPIO_LOW);
+  for (volatile int j = 0; j < 200; j++)
+    ;
+  hal_gpio_digitalwrite(I2C_PIN_1, GPIO_HIGH);
+  for (volatile int j = 0; j < 200; j++)
+    ;
+  hal_gpio_digitalwrite(I2C_PIN_2, GPIO_HIGH);
+  for (volatile int j = 0; j < 200; j++)
+    ;
+}
 hal_i2c_status_t bmx160_init(void) {
+  unstick_i2c_bus();
   // I2C configuration
-  hal_i2c_config_t i2c_config = {.clock_speed = STANDARD_MODE,
-                                 .own_address = I2C_MASTER,
-                                 .acknowledge = true};
+  hal_i2c_config_t i2c_config = {
+      .clock_speed = FAST_MODE, .own_address = I2C_MASTER, .acknowledge = true};
   // Configure GPIO for I2C1 (PB8=SCL, PB9=SDA)
   hal_gpio_set_alternate_function(I2C_PIN_1, GPIO_FUNC_I2C);
   hal_gpio_set_alternate_function(I2C_PIN_2, GPIO_FUNC_I2C);
@@ -142,8 +164,6 @@ uint16_t bmx160_get_chip_id(void) {
 
 int16_t bmx160_read_temp_raw(void) {
   if (status != 1) {
-    // v_log(LOG_ERROR, "BMX160 not initialized but called
-    // bmx160_read_temp_raw"); return 0xFFFF; // return invalid value
   }
 
   tx_buf[0] = BMX160_TEMPERATURE_1_ADDR;
@@ -184,7 +204,7 @@ bmx160_err_type bmx160_read_temp_celcius(float *celcius) {
   int16_t raw = bmx160_read_temp_raw();
   bmx160_err_type err = bmx160_convert_raw_temp_to_celcius(raw, celcius);
   if (err == NO_ERR) {
-    v_log(LOG_INFO, "[BMX160] TEMP: %f", *celcius);
+    // v_log(LOG_INFO, "[BMX160] TEMP: %f", *celcius);
   }
   return ERR0;
 }
@@ -312,20 +332,13 @@ bmx160_err_type bmx160_read_all_converted(bmx160_all_reading_t *data) {
   data->converted.acc[0] = calculated[0];
   data->converted.acc[1] = calculated[1];
   data->converted.acc[2] = calculated[2];
-#if BMX160_ACC_LOGGING_UART
-  v_log(LOG_INFO, "[BMX160] ACC: %f, %f, %f", data->converted.acc[0],
-        data->converted.acc[1], data->converted.acc[2]);
-#endif
+
   err = bmx160_read_gyr_dps(calculated);
   if (err != NO_ERR)
     return err;
   data->converted.gyr[0] = calculated[0];
   data->converted.gyr[1] = calculated[1];
   data->converted.gyr[2] = calculated[2];
-#if BMX160_GYR_LOGGING_UART
-  v_log(LOG_INFO, "[BMX160] GYR: %f, %f, %f", data->converted.gyr[0],
-        data->converted.gyr[1], data->converted.gyr[2]);
-#endif
 
   err = bmx160_read_mag_uT(calculated);
   if (err != NO_ERR)
@@ -333,10 +346,6 @@ bmx160_err_type bmx160_read_all_converted(bmx160_all_reading_t *data) {
   data->converted.mag[0] = calculated[0];
   data->converted.mag[1] = calculated[1];
   data->converted.mag[2] = calculated[2];
-#if BMX160_MAG_LOGGING_UART
-  v_log(LOG_INFO, "[BMX160] MAG: %f, %f, %f", data->converted.mag[0],
-        data->converted.mag[1], data->converted.mag[2]);
-#endif
   return NO_ERR;
 }
 
@@ -562,43 +571,111 @@ float bmx160_raw_mag_to_uT(int16_t raw) {
 bmx160_config_t bmx160_get_current_config(void) { return bmx160_cfg; }
 void bmx160_set_current_config(bmx160_config_t *cfg) { bmx160_cfg = *cfg; }
 
+void bmx160_initiate_read(void) {
+  // Trigger DMA read for 30 bytes (MagX_LSB 0x04 to Temp_MSB 0x21)
+  dma_config_t i2c_dma_cfg = {
+      .controller = DMA_CONTROLLER_1,
+      .stream = 0,
+      .channel = 1,
+      .direction = DMA_DIR_P2M,
+      .src_addr = (uint32_t)(0x40005400 + 0x10), // I2C1_BASE + DR Offset
+      .dst_addr = (uint32_t)_bmx_dma_rx_buffer,
+      .data_count = 30,
+      .src_inc = 0,
+      .dst_inc = 1,
+      .data_width = DMA_DATA_WIDTH_8,
+      .priority = DMA_PRIORITY_VERY_HIGH,
+      .circular = 0};
+
+  hal_i2c_read_regs_dma(I2C1, BMX160_I2C_ADDR, 0x04, &i2c_dma_cfg,
+                        bmx160_dma_callback);
+}
+
+void bmx160_dma_callback(void) {
+  // 1. Extract mag (0-5)
+  int16_t mx =
+      (int16_t)(((uint16_t)_bmx_dma_rx_buffer[1] << 8) | _bmx_dma_rx_buffer[0]);
+  int16_t my =
+      (int16_t)(((uint16_t)_bmx_dma_rx_buffer[3] << 8) | _bmx_dma_rx_buffer[2]);
+  int16_t mz =
+      (int16_t)(((uint16_t)_bmx_dma_rx_buffer[5] << 8) | _bmx_dma_rx_buffer[4]);
+
+  // 2. Extract gyr (8-13) - Note: 6, 7 are RHALL
+  int16_t gx =
+      (int16_t)(((uint16_t)_bmx_dma_rx_buffer[9] << 8) | _bmx_dma_rx_buffer[8]);
+  int16_t gy = (int16_t)(((uint16_t)_bmx_dma_rx_buffer[11] << 8) |
+                         _bmx_dma_rx_buffer[10]);
+  int16_t gz = (int16_t)(((uint16_t)_bmx_dma_rx_buffer[13] << 8) |
+                         _bmx_dma_rx_buffer[12]);
+
+  // 3. Extract acc (14-19)
+  int16_t ax = (int16_t)(((uint16_t)_bmx_dma_rx_buffer[15] << 8) |
+                         _bmx_dma_rx_buffer[14]);
+  int16_t ay = (int16_t)(((uint16_t)_bmx_dma_rx_buffer[17] << 8) |
+                         _bmx_dma_rx_buffer[16]);
+  int16_t az = (int16_t)(((uint16_t)_bmx_dma_rx_buffer[19] << 8) |
+                         _bmx_dma_rx_buffer[18]);
+
+  // 4. Extract temperature (28-29) - Register 0x20, 0x21
+  int16_t raw_temp = (int16_t)(((uint16_t)_bmx_dma_rx_buffer[29] << 8) |
+                               _bmx_dma_rx_buffer[28]);
+
+  // Store raw results
+  _bmx_data.raw.acc[0] = ax;
+  _bmx_data.raw.acc[1] = ay;
+  _bmx_data.raw.acc[2] = az;
+  _bmx_data.raw.gyr[0] = gx;
+  _bmx_data.raw.gyr[1] = gy;
+  _bmx_data.raw.gyr[2] = gz;
+  _bmx_data.raw.mag[0] = mx;
+  _bmx_data.raw.mag[1] = my;
+  _bmx_data.raw.mag[2] = mz;
+  _bmx_data.raw.temp = raw_temp;
+
+  // Push to ring buffer for 100Hz averaging
+  imu_buffer_push(&_bmx_data);
+
+  // Convert to units (for local attitude fusion)
+  _bmx_data.converted.acc[0] = bmx160_raw_acc_to_mps2(ax);
+  _bmx_data.converted.acc[1] = bmx160_raw_acc_to_mps2(ay);
+  _bmx_data.converted.acc[2] = bmx160_raw_acc_to_mps2(az);
+
+  _bmx_data.converted.gyr[0] = bmx160_raw_gyr_to_dps(gx);
+  _bmx_data.converted.gyr[1] = bmx160_raw_gyr_to_dps(gy);
+  _bmx_data.converted.gyr[2] = bmx160_raw_gyr_to_dps(gz);
+
+  _bmx_data.converted.mag[0] = bmx160_raw_mag_to_uT(mx);
+  _bmx_data.converted.mag[1] = bmx160_raw_mag_to_uT(my);
+  _bmx_data.converted.mag[2] = bmx160_raw_mag_to_uT(mz);
+
+  // Sensor Fusion
+  m_acc_mag(_bmx_data.converted.acc[0], _bmx_data.converted.acc[1],
+            _bmx_data.converted.acc[2], _bmx_data.converted.mag[0],
+            _bmx_data.converted.mag[1], _bmx_data.converted.mag[2],
+            &_bmx_orientation);
+}
+
 void run_bmx() {
-  hal_i2c_status_t status = bmx160_init();
-  v_log(LOG_DEBUG, "BMX160 init status: %d", status);
-  float temp = 0;
-  attitude_t orientation;
+  bmx160_init();
   bmx160_config_t cfg;
-  bmx160_all_reading_t data;
   // --- Accelerometer config ---
   cfg.bmx160_acc_us = 0;    // undersampling disabled
-  cfg.bmx160_acc_bwp = 1;   // OSR2 (higher filter bandwidth)
-  cfg.bmx160_acc_odr = 12;  // 400 Hz (see datasheet ODR table)
+  cfg.bmx160_acc_bwp = 1;   // OSR2
+  cfg.bmx160_acc_odr = 12;  // 400 Hz
   cfg.bmx160_acc_range = 8; // ±8g
 
   // --- Gyroscope config ---
-  cfg.bmx160_gyr_bwp = 0;   // OSR4 (narrow filter bandwidth, high precision)
+  cfg.bmx160_gyr_bwp = 0;   // OSR4
   cfg.bmx160_gyr_odr = 13;  // 800 Hz
   cfg.bmx160_gyr_range = 1; // ±1000 dps
 
   // --- Magnetometer config ---
   cfg.bmx160_mag_odr = 6; // 50 Hz
 
-  // --- Write configuration ---
   bmx160_write_config(&cfg);
 
+  // Register in main.c instead of loop
   while (1) {
-    bmx160_read_temp_celcius(&temp);
-
-    bmx160_err_type err = bmx160_read_all_converted(&data);
-    if (err != NO_ERR) {
-      v_log(LOG_ERROR, "Error reading BMX160 data: %d", err);
-      continue;
-    }
-    m_acc_mag(data.converted.acc[0], data.converted.acc[1],
-              data.converted.acc[2], data.converted.mag[0],
-              data.converted.mag[1], data.converted.mag[2], &orientation);
-    v_log(LOG_INFO, "[ATTITUDE] %f, %f, %f", orientation.roll,
-          orientation.pitch, orientation.yaw);
-    v_delay(10);
+    v_delay(1000);
   }
 }

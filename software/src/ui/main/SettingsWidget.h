@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QDoubleSpinBox>
 #include <QPushButton>
 #include <QSpinBox>
 #include <QWidget>
@@ -13,7 +14,11 @@ public:
 signals:
   void backToHomeRequested();
   void syncPeriodChanged(int ms);
+  void graphWindowChanged(int seconds);
+  void graphDropoutChanged(double rate);
 
 private:
   QSpinBox *m_syncPeriodSpin = nullptr;
+  QSpinBox *m_graphWindowSpin = nullptr;
+  QDoubleSpinBox *m_graphDropoutSpin = nullptr;
 };

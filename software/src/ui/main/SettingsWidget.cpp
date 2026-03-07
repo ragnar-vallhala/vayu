@@ -37,6 +37,44 @@ SettingsWidget::SettingsWidget(QWidget *parent) : QWidget(parent) {
 
   layout->addWidget(commGroup);
 
+  // ---- Graph Settings Group ----
+  auto *graphGroup = new QGroupBox("Graph Settings", this);
+  auto *graphLayout = new QVBoxLayout(graphGroup);
+
+  auto *windowRow = new QHBoxLayout();
+  windowRow->addWidget(new QLabel("Window Duration (sec):", this));
+  m_graphWindowSpin = new QSpinBox(this);
+  m_graphWindowSpin->setRange(1, 60);
+  m_graphWindowSpin->setValue(5);
+  m_graphWindowSpin->setSuffix(" s");
+  m_graphWindowSpin->setStyleSheet("background: #21252B; color: #ABB2BF; "
+                                   "border: 1px solid #3E4452; padding: 4px;");
+  connect(m_graphWindowSpin, QOverload<int>::of(&QSpinBox::valueChanged), this,
+          &SettingsWidget::graphWindowChanged);
+  windowRow->addWidget(m_graphWindowSpin);
+  windowRow->addStretch();
+  graphLayout->addLayout(windowRow);
+
+  auto *dropoutRow = new QHBoxLayout();
+  dropoutRow->addWidget(new QLabel("Data Dropout Rate (0-1):", this));
+  m_graphDropoutSpin = new QDoubleSpinBox(this);
+  m_graphDropoutSpin->setRange(0.0, 0.99);
+  m_graphDropoutSpin->setValue(0.0);
+  m_graphDropoutSpin->setSingleStep(0.1);
+  m_graphDropoutSpin->setDecimals(2);
+  m_graphDropoutSpin->setToolTip(
+      "Higher rate helps save RAM by dropping samples for visualization");
+  m_graphDropoutSpin->setStyleSheet("background: #21252B; color: #ABB2BF; "
+                                    "border: 1px solid #3E4452; padding: 4px;");
+  connect(m_graphDropoutSpin,
+          QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+          &SettingsWidget::graphDropoutChanged);
+  dropoutRow->addWidget(m_graphDropoutSpin);
+  dropoutRow->addStretch();
+  graphLayout->addLayout(dropoutRow);
+
+  layout->addWidget(graphGroup);
+
   layout->addStretch();
 
   // ---- Back Button ----

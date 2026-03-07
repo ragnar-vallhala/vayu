@@ -47,8 +47,20 @@ static err_t get_handler_serial(channel_t *handler, void *args,
 
   serial_args_t *s_args = (serial_args_t *)args;
 
-  // Find an available slot
+  // 1. Check if a handler for this UART already exists
   int slot = -1;
+  for (int i = 0; i < MAX_SERIAL_HANDLERS; i++) {
+    if (_serial_handlers[i].uart == s_args->uart) {
+      slot = i;
+      // Already initialized, just return it
+      handler->type = CHANNEL_TYPE_SERIAL;
+      handler->handle = &_serial_handlers[slot];
+      handler->index = (uint8_t)slot;
+      return NONE;
+    }
+  }
+
+  // 2. Find an available slot if not found
   for (int i = 0; i < MAX_SERIAL_HANDLERS; i++) {
     if (_serial_handlers[i].uart == 0) {
       slot = i;

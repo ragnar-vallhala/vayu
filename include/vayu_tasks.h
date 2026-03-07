@@ -4,5 +4,6 @@
 void physical_heartbeat(void *args);
 void comm_processor_task(void *args);
 void flush_task(void *args);
+void imu_telemetry_task(void *args);
 
 #endif // !VAYU_TASKS_H

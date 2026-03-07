@@ -31,6 +31,9 @@ set(GCS_SOURCES
     src/core/crc.cpp
     src/ui/widgets/PacketAnalyzerWidget.cpp
     src/ui/main/SettingsWidget.cpp
+    src/protocol/PacketDecoder.cpp
+    src/ui/widgets/PacketDetailWidget.cpp
+    src/ui/widgets/RealTimeGraph.cpp
 )
 
 set(GCS_HEADERS
@@ -44,6 +47,9 @@ set(GCS_HEADERS
     src/core/crc.h
     src/ui/widgets/PacketAnalyzerWidget.h
     src/ui/main/SettingsWidget.h
+    src/protocol/PacketDecoder.h
+    src/ui/widgets/PacketDetailWidget.h
+    src/ui/widgets/RealTimeGraph.h
 )
 
 set(GCS_RESOURCES
