@@ -13,7 +13,6 @@ void imu_telemetry_task(void *args) {
   int16_t payload[10]; // Acc[3], Gyr[3], Mag[3], Temp
   channel_t uart_channel;
 
-  // ... existing initialization ...
   serial_args_t uart_args = {
       .baud_rate = 115200, .uart = UART2, .timeout = 100};
 
