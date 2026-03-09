@@ -29,10 +29,10 @@ void m_acc_mag(const float ax, const float ay, const float az, const float mx,
   ori->roll = to_degrees(m_atan2(ay_n, az_n));
   ori->pitch = to_degrees(m_atan2(-ax_n, m_sqrt(ay_n * ay_n + az_n * az_n)));
 
-  float sin_roll = m_sin(ori->roll);
-  float cos_roll = m_cos(ori->roll);
-  float sin_pitch = m_sin(ori->pitch);
-  float cos_pitch = m_cos(ori->pitch);
+  float sin_roll = m_sin(to_radians(ori->roll));
+  float cos_roll = m_cos(to_radians(ori->roll));
+  float sin_pitch = m_sin(to_radians(ori->pitch));
+  float cos_pitch = m_cos(to_radians(ori->pitch));
 
   float mx2 = mx_n * cos_pitch + mz_n * sin_pitch;
   float my2 = mx_n * sin_roll * sin_pitch + my_n * cos_roll -

@@ -71,6 +71,18 @@ DecodedPacket PacketDecoder::decode(const QByteArray &data) {
       // Update state
       m_lastImu = imu;
     }
+  } else if (result.type == 0x4) {
+    // ATTITUDE
+    if (result.length == 12) {
+      float vals[3];
+      memcpy(vals, raw + 8, 12);
+
+      AttitudeData att;
+      att.roll = vals[0];
+      att.pitch = vals[1];
+      att.yaw = vals[2];
+      result.payload = att;
+    }
   }
 
   return result;
@@ -84,6 +96,8 @@ QString PacketDecoder::typeToString(uint8_t type) {
     return "IMU_DATA_FULL";
   case 0x2:
     return "IMU_DATA_COMPRESSED";
+  case 0x4:
+    return "ATTITUDE";
   default:
     return QString("UNKNOWN (0x%1)").arg(type, 1, 16, QChar('0')).toUpper();
   }

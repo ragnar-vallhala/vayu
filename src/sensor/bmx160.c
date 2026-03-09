@@ -661,6 +661,12 @@ void bmx160_dma_callback(void) {
             &_bmx_orientation);
 }
 
+void bmx160_get_attitude(attitude_t *att) {
+  if (att != NULL) {
+    *att = _bmx_orientation;
+  }
+}
+
 void run_bmx() {
   bmx160_init();
   bmx160_config_t cfg;
