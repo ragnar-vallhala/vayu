@@ -101,19 +101,35 @@ typedef enum {
   BMX160_GYR_125 = 125,
 } bmx160_gyr_range_t;
 
+typedef enum {
+  BMX160_ODR_0_78HZ = 0x01,
+  BMX160_ODR_1_56HZ = 0x02,
+  BMX160_ODR_3_125HZ = 0x03,
+  BMX160_ODR_6_25HZ = 0x04,
+  BMX160_ODR_12_5HZ = 0x05,
+  BMX160_ODR_25HZ = 0x06,
+  BMX160_ODR_50HZ = 0x07,
+  BMX160_ODR_100HZ = 0x08,
+  BMX160_ODR_200HZ = 0x09,
+  BMX160_ODR_400HZ = 0x0A,
+  BMX160_ODR_800HZ = 0x0B,
+  BMX160_ODR_1600HZ = 0x0C,
+  BMX160_ODR_3200HZ = 0x0D,
+} bmx160_odr_t;
+
 // Config structures
 typedef struct {
   // Accelerometer configuration
-  uint8_t bmx160_acc_odr; // 4 bit number converted to ODR in Hz
-  uint8_t bmx160_acc_bwp; // 3 bit defining the bandwidth pass
-  uint8_t bmx160_acc_us;  // 1 bit defining under-sampling
+  bmx160_odr_t bmx160_acc_odr; // ODR selection
+  uint8_t bmx160_acc_bwp;      // 3 bit defining the bandwidth pass
+  uint8_t bmx160_acc_us;       // 1 bit defining under-sampling
   bmx160_acc_range_t bmx160_acc_range;
   // Gyro configuration
-  uint8_t bmx160_gyr_odr; // 4 bit number converted to ODR in Hz
-  uint8_t bmx160_gyr_bwp; // 2 bit defining the bandwidth pass
+  bmx160_odr_t bmx160_gyr_odr; // ODR selection
+  uint8_t bmx160_gyr_bwp;      // 2 bit defining the bandwidth pass
   bmx160_gyr_range_t bmx160_gyr_range;
   // Mag configuration
-  uint8_t bmx160_mag_odr; // 4 bit number converted to ODR in Hz
+  bmx160_odr_t bmx160_mag_odr; // ODR selection
 } bmx160_config_t;
 
 // Reading structures
@@ -160,9 +176,9 @@ bmx160_err_type bmx160_read_mag_raw(int16_t *raw);
 bmx160_err_type bmx160_read_all_raw(bmx160_all_reading_t *raw);
 
 // IMU converted APIs
-bmx160_err_type bmx160_read_acc_mps2(float *data);                    
-bmx160_err_type bmx160_read_gyr_dps(float *data);                     
-bmx160_err_type bmx160_read_mag_uT(float *data);                      
+bmx160_err_type bmx160_read_acc_mps2(float *data);
+bmx160_err_type bmx160_read_gyr_dps(float *data);
+bmx160_err_type bmx160_read_mag_uT(float *data);
 bmx160_err_type bmx160_read_all_converted(bmx160_all_reading_t *data);
 
 // Config APIs

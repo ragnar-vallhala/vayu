@@ -94,7 +94,15 @@ hal_i2c_status_t bmx160_init(void) {
 
   // Config for components
   bmx160_read_config(&bmx160_cfg);
-  return status;
+
+  // Apply ODR settings from variables.h
+  bmx160_cfg.bmx160_acc_odr = BMX_ACC_ODR;
+  bmx160_cfg.bmx160_gyr_odr = BMX_GYR_ODR;
+  bmx160_cfg.bmx160_mag_odr = BMX_MAG_ODR;
+
+  bmx160_write_config(&bmx160_cfg);
+
+  return ts;
 }
 
 static void bmx160_set_mag_conf() {
@@ -437,7 +445,7 @@ bmx160_err_type bmx160_write_config(bmx160_config_t *config) {
 static uint8_t bmx160_get_acc_conf(bmx160_config_t *config) {
   uint8_t val =
       (((config->bmx160_acc_us & 1U) << 7U) |
-       ((config->bmx160_acc_bwp & 7U) << 3U) | (config->bmx160_acc_odr & 15U));
+       ((config->bmx160_acc_bwp & 7U) << 4U) | (config->bmx160_acc_odr & 15U));
   return val;
 }
 
@@ -448,7 +456,7 @@ static uint8_t bmx160_get_acc_range(bmx160_config_t *config) {
 
 static uint8_t bmx160_get_gyr_conf(bmx160_config_t *config) {
   uint8_t val =
-      (((config->bmx160_gyr_bwp & 3U) << 3U) | (config->bmx160_gyr_odr & 15U));
+      (((config->bmx160_gyr_bwp & 3U) << 4U) | (config->bmx160_gyr_odr & 15U));
   return val;
 }
 

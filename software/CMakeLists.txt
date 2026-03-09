@@ -46,6 +46,7 @@ set(GCS_HEADERS
     src/ui/widgets/LogPanel.h
     src/core/Types.h
     src/core/crc.h
+    src/core/RollingStats.h
     src/ui/widgets/PacketAnalyzerWidget.h
     src/ui/main/SettingsWidget.h
     src/protocol/PacketDecoder.h

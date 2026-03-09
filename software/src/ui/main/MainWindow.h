@@ -13,6 +13,7 @@
 #include "ImuPanel.h"
 #include "LogPanel.h"
 #include "PacketAnalyzerWidget.h"
+#include "RollingStats.h"
 #include "SerialManager.h"
 #include "SettingsWidget.h"
 #include "Types.h"
@@ -80,6 +81,10 @@ private:
   QLabel *m_rollLabel = nullptr;
   QLabel *m_pitchLabel = nullptr;
   QLabel *m_yawLabel = nullptr;
+  QLabel *m_rollStd = nullptr;
+  QLabel *m_pitchStd = nullptr;
+  QLabel *m_yawStd = nullptr;
+  RollingStats m_attStats[3];
 
   // ---- Status bar ----
   QLabel *m_connStatus = nullptr;

@@ -44,25 +44,41 @@ ImuAxisGroup::ImuAxisGroup(const QString &title, const QString &unit,
     m_labels[i] = new QLabel("—", labelContainer);
     m_labels[i]->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
     m_labels[i]->setStyleSheet("font-family: 'Monospace'; font-size: 13px; "
-                               "color: #E8F0FE;");
-    m_labels[i]->setMinimumWidth(80);
+                               "color: #E8F0FE; font-weight: bold;");
+    m_labels[i]->setFixedWidth(90);
+
+    m_stdLabels[i] = new QLabel("± σ —", labelContainer);
+    m_stdLabels[i]->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    m_stdLabels[i]->setStyleSheet("font-family: 'Monospace'; font-size: 10px; "
+                                  "color: #888888;");
+    m_stdLabels[i]->setFixedWidth(90);
 
     row->addWidget(nameLabel);
-    row->addWidget(m_labels[i]);
+    auto *valsVBox = new QVBoxLayout();
+    valsVBox->setSpacing(0);
+    valsVBox->addWidget(m_labels[i]);
+    valsVBox->addWidget(m_stdLabels[i]);
+    row->addLayout(valsVBox);
     labelLayout->addLayout(row);
   }
 
   if (!isScalar) {
     // Initialize hidden labels to avoid crashes if setValues is called with 3
     // values
-    m_labels[1] = m_labels[1] ? m_labels[1] : new QLabel(this);
-    m_labels[2] = m_labels[2] ? m_labels[2] : new QLabel(this);
+    for (int i = 1; i < 3; ++i) {
+      if (!m_labels[i])
+        m_labels[i] = new QLabel(this);
+      if (!m_stdLabels[i])
+        m_stdLabels[i] = new QLabel(this);
+    }
   } else {
     // Hidden placeholders for scalar
-    m_labels[1] = new QLabel(this);
-    m_labels[1]->hide();
-    m_labels[2] = new QLabel(this);
-    m_labels[2]->hide();
+    for (int i = 1; i < 3; ++i) {
+      m_labels[i] = new QLabel(this);
+      m_labels[i]->hide();
+      m_stdLabels[i] = new QLabel(this);
+      m_stdLabels[i]->hide();
+    }
   }
 
   labelLayout->addStretch();
@@ -89,6 +105,12 @@ void ImuAxisGroup::setValues(float x, float y, float z) {
     if (m_labels[i]->isHidden())
       continue;
     m_labels[i]->setText(QString::number(static_cast<double>(vals[i]), 'f', 3));
+
+    m_stats[i].push(vals[i]);
+    float sd = m_stats[i].stdDev();
+    m_stdLabels[i]->setText(
+        QString("± σ %1").arg(static_cast<double>(sd), 0, 'f', 3));
+
     if (i < m_graph->numSeries()) {
       m_graph->appendData(vals[i], i);
     }
