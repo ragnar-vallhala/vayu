@@ -1,6 +1,7 @@
 #pragma once
 
-#include "core/Types.h"
+#include "../core/MathUtils.h"
+#include "../core/Types.h"
 #include <QByteArray>
 #include <QString>
 #include <cstdint>
@@ -18,6 +19,10 @@ struct DecodedPacket {
 
 class PacketDecoder {
 public:
-  static DecodedPacket decode(const QByteArray &data);
+  DecodedPacket decode(const QByteArray &data);
   static QString typeToString(uint8_t type);
+
+private:
+  ImuData m_lastImu;
+  bool m_hasLastImu = false;
 };

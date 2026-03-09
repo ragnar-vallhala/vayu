@@ -593,12 +593,16 @@ void bmx160_initiate_read(void) {
 
 void bmx160_dma_callback(void) {
   // 1. Extract mag (0-5)
-  int16_t mx =
-      (int16_t)(((uint16_t)_bmx_dma_rx_buffer[1] << 8) | _bmx_dma_rx_buffer[0]);
-  int16_t my =
-      (int16_t)(((uint16_t)_bmx_dma_rx_buffer[3] << 8) | _bmx_dma_rx_buffer[2]);
-  int16_t mz =
-      (int16_t)(((uint16_t)_bmx_dma_rx_buffer[5] << 8) | _bmx_dma_rx_buffer[4]);
+  // X/Y are 13-bit, Z is 15-bit. Status bits are in the LSB.
+  int16_t mx = (int16_t)(((uint16_t)_bmx_dma_rx_buffer[1] << 8) |
+                         (_bmx_dma_rx_buffer[0] & 0xF8)) >>
+               3;
+  int16_t my = (int16_t)(((uint16_t)_bmx_dma_rx_buffer[3] << 8) |
+                         (_bmx_dma_rx_buffer[2] & 0xF8)) >>
+               3;
+  int16_t mz = (int16_t)(((uint16_t)_bmx_dma_rx_buffer[5] << 8) |
+                         (_bmx_dma_rx_buffer[4] & 0xFE)) >>
+               1;
 
   // 2. Extract gyr (8-13) - Note: 6, 7 are RHALL
   int16_t gx =
@@ -632,10 +636,7 @@ void bmx160_dma_callback(void) {
   _bmx_data.raw.mag[2] = mz;
   _bmx_data.raw.temp = raw_temp;
 
-  // Push to ring buffer for 100Hz averaging
-  imu_buffer_push(&_bmx_data);
-
-  // Convert to units (for local attitude fusion)
+  // Convert to units (for local attitude fusion and telemetry)
   _bmx_data.converted.acc[0] = bmx160_raw_acc_to_mps2(ax);
   _bmx_data.converted.acc[1] = bmx160_raw_acc_to_mps2(ay);
   _bmx_data.converted.acc[2] = bmx160_raw_acc_to_mps2(az);
@@ -647,6 +648,11 @@ void bmx160_dma_callback(void) {
   _bmx_data.converted.mag[0] = bmx160_raw_mag_to_uT(mx);
   _bmx_data.converted.mag[1] = bmx160_raw_mag_to_uT(my);
   _bmx_data.converted.mag[2] = bmx160_raw_mag_to_uT(mz);
+
+  bmx160_convert_raw_temp_to_celcius(raw_temp, &_bmx_data.converted.temp);
+
+  // Push to ring buffer for 100Hz averaging (now with converted values)
+  imu_buffer_push(&_bmx_data);
 
   // Sensor Fusion
   m_acc_mag(_bmx_data.converted.acc[0], _bmx_data.converted.acc[1],

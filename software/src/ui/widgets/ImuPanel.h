@@ -22,7 +22,7 @@ public:
 
 private:
   QLabel *m_labels[3];
-  RealTimeGraph *m_graphs[3];
+  RealTimeGraph *m_graph;
 };
 
 // ---------------------------------------------------------------------------
@@ -43,6 +43,5 @@ private:
   ImuAxisGroup *m_acc;
   ImuAxisGroup *m_gyr;
   ImuAxisGroup *m_mag;
-  QLabel *m_temp;
-  RealTimeGraph *m_tempGraph;
+  ImuAxisGroup *m_temp;
 };

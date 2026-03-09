@@ -3,6 +3,7 @@
 #include <QStringList>
 #include <cstdint>
 #include <cstring>
+#include <variant>
 
 DroneProtocol::DroneProtocol(QObject *parent) : QObject(parent) {}
 
@@ -72,43 +73,18 @@ void DroneProtocol::parseBuffer() {
     // 5. Valid packet! Parse contents.
     emit packetReceived(m_buffer.left(total_packet_size));
 
-    uint8_t device_id = m_buffer[3];
-    uint32_t timestamp;
-    memcpy(&timestamp, m_buffer.constData() + 4, 4);
-
-    if (packet_type == 0x0) {
-      // HEARTBEAT
-      emit heartbeatReceived(timestamp, device_id);
-    } else if (packet_type == 0x1) {
-      // IMU_DATA_FULL (Payload: 10 x int16_t = 20 bytes)
-      if (payload_length == 20) {
-        int16_t raw[10];
-        memcpy(raw, m_buffer.constData() + 8, 20);
-
-        ImuData data;
-        // Accel range ±8g: 4096 LSB/g (32768 / 8), 1g = 9.80665 m/s²
-        const float acc_scale = 9.80665f * 8.0f / 32768.0f;
-        data.acc[0] = static_cast<float>(raw[0]) * acc_scale;
-        data.acc[1] = static_cast<float>(raw[1]) * acc_scale;
-        data.acc[2] = static_cast<float>(raw[2]) * acc_scale;
-
-        // Gyro range ±1000 dps: 32.768 LSB/dps (32768 / 1000)
-        const float gyr_scale = 1000.0f / 32768.0f;
-        data.gyr[0] = static_cast<float>(raw[3]) * gyr_scale;
-        data.gyr[1] = static_cast<float>(raw[4]) * gyr_scale;
-        data.gyr[2] = static_cast<float>(raw[5]) * gyr_scale;
-
-        // Mag range: 0.3 LSB/µT (from bmx160.c)
-        const float mag_scale = 0.3f;
-        data.mag[0] = static_cast<float>(raw[6]) * mag_scale;
-        data.mag[1] = static_cast<float>(raw[7]) * mag_scale;
-        data.mag[2] = static_cast<float>(raw[8]) * mag_scale;
-
-        // Temperature: 1/512 K/LSB, offset 23.0°C at 0
-        data.tempC = static_cast<float>(raw[9]) / 512.0f + 23.0f;
-
-        data.timestamp = timestamp;
-        emit imuReceived(data);
+    DecodedPacket decoded = m_decoder.decode(m_buffer.left(total_packet_size));
+    if (decoded.valid) {
+      if (std::holds_alternative<ImuData>(decoded.payload)) {
+        emit imuReceived(std::get<ImuData>(decoded.payload));
+      } else if (std::holds_alternative<QString>(decoded.payload)) {
+        emit logReceived(std::get<QString>(decoded.payload));
+      } else if (packet_type == 0x0) { // Keep heartbeat logic if decoder
+                                       // doesn't handle it fully
+        uint8_t device_id = m_buffer[3];
+        uint32_t timestamp;
+        memcpy(&timestamp, m_buffer.constData() + 4, 4);
+        emit heartbeatReceived(timestamp, device_id);
       }
     }
 

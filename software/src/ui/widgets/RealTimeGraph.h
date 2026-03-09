@@ -4,6 +4,7 @@
 #include <QDateTime>
 #include <QWidget>
 #include <deque>
+#include <vector>
 
 class RealTimeGraph : public QWidget {
   Q_OBJECT
@@ -11,13 +12,14 @@ class RealTimeGraph : public QWidget {
 public:
   enum class Mode { LinePlot, HorizontalBar };
 
-  explicit RealTimeGraph(QWidget *parent = nullptr);
+  explicit RealTimeGraph(QWidget *parent = nullptr, int numSeries = 1);
 
   void setMode(Mode mode);
   void setWindowSeconds(int seconds);
   void setDropoutRate(double rate);
-  void setColor(const QColor &color);
-  void appendData(float value);
+  void setColor(int index, const QColor &color);
+  void appendData(float value, int index = 0);
+  int numSeries() const { return static_cast<int>(m_seriesData.size()); }
   void clear();
 
 protected:
@@ -29,11 +31,11 @@ private:
     float value;
   };
 
-  std::deque<DataPoint> m_data;
+  std::vector<std::deque<DataPoint>> m_seriesData;
   Mode m_mode = Mode::LinePlot;
   int m_windowSeconds = 5;
   double m_dropoutRate = 0.0;
-  QColor m_color = QColor("#61AFEF");
+  std::vector<QColor> m_colors;
 
   float m_min = -1.0f;
   float m_max = 1.0f;

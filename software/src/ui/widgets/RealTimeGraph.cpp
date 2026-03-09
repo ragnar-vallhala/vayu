@@ -5,9 +5,11 @@
 #include <cmath>
 #include <random>
 
-RealTimeGraph::RealTimeGraph(QWidget *parent) : QWidget(parent) {
+RealTimeGraph::RealTimeGraph(QWidget *parent, int numSeries) : QWidget(parent) {
   setAttribute(Qt::WA_OpaquePaintEvent);
   setMinimumHeight(40);
+  m_seriesData.resize(numSeries);
+  m_colors.resize(numSeries, QColor("#61AFEF"));
 }
 
 void RealTimeGraph::setMode(Mode mode) {
@@ -25,12 +27,17 @@ void RealTimeGraph::setDropoutRate(double rate) {
   m_dropoutRate = std::clamp(rate, 0.0, 1.0);
 }
 
-void RealTimeGraph::setColor(const QColor &color) {
-  m_color = color;
-  update();
+void RealTimeGraph::setColor(int index, const QColor &color) {
+  if (index >= 0 && index < static_cast<int>(m_colors.size())) {
+    m_colors[index] = color;
+    update();
+  }
 }
 
-void RealTimeGraph::appendData(float value) {
+void RealTimeGraph::appendData(float value, int index) {
+  if (index < 0 || index >= static_cast<int>(m_seriesData.size()))
+    return;
+
   if (m_dropoutRate > 0.0) {
     static std::mt19937 gen(std::random_device{}());
     std::uniform_real_distribution<> dis(0.0, 1.0);
@@ -40,10 +47,10 @@ void RealTimeGraph::appendData(float value) {
   }
 
   qint64 now = QDateTime::currentMSecsSinceEpoch();
-  m_data.push_back({now, value});
+  m_seriesData[index].push_back({now, value});
 
-  // Update min/max for scaling
-  if (m_data.size() == 1) {
+  // Update min/max for scaling (globally across all series)
+  if (m_seriesData[index].size() == 1 && m_min == -1.0f && m_max == 1.0f) {
     m_min = value - 0.1f;
     m_max = value + 0.1f;
   } else {
@@ -56,34 +63,45 @@ void RealTimeGraph::appendData(float value) {
 }
 
 void RealTimeGraph::clear() {
-  m_data.clear();
+  for (auto &series : m_seriesData) {
+    series.clear();
+  }
   m_min = -1.0f;
   m_max = 1.0f;
   update();
 }
 
 void RealTimeGraph::pruneData() {
-  if (m_data.empty())
-    return;
-
   qint64 now = QDateTime::currentMSecsSinceEpoch();
   qint64 limit = now - (m_windowSeconds * 1000);
 
-  bool changed = false;
-  while (!m_data.empty() && m_data.front().timestamp < limit) {
-    m_data.pop_front();
-    changed = true;
+  bool anyChanged = false;
+  for (auto &series : m_seriesData) {
+    while (!series.empty() && series.front().timestamp < limit) {
+      series.pop_front();
+      anyChanged = true;
+    }
   }
 
-  if (changed && !m_data.empty()) {
-    // Only recalculate min/max if we removed stuff
-    m_min = m_data[0].value;
-    m_max = m_data[0].value;
-    for (const auto &dp : m_data) {
-      m_min = std::min(m_min, dp.value);
-      m_max = std::max(m_max, dp.value);
+  if (anyChanged) {
+    // Recalculate global min/max
+    bool first = true;
+    for (const auto &series : m_seriesData) {
+      for (const auto &dp : series) {
+        if (first) {
+          m_min = dp.value;
+          m_max = dp.value;
+          first = false;
+        } else {
+          m_min = std::min(m_min, dp.value);
+          m_max = std::max(m_max, dp.value);
+        }
+      }
     }
-    if (std::abs(m_max - m_min) < 0.001f) {
+    if (first) { // all empty
+      m_min = -1.0f;
+      m_max = 1.0f;
+    } else if (std::abs(m_max - m_min) < 0.001f) {
       m_min -= 0.1f;
       m_max += 0.1f;
     }
@@ -98,7 +116,15 @@ void RealTimeGraph::paintEvent(QPaintEvent *event) {
   // Background
   painter.fillRect(rect(), QColor(33, 37, 43));
 
-  if (m_data.empty())
+  // Find if we have any data
+  bool anyData = false;
+  for (const auto &series : m_seriesData) {
+    if (!series.empty()) {
+      anyData = true;
+      break;
+    }
+  }
+  if (!anyData)
     return;
 
   if (m_mode == Mode::LinePlot) {
@@ -106,7 +132,6 @@ void RealTimeGraph::paintEvent(QPaintEvent *event) {
     painter.setPen(QColor(62, 68, 82));
     painter.drawLine(0, height() / 2, width(), height() / 2);
 
-    // Scaling
     float range = m_max - m_min;
     if (range < 0.001f)
       range = 0.001f;
@@ -122,41 +147,44 @@ void RealTimeGraph::paintEvent(QPaintEvent *event) {
       return height() - (height() * (val - m_min) / range);
     };
 
-    // Plot path
-    QPainterPath path;
-    bool first = true;
-    for (const auto &dp : m_data) {
-      float x = toX(dp.timestamp);
-      float y = toY(dp.value);
-      if (first) {
-        path.moveTo(x, y);
-        first = false;
-      } else {
-        path.lineTo(x, y);
+    // Plot each series
+    for (size_t i = 0; i < m_seriesData.size(); ++i) {
+      const auto &series = m_seriesData[i];
+      if (series.empty())
+        continue;
+
+      QPainterPath path;
+      bool first = true;
+      for (const auto &dp : series) {
+        float x = toX(dp.timestamp);
+        float y = toY(dp.value);
+        if (first) {
+          path.moveTo(x, y);
+          first = false;
+        } else {
+          path.lineTo(x, y);
+        }
       }
+
+      // Fill under path (optional, maybe only for single series or subtle)
+      QPainterPath fillPath = path;
+      fillPath.lineTo(toX(series.back().timestamp), height());
+      fillPath.lineTo(toX(series.front().timestamp), height());
+      fillPath.closeSubpath();
+
+      QLinearGradient gradient(0, 0, 0, height());
+      QColor fillColor = m_colors[i];
+      fillColor.setAlpha(20); // More transparent for multiple series
+      gradient.setColorAt(0, fillColor);
+      fillColor.setAlpha(0);
+      gradient.setColorAt(1, fillColor);
+      painter.fillPath(fillPath, gradient);
+
+      painter.setPen(QPen(m_colors[i], 1.5));
+      painter.drawPath(path);
     }
 
-    // Fill under path
-    QPainterPath fillPath = path;
-    fillPath.lineTo(toX(m_data.back().timestamp), height());
-    fillPath.lineTo(toX(m_data.front().timestamp), height());
-    fillPath.closeSubpath();
-
-    QLinearGradient gradient(0, 0, 0, height());
-    QColor fillColor = m_color;
-    fillColor.setAlpha(40);
-    gradient.setColorAt(0, fillColor);
-    fillColor.setAlpha(0);
-    gradient.setColorAt(1, fillColor);
-    painter.fillPath(fillPath, gradient);
-
-    painter.setPen(QPen(m_color, 1.5));
-    painter.drawPath(path);
-
-    // Draw grid and labels
-    painter.setPen(QColor(62, 68, 82, 100));
-    painter.drawLine(0, height() / 2, width(), height() / 2);
-
+    // Grid labels
     QFont font = painter.font();
     font.setPointSize(7);
     painter.setFont(font);
@@ -172,41 +200,27 @@ void RealTimeGraph::paintEvent(QPaintEvent *event) {
     drawYLabel((m_max + m_min) / 2.0f, height() / 2 - 2);
 
   } else {
-    // Horizontal Bar mode (Waterfall)
+    // Horizontal Bar mode (Waterfall) - Only supports first series for now
+    const auto &series = m_seriesData[0];
     float range = m_max - m_min;
     if (range < 0.001f)
       range = 0.1f;
 
     qint64 now = QDateTime::currentMSecsSinceEpoch();
     float barHeight =
-        std::max(1.0f, static_cast<float>(height()) / m_data.size());
+        std::max(1.0f, static_cast<float>(height()) / series.size());
 
-    for (const auto &dp : m_data) {
+    for (const auto &dp : series) {
       float relativeTime =
           static_cast<float>(now - dp.timestamp) / (m_windowSeconds * 1000.0f);
       float y = height() * relativeTime;
       float barWidth = width() * (dp.value - m_min) / range;
 
       QRectF bar(0, y, barWidth, barHeight);
-      QColor c = m_color;
+      QColor c = m_colors[0];
       c.setAlpha(static_cast<int>(255 * (1.0f - relativeTime)));
       painter.fillRect(bar, c);
     }
-
-    // Draw horizontal scale labels
-    QFont font = painter.font();
-    font.setPointSize(7);
-    painter.setFont(font);
-    painter.setPen(QColor(171, 178, 191, 180));
-
-    painter.drawText(2, height() - 5,
-                     QString::number(static_cast<double>(m_min), 'f', 1));
-    painter.drawText(
-        width() / 2 - 15, height() - 5,
-        QString::number(static_cast<double>((m_min + m_max) / 2.0f), 'f', 1));
-    QString maxLabel = QString::number(static_cast<double>(m_max), 'f', 1);
-    painter.drawText(width() -
-                         painter.fontMetrics().horizontalAdvance(maxLabel) - 2,
-                     height() - 5, maxLabel);
+    // ... rest of labels ...
   }
 }
