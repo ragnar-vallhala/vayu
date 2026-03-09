@@ -6,6 +6,7 @@
 #define CORTEX_M4
 #endif // !CORTEX_M4
 #include "navhal.h"
+#include "sensor/bmx160.h"
 
 // Physical Heartbeat LED
 #define _HEARTBEAT_LED_PIN GPIO_PB10
@@ -23,6 +24,11 @@
 #define BMX160_ACC_LOGGING_UART 1
 #define BMX160_GYR_LOGGING_UART 1
 #define BMX160_MAG_LOGGING_UART 1
+
+// ODR Configurations (using bmx160_odr_t enums)
+#define BMX_ACC_ODR BMX160_ODR_1600HZ
+#define BMX_GYR_ODR BMX160_ODR_3200HZ
+#define BMX_MAG_ODR BMX160_ODR_100HZ
 
 // Comm settings
 #define MAX_SERIAL_HANDLERS 3

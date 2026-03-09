@@ -1,6 +1,7 @@
 #pragma once
 
 #include "RealTimeGraph.h"
+#include "RollingStats.h"
 #include "Types.h"
 #include <QGroupBox>
 #include <QLabel>
@@ -22,6 +23,8 @@ public:
 
 private:
   QLabel *m_labels[3];
+  QLabel *m_stdLabels[3];
+  RollingStats m_stats[3];
   RealTimeGraph *m_graph;
 };
 

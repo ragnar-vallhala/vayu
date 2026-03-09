@@ -189,9 +189,19 @@ void MainWindow::buildUi() {
                     "font-family: Monospace;")
                 .arg(colors[i]));
     (*lblPtrs[i])->setAlignment(Qt::AlignCenter);
+    (*lblPtrs[i])->setFixedWidth(100);
+
+    QLabel **stdPtrs[] = {&m_rollStd, &m_pitchStd, &m_yawStd};
+    *stdPtrs[i] = new QLabel("± σ 0.000", container);
+    (*stdPtrs[i])
+        ->setStyleSheet(QString(
+            "color: #888888; font-size: 10px; font-family: Monospace;"));
+    (*stdPtrs[i])->setAlignment(Qt::AlignCenter);
+    (*stdPtrs[i])->setFixedWidth(100);
 
     vbox->addWidget(title);
     vbox->addWidget(*lblPtrs[i]);
+    vbox->addWidget(*stdPtrs[i]);
     numHBox->addWidget(container);
   }
   attLayout->addLayout(numHBox);
@@ -433,6 +443,10 @@ void MainWindow::onImuReceived(const ImuData &data) {
 
 void MainWindow::onAttitudeReceived(const AttitudeData &data) {
   m_latestAtt = data;
+  m_attStats[0].push(data.roll);
+  m_attStats[1].push(data.pitch);
+  m_attStats[2].push(data.yaw);
+
   m_attitude->setAttitude(data);
   ++m_pktCount;
 }
@@ -508,10 +522,21 @@ void MainWindow::onUiTimer() {
   m_imuPanel->updateImu(m_latestImu);
 
   // Update attitude numeric labels
-  auto fmt = [](float v) { return QString("%1°").arg(v, 7, 'f', 2); };
-  m_rollLabel->setText(fmt(m_latestAtt.roll));
-  m_pitchLabel->setText(fmt(m_latestAtt.pitch));
-  m_yawLabel->setText(fmt(m_latestAtt.yaw));
+  // Update attitude numeric labels (stable 20Hz update)
+  auto fmtVal = [](float v) {
+    return QString("%1°").arg(static_cast<double>(v), 7, 'f', 2);
+  };
+  auto fmtStd = [](float v) {
+    return QString("± σ %1").arg(static_cast<double>(v), 6, 'f', 3);
+  };
+
+  m_rollLabel->setText(fmtVal(m_latestAtt.roll));
+  m_pitchLabel->setText(fmtVal(m_latestAtt.pitch));
+  m_yawLabel->setText(fmtVal(m_latestAtt.yaw));
+
+  m_rollStd->setText(fmtStd(m_attStats[0].stdDev()));
+  m_pitchStd->setText(fmtStd(m_attStats[1].stdDev()));
+  m_yawStd->setText(fmtStd(m_attStats[2].stdDev()));
 
   // Update packet counter in status bar
   m_pktStatus->setText(QString("  Packets: %1  ").arg(m_pktCount));
