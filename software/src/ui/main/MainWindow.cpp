@@ -145,28 +145,38 @@ void MainWindow::buildUi() {
   m_attitude = new AttitudeWidget(attGroup);
   attLayout->addWidget(m_attitude, 1);
 
-  // Numeric roll/pitch/yaw labels
-  auto *numGrid = new QGridLayout;
+  // Numeric roll/pitch/yaw labels in a horizontal line
+  auto *numHBox = new QHBoxLayout;
+  numHBox->setContentsMargins(10, 0, 10, 5);
+  numHBox->setSpacing(20);
+
   const char *lblNames[] = {"Roll", "Pitch", "Yaw"};
   QLabel **lblPtrs[] = {&m_rollLabel, &m_pitchLabel, &m_yawLabel};
   const char *colors[] = {"#FF6B6B", "#4ECDC4", "#FFE66D"};
 
   for (int i = 0; i < 3; ++i) {
-    auto *title = new QLabel(QString("<b>%1</b>").arg(lblNames[i]), attGroup);
-    title->setStyleSheet(QString("color: %1; font-size: 12px;").arg(colors[i]));
-    title->setAlignment(Qt::AlignRight);
+    auto *container = new QWidget(attGroup);
+    auto *vbox = new QVBoxLayout(container);
+    vbox->setContentsMargins(0, 0, 0, 0);
+    vbox->setSpacing(2);
 
-    *lblPtrs[i] = new QLabel("  0.00°", attGroup);
+    auto *title = new QLabel(QString("<b>%1</b>").arg(lblNames[i]), container);
+    title->setStyleSheet(QString("color: %1; font-size: 11px;").arg(colors[i]));
+    title->setAlignment(Qt::AlignCenter);
+
+    *lblPtrs[i] = new QLabel("0.00°", container);
     (*lblPtrs[i])
-        ->setStyleSheet(QString("color: %1; font-size: 18px; font-weight: "
-                                "bold; font-family: Monospace;")
-                            .arg(colors[i]));
-    (*lblPtrs[i])->setAlignment(Qt::AlignLeft);
+        ->setStyleSheet(
+            QString("color: %1; font-size: 16px; font-weight: bold; "
+                    "font-family: Monospace;")
+                .arg(colors[i]));
+    (*lblPtrs[i])->setAlignment(Qt::AlignCenter);
 
-    numGrid->addWidget(title, i, 0);
-    numGrid->addWidget(*lblPtrs[i], i, 1);
+    vbox->addWidget(title);
+    vbox->addWidget(*lblPtrs[i]);
+    numHBox->addWidget(container);
   }
-  attLayout->addLayout(numGrid);
+  attLayout->addLayout(numHBox);
   topSplitter->addWidget(attGroup);
 
   // ---- IMU Panel ----

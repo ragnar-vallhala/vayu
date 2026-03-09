@@ -151,28 +151,42 @@ void AttitudeWidget::drawCrosshair(QPainter &p, int cx, int cy) {
 }
 
 void AttitudeWidget::drawCompass(QPainter &p, int W, int H) {
-  // Thin heading strip at the bottom
-  const int stripH = 28;
-  const int y0 = H - stripH - 4;
-
-  p.fillRect(0, y0, W, stripH, QColor(20, 24, 32, 210));
-  p.setPen(QColor(200, 210, 220));
+  const int cx = W / 2, cy = H / 2;
+  const int r = qMin(W, H) / 2 - 6;
 
   QFont f;
-  f.setPixelSize(11);
+  f.setPixelSize(10);
   f.setBold(true);
   p.setFont(f);
 
-  // Draw ±60° of heading labels centred on current yaw
-  const float degPerPx = 1.5f;
+  // Draw ticks and labels along the bottom arc of the circle
+  // Centred on current yaw at the bottom (90 deg)
   for (int d = -60; d <= 60; d += 10) {
     int hdg = ((int)(m_yaw + d) % 360 + 360) % 360;
-    int x = W / 2 + (int)(d / degPerPx);
-    // Tick
+
+    // Position on circle in degrees (90 is the bottom)
+    float angleDeg = 90.0f + d;
+    float angleRad = qDegreesToRadians(angleDeg);
+
+    // Tick (polar to cartesian)
+    float x_o = cx + r * qCos(angleRad);
+    float y_o = cy + r * qSin(angleRad);
+    float x_i = cx + (r - 8) * qCos(angleRad);
+    float y_i = cy + (r - 8) * qSin(angleRad);
+
     p.setPen(QPen(QColor(160, 170, 180), 1));
-    p.drawLine(x, y0, x, y0 + 8);
+    p.drawLine(QPointF(x_i, y_i), QPointF(x_o, y_o));
+
     // Label
     p.setPen(QColor(220, 230, 240));
+    if (d == 0) {
+      QFont fCenter = f;
+      fCenter.setPixelSize(26);
+      p.setFont(fCenter);
+    } else {
+      p.setFont(f);
+    }
+
     QString label;
     if (hdg == 0)
       label = "N";
@@ -184,14 +198,19 @@ void AttitudeWidget::drawCompass(QPainter &p, int W, int H) {
       label = "W";
     else
       label = QString::number(hdg);
-    p.drawText(x - 10, y0 + 11, 20, 16, Qt::AlignHCenter, label);
+
+    float text_r = (d == 0) ? r - 22 : r - 18;
+    float x_t = cx + text_r * qCos(angleRad);
+    float y_t = cy + text_r * qSin(angleRad);
+
+    p.drawText(QRectF(x_t - 20, y_t - 10, 40, 20), Qt::AlignCenter, label);
   }
 
-  // Centre triangle pointer
+  // Pointer at the bottom point of the circle
   p.setBrush(QColor(255, 220, 50));
   p.setPen(Qt::NoPen);
   QPolygon ptr;
-  ptr << QPoint(W / 2 - 5, y0) << QPoint(W / 2 + 5, y0)
-      << QPoint(W / 2, y0 + 7);
+  ptr << QPoint(cx - 5, cy + r - 2) << QPoint(cx + 5, cy + r - 2)
+      << QPoint(cx, cy + r - 10);
   p.drawPolygon(ptr);
 }

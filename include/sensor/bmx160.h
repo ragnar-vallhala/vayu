@@ -1,5 +1,6 @@
 #ifndef VAYU_BMX160_H
 #define VAYU_BMX160_H
+#include "maths/sensor_fusion.h"
 #include "navhal.h"
 #include <stdint.h>
 
@@ -114,6 +115,7 @@ typedef struct {
   // Mag configuration
   uint8_t bmx160_mag_odr; // 4 bit number converted to ODR in Hz
 } bmx160_config_t;
+
 // Reading structures
 typedef struct {
   int16_t acc[3];
@@ -158,10 +160,10 @@ bmx160_err_type bmx160_read_mag_raw(int16_t *raw);
 bmx160_err_type bmx160_read_all_raw(bmx160_all_reading_t *raw);
 
 // IMU converted APIs
-bmx160_err_type bmx160_read_acc_mps2(float *data);                     //[TODO]
-bmx160_err_type bmx160_read_gyr_dps(float *data);                      //[TODO]
-bmx160_err_type bmx160_read_mag_uT(float *data);                       //[TODO]
-bmx160_err_type bmx160_read_all_converted(bmx160_all_reading_t *data); //[TODO]
+bmx160_err_type bmx160_read_acc_mps2(float *data);                    
+bmx160_err_type bmx160_read_gyr_dps(float *data);                     
+bmx160_err_type bmx160_read_mag_uT(float *data);                      
+bmx160_err_type bmx160_read_all_converted(bmx160_all_reading_t *data);
 
 // Config APIs
 bmx160_err_type bmx160_read_config(bmx160_config_t *config);
@@ -190,4 +192,5 @@ float bmx160_mag_odr_to_hz(uint8_t raw); //[TODO]
 // Getters and Setter for static variables
 bmx160_config_t bmx160_get_current_config(void);
 void bmx160_set_current_config(bmx160_config_t *cfg);
+void bmx160_get_attitude(attitude_t *att);
 #endif // !VAYU_BMX160_H

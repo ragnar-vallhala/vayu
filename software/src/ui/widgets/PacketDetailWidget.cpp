@@ -87,6 +87,14 @@ void PacketDetailWidget::setData(const QByteArray &data) {
             new QTreeWidgetItem(
                 payloadItem,
                 {"Temp", QString::number(arg.tempC, 'f', 2) + " °C"});
+          } else if constexpr (std::is_same_v<T, AttitudeData>) {
+            new QTreeWidgetItem(
+                payloadItem, {"Roll", QString::number(arg.roll, 'f', 2) + "°"});
+            new QTreeWidgetItem(
+                payloadItem,
+                {"Pitch", QString::number(arg.pitch, 'f', 2) + "°"});
+            new QTreeWidgetItem(
+                payloadItem, {"Yaw", QString::number(arg.yaw, 'f', 2) + "°"});
           } else if constexpr (std::is_same_v<T, QString>) {
             new QTreeWidgetItem(payloadItem, {"Message", arg});
           } else {

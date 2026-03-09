@@ -1,44 +1,30 @@
 #include "maths/maths_interface.h"
+#include <math.h>
 
 // -------------------------
 // sin(x)
 // -------------------------
-float m_sin(float x) {
-  // TODO: Implement custom sin algorithm
-  return 0.0f;
-}
+float m_sin(float x) { return sinf(x); }
 
 // -------------------------
 // cos(x)
 // -------------------------
-float m_cos(float x) {
-  // TODO: Implement custom cos algorithm
-  return 0.0f;
-}
+float m_cos(float x) { return cosf(x); }
 
 // -------------------------
 // atan2(y, x)
 // -------------------------
-float m_atan2(float y, float x) {
-  // TODO: Implement custom atan2 algorithm
-  return 0.0f;
-}
+float m_atan2(float y, float x) { return atan2f(y, x); }
 
 // -------------------------
 // sqrt(x)
 // -------------------------
-float m_sqrt(float x) {
-  // TODO: Implement custom sqrt algorithm
-  return 0.0f;
-}
+float m_sqrt(float x) { return sqrtf(x); }
 
 // -------------------------
 // pow(base, exp)
 // -------------------------
-float m_pow(float base, float exp) {
-  // TODO: Implement custom pow algorithm
-  return 0.0f;
-}
+float m_pow(float base, float exp) { return powf(base, exp); }
 
 // -------------------------
 // normalize vector

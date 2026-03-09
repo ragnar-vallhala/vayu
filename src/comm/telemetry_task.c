@@ -1,11 +1,12 @@
 #include "comm/comm_types.h"
 #include "comm/serializer.h"
 #include "core/cortex-m4/uart.h"
+#include "maths/sensor_fusion.h"
 #include "sensor/bmx160.h"
 #include "sensor/imu_buffer.h"
+#include "utils.h"
 #include "utils/math_utils.h"
 #include "utils/utils.h"
-#include "utils.h"
 #include "vaios.h"
 #include "variables.h"
 #include <stdint.h>
@@ -46,42 +47,50 @@ void imu_telemetry_task(void *args) {
         sum_temp += samples[i].converted.temp;
       }
 
-      // 1. Convert averages to floats (SI units)
       current_floats[0] = (float)sum_acc[0] / count;
       current_floats[1] = (float)sum_acc[1] / count;
       current_floats[2] = (float)sum_acc[2] / count;
-
       current_floats[3] = (float)sum_gyr[0] / count;
       current_floats[4] = (float)sum_gyr[1] / count;
       current_floats[5] = (float)sum_gyr[2] / count;
-
       current_floats[6] = (float)sum_mag[0] / count;
       current_floats[7] = (float)sum_mag[1] / count;
       current_floats[8] = (float)sum_mag[2] / count;
-
       current_floats[9] = (float)sum_temp / count;
-
-      // 2. Decide between Full and Delta
-      bool send_full = first_packet || (packet_counter % 10 == 0);
-
-      if (send_full) {
-        send_packet(&uart_channel, PACKET_TYPE_IMU_DATA_FULL,
-                    (uint8_t *)current_floats, 40);
-        memcpy(previous_floats, current_floats, sizeof(current_floats));
-        first_packet = false;
-      } else {
-        uint16_t delta_payload[10];
-        for (int i = 0; i < 10; i++) {
-          delta_payload[i] =
-              float32_to_float16(current_floats[i] - previous_floats[i]);
-        }
-        send_packet(&uart_channel, PACKET_TYPE_IMU_DATA_COMPRESSED,
-                    (uint8_t *)delta_payload, 20);
-      }
-      packet_counter++;
     }
 
-    // Run at 100Hz
-    v_delay(50);
+    // 150 Hz Base Loop (approx 6.66ms)
+    // - 1 Hz: Full IMU (every 150 ticks)
+    // - 50 Hz: Compressed IMU (every 3 ticks)
+    // - 10 Hz: Attitude (every 15 ticks)
+
+    bool send_full = (packet_counter % 150 == 0);
+    bool send_comp = (packet_counter % 3 == 0);
+    bool send_att = (packet_counter % 15 == 0);
+
+    if (send_full) {
+      send_packet(&uart_channel, PACKET_TYPE_IMU_DATA_FULL,
+                  (uint8_t *)current_floats, 40);
+      memcpy(previous_floats, current_floats, sizeof(current_floats));
+      first_packet = false;
+    } else if (send_comp && !first_packet) {
+      uint16_t delta_payload[10];
+      for (int i = 0; i < 10; i++) {
+        delta_payload[i] =
+            float32_to_float16(current_floats[i] - previous_floats[i]);
+      }
+      send_packet(&uart_channel, PACKET_TYPE_IMU_DATA_COMPRESSED,
+                  (uint8_t *)delta_payload, 20);
+    }
+
+    if (send_att) {
+      attitude_t att;
+      bmx160_get_attitude(&att);
+      float att_vals[3] = {att.roll, att.pitch, att.yaw};
+      send_packet(&uart_channel, PACKET_TYPE_ATTITUDE, (uint8_t *)att_vals, 12);
+    }
+
+    packet_counter++;
+    v_delay(6); // ~150 Hz
   }
 }
