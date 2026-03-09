@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../../core/SettingsManager.h"
 #include <QDoubleSpinBox>
 #include <QPushButton>
 #include <QSpinBox>
@@ -10,6 +11,9 @@ class SettingsWidget : public QWidget {
 
 public:
   explicit SettingsWidget(QWidget *parent = nullptr);
+
+  void setSettings(const GcsSettings &s);
+  GcsSettings getSettings() const;
 
 signals:
   void backToHomeRequested();

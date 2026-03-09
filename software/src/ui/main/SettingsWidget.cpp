@@ -88,3 +88,25 @@ SettingsWidget::SettingsWidget(QWidget *parent) : QWidget(parent) {
           &SettingsWidget::backToHomeRequested);
   layout->addWidget(backBtn);
 }
+
+void SettingsWidget::setSettings(const GcsSettings &s) {
+  m_syncPeriodSpin->blockSignals(true);
+  m_syncPeriodSpin->setValue(s.syncPeriodMs);
+  m_syncPeriodSpin->blockSignals(false);
+
+  m_graphWindowSpin->blockSignals(true);
+  m_graphWindowSpin->setValue(s.graphWindowSec);
+  m_graphWindowSpin->blockSignals(false);
+
+  m_graphDropoutSpin->blockSignals(true);
+  m_graphDropoutSpin->setValue(s.graphDropoutRate);
+  m_graphDropoutSpin->blockSignals(false);
+}
+
+GcsSettings SettingsWidget::getSettings() const {
+  GcsSettings s;
+  s.syncPeriodMs = m_syncPeriodSpin->value();
+  s.graphWindowSec = m_graphWindowSpin->value();
+  s.graphDropoutRate = m_graphDropoutSpin->value();
+  return s;
+}

@@ -34,6 +34,7 @@ set(GCS_SOURCES
     src/protocol/PacketDecoder.cpp
     src/ui/widgets/PacketDetailWidget.cpp
     src/ui/widgets/RealTimeGraph.cpp
+    src/core/SettingsManager.cpp
 )
 
 set(GCS_HEADERS
@@ -50,6 +51,7 @@ set(GCS_HEADERS
     src/protocol/PacketDecoder.h
     src/ui/widgets/PacketDetailWidget.h
     src/ui/widgets/RealTimeGraph.h
+    src/core/SettingsManager.h
 )
 
 set(GCS_RESOURCES
