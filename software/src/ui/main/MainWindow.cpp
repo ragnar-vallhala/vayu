@@ -1,4 +1,5 @@
 #include "MainWindow.h"
+#include "../core/SettingsManager.h"
 #include "../core/crc.h"
 
 #include <QAction>
@@ -97,11 +98,28 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
               m_logPanel->appendLog(
                   QString("[GCS] Sync period updated to %1 ms").arg(ms));
             }
+            SettingsManager::save(m_settingsWidget->getSettings());
           });
-  connect(m_settingsWidget, &SettingsWidget::graphWindowChanged, m_imuPanel,
-          &ImuPanel::setGraphWindow);
-  connect(m_settingsWidget, &SettingsWidget::graphDropoutChanged, m_imuPanel,
-          &ImuPanel::setGraphDropout);
+  connect(m_settingsWidget, &SettingsWidget::graphWindowChanged, this,
+          [this](int seconds) {
+            m_imuPanel->setGraphWindow(seconds);
+            SettingsManager::save(m_settingsWidget->getSettings());
+          });
+  connect(m_settingsWidget, &SettingsWidget::graphDropoutChanged, this,
+          [this](double rate) {
+            m_imuPanel->setGraphDropout(rate);
+            SettingsManager::save(m_settingsWidget->getSettings());
+          });
+
+  // Load and apply persistent settings
+  GcsSettings savedSettings;
+  if (SettingsManager::load(savedSettings)) {
+    m_settingsWidget->setSettings(savedSettings);
+    // Trigger the actual logic changes
+    m_syncTimer->setInterval(savedSettings.syncPeriodMs);
+    m_imuPanel->setGraphWindow(savedSettings.graphWindowSec);
+    m_imuPanel->setGraphDropout(savedSettings.graphDropoutRate);
+  }
 
   buildMenuBar();
   buildToolBar();
