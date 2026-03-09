@@ -29,7 +29,7 @@ void PacketDetailWidget::setData(const QByteArray &data) {
   if (data.isEmpty())
     return;
 
-  DecodedPacket pkt = PacketDecoder::decode(data);
+  DecodedPacket pkt = m_decoder.decode(data);
 
   // Header Info
   auto *headerItem = new QTreeWidgetItem(m_tree, {"Header", ""});

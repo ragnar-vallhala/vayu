@@ -1,5 +1,6 @@
 #pragma once
 
+#include "PacketDecoder.h"
 #include "Types.h"
 #include <QByteArray>
 #include <QObject>
@@ -36,5 +37,6 @@ signals:
 
 private:
   QByteArray m_buffer;
+  PacketDecoder m_decoder;
   void parseBuffer();
 };

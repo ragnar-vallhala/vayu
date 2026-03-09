@@ -1,18 +1,25 @@
 #include "comm/comm_types.h"
 #include "comm/serializer.h"
 #include "core/cortex-m4/uart.h"
+#include "sensor/bmx160.h"
 #include "sensor/imu_buffer.h"
+#include "utils/math_utils.h"
 #include "utils/utils.h"
+#include "utils.h"
 #include "vaios.h"
 #include "variables.h"
 #include <stdint.h>
+#include <string.h>
 
 void imu_telemetry_task(void *args) {
   (void)args;
   static bmx160_all_reading_t samples[IMU_BUFFER_SIZE];
-  int16_t payload[10]; // Acc[3], Gyr[3], Mag[3], Temp
-  channel_t uart_channel;
+  float current_floats[10];  // Acc[3], Gyr[3], Mag[3], Temp
+  float previous_floats[10]; // For delta calculation
+  bool first_packet = true;
+  uint32_t packet_counter = 0;
 
+  channel_t uart_channel;
   serial_args_t uart_args = {
       .baud_rate = 115200, .uart = UART2, .timeout = 100};
 
@@ -25,38 +32,56 @@ void imu_telemetry_task(void *args) {
     int count = imu_buffer_pop_all(samples, IMU_BUFFER_SIZE);
 
     if (count > 0) {
-      int32_t sum_acc[3] = {0, 0, 0};
-      int32_t sum_gyr[3] = {0, 0, 0};
-      int32_t sum_mag[3] = {0, 0, 0};
-      int32_t sum_temp = 0;
+      float sum_acc[3] = {0, 0, 0};
+      float sum_gyr[3] = {0, 0, 0};
+      float sum_mag[3] = {0, 0, 0};
+      float sum_temp = 0;
 
       for (int i = 0; i < count; i++) {
         for (int j = 0; j < 3; j++) {
-          sum_acc[j] += samples[i].raw.acc[j];
-          sum_gyr[j] += samples[i].raw.gyr[j];
-          sum_mag[j] += samples[i].raw.mag[j];
+          sum_acc[j] += samples[i].converted.acc[j];
+          sum_gyr[j] += samples[i].converted.gyr[j];
+          sum_mag[j] += samples[i].converted.mag[j];
         }
-        sum_temp += samples[i].raw.temp;
+        sum_temp += samples[i].converted.temp;
       }
 
-      // Calculate averages
-      payload[0] = (int16_t)(sum_acc[0] / count);
-      payload[1] = (int16_t)(sum_acc[1] / count);
-      payload[2] = (int16_t)(sum_acc[2] / count);
-      payload[3] = (int16_t)(sum_gyr[0] / count);
-      payload[4] = (int16_t)(sum_gyr[1] / count);
-      payload[5] = (int16_t)(sum_gyr[2] / count);
-      payload[6] = (int16_t)(sum_mag[0] / count);
-      payload[7] = (int16_t)(sum_mag[1] / count);
-      payload[8] = (int16_t)(sum_mag[2] / count);
-      payload[9] = (int16_t)(sum_temp / count);
+      // 1. Convert averages to floats (SI units)
+      current_floats[0] = (float)sum_acc[0] / count;
+      current_floats[1] = (float)sum_acc[1] / count;
+      current_floats[2] = (float)sum_acc[2] / count;
 
-      // Send packet (20 bytes payload)
-      send_packet(&uart_channel, PACKET_TYPE_IMU_DATA_FULL, (uint8_t *)payload,
-                  20);
+      current_floats[3] = (float)sum_gyr[0] / count;
+      current_floats[4] = (float)sum_gyr[1] / count;
+      current_floats[5] = (float)sum_gyr[2] / count;
+
+      current_floats[6] = (float)sum_mag[0] / count;
+      current_floats[7] = (float)sum_mag[1] / count;
+      current_floats[8] = (float)sum_mag[2] / count;
+
+      current_floats[9] = (float)sum_temp / count;
+
+      // 2. Decide between Full and Delta
+      bool send_full = first_packet || (packet_counter % 10 == 0);
+
+      if (send_full) {
+        send_packet(&uart_channel, PACKET_TYPE_IMU_DATA_FULL,
+                    (uint8_t *)current_floats, 40);
+        memcpy(previous_floats, current_floats, sizeof(current_floats));
+        first_packet = false;
+      } else {
+        uint16_t delta_payload[10];
+        for (int i = 0; i < 10; i++) {
+          delta_payload[i] =
+              float32_to_float16(current_floats[i] - previous_floats[i]);
+        }
+        send_packet(&uart_channel, PACKET_TYPE_IMU_DATA_COMPRESSED,
+                    (uint8_t *)delta_payload, 20);
+      }
+      packet_counter++;
     }
 
     // Run at 100Hz
-    v_delay(10);
+    v_delay(50);
   }
 }

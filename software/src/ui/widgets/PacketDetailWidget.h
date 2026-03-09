@@ -17,4 +17,5 @@ private:
   void setupUi();
 
   QTreeWidget *m_tree;
+  PacketDecoder m_decoder;
 };
