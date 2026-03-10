@@ -1,4 +1,5 @@
 #include "PacketAnalyzerWidget.h"
+#include "FrequencyRibbon.h"
 #include "PacketDetailWidget.h"
 #include <QFileDialog>
 #include <QHeaderView>
@@ -9,8 +10,11 @@
 
 PacketAnalyzerWidget::PacketAnalyzerWidget(QWidget *parent) : QWidget(parent) {
   auto *layout = new QVBoxLayout(this);
-  layout->setContentsMargins(8, 8, 8, 8);
+  layout->setContentsMargins(8, 0, 8, 8); // Top margin 0 for ribbon
   layout->setSpacing(8);
+
+  m_freqRibbon = new FrequencyRibbon(this);
+  layout->addWidget(m_freqRibbon);
 
   // Top control bar
   auto *topBar = new QHBoxLayout();
@@ -235,4 +239,10 @@ void PacketAnalyzerWidget::onItemClicked(QTableWidgetItem *item) {
 
   QByteArray rawData = dataItem->data(Qt::UserRole).toByteArray();
   m_detailView->setData(rawData);
+}
+
+void PacketAnalyzerWidget::setProtocol(DroneProtocol *protocol) {
+  if (m_freqRibbon) {
+    m_freqRibbon->setProtocol(protocol);
+  }
 }
