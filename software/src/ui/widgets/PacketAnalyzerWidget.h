@@ -11,12 +11,15 @@
 #include <QWidget>
 
 class PacketDetailWidget;
+class FrequencyRibbon;
 class PacketAnalyzerWidget : public QWidget {
   Q_OBJECT
 
 public:
   explicit PacketAnalyzerWidget(QWidget *parent = nullptr);
   ~PacketAnalyzerWidget() override = default;
+
+  void setProtocol(class DroneProtocol *protocol);
 
 public slots:
   void logRxPacket(const QByteArray &data);
@@ -35,6 +38,7 @@ private:
   void addRow(const QString &dir, const QByteArray &data);
   void writeToStream(const QString &dir, const QByteArray &data);
 
+  FrequencyRibbon *m_freqRibbon = nullptr;
   QTableWidget *m_table;
   QPushButton *m_btnClear;
   QPushButton *m_btnSave;

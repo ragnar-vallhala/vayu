@@ -74,6 +74,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
 
   // Build Packet Analyzer
   m_analyzerWidget = new PacketAnalyzerWidget(this);
+  m_analyzerWidget->setProtocol(m_protocol);
   m_stackedWidget->addWidget(m_analyzerWidget);
 
   // Wire Protocol and Serial to Analyzer

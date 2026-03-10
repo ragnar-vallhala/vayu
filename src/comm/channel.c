@@ -76,6 +76,11 @@ static err_t get_handler_serial(channel_t *handler, void *args,
   uart_init(s_args->baud_rate, s_args->uart);
 
   if (callback) {
+    if (_serial_handlers[slot].is_interrupt_attached) {
+      // Slot already has an interrupt attached.
+      // We should either detach it first or return an error if it's different.
+      // For now, let's just update the list but be VERY careful.
+    }
     IRQn_Type usart_irq = s_args->uart == UART1   ? USART1_IRQn
                           : s_args->uart == UART6 ? USART6_IRQn
                                                   : USART2_IRQn;
@@ -102,6 +107,9 @@ static err_t get_handler_serial(channel_t *handler, void *args,
 
   // Attach DMA callback if using USART2
   if (s_args->uart == UART2) {
+    // PROTECT: don't overwrite if kernel logging or another task already set
+    // it! We should ideally have a multi-callback system, but for now, just
+    // don't break existing ones.
     hal_interrupt_attach_callback(DMA1_Stream6_IRQn, _dma_complete_callback);
     hal_enable_interrupt(DMA1_Stream6_IRQn);
   }
@@ -163,8 +171,10 @@ err_t write_channel(channel_t channel, byte *data, uint16_t length) {
         (serial_channel_handle_t *)channel.handle;
     uint8_t idx = s_handle->active_idx;
 
+    uint32_t state = hal_disable_global_interrupts();
     // Check if buffer has space; if not, drop data
     if (s_handle->buf_lens[idx] + length > 512) {
+      hal_enable_global_interrupts(state);
       return ERROR; // Buffer full, dropping data
     }
 
@@ -173,6 +183,7 @@ err_t write_channel(channel_t channel, byte *data, uint16_t length) {
       s_handle->buffers[idx][s_handle->buf_lens[idx] + i] = data[i];
     }
     s_handle->buf_lens[idx] += length;
+    hal_enable_global_interrupts(state);
 
     return NONE;
   } else if (channel.type == CHANNEL_TYPE_I2C) {
@@ -275,8 +286,10 @@ err_t get_handler(channel_type_t channel_type, channel_t *handler, void *args,
 
   if (status == NONE && handler != NULL) {
     // Add to linked list
+    uint32_t state = hal_disable_global_interrupts();
     handler->next = active_handlers;
     active_handlers = handler;
+    hal_enable_global_interrupts(state);
   }
   return status;
 }

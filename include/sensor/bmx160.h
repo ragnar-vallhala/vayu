@@ -156,7 +156,9 @@ typedef union {
 hal_i2c_status_t bmx160_init(void);
 uint16_t bmx160_get_chip_id(void);
 // Sensor reading trigger and callback
-void bmx160_initiate_read(void);
+
+void wake_imu_read_task();
+void bmx160_initiate_read(void *args);
 void bmx160_dma_callback(void);
 
 // soft reset

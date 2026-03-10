@@ -2,6 +2,7 @@
 #include "maths/sensor_fusion.h"
 #include "navhal.h"
 #include "sensor/imu_buffer.h"
+#include "task.h"
 #include "utils.h"
 #include "vaios.h"
 #include "variables.h"
@@ -579,7 +580,12 @@ float bmx160_raw_mag_to_uT(int16_t raw) {
 bmx160_config_t bmx160_get_current_config(void) { return bmx160_cfg; }
 void bmx160_set_current_config(bmx160_config_t *cfg) { bmx160_cfg = *cfg; }
 
-void bmx160_initiate_read(void) {
+extern uint32_t bmx160_task_id;
+
+// Run from ISR
+void wake_imu_read_task(void) { task_unblock(bmx160_task_id); }
+
+void bmx160_initiate_read(void *args) {
   // Trigger DMA read for 30 bytes (MagX_LSB 0x04 to Temp_MSB 0x21)
   dma_config_t i2c_dma_cfg = {
       .controller = DMA_CONTROLLER_1,
@@ -594,9 +600,11 @@ void bmx160_initiate_read(void) {
       .data_width = DMA_DATA_WIDTH_8,
       .priority = DMA_PRIORITY_VERY_HIGH,
       .circular = 0};
-
-  hal_i2c_read_regs_dma(I2C1, BMX160_I2C_ADDR, 0x04, &i2c_dma_cfg,
-                        bmx160_dma_callback);
+  while (1) {
+    hal_i2c_read_regs_dma(I2C1, BMX160_I2C_ADDR, 0x04, &i2c_dma_cfg,
+                          bmx160_dma_callback);
+    task_block();
+  }
 }
 
 void bmx160_dma_callback(void) {
