@@ -17,7 +17,7 @@ void imu_telemetry_task(void *args) {
   static bmx160_all_reading_t samples[IMU_BUFFER_SIZE];
   float current_floats[10];  // Acc[3], Gyr[3], Mag[3], Temp
   float previous_floats[10]; // For delta calculation
-  bool z = true;
+  bool first_packet = true;
   uint32_t packet_counter = 0;
 
   channel_t uart_channel;
@@ -81,6 +81,7 @@ void imu_telemetry_task(void *args) {
       }
       send_packet(&uart_channel, PACKET_TYPE_IMU_DATA_COMPRESSED,
                   (uint8_t *)delta_payload, 20);
+      memcpy(previous_floats, current_floats, sizeof(current_floats));
     }
 
     if (send_att) {
