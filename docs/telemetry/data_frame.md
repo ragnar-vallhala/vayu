@@ -23,6 +23,7 @@ packet-beta
     64-127: "Generic Payload [64:NR]"
     128-159: "CRC32 [128:NR+32]"
 ```
+
 **Sync** is used to synchronize the receiver with the sender. It is a 8-bit value that is used to identify the sync. Only value it has is 0x56.
 
 **Protocol Version** is used to identify the protocol version. It is a 4-bit value that is used to identify the protocol version. This will start from 1 and will increment by 1 for each new version till 0xE. 0xF is reserved for future use.
@@ -40,13 +41,19 @@ packet-beta
 **CRC32** is used to identify the CRC32. This is CRC value for all the above bytes.
 
 ---
+
 ## Packet Types
-- [Heartbeat](heartbeat.md)
-- [IMU Data](IMU_data.md)
+
+- [Heartbeat](heartbeat.md) (0x0)
+- [IMU Data](IMU_data.md) (0x1, 0x2)
+- [Attitude Data](attitude.md) (0x4)
+- [RC Data](rc_channels.md) (0x5)
 
 ---
+
 ## Changelog
 
-|Date|Author|Description|
-|----|----|----|
-|06/03/2026|Ashutosh Vishwakarma|Initial version|
+| Date       | Author               | Description                        |
+| ---------- | -------------------- | ---------------------------------- |
+| 06/03/2026 | Ashutosh Vishwakarma | Initial version                    |
+| 11/03/2026 | Antigravity          | Added Attitude and RC Data packets |

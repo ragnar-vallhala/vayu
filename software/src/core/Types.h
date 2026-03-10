@@ -23,6 +23,14 @@ struct AttitudeData {
 };
 
 // -----------------------------------------------------------
+// RC Channels – raw values (us)
+// -----------------------------------------------------------
+struct RcData {
+  uint16_t channels[14] = {0};
+  uint64_t timestamp = 0;
+};
+
+// -----------------------------------------------------------
 // Connection state
 // -----------------------------------------------------------
 enum class ConnectionState { Disconnected, Connecting, Connected, Error };

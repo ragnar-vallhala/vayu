@@ -15,6 +15,7 @@ FrequencyRibbon::FrequencyRibbon(QWidget *parent) : QWidget(parent) {
   addPacketType("IMU", "IMU", "#4ECDC4");      // Teal
   addPacketType("ATT", "Attitude", "#FF6B6B"); // Coral
   addPacketType("HB", "Heartbeat", "#FFE66D"); // Yellow
+  addPacketType("RC", "RC", "#98C379");        // Green
   addPacketType("LOG", "LOG", "#ABB2BF");      // Gray
   addPacketType("RAW", "RAW/UNK", "#C678DD");  // Purple
 
@@ -45,6 +46,10 @@ void FrequencyRibbon::setProtocol(DroneProtocol *protocol) {
   });
   connect(protocol, &DroneProtocol::heartbeatReceived, this, [this]() {
     m_stats["HB"].count++;
+    m_stats["TOTAL"].count++;
+  });
+  connect(protocol, &DroneProtocol::rcReceived, this, [this]() {
+    m_stats["RC"].count++;
     m_stats["TOTAL"].count++;
   });
   connect(protocol, &DroneProtocol::logReceived, this, [this]() {

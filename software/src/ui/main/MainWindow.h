@@ -13,6 +13,7 @@
 #include "ImuPanel.h"
 #include "LogPanel.h"
 #include "PacketAnalyzerWidget.h"
+#include "RcChannelsWidget.h"
 #include "RollingStats.h"
 #include "SerialManager.h"
 #include "SettingsWidget.h"
@@ -29,6 +30,7 @@ private slots:
   // Navigation
   void showHome();
   void showPacketAnalyzer();
+  void showRcMonitor();
   void showSettings();
   // Toolbar actions
   void onConnectClicked();
@@ -38,6 +40,7 @@ private slots:
   // Data callbacks
   void onImuReceived(const ImuData &data);
   void onAttitudeReceived(const AttitudeData &data);
+  void onRcReceived(const RcData &data);
   void onLogReceived(const QString &msg);
 
   // Serial state
@@ -70,6 +73,7 @@ private:
   AttitudeWidget *m_attitude = nullptr;
   LogPanel *m_logPanel = nullptr;
   PacketAnalyzerWidget *m_analyzerWidget = nullptr;
+  RcChannelsWidget *m_rcWidget = nullptr;
   SettingsWidget *m_settingsWidget = nullptr;
   QStackedWidget *m_stackedWidget = nullptr;
   QWidget *m_homeWidget = nullptr;

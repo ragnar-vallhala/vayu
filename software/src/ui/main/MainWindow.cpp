@@ -36,6 +36,9 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   m_syncTimer = new QTimer(this);
   m_elapsed.start();
 
+  m_stackedWidget = new QStackedWidget(this);
+  setCentralWidget(m_stackedWidget);
+
   // Wire serial → protocol → UI
   connect(m_serial, &SerialManager::dataReceived, m_protocol,
           &DroneProtocol::processData);
@@ -59,6 +62,14 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
           &MainWindow::onHeartbeatReceived);
   connect(m_protocol, &DroneProtocol::timeSyncRequested, this,
           &MainWindow::onTimeSyncRequested);
+  connect(m_protocol, &DroneProtocol::rcReceived, this,
+          &MainWindow::onRcReceived);
+
+  m_rcWidget = new RcChannelsWidget(this);
+  m_stackedWidget->addWidget(m_rcWidget);
+
+  connect(m_rcWidget, &RcChannelsWidget::backToHomeRequested, this,
+          &MainWindow::showHome);
 
   // Periodic status refresh at 20 Hz for smoother fade
   connect(m_uiTimer, &QTimer::timeout, this, &MainWindow::onUiTimer);
@@ -66,9 +77,6 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
 
   connect(m_syncTimer, &QTimer::timeout, this,
           &MainWindow::onTimeSyncRequested);
-
-  m_stackedWidget = new QStackedWidget(this);
-  setCentralWidget(m_stackedWidget);
 
   buildUi(); // Built as m_homeWidget
 
@@ -138,6 +146,10 @@ void MainWindow::showHome() { m_stackedWidget->setCurrentWidget(m_homeWidget); }
 
 void MainWindow::showPacketAnalyzer() {
   m_stackedWidget->setCurrentWidget(m_analyzerWidget);
+}
+
+void MainWindow::showRcMonitor() {
+  m_stackedWidget->setCurrentWidget(m_rcWidget);
 }
 
 void MainWindow::showSettings() {
@@ -267,6 +279,9 @@ void MainWindow::buildMenuBar() {
   QMenu *settingsMenu = menu->addMenu("&Settings");
   settingsMenu->addAction("&Configuration", this, &MainWindow::showSettings);
 
+  QMenu *windowMenu = menu->addMenu("&Window");
+  windowMenu->addAction("&Channels", this, &MainWindow::showRcMonitor);
+
   fileMenu->addSeparator();
 
   QAction *exitAction = fileMenu->addAction("E&xit");
@@ -349,6 +364,16 @@ void MainWindow::buildToolBar() {
                           "border-color: #3A3A3A; background: #252525; }");
   connect(m_armBtn, &QPushButton::clicked, this, &MainWindow::onArmClicked);
   tb->addWidget(m_armBtn);
+
+  tb->addSeparator();
+
+  // RC Monitor
+  auto *rcBtn = new QPushButton("RC", this);
+  rcBtn->setToolTip("Open RC Channels Monitor");
+  rcBtn->setFixedWidth(32);
+  rcBtn->setStyleSheet("QPushButton { font-weight: bold; }");
+  connect(rcBtn, &QPushButton::clicked, this, &MainWindow::showRcMonitor);
+  tb->addWidget(rcBtn);
 
   tb->addSeparator();
 
@@ -454,6 +479,11 @@ void MainWindow::onAttitudeReceived(const AttitudeData &data) {
 
 void MainWindow::onLogReceived(const QString &msg) {
   m_logPanel->appendLog(msg);
+  ++m_pktCount;
+}
+
+void MainWindow::onRcReceived(const RcData &data) {
+  m_rcWidget->updateChannels(data);
   ++m_pktCount;
 }
 

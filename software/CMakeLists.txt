@@ -36,6 +36,7 @@ set(GCS_SOURCES
     src/ui/widgets/RealTimeGraph.cpp
     src/core/SettingsManager.cpp
     src/ui/widgets/FrequencyRibbon.cpp
+    src/ui/widgets/RcChannelsWidget.cpp
 )
 
 set(GCS_HEADERS
@@ -55,6 +56,7 @@ set(GCS_HEADERS
     src/ui/widgets/RealTimeGraph.h
     src/core/SettingsManager.h
     src/ui/widgets/FrequencyRibbon.h
+    src/ui/widgets/RcChannelsWidget.h
 )
 
 set(GCS_RESOURCES

@@ -6,6 +6,7 @@
 #include <QFile>
 #include <QHBoxLayout>
 #include <QPushButton>
+#include <QSet>
 #include <QTableWidget>
 #include <QVBoxLayout>
 #include <QWidget>
@@ -33,6 +34,8 @@ private slots:
   void onSaveClicked();
   void onBackClicked();
   void onItemClicked(class QTableWidgetItem *item);
+  void onFilterToggled(bool checked);
+  void reapplyFilters();
 
 private:
   void addRow(const QString &dir, const QByteArray &data);
@@ -55,4 +58,6 @@ private:
   QTextStream m_streamOut;
 
   PacketDetailWidget *m_detailView = nullptr;
+  QMap<int, QPushButton *> m_filterButtons;
+  QSet<int> m_disabledTypes;
 };

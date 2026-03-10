@@ -43,6 +43,37 @@ PacketAnalyzerWidget::PacketAnalyzerWidget(QWidget *parent) : QWidget(parent) {
 
   layout->addLayout(topBar);
 
+  // Filter Bar
+  auto *filterBar = new QHBoxLayout();
+  filterBar->setSpacing(6);
+  filterBar->addWidget(new QLabel(" <b>Filter Type:</b> ", this));
+
+  auto addFilter = [&](const QString &label, int type) {
+    auto *btn = new QPushButton(label, this);
+    btn->setCheckable(true);
+    btn->setChecked(true);
+    btn->setProperty("packetType", type);
+    btn->setMinimumHeight(24);
+    btn->setStyleSheet(
+        "QPushButton { background: #2A3347; color: #ABB2BF; border: 1px "
+        "solid #3E4452; border-radius: 4px; padding: 2px 10px; }"
+        "QPushButton:checked { background: #61AFEF; color: #1A1D27; "
+        "font-weight: bold; border-color: #61AFEF; }");
+    connect(btn, &QPushButton::toggled, this,
+            &PacketAnalyzerWidget::onFilterToggled);
+    filterBar->addWidget(btn);
+    m_filterButtons[type] = btn;
+  };
+
+  addFilter("Heartbeat", 0x0);
+  addFilter("IMU Full", 0x1);
+  addFilter("IMU Comp", 0x2);
+  addFilter("Attitude", 0x4);
+  addFilter("RC", 0x5);
+
+  filterBar->addStretch();
+  layout->addLayout(filterBar);
+
   // Table
   m_table = new QTableWidget(0, 4, this);
   m_table->setHorizontalHeaderLabels(
@@ -133,6 +164,15 @@ void PacketAnalyzerWidget::addRow(const QString &dir, const QByteArray &data) {
 
   int row = m_table->rowCount();
   m_table->insertRow(row);
+
+  // Filter check
+  int type = -1;
+  if (data.size() >= 2) {
+    type = (static_cast<uint8_t>(data[1]) >> 4) & 0x0F;
+  }
+  if (m_disabledTypes.contains(type)) {
+    m_table->setRowHidden(row, true);
+  }
 
   // Timestamp
   QString ts = QDateTime::currentDateTime().toString("HH:mm:ss.zzz");
@@ -239,6 +279,33 @@ void PacketAnalyzerWidget::onItemClicked(QTableWidgetItem *item) {
 
   QByteArray rawData = dataItem->data(Qt::UserRole).toByteArray();
   m_detailView->setData(rawData);
+}
+
+void PacketAnalyzerWidget::onFilterToggled(bool checked) {
+  auto *btn = qobject_cast<QPushButton *>(sender());
+  if (!btn)
+    return;
+  int type = btn->property("packetType").toInt();
+  if (checked) {
+    m_disabledTypes.remove(type);
+  } else {
+    m_disabledTypes.insert(type);
+  }
+  reapplyFilters();
+}
+
+void PacketAnalyzerWidget::reapplyFilters() {
+  for (int i = 0; i < m_table->rowCount(); ++i) {
+    QTableWidgetItem *item = m_table->item(i, 3);
+    if (!item)
+      continue;
+    QByteArray data = item->data(Qt::UserRole).toByteArray();
+    int type = -1;
+    if (data.size() >= 2) {
+      type = (static_cast<uint8_t>(data[1]) >> 4) & 0x0F;
+    }
+    m_table->setRowHidden(i, m_disabledTypes.contains(type));
+  }
 }
 
 void PacketAnalyzerWidget::setProtocol(DroneProtocol *protocol) {

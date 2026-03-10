@@ -1,4 +1,5 @@
 #include "comm/comm_types.h"
+#include "comm/ibus.h"
 #include "comm/serializer.h"
 #include "core/cortex-m4/uart.h"
 #include "maths/sensor_fusion.h"
@@ -67,6 +68,7 @@ void imu_telemetry_task(void *args) {
     bool send_full = (packet_counter % 150 == 0);
     bool send_comp = (packet_counter % 3 == 0);
     bool send_att = (packet_counter % 15 == 0);
+    bool send_rc = (packet_counter % 15 == 0); // 10 Hz
 
     if (send_full) {
       send_packet(&uart_channel, PACKET_TYPE_IMU_DATA_FULL,
@@ -89,6 +91,11 @@ void imu_telemetry_task(void *args) {
       bmx160_get_attitude(&att);
       float att_vals[3] = {att.roll, att.pitch, att.yaw};
       send_packet(&uart_channel, PACKET_TYPE_ATTITUDE, (uint8_t *)att_vals, 12);
+    }
+
+    if (send_rc) {
+      send_packet(&uart_channel, PACKET_TYPE_RC_CHANNELS,
+                  (uint8_t *)rc_channels, 28);
     }
 
     packet_counter++;

@@ -95,6 +95,12 @@ void PacketDetailWidget::setData(const QByteArray &data) {
                 {"Pitch", QString::number(arg.pitch, 'f', 2) + "°"});
             new QTreeWidgetItem(
                 payloadItem, {"Yaw", QString::number(arg.yaw, 'f', 2) + "°"});
+          } else if constexpr (std::is_same_v<T, RcData>) {
+            for (int i = 0; i < 14; i++) {
+              new QTreeWidgetItem(payloadItem,
+                                  {QString("CH %1").arg(i + 1),
+                                   QString::number(arg.channels[i])});
+            }
           } else if constexpr (std::is_same_v<T, QString>) {
             new QTreeWidgetItem(payloadItem, {"Message", arg});
           } else {
