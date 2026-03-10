@@ -83,6 +83,14 @@ DecodedPacket PacketDecoder::decode(const QByteArray &data) {
       att.yaw = vals[2];
       result.payload = att;
     }
+  } else if (result.type == 0x5) {
+    // RC_CHANNELS
+    if (result.length == 28) {
+      RcData rc;
+      memcpy(rc.channels, raw + 8, 28);
+      rc.timestamp = result.timestamp;
+      result.payload = rc;
+    }
   }
 
   return result;
@@ -98,6 +106,8 @@ QString PacketDecoder::typeToString(uint8_t type) {
     return "IMU_DATA_COMPRESSED";
   case 0x4:
     return "ATTITUDE";
+  case 0x5:
+    return "RC_CHANNELS";
   default:
     return QString("UNKNOWN (0x%1)").arg(type, 1, 16, QChar('0')).toUpper();
   }

@@ -29,6 +29,7 @@ public slots:
 signals:
   void imuReceived(const ImuData &data);
   void attitudeReceived(const AttitudeData &data);
+  void rcReceived(const RcData &data);
   void logReceived(const QString &message);
   void heartbeatReceived(uint64_t timestamp, uint8_t deviceId);
   void timeSyncRequested();

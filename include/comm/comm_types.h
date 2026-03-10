@@ -12,6 +12,7 @@ typedef enum {
   PACKET_TYPE_IMU_DATA_FULL = 0x1,
   PACKET_TYPE_IMU_DATA_COMPRESSED = 0x2,
   PACKET_TYPE_ATTITUDE = 0x4,
+  PACKET_TYPE_RC_CHANNELS = 0x5,
 } packet_type_t;
 
 typedef struct __attribute__((packed)) {
