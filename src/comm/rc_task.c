@@ -33,10 +33,8 @@ void rc_ibus_task(void *args) {
     // Diagnostic log every 1s to show if bytes are moving
     if (v_get_ticks() - last_log_time > 1000) {
       if (current_ndtr != last_ndtr) {
-        v_log(LOG_DEBUG, "[RC] DMA NDTR active: %d", current_ndtr);
         last_ndtr = current_ndtr;
       } else {
-        v_log(LOG_WARN, "[RC] DMA NDTR stalled at %d", current_ndtr);
       }
       last_log_time = v_get_ticks();
     }

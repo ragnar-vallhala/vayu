@@ -70,6 +70,7 @@ PacketAnalyzerWidget::PacketAnalyzerWidget(QWidget *parent) : QWidget(parent) {
   addFilter("IMU Comp", 0x2);
   addFilter("Attitude", 0x4);
   addFilter("RC", 0x5);
+  addFilter("Status", 0x6);
 
   filterBar->addStretch();
   layout->addLayout(filterBar);

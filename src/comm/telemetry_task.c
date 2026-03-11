@@ -68,7 +68,14 @@ void imu_telemetry_task(void *args) {
     bool send_full = (packet_counter % 150 == 0);
     bool send_comp = (packet_counter % 3 == 0);
     bool send_att = (packet_counter % 15 == 0);
-    bool send_rc = (packet_counter % 15 == 0); // 10 Hz
+    bool send_rc = (packet_counter % 15 == 0);     // 10 Hz
+    bool send_status = (packet_counter % 75 == 0); // 2 Hz
+
+    if (send_status) {
+      const char *status_msg = "ST: DISARMED";
+      send_packet(&uart_channel, PACKET_TYPE_SYSTEM_STATUS,
+                  (uint8_t *)status_msg, strlen(status_msg));
+    }
 
     if (send_full) {
       send_packet(&uart_channel, PACKET_TYPE_IMU_DATA_FULL,

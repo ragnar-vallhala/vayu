@@ -6,5 +6,6 @@ void comm_processor_task(void *args);
 void flush_task(void *args);
 void imu_telemetry_task(void *args);
 void rc_ibus_task(void *args);
+void motor_task(void *args);
 
 #endif // !VAYU_TASKS_H
