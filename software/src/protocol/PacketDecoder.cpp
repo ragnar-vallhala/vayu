@@ -91,6 +91,9 @@ DecodedPacket PacketDecoder::decode(const QByteArray &data) {
       rc.timestamp = result.timestamp;
       result.payload = rc;
     }
+  } else if (result.type == 0x6) {
+    // SYSTEM_STATUS
+    result.payload = QString::fromLatin1(data.mid(8, result.length));
   }
 
   return result;
@@ -108,6 +111,8 @@ QString PacketDecoder::typeToString(uint8_t type) {
     return "ATTITUDE";
   case 0x5:
     return "RC_CHANNELS";
+  case 0x6:
+    return "SYSTEM_STATUS";
   default:
     return QString("UNKNOWN (0x%1)").arg(type, 1, 16, QChar('0')).toUpper();
   }

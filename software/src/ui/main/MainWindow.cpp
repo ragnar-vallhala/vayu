@@ -49,6 +49,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
           &MainWindow::onAttitudeReceived);
   connect(m_protocol, &DroneProtocol::logReceived, this,
           &MainWindow::onLogReceived);
+  connect(m_protocol, &DroneProtocol::statusReceived, this,
+          &MainWindow::onStatusReceived);
   connect(m_protocol, &DroneProtocol::unknownPacket, this,
           [this](const QByteArray &raw) {
             onLogReceived(QString("[raw] ") + QString::fromLatin1(raw));
@@ -175,6 +177,14 @@ void MainWindow::buildUi() {
 
   m_attitude = new AttitudeWidget(attGroup);
   attLayout->addWidget(m_attitude, 1);
+
+  m_statusLabel = new QLabel("DISCONNECTED", attGroup);
+  m_statusLabel->setAlignment(Qt::AlignCenter);
+  m_statusLabel->setStyleSheet(
+      "font-size: 18px; font-weight: bold; color: #E06C75; "
+      "background: #1A1D27; border: 1px solid #2A3347; "
+      "border-radius: 4px; padding: 4px; margin-bottom: 8px;");
+  attLayout->addWidget(m_statusLabel);
 
   // Numeric roll/pitch/yaw labels in a horizontal line
   auto *numHBox = new QHBoxLayout;
@@ -479,6 +489,24 @@ void MainWindow::onAttitudeReceived(const AttitudeData &data) {
 
 void MainWindow::onLogReceived(const QString &msg) {
   m_logPanel->appendLog(msg);
+  ++m_pktCount;
+}
+
+void MainWindow::onStatusReceived(const QString &msg) {
+  if (m_statusLabel) {
+    m_statusLabel->setText(msg.toUpper());
+    if (msg.contains("ARMED") && !msg.contains("DISARMED")) {
+      m_statusLabel->setStyleSheet(
+          "font-size: 18px; font-weight: bold; color: #E06C75; "
+          "background: #4A2A2A; border: 1px solid #E06C75; "
+          "border-radius: 4px; padding: 4px; margin-bottom: 8px;");
+    } else {
+      m_statusLabel->setStyleSheet(
+          "font-size: 18px; font-weight: bold; color: #98C379; "
+          "background: #1A1D27; border: 1px solid #2A3347; "
+          "border-radius: 4px; padding: 4px; margin-bottom: 8px;");
+    }
+  }
   ++m_pktCount;
 }
 

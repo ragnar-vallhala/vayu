@@ -82,7 +82,11 @@ void DroneProtocol::parseBuffer() {
       } else if (std::holds_alternative<RcData>(decoded.payload)) {
         emit rcReceived(std::get<RcData>(decoded.payload));
       } else if (std::holds_alternative<QString>(decoded.payload)) {
-        emit logReceived(std::get<QString>(decoded.payload));
+        if (packet_type == 0x6) {
+          emit statusReceived(std::get<QString>(decoded.payload));
+        } else {
+          emit logReceived(std::get<QString>(decoded.payload));
+        }
       } else if (packet_type == 0x0) { // Keep heartbeat logic if decoder
                                        // doesn't handle it fully
         uint8_t device_id = m_buffer[3];

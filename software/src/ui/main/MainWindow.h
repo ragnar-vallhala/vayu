@@ -42,6 +42,7 @@ private slots:
   void onAttitudeReceived(const AttitudeData &data);
   void onRcReceived(const RcData &data);
   void onLogReceived(const QString &msg);
+  void onStatusReceived(const QString &msg);
 
   // Serial state
   void onConnectionStateChanged(bool connected);
@@ -94,6 +95,7 @@ private:
   QLabel *m_connStatus = nullptr;
   QLabel *m_pktStatus = nullptr;
   QLabel *m_syncStatus = nullptr;
+  QLabel *m_statusLabel = nullptr;
 
   // ---- Back-end ----
   SerialManager *m_serial = nullptr;
