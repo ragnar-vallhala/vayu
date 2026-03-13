@@ -9,7 +9,7 @@
 #include "sensor/bmx160.h"
 
 // Physical Heartbeat LED
-#define _HEARTBEAT_LED_PIN GPIO_PB10
+#define _HEARTBEAT_LED_PIN GPIO_PA05
 #define _HEARTBEAT_DEFAULT_TIMEPERIOD 1000 // 1000ms
 
 // I2C Control
@@ -20,15 +20,17 @@
 // IMU Sensor
 #define BMX160_I2C_ADDR 0x68
 
-// Control Declarations
-#define BMX160_ACC_LOGGING_UART 1
-#define BMX160_GYR_LOGGING_UART 1
-#define BMX160_MAG_LOGGING_UART 1
 
 // ODR Configurations (using bmx160_odr_t enums)
 #define BMX_ACC_ODR BMX160_ODR_1600HZ
+#define BMX_ACC_BWP BMX_BWP_OSR4
+#define BMX_ACC_RANGE BMX160_ACC_8G
+
 #define BMX_GYR_ODR BMX160_ODR_1600HZ
-#define BMX_MAG_ODR 6 // 50 Hz
+#define BMX_GYR_BWP BMX_BWP_OSR4
+#define BMX_GYR_RANGE BMX160_GYR_1000
+
+#define BMX_MAG_ODR BMX160_ODR_50HZ
 
 // Comm settings
 #define MAX_SERIAL_HANDLERS 3
@@ -37,4 +39,10 @@
 // Timer Callbacks
 #define MAX_TIMER_CALLBACKS 4
 #define HIGH_FREQ_TIMER_FREQ 10000 // 10kHz
-#endif                             //! VAYU_VARIABLES_H
+
+// Sensor Fusion Parameters
+#define SF_COMPLEMENTARY_ALPHA 0.98f
+#define SF_MAHONY_KP 2.0f
+#define SF_MAHONY_KI 0.005f
+#define SF_FILTER_USED SF_MAHONY
+#endif //! VAYU_VARIABLES_H

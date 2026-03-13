@@ -118,6 +118,15 @@ typedef enum {
   BMX160_ODR_3200HZ = 0x0D,
 } bmx160_odr_t;
 
+typedef enum {
+  BMX_BWP_OSR4 = 0,
+  BMX_BWP_OSR2 = 1,
+  BMX_BWP_NORMAL = 2,
+  BMX_BWP_OSR8 = 3,
+  BMX_BWP_OSR16 = 4,
+  BMX_BWP_OSR32 = 5,
+} bmx_bandwidth_t;
+
 // Config structures
 typedef struct {
   // Accelerometer configuration

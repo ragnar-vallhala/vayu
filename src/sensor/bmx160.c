@@ -103,12 +103,12 @@ hal_i2c_status_t bmx160_init(void) {
 
   // Apply ODR and BW settings from variables.h
   bmx160_cfg.bmx160_acc_odr = BMX_ACC_ODR;
-  bmx160_cfg.bmx160_acc_bwp = 0;   // OSR4 (Most filtering)
-  bmx160_cfg.bmx160_acc_range = 8; // ±8g
+  bmx160_cfg.bmx160_acc_bwp = BMX_ACC_BWP;
+  bmx160_cfg.bmx160_acc_range = BMX_ACC_RANGE;
 
   bmx160_cfg.bmx160_gyr_odr = BMX_GYR_ODR;
-  bmx160_cfg.bmx160_gyr_bwp = 0;   // OSR4 (Most filtering)
-  bmx160_cfg.bmx160_gyr_range = 1; // ±1000 dps
+  bmx160_cfg.bmx160_gyr_bwp = BMX_GYR_BWP;
+  bmx160_cfg.bmx160_gyr_range = BMX_GYR_RANGE;
 
   bmx160_cfg.bmx160_mag_odr = BMX_MAG_ODR;
 
@@ -119,6 +119,11 @@ hal_i2c_status_t bmx160_init(void) {
     lpf_init(&acc_lpf[i], 0.02f); // Aggressive filtering for Acc
     lpf_init(&gyr_lpf[i], 0.1f);  // Filter Gyro as well
   }
+  // Initialize orientation quaternion to identity
+  _bmx_orientation.q.w = 1.0f;
+  _bmx_orientation.q.x = 0.0f;
+  _bmx_orientation.q.y = 0.0f;
+  _bmx_orientation.q.z = 0.0f;
 
   return ts;
 }
@@ -696,14 +701,23 @@ void bmx160_dma_callback(void) {
   // values)
   imu_buffer_push(&_bmx_data);
 
-  // Sensor Fusion using Complementary Filter
+  // Sensor Fusion
   // 1kHz sampling rate (from main.c registration)
   const float dt = 0.001f;
-  m_complementary_filter(_bmx_data.converted.acc[0], _bmx_data.converted.acc[1],
-                         _bmx_data.converted.acc[2], _bmx_data.converted.gyr[0],
-                         _bmx_data.converted.gyr[1], _bmx_data.converted.gyr[2],
-                         _bmx_data.converted.mag[0], _bmx_data.converted.mag[1],
-                         _bmx_data.converted.mag[2], dt, &_bmx_orientation);
+  if (SF_FILTER_USED == SF_MAHONY) {
+    m_mahony_filter(_bmx_data.converted.acc[0], _bmx_data.converted.acc[1],
+                    _bmx_data.converted.acc[2], _bmx_data.converted.gyr[0],
+                    _bmx_data.converted.gyr[1], _bmx_data.converted.gyr[2],
+                    _bmx_data.converted.mag[0], _bmx_data.converted.mag[1],
+                    _bmx_data.converted.mag[2], dt, &_bmx_orientation);
+  } else {
+    m_complementary_filter(
+        _bmx_data.converted.acc[0], _bmx_data.converted.acc[1],
+        _bmx_data.converted.acc[2], _bmx_data.converted.gyr[0],
+        _bmx_data.converted.gyr[1], _bmx_data.converted.gyr[2],
+        _bmx_data.converted.mag[0], _bmx_data.converted.mag[1],
+        _bmx_data.converted.mag[2], dt, &_bmx_orientation);
+  }
 }
 
 void bmx160_get_attitude(attitude_t *att) {
