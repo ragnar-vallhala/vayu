@@ -1,5 +1,6 @@
 #ifndef VAYU_BMX160_H
 #define VAYU_BMX160_H
+#include "core/cortex-m4/i2c.h"
 #include "maths/sensor_fusion.h"
 #include "navhal.h"
 #include <stdint.h>
@@ -130,6 +131,8 @@ typedef struct {
   bmx160_gyr_range_t bmx160_gyr_range;
   // Mag configuration
   bmx160_odr_t bmx160_mag_odr; // ODR selection
+  uint8_t bmx160_mag_bwp;      // 3 bit defining the bandwidth pass
+  uint8_t bmx160_mag_opmode;   // 2 bit defining the operation mode
 } bmx160_config_t;
 
 // Reading structures

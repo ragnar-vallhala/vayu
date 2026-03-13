@@ -27,8 +27,8 @@
 
 // ODR Configurations (using bmx160_odr_t enums)
 #define BMX_ACC_ODR BMX160_ODR_1600HZ
-#define BMX_GYR_ODR BMX160_ODR_3200HZ
-#define BMX_MAG_ODR BMX160_ODR_100HZ
+#define BMX_GYR_ODR BMX160_ODR_1600HZ
+#define BMX_MAG_ODR 6 // 50 Hz
 
 // Comm settings
 #define MAX_SERIAL_HANDLERS 3
