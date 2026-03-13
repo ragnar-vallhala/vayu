@@ -1,4 +1,5 @@
 #include "sensor/bmx160.h"
+#include "maths/lpf.h"
 #include "maths/sensor_fusion.h"
 #include "navhal.h"
 #include "sensor/imu_buffer.h"
@@ -21,6 +22,10 @@ static bmx160_config_t bmx160_cfg;
 static uint8_t _bmx_dma_rx_buffer[32] __attribute__((aligned(4)));
 static attitude_t _bmx_orientation;
 static bmx160_all_reading_t _bmx_data;
+
+// LPFs for sensors
+static lpf_t acc_lpf[3];
+static lpf_t gyr_lpf[3];
 
 static void bmx160_set_mag_conf();
 static bmx160_err_type bmx160_convert_raw_temp_to_celcius(int16_t raw_temp,
@@ -96,12 +101,24 @@ hal_i2c_status_t bmx160_init(void) {
   // Config for components
   bmx160_read_config(&bmx160_cfg);
 
-  // Apply ODR settings from variables.h
+  // Apply ODR and BW settings from variables.h
   bmx160_cfg.bmx160_acc_odr = BMX_ACC_ODR;
+  bmx160_cfg.bmx160_acc_bwp = 0;   // OSR4 (Most filtering)
+  bmx160_cfg.bmx160_acc_range = 8; // ±8g
+
   bmx160_cfg.bmx160_gyr_odr = BMX_GYR_ODR;
+  bmx160_cfg.bmx160_gyr_bwp = 0;   // OSR4 (Most filtering)
+  bmx160_cfg.bmx160_gyr_range = 1; // ±1000 dps
+
   bmx160_cfg.bmx160_mag_odr = BMX_MAG_ODR;
 
   bmx160_write_config(&bmx160_cfg);
+
+  // Initialize LPFs
+  for (int i = 0; i < 3; i++) {
+    lpf_init(&acc_lpf[i], 0.02f); // Aggressive filtering for Acc
+    lpf_init(&gyr_lpf[i], 0.1f);  // Filter Gyro as well
+  }
 
   return ts;
 }
@@ -667,43 +684,30 @@ void bmx160_dma_callback(void) {
 
   bmx160_convert_raw_temp_to_celcius(raw_temp, &_bmx_data.converted.temp);
 
-  // Push to ring buffer for 100Hz averaging (now with converted values)
+  // Apply LPF to converted values
+  for (int i = 0; i < 3; i++) {
+    _bmx_data.converted.acc[i] =
+        lpf_apply(&acc_lpf[i], _bmx_data.converted.acc[i]);
+    _bmx_data.converted.gyr[i] =
+        lpf_apply(&gyr_lpf[i], _bmx_data.converted.gyr[i]);
+  }
+
+  // Push to ring buffer for 100Hz averaging (now with converted and filtered
+  // values)
   imu_buffer_push(&_bmx_data);
 
-  // Sensor Fusion
-  m_acc_mag(_bmx_data.converted.acc[0], _bmx_data.converted.acc[1],
-            _bmx_data.converted.acc[2], _bmx_data.converted.mag[0],
-            _bmx_data.converted.mag[1], _bmx_data.converted.mag[2],
-            &_bmx_orientation);
+  // Sensor Fusion using Complementary Filter
+  // 1kHz sampling rate (from main.c registration)
+  const float dt = 0.001f;
+  m_complementary_filter(_bmx_data.converted.acc[0], _bmx_data.converted.acc[1],
+                         _bmx_data.converted.acc[2], _bmx_data.converted.gyr[0],
+                         _bmx_data.converted.gyr[1], _bmx_data.converted.gyr[2],
+                         _bmx_data.converted.mag[0], _bmx_data.converted.mag[1],
+                         _bmx_data.converted.mag[2], dt, &_bmx_orientation);
 }
 
 void bmx160_get_attitude(attitude_t *att) {
   if (att != NULL) {
     *att = _bmx_orientation;
-  }
-}
-
-void run_bmx() {
-  bmx160_init();
-  bmx160_config_t cfg;
-  // --- Accelerometer config ---
-  cfg.bmx160_acc_us = 0;    // undersampling disabled
-  cfg.bmx160_acc_bwp = 1;   // OSR2
-  cfg.bmx160_acc_odr = 12;  // 400 Hz
-  cfg.bmx160_acc_range = 8; // ±8g
-
-  // --- Gyroscope config ---
-  cfg.bmx160_gyr_bwp = 0;   // OSR4
-  cfg.bmx160_gyr_odr = 13;  // 800 Hz
-  cfg.bmx160_gyr_range = 1; // ±1000 dps
-
-  // --- Magnetometer config ---
-  cfg.bmx160_mag_odr = 6; // 50 Hz
-
-  bmx160_write_config(&cfg);
-
-  // Register in main.c instead of loop
-  while (1) {
-    v_delay(1000);
   }
 }

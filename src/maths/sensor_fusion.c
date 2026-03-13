@@ -41,3 +41,38 @@ void m_acc_mag(const float ax, const float ay, const float az, const float mx,
   // Yaw (Tilt-compensated)
   ori->yaw = to_degrees(m_atan2(-my2, mx2));
 }
+
+void m_complementary_filter(const float ax, const float ay, const float az,
+                            const float gx, const float gy, const float gz,
+                            const float mx, const float my, const float mz,
+                            float dt, attitude_t *ori) {
+  // 1. Get accelerometer/magnetometer based orientation (noisy but stable)
+  attitude_t acc_mag_ori;
+  m_acc_mag(ax, ay, az, mx, my, mz, &acc_mag_ori);
+
+  // 2. Complementary Filter
+  // Roll and Pitch: Integrate gyro and fuse with acc
+  // Alpha typically 0.96 to 0.99
+  const float alpha = 0.98f;
+
+  ori->roll = alpha * (ori->roll + gx * dt) + (1.0f - alpha) * acc_mag_ori.roll;
+  ori->pitch =
+      alpha * (ori->pitch + gy * dt) + (1.0f - alpha) * acc_mag_ori.pitch;
+
+  // Yaw: Integrate gyro and fuse with mag-based yaw
+  ori->yaw = alpha * (ori->yaw + gz * dt) + (1.0f - alpha) * acc_mag_ori.yaw;
+
+  // Normalization for angles
+  if (ori->roll > 180.0f)
+    ori->roll -= 360.0f;
+  if (ori->roll < -180.0f)
+    ori->roll += 360.0f;
+  if (ori->pitch > 180.0f)
+    ori->pitch -= 360.0f;
+  if (ori->pitch < -180.0f)
+    ori->pitch += 360.0f;
+  if (ori->yaw > 180.0f)
+    ori->yaw -= 360.0f;
+  if (ori->yaw < -180.0f)
+    ori->yaw += 360.0f;
+}
