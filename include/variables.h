@@ -42,7 +42,7 @@
 
 // Sensor Fusion Parameters
 #define SF_COMPLEMENTARY_ALPHA 0.98f
-#define SF_MAHONY_KP 2.0f
+#define SF_MAHONY_KP 1.5f
 #define SF_MAHONY_KI 0.005f
 #define SF_FILTER_USED SF_MAHONY
 #endif //! VAYU_VARIABLES_H

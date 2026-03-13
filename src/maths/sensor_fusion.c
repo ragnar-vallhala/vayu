@@ -167,9 +167,9 @@ void m_mahony_filter(const float ax, const float ay, const float az,
   }
 
   // Apply proportional feedback
-  float gxc = gx + Kp * ex + integralFBx;
-  float gyc = gy + Kp * ey + integralFBy;
-  float gzc = gz + Kp * ez + integralFBz;
+  float gxc = to_radians(gx) + Kp * ex + integralFBx;
+  float gyc = to_radians(gy) + Kp * ey + integralFBy;
+  float gzc = to_radians(gz) + Kp * ez + integralFBz;
 
   // Integrate rate of change of quaternion
   float dq0 = 0.5f * (-q1 * gxc - q2 * gyc - q3 * gzc);
