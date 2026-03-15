@@ -43,6 +43,7 @@
 // LPF Configurations
 #define LPF_ACC_ALPHA 0.05f
 #define LPF_GYR_ALPHA 0.01f
+#define GYRO_BIAS_ALPHA 0.001f
 
 // Sensor Fusion Parameters
 #define SF_COMPLEMENTARY_ALPHA 0.98f

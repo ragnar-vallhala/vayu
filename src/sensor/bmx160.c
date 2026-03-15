@@ -7,6 +7,7 @@
 #include "utils.h"
 #include "vaios.h"
 #include "variables.h"
+#include <math.h>
 #include <stdint.h>
 
 uint8_t tx_buf[2];
@@ -24,6 +25,7 @@ static bmx160_all_reading_t _bmx_data;
 
 static float acc_scale = 0.0f;
 static float gyr_scale = 0.0f;
+static float gyr_bias[3] = {0.0f, 0.0f, 0.0f};
 
 // LPFs for sensors
 static lpf_t acc_lpf[3];
@@ -169,7 +171,7 @@ hal_i2c_status_t bmx160_init(void) {
   // Initialize LPFs
   for (int i = 0; i < 3; i++) {
     lpf_init(&acc_lpf[i], LPF_ACC_ALPHA); // Aggressive filtering for Acc
-    lpf_init(&gyr_lpf[i], LPF_GYR_ALPHA);  // Filter Gyro as well
+    lpf_init(&gyr_lpf[i], LPF_GYR_ALPHA); // Filter Gyro as well
   }
   // Initialize orientation quaternion to identity
   _bmx_orientation.q.w = 1.0f;
@@ -273,9 +275,9 @@ static void bmx160_set_mag_conf() {
   hal_i2c_write(I2C_BUS, BMX160_I2C_ADDR, tx_buf, 2);
   v_delay(1);
 
-  // 7. Configure ODR (0x44 = 0x05 for 12.5Hz)
+  // 7. Configure ODR (0x44 = 0x08 for 100Hz)
   tx_buf[0] = BMX160_MAG_CONF_ADDR;
-  tx_buf[1] = 0x05;
+  tx_buf[1] = 0x08;
   hal_i2c_write(I2C_BUS, BMX160_I2C_ADDR, tx_buf, 2);
   v_delay(1);
 
@@ -861,9 +863,33 @@ void bmx160_dma_callback(void) {
   _bmx_data.converted.gyr[1] = bmx160_raw_gyr_to_dps(gy);
   _bmx_data.converted.gyr[2] = bmx160_raw_gyr_to_dps(gz);
 
-  _bmx_data.converted.mag[0] = bmm150_compensate_x(mx, rhall);
-  _bmx_data.converted.mag[1] = bmm150_compensate_y(my, rhall);
-  _bmx_data.converted.mag[2] = bmm150_compensate_z(mz, rhall);
+  // LPF
+  for (int i = 0; i < 3; i++) {
+    _bmx_data.converted.gyr[i] =
+        lpf_apply(&gyr_lpf[i], _bmx_data.converted.gyr[i]);
+  }
+
+  // Apply gyro bias estimator
+  float acc_mag =
+      sqrtf(_bmx_data.converted.acc[0] * _bmx_data.converted.acc[0] +
+            _bmx_data.converted.acc[1] * _bmx_data.converted.acc[1] +
+            _bmx_data.converted.acc[2] * _bmx_data.converted.acc[2]);
+
+  if (fabsf(acc_mag - 9.81f) < 0.2f) {
+
+    for (int i = 0; i < 3; i++) {
+      gyr_bias[i] = (1.0f - GYRO_BIAS_ALPHA) * gyr_bias[i] +
+                    GYRO_BIAS_ALPHA * _bmx_data.converted.gyr[i];
+    }
+  }
+
+  for (int i = 0; i < 3; i++)
+    _bmx_data.converted.gyr[i] -= gyr_bias[i];
+
+  // Align BMM150 axes to BMX160 body frame: [Y, X, -Z]
+  _bmx_data.converted.mag[0] = bmm150_compensate_y(my, rhall);
+  _bmx_data.converted.mag[1] = bmm150_compensate_x(mx, rhall);
+  _bmx_data.converted.mag[2] = -bmm150_compensate_z(mz, rhall);
 
   bmx160_convert_raw_temp_to_celcius(raw_temp, &_bmx_data.converted.temp);
 
