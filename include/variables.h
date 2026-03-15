@@ -8,8 +8,14 @@
 #include "navhal.h"
 #include "sensor/bmx160.h"
 
+// Clock Freq
+#define SYS_CLOCK_FREQ 84000000 // 84MHz
+
 // Physical Heartbeat LED
-#define _HEARTBEAT_LED_PIN GPIO_PB13
+#define _BLUE_LED_PIN GPIO_PB12
+#define _GREEN_LED_PIN GPIO_PB13
+#define _RED_LED_PIN GPIO_PB14
+#define _BUZZER_PIN GPIO_PB15
 #define _HEARTBEAT_DEFAULT_TIMEPERIOD 1000 // 1000ms
 
 // I2C Control
@@ -19,7 +25,6 @@
 #define I2C_PIN_2 GPIO_PB09
 // IMU Sensor
 #define BMX160_I2C_ADDR 0x68
-
 
 // ODR Configurations (using bmx160_odr_t enums)
 #define BMX_ACC_ODR BMX160_ODR_1600HZ

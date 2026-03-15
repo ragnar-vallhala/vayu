@@ -2,6 +2,7 @@
 #include "memory.h"
 #include "sensor/bmx160.h"
 #include "sensor/imu_buffer.h"
+#include "sys/state.h"
 #include "task.h"
 #include "utils.h"
 #include "utils/test_file.h"
@@ -35,8 +36,7 @@ void init_sensors(void) {
 }
 
 void init_tasks(void) {
-  scheduler_init();
-  task_create(physical_heartbeat, NULL, 1024, 0);
+
   task_create(comm_processor_task, NULL, 1024, 0);
   bmx160_task_id = task_create(bmx160_initiate_read, NULL, 2048, 0);
   task_create(rc_ibus_task, NULL, 2048, 0);
@@ -44,7 +44,6 @@ void init_tasks(void) {
   task_create(imu_telemetry_task, NULL, 2048, 0);
   task_create(flush_task, NULL, 1024, 0);
   // task_create(test_task, NULL, 1024, 0);
-  scheduler_start();
 }
 void init_timer_callbacks(void) {
   timer_callback_init(HIGH_FREQ_TIMER_FREQ);
@@ -57,15 +56,21 @@ void init_timer_callbacks(void) {
     return;
   }
 }
-
+void system_init_tasks(void) {
+  task_create(heartbeat_task, NULL, 1024, 0);
+  task_create(boot_task, NULL, 1024, 0);
+}
 int main() {
   clock_setup();
   v_init();
   v_heap_memory_init();
-
+  system_state_init();
+  scheduler_init();
+  system_init_tasks();
   init_sensors();
   init_timer_callbacks();
   init_tasks();
+  scheduler_start();
   while (1)
     ;
 }
