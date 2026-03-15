@@ -893,12 +893,11 @@ void bmx160_dma_callback(void) {
 
   bmx160_convert_raw_temp_to_celcius(raw_temp, &_bmx_data.converted.temp);
 
-  // Apply LPF to converted values
+  // Apply LPF to accelerometer (gyro was already filtered before bias
+  // correction)
   for (int i = 0; i < 3; i++) {
     _bmx_data.converted.acc[i] =
         lpf_apply(&acc_lpf[i], _bmx_data.converted.acc[i]);
-    _bmx_data.converted.gyr[i] =
-        lpf_apply(&gyr_lpf[i], _bmx_data.converted.gyr[i]);
   }
 
   // Push to ring buffer for 100Hz averaging (now with converted and filtered
