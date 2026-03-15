@@ -46,6 +46,7 @@ packet-beta
 | `0x0006` | `CMD_CALIBRATE_GYR` | 0      | —                                                                                         | Trigger gyro bias re-calibration (drone must be stationary)                 |
 | `0x0007` | `CMD_SET_PID`       | 4      | `args[0]` = axis (0=roll, 1=pitch, 2=yaw), `args[1]` = Kp, `args[2]` = Ki, `args[3]` = Kd | Update a PID gain set                                                       |
 | `0x0008` | `CMD_CALIBRATE_ACC` | 0      | —                                                                                         | Trigger accelerometer bias calibration (drone must be stationary and level) |
+| `0x0009` | `CMD_CANCEL_CALIB`  | 0      | —                                                                                         | Immediately cancel any ongoing calibration and return to STANDBY            |
 
 > Packets with an unrecognised `cmd_id` or a `length` inconsistent with `argc` are **silently dropped** by the firmware.
 
@@ -93,6 +94,6 @@ Total payload = 19 bytes → `length` field = 19.
 
 ## Changelog
 
-| Date       | Author      | Description     |
-| ---------- | ----------- | --------------- |
-| 15/03/2026 | Antigravity | Initial version |
+| Date       | Author      | Description                     |
+| ---------- | ----------- | ------------------------------- |
+| 15/03/2026 | Antigravity | Added CMD_CANCEL_CALIB (0x0009) |

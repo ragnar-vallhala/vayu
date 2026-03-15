@@ -8,6 +8,7 @@
 #include <QStackedWidget>
 #include <QTimer>
 
+#include "../widgets/CalibrationWidget.h"
 #include "AttitudeWidget.h"
 #include "DroneProtocol.h"
 #include "ImuPanel.h"
@@ -32,6 +33,7 @@ private slots:
   void showPacketAnalyzer();
   void showRcMonitor();
   void showSettings();
+  void showCalibration();
   // Toolbar actions
   void onConnectClicked();
   void onRefreshPorts();
@@ -76,6 +78,7 @@ private:
   PacketAnalyzerWidget *m_analyzerWidget = nullptr;
   RcChannelsWidget *m_rcWidget = nullptr;
   SettingsWidget *m_settingsWidget = nullptr;
+  CalibrationWidget *m_calibrationWidget = nullptr;
   QStackedWidget *m_stackedWidget = nullptr;
   QWidget *m_homeWidget = nullptr;
 

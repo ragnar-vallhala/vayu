@@ -3,6 +3,7 @@
 #include "maths/sensor_fusion.h"
 #include "navhal.h"
 #include "sensor/imu_buffer.h"
+#include "sys/state.h"
 #include "task.h"
 #include "utils.h"
 #include "vaios.h"
@@ -798,8 +799,10 @@ void bmx160_initiate_read(void *args) {
       .priority = DMA_PRIORITY_VERY_HIGH,
       .circular = 0};
   while (1) {
-    hal_i2c_read_regs_dma(I2C1, BMX160_I2C_ADDR, 0x04, &i2c_dma_cfg,
-                          bmx160_dma_callback);
+    if (system_state_get() != SYSTEM_STATE_CALIBRATING) {
+      hal_i2c_read_regs_dma(I2C1, BMX160_I2C_ADDR, 0x04, &i2c_dma_cfg,
+                            bmx160_dma_callback);
+    }
     task_block();
   }
 }

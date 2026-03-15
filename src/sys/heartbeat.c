@@ -155,6 +155,10 @@ static inline void _run_heartbeat(channel_t *channel, uint32_t period) {
   case SYSTEM_STATE_TERMINATED:
     _system_terminated();
     break;
+  case SYSTEM_STATE_CALIBRATING:
+    _toggle_pin(_BLUE_LED_PIN);
+    _toggle_pin(_GREEN_LED_PIN);
+    break;
   default:
     break;
   }
@@ -163,14 +167,8 @@ void heartbeat_task(void *args) {
 
   // Configure Physical Heartbeat
   _heartbeat_peripheral_init();
-  // Configure UART heartbeat (Static channel to avoid stack escape)
-  static channel_t _heartbeat_uart_channel;
-  serial_args_t uart_cfg = {
-      .baud_rate = 115200, .uart = UART2, .timeout = 1000};
-
-  while (get_handler(CHANNEL_TYPE_SERIAL, &_heartbeat_uart_channel, &uart_cfg,
-                     uart2_packet_recv_callback) != NONE) {
-    v_delay(500);
+  while (g_telemetry_channel.handle == NULL) {
+    v_delay(10);
   }
   uint32_t period = _HEARTBEAT_DEFAULT_TIMEPERIOD;
   if (args) {
@@ -180,7 +178,7 @@ void heartbeat_task(void *args) {
   period = period >= 250 ? period : 250;
 
   while (1) {
-    _run_heartbeat(&_heartbeat_uart_channel, period);
-    task_yield();
+    _run_heartbeat(&g_telemetry_channel, period);
+    v_delay(20);
   }
 }
