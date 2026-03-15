@@ -51,7 +51,8 @@ PacketAnalyzerWidget::PacketAnalyzerWidget(QWidget *parent) : QWidget(parent) {
   auto addFilter = [&](const QString &label, int type) {
     auto *btn = new QPushButton(label, this);
     btn->setCheckable(true);
-    btn->setChecked(true);
+    btn->setChecked(false);
+    m_disabledTypes.insert(type);
     btn->setProperty("packetType", type);
     btn->setMinimumHeight(24);
     btn->setStyleSheet(
@@ -305,7 +306,7 @@ void PacketAnalyzerWidget::reapplyFilters() {
     if (data.size() >= 2) {
       type = (static_cast<uint8_t>(data[1]) >> 4) & 0x0F;
     }
-    m_table->setRowHidden(i, m_disabledTypes.contains(type));
+    m_table->setRowHidden(i, m_disabledTypes.contains(type) || type == -1);
   }
 }
 

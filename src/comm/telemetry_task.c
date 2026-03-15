@@ -5,6 +5,7 @@
 #include "maths/sensor_fusion.h"
 #include "sensor/bmx160.h"
 #include "sensor/imu_buffer.h"
+#include "sys/state.h"
 #include "utils.h"
 #include "utils/math_utils.h"
 #include "utils/utils.h"
@@ -72,9 +73,13 @@ void imu_telemetry_task(void *args) {
     bool send_status = (packet_counter % 75 == 0); // 2 Hz
 
     if (send_status) {
-      const char *status_msg = "ST: DISARMED";
-      send_packet(&uart_channel, PACKET_TYPE_SYSTEM_STATUS,
-                  (uint8_t *)status_msg, strlen(status_msg));
+      uint8_t state_payload[6];
+      state_payload[0] = 0x04; // SYSTEM_ORIGIN_SYS_STATE
+      state_payload[1] = 0x00; // Reserved/Padding
+      float current_state = (float)system_state_get();
+      memcpy(&state_payload[2], &current_state, 4);
+
+      send_packet(&uart_channel, PACKET_TYPE_SYSTEM_STATUS, state_payload, 6);
     }
 
     if (send_full) {

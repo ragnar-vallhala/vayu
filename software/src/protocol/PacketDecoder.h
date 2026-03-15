@@ -23,6 +23,7 @@ public:
   static QString typeToString(uint8_t type);
 
 private:
+  QString sysStateToName(uint8_t state);
   ImuData m_lastImu;
   bool m_hasLastImu = false;
 };

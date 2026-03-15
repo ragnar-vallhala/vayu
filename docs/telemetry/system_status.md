@@ -31,6 +31,7 @@ packet-beta
 | 0x01 | `SYSTEM_ORIGIN_CALIBRATION` | Calibration routine progress/result |
 | 0x02 | `SYSTEM_ORIGIN_HEALTH`      | System health / sensor diagnostics  |
 | 0x03 | `SYSTEM_ORIGIN_MOTOR`       | Motor / ESC status                  |
+| 0x04 | `SYSTEM_ORIGIN_SYS_STATE`   | Global system state machine status  |
 
 ---
 
@@ -46,6 +47,16 @@ Emitted at 0%, 25%, 50%, 75%, and 100% during `calibrate_imu_start_gyr` or `cali
 | 1     | bias_x       | dps / m/s² | Only valid when progress_pct = 100 |
 | 2     | bias_y       | dps / m/s² | Only valid when progress_pct = 100 |
 | 3     | bias_z       | dps / m/s² | Only valid when progress_pct = 100 |
+
+---
+
+### `SYSTEM_ORIGIN_SYS_STATE` (0x04)
+
+Emitted whenever the system state machine transitions (e.g. INIT -> STANDBY).
+
+| Index | Meaning   | Units | Notes                               |
+| ----- | --------- | ----- | ----------------------------------- |
+| 0     | sys_state | enum  | See `state_machine/system_state.md` |
 
 ---
 

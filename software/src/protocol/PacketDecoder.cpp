@@ -93,7 +93,21 @@ DecodedPacket PacketDecoder::decode(const QByteArray &data) {
     }
   } else if (result.type == 0x6) {
     // SYSTEM_STATUS
-    result.payload = QString::fromLatin1(data.mid(8, result.length));
+    if (result.length >= 2 && raw[8] == 0x04) {
+      // SYSTEM_ORIGIN_SYS_STATE: [origin] [n] [float32_state]
+      if (result.length == 6) {
+        float f_state;
+        memcpy(&f_state, raw + 10, 4);
+        result.payload = sysStateToName((uint8_t)f_state);
+      } else {
+        result.payload =
+            QString("INVALID SYSTEM_STATE LEN: %1").arg(result.length);
+      }
+    } else {
+      // Legacy or other status origin: treat as string if small, or generic
+      // format
+      result.payload = QString::fromLatin1(data.mid(8, result.length));
+    }
   }
 
   return result;
@@ -115,5 +129,28 @@ QString PacketDecoder::typeToString(uint8_t type) {
     return "SYSTEM_STATUS";
   default:
     return QString("UNKNOWN (0x%1)").arg(type, 1, 16, QChar('0')).toUpper();
+  }
+}
+
+QString PacketDecoder::sysStateToName(uint8_t state) {
+  switch (state) {
+  case 0x01:
+    return "UNINITIALIZED";
+  case 0x02:
+    return "INIT";
+  case 0x04:
+    return "STANDBY";
+  case 0x08:
+    return "PREARM";
+  case 0x10:
+    return "ARMED";
+  case 0x20:
+    return "IN_AIR";
+  case 0x40:
+    return "FAILSAFE";
+  case 0x80:
+    return "TERMINATED";
+  default:
+    return QString("STATE: 0x%1").arg(state, 2, 16, QChar('0')).toUpper();
   }
 }

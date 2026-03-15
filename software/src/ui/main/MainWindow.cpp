@@ -495,17 +495,27 @@ void MainWindow::onLogReceived(const QString &msg) {
 void MainWindow::onStatusReceived(const QString &msg) {
   if (m_statusLabel) {
     m_statusLabel->setText(msg.toUpper());
-    if (msg.contains("ARMED") && !msg.contains("DISARMED")) {
-      m_statusLabel->setStyleSheet(
-          "font-size: 18px; font-weight: bold; color: #E06C75; "
-          "background: #4A2A2A; border: 1px solid #E06C75; "
-          "border-radius: 4px; padding: 4px; margin-bottom: 8px;");
+    QString style = "font-size: 18px; font-weight: bold; border-radius: 4px; "
+                    "padding: 4px; margin-bottom: 8px;";
+
+    if (msg.contains("FAILSAFE") || msg.contains("ERROR") ||
+        msg.contains("FATAL")) {
+      style +=
+          " color: #E06C75; background: #4A2A2A; border: 1px solid #E06C75;";
+    } else if (msg.contains("ARMED") || msg.contains("IN_AIR")) {
+      style +=
+          " color: #E06C75; background: #3A1A1A; border: 1px solid #E06C75;";
+    } else if (msg.contains("INIT") || msg.contains("PREARM")) {
+      style +=
+          " color: #61AFEF; background: #1A2A3A; border: 1px solid #61AFEF;";
+    } else if (msg.contains("STANDBY")) {
+      style +=
+          " color: #98C379; background: #1A2D23; border: 1px solid #98C379;";
     } else {
-      m_statusLabel->setStyleSheet(
-          "font-size: 18px; font-weight: bold; color: #98C379; "
-          "background: #1A1D27; border: 1px solid #2A3347; "
-          "border-radius: 4px; padding: 4px; margin-bottom: 8px;");
+      style +=
+          " color: #98C379; background: #1A1D27; border: 1px solid #2A3347;";
     }
+    m_statusLabel->setStyleSheet(style);
   }
   ++m_pktCount;
 }
