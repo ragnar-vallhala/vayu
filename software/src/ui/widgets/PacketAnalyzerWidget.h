@@ -5,14 +5,22 @@
 #include <QDateTime>
 #include <QFile>
 #include <QHBoxLayout>
+#include <QList>
 #include <QPushButton>
 #include <QSet>
 #include <QTableWidget>
 #include <QVBoxLayout>
 #include <QWidget>
 
+struct PacketEntry {
+  QString timestamp;
+  QString direction;
+  QByteArray data;
+};
+
 class PacketDetailWidget;
 class FrequencyRibbon;
+
 class PacketAnalyzerWidget : public QWidget {
   Q_OBJECT
 
@@ -57,6 +65,7 @@ private:
   QFile m_streamFile;
   QTextStream m_streamOut;
 
+  QVector<PacketEntry> m_masterLog;
   PacketDetailWidget *m_detailView = nullptr;
   QMap<int, QPushButton *> m_filterButtons;
   QSet<int> m_disabledTypes;
