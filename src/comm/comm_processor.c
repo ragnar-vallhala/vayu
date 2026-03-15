@@ -1,7 +1,10 @@
-#include "comm/channel.h"
+#include "comm/comm_types.h"
 #include "comm/serializer.h"
+#include "sys/state.h"
+#include "task.h"
 #include "utils/utils.h"
 #include "vaios.h"
+#include "vayu_tasks.h"
 
 void comm_processor_task(void *args) {
   (void)args;
@@ -15,6 +18,16 @@ void comm_processor_task(void *args) {
       if (packet_type == PACKET_TYPE_HEARTBEAT) {
         set_timestamp(pkt.timestamp);
         set_device_id(pkt.device_id);
+      } else if (packet_type == PACKET_TYPE_COMMAND) {
+        uint16_t cmd_id;
+        v_memcpy(&cmd_id, pkt.payload, 2);
+        if (cmd_id == 0x0006) { // CMD_CALIBRATE_GYR
+          if (system_state_get() != SYSTEM_STATE_CALIBRATING) {
+            task_create(calibration_task, NULL, 2048, 0);
+          }
+        } else if (cmd_id == 0x0009) { // CMD_CANCEL_CALIBRATION
+          system_state_set(SYSTEM_STATE_STANDBY);
+        }
       }
     } else {
       v_delay(10); // Wait for more packets

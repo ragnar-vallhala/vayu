@@ -8,7 +8,8 @@ typedef enum {
   SYSTEM_STATE_ARMED = 0x10,
   SYSTEM_STATE_IN_AIR = 0x20,
   SYSTEM_STATE_FAILSAFE=0x40,
-  SYSTEM_STATE_TERMINATED=0x80
+  SYSTEM_STATE_TERMINATED=0x80,
+  SYSTEM_STATE_CALIBRATING=0x100,
 } sys_state_t;
 extern sys_state_t _system_current_status;
 inline void system_state_init() { _system_current_status = SYSTEM_STATE_INIT; }

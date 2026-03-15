@@ -55,4 +55,11 @@
 #define SF_MAHONY_KP 1.5f
 #define SF_MAHONY_KI 0.005f
 #define SF_FILTER_USED SF_MAHONY
+
+// Global telemetry channel and mutex
+#include "comm/channel.h"
+#include "ipc.h"
+extern channel_t g_telemetry_channel;
+extern MutexHandle_t g_comm_mutex;
+
 #endif //! VAYU_VARIABLES_H

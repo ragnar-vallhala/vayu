@@ -22,7 +22,6 @@
 #define AUTHOR "ASHUTOSH VISHWAKARMA"
 #endif
 
-
 // Init settings
 #ifndef CORTEX_M4
 #define CORTEX_M4
@@ -35,7 +34,7 @@
 #endif
 
 #ifndef UART_LOGGING_ENABLE
-#define UART_LOGGING_ENABLE 1
+#define UART_LOGGING_ENABLE 0
 #endif
 
 #ifndef UART_BAUDRATE

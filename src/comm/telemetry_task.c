@@ -14,6 +14,9 @@
 #include <stdint.h>
 #include <string.h>
 
+channel_t g_telemetry_channel;
+MutexHandle_t g_comm_mutex;
+
 void imu_telemetry_task(void *args) {
   (void)args;
   static bmx160_all_reading_t samples[IMU_BUFFER_SIZE];
@@ -22,11 +25,12 @@ void imu_telemetry_task(void *args) {
   bool first_packet = true;
   uint32_t packet_counter = 0;
 
-  channel_t uart_channel;
   serial_args_t uart_args = {
       .baud_rate = 115200, .uart = UART2, .timeout = 100};
 
-  if (get_handler(CHANNEL_TYPE_SERIAL, &uart_channel, &uart_args,
+  g_comm_mutex = v_mutex_create();
+
+  if (get_handler(CHANNEL_TYPE_SERIAL, &g_telemetry_channel, &uart_args,
                   uart2_packet_recv_callback) != NONE) {
     return;
   }
@@ -77,15 +81,16 @@ void imu_telemetry_task(void *args) {
       state_payload[0] = 0x04; // SYSTEM_ORIGIN_SYS_STATE
       state_payload[1] = 0x00; // Reserved/Padding
       float current_state = (float)system_state_get();
-      memcpy(&state_payload[2], &current_state, 4);
+      v_memcpy(&state_payload[2], &current_state, 4);
 
-      send_packet(&uart_channel, PACKET_TYPE_SYSTEM_STATUS, state_payload, 6);
+      send_packet(&g_telemetry_channel, PACKET_TYPE_SYSTEM_STATUS,
+                  state_payload, 6);
     }
 
     if (send_full) {
-      send_packet(&uart_channel, PACKET_TYPE_IMU_DATA_FULL,
+      send_packet(&g_telemetry_channel, PACKET_TYPE_IMU_DATA_FULL,
                   (uint8_t *)current_floats, 40);
-      memcpy(previous_floats, current_floats, sizeof(current_floats));
+      v_memcpy(previous_floats, current_floats, sizeof(current_floats));
       first_packet = false;
     } else if (send_comp && !first_packet) {
       uint16_t delta_payload[10];
@@ -93,20 +98,21 @@ void imu_telemetry_task(void *args) {
         delta_payload[i] =
             float32_to_float16(current_floats[i] - previous_floats[i]);
       }
-      send_packet(&uart_channel, PACKET_TYPE_IMU_DATA_COMPRESSED,
+      send_packet(&g_telemetry_channel, PACKET_TYPE_IMU_DATA_COMPRESSED,
                   (uint8_t *)delta_payload, 20);
-      memcpy(previous_floats, current_floats, sizeof(current_floats));
+      v_memcpy(previous_floats, current_floats, sizeof(current_floats));
     }
 
     if (send_att) {
       attitude_t att;
       bmx160_get_attitude(&att);
       float att_vals[3] = {att.roll, att.pitch, att.yaw};
-      send_packet(&uart_channel, PACKET_TYPE_ATTITUDE, (uint8_t *)att_vals, 12);
+      send_packet(&g_telemetry_channel, PACKET_TYPE_ATTITUDE,
+                  (uint8_t *)att_vals, 12);
     }
 
     if (send_rc) {
-      send_packet(&uart_channel, PACKET_TYPE_RC_CHANNELS,
+      send_packet(&g_telemetry_channel, PACKET_TYPE_RC_CHANNELS,
                   (uint8_t *)rc_channels, 28);
     }
 

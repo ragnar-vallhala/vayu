@@ -37,9 +37,9 @@ void init_sensors(void) {
 
 void init_tasks(void) {
 
-  task_create(comm_processor_task, NULL, 1024, 0);
-  bmx160_task_id = task_create(bmx160_initiate_read, NULL, 2048, 0);
-  task_create(rc_ibus_task, NULL, 2048, 0);
+  task_create(comm_processor_task, NULL, 1024, 3);
+  bmx160_task_id = task_create(bmx160_initiate_read, NULL, 2048, 5);
+  task_create(rc_ibus_task, NULL, 2048, 4);
   task_create(motor_task, NULL, 2048, 0);
   task_create(imu_telemetry_task, NULL, 2048, 0);
   task_create(flush_task, NULL, 1024, 0);
@@ -51,13 +51,13 @@ void init_timer_callbacks(void) {
     PANIC("Failed to register increment_high_freq_timer");
     return;
   };
-  if (timer_callback_register(wake_imu_read_task, 10) != 0) {
+  if (timer_callback_register(wake_imu_read_task, 1000) != 0) {
     PANIC("Failed to register wake_imu_read_task");
     return;
   }
 }
 void system_init_tasks(void) {
-  task_create(heartbeat_task, NULL, 1024, 0);
+  task_create(heartbeat_task, NULL, 2048, 0);
   task_create(boot_task, NULL, 1024, 0);
 }
 int main() {
@@ -66,8 +66,8 @@ int main() {
   v_heap_memory_init();
   system_state_init();
   scheduler_init();
-  system_init_tasks();
   init_sensors();
+  system_init_tasks();
   init_timer_callbacks();
   init_tasks();
   scheduler_start();

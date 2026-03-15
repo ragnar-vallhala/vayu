@@ -98,11 +98,18 @@ DecodedPacket PacketDecoder::decode(const QByteArray &data) {
       if (result.length == 6) {
         float f_state;
         memcpy(&f_state, raw + 10, 4);
-        result.payload = sysStateToName((uint8_t)f_state);
+        result.payload = sysStateToName(static_cast<uint16_t>(f_state));
       } else {
         result.payload =
             QString("INVALID SYSTEM_STATE LEN: %1").arg(result.length);
       }
+    } else if (result.length == 18 && raw[8] == 0x01) {
+      // SYSTEM_ORIGIN_CALIBRATION: [origin] [n] [float32 progress] [float32
+      // bias_x] [float32 bias_y] [float32 bias_z]
+      float progress;
+      memcpy(&progress, raw + 10, 4);
+      result.payload =
+          QString("CALIBRATION PROGRESS: %1%").arg(progress, 0, 'f', 2);
     } else {
       // Legacy or other status origin: treat as string if small, or generic
       // format
@@ -132,7 +139,7 @@ QString PacketDecoder::typeToString(uint8_t type) {
   }
 }
 
-QString PacketDecoder::sysStateToName(uint8_t state) {
+QString PacketDecoder::sysStateToName(uint16_t state) {
   switch (state) {
   case 0x01:
     return "UNINITIALIZED";
@@ -150,6 +157,8 @@ QString PacketDecoder::sysStateToName(uint8_t state) {
     return "FAILSAFE";
   case 0x80:
     return "TERMINATED";
+  case 0x100:
+    return "CALIBRATING";
   default:
     return QString("STATE: 0x%1").arg(state, 2, 16, QChar('0')).toUpper();
   }

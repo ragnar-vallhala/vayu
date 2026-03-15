@@ -137,6 +137,19 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   onRefreshPorts(); // populate port list on startup
   setConnected(false);
 
+  // Build Calibration
+  m_calibrationWidget = new CalibrationWidget(this);
+  m_calibrationWidget->setProtocol(m_protocol);
+  m_stackedWidget->addWidget(m_calibrationWidget);
+  connect(m_calibrationWidget, &CalibrationWidget::backToHomeRequested, this,
+          &MainWindow::showHome);
+  connect(m_calibrationWidget, &CalibrationWidget::commandRequested,
+          [this](const QByteArray &data) {
+            if (m_serial && m_connected) {
+              m_serial->write(data);
+            }
+          });
+
   showHome();
 }
 
@@ -156,6 +169,10 @@ void MainWindow::showRcMonitor() {
 
 void MainWindow::showSettings() {
   m_stackedWidget->setCurrentWidget(m_settingsWidget);
+}
+
+void MainWindow::showCalibration() {
+  m_stackedWidget->setCurrentWidget(m_calibrationWidget);
 }
 
 // ---------------------------------------------------------------------------
@@ -291,6 +308,7 @@ void MainWindow::buildMenuBar() {
 
   QMenu *windowMenu = menu->addMenu("&Window");
   windowMenu->addAction("&Channels", this, &MainWindow::showRcMonitor);
+  windowMenu->addAction("&Calibration", this, &MainWindow::showCalibration);
 
   fileMenu->addSeparator();
 
@@ -380,10 +398,20 @@ void MainWindow::buildToolBar() {
   // RC Monitor
   auto *rcBtn = new QPushButton("RC", this);
   rcBtn->setToolTip("Open RC Channels Monitor");
-  rcBtn->setFixedWidth(32);
+  rcBtn->setFixedWidth(40);
   rcBtn->setStyleSheet("QPushButton { font-weight: bold; }");
   connect(rcBtn, &QPushButton::clicked, this, &MainWindow::showRcMonitor);
   tb->addWidget(rcBtn);
+
+  tb->addSeparator();
+
+  // Calibration
+  auto *calBtn = new QPushButton("CALIB", this);
+  calBtn->setToolTip("Open Calibration IMU");
+  calBtn->setFixedWidth(60);
+  calBtn->setStyleSheet("QPushButton { font-weight: bold; }");
+  connect(calBtn, &QPushButton::clicked, this, &MainWindow::showCalibration);
+  tb->addWidget(calBtn);
 
   tb->addSeparator();
 

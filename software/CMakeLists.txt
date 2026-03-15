@@ -37,6 +37,7 @@ set(GCS_SOURCES
     src/core/SettingsManager.cpp
     src/ui/widgets/FrequencyRibbon.cpp
     src/ui/widgets/RcChannelsWidget.cpp
+    src/ui/widgets/CalibrationWidget.cpp
 )
 
 set(GCS_HEADERS
@@ -57,6 +58,7 @@ set(GCS_HEADERS
     src/core/SettingsManager.h
     src/ui/widgets/FrequencyRibbon.h
     src/ui/widgets/RcChannelsWidget.h
+    src/ui/widgets/CalibrationWidget.h
 )
 
 set(GCS_RESOURCES
