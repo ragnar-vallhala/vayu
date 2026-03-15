@@ -115,6 +115,19 @@ static inline void _run_heartbeat(channel_t *channel, uint32_t period) {
     hal_gpio_digitalwrite(_BLUE_LED_PIN, GPIO_LOW);
     hal_gpio_digitalwrite(_GREEN_LED_PIN, GPIO_LOW);
     hal_gpio_digitalwrite(_RED_LED_PIN, GPIO_LOW);
+    _blue_led_state = 0;
+    _green_led_state = 0;
+    _red_led_state = 0;
+
+    // Send State Update via SYSTEM_STATUS packet
+    uint8_t payload[6];
+    payload[0] = 0x04; // SYSTEM_ORIGIN_SYS_STATE
+    payload[1] = 1;    // n = 1 value
+    float state_val = (float)current_state;
+    v_memcpy(&payload[2], &state_val, 4);
+    send_packet(channel, PACKET_TYPE_SYSTEM_STATUS, payload, 6);
+
+    last_state = current_state;
   }
 
   switch (current_state) {
