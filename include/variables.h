@@ -9,7 +9,7 @@
 #include "sensor/bmx160.h"
 
 // Physical Heartbeat LED
-#define _HEARTBEAT_LED_PIN GPIO_PA05
+#define _HEARTBEAT_LED_PIN GPIO_PB13
 #define _HEARTBEAT_DEFAULT_TIMEPERIOD 1000 // 1000ms
 
 // I2C Control
@@ -39,6 +39,10 @@
 // Timer Callbacks
 #define MAX_TIMER_CALLBACKS 4
 #define HIGH_FREQ_TIMER_FREQ 10000 // 10kHz
+
+// LPF Configurations
+#define LPF_ACC_ALPHA 0.05f
+#define LPF_GYR_ALPHA 0.01f
 
 // Sensor Fusion Parameters
 #define SF_COMPLEMENTARY_ALPHA 0.98f

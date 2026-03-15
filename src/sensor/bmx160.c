@@ -13,7 +13,6 @@ uint8_t tx_buf[2];
 uint8_t rx_buf[14]; // Increased for safer multi-byte reads
 
 // Static helper functions and variables
-static uint8_t status = 0;
 // Default BMX160 configuration
 static bmx160_config_t bmx160_cfg;
 
@@ -23,13 +22,32 @@ static uint8_t _bmx_dma_rx_buffer[32] __attribute__((aligned(4)));
 static attitude_t _bmx_orientation;
 static bmx160_all_reading_t _bmx_data;
 
+static float acc_scale = 0.0f;
+static float gyr_scale = 0.0f;
+
 // LPFs for sensors
 static lpf_t acc_lpf[3];
 static lpf_t gyr_lpf[3];
 
+static bmm150_trim_data_t _mag_trim;
+
 static void bmx160_set_mag_conf();
 static bmx160_err_type bmx160_convert_raw_temp_to_celcius(int16_t raw_temp,
                                                           float *celcius);
+static float bmx160_range_code_to_g(uint8_t range_code);
+static float bmx160_range_code_to_dps(uint8_t range_code);
+
+static bmx160_err_type bmx160_verify_pmu(uint8_t mask, uint8_t expected) {
+  uint8_t reg = BMX160_PMU_STAT_ADDR;
+  if (hal_i2c_write_read(I2C_BUS, BMX160_I2C_ADDR, &reg, 1, rx_buf, 1) !=
+      HAL_I2C_OK) {
+    return ERR0;
+  }
+  if ((rx_buf[0] & mask) == expected) {
+    return NO_ERR;
+  }
+  return ERR1;
+}
 
 static void unstick_i2c_bus(void) {
   hal_gpio_setmode(I2C_PIN_1, GPIO_OUTPUT, GPIO_PULLUP);
@@ -74,29 +92,63 @@ hal_i2c_status_t bmx160_init(void) {
   hal_gpio_set_output_speed(I2C_PIN_2, GPIO_VERY_HIGH_SPEED);
   hal_i2c_status_t ts = hal_i2c_init(I2C_BUS, &i2c_config);
 
-  // BMX160 Configuration
-  if ((ts == HAL_I2C_OK || ts == HAL_I2C_ERR_REINIT)) {
-    tx_buf[0] = BMX160_PWR_CONF_ADDR;
-    tx_buf[1] = 0x00;
-    hal_i2c_write(I2C_BUS, BMX160_I2C_ADDR, tx_buf, 2);
+  if (ts != HAL_I2C_OK && ts != HAL_I2C_ERR_REINIT) {
+    return ts;
+  }
 
-    // Put accelerometer and gyroscope into normal mode
+  // 1. Verify Chip ID
+  uint16_t chip_id = bmx160_get_chip_id();
+  if (chip_id != BMX160_CHIP_ID) {
+    return HAL_I2C_ERR_REINIT;
+  }
+
+  // 2. Soft Reset to ensure clean state
+  tx_buf[0] = BMX160_CMD_ADDR;
+  tx_buf[1] = 0xB6; // softreset command
+  hal_i2c_write(I2C_BUS, BMX160_I2C_ADDR, tx_buf, 2);
+  v_delay(100);
+
+  // 3. Put accelerometer into normal mode
+  int retry = 5;
+  while (retry--) {
     tx_buf[0] = BMX160_CMD_ADDR;
     tx_buf[1] = BMX160_CMD_ACC_NORMAL;
     hal_i2c_write(I2C_BUS, BMX160_I2C_ADDR, tx_buf, 2);
-    v_delay(10);
+    v_delay(20);
+    if (bmx160_verify_pmu(BMX160_PMU_STAT_ACC_MASK,
+                          BMX160_PMU_STAT_ACC_NORMAL) == NO_ERR) {
+      break;
+    }
+  }
 
-    tx_buf[0] = BMX160_CMD_ADDR; // register address (0x7E)
+  // 4. Put gyroscope into normal mode
+  retry = 5;
+  while (retry--) {
+    tx_buf[0] = BMX160_CMD_ADDR;
     tx_buf[1] = BMX160_CMD_GYR_NORMAL;
     hal_i2c_write(I2C_BUS, BMX160_I2C_ADDR, tx_buf, 2);
     v_delay(100);
+    if (bmx160_verify_pmu(BMX160_PMU_STAT_GYR_MASK,
+                          BMX160_PMU_STAT_GYR_NORMAL) == NO_ERR) {
+      break;
+    }
+  }
 
-    tx_buf[0] = BMX160_CMD_ADDR; // register address (0x7E)
+  // 5. Put magnetometer into normal mode
+  retry = 5;
+  while (retry--) {
+    tx_buf[0] = BMX160_CMD_ADDR;
     tx_buf[1] = BMX160_CMD_MAG_NORMAL;
     hal_i2c_write(I2C_BUS, BMX160_I2C_ADDR, tx_buf, 2);
     v_delay(100);
-    bmx160_set_mag_conf();
+    if (bmx160_verify_pmu(BMX160_PMU_STAT_MAG_MASK,
+                          BMX160_PMU_STAT_MAG_NORMAL) == NO_ERR) {
+      break;
+    }
   }
+
+  // 6. Configure Magnetometer (BMM150 setup)
+  bmx160_set_mag_conf();
 
   // Config for components
   bmx160_read_config(&bmx160_cfg);
@@ -116,8 +168,8 @@ hal_i2c_status_t bmx160_init(void) {
 
   // Initialize LPFs
   for (int i = 0; i < 3; i++) {
-    lpf_init(&acc_lpf[i], 0.02f); // Aggressive filtering for Acc
-    lpf_init(&gyr_lpf[i], 0.1f);  // Filter Gyro as well
+    lpf_init(&acc_lpf[i], LPF_ACC_ALPHA); // Aggressive filtering for Acc
+    lpf_init(&gyr_lpf[i], LPF_GYR_ALPHA);  // Filter Gyro as well
   }
   // Initialize orientation quaternion to identity
   _bmx_orientation.q.w = 1.0f;
@@ -128,57 +180,110 @@ hal_i2c_status_t bmx160_init(void) {
   return ts;
 }
 
-static void bmx160_set_mag_conf() {
-  tx_buf[0] = BMX160_MAG_IF_0_ADDR;
+static bmx160_err_type bmx160_write_bmm150_reg(uint8_t reg, uint8_t data) {
+  tx_buf[0] = BMX160_MAG_IF_3_DATA_ADDR;
+  tx_buf[1] = data;
+  if (hal_i2c_write(I2C_BUS, BMX160_I2C_ADDR, tx_buf, 2) != HAL_I2C_OK)
+    return ERR0;
+  tx_buf[0] = BMX160_MAG_IF_2_REG_ADDR;
+  tx_buf[1] = reg;
+  if (hal_i2c_write(I2C_BUS, BMX160_I2C_ADDR, tx_buf, 2) != HAL_I2C_OK)
+    return ERR0;
+  v_delay(1);
+  return NO_ERR;
+}
+
+static bmx160_err_type bmx160_read_bmm150_reg(uint8_t reg, uint8_t *data) {
+  tx_buf[0] = BMX160_MAG_IF_1_READ_ADDR;
+  tx_buf[1] = reg;
+  if (hal_i2c_write(I2C_BUS, BMX160_I2C_ADDR, tx_buf, 2) != HAL_I2C_OK)
+    return ERR0;
+  v_delay(1);
+  uint8_t read_reg = 0x04; // MAG_X_LSB in BMX160 is where IF data appears
+  if (hal_i2c_write_read(I2C_BUS, BMX160_I2C_ADDR, &read_reg, 1, data, 1) !=
+      HAL_I2C_OK)
+    return ERR0;
+  return NO_ERR;
+}
+
+static void bmx160_read_mag_trim_data() {
+  // Enter manual mode
+  tx_buf[0] = BMX160_MAG_IF_0_CONF_ADDR;
   tx_buf[1] = 0x80;
   hal_i2c_write(I2C_BUS, BMX160_I2C_ADDR, tx_buf, 2);
-  v_delay(50);
+  v_delay(1);
 
-  // sleep
-  tx_buf[0] = BMX160_MAG_IF_3_ADDR;
-  tx_buf[1] = 0x01;
+  uint8_t tmp[2];
+
+  bmx160_read_bmm150_reg(0x5D, (uint8_t *)&_mag_trim.dig_x1);
+  bmx160_read_bmm150_reg(0x5E, (uint8_t *)&_mag_trim.dig_y1);
+  bmx160_read_bmm150_reg(0x64, (uint8_t *)&_mag_trim.dig_x2);
+  bmx160_read_bmm150_reg(0x65, (uint8_t *)&_mag_trim.dig_y2);
+  bmx160_read_bmm150_reg(0x71, &_mag_trim.dig_xy1);
+  bmx160_read_bmm150_reg(0x70, (uint8_t *)&_mag_trim.dig_xy2);
+
+  bmx160_read_bmm150_reg(0x6A, &tmp[0]);
+  bmx160_read_bmm150_reg(0x6B, &tmp[1]);
+  _mag_trim.dig_z1 = (uint16_t)(tmp[1] << 8 | tmp[0]);
+
+  bmx160_read_bmm150_reg(0x68, &tmp[0]);
+  bmx160_read_bmm150_reg(0x69, &tmp[1]);
+  _mag_trim.dig_z2 = (int16_t)(tmp[1] << 8 | tmp[0]);
+
+  bmx160_read_bmm150_reg(0x6E, &tmp[0]);
+  bmx160_read_bmm150_reg(0x6F, &tmp[1]);
+  _mag_trim.dig_z3 = (int16_t)(tmp[1] << 8 | tmp[0]);
+
+  bmx160_read_bmm150_reg(0x62, &tmp[0]);
+  bmx160_read_bmm150_reg(0x63, &tmp[1]);
+  _mag_trim.dig_z4 = (int16_t)(tmp[1] << 8 | tmp[0]);
+
+  bmx160_read_bmm150_reg(0x6C, &tmp[0]);
+  bmx160_read_bmm150_reg(0x6D, &tmp[1]);
+  _mag_trim.dig_xyz1 = (uint16_t)(tmp[1] << 8 | tmp[0]);
+
+  // Exit manual mode (will be done in bmx160_set_mag_conf)
+}
+
+static void bmx160_set_mag_conf() {
+  // 1. Route secondary I2C interface to Magnetometer (0x6B = 0x20)
+  tx_buf[0] = BMX160_IF_CONF_ADDR;
+  tx_buf[1] = 0x20;
   hal_i2c_write(I2C_BUS, BMX160_I2C_ADDR, tx_buf, 2);
+  v_delay(1);
 
-  tx_buf[0] = BMX160_MAG_IF_2_ADDR;
-  tx_buf[1] = 0x4B;
-  hal_i2c_write(I2C_BUS, BMX160_I2C_ADDR, tx_buf, 2);
+  // 2. Take BMM150 out of suspend (Manual write 0x01 to BMM150 Reg 0x4B)
+  bmx160_write_bmm150_reg(0x4B, 0x01);
+  v_delay(50); // Power-up time
 
-  tx_buf[0] = BMX160_MAG_IF_3_ADDR;
-  tx_buf[1] = 0x04;
-  hal_i2c_write(I2C_BUS, BMX160_I2C_ADDR, tx_buf, 2);
+  // 3. Read Trim Data
+  bmx160_read_mag_trim_data();
 
-  tx_buf[0] = BMX160_MAG_IF_2_ADDR;
-  tx_buf[1] = 0x51;
-  hal_i2c_write(I2C_BUS, BMX160_I2C_ADDR, tx_buf, 2);
+  // 4. Configure BMM150 (Regular Preset: 9 reps XY, 15 reps Z)
+  bmx160_write_bmm150_reg(0x51, 0x04);
+  bmx160_write_bmm150_reg(0x52, 0x0E);
 
-  tx_buf[0] = BMX160_MAG_IF_3_ADDR;
-  tx_buf[1] = 0x0E;
-  hal_i2c_write(I2C_BUS, BMX160_I2C_ADDR, tx_buf, 2);
+  // 5. Prepare for Data Mode
+  // Set BMM150 to Forced Mode (Reg 0x4C = 0x02)
+  bmx160_write_bmm150_reg(0x4C, 0x02);
 
-  tx_buf[0] = BMX160_MAG_IF_2_ADDR;
-  tx_buf[1] = 0x52;
-  hal_i2c_write(I2C_BUS, BMX160_I2C_ADDR, tx_buf, 2);
-
-  tx_buf[0] = BMX160_MAG_IF_3_ADDR;
-  tx_buf[1] = 0x02;
-  hal_i2c_write(I2C_BUS, BMX160_I2C_ADDR, tx_buf, 2);
-
-  tx_buf[0] = BMX160_MAG_IF_2_ADDR;
-  tx_buf[1] = 0x4C;
-  hal_i2c_write(I2C_BUS, BMX160_I2C_ADDR, tx_buf, 2);
-
-  tx_buf[0] = BMX160_MAG_IF_1_ADDR;
+  // 6. Set Mag Read Address to 0x42 (Data X LSB)
+  tx_buf[0] = BMX160_MAG_IF_1_READ_ADDR;
   tx_buf[1] = 0x42;
   hal_i2c_write(I2C_BUS, BMX160_I2C_ADDR, tx_buf, 2);
+  v_delay(1);
 
+  // 7. Configure ODR (0x44 = 0x05 for 12.5Hz)
   tx_buf[0] = BMX160_MAG_CONF_ADDR;
-  tx_buf[1] = 0x08;
+  tx_buf[1] = 0x05;
   hal_i2c_write(I2C_BUS, BMX160_I2C_ADDR, tx_buf, 2);
+  v_delay(1);
 
-  tx_buf[0] = BMX160_MAG_IF_0_ADDR;
+  // 8. Enable Auto-mode (manual_en = 0, burst_read = 8 bytes)
+  tx_buf[0] = BMX160_MAG_IF_0_CONF_ADDR;
   tx_buf[1] = 0x03;
   hal_i2c_write(I2C_BUS, BMX160_I2C_ADDR, tx_buf, 2);
-  v_delay(50);
+  v_delay(10);
 }
 
 uint16_t bmx160_get_chip_id(void) {
@@ -194,30 +299,99 @@ uint16_t bmx160_get_chip_id(void) {
 }
 
 int16_t bmx160_read_temp_raw(void) {
-  if (status != 1) {
+  uint8_t reg = BMX160_TEMPERATURE_0_ADDR;
+
+  if (hal_i2c_write_read(I2C_BUS, BMX160_I2C_ADDR, &reg, 1, rx_buf, 2) !=
+      HAL_I2C_OK)
+    return 0x8000;
+
+  return (int16_t)((rx_buf[1] << 8) | rx_buf[0]);
+}
+
+static float bmm150_compensate_x(int16_t mag_data_x, uint16_t data_rhall) {
+  float retval = 0;
+  float process_comp_x0;
+  float process_comp_x1;
+  float process_comp_x2;
+  float process_comp_x3;
+  float process_comp_x4;
+
+  if (mag_data_x != -4096) {
+    if ((data_rhall != 0) && (_mag_trim.dig_xyz1 != 0)) {
+      process_comp_x0 =
+          (((float)_mag_trim.dig_xyz1) * 16384.0f / (float)data_rhall) -
+          16384.0f;
+      process_comp_x1 = ((float)_mag_trim.dig_xy2) *
+                        (process_comp_x0 * process_comp_x0 / 268435456.0f);
+      process_comp_x2 = process_comp_x1 +
+                        process_comp_x0 * ((float)_mag_trim.dig_xy1) / 16384.0f;
+      process_comp_x3 = ((float)_mag_trim.dig_x2) + 160.0f;
+      process_comp_x4 = mag_data_x * ((process_comp_x2 + 256.0f) *
+                                      (process_comp_x3 * 0.0000030517578125f));
+      retval = process_comp_x4 + ((float)_mag_trim.dig_x1) * 8.0f;
+      retval = retval / 16.0f;
+    }
+  } else {
+    retval = 0.0f;
   }
+  return retval;
+}
 
-  tx_buf[0] = BMX160_TEMPERATURE_1_ADDR;
-  hal_i2c_status_t ret;
+static float bmm150_compensate_y(int16_t mag_data_y, uint16_t data_rhall) {
+  float retval = 0.0f;
+  float process_comp_y0;
+  float process_comp_y1;
+  float process_comp_y2;
+  float process_comp_y3;
+  float process_comp_y4;
 
-  // Read 2 bytes from temperature registers (0x20, 0x21)
-  ret = hal_i2c_write_read(I2C_BUS, BMX160_I2C_ADDR, tx_buf, 1, rx_buf, 1);
-  // Combine MSB and LSB (two's complement, little-endian)
-  if (ret != HAL_I2C_OK) {
-    return 0xFFFF;
+  if (mag_data_y != -4096) {
+    if ((data_rhall != 0) && (_mag_trim.dig_xyz1 != 0)) {
+      process_comp_y0 =
+          (((float)_mag_trim.dig_xyz1) * 16384.0f / (float)data_rhall) -
+          16384.0f;
+      process_comp_y1 = ((float)_mag_trim.dig_xy2) *
+                        (process_comp_y0 * process_comp_y0 / 268435456.0f);
+      process_comp_y2 = process_comp_y1 +
+                        process_comp_y0 * ((float)_mag_trim.dig_xy1) / 16384.0f;
+      process_comp_y3 = ((float)_mag_trim.dig_y2) + 160.0f;
+      process_comp_y4 = mag_data_y * ((process_comp_y2 + 256.0f) *
+                                      (process_comp_y3 * 0.0000030517578125f));
+      retval = process_comp_y4 + ((float)_mag_trim.dig_y1) * 8.0f;
+      retval = retval / 16.0f;
+    }
+  } else {
+    retval = 0.0f;
   }
-  int16_t temp_raw = (int16_t)(rx_buf[0] << 8);
+  return retval;
+}
 
-  tx_buf[0] = BMX160_TEMPERATURE_1_ADDR;
-  ret = hal_i2c_write_read(I2C_BUS, BMX160_I2C_ADDR, tx_buf, 1, rx_buf, 1);
-  // Combine MSB and LSB (two's complement, little-endian)
-  if (ret != HAL_I2C_OK) {
-    return 0xFFFF;
+static float bmm150_compensate_z(int16_t mag_data_z, uint16_t data_rhall) {
+  float retval = 0.0f;
+  float process_comp_z0;
+  float process_comp_z1;
+  float process_comp_z2;
+  float process_comp_z3;
+  float process_comp_z4;
+  float process_comp_z5;
+
+  if (mag_data_z != -16384) {
+    if ((_mag_trim.dig_z2 != 0) && (_mag_trim.dig_z1 != 0) &&
+        (_mag_trim.dig_xyz1 != 0) && (data_rhall != 0)) {
+      process_comp_z0 = ((float)mag_data_z) - ((float)_mag_trim.dig_z4);
+      process_comp_z1 = ((float)data_rhall) - ((float)_mag_trim.dig_xyz1);
+      process_comp_z2 = (((float)_mag_trim.dig_z3) * process_comp_z1);
+      process_comp_z3 =
+          ((float)_mag_trim.dig_z1) * ((float)data_rhall) / 32768.0f;
+      process_comp_z4 = ((float)_mag_trim.dig_z2) + process_comp_z3;
+      process_comp_z5 = (process_comp_z0 * 131072.0f - process_comp_z2) /
+                        (process_comp_z4 * 4.0f);
+      retval = process_comp_z5 / 16.0f;
+    }
+  } else {
+    retval = 0.0f;
   }
-  // Combine MSB and LSB (two's complement, little-endian)
-  temp_raw = (int16_t)(temp_raw | rx_buf[1]);
-
-  return temp_raw; // keep raw for now
+  return retval;
 }
 
 static bmx160_err_type bmx160_convert_raw_temp_to_celcius(int16_t raw_temp,
@@ -235,7 +409,6 @@ bmx160_err_type bmx160_read_temp_celcius(float *celcius) {
   int16_t raw = bmx160_read_temp_raw();
   bmx160_err_type err = bmx160_convert_raw_temp_to_celcius(raw, celcius);
   if (err == NO_ERR) {
-    // v_log(LOG_INFO, "[BMX160] TEMP: %f", *celcius);
   }
   return ERR0;
 }
@@ -266,13 +439,13 @@ bmx160_err_type bmx160_read_gyr_raw(int16_t *raw) {
     return ERR0;
   }
 
-  // Combine little-endian pairs into signed 16-bit values
-  raw[0] = (int16_t)((rx_buf[1] << 8) | rx_buf[0]); // X
-  raw[1] = (int16_t)((rx_buf[3] << 8) | rx_buf[2]); // Y
-  raw[2] = (int16_t)((rx_buf[5] << 8) | rx_buf[4]); // Z
+  raw[0] = ((int16_t)(((int8_t)rx_buf[1]) << 8 | rx_buf[0]));
+  raw[1] = ((int16_t)(((int8_t)rx_buf[3]) << 8 | rx_buf[2]));
+  raw[2] = ((int16_t)(((int8_t)rx_buf[5]) << 8 | rx_buf[4]));
 
   return NO_ERR;
 }
+
 bmx160_err_type bmx160_read_mag_raw(int16_t *raw) {
   uint8_t reg = BMX160_MAGX_LOW_ADDR; // Start address of accel X LSB
   hal_i2c_status_t ret;
@@ -462,6 +635,14 @@ bmx160_err_type bmx160_write_config(bmx160_config_t *config) {
   if (bmx160_write_mag_config(config) != NO_ERR)
     return ERR0;
   bmx160_set_current_config(config);
+
+  // Pre-calculate scales
+  float g_range = bmx160_range_code_to_g(config->bmx160_acc_range);
+  acc_scale = g_range * 9.80665f / 32768.0f;
+
+  float dps_range = bmx160_range_code_to_dps(config->bmx160_gyr_range);
+  gyr_scale = dps_range / 32768.0f;
+
   return NO_ERR;
 }
 
@@ -561,11 +742,8 @@ static float bmx160_range_code_to_g(uint8_t range_code) {
 }
 
 float bmx160_raw_acc_to_mps2(int16_t raw) {
-  bmx160_config_t cfg = bmx160_get_current_config();
-  float g_range = bmx160_range_code_to_g(cfg.bmx160_acc_range);
-
-  // Convert raw → g → m/s²
-  return ((float)raw / 32768.0f) * g_range * 9.80665f;
+  // Convert raw → g → m/s² using pre-calculated scale
+  return (float)raw * acc_scale;
 }
 static float bmx160_range_code_to_dps(uint8_t range_code) {
   switch (range_code) {
@@ -585,18 +763,13 @@ static float bmx160_range_code_to_dps(uint8_t range_code) {
 }
 
 float bmx160_raw_gyr_to_dps(int16_t raw) {
-  bmx160_config_t cfg = bmx160_get_current_config();
-  float dps_range = bmx160_range_code_to_dps(cfg.bmx160_gyr_range);
-
-  // Convert raw → dps
-  return ((float)raw / 32768.0f) * dps_range;
+  // Convert raw → dps using pre-calculated scale
+  return (float)raw * gyr_scale;
 }
 
 float bmx160_raw_mag_to_uT(int16_t raw) {
-  // Conversion factor from datasheet (LSB → microtesla)
-  const float lsb_per_uT = 0.3f;
-
-  return (float)raw * lsb_per_uT;
+  // Deprecated: use axis-specific compensation
+  return (float)raw;
 }
 
 bmx160_config_t bmx160_get_current_config(void) { return bmx160_cfg; }
@@ -641,8 +814,12 @@ void bmx160_dma_callback(void) {
   int16_t mz = (int16_t)(((uint16_t)_bmx_dma_rx_buffer[5] << 8) |
                          (_bmx_dma_rx_buffer[4] & 0xFE)) >>
                1;
+  // RHALL is at bytes 6, 7
+  uint16_t rhall = (uint16_t)(((uint16_t)_bmx_dma_rx_buffer[7] << 8) |
+                              (_bmx_dma_rx_buffer[6] & 0xFE)) >>
+                   2;
 
-  // 2. Extract gyr (8-13) - Note: 6, 7 are RHALL
+  // 2. Extract gyr (8-13)
   int16_t gx =
       (int16_t)(((uint16_t)_bmx_dma_rx_buffer[9] << 8) | _bmx_dma_rx_buffer[8]);
   int16_t gy = (int16_t)(((uint16_t)_bmx_dma_rx_buffer[11] << 8) |
@@ -672,6 +849,7 @@ void bmx160_dma_callback(void) {
   _bmx_data.raw.mag[0] = mx;
   _bmx_data.raw.mag[1] = my;
   _bmx_data.raw.mag[2] = mz;
+  _bmx_data.raw.rhall = rhall;
   _bmx_data.raw.temp = raw_temp;
 
   // Convert to units (for local attitude fusion and telemetry)
@@ -683,9 +861,9 @@ void bmx160_dma_callback(void) {
   _bmx_data.converted.gyr[1] = bmx160_raw_gyr_to_dps(gy);
   _bmx_data.converted.gyr[2] = bmx160_raw_gyr_to_dps(gz);
 
-  _bmx_data.converted.mag[0] = bmx160_raw_mag_to_uT(mx);
-  _bmx_data.converted.mag[1] = bmx160_raw_mag_to_uT(my);
-  _bmx_data.converted.mag[2] = bmx160_raw_mag_to_uT(mz);
+  _bmx_data.converted.mag[0] = bmm150_compensate_x(mx, rhall);
+  _bmx_data.converted.mag[1] = bmm150_compensate_y(my, rhall);
+  _bmx_data.converted.mag[2] = bmm150_compensate_z(mz, rhall);
 
   bmx160_convert_raw_temp_to_celcius(raw_temp, &_bmx_data.converted.temp);
 
