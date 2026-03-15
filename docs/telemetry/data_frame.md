@@ -46,8 +46,10 @@ packet-beta
 
 - [Heartbeat](heartbeat.md) (0x0)
 - [IMU Data](IMU_data.md) (0x1, 0x2)
+- [Command](command.md) (0x3)
 - [Attitude Data](attitude.md) (0x4)
 - [RC Data](rc_channels.md) (0x5)
+- [System Status](system_status.md) (0x6)
 
 ---
 
