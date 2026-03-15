@@ -104,6 +104,8 @@ PacketAnalyzerWidget::PacketAnalyzerWidget(QWidget *parent) : QWidget(parent) {
   splitter->setStretchFactor(1, 2);
   layout->addWidget(splitter);
 
+  m_masterLog.reserve(500);
+
   connect(m_btnBack, &QPushButton::clicked, this,
           &PacketAnalyzerWidget::onBackClicked);
   connect(m_btnClear, &QPushButton::clicked, this,
@@ -164,21 +166,31 @@ void PacketAnalyzerWidget::addRow(const QString &dir, const QByteArray &data) {
   if (data.isEmpty())
     return;
 
-  int row = m_table->rowCount();
-  m_table->insertRow(row);
+  // Store in master log
+  PacketEntry entry;
+  entry.timestamp = QDateTime::currentDateTime().toString("HH:mm:ss.zzz");
+  entry.direction = dir;
+  entry.data = data;
+  m_masterLog.prepend(entry);
+  if (m_masterLog.size() > 500) {
+    m_masterLog.removeLast();
+  }
 
   // Filter check
   int type = -1;
   if (data.size() >= 2) {
     type = (static_cast<uint8_t>(data[1]) >> 4) & 0x0F;
   }
-  if (m_disabledTypes.contains(type)) {
-    m_table->setRowHidden(row, true);
+
+  if (m_disabledTypes.contains(type) || type == -1) {
+    return;
   }
 
+  int row = m_table->rowCount();
+  m_table->insertRow(row);
+
   // Timestamp
-  QString ts = QDateTime::currentDateTime().toString("HH:mm:ss.zzz");
-  auto *itemTs = new QTableWidgetItem(ts);
+  auto *itemTs = new QTableWidgetItem(entry.timestamp);
   m_table->setItem(row, 0, itemTs);
 
   // Direction
@@ -209,7 +221,7 @@ void PacketAnalyzerWidget::addRow(const QString &dir, const QByteArray &data) {
     writeToStream(dir, data);
   }
 
-  // Cap at 500 rows for high-rate data performance
+  // Cap at 500 rows
   while (m_table->rowCount() > 500) {
     m_table->removeRow(0);
   }
@@ -232,6 +244,7 @@ void PacketAnalyzerWidget::writeToStream(const QString &dir,
 }
 
 void PacketAnalyzerWidget::onClearClicked() {
+  m_masterLog.clear();
   m_table->setRowCount(0);
   m_packetCount = 0;
   m_detailView->clear();
@@ -297,16 +310,41 @@ void PacketAnalyzerWidget::onFilterToggled(bool checked) {
 }
 
 void PacketAnalyzerWidget::reapplyFilters() {
-  for (int i = 0; i < m_table->rowCount(); ++i) {
-    QTableWidgetItem *item = m_table->item(i, 3);
-    if (!item)
-      continue;
-    QByteArray data = item->data(Qt::UserRole).toByteArray();
+  m_table->setRowCount(0);
+  // Loop backwards through masterLog to show oldest at top or newest at bottom
+  // Actually row 0 is top. If we want newest at bottom (auto-scroll feel):
+  for (int i = m_masterLog.size() - 1; i >= 0; --i) {
+    const auto &entry = m_masterLog[i];
     int type = -1;
-    if (data.size() >= 2) {
-      type = (static_cast<uint8_t>(data[1]) >> 4) & 0x0F;
+    if (entry.data.size() >= 2) {
+      type = (static_cast<uint8_t>(entry.data[1]) >> 4) & 0x0F;
     }
-    m_table->setRowHidden(i, m_disabledTypes.contains(type) || type == -1);
+
+    if (!m_disabledTypes.contains(type) && type != -1) {
+      int row = m_table->rowCount();
+      m_table->insertRow(row);
+
+      m_table->setItem(row, 0, new QTableWidgetItem(entry.timestamp));
+
+      auto *itemDir = new QTableWidgetItem(entry.direction);
+      itemDir->setTextAlignment(Qt::AlignCenter);
+      itemDir->setForeground(
+          QBrush(QColor(entry.direction == "RX" ? "#98C379" : "#61AFEF")));
+      m_table->setItem(row, 1, itemDir);
+
+      auto *itemSize = new QTableWidgetItem(QString::number(entry.data.size()));
+      itemSize->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+      m_table->setItem(row, 2, itemSize);
+
+      auto *itemData = new QTableWidgetItem(entry.data.toHex(' ').toUpper());
+      itemData->setFont(QFont("Monospace", 10));
+      itemData->setData(Qt::UserRole, entry.data);
+      m_table->setItem(row, 3, itemData);
+    }
+  }
+
+  if (m_chkAutoScroll->isChecked()) {
+    m_table->scrollToBottom();
   }
 }
 
