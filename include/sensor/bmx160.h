@@ -1,6 +1,5 @@
 #ifndef VAYU_BMX160_H
 #define VAYU_BMX160_H
-#include "core/cortex-m4/i2c.h"
 #include "maths/sensor_fusion.h"
 #include "navhal.h"
 #include <stdint.h>
@@ -12,6 +11,12 @@
 #define IS_FATAL_ERR(val) (val & 1)
 
 #define BMX160_PMU_STAT_ADDR 0x03
+#define BMX160_PMU_STAT_ACC_NORMAL (0x02 << 4)
+#define BMX160_PMU_STAT_GYR_NORMAL (0x02 << 2)
+#define BMX160_PMU_STAT_MAG_NORMAL (0x02 << 0)
+#define BMX160_PMU_STAT_ACC_MASK (0x03 << 4)
+#define BMX160_PMU_STAT_GYR_MASK (0x03 << 2)
+#define BMX160_PMU_STAT_MAG_MASK (0x03 << 0)
 
 #define BMX160_MAGX_LOW_ADDR 0x04
 #define BMX160_MAGX_HIGH_ADDR 0x05
@@ -61,13 +66,17 @@
 #define BMX160_GYR_RANGE_ADDR 0x43
 #define BMX160_MAG_CONF_ADDR 0x44
 
-#define BMX160_MAG_IF_3_ADDR 0x4F
-#define BMX160_MAG_IF_2_ADDR 0x4E
-#define BMX160_MAG_IF_1_ADDR 0x4D
-#define BMX160_MAG_IF_0_ADDR 0x4C
+#define BMX160_PWR_CTRL_ADDR 0x7D
 
-#define BMX160_PWR_CONF_ADDR 0x6B
-#define BMX160_PWR_CTRL_ADDR 0x6C
+#define BMX160_MAG_IF_3_DATA_ADDR 0x4F
+#define BMX160_MAG_IF_2_REG_ADDR 0x4E
+#define BMX160_MAG_IF_1_READ_ADDR 0x4D
+#define BMX160_MAG_IF_0_CONF_ADDR 0x4C
+
+#define BMX160_IF_CONF_ADDR 0x6B
+#define BMX160_PWR_CONF_ADDR 0x7C
+
+#define BMM150_ADDR 0x10
 
 #define BMX160_CMD_ADDR 0x7E
 
@@ -127,6 +136,21 @@ typedef enum {
   BMX_BWP_OSR32 = 5,
 } bmx_bandwidth_t;
 
+// BMM150 trim data structure
+typedef struct {
+  int8_t dig_x1;
+  int8_t dig_y1;
+  int8_t dig_x2;
+  int8_t dig_y2;
+  uint16_t dig_z1;
+  int16_t dig_z2;
+  int16_t dig_z3;
+  int16_t dig_z4;
+  uint8_t dig_xy1;
+  int8_t dig_xy2;
+  uint16_t dig_xyz1;
+} bmm150_trim_data_t;
+
 // Config structures
 typedef struct {
   // Accelerometer configuration
@@ -149,6 +173,7 @@ typedef struct {
   int16_t acc[3];
   int16_t gyr[3];
   int16_t mag[3];
+  uint16_t rhall;
   int16_t temp;
 } bmx160_all_raw_reading_t;
 
