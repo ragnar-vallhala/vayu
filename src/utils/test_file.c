@@ -1,32 +1,27 @@
-#include "utils/test_file.h"
-#include "actuator/esc.h"
+#include "navhal.h"
 #include "vaios.h"
-#include <stdint.h>
-
-#define THROTTLE_VAL 0.3f
+#include "logger/logger.h"
+#include "vfs.h"
+int write_pos = 0;
 void test_task(void *args) {
-  (void)args;
-  ESC_Handle motors[4];
-  esc_init(&motors[0], TIM1, 1, GPIO_PA08);
-  esc_init(&motors[1], TIM1, 2, GPIO_PA09);
-  esc_init(&motors[2], TIM1, 3, GPIO_PA10);
-  esc_init(&motors[3], TIM1, 4, GPIO_PA11);
-  esc_arm(&motors[0]);
-  esc_arm(&motors[1]);
-  esc_arm(&motors[2]);
-  esc_arm(&motors[3]);
+  while (1) {
+    logger_write(GENERAL_LOGGER, "Hello Single Task!\n", 19);
+    // vfs_fd_t fd = vfs_open("0:test.txt", VFS_O_RDWR | VFS_O_CREAT);
+    // vfs_lseek(fd, write_pos, VFS_SEEK_SET);
+    // uart2_write("fd: ");
+    // uart2_write(fd);
+    // uart2_write("\n\r");
 
-  v_delay(2000);
+    // if (fd >= 0) {
+    //   int n = vfs_write(fd, "Hello Single Task!\n", 19);
+    //   vfs_sync(fd);
+    //   vfs_close(fd);
+    //   write_pos += 19;
+    //   uart2_write("n: ");
+    //   uart2_write(n);
+    //   uart2_write("\n\r");
+    // };
 
-  // esc_set_throttle(&motors[0],THROTTLE_VAL);
-  // esc_set_throttle(&motors[1],THROTTLE_VAL);
-  // esc_set_throttle(&motors[2],THROTTLE_VAL);
-  // esc_set_throttle(&motors[3],THROTTLE_VAL);
-
-  hal_pwm_set_duty_cycle(&motors[0].pwm, THROTTLE_VAL);
-  hal_pwm_set_duty_cycle(&motors[1].pwm, THROTTLE_VAL);
-  hal_pwm_set_duty_cycle(&motors[2].pwm, THROTTLE_VAL);
-  hal_pwm_set_duty_cycle(&motors[3].pwm, THROTTLE_VAL);
-  while (1)
-    v_delay(1000);
+    v_delay(500);
+  }
 }
