@@ -63,5 +63,6 @@ extern channel_t g_telemetry_channel;
 extern MutexHandle_t g_comm_mutex;
 
 // Telemetry
-#define ENABLE_BINARY_NAVLINK_PKT 0
+#define ENABLE_BINARY_NAVLINK_PKT 1
+
 #endif //! VAYU_VARIABLES_H

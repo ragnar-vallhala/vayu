@@ -34,7 +34,7 @@
 #endif
 
 #ifndef UART_LOGGING_ENABLE
-#define UART_LOGGING_ENABLE 0
+#define UART_LOGGING_ENABLE 1
 #endif
 
 #ifndef UART_BAUDRATE
@@ -42,7 +42,7 @@
 #endif
 
 #ifndef LOGGING_ENABLED
-#define LOGGING_ENABLED UART_LOGGING_ENABLE
+#define LOGGING_ENABLED 1
 #endif
 
 // Interrupts
