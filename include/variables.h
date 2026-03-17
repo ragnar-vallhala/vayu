@@ -15,7 +15,7 @@
 #define _BLUE_LED_PIN GPIO_PB12
 #define _GREEN_LED_PIN GPIO_PB13
 #define _RED_LED_PIN GPIO_PB14
-#define _BUZZER_PIN GPIO_PB15
+#define _BUZZER_PIN GPIO_PA05
 #define _HEARTBEAT_DEFAULT_TIMEPERIOD 1000 // 1000ms
 
 // I2C Control
@@ -62,4 +62,6 @@
 extern channel_t g_telemetry_channel;
 extern MutexHandle_t g_comm_mutex;
 
+// Telemetry
+#define ENABLE_BINARY_NAVLINK_PKT 0
 #endif //! VAYU_VARIABLES_H

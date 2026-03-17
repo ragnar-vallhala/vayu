@@ -31,6 +31,7 @@ static uint32_t calculate_crc(byte *payload, uint8_t size) {
 
 err_t send_packet(channel_t *channel, packet_type_t packet_type, byte *payload,
                   uint8_t payload_size) {
+#if ENABLE_BINARY_NAVLINK_PKT == 1
   if (!_initialized) {
     init_serializer();
     _initialized = 1;
@@ -73,6 +74,10 @@ err_t send_packet(channel_t *channel, packet_type_t packet_type, byte *payload,
   }
 
   return ret;
+#else
+// No binary navlink packets
+return NONE;
+#endif
 }
 
 void uart2_packet_recv_callback(void) {
