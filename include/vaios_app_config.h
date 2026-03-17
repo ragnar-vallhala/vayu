@@ -1,5 +1,5 @@
-#ifndef VAIOS_CONFIG_DEFAULT_H
-#define VAIOS_CONFIG_DEFAULT_H
+#ifndef VAIOS_APP_CONFIG_H
+#define VAIOS_APP_CONFIG_H
 
 // Version settings
 #ifndef VERSION_MAJOR
@@ -69,7 +69,7 @@
 #endif
 
 #ifndef HEAP_SIZE
-#define HEAP_SIZE 0x14000 // 88kB
+#define HEAP_SIZE 0x10000 // 64kB
 #endif
 
 #ifndef STACK_ALIGN_SIZE
@@ -179,4 +179,4 @@
 #if defined(PANIC) && defined(NAVHAL)
 #include "navhal.h"
 #endif
-#endif // !VAIOS_CONFIG_DEFAULT_H
+#endif // !VAIOS_APP_CONFIG_H

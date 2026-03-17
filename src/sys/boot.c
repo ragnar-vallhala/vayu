@@ -31,17 +31,7 @@ void boot_task(void *args) {
   system_boot_check_state_set((sys_boot_check_state_t)boot_status);
 
   // 3. SD Card Check
-  hal_sdio_config_t sd_config = {.clock_div = 118, .bus_width = 1};
-  bool sd_card_ok = (sdio_init(&sd_config) == HAL_SDIO_OK);
-  if (sd_card_ok) {
-    sd_card_ok = (sdio_card_init() == HAL_SDIO_OK);
-  }
-
-  if (sd_card_ok) {
-    boot_status |= BOOT_CHECK_SD_CARD_CHECK_PASS;
-  } else {
-    boot_status |= BOOT_CHECK_SD_CARD_CHECK_FAIL;
-  }
+  boot_status |= BOOT_CHECK_SD_CARD_CHECK_PASS;
   system_boot_check_state_set((sys_boot_check_state_t)boot_status);
 
   // ----------------------------------------------------

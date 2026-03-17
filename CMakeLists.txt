@@ -88,7 +88,7 @@ endif()
 # Link libraries (keep minimal)
 #-------------------------
 # Do NOT link -lm globally (it pulls in bulky libm implementations).
-target_link_libraries(main PRIVATE common hal vaios -lgcc -lm)
+target_link_libraries(main PRIVATE hal vaios -lgcc -lm)
 
 
 #-------------------------

@@ -63,6 +63,12 @@ extern channel_t g_telemetry_channel;
 extern MutexHandle_t g_comm_mutex;
 
 // Telemetry
-#define ENABLE_BINARY_NAVLINK_PKT 1
-
+#define ENABLE_BINARY_NAVLINK_PKT 0
+#define ENABLE_BINARY_NAVLINK_PKT_LOGGING 1
+#define NAVLINK_LOGGING_FILENAME "0:v_nav.bin"
+#define NAVLINK_LOGGING_FILE_SIZE 1024 * 1024 * 1 // 1MB Preallocated
+#define SYS_LOGGING_FILENAME "0:v_sys.bin"
+#define SYS_LOGGING_FILE_SIZE 1024 * 1024 * 1 // 1MB Preallocated
+#define GENERAL_LOGGING_FILENAME "0:v_gen.bin"
+#define GENERAL_LOGGING_FILE_SIZE 1024 * 1024 * 1 // 1MB Preallocated
 #endif //! VAYU_VARIABLES_H
