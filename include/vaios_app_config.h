@@ -42,7 +42,7 @@
 #endif
 
 #ifndef LOGGING_ENABLED
-#define LOGGING_ENABLED 0
+#define LOGGING_ENABLED UART_LOGGING_ENABLE
 #endif
 
 // Interrupts
@@ -136,7 +136,7 @@
 #endif
 
 #ifndef MIN_LOG_LEVEL
-#define MIN_LOG_LEVEL LOG_INFO
+#define MIN_LOG_LEVEL LOG_TRACE
 #endif
 
 #ifndef ALLOWED_MODULES
