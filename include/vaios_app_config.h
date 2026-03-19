@@ -42,7 +42,7 @@
 #endif
 
 #ifndef LOGGING_ENABLED
-#define LOGGING_ENABLED 1
+#define LOGGING_ENABLED 0
 #endif
 
 // Interrupts

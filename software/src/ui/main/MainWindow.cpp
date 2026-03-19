@@ -642,30 +642,39 @@ void MainWindow::onUiTimer() {
   qint64 now = QDateTime::currentMSecsSinceEpoch();
   qint64 elapsed = now - m_lastHbTime;
 
-  if (elapsed < 1000) {
-    // Exponential decay: e^(-5 * t / 2000)
-    double factor = std::exp(-5.0 * elapsed / 2000.0);
-    int alpha = static_cast<int>(255 * factor);
-    int green = static_cast<int>(150 * factor); // Darker green base
-
-    m_liveLabel->setStyleSheet(
-        QString(
-            "background: rgba(40, %1, 40, %2); color: rgba(255, 255, 255, %2); "
-            "border-radius: 4px; font-weight: bold; padding: 2px 8px; "
-            "border: 1px solid rgba(152, 195, 121, %2);")
-            .arg(green + 50)
-            .arg(alpha));
-  } else {
-    m_liveLabel->setStyleSheet(
-        "background: #1A1D27; color: #4B5263; border-radius: 4px; "
-        "font-weight: bold; padding: 2px 8px; border: 1px solid #2A3347;");
-  }
+  if (m_lastHbTime == 0) {
+        // Never received a heartbeat yet — show dark
+        m_liveLabel->setStyleSheet(
+            "background: #1A1D27; color: #4B5263; border-radius: 4px; "
+            "font-weight: bold; padding: 2px 8px; border: 1px solid #2A3347;");
+    } else if (elapsed < 150) {
+        // Hold bright for 150ms before fading
+        // stylesheet already set in onHeartbeatReceived, leave it
+    } else if (elapsed < 2000) {
+        double factor = std::exp(-4.0 * (elapsed - 150) / 1850.0);
+        int alpha = static_cast<int>(255 * factor);
+        int green = static_cast<int>(106 * factor + 29); // 29 minimum
+        m_liveLabel->setStyleSheet(
+            QString("background: rgba(30, %1, 30, 200); "
+                    "color: rgba(255, 255, 255, %2); "
+                    "border-radius: 4px; font-weight: bold; padding: 2px 8px; "
+                    "border: 1px solid rgba(152, 195, 121, %2);")
+                .arg(green).arg(alpha));
+    } else {
+        m_liveLabel->setStyleSheet(
+            "background: #1A1D27; color: #4B5263; border-radius: 4px; "
+            "font-weight: bold; padding: 2px 8px; border: 1px solid #2A3347;");
+    }
 }
 
 void MainWindow::onHeartbeatReceived(uint64_t timestamp, uint8_t deviceId) {
   ++m_pktCount;
   m_lastHbTime = QDateTime::currentMSecsSinceEpoch();
-
+  // Flash immediately bright on receipt
+  m_liveLabel->setStyleSheet(
+      "background: #2D6A2D; color: #FFFFFF; border-radius: 4px; "
+      "font-weight: bold; padding: 2px 8px; "
+      "border: 1px solid #98C379;");
   // Calculate time difference (drone timestamp is 32-bit ms)
   uint32_t gcs_now_32 = static_cast<uint32_t>(m_lastHbTime);
   uint32_t drone_ts_32 = static_cast<uint32_t>(timestamp);
