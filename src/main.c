@@ -46,12 +46,12 @@ void init_sensors(void) {
 }
 
 void init_tasks(void) {
-  task_create(comm_processor_task, NULL, 1024, 3);
-  bmx160_task_id = task_create(bmx160_initiate_read, NULL, 2048, 5);
-  task_create(rc_ibus_task, NULL, 2048, 4);
+  task_create(comm_processor_task, NULL, 2048, 0);
+  bmx160_task_id = task_create(bmx160_initiate_read, NULL, 4096, 1);
+  task_create(rc_ibus_task, NULL, 2048, 0);
   task_create(motor_task, NULL, 2048, 0);
   task_create(imu_telemetry_task, NULL, 2048, 0);
-  task_create(flush_task, NULL, 1024, 0);
+  task_create(flush_task, NULL, 2048, 0);
   // task_create(test_task, NULL, 512, 0);
   // task_create(test_task, NULL, 512, 0);
 }
@@ -71,7 +71,6 @@ void system_init_tasks(void) {
   task_create(boot_task, NULL, 1024, 0);
 }
 
-
 int main() {
   clock_setup();
   vaios_init_config_t cfg = {.internal_clock_setup = 0,
@@ -82,8 +81,8 @@ int main() {
   system_state_init();
   init_sensors();
   system_init_tasks();
-  init_timer_callbacks();
   init_tasks();
+  init_timer_callbacks();
 
   scheduler_start();
   while (1)
