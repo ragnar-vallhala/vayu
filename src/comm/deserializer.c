@@ -2,6 +2,7 @@
 #include "core/cortex-m4/crc.h"
 #include "utils.h"
 #include "vaios.h"
+#include "variables.h"
 #include <stddef.h>
 
 void deserializer_init(deserializer_t *d) {
@@ -20,8 +21,11 @@ int deserializer_feed(deserializer_t *d, uint8_t b) {
     break;
 
   case STATE_HEADER:
+    if (d->bytes_read >= NAVLINK_HEADER_SIZE) {
+      deserializer_init(d); // Malformed, restart
+    }
     ((uint8_t *)&d->packet)[d->bytes_read++] = b;
-    if (d->bytes_read == 8) { // Header is 8 bytes
+    if (d->bytes_read == NAVLINK_HEADER_SIZE) { // Header is 8 bytes
       if (d->packet.length == 0) {
         d->state = STATE_CRC;
         d->bytes_read = 0;
@@ -33,6 +37,9 @@ int deserializer_feed(deserializer_t *d, uint8_t b) {
     break;
 
   case STATE_PAYLOAD:
+    if (d->bytes_read >= NAVLINK_MAX_PAYLOAD_SIZE) {
+      deserializer_init(d); // Malformed, restart
+    }
     d->packet.payload[d->bytes_read++] = b;
     if (d->bytes_read == d->packet.length) {
       d->state = STATE_CRC;
@@ -41,11 +48,14 @@ int deserializer_feed(deserializer_t *d, uint8_t b) {
     break;
 
   case STATE_CRC:
+    if (d->bytes_read >= NAVLINK_CRC_SIZE) {
+      deserializer_init(d); // Malformed, restart
+    }
     ((uint8_t *)&d->packet.crc32)[d->bytes_read++] = b;
-    if (d->bytes_read == 4) {
+    if (d->bytes_read == NAVLINK_CRC_SIZE) {
       // Validate CRC
       hal_crc_reset();
-      hal_crc_accumulate((uint8_t *)&d->packet, 8); // Header
+      hal_crc_accumulate((uint8_t *)&d->packet, NAVLINK_HEADER_SIZE); // Header
       if (d->packet.length > 0) {
         hal_crc_accumulate(d->packet.payload, d->packet.length);
       }
@@ -60,6 +70,8 @@ int deserializer_feed(deserializer_t *d, uint8_t b) {
       }
     }
     break;
+  default:
+    deserializer_init(d); // Malformed, restart
   }
   return 0;
 }
