@@ -46,14 +46,14 @@
 #define HIGH_FREQ_TIMER_FREQ 10000 // 10kHz
 
 // LPF Configurations
-#define LPF_ACC_ALPHA 0.05f
-#define LPF_GYR_ALPHA 0.01f
+#define LPF_ACC_ALPHA 0.1f
+#define LPF_GYR_ALPHA 0.1f
 #define GYRO_BIAS_ALPHA 0.001f
 
 // Sensor Fusion Parameters
 #define SF_COMPLEMENTARY_ALPHA 0.98f
-#define SF_MAHONY_KP 1.5f
-#define SF_MAHONY_KI 0.005f
+#define SF_MAHONY_KP 10.0f
+#define SF_MAHONY_KI 0.01f
 #define SF_FILTER_USED SF_MAHONY
 
 // Global telemetry channel and mutex
