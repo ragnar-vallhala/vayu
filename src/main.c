@@ -52,8 +52,8 @@ void init_tasks(void) {
   task_create(motor_task, NULL, 2048, 0);
   task_create(imu_telemetry_task, NULL, 2048, 0);
   task_create(flush_task, NULL, 1024, 0);
-  task_create(test_task, NULL, 512, 0);
-  task_create(test_task, NULL, 512, 0);
+  // task_create(test_task, NULL, 512, 0);
+  // task_create(test_task, NULL, 512, 0);
 }
 void init_timer_callbacks(void) {
   timer_callback_init(HIGH_FREQ_TIMER_FREQ);
@@ -78,13 +78,6 @@ int main() {
                              .internal_sd_card_setup = 1};
 
   v_system_init(&cfg);
-  int pa_ret = vfs_preallocate("0:test.txt", 32768);
-  if (pa_ret != 0) {
-    uart2_write("pa_ret: ");
-    uart2_write(pa_ret);
-    uart2_write("\n\r");
-  }
-
   logger_init();
   system_state_init();
   init_sensors();
