@@ -9,6 +9,7 @@ int write_pos = 0;
 void test_task(void *args) {
   while (1) {
     send_packet(&g_telemetry_channel, PACKET_TYPE_LOG, (byte *)"Hello", 5);
+    logger_write(GENERAL_LOGGER, (byte *)"Hello How are you?", 18);
     v_delay(500);
   }
 }
