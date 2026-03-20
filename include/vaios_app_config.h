@@ -136,7 +136,7 @@
 #endif
 
 #ifndef MIN_LOG_LEVEL
-#define MIN_LOG_LEVEL LOG_TRACE
+#define MIN_LOG_LEVEL LOG_ERROR
 #endif
 
 #ifndef ALLOWED_MODULES
