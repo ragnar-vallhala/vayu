@@ -3,7 +3,7 @@
 #include "core/cortex-m4/uart.h"
 #include "utils.h"
 #include "vaios.h"
-#include <string.h>
+
 
 #define IBUS_DMA_BUF_SIZE 128
 static uint8_t ibus_dma_buf[IBUS_DMA_BUF_SIZE];

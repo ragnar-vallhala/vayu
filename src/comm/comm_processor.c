@@ -3,6 +3,7 @@
 #include "sys/state.h"
 #include "task.h"
 #include "utils/utils.h"
+#include "utils.h"
 #include "vaios.h"
 #include "vayu_tasks.h"
 
