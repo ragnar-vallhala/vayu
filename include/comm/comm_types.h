@@ -15,6 +15,7 @@ typedef enum {
   PACKET_TYPE_ATTITUDE = 0x4,
   PACKET_TYPE_RC_CHANNELS = 0x5,
   PACKET_TYPE_SYSTEM_STATUS = 0x6,
+  PACKET_TYPE_LOG = 0x7,
 } packet_type_t;
 
 typedef struct __attribute__((packed)) {

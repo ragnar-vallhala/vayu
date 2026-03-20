@@ -84,6 +84,8 @@ void DroneProtocol::parseBuffer() {
       } else if (std::holds_alternative<QString>(decoded.payload)) {
         if (packet_type == 0x6) {
           emit statusReceived(std::get<QString>(decoded.payload));
+        } else if (packet_type == 0x7) {
+          emit logReceived(std::get<QString>(decoded.payload));
         } else {
           emit logReceived(std::get<QString>(decoded.payload));
         }
