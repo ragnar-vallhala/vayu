@@ -1,4 +1,5 @@
 #include "sensor/bmx160.h"
+#include "comm/serializer.h"
 #include "ipc.h"
 #include "maths/lpf.h"
 #include "maths/sensor_fusion.h"
@@ -7,11 +8,14 @@
 #include "sys/state.h"
 #include "task.h"
 #include "utils.h"
+#include "utils/utils.h"
 #include "vaios.h"
 #include "variables.h"
+#include "vayu_tasks.h"
 #include <math.h>
 #include <stdint.h>
 #define IS_FINITE(x) ((x) - (x) == 0.0f)
+extern channel_t g_telemetry_channel;
 uint8_t tx_buf[2];
 uint8_t rx_buf[14]; // Increased for safer multi-byte reads
 
@@ -72,7 +76,7 @@ static bmx160_err_type bmx160_wait_mag_manual_op(void) {
     v_delay(1);
   } while (--timeout > 0);
 
-  v_log(LOG_ERROR, "BMX160: Mag manual op timeout!");
+  vayu_log("BMX160: Mag manual op timeout!");
   return ERR1;
 }
 
@@ -286,23 +290,20 @@ static void bmx160_read_mag_trim_data(void) {
   bmx160_read_bmm150_reg(0x6E, &tmp[0]);
   bmx160_read_bmm150_reg(0x6F, &tmp[1]);
   _mag_trim.dig_z3 = (int16_t)(tmp[1] << 8 | tmp[0]);
-  // ADD THIS:
-  v_log(LOG_INFO, "z3 raw bytes: 0x%02X 0x%02X -> z3=%d", tmp[0], tmp[1],
-        _mag_trim.dig_z3);
+  vayu_log("z3 raw bytes: 0x%02X 0x%02X -> z3=%d", tmp[0], tmp[1],
+           _mag_trim.dig_z3);
 
   bmx160_read_bmm150_reg(0x62, &tmp[0]);
   bmx160_read_bmm150_reg(0x63, &tmp[1]);
   _mag_trim.dig_z4 = (int16_t)(tmp[1] << 8 | tmp[0]);
-  // ADD THIS:
-  v_log(LOG_INFO, "z4 raw bytes: 0x%02X 0x%02X -> z4=%d", tmp[0], tmp[1],
-        _mag_trim.dig_z4);
+  vayu_log("z4 raw bytes: 0x%02X 0x%02X -> z4=%d", tmp[0], tmp[1],
+           _mag_trim.dig_z4);
 
   bmx160_read_bmm150_reg(0x6C, &tmp[0]);
   bmx160_read_bmm150_reg(0x6D, &tmp[1]);
   _mag_trim.dig_xyz1 = (uint16_t)(tmp[1] << 8 | tmp[0]);
-  // ADD THIS:
-  v_log(LOG_INFO, "xyz1 raw bytes: 0x%02X 0x%02X -> xyz1=%u", tmp[0], tmp[1],
-        _mag_trim.dig_xyz1);
+  vayu_log("xyz1 raw bytes: 0x%02X 0x%02X -> xyz1=%u", tmp[0], tmp[1],
+           _mag_trim.dig_xyz1);
 }
 
 static bmx160_err_type bmx160_set_mag_conf() {
@@ -625,9 +626,9 @@ bmx160_err_type bmx160_read_all_converted(bmx160_all_reading_t *data) {
   err = bmx160_read_gyr_dps(calculated);
   if (err != NO_ERR)
     return err;
-  data->converted.gyr[0] = calculated[0];
-  data->converted.gyr[1] = calculated[1];
-  data->converted.gyr[2] = calculated[2];
+  data->converted.gyr[0] = calculated[0] - gyr_bias[0];
+  data->converted.gyr[1] = calculated[1] - gyr_bias[1];
+  data->converted.gyr[2] = calculated[2] - gyr_bias[2];
 
   err = bmx160_read_mag_uT(calculated);
   if (err != NO_ERR)
@@ -969,7 +970,7 @@ void bmx160_process_data(void) {
   _bmx_data.raw.temp = raw_temp;
 
   // if (!diag_printed) {
-  //   v_log(LOG_INFO, "MAG RAW: %d, %d, %d | RHALL: %u", mx, my, mz, rhall);
+  //   vayu_log("MAG RAW: %d, %d, %d | RHALL: %u", mx, my, mz, rhall);
   //   v_log(LOG_INFO,
   //         "TRIM: x1:%d, y1:%d, x2:%d, y2:%d, z1:%u, z2:%d, z3:%d, z4:%d, ",
   //         _mag_trim.dig_x1, _mag_trim.dig_y1, _mag_trim.dig_x2,
@@ -1068,4 +1069,55 @@ void bmx160_get_attitude(attitude_t *att) {
     *att = _bmx_orientation;
     v_mutex_unlock(bmx160_mutex);
   }
+}
+
+void calibration_task(void *args) {
+  (void)args;
+  system_state_set(SYSTEM_STATE_CALIBRATING);
+
+  vayu_log("[BMX] Internal Calibration Task Start");
+
+  float sum[3] = {0.0f, 0.0f, 0.0f};
+  int samples = 100;
+
+  for (int i = 0; i < samples; i++) {
+    float gyr[3];
+    // We call bmx160_read_gyr_dps directly because it returns UNBIASED data
+    if (bmx160_read_gyr_dps(gyr) == NO_ERR) {
+      sum[0] += gyr[0];
+      sum[1] += gyr[1];
+      sum[2] += gyr[2];
+    }
+
+    if (i % 10 == 0) {
+      uint8_t payload[18];
+      payload[0] = 0x01; // SYSTEM_ORIGIN_CALIBRATION
+      payload[1] =
+          0x01; // Step index or progress? GCS expects progress in payload[2..5]
+      float progress = (float)i;
+      v_memcpy(&payload[2], &progress, 4);
+      send_packet(&g_telemetry_channel, PACKET_TYPE_SYSTEM_STATUS, payload, 18);
+    }
+    v_delay(10); // 100Hz sampling
+  }
+
+  // Calculate mean bias
+  for (int i = 0; i < 3; i++) {
+    gyr_bias[i] = sum[i] / (float)samples;
+  }
+
+  vayu_log("[BMX] Calibrated Biases: X:%.4f Y:%.4f Z:%.4f", gyr_bias[0],
+           gyr_bias[1], gyr_bias[2]);
+
+  // Send final update
+  uint8_t payload[18];
+  payload[0] = 0x01; // SYSTEM_ORIGIN_CALIBRATION
+  payload[1] = 0x04; // Finalized/Success
+  float result = 100.0f;
+  v_memcpy(&payload[2], &result, 4);
+  send_packet(&g_telemetry_channel, PACKET_TYPE_SYSTEM_STATUS, payload, 18);
+
+  // Return to standby
+  system_state_set(SYSTEM_STATE_STANDBY);
+  task_exit();
 }

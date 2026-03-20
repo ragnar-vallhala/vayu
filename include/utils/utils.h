@@ -9,4 +9,5 @@ void set_timestamp(uint32_t timestamp);
 
 uint8_t get_device_id(void);
 void set_device_id(uint8_t device_id);
+void vayu_log(const char *fmt, ...);
 #endif //! VAYU_UTILS_H
