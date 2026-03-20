@@ -1,6 +1,25 @@
 #include "utils/utils.h"
+#include "comm/serializer.h"
+#include "navhal.h"
+#include "utils.h" // Kernels utils for vaprint_fmt_buf
 #include "variables.h"
+#include <stdarg.h>
 #include <stdint.h>
+
+extern channel_t g_telemetry_channel;
+
+void vayu_log(const char *fmt, ...) {
+  char buf[128];
+  va_list args;
+  va_start(args, fmt);
+  int len = vaprint_fmt_buf(buf, sizeof(buf), fmt, args);
+  va_end(args);
+
+  if (len > 0) {
+    send_packet(&g_telemetry_channel, PACKET_TYPE_LOG, (uint8_t *)buf,
+                (uint16_t)len);
+  }
+}
 
 static volatile uint64_t _time_stamp_high_freq = 0;
 void increment_high_freq_timer(void) { _time_stamp_high_freq++; }
