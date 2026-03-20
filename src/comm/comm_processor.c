@@ -1,11 +1,14 @@
 #include "comm/comm_types.h"
 #include "comm/serializer.h"
+#include "core/cortex-m4/uart.h"
 #include "sys/state.h"
 #include "task.h"
-#include "utils/utils.h"
 #include "utils.h"
+#include "utils/utils.h"
 #include "vaios.h"
+#include "variables.h"
 #include "vayu_tasks.h"
+#include <stdint.h>
 
 void comm_processor_task(void *args) {
   (void)args;
@@ -13,6 +16,7 @@ void comm_processor_task(void *args) {
 
   while (1) {
     if (get_next_rx_packet(&pkt) == NONE) {
+      // uart2_write("Comm Processor started");
       // Handle packet
       uint8_t packet_type = (pkt.protocol_packet_type >> 4) & 0x0F;
 
@@ -22,9 +26,18 @@ void comm_processor_task(void *args) {
       } else if (packet_type == PACKET_TYPE_COMMAND) {
         uint16_t cmd_id;
         v_memcpy(&cmd_id, pkt.payload, 2);
+        char buf[32];
+        uint8_t len = print_fmt_buf(buf, 32, "Command ID: %d", cmd_id);
+        send_packet(&g_telemetry_channel, PACKET_TYPE_LOG, (byte *)buf, len);
         if (cmd_id == 0x0006) { // CMD_CALIBRATE_GYR
           if (system_state_get() != SYSTEM_STATE_CALIBRATING) {
-            task_create(calibration_task, NULL, 2048, 0);
+            uint8_t len = print_fmt_buf(buf, 32, "Starting Calibration");
+            send_packet(&g_telemetry_channel, PACKET_TYPE_LOG, (byte *)buf,
+                        len);
+            uint32_t tid = task_create(calibration_task, NULL, 4096, 0);
+            len = print_fmt_buf(buf, 32, "Task ID: %u", tid);
+            send_packet(&g_telemetry_channel, PACKET_TYPE_LOG, (byte *)buf,
+                        len);
           }
         } else if (cmd_id == 0x0009) { // CMD_CANCEL_CALIBRATION
           system_state_set(SYSTEM_STATE_STANDBY);
