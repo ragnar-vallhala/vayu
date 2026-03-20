@@ -1,6 +1,7 @@
 #include "comm/comm_types.h"
 #include "comm/serializer.h"
 #include "sys/state.h"
+#include "task.h"
 #include "utils.h"
 #include "vaios.h"
 #include "variables.h"
@@ -8,6 +9,9 @@
 
 void calibration_task(void *args) {
   (void)args;
+  char buf[32];
+  uint8_t d_len = print_fmt_buf(buf, 32, "[CALIB] Task start");
+  send_packet(&g_telemetry_channel, PACKET_TYPE_LOG, (byte *)buf, d_len);
 
   system_state_set(SYSTEM_STATE_CALIBRATING);
 
@@ -36,5 +40,5 @@ void calibration_task(void *args) {
   }
 
   system_state_set(SYSTEM_STATE_STANDBY);
-  return;
+  task_exit();
 }
