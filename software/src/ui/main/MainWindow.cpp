@@ -728,6 +728,4 @@ void MainWindow::onTimeSyncRequested() {
   pkt.append(reinterpret_cast<const char *>(&crc), 4);
 
   m_serial->write(pkt);
-  m_logPanel->appendLog(
-      QString("[GCS] Sent Binary Sync: TS=%1, ID=%2").arg(now).arg(id));
 }

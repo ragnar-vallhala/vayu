@@ -52,7 +52,7 @@ void init_tasks(void) {
   task_create(motor_task, NULL, 2048, 0);
   task_create(imu_telemetry_task, NULL, 2048, 0);
   task_create(flush_task, NULL, 2048, 0);
-  // task_create(test_task, NULL, 512, 0);
+  task_create(test_task, NULL, 1024, 0);
   // task_create(test_task, NULL, 512, 0);
 }
 void init_timer_callbacks(void) {

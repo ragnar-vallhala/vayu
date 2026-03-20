@@ -115,6 +115,9 @@ DecodedPacket PacketDecoder::decode(const QByteArray &data) {
       // format
       result.payload = QString::fromLatin1(data.mid(8, result.length));
     }
+  } else if (result.type == 0x7) {
+    // LOG
+    result.payload = QString::fromLatin1(data.mid(8, result.length));
   }
 
   return result;
@@ -134,6 +137,8 @@ QString PacketDecoder::typeToString(uint8_t type) {
     return "RC_CHANNELS";
   case 0x6:
     return "SYSTEM_STATUS";
+  case 0x7:
+    return "LOG";
   default:
     return QString("UNKNOWN (0x%1)").arg(type, 1, 16, QChar('0')).toUpper();
   }
