@@ -12,7 +12,6 @@
 #include "vaios.h"
 #include "variables.h"
 #include <stdint.h>
-#include <string.h>
 
 channel_t g_telemetry_channel;
 MutexHandle_t g_comm_mutex;

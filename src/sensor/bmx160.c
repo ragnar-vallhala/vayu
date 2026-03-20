@@ -914,7 +914,7 @@ void bmx160_dma_callback(void) {
 }
 
 void bmx160_process_data(void) {
-  static int diag_printed = 0;
+  // static int diag_printed = 0;
   // 1. Extract mag (0-5)
   // X/Y are 13-bit, Z is 15-bit. Status bits are in the LSB.
   // We assemble as signed 16-bit and then arithmetic shift to preserve sign.
@@ -968,17 +968,17 @@ void bmx160_process_data(void) {
   _bmx_data.raw.rhall = rhall;
   _bmx_data.raw.temp = raw_temp;
 
-  if (!diag_printed) {
-    v_log(LOG_INFO, "MAG RAW: %d, %d, %d | RHALL: %u", mx, my, mz, rhall);
-    v_log(LOG_INFO,
-          "TRIM: x1:%d, y1:%d, x2:%d, y2:%d, z1:%u, z2:%d, z3:%d, z4:%d, ",
-          _mag_trim.dig_x1, _mag_trim.dig_y1, _mag_trim.dig_x2,
-          _mag_trim.dig_y2, _mag_trim.dig_z1, _mag_trim.dig_z2,
-          _mag_trim.dig_z3, _mag_trim.dig_z4);
-    v_log(LOG_INFO, "xy1:%u, xy2:%d, xyz1:%u", _mag_trim.dig_xy1,
-          _mag_trim.dig_xy2, _mag_trim.dig_xyz1);
-    diag_printed = 1;
-  }
+  // if (!diag_printed) {
+  //   v_log(LOG_INFO, "MAG RAW: %d, %d, %d | RHALL: %u", mx, my, mz, rhall);
+  //   v_log(LOG_INFO,
+  //         "TRIM: x1:%d, y1:%d, x2:%d, y2:%d, z1:%u, z2:%d, z3:%d, z4:%d, ",
+  //         _mag_trim.dig_x1, _mag_trim.dig_y1, _mag_trim.dig_x2,
+  //         _mag_trim.dig_y2, _mag_trim.dig_z1, _mag_trim.dig_z2,
+  //         _mag_trim.dig_z3, _mag_trim.dig_z4);
+  //   v_log(LOG_INFO, "xy1:%u, xy2:%d, xyz1:%u", _mag_trim.dig_xy1,
+  //         _mag_trim.dig_xy2, _mag_trim.dig_xyz1);
+  //   diag_printed = 1;
+  // }
 
   // Convert to units (for local attitude fusion and telemetry)
   _bmx_data.converted.acc[0] = bmx160_raw_acc_to_mps2(ax);
