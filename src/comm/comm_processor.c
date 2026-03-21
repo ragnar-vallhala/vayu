@@ -10,7 +10,7 @@
 #include "vayu_tasks.h"
 #include <stdint.h>
 #include "utils/utils.h"
-
+static uint32_t _calibration_task_handle = 0;
 void comm_processor_task(void *args) {
   (void)args;
   packet_t pkt;
@@ -38,9 +38,13 @@ void comm_processor_task(void *args) {
                 v_memcpy(&cal_args->type, &pkt.payload[7], 4);
               }
             }
-            task_create(calibration_task, cal_args, 4096, 0);
+            _calibration_task_handle = task_create(calibration_task, cal_args, 4096, 0);
           }
         } else if (cmd_id == 0x0009) { // CMD_CANCEL_CALIBRATION
+          if (_calibration_task_handle != 0) {
+            task_exit_request(_calibration_task_handle);
+            _calibration_task_handle = 0;
+          }
           system_state_set(SYSTEM_STATE_STANDBY);
         }
       }
