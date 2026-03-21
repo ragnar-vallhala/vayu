@@ -1062,6 +1062,40 @@ void bmx160_process_data(void) {
   _bmx_data.converted.mag[2] =
       (mag_z - mag_internal_bias[2]) * mag_internal_scale[2];
 
+  // Magnitude and Disturbance Checks
+  if (mag_fusion_valid) {
+    float mag_norm =
+        SQRT_F(_bmx_data.converted.mag[0] * _bmx_data.converted.mag[0] +
+               _bmx_data.converted.mag[1] * _bmx_data.converted.mag[1] +
+               _bmx_data.converted.mag[2] * _bmx_data.converted.mag[2]);
+
+    // Check magnitude (20-80 uT expected for Earth's field)
+    if (mag_norm < 20.0f || mag_norm > 80.0f) {
+      mag_fusion_valid = 0;
+    }
+
+    // Disturbance detection (dot product with previous valid reading)
+    if (mag_fusion_valid &&
+        (last_mag[0] != 0.0f || last_mag[1] != 0.0f || last_mag[2] != 0.0f)) {
+      // Calculate dot product of current reading and last valid reading
+      float dot = _bmx_data.converted.mag[0] * last_mag[0] +
+                  _bmx_data.converted.mag[1] * last_mag[1] +
+                  _bmx_data.converted.mag[2] * last_mag[2];
+
+      // Threshold: if cos(theta) * mag_norm_curr * mag_norm_prev is too small
+      // relative to expected squared magnitude, it's a disturbance.
+      // Since mag_norm is around 50uT, squared is 2500.
+      // We'll use a threshold based on angle change.
+      // dot / (norm_curr * norm_prev) = cos(theta)
+      // For 1kHz (actually ~20Hz update), the change should be tiny.
+      // A dot product less than 0.9 * norm^2 is a massive jump.
+      float norm_curr_sq = mag_norm * mag_norm;
+      if (dot < 0.75f * norm_curr_sq) { // Significant directional jump
+        mag_fusion_valid = 0;
+      }
+    }
+  }
+
   // Magnetometer Normalization for Fusion
   if (mag_fusion_valid) {
     float mag_norm =
@@ -1072,6 +1106,12 @@ void bmx160_process_data(void) {
       _bmx_data.converted.mag[0] /= mag_norm;
       _bmx_data.converted.mag[1] /= mag_norm;
       _bmx_data.converted.mag[2] /= mag_norm;
+
+      // Update last_mag with the *calibrated* vector (unnormalized for next dot
+      // product)
+      last_mag[0] = _bmx_data.converted.mag[0] * mag_norm;
+      last_mag[1] = _bmx_data.converted.mag[1] * mag_norm;
+      last_mag[2] = _bmx_data.converted.mag[2] * mag_norm;
     } else {
       mag_fusion_valid = 0;
     }
