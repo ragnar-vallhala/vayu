@@ -103,9 +103,15 @@ DecodedPacket PacketDecoder::decode(const QByteArray &data) {
         result.payload =
             QString("INVALID SYSTEM_STATE LEN: %1").arg(result.length);
       }
+    } else if (result.length == 7 && raw[8] == 0x01) {
+      // SYSTEM_ORIGIN_CALIBRATION: [origin] [n] [update_type]
+      // [float32 data]
+      CalibrationUpdate cal;
+      cal.type = static_cast<CalibUpdateType>(raw[10]);
+      memcpy(&cal.data, raw + 11, 4);
+      result.payload = cal;
     } else if (result.length == 18 && raw[8] == 0x01) {
-      // SYSTEM_ORIGIN_CALIBRATION: [origin] [n] [float32 progress] [float32
-      // bias_x] [float32 bias_y] [float32 bias_z]
+      // Legacy or aggregate format
       float progress;
       memcpy(&progress, raw + 10, 4);
       result.payload =

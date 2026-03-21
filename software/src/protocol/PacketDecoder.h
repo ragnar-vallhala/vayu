@@ -13,7 +13,9 @@ struct DecodedPacket {
   uint8_t length;
   uint8_t deviceId;
   uint32_t timestamp;
-  std::variant<std::monostate, ImuData, QString, AttitudeData, RcData> payload;
+  std::variant<std::monostate, ImuData, QString, AttitudeData, RcData,
+               CalibrationUpdate>
+      payload;
   bool valid = false;
 };
 

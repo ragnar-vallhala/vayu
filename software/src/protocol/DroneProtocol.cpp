@@ -77,6 +77,9 @@ void DroneProtocol::parseBuffer() {
     if (decoded.valid) {
       if (std::holds_alternative<ImuData>(decoded.payload)) {
         emit imuReceived(std::get<ImuData>(decoded.payload));
+      } else if (std::holds_alternative<CalibrationUpdate>(decoded.payload)) {
+        emit calibrationUpdateReceived(
+            std::get<CalibrationUpdate>(decoded.payload));
       } else if (std::holds_alternative<AttitudeData>(decoded.payload)) {
         emit attitudeReceived(std::get<AttitudeData>(decoded.payload));
       } else if (std::holds_alternative<RcData>(decoded.payload)) {
