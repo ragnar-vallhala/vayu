@@ -34,66 +34,46 @@ packet-beta
 
 ---
 
-## Command IDs
+## Command Set Specification
 
-| `cmd_id` | Name                | `argc` | Arguments                                                                                 | Description                                                                 |
-| -------- | ------------------- | ------ | ----------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| `0x0001` | `CMD_ARM`           | 0      | —                                                                                         | Arm the drone                                                               |
-| `0x0002` | `CMD_DISARM`        | 0      | —                                                                                         | Disarm the drone                                                            |
-| `0x0003` | `CMD_SET_THROTTLE`  | 1      | `args[0]` = throttle (0.0 – 1.0)                                                          | Set motor throttle level                                                    |
-| `0x0004` | `CMD_SET_ATTITUDE`  | 3      | `args[0]` = roll (°), `args[1]` = pitch (°), `args[2]` = yaw (°)                          | Set target attitude                                                         |
-| `0x0005` | `CMD_REBOOT`        | 0      | —                                                                                         | Soft-reboot the flight controller                                           |
-| `0x0006` | `CMD_CALIBRATE_GYR` | 0      | —                                                                                         | Trigger gyro bias re-calibration (drone must be stationary)                 |
-| `0x0007` | `CMD_SET_PID`       | 4      | `args[0]` = axis (0=roll, 1=pitch, 2=yaw), `args[1]` = Kp, `args[2]` = Ki, `args[3]` = Kd | Update a PID gain set                                                       |
-| `0x0008` | `CMD_CALIBRATE_ACC` | 0      | —                                                                                         | Trigger accelerometer bias calibration (drone must be stationary and level) |
-| `0x0009` | `CMD_CANCEL_CALIB`  | 0      | —                                                                                         | Immediately cancel any ongoing calibration and return to STANDBY            |
+The following table defines the standard commands supported by the Vayu firmware. Commands are transmitted as `PACKET_TYPE_COMMAND` (0x3) with a payload consisting of a 2-byte Command ID (Little-Endian) followed by zero or more 4-byte floating-point arguments.
+
+| ID       | Mnemonic            | ARGC   | Arguments                    | Description                                           |
+| :------- | :------------------ | :----- | :--------------------------- | :---------------------------------------------------- |
+| `0x0001` | `CMD_CALIBRATE_IMU` | 0 or 2 | `[0]`: IMU ID<br>`[1]`: Type | Trigger IMU calibration or cancel ongoing operations. |
+
+### Command Details
+
+#### CMD_CALIBRATE_IMU (0x0001)
+
+This command manages the internal calibration procedures for the onboard sensors.
+
+- **Arguments** (if `argc == 2`):
+  - `args[0]` **IMU ID**:
+    - `1.0`: Accelerometer
+    - `2.0`: Gyroscope
+    - `3.0`: Magnetometer
+  - `args[1]` **Calibration Type**:
+    - For `Accelerometer` and `Gyroscope`:
+      - `0.0`: Bias-only (Zeroing)
+      - `1.0`: Full (Scale & Offset)
+    - For `Magnetometer`:
+      - `0.0`: Hard-Iron Calibration
+      - `1.0`: Soft-Iron Calibration
+      - `2.0`: Full (Hard-Iron + Soft-Iron)
+- **Cancellation**:
+  - Sending `CMD_CALIBRATE_IMU` with `argc == 0` will immediately terminate any active calibration task and return the system to `STANDBY` state.
+
+> [!IMPORTANT]
+> The drone must remain stationary and level on a flat surface during all calibration procedures. Unexpected motion may result in invalid bias calculations.
 
 > Packets with an unrecognised `cmd_id` or a `length` inconsistent with `argc` are **silently dropped** by the firmware.
 
 ---
 
-## Wire Example — ARM command
-
-| Byte  | Value       | Meaning                             |
-| ----- | ----------- | ----------------------------------- |
-| 0     | `0x56`      | Sync                                |
-| 1     | `0x31`      | Type=0x3 (command), Version=0x1     |
-| 2     | `0x03`      | Length = 3 (cmd_id + argc, no args) |
-| 3     | device_id   | Device ID                           |
-| 4–7   | timestamp   | Unix timestamp (LE)                 |
-| 8–9   | `0x01 0x00` | cmd_id = 0x0001 (ARM, LE)           |
-| 10    | `0x00`      | argc = 0                            |
-| 11–14 | CRC32       | Computed over bytes 0–10            |
-
----
-
-## Wire Example — SET_PID command
-
-Payload sets Roll Kp=1.5, Ki=0.01, Kd=0.3:
-
-| Byte(s) | Value                 | Meaning                    |
-| ------- | --------------------- | -------------------------- |
-| 0–1     | `0x07 0x00`           | cmd_id = 0x0007 (LE)       |
-| 2       | `0x04`                | argc = 4                   |
-| 3–6     | `0x00 0x00 0x00 0x00` | args[0] = 0.0f (roll axis) |
-| 7–10    | `0x00 0x00 0xC0 0x3F` | args[1] = 1.5f             |
-| 11–14   | `0x0A 0xD7 0x23 0x3C` | args[2] = 0.01f            |
-| 15–18   | `0x9A 0x99 0x99 0x3E` | args[3] = 0.3f             |
-
-Total payload = 19 bytes → `length` field = 19.
-
----
-
-## Adding New Commands
-
-1. Add a new enumerator to `command_id_t` in `include/comm/comm_types.h`.
-2. Add a `case` branch and a handler function in `src/comm/comm_processor.c`.
-3. Update this table.
-
----
-
 ## Changelog
 
-| Date       | Author      | Description                     |
-| ---------- | ----------- | ------------------------------- |
-| 15/03/2026 | Antigravity | Added CMD_CANCEL_CALIB (0x0009) |
+| Date       | Author               | Description                      |
+| ---------- | -------------------- | -------------------------------- |
+| 15/03/2026 | Ashutosh Vishwakarma | Added CMD_CANCEL_CALIB (0x0009)  |
+| 21/03/2026 | Ashutosh Vishwakarma | Added CMD_CALIBRATE_IMU (0x0001) |
