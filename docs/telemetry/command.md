@@ -1,6 +1,6 @@
-# Command Packet (0x3)
+# Command Packet (0x3) [GCS → FC]
 
-A **Command** packet is sent **GCS → Drone** to trigger an action or update a parameter. It carries one mandatory 16-bit command ID and up to 15 optional `float` arguments.
+A **Command** packet is sent **GCS → Drone** to trigger an action or update a parameter.
 
 ---
 
@@ -69,11 +69,3 @@ This command manages the internal calibration procedures for the onboard sensors
 
 > Packets with an unrecognised `cmd_id` or a `length` inconsistent with `argc` are **silently dropped** by the firmware.
 
----
-
-## Changelog
-
-| Date       | Author               | Description                      |
-| ---------- | -------------------- | -------------------------------- |
-| 15/03/2026 | Ashutosh Vishwakarma | Added CMD_CANCEL_CALIB (0x0009)  |
-| 21/03/2026 | Ashutosh Vishwakarma | Added CMD_CALIBRATE_IMU (0x0001) |
