@@ -449,24 +449,7 @@ uint16_t bmx160_get_chip_id(void) {
   return (uint16_t)chip_id;
 }
 
-int16_t bmx160_read_temp_raw(void) {
-  uint8_t reg = BMX160_TEMPERATURE_0_ADDR;
-
-  if (bmx160_i2c_sema == NULL ||
-      v_semaphore_take(bmx160_i2c_sema, in_init ? 0 : MS_TO_TICKS(100)) !=
-          VA_PASS)
-    return 0x8000;
-
-  if (hal_i2c_write_read(I2C_BUS, BMX160_I2C_ADDR, &reg, 1, rx_buf, 2) !=
-      HAL_I2C_OK) {
-    v_semaphore_give(bmx160_i2c_sema);
-    return 0x8000;
-  }
-
-  int16_t temp = (int16_t)((rx_buf[1] << 8) | rx_buf[0]);
-  v_semaphore_give(bmx160_i2c_sema);
-  return temp;
-}
+int16_t bmx160_read_temp_raw(void) { return _bmx_data.raw.temp; }
 
 static float bmm150_compensate_x(int16_t mag_data_x, uint16_t data_rhall) {
   if (data_rhall < 50)
@@ -572,175 +555,77 @@ static bmx160_err_type bmx160_convert_raw_temp_to_celcius(int16_t raw_temp,
 }
 
 bmx160_err_type bmx160_read_temp_celcius(float *celcius) {
-  int16_t raw = bmx160_read_temp_raw();
-  bmx160_err_type err = bmx160_convert_raw_temp_to_celcius(raw, celcius);
-  if (err == NO_ERR) {
-  }
-  return ERR0;
+  if (celcius == NULL)
+    return ERR0;
+  *celcius = _bmx_data.converted.temp;
+  return NO_ERR;
 }
 
 bmx160_err_type bmx160_read_acc_raw(int16_t *raw) {
-  uint8_t reg = BMX160_ACCX_LOW_ADDR; // Start address of accel X LSB
-  hal_i2c_status_t ret;
-
-  if (bmx160_i2c_sema == NULL ||
-      v_semaphore_take(bmx160_i2c_sema, MS_TO_TICKS(100)) != VA_PASS)
+  if (raw == NULL)
     return ERR0;
-
-  // Read 6 bytes: X_L, X_H, Y_L, Y_H, Z_L, Z_H
-  ret = hal_i2c_write_read(I2C_BUS, BMX160_I2C_ADDR, &reg, 1, rx_buf, 6);
-  if (ret != HAL_I2C_OK) {
-    v_semaphore_give(bmx160_i2c_sema);
-    return ERR0;
-  }
-
-  // Combine little-endian pairs into signed 16-bit values
-  raw[0] = (int16_t)((rx_buf[1] << 8) | rx_buf[0]); // X
-  raw[1] = (int16_t)((rx_buf[3] << 8) | rx_buf[2]); // Y
-  raw[2] = (int16_t)((rx_buf[5] << 8) | rx_buf[4]); // Z
-  v_semaphore_give(bmx160_i2c_sema);
+  raw[0] = _bmx_data.raw.acc[0];
+  raw[1] = _bmx_data.raw.acc[1];
+  raw[2] = _bmx_data.raw.acc[2];
   return NO_ERR;
 }
 bmx160_err_type bmx160_read_gyr_raw(int16_t *raw) {
-  uint8_t reg = BMX160_GYRX_LOW_ADDR; // Start address of accel X LSB
-  hal_i2c_status_t ret;
-
-  if (bmx160_i2c_sema == NULL ||
-      v_semaphore_take(bmx160_i2c_sema, MS_TO_TICKS(100)) != VA_PASS)
+  if (raw == NULL)
     return ERR0;
-
-  // Read 6 bytes: X_L, X_H, Y_L, Y_H, Z_L, Z_H
-  ret = hal_i2c_write_read(I2C_BUS, BMX160_I2C_ADDR, &reg, 1, rx_buf, 6);
-  if (ret != HAL_I2C_OK) {
-    v_semaphore_give(bmx160_i2c_sema);
-    return ERR0;
-  }
-
-  raw[0] = ((int16_t)(((int8_t)rx_buf[1]) << 8 | rx_buf[0]));
-  raw[1] = ((int16_t)(((int8_t)rx_buf[3]) << 8 | rx_buf[2]));
-  raw[2] = ((int16_t)(((int8_t)rx_buf[5]) << 8 | rx_buf[4]));
-
-  v_semaphore_give(bmx160_i2c_sema);
+  raw[0] = _bmx_data.raw.gyr[0];
+  raw[1] = _bmx_data.raw.gyr[1];
+  raw[2] = _bmx_data.raw.gyr[2];
   return NO_ERR;
 }
 
 bmx160_err_type bmx160_read_mag_raw(int16_t *raw) {
-  uint8_t reg = BMX160_MAGX_LOW_ADDR; // Start address of accel X LSB
-  hal_i2c_status_t ret;
-
-  if (bmx160_i2c_sema == NULL ||
-      v_semaphore_take(bmx160_i2c_sema, MS_TO_TICKS(100)) != VA_PASS)
+  if (raw == NULL)
     return ERR0;
-
-  // Read 6 bytes: X_L, X_H, Y_L, Y_H, Z_L, Z_H
-  ret = hal_i2c_write_read(I2C_BUS, BMX160_I2C_ADDR, &reg, 1, rx_buf, 6);
-  if (ret != HAL_I2C_OK) {
-    v_semaphore_give(bmx160_i2c_sema);
-    return ERR0;
-  }
-
-  // Combine little-endian pairs into signed 16-bit values
-  raw[0] = (int16_t)((rx_buf[1] << 8) | rx_buf[0]); // X
-  raw[1] = (int16_t)((rx_buf[3] << 8) | rx_buf[2]); // Y
-  raw[2] = (int16_t)((rx_buf[5] << 8) | rx_buf[4]); // Z
-  v_semaphore_give(bmx160_i2c_sema);
+  raw[0] = _bmx_data.raw.mag[0];
+  raw[1] = _bmx_data.raw.mag[1];
+  raw[2] = _bmx_data.raw.mag[2];
   return NO_ERR;
 }
 
 bmx160_err_type bmx160_read_all_raw(bmx160_all_reading_t *raw) {
-  int16_t data[3];
-  bmx160_err_type status = bmx160_read_acc_raw(data);
-  if (status != NO_ERR)
-    return status;
-  raw->raw.acc[0] = data[0];
-  raw->raw.acc[1] = data[1];
-  raw->raw.acc[2] = data[2];
-
-  status = bmx160_read_gyr_raw(data);
-  if (status != NO_ERR)
-    return status;
-  raw->raw.gyr[0] = data[0];
-  raw->raw.gyr[1] = data[1];
-  raw->raw.gyr[2] = data[2];
-
-  status = bmx160_read_mag_raw(data);
-  if (status != NO_ERR)
-    return status;
-  raw->raw.mag[0] = data[0];
-  raw->raw.mag[1] = data[1];
-  raw->raw.mag[2] = data[2];
-
+  if (raw == NULL)
+    return ERR0;
+  *raw = _bmx_data;
   return NO_ERR;
 }
 
 bmx160_err_type bmx160_read_acc_mps2(float *data) {
-  int16_t raw[3];
-  bmx160_err_type err = bmx160_read_acc_raw(raw); // <-- raw must be [3]
-  if (err != NO_ERR)
-    return err;
-
-  data[0] = bmx160_raw_acc_to_mps2(raw[0]);
-  data[1] = bmx160_raw_acc_to_mps2(raw[1]);
-  data[2] = bmx160_raw_acc_to_mps2(raw[2]);
-
+  if (data == NULL)
+    return ERR0;
+  data[0] = _bmx_data.converted.acc[0];
+  data[1] = _bmx_data.converted.acc[1];
+  data[2] = _bmx_data.converted.acc[2];
   return NO_ERR;
 }
 
 bmx160_err_type bmx160_read_gyr_dps(float *data) {
-  int16_t raw[3];
-  bmx160_err_type err = bmx160_read_gyr_raw(raw);
-  if (err != NO_ERR)
-    return err;
-
-  data[0] = bmx160_raw_gyr_to_dps(raw[0]);
-  data[1] = bmx160_raw_gyr_to_dps(raw[1]);
-  data[2] = bmx160_raw_gyr_to_dps(raw[2]);
-
+  if (data == NULL)
+    return ERR0;
+  data[0] = _bmx_data.converted.gyr[0];
+  data[1] = _bmx_data.converted.gyr[1];
+  data[2] = _bmx_data.converted.gyr[2];
   return NO_ERR;
 }
 
 bmx160_err_type bmx160_read_mag_uT(float *data) {
-  int16_t raw[3];
-  bmx160_err_type err = bmx160_read_mag_raw(raw);
-  if (err != NO_ERR)
-    return err;
-
-  data[0] = bmx160_raw_mag_to_uT(raw[0]);
-  data[1] = bmx160_raw_mag_to_uT(raw[1]);
-  data[2] = bmx160_raw_mag_to_uT(raw[2]);
-
+  if (data == NULL)
+    return ERR0;
+  data[0] = _bmx_data.converted.mag[0];
+  data[1] = _bmx_data.converted.mag[1];
+  data[2] = _bmx_data.converted.mag[2];
   return NO_ERR;
 }
 
 bmx160_err_type bmx160_read_all_converted(bmx160_all_reading_t *data) {
-  float calculated[3];
-  bmx160_err_type err = bmx160_read_acc_mps2(calculated);
-  if (err != NO_ERR)
-    return err;
-  data->converted.acc[0] = calculated[0];
-  data->converted.acc[1] = calculated[1];
-  data->converted.acc[2] = calculated[2];
+  if (data == NULL)
+    return ERR0;
 
-  err = bmx160_read_gyr_dps(calculated);
-  if (err != NO_ERR)
-    return err;
-  data->converted.gyr[0] = calculated[0] - gyr_internal_bias[0];
-  data->converted.gyr[1] = calculated[1] - gyr_internal_bias[1];
-  data->converted.gyr[2] = calculated[2] - gyr_internal_bias[2];
-
-  err = bmx160_read_mag_uT(calculated);
-  if (err != NO_ERR)
-    return err;
-  data->converted.mag[0] = calculated[0];
-  data->converted.mag[1] = calculated[1];
-  data->converted.mag[2] = calculated[2];
-
-  // Apply Accel calibration (bias + scale)
-  for (int i = 0; i < 3; i++) {
-    data->converted.acc[i] =
-        (data->converted.acc[i] - acc_internal_bias[i]) * acc_internal_scale[i];
-  }
-
+  *data = _bmx_data;
   return NO_ERR;
 }
 
@@ -958,10 +843,7 @@ float bmx160_raw_gyr_to_dps(int16_t raw) {
   return (float)raw * gyr_scale;
 }
 
-float bmx160_raw_mag_to_uT(int16_t raw) {
-  // Deprecated: use axis-specific compensation
-  return (float)raw;
-}
+// Removed: bmx160_raw_mag_to_uT was deprecated and broken.
 
 bmx160_config_t bmx160_get_current_config(void) { return bmx160_cfg; }
 void bmx160_set_current_config(bmx160_config_t *cfg) { bmx160_cfg = *cfg; }
@@ -997,11 +879,7 @@ void bmx160_initiate_read(void *args) {
     // main.c)
     v_semaphore_take(bmx160_timer_sema, 1000000);
 
-    if (system_state_get() == SYSTEM_STATE_CALIBRATING) {
-      continue; // skip everything
-    }
-    if (system_state_get() != SYSTEM_STATE_CALIBRATING &&
-        bmx160_i2c_sema != NULL &&
+    if (bmx160_i2c_sema != NULL &&
         v_semaphore_take(bmx160_i2c_sema, MS_TO_TICKS(5)) == VA_PASS) {
       hal_i2c_status_t hal_ret = hal_i2c_read_regs_dma(
           I2C1, BMX160_I2C_ADDR, 0x04, &i2c_dma_cfg, bmx160_dma_callback);
@@ -1107,13 +985,22 @@ void bmx160_process_data(void) {
   _bmx_data.raw.temp = raw_temp;
 
   // Convert to units (for local attitude fusion and telemetry)
-  _bmx_data.converted.acc[0] = bmx160_raw_acc_to_mps2(ax);
-  _bmx_data.converted.acc[1] = bmx160_raw_acc_to_mps2(ay);
-  _bmx_data.converted.acc[2] = bmx160_raw_acc_to_mps2(az);
+  _bmx_data.converted.acc_raw[0] = bmx160_raw_acc_to_mps2(ax);
+  _bmx_data.converted.acc_raw[1] = bmx160_raw_acc_to_mps2(ay);
+  _bmx_data.converted.acc_raw[2] = bmx160_raw_acc_to_mps2(az);
 
-  _bmx_data.converted.gyr[0] = bmx160_raw_gyr_to_dps(gx);
-  _bmx_data.converted.gyr[1] = bmx160_raw_gyr_to_dps(gy);
-  _bmx_data.converted.gyr[2] = bmx160_raw_gyr_to_dps(gz);
+  // Initial populate (will be calibrated/filtered later)
+  _bmx_data.converted.acc[0] = _bmx_data.converted.acc_raw[0];
+  _bmx_data.converted.acc[1] = _bmx_data.converted.acc_raw[1];
+  _bmx_data.converted.acc[2] = _bmx_data.converted.acc_raw[2];
+
+  _bmx_data.converted.gyr_raw[0] = bmx160_raw_gyr_to_dps(gx);
+  _bmx_data.converted.gyr_raw[1] = bmx160_raw_gyr_to_dps(gy);
+  _bmx_data.converted.gyr_raw[2] = bmx160_raw_gyr_to_dps(gz);
+
+  _bmx_data.converted.gyr[0] = _bmx_data.converted.gyr_raw[0];
+  _bmx_data.converted.gyr[1] = _bmx_data.converted.gyr_raw[1];
+  _bmx_data.converted.gyr[2] = _bmx_data.converted.gyr_raw[2];
 
   // LPF
   for (int i = 0; i < 3; i++) {
@@ -1131,18 +1018,19 @@ void bmx160_process_data(void) {
       SQRT_F(_bmx_data.converted.gyr[0] * _bmx_data.converted.gyr[0] +
              _bmx_data.converted.gyr[1] * _bmx_data.converted.gyr[1] +
              _bmx_data.converted.gyr[2] * _bmx_data.converted.gyr[2]);
-  if (FABS_F(acc_mag - 9.81f) < 0.2f && gyro_norm < 2.0f) {
-    stable_count++;
-  } else {
-    stable_count = 0;
-  }
-  if (stable_count > 200) {
-
-    for (int i = 0; i < 3; i++) {
-      gyr_internal_bias[i] = (1.0f - GYRO_BIAS_ALPHA) * gyr_internal_bias[i] +
-                             GYRO_BIAS_ALPHA * _bmx_data.converted.gyr[i];
-      if (FABS_F(gyr_internal_bias[i]) > 5.0f) {
-        gyr_internal_bias[i] = 0;
+  if (system_state_get() != SYSTEM_STATE_CALIBRATING) {
+    if (FABS_F(acc_mag - 9.81f) < 0.2f && gyro_norm < 0.2f) {
+      stable_count++;
+    } else {
+      stable_count = 0;
+    }
+    if (stable_count > 200) {
+      for (int i = 0; i < 3; i++) {
+        gyr_internal_bias[i] = (1.0f - GYRO_BIAS_ALPHA) * gyr_internal_bias[i] +
+                               GYRO_BIAS_ALPHA * _bmx_data.converted.gyr[i];
+        if (FABS_F(gyr_internal_bias[i]) > 5.0f) {
+          gyr_internal_bias[i] = 0;
+        }
       }
     }
   }
@@ -1155,22 +1043,46 @@ void bmx160_process_data(void) {
   float mag_x = -bmm150_compensate_y(my, rhall);
   float mag_y = bmm150_compensate_x(mx, rhall);
   float mag_z = bmm150_compensate_z(mz, rhall);
+
+  // Store compensated but unscaled data for calibration
+  _bmx_data.converted.mag_compensated[0] = mag_x;
+  _bmx_data.converted.mag_compensated[1] = mag_y;
+  _bmx_data.converted.mag_compensated[2] = mag_z;
+
+  uint8_t mag_fusion_valid = 1;
   if (!IS_FINITE(mag_x) || !IS_FINITE(mag_y) || !IS_FINITE(mag_z) ||
       _is_mag_invalid) {
-    mag_x = last_mag[0];
-    mag_y = last_mag[1];
-    mag_z = last_mag[2];
-  } else {
-    last_mag[0] = mag_x;
-    last_mag[1] = mag_y;
-    last_mag[2] = mag_z;
+    mag_fusion_valid = 0;
   }
+
   _bmx_data.converted.mag[0] =
       (mag_x - mag_internal_bias[0]) * mag_internal_scale[0];
   _bmx_data.converted.mag[1] =
       (mag_y - mag_internal_bias[1]) * mag_internal_scale[1];
   _bmx_data.converted.mag[2] =
       (mag_z - mag_internal_bias[2]) * mag_internal_scale[2];
+
+  // Magnetometer Normalization for Fusion
+  if (mag_fusion_valid) {
+    float mag_norm =
+        SQRT_F(_bmx_data.converted.mag[0] * _bmx_data.converted.mag[0] +
+               _bmx_data.converted.mag[1] * _bmx_data.converted.mag[1] +
+               _bmx_data.converted.mag[2] * _bmx_data.converted.mag[2]);
+    if (mag_norm > 0.001f) {
+      _bmx_data.converted.mag[0] /= mag_norm;
+      _bmx_data.converted.mag[1] /= mag_norm;
+      _bmx_data.converted.mag[2] /= mag_norm;
+    } else {
+      mag_fusion_valid = 0;
+    }
+  }
+
+  if (!mag_fusion_valid) {
+    // Skip magnetometer in fusion by passing zero vector to Mahony
+    _bmx_data.converted.mag[0] = 0.0f;
+    _bmx_data.converted.mag[1] = 0.0f;
+    _bmx_data.converted.mag[2] = 0.0f;
+  }
   bmx160_convert_raw_temp_to_celcius(raw_temp, &_bmx_data.converted.temp);
 
   // Apply LPF to accelerometer (gyro was already filtered before bias
@@ -1189,6 +1101,9 @@ void bmx160_process_data(void) {
   imu_buffer_push(&_bmx_data);
 
   // Sensor Fusion
+  if (system_state_get() == SYSTEM_STATE_CALIBRATING) {
+    return;
+  }
   // 1kHz sampling rate (from main.c registration)
   const float dt = 0.001f;
   if (bmx160_attitude_mutex != NULL) {
@@ -1247,66 +1162,67 @@ static int wait_for_orientation(calib_update_type_t orient, float *accel_out) {
   while (count < target_samples) {
     float raw[3];
 
-    if (bmx160_read_acc_mps2(raw) == NO_ERR) {
+    // Use DMA data from _bmx_data.converted.acc_raw
+    raw[0] = _bmx_data.converted.acc_raw[0];
+    raw[1] = _bmx_data.converted.acc_raw[1];
+    raw[2] = _bmx_data.converted.acc_raw[2];
 
-      int match = 0;
+    int match = 0;
 
-      switch (orient) {
-      case CALIB_UPDATE_UPRIGHT:
-        match = (raw[2] > g - thr);
-        break;
+    switch (orient) {
+    case CALIB_UPDATE_UPRIGHT:
+      match = (raw[2] > g - thr);
+      break;
 
-      case CALIB_UPDATE_UPSIDE_DOWN:
-        match = (raw[2] < -g + thr);
-        break;
+    case CALIB_UPDATE_UPSIDE_DOWN:
+      match = (raw[2] < -g + thr);
+      break;
 
-      case CALIB_UPDATE_NOSE_UP:
-        match = (raw[0] > g - thr);
-        break;
+    case CALIB_UPDATE_NOSE_UP:
+      match = (raw[0] > g - thr);
+      break;
 
-      case CALIB_UPDATE_NOSE_DOWN:
-        match = (raw[0] < -g + thr);
-        break;
+    case CALIB_UPDATE_NOSE_DOWN:
+      match = (raw[0] < -g + thr);
+      break;
 
-      case CALIB_UPDATE_RIGHT_DOWN:
-        match = (raw[1] > g - thr);
-        break;
+    case CALIB_UPDATE_RIGHT_DOWN:
+      match = (raw[1] > g - thr);
+      break;
 
-      case CALIB_UPDATE_LEFT_DOWN:
-        match = (raw[1] < -g + thr);
-        break;
+    case CALIB_UPDATE_LEFT_DOWN:
+      match = (raw[1] < -g + thr);
+      break;
 
-      default:
-        match = 0;
-        break;
-      }
-
-      if (match) {
-        // Accumulate
-        sum[0] += raw[0];
-        sum[1] += raw[1];
-        sum[2] += raw[2];
-        count++;
-
-        // Progress update (every 5%)
-        if (count % (target_samples / 20) == 0) {
-          payload[2] = CALIB_UPDATE_PROGRESS;
-          float progress = (100.0f * count) / target_samples;
-          v_memcpy(&payload[3], &progress, 4);
-
-          send_packet(&g_telemetry_channel, PACKET_TYPE_SYSTEM_STATUS, payload,
-                      7);
-        }
-
-      } else {
-        // Reset if orientation disturbed
-        count = 0;
-        sum[0] = 0.0f;
-        sum[1] = 0.0f;
-        sum[2] = 0.0f;
-      }
+    default:
+      match = 0;
+      break;
     }
 
+    if (match) {
+      // Accumulate
+      sum[0] += raw[0];
+      sum[1] += raw[1];
+      sum[2] += raw[2];
+      count++;
+
+      // Progress update (every 5%)
+      if (count % (target_samples / 20) == 0) {
+        payload[2] = CALIB_UPDATE_PROGRESS;
+        float progress = (100.0f * count) / target_samples;
+        v_memcpy(&payload[3], &progress, 4);
+
+        send_packet(&g_telemetry_channel, PACKET_TYPE_SYSTEM_STATUS, payload,
+                    7);
+      }
+
+    } else {
+      // Reset if orientation disturbed
+      count = 0;
+      sum[0] = 0.0f;
+      sum[1] = 0.0f;
+      sum[2] = 0.0f;
+    }
     v_delay(20);
   }
 
@@ -1400,12 +1316,9 @@ void calibration_task(void *args) {
 
         // Collect 200 samples for bias in this orientation
         for (int s = 0; s < 200; s++) {
-          float g[3];
-          if (bmx160_read_gyr_dps(g) == NO_ERR) {
-            gsum[0] += g[0];
-            gsum[1] += g[1];
-            gsum[2] += g[2];
-          }
+          gsum[0] += _bmx_data.converted.gyr_raw[0];
+          gsum[1] += _bmx_data.converted.gyr_raw[1];
+          gsum[2] += _bmx_data.converted.gyr_raw[2];
           v_delay(5);
         }
         v_delay(500);
@@ -1427,12 +1340,9 @@ void calibration_task(void *args) {
 
       float gsum[3] = {0, 0, 0};
       for (int i = 0; i < 500; i++) {
-        float g[3];
-        if (bmx160_read_gyr_dps(g) == NO_ERR) {
-          gsum[0] += g[0];
-          gsum[1] += g[1];
-          gsum[2] += g[2];
-        }
+        gsum[0] += _bmx_data.converted.gyr_raw[0];
+        gsum[1] += _bmx_data.converted.gyr_raw[1];
+        gsum[2] += _bmx_data.converted.gyr_raw[2];
         v_delay(5);
       }
       gyr_internal_bias[0] = gsum[0] / 500.0f;
@@ -1462,28 +1372,22 @@ void calibration_task(void *args) {
     const int iterations = calibration_time_ms / loop_delay_ms;
 
     for (int i = 0; i < iterations; i++) {
-      uint16_t rhall;
-      // Perform a full read to get rhall and raw mag effectively
-      bmx160_all_reading_t all;
-      if (bmx160_read_all_raw(&all) == NO_ERR) {
-        rhall = all.raw.rhall;
-        if (rhall < 50 || rhall > 30000) {
-          continue;
-        }
-        float mx = bmm150_compensate_x(all.raw.mag[0], rhall);
-        float my = bmm150_compensate_y(all.raw.mag[1], rhall);
-        float mz = bmm150_compensate_z(all.raw.mag[2], rhall);
-        if (!IS_FINITE(mx) || !IS_FINITE(my) || !IS_FINITE(mz)) {
-          continue;
-        }
-        // Align [-Y, X, Z] to body frame
-        float cur_mag[3] = {-my, mx, mz};
+      // Use DMA data from _bmx_data.converted.mag_compensated
+      if (_bmx_data.raw.rhall >= 50 && _bmx_data.raw.rhall <= 30000) {
+        float mx_c = _bmx_data.converted.mag_compensated[0];
+        float my_c = _bmx_data.converted.mag_compensated[1];
+        float mz_c = _bmx_data.converted.mag_compensated[2];
 
-        for (int axis = 0; axis < 3; axis++) {
-          if (cur_mag[axis] > mag_max[axis])
-            mag_max[axis] = cur_mag[axis];
-          if (cur_mag[axis] < mag_min[axis])
-            mag_min[axis] = cur_mag[axis];
+        if (IS_FINITE(mx_c) && IS_FINITE(my_c) && IS_FINITE(mz_c)) {
+          // Alignment is already handled in process_data: [-Y, X, Z]
+          float cur_mag[3] = {mx_c, my_c, mz_c};
+
+          for (int axis = 0; axis < 3; axis++) {
+            if (cur_mag[axis] > mag_max[axis])
+              mag_max[axis] = cur_mag[axis];
+            if (cur_mag[axis] < mag_min[axis])
+              mag_min[axis] = cur_mag[axis];
+          }
         }
       }
 
