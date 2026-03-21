@@ -47,7 +47,7 @@ void imu_telemetry_task(void *args) {
         for (int j = 0; j < 3; j++) {
           sum_acc[j] += samples[i].converted.acc[j];
           sum_gyr[j] += samples[i].converted.gyr[j];
-          sum_mag[j] += samples[i].converted.mag[j];
+          sum_mag[j] += samples[i].converted.mag_compensated[j];
         }
         sum_temp += samples[i].converted.temp;
       }

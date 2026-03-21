@@ -60,8 +60,15 @@ void m_complementary_filter(const float ax, const float ay, const float az,
   ori->pitch =
       alpha * (ori->pitch + gy * dt) + (1.0f - alpha) * acc_mag_ori.pitch;
 
-  // Yaw: Integrate gyro and fuse with mag-based yaw
-  ori->yaw = alpha * (ori->yaw + gz * dt) + (1.0f - alpha) * acc_mag_ori.yaw;
+  // Yaw: Detect mag validity and fuse only if valid
+  float norm_m = m_sqrt(mx * mx + my * my + mz * mz);
+  if (norm_m > 1e-6f) {
+    // Fuse with mag-based yaw
+    ori->yaw = alpha * (ori->yaw + gz * dt) + (1.0f - alpha) * acc_mag_ori.yaw;
+  } else {
+    // Gyro only integration for yaw
+    ori->yaw = ori->yaw + gz * dt;
+  }
 
   // Normalization for angles
   if (ori->roll > 180.0f)
@@ -136,36 +143,50 @@ void m_mahony_filter(const float ax, const float ay, const float az,
   float ayn = ay / norm;
   float azn = az / norm;
 
-  // Normalise magnetometer measurement
+  // Detect mag validity and Normalise magnetometer measurement
+  int mag_valid = 1;
+  float mxn = 0.0f, myn = 0.0f, mzn = 0.0f;
   norm = m_sqrt(mx * mx + my * my + mz * mz);
-  if (norm <= 0.0f)
-    return;
-  float mxn = mx / norm;
-  float myn = my / norm;
-  float mzn = mz / norm;
+  if (norm <= 1e-6f) {
+    mag_valid = 0;
+  } else {
+    mxn = mx / norm;
+    myn = my / norm;
+    mzn = mz / norm;
+  }
 
-  // Reference direction of Earth's magnetic field
-  hx = 2.0f * mxn * (0.5f - q2q2 - q3q3) + 2.0f * myn * (q1q2 - q0q3) +
-       2.0f * mzn * (q1q3 + q0q2);
-  hy = 2.0f * mxn * (q1q2 + q0q3) + 2.0f * myn * (0.5f - q1q1 - q3q3) +
-       2.0f * mzn * (q2q3 - q0q1);
-  bx = m_sqrt(hx * hx + hy * hy);
-  bz = 2.0f * mxn * (q1q3 - q0q2) + 2.0f * myn * (q2q3 + q0q1) +
-       2.0f * mzn * (0.5f - q1q1 - q2q2);
-
-  // Estimated direction of gravity and magnetic field
+  // Estimated direction of gravity (ALWAYS computed)
   vx = 2.0f * (q1q3 - q0q2);
   vy = 2.0f * (q0q1 + q2q3);
   vz = q0q0 - q1q1 - q2q2 + q3q3;
-  wx = 2.0f * bx * (0.5f - q2q2 - q3q3) + 2.0f * bz * (q1q3 - q0q2);
-  wy = 2.0f * bx * (q1q2 - q0q3) + 2.0f * bz * (q0q1 + q2q3);
-  wz = 2.0f * bx * (q0q2 + q1q3) + 2.0f * bz * (0.5f - q1q1 - q2q2);
 
-  // Error is sum of cross product between estimated direction and measured
-  // direction of field vectors
-  ex = (ayn * vz - azn * vy) + (myn * wz - mzn * wy);
-  ey = (azn * vx - axn * vz) + (mzn * wx - mxn * wz);
-  ez = (axn * vy - ayn * vx) + (mxn * wy - myn * wx);
+  // Compute error
+  if (mag_valid) {
+    // Reference direction of Earth's magnetic field
+    hx = 2.0f * mxn * (0.5f - q2q2 - q3q3) + 2.0f * myn * (q1q2 - q0q3) +
+         2.0f * mzn * (q1q3 + q0q2);
+    hy = 2.0f * mxn * (q1q2 + q0q3) + 2.0f * myn * (0.5f - q1q1 - q3q3) +
+         2.0f * mzn * (q2q3 - q0q1);
+    bx = m_sqrt(hx * hx + hy * hy);
+    bz = 2.0f * mxn * (q1q3 - q0q2) + 2.0f * myn * (q2q3 + q0q1) +
+         2.0f * mzn * (0.5f - q1q1 - q2q2);
+
+    // Estimated direction of magnetic field
+    wx = 2.0f * bx * (0.5f - q2q2 - q3q3) + 2.0f * bz * (q1q3 - q0q2);
+    wy = 2.0f * bx * (q1q2 - q0q3) + 2.0f * bz * (q0q1 + q2q3);
+    wz = 2.0f * bx * (q0q2 + q1q3) + 2.0f * bz * (0.5f - q1q1 - q2q2);
+
+    // Error is sum of cross product between estimated direction and measured
+    // direction of field vectors
+    ex = (ayn * vz - azn * vy) + (myn * wz - mzn * wy);
+    ey = (azn * vx - axn * vz) + (mzn * wx - mxn * wz);
+    ez = (axn * vy - ayn * vx) + (mxn * wy - myn * wx);
+  } else {
+    // IMU-only error (Accel only)
+    ex = (ayn * vz - azn * vy);
+    ey = (azn * vx - axn * vz);
+    ez = (axn * vy - ayn * vx);
+  }
 
   // Compute and apply integral feedback if enabled
   if (Ki > 0.0f) {
