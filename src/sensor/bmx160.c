@@ -14,12 +14,20 @@
 #include "vayu_tasks.h"
 #include <math.h>
 #include <stdint.h>
+
+extern float sqrtf(float x);
+extern float fabsf(float x);
+
+#define FABS_F(x) ((x) < 0.0f ? -(x) : (x))
+#define SQRT_F(x) sqrtf(x)
+static int in_init = 1;
 #define IS_FINITE(x) ((x) - (x) == 0.0f)
 extern channel_t g_telemetry_channel;
 uint8_t tx_buf[2];
 uint8_t rx_buf[14]; // Increased for safer multi-byte reads
 
-MutexHandle_t bmx160_mutex;                 // Mutex for bmx160 orientation
+static SemaphoreHandle_t bmx160_i2c_sema;   // Semaphore for I2C bus lock
+static MutexHandle_t bmx160_attitude_mutex; // Mutex for attitude data
 static SemaphoreHandle_t bmx160_dma_sema;   // Semaphore for DMA completion
 static SemaphoreHandle_t bmx160_timer_sema; // Semaphore for Timer wake-up
 
@@ -42,6 +50,7 @@ static lpf_t acc_lpf[3];
 static lpf_t gyr_lpf[3];
 
 static bmm150_trim_data_t _mag_trim;
+static int i2c_error_count = 0;
 
 // Helper functions
 static bmx160_err_type bmx160_set_mag_conf();
@@ -82,11 +91,19 @@ static bmx160_err_type bmx160_wait_mag_manual_op(void) {
 
 static bmx160_err_type bmx160_verify_pmu(uint8_t mask, uint8_t expected) {
   uint8_t reg = BMX160_PMU_STAT_ADDR;
+  if (bmx160_i2c_sema == NULL ||
+      v_semaphore_take(bmx160_i2c_sema, MS_TO_TICKS(100)) != VA_PASS)
+    return ERR0;
+
   if (hal_i2c_write_read(I2C_BUS, BMX160_I2C_ADDR, &reg, 1, rx_buf, 1) !=
       HAL_I2C_OK) {
+    v_semaphore_give(bmx160_i2c_sema);
     return ERR0;
   }
-  if ((rx_buf[0] & mask) == expected) {
+  uint8_t stat = rx_buf[0];
+  v_semaphore_give(bmx160_i2c_sema);
+
+  if ((stat & mask) == expected) {
     return NO_ERR;
   }
   return ERR1;
@@ -124,6 +141,19 @@ static void unstick_i2c_bus(void) {
 
 hal_i2c_status_t bmx160_init(void) {
   unstick_i2c_bus();
+
+  // Create I2C bus semaphore early. Ensure it starts "given"
+  if (bmx160_i2c_sema == NULL) {
+    bmx160_i2c_sema = v_semaphore_create_binary();
+    v_semaphore_give(bmx160_i2c_sema);
+  }
+  in_init = 1; // Explicitly set it here as well
+
+  // Create attitude mutex
+  if (bmx160_attitude_mutex == NULL) {
+    bmx160_attitude_mutex = v_mutex_create();
+  }
+
   // I2C configuration
   hal_i2c_config_t i2c_config = {
       .clock_speed = FAST_MODE, .own_address = I2C_MASTER, .acknowledge = true};
@@ -216,36 +246,51 @@ hal_i2c_status_t bmx160_init(void) {
   _bmx_orientation.q.y = 0.0f;
   _bmx_orientation.q.z = 0.0f;
 
-  // Create mutex for attitude protection
-  bmx160_mutex = v_mutex_create();
-  if (bmx160_mutex == NULL) {
-    return HAL_I2C_ERR_REINIT;
-  }
-
   // Create semaphore for DMA synchronization
-  bmx160_dma_sema = v_semaphore_create_binary();
+  if (bmx160_dma_sema == NULL) {
+    bmx160_dma_sema = v_semaphore_create_binary();
+  }
   if (bmx160_dma_sema == NULL) {
     return HAL_I2C_ERR_REINIT;
   }
 
   // Create semaphore for Timer wake-up
-  bmx160_timer_sema = v_semaphore_create_binary();
+  if (bmx160_timer_sema == NULL) {
+    bmx160_timer_sema = v_semaphore_create_binary();
+  }
   if (bmx160_timer_sema == NULL) {
     return HAL_I2C_ERR_REINIT;
   }
 
+  in_init = 0; // Success! Disable blocking bypass
   return ts;
 }
 
 static bmx160_err_type bmx160_write_bmm150_reg(uint8_t reg, uint8_t data) {
   tx_buf[0] = BMX160_MAG_IF_3_DATA_ADDR;
   tx_buf[1] = data;
-  if (hal_i2c_write(I2C_BUS, BMX160_I2C_ADDR, tx_buf, 2) != HAL_I2C_OK)
+  if (bmx160_i2c_sema == NULL ||
+      v_semaphore_take(bmx160_i2c_sema, MS_TO_TICKS(100)) != VA_PASS)
     return ERR0;
+
+  if (hal_i2c_write(I2C_BUS, BMX160_I2C_ADDR, tx_buf, 2) != HAL_I2C_OK) {
+    v_semaphore_give(bmx160_i2c_sema);
+    return ERR0;
+  }
+  v_semaphore_give(bmx160_i2c_sema);
+
+  v_delay(2); // Wait for BMX -> BMM write
+
   tx_buf[0] = BMX160_MAG_IF_2_REG_ADDR;
   tx_buf[1] = reg;
-  if (hal_i2c_write(I2C_BUS, BMX160_I2C_ADDR, tx_buf, 2) != HAL_I2C_OK)
+  if (v_semaphore_take(bmx160_i2c_sema, MS_TO_TICKS(100)) != VA_PASS)
     return ERR0;
+
+  if (hal_i2c_write(I2C_BUS, BMX160_I2C_ADDR, tx_buf, 2) != HAL_I2C_OK) {
+    v_semaphore_give(bmx160_i2c_sema);
+    return ERR0;
+  }
+  v_semaphore_give(bmx160_i2c_sema);
 
   if (bmx160_wait_mag_manual_op() != NO_ERR)
     return ERR1;
@@ -256,16 +301,29 @@ static bmx160_err_type bmx160_write_bmm150_reg(uint8_t reg, uint8_t data) {
 static bmx160_err_type bmx160_read_bmm150_reg(uint8_t reg, uint8_t *data) {
   tx_buf[0] = BMX160_MAG_IF_1_READ_ADDR;
   tx_buf[1] = reg;
-  if (hal_i2c_write(I2C_BUS, BMX160_I2C_ADDR, tx_buf, 2) != HAL_I2C_OK)
+  if (bmx160_i2c_sema == NULL ||
+      v_semaphore_take(bmx160_i2c_sema, MS_TO_TICKS(100)) != VA_PASS)
     return ERR0;
+
+  if (hal_i2c_write(I2C_BUS, BMX160_I2C_ADDR, tx_buf, 2) != HAL_I2C_OK) {
+    v_semaphore_give(bmx160_i2c_sema);
+    return ERR0;
+  }
+  v_semaphore_give(bmx160_i2c_sema);
 
   if (bmx160_wait_mag_manual_op() != NO_ERR)
     return ERR1;
 
   uint8_t read_reg = 0x04; // MAG_X_LSB in BMX160 is where IF data appears
-  if (hal_i2c_write_read(I2C_BUS, BMX160_I2C_ADDR, &read_reg, 1, data, 1) !=
-      HAL_I2C_OK)
+  if (v_semaphore_take(bmx160_i2c_sema, MS_TO_TICKS(100)) != VA_PASS)
     return ERR0;
+
+  if (hal_i2c_write_read(I2C_BUS, BMX160_I2C_ADDR, &read_reg, 1, data, 1) !=
+      HAL_I2C_OK) {
+    v_semaphore_give(bmx160_i2c_sema);
+    return ERR0;
+  }
+  v_semaphore_give(bmx160_i2c_sema);
   return NO_ERR;
 }
 
@@ -376,22 +434,38 @@ uint16_t bmx160_get_chip_id(void) {
   uint8_t reg = BMX160_CHIP_ID_ADDR;
   hal_i2c_status_t ret;
 
+  if (bmx160_i2c_sema == NULL ||
+      v_semaphore_take(bmx160_i2c_sema, in_init ? 0 : MS_TO_TICKS(100)) !=
+          VA_PASS)
+    return 0xFFFF;
+
   ret = hal_i2c_write_read(I2C_BUS, BMX160_I2C_ADDR, &reg, 1, rx_buf, 1);
   if (ret != HAL_I2C_OK) {
+    v_semaphore_give(bmx160_i2c_sema);
     return 0xFFFF;
   }
   int16_t chip_id = (int16_t)(rx_buf[0]);
+  v_semaphore_give(bmx160_i2c_sema);
   return (uint16_t)chip_id;
 }
 
 int16_t bmx160_read_temp_raw(void) {
   uint8_t reg = BMX160_TEMPERATURE_0_ADDR;
 
-  if (hal_i2c_write_read(I2C_BUS, BMX160_I2C_ADDR, &reg, 1, rx_buf, 2) !=
-      HAL_I2C_OK)
+  if (bmx160_i2c_sema == NULL ||
+      v_semaphore_take(bmx160_i2c_sema, in_init ? 0 : MS_TO_TICKS(100)) !=
+          VA_PASS)
     return 0x8000;
 
-  return (int16_t)((rx_buf[1] << 8) | rx_buf[0]);
+  if (hal_i2c_write_read(I2C_BUS, BMX160_I2C_ADDR, &reg, 1, rx_buf, 2) !=
+      HAL_I2C_OK) {
+    v_semaphore_give(bmx160_i2c_sema);
+    return 0x8000;
+  }
+
+  int16_t temp = (int16_t)((rx_buf[1] << 8) | rx_buf[0]);
+  v_semaphore_give(bmx160_i2c_sema);
+  return temp;
 }
 
 static float bmm150_compensate_x(int16_t mag_data_x, uint16_t data_rhall) {
@@ -503,9 +577,14 @@ bmx160_err_type bmx160_read_acc_raw(int16_t *raw) {
   uint8_t reg = BMX160_ACCX_LOW_ADDR; // Start address of accel X LSB
   hal_i2c_status_t ret;
 
+  if (bmx160_i2c_sema == NULL ||
+      v_semaphore_take(bmx160_i2c_sema, MS_TO_TICKS(100)) != VA_PASS)
+    return ERR0;
+
   // Read 6 bytes: X_L, X_H, Y_L, Y_H, Z_L, Z_H
   ret = hal_i2c_write_read(I2C_BUS, BMX160_I2C_ADDR, &reg, 1, rx_buf, 6);
   if (ret != HAL_I2C_OK) {
+    v_semaphore_give(bmx160_i2c_sema);
     return ERR0;
   }
 
@@ -513,15 +592,21 @@ bmx160_err_type bmx160_read_acc_raw(int16_t *raw) {
   raw[0] = (int16_t)((rx_buf[1] << 8) | rx_buf[0]); // X
   raw[1] = (int16_t)((rx_buf[3] << 8) | rx_buf[2]); // Y
   raw[2] = (int16_t)((rx_buf[5] << 8) | rx_buf[4]); // Z
+  v_semaphore_give(bmx160_i2c_sema);
   return NO_ERR;
 }
 bmx160_err_type bmx160_read_gyr_raw(int16_t *raw) {
   uint8_t reg = BMX160_GYRX_LOW_ADDR; // Start address of accel X LSB
   hal_i2c_status_t ret;
 
+  if (bmx160_i2c_sema == NULL ||
+      v_semaphore_take(bmx160_i2c_sema, MS_TO_TICKS(100)) != VA_PASS)
+    return ERR0;
+
   // Read 6 bytes: X_L, X_H, Y_L, Y_H, Z_L, Z_H
   ret = hal_i2c_write_read(I2C_BUS, BMX160_I2C_ADDR, &reg, 1, rx_buf, 6);
   if (ret != HAL_I2C_OK) {
+    v_semaphore_give(bmx160_i2c_sema);
     return ERR0;
   }
 
@@ -529,6 +614,7 @@ bmx160_err_type bmx160_read_gyr_raw(int16_t *raw) {
   raw[1] = ((int16_t)(((int8_t)rx_buf[3]) << 8 | rx_buf[2]));
   raw[2] = ((int16_t)(((int8_t)rx_buf[5]) << 8 | rx_buf[4]));
 
+  v_semaphore_give(bmx160_i2c_sema);
   return NO_ERR;
 }
 
@@ -536,9 +622,14 @@ bmx160_err_type bmx160_read_mag_raw(int16_t *raw) {
   uint8_t reg = BMX160_MAGX_LOW_ADDR; // Start address of accel X LSB
   hal_i2c_status_t ret;
 
+  if (bmx160_i2c_sema == NULL ||
+      v_semaphore_take(bmx160_i2c_sema, MS_TO_TICKS(100)) != VA_PASS)
+    return ERR0;
+
   // Read 6 bytes: X_L, X_H, Y_L, Y_H, Z_L, Z_H
   ret = hal_i2c_write_read(I2C_BUS, BMX160_I2C_ADDR, &reg, 1, rx_buf, 6);
   if (ret != HAL_I2C_OK) {
+    v_semaphore_give(bmx160_i2c_sema);
     return ERR0;
   }
 
@@ -546,6 +637,7 @@ bmx160_err_type bmx160_read_mag_raw(int16_t *raw) {
   raw[0] = (int16_t)((rx_buf[1] << 8) | rx_buf[0]); // X
   raw[1] = (int16_t)((rx_buf[3] << 8) | rx_buf[2]); // Y
   raw[2] = (int16_t)((rx_buf[5] << 8) | rx_buf[4]); // Z
+  v_semaphore_give(bmx160_i2c_sema);
   return NO_ERR;
 }
 
@@ -893,13 +985,35 @@ void bmx160_initiate_read(void *args) {
     v_semaphore_take(bmx160_timer_sema, 1000000);
 
     if (system_state_get() != SYSTEM_STATE_CALIBRATING) {
-      hal_i2c_read_regs_dma(I2C1, BMX160_I2C_ADDR, 0x04, &i2c_dma_cfg,
-                            bmx160_dma_callback);
+      if (bmx160_i2c_sema != NULL &&
+          v_semaphore_take(bmx160_i2c_sema, MS_TO_TICKS(5)) == VA_PASS) {
+        hal_i2c_status_t hal_ret = hal_i2c_read_regs_dma(
+            I2C1, BMX160_I2C_ADDR, 0x04, &i2c_dma_cfg, bmx160_dma_callback);
 
-      // Wait for DMA completion (with a 10ms timeout)
-      if (v_semaphore_take(bmx160_dma_sema, MS_TO_TICKS(10)) == VA_PASS) {
-        // Process data in task context instead of ISR
-        bmx160_process_data();
+        if (hal_ret == HAL_I2C_OK) {
+          // Wait for DMA completion (with a 10ms timeout)
+          if (v_semaphore_take(bmx160_dma_sema, MS_TO_TICKS(10)) == VA_PASS) {
+            // Process data in task context instead of ISR
+            i2c_error_count = 0;
+            bmx160_process_data();
+          } else {
+            // DMA completion timeout
+            i2c_error_count++;
+            v_semaphore_give(bmx160_i2c_sema);
+          }
+        } else {
+          // DMA initiation failed (e.g. Bus Busy)
+          i2c_error_count++;
+          v_semaphore_give(bmx160_i2c_sema);
+        }
+
+        if (i2c_error_count > 10) {
+          vayu_log("I2C Hang detected! Resetting bus...");
+          v_semaphore_give(bmx160_i2c_sema); // MUST release before init
+          bmx160_init(); // Safe to call Multiple times due to NULL checks
+          i2c_error_count = 0;
+          continue; // Restart loop to take sema again if needed
+        }
       }
     }
   }
@@ -908,6 +1022,12 @@ void bmx160_initiate_read(void *args) {
 void bmx160_dma_callback(void) {
   // Signal the task that DMA read is complete
   int higher_priority_task_woken = 0;
+
+  // Release I2C bus lock immediately in the ISR as requested
+  if (bmx160_i2c_sema != NULL) {
+    v_semaphore_give_from_isr(bmx160_i2c_sema, &higher_priority_task_woken);
+  }
+
   v_semaphore_give_from_isr(bmx160_dma_sema, &higher_priority_task_woken);
   if (higher_priority_task_woken) {
     task_yield();
@@ -998,11 +1118,11 @@ void bmx160_process_data(void) {
 
   // Apply gyro bias estimator
   float acc_mag =
-      sqrtf(_bmx_data.converted.acc[0] * _bmx_data.converted.acc[0] +
-            _bmx_data.converted.acc[1] * _bmx_data.converted.acc[1] +
-            _bmx_data.converted.acc[2] * _bmx_data.converted.acc[2]);
+      SQRT_F(_bmx_data.converted.acc[0] * _bmx_data.converted.acc[0] +
+             _bmx_data.converted.acc[1] * _bmx_data.converted.acc[1] +
+             _bmx_data.converted.acc[2] * _bmx_data.converted.acc[2]);
 
-  if (fabsf(acc_mag - 9.81f) < 0.2f) {
+  if (FABS_F(acc_mag - 9.81f) < 0.2f) {
 
     for (int i = 0; i < 3; i++) {
       gyr_bias[i] = (1.0f - GYRO_BIAS_ALPHA) * gyr_bias[i] +
@@ -1045,7 +1165,9 @@ void bmx160_process_data(void) {
   // Sensor Fusion
   // 1kHz sampling rate (from main.c registration)
   const float dt = 0.001f;
-  v_mutex_lock(bmx160_mutex, MS_TO_TICKS(1));
+  if (bmx160_attitude_mutex != NULL) {
+    v_mutex_lock(bmx160_attitude_mutex, MS_TO_TICKS(1));
+  }
   if (SF_FILTER_USED == SF_MAHONY) {
     m_mahony_filter(_bmx_data.converted.acc[0], _bmx_data.converted.acc[1],
                     _bmx_data.converted.acc[2], _bmx_data.converted.gyr[0],
@@ -1060,20 +1182,24 @@ void bmx160_process_data(void) {
         _bmx_data.converted.mag[0], _bmx_data.converted.mag[1],
         _bmx_data.converted.mag[2], dt, &_bmx_orientation);
   }
-  v_mutex_unlock(bmx160_mutex);
+  if (bmx160_attitude_mutex != NULL) {
+    v_mutex_unlock(bmx160_attitude_mutex);
+  }
 }
 
 void bmx160_get_attitude(attitude_t *att) {
-  if (att != NULL) {
-    v_mutex_lock(bmx160_mutex, MS_TO_TICKS(1));
+  if (att != NULL && bmx160_attitude_mutex != NULL) {
+    v_mutex_lock(bmx160_attitude_mutex, MS_TO_TICKS(1));
     *att = _bmx_orientation;
-    v_mutex_unlock(bmx160_mutex);
+    v_mutex_unlock(bmx160_attitude_mutex);
   }
 }
 
 void calibration_task(void *args) {
   (void)args;
   system_state_set(SYSTEM_STATE_CALIBRATING);
+  v_delay(50); // Give background task time to finish any active DMA and see the
+               // state
 
   vayu_log("[BMX] Internal Calibration Task Start");
 
