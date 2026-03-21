@@ -39,14 +39,40 @@ packet-beta
 
 ### `SYSTEM_ORIGIN_CALIBRATION` (0x01)
 
-Emitted at 0%, 25%, 50%, 75%, and 100% during `calibrate_imu_start_gyr` or `calibrate_imu_start_acc`.
+This packet provides real-time feedback during sensor calibration procedures. It informs the GCS of the current progress or instructs the operator to position the drone in a specific orientation.
 
-| Index | Meaning      | Units      | Notes                              |
-| ----- | ------------ | ---------- | ---------------------------------- |
-| 0     | progress_pct | %          | 0.0 – 100.0                        |
-| 1     | bias_x       | dps / m/s² | Only valid when progress_pct = 100 |
-| 2     | bias_y       | dps / m/s² | Only valid when progress_pct = 100 |
-| 3     | bias_z       | dps / m/s² | Only valid when progress_pct = 100 |
+#### Payload Format
+
+| Byte | Field         | Type    | Description                                         |
+| :--- | :------------ | :------ | :-------------------------------------------------- |
+| 0    | `update_type` | `uint8` | Calibration update type (see table below).          |
+| 1-4  | `data`        | `float` | Context-specific value (e.g., progress percentage). |
+
+#### Update Types
+
+| Value  | Mnemonic                   | Description                                        |
+| :----- | :------------------------- | :------------------------------------------------- |
+| `0x00` | `CALIB_UPDATE_PROGRESS`    | Progress update (data = percentage 0.0–100.0).     |
+| `0x01` | `CALIB_UPDATE_NOSE_UP`     | Place drone nose up (X axis aligned with +g).      |
+| `0x02` | `CALIB_UPDATE_NOSE_DOWN`   | Place drone nose down (X axis aligned with -g).    |
+| `0x03` | `CALIB_UPDATE_RIGHT_DOWN`  | Right side down (Y axis aligned with +g).          |
+| `0x04` | `CALIB_UPDATE_LEFT_DOWN`   | Left side down (Y axis aligned with -g).           |
+| `0x05` | `CALIB_UPDATE_UPRIGHT`     | Upright (Z axis aligned with +g).                  |
+| `0x06` | `CALIB_UPDATE_UPSIDE_DOWN` | Upside down (Z axis aligned with -g).              |
+| `0x07` | `CALIB_UPDATE_FREE_ROT`    | Rotate freely in all directions (Mag calibration). |
+
+#### Expected Measurement (Developer Reference)
+
+The following table lists the approximate accelerometer readings expected for each pose to help with debugging and validation.
+
+| Pose            | Expected accel (approx) |
+| :-------------- | :---------------------- |
+| **Nose Up**     | (+g, 0, 0)              |
+| **Nose Down**   | (-g, 0, 0)              |
+| **Right Down**  | (0, +g, 0)              |
+| **Left Down**   | (0, -g, 0)              |
+| **Upright**     | (0, 0, +g)              |
+| **Upside Down** | (0, 0, -g)              |
 
 ---
 
@@ -57,17 +83,3 @@ Emitted whenever the system state machine transitions (e.g. INIT -> STANDBY).
 | Index | Meaning   | Units | Notes                               |
 | ----- | --------- | ----- | ----------------------------------- |
 | 0     | sys_state | enum  | See `state_machine/system_state.md` |
-
----
-
-## Wire Example (Gyro calibration, 50% progress)
-
-```
-56 61 12 00 00 00 00 00   sync, type=0x6, len=18, dev_id=0, ts=0
-01 04                     origin=SYSTEM_ORIGIN_CALIBRATION, n=4
-00 00 48 42               50.0f (progress)
-00 00 00 00               0.0f
-00 00 00 00               0.0f
-00 00 00 00               0.0f
-XX XX XX XX               CRC32
-```
