@@ -50,16 +50,18 @@ This packet provides real-time feedback and **operator instructions** during sen
 
 #### Update Types
 
-| Value  | Mnemonic                   | Description                                        |
-| :----- | :------------------------- | :------------------------------------------------- |
-| `0x00` | `CALIB_UPDATE_PROGRESS`    | Progress update (data = percentage 0.0–100.0).     |
-| `0x01` | `CALIB_UPDATE_NOSE_UP`     | Place drone nose up (X axis aligned with +g).      |
-| `0x02` | `CALIB_UPDATE_NOSE_DOWN`   | Place drone nose down (X axis aligned with -g).    |
-| `0x03` | `CALIB_UPDATE_RIGHT_DOWN`  | Right side down (Y axis aligned with +g).          |
-| `0x04` | `CALIB_UPDATE_LEFT_DOWN`   | Left side down (Y axis aligned with -g).           |
-| `0x05` | `CALIB_UPDATE_UPRIGHT`     | Upright (Z axis aligned with +g).                  |
-| `0x06` | `CALIB_UPDATE_UPSIDE_DOWN` | Upside down (Z axis aligned with -g).              |
-| `0x07` | `CALIB_UPDATE_FREE_ROT`    | Rotate freely in all directions (Mag calibration). |
+| Value  | Mnemonic                   | Description                                           |
+| :----- | :------------------------- | :---------------------------------------------------- |
+| `0x00` | `CALIB_UPDATE_PROGRESS`    | Progress update (data = percentage 0.0–100.0).        |
+| `0x01` | `CALIB_UPDATE_NOSE_UP`     | Place drone nose up (X axis aligned with +g).         |
+| `0x02` | `CALIB_UPDATE_NOSE_DOWN`   | Place drone nose down (X axis aligned with -g).       |
+| `0x03` | `CALIB_UPDATE_RIGHT_DOWN`  | Right side down (Y axis aligned with +g).             |
+| `0x04` | `CALIB_UPDATE_LEFT_DOWN`   | Left side down (Y axis aligned with -g).              |
+| `0x05` | `CALIB_UPDATE_UPRIGHT`     | Upright (Z axis aligned with +g).                     |
+| `0x06` | `CALIB_UPDATE_UPSIDE_DOWN` | Upside down (Z axis aligned with -g).                 |
+| `0x07` | `CALIB_UPDATE_FREE_ROT`    | Rotate freely in all directions (Mag calibration).    |
+| `0x08` | `CALIB_MAG_READINGS`       | Mag readings for calibration.                         |
+| `0x09` | `CALIB_MAG_AXIS_COVERAGE`  | Live mag coverage (data = range_x, range_y, range_z). |
 
 #### Expected Measurement (Developer Reference)
 

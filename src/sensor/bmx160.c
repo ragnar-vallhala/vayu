@@ -26,6 +26,9 @@ extern channel_t g_telemetry_channel;
 uint8_t tx_buf[2];
 uint8_t rx_buf[14]; // Increased for safer multi-byte reads
 
+static float last_mag[3] = {0}; // last valid mag readings
+static int stable_count = 0;    // is platform stable
+
 static SemaphoreHandle_t bmx160_i2c_sema;   // Semaphore for I2C bus lock
 static MutexHandle_t bmx160_attitude_mutex; // Mutex for attitude data
 static SemaphoreHandle_t bmx160_dma_sema;   // Semaphore for DMA completion
@@ -49,6 +52,8 @@ static float gyr_scale = 0.0f;
 static float acc_internal_bias[3] = {0.0f, 0.0f, 0.0f};
 static float acc_internal_scale[3] = {1.0f, 1.0f, 1.0f};
 static float gyr_internal_bias[3] = {0.0f, 0.0f, 0.0f};
+static float mag_internal_bias[3] = {0.0f, 0.0f, 0.0f};
+static float mag_internal_scale[3] = {1.0f, 1.0f, 1.0f};
 
 // LPFs for sensors
 static lpf_t acc_lpf[3];
@@ -351,7 +356,6 @@ static void bmx160_read_mag_trim_data(void) {
   bmx160_read_bmm150_reg(0x6F, &tmp[1]);
   _mag_trim.dig_z3 = (int16_t)(tmp[1] << 8 | tmp[0]);
 
-
   bmx160_read_bmm150_reg(0x62, &tmp[0]);
   bmx160_read_bmm150_reg(0x63, &tmp[1]);
   _mag_trim.dig_z4 = (int16_t)(tmp[1] << 8 | tmp[0]);
@@ -396,7 +400,7 @@ static bmx160_err_type bmx160_set_mag_conf() {
 
   // 5. Prepare for Data Mode
   // Set BMM150 to Forced Mode (Reg 0x4C = 0x02)
-  bmx160_write_bmm150_reg(0x4C, 0x02);
+  bmx160_write_bmm150_reg(0x4C, 0x00);
 
   // 6. Set Mag Read Address to 0x42 (Data X LSB)
   tx_buf[0] = BMX160_MAG_IF_1_READ_ADDR;
@@ -465,6 +469,8 @@ int16_t bmx160_read_temp_raw(void) {
 }
 
 static float bmm150_compensate_x(int16_t mag_data_x, uint16_t data_rhall) {
+  if (data_rhall < 50)
+    return 0.0f;
   float retval = 0;
   float process_comp_x0;
   float process_comp_x1;
@@ -494,6 +500,8 @@ static float bmm150_compensate_x(int16_t mag_data_x, uint16_t data_rhall) {
 }
 
 static float bmm150_compensate_y(int16_t mag_data_y, uint16_t data_rhall) {
+  if (data_rhall < 50)
+    return 0.0f;
   float retval = 0.0f;
   float process_comp_y0;
   float process_comp_y1;
@@ -523,6 +531,8 @@ static float bmm150_compensate_y(int16_t mag_data_y, uint16_t data_rhall) {
 }
 
 static float bmm150_compensate_z(int16_t mag_data_z, uint16_t data_rhall) {
+  if (data_rhall < 50)
+    return 0.0f;
   float retval = 0.0f;
   float process_comp_z0;
   float process_comp_z1;
@@ -1044,7 +1054,7 @@ void bmx160_process_data(void) {
   // 1. Extract mag (0-5)
   // X/Y are 13-bit, Z is 15-bit. Status bits are in the LSB.
   // We assemble as signed 16-bit and then arithmetic shift to preserve sign.
-
+  uint8_t _is_mag_invalid = 0;
   int16_t mx =
       (int16_t)(((uint16_t)_bmx_dma_rx_buffer[1] << 8) | _bmx_dma_rx_buffer[0]);
   mx >>= 3;
@@ -1061,7 +1071,9 @@ void bmx160_process_data(void) {
   uint16_t rhall = (uint16_t)(((uint16_t)_bmx_dma_rx_buffer[7] << 8) |
                               (_bmx_dma_rx_buffer[6] & 0xFE)) >>
                    2;
-
+  if (rhall < 50 || rhall > 30000) {
+    _is_mag_invalid = 1;
+  }
   // 2. Extract gyr (8-13)
   int16_t gx =
       (int16_t)(((uint16_t)_bmx_dma_rx_buffer[9] << 8) | _bmx_dma_rx_buffer[8]);
@@ -1094,7 +1106,6 @@ void bmx160_process_data(void) {
   _bmx_data.raw.rhall = rhall;
   _bmx_data.raw.temp = raw_temp;
 
-
   // Convert to units (for local attitude fusion and telemetry)
   _bmx_data.converted.acc[0] = bmx160_raw_acc_to_mps2(ax);
   _bmx_data.converted.acc[1] = bmx160_raw_acc_to_mps2(ay);
@@ -1116,11 +1127,23 @@ void bmx160_process_data(void) {
              _bmx_data.converted.acc[1] * _bmx_data.converted.acc[1] +
              _bmx_data.converted.acc[2] * _bmx_data.converted.acc[2]);
 
-  if (FABS_F(acc_mag - 9.81f) < 0.2f) {
+  float gyro_norm =
+      SQRT_F(_bmx_data.converted.gyr[0] * _bmx_data.converted.gyr[0] +
+             _bmx_data.converted.gyr[1] * _bmx_data.converted.gyr[1] +
+             _bmx_data.converted.gyr[2] * _bmx_data.converted.gyr[2]);
+  if (FABS_F(acc_mag - 9.81f) < 0.2f && gyro_norm < 2.0f) {
+    stable_count++;
+  } else {
+    stable_count = 0;
+  }
+  if (stable_count > 200) {
 
     for (int i = 0; i < 3; i++) {
       gyr_internal_bias[i] = (1.0f - GYRO_BIAS_ALPHA) * gyr_internal_bias[i] +
                              GYRO_BIAS_ALPHA * _bmx_data.converted.gyr[i];
+      if (FABS_F(gyr_internal_bias[i]) > 5.0f) {
+        gyr_internal_bias[i] = 0;
+      }
     }
   }
 
@@ -1132,17 +1155,22 @@ void bmx160_process_data(void) {
   float mag_x = -bmm150_compensate_y(my, rhall);
   float mag_y = bmm150_compensate_x(mx, rhall);
   float mag_z = bmm150_compensate_z(mz, rhall);
-
-  if (!IS_FINITE(mag_x))
-    mag_x = 0.0f;
-  if (!IS_FINITE(mag_y))
-    mag_y = 0.0f;
-  if (!IS_FINITE(mag_z))
-    mag_z = 0.0f;
-
-  _bmx_data.converted.mag[0] = mag_x;
-  _bmx_data.converted.mag[1] = mag_y;
-  _bmx_data.converted.mag[2] = mag_z;
+  if (!IS_FINITE(mag_x) || !IS_FINITE(mag_y) || !IS_FINITE(mag_z) ||
+      _is_mag_invalid) {
+    mag_x = last_mag[0];
+    mag_y = last_mag[1];
+    mag_z = last_mag[2];
+  } else {
+    last_mag[0] = mag_x;
+    last_mag[1] = mag_y;
+    last_mag[2] = mag_z;
+  }
+  _bmx_data.converted.mag[0] =
+      (mag_x - mag_internal_bias[0]) * mag_internal_scale[0];
+  _bmx_data.converted.mag[1] =
+      (mag_y - mag_internal_bias[1]) * mag_internal_scale[1];
+  _bmx_data.converted.mag[2] =
+      (mag_z - mag_internal_bias[2]) * mag_internal_scale[2];
   bmx160_convert_raw_temp_to_celcius(raw_temp, &_bmx_data.converted.temp);
 
   // Apply LPF to accelerometer (gyro was already filtered before bias
@@ -1207,7 +1235,7 @@ static int wait_for_orientation(calib_update_type_t orient, float *accel_out) {
   send_packet(&g_telemetry_channel, PACKET_TYPE_SYSTEM_STATUS, payload, 7);
 
   v_delay(CALIBRATION_WAIT_USER_TIME_PRE_CALIBRATION);
-  
+
   const int target_samples = CALIBRATION_SAMPLE_COUNT;
 
   float sum[3] = {0.0f, 0.0f, 0.0f};
@@ -1266,9 +1294,7 @@ static int wait_for_orientation(calib_update_type_t orient, float *accel_out) {
           float progress = (100.0f * count) / target_samples;
           v_memcpy(&payload[3], &progress, 4);
 
-          send_packet(&g_telemetry_channel,
-                      PACKET_TYPE_SYSTEM_STATUS,
-                      payload,
+          send_packet(&g_telemetry_channel, PACKET_TYPE_SYSTEM_STATUS, payload,
                       7);
         }
 
@@ -1291,15 +1317,11 @@ static int wait_for_orientation(calib_update_type_t orient, float *accel_out) {
   accel_out[1] = sum[1] * inv;
   accel_out[2] = sum[2] * inv;
 
-  vayu_log("[CALIB] Orientation %d done: %.3f %.3f %.3f",
-           orient,
-           accel_out[0],
-           accel_out[1],
-           accel_out[2]);
+  vayu_log("[CALIB] Orientation %d done: %.3f %.3f %.3f", orient, accel_out[0],
+           accel_out[1], accel_out[2]);
 
   return 1;
 }
-
 
 void calibration_task(void *args) {
   calibration_args_t *cal_args = (calibration_args_t *)args;
@@ -1320,7 +1342,8 @@ void calibration_task(void *args) {
     for (int i = 0; i < 6; i++) {
       wait_for_orientation(orients[i], averages[i]);
       vayu_log("[CALIB] Pose %d recorded.", i);
-      v_delay(CALIBRATION_WAIT_USER_TIME_PRE_CALIBRATION); // Wait for user to move
+      v_delay(
+          CALIBRATION_WAIT_USER_TIME_PRE_CALIBRATION); // Wait for user to move
     }
 
     // Calibration calculation
@@ -1416,6 +1439,96 @@ void calibration_task(void *args) {
       gyr_internal_bias[1] = gsum[1] / 500.0f;
       gyr_internal_bias[2] = gsum[2] / 500.0f;
     }
+  } else if (imu_id == 3.0f) { // MAGNETOMETER
+    vayu_log(
+        "[CALIB] Starting Magnetometer Quick Calibration (Free-Rotation)...");
+
+    // Prompt user to rotate
+    uint8_t payload[7];
+    payload[0] = SYSTEM_ORIGIN_CALIBRATION;
+    payload[1] = 0x01; // nArgs
+    payload[2] = CALIB_UPDATE_FREE_ROT;
+    float zero = 0.0f;
+    v_memcpy(&payload[3], &zero, 4);
+    send_packet(&g_telemetry_channel, PACKET_TYPE_SYSTEM_STATUS, payload, 7);
+
+    v_delay(1000); // Give user time to see it
+
+    float mag_max[3] = {-10000.0f, -10000.0f, -10000.0f};
+    float mag_min[3] = {10000.0f, 10000.0f, 10000.0f};
+
+    const int calibration_time_ms = 20000; // 20 seconds
+    const int loop_delay_ms = 20;
+    const int iterations = calibration_time_ms / loop_delay_ms;
+
+    for (int i = 0; i < iterations; i++) {
+      uint16_t rhall;
+      // Perform a full read to get rhall and raw mag effectively
+      bmx160_all_reading_t all;
+      if (bmx160_read_all_raw(&all) == NO_ERR) {
+        rhall = all.raw.rhall;
+        if (rhall < 50 || rhall > 30000) {
+          continue;
+        }
+        float mx = bmm150_compensate_x(all.raw.mag[0], rhall);
+        float my = bmm150_compensate_y(all.raw.mag[1], rhall);
+        float mz = bmm150_compensate_z(all.raw.mag[2], rhall);
+        if (!IS_FINITE(mx) || !IS_FINITE(my) || !IS_FINITE(mz)) {
+          continue;
+        }
+        // Align [-Y, X, Z] to body frame
+        float cur_mag[3] = {-my, mx, mz};
+
+        for (int axis = 0; axis < 3; axis++) {
+          if (cur_mag[axis] > mag_max[axis])
+            mag_max[axis] = cur_mag[axis];
+          if (cur_mag[axis] < mag_min[axis])
+            mag_min[axis] = cur_mag[axis];
+        }
+      }
+
+      // Progress update every 5%
+      if (i % (iterations / 20) == 0) {
+        payload[2] = CALIB_UPDATE_PROGRESS;
+        float progress = (100.0f * i) / iterations;
+        v_memcpy(&payload[3], &progress, 4);
+        send_packet(&g_telemetry_channel, PACKET_TYPE_SYSTEM_STATUS, payload,
+                    7);
+      }
+
+      v_delay(loop_delay_ms);
+    }
+
+    vayu_log("[CALIB] Mag Bounds: X[%.1f, %.1f], Y[%.1f, %.1f], Z[%.1f, %.1f]",
+             mag_min[0], mag_max[0], mag_min[1], mag_max[1], mag_min[2],
+             mag_max[2]);
+
+    // Calculate Hard Iron (Bias)
+    for (int i = 0; i < 3; i++) {
+      mag_internal_bias[i] = (mag_max[i] + mag_min[i]) * 0.5f;
+    }
+
+    // Calculate per-axis scale
+    float scale[3];
+    float avg_scale = 0.0f;
+    for (int i = 0; i < 3; i++) {
+      scale[i] = (mag_max[i] - mag_min[i]) * 0.5f;
+      avg_scale += scale[i];
+    }
+    avg_scale /= 3.0f;
+
+    for (int i = 0; i < 3; i++) {
+      if (scale[i] > 0.001f) {
+        mag_internal_scale[i] = avg_scale / scale[i];
+      } else {
+        mag_internal_scale[i] = 1.0f;
+      }
+    }
+
+    vayu_log("[CALIB] Mag Bias: %.3f, %.3f, %.3f", mag_internal_bias[0],
+             mag_internal_bias[1], mag_internal_bias[2]);
+    vayu_log("[CALIB] Mag Scale: %.3f, %.3f, %.3f", mag_internal_scale[0],
+             mag_internal_scale[1], mag_internal_scale[2]);
   }
 
   vayu_log("[BMX] Calibration Done. Biases applied.");

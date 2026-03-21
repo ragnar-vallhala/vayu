@@ -162,7 +162,12 @@ void CalibrationWidget::setProtocol(DroneProtocol *protocol) {
   connect(m_protocol, &DroneProtocol::calibrationUpdateReceived, this,
           [this](const CalibrationUpdate &update) {
             if (update.type == CalibUpdateType::Progress) {
-              onProgressReceived(update.data);
+              onProgressReceived(update.data());
+            } else if (update.type == CalibUpdateType::MagAxisCoverage) {
+              m_statusLabel->setText(QString("COVERAGE: X:%1 Y:%2 Z:%3")
+                                         .arg(update.values[0], 0, 'f', 0)
+                                         .arg(update.values[1], 0, 'f', 0)
+                                         .arg(update.values[2], 0, 'f', 0));
             } else {
               onInstructionReceived(static_cast<int>(update.type));
             }
@@ -176,12 +181,21 @@ void CalibrationWidget::onSensorSelected(int id) {
                                   : id == 2 ? "GYRO"
                                             : "MAG"));
 
-  // Refinement: Gyro should only have Bias-Only option (keep board stable)
+  // Reset to defaults
+  m_biasOnlyRadio->setText("Bias-Only (Zeroing)");
+  m_fullCalibRadio->setText("Full Calibration (Scale + Offset)");
+  m_fullCalibRadio->setEnabled(true);
+  m_axisStatusArea->setVisible(true);
+
   if (id == 2) {
+    // Gyro: Bias-Only only
     m_fullCalibRadio->setEnabled(false);
     m_biasOnlyRadio->setChecked(true);
-  } else {
-    m_fullCalibRadio->setEnabled(true);
+  } else if (id == 3) {
+    m_biasOnlyRadio->setText(
+        "Quick Calibration"); // Offset + Scale depending on what you implement
+    m_fullCalibRadio->setText("Advanced Calibration"); // Ellipsoid fit
+    m_axisStatusArea->setVisible(false);
   }
 }
 
@@ -313,7 +327,6 @@ void CalibrationWidget::onCancelClicked() {
       reinterpret_cast<const uint8_t *>(pkt.constData()), pkt.size());
   pkt.append(reinterpret_cast<const char *>(&crc), 4);
   emit commandRequested(pkt);
-
   m_startBtn->setEnabled(true);
   m_cancelBtn->setVisible(false);
   m_sensorSelectArea->setEnabled(true);
