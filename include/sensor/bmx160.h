@@ -178,9 +178,12 @@ typedef struct {
 } bmx160_all_raw_reading_t;
 
 typedef struct {
-  float acc[3];
-  float gyr[3];
-  float mag[3];
+  float acc[3];             // Calibrated m/s^2
+  float gyr[3];             // Calibrated dps
+  float mag[3];             // Calibrated uT (normalized for fusion)
+  float acc_raw[3];         // Raw m/s^2 (uncalibrated)
+  float gyr_raw[3];         // Raw dps (uncalibrated)
+  float mag_compensated[3]; // Compensated uT (unbiased/unscaled)
   float temp;
 } bmx160_all_converted_reading_t;
 
