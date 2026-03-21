@@ -26,18 +26,9 @@ void comm_processor_task(void *args) {
       } else if (packet_type == PACKET_TYPE_COMMAND) {
         uint16_t cmd_id;
         v_memcpy(&cmd_id, pkt.payload, 2);
-        char buf[32];
-        uint8_t len = print_fmt_buf(buf, 32, "Command ID: %d", cmd_id);
-        send_packet(&g_telemetry_channel, PACKET_TYPE_LOG, (byte *)buf, len);
         if (cmd_id == 0x0006) { // CMD_CALIBRATE_GYR
           if (system_state_get() != SYSTEM_STATE_CALIBRATING) {
-            uint8_t len = print_fmt_buf(buf, 32, "Starting Calibration");
-            send_packet(&g_telemetry_channel, PACKET_TYPE_LOG, (byte *)buf,
-                        len);
-            uint32_t tid = task_create(calibration_task, NULL, 4096, 0);
-            len = print_fmt_buf(buf, 32, "Task ID: %u", tid);
-            send_packet(&g_telemetry_channel, PACKET_TYPE_LOG, (byte *)buf,
-                        len);
+            task_create(calibration_task, NULL, 4096, 0);
           }
         } else if (cmd_id == 0x0009) { // CMD_CANCEL_CALIBRATION
           system_state_set(SYSTEM_STATE_STANDBY);
