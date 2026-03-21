@@ -201,11 +201,6 @@ void wake_imu_read_task();
 void bmx160_initiate_read(void *args);
 void bmx160_dma_callback(void);
 
-// soft reset
-bmx160_err_type bmx160_soft_reset(void); //[TODO]
-// Power APIs
-bmx160_err_type bmx160_sleep(void);  //[TODO]
-bmx160_err_type bmx160_wakeup(void); //[TODO]
 
 // Temp APIs
 int16_t bmx160_read_temp_raw(void);
@@ -239,14 +234,6 @@ float bmx160_raw_acc_to_mps2(int16_t raw);
 float bmx160_raw_gyr_to_dps(int16_t raw);
 float bmx160_raw_mag_to_uT(int16_t raw);
 
-float bmx160_acc_odr_to_hz(uint8_t raw); //[TODO]
-float bmx160_acc_bwp_to_hz(uint8_t raw); //[TODO]
-
-float bmx160_gyr_odr_to_hz(uint8_t raw); //[TODO]
-float bmx160_gyr_bwp_to_hz(uint8_t raw); //[TODO]
-
-float bmx160_mag_odr_to_hz(uint8_t raw); //[TODO]
-
 // Getters and Setter for static variables
 bmx160_config_t bmx160_get_current_config(void);
 void bmx160_set_current_config(bmx160_config_t *cfg);
@@ -254,6 +241,14 @@ void bmx160_get_attitude(attitude_t *att);
 
 // Calibration definitions
 #define IMU_CALIBRATION_SAMPLES 500
+
+typedef struct {
+  float acc_offset[3];
+  float acc_scale[3];
+  float gyr_offset[3];
+  float mag_offset[3];
+  float mag_scale[3];
+} bmx160_calibration_t;
 
 typedef struct {
   float imu_id;
