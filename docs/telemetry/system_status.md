@@ -1,6 +1,6 @@
-# System Status Packet (`PACKET_TYPE_SYSTEM_STATUS = 0x6`)
+# System Status Packet (0x6) [FC → GCS]
 
-Drone → GCS structured event/status packet. Used to report subsystem state — in particular, calibration progress — back to the navigator.
+The **System Status** packet is sent **Drone → GCS** to report structured events, sensor health, and operator instructions.
 
 ---
 
@@ -39,7 +39,7 @@ packet-beta
 
 ### `SYSTEM_ORIGIN_CALIBRATION` (0x01)
 
-This packet provides real-time feedback during sensor calibration procedures. It informs the GCS of the current progress or instructs the operator to position the drone in a specific orientation.
+This packet provides real-time feedback and **operator instructions** during sensor calibration procedures. It informs the GCS of the current progress or directs the user to position the drone in a specific orientation.
 
 #### Payload Format
 
