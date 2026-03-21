@@ -32,6 +32,7 @@ signals:
   void rcReceived(const RcData &data);
   void logReceived(const QString &message);
   void statusReceived(const QString &message);
+  void calibrationUpdateReceived(const CalibrationUpdate &update);
   void heartbeatReceived(uint64_t timestamp, uint8_t deviceId);
   void timeSyncRequested();
   void unknownPacket(const QByteArray &raw);

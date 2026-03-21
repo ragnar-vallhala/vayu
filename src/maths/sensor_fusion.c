@@ -78,11 +78,23 @@ void m_complementary_filter(const float ax, const float ay, const float az,
     ori->yaw += 360.0f;
 }
 
-// Helper to convert quaternion to Euler angles
 void m_quat_to_euler(const quaternion_t *q, attitude_t *ori) {
+  // Roll (X-axis rotation)
   ori->roll = to_degrees(m_atan2(2.0f * (q->w * q->x + q->y * q->z),
                                  1.0f - 2.0f * (q->x * q->x + q->y * q->y)));
-  ori->pitch = to_degrees(m_asin(2.0f * (q->w * q->y - q->z * q->x)));
+
+  // Pitch (Y-axis rotation) — CLAMP HERE
+  float sinp = 2.0f * (q->w * q->y - q->z * q->x);
+
+  // Clamp to [-1, 1]
+  if (sinp > 1.0f)
+    sinp = 1.0f;
+  else if (sinp < -1.0f)
+    sinp = -1.0f;
+
+  ori->pitch = to_degrees(m_asin(sinp));
+
+  // Yaw (Z-axis rotation)
   ori->yaw = to_degrees(m_atan2(2.0f * (q->w * q->z + q->x * q->y),
                                 1.0f - 2.0f * (q->y * q->y + q->z * q->z)));
 }

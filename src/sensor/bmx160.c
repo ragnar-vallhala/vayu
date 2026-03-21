@@ -3,7 +3,7 @@
 #include "ipc.h"
 #include "maths/lpf.h"
 #include "maths/sensor_fusion.h"
-#include "navhal.h"
+#include "memory.h"
 #include "sensor/imu_buffer.h"
 #include "sys/state.h"
 #include "task.h"
@@ -34,6 +34,9 @@ static SemaphoreHandle_t bmx160_timer_sema; // Semaphore for Timer wake-up
 // Static helper functions and variables
 // Default BMX160 configuration
 static bmx160_config_t bmx160_cfg;
+// I2C configuration
+hal_i2c_config_t i2c_config = {
+    .clock_speed = FAST_MODE, .own_address = I2C_MASTER, .acknowledge = true};
 
 // DMA storage for 30 bytes (Mag[6], Hall[2], Gyr[6], Acc[6], Status[4],
 // Temp[2])
@@ -43,7 +46,9 @@ static bmx160_all_reading_t _bmx_data;
 
 static float acc_scale = 0.0f;
 static float gyr_scale = 0.0f;
-static float gyr_bias[3] = {0.0f, 0.0f, 0.0f};
+static float acc_internal_bias[3] = {0.0f, 0.0f, 0.0f};
+static float acc_internal_scale[3] = {1.0f, 1.0f, 1.0f};
+static float gyr_internal_bias[3] = {0.0f, 0.0f, 0.0f};
 
 // LPFs for sensors
 static lpf_t acc_lpf[3];
@@ -154,9 +159,6 @@ hal_i2c_status_t bmx160_init(void) {
     bmx160_attitude_mutex = v_mutex_create();
   }
 
-  // I2C configuration
-  hal_i2c_config_t i2c_config = {
-      .clock_speed = FAST_MODE, .own_address = I2C_MASTER, .acknowledge = true};
   // Configure GPIO for I2C1 (PB8=SCL, PB9=SDA)
   hal_gpio_set_alternate_function(I2C_PIN_1, GPIO_FUNC_I2C);
   hal_gpio_set_alternate_function(I2C_PIN_2, GPIO_FUNC_I2C);
@@ -348,20 +350,14 @@ static void bmx160_read_mag_trim_data(void) {
   bmx160_read_bmm150_reg(0x6E, &tmp[0]);
   bmx160_read_bmm150_reg(0x6F, &tmp[1]);
   _mag_trim.dig_z3 = (int16_t)(tmp[1] << 8 | tmp[0]);
-  vayu_log("z3 raw bytes: 0x%02X 0x%02X -> z3=%d", tmp[0], tmp[1],
-           _mag_trim.dig_z3);
+
 
   bmx160_read_bmm150_reg(0x62, &tmp[0]);
   bmx160_read_bmm150_reg(0x63, &tmp[1]);
   _mag_trim.dig_z4 = (int16_t)(tmp[1] << 8 | tmp[0]);
-  vayu_log("z4 raw bytes: 0x%02X 0x%02X -> z4=%d", tmp[0], tmp[1],
-           _mag_trim.dig_z4);
-
   bmx160_read_bmm150_reg(0x6C, &tmp[0]);
   bmx160_read_bmm150_reg(0x6D, &tmp[1]);
   _mag_trim.dig_xyz1 = (uint16_t)(tmp[1] << 8 | tmp[0]);
-  vayu_log("xyz1 raw bytes: 0x%02X 0x%02X -> xyz1=%u", tmp[0], tmp[1],
-           _mag_trim.dig_xyz1);
 }
 
 static bmx160_err_type bmx160_set_mag_conf() {
@@ -718,9 +714,9 @@ bmx160_err_type bmx160_read_all_converted(bmx160_all_reading_t *data) {
   err = bmx160_read_gyr_dps(calculated);
   if (err != NO_ERR)
     return err;
-  data->converted.gyr[0] = calculated[0] - gyr_bias[0];
-  data->converted.gyr[1] = calculated[1] - gyr_bias[1];
-  data->converted.gyr[2] = calculated[2] - gyr_bias[2];
+  data->converted.gyr[0] = calculated[0] - gyr_internal_bias[0];
+  data->converted.gyr[1] = calculated[1] - gyr_internal_bias[1];
+  data->converted.gyr[2] = calculated[2] - gyr_internal_bias[2];
 
   err = bmx160_read_mag_uT(calculated);
   if (err != NO_ERR)
@@ -728,6 +724,13 @@ bmx160_err_type bmx160_read_all_converted(bmx160_all_reading_t *data) {
   data->converted.mag[0] = calculated[0];
   data->converted.mag[1] = calculated[1];
   data->converted.mag[2] = calculated[2];
+
+  // Apply Accel calibration (bias + scale)
+  for (int i = 0; i < 3; i++) {
+    data->converted.acc[i] =
+        (data->converted.acc[i] - acc_internal_bias[i]) * acc_internal_scale[i];
+  }
+
   return NO_ERR;
 }
 
@@ -984,36 +987,38 @@ void bmx160_initiate_read(void *args) {
     // main.c)
     v_semaphore_take(bmx160_timer_sema, 1000000);
 
-    if (system_state_get() != SYSTEM_STATE_CALIBRATING) {
-      if (bmx160_i2c_sema != NULL &&
-          v_semaphore_take(bmx160_i2c_sema, MS_TO_TICKS(5)) == VA_PASS) {
-        hal_i2c_status_t hal_ret = hal_i2c_read_regs_dma(
-            I2C1, BMX160_I2C_ADDR, 0x04, &i2c_dma_cfg, bmx160_dma_callback);
+    if (system_state_get() == SYSTEM_STATE_CALIBRATING) {
+      continue; // skip everything
+    }
+    if (system_state_get() != SYSTEM_STATE_CALIBRATING &&
+        bmx160_i2c_sema != NULL &&
+        v_semaphore_take(bmx160_i2c_sema, MS_TO_TICKS(5)) == VA_PASS) {
+      hal_i2c_status_t hal_ret = hal_i2c_read_regs_dma(
+          I2C1, BMX160_I2C_ADDR, 0x04, &i2c_dma_cfg, bmx160_dma_callback);
 
-        if (hal_ret == HAL_I2C_OK) {
-          // Wait for DMA completion (with a 10ms timeout)
-          if (v_semaphore_take(bmx160_dma_sema, MS_TO_TICKS(10)) == VA_PASS) {
-            // Process data in task context instead of ISR
-            i2c_error_count = 0;
-            bmx160_process_data();
-          } else {
-            // DMA completion timeout
-            i2c_error_count++;
-            v_semaphore_give(bmx160_i2c_sema);
-          }
+      if (hal_ret == HAL_I2C_OK) {
+        // Wait for DMA completion (with a 10ms timeout)
+        if (v_semaphore_take(bmx160_dma_sema, MS_TO_TICKS(10)) == VA_PASS) {
+          // Process data in task context instead of ISR
+          i2c_error_count = 0;
+          bmx160_process_data();
         } else {
-          // DMA initiation failed (e.g. Bus Busy)
+          // DMA completion timeout
           i2c_error_count++;
           v_semaphore_give(bmx160_i2c_sema);
         }
+      } else {
+        // DMA initiation failed (e.g. Bus Busy)
+        i2c_error_count++;
+        v_semaphore_give(bmx160_i2c_sema);
+      }
 
-        if (i2c_error_count > 10) {
-          vayu_log("I2C Hang detected! Resetting bus...");
-          v_semaphore_give(bmx160_i2c_sema); // MUST release before init
-          bmx160_init(); // Safe to call Multiple times due to NULL checks
-          i2c_error_count = 0;
-          continue; // Restart loop to take sema again if needed
-        }
+      if (i2c_error_count > 10) {
+        vayu_log("I2C Hang detected! Resetting bus...");
+        v_semaphore_give(bmx160_i2c_sema); // MUST release before init
+        bmx160_init(); // Safe to call Multiple times due to NULL checks
+        i2c_error_count = 0;
+        continue; // Restart loop to take sema again if needed
       }
     }
   }
@@ -1089,17 +1094,6 @@ void bmx160_process_data(void) {
   _bmx_data.raw.rhall = rhall;
   _bmx_data.raw.temp = raw_temp;
 
-  // if (!diag_printed) {
-  //   vayu_log("MAG RAW: %d, %d, %d | RHALL: %u", mx, my, mz, rhall);
-  //   v_log(LOG_INFO,
-  //         "TRIM: x1:%d, y1:%d, x2:%d, y2:%d, z1:%u, z2:%d, z3:%d, z4:%d, ",
-  //         _mag_trim.dig_x1, _mag_trim.dig_y1, _mag_trim.dig_x2,
-  //         _mag_trim.dig_y2, _mag_trim.dig_z1, _mag_trim.dig_z2,
-  //         _mag_trim.dig_z3, _mag_trim.dig_z4);
-  //   v_log(LOG_INFO, "xy1:%u, xy2:%d, xyz1:%u", _mag_trim.dig_xy1,
-  //         _mag_trim.dig_xy2, _mag_trim.dig_xyz1);
-  //   diag_printed = 1;
-  // }
 
   // Convert to units (for local attitude fusion and telemetry)
   _bmx_data.converted.acc[0] = bmx160_raw_acc_to_mps2(ax);
@@ -1125,13 +1119,13 @@ void bmx160_process_data(void) {
   if (FABS_F(acc_mag - 9.81f) < 0.2f) {
 
     for (int i = 0; i < 3; i++) {
-      gyr_bias[i] = (1.0f - GYRO_BIAS_ALPHA) * gyr_bias[i] +
-                    GYRO_BIAS_ALPHA * _bmx_data.converted.gyr[i];
+      gyr_internal_bias[i] = (1.0f - GYRO_BIAS_ALPHA) * gyr_internal_bias[i] +
+                             GYRO_BIAS_ALPHA * _bmx_data.converted.gyr[i];
     }
   }
 
   for (int i = 0; i < 3; i++)
-    _bmx_data.converted.gyr[i] -= gyr_bias[i];
+    _bmx_data.converted.gyr[i] -= gyr_internal_bias[i];
 
   // Align BMM150 axes to BMX160 body frame: [-Y, X, Z]
 
@@ -1154,6 +1148,10 @@ void bmx160_process_data(void) {
   // Apply LPF to accelerometer (gyro was already filtered before bias
   // correction)
   for (int i = 0; i < 3; i++) {
+    // Apply calibration: (raw_converted - bias) * scale
+    _bmx_data.converted.acc[i] =
+        (_bmx_data.converted.acc[i] - acc_internal_bias[i]) *
+        acc_internal_scale[i];
     _bmx_data.converted.acc[i] =
         lpf_apply(&acc_lpf[i], _bmx_data.converted.acc[i]);
   }
@@ -1195,55 +1193,252 @@ void bmx160_get_attitude(attitude_t *att) {
   }
 }
 
-void calibration_task(void *args) {
-  (void)args;
-  system_state_set(SYSTEM_STATE_CALIBRATING);
-  v_delay(50); // Give background task time to finish any active DMA and see the
-               // state
+static int wait_for_orientation(calib_update_type_t orient, float *accel_out) {
+  vayu_log("[CALIB] Waiting for orientation: %d", orient);
 
-  vayu_log("[BMX] Internal Calibration Task Start");
+  // Send instruction to GCS
+  uint8_t payload[7];
+  payload[0] = SYSTEM_ORIGIN_CALIBRATION;
+  payload[1] = 0x01;
+  payload[2] = (uint8_t)orient;
+
+  float zero = 0.0f;
+  v_memcpy(&payload[3], &zero, 4);
+  send_packet(&g_telemetry_channel, PACKET_TYPE_SYSTEM_STATUS, payload, 7);
+
+  v_delay(CALIBRATION_WAIT_USER_TIME_PRE_CALIBRATION);
+  
+  const int target_samples = CALIBRATION_SAMPLE_COUNT;
 
   float sum[3] = {0.0f, 0.0f, 0.0f};
-  int samples = 100;
+  int count = 0;
 
-  for (int i = 0; i < samples; i++) {
-    float gyr[3];
-    // We call bmx160_read_gyr_dps directly because it returns UNBIASED data
-    if (bmx160_read_gyr_dps(gyr) == NO_ERR) {
-      sum[0] += gyr[0];
-      sum[1] += gyr[1];
-      sum[2] += gyr[2];
+  const float g = 9.81f;
+  const float thr = 3.0f;
+
+  while (count < target_samples) {
+    float raw[3];
+
+    if (bmx160_read_acc_mps2(raw) == NO_ERR) {
+
+      int match = 0;
+
+      switch (orient) {
+      case CALIB_UPDATE_UPRIGHT:
+        match = (raw[2] > g - thr);
+        break;
+
+      case CALIB_UPDATE_UPSIDE_DOWN:
+        match = (raw[2] < -g + thr);
+        break;
+
+      case CALIB_UPDATE_NOSE_UP:
+        match = (raw[0] > g - thr);
+        break;
+
+      case CALIB_UPDATE_NOSE_DOWN:
+        match = (raw[0] < -g + thr);
+        break;
+
+      case CALIB_UPDATE_RIGHT_DOWN:
+        match = (raw[1] > g - thr);
+        break;
+
+      case CALIB_UPDATE_LEFT_DOWN:
+        match = (raw[1] < -g + thr);
+        break;
+
+      default:
+        match = 0;
+        break;
+      }
+
+      if (match) {
+        // Accumulate
+        sum[0] += raw[0];
+        sum[1] += raw[1];
+        sum[2] += raw[2];
+        count++;
+
+        // Progress update (every 5%)
+        if (count % (target_samples / 20) == 0) {
+          payload[2] = CALIB_UPDATE_PROGRESS;
+          float progress = (100.0f * count) / target_samples;
+          v_memcpy(&payload[3], &progress, 4);
+
+          send_packet(&g_telemetry_channel,
+                      PACKET_TYPE_SYSTEM_STATUS,
+                      payload,
+                      7);
+        }
+
+      } else {
+        // Reset if orientation disturbed
+        count = 0;
+        sum[0] = 0.0f;
+        sum[1] = 0.0f;
+        sum[2] = 0.0f;
+      }
     }
 
-    if (i % 10 == 0) {
-      uint8_t payload[18];
-      payload[0] = 0x01; // SYSTEM_ORIGIN_CALIBRATION
-      payload[1] =
-          0x01; // Step index or progress? GCS expects progress in payload[2..5]
-      float progress = (float)i;
-      v_memcpy(&payload[2], &progress, 4);
-      send_packet(&g_telemetry_channel, PACKET_TYPE_SYSTEM_STATUS, payload, 18);
+    v_delay(20);
+  }
+
+  // Compute average
+  float inv = 1.0f / (float)target_samples;
+
+  accel_out[0] = sum[0] * inv;
+  accel_out[1] = sum[1] * inv;
+  accel_out[2] = sum[2] * inv;
+
+  vayu_log("[CALIB] Orientation %d done: %.3f %.3f %.3f",
+           orient,
+           accel_out[0],
+           accel_out[1],
+           accel_out[2]);
+
+  return 1;
+}
+
+
+void calibration_task(void *args) {
+  calibration_args_t *cal_args = (calibration_args_t *)args;
+  float imu_id = 1.0f; // Default to Accel if nothing specified
+  if (cal_args)
+    imu_id = cal_args->imu_id;
+
+  system_state_set(SYSTEM_STATE_CALIBRATING);
+  v_delay(500);
+  vayu_log("[CALIB] IMU ID: %.1f, Type: %.1f", imu_id, cal_args->type);
+  if (imu_id == 1.0f) { // ACCEL
+    calib_update_type_t orients[] = {
+        CALIB_UPDATE_UPRIGHT,    CALIB_UPDATE_UPSIDE_DOWN,
+        CALIB_UPDATE_NOSE_UP,    CALIB_UPDATE_NOSE_DOWN,
+        CALIB_UPDATE_RIGHT_DOWN, CALIB_UPDATE_LEFT_DOWN};
+    float averages[6][3];
+
+    for (int i = 0; i < 6; i++) {
+      wait_for_orientation(orients[i], averages[i]);
+      vayu_log("[CALIB] Pose %d recorded.", i);
+      v_delay(CALIBRATION_WAIT_USER_TIME_PRE_CALIBRATION); // Wait for user to move
     }
-    v_delay(10); // 100Hz sampling
+
+    // Calibration calculation
+    if (cal_args->type == 1.0f) { // FULL CALIBRATION (Bias + Scale)
+      vayu_log("[CALIB] Calculating Full Accel Calibration...");
+
+      // X-axis: Nose Up (2) and Nose Down (3)
+      float max_x = averages[2][0];
+      float min_x = averages[3][0];
+      acc_internal_bias[0] = (max_x + min_x) / 2.0f;
+      acc_internal_scale[0] = (2.0f * 9.80665f) / (max_x - min_x);
+
+      // Y-axis: Right Down (4) and Left Down (5)
+      float max_y = averages[4][1];
+      float min_y = averages[5][1];
+      acc_internal_bias[1] = (max_y + min_y) / 2.0f;
+      acc_internal_scale[1] = (2.0f * 9.80665f) / (max_y - min_y);
+
+      // Z-axis: Upright (0) and Upside Down (1)
+      float max_z = averages[0][2];
+      float min_z = averages[1][2];
+      acc_internal_bias[2] = (max_z + min_z) / 2.0f;
+      acc_internal_scale[2] = (2.0f * 9.80665f) / (max_z - min_z);
+
+      vayu_log("[CALIB] Accel Bias: %.3f, %.3f, %.3f", acc_internal_bias[0],
+               acc_internal_bias[1], acc_internal_bias[2]);
+      vayu_log("[CALIB] Accel Scale: %.3f, %.3f, %.3f", acc_internal_scale[0],
+               acc_internal_scale[1], acc_internal_scale[2]);
+    } else { // BIAS ONLY
+      vayu_log("[CALIB] Calculating Bias-Only Accel Calibration...");
+      acc_internal_bias[0] = (averages[2][0] + averages[3][0]) / 2.0f;
+      acc_internal_bias[1] = (averages[4][1] + averages[5][1]) / 2.0f;
+      acc_internal_bias[2] = (averages[0][2] + averages[1][2]) / 2.0f;
+
+      // Keep scales as they are (default 1.0)
+      vayu_log("[CALIB] Accel biases: %.3f, %.3f, %.3f", acc_internal_bias[0],
+               acc_internal_bias[1], acc_internal_bias[2]);
+    }
+
+  } else if (imu_id == 2.0f) {    // GYRO
+    if (cal_args->type == 1.0f) { // FULL CALIBRATION (6-point Bias Check)
+      vayu_log("[CALIB] Starting Full Gyro Calibration (6-point bias)...");
+      calib_update_type_t orients[] = {
+          CALIB_UPDATE_UPRIGHT,    CALIB_UPDATE_UPSIDE_DOWN,
+          CALIB_UPDATE_NOSE_UP,    CALIB_UPDATE_NOSE_DOWN,
+          CALIB_UPDATE_RIGHT_DOWN, CALIB_UPDATE_LEFT_DOWN};
+
+      float gsum[3] = {0, 0, 0};
+      float avg_buf[3];
+
+      for (int i = 0; i < 6; i++) {
+        wait_for_orientation(orients[i], avg_buf);
+        vayu_log("[CALIB] Gyro orientation %d recorded.", i);
+
+        // Collect 200 samples for bias in this orientation
+        for (int s = 0; s < 200; s++) {
+          float g[3];
+          if (bmx160_read_gyr_dps(g) == NO_ERR) {
+            gsum[0] += g[0];
+            gsum[1] += g[1];
+            gsum[2] += g[2];
+          }
+          v_delay(5);
+        }
+        v_delay(500);
+      }
+
+      // Average across all 6 orientations (1200 samples total)
+      gyr_internal_bias[0] = gsum[0] / 1200.0f;
+      gyr_internal_bias[1] = gsum[1] / 1200.0f;
+      gyr_internal_bias[2] = gsum[2] / 1200.0f;
+
+      vayu_log("[CALIB] Gyro Final Bias: %.3f, %.3f, %.3f",
+               gyr_internal_bias[0], gyr_internal_bias[1],
+               gyr_internal_bias[2]);
+
+    } else { // BIAS ONLY (Stationary Upright)
+      vayu_log("[CALIB] Collecting Gyro data (Bias-Only)...");
+      float avg[3];
+      wait_for_orientation(CALIB_UPDATE_UPRIGHT, avg);
+
+      float gsum[3] = {0, 0, 0};
+      for (int i = 0; i < 500; i++) {
+        float g[3];
+        if (bmx160_read_gyr_dps(g) == NO_ERR) {
+          gsum[0] += g[0];
+          gsum[1] += g[1];
+          gsum[2] += g[2];
+        }
+        v_delay(5);
+      }
+      gyr_internal_bias[0] = gsum[0] / 500.0f;
+      gyr_internal_bias[1] = gsum[1] / 500.0f;
+      gyr_internal_bias[2] = gsum[2] / 500.0f;
+    }
   }
 
-  // Calculate mean bias
-  for (int i = 0; i < 3; i++) {
-    gyr_bias[i] = sum[i] / (float)samples;
-  }
+  vayu_log("[BMX] Calibration Done. Biases applied.");
+  v_delay(10);
 
-  vayu_log("[BMX] Calibrated Biases: X:%.4f Y:%.4f Z:%.4f", gyr_bias[0],
-           gyr_bias[1], gyr_bias[2]);
+  // Send Final Success Packet
+  uint8_t payload[7];
+  payload[0] = SYSTEM_ORIGIN_CALIBRATION;
+  payload[1] = 0x01;
+  payload[2] = CALIB_UPDATE_PROGRESS;
+  float final_p = 100.0f;
+  v_memcpy(&payload[3], &final_p, 4);
+  send_packet(&g_telemetry_channel, PACKET_TYPE_SYSTEM_STATUS, payload, 7);
 
-  // Send final update
-  uint8_t payload[18];
-  payload[0] = 0x01; // SYSTEM_ORIGIN_CALIBRATION
-  payload[1] = 0x04; // Finalized/Success
-  float result = 100.0f;
-  v_memcpy(&payload[2], &result, 4);
-  send_packet(&g_telemetry_channel, PACKET_TYPE_SYSTEM_STATUS, payload, 18);
+  i2c_error_count = 0;
 
-  // Return to standby
+  bmx160_init();
+  v_delay(50);
+  wake_imu_read_task();
+  v_delay(10);
   system_state_set(SYSTEM_STATE_STANDBY);
+
+  if (cal_args)
+    v_free(cal_args);
   task_exit();
 }

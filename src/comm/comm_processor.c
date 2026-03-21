@@ -1,14 +1,15 @@
 #include "comm/comm_types.h"
 #include "comm/serializer.h"
-#include "core/cortex-m4/uart.h"
+#include "memory.h"
+#include "sensor/bmx160.h"
 #include "sys/state.h"
 #include "task.h"
 #include "utils.h"
-#include "utils/utils.h"
 #include "vaios.h"
 #include "variables.h"
 #include "vayu_tasks.h"
 #include <stdint.h>
+#include "utils/utils.h"
 
 void comm_processor_task(void *args) {
   (void)args;
@@ -16,8 +17,6 @@ void comm_processor_task(void *args) {
 
   while (1) {
     if (get_next_rx_packet(&pkt) == NONE) {
-      // uart2_write("Comm Processor started");
-      // Handle packet
       uint8_t packet_type = (pkt.protocol_packet_type >> 4) & 0x0F;
 
       if (packet_type == PACKET_TYPE_HEARTBEAT) {
@@ -26,9 +25,20 @@ void comm_processor_task(void *args) {
       } else if (packet_type == PACKET_TYPE_COMMAND) {
         uint16_t cmd_id;
         v_memcpy(&cmd_id, pkt.payload, 2);
-        if (cmd_id == 0x0006) { // CMD_CALIBRATE_GYR
+
+        if (cmd_id == CMD_CALIBRATE_IMU) {
           if (system_state_get() != SYSTEM_STATE_CALIBRATING) {
-            task_create(calibration_task, NULL, 4096, 0);
+            uint8_t argc = pkt.payload[2];
+            calibration_args_t *cal_args = NULL;
+            if (argc >= 2) {
+              cal_args =
+                  (calibration_args_t *)v_malloc(sizeof(calibration_args_t));
+              if (cal_args != NULL) {
+                v_memcpy(&cal_args->imu_id, &pkt.payload[3], 4);
+                v_memcpy(&cal_args->type, &pkt.payload[7], 4);
+              }
+            }
+            task_create(calibration_task, cal_args, 4096, 0);
           }
         } else if (cmd_id == 0x0009) { // CMD_CANCEL_CALIBRATION
           system_state_set(SYSTEM_STATE_STANDBY);

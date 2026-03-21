@@ -34,3 +34,22 @@ struct RcData {
 // Connection state
 // -----------------------------------------------------------
 enum class ConnectionState { Disconnected, Connecting, Connected, Error };
+
+// -----------------------------------------------------------
+// Calibration Updates – mirrors SYSTEM_ORIGIN_CALIBRATION
+// -----------------------------------------------------------
+enum class CalibUpdateType : uint8_t {
+  Progress = 0x00,
+  NoseUp = 0x01,
+  NoseDown = 0x02,
+  RightDown = 0x03,
+  LeftDown = 0x04,
+  Upright = 0x05,
+  UpsideDown = 0x06,
+  FreeRot = 0x07
+};
+
+struct CalibrationUpdate {
+  CalibUpdateType type;
+  float data;
+};

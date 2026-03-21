@@ -248,4 +248,15 @@ float bmx160_mag_odr_to_hz(uint8_t raw); //[TODO]
 bmx160_config_t bmx160_get_current_config(void);
 void bmx160_set_current_config(bmx160_config_t *cfg);
 void bmx160_get_attitude(attitude_t *att);
+
+// Calibration definitions
+#define IMU_CALIBRATION_SAMPLES 500
+
+typedef struct {
+  float imu_id;
+  float type;
+} calibration_args_t;
+
+void calibration_task(void *args);
+
 #endif // !VAYU_BMX160_H
