@@ -49,11 +49,11 @@ static bmx160_all_reading_t _bmx_data;
 
 static float acc_scale = 0.0f;
 static float gyr_scale = 0.0f;
-static float acc_internal_bias[3] = {0.0f, 0.0f, 0.0f};
-static float acc_internal_scale[3] = {1.0f, 1.0f, 1.0f};
-static float gyr_internal_bias[3] = {0.0f, 0.0f, 0.0f};
-static float mag_internal_bias[3] = {0.0f, 0.0f, 0.0f};
-static float mag_internal_scale[3] = {1.0f, 1.0f, 1.0f};
+static bmx160_calibration_t bmx160_calib = {.acc_offset = {0.0f, 0.0f, 0.0f},
+                                            .acc_scale = {1.0f, 1.0f, 1.0f},
+                                            .gyr_offset = {0.0f, 0.0f, 0.0f},
+                                            .mag_offset = {0.0f, 0.0f, 0.0f},
+                                            .mag_scale = {1.0f, 1.0f, 1.0f}};
 
 // LPFs for sensors
 static lpf_t acc_lpf[3];
@@ -1026,17 +1026,18 @@ void bmx160_process_data(void) {
     }
     if (stable_count > 200) {
       for (int i = 0; i < 3; i++) {
-        gyr_internal_bias[i] = (1.0f - GYRO_BIAS_ALPHA) * gyr_internal_bias[i] +
-                               GYRO_BIAS_ALPHA * _bmx_data.converted.gyr[i];
-        if (FABS_F(gyr_internal_bias[i]) > 5.0f) {
-          gyr_internal_bias[i] = 0;
+        bmx160_calib.gyr_offset[i] =
+            (1.0f - GYRO_BIAS_ALPHA) * bmx160_calib.gyr_offset[i] +
+            GYRO_BIAS_ALPHA * _bmx_data.converted.gyr[i];
+        if (FABS_F(bmx160_calib.gyr_offset[i]) > 5.0f) {
+          bmx160_calib.gyr_offset[i] = 0;
         }
       }
     }
   }
 
   for (int i = 0; i < 3; i++)
-    _bmx_data.converted.gyr[i] -= gyr_internal_bias[i];
+    _bmx_data.converted.gyr[i] -= bmx160_calib.gyr_offset[i];
 
   // Align BMM150 axes to BMX160 body frame: [-Y, X, Z]
 
@@ -1056,11 +1057,11 @@ void bmx160_process_data(void) {
   }
 
   _bmx_data.converted.mag[0] =
-      (mag_x - mag_internal_bias[0]) * mag_internal_scale[0];
+      (mag_x - bmx160_calib.mag_offset[0]) * bmx160_calib.mag_scale[0];
   _bmx_data.converted.mag[1] =
-      (mag_y - mag_internal_bias[1]) * mag_internal_scale[1];
+      (mag_y - bmx160_calib.mag_offset[1]) * bmx160_calib.mag_scale[1];
   _bmx_data.converted.mag[2] =
-      (mag_z - mag_internal_bias[2]) * mag_internal_scale[2];
+      (mag_z - bmx160_calib.mag_offset[2]) * bmx160_calib.mag_scale[2];
 
   // Magnitude and Disturbance Checks
   if (mag_fusion_valid) {
@@ -1130,8 +1131,8 @@ void bmx160_process_data(void) {
   for (int i = 0; i < 3; i++) {
     // Apply calibration: (raw_converted - bias) * scale
     _bmx_data.converted.acc[i] =
-        (_bmx_data.converted.acc[i] - acc_internal_bias[i]) *
-        acc_internal_scale[i];
+        (_bmx_data.converted.acc[i] - bmx160_calib.acc_offset[i]) *
+        bmx160_calib.acc_scale[i];
     _bmx_data.converted.acc[i] =
         lpf_apply(&acc_lpf[i], _bmx_data.converted.acc[i]);
   }
@@ -1309,34 +1310,37 @@ void calibration_task(void *args) {
       // X-axis: Nose Up (2) and Nose Down (3)
       float max_x = averages[2][0];
       float min_x = averages[3][0];
-      acc_internal_bias[0] = (max_x + min_x) / 2.0f;
-      acc_internal_scale[0] = (2.0f * 9.80665f) / (max_x - min_x);
+      bmx160_calib.acc_offset[0] = (max_x + min_x) / 2.0f;
+      bmx160_calib.acc_scale[0] = (2.0f * 9.80665f) / (max_x - min_x);
 
       // Y-axis: Right Down (4) and Left Down (5)
       float max_y = averages[4][1];
       float min_y = averages[5][1];
-      acc_internal_bias[1] = (max_y + min_y) / 2.0f;
-      acc_internal_scale[1] = (2.0f * 9.80665f) / (max_y - min_y);
+      bmx160_calib.acc_offset[1] = (max_y + min_y) / 2.0f;
+      bmx160_calib.acc_scale[1] = (2.0f * 9.80665f) / (max_y - min_y);
 
       // Z-axis: Upright (0) and Upside Down (1)
       float max_z = averages[0][2];
       float min_z = averages[1][2];
-      acc_internal_bias[2] = (max_z + min_z) / 2.0f;
-      acc_internal_scale[2] = (2.0f * 9.80665f) / (max_z - min_z);
+      bmx160_calib.acc_offset[2] = (max_z + min_z) / 2.0f;
+      bmx160_calib.acc_scale[2] = (2.0f * 9.80665f) / (max_z - min_z);
 
-      vayu_log("[CALIB] Accel Bias: %.3f, %.3f, %.3f", acc_internal_bias[0],
-               acc_internal_bias[1], acc_internal_bias[2]);
-      vayu_log("[CALIB] Accel Scale: %.3f, %.3f, %.3f", acc_internal_scale[0],
-               acc_internal_scale[1], acc_internal_scale[2]);
+      vayu_log("[CALIB] Accel Bias: %.3f, %.3f, %.3f",
+               bmx160_calib.acc_offset[0], bmx160_calib.acc_offset[1],
+               bmx160_calib.acc_offset[2]);
+      vayu_log("[CALIB] Accel Scale: %.3f, %.3f, %.3f",
+               bmx160_calib.acc_scale[0], bmx160_calib.acc_scale[1],
+               bmx160_calib.acc_scale[2]);
     } else { // BIAS ONLY
       vayu_log("[CALIB] Calculating Bias-Only Accel Calibration...");
-      acc_internal_bias[0] = (averages[2][0] + averages[3][0]) / 2.0f;
-      acc_internal_bias[1] = (averages[4][1] + averages[5][1]) / 2.0f;
-      acc_internal_bias[2] = (averages[0][2] + averages[1][2]) / 2.0f;
+      bmx160_calib.acc_offset[0] = (averages[2][0] + averages[3][0]) / 2.0f;
+      bmx160_calib.acc_offset[1] = (averages[4][1] + averages[5][1]) / 2.0f;
+      bmx160_calib.acc_offset[2] = (averages[0][2] + averages[1][2]) / 2.0f;
 
       // Keep scales as they are (default 1.0)
-      vayu_log("[CALIB] Accel biases: %.3f, %.3f, %.3f", acc_internal_bias[0],
-               acc_internal_bias[1], acc_internal_bias[2]);
+      vayu_log("[CALIB] Accel biases: %.3f, %.3f, %.3f",
+               bmx160_calib.acc_offset[0], bmx160_calib.acc_offset[1],
+               bmx160_calib.acc_offset[2]);
     }
 
   } else if (imu_id == 2.0f) {    // GYRO
@@ -1365,13 +1369,13 @@ void calibration_task(void *args) {
       }
 
       // Average across all 6 orientations (1200 samples total)
-      gyr_internal_bias[0] = gsum[0] / 1200.0f;
-      gyr_internal_bias[1] = gsum[1] / 1200.0f;
-      gyr_internal_bias[2] = gsum[2] / 1200.0f;
+      bmx160_calib.gyr_offset[0] = gsum[0] / 1200.0f;
+      bmx160_calib.gyr_offset[1] = gsum[1] / 1200.0f;
+      bmx160_calib.gyr_offset[2] = gsum[2] / 1200.0f;
 
       vayu_log("[CALIB] Gyro Final Bias: %.3f, %.3f, %.3f",
-               gyr_internal_bias[0], gyr_internal_bias[1],
-               gyr_internal_bias[2]);
+               bmx160_calib.gyr_offset[0], bmx160_calib.gyr_offset[1],
+               bmx160_calib.gyr_offset[2]);
 
     } else { // BIAS ONLY (Stationary Upright)
       vayu_log("[CALIB] Collecting Gyro data (Bias-Only)...");
@@ -1385,9 +1389,9 @@ void calibration_task(void *args) {
         gsum[2] += _bmx_data.converted.gyr_raw[2];
         v_delay(5);
       }
-      gyr_internal_bias[0] = gsum[0] / 500.0f;
-      gyr_internal_bias[1] = gsum[1] / 500.0f;
-      gyr_internal_bias[2] = gsum[2] / 500.0f;
+      bmx160_calib.gyr_offset[0] = gsum[0] / 500.0f;
+      bmx160_calib.gyr_offset[1] = gsum[1] / 500.0f;
+      bmx160_calib.gyr_offset[2] = gsum[2] / 500.0f;
     }
   } else if (imu_id == 3.0f) { // MAGNETOMETER
     vayu_log(
@@ -1449,7 +1453,7 @@ void calibration_task(void *args) {
 
     // Calculate Hard Iron (Bias)
     for (int i = 0; i < 3; i++) {
-      mag_internal_bias[i] = (mag_max[i] + mag_min[i]) * 0.5f;
+      bmx160_calib.mag_offset[i] = (mag_max[i] + mag_min[i]) * 0.5f;
     }
 
     // Calculate per-axis scale
@@ -1463,16 +1467,16 @@ void calibration_task(void *args) {
 
     for (int i = 0; i < 3; i++) {
       if (scale[i] > 0.001f) {
-        mag_internal_scale[i] = avg_scale / scale[i];
+        bmx160_calib.mag_scale[i] = avg_scale / scale[i];
       } else {
-        mag_internal_scale[i] = 1.0f;
+        bmx160_calib.mag_scale[i] = 1.0f;
       }
     }
 
-    vayu_log("[CALIB] Mag Bias: %.3f, %.3f, %.3f", mag_internal_bias[0],
-             mag_internal_bias[1], mag_internal_bias[2]);
-    vayu_log("[CALIB] Mag Scale: %.3f, %.3f, %.3f", mag_internal_scale[0],
-             mag_internal_scale[1], mag_internal_scale[2]);
+    vayu_log("[CALIB] Mag Bias: %.3f, %.3f, %.3f", bmx160_calib.mag_offset[0],
+             bmx160_calib.mag_offset[1], bmx160_calib.mag_offset[2]);
+    vayu_log("[CALIB] Mag Scale: %.3f, %.3f, %.3f", bmx160_calib.mag_scale[0],
+             bmx160_calib.mag_scale[1], bmx160_calib.mag_scale[2]);
   }
 
   vayu_log("[BMX] Calibration Done. Biases applied.");
