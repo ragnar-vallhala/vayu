@@ -55,6 +55,16 @@
 #define SF_MAHONY_KP 10.0f
 #define SF_MAHONY_KI 0.01f
 #define SF_FILTER_USED SF_MAHONY
+// Calibration
+#define CALIBRATION_FILE_PATH "0:cal.bin"
+#define CALIBRATION_FILE_SIZE 1024 // 1KB Preallocated
+#define CALIBRATION_WAIT_USER_TIME_PRE_CALIBRATION                                             \
+  2000 // 2 seconds, waits before recording once user has reached the direction
+       // orientation
+#define CALIBRATION_WAIT_USER_TIME_POST_CALIBRATION                                            \
+  1000 // 1 seconds, waits after recording before saving the calibration
+#define CALIBRATION_SAMPLE_COUNT                                               \
+  1000 // Number of samples to take for calibration
 
 // Global telemetry channel and mutex
 #include "comm/channel.h"
@@ -74,5 +84,6 @@ extern MutexHandle_t g_comm_mutex;
 #define NAVLINK_HEADER_SIZE 8
 #define NAVLINK_MAX_PAYLOAD_SIZE 256
 #define NAVLINK_CRC_SIZE 4
-#define NAVLINK_MAX_SIZE (NAVLINK_HEADER_SIZE + NAVLINK_MAX_PAYLOAD_SIZE + NAVLINK_CRC_SIZE)
+#define NAVLINK_MAX_SIZE                                                       \
+  (NAVLINK_HEADER_SIZE + NAVLINK_MAX_PAYLOAD_SIZE + NAVLINK_CRC_SIZE)
 #endif //! VAYU_VARIABLES_H
