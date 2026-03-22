@@ -40,7 +40,7 @@
 #endif
 
 #ifndef UART_BAUDRATE
-#define UART_BAUDRATE 115200
+#define UART_BAUDRATE 921600
 #endif
 
 #ifndef LOGGING_ENABLED
