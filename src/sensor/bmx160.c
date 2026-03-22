@@ -1,4 +1,5 @@
 #include "sensor/bmx160.h"
+#include "comm/i2c_manager.h"
 #include "comm/serializer.h"
 #include "ipc.h"
 #include "maths/lpf.h"
@@ -38,8 +39,9 @@ static SemaphoreHandle_t bmx160_timer_sema; // Semaphore for Timer wake-up
 // Default BMX160 configuration
 static bmx160_config_t bmx160_cfg;
 // I2C configuration
-hal_i2c_config_t i2c_config = {
-    .clock_speed = FAST_MODE, .own_address = I2C_MASTER, .acknowledge = true};
+// hal_i2c_config_t i2c_config = {
+//     .clock_speed = FAST_MODE, .own_address = I2C_MASTER, .acknowledge =
+//     true};
 
 // DMA storage for 30 bytes (Mag[6], Hall[2], Gyr[6], Acc[6], Status[4],
 // Temp[2])
@@ -119,39 +121,7 @@ static bmx160_err_type bmx160_verify_pmu(uint8_t mask, uint8_t expected) {
   return ERR1;
 }
 
-static void unstick_i2c_bus(void) {
-  hal_gpio_setmode(I2C_PIN_1, GPIO_OUTPUT, GPIO_PULLUP);
-  hal_gpio_setmode(I2C_PIN_2, GPIO_OUTPUT, GPIO_PULLUP);
-  hal_gpio_set_output_type(I2C_PIN_1, GPIO_OPEN_DRAIN);
-  hal_gpio_set_output_type(I2C_PIN_2, GPIO_OPEN_DRAIN);
-
-  hal_gpio_digitalwrite(I2C_PIN_2, GPIO_HIGH);
-  for (volatile int i = 0; i < 100; i++)
-    ;
-
-  for (int i = 0; i < 9; ++i) {
-    hal_gpio_digitalwrite(I2C_PIN_1, GPIO_LOW);
-    for (volatile int j = 0; j < 200; j++)
-      ;
-    hal_gpio_digitalwrite(I2C_PIN_1, GPIO_HIGH);
-    for (volatile int j = 0; j < 200; j++)
-      ;
-  }
-
-  hal_gpio_digitalwrite(I2C_PIN_2, GPIO_LOW);
-  for (volatile int j = 0; j < 200; j++)
-    ;
-  hal_gpio_digitalwrite(I2C_PIN_1, GPIO_HIGH);
-  for (volatile int j = 0; j < 200; j++)
-    ;
-  hal_gpio_digitalwrite(I2C_PIN_2, GPIO_HIGH);
-  for (volatile int j = 0; j < 200; j++)
-    ;
-}
-
 hal_i2c_status_t bmx160_init(void) {
-  unstick_i2c_bus();
-
   // Create I2C bus semaphore early. Ensure it starts "given"
   if (bmx160_i2c_sema == NULL) {
     bmx160_i2c_sema = v_semaphore_create_binary();
@@ -163,20 +133,7 @@ hal_i2c_status_t bmx160_init(void) {
   if (bmx160_attitude_mutex == NULL) {
     bmx160_attitude_mutex = v_mutex_create();
   }
-
-  // Configure GPIO for I2C1 (PB8=SCL, PB9=SDA)
-  hal_gpio_set_alternate_function(I2C_PIN_1, GPIO_FUNC_I2C);
-  hal_gpio_set_alternate_function(I2C_PIN_2, GPIO_FUNC_I2C);
-  hal_gpio_set_output_type(I2C_PIN_1, GPIO_OPEN_DRAIN);
-  hal_gpio_set_output_type(I2C_PIN_2, GPIO_OPEN_DRAIN);
-  hal_gpio_set_output_speed(I2C_PIN_1, GPIO_VERY_HIGH_SPEED);
-  hal_gpio_set_output_speed(I2C_PIN_2, GPIO_VERY_HIGH_SPEED);
-  hal_i2c_status_t ts = hal_i2c_init(I2C_BUS, &i2c_config);
-
-  if (ts != HAL_I2C_OK && ts != HAL_I2C_ERR_REINIT) {
-    return ts;
-  }
-
+  // Reading PTR
   // 1. Verify Chip ID
   uint16_t chip_id = bmx160_get_chip_id();
   if (chip_id != BMX160_CHIP_ID) {
@@ -270,7 +227,7 @@ hal_i2c_status_t bmx160_init(void) {
   }
 
   in_init = 0; // Success! Disable blocking bypass
-  return ts;
+  return HAL_I2C_OK;
 }
 
 static bmx160_err_type bmx160_write_bmm150_reg(uint8_t reg, uint8_t data) {
@@ -439,7 +396,7 @@ uint16_t bmx160_get_chip_id(void) {
           VA_PASS)
     return 0xFFFF;
 
-  ret = hal_i2c_write_read(I2C_BUS, BMX160_I2C_ADDR, &reg, 1, rx_buf, 1);
+  ret = i2c_manager_write_read(BMX160_I2C_ADDR, &reg, 1, rx_buf, 1);
   if (ret != HAL_I2C_OK) {
     v_semaphore_give(bmx160_i2c_sema);
     return 0xFFFF;

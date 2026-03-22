@@ -1,4 +1,5 @@
 #include "comm/channel.h"
+#include "comm/i2c_manager.h"
 #include "logger/logger.h"
 #include "navhal.h"
 #include "sensor/bmx160.h"
@@ -70,6 +71,8 @@ void system_init_tasks(void) {
   task_create(heartbeat_task, NULL, 2048, 0);
   task_create(boot_task, NULL, 1024, 0);
 }
+hal_i2c_config_t i2c_config = {
+    .clock_speed = FAST_MODE, .own_address = I2C_MASTER, .acknowledge = true};
 
 int main() {
   clock_setup();
@@ -77,6 +80,7 @@ int main() {
                              .internal_sd_card_setup = 1};
 
   v_system_init(&cfg);
+  init_i2c_manager(&i2c_config);
   logger_init();
   system_state_init();
   init_sensors();
