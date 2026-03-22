@@ -33,6 +33,20 @@ void imu_buffer_push(const bmx160_all_reading_t *sample) {
   hal_enable_global_interrupts(state);
 }
 
+bool imu_buffer_pop(bmx160_all_reading_t *out_sample) {
+  uint32_t state = hal_disable_global_interrupts();
+  bool success = false;
+  if (_count > 0) {
+    if (out_sample)
+      *out_sample = _imu_ring[_tail];
+    _tail = (_tail + 1) % IMU_BUFFER_SIZE;
+    _count--;
+    success = true;
+  }
+  hal_enable_global_interrupts(state);
+  return success;
+}
+
 int imu_buffer_pop_all(bmx160_all_reading_t *out_samples, int max_count) {
   // Called from Telemetry Task (Low Priority)
   uint32_t state = hal_disable_global_interrupts();
@@ -48,3 +62,33 @@ int imu_buffer_pop_all(bmx160_all_reading_t *out_samples, int max_count) {
   hal_enable_global_interrupts(state);
   return popped;
 }
+
+bool imu_buffer_peek(bmx160_all_reading_t *out_sample) {
+  uint32_t state = hal_disable_global_interrupts();
+  bool success = false;
+  if (_count > 0) {
+    if (out_sample)
+      *out_sample = _imu_ring[_tail];
+    success = true;
+  }
+  hal_enable_global_interrupts(state);
+  return success;
+}
+
+int imu_buffer_peek_all(bmx160_all_reading_t *out_samples, int max_count) {
+  uint32_t state = hal_disable_global_interrupts();
+  int count = 0;
+  int temp_tail = _tail;
+  int temp_count = _count;
+  while (temp_count > 0 && count < max_count) {
+    if (out_samples)
+      out_samples[count] = _imu_ring[temp_tail];
+    temp_tail = (temp_tail + 1) % IMU_BUFFER_SIZE;
+    temp_count--;
+    count++;
+  }
+  hal_enable_global_interrupts(state);
+  return count;
+}
+
+int imu_buffer_count(void) { return _count; }

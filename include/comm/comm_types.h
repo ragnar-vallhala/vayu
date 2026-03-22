@@ -16,6 +16,7 @@ typedef enum {
   PACKET_TYPE_RC_CHANNELS = 0x5,         // FC -> GCS
   PACKET_TYPE_SYSTEM_STATUS = 0x6,       // FC -> GCS
   PACKET_TYPE_LOG = 0x7,                 // FC -> GCS
+  PACKET_TYPE_MOTOR_TELEMETRY = 0x8,     // FC -> GCS
 } packet_type_t;
 
 /**
