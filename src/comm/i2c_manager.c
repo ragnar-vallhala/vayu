@@ -12,6 +12,7 @@ static hal_i2c_config_t i2c_config;
 static SemaphoreHandle_t _i2c_sema;
 static SemaphoreHandle_t _queue_sema;
 static SemaphoreHandle_t _dma_done_sema;
+static SemaphoreHandle_t _data_ready_sema;
 static i2c_queue_t _i2c_queue;
 static i2c_async_t _current_trans;
 static uint8_t initialized = 0;
@@ -55,6 +56,11 @@ hal_i2c_status_t init_i2c_manager(hal_i2c_config_t *cfg) {
   v_semaphore_give(_i2c_sema);
   _dma_done_sema = v_semaphore_create_binary();
   v_semaphore_take(_dma_done_sema, 0);
+  ///////////////////////////////////////////////////////
+  _data_ready_sema = v_semaphore_create_counting(5, 1);
+  v_semaphore_take(_data_ready_sema, 0);
+  //////////////////////////////////////////////////////
+
   i2c_queue_init(&_i2c_queue);
   ENTER_CRITICAL();
   _current_trans.state = I2C_TRANS_BLANK;
@@ -86,7 +92,7 @@ i2c_init:
 }
 
 hal_i2c_status_t i2c_manager_write(uint8_t addr, uint8_t *data, uint16_t len) {
-  if (v_semaphore_take(_i2c_sema, MS_TO_TICKS(100)) != VA_PASS) {
+  if (v_semaphore_take(_i2c_sema, MS_TO_TICKS(2)) != VA_PASS) {
     return HAL_I2C_ERR_TIMEOUT;
   }
   hal_i2c_status_t ts = hal_i2c_write(I2C_BUS, addr, data, len);
@@ -95,7 +101,7 @@ hal_i2c_status_t i2c_manager_write(uint8_t addr, uint8_t *data, uint16_t len) {
 }
 
 hal_i2c_status_t i2c_manager_read(uint8_t addr, uint8_t *data, uint16_t len) {
-  if (v_semaphore_take(_i2c_sema, MS_TO_TICKS(100)) != VA_PASS) {
+  if (v_semaphore_take(_i2c_sema, MS_TO_TICKS(2)) != VA_PASS) {
     return HAL_I2C_ERR_TIMEOUT;
   }
   hal_i2c_status_t ts = hal_i2c_read(I2C_BUS, addr, data, len);
@@ -106,7 +112,7 @@ hal_i2c_status_t i2c_manager_read(uint8_t addr, uint8_t *data, uint16_t len) {
 hal_i2c_status_t i2c_manager_write_read(uint8_t addr, uint8_t *tx_data,
                                         uint16_t tx_len, uint8_t *rx_data,
                                         uint16_t rx_len) {
-  if (v_semaphore_take(_i2c_sema, MS_TO_TICKS(100)) != VA_PASS) {
+  if (v_semaphore_take(_i2c_sema, MS_TO_TICKS(2)) != VA_PASS) {
     return HAL_I2C_ERR_TIMEOUT;
   }
   hal_i2c_status_t ts =
@@ -128,6 +134,7 @@ hal_i2c_status_t i2c_manager_read_async(uint8_t addr, uint8_t reg_addr,
       .op_type = I2C_OP_READ,
   };
   if (i2c_queue_push(&_i2c_queue, &item) == 1) {
+    v_semaphore_give(_data_ready_sema);
     return HAL_I2C_OK;
   }
 
@@ -137,15 +144,16 @@ void i2c_manager_task(void *args) {
   i2c_async_t item;
   while (1) {
     // Block here until there's work — prevents busy spin
+    if (v_semaphore_take(_data_ready_sema, 1000000) != VA_PASS) {
+      continue;
+    }
     if (i2c_queue_pop(&_i2c_queue, &item) != 1) {
-      v_delay(1); // yield rather than spin; or use a counting semaphore on the
-                  // queue
       continue;
     }
 
     if (item.state == I2C_TRANS_IDLE && item.op_type == I2C_OP_READ) {
 
-      if (v_semaphore_take(_i2c_sema, MS_TO_TICKS(10)) != VA_PASS) {
+      if (v_semaphore_take(_i2c_sema, MS_TO_TICKS(2)) != VA_PASS) {
         // Bus locked — invoke error path
         void (*cb)(void *) =
             item.callback; // use item, not _current_trans (not set yet)
@@ -188,7 +196,7 @@ void i2c_manager_task(void *args) {
       // *** Block here until DMA IRQ fires and callback completes ***
       // This prevents re-entry, prevents semaphore double-give,
       // and ensures _rx_data is stable before next transaction
-      if (v_semaphore_take(_dma_done_sema, MS_TO_TICKS(20)) != VA_PASS) {
+      if (v_semaphore_take(_dma_done_sema, MS_TO_TICKS(1)) != VA_PASS) {
         // DMA hung — force error and release bus
         i2c_manager_signal_error();
       }
@@ -252,7 +260,7 @@ int i2c_queue_push(i2c_queue_t *q, const i2c_async_t *item) {
   if (q->count >= MAX_I2C_DEVICES) {
     return 0; // FULL
   }
-  if (v_semaphore_take(_queue_sema, MS_TO_TICKS(100)) != VA_PASS) {
+  if (v_semaphore_take(_queue_sema, MS_TO_TICKS(0)) != VA_PASS) {
     return 0;
   }
   q->queue[q->tail] = *item;
@@ -268,7 +276,7 @@ int i2c_queue_pop(i2c_queue_t *q, i2c_async_t *item) {
   if (q->count == 0) {
     return 0; // EMPTY
   }
-  if (v_semaphore_take(_queue_sema, MS_TO_TICKS(100)) != VA_PASS) {
+  if (v_semaphore_take(_queue_sema, MS_TO_TICKS(0)) != VA_PASS) {
     return 0;
   }
   *item = q->queue[q->head];
@@ -284,7 +292,7 @@ int i2c_queue_peek(i2c_queue_t *q, i2c_async_t *item) {
   if (q->count == 0) {
     return 0;
   }
-  if (v_semaphore_take(_queue_sema, MS_TO_TICKS(100)) != VA_PASS) {
+  if (v_semaphore_take(_queue_sema, MS_TO_TICKS(0)) != VA_PASS) {
     return 0;
   }
   *item = q->queue[q->head];
