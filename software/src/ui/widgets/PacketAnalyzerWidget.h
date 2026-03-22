@@ -45,6 +45,9 @@ private slots:
   void onFilterToggled(bool checked);
   void reapplyFilters();
 
+protected:
+  void showEvent(QShowEvent *event) override;
+
 private:
   void addRow(const QString &dir, const QByteArray &data);
   void writeToStream(const QString &dir, const QByteArray &data);

@@ -49,10 +49,14 @@ void RealTimeGraph::appendData(float value, int index) {
   qint64 now = QDateTime::currentMSecsSinceEpoch();
   m_seriesData[index].push_back({now, value});
 
-  // Update min/max for scaling (globally across all series)
+  // Incremental update of min/max
   if (m_seriesData[index].size() == 1 && m_min == -1.0f && m_max == 1.0f) {
-    m_min = value - 0.1f;
-    m_max = value + 0.1f;
+    m_min = value;
+    m_max = value;
+    if (std::abs(m_max - m_min) < 0.001f) {
+      m_min -= 0.1f;
+      m_max += 0.1f;
+    }
   } else {
     m_min = std::min(m_min, value);
     m_max = std::max(m_max, value);
@@ -75,16 +79,22 @@ void RealTimeGraph::pruneData() {
   qint64 now = QDateTime::currentMSecsSinceEpoch();
   qint64 limit = now - (m_windowSeconds * 1000);
 
-  bool anyChanged = false;
+  bool minMaxPruned = false;
+  bool anyPopped = false;
+
   for (auto &series : m_seriesData) {
     while (!series.empty() && series.front().timestamp < limit) {
+      float val = series.front().value;
+      if (std::abs(val - m_min) < 0.0001f || std::abs(val - m_max) < 0.0001f) {
+        minMaxPruned = true;
+      }
       series.pop_front();
-      anyChanged = true;
+      anyPopped = true;
     }
   }
 
-  if (anyChanged) {
-    // Recalculate global min/max
+  // Only recalculate global min/max if the points we pruned were the min or max
+  if (minMaxPruned || (m_min == m_max && anyPopped)) {
     bool first = true;
     for (const auto &series : m_seriesData) {
       for (const auto &dp : series) {

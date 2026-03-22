@@ -662,8 +662,19 @@ void MainWindow::setConnected(bool on) {
 // ---------------------------------------------------------------------------
 
 void MainWindow::onUiTimer() {
+  static int tick = 0;
+  tick++;
+
   // Update IMU panel with latest cached data
   m_imuPanel->updateImu(m_latestImu);
+
+  // Throttled updates for numeric labels (update every 4 ticks = 5Hz)
+  if (tick % 4 != 0) {
+    // Still update packet count and live blinker every tick for smoothness
+    m_pktStatus->setText(QString("  Packets: %1  ").arg(m_pktCount));
+    updateLiveBlinker();
+    return;
+  }
 
   // Update attitude numeric labels
   // Update attitude numeric labels (stable 20Hz update)
@@ -685,7 +696,10 @@ void MainWindow::onUiTimer() {
   // Update packet counter in status bar
   m_pktStatus->setText(QString("  Packets: %1  ").arg(m_pktCount));
 
-  // Update LIVE blinker decay
+  updateLiveBlinker();
+}
+
+void MainWindow::updateLiveBlinker() {
   qint64 now = QDateTime::currentMSecsSinceEpoch();
   qint64 elapsed = now - m_lastHbTime;
 
