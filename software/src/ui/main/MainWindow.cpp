@@ -201,8 +201,28 @@ void MainWindow::buildUi() {
   auto *attGroup = new QGroupBox("Attitude", m_homeWidget);
   auto *attLayout = new QVBoxLayout(attGroup);
 
-  m_attitude = new AttitudeWidget(attGroup);
-  attLayout->addWidget(m_attitude, 1);
+  // Toggle button at the top right of the group
+  auto *headerLayout = new QHBoxLayout();
+  headerLayout->addStretch();
+  auto *toggleBtn = new QPushButton("3D VIEW", attGroup);
+  toggleBtn->setCheckable(true);
+  toggleBtn->setFixedSize(70, 22);
+  toggleBtn->setStyleSheet(
+      "QPushButton { background: #2C313A; color: #ABB2BF; border: 1px solid "
+      "#3E4452; "
+      "border-radius: 4px; font-weight: bold; font-size: 10px; }"
+      "QPushButton:checked { background: #61AFEF; color: #21252B; }");
+  headerLayout->addWidget(toggleBtn);
+  attLayout->addLayout(headerLayout);
+
+  m_attStack = new QStackedWidget(attGroup);
+  m_attitude = new AttitudeWidget(m_attStack);
+  m_drone3d = new Drone3DWidget(m_attStack);
+  m_attStack->addWidget(m_attitude);
+  m_attStack->addWidget(m_drone3d);
+  attLayout->addWidget(m_attStack, 1);
+
+  connect(toggleBtn, &QPushButton::toggled, this, &MainWindow::onToggle3d);
 
   m_statusLabel = new QLabel("DISCONNECTED", attGroup);
   m_statusLabel->setAlignment(Qt::AlignCenter);
@@ -506,6 +526,12 @@ void MainWindow::onArmClicked() {
   }
 }
 
+void MainWindow::onToggle3d(bool checked) {
+  if (m_attStack) {
+    m_attStack->setCurrentIndex(checked ? 1 : 0);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Data Slots
 // ---------------------------------------------------------------------------
@@ -522,6 +548,7 @@ void MainWindow::onAttitudeReceived(const AttitudeData &data) {
   m_attStats[2].push(data.yaw);
 
   m_attitude->setAttitude(data);
+  m_drone3d->setAttitude(data);
   ++m_pktCount;
 }
 
