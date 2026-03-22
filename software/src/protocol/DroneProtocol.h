@@ -30,6 +30,7 @@ signals:
   void imuReceived(const ImuData &data);
   void attitudeReceived(const AttitudeData &data);
   void rcReceived(const RcData &data);
+  void motorReceived(const MotorData &data);
   void logReceived(const QString &message);
   void statusReceived(const QString &message);
   void calibrationUpdateReceived(const CalibrationUpdate &update);

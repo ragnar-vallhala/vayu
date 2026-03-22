@@ -101,6 +101,13 @@ void PacketDetailWidget::setData(const QByteArray &data) {
                                   {QString("CH %1").arg(i + 1),
                                    QString::number(arg.channels[i])});
             }
+          } else if constexpr (std::is_same_v<T, MotorData>) {
+            for (int i = 0; i < 4; i++) {
+              new QTreeWidgetItem(
+                  payloadItem,
+                  {QString("Motor %1").arg(i + 1),
+                   QString::number(arg.speeds[i] * 100.0f, 'f', 1) + "%"});
+            }
           } else if constexpr (std::is_same_v<T, QString>) {
             new QTreeWidgetItem(payloadItem, {"Message", arg});
           } else {

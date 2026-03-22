@@ -55,3 +55,10 @@ struct CalibrationUpdate {
   float data;
   float values[3];
 };
+
+// -----------------------------------------------------------
+// Motor Telemetry
+// -----------------------------------------------------------
+struct MotorData {
+  float speeds[4] = {0, 0, 0, 0};
+};

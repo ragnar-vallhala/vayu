@@ -20,14 +20,9 @@ protected:
   void paintEvent(QPaintEvent *event) override;
   void resizeEvent(QResizeEvent *event) override;
 
-private slots:
-  void onUpdateTimer();
-
 private:
   void drawDrone(QPainter &p, int w, int h);
   void drawMotor(QPainter &p, int x, int y, float speed, int motorIdx);
 
   QVector<float> m_speeds;
-  QTimer *m_dummyTimer;
-  float m_phase = 0.0f;
 };

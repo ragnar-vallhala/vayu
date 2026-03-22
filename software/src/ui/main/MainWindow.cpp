@@ -66,6 +66,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
           &MainWindow::onTimeSyncRequested);
   connect(m_protocol, &DroneProtocol::rcReceived, this,
           &MainWindow::onRcReceived);
+  connect(m_protocol, &DroneProtocol::motorReceived, this,
+          &MainWindow::onMotorReceived);
 
   m_rcWidget = new RcChannelsWidget(this);
   m_stackedWidget->addWidget(m_rcWidget);
@@ -587,6 +589,14 @@ void MainWindow::onStatusReceived(const QString &msg) {
 
 void MainWindow::onRcReceived(const RcData &data) {
   m_rcWidget->updateChannels(data);
+  ++m_pktCount;
+}
+
+void MainWindow::onMotorReceived(const MotorData &data) {
+  QVector<float> speeds;
+  for (int i = 0; i < 4; ++i)
+    speeds.append(data.speeds[i]);
+  m_motorWidget->setMotorSpeeds(speeds);
   ++m_pktCount;
 }
 
