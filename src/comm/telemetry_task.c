@@ -69,11 +69,11 @@ void imu_telemetry_task(void *args) {
     // - 50 Hz: Compressed IMU (every 3 ticks)
     // - 10 Hz: Attitude (every 15 ticks)
 
-    bool send_full = (packet_counter % 150 == 0);
-    bool send_comp = (packet_counter % 3 == 0);
-    bool send_att = (packet_counter % 15 == 0);
-    bool send_rc = (packet_counter % 15 == 0);     // 10 Hz
-    bool send_status = (packet_counter % 75 == 0); // 2 Hz
+    bool send_full = (packet_counter % 100 == 0);  // 1 Hz
+    bool send_comp = (packet_counter % 10 == 0);   // 10 Hz
+    bool send_att = (packet_counter % 10 == 0);    // 10 Hz
+    bool send_rc = (packet_counter % 10 == 0);     // 10 Hz
+    bool send_status = (packet_counter % 50 == 0); // 2 Hz
 
     if (send_status) {
       uint8_t state_payload[6];
@@ -116,6 +116,6 @@ void imu_telemetry_task(void *args) {
     }
 
     packet_counter++;
-    v_delay(6); // ~150 Hz
+    v_delay(10); // ~100 Hz
   }
 }
