@@ -162,7 +162,7 @@ void CalibrationWidget::setProtocol(DroneProtocol *protocol) {
   connect(m_protocol, &DroneProtocol::calibrationUpdateReceived, this,
           [this](const CalibrationUpdate &update) {
             if (update.type == CalibUpdateType::Progress) {
-              onProgressReceived(update.data());
+              onProgressReceived(update.data);
             } else if (update.type == CalibUpdateType::MagAxisCoverage) {
               m_statusLabel->setText(QString("COVERAGE: X:%1 Y:%2 Z:%3")
                                          .arg(update.values[0], 0, 'f', 0)
