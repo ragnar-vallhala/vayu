@@ -10,11 +10,6 @@
 MotorStatusWidget::MotorStatusWidget(QWidget *parent) : QWidget(parent) {
   m_speeds = {0.0f, 0.0f, 0.0f, 0.0f};
 
-  m_dummyTimer = new QTimer(this);
-  connect(m_dummyTimer, &QTimer::timeout, this,
-          &MotorStatusWidget::onUpdateTimer);
-  m_dummyTimer->start(50); // 20Hz update
-
   // Layout for the "Back" button
   auto *layout = new QVBoxLayout(this);
   auto *topRow = new QHBoxLayout();
@@ -51,15 +46,6 @@ void MotorStatusWidget::setMotorSpeeds(const QVector<float> &speeds) {
     m_speeds = speeds;
     update();
   }
-}
-
-void MotorStatusWidget::onUpdateTimer() {
-  m_phase += 0.1f;
-  for (int i = 0; i < 4; ++i) {
-    // Dummy oscillatory speeds
-    m_speeds[i] = 0.5f + 0.45f * qSin(m_phase + i * M_PI / 2.0f);
-  }
-  update();
 }
 
 void MotorStatusWidget::paintEvent(QPaintEvent *event) {

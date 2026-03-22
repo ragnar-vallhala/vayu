@@ -49,6 +49,7 @@ private slots:
   void onRcReceived(const RcData &data);
   void onLogReceived(const QString &msg);
   void onStatusReceived(const QString &msg);
+  void onMotorReceived(const MotorData &data);
 
   // Serial state
   void onConnectionStateChanged(bool connected);

@@ -142,7 +142,7 @@ void Drone3DWidget::drawCube(QPainter &p, const QMatrix4x4 &mvp, float w,
   for (int i = 0; i < 6; ++i) {
     float avgZ = 0;
     for (int j = 0; j < 4; ++j) {
-      QVector3D tv = mvp * v[faces[i][j]];
+      QVector3D tv = mvp.map(v[faces[i][j]]);
       avgZ += tv.z();
     }
     sortedFaces.append({i, avgZ / 4.0f});

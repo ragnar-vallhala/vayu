@@ -33,6 +33,8 @@
 #define SYSTICK_PERIOD 1000 // in microseconds
 #endif
 
+#define TICKS_TO_MS(x) ((x * SYSTICK_PERIOD) / 1000)
+
 #ifndef UART_LOGGING_ENABLE
 #define UART_LOGGING_ENABLE 1
 #endif

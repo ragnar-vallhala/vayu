@@ -17,6 +17,7 @@
 #include "vaios_config_default.h"
 #include "variables.h"
 #include "vayu_tasks.h"
+#include "maths/control.h"
 
 // Global state values
 uint32_t bmx160_task_id = 0;
@@ -52,7 +53,7 @@ void init_tasks(void) {
   task_create(comm_processor_task, NULL, 4096, 0);
   bmx160_task_id = task_create(bmx160_initiate_read, NULL, 4096, 1);
   task_create(rc_ibus_task, NULL, 2048, 0);
-  task_create(motor_task, NULL, 2048, 0);
+  task_create(control_task, NULL, 1024*6, 0); // Higher priority for control
   task_create(imu_telemetry_task, NULL, 2048, 0);
   task_create(flush_task, NULL, 2048, 0);
   task_create(test_task, NULL, 1024, 0);

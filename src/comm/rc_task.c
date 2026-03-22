@@ -4,7 +4,6 @@
 #include "utils.h"
 #include "vaios.h"
 
-
 #define IBUS_DMA_BUF_SIZE 128
 static uint8_t ibus_dma_buf[IBUS_DMA_BUF_SIZE];
 static ibus_data_t ibus_raw_data;
@@ -49,6 +48,7 @@ void rc_ibus_task(void *args) {
       }
       read_ptr = (read_ptr + 1) % IBUS_DMA_BUF_SIZE;
     }
+    rc_channels[2] = 1300;
 
     v_delay(2); // 500Hz
   }
