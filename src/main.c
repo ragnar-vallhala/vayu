@@ -1,5 +1,5 @@
 #include "comm/channel.h"
-#include "comm/i2c_manager.h"
+#include "drivers/i2c_manager.h"
 #include "logger/logger.h"
 #include "navhal.h"
 #include "sensor/bmx160.h"
