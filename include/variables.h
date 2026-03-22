@@ -27,6 +27,8 @@
 #define I2C_PIN_1 GPIO_PB08
 #define I2C_PIN_2 GPIO_PB09
 #define I2C_DR_REG_ADDR (uint32_t)(0x40005400 + 0x10)
+#define I2C_MANAGER_SEMAPHORE_TIMEOUT 3 // ms
+#define I2C_MANAGER_DMA_TIMEOUT 3       // ms
 // IMU Sensor
 #define BMX160_I2C_ADDR 0x68
 
@@ -68,7 +70,7 @@
 #define CALIBRATION_WAIT_USER_TIME_POST_CALIBRATION                            \
   1000 // 1 seconds, waits after recording before saving the calibration
 #define CALIBRATION_SAMPLE_COUNT                                               \
-  1000 // Number of samples to take for calibration
+  500 // Number of samples to take for calibration
 
 // Global telemetry channel and mutex
 #include "comm/channel.h"
