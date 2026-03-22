@@ -136,7 +136,6 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   buildToolBar();
   onRefreshPorts(); // populate port list on startup
   setConnected(false);
-
   // Build Calibration
   m_calibrationWidget = new CalibrationWidget(this);
   m_calibrationWidget->setProtocol(m_protocol);
@@ -149,6 +148,12 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
               m_serial->write(data);
             }
           });
+
+  // Build Motor Status
+  m_motorWidget = new MotorStatusWidget(this);
+  m_stackedWidget->addWidget(m_motorWidget);
+  connect(m_motorWidget, &MotorStatusWidget::backToHomeRequested, this,
+          &MainWindow::showHome);
 
   showHome();
 }
@@ -173,6 +178,10 @@ void MainWindow::showSettings() {
 
 void MainWindow::showCalibration() {
   m_stackedWidget->setCurrentWidget(m_calibrationWidget);
+}
+
+void MainWindow::showMotorStatus() {
+  m_stackedWidget->setCurrentWidget(m_motorWidget);
 }
 
 // ---------------------------------------------------------------------------
@@ -309,6 +318,7 @@ void MainWindow::buildMenuBar() {
   QMenu *windowMenu = menu->addMenu("&Window");
   windowMenu->addAction("&Channels", this, &MainWindow::showRcMonitor);
   windowMenu->addAction("&Calibration", this, &MainWindow::showCalibration);
+  windowMenu->addAction("&Motor Status", this, &MainWindow::showMotorStatus);
 
   fileMenu->addSeparator();
 
@@ -643,28 +653,29 @@ void MainWindow::onUiTimer() {
   qint64 elapsed = now - m_lastHbTime;
 
   if (m_lastHbTime == 0) {
-        // Never received a heartbeat yet — show dark
-        m_liveLabel->setStyleSheet(
-            "background: #1A1D27; color: #4B5263; border-radius: 4px; "
-            "font-weight: bold; padding: 2px 8px; border: 1px solid #2A3347;");
-    } else if (elapsed < 150) {
-        // Hold bright for 150ms before fading
-        // stylesheet already set in onHeartbeatReceived, leave it
-    } else if (elapsed < 2000) {
-        double factor = std::exp(-4.0 * (elapsed - 150) / 1850.0);
-        int alpha = static_cast<int>(255 * factor);
-        int green = static_cast<int>(106 * factor + 29); // 29 minimum
-        m_liveLabel->setStyleSheet(
-            QString("background: rgba(30, %1, 30, 200); "
-                    "color: rgba(255, 255, 255, %2); "
-                    "border-radius: 4px; font-weight: bold; padding: 2px 8px; "
-                    "border: 1px solid rgba(152, 195, 121, %2);")
-                .arg(green).arg(alpha));
-    } else {
-        m_liveLabel->setStyleSheet(
-            "background: #1A1D27; color: #4B5263; border-radius: 4px; "
-            "font-weight: bold; padding: 2px 8px; border: 1px solid #2A3347;");
-    }
+    // Never received a heartbeat yet — show dark
+    m_liveLabel->setStyleSheet(
+        "background: #1A1D27; color: #4B5263; border-radius: 4px; "
+        "font-weight: bold; padding: 2px 8px; border: 1px solid #2A3347;");
+  } else if (elapsed < 150) {
+    // Hold bright for 150ms before fading
+    // stylesheet already set in onHeartbeatReceived, leave it
+  } else if (elapsed < 2000) {
+    double factor = std::exp(-4.0 * (elapsed - 150) / 1850.0);
+    int alpha = static_cast<int>(255 * factor);
+    int green = static_cast<int>(106 * factor + 29); // 29 minimum
+    m_liveLabel->setStyleSheet(
+        QString("background: rgba(30, %1, 30, 200); "
+                "color: rgba(255, 255, 255, %2); "
+                "border-radius: 4px; font-weight: bold; padding: 2px 8px; "
+                "border: 1px solid rgba(152, 195, 121, %2);")
+            .arg(green)
+            .arg(alpha));
+  } else {
+    m_liveLabel->setStyleSheet(
+        "background: #1A1D27; color: #4B5263; border-radius: 4px; "
+        "font-weight: bold; padding: 2px 8px; border: 1px solid #2A3347;");
+  }
 }
 
 void MainWindow::onHeartbeatReceived(uint64_t timestamp, uint8_t deviceId) {
