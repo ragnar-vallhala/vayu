@@ -117,14 +117,16 @@ void AttitudeWidget::drawBankIndicator(QPainter &p, int cx, int cy, int r) {
     p.rotate(a);
     int tickLen =
         (a == 0 || a == -30 || a == 30 || a == -60 || a == 60) ? 12 : 7;
-    p.drawLine(0, -r - 2, 0, -r - 2 - tickLen);
+    // Draw at the bottom instead of top
+    p.drawLine(0, r + 2, 0, r + 2 + tickLen);
     p.restore();
   }
 
   // Bank pointer (triangle) shows current roll
   p.rotate(-m_roll);
   QPolygon tri;
-  tri << QPoint(0, -(r - 4)) << QPoint(-7, -(r - 18)) << QPoint(7, -(r - 18));
+  // Point oriented towards the bottom edge
+  tri << QPoint(0, r - 4) << QPoint(-7, r - 18) << QPoint(7, r - 18);
   p.setBrush(QColor(255, 220, 50));
   p.setPen(Qt::NoPen);
   p.drawPolygon(tri);
@@ -159,13 +161,13 @@ void AttitudeWidget::drawCompass(QPainter &p, int W, int H) {
   f.setBold(true);
   p.setFont(f);
 
-  // Draw ticks and labels along the bottom arc of the circle
-  // Centred on current yaw at the bottom (90 deg)
+  // Draw ticks and labels along the top arc of the circle
+  // Centred on current yaw at the top (270 deg)
   for (int d = -60; d <= 60; d += 10) {
     int hdg = ((int)(m_yaw + d) % 360 + 360) % 360;
 
-    // Position on circle in degrees (90 is the bottom)
-    float angleDeg = 90.0f + d;
+    // Position on circle in degrees (270 is the top)
+    float angleDeg = 270.0f + d;
     float angleRad = qDegreesToRadians(angleDeg);
 
     // Tick (polar to cartesian)
@@ -206,11 +208,11 @@ void AttitudeWidget::drawCompass(QPainter &p, int W, int H) {
     p.drawText(QRectF(x_t - 20, y_t - 10, 40, 20), Qt::AlignCenter, label);
   }
 
-  // Pointer at the bottom point of the circle
+  // Pointer at the top point of the circle
   p.setBrush(QColor(255, 220, 50));
   p.setPen(Qt::NoPen);
   QPolygon ptr;
-  ptr << QPoint(cx - 5, cy + r - 2) << QPoint(cx + 5, cy + r - 2)
-      << QPoint(cx, cy + r - 10);
+  ptr << QPoint(cx - 5, cy - r + 2) << QPoint(cx + 5, cy - r + 2)
+      << QPoint(cx, cy - r + 10);
   p.drawPolygon(ptr);
 }

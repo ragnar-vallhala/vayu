@@ -46,10 +46,12 @@ enum class CalibUpdateType : uint8_t {
   LeftDown = 0x04,
   Upright = 0x05,
   UpsideDown = 0x06,
-  FreeRot = 0x07
+  FreeRot = 0x07,
+  MagAxisCoverage = 0x08
 };
 
 struct CalibrationUpdate {
   CalibUpdateType type;
   float data;
+  float values[3];
 };
