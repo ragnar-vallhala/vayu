@@ -18,6 +18,7 @@ static uint8_t initialized = 0;
 static uint8_t _rx_data[I2C_MAX_RX_LEN]; // current transanction's rx data
 static void i2c_manager_callback(void);
 static void i2c_manager_signal_error(void);
+
 void unstick_i2c_bus(void) {
   hal_gpio_setmode(I2C_PIN_1, GPIO_OUTPUT, GPIO_PULLUP);
   hal_gpio_setmode(I2C_PIN_2, GPIO_OUTPUT, GPIO_PULLUP);
