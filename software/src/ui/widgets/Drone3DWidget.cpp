@@ -28,27 +28,35 @@ void Drone3DWidget::paintEvent(QPaintEvent *event) {
 
   int w = width();
   int h = height();
-  p.fillRect(rect(), QColor(26, 29, 39));
+  p.fillRect(rect(), QColor(26, 29, 39)); // Solid dark background
 
   // --- 3D Projection Setup ---
-  QMatrix4x4 model;
-  // Apply rotations (invert to match drone physics vs camera)
-  // Standard PFD: Drone moves relative to horizon.
-  // Here we show the DRONE rotating, so use raw angles or inverted depending on
-  // perspective. We'll show the drone rotating in a fixed world.
-  model.rotate(m_yaw, 0, 0, 1);   // Yaw (Z)
-  model.rotate(m_pitch, 0, 1, 0); // Pitch (Y)
-  model.rotate(m_roll, 1, 0, 0);  // Roll (X)
-
+  // Tail-view: camera at (-15, 0, 0) looking at (0, 0, 0) with Z as UP.
   QMatrix4x4 view;
-  view.lookAt(QVector3D(10, 10, 10), QVector3D(0, 0, 0), QVector3D(0, 0, 1));
+  view.lookAt(QVector3D(-15, 0, 0), QVector3D(0, 0, 0), QVector3D(0, 0, 1));
 
   QMatrix4x4 projection;
-  projection.perspective(45.0f, (float)w / h, 0.1f, 100.0f);
+  projection.perspective(40.0f, (float)w / h, 0.1f, 1000.0f);
 
-  QMatrix4x4 mvp = projection * view * model;
+  QMatrix4x4 vp = projection * view;
 
-  // --- Draw Drone ---
+  // --- Draw Drone (ROTATING) ---
+  QMatrix4x4 model;
+  model.rotate(m_yaw, 0, 0, 1);
+  model.rotate(m_pitch, 0, 1, 0);
+  model.rotate(m_roll, 1, 0, 0);
+
+  QMatrix4x4 mvp = vp * model;
+
+  // --- Draw Body Axes (Moving with Drone) ---
+  // X: Red (Front), Y: Green (Right), Z: Blue (Up)
+  auto drawAxis = [&](const QVector3D &dir, const QColor &color) {
+    p.setPen(QPen(color, 2, Qt::SolidLine));
+    p.drawLine(project(QVector3D(0, 0, 0), mvp), project(dir * 6.0f, mvp));
+  };
+  drawAxis(QVector3D(1, 0, 0), QColor(224, 108, 117)); // X
+  drawAxis(QVector3D(0, 1, 0), QColor(152, 195, 121)); // Y
+  drawAxis(QVector3D(0, 0, 1), QColor(97, 175, 239));  // Z
   // 1. Arms (X configuration)
   float armL = 4.0f;
   float armW = 0.3f;
