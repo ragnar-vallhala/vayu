@@ -103,19 +103,21 @@ DecodedPacket PacketDecoder::decode(const QByteArray &data) {
         result.payload =
             QString("INVALID SYSTEM_STATE LEN: %1").arg(result.length);
       }
-    } else if (result.length == 7 && raw[8] == 0x01) {
-      // SYSTEM_ORIGIN_CALIBRATION: [origin] [n] [update_type]
-      // [float32 data]
+    } else if (result.length >= 7 && raw[8] == 0x01) {
+      // SYSTEM_ORIGIN_CALIBRATION
       CalibrationUpdate cal;
       cal.type = static_cast<CalibUpdateType>(raw[10]);
-      memcpy(&cal.data, raw + 11, 4);
-      result.payload = cal;
-    } else if (result.length == 18 && raw[8] == 0x01) {
-      // Legacy or aggregate format
-      float progress;
-      memcpy(&progress, raw + 10, 4);
-      result.payload =
-          QString("CALIBRATION PROGRESS: %1%").arg(progress, 0, 'f', 2);
+
+      if (cal.type == CalibUpdateType::MagAxisCoverage && result.length >= 15) {
+        memcpy(cal.values, raw + 11, 12);
+        result.payload = cal;
+      } else if (result.length == 7) {
+        memcpy(&cal.data, raw + 11, 4);
+        result.payload = cal;
+      } else {
+        // Fallback for legacy progress or other strings
+        result.payload = QString::fromLatin1(data.mid(8, result.length));
+      }
     } else {
       // Legacy or other status origin: treat as string if small, or generic
       // format
