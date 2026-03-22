@@ -4,12 +4,14 @@
 #include "comm/ibus.h"
 #include "comm/serializer.h"
 #include "sensor/bmx160.h"
+#include "sensor/imu_buffer.h"
 #include "sys/state.h"
 #include "utils.h"
 #include "utils/utils.h"
 #include "vaios.h"
 #include "variables.h"
 #include "vayu_tasks.h"
+#include <math.h>
 // PID Controllers
 static pid_controller_t pid_roll_angle, pid_roll_rate;
 static pid_controller_t pid_pitch_angle, pid_pitch_rate;
@@ -93,13 +95,34 @@ void control_task(void *args) {
     esc_arm(&motors[i]);
   }
 
-  bmx160_all_reading_t imu_data;
-  attitude_t attitude;
+  bmx160_all_reading_t imu_data = {0};
+  attitude_t attitude = {0};
 
   while (1) {
     // 1. Get latest sensor data
+    // Use averaged gyro data from the buffer if available
+    bool valid = imu_buffer_pop(&imu_data);
+
+    if (!valid) {
+      // Fallback: use last valid data OR zero
+      static bmx160_all_reading_t last_valid = {0};
+
+      imu_data = last_valid;
+    } else {
+      // Save last good sample
+      static bmx160_all_reading_t last_valid = {0};
+      last_valid = imu_data;
+    }
+
+    // 🔒 Sanitize gyro (CRITICAL)
+    for (int i = 0; i < 3; i++) {
+      if (!isfinite(imu_data.converted.gyr[i]) ||
+          fabsf(imu_data.converted.gyr[i]) > 2000.0f) {
+        imu_data.converted.gyr[i] = 0.0f;
+      }
+    }
+    // Get current attitude (updated by fusion task)
     bmx160_get_attitude(&attitude);
-    bmx160_read_all_converted(&imu_data);
 
     // 2. Get RC setpoints and map to physical units
     float target_roll =
@@ -125,11 +148,10 @@ void control_task(void *args) {
         ((float)rc_channels[3] - 1500.0f) / 500.0f * MAX_CONTROL_RATE;
 
     // 4. Rate Control (Inner Rate Loop)
-    float out_roll = 0.0f;
-    float out_pitch = 0.0f;
-    float out_yaw = 0.0f;
-    out_roll = pid_calculate(&pid_roll_rate, target_rate_roll,
+    float out_roll = pid_calculate(&pid_roll_rate, target_rate_roll,
                                    imu_data.converted.gyr[0], 0.0025f);
+    float out_pitch = 0;
+    float out_yaw = 0;
     // float out_pitch = pid_calculate(&pid_pitch_rate, target_rate_pitch,
     //                                 imu_data.converted.gyr[1], 0.0025f);
     // float out_yaw = pid_calculate(&pid_yaw_rate, target_yaw_rate,
@@ -147,7 +169,7 @@ void control_task(void *args) {
         motor_cmds[i] = 0.0f;
       if (motor_cmds[i] > 1.0f)
         motor_cmds[i] = 1.0f;
-      // esc_set_throttle(&motors[i], motor_cmds[i]);
+      esc_set_throttle(&motors[i], motor_cmds[i]);
     }
 
     static uint32_t last_telemetry_time = 0;
