@@ -35,7 +35,7 @@ void imu_telemetry_task(void *args) {
   }
 
   while (1) {
-    int count = imu_buffer_pop_all(samples, IMU_BUFFER_SIZE);
+    int count = imu_buffer_peek_all(samples, IMU_BUFFER_SIZE);
 
     if (count > 0) {
       float sum_acc[3] = {0, 0, 0};
