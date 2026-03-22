@@ -153,7 +153,7 @@ void i2c_manager_task(void *args) {
 
     if (item.state == I2C_TRANS_IDLE && item.op_type == I2C_OP_READ) {
 
-      if (v_semaphore_take(_i2c_sema, MS_TO_TICKS(5)) != VA_PASS) {
+      if (v_semaphore_take(_i2c_sema, MS_TO_TICKS(I2C_MANAGER_SEMAPHORE_TIMEOUT)) != VA_PASS) {
         // Bus locked — invoke error path
         void (*cb)(void *) =
             item.callback; // use item, not _current_trans (not set yet)
@@ -196,7 +196,7 @@ void i2c_manager_task(void *args) {
       // *** Block here until DMA IRQ fires and callback completes ***
       // This prevents re-entry, prevents semaphore double-give,
       // and ensures _rx_data is stable before next transaction
-      if (v_semaphore_take(_dma_done_sema, MS_TO_TICKS(5)) != VA_PASS) {
+      if (v_semaphore_take(_dma_done_sema, MS_TO_TICKS(I2C_MANAGER_DMA_TIMEOUT)) != VA_PASS) {
         // DMA hung — force error and release bus
         i2c_manager_signal_error();
       }
