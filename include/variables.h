@@ -18,7 +18,12 @@
 #define _BUZZER_PIN GPIO_PA05
 #define _HEARTBEAT_DEFAULT_TIMEPERIOD 1000 // 1000ms
 
+
+
 // I2C Control
+#define MAX_I2C_DEVICES 10
+#define I2C_MAX_TX_LEN 32
+#define I2C_MAX_RX_LEN 64
 #define I2C_BUS I2C1
 #define I2C_MODE FAST_MODE
 #define I2C_PIN_1 GPIO_PB08
