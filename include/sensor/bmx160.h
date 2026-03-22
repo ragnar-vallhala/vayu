@@ -199,7 +199,7 @@ uint16_t bmx160_get_chip_id(void);
 
 void wake_imu_read_task();
 void bmx160_initiate_read(void *args);
-void bmx160_dma_callback(void);
+void bmx160_dma_callback(void *args);
 
 
 // Temp APIs

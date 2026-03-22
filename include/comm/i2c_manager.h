@@ -22,9 +22,7 @@ typedef struct {
   uint8_t id;
   uint8_t addr;
   uint8_t reg_addr;
-  uint8_t tx_data[I2C_MAX_TX_LEN];
   uint16_t tx_len;
-  uint8_t rx_data[I2C_MAX_RX_LEN];
   uint16_t rx_len;
   void (*callback)(void *); // for rx the void* has one byte of data len and
                             // then follow that many bytes of data
