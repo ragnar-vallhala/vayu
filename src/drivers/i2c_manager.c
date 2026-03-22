@@ -1,4 +1,4 @@
-#include "comm/i2c_manager.h"
+#include "drivers/i2c_manager.h"
 #include "core/cortex-m4/i2c.h"
 #include "ipc.h"
 #include "port.h"
@@ -153,7 +153,7 @@ void i2c_manager_task(void *args) {
 
     if (item.state == I2C_TRANS_IDLE && item.op_type == I2C_OP_READ) {
 
-      if (v_semaphore_take(_i2c_sema, MS_TO_TICKS(3)) != VA_PASS) {
+      if (v_semaphore_take(_i2c_sema, MS_TO_TICKS(5)) != VA_PASS) {
         // Bus locked — invoke error path
         void (*cb)(void *) =
             item.callback; // use item, not _current_trans (not set yet)
@@ -196,7 +196,7 @@ void i2c_manager_task(void *args) {
       // *** Block here until DMA IRQ fires and callback completes ***
       // This prevents re-entry, prevents semaphore double-give,
       // and ensures _rx_data is stable before next transaction
-      if (v_semaphore_take(_dma_done_sema, MS_TO_TICKS(1)) != VA_PASS) {
+      if (v_semaphore_take(_dma_done_sema, MS_TO_TICKS(5)) != VA_PASS) {
         // DMA hung — force error and release bus
         i2c_manager_signal_error();
       }
@@ -260,7 +260,7 @@ int i2c_queue_push(i2c_queue_t *q, const i2c_async_t *item) {
   if (q->count >= MAX_I2C_DEVICES) {
     return 0; // FULL
   }
-  if (v_semaphore_take(_queue_sema, MS_TO_TICKS(0)) != VA_PASS) {
+  if (v_semaphore_take(_queue_sema, MS_TO_TICKS(5)) != VA_PASS) {
     return 0;
   }
   q->queue[q->tail] = *item;
@@ -276,7 +276,7 @@ int i2c_queue_pop(i2c_queue_t *q, i2c_async_t *item) {
   if (q->count == 0) {
     return 0; // EMPTY
   }
-  if (v_semaphore_take(_queue_sema, MS_TO_TICKS(0)) != VA_PASS) {
+  if (v_semaphore_take(_queue_sema, MS_TO_TICKS(5)) != VA_PASS) {
     return 0;
   }
   *item = q->queue[q->head];
@@ -292,7 +292,7 @@ int i2c_queue_peek(i2c_queue_t *q, i2c_async_t *item) {
   if (q->count == 0) {
     return 0;
   }
-  if (v_semaphore_take(_queue_sema, MS_TO_TICKS(0)) != VA_PASS) {
+  if (v_semaphore_take(_queue_sema, MS_TO_TICKS(5)) != VA_PASS) {
     return 0;
   }
   *item = q->queue[q->head];
