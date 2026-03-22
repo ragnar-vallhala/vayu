@@ -78,7 +78,7 @@ static bmx160_err_type bmx160_wait_mag_manual_op(void) {
   uint8_t status;
   int timeout = 100;
   do {
-    if (hal_i2c_write_read(I2C_BUS, BMX160_I2C_ADDR, &status_reg, 1, &status,
+    if (i2c_manager_write_read(BMX160_I2C_ADDR, &status_reg, 1, &status,
                            1) != HAL_I2C_OK)
       return ERR0;
     if (!(status & 0x04)) // mag_man_op bit clear = operation done
@@ -89,7 +89,7 @@ static bmx160_err_type bmx160_wait_mag_manual_op(void) {
   // Phase 2: wait for mag_man_op to go LOW (operation complete)
   timeout = 100;
   do {
-    if (hal_i2c_write_read(I2C_BUS, BMX160_I2C_ADDR, &status_reg, 1, &status,
+    if (i2c_manager_write_read(BMX160_I2C_ADDR, &status_reg, 1, &status,
                            1) != HAL_I2C_OK)
       return ERR0;
     if (!(status & 0x04))
@@ -107,7 +107,7 @@ static bmx160_err_type bmx160_verify_pmu(uint8_t mask, uint8_t expected) {
       v_semaphore_take(bmx160_i2c_sema, MS_TO_TICKS(100)) != VA_PASS)
     return ERR0;
 
-  if (hal_i2c_write_read(I2C_BUS, BMX160_I2C_ADDR, &reg, 1, rx_buf, 1) !=
+  if (i2c_manager_write_read(BMX160_I2C_ADDR, &reg, 1, rx_buf, 1) !=
       HAL_I2C_OK) {
     v_semaphore_give(bmx160_i2c_sema);
     return ERR0;
@@ -143,7 +143,7 @@ hal_i2c_status_t bmx160_init(void) {
   // 2. Soft Reset to ensure clean state
   tx_buf[0] = BMX160_CMD_ADDR;
   tx_buf[1] = 0xB6; // softreset command
-  hal_i2c_write(I2C_BUS, BMX160_I2C_ADDR, tx_buf, 2);
+  i2c_manager_write(BMX160_I2C_ADDR, tx_buf, 2);
   v_delay(100);
 
   // 3. Put accelerometer into normal mode
@@ -151,7 +151,7 @@ hal_i2c_status_t bmx160_init(void) {
   while (retry--) {
     tx_buf[0] = BMX160_CMD_ADDR;
     tx_buf[1] = BMX160_CMD_ACC_NORMAL;
-    hal_i2c_write(I2C_BUS, BMX160_I2C_ADDR, tx_buf, 2);
+    i2c_manager_write(BMX160_I2C_ADDR, tx_buf, 2);
     v_delay(20);
     if (bmx160_verify_pmu(BMX160_PMU_STAT_ACC_MASK,
                           BMX160_PMU_STAT_ACC_NORMAL) == NO_ERR) {
@@ -164,7 +164,7 @@ hal_i2c_status_t bmx160_init(void) {
   while (retry--) {
     tx_buf[0] = BMX160_CMD_ADDR;
     tx_buf[1] = BMX160_CMD_GYR_NORMAL;
-    hal_i2c_write(I2C_BUS, BMX160_I2C_ADDR, tx_buf, 2);
+    i2c_manager_write(BMX160_I2C_ADDR, tx_buf, 2);
     v_delay(100);
     if (bmx160_verify_pmu(BMX160_PMU_STAT_GYR_MASK,
                           BMX160_PMU_STAT_GYR_NORMAL) == NO_ERR) {
@@ -177,7 +177,7 @@ hal_i2c_status_t bmx160_init(void) {
   while (retry--) {
     tx_buf[0] = BMX160_CMD_ADDR;
     tx_buf[1] = BMX160_CMD_MAG_NORMAL;
-    hal_i2c_write(I2C_BUS, BMX160_I2C_ADDR, tx_buf, 2);
+    i2c_manager_write(BMX160_I2C_ADDR, tx_buf, 2);
     v_delay(100);
     if (bmx160_verify_pmu(BMX160_PMU_STAT_MAG_MASK,
                           BMX160_PMU_STAT_MAG_NORMAL) == NO_ERR) {
@@ -237,7 +237,7 @@ static bmx160_err_type bmx160_write_bmm150_reg(uint8_t reg, uint8_t data) {
       v_semaphore_take(bmx160_i2c_sema, MS_TO_TICKS(100)) != VA_PASS)
     return ERR0;
 
-  if (hal_i2c_write(I2C_BUS, BMX160_I2C_ADDR, tx_buf, 2) != HAL_I2C_OK) {
+  if (i2c_manager_write(BMX160_I2C_ADDR, tx_buf, 2) != HAL_I2C_OK) {
     v_semaphore_give(bmx160_i2c_sema);
     return ERR0;
   }
@@ -250,7 +250,7 @@ static bmx160_err_type bmx160_write_bmm150_reg(uint8_t reg, uint8_t data) {
   if (v_semaphore_take(bmx160_i2c_sema, MS_TO_TICKS(100)) != VA_PASS)
     return ERR0;
 
-  if (hal_i2c_write(I2C_BUS, BMX160_I2C_ADDR, tx_buf, 2) != HAL_I2C_OK) {
+  if (i2c_manager_write(BMX160_I2C_ADDR, tx_buf, 2) != HAL_I2C_OK) {
     v_semaphore_give(bmx160_i2c_sema);
     return ERR0;
   }
@@ -269,7 +269,7 @@ static bmx160_err_type bmx160_read_bmm150_reg(uint8_t reg, uint8_t *data) {
       v_semaphore_take(bmx160_i2c_sema, MS_TO_TICKS(100)) != VA_PASS)
     return ERR0;
 
-  if (hal_i2c_write(I2C_BUS, BMX160_I2C_ADDR, tx_buf, 2) != HAL_I2C_OK) {
+  if (i2c_manager_write(BMX160_I2C_ADDR, tx_buf, 2) != HAL_I2C_OK) {
     v_semaphore_give(bmx160_i2c_sema);
     return ERR0;
   }
@@ -282,7 +282,7 @@ static bmx160_err_type bmx160_read_bmm150_reg(uint8_t reg, uint8_t *data) {
   if (v_semaphore_take(bmx160_i2c_sema, MS_TO_TICKS(100)) != VA_PASS)
     return ERR0;
 
-  if (hal_i2c_write_read(I2C_BUS, BMX160_I2C_ADDR, &read_reg, 1, data, 1) !=
+  if (i2c_manager_write_read(BMX160_I2C_ADDR, &read_reg, 1, data, 1) !=
       HAL_I2C_OK) {
     v_semaphore_give(bmx160_i2c_sema);
     return ERR0;
@@ -325,19 +325,13 @@ static bmx160_err_type bmx160_set_mag_conf() {
   // 1. Route secondary I2C interface to Magnetometer (0x6B = 0x20)
   tx_buf[0] = BMX160_IF_CONF_ADDR;
   tx_buf[1] = 0x20;
-  hal_i2c_write(I2C_BUS, BMX160_I2C_ADDR, tx_buf, 2);
+  i2c_manager_write(BMX160_I2C_ADDR, tx_buf, 2);
   v_delay(1);
-
-  // 1b. Set BMM150 I2C address in BMX160 register 0x4B (0x10 << 1 = 0x20)
-  // tx_buf[0] = 0x4B;
-  // tx_buf[1] = 0x20;
-  // hal_i2c_write(I2C_BUS, BMX160_I2C_ADDR, tx_buf, 2);
-  // v_delay(1);
 
   // 2. Enter Manual Mode to allow BMM150 writes/reads
   tx_buf[0] = BMX160_MAG_IF_0_CONF_ADDR;
   tx_buf[1] = 0x80; // manual_en = 1
-  hal_i2c_write(I2C_BUS, BMX160_I2C_ADDR, tx_buf, 2);
+  i2c_manager_write(BMX160_I2C_ADDR, tx_buf, 2);
   v_delay(1);
 
   // 3. Take BMM150 out of suspend (Manual write 0x01 to BMM150 Reg 0x4B)
@@ -362,13 +356,13 @@ static bmx160_err_type bmx160_set_mag_conf() {
   // 6. Set Mag Read Address to 0x42 (Data X LSB)
   tx_buf[0] = BMX160_MAG_IF_1_READ_ADDR;
   tx_buf[1] = 0x42;
-  hal_i2c_write(I2C_BUS, BMX160_I2C_ADDR, tx_buf, 2);
+  i2c_manager_write(BMX160_I2C_ADDR, tx_buf, 2);
   v_delay(1);
 
   // 7. Configure ODR (0x44 = 0x08 for 100Hz)
   tx_buf[0] = BMX160_MAG_CONF_ADDR;
   tx_buf[1] = 0x08;
-  hal_i2c_write(I2C_BUS, BMX160_I2C_ADDR, tx_buf, 2);
+  i2c_manager_write(BMX160_I2C_ADDR, tx_buf, 2);
   v_delay(1);
 
   // 8. Verify BMM150 Chip ID (Register 0x40) - MUST BE DONE IN MANUAL MODE
@@ -381,7 +375,7 @@ static bmx160_err_type bmx160_set_mag_conf() {
   // 9. Enable Auto-mode (manual_en = 0, burst_read = 8 bytes)
   tx_buf[0] = BMX160_MAG_IF_0_CONF_ADDR;
   tx_buf[1] = 0x03;
-  hal_i2c_write(I2C_BUS, BMX160_I2C_ADDR, tx_buf, 2);
+  i2c_manager_write(BMX160_I2C_ADDR, tx_buf, 2);
   v_delay(10);
 
   return NO_ERR;
@@ -600,7 +594,7 @@ bmx160_err_type bmx160_read_all_converted(bmx160_all_reading_t *data) {
 bmx160_err_type bmx160_read_acc_config(bmx160_config_t *config) {
   // Reading ACC conf
   tx_buf[0] = BMX160_ACC_CONF_ADDR;
-  if (hal_i2c_write_read(I2C_BUS, BMX160_I2C_ADDR, tx_buf, 1, rx_buf, 1) ==
+  if (i2c_manager_write_read(BMX160_I2C_ADDR, tx_buf, 1, rx_buf, 1) ==
       HAL_I2C_OK) {
     config->bmx160_acc_us = GET_ACC_US(rx_buf[0]);
     config->bmx160_acc_bwp = GET_ACC_BWP(rx_buf[0]);
@@ -609,7 +603,7 @@ bmx160_err_type bmx160_read_acc_config(bmx160_config_t *config) {
     return ERR0;
 
   tx_buf[0] = BMX160_ACC_RANGE_ADDR;
-  if (hal_i2c_write_read(I2C_BUS, BMX160_I2C_ADDR, tx_buf, 1, rx_buf, 1) ==
+  if (i2c_manager_write_read(BMX160_I2C_ADDR, tx_buf, 1, rx_buf, 1) ==
       HAL_I2C_OK) {
     config->bmx160_acc_range = GET_ACC_RANGE(rx_buf[0]);
   } else
@@ -620,7 +614,7 @@ bmx160_err_type bmx160_read_acc_config(bmx160_config_t *config) {
 bmx160_err_type bmx160_read_gyr_config(bmx160_config_t *config) {
   // Reading GYR conf
   tx_buf[0] = BMX160_GYR_CONF_ADDR;
-  if (hal_i2c_write_read(I2C_BUS, BMX160_I2C_ADDR, tx_buf, 1, rx_buf, 1) ==
+  if (i2c_manager_write_read(BMX160_I2C_ADDR, tx_buf, 1, rx_buf, 1) ==
       HAL_I2C_OK) {
     config->bmx160_gyr_bwp = GET_GYR_BWP(rx_buf[0]);
     config->bmx160_gyr_odr = GET_GYR_ODR(rx_buf[0]);
@@ -628,7 +622,7 @@ bmx160_err_type bmx160_read_gyr_config(bmx160_config_t *config) {
     return ERR0;
 
   tx_buf[0] = BMX160_GYR_RANGE_ADDR;
-  if (hal_i2c_write_read(I2C_BUS, BMX160_I2C_ADDR, tx_buf, 1, rx_buf, 1) ==
+  if (i2c_manager_write_read(BMX160_I2C_ADDR, tx_buf, 1, rx_buf, 1) ==
       HAL_I2C_OK) {
     config->bmx160_gyr_range = GET_GYR_RANGE(rx_buf[0]);
   } else
@@ -639,7 +633,7 @@ bmx160_err_type bmx160_read_gyr_config(bmx160_config_t *config) {
 bmx160_err_type bmx160_read_mag_config(bmx160_config_t *config) {
   // Reading MAG conf
   tx_buf[0] = BMX160_MAG_CONF_ADDR;
-  if (hal_i2c_write_read(I2C_BUS, BMX160_I2C_ADDR, tx_buf, 1, rx_buf, 1) ==
+  if (i2c_manager_write_read(BMX160_I2C_ADDR, tx_buf, 1, rx_buf, 1) ==
       HAL_I2C_OK) {
     config->bmx160_mag_odr = GET_MAG_ODR(rx_buf[0]);
   } else
@@ -714,14 +708,14 @@ bmx160_err_type bmx160_write_acc_config(bmx160_config_t *config) {
   val = bmx160_get_acc_conf(config);
   tx_buf[0] = BMX160_ACC_CONF_ADDR;
   tx_buf[1] = val;
-  if (hal_i2c_write(I2C_BUS, BMX160_I2C_ADDR, tx_buf, 2) != HAL_I2C_OK)
+  if (i2c_manager_write(BMX160_I2C_ADDR, tx_buf, 2) != HAL_I2C_OK)
     return ERR0;
 
   // --- ACC_RANGE ---
   val = bmx160_get_acc_range(config);
   tx_buf[0] = BMX160_ACC_RANGE_ADDR;
   tx_buf[1] = val;
-  if (hal_i2c_write(I2C_BUS, BMX160_I2C_ADDR, tx_buf, 2) != HAL_I2C_OK)
+  if (i2c_manager_write(BMX160_I2C_ADDR, tx_buf, 2) != HAL_I2C_OK)
     return ERR0;
 
   return NO_ERR;
@@ -734,14 +728,14 @@ bmx160_err_type bmx160_write_gyr_config(bmx160_config_t *config) {
   val = bmx160_get_gyr_conf(config);
   tx_buf[0] = BMX160_GYR_CONF_ADDR;
   tx_buf[1] = val;
-  if (hal_i2c_write(I2C_BUS, BMX160_I2C_ADDR, tx_buf, 2) != HAL_I2C_OK)
+  if (i2c_manager_write(BMX160_I2C_ADDR, tx_buf, 2) != HAL_I2C_OK)
     return ERR0;
 
   // --- GYR_RANGE ---
   val = bmx160_get_gyr_range(config);
   tx_buf[0] = BMX160_GYR_RANGE_ADDR;
   tx_buf[1] = val;
-  if (hal_i2c_write(I2C_BUS, BMX160_I2C_ADDR, tx_buf, 2) != HAL_I2C_OK)
+  if (i2c_manager_write(BMX160_I2C_ADDR, tx_buf, 2) != HAL_I2C_OK)
     return ERR0;
 
   return NO_ERR;
@@ -754,7 +748,7 @@ bmx160_err_type bmx160_write_mag_config(bmx160_config_t *config) {
   val = bmx160_get_mag_conf(config);
   tx_buf[0] = BMX160_MAG_CONF_ADDR;
   tx_buf[1] = val;
-  if (hal_i2c_write(I2C_BUS, BMX160_I2C_ADDR, tx_buf, 2) != HAL_I2C_OK)
+  if (i2c_manager_write(BMX160_I2C_ADDR, tx_buf, 2) != HAL_I2C_OK)
     return ERR0;
 
   return NO_ERR;
@@ -823,7 +817,7 @@ void bmx160_initiate_read(void *args) {
       .stream = 0,
       .channel = 1,
       .direction = DMA_DIR_P2M,
-      .src_addr = (uint32_t)(0x40005400 + 0x10), // I2C1_BASE + DR Offset
+      .src_addr = I2C_DR_REG_ADDR, // I2C1_BASE + DR Offset
       .dst_addr = (uint32_t)_bmx_dma_rx_buffer,
       .data_count = 30,
       .src_inc = 0,
