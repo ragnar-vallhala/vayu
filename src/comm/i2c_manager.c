@@ -153,7 +153,7 @@ void i2c_manager_task(void *args) {
 
     if (item.state == I2C_TRANS_IDLE && item.op_type == I2C_OP_READ) {
 
-      if (v_semaphore_take(_i2c_sema, MS_TO_TICKS(2)) != VA_PASS) {
+      if (v_semaphore_take(_i2c_sema, MS_TO_TICKS(3)) != VA_PASS) {
         // Bus locked — invoke error path
         void (*cb)(void *) =
             item.callback; // use item, not _current_trans (not set yet)
