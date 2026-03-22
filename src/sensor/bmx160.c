@@ -1,5 +1,5 @@
 #include "sensor/bmx160.h"
-#include "comm/i2c_manager.h"
+#include "drivers/i2c_manager.h"
 #include "comm/serializer.h"
 #include "ipc.h"
 #include "maths/lpf.h"
@@ -784,7 +784,7 @@ void bmx160_initiate_read(void *args) {
     if (hal_ret == HAL_I2C_OK) {
 
       // Wait for DMA completion
-      if (v_semaphore_take(bmx160_dma_sema, MS_TO_TICKS(2)) == VA_PASS) {
+      if (v_semaphore_take(bmx160_dma_sema, MS_TO_TICKS(5)) == VA_PASS) {
         i2c_error_count = 0;
         bmx160_process_data();
       } else {
@@ -1053,7 +1053,7 @@ void bmx160_process_data(void) {
   }
   // 1kHz sampling rate (from main.c registration)
   if (bmx160_attitude_mutex != NULL) {
-    v_mutex_lock(bmx160_attitude_mutex, MS_TO_TICKS(1));
+    v_mutex_lock(bmx160_attitude_mutex, MS_TO_TICKS(5));
   }
   if (SF_FILTER_USED == SF_MAHONY) {
     m_mahony_filter(_bmx_data.converted.acc[0], _bmx_data.converted.acc[1],
@@ -1076,7 +1076,7 @@ void bmx160_process_data(void) {
 
 void bmx160_get_attitude(attitude_t *att) {
   if (att != NULL && bmx160_attitude_mutex != NULL) {
-    v_mutex_lock(bmx160_attitude_mutex, MS_TO_TICKS(1));
+    v_mutex_lock(bmx160_attitude_mutex, MS_TO_TICKS(5));
     *att = _bmx_orientation;
     v_mutex_unlock(bmx160_attitude_mutex);
   }
