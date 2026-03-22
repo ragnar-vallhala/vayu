@@ -1,6 +1,6 @@
 #include "sensor/bmx160.h"
-#include "drivers/i2c_manager.h"
 #include "comm/serializer.h"
+#include "drivers/i2c_manager.h"
 #include "ipc.h"
 #include "maths/lpf.h"
 #include "maths/sensor_fusion.h"
@@ -13,6 +13,7 @@
 #include "vaios.h"
 #include "variables.h"
 #include "vayu_tasks.h"
+#include "vfs.h"
 #include <math.h>
 #include <stdint.h>
 
@@ -112,10 +113,18 @@ static bmx160_err_type bmx160_verify_pmu(uint8_t mask, uint8_t expected) {
 }
 
 hal_i2c_status_t bmx160_init(void) {
-  // Create I2C bus semaphore early. Ensure it starts "given"
 
+  // Create I2C bus semaphore early. Ensure it starts "given"
   in_init = 1; // Explicitly set it here as well
 
+  // Read calibration from sd card
+  vfs_fd_t file = vfs_open(CALIBRATION_FILE_PATH, VFS_O_RDONLY);
+  if (file < 0) {
+    vayu_log("[CALIB] Failed to open calibration file.");
+  } else {
+    vfs_read(file, &bmx160_calib, sizeof(bmx160_calibration_t));
+    vfs_close(file);
+  }
   // Create attitude mutex
   if (bmx160_attitude_mutex == NULL) {
     bmx160_attitude_mutex = v_mutex_create();
@@ -784,7 +793,8 @@ void bmx160_initiate_read(void *args) {
     if (hal_ret == HAL_I2C_OK) {
 
       // Wait for DMA completion
-      if (v_semaphore_take(bmx160_dma_sema, MS_TO_TICKS(I2C_MANAGER_DMA_TIMEOUT)) == VA_PASS) {
+      if (v_semaphore_take(bmx160_dma_sema,
+                           MS_TO_TICKS(I2C_MANAGER_DMA_TIMEOUT)) == VA_PASS) {
         i2c_error_count = 0;
         bmx160_process_data();
       } else {
@@ -1076,7 +1086,8 @@ void bmx160_process_data(void) {
 
 void bmx160_get_attitude(attitude_t *att) {
   if (att != NULL && bmx160_attitude_mutex != NULL) {
-    v_mutex_lock(bmx160_attitude_mutex, MS_TO_TICKS(I2C_MANAGER_SEMAPHORE_TIMEOUT));
+    v_mutex_lock(bmx160_attitude_mutex,
+                 MS_TO_TICKS(I2C_MANAGER_SEMAPHORE_TIMEOUT));
     *att = _bmx_orientation;
     v_mutex_unlock(bmx160_attitude_mutex);
   }
@@ -1397,7 +1408,15 @@ void calibration_task(void *args) {
   send_packet(&g_telemetry_channel, PACKET_TYPE_SYSTEM_STATUS, payload, 7);
 
   i2c_error_count = 0;
-
+  vfs_fd_t file =
+      vfs_open(CALIBRATION_FILE_PATH, VFS_O_WRONLY | VFS_O_CREAT | VFS_O_TRUNC);
+  if (file < 0) {
+    vayu_log("[CALIB] Failed to open calibration file.");
+    return;
+  }
+  uint8_t res = vfs_write(file, &bmx160_calib, sizeof(bmx160_calibration_t));
+  vayu_log("[CALIB] Calibration file written. Result: %d", res);
+  vfs_close(file);
   // bmx160_init();
   // v_delay(50);
   // wake_imu_read_task();
