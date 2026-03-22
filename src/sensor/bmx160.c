@@ -30,7 +30,6 @@ uint8_t rx_buf[14]; // Increased for safer multi-byte reads
 static float last_mag[3] = {0}; // last valid mag readings
 static int stable_count = 0;    // is platform stable
 
-static SemaphoreHandle_t bmx160_i2c_sema;   // Semaphore for I2C bus lock
 static MutexHandle_t bmx160_attitude_mutex; // Mutex for attitude data
 static SemaphoreHandle_t bmx160_dma_sema;   // Semaphore for DMA completion
 static SemaphoreHandle_t bmx160_timer_sema; // Semaphore for Timer wake-up
@@ -78,8 +77,8 @@ static bmx160_err_type bmx160_wait_mag_manual_op(void) {
   uint8_t status;
   int timeout = 100;
   do {
-    if (i2c_manager_write_read(BMX160_I2C_ADDR, &status_reg, 1, &status,
-                           1) != HAL_I2C_OK)
+    if (i2c_manager_write_read(BMX160_I2C_ADDR, &status_reg, 1, &status, 1) !=
+        HAL_I2C_OK)
       return ERR0;
     if (!(status & 0x04)) // mag_man_op bit clear = operation done
       return NO_ERR;
@@ -89,8 +88,8 @@ static bmx160_err_type bmx160_wait_mag_manual_op(void) {
   // Phase 2: wait for mag_man_op to go LOW (operation complete)
   timeout = 100;
   do {
-    if (i2c_manager_write_read(BMX160_I2C_ADDR, &status_reg, 1, &status,
-                           1) != HAL_I2C_OK)
+    if (i2c_manager_write_read(BMX160_I2C_ADDR, &status_reg, 1, &status, 1) !=
+        HAL_I2C_OK)
       return ERR0;
     if (!(status & 0x04))
       return NO_ERR;
@@ -103,17 +102,13 @@ static bmx160_err_type bmx160_wait_mag_manual_op(void) {
 
 static bmx160_err_type bmx160_verify_pmu(uint8_t mask, uint8_t expected) {
   uint8_t reg = BMX160_PMU_STAT_ADDR;
-  if (bmx160_i2c_sema == NULL ||
-      v_semaphore_take(bmx160_i2c_sema, MS_TO_TICKS(100)) != VA_PASS)
-    return ERR0;
-
+ 
   if (i2c_manager_write_read(BMX160_I2C_ADDR, &reg, 1, rx_buf, 1) !=
       HAL_I2C_OK) {
-    v_semaphore_give(bmx160_i2c_sema);
+   
     return ERR0;
   }
   uint8_t stat = rx_buf[0];
-  v_semaphore_give(bmx160_i2c_sema);
 
   if ((stat & mask) == expected) {
     return NO_ERR;
@@ -123,10 +118,7 @@ static bmx160_err_type bmx160_verify_pmu(uint8_t mask, uint8_t expected) {
 
 hal_i2c_status_t bmx160_init(void) {
   // Create I2C bus semaphore early. Ensure it starts "given"
-  if (bmx160_i2c_sema == NULL) {
-    bmx160_i2c_sema = v_semaphore_create_binary();
-    v_semaphore_give(bmx160_i2c_sema);
-  }
+  
   in_init = 1; // Explicitly set it here as well
 
   // Create attitude mutex
@@ -233,28 +225,19 @@ hal_i2c_status_t bmx160_init(void) {
 static bmx160_err_type bmx160_write_bmm150_reg(uint8_t reg, uint8_t data) {
   tx_buf[0] = BMX160_MAG_IF_3_DATA_ADDR;
   tx_buf[1] = data;
-  if (bmx160_i2c_sema == NULL ||
-      v_semaphore_take(bmx160_i2c_sema, MS_TO_TICKS(100)) != VA_PASS)
-    return ERR0;
-
+  
   if (i2c_manager_write(BMX160_I2C_ADDR, tx_buf, 2) != HAL_I2C_OK) {
-    v_semaphore_give(bmx160_i2c_sema);
     return ERR0;
   }
-  v_semaphore_give(bmx160_i2c_sema);
 
   v_delay(2); // Wait for BMX -> BMM write
 
   tx_buf[0] = BMX160_MAG_IF_2_REG_ADDR;
   tx_buf[1] = reg;
-  if (v_semaphore_take(bmx160_i2c_sema, MS_TO_TICKS(100)) != VA_PASS)
-    return ERR0;
-
+  
   if (i2c_manager_write(BMX160_I2C_ADDR, tx_buf, 2) != HAL_I2C_OK) {
-    v_semaphore_give(bmx160_i2c_sema);
     return ERR0;
   }
-  v_semaphore_give(bmx160_i2c_sema);
 
   if (bmx160_wait_mag_manual_op() != NO_ERR)
     return ERR1;
@@ -265,29 +248,20 @@ static bmx160_err_type bmx160_write_bmm150_reg(uint8_t reg, uint8_t data) {
 static bmx160_err_type bmx160_read_bmm150_reg(uint8_t reg, uint8_t *data) {
   tx_buf[0] = BMX160_MAG_IF_1_READ_ADDR;
   tx_buf[1] = reg;
-  if (bmx160_i2c_sema == NULL ||
-      v_semaphore_take(bmx160_i2c_sema, MS_TO_TICKS(100)) != VA_PASS)
-    return ERR0;
-
+  
   if (i2c_manager_write(BMX160_I2C_ADDR, tx_buf, 2) != HAL_I2C_OK) {
-    v_semaphore_give(bmx160_i2c_sema);
     return ERR0;
   }
-  v_semaphore_give(bmx160_i2c_sema);
 
   if (bmx160_wait_mag_manual_op() != NO_ERR)
     return ERR1;
 
   uint8_t read_reg = 0x04; // MAG_X_LSB in BMX160 is where IF data appears
-  if (v_semaphore_take(bmx160_i2c_sema, MS_TO_TICKS(100)) != VA_PASS)
-    return ERR0;
-
+  
   if (i2c_manager_write_read(BMX160_I2C_ADDR, &read_reg, 1, data, 1) !=
       HAL_I2C_OK) {
-    v_semaphore_give(bmx160_i2c_sema);
     return ERR0;
   }
-  v_semaphore_give(bmx160_i2c_sema);
   return NO_ERR;
 }
 
@@ -385,18 +359,11 @@ uint16_t bmx160_get_chip_id(void) {
   uint8_t reg = BMX160_CHIP_ID_ADDR;
   hal_i2c_status_t ret;
 
-  if (bmx160_i2c_sema == NULL ||
-      v_semaphore_take(bmx160_i2c_sema, in_init ? 0 : MS_TO_TICKS(100)) !=
-          VA_PASS)
-    return 0xFFFF;
-
   ret = i2c_manager_write_read(BMX160_I2C_ADDR, &reg, 1, rx_buf, 1);
   if (ret != HAL_I2C_OK) {
-    v_semaphore_give(bmx160_i2c_sema);
     return 0xFFFF;
   }
   int16_t chip_id = (int16_t)(rx_buf[0]);
-  v_semaphore_give(bmx160_i2c_sema);
   return (uint16_t)chip_id;
 }
 
@@ -809,70 +776,55 @@ void wake_imu_read_task(void) {
     task_yield();
   }
 }
-
 void bmx160_initiate_read(void *args) {
-  // Trigger DMA read for 30 bytes (MagX_LSB 0x04 to Temp_MSB 0x21)
-  dma_config_t i2c_dma_cfg = {
-      .controller = DMA_CONTROLLER_1,
-      .stream = 0,
-      .channel = 1,
-      .direction = DMA_DIR_P2M,
-      .src_addr = I2C_DR_REG_ADDR, // I2C1_BASE + DR Offset
-      .dst_addr = (uint32_t)_bmx_dma_rx_buffer,
-      .data_count = 30,
-      .src_inc = 0,
-      .dst_inc = 1,
-      .data_width = DMA_DATA_WIDTH_8,
-      .priority = DMA_PRIORITY_VERY_HIGH,
-      .circular = 0};
   while (1) {
-    // Wait for the timer semaphore to wake us up (1kHz as configured in
-    // main.c)
+    // 1kHz trigger
     v_semaphore_take(bmx160_timer_sema, 1000000);
 
-    if (bmx160_i2c_sema != NULL &&
-        v_semaphore_take(bmx160_i2c_sema, MS_TO_TICKS(5)) == VA_PASS) {
-      hal_i2c_status_t hal_ret = hal_i2c_read_regs_dma(
-          I2C1, BMX160_I2C_ADDR, 0x04, &i2c_dma_cfg, bmx160_dma_callback);
+    // Start async read (manager handles I2C locking internally)
+    hal_i2c_status_t hal_ret = i2c_manager_read_async(
+        BMX160_I2C_ADDR, 0x04, 30, bmx160_dma_callback);
 
-      if (hal_ret == HAL_I2C_OK) {
-        // Wait for DMA completion (with a 10ms timeout)
-        if (v_semaphore_take(bmx160_dma_sema, MS_TO_TICKS(10)) == VA_PASS) {
-          // Process data in task context instead of ISR
-          i2c_error_count = 0;
-          bmx160_process_data();
-        } else {
-          // DMA completion timeout
-          i2c_error_count++;
-          v_semaphore_give(bmx160_i2c_sema);
-        }
-      } else {
-        // DMA initiation failed (e.g. Bus Busy)
-        i2c_error_count++;
-        v_semaphore_give(bmx160_i2c_sema);
-      }
+    if (hal_ret == HAL_I2C_OK) {
 
-      if (i2c_error_count > 10) {
-        vayu_log("I2C Hang detected! Resetting bus...");
-        v_semaphore_give(bmx160_i2c_sema); // MUST release before init
-        bmx160_init(); // Safe to call Multiple times due to NULL checks
+      // Wait for DMA completion
+      if (v_semaphore_take(bmx160_dma_sema, MS_TO_TICKS(10)) == VA_PASS) {
         i2c_error_count = 0;
-        continue; // Restart loop to take sema again if needed
+        bmx160_process_data();
+      } else {
+        // DMA timeout
+        i2c_error_count++;
       }
+
+    } else {
+      // Queue full / manager busy
+      i2c_error_count++;
+    }
+
+    // Error handling
+    if (i2c_error_count > 10) {
+      // vayu_log("I2C Hang detected! Resetting bus...");
+      // Do NOT touch any semaphore here
+      // Optionally: trigger bus reset or manager reset later
+      i2c_error_count = 0;
     }
   }
 }
 
-void bmx160_dma_callback(void) {
-  // Signal the task that DMA read is complete
+void bmx160_dma_callback(void *args) {
+  if (args == NULL) {
+    vayu_log("BMX160 DMA Callback: args is NULL");
+    return;
+  }
+  // vayu_log("BMX160 DMA Callback: args is %x", (uint32_t)args);
+  // Copy data from manager buffer → local buffer
+  v_memcpy(_bmx_dma_rx_buffer, args, 30);
+
   int higher_priority_task_woken = 0;
 
-  // Release I2C bus lock immediately in the ISR as requested
-  if (bmx160_i2c_sema != NULL) {
-    v_semaphore_give_from_isr(bmx160_i2c_sema, &higher_priority_task_woken);
-  }
-
+  // ONLY signal DMA completion
   v_semaphore_give_from_isr(bmx160_dma_sema, &higher_priority_task_woken);
+
   if (higher_priority_task_woken) {
     task_yield();
   }

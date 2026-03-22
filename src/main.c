@@ -47,6 +47,7 @@ void init_sensors(void) {
 }
 
 void init_tasks(void) {
+  task_create(i2c_manager_task, NULL, 4096, 0);
   task_create(comm_processor_task, NULL, 4096, 0);
   bmx160_task_id = task_create(bmx160_initiate_read, NULL, 4096, 1);
   task_create(rc_ibus_task, NULL, 2048, 0);
@@ -62,7 +63,7 @@ void init_timer_callbacks(void) {
     PANIC("Failed to register increment_high_freq_timer");
     return;
   };
-  if (timer_callback_register(wake_imu_read_task, 1000) != 0) {
+  if (timer_callback_register(wake_imu_read_task, 500) != 0) {
     PANIC("Failed to register wake_imu_read_task");
     return;
   }
