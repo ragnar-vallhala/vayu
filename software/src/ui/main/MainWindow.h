@@ -68,6 +68,7 @@ private:
   void buildToolBar();
   void applyDarkTheme();
   void setConnected(bool on);
+  void updateLiveBlinker();
 
   // ---- Toolbar widgets ----
   QComboBox *m_portCombo = nullptr;

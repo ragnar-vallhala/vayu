@@ -5,6 +5,7 @@
 #include <QHeaderView>
 #include <QMessageBox>
 #include <QScrollBar>
+#include <QShowEvent>
 #include <QSplitter>
 #include <QTextStream>
 
@@ -173,10 +174,14 @@ void PacketAnalyzerWidget::addRow(const QString &dir, const QByteArray &data) {
   entry.timestamp = QDateTime::currentDateTime().toString("HH:mm:ss.zzz");
   entry.direction = dir;
   entry.data = data;
-  m_masterLog.prepend(entry);
+  m_masterLog.append(entry);
   if (m_masterLog.size() > 500) {
-    m_masterLog.removeLast();
+    m_masterLog.removeFirst();
   }
+
+  // Skip expensive table updates if the widget is hidden
+  if (!isVisible())
+    return;
 
   // Filter check
   int type = -1;
@@ -313,9 +318,8 @@ void PacketAnalyzerWidget::onFilterToggled(bool checked) {
 
 void PacketAnalyzerWidget::reapplyFilters() {
   m_table->setRowCount(0);
-  // Loop backwards through masterLog to show oldest at top or newest at bottom
-  // Actually row 0 is top. If we want newest at bottom (auto-scroll feel):
-  for (int i = m_masterLog.size() - 1; i >= 0; --i) {
+  // Iterating from 0 to size-1 as we now use append (0 is oldest)
+  for (int i = 0; i < m_masterLog.size(); ++i) {
     const auto &entry = m_masterLog[i];
     int type = -1;
     if (entry.data.size() >= 2) {
@@ -348,6 +352,11 @@ void PacketAnalyzerWidget::reapplyFilters() {
   if (m_chkAutoScroll->isChecked()) {
     m_table->scrollToBottom();
   }
+}
+
+void PacketAnalyzerWidget::showEvent(QShowEvent *event) {
+  QWidget::showEvent(event);
+  reapplyFilters();
 }
 
 void PacketAnalyzerWidget::setProtocol(DroneProtocol *protocol) {
