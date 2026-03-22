@@ -42,6 +42,7 @@ set(GCS_SOURCES
     src/ui/widgets/RcChannelsWidget.cpp
     src/ui/widgets/CalibrationWidget.cpp
     src/ui/widgets/MotorStatusWidget.cpp
+    src/ui/widgets/Drone3DWidget.cpp
 )
 
 set(GCS_HEADERS
@@ -64,6 +65,7 @@ set(GCS_HEADERS
     src/ui/widgets/RcChannelsWidget.h
     src/ui/widgets/CalibrationWidget.h
     src/ui/widgets/MotorStatusWidget.h
+    src/ui/widgets/Drone3DWidget.h
 )
 
 set(GCS_RESOURCES

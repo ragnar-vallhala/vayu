@@ -10,6 +10,7 @@
 
 #include "../widgets/CalibrationWidget.h"
 #include "AttitudeWidget.h"
+#include "Drone3DWidget.h" // Added
 #include "DroneProtocol.h"
 #include "ImuPanel.h"
 #include "LogPanel.h"
@@ -40,6 +41,7 @@ private slots:
   void onConnectClicked();
   void onRefreshPorts();
   void onArmClicked();
+  void onToggle3d(bool checked);
 
   // Data callbacks
   void onImuReceived(const ImuData &data);
@@ -83,6 +85,8 @@ private:
   CalibrationWidget *m_calibrationWidget = nullptr;
   MotorStatusWidget *m_motorWidget = nullptr;
   QStackedWidget *m_stackedWidget = nullptr;
+  QStackedWidget *m_attStack = nullptr;
+  Drone3DWidget *m_drone3d = nullptr;
   QWidget *m_homeWidget = nullptr;
 
   QAction *m_homeAction = nullptr;
