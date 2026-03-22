@@ -101,7 +101,7 @@ void control_task(void *args) {
   while (1) {
     // 1. Get latest sensor data
     // Use averaged gyro data from the buffer if available
-    bool valid = imu_buffer_pop(&imu_data);
+    bool valid = imu_buffer_peek(&imu_data);
 
     if (!valid) {
       // Fallback: use last valid data OR zero
