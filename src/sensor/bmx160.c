@@ -37,11 +37,6 @@ static SemaphoreHandle_t bmx160_timer_sema; // Semaphore for Timer wake-up
 // Static helper functions and variables
 // Default BMX160 configuration
 static bmx160_config_t bmx160_cfg;
-// I2C configuration
-// hal_i2c_config_t i2c_config = {
-//     .clock_speed = FAST_MODE, .own_address = I2C_MASTER, .acknowledge =
-//     true};
-
 // DMA storage for 30 bytes (Mag[6], Hall[2], Gyr[6], Acc[6], Status[4],
 // Temp[2])
 static uint8_t _bmx_dma_rx_buffer[32] __attribute__((aligned(4)));
@@ -803,8 +798,6 @@ void bmx160_initiate_read(void *args) {
 
     // Error handling
     if (i2c_error_count > 10) {
-      // vayu_log("I2C Hang detected! Resetting bus...");
-      // Do NOT touch any semaphore here
       // Optionally: trigger bus reset or manager reset later
       i2c_error_count = 0;
     }
@@ -816,8 +809,7 @@ void bmx160_dma_callback(void *args) {
     vayu_log("BMX160 DMA Callback: args is NULL");
     return;
   }
-  // vayu_log("BMX160 DMA Callback: args is %x", (uint32_t)args);
-  // Copy data from manager buffer → local buffer
+  // Copy data from manager buffer to local buffer
   v_memcpy(_bmx_dma_rx_buffer, args, 30);
 
   int higher_priority_task_woken = 0;
