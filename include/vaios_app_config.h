@@ -42,7 +42,7 @@
 #endif
 
 #ifndef LOGGING_ENABLED
-#define LOGGING_ENABLED 1
+#define LOGGING_ENABLED 0
 #endif
 
 // Interrupts
@@ -60,7 +60,7 @@
 
 // Scheduling
 #ifndef TIME_SLICE
-#define TIME_SLICE 1
+#define TIME_SLICE 2
 #endif
 
 // Memory
@@ -69,7 +69,7 @@
 #endif
 
 #ifndef HEAP_SIZE
-#define HEAP_SIZE 0x10000 // 64kB
+#define HEAP_SIZE 0x14000 // 80kB
 #endif
 
 #ifndef STACK_ALIGN_SIZE

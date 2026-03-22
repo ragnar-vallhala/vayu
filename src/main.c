@@ -1,4 +1,5 @@
 #include "comm/channel.h"
+#include "core/cortex-m4/uart.h"
 #include "drivers/i2c_manager.h"
 #include "logger/logger.h"
 #include "navhal.h"
@@ -81,6 +82,7 @@ int main() {
                              .internal_sd_card_setup = 1};
 
   v_system_init(&cfg);
+
   init_i2c_manager(&i2c_config);
   logger_init();
   system_state_init();

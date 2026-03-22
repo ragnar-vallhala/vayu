@@ -70,7 +70,7 @@ void imu_telemetry_task(void *args) {
     // - 10 Hz: Attitude (every 15 ticks)
 
     bool send_full = (packet_counter % 100 == 0);  // 1 Hz
-    bool send_comp = (packet_counter % 10 == 0);   // 10 Hz
+    bool send_comp = (packet_counter % 3 == 0);    // 50 Hz
     bool send_att = (packet_counter % 10 == 0);    // 10 Hz
     bool send_rc = (packet_counter % 10 == 0);     // 10 Hz
     bool send_status = (packet_counter % 50 == 0); // 2 Hz
@@ -116,6 +116,6 @@ void imu_telemetry_task(void *args) {
     }
 
     packet_counter++;
-    v_delay(10); // ~100 Hz
+    v_delay(6); // ~166 Hz
   }
 }
