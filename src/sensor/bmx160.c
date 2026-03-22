@@ -773,9 +773,10 @@ void wake_imu_read_task(void) {
 }
 void bmx160_initiate_read(void *args) {
   while (1) {
+
     // 1kHz trigger
     v_semaphore_take(bmx160_timer_sema, 1000000);
-
+    // direct_dma_print((const uint8_t *)"Called", 6);
     // Start async read (manager handles I2C locking internally)
     hal_i2c_status_t hal_ret =
         i2c_manager_read_async(BMX160_I2C_ADDR, 0x04, 30, bmx160_dma_callback);
@@ -783,7 +784,7 @@ void bmx160_initiate_read(void *args) {
     if (hal_ret == HAL_I2C_OK) {
 
       // Wait for DMA completion
-      if (v_semaphore_take(bmx160_dma_sema, MS_TO_TICKS(2)) == VA_PASS) {
+      if (v_semaphore_take(bmx160_dma_sema, MS_TO_TICKS(3)) == VA_PASS) {
         i2c_error_count = 0;
         bmx160_process_data();
       } else {
@@ -827,9 +828,9 @@ static uint32_t _read_count = 0;
 
 void bmx160_process_data(void) {
   _read_count++;
-  if (_read_count % 100 == 0) {
-    vayu_log("Frequency: %f Hz",
-             (1000.0f * 100.0f) / (v_get_ticks() - _last_read_time));
+  if (_read_count % 2000 == 0) {
+    vayu_log("IMU data processing frequency: %f Hz",
+             (1000.0f * 2000.0f) / (v_get_ticks() - _last_read_time));
     _last_read_time = v_get_ticks();
     _read_count = 0;
   }
@@ -1051,7 +1052,6 @@ void bmx160_process_data(void) {
     return;
   }
   // 1kHz sampling rate (from main.c registration)
-  const float dt = 0.001f;
   if (bmx160_attitude_mutex != NULL) {
     v_mutex_lock(bmx160_attitude_mutex, MS_TO_TICKS(1));
   }
@@ -1060,14 +1060,14 @@ void bmx160_process_data(void) {
                     _bmx_data.converted.acc[2], _bmx_data.converted.gyr[0],
                     _bmx_data.converted.gyr[1], _bmx_data.converted.gyr[2],
                     _bmx_data.converted.mag[0], _bmx_data.converted.mag[1],
-                    _bmx_data.converted.mag[2], dt, &_bmx_orientation);
+                    _bmx_data.converted.mag[2], &_bmx_orientation);
   } else {
     m_complementary_filter(
         _bmx_data.converted.acc[0], _bmx_data.converted.acc[1],
         _bmx_data.converted.acc[2], _bmx_data.converted.gyr[0],
         _bmx_data.converted.gyr[1], _bmx_data.converted.gyr[2],
         _bmx_data.converted.mag[0], _bmx_data.converted.mag[1],
-        _bmx_data.converted.mag[2], dt, &_bmx_orientation);
+        _bmx_data.converted.mag[2], &_bmx_orientation);
   }
   if (bmx160_attitude_mutex != NULL) {
     v_mutex_unlock(bmx160_attitude_mutex);

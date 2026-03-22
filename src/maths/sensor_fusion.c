@@ -1,7 +1,18 @@
 #include "maths/sensor_fusion.h"
 #include "maths/maths_interface.h"
+#include "utils.h"
+#include "vaios_config_default.h"
 #include "variables.h"
-
+static inline float get_dt() {
+  static uint32_t last_time = 0; // used to calculate dt
+  uint32_t now = v_get_ticks();
+  // convert to s
+  float dt = ((float)(now - last_time) * SYSTICK_PERIOD) / ((float)1e6f);
+  if (dt < 1e-3f)
+    dt = 1e-3f;
+  last_time = now;
+  return dt;
+}
 void m_acc_mag(const float ax, const float ay, const float az, const float mx,
                const float my, const float mz, attitude_t *ori) {
   float ax_n = ax;
@@ -46,7 +57,8 @@ void m_acc_mag(const float ax, const float ay, const float az, const float mx,
 void m_complementary_filter(const float ax, const float ay, const float az,
                             const float gx, const float gy, const float gz,
                             const float mx, const float my, const float mz,
-                            float dt, attitude_t *ori) {
+                            attitude_t *ori) {
+  float dt = get_dt();
   // 1. Get accelerometer/magnetometer based orientation (noisy but stable)
   attitude_t acc_mag_ori;
   m_acc_mag(ax, ay, az, mx, my, mz, &acc_mag_ori);
@@ -115,8 +127,9 @@ static float integralFBx = 0.0f, integralFBy = 0.0f, integralFBz = 0.0f;
 
 void m_mahony_filter(const float ax, const float ay, const float az,
                      const float gx, const float gy, const float gz,
-                     const float mx, const float my, const float mz, float dt,
+                     const float mx, const float my, const float mz,
                      attitude_t *ori) {
+  float dt = get_dt();
   float q0 = ori->q.w, q1 = ori->q.x, q2 = ori->q.y, q3 = ori->q.z;
   float norm;
   float hx, hy, bx, bz;

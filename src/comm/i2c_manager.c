@@ -92,7 +92,7 @@ i2c_init:
 }
 
 hal_i2c_status_t i2c_manager_write(uint8_t addr, uint8_t *data, uint16_t len) {
-  if (v_semaphore_take(_i2c_sema, MS_TO_TICKS(2)) != VA_PASS) {
+  if (v_semaphore_take(_i2c_sema, MS_TO_TICKS(3)) != VA_PASS) {
     return HAL_I2C_ERR_TIMEOUT;
   }
   hal_i2c_status_t ts = hal_i2c_write(I2C_BUS, addr, data, len);
@@ -101,7 +101,7 @@ hal_i2c_status_t i2c_manager_write(uint8_t addr, uint8_t *data, uint16_t len) {
 }
 
 hal_i2c_status_t i2c_manager_read(uint8_t addr, uint8_t *data, uint16_t len) {
-  if (v_semaphore_take(_i2c_sema, MS_TO_TICKS(2)) != VA_PASS) {
+  if (v_semaphore_take(_i2c_sema, MS_TO_TICKS(3)) != VA_PASS) {
     return HAL_I2C_ERR_TIMEOUT;
   }
   hal_i2c_status_t ts = hal_i2c_read(I2C_BUS, addr, data, len);
@@ -112,7 +112,7 @@ hal_i2c_status_t i2c_manager_read(uint8_t addr, uint8_t *data, uint16_t len) {
 hal_i2c_status_t i2c_manager_write_read(uint8_t addr, uint8_t *tx_data,
                                         uint16_t tx_len, uint8_t *rx_data,
                                         uint16_t rx_len) {
-  if (v_semaphore_take(_i2c_sema, MS_TO_TICKS(2)) != VA_PASS) {
+  if (v_semaphore_take(_i2c_sema, MS_TO_TICKS(3)) != VA_PASS) {
     return HAL_I2C_ERR_TIMEOUT;
   }
   hal_i2c_status_t ts =
@@ -153,7 +153,7 @@ void i2c_manager_task(void *args) {
 
     if (item.state == I2C_TRANS_IDLE && item.op_type == I2C_OP_READ) {
 
-      if (v_semaphore_take(_i2c_sema, MS_TO_TICKS(2)) != VA_PASS) {
+      if (v_semaphore_take(_i2c_sema, MS_TO_TICKS(3)) != VA_PASS) {
         // Bus locked — invoke error path
         void (*cb)(void *) =
             item.callback; // use item, not _current_trans (not set yet)
