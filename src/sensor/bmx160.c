@@ -784,7 +784,7 @@ void bmx160_initiate_read(void *args) {
     if (hal_ret == HAL_I2C_OK) {
 
       // Wait for DMA completion
-      if (v_semaphore_take(bmx160_dma_sema, MS_TO_TICKS(3)) == VA_PASS) {
+      if (v_semaphore_take(bmx160_dma_sema, MS_TO_TICKS(2)) == VA_PASS) {
         i2c_error_count = 0;
         bmx160_process_data();
       } else {
