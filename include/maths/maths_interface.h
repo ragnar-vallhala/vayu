@@ -32,5 +32,7 @@ void normalize_vector(vector_t *v);
 void normalize_quaternion(quaternion_t *q);
 void quaternion_multiply(const quaternion_t *qa, const quaternion_t *qb,
                          quaternion_t *out);
+void quaternion_conjugate(const quaternion_t *q, quaternion_t *out);
+void quaternion_from_euler(float roll, float pitch, float yaw, quaternion_t *q);
 
 #endif // !MATHS_SENSOR_FUSION_H

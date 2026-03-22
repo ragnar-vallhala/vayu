@@ -13,7 +13,7 @@
 #include "variables.h"
 #include <stdint.h>
 
-channel_t g_telemetry_channel;
+channel_t g_telemetry_channel={0};
 MutexHandle_t g_comm_mutex;
 
 void imu_telemetry_task(void *args) {

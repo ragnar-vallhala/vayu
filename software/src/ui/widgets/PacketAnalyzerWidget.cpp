@@ -72,6 +72,8 @@ PacketAnalyzerWidget::PacketAnalyzerWidget(QWidget *parent) : QWidget(parent) {
   addFilter("Attitude", 0x4);
   addFilter("RC", 0x5);
   addFilter("Status", 0x6);
+  addFilter("Log", 0x7);
+  addFilter("Motor", 0x8);
 
   filterBar->addStretch();
   layout->addLayout(filterBar);

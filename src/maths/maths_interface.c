@@ -68,3 +68,24 @@ void quaternion_multiply(const quaternion_t *qa, const quaternion_t *qb,
   out->y = qa->w * qb->y - qa->x * qb->z + qa->y * qb->w + qa->z * qb->x;
   out->z = qa->w * qb->z + qa->x * qb->y - qa->y * qb->x + qa->z * qb->w;
 }
+void quaternion_conjugate(const quaternion_t *q, quaternion_t *out) {
+  out->w = q->w;
+  out->x = -q->x;
+  out->y = -q->y;
+  out->z = -q->z;
+}
+
+void quaternion_from_euler(float roll, float pitch, float yaw,
+                           quaternion_t *q) {
+  float cr = m_cos(to_radians(roll) * 0.5f);
+  float sr = m_sin(to_radians(roll) * 0.5f);
+  float cp = m_cos(to_radians(pitch) * 0.5f);
+  float sp = m_sin(to_radians(pitch) * 0.5f);
+  float cy = m_cos(to_radians(yaw) * 0.5f);
+  float sy = m_sin(to_radians(yaw) * 0.5f);
+
+  q->w = cr * cp * cy + sr * sp * sy;
+  q->x = sr * cp * cy - cr * sp * sy;
+  q->y = cr * sp * cy + sr * cp * sy;
+  q->z = cr * cp * sy - sr * sp * cy;
+}
