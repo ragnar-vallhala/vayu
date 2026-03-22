@@ -63,7 +63,7 @@ void init_timer_callbacks(void) {
     PANIC("Failed to register increment_high_freq_timer");
     return;
   };
-  if (timer_callback_register(wake_imu_read_task, 500) != 0) {
+  if (timer_callback_register(wake_imu_read_task, 1000) != 0) {
     PANIC("Failed to register wake_imu_read_task");
     return;
   }

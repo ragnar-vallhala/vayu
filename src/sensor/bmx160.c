@@ -97,10 +97,10 @@ static bmx160_err_type bmx160_wait_mag_manual_op(void) {
 
 static bmx160_err_type bmx160_verify_pmu(uint8_t mask, uint8_t expected) {
   uint8_t reg = BMX160_PMU_STAT_ADDR;
- 
+
   if (i2c_manager_write_read(BMX160_I2C_ADDR, &reg, 1, rx_buf, 1) !=
       HAL_I2C_OK) {
-   
+
     return ERR0;
   }
   uint8_t stat = rx_buf[0];
@@ -113,7 +113,7 @@ static bmx160_err_type bmx160_verify_pmu(uint8_t mask, uint8_t expected) {
 
 hal_i2c_status_t bmx160_init(void) {
   // Create I2C bus semaphore early. Ensure it starts "given"
-  
+
   in_init = 1; // Explicitly set it here as well
 
   // Create attitude mutex
@@ -220,7 +220,7 @@ hal_i2c_status_t bmx160_init(void) {
 static bmx160_err_type bmx160_write_bmm150_reg(uint8_t reg, uint8_t data) {
   tx_buf[0] = BMX160_MAG_IF_3_DATA_ADDR;
   tx_buf[1] = data;
-  
+
   if (i2c_manager_write(BMX160_I2C_ADDR, tx_buf, 2) != HAL_I2C_OK) {
     return ERR0;
   }
@@ -229,7 +229,7 @@ static bmx160_err_type bmx160_write_bmm150_reg(uint8_t reg, uint8_t data) {
 
   tx_buf[0] = BMX160_MAG_IF_2_REG_ADDR;
   tx_buf[1] = reg;
-  
+
   if (i2c_manager_write(BMX160_I2C_ADDR, tx_buf, 2) != HAL_I2C_OK) {
     return ERR0;
   }
@@ -243,7 +243,7 @@ static bmx160_err_type bmx160_write_bmm150_reg(uint8_t reg, uint8_t data) {
 static bmx160_err_type bmx160_read_bmm150_reg(uint8_t reg, uint8_t *data) {
   tx_buf[0] = BMX160_MAG_IF_1_READ_ADDR;
   tx_buf[1] = reg;
-  
+
   if (i2c_manager_write(BMX160_I2C_ADDR, tx_buf, 2) != HAL_I2C_OK) {
     return ERR0;
   }
@@ -252,7 +252,7 @@ static bmx160_err_type bmx160_read_bmm150_reg(uint8_t reg, uint8_t *data) {
     return ERR1;
 
   uint8_t read_reg = 0x04; // MAG_X_LSB in BMX160 is where IF data appears
-  
+
   if (i2c_manager_write_read(BMX160_I2C_ADDR, &read_reg, 1, data, 1) !=
       HAL_I2C_OK) {
     return ERR0;
@@ -777,13 +777,13 @@ void bmx160_initiate_read(void *args) {
     v_semaphore_take(bmx160_timer_sema, 1000000);
 
     // Start async read (manager handles I2C locking internally)
-    hal_i2c_status_t hal_ret = i2c_manager_read_async(
-        BMX160_I2C_ADDR, 0x04, 30, bmx160_dma_callback);
+    hal_i2c_status_t hal_ret =
+        i2c_manager_read_async(BMX160_I2C_ADDR, 0x04, 30, bmx160_dma_callback);
 
     if (hal_ret == HAL_I2C_OK) {
 
       // Wait for DMA completion
-      if (v_semaphore_take(bmx160_dma_sema, MS_TO_TICKS(10)) == VA_PASS) {
+      if (v_semaphore_take(bmx160_dma_sema, MS_TO_TICKS(2)) == VA_PASS) {
         i2c_error_count = 0;
         bmx160_process_data();
       } else {
@@ -822,7 +822,17 @@ void bmx160_dma_callback(void *args) {
   }
 }
 
+static uint32_t _last_read_time = 0;
+static uint32_t _read_count = 0;
+
 void bmx160_process_data(void) {
+  _read_count++;
+  if (_read_count % 100 == 0) {
+    vayu_log("Frequency: %f Hz",
+             (1000.0f * 100.0f) / (v_get_ticks() - _last_read_time));
+    _last_read_time = v_get_ticks();
+    _read_count = 0;
+  }
   // static int diag_printed = 0;
   // 1. Extract mag (0-5)
   // X/Y are 13-bit, Z is 15-bit. Status bits are in the LSB.
