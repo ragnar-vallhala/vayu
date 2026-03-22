@@ -784,7 +784,7 @@ void bmx160_initiate_read(void *args) {
     if (hal_ret == HAL_I2C_OK) {
 
       // Wait for DMA completion
-      if (v_semaphore_take(bmx160_dma_sema, MS_TO_TICKS(5)) == VA_PASS) {
+      if (v_semaphore_take(bmx160_dma_sema, MS_TO_TICKS(I2C_MANAGER_DMA_TIMEOUT)) == VA_PASS) {
         i2c_error_count = 0;
         bmx160_process_data();
       } else {
@@ -1076,7 +1076,7 @@ void bmx160_process_data(void) {
 
 void bmx160_get_attitude(attitude_t *att) {
   if (att != NULL && bmx160_attitude_mutex != NULL) {
-    v_mutex_lock(bmx160_attitude_mutex, MS_TO_TICKS(5));
+    v_mutex_lock(bmx160_attitude_mutex, MS_TO_TICKS(I2C_MANAGER_SEMAPHORE_TIMEOUT));
     *att = _bmx_orientation;
     v_mutex_unlock(bmx160_attitude_mutex);
   }
@@ -1398,10 +1398,10 @@ void calibration_task(void *args) {
 
   i2c_error_count = 0;
 
-  bmx160_init();
-  v_delay(50);
-  wake_imu_read_task();
-  v_delay(10);
+  // bmx160_init();
+  // v_delay(50);
+  // wake_imu_read_task();
+  // v_delay(10);
   system_state_set(SYSTEM_STATE_STANDBY);
 
   if (cal_args)
