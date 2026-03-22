@@ -1,6 +1,7 @@
 #include "comm/comm_types.h"
 #include "comm/ibus.h"
 #include "comm/serializer.h"
+#include "config_example.h"
 #include "core/cortex-m4/uart.h"
 #include "maths/sensor_fusion.h"
 #include "sensor/bmx160.h"
@@ -13,7 +14,7 @@
 #include "variables.h"
 #include <stdint.h>
 
-channel_t g_telemetry_channel={0};
+channel_t g_telemetry_channel = {0};
 MutexHandle_t g_comm_mutex;
 
 void imu_telemetry_task(void *args) {
@@ -25,7 +26,7 @@ void imu_telemetry_task(void *args) {
   uint32_t packet_counter = 0;
 
   serial_args_t uart_args = {
-      .baud_rate = 115200, .uart = UART2, .timeout = 100};
+      .baud_rate = UART_BAUDRATE, .uart = UART2, .timeout = 100};
 
   g_comm_mutex = v_mutex_create();
 
