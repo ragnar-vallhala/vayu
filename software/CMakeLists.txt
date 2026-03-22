@@ -41,6 +41,7 @@ set(GCS_SOURCES
     src/ui/widgets/FrequencyRibbon.cpp
     src/ui/widgets/RcChannelsWidget.cpp
     src/ui/widgets/CalibrationWidget.cpp
+    src/ui/widgets/MotorStatusWidget.cpp
 )
 
 set(GCS_HEADERS
@@ -62,6 +63,7 @@ set(GCS_HEADERS
     src/ui/widgets/FrequencyRibbon.h
     src/ui/widgets/RcChannelsWidget.h
     src/ui/widgets/CalibrationWidget.h
+    src/ui/widgets/MotorStatusWidget.h
 )
 
 set(GCS_RESOURCES

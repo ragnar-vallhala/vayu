@@ -13,6 +13,7 @@
 #include "DroneProtocol.h"
 #include "ImuPanel.h"
 #include "LogPanel.h"
+#include "MotorStatusWidget.h"
 #include "PacketAnalyzerWidget.h"
 #include "RcChannelsWidget.h"
 #include "RollingStats.h"
@@ -34,6 +35,7 @@ private slots:
   void showRcMonitor();
   void showSettings();
   void showCalibration();
+  void showMotorStatus();
   // Toolbar actions
   void onConnectClicked();
   void onRefreshPorts();
@@ -79,6 +81,7 @@ private:
   RcChannelsWidget *m_rcWidget = nullptr;
   SettingsWidget *m_settingsWidget = nullptr;
   CalibrationWidget *m_calibrationWidget = nullptr;
+  MotorStatusWidget *m_motorWidget = nullptr;
   QStackedWidget *m_stackedWidget = nullptr;
   QWidget *m_homeWidget = nullptr;
 
