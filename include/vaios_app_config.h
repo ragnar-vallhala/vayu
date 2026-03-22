@@ -60,7 +60,7 @@
 
 // Scheduling
 #ifndef TIME_SLICE
-#define TIME_SLICE 2
+#define TIME_SLICE 1
 #endif
 
 // Memory
@@ -116,7 +116,7 @@
 
 // Logging
 #ifndef COLOR_LOGGING
-#define COLOR_LOGGING 1
+#define COLOR_LOGGING 0
 #endif
 
 #ifndef LOG_BUFFER_SIZE
@@ -128,7 +128,7 @@
 #endif
 
 #ifndef LOG_BUFFER_STORAGE_SIZE
-#define LOG_BUFFER_STORAGE_SIZE 256
+#define LOG_BUFFER_STORAGE_SIZE 128
 #endif
 
 #ifndef BUFFERED_LOGGING
@@ -136,7 +136,7 @@
 #endif
 
 #ifndef MIN_LOG_LEVEL
-#define MIN_LOG_LEVEL LOG_ERROR
+#define MIN_LOG_LEVEL LOG_TRACE
 #endif
 
 #ifndef ALLOWED_MODULES
