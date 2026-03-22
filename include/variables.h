@@ -18,8 +18,6 @@
 #define _BUZZER_PIN GPIO_PA05
 #define _HEARTBEAT_DEFAULT_TIMEPERIOD 1000 // 1000ms
 
-
-
 // I2C Control
 #define MAX_I2C_DEVICES 10
 #define I2C_MAX_TX_LEN 32
@@ -28,6 +26,7 @@
 #define I2C_MODE FAST_MODE
 #define I2C_PIN_1 GPIO_PB08
 #define I2C_PIN_2 GPIO_PB09
+#define I2C_DR_REG_ADDR (uint32_t)(0x40005400 + 0x10)
 // IMU Sensor
 #define BMX160_I2C_ADDR 0x68
 
@@ -63,10 +62,10 @@
 // Calibration
 #define CALIBRATION_FILE_PATH "0:cal.bin"
 #define CALIBRATION_FILE_SIZE 1024 // 1KB Preallocated
-#define CALIBRATION_WAIT_USER_TIME_PRE_CALIBRATION                                             \
+#define CALIBRATION_WAIT_USER_TIME_PRE_CALIBRATION                             \
   2000 // 2 seconds, waits before recording once user has reached the direction
        // orientation
-#define CALIBRATION_WAIT_USER_TIME_POST_CALIBRATION                                            \
+#define CALIBRATION_WAIT_USER_TIME_POST_CALIBRATION                            \
   1000 // 1 seconds, waits after recording before saving the calibration
 #define CALIBRATION_SAMPLE_COUNT                                               \
   1000 // Number of samples to take for calibration
