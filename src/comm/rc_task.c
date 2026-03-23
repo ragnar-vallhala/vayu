@@ -18,7 +18,8 @@ void rc_ibus_task(void *args) {
   ibus_init(&ibus_raw_data);
 
   // Initialize UART1 DMA RX (115200 baud is standard for iBus)
-  uart1_init_dma_rx(ibus_dma_buf, IBUS_DMA_BUF_SIZE, 115200);
+  uart6_init(115200);
+  uart6_init_dma_rx(ibus_dma_buf, IBUS_DMA_BUF_SIZE);
 
   static uint16_t read_ptr = 0;
   static uint16_t last_ndtr = IBUS_DMA_BUF_SIZE;
