@@ -85,8 +85,8 @@ static err_t get_handler_serial(channel_t *handler, void *args,
                           : s_args->uart == UART6 ? USART6_IRQn
                                                   : USART2_IRQn;
     hal_interrupt_attach_callback(usart_irq, callback);
-    if (hal_enable_interrupt(usart_irq) == 0)
-      _serial_handlers[slot].is_interrupt_attached = 1;
+    hal_uart_enable_interrupt(s_args->uart, 1, 0);
+    _serial_handlers[slot].is_interrupt_attached = 1;
   }
   // Store the configuration
   _serial_handlers[slot].baud_rate =

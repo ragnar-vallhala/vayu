@@ -75,15 +75,14 @@ err_t send_packet(channel_t *channel, packet_type_t packet_type, byte *payload,
 
   return ret;
 #else
-// No binary navlink packets
-return NONE;
+  // No binary navlink packets
+  return NONE;
 #endif
 }
 
 void uart2_packet_recv_callback(void) {
   // 1. Read the SINGLE available byte that triggered the interrupt
   uint8_t b = (uint8_t)uart2_read_char();
-
   // 2. Feed to non-blocking state machine
   if (deserializer_feed(&_uart_recv_state, b)) {
     // 3. Valid Packet Found! Find a free slot to store it
