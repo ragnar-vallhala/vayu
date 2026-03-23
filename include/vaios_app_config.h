@@ -71,7 +71,7 @@
 #endif
 
 #ifndef HEAP_SIZE
-#define HEAP_SIZE 0x14000 // 80kB
+#define HEAP_SIZE 0x10000 // 64kB
 #endif
 
 #ifndef STACK_ALIGN_SIZE
@@ -104,7 +104,7 @@
 #endif
 
 #ifndef TASK_STACK_OVERFLOW_THRESHOLD
-#define TASK_STACK_OVERFLOW_THRESHOLD 64
+#define TASK_STACK_OVERFLOW_THRESHOLD 256
 #endif
 
 // IPC
