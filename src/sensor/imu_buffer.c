@@ -20,7 +20,7 @@ void imu_buffer_push(const bmx160_all_reading_t *sample) {
   // To be safe against concurrent pop, we use a critical section.
   uint32_t state = hal_disable_global_interrupts();
 
-  _imu_ring[_head] = *sample;
+  v_memcpy(&_imu_ring[_head], sample, sizeof(bmx160_all_reading_t));
   _head = (_head + 1) % IMU_BUFFER_SIZE;
 
   if (_count < IMU_BUFFER_SIZE) {
@@ -38,7 +38,7 @@ bool imu_buffer_pop(bmx160_all_reading_t *out_sample) {
   bool success = false;
   if (_count > 0) {
     if (out_sample)
-      *out_sample = _imu_ring[_tail];
+      v_memcpy(out_sample, &_imu_ring[_tail], sizeof(bmx160_all_reading_t));
     _tail = (_tail + 1) % IMU_BUFFER_SIZE;
     _count--;
     success = true;

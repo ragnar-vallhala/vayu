@@ -36,6 +36,10 @@ void pid_reset(pid_controller_t *pid) {
 
 float pid_calculate(pid_controller_t *pid, float setpoint, float current_value,
                     float dt) {
+  if (!isfinite(setpoint) || !isfinite(current_value) || !isfinite(dt) ||
+      dt <= 0.0f) {
+    return 0.0f;
+  }
   float error = setpoint - current_value;
 
   // Proportional
@@ -127,9 +131,11 @@ void control_task(void *args) {
     // 2. Get RC setpoints and map to physical units
     float target_roll =
         ((float)rc_channels[0] - 1500.0f) / 500.0f * MAX_CONTROL_ANGLE;
-    float target_pitch =
-        ((float)rc_channels[1] - 1500.0f) / 500.0f * MAX_CONTROL_ANGLE;
-    float throttle = ((float)rc_channels[2] - 1000.0f) / 1000.0f;
+    float target_pitch = 0;
+    float throttle = 0.1;
+    // float target_pitch =
+    //     ((float)rc_channels[1] - 1500.0f) / 500.0f * MAX_CONTROL_ANGLE;
+    // float throttle = ((float)rc_channels[2] - 1000.0f) / 1000.0f;
 
     // Clamp throttle
     if (throttle < 0.0f)
@@ -152,9 +158,9 @@ void control_task(void *args) {
                                    imu_data.converted.gyr[0], 0.0025f);
     float out_pitch = 0;
     float out_yaw = 0;
-    // float out_pitch = pid_calculate(&pid_pitch_rate, target_rate_pitch,
+    // out_pitch = pid_calculate(&pid_pitch_rate, target_rate_pitch,
     //                                 imu_data.converted.gyr[1], 0.0025f);
-    // float out_yaw = pid_calculate(&pid_yaw_rate, target_yaw_rate,
+    // out_yaw = pid_calculate(&pid_yaw_rate, target_yaw_rate,
     //                               imu_data.converted.gyr[2], 0.0025f);
 
     // 5. Motor Mixing (Quad-X configuration)
