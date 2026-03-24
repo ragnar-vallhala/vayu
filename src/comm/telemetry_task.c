@@ -19,7 +19,7 @@ MutexHandle_t g_comm_mutex;
 
 void imu_telemetry_task(void *args) {
   (void)args;
-  static bmx160_all_reading_t samples[IMU_BUFFER_SIZE];
+  static bmx160_all_reading_t samples;
   float current_floats[10];  // Acc[3], Gyr[3], Mag[3], Temp
   float previous_floats[10]; // For delta calculation
   bool first_packet = true;
@@ -34,35 +34,20 @@ void imu_telemetry_task(void *args) {
                   uart2_packet_recv_callback) != NONE) {
     return;
   }
-
   while (1) {
-    int count = imu_buffer_peek_all(samples, IMU_BUFFER_SIZE);
+    int count = imu_distribution_queue_peek(&samples);
 
     if (count > 0) {
-      float sum_acc[3] = {0, 0, 0};
-      float sum_gyr[3] = {0, 0, 0};
-      float sum_mag[3] = {0, 0, 0};
-      float sum_temp = 0;
-
-      for (int i = 0; i < count; i++) {
-        for (int j = 0; j < 3; j++) {
-          sum_acc[j] += samples[i].converted.acc[j];
-          sum_gyr[j] += samples[i].converted.gyr[j];
-          sum_mag[j] += samples[i].converted.mag_compensated[j];
-        }
-        sum_temp += samples[i].converted.temp;
-      }
-
-      current_floats[0] = (float)sum_acc[0] / count;
-      current_floats[1] = (float)sum_acc[1] / count;
-      current_floats[2] = (float)sum_acc[2] / count;
-      current_floats[3] = (float)sum_gyr[0] / count;
-      current_floats[4] = (float)sum_gyr[1] / count;
-      current_floats[5] = (float)sum_gyr[2] / count;
-      current_floats[6] = (float)sum_mag[0] / count;
-      current_floats[7] = (float)sum_mag[1] / count;
-      current_floats[8] = (float)sum_mag[2] / count;
-      current_floats[9] = (float)sum_temp / count;
+      current_floats[0] = (float)samples.converted.acc[0];
+      current_floats[1] = (float)samples.converted.acc[1];
+      current_floats[2] = (float)samples.converted.acc[2];
+      current_floats[3] = (float)samples.converted.gyr[0];
+      current_floats[4] = (float)samples.converted.gyr[1];
+      current_floats[5] = (float)samples.converted.gyr[2];
+      current_floats[6] = (float)samples.converted.mag_compensated[0];
+      current_floats[7] = (float)samples.converted.mag_compensated[1];
+      current_floats[8] = (float)samples.converted.mag_compensated[2];
+      current_floats[9] = (float)samples.converted.temp;
     }
 
     // 150 Hz Base Loop (approx 6.66ms)
