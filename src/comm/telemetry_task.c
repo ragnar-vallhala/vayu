@@ -1,7 +1,7 @@
 #include "comm/comm_types.h"
 #include "comm/ibus.h"
 #include "comm/serializer.h"
-#include "config_example.h"
+#include "vaios_app_config.h"
 #include "core/cortex-m4/uart.h"
 #include "maths/sensor_fusion.h"
 #include "sensor/bmx160.h"
@@ -14,9 +14,6 @@
 #include "variables.h"
 #include <stdint.h>
 
-channel_t g_telemetry_channel = {0};
-MutexHandle_t g_comm_mutex;
-
 void imu_telemetry_task(void *args) {
   (void)args;
   static bmx160_all_reading_t samples;
@@ -25,15 +22,6 @@ void imu_telemetry_task(void *args) {
   bool first_packet = true;
   uint32_t packet_counter = 0;
 
-  serial_args_t uart_args = {
-      .baud_rate = UART_BAUDRATE, .uart = UART2, .timeout = 100};
-
-  g_comm_mutex = v_mutex_create();
-
-  if (get_handler(CHANNEL_TYPE_SERIAL, &g_telemetry_channel, &uart_args,
-                  uart2_packet_recv_callback) != NONE) {
-    return;
-  }
   while (1) {
     int count = imu_distribution_queue_peek(&samples);
 

@@ -36,29 +36,40 @@ void pid_reset(pid_controller_t *pid) {
 
 float pid_calculate(pid_controller_t *pid, float setpoint, float current_value,
                     float dt) {
+
   if (!isfinite(setpoint) || !isfinite(current_value) || !isfinite(dt) ||
       dt <= 0.0f) {
     return 0.0f;
   }
+
   float error = setpoint - current_value;
 
-  // Proportional
   float p_out = pid->kp * error;
 
-  // Integral with anti-windup
   pid->integral += error * dt;
   if (pid->integral > pid->i_limit)
     pid->integral = pid->i_limit;
   else if (pid->integral < -pid->i_limit)
     pid->integral = -pid->i_limit;
+
   float i_out = pid->ki * pid->integral;
 
-  // Derivative
   float derivative = (error - pid->prev_error) / dt;
+
+  //  CRITICAL CLAMP
+  if (!isfinite(derivative) || fabsf(derivative) > 10000.0f) {
+    derivative = 0.0f;
+  }
+
   float d_out = pid->kd * derivative;
   pid->prev_error = error;
 
   float output = p_out + i_out + d_out;
+
+  //  CRITICAL SANITY
+  if (!isfinite(output)) {
+    return 0.0f;
+  }
 
   if (output > pid->output_limit)
     output = pid->output_limit;
@@ -99,11 +110,22 @@ void control_task(void *args) {
     esc_arm(&motors[i]);
   }
 
-  bmx160_all_reading_t imu_data = {0};
-  attitude_t attitude = {0};
+  static bmx160_all_reading_t imu_data = {0};
+  static attitude_t attitude = {0};
   static bmx160_all_reading_t last_valid = {0};
 
   while (1) {
+
+    static uint32_t last = 0;
+    uint32_t n = v_get_ticks();
+    float dt = (n - last) / 1000.0f;
+    last = n;
+    if (dt <= 0.0f || dt > 0.05f) { // reject anything > 50ms as bogus
+      last = v_get_ticks();
+      v_delay(2);
+      continue;
+    }
+
     // 1. Get latest sensor data
     // Use averaged gyro data from the buffer if available
     bool valid = imu_buffer_peek(&imu_data);
@@ -116,7 +138,7 @@ void control_task(void *args) {
       last_valid = imu_data;
     }
 
-    // 🔒 Sanitize gyro (CRITICAL)
+    //  Sanitize gyro (CRITICAL)
     for (int i = 0; i < 3; i++) {
       if (!isfinite(imu_data.converted.gyr[i]) ||
           fabsf(imu_data.converted.gyr[i]) > 2000.0f) {
@@ -142,27 +164,27 @@ void control_task(void *args) {
     // 3. Pose Control (Outer Angle Loop)
     // Target Angle -> Angle PID -> Desired Rate
     float target_rate_roll =
-        pid_calculate(&pid_roll_angle, target_roll, attitude.roll, 0.0025f);
+        pid_calculate(&pid_roll_angle, target_roll, attitude.roll, dt);
     float target_rate_pitch =
-        pid_calculate(&pid_pitch_angle, target_pitch, attitude.pitch, 0.0025f);
+        pid_calculate(&pid_pitch_angle, target_pitch, attitude.pitch, dt);
 
     float target_yaw_rate =
         ((float)rc_channels[3] - 1500.0f) / 500.0f * MAX_CONTROL_RATE;
 
     // 4. Rate Control (Inner Rate Loop)
     float out_roll = pid_calculate(&pid_roll_rate, target_rate_roll,
-                                   imu_data.converted.gyr[0], 0.0025f);
+                                   imu_data.converted.gyr[0], dt);
     float out_pitch = pid_calculate(&pid_pitch_rate, target_rate_pitch,
-                                    imu_data.converted.gyr[1], 0.0025f);
+                                    imu_data.converted.gyr[1], dt);
     float out_yaw = pid_calculate(&pid_yaw_rate, target_yaw_rate,
-                                  imu_data.converted.gyr[2], 0.0025f);
-
-    // 5. Motor Mixing (Quad-X configuration)
+                                  imu_data.converted.gyr[2], dt);
+    
+    // // 5. Motor Mixing (Quad-X configuration)
     float m1 = throttle - out_roll - out_pitch + out_yaw;
     float m2 = throttle - out_roll + out_pitch - out_yaw;
     float m3 = throttle + out_roll + out_pitch + out_yaw;
     float m4 = throttle + out_roll - out_pitch - out_yaw;
-
+     
     float motor_cmds[4] = {m1, m2, m3, m4};
     for (int i = 0; i < 4; i++) {
       if (motor_cmds[i] < 0.0f)
