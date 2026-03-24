@@ -2,6 +2,7 @@
 #include "core/cortex-m4/uart.h"
 #include "drivers/i2c_manager.h"
 #include "logger/logger.h"
+#include "maths/control.h"
 #include "navhal.h"
 #include "sensor/bmx160.h"
 #include "sensor/imu_buffer.h"
@@ -17,8 +18,11 @@
 #include "vaios_config_default.h"
 #include "variables.h"
 #include "vayu_tasks.h"
-#include "maths/control.h"
+#include "comm/serializer.h"
 
+
+channel_t g_telemetry_channel;
+MutexHandle_t g_comm_mutex;
 // Global state values
 uint32_t bmx160_task_id = 0;
 
@@ -46,6 +50,17 @@ void clock_setup(void) {
 void init_sensors(void) {
   imu_buffer_init();
   bmx160_init();
+
+  // Initialize global telemetry
+  serial_args_t uart_args = {
+      .baud_rate = UART_BAUDRATE, .uart = UART2, .timeout = 100};
+
+  g_comm_mutex = v_mutex_create();
+
+  if (get_handler(CHANNEL_TYPE_SERIAL, &g_telemetry_channel, &uart_args,
+                  uart2_packet_recv_callback) != NONE) {
+    return;
+  }
 }
 
 void init_tasks(void) {
@@ -53,7 +68,7 @@ void init_tasks(void) {
   task_create(comm_processor_task, NULL, 4096, 0);
   bmx160_task_id = task_create(bmx160_initiate_read, NULL, 1024, 1);
   task_create(rc_ibus_task, NULL, 4096, 0);
-  task_create(control_task, NULL, 1024*5, 0); // Higher priority for control
+  task_create(control_task, NULL, 1024 * 5, 0); // Higher priority for control
   task_create(imu_telemetry_task, NULL, 4096, 0);
   task_create(flush_task, NULL, 4096, 0);
   task_create(test_task, NULL, 4096, 0);
