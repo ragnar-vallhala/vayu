@@ -66,9 +66,9 @@ void init_sensors(void) {
 void init_tasks(void) {
   task_create(i2c_manager_task, NULL, 4096, 0);
   task_create(comm_processor_task, NULL, 4096, 0);
-  bmx160_task_id = task_create(bmx160_initiate_read, NULL, 1024, 1);
+  bmx160_task_id = task_create(bmx160_initiate_read, NULL, 1024, 2);
   task_create(rc_ibus_task, NULL, 4096, 0);
-  task_create(control_task, NULL, 1024 * 5, 0); // Higher priority for control
+  task_create(control_task, NULL, 1024 * 5, 1); // Higher priority for control
   task_create(imu_telemetry_task, NULL, 4096, 0);
   task_create(flush_task, NULL, 4096, 0);
   task_create(test_task, NULL, 4096, 0);
