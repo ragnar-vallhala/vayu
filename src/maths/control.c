@@ -101,6 +101,7 @@ void control_task(void *args) {
 
   bmx160_all_reading_t imu_data = {0};
   attitude_t attitude = {0};
+  static bmx160_all_reading_t last_valid = {0};
 
   while (1) {
     // 1. Get latest sensor data
@@ -109,12 +110,9 @@ void control_task(void *args) {
 
     if (!valid) {
       // Fallback: use last valid data OR zero
-      static bmx160_all_reading_t last_valid = {0};
-
       imu_data = last_valid;
     } else {
       // Save last good sample
-      static bmx160_all_reading_t last_valid = {0};
       last_valid = imu_data;
     }
 
@@ -131,11 +129,9 @@ void control_task(void *args) {
     // 2. Get RC setpoints and map to physical units
     float target_roll =
         ((float)rc_channels[0] - 1500.0f) / 500.0f * MAX_CONTROL_ANGLE;
-    float target_pitch = 0;
-    float throttle = 0.1;
-    // float target_pitch =
-    //     ((float)rc_channels[1] - 1500.0f) / 500.0f * MAX_CONTROL_ANGLE;
-    // float throttle = ((float)rc_channels[2] - 1000.0f) / 1000.0f;
+    float target_pitch =
+        ((float)rc_channels[1] - 1500.0f) / 500.0f * MAX_CONTROL_ANGLE;
+    float throttle = ((float)rc_channels[2] - 1000.0f) / 1000.0f;
 
     // Clamp throttle
     if (throttle < 0.0f)
@@ -156,12 +152,10 @@ void control_task(void *args) {
     // 4. Rate Control (Inner Rate Loop)
     float out_roll = pid_calculate(&pid_roll_rate, target_rate_roll,
                                    imu_data.converted.gyr[0], 0.0025f);
-    float out_pitch = 0;
-    float out_yaw = 0;
-    // out_pitch = pid_calculate(&pid_pitch_rate, target_rate_pitch,
-    //                                 imu_data.converted.gyr[1], 0.0025f);
-    // out_yaw = pid_calculate(&pid_yaw_rate, target_yaw_rate,
-    //                               imu_data.converted.gyr[2], 0.0025f);
+    float out_pitch = pid_calculate(&pid_pitch_rate, target_rate_pitch,
+                                    imu_data.converted.gyr[1], 0.0025f);
+    float out_yaw = pid_calculate(&pid_yaw_rate, target_yaw_rate,
+                                  imu_data.converted.gyr[2], 0.0025f);
 
     // 5. Motor Mixing (Quad-X configuration)
     float m1 = throttle - out_roll - out_pitch + out_yaw;

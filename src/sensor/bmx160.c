@@ -1056,6 +1056,7 @@ void bmx160_process_data(void) {
   // Push to ring buffer for 100Hz averaging (now with converted and filtered
   // values)
   imu_buffer_push(&_bmx_data);
+  imu_distribution_queue_push(&_bmx_data);
 
   // Sensor Fusion
   if (system_state_get() == SYSTEM_STATE_CALIBRATING) {
