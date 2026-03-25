@@ -184,7 +184,12 @@ void control_task(void *args) {
     float m2 = throttle - out_roll + out_pitch - out_yaw;
     float m3 = throttle + out_roll + out_pitch + out_yaw;
     float m4 = throttle + out_roll - out_pitch - out_yaw;
-     
+     if(system_state_get()==SYSTEM_STATE_CALIBRATING || system_state_get()==SYSTEM_STATE_FAILSAFE){
+      m1=0;
+      m2=0;
+      m3=0;
+      m4=0;
+     }
     float motor_cmds[4] = {m1, m2, m3, m4};
     for (int i = 0; i < 4; i++) {
       if (motor_cmds[i] < 0.0f)
