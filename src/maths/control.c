@@ -3,6 +3,7 @@
 #include "comm/comm_types.h"
 #include "comm/ibus.h"
 #include "comm/serializer.h"
+#include "core/cortex-m4/timer.h"
 #include "sensor/bmx160.h"
 #include "sensor/imu_buffer.h"
 #include "sys/state.h"
@@ -108,7 +109,9 @@ void control_task(void *args) {
 
   for (int i = 0; i < 4; i++) {
     esc_arm(&motors[i]);
+    v_delay(4);
   }
+    v_delay(100);
 
   static bmx160_all_reading_t imu_data = {0};
   static attitude_t attitude = {0};
@@ -178,18 +181,19 @@ void control_task(void *args) {
                                     imu_data.converted.gyr[1], dt);
     float out_yaw = pid_calculate(&pid_yaw_rate, target_yaw_rate,
                                   imu_data.converted.gyr[2], dt);
-    
+
     // // 5. Motor Mixing (Quad-X configuration)
     float m1 = throttle - out_roll - out_pitch + out_yaw;
     float m2 = throttle - out_roll + out_pitch - out_yaw;
     float m3 = throttle + out_roll + out_pitch + out_yaw;
     float m4 = throttle + out_roll - out_pitch - out_yaw;
-     if(system_state_get()==SYSTEM_STATE_CALIBRATING || system_state_get()==SYSTEM_STATE_FAILSAFE){
-      m1=0;
-      m2=0;
-      m3=0;
-      m4=0;
-     }
+    if (system_state_get() == SYSTEM_STATE_CALIBRATING ||
+        system_state_get() == SYSTEM_STATE_FAILSAFE) {
+      m1 = 0;
+      m2 = 0;
+      m3 = 0;
+      m4 = 0;
+    }
     float motor_cmds[4] = {m1, m2, m3, m4};
     for (int i = 0; i < 4; i++) {
       if (motor_cmds[i] < 0.0f)
