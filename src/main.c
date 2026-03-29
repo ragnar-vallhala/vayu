@@ -71,7 +71,7 @@ void init_tasks(void) {
   task_create(control_task, NULL, 1024 * 5, 1); // Higher priority for control
   task_create(imu_telemetry_task, NULL, 4096, 0);
   task_create(flush_task, NULL, 4096, 0);
-  task_create(test_task, NULL, 4096, 0);
+  // task_create(test_task, NULL, 4096, 0);
   // task_create(test_task, NULL, 512, 0);
 }
 void init_timer_callbacks(void) {
