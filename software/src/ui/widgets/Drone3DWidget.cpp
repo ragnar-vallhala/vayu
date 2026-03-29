@@ -33,7 +33,7 @@ void Drone3DWidget::paintEvent(QPaintEvent *event) {
   // --- 3D Projection Setup ---
   // Tail-view: camera at (-15, 0, 0) looking at (0, 0, 0) with Z as UP.
   QMatrix4x4 view;
-  view.lookAt(QVector3D(-15, 0, 0), QVector3D(0, 0, 0), QVector3D(0, 0, 1));
+  view.lookAt(QVector3D(-15, 0, 0), QVector3D(0, 0, 0), QVector3D(0, 0, -1));
 
   QMatrix4x4 projection;
   projection.perspective(40.0f, (float)w / h, 0.1f, 1000.0f);
