@@ -175,19 +175,23 @@ void control_task(void *args) {
     float out_yaw = pid_calculate(&pid_yaw_rate, target_yaw_rate,
                                   imu_data.converted.gyr[2], dt);
 
+    if (system_state_get() == SYSTEM_STATE_ARMED) {
+      if (attitude.roll > 30 || attitude.roll < -30 || attitude.pitch > 30 ||
+          attitude.pitch < -30) {
+        system_state_set(SYSTEM_STATE_FAILSAFE);
+      }
+    }
     // Your layout:
     // Front Left  = M2
     // Front Right = M3
     // Rear Left   = M1
     // Rear Right  = M4
-
     float m1 = throttle + out_roll + out_pitch + out_yaw; // REAR LEFT
     float m2 = throttle + out_roll - out_pitch - out_yaw; // FRONT LEFT
     float m3 = throttle - out_roll - out_pitch + out_yaw; // FRONT RIGHT
     float m4 = throttle - out_roll + out_pitch - out_yaw; // REAR RIGHT
 
-    if (system_state_get() == SYSTEM_STATE_CALIBRATING ||
-        system_state_get() == SYSTEM_STATE_FAILSAFE) {
+    if (system_state_get() != SYSTEM_STATE_ARMED) {
       m1 = 0;
       m2 = 0;
       m3 = 0;
