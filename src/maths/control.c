@@ -111,7 +111,7 @@ void control_task(void *args) {
     esc_arm(&motors[i]);
     v_delay(4);
   }
-    v_delay(100);
+  v_delay(100);
 
   static bmx160_all_reading_t imu_data = {0};
   static attitude_t attitude = {0};
@@ -152,10 +152,6 @@ void control_task(void *args) {
     bmx160_get_attitude(&attitude);
 
     // 2. Get RC setpoints and map to physical units
-    float target_roll =
-        ((float)rc_channels[0] - 1500.0f) / 500.0f * MAX_CONTROL_ANGLE;
-    float target_pitch =
-        ((float)rc_channels[1] - 1500.0f) / 500.0f * MAX_CONTROL_ANGLE;
     float throttle = ((float)rc_channels[2] - 1000.0f) / 1000.0f;
 
     // Clamp throttle
@@ -163,17 +159,14 @@ void control_task(void *args) {
       throttle = 0.0f;
     if (throttle > 1.0f)
       throttle = 1.0f;
-
-    // 3. Pose Control (Outer Angle Loop)
-    // Target Angle -> Angle PID -> Desired Rate
     float target_rate_roll =
-        pid_calculate(&pid_roll_angle, target_roll, attitude.roll, dt);
+        ((float)rc_channels[0] - 1500.0f) / 500.0f * MAX_CONTROL_RATE;
+
     float target_rate_pitch =
-        pid_calculate(&pid_pitch_angle, target_pitch, attitude.pitch, dt);
+        ((float)rc_channels[1] - 1500.0f) / 500.0f * MAX_CONTROL_RATE;
 
     float target_yaw_rate =
         ((float)rc_channels[3] - 1500.0f) / 500.0f * MAX_CONTROL_RATE;
-
     // 4. Rate Control (Inner Rate Loop)
     float out_roll = pid_calculate(&pid_roll_rate, target_rate_roll,
                                    imu_data.converted.gyr[0], dt);
@@ -182,11 +175,17 @@ void control_task(void *args) {
     float out_yaw = pid_calculate(&pid_yaw_rate, target_yaw_rate,
                                   imu_data.converted.gyr[2], dt);
 
-    // // 5. Motor Mixing (Quad-X configuration)
-    float m1 = throttle - out_roll - out_pitch + out_yaw;
-    float m2 = throttle - out_roll + out_pitch - out_yaw;
-    float m3 = throttle + out_roll + out_pitch + out_yaw;
-    float m4 = throttle + out_roll - out_pitch - out_yaw;
+    // Your layout:
+    // Front Left  = M2
+    // Front Right = M3
+    // Rear Left   = M1
+    // Rear Right  = M4
+
+    float m1 = throttle + out_roll + out_pitch + out_yaw; // REAR LEFT
+    float m2 = throttle + out_roll - out_pitch - out_yaw; // FRONT LEFT
+    float m3 = throttle - out_roll - out_pitch + out_yaw; // FRONT RIGHT
+    float m4 = throttle - out_roll + out_pitch - out_yaw; // REAR RIGHT
+
     if (system_state_get() == SYSTEM_STATE_CALIBRATING ||
         system_state_get() == SYSTEM_STATE_FAILSAFE) {
       m1 = 0;

@@ -869,8 +869,8 @@ void bmx160_process_data(void) {
     _is_mag_invalid = 1;
   }
   // 2. Extract gyr (8-13)
-  int16_t gx =
-      (int16_t)(((uint16_t)_bmx_dma_rx_buffer[9] << 8) | _bmx_dma_rx_buffer[8]);
+  int16_t gx = -(int16_t)(((uint16_t)_bmx_dma_rx_buffer[9] << 8) |
+                          _bmx_dma_rx_buffer[8]);
   int16_t gy = (int16_t)(((uint16_t)_bmx_dma_rx_buffer[11] << 8) |
                          _bmx_dma_rx_buffer[10]);
   int16_t gz = (int16_t)(((uint16_t)_bmx_dma_rx_buffer[13] << 8) |
@@ -879,8 +879,8 @@ void bmx160_process_data(void) {
   // 3. Extract acc (14-19)
   int16_t ax = (int16_t)(((uint16_t)_bmx_dma_rx_buffer[15] << 8) |
                          _bmx_dma_rx_buffer[14]);
-  int16_t ay = (int16_t)(((uint16_t)_bmx_dma_rx_buffer[17] << 8) |
-                         _bmx_dma_rx_buffer[16]);
+  int16_t ay = -(int16_t)(((uint16_t)_bmx_dma_rx_buffer[17] << 8) |
+                          _bmx_dma_rx_buffer[16]);
   int16_t az = (int16_t)(((uint16_t)_bmx_dma_rx_buffer[19] << 8) |
                          _bmx_dma_rx_buffer[18]);
 
@@ -958,8 +958,8 @@ void bmx160_process_data(void) {
   // Align BMM150 axes to BMX160 body frame: [-Y, X, Z]
 
   float mag_x = -bmm150_compensate_y(my, rhall);
-  float mag_y = bmm150_compensate_x(mx, rhall);
-  float mag_z = bmm150_compensate_z(mz, rhall);
+  float mag_y = -bmm150_compensate_x(mx, rhall);
+  float mag_z = -bmm150_compensate_z(mz, rhall);
 
   // Store compensated but unscaled data for calibration
   _bmx_data.converted.mag_compensated[0] = mag_x;

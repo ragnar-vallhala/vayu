@@ -38,8 +38,8 @@ void m_acc_mag(const float ax, const float ay, const float az, const float mx,
   }
 
   // Roll and Pitch
-  ori->roll = to_degrees(m_atan2(ay_n, az_n));
-  ori->pitch = to_degrees(m_atan2(-ax_n, m_sqrt(ay_n * ay_n + az_n * az_n)));
+  ori->roll = to_degrees(m_atan2(-ay_n, az_n));
+  ori->pitch = to_degrees(m_atan2(ax_n, m_sqrt(ay_n * ay_n + az_n * az_n)));
 
   float sin_roll = m_sin(to_radians(ori->roll));
   float cos_roll = m_cos(to_radians(ori->roll));
@@ -214,7 +214,7 @@ void m_mahony_filter(const float ax, const float ay, const float az,
 
   // Apply proportional feedback
   float gxc = to_radians(gx) + Kp * ex + integralFBx;
-  float gyc = to_radians(gy) + Kp * ey + integralFBy;
+  float gyc = to_radians(gy) + Kp * ey + integralFBy; // gy is nose down
   float gzc = to_radians(gz) + Kp * ez + integralFBz;
 
   // Integrate rate of change of quaternion
