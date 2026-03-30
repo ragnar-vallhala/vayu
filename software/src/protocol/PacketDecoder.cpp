@@ -103,6 +103,22 @@ DecodedPacket PacketDecoder::decode(const QByteArray &data) {
         result.payload =
             QString("INVALID SYSTEM_STATE LEN: %1").arg(result.length);
       }
+    } else if (result.length >= 2 && raw[8] == 0x05) {
+      // SYSTEM_ORIGIN_PID_ERROR: [origin] [n] [float32_roll] [float32_pitch]
+      // [float32_yaw]
+      if (result.length == 14) {
+        float errs[3];
+        memcpy(errs, raw + 10, 12);
+        PidErrorData pid;
+        pid.roll_error = errs[0];
+        pid.pitch_error = errs[1];
+        pid.yaw_error = errs[2];
+        pid.timestamp = result.timestamp;
+        result.payload = pid;
+      } else {
+        result.payload =
+            QString("INVALID PID_ERROR LEN: %1").arg(result.length);
+      }
     } else if (result.length >= 7 && raw[8] == 0x01) {
       // SYSTEM_ORIGIN_CALIBRATION
       CalibrationUpdate cal;

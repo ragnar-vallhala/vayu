@@ -27,6 +27,7 @@ typedef enum {
   SYSTEM_ORIGIN_HEALTH = 0x02,
   SYSTEM_ORIGIN_MOTOR = 0x03,
   SYSTEM_ORIGIN_SYS_STATE = 0x04,
+  SYSTEM_ORIGIN_PID_ERROR = 0x05,
 } system_status_origin_t;
 
 /**

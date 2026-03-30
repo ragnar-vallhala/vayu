@@ -3,7 +3,6 @@
 #include "comm/comm_types.h"
 #include "comm/ibus.h"
 #include "comm/serializer.h"
-#include "core/cortex-m4/timer.h"
 #include "sensor/bmx160.h"
 #include "sensor/imu_buffer.h"
 #include "sys/state.h"
@@ -217,4 +216,10 @@ void control_task(void *args) {
     }
     v_delay(2);
   }
+}
+
+void control_get_pid_errors(float errors[3]) {
+  errors[0] = pid_roll_rate.prev_error;
+  errors[1] = pid_pitch_rate.prev_error;
+  errors[2] = pid_yaw_rate.prev_error;
 }
