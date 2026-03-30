@@ -32,6 +32,7 @@ packet-beta
 | 0x02 | `SYSTEM_ORIGIN_HEALTH`      | System health / sensor diagnostics  |
 | 0x03 | `SYSTEM_ORIGIN_MOTOR`       | Motor / ESC status                  |
 | 0x04 | `SYSTEM_ORIGIN_SYS_STATE`   | Global system state machine status  |
+| 0x05 | `SYSTEM_ORIGIN_PID_ERROR`   | PID Controller errors               |
 
 ---
 
@@ -85,3 +86,15 @@ Emitted whenever the system state machine transitions (e.g. INIT -> STANDBY).
 | Index | Meaning   | Units | Notes                               |
 | ----- | --------- | ----- | ----------------------------------- |
 | 0     | sys_state | enum  | See `state_machine/system_state.md` |
+
+---
+
+### `SYSTEM_ORIGIN_PID_ERROR` (0x05)
+
+Emitted at a regular interval to provide the current rate loop PID errors.
+
+| Index | Meaning     | Units | Notes            |
+| ----- | ----------- | ----- | ---------------- |
+| 0     | roll_error  | deg/s | Roll rate error  |
+| 1     | pitch_error | deg/s | Pitch rate error |
+| 2     | yaw_error   | deg/s | Yaw rate error   |

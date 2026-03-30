@@ -157,6 +157,13 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   connect(m_motorWidget, &MotorStatusWidget::backToHomeRequested, this,
           &MainWindow::showHome);
 
+  // Build PID Error Plot
+  m_pidErrorWidget = new PidErrorPlot(this);
+  m_pidErrorWidget->setProtocol(m_protocol);
+  m_stackedWidget->addWidget(m_pidErrorWidget);
+  connect(m_pidErrorWidget, &PidErrorPlot::backToHomeRequested, this,
+          &MainWindow::showHome);
+
   showHome();
 }
 
@@ -184,6 +191,10 @@ void MainWindow::showCalibration() {
 
 void MainWindow::showMotorStatus() {
   m_stackedWidget->setCurrentWidget(m_motorWidget);
+}
+
+void MainWindow::showPidErrorPlot() {
+  m_stackedWidget->setCurrentWidget(m_pidErrorWidget);
 }
 
 // ---------------------------------------------------------------------------
@@ -341,6 +352,7 @@ void MainWindow::buildMenuBar() {
   windowMenu->addAction("&Channels", this, &MainWindow::showRcMonitor);
   windowMenu->addAction("&Calibration", this, &MainWindow::showCalibration);
   windowMenu->addAction("&Motor Status", this, &MainWindow::showMotorStatus);
+  windowMenu->addAction("&PID Errors", this, &MainWindow::showPidErrorPlot);
 
   fileMenu->addSeparator();
 

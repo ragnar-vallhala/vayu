@@ -17,9 +17,9 @@
 
 // Rate Loop Gains
 #define PID_ROLL_RATE_KP 0.08f
-#define PID_ROLL_RATE_KI 0.04f
+#define PID_ROLL_RATE_KI 0.08f
 #define PID_ROLL_RATE_KD 0.002f
-#define PID_ROLL_RATE_I_LIMIT 0.3f
+#define PID_ROLL_RATE_I_LIMIT 1.0f
 
 #define PID_PITCH_RATE_KP PID_ROLL_RATE_KP
 #define PID_PITCH_RATE_KI PID_ROLL_RATE_KI
@@ -58,6 +58,8 @@ void pid_init(pid_controller_t *pid, float kp, float ki, float kd,
 float pid_calculate(pid_controller_t *pid, float setpoint, float current_value,
                     float dt);
 void pid_reset(pid_controller_t *pid);
+
+void control_get_pid_errors(float errors[3]);
 
 void control_init(void);
 void control_task(void *args);

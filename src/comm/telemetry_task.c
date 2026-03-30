@@ -1,8 +1,8 @@
 #include "comm/comm_types.h"
 #include "comm/ibus.h"
 #include "comm/serializer.h"
-#include "vaios_app_config.h"
 #include "core/cortex-m4/uart.h"
+#include "maths/control.h"
 #include "maths/sensor_fusion.h"
 #include "sensor/bmx160.h"
 #include "sensor/imu_buffer.h"
@@ -11,6 +11,7 @@
 #include "utils/math_utils.h"
 #include "utils/utils.h"
 #include "vaios.h"
+#include "vaios_app_config.h"
 #include "variables.h"
 #include <stdint.h>
 
@@ -48,6 +49,7 @@ void imu_telemetry_task(void *args) {
     bool send_att = (packet_counter % 10 == 0);    // 10 Hz
     bool send_rc = (packet_counter % 10 == 0);     // 10 Hz
     bool send_status = (packet_counter % 50 == 0); // 2 Hz
+    bool send_pid_err = (packet_counter % 4 == 0); // 37.5 Hz
 
     if (send_status) {
       uint8_t state_payload[6];
@@ -58,6 +60,17 @@ void imu_telemetry_task(void *args) {
 
       send_packet(&g_telemetry_channel, PACKET_TYPE_SYSTEM_STATUS,
                   state_payload, 6);
+    }
+    if (send_pid_err) {
+      uint8_t pid_payload[14];
+      pid_payload[0] = 0x05; // SYSTEM_ORIGIN_PID_ERROR
+      pid_payload[1] = 3;    // Number of elements (3 floats)
+      float pid_errors[3];
+      control_get_pid_errors(pid_errors);
+      v_memcpy(&pid_payload[2], pid_errors, 12);
+
+      send_packet(&g_telemetry_channel, PACKET_TYPE_SYSTEM_STATUS, pid_payload,
+                  14);
     }
 
     if (send_full) {
