@@ -16,24 +16,32 @@
 #define PID_PITCH_ANGLE_I_LIMIT 0.0f
 
 // Rate Loop Gains
-#define PID_ROLL_RATE_KP 0.08f
-#define PID_ROLL_RATE_KI 0.08f
-#define PID_ROLL_RATE_KD 0.002f
-#define PID_ROLL_RATE_I_LIMIT 1.0f
+#define PID_ROLL_RATE_KP 0.04f
+#define PID_ROLL_RATE_KI 0.00f
+#define PID_ROLL_RATE_KD 0.0f
+#define PID_ROLL_RATE_I_LIMIT 0.5f
+#define PID_ROLL_RATE_OUT_LIMIT 0.3f
+#define PID_ROLL_RATE_EXPO 0.7f
 
-#define PID_PITCH_RATE_KP PID_ROLL_RATE_KP
-#define PID_PITCH_RATE_KI PID_ROLL_RATE_KI
-#define PID_PITCH_RATE_KD PID_ROLL_RATE_KD
-#define PID_PITCH_RATE_I_LIMIT PID_ROLL_RATE_I_LIMIT
+#define PID_PITCH_RATE_KP 0.04f
+#define PID_PITCH_RATE_KI 0.00f
+#define PID_PITCH_RATE_KD 0.0f
+#define PID_PITCH_RATE_I_LIMIT 0.5f
+#define PID_PITCH_RATE_OUT_LIMIT 0.3f
+#define PID_PITCH_RATE_EXPO 0.7f
 
-#define PID_YAW_RATE_KP 0.12f
-#define PID_YAW_RATE_KI 0.05f
+#define RADIO_AVOID_BAND 10
+
+#define PID_YAW_RATE_KP 0.0f
+#define PID_YAW_RATE_KI 0.0f
 #define PID_YAW_RATE_KD 0.0f
-#define PID_YAW_RATE_I_LIMIT 0.4f
+#define PID_YAW_RATE_I_LIMIT 0.5f
+#define PID_YAW_RATE_OUT_LIMIT 0.8f
+#define PID_YAW_RATE_EXPO 0.7f
 
 // Control Limits
 #define MAX_CONTROL_ANGLE 30.0f  // max tilt in degrees
-#define MAX_CONTROL_RATE 180.0f  // max target rate in deg/s
+#define MAX_CONTROL_RATE 40.0f  // max target rate in deg/s
 #define MOTOR_MIN_THROTTLE 0.05f // minimum for armed motors
 
 typedef struct {

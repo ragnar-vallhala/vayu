@@ -869,8 +869,8 @@ void bmx160_process_data(void) {
     _is_mag_invalid = 1;
   }
   // 2. Extract gyr (8-13)
-  int16_t gx = -(int16_t)(((uint16_t)_bmx_dma_rx_buffer[9] << 8) |
-                          _bmx_dma_rx_buffer[8]);
+  int16_t gx =
+      (int16_t)(((uint16_t)_bmx_dma_rx_buffer[9] << 8) | _bmx_dma_rx_buffer[8]);
   int16_t gy = (int16_t)(((uint16_t)_bmx_dma_rx_buffer[11] << 8) |
                          _bmx_dma_rx_buffer[10]);
   int16_t gz = (int16_t)(((uint16_t)_bmx_dma_rx_buffer[13] << 8) |
