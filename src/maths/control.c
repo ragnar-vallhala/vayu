@@ -28,7 +28,9 @@ void pid_init(pid_controller_t *pid, float kp, float ki, float kd,
   pid->integral = 0.0f;
   pid->prev_error = 0.0f;
 }
-
+static float expo(float x, float expo) {
+  return x * (1.0f - expo) + x * x * x * expo;
+}
 void pid_reset(pid_controller_t *pid) {
   pid->integral = 0.0f;
   pid->prev_error = 0.0f;
@@ -88,11 +90,11 @@ void control_init(void) {
 
   // Rate Loops (Inner)
   pid_init(&pid_roll_rate, PID_ROLL_RATE_KP, PID_ROLL_RATE_KI, PID_ROLL_RATE_KD,
-           PID_ROLL_RATE_I_LIMIT, 1.0f);
+           PID_ROLL_RATE_I_LIMIT, PID_ROLL_RATE_OUT_LIMIT);
   pid_init(&pid_pitch_rate, PID_PITCH_RATE_KP, PID_PITCH_RATE_KI,
-           PID_PITCH_RATE_KD, PID_PITCH_RATE_I_LIMIT, 1.0f);
+           PID_PITCH_RATE_KD, PID_PITCH_RATE_I_LIMIT, PID_PITCH_RATE_OUT_LIMIT);
   pid_init(&pid_yaw_rate, PID_YAW_RATE_KP, PID_YAW_RATE_KI, PID_YAW_RATE_KD,
-           PID_YAW_RATE_I_LIMIT, 1.0f);
+           PID_YAW_RATE_I_LIMIT, PID_YAW_RATE_OUT_LIMIT);
 }
 
 void control_task(void *args) {
@@ -153,19 +155,28 @@ void control_task(void *args) {
     // 2. Get RC setpoints and map to physical units
     float throttle = ((float)rc_channels[2] - 1000.0f) / 1000.0f;
 
+    if (system_state_get() == SYSTEM_STATE_ARMED &&
+        throttle < MOTOR_MIN_THROTTLE) {
+      throttle = MOTOR_MIN_THROTTLE;
+    }
+
     // Clamp throttle
     if (throttle < 0.0f)
       throttle = 0.0f;
     if (throttle > 1.0f)
       throttle = 1.0f;
-    float target_rate_roll =
-        ((float)rc_channels[0] - 1500.0f) / 500.0f * MAX_CONTROL_RATE;
 
-    float target_rate_pitch =
-        ((float)rc_channels[1] - 1500.0f) / 500.0f * MAX_CONTROL_RATE;
+    float target_rate_roll =
+        (expo(((float)rc_channels[0] - 1500.0f) / 500.0f, PID_ROLL_RATE_EXPO)) *
+        MAX_CONTROL_RATE;
+
+    float target_rate_pitch = (expo(((float)rc_channels[1] - 1500.0f) / 500.0f,
+                                    PID_PITCH_RATE_EXPO)) *
+                              MAX_CONTROL_RATE;
 
     float target_yaw_rate =
-        ((float)rc_channels[3] - 1500.0f) / 500.0f * MAX_CONTROL_RATE;
+        -(expo(((float)rc_channels[3] - 1500.0f) / 500.0f, PID_YAW_RATE_EXPO)) *
+        MAX_CONTROL_RATE;
     // 4. Rate Control (Inner Rate Loop)
     float out_roll = pid_calculate(&pid_roll_rate, target_rate_roll,
                                    imu_data.converted.gyr[0], dt);
@@ -181,14 +192,21 @@ void control_task(void *args) {
       }
     }
     // Your layout:
-    // Front Left  = M2
-    // Front Right = M3
-    // Rear Left   = M1
-    // Rear Right  = M4
-    float m1 = throttle + out_roll + out_pitch + out_yaw; // REAR LEFT
-    float m2 = throttle + out_roll - out_pitch - out_yaw; // FRONT LEFT
-    float m3 = throttle - out_roll - out_pitch + out_yaw; // FRONT RIGHT
-    float m4 = throttle - out_roll + out_pitch - out_yaw; // REAR RIGHT
+    // Front Left  = M4
+    // Front Right = M1
+    // Rear Left   = M3
+    // Rear Right  = M2
+    // M1 = Front Right
+    float m1 = throttle - out_roll - out_pitch - out_yaw;
+
+    // M2 = Rear Right
+    float m2 = throttle - out_roll + out_pitch + out_yaw;
+
+    // M3 = Rear Left
+    float m3 = throttle + out_roll + out_pitch - out_yaw;
+
+    // M4 = Front Left
+    float m4 = throttle + out_roll - out_pitch + out_yaw;
 
     if (system_state_get() != SYSTEM_STATE_ARMED) {
       m1 = 0;

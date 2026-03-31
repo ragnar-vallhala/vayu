@@ -61,7 +61,7 @@
 #define SF_MAHONY_KP 3.0f
 #define SF_MAHONY_KI 0.0025f
 #define SF_FILTER_USED SF_MAHONY
-
+#define RADIO_AVOID_BAND 10
 // Calibration
 #define CALIBRATION_FILE_PATH "0:cal.bin"
 #define CALIBRATION_FILE_SIZE 1024 // 1KB Preallocated
