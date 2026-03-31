@@ -3,8 +3,8 @@
 #include "core/cortex-m4/uart.h"
 #include "sys/state.h"
 #include "utils.h"
-#include "utils/utils.h"
 #include "vaios.h"
+#include "variables.h"
 
 #define IBUS_DMA_BUF_SIZE 128
 static uint8_t ibus_dma_buf[IBUS_DMA_BUF_SIZE];
@@ -50,10 +50,19 @@ void rc_ibus_task(void *args) {
       }
       read_ptr = (read_ptr + 1) % IBUS_DMA_BUF_SIZE;
       sys_state_t current_state = system_state_get();
+      for (int i = 0; i < 4; i++) {
+        if (i != 2 && (rc_channels[i] > 1500 - RADIO_AVOID_BAND &&
+                       rc_channels[i] < 1500 + RADIO_AVOID_BAND)) {
+          rc_channels[i] = 1500;
+        }
+      }
       if (rc_channels[4] > 1500) {
         // Switch is UP (Armed position)
-        if (current_state == SYSTEM_STATE_STANDBY) {
+        if (current_state == SYSTEM_STATE_STANDBY && rc_channels[2] < 1100) {
           system_state_set(SYSTEM_STATE_ARMED);
+        } else if (current_state == SYSTEM_STATE_STANDBY &&
+                   rc_channels[2] > 1100) {
+          system_state_set(SYSTEM_STATE_FAILSAFE);
         }
       } else {
         // Switch is DOWN (Disarmed position)
