@@ -1,5 +1,7 @@
 #include "PidErrorPlot.h"
+#include <QDoubleValidator>
 #include <QHBoxLayout>
+#include <QLineEdit>
 
 PidErrorPlot::PidErrorPlot(QWidget *parent) : QWidget(parent) {
   auto *layout = new QVBoxLayout(this);
@@ -24,6 +26,24 @@ PidErrorPlot::PidErrorPlot(QWidget *parent) : QWidget(parent) {
   header->addSpacing(20);
   header->addWidget(title);
   header->addStretch();
+
+  // Gyro scale input
+  auto *scaleLabel = new QLabel("Gyro Scale:", this);
+  scaleLabel->setStyleSheet("color: #ABB2BF; font-size: 12px;");
+  auto *scaleEdit = new QLineEdit("1.0", this);
+  scaleEdit->setFixedWidth(60);
+  scaleEdit->setValidator(new QDoubleValidator(0.0, 1000.0, 4, this));
+  scaleEdit->setStyleSheet(
+      "QLineEdit { background: #2C313A; color: #ABB2BF; border: 1px solid "
+      "#3E4452; border-radius: 4px; padding: 2px; }"
+      "QLineEdit:focus { border-color: #61AFEF; }");
+  connect(scaleEdit, &QLineEdit::textChanged, this,
+          [this](const QString &text) { m_gyroScale = text.toFloat(); });
+
+  header->addWidget(scaleLabel);
+  header->addSpacing(5);
+  header->addWidget(scaleEdit);
+
   layout->addLayout(header);
 
   // Stats row
@@ -49,10 +69,16 @@ PidErrorPlot::PidErrorPlot(QWidget *parent) : QWidget(parent) {
   layout->addLayout(statsLayout);
 
   // Graph
-  m_graph = new RealTimeGraph(this, 3);
-  m_graph->setColor(0, QColor("#E06C75")); // Roll
-  m_graph->setColor(1, QColor("#98C379")); // Pitch
-  m_graph->setColor(2, QColor("#61AFEF")); // Yaw
+  m_graph = new RealTimeGraph(this, 6);
+  m_graph->setColor(0, QColor("#E06C75")); // Roll Error
+  m_graph->setColor(1, QColor("#98C379")); // Pitch Error
+  m_graph->setColor(2, QColor("#61AFEF")); // Yaw Error
+  m_graph->setColor(3, QColor("#BE5046")); // Scaled Roll Gyro (Darker Red)
+  m_graph->setColor(4, QColor("#7FB069")); // Scaled Pitch Gyro (Darker Green)
+  m_graph->setColor(5, QColor("#4078BF")); // Scaled Yaw Gyro (Darker Blue)
+  m_graph->setPenStyle(3, Qt::DashLine);
+  m_graph->setPenStyle(4, Qt::DashLine);
+  m_graph->setPenStyle(5, Qt::DashLine);
   m_graph->setWindowSeconds(10);
   layout->addWidget(m_graph, 1);
 
@@ -67,11 +93,15 @@ void PidErrorPlot::setProtocol(DroneProtocol *protocol) {
   if (m_protocol) {
     disconnect(m_protocol, &DroneProtocol::pidErrorReceived, this,
                &PidErrorPlot::onPidErrorReceived);
+    disconnect(m_protocol, &DroneProtocol::imuReceived, this,
+               &PidErrorPlot::onImuReceived);
   }
   m_protocol = protocol;
   if (m_protocol) {
     connect(m_protocol, &DroneProtocol::pidErrorReceived, this,
             &PidErrorPlot::onPidErrorReceived);
+    connect(m_protocol, &DroneProtocol::imuReceived, this,
+            &PidErrorPlot::onImuReceived);
   }
 }
 
@@ -80,7 +110,16 @@ void PidErrorPlot::onPidErrorReceived(const PidErrorData &data) {
   m_graph->appendData(data.pitch_error, 1);
   m_graph->appendData(data.yaw_error, 2);
 
-  m_rollVal->setText(QString::number(data.roll_error, 'f', 3));
-  m_pitchVal->setText(QString::number(data.pitch_error, 'f', 3));
-  m_yawVal->setText(QString::number(data.yaw_error, 'f', 3));
+  m_rollVal->setText(
+      QString::number(static_cast<double>(data.roll_error), 'f', 3));
+  m_pitchVal->setText(
+      QString::number(static_cast<double>(data.pitch_error), 'f', 3));
+  m_yawVal->setText(
+      QString::number(static_cast<double>(data.yaw_error), 'f', 3));
+}
+
+void PidErrorPlot::onImuReceived(const ImuData &data) {
+  m_graph->appendData(data.gyr[0] * m_gyroScale, 3);
+  m_graph->appendData(data.gyr[1] * m_gyroScale, 4);
+  m_graph->appendData(data.gyr[2] * m_gyroScale, 5);
 }

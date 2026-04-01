@@ -1,8 +1,12 @@
 #pragma once
 
-#include <QTimer>
+#include "RealTimeGraph.h"
+#include "RollingStats.h"
+#include <QLabel>
 #include <QVector>
 #include <QWidget>
+
+class DroneViewWidget;
 
 class MotorStatusWidget : public QWidget {
   Q_OBJECT
@@ -16,13 +20,11 @@ public:
 signals:
   void backToHomeRequested();
 
-protected:
-  void paintEvent(QPaintEvent *event) override;
-  void resizeEvent(QResizeEvent *event) override;
-
 private:
-  void drawDrone(QPainter &p, int w, int h);
-  void drawMotor(QPainter &p, int x, int y, float speed, int motorIdx);
-
+  DroneViewWidget *m_droneView;
+  RealTimeGraph *m_graph;
+  QLabel *m_valLabels[4];
+  QLabel *m_stdLabels[4];
+  RollingStats m_stats[4];
   QVector<float> m_speeds;
 };
