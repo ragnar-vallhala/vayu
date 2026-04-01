@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include "maths/lpf.h"
 
 // Angle Loop Gains
 #define PID_ROLL_ANGLE_KP 3.0f
@@ -16,16 +17,18 @@
 #define PID_PITCH_ANGLE_I_LIMIT 0.0f
 
 // Rate Loop Gains
-#define PID_ROLL_RATE_KP 0.04f
-#define PID_ROLL_RATE_KI 0.00f
-#define PID_ROLL_RATE_KD 0.0f
+#define PID_ROLL_RATE_KP 0.1f
+#define PID_ROLL_RATE_KI 0.02f
+#define PID_ROLL_RATE_KD 0.01f
+#define PID_ROLL_RATE_KD_LPF_ALPHA 0.7f
 #define PID_ROLL_RATE_I_LIMIT 0.5f
 #define PID_ROLL_RATE_OUT_LIMIT 0.3f
 #define PID_ROLL_RATE_EXPO 0.7f
 
-#define PID_PITCH_RATE_KP 0.04f
-#define PID_PITCH_RATE_KI 0.00f
-#define PID_PITCH_RATE_KD 0.0f
+#define PID_PITCH_RATE_KP 0.06f
+#define PID_PITCH_RATE_KI 0.02f
+#define PID_PITCH_RATE_KD 0.008f
+#define PID_PITCH_RATE_KD_LPF_ALPHA 0.1f
 #define PID_PITCH_RATE_I_LIMIT 0.5f
 #define PID_PITCH_RATE_OUT_LIMIT 0.3f
 #define PID_PITCH_RATE_EXPO 0.7f
@@ -52,6 +55,7 @@ typedef struct {
   float prev_error;
   float i_limit;
   float output_limit;
+  lpf_t lpf_d;
 } pid_controller_t;
 
 typedef struct {

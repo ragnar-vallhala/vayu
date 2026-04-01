@@ -19,6 +19,7 @@ signals:
 
 private slots:
   void onPidErrorReceived(const PidErrorData &data);
+  void onImuReceived(const ImuData &data);
 
 private:
   DroneProtocol *m_protocol = nullptr;
@@ -26,4 +27,5 @@ private:
   QLabel *m_rollVal;
   QLabel *m_pitchVal;
   QLabel *m_yawVal;
+  float m_gyroScale = 1.0f;
 };

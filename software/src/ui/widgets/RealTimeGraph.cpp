@@ -10,6 +10,7 @@ RealTimeGraph::RealTimeGraph(QWidget *parent, int numSeries) : QWidget(parent) {
   setMinimumHeight(40);
   m_seriesData.resize(numSeries);
   m_colors.resize(numSeries, QColor("#61AFEF"));
+  m_penStyles.resize(numSeries, Qt::SolidLine);
 }
 
 void RealTimeGraph::setMode(Mode mode) {
@@ -30,6 +31,13 @@ void RealTimeGraph::setDropoutRate(double rate) {
 void RealTimeGraph::setColor(int index, const QColor &color) {
   if (index >= 0 && index < static_cast<int>(m_colors.size())) {
     m_colors[index] = color;
+    update();
+  }
+}
+
+void RealTimeGraph::setPenStyle(int index, Qt::PenStyle style) {
+  if (index >= 0 && index < static_cast<int>(m_penStyles.size())) {
+    m_penStyles[index] = style;
     update();
   }
 }
@@ -190,7 +198,8 @@ void RealTimeGraph::paintEvent(QPaintEvent *event) {
       gradient.setColorAt(1, fillColor);
       painter.fillPath(fillPath, gradient);
 
-      painter.setPen(QPen(m_colors[i], 1.5));
+      QPen pen(m_colors[i], 1.5, m_penStyles[i]);
+      painter.setPen(pen);
       painter.drawPath(path);
     }
 

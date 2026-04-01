@@ -27,6 +27,7 @@ void pid_init(pid_controller_t *pid, float kp, float ki, float kd,
   pid->output_limit = out_limit;
   pid->integral = 0.0f;
   pid->prev_error = 0.0f;
+  lpf_init(&pid->lpf_d, PID_ROLL_RATE_KD_LPF_ALPHA);
 }
 static float expo(float x, float expo) {
   return x * (1.0f - expo) + x * x * x * expo;
@@ -57,7 +58,7 @@ float pid_calculate(pid_controller_t *pid, float setpoint, float current_value,
   float i_out = pid->ki * pid->integral;
 
   float derivative = (error - pid->prev_error) / dt;
-
+  derivative = lpf_apply(&pid->lpf_d, derivative);
   //  CRITICAL CLAMP
   if (!isfinite(derivative) || fabsf(derivative) > 10000.0f) {
     derivative = 0.0f;
@@ -83,10 +84,10 @@ float pid_calculate(pid_controller_t *pid, float setpoint, float current_value,
 
 void control_init(void) {
   // Angle Loops (Outer)
-  pid_init(&pid_roll_angle, PID_ROLL_ANGLE_KP, PID_ROLL_ANGLE_KI,
-           PID_ROLL_ANGLE_KD, PID_ROLL_ANGLE_I_LIMIT, MAX_CONTROL_RATE);
-  pid_init(&pid_pitch_angle, PID_PITCH_ANGLE_KP, PID_PITCH_ANGLE_KI,
-           PID_PITCH_ANGLE_KD, PID_PITCH_ANGLE_I_LIMIT, MAX_CONTROL_RATE);
+  // pid_init(&pid_roll_angle, PID_ROLL_ANGLE_KP, PID_ROLL_ANGLE_KI,
+  //          PID_ROLL_ANGLE_KD, PID_ROLL_ANGLE_I_LIMIT, MAX_CONTROL_RATE);
+  // pid_init(&pid_pitch_angle, PID_PITCH_ANGLE_KP, PID_PITCH_ANGLE_KI,
+  //          PID_PITCH_ANGLE_KD, PID_PITCH_ANGLE_I_LIMIT, MAX_CONTROL_RATE);
 
   // Rate Loops (Inner)
   pid_init(&pid_roll_rate, PID_ROLL_RATE_KP, PID_ROLL_RATE_KI, PID_ROLL_RATE_KD,
@@ -124,8 +125,9 @@ void control_task(void *args) {
     uint32_t n = v_get_ticks();
     float dt = (n - last) / 1000.0f;
     last = n;
-    if (dt <= 0.0f || dt > 0.05f) { // reject anything > 50ms as bogus
+    if (dt <= 1e-6f || dt > 0.05f) { // reject anything > 50ms as bogus
       last = v_get_ticks();
+      vayu_log("Rejected control loop dt: %f\n", dt);
       v_delay(2);
       continue;
     }

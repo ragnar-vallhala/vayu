@@ -18,6 +18,7 @@ public:
   void setWindowSeconds(int seconds);
   void setDropoutRate(double rate);
   void setColor(int index, const QColor &color);
+  void setPenStyle(int index, Qt::PenStyle style);
   void appendData(float value, int index = 0);
   int numSeries() const { return static_cast<int>(m_seriesData.size()); }
   void clear();
@@ -36,6 +37,7 @@ private:
   int m_windowSeconds = 5;
   double m_dropoutRate = 0.0;
   std::vector<QColor> m_colors;
+  std::vector<Qt::PenStyle> m_penStyles;
 
   float m_min = -1.0f;
   float m_max = 1.0f;
