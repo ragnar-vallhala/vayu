@@ -140,6 +140,7 @@ hal_i2c_status_t i2c_manager_read_async(uint8_t addr, uint8_t reg_addr,
 
   return HAL_I2C_ERR_TIMEOUT;
 }
+
 void i2c_manager_task(void *args) {
   i2c_async_t item;
   while (1) {
@@ -153,7 +154,9 @@ void i2c_manager_task(void *args) {
 
     if (item.state == I2C_TRANS_IDLE && item.op_type == I2C_OP_READ) {
 
-      if (v_semaphore_take(_i2c_sema, MS_TO_TICKS(I2C_MANAGER_SEMAPHORE_TIMEOUT)) != VA_PASS) {
+      if (v_semaphore_take(_i2c_sema,
+                           MS_TO_TICKS(I2C_MANAGER_SEMAPHORE_TIMEOUT)) !=
+          VA_PASS) {
         // Bus locked — invoke error path
         void (*cb)(void *) =
             item.callback; // use item, not _current_trans (not set yet)
@@ -183,7 +186,6 @@ void i2c_manager_task(void *args) {
                                   .data_width = DMA_DATA_WIDTH_8,
                                   .priority = DMA_PRIORITY_VERY_HIGH,
                                   .circular = 0};
-
       hal_i2c_status_t ret = hal_i2c_read_regs_dma(
           I2C1, _current_trans.addr, _current_trans.reg_addr, &i2c_dma_cfg,
           i2c_manager_callback);
@@ -196,7 +198,8 @@ void i2c_manager_task(void *args) {
       // *** Block here until DMA IRQ fires and callback completes ***
       // This prevents re-entry, prevents semaphore double-give,
       // and ensures _rx_data is stable before next transaction
-      if (v_semaphore_take(_dma_done_sema, MS_TO_TICKS(I2C_MANAGER_DMA_TIMEOUT)) != VA_PASS) {
+      if (v_semaphore_take(_dma_done_sema,
+                           MS_TO_TICKS(I2C_MANAGER_DMA_TIMEOUT)) != VA_PASS) {
         // DMA hung — force error and release bus
         i2c_manager_signal_error();
       }
