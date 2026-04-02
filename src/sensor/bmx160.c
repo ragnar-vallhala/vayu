@@ -1,5 +1,7 @@
 #include "sensor/bmx160.h"
 #include "comm/serializer.h"
+#include "core/cortex-m4/dwt.h"
+#include "core/cortex-m4/i2c.h"
 #include "drivers/i2c_manager.h"
 #include "ipc.h"
 #include "maths/lpf.h"
@@ -780,37 +782,57 @@ void wake_imu_read_task(void) {
     task_yield();
   }
 }
-void bmx160_initiate_read(void *args) {
-  while (1) {
+static int dt = 0;
+static int dt_last = 0;
+static int dt_count = 0;
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
 
-    // 1kHz trigger
+void bmx160_initiate_read(void *args) {
+  static uint32_t fail_i2c = 0, fail_dma = 0;
+  static uint32_t worst_sema=0, worst_i2c=0, worst_dma=0, worst_proc=0;
+  static uint32_t log_t = 0;
+  dwt_init();
+  while (1) {
+    uint32_t t_wake = dwt_get_cycles();
     v_semaphore_take(bmx160_timer_sema, 1000000);
-    // direct_dma_print((const uint8_t *)"Called", 6);
-    // Start async read (manager handles I2C locking internally)
+    uint32_t t_got_sema = dwt_get_cycles();
+
     hal_i2c_status_t hal_ret =
         i2c_manager_read_async(BMX160_I2C_ADDR, 0x04, 30, bmx160_dma_callback);
+    uint32_t t_i2c_queued = dwt_get_cycles();
 
     if (hal_ret == HAL_I2C_OK) {
-
-      // Wait for DMA completion
       if (v_semaphore_take(bmx160_dma_sema,
                            MS_TO_TICKS(I2C_MANAGER_DMA_TIMEOUT)) == VA_PASS) {
-        i2c_error_count = 0;
+        uint32_t t_dma_done = dwt_get_cycles();
         bmx160_process_data();
-      } else {
-        // DMA timeout
-        i2c_error_count++;
-      }
+        uint32_t t_proc_done = dwt_get_cycles();
 
+        worst_sema = MAX(worst_sema, t_got_sema  - t_wake);
+        worst_i2c  = MAX(worst_i2c,  t_i2c_queued - t_got_sema);
+        worst_dma  = MAX(worst_dma,  t_dma_done   - t_i2c_queued);
+        worst_proc = MAX(worst_proc, t_proc_done  - t_dma_done);
+      } else {
+        fail_dma++;
+      }
     } else {
-      // Queue full / manager busy
-      i2c_error_count++;
+      fail_i2c++;
     }
 
-    // Error handling
-    if (i2c_error_count > 10) {
-      // Optionally: trigger bus reset or manager reset later
-      i2c_error_count = 0;
+    // log unconditionally every ~1s regardless of success/failure
+    /*
+    [03:40:54.619] worst - sema:362 i2c_q:1387 dma:163948 proc:8794 | fails i2c:0 dma:167
+    [03:40:55.622] worst - sema:362 i2c_q:1387 dma:163940 proc:8800 | fails i2c:0 dma:167
+    [03:40:56.613] worst - sema:362 i2c_q:1387 dma:163948 proc:8803 | fails i2c:0 dma:167
+    [03:40:57.615] worst - sema:362 i2c_q:1387 dma:163940 proc:8794 | fails i2c:0 dma:167
+    [03:40:58.620] worst - sema:362 i2c_q:1387 dma:163949 proc:8794 | fails i2c:0 dma:167
+    */
+    if (dwt_get_cycles() - log_t > 84000000) {
+      // vayu_log("worst - sema:%lu i2c_q:%lu dma:%lu proc:%lu | fails i2c:%lu dma:%lu",
+      //          worst_sema, worst_i2c, worst_dma, worst_proc, fail_i2c, fail_dma);
+      worst_sema = worst_i2c = worst_dma = worst_proc = 0;
+      fail_i2c = fail_dma = 0;
+      log_t = dwt_get_cycles();
     }
   }
 }
@@ -835,12 +857,16 @@ void bmx160_dma_callback(void *args) {
 
 static uint32_t _last_read_time = 0;
 static uint32_t _read_count = 0;
-
+/*
+ * According to test done on 03/04/2026, the IMU loop cycles are around 20128 at
+ * 84MHz So the effective frequency is around 4.2kHz Time taken is around 237
+ * microseconds
+ */
 void bmx160_process_data(void) {
   _read_count++;
-  if (_read_count % 2000 == 0) {
+  if (_read_count % 1000 == 0) {
     vayu_log("IMU data processing frequency: %f Hz",
-             (1000.0f * 2000.0f) / (v_get_ticks() - _last_read_time));
+             (1000.0f * 1000.0f) / (v_get_ticks() - _last_read_time));
     _last_read_time = v_get_ticks();
     _read_count = 0;
   }
@@ -879,8 +905,8 @@ void bmx160_process_data(void) {
   // 3. Extract acc (14-19)
   int16_t ax = (int16_t)(((uint16_t)_bmx_dma_rx_buffer[15] << 8) |
                          _bmx_dma_rx_buffer[14]);
-  int16_t ay = -(int16_t)(((uint16_t)_bmx_dma_rx_buffer[17] << 8) |
-                          _bmx_dma_rx_buffer[16]);
+  int16_t ay = (int16_t)(((uint16_t)_bmx_dma_rx_buffer[17] << 8) |
+                         _bmx_dma_rx_buffer[16]);
   int16_t az = (int16_t)(((uint16_t)_bmx_dma_rx_buffer[19] << 8) |
                          _bmx_dma_rx_buffer[18]);
 
@@ -902,7 +928,7 @@ void bmx160_process_data(void) {
 
   // Convert to units (for local attitude fusion and telemetry)
   _bmx_data.converted.acc_raw[0] = bmx160_raw_acc_to_mps2(ax);
-  _bmx_data.converted.acc_raw[1] = bmx160_raw_acc_to_mps2(ay);
+  _bmx_data.converted.acc_raw[1] = -bmx160_raw_acc_to_mps2(ay);
   _bmx_data.converted.acc_raw[2] = bmx160_raw_acc_to_mps2(az);
 
   // Initial populate (will be calibrated/filtered later)
@@ -911,7 +937,7 @@ void bmx160_process_data(void) {
   _bmx_data.converted.acc[2] = _bmx_data.converted.acc_raw[2];
 
   _bmx_data.converted.gyr_raw[0] = bmx160_raw_gyr_to_dps(gx);
-  _bmx_data.converted.gyr_raw[1] = bmx160_raw_gyr_to_dps(gy);
+  _bmx_data.converted.gyr_raw[1] = -bmx160_raw_gyr_to_dps(gy);
   _bmx_data.converted.gyr_raw[2] = bmx160_raw_gyr_to_dps(gz);
 
   _bmx_data.converted.gyr[0] = _bmx_data.converted.gyr_raw[0];

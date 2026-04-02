@@ -1,4 +1,6 @@
 #include "comm/channel.h"
+#include "comm/serializer.h"
+#include "core/cortex-m4/clock.h"
 #include "core/cortex-m4/uart.h"
 #include "drivers/i2c_manager.h"
 #include "logger/logger.h"
@@ -18,8 +20,6 @@
 #include "vaios_config_default.h"
 #include "variables.h"
 #include "vayu_tasks.h"
-#include "comm/serializer.h"
-
 
 channel_t g_telemetry_channel;
 MutexHandle_t g_comm_mutex;
