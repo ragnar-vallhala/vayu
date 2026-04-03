@@ -25,6 +25,4 @@ typedef enum {
 void ibus_init(ibus_data_t *data);
 bool ibus_parse_byte(uint8_t byte, ibus_data_t *data);
 
-extern uint16_t rc_channels[IBUS_MAX_CHANNELS];
-
 #endif // VAYU_COMM_IBUS_H

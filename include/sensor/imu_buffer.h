@@ -11,8 +11,19 @@ void imu_buffer_push(const bmx160_all_reading_t *sample);
 bool imu_buffer_peek(bmx160_all_reading_t *out_sample);
 int imu_buffer_peek_all(bmx160_all_reading_t *out_samples, int max_count);
 int imu_buffer_count(void);
-bool imu_distribution_queue_push(const bmx160_all_reading_t *sample);
-bool imu_distribution_queue_pop(bmx160_all_reading_t *out_sample);
-bool imu_distribution_queue_peek(bmx160_all_reading_t *out_sample);
+bool imu_queue_telemetry_push(const bmx160_all_reading_t *sample);
+bool imu_queue_telemetry_pop(bmx160_all_reading_t *out_sample);
+bool imu_queue_telemetry_peek(bmx160_all_reading_t *out_sample);
 
+bool imu_queue_control_push(const bmx160_all_reading_t *sample);
+bool imu_queue_control_pop(bmx160_all_reading_t *out_sample);
+bool imu_queue_control_peek(bmx160_all_reading_t *out_sample);
+
+bool attitude_queue_telemetry_push(const attitude_t *attitude);
+bool attitude_queue_telemetry_pop(attitude_t *out_attitude);
+bool attitude_queue_telemetry_peek(attitude_t *out_attitude);
+
+bool attitude_queue_control_push(const attitude_t *attitude);
+bool attitude_queue_control_pop(attitude_t *out_attitude);
+bool attitude_queue_control_peek(attitude_t *out_attitude);
 #endif // VAYU_IMU_BUFFER_H
