@@ -33,7 +33,7 @@ uint8_t rx_buf[14]; // Increased for safer multi-byte reads
 static float last_mag[3] = {0}; // last valid mag readings
 static int stable_count = 0;    // is platform stable
 
-static MutexHandle_t bmx160_attitude_mutex; // Mutex for attitude data
+// static MutexHandle_t bmx160_attitude_mutex; // Mutex for attitude data
 static SemaphoreHandle_t bmx160_ready_sema; // Semaphore for data ready
 
 static bmx160_config_t bmx160_cfg;
@@ -143,9 +143,9 @@ hal_i2c_status_t bmx160_init(void) {
     vfs_close(file);
   }
   // Create attitude mutex
-  if (bmx160_attitude_mutex == NULL) {
-    bmx160_attitude_mutex = v_mutex_create();
-  }
+  // if (bmx160_attitude_mutex == NULL) {
+  //   bmx160_attitude_mutex = v_mutex_create();
+  // }
   // Reading PTR
   // 1. Verify Chip ID
   uint16_t chip_id = bmx160_get_chip_id();
@@ -798,7 +798,7 @@ void bmx160_initiate_read(void *args) {
   (void)args;
   static uint32_t last_tick = 0;
   while (1) {
-    if (v_semaphore_take(bmx160_ready_sema, MS_TO_TICKS(20)) == VA_PASS) {
+    if (v_semaphore_take(bmx160_ready_sema, MS_TO_TICKS(2)) == VA_PASS) {
       last_tick = v_get_ticks();
 
       // 1. Process data from the op that just COMPLETED
@@ -834,27 +834,28 @@ void bmx160_initiate_read(void *args) {
 
       task_count++;
       if (task_count % 1000 == 0) {
-        vayu_log("ISR: %d TASK: %d", isr_count, task_count);
+        // vayu_log("ISR: %d TASK: %d", isr_count, task_count);
       }
     } else {
       if (v_get_ticks() - last_tick > 50) {
-        vayu_log("IMU STALL -> HARD RESTART");
+        // vayu_log("IMU STALL -> HARD RESTART");
 
-        // 🔥 FULL RECOVERY
+        // FULL RECOVERY
         i2c_manager_unstick();
         init_i2c_manager(&i2c_config);
 
         _next_op = IMU_OP_FAST;
         _last_op = IMU_OP_FAST;
 
-        // 🔥 CRITICAL: START DMA MANUALLY
+        // CRITICAL: START DMA MANUALLY
         hal_i2c_status_t ret = i2c_manager_read_async(BMX160_I2C_ADDR, 0x0C, 12,
                                                       bmx160_dma_callback_fast);
 
         if (ret != HAL_I2C_OK) {
           vayu_log("RESTART FAILED");
         }
-
+        task_count = 0;
+        isr_count = 0;
         last_tick = v_get_ticks();
       }
     }
@@ -924,8 +925,8 @@ static uint32_t _read_count = 0;
 void bmx160_process_data(void) {
   _read_count++;
   if (_read_count % 1000 == 0) {
-    vayu_log("IMU data processing frequency: %f Hz",
-             (1000.0f * 1000.0f) / (v_get_ticks() - _last_read_time));
+    // vayu_log("IMU data processing frequency: %f Hz",
+    //          (1000.0f * 1000.0f) / (v_get_ticks() - _last_read_time));
     _last_read_time = v_get_ticks();
     _read_count = 0;
   }
@@ -1141,16 +1142,17 @@ void bmx160_process_data(void) {
   // Push to ring buffer for 100Hz averaging (now with converted and filtered
   // values)
   imu_buffer_push(&_bmx_data);
-  imu_distribution_queue_push(&_bmx_data);
+  imu_queue_telemetry_push(&_bmx_data);
+  imu_queue_control_push(&_bmx_data);
 
   // Sensor Fusion
   if (system_state_get() == SYSTEM_STATE_CALIBRATING) {
     return;
   }
   // 1kHz sampling rate (from main.c registration)
-  if (bmx160_attitude_mutex != NULL) {
-    v_mutex_lock(bmx160_attitude_mutex, MS_TO_TICKS(5));
-  }
+  // if (bmx160_attitude_mutex != NULL) {
+  //   v_mutex_lock(bmx160_attitude_mutex, MS_TO_TICKS(5));
+  // }
   if (SF_FILTER_USED == SF_MAHONY) {
     m_mahony_filter(_bmx_data.converted.acc[0], _bmx_data.converted.acc[1],
                     _bmx_data.converted.acc[2], _bmx_data.converted.gyr[0],
@@ -1165,19 +1167,21 @@ void bmx160_process_data(void) {
         _bmx_data.converted.mag[0], _bmx_data.converted.mag[1],
         _bmx_data.converted.mag[2], &_bmx_orientation);
   }
-  if (bmx160_attitude_mutex != NULL) {
-    v_mutex_unlock(bmx160_attitude_mutex);
-  }
+  attitude_queue_telemetry_push(&_bmx_orientation);
+  attitude_queue_control_push(&_bmx_orientation);
+  // if (bmx160_attitude_mutex != NULL) {
+  //   v_mutex_unlock(bmx160_attitude_mutex);
+  // }
 }
 
-void bmx160_get_attitude(attitude_t *att) {
-  if (att != NULL && bmx160_attitude_mutex != NULL) {
-    v_mutex_lock(bmx160_attitude_mutex,
-                 MS_TO_TICKS(I2C_MANAGER_SEMAPHORE_TIMEOUT));
-    *att = _bmx_orientation;
-    v_mutex_unlock(bmx160_attitude_mutex);
-  }
-}
+// void bmx160_get_attitude(attitude_t *att) {
+//   if (att != NULL && bmx160_attitude_mutex != NULL) {
+//     v_mutex_lock(bmx160_attitude_mutex,
+//                  MS_TO_TICKS(I2C_MANAGER_SEMAPHORE_TIMEOUT));
+//     *att = _bmx_orientation;
+//     v_mutex_unlock(bmx160_attitude_mutex);
+//   }
+// }
 
 static int wait_for_orientation(calib_update_type_t orient, float *accel_out) {
   vayu_log("[CALIB] Waiting for orientation: %d", orient);

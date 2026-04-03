@@ -11,7 +11,7 @@ typedef enum {
   SYSTEM_STATE_TERMINATED=0x80,
   SYSTEM_STATE_CALIBRATING=0x100,
 } sys_state_t;
-extern sys_state_t _system_current_status;
+extern volatile sys_state_t _system_current_status;
 inline void system_state_init() { _system_current_status = SYSTEM_STATE_INIT; }
 inline void system_state_set(sys_state_t state) {
   _system_current_status = state;
@@ -28,7 +28,7 @@ typedef enum {
   BOOT_CHECK_SD_CARD_CHECK_FAIL = 0x40,
 } sys_boot_check_state_t;
 
-extern sys_boot_check_state_t _system_boot_check_current_status;
+extern volatile sys_boot_check_state_t _system_boot_check_current_status;
 inline void system_boot_check_state_init() {
   _system_boot_check_current_status = BOOT_CHECK_NO_CHECK;
 }
@@ -61,7 +61,7 @@ typedef enum {
   IMU_HEALTH_MAG_TEMP_INVALID = 0x40000
 } sys_imu_health_check_state_t;
 
-extern sys_imu_health_check_state_t _system_imu_health_check_current_status;
+extern volatile sys_imu_health_check_state_t _system_imu_health_check_current_status;
 inline void system_imu_health_check_state_init() {
   _system_imu_health_check_current_status = IMU_HEALTH_NO_CHECK;
 }

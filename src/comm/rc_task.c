@@ -1,4 +1,5 @@
 #include "comm/ibus.h"
+#include "comm/rc_buffer.h"
 #include "core/cortex-m4/dma_reg.h"
 #include "core/cortex-m4/uart.h"
 #include "sys/state.h"
@@ -9,9 +10,6 @@
 #define IBUS_DMA_BUF_SIZE 128
 static uint8_t ibus_dma_buf[IBUS_DMA_BUF_SIZE];
 static ibus_data_t ibus_raw_data;
-
-// Shared RC channels for other tasks to use
-uint16_t rc_channels[IBUS_MAX_CHANNELS];
 
 void rc_ibus_task(void *args) {
   (void)args;
@@ -46,22 +44,23 @@ void rc_ibus_task(void *args) {
     while (read_ptr != write_ptr) {
       uint8_t b = ibus_dma_buf[read_ptr];
       if (ibus_parse_byte(b, &ibus_raw_data)) {
-        v_memcpy(rc_channels, ibus_raw_data.channels, sizeof(rc_channels));
+        rc_queue_control_push(&ibus_raw_data);
+        rc_queue_telemetry_push(&ibus_raw_data);
       }
       read_ptr = (read_ptr + 1) % IBUS_DMA_BUF_SIZE;
       sys_state_t current_state = system_state_get();
       for (int i = 0; i < 4; i++) {
-        if (i != 2 && (rc_channels[i] > 1500 - RADIO_AVOID_BAND &&
-                       rc_channels[i] < 1500 + RADIO_AVOID_BAND)) {
-          rc_channels[i] = 1500;
+        if (i != 2 && (ibus_raw_data.channels[i] > 1500 - RADIO_AVOID_BAND &&
+                       ibus_raw_data.channels[i] < 1500 + RADIO_AVOID_BAND)) {
+          ibus_raw_data.channels[i] = 1500;
         }
       }
-      if (rc_channels[4] > 1500) {
+      if (ibus_raw_data.channels[4] > 1500) {
         // Switch is UP (Armed position)
-        if (current_state == SYSTEM_STATE_STANDBY && rc_channels[2] < 1100) {
+        if (current_state == SYSTEM_STATE_STANDBY && ibus_raw_data.channels[2] < 1100) {
           system_state_set(SYSTEM_STATE_ARMED);
         } else if (current_state == SYSTEM_STATE_STANDBY &&
-                   rc_channels[2] > 1100) {
+                   ibus_raw_data.channels[2] > 1100) {
           system_state_set(SYSTEM_STATE_FAILSAFE);
         }
       } else {
