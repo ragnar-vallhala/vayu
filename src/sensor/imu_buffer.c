@@ -40,11 +40,11 @@ int imu_buffer_peek_all(bmx160_all_reading_t *out_samples, int max_count) {
 int imu_buffer_count(void) { return (int)spsc_available(&_imu_fifo); }
 
 bool imu_distribution_queue_push(const bmx160_all_reading_t *sample) {
-  return mpmc_push(&_imu_distribution_queue, sample);
+  return mpmc_try_push(&_imu_distribution_queue, sample);
 }
 
 bool imu_distribution_queue_pop(bmx160_all_reading_t *out_sample) {
-  return mpmc_pop(&_imu_distribution_queue, out_sample);
+  return mpmc_try_pop(&_imu_distribution_queue, out_sample);
 }
 
 bool imu_distribution_queue_peek(bmx160_all_reading_t *out_sample) {

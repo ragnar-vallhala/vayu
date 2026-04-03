@@ -34,17 +34,32 @@ static float last_mag[3] = {0}; // last valid mag readings
 static int stable_count = 0;    // is platform stable
 
 static MutexHandle_t bmx160_attitude_mutex; // Mutex for attitude data
-static SemaphoreHandle_t bmx160_dma_sema;   // Semaphore for DMA completion
-static SemaphoreHandle_t bmx160_timer_sema; // Semaphore for Timer wake-up
+static SemaphoreHandle_t bmx160_ready_sema; // Semaphore for data ready
 
-// Static helper functions and variables
-// Default BMX160 configuration
 static bmx160_config_t bmx160_cfg;
-// DMA storage for 30 bytes (Mag[6], Hall[2], Gyr[6], Acc[6], Status[4],
-// Temp[2])
-static uint8_t _bmx_dma_rx_buffer[32] __attribute__((aligned(4)));
+// DMA storage buffers
+static uint8_t _bmx_dma_rx_buffer_double[32] __attribute__((aligned(4)));
 static attitude_t _bmx_orientation;
 static bmx160_all_reading_t _bmx_data;
+
+// Split-rate state machine
+typedef enum {
+  IMU_OP_FAST, // Gyro + Accel
+  IMU_OP_MAG,  // Magnetometer
+  IMU_OP_TEMP  // Temperature
+} imu_op_t;
+
+extern hal_i2c_config_t i2c_config;
+static volatile imu_op_t _next_op = IMU_OP_FAST;
+static volatile imu_op_t _last_op = IMU_OP_FAST;
+
+static volatile int isr_count = 0;
+static volatile int task_count = 0;
+
+// Forward declarations for split-rate callbacks
+static void bmx160_dma_callback_fast(void *args);
+static void bmx160_dma_callback_mag(void *args);
+static void bmx160_dma_callback_temp(void *args);
 
 static float acc_scale = 0.0f;
 static float gyr_scale = 0.0f;
@@ -208,23 +223,22 @@ hal_i2c_status_t bmx160_init(void) {
   _bmx_orientation.q.y = 0.0f;
   _bmx_orientation.q.z = 0.0f;
 
-  // Create semaphore for DMA synchronization
-  if (bmx160_dma_sema == NULL) {
-    bmx160_dma_sema = v_semaphore_create_binary();
+  // Create semaphore for data ready
+  if (bmx160_ready_sema == NULL) {
+    bmx160_ready_sema = v_semaphore_create_counting(10, 0);
   }
-  if (bmx160_dma_sema == NULL) {
-    return HAL_I2C_ERR_REINIT;
-  }
-
-  // Create semaphore for Timer wake-up
-  if (bmx160_timer_sema == NULL) {
-    bmx160_timer_sema = v_semaphore_create_binary();
-  }
-  if (bmx160_timer_sema == NULL) {
+  if (bmx160_ready_sema == NULL) {
     return HAL_I2C_ERR_REINIT;
   }
 
   in_init = 0; // Success! Disable blocking bypass
+
+  _next_op = IMU_OP_FAST;
+  _last_op = IMU_OP_FAST;
+
+  // Kick off the loop from task context by giving the semaphore
+  v_semaphore_give(bmx160_ready_sema);
+
   return HAL_I2C_OK;
 }
 
@@ -775,85 +789,130 @@ void bmx160_set_current_config(bmx160_config_t *cfg) { bmx160_cfg = *cfg; }
 extern uint32_t bmx160_task_id;
 
 // Run from ISR
-void wake_imu_read_task(void) {
-  int higher_priority_task_woken = 0;
-  v_semaphore_give_from_isr(bmx160_timer_sema, &higher_priority_task_woken);
-  if (higher_priority_task_woken) {
-    task_yield();
-  }
-}
 static int dt = 0;
 static int dt_last = 0;
 static int dt_count = 0;
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 
 void bmx160_initiate_read(void *args) {
-  static uint32_t fail_i2c = 0, fail_dma = 0;
-  static uint32_t worst_sema=0, worst_i2c=0, worst_dma=0, worst_proc=0;
-  static uint32_t log_t = 0;
-  dwt_init();
+  (void)args;
+  static uint32_t last_tick = 0;
   while (1) {
-    uint32_t t_wake = dwt_get_cycles();
-    v_semaphore_take(bmx160_timer_sema, 1000000);
-    uint32_t t_got_sema = dwt_get_cycles();
+    if (v_semaphore_take(bmx160_ready_sema, MS_TO_TICKS(20)) == VA_PASS) {
+      last_tick = v_get_ticks();
 
-    hal_i2c_status_t hal_ret =
-        i2c_manager_read_async(BMX160_I2C_ADDR, 0x04, 30, bmx160_dma_callback);
-    uint32_t t_i2c_queued = dwt_get_cycles();
-
-    if (hal_ret == HAL_I2C_OK) {
-      if (v_semaphore_take(bmx160_dma_sema,
-                           MS_TO_TICKS(I2C_MANAGER_DMA_TIMEOUT)) == VA_PASS) {
-        uint32_t t_dma_done = dwt_get_cycles();
+      // 1. Process data from the op that just COMPLETED
+      if (_last_op == IMU_OP_FAST) {
         bmx160_process_data();
-        uint32_t t_proc_done = dwt_get_cycles();
+      }
 
-        worst_sema = MAX(worst_sema, t_got_sema  - t_wake);
-        worst_i2c  = MAX(worst_i2c,  t_i2c_queued - t_got_sema);
-        worst_dma  = MAX(worst_dma,  t_dma_done   - t_i2c_queued);
-        worst_proc = MAX(worst_proc, t_proc_done  - t_dma_done);
-      } else {
-        fail_dma++;
+      // 2. Start the NEXT op in the chain
+      hal_i2c_status_t ret = HAL_I2C_OK;
+      _last_op = _next_op;
+
+      switch (_next_op) {
+      case IMU_OP_FAST:
+        ret = i2c_manager_read_async(BMX160_I2C_ADDR, 0x0C, 12,
+                                     bmx160_dma_callback_fast);
+        break;
+      case IMU_OP_MAG:
+        ret = i2c_manager_read_async(BMX160_I2C_ADDR, 0x04, 8,
+                                     bmx160_dma_callback_mag);
+        break;
+      case IMU_OP_TEMP:
+        ret = i2c_manager_read_async(BMX160_I2C_ADDR, 0x20, 2,
+                                     bmx160_dma_callback_temp);
+        break;
+      }
+
+      if (ret != HAL_I2C_OK) {
+        vayu_log("DMA FAIL -> HARD RECOVERY");
+        i2c_manager_unstick();
+        _next_op = IMU_OP_FAST;
+        // No fake wake-up: wait for watchdog or next valid event
+      }
+
+      task_count++;
+      if (task_count % 1000 == 0) {
+        vayu_log("ISR: %d TASK: %d", isr_count, task_count);
       }
     } else {
-      fail_i2c++;
-    }
+      if (v_get_ticks() - last_tick > 50) {
+        vayu_log("IMU STALL -> HARD RESTART");
 
-    // log unconditionally every ~1s regardless of success/failure
-    /*
-    [03:40:54.619] worst - sema:362 i2c_q:1387 dma:163948 proc:8794 | fails i2c:0 dma:167
-    [03:40:55.622] worst - sema:362 i2c_q:1387 dma:163940 proc:8800 | fails i2c:0 dma:167
-    [03:40:56.613] worst - sema:362 i2c_q:1387 dma:163948 proc:8803 | fails i2c:0 dma:167
-    [03:40:57.615] worst - sema:362 i2c_q:1387 dma:163940 proc:8794 | fails i2c:0 dma:167
-    [03:40:58.620] worst - sema:362 i2c_q:1387 dma:163949 proc:8794 | fails i2c:0 dma:167
-    */
-    if (dwt_get_cycles() - log_t > 84000000) {
-      // vayu_log("worst - sema:%lu i2c_q:%lu dma:%lu proc:%lu | fails i2c:%lu dma:%lu",
-      //          worst_sema, worst_i2c, worst_dma, worst_proc, fail_i2c, fail_dma);
-      worst_sema = worst_i2c = worst_dma = worst_proc = 0;
-      fail_i2c = fail_dma = 0;
-      log_t = dwt_get_cycles();
+        // 🔥 FULL RECOVERY
+        i2c_manager_unstick();
+        init_i2c_manager(&i2c_config);
+
+        _next_op = IMU_OP_FAST;
+        _last_op = IMU_OP_FAST;
+
+        // 🔥 CRITICAL: START DMA MANUALLY
+        hal_i2c_status_t ret = i2c_manager_read_async(BMX160_I2C_ADDR, 0x0C, 12,
+                                                      bmx160_dma_callback_fast);
+
+        if (ret != HAL_I2C_OK) {
+          vayu_log("RESTART FAILED");
+        }
+
+        last_tick = v_get_ticks();
+      }
     }
   }
 }
 
-void bmx160_dma_callback(void *args) {
-  if (args == NULL) {
-    vayu_log("BMX160 DMA Callback: args is NULL");
-    return;
+void bmx160_dma_callback_fast(void *args) {
+  static uint32_t slow_counter = 0;
+  isr_count++;
+  if (args != NULL) {
+    // Copy Gyro/Accel (12 bytes) to [8-19]
+    v_memcpy(&_bmx_dma_rx_buffer_double[8], args, 12);
   }
-  // Copy data from manager buffer to local buffer
-  v_memcpy(_bmx_dma_rx_buffer, args, 30);
+
+  slow_counter++;
+  if (slow_counter % 13 == 0) {
+    _next_op = IMU_OP_MAG;
+  } else {
+    _next_op = IMU_OP_FAST;
+  }
 
   int higher_priority_task_woken = 0;
-
-  // ONLY signal DMA completion
-  v_semaphore_give_from_isr(bmx160_dma_sema, &higher_priority_task_woken);
-
+  v_semaphore_give_from_isr(bmx160_ready_sema, &higher_priority_task_woken);
   if (higher_priority_task_woken) {
     task_yield();
   }
 }
+
+static void bmx160_dma_callback_mag(void *args) {
+  if (args != NULL) {
+    v_memcpy(&_bmx_dma_rx_buffer_double[0], args, 8);
+  }
+  isr_count++;
+  _next_op = IMU_OP_TEMP;
+
+  int higher_priority_task_woken = 0;
+  v_semaphore_give_from_isr(bmx160_ready_sema, &higher_priority_task_woken);
+  if (higher_priority_task_woken) {
+    task_yield();
+  }
+}
+
+static void bmx160_dma_callback_temp(void *args) {
+  if (args != NULL) {
+    v_memcpy(&_bmx_dma_rx_buffer_double[28], args, 2);
+  }
+  isr_count++;
+  _next_op = IMU_OP_FAST;
+
+  int higher_priority_task_woken = 0;
+  v_semaphore_give_from_isr(bmx160_ready_sema, &higher_priority_task_woken);
+  if (higher_priority_task_woken) {
+    task_yield();
+  }
+}
+
+// Keep the old callback for compatibility if needed, but it's now unused
+void bmx160_dma_callback(void *args) { bmx160_dma_callback_fast(args); }
 
 static uint32_t _last_read_time = 0;
 static uint32_t _read_count = 0;
@@ -875,43 +934,43 @@ void bmx160_process_data(void) {
   // X/Y are 13-bit, Z is 15-bit. Status bits are in the LSB.
   // We assemble as signed 16-bit and then arithmetic shift to preserve sign.
   uint8_t _is_mag_invalid = 0;
-  int16_t mx =
-      (int16_t)(((uint16_t)_bmx_dma_rx_buffer[1] << 8) | _bmx_dma_rx_buffer[0]);
+  int16_t mx = (int16_t)(((uint16_t)_bmx_dma_rx_buffer_double[1] << 8) |
+                         _bmx_dma_rx_buffer_double[0]);
   mx >>= 3;
 
-  int16_t my =
-      (int16_t)(((uint16_t)_bmx_dma_rx_buffer[3] << 8) | _bmx_dma_rx_buffer[2]);
+  int16_t my = (int16_t)(((uint16_t)_bmx_dma_rx_buffer_double[3] << 8) |
+                         _bmx_dma_rx_buffer_double[2]);
   my >>= 3;
 
-  int16_t mz =
-      (int16_t)(((uint16_t)_bmx_dma_rx_buffer[5] << 8) | _bmx_dma_rx_buffer[4]);
+  int16_t mz = (int16_t)(((uint16_t)_bmx_dma_rx_buffer_double[5] << 8) |
+                         _bmx_dma_rx_buffer_double[4]);
   mz >>= 1;
 
   // RHALL is at bytes 6, 7
-  uint16_t rhall = (uint16_t)(((uint16_t)_bmx_dma_rx_buffer[7] << 8) |
-                              (_bmx_dma_rx_buffer[6] & 0xFE)) >>
+  uint16_t rhall = (uint16_t)(((uint16_t)_bmx_dma_rx_buffer_double[7] << 8) |
+                              (_bmx_dma_rx_buffer_double[6] & 0xFE)) >>
                    2;
   if (rhall < 50 || rhall > 30000) {
     _is_mag_invalid = 1;
   }
   // 2. Extract gyr (8-13)
-  int16_t gx =
-      (int16_t)(((uint16_t)_bmx_dma_rx_buffer[9] << 8) | _bmx_dma_rx_buffer[8]);
-  int16_t gy = (int16_t)(((uint16_t)_bmx_dma_rx_buffer[11] << 8) |
-                         _bmx_dma_rx_buffer[10]);
-  int16_t gz = (int16_t)(((uint16_t)_bmx_dma_rx_buffer[13] << 8) |
-                         _bmx_dma_rx_buffer[12]);
+  int16_t gx = (int16_t)(((uint16_t)_bmx_dma_rx_buffer_double[9] << 8) |
+                         _bmx_dma_rx_buffer_double[8]);
+  int16_t gy = (int16_t)(((uint16_t)_bmx_dma_rx_buffer_double[11] << 8) |
+                         _bmx_dma_rx_buffer_double[10]);
+  int16_t gz = (int16_t)(((uint16_t)_bmx_dma_rx_buffer_double[13] << 8) |
+                         _bmx_dma_rx_buffer_double[12]);
 
   // 3. Extract acc (14-19)
-  int16_t ax = (int16_t)(((uint16_t)_bmx_dma_rx_buffer[15] << 8) |
-                         _bmx_dma_rx_buffer[14]);
-  int16_t ay = (int16_t)(((uint16_t)_bmx_dma_rx_buffer[17] << 8) |
-                         _bmx_dma_rx_buffer[16]);
-  int16_t az = (int16_t)(((uint16_t)_bmx_dma_rx_buffer[19] << 8) |
-                         _bmx_dma_rx_buffer[18]);
+  int16_t ax = (int16_t)(((uint16_t)_bmx_dma_rx_buffer_double[15] << 8) |
+                         _bmx_dma_rx_buffer_double[14]);
+  int16_t ay = (int16_t)(((uint16_t)_bmx_dma_rx_buffer_double[17] << 8) |
+                         _bmx_dma_rx_buffer_double[16]);
+  int16_t az = (int16_t)(((uint16_t)_bmx_dma_rx_buffer_double[19] << 8) |
+                         _bmx_dma_rx_buffer_double[18]);
 
-  int16_t raw_temp = (int16_t)(((uint16_t)_bmx_dma_rx_buffer[29] << 8) |
-                               _bmx_dma_rx_buffer[28]);
+  int16_t raw_temp = (int16_t)(((uint16_t)_bmx_dma_rx_buffer_double[29] << 8) |
+                               _bmx_dma_rx_buffer_double[28]);
 
   // Store raw results
   _bmx_data.raw.acc[0] = ax;
