@@ -2,6 +2,7 @@
 #include "actuator/esc.h"
 #include "comm/comm_types.h"
 #include "comm/ibus.h"
+#include "comm/rc_buffer.h"
 #include "comm/serializer.h"
 #include "sensor/bmx160.h"
 #include "sensor/imu_buffer.h"
@@ -117,8 +118,10 @@ void control_task(void *args) {
 
   static bmx160_all_reading_t imu_data = {0};
   static attitude_t attitude = {0};
+  static attitude_t last_attitude = {0};
   static bmx160_all_reading_t last_valid = {0};
-
+  static ibus_data_t rc_data;
+  static float rc_channels[6];
   while (1) {
 
     static uint32_t last = 0;
@@ -127,14 +130,14 @@ void control_task(void *args) {
     last = n;
     if (dt <= 1e-6f || dt > 0.05f) { // reject anything > 50ms as bogus
       last = v_get_ticks();
-      vayu_log("Rejected control loop dt: %f\n", dt);
+      // vayu_log("Rejected control loop dt: %f\n", dt);
       v_delay(2);
       continue;
     }
 
     // 1. Get latest sensor data
     // Use averaged gyro data from the buffer if available
-    bool valid = imu_buffer_peek(&imu_data);
+    bool valid = imu_queue_control_pop(&imu_data);
 
     if (!valid) {
       // Fallback: use last valid data OR zero
@@ -152,9 +155,16 @@ void control_task(void *args) {
       }
     }
     // Get current attitude (updated by fusion task)
-    bmx160_get_attitude(&attitude);
+    if (attitude_queue_control_pop(&attitude)) {
+      last_attitude = attitude;
+    } else {
+      attitude = last_attitude;
+    }
 
     // 2. Get RC setpoints and map to physical units
+    if (rc_queue_control_pop(&rc_data)) {
+      v_memcpy(rc_channels, rc_data.channels, sizeof(rc_channels));
+    }
     float throttle = ((float)rc_channels[2] - 1000.0f) / 1000.0f;
 
     if (system_state_get() == SYSTEM_STATE_ARMED &&
@@ -225,16 +235,16 @@ void control_task(void *args) {
       esc_set_throttle(&motors[i], motor_cmds[i]);
     }
 
-    static uint32_t last_telemetry_time = 0;
-    uint32_t now = v_get_ticks();
-    if (now - last_telemetry_time >= 20) { // 50 Hz
-      if (g_telemetry_channel.handle != NULL) {
-        send_packet(&g_telemetry_channel, PACKET_TYPE_MOTOR_TELEMETRY,
-                    (uint8_t *)&motor_cmds, sizeof(motor_cmds));
-      }
-      last_telemetry_time = now;
-    }
-    v_delay(2);
+    // static uint32_t last_telemetry_time = 0;
+    // uint32_t now = v_get_ticks();
+    // if (now - last_telemetry_time >= 20) { // 50 Hz
+    //   if (g_telemetry_channel.handle != NULL) {
+    //     send_packet(&g_telemetry_channel, PACKET_TYPE_MOTOR_TELEMETRY,
+    //                 (uint8_t *)&motor_cmds, sizeof(motor_cmds));
+    //   }
+    //   last_telemetry_time = now;
+    // }
+    v_delay(1);
   }
 }
 

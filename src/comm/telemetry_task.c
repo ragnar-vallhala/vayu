@@ -1,5 +1,6 @@
 #include "comm/comm_types.h"
 #include "comm/ibus.h"
+#include "comm/rc_buffer.h"
 #include "comm/serializer.h"
 #include "core/cortex-m4/uart.h"
 #include "maths/control.h"
@@ -24,9 +25,7 @@ void imu_telemetry_task(void *args) {
   uint32_t packet_counter = 0;
 
   while (1) {
-    int count = imu_distribution_queue_peek(&samples);
-
-    if (count > 0) {
+    if (imu_queue_telemetry_pop(&samples)) {
       current_floats[0] = (float)samples.converted.acc[0];
       current_floats[1] = (float)samples.converted.acc[1];
       current_floats[2] = (float)samples.converted.acc[2];
@@ -91,15 +90,19 @@ void imu_telemetry_task(void *args) {
 
     if (send_att) {
       attitude_t att;
-      bmx160_get_attitude(&att);
-      float att_vals[3] = {att.roll, att.pitch, att.yaw};
-      send_packet(&g_telemetry_channel, PACKET_TYPE_ATTITUDE,
-                  (uint8_t *)att_vals, 12);
+      if (attitude_queue_telemetry_pop(&att)) {
+        float att_vals[3] = {att.roll, att.pitch, att.yaw};
+        send_packet(&g_telemetry_channel, PACKET_TYPE_ATTITUDE,
+                    (uint8_t *)att_vals, 12);
+      }
     }
 
     if (send_rc) {
-      send_packet(&g_telemetry_channel, PACKET_TYPE_RC_CHANNELS,
-                  (uint8_t *)rc_channels, 28);
+      ibus_data_t rc_data;
+      if (rc_queue_telemetry_pop(&rc_data)) {
+        send_packet(&g_telemetry_channel, PACKET_TYPE_RC_CHANNELS,
+                    (uint8_t *)rc_data.channels, 28);
+      }
     }
 
     packet_counter++;
