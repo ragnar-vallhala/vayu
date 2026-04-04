@@ -4,6 +4,7 @@
 #include "comm/serializer.h"
 #include "core/cortex-m4/uart.h"
 #include "maths/control.h"
+#include "maths/control_buffer.h"
 #include "maths/sensor_fusion.h"
 #include "sensor/bmx160.h"
 #include "sensor/imu_buffer.h"
@@ -19,10 +20,14 @@
 void imu_telemetry_task(void *args) {
   (void)args;
   static bmx160_all_reading_t samples;
-  float current_floats[10];  // Acc[3], Gyr[3], Mag[3], Temp
-  float previous_floats[10]; // For delta calculation
-  bool first_packet = true;
-  uint32_t packet_counter = 0;
+  static float current_floats[10];  // Acc[3], Gyr[3], Mag[3], Temp
+  static float previous_floats[10]; // For delta calculation
+  static bool first_packet = true;
+  static uint32_t packet_counter = 0;
+  static pid_error_data_t e_data;
+  static motor_pwm_data_t m_data;
+  static ibus_data_t rc_data;
+  static attitude_t att;
 
   while (1) {
     if (imu_queue_telemetry_pop(&samples)) {
@@ -45,9 +50,10 @@ void imu_telemetry_task(void *args) {
 
     bool send_full = (packet_counter % 100 == 0);  // 1 Hz
     bool send_comp = (packet_counter % 3 == 0);    // 50 Hz
-    bool send_att = (packet_counter % 10 == 0);    // 10 Hz
-    bool send_rc = (packet_counter % 10 == 0);     // 10 Hz
+    bool send_att = (packet_counter % 8 == 0);     // 12.5 Hz
+    bool send_rc = (packet_counter % 15 == 0);     // 6.66 Hz
     bool send_status = (packet_counter % 50 == 0); // 2 Hz
+    bool send_motor = (packet_counter % 10 == 0);  // 10 Hz
     bool send_pid_err = (packet_counter % 4 == 0); // 37.5 Hz
 
     if (send_status) {
@@ -60,14 +66,11 @@ void imu_telemetry_task(void *args) {
       send_packet(&g_telemetry_channel, PACKET_TYPE_SYSTEM_STATUS,
                   state_payload, 6);
     }
-    if (send_pid_err) {
+    if (send_pid_err && pid_error_queue_pop(&e_data)) {
       uint8_t pid_payload[14];
       pid_payload[0] = 0x05; // SYSTEM_ORIGIN_PID_ERROR
       pid_payload[1] = 3;    // Number of elements (3 floats)
-      float pid_errors[3];
-      control_get_pid_errors(pid_errors);
-      v_memcpy(&pid_payload[2], pid_errors, 12);
-
+      v_memcpy(&pid_payload[2], e_data.errors, sizeof(e_data.errors));
       send_packet(&g_telemetry_channel, PACKET_TYPE_SYSTEM_STATUS, pid_payload,
                   14);
     }
@@ -88,21 +91,20 @@ void imu_telemetry_task(void *args) {
       v_memcpy(previous_floats, current_floats, sizeof(current_floats));
     }
 
-    if (send_att) {
-      attitude_t att;
-      if (attitude_queue_telemetry_pop(&att)) {
-        float att_vals[3] = {att.roll, att.pitch, att.yaw};
-        send_packet(&g_telemetry_channel, PACKET_TYPE_ATTITUDE,
-                    (uint8_t *)att_vals, 12);
-      }
+    if (send_att && attitude_queue_telemetry_pop(&att)) {
+      float att_vals[3] = {att.roll, att.pitch, att.yaw};
+      send_packet(&g_telemetry_channel, PACKET_TYPE_ATTITUDE,
+                  (uint8_t *)att_vals, 12);
     }
 
-    if (send_rc) {
-      ibus_data_t rc_data;
-      if (rc_queue_telemetry_pop(&rc_data)) {
-        send_packet(&g_telemetry_channel, PACKET_TYPE_RC_CHANNELS,
-                    (uint8_t *)rc_data.channels, 28);
-      }
+    if (send_rc && rc_queue_telemetry_pop(&rc_data)) {
+      send_packet(&g_telemetry_channel, PACKET_TYPE_RC_CHANNELS,
+                  (uint8_t *)rc_data.channels, sizeof(rc_data.channels));
+    }
+
+    if (send_motor && motor_queue_pop(&m_data)) {
+      send_packet(&g_telemetry_channel, PACKET_TYPE_MOTOR_TELEMETRY,
+                  (uint8_t *)m_data.motors, sizeof(m_data.motors));
     }
 
     packet_counter++;
