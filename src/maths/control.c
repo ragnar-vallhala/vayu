@@ -4,6 +4,7 @@
 #include "comm/ibus.h"
 #include "comm/rc_buffer.h"
 #include "comm/serializer.h"
+#include "core/cortex-m4/dwt.h"
 #include "maths/control_buffer.h"
 #include "sensor/bmx160.h"
 #include "sensor/imu_buffer.h"
@@ -14,6 +15,7 @@
 #include "variables.h"
 #include "vayu_tasks.h"
 #include <math.h>
+#include <stdint.h>
 // PID Controllers
 static pid_controller_t pid_roll_angle, pid_roll_rate;
 static pid_controller_t pid_pitch_angle, pid_pitch_rate;
@@ -123,16 +125,16 @@ void control_task(void *args) {
   static bmx160_all_reading_t last_valid = {0};
   static ibus_data_t rc_data;
   static float rc_channels[6];
-  while (1) {
 
-    static uint32_t last = 0;
-    uint32_t n = v_get_ticks();
-    float dt = (n - last) / 1000.0f;
+  uint32_t last = dwt_get_cycles();
+  while (1) {
+    uint32_t n = dwt_get_cycles();
+    float dt = (n - last) / (float)SYS_CLOCK_FREQ;
     last = n;
     if (dt <= 1e-6f || dt > 0.05f) { // reject anything > 50ms as bogus
-      last = v_get_ticks();
+      last = dwt_get_cycles();
       // vayu_log("Rejected control loop dt: %f\n", dt);
-      v_delay(2);
+      v_delay(1);
       continue;
     }
 
@@ -143,6 +145,7 @@ void control_task(void *args) {
       // Fallback: use last valid data OR zero
       imu_data = last_valid;
     } else {
+      // vayu_log("Failed to pop IMU data in control loop");
       // Save last good sample
       last_valid = imu_data;
     }

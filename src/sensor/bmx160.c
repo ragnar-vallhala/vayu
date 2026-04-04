@@ -1,6 +1,5 @@
 #include "sensor/bmx160.h"
 #include "comm/serializer.h"
-#include "core/cortex-m4/dwt.h"
 #include "core/cortex-m4/i2c.h"
 #include "drivers/i2c_manager.h"
 #include "ipc.h"
@@ -26,7 +25,6 @@ extern float fabsf(float x);
 #define SQRT_F(x) sqrtf(x)
 static int in_init = 1;
 #define IS_FINITE(x) ((x) - (x) == 0.0f)
-extern channel_t g_telemetry_channel;
 uint8_t tx_buf[2];
 uint8_t rx_buf[14]; // Increased for safer multi-byte reads
 
@@ -1184,6 +1182,7 @@ void bmx160_process_data(void) {
 // }
 
 static int wait_for_orientation(calib_update_type_t orient, float *accel_out) {
+ // Remove all send packets from here
   vayu_log("[CALIB] Waiting for orientation: %d", orient);
 
   // Send instruction to GCS

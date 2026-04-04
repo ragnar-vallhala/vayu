@@ -52,27 +52,31 @@ err_t send_packet(channel_t *channel, packet_type_t packet_type, byte *payload,
   uint8_t header_size = 8;
   uint8_t packet_size = header_size + payload_size + sizeof(packet.crc32);
 
-  if (g_comm_mutex) {
-    if (v_mutex_lock(g_comm_mutex, 100) != VA_PASS) {
-      return ERROR;
-    }
-  }
+  // if (g_comm_mutex) {
+  //   if (v_mutex_lock(g_comm_mutex, 0) != VA_PASS) {
+  //     return ERROR;
+  //   }
+  // }
+  // for (volatile uint32_t i = 0; i < 1000; i++) {
+  
+  // }
 
   packet.crc32 =
       calculate_crc((uint8_t *)(&packet), header_size + payload_size);
 
-  // The struct has a 256-byte payload buffer, so crc32 sits at the end of that
+  // The struct has a 256-byte payload buffer, so crc32 sits at the end of
+  // that
   // 256 bytes in memory! We can't just pass &packet and packet_size natively
   // because of the struct padding/layout. We must copy the crc immediately
   // after the payload and then send that total contiguous buffer.
-  v_memcpy(packet.payload + payload_size, &packet.crc32, sizeof(packet.crc32));
+  v_memcpy(packet.payload + payload_size, &packet.crc32,
+  sizeof(packet.crc32));
 
   err_t ret = write_channel(*channel, (uint8_t *)&packet, packet_size);
 
-  if (g_comm_mutex) {
-    v_mutex_unlock(g_comm_mutex);
-  }
-
+  // if (g_comm_mutex) {
+  //   v_mutex_unlock(g_comm_mutex);
+  // }
   return ret;
 #else
   // No binary navlink packets

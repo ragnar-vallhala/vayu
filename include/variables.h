@@ -77,7 +77,6 @@
 #include "comm/channel.h"
 #include "ipc.h"
 extern channel_t g_telemetry_channel;
-extern MutexHandle_t g_comm_mutex;
 
 // Telemetry
 #define ENABLE_BINARY_NAVLINK_PKT 1
