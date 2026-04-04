@@ -4,6 +4,7 @@
 #include "comm/ibus.h"
 #include "comm/rc_buffer.h"
 #include "comm/serializer.h"
+#include "maths/control_buffer.h"
 #include "sensor/bmx160.h"
 #include "sensor/imu_buffer.h"
 #include "sys/state.h"
@@ -137,9 +138,8 @@ void control_task(void *args) {
 
     // 1. Get latest sensor data
     // Use averaged gyro data from the buffer if available
-    bool valid = imu_queue_control_pop(&imu_data);
 
-    if (!valid) {
+    if (!imu_queue_control_pop(&imu_data)) {
       // Fallback: use last valid data OR zero
       imu_data = last_valid;
     } else {
@@ -235,21 +235,15 @@ void control_task(void *args) {
       esc_set_throttle(&motors[i], motor_cmds[i]);
     }
 
-    // static uint32_t last_telemetry_time = 0;
-    // uint32_t now = v_get_ticks();
-    // if (now - last_telemetry_time >= 20) { // 50 Hz
-    //   if (g_telemetry_channel.handle != NULL) {
-    //     send_packet(&g_telemetry_channel, PACKET_TYPE_MOTOR_TELEMETRY,
-    //                 (uint8_t *)&motor_cmds, sizeof(motor_cmds));
-    //   }
-    //   last_telemetry_time = now;
-    // }
+    // Push motor PWMs and PID errors to SPSC queues for telemetry
+    motor_pwm_data_t m_data;
+    v_memcpy(m_data.motors, motor_cmds, sizeof(m_data.motors));
+    motor_queue_push(&m_data);
+
+    pid_error_data_t e_data = {.errors = {pid_roll_rate.prev_error,
+                                          pid_pitch_rate.prev_error,
+                                          pid_yaw_rate.prev_error}};
+    pid_error_queue_push(&e_data);
     v_delay(1);
   }
-}
-
-void control_get_pid_errors(float errors[3]) {
-  errors[0] = pid_roll_rate.prev_error;
-  errors[1] = pid_pitch_rate.prev_error;
-  errors[2] = pid_yaw_rate.prev_error;
 }

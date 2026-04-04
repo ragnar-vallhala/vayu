@@ -347,9 +347,10 @@ void flush_task(void *args) {
   while (1) {
     channel_t *curr = active_handlers;
     while (curr != NULL) {
-      flush_channel(*curr);
+      while (flush_channel(*curr) == NONE)
+        ;
       curr = curr->next;
     }
-    v_delay(10); // Sleep for 10ms (adjust as needed based on system tick)
+    v_delay(1); // Sleep for 10ms (adjust as needed based on system tick)
   }
 }
