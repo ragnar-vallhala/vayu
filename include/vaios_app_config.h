@@ -24,7 +24,7 @@
 // Memory
 #define MAIN_STACK_SIZE 10240 // 10KB
 
-#define HEAP_SIZE 0x10000 // 64kB
+#define HEAP_SIZE 0xC000 // 48KB
 
 #define STACK_ALIGN_SIZE 8
 
