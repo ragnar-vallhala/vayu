@@ -1,23 +1,32 @@
 #include "utils/utils.h"
 #include "comm/serializer.h"
 #include "navhal.h"
+#include "structure.h"
 #include "utils.h" // Kernels utils for vaprint_fmt_buf
 #include "variables.h"
 #include <stdarg.h>
 #include <stdint.h>
 
-extern channel_t g_telemetry_channel;
+static uint8_t first_log = 1;
+mpmc_queue_t vayu_log_queue;
+
+static uint8_t log_queue_buffer[VAYU_LOG_QUEUE_SIZE];
+static char log_buf[128];
 
 void vayu_log(const char *fmt, ...) {
-  char buf[128];
+  if (first_log) {
+
+    mpmc_init(&vayu_log_queue, log_queue_buffer, VAYU_LOG_QUEUE_SIZE, sizeof(char));
+    mpmc_set_policy(&vayu_log_queue, MPMC_POLICY_OVERWRITE);
+    first_log = 0;
+  }
   va_list args;
   va_start(args, fmt);
-  int len = vaprint_fmt_buf(buf, sizeof(buf), fmt, args);
+  int len = vaprint_fmt_buf(log_buf, sizeof(log_buf), fmt, args);
   va_end(args);
 
   if (len > 0) {
-    send_packet(&g_telemetry_channel, PACKET_TYPE_LOG, (uint8_t *)buf,
-                (uint16_t)len);
+    mpmc_push_bulk(&vayu_log_queue, log_buf, len);
   }
 }
 
