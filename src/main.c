@@ -6,6 +6,7 @@
 #include "drivers/i2c_manager.h"
 #include "logger/logger.h"
 #include "maths/control.h"
+#include "maths/control_buffer.h"
 #include "navhal.h"
 #include "sensor/bmx160.h"
 #include "sensor/imu_buffer.h"
@@ -52,6 +53,7 @@ void init_sensors(void) {
   imu_buffer_init();
   bmx160_init();
   rc_buffer_init();
+  control_buffer_init();
 
   // Initialize global telemetry
   serial_args_t uart_args = {
@@ -70,7 +72,7 @@ void init_tasks(void) {
   bmx160_task_id = task_create(bmx160_initiate_read, NULL, 4096, 2);
   task_create(rc_ibus_task, NULL, 4096, 0);
   task_create(control_task, NULL, 1024 * 5, 1); // Higher priority for control
-  task_create(imu_telemetry_task, NULL, 4096, 0);
+  task_create(imu_telemetry_task, NULL, 4096 * 2, 0);
   task_create(flush_task, NULL, 4096, 0);
   // task_create(test_task, NULL, 4096, 0);
 }
