@@ -5,6 +5,10 @@
 
 #define TICKS_TO_MS(x) ((x * SYSTICK_PERIOD) / 1000)
 
+#define MS_TO_TICKS(x) ((x * 1000) / SYSTICK_PERIOD)
+
+#define US_TO_TICKS(x) ((x * 1) / SYSTICK_PERIOD)
+
 #define UART_LOGGING_ENABLE 1
 
 #define UART_BAUDRATE 921600

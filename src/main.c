@@ -23,8 +23,6 @@
 #include "variables.h"
 #include "vayu_tasks.h"
 
-channel_t g_telemetry_channel;
-MutexHandle_t g_comm_mutex;
 // Global state values
 uint32_t bmx160_task_id = 0;
 
@@ -59,8 +57,6 @@ void init_sensors(void) {
   serial_args_t uart_args = {
       .baud_rate = UART_BAUDRATE, .uart = UART2, .timeout = 100};
 
-  g_comm_mutex = v_mutex_create();
-
   if (get_handler(CHANNEL_TYPE_SERIAL, &g_telemetry_channel, &uart_args,
                   uart2_packet_recv_callback) != NONE) {
     return;
@@ -72,7 +68,7 @@ void init_tasks(void) {
   bmx160_task_id = task_create(bmx160_initiate_read, NULL, 4096, 2);
   task_create(rc_ibus_task, NULL, 4096, 0);
   task_create(control_task, NULL, 1024 * 5, 1); // Higher priority for control
-  task_create(imu_telemetry_task, NULL, 4096 * 2, 0);
+  task_create(imu_telemetry_task, NULL, 1024 * 3, 0);
   task_create(flush_task, NULL, 4096, 0);
   // task_create(test_task, NULL, 4096, 0);
 }
@@ -92,6 +88,7 @@ hal_i2c_config_t i2c_config = {
 
 int main() {
   clock_setup();
+  dwt_init();
   vaios_init_config_t cfg = {.internal_clock_setup = 0,
                              .internal_sd_card_setup = 1};
 

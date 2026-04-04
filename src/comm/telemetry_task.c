@@ -2,8 +2,6 @@
 #include "comm/ibus.h"
 #include "comm/rc_buffer.h"
 #include "comm/serializer.h"
-#include "core/cortex-m4/uart.h"
-#include "maths/control.h"
 #include "maths/control_buffer.h"
 #include "maths/sensor_fusion.h"
 #include "sensor/bmx160.h"
@@ -16,6 +14,8 @@
 #include "vaios_app_config.h"
 #include "variables.h"
 #include <stdint.h>
+
+channel_t g_telemetry_channel = {0};
 
 void imu_telemetry_task(void *args) {
   (void)args;
@@ -47,15 +47,26 @@ void imu_telemetry_task(void *args) {
     // - 1 Hz: Full IMU (every 150 ticks)
     // - 50 Hz: Compressed IMU (every 3 ticks)
     // - 10 Hz: Attitude (every 15 ticks)
-
-    bool send_full = (packet_counter % 100 == 0);  // 1 Hz
-    bool send_comp = (packet_counter % 3 == 0);    // 50 Hz
-    bool send_att = (packet_counter % 8 == 0);     // 12.5 Hz
-    bool send_rc = (packet_counter % 15 == 0);     // 6.66 Hz
-    bool send_status = (packet_counter % 50 == 0); // 2 Hz
-    bool send_motor = (packet_counter % 10 == 0);  // 10 Hz
-    bool send_pid_err = (packet_counter % 4 == 0); // 37.5 Hz
-
+    bool send_heartbeat = (packet_counter % 150 == 0); // 1 Hz
+    bool send_full = (packet_counter % 100 == 0);      // 1 Hz
+    bool send_comp = (packet_counter % 6 == 0);        // 25 Hz
+    bool send_att = (packet_counter % 15 == 0);        // 10 Hz
+    bool send_rc = (packet_counter % 15 == 0);         // 10 Hz
+    bool send_status = (packet_counter % 50 == 0);     // 2 Hz
+    bool send_motor = (packet_counter % 15 == 0);      // 10 Hz
+    bool send_pid_err = (packet_counter % 15 == 0);    // 10 Hz
+    bool send_log = (packet_counter % 10 == 0);        // 15 Hz
+    if (send_log) {
+      static char log_buf[VAYU_LOG_QUEUE_SIZE];
+      uint8_t len = mpmc_pop_bulk(&vayu_log_queue, log_buf, sizeof(log_buf));
+      if (len > 0) {
+        send_packet(&g_telemetry_channel, PACKET_TYPE_LOG, (uint8_t *)log_buf,
+                    len);
+      }
+    }
+    if (send_heartbeat) {
+      send_packet(&g_telemetry_channel, PACKET_TYPE_HEARTBEAT, NULL, 0);
+    }
     if (send_status) {
       uint8_t state_payload[6];
       state_payload[0] = 0x04; // SYSTEM_ORIGIN_SYS_STATE
@@ -71,8 +82,8 @@ void imu_telemetry_task(void *args) {
       pid_payload[0] = 0x05; // SYSTEM_ORIGIN_PID_ERROR
       pid_payload[1] = 3;    // Number of elements (3 floats)
       v_memcpy(&pid_payload[2], e_data.errors, sizeof(e_data.errors));
-      send_packet(&g_telemetry_channel, PACKET_TYPE_SYSTEM_STATUS, pid_payload,
-                  14);
+      send_packet(&g_telemetry_channel, PACKET_TYPE_SYSTEM_STATUS,
+                  pid_payload, 14);
     }
 
     if (send_full) {
@@ -106,7 +117,6 @@ void imu_telemetry_task(void *args) {
       send_packet(&g_telemetry_channel, PACKET_TYPE_MOTOR_TELEMETRY,
                   (uint8_t *)m_data.motors, sizeof(m_data.motors));
     }
-
     packet_counter++;
     v_delay(6); // ~166 Hz
   }

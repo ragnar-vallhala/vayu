@@ -18,15 +18,8 @@ typedef struct {
   uint8_t is_interrupt_attached; // 1 if a attached
 } serial_channel_handle_t;
 
-typedef struct {
-  hal_i2c_bus_t bus;
-  uint8_t dev_addr;
-} i2c_channel_handle_t;
-
 // Serial handlers
 static serial_channel_handle_t _serial_handlers[MAX_SERIAL_HANDLERS] = {};
-static i2c_channel_handle_t _i2c_handlers[4] =
-    {}; // Assume up to 4 I2C handlers for now
 
 static void _dma_complete_callback(void) {
   // For now, specifically handle USART2/DMA1_S6
@@ -117,51 +110,8 @@ static err_t get_handler_serial(channel_t *handler, void *args,
   return NONE;
 }
 
-static err_t get_handler_i2c(channel_t *handler, void *args) {
-  if (args == NULL || handler == NULL) {
-    return USAGE;
-  }
-
-  i2c_args_t *i_args = (i2c_args_t *)args;
-
-  // Find an available slot
-  int slot = -1;
-  for (int i = 0; i < 4; i++) {
-    if (_i2c_handlers[i].dev_addr ==
-        0) { // Assuming 0 is an invalid/unused device address
-      slot = i;
-      break;
-    }
-  }
-
-  if (slot == -1) {
-    return ERROR; // No free I2C handlers
-  }
-
-  // Configure I2C
-  hal_i2c_config_t config = {
-      .clock_speed = i_args->speed,
-      .own_address = 0, // Master mode
-      .acknowledge = true,
-  };
-
-  if (hal_i2c_init(i_args->bus, &config) != HAL_I2C_OK) {
-    return ERROR;
-  }
-
-  // Store configuration
-  _i2c_handlers[slot].bus = i_args->bus;
-  _i2c_handlers[slot].dev_addr = i_args->dev_addr;
-
-  // Set up handler
-  handler->type = CHANNEL_TYPE_I2C;
-  handler->handle = &_i2c_handlers[slot];
-  handler->index = (uint8_t)slot;
-
-  return NONE;
-}
-
 err_t write_channel(channel_t channel, byte *data, uint16_t length) {
+  // This function is not thread safe
   if (channel.handle == NULL || data == NULL || length == 0) {
     return USAGE;
   }
@@ -171,10 +121,10 @@ err_t write_channel(channel_t channel, byte *data, uint16_t length) {
         (serial_channel_handle_t *)channel.handle;
     uint8_t idx = s_handle->active_idx;
 
-    uint32_t state = hal_disable_global_interrupts();
+    // uint32_t state = hal_disable_global_interrupts();
     // Check if buffer has space; if not, drop data
     if (s_handle->buf_lens[idx] + length > 512) {
-      hal_enable_global_interrupts(state);
+      // hal_enable_global_interrupts(state);
       return ERROR; // Buffer full, dropping data
     }
 
@@ -183,18 +133,9 @@ err_t write_channel(channel_t channel, byte *data, uint16_t length) {
       s_handle->buffers[idx][s_handle->buf_lens[idx] + i] = data[i];
     }
     s_handle->buf_lens[idx] += length;
-    hal_enable_global_interrupts(state);
+    // hal_enable_global_interrupts(state);
 
     return NONE;
-  } else if (channel.type == CHANNEL_TYPE_I2C) {
-    i2c_channel_handle_t *i_handle = (i2c_channel_handle_t *)channel.handle;
-
-    // Blocking I2C write
-    if (hal_i2c_write(i_handle->bus, i_handle->dev_addr, data, length) ==
-        HAL_I2C_OK) {
-      return NONE;
-    }
-    return ERROR;
   }
 
   return USAGE;
@@ -248,9 +189,6 @@ err_t flush_channel(channel_t channel) {
     }
 
     return NONE;
-  } else if (channel.type == CHANNEL_TYPE_I2C) {
-    // I2C doesn't use ping-pong buffering currently, writes happen immediately.
-    return NONE;
   }
 
   return USAGE;
@@ -271,11 +209,7 @@ err_t get_handler(channel_type_t channel_type, channel_t *handler, void *args,
     status = get_handler_serial(handler, args, onRecieve);
     break;
   case CHANNEL_TYPE_SPI:
-    status = get_handler_default(handler, args);
-    break;
   case CHANNEL_TYPE_I2C:
-    status = get_handler_i2c(handler, args);
-    break;
   case CHANNEL_TYPE_USB:
   case CHANNEL_TYPE_CAN:
     status = get_handler_default(handler, args);
@@ -324,11 +258,6 @@ err_t del_handler(channel_t *handler) {
         return USAGE;
       hal_interrupt_detach_callback(usart_irq);
     }
-  } else if (handler->type == CHANNEL_TYPE_I2C) {
-    i2c_channel_handle_t *i_handle = (i2c_channel_handle_t *)handler->handle;
-    if (i_handle != NULL) {
-      i_handle->dev_addr = 0; // Mark slot as free
-    }
   }
 
   handler->handle = NULL;
@@ -337,20 +266,13 @@ err_t del_handler(channel_t *handler) {
   return NONE;
 }
 
-// We need to declare task_delay locally or include Vaios/task.h
-// Assuming task_delay or similar is available. The user includes vaios headers
-// in main... It is better to use `v_delay` or `task_delay` if we know it. We
-// can just use a volatile loop for now or include task.h
-#include "task.h"
-
 void flush_task(void *args) {
   while (1) {
     channel_t *curr = active_handlers;
     while (curr != NULL) {
-      while (flush_channel(*curr) == NONE)
-        ;
+      flush_channel(*curr);
       curr = curr->next;
     }
-    v_delay(1); // Sleep for 10ms (adjust as needed based on system tick)
+    v_delay(1);
   }
 }

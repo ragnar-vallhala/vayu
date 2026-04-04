@@ -12,12 +12,6 @@ typedef struct {
   uint16_t timeout;
 } serial_args_t;
 
-typedef struct {
-  hal_i2c_bus_t bus;
-  hal_i2c_speed_t speed;
-  uint8_t dev_addr;
-} i2c_args_t;
-
 typedef enum {
   CHANNEL_TYPE_SERIAL,
   CHANNEL_TYPE_SPI,
