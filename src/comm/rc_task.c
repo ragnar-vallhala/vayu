@@ -6,6 +6,7 @@
 #include "utils.h"
 #include "vaios.h"
 #include "variables.h"
+#include <stdint.h>
 
 #define IBUS_DMA_BUF_SIZE 128
 static uint8_t ibus_dma_buf[IBUS_DMA_BUF_SIZE];
@@ -24,7 +25,7 @@ void rc_ibus_task(void *args) {
   static uint16_t read_ptr = 0;
   static uint16_t last_ndtr = IBUS_DMA_BUF_SIZE;
   static uint32_t last_log_time = 0;
-
+  static uint8_t new_data = 0;
   while (1) {
     // Current remaining items in circular buffer from DMA NDTR register
     // USART1 is on DMA2, Stream 2
@@ -44,8 +45,7 @@ void rc_ibus_task(void *args) {
     while (read_ptr != write_ptr) {
       uint8_t b = ibus_dma_buf[read_ptr];
       if (ibus_parse_byte(b, &ibus_raw_data)) {
-        rc_queue_control_push(&ibus_raw_data);
-        rc_queue_telemetry_push(&ibus_raw_data);
+        new_data = 1;
       }
       read_ptr = (read_ptr + 1) % IBUS_DMA_BUF_SIZE;
       sys_state_t current_state = system_state_get();
@@ -69,6 +69,11 @@ void rc_ibus_task(void *args) {
             current_state == SYSTEM_STATE_FAILSAFE) {
           system_state_set(SYSTEM_STATE_STANDBY);
         }
+      }
+      if (new_data) {
+        rc_queue_control_push(&ibus_raw_data);
+        rc_queue_telemetry_push(&ibus_raw_data);
+        new_data = 0;
       }
     }
 

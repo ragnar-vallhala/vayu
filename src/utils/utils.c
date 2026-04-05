@@ -20,6 +20,7 @@ void vayu_log(const char *fmt, ...) {
     mpmc_set_policy(&vayu_log_queue, MPMC_POLICY_OVERWRITE);
     first_log = 0;
   }
+
   va_list args;
   va_start(args, fmt);
   int len = vaprint_fmt_buf(log_buf, sizeof(log_buf), fmt, args);

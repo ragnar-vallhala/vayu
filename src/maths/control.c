@@ -19,7 +19,7 @@
 // PID Controllers
 static pid_controller_t pid_roll_angle, pid_roll_rate;
 static pid_controller_t pid_pitch_angle, pid_pitch_rate;
-static pid_controller_t pid_yaw_rate;
+static pid_controller_t pid_yaw_angle, pid_yaw_rate;
 static ESC_Handle motors[4];
 
 void pid_init(pid_controller_t *pid, float kp, float ki, float kd,
@@ -88,10 +88,12 @@ float pid_calculate(pid_controller_t *pid, float setpoint, float current_value,
 
 void control_init(void) {
   // Angle Loops (Outer)
-  // pid_init(&pid_roll_angle, PID_ROLL_ANGLE_KP, PID_ROLL_ANGLE_KI,
-  //          PID_ROLL_ANGLE_KD, PID_ROLL_ANGLE_I_LIMIT, MAX_CONTROL_RATE);
-  // pid_init(&pid_pitch_angle, PID_PITCH_ANGLE_KP, PID_PITCH_ANGLE_KI,
-  //          PID_PITCH_ANGLE_KD, PID_PITCH_ANGLE_I_LIMIT, MAX_CONTROL_RATE);
+  pid_init(&pid_roll_angle, PID_ROLL_ANGLE_KP, PID_ROLL_ANGLE_KI,
+           PID_ROLL_ANGLE_KD, PID_ROLL_ANGLE_I_LIMIT, MAX_CONTROL_RATE);
+  pid_init(&pid_pitch_angle, PID_PITCH_ANGLE_KP, PID_PITCH_ANGLE_KI,
+           PID_PITCH_ANGLE_KD, PID_PITCH_ANGLE_I_LIMIT, MAX_CONTROL_RATE);
+  pid_init(&pid_yaw_angle, PID_YAW_ANGLE_KP, PID_YAW_ANGLE_KI, PID_YAW_ANGLE_KD,
+           PID_YAW_ANGLE_I_LIMIT, MAX_CONTROL_RATE);
 
   // Rate Loops (Inner)
   pid_init(&pid_roll_rate, PID_ROLL_RATE_KP, PID_ROLL_RATE_KI, PID_ROLL_RATE_KD,
@@ -124,12 +126,14 @@ void control_task(void *args) {
   static attitude_t last_attitude = {0};
   static bmx160_all_reading_t last_valid = {0};
   static ibus_data_t rc_data;
-  static float rc_channels[6];
+  static uint16_t rc_channels[IBUS_MAX_CHANNELS];
 
+  int count = 0;
   uint32_t last = dwt_get_cycles();
   while (1) {
+    count++;
     uint32_t n = dwt_get_cycles();
-    float dt = (n - last) / (float)SYS_CLOCK_FREQ;
+    float dt = ((float)(n - last)) / (float)SYS_CLOCK_FREQ;
     last = n;
     if (dt <= 1e-6f || dt > 0.05f) { // reject anything > 50ms as bogus
       last = dwt_get_cycles();
@@ -166,7 +170,8 @@ void control_task(void *args) {
 
     // 2. Get RC setpoints and map to physical units
     if (rc_queue_control_pop(&rc_data)) {
-      v_memcpy(rc_channels, rc_data.channels, sizeof(rc_channels));
+      v_memcpy(rc_channels, rc_data.channels,
+               sizeof(rc_channels)); // Dangerous memcopy from struct
     }
     float throttle = ((float)rc_channels[2] - 1000.0f) / 1000.0f;
 
@@ -181,23 +186,35 @@ void control_task(void *args) {
     if (throttle > 1.0f)
       throttle = 1.0f;
 
-    float target_rate_roll =
+    // 3. Map RC sticks to Target Angles (Roll/Pitch) or Rate (Stick)
+    float target_angle_roll =
         (expo(((float)rc_channels[0] - 1500.0f) / 500.0f, PID_ROLL_RATE_EXPO)) *
-        MAX_CONTROL_RATE;
+        MAX_CONTROL_ANGLE;
 
-    float target_rate_pitch = (expo(((float)rc_channels[1] - 1500.0f) / 500.0f,
-                                    PID_PITCH_RATE_EXPO)) *
-                              MAX_CONTROL_RATE;
+    float target_angle_pitch = (expo(((float)rc_channels[1] - 1500.0f) / 500.0f,
+                                     PID_PITCH_RATE_EXPO)) *
+                               MAX_CONTROL_ANGLE;
 
-    float target_yaw_rate =
+    // For Angle Mode, Yaw is typically still rate controlled by the pilot.
+    float target_rate_yaw_stick =
         -(expo(((float)rc_channels[3] - 1500.0f) / 500.0f, PID_YAW_RATE_EXPO)) *
         MAX_CONTROL_RATE;
-    // 4. Rate Control (Inner Rate Loop)
-    float out_roll = pid_calculate(&pid_roll_rate, target_rate_roll,
+
+    // 4. Outer Loop (Angle Control)
+    // Convert angle error to target rate
+    float target_rate_roll =
+        pid_calculate(&pid_roll_angle, target_angle_roll, attitude.roll, dt);
+    float target_rate_pitch =
+        pid_calculate(&pid_pitch_angle, target_angle_pitch, attitude.pitch, dt);
+
+    float target_rate_yaw = target_rate_yaw_stick;
+
+    // 5. Inner Loop (Rate Control)
+    float out_roll = - pid_calculate(&pid_roll_rate, target_rate_roll,
                                    imu_data.converted.gyr[0], dt);
     float out_pitch = pid_calculate(&pid_pitch_rate, target_rate_pitch,
                                     imu_data.converted.gyr[1], dt);
-    float out_yaw = pid_calculate(&pid_yaw_rate, target_yaw_rate,
+    float out_yaw = pid_calculate(&pid_yaw_rate, target_rate_yaw,
                                   imu_data.converted.gyr[2], dt);
 
     if (system_state_get() == SYSTEM_STATE_ARMED) {
@@ -243,9 +260,9 @@ void control_task(void *args) {
     v_memcpy(m_data.motors, motor_cmds, sizeof(m_data.motors));
     motor_queue_push(&m_data);
 
-    pid_error_data_t e_data = {.errors = {pid_roll_rate.prev_error,
-                                          pid_pitch_rate.prev_error,
-                                          pid_yaw_rate.prev_error}};
+    pid_error_data_t e_data = {.errors = {pid_roll_angle.prev_error,
+                                          pid_pitch_angle.prev_error,
+                                          pid_yaw_angle.prev_error}};
     pid_error_queue_push(&e_data);
     v_delay(1);
   }
