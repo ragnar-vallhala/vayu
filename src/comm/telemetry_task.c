@@ -53,8 +53,8 @@ void imu_telemetry_task(void *args) {
     bool send_att = (packet_counter % 15 == 0);        // 10 Hz
     bool send_rc = (packet_counter % 15 == 0);         // 10 Hz
     bool send_status = (packet_counter % 50 == 0);     // 2 Hz
-    bool send_motor = (packet_counter % 15 == 0);      // 10 Hz
-    bool send_pid_err = (packet_counter % 15 == 0);    // 10 Hz
+    bool send_motor = (packet_counter % 8 == 0);       // 18 Hz
+    bool send_pid_err = (packet_counter % 8 == 0);     // 18 Hz
     bool send_log = (packet_counter % 10 == 0);        // 15 Hz
     if (send_log) {
       static char log_buf[VAYU_LOG_QUEUE_SIZE];
@@ -82,8 +82,8 @@ void imu_telemetry_task(void *args) {
       pid_payload[0] = 0x05; // SYSTEM_ORIGIN_PID_ERROR
       pid_payload[1] = 3;    // Number of elements (3 floats)
       v_memcpy(&pid_payload[2], e_data.errors, sizeof(e_data.errors));
-      send_packet(&g_telemetry_channel, PACKET_TYPE_SYSTEM_STATUS,
-                  pid_payload, 14);
+      send_packet(&g_telemetry_channel, PACKET_TYPE_SYSTEM_STATUS, pid_payload,
+                  14);
     }
 
     if (send_full) {
