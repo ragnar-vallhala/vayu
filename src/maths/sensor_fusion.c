@@ -1,16 +1,18 @@
 #include "maths/sensor_fusion.h"
+#include "core/cortex-m4/dwt.h"
 #include "maths/maths_interface.h"
 #include "utils.h"
 #include "vaios_config_default.h"
 #include "variables.h"
+
 static inline float get_dt() {
-  static uint32_t last_time = 0; // used to calculate dt
-  uint32_t now = v_get_ticks();
+  static uint32_t last_dwt = 0; // used to calculate dt
+  uint32_t now = dwt_get_cycles();
   // convert to s
-  float dt = ((float)(now - last_time) * SYSTICK_PERIOD) / ((float)1e6f);
+  float dt = ((float)(now - last_dwt)) / (float)SYS_CLOCK_FREQ;
   if (dt < 1e-3f)
     dt = 1e-3f;
-  last_time = now;
+  last_dwt = now;
   return dt;
 }
 void m_acc_mag(const float ax, const float ay, const float az, const float mx,
@@ -172,7 +174,7 @@ void m_mahony_filter(const float ax, const float ay, const float az,
   // Estimated direction of gravity (ALWAYS computed)
   vx = -2.0f * (q1q3 - q0q2);
   vy = -2.0f * (q0q1 + q2q3);
-  vz = - (q0q0 - q1q1 - q2q2 + q3q3);
+  vz = -(q0q0 - q1q1 - q2q2 + q3q3);
 
   // Compute error
   if (mag_valid) {
