@@ -255,6 +255,11 @@ typedef struct {
   float type;
 } calibration_args_t;
 
+typedef struct {
+  uint8_t buffer[20];
+  uint8_t size;
+}imu_calibration_telemetry_t;
+
 void calibration_task(void *args);
 
 #endif // !VAYU_BMX160_H

@@ -6,34 +6,34 @@
 #include "maths/lpf.h"
 
 // Angle Loop Gains
-#define PID_ROLL_ANGLE_KP 1.0f
+#define PID_ROLL_ANGLE_KP 0.005f
 #define PID_ROLL_ANGLE_KI 0.0f
-#define PID_ROLL_ANGLE_KD 0.0f
+#define PID_ROLL_ANGLE_KD 0.001f
 #define PID_ROLL_ANGLE_I_LIMIT 0.0f
 
-#define PID_PITCH_ANGLE_KP 1.0f
+#define PID_PITCH_ANGLE_KP 0.005f
 #define PID_PITCH_ANGLE_KI 0.0f
-#define PID_PITCH_ANGLE_KD 0.0f
+#define PID_PITCH_ANGLE_KD 0.001f
 #define PID_PITCH_ANGLE_I_LIMIT 0.0f
 
-#define PID_YAW_ANGLE_KP 1.0f
+#define PID_YAW_ANGLE_KP 0.0f
 #define PID_YAW_ANGLE_KI 0.0f
 #define PID_YAW_ANGLE_KD 0.0f
 #define PID_YAW_ANGLE_I_LIMIT 0.0f
 
 // Rate Loop Gains
-#define PID_ROLL_RATE_KP 0.12f
+#define PID_ROLL_RATE_KP 0.005f
 #define PID_ROLL_RATE_KI 0.00f
-#define PID_ROLL_RATE_KD 0.00f
-#define PID_ROLL_RATE_KD_LPF_ALPHA 0.7f
+#define PID_ROLL_RATE_KD 0.0f
+#define PID_ROLL_RATE_KD_LPF_ALPHA 0.3f
 #define PID_ROLL_RATE_I_LIMIT 0.2f
 #define PID_ROLL_RATE_OUT_LIMIT 0.3f
 #define PID_ROLL_RATE_EXPO 0.7f
 
-#define PID_PITCH_RATE_KP 0.12f
+#define PID_PITCH_RATE_KP 0.005f
 #define PID_PITCH_RATE_KI 0.00f
-#define PID_PITCH_RATE_KD 0.00f
-#define PID_PITCH_RATE_KD_LPF_ALPHA 0.7f
+#define PID_PITCH_RATE_KD 0.0f
+#define PID_PITCH_RATE_KD_LPF_ALPHA 0.3f
 #define PID_PITCH_RATE_I_LIMIT 0.2f
 #define PID_PITCH_RATE_OUT_LIMIT 0.3f
 #define PID_PITCH_RATE_EXPO 0.7f
