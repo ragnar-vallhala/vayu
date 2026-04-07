@@ -3,7 +3,6 @@
 #include "comm/comm_types.h"
 #include "comm/deserializer.h"
 #include "common/hal_types.h"
-#include "core/cortex-m4/crc.h"
 #include "core/cortex-m4/uart.h"
 #include "utils.h"
 #include "utils/utils.h"
@@ -14,19 +13,11 @@ static packet_t _rx_uart_pkt_buf[INCOMING_PACKET_BUFFER];
 static uint32_t _rx_uart_pkt_drop = 0;
 static deserializer_t _uart_recv_state;
 
-static crc_config_t _crc_cfg = {.polynomial =
-                                    CRC_POLY_CRC32, // Standard 0x04C11DB7
-                                .init_value = 0xFFFFFFFF};
 static uint8_t _initialized = 0;
-static void init_serializer(void) {
-  hal_crc_init(&_crc_cfg);
-  deserializer_init(&_uart_recv_state);
-}
+static void init_serializer(void) { deserializer_init(&_uart_recv_state); }
 
 static uint32_t calculate_crc(byte *payload, uint8_t size) {
-  hal_crc_reset();
-  uint32_t crc_value = hal_crc_accumulate(payload, size);
-  return crc_value;
+  return utils_try_compute_crc32(payload, size);
 }
 
 err_t send_packet(channel_t *channel, packet_type_t packet_type, byte *payload,
@@ -58,7 +49,7 @@ err_t send_packet(channel_t *channel, packet_type_t packet_type, byte *payload,
   //   }
   // }
   // for (volatile uint32_t i = 0; i < 1000; i++) {
-  
+
   // }
 
   packet.crc32 =
@@ -69,8 +60,7 @@ err_t send_packet(channel_t *channel, packet_type_t packet_type, byte *payload,
   // 256 bytes in memory! We can't just pass &packet and packet_size natively
   // because of the struct padding/layout. We must copy the crc immediately
   // after the payload and then send that total contiguous buffer.
-  v_memcpy(packet.payload + payload_size, &packet.crc32,
-  sizeof(packet.crc32));
+  v_memcpy(packet.payload + payload_size, &packet.crc32, sizeof(packet.crc32));
 
   err_t ret = write_channel(*channel, (uint8_t *)&packet, packet_size);
 
