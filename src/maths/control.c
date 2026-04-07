@@ -4,6 +4,7 @@
 #include "comm/ibus.h"
 #include "comm/rc_buffer.h"
 #include "comm/serializer.h"
+#include "common/hal_crc.h"
 #include "core/cortex-m4/dwt.h"
 #include "maths/control_buffer.h"
 #include "sensor/bmx160.h"
@@ -15,6 +16,7 @@
 #include "vaios.h"
 #include "variables.h"
 #include "vayu_tasks.h"
+#include "vfs.h"
 #include <math.h>
 #include <stdint.h>
 
@@ -152,6 +154,45 @@ float pid_calculate(pid_controller_t *pid, float setpoint, float current_value,
 
 void control_init(void) {
   control_loop_fifo_init();
+
+  vfs_fd_t fd = vfs_open(PID_FILE_PATH, VFS_O_RDONLY);
+  if (fd >= 0) {
+    uint8_t buffer[sizeof(control_config_t) + sizeof(uint32_t)];
+    int br = vfs_read(fd, buffer, sizeof(buffer));
+    vfs_close(fd);
+
+    if (br == sizeof(buffer)) {
+      control_config_t temp_config;
+      v_memcpy(&temp_config, buffer, sizeof(control_config_t));
+
+      crc_config_t crc_cfg = {.polynomial = CRC_POLY_CRC32,
+                              .init_value = 0xFFFFFFFF};
+      hal_crc_init(&crc_cfg);
+      uint32_t computed_crc = hal_crc_compute((const uint8_t *)&temp_config,
+                                              sizeof(control_config_t));
+
+      uint32_t stored_crc;
+      v_memcpy(&stored_crc, buffer + sizeof(control_config_t),
+               sizeof(uint32_t));
+
+      if (computed_crc == stored_crc) {
+        g_control_config = temp_config;
+      }
+    }
+  } else {
+    fd = vfs_open(PID_FILE_PATH, VFS_O_WRONLY | VFS_O_CREAT | VFS_O_TRUNC);
+    if (fd >= 0) {
+      crc_config_t crc_cfg = {.polynomial = CRC_POLY_CRC32,
+                              .init_value = 0xFFFFFFFF};
+      hal_crc_init(&crc_cfg);
+      uint32_t computed_crc = hal_crc_compute(
+          (const uint8_t *)&g_control_config, sizeof(control_config_t));
+
+      vfs_write(fd, &g_control_config, sizeof(control_config_t));
+      vfs_write(fd, &computed_crc, sizeof(uint32_t));
+      vfs_close(fd);
+    }
+  }
 
   // Angle Loops (Outer)
   pid_init(&pid_roll_angle, &g_control_config.roll_angle);
