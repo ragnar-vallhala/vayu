@@ -22,6 +22,7 @@ public:
   void appendData(float value, int index = 0);
   int numSeries() const { return static_cast<int>(m_seriesData.size()); }
   void clear();
+  void setDynamicYAxis(bool enabled);
 
 protected:
   void paintEvent(QPaintEvent *event) override;
@@ -36,6 +37,7 @@ private:
   Mode m_mode = Mode::LinePlot;
   int m_windowSeconds = 5;
   double m_dropoutRate = 0.0;
+  bool m_dynamicYAxis = false;
   std::vector<QColor> m_colors;
   std::vector<Qt::PenStyle> m_penStyles;
 

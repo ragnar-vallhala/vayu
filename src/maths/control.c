@@ -8,6 +8,7 @@
 #include "maths/control_buffer.h"
 #include "sensor/bmx160.h"
 #include "sensor/imu_buffer.h"
+#include "structure.h"
 #include "sys/state.h"
 #include "utils.h"
 #include "utils/utils.h"
@@ -17,11 +18,30 @@
 #include <math.h>
 #include <stdint.h>
 
+#define CONTROL_LOOP_BUFFER_SIZE 6
+#define CONTROL_DATA_COUNTER_INTERVAL 25
+
 // PID Controllers
 static pid_controller_t pid_roll_angle, pid_roll_rate;
 static pid_controller_t pid_pitch_angle, pid_pitch_rate;
 static pid_controller_t pid_yaw_angle, pid_yaw_rate;
 static ESC_Handle motors[4];
+static control_loop_data_t control_loop_data[CONTROL_LOOP_BUFFER_SIZE];
+static spsc_fifo_t control_loop_fifo;
+
+void control_loop_fifo_init(void) {
+  spsc_init(&control_loop_fifo, control_loop_data, CONTROL_LOOP_BUFFER_SIZE,
+            sizeof(control_loop_data_t));
+  spsc_set_policy(&control_loop_fifo, SPSC_POLICY_OVERWRITE);
+}
+
+bool control_loop_fifo_push(control_loop_data_t *data) {
+  return spsc_write(&control_loop_fifo, data, 1) == 1;
+}
+
+bool control_loop_fifo_pop(control_loop_data_t *data) {
+  return spsc_read(&control_loop_fifo, data, 1) == 1;
+}
 
 void pid_init(pid_controller_t *pid, float kp, float ki, float kd,
               float i_limit, float out_limit) {
@@ -88,6 +108,8 @@ float pid_calculate(pid_controller_t *pid, float setpoint, float current_value,
 }
 
 void control_init(void) {
+  control_loop_fifo_init();
+
   // Angle Loops (Outer)
   pid_init(&pid_roll_angle, PID_ROLL_ANGLE_KP, PID_ROLL_ANGLE_KI,
            PID_ROLL_ANGLE_KD, PID_ROLL_ANGLE_I_LIMIT, MAX_CONTROL_RATE);
@@ -266,10 +288,27 @@ void control_task(void *args) {
     v_memcpy(m_data.motors, motor_cmds, sizeof(m_data.motors));
     motor_queue_push(&m_data);
 
-    pid_error_data_t e_data = {.errors = {pid_roll_angle.prev_error,
-                                          pid_pitch_angle.prev_error,
-                                          pid_yaw_angle.prev_error}};
-    pid_error_queue_push(&e_data);
+    if (count % CONTROL_DATA_COUNTER_INTERVAL == 0) {
+      control_loop_data_t c_data = {
+          .roll_angle_error = pid_roll_angle.prev_error,
+          .pitch_angle_error = pid_pitch_angle.prev_error,
+          .yaw_angle_error = pid_yaw_angle.prev_error,
+          .roll_rate_error = pid_roll_rate.prev_error,
+          .pitch_rate_error = pid_pitch_rate.prev_error,
+          .yaw_rate_error = pid_yaw_rate.prev_error,
+          .dt = dt,
+          .roll_angle_setpoint = target_angle_roll,
+          .pitch_angle_setpoint = target_angle_pitch,
+          .yaw_angle_setpoint = target_rate_yaw,
+          .roll_rate_setpoint = target_rate_roll,
+          .pitch_rate_setpoint = target_rate_pitch,
+          .yaw_rate_setpoint = target_rate_yaw,
+          .roll_output = out_roll,
+          .pitch_output = out_pitch,
+          .yaw_output = out_yaw,
+          .throttle_output = throttle};
+      control_loop_fifo_push(&c_data);
+    }
     v_delay(1);
   }
 }

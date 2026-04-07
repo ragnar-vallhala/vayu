@@ -9,7 +9,7 @@
 #include <QTimer>
 
 #include "../widgets/CalibrationWidget.h"
-#include "../widgets/PidErrorPlot.h"
+#include "../widgets/ControlLoopPlot.h"
 #include "AttitudeWidget.h"
 #include "Drone3DWidget.h" // Added
 #include "DroneProtocol.h"
@@ -38,7 +38,7 @@ private slots:
   void showSettings();
   void showCalibration();
   void showMotorStatus();
-  void showPidErrorPlot();
+  void showControlLoopPlot();
   // Toolbar actions
   void onConnectClicked();
   void onRefreshPorts();
@@ -88,7 +88,7 @@ private:
   SettingsWidget *m_settingsWidget = nullptr;
   CalibrationWidget *m_calibrationWidget = nullptr;
   MotorStatusWidget *m_motorWidget = nullptr;
-  PidErrorPlot *m_pidErrorWidget = nullptr;
+  ControlLoopPlot *m_controlLoopWidget = nullptr;
   QStackedWidget *m_stackedWidget = nullptr;
   QStackedWidget *m_attStack = nullptr;
   Drone3DWidget *m_drone3d = nullptr;
