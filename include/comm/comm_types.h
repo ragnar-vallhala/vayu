@@ -28,6 +28,7 @@ typedef enum {
   SYSTEM_ORIGIN_MOTOR = 0x03,
   SYSTEM_ORIGIN_SYS_STATE = 0x04,
   SYSTEM_ORIGIN_PID_ERROR = 0x05,
+  SYSTEM_ORIGIN_PID_UPDATE = 0x06,
 } system_status_origin_t;
 
 /**
@@ -49,6 +50,7 @@ typedef enum {
  */
 typedef enum {
   CMD_CALIBRATE_IMU = 0x0001,
+  CMD_SET_PID = 0x000A,
 } packet_command_type_t;
 
 typedef struct __attribute__((packed)) {

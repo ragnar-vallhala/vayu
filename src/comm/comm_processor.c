@@ -1,15 +1,17 @@
 #include "comm/comm_types.h"
 #include "comm/serializer.h"
+#include "maths/control.h"
+#include "maths/control_buffer.h"
 #include "memory.h"
 #include "sensor/bmx160.h"
 #include "sys/state.h"
 #include "task.h"
 #include "utils.h"
+#include "utils/utils.h"
 #include "vaios.h"
 #include "variables.h"
 #include "vayu_tasks.h"
 #include <stdint.h>
-#include "utils/utils.h"
 static uint32_t _calibration_task_handle = 0;
 void comm_processor_task(void *args) {
   (void)args;
@@ -38,7 +40,8 @@ void comm_processor_task(void *args) {
                 v_memcpy(&cal_args->type, &pkt.payload[7], 4);
               }
             }
-            _calibration_task_handle = task_create(calibration_task, cal_args, 4096, 0);
+            _calibration_task_handle =
+                task_create(calibration_task, cal_args, 4096, 0);
           }
         } else if (cmd_id == 0x0009) { // CMD_CANCEL_CALIBRATION
           if (_calibration_task_handle != 0) {
@@ -46,10 +49,16 @@ void comm_processor_task(void *args) {
             _calibration_task_handle = 0;
           }
           system_state_set(SYSTEM_STATE_STANDBY);
+        } else if (cmd_id == CMD_SET_PID) {
+          control_config_t new_config;
+          if (pkt.length >= 2 + sizeof(control_config_t)) {
+            v_memcpy(&new_config, &pkt.payload[2], sizeof(control_config_t));
+            pid_config_t2c_push(&new_config);
+          }
         }
       }
     } else {
-      v_delay(10); // Wait for more packets
+      v_delay(4); // Wait for more packets
     }
   }
 }
