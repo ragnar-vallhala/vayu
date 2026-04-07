@@ -63,11 +63,25 @@ struct MotorData {
   float speeds[4] = {0, 0, 0, 0};
 };
 // -----------------------------------------------------------
-// PID Errors  – mirrors SYSTEM_ORIGIN_PID_ERROR
+// Control Loop Data  – mirrors SYSTEM_ORIGIN_CONTROL_DATA (0x05)
 // -----------------------------------------------------------
-struct PidErrorData {
-  float roll_error = 0.0f;
-  float pitch_error = 0.0f;
-  float yaw_error = 0.0f;
+struct ControlLoopData {
+  float roll_angle_error = 0.0f;
+  float pitch_angle_error = 0.0f;
+  float yaw_angle_error = 0.0f;
+  float roll_rate_error = 0.0f;
+  float pitch_rate_error = 0.0f;
+  float yaw_rate_error = 0.0f;
+  float dt = 0.0f;
+  float roll_angle_setpoint = 0.0f;
+  float pitch_angle_setpoint = 0.0f;
+  float yaw_angle_setpoint = 0.0f;
+  float roll_rate_setpoint = 0.0f;
+  float pitch_rate_setpoint = 0.0f;
+  float yaw_rate_setpoint = 0.0f;
+  float roll_output = 0.0f;
+  float pitch_output = 0.0f;
+  float yaw_output = 0.0f;
+  float throttle_output = 0.0f;
   uint64_t timestamp = 0;
 };

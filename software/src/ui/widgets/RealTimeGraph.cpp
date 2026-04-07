@@ -83,6 +83,11 @@ void RealTimeGraph::clear() {
   update();
 }
 
+void RealTimeGraph::setDynamicYAxis(bool enabled) {
+  m_dynamicYAxis = enabled;
+  update();
+}
+
 void RealTimeGraph::pruneData() {
   qint64 now = QDateTime::currentMSecsSinceEpoch();
   qint64 limit = now - (m_windowSeconds * 1000);
@@ -150,9 +155,35 @@ void RealTimeGraph::paintEvent(QPaintEvent *event) {
     painter.setPen(QColor(62, 68, 82));
     painter.drawLine(0, height() / 2, width(), height() / 2);
 
-    float range = m_max - m_min;
-    if (range < 0.001f)
-      range = 0.001f;
+    float drawMin = m_min;
+    float drawMax = m_max;
+
+    if (m_dynamicYAxis) {
+      drawMin = 9999999.0f;
+      drawMax = -9999999.0f;
+      for (const auto &series : m_seriesData) {
+        for (const auto &dp : series) {
+          drawMin = std::min(drawMin, dp.value);
+          drawMax = std::max(drawMax, dp.value);
+        }
+      }
+      if (drawMin > drawMax) {
+        drawMin = -1.0f;
+        drawMax = 1.0f;
+      }
+      float r = drawMax - drawMin;
+      if (r < 1e-6f) {
+        drawMin -= 1e-4f;
+        drawMax += 1e-4f;
+      } else {
+        drawMin -= r * 0.1f; // 10% padding
+        drawMax += r * 0.1f;
+      }
+    }
+
+    float range = drawMax - drawMin;
+    if (range < 1e-6f)
+      range = 1e-6f;
 
     qint64 now = QDateTime::currentMSecsSinceEpoch();
     qint64 startTime = now - (m_windowSeconds * 1000);
@@ -162,7 +193,7 @@ void RealTimeGraph::paintEvent(QPaintEvent *event) {
     };
 
     auto toY = [&](float val) {
-      return height() - (height() * (val - m_min) / range);
+      return height() - (height() * (val - drawMin) / range);
     };
 
     // Plot each series
@@ -210,13 +241,13 @@ void RealTimeGraph::paintEvent(QPaintEvent *event) {
     painter.setPen(QColor(171, 178, 191, 150));
 
     auto drawYLabel = [&](float val, int yPos) {
-      QString label = QString::number(static_cast<double>(val), 'f', 2);
+      QString label = QString::number(static_cast<double>(val), 'f', 4);
       painter.drawText(2, yPos, label);
     };
 
-    drawYLabel(m_max, 10);
-    drawYLabel(m_min, height() - 2);
-    drawYLabel((m_max + m_min) / 2.0f, height() / 2 - 2);
+    drawYLabel(drawMax, 10);
+    drawYLabel(drawMin, height() - 2);
+    drawYLabel((drawMax + drawMin) / 2.0f, height() / 2 - 2);
 
   } else {
     // Horizontal Bar mode (Waterfall) - Only supports first series for now
