@@ -62,6 +62,11 @@
 #define SF_MAHONY_KI 0.0025f
 #define SF_FILTER_USED SF_MAHONY
 #define RADIO_AVOID_BAND 10
+
+// PID
+#define PID_FILE_PATH "0:pid.bin"
+#define PID_FILE_SIZE 1024 // 1KB Preallocated
+
 // Calibration
 #define CALIBRATION_FILE_PATH "0:cal.bin"
 #define CALIBRATION_FILE_SIZE 1024 // 1KB Preallocated
