@@ -1,10 +1,7 @@
 #include "maths/control.h"
 #include "actuator/esc.h"
-#include "comm/comm_types.h"
 #include "comm/ibus.h"
 #include "comm/rc_buffer.h"
-#include "comm/serializer.h"
-#include "common/hal_crc.h"
 #include "core/cortex-m4/dwt.h"
 #include "maths/control_buffer.h"
 #include "sensor/bmx160.h"
@@ -15,7 +12,6 @@
 #include "utils/utils.h"
 #include "vaios.h"
 #include "variables.h"
-#include "vayu_tasks.h"
 #include "vfs.h"
 #include <math.h>
 #include <stdint.h>
@@ -165,11 +161,8 @@ void control_init(void) {
       control_config_t temp_config;
       v_memcpy(&temp_config, buffer, sizeof(control_config_t));
 
-      crc_config_t crc_cfg = {.polynomial = CRC_POLY_CRC32,
-                              .init_value = 0xFFFFFFFF};
-      hal_crc_init(&crc_cfg);
-      uint32_t computed_crc = hal_crc_compute((const uint8_t *)&temp_config,
-                                              sizeof(control_config_t));
+      uint32_t computed_crc = utils_compute_crc32((const uint8_t *)&temp_config,
+                                                  sizeof(control_config_t));
 
       uint32_t stored_crc;
       v_memcpy(&stored_crc, buffer + sizeof(control_config_t),
@@ -182,10 +175,7 @@ void control_init(void) {
   } else {
     fd = vfs_open(PID_FILE_PATH, VFS_O_WRONLY | VFS_O_CREAT | VFS_O_TRUNC);
     if (fd >= 0) {
-      crc_config_t crc_cfg = {.polynomial = CRC_POLY_CRC32,
-                              .init_value = 0xFFFFFFFF};
-      hal_crc_init(&crc_cfg);
-      uint32_t computed_crc = hal_crc_compute(
+      uint32_t computed_crc = utils_compute_crc32(
           (const uint8_t *)&g_control_config, sizeof(control_config_t));
 
       vfs_write(fd, &g_control_config, sizeof(control_config_t));
