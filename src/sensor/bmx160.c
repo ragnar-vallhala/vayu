@@ -985,18 +985,18 @@ void bmx160_process_data(void) {
   _bmx_data.raw.temp = raw_temp;
 
   // Convert to units (for local attitude fusion and telemetry)
-  _bmx_data.converted.acc_raw[0] = bmx160_raw_acc_to_mps2(ax);
-  _bmx_data.converted.acc_raw[1] = -bmx160_raw_acc_to_mps2(ay);
-  _bmx_data.converted.acc_raw[2] = bmx160_raw_acc_to_mps2(az);
+  _bmx_data.converted.acc_raw[0] = -bmx160_raw_acc_to_mps2(ax);
+  _bmx_data.converted.acc_raw[1] = bmx160_raw_acc_to_mps2(ay);
+  _bmx_data.converted.acc_raw[2] = -bmx160_raw_acc_to_mps2(az);
 
   // Initial populate (will be calibrated/filtered later)
   _bmx_data.converted.acc[0] = _bmx_data.converted.acc_raw[0];
   _bmx_data.converted.acc[1] = _bmx_data.converted.acc_raw[1];
   _bmx_data.converted.acc[2] = _bmx_data.converted.acc_raw[2];
 
-  _bmx_data.converted.gyr_raw[0] = bmx160_raw_gyr_to_dps(gx);
-  _bmx_data.converted.gyr_raw[1] = -bmx160_raw_gyr_to_dps(gy);
-  _bmx_data.converted.gyr_raw[2] = bmx160_raw_gyr_to_dps(gz);
+  _bmx_data.converted.gyr_raw[0] = -bmx160_raw_gyr_to_dps(gx);
+  _bmx_data.converted.gyr_raw[1] = bmx160_raw_gyr_to_dps(gy);
+  _bmx_data.converted.gyr_raw[2] = -bmx160_raw_gyr_to_dps(gz);
 
   _bmx_data.converted.gyr[0] = _bmx_data.converted.gyr_raw[0];
   _bmx_data.converted.gyr[1] = _bmx_data.converted.gyr_raw[1];
@@ -1145,12 +1145,10 @@ void bmx160_process_data(void) {
 
   // Sensor Fusion
   if (system_state_get() == SYSTEM_STATE_CALIBRATING) {
+    imu_queue_calibration_push(&_bmx_data);
     return;
   }
-  // 1kHz sampling rate (from main.c registration)
-  // if (bmx160_attitude_mutex != NULL) {
-  //   v_mutex_lock(bmx160_attitude_mutex, MS_TO_TICKS(5));
-  // }
+
   if (SF_FILTER_USED == SF_MAHONY) {
     m_mahony_filter(_bmx_data.converted.acc[0], _bmx_data.converted.acc[1],
                     _bmx_data.converted.acc[2], _bmx_data.converted.gyr[0],
@@ -1167,33 +1165,22 @@ void bmx160_process_data(void) {
   }
   attitude_queue_telemetry_push(&_bmx_orientation);
   attitude_queue_control_push(&_bmx_orientation);
-  // if (bmx160_attitude_mutex != NULL) {
-  //   v_mutex_unlock(bmx160_attitude_mutex);
-  // }
 }
 
-// void bmx160_get_attitude(attitude_t *att) {
-//   if (att != NULL && bmx160_attitude_mutex != NULL) {
-//     v_mutex_lock(bmx160_attitude_mutex,
-//                  MS_TO_TICKS(I2C_MANAGER_SEMAPHORE_TIMEOUT));
-//     *att = _bmx_orientation;
-//     v_mutex_unlock(bmx160_attitude_mutex);
-//   }
-// }
-
 static int wait_for_orientation(calib_update_type_t orient, float *accel_out) {
- // Remove all send packets from here
+  // Remove all send packets from here
   vayu_log("[CALIB] Waiting for orientation: %d", orient);
 
   // Send instruction to GCS
-  uint8_t payload[7];
-  payload[0] = SYSTEM_ORIGIN_CALIBRATION;
-  payload[1] = 0x01;
-  payload[2] = (uint8_t)orient;
+  imu_calibration_telemetry_t imu_calibration_telemetry;
+  imu_calibration_telemetry.buffer[0] = SYSTEM_ORIGIN_CALIBRATION;
+  imu_calibration_telemetry.buffer[1] = 0x01;
+  imu_calibration_telemetry.buffer[2] = (uint8_t)orient;
 
   float zero = 0.0f;
-  v_memcpy(&payload[3], &zero, 4);
-  send_packet(&g_telemetry_channel, PACKET_TYPE_SYSTEM_STATUS, payload, 7);
+  v_memcpy(&imu_calibration_telemetry.buffer[3], &zero, 4);
+  imu_calibration_telemetry.size = 7;
+  imu_queue_calibration_telemetry_push(&imu_calibration_telemetry);
 
   v_delay(CALIBRATION_WAIT_USER_TIME_PRE_CALIBRATION);
 
@@ -1202,42 +1189,47 @@ static int wait_for_orientation(calib_update_type_t orient, float *accel_out) {
   float sum[3] = {0.0f, 0.0f, 0.0f};
   int count = 0;
 
-  const float g = 9.81f;
-  const float thr = 3.0f;
+  const float g = -9.81f;
+  const float thr = 1.0f;
 
   while (count < target_samples) {
     float raw[3];
 
     // Use DMA data from _bmx_data.converted.acc_raw
-    raw[0] = _bmx_data.converted.acc_raw[0];
-    raw[1] = _bmx_data.converted.acc_raw[1];
-    raw[2] = _bmx_data.converted.acc_raw[2];
+    bmx160_all_reading_t sample;
+    if (imu_queue_calibration_pop(&sample)) {
+      raw[0] = sample.converted.acc_raw[0];
+      raw[1] = sample.converted.acc_raw[1];
+      raw[2] = sample.converted.acc_raw[2];
+    } else {
+      continue;
+    }
 
     int match = 0;
-
+    // TODO: Check if this is correct
     switch (orient) {
     case CALIB_UPDATE_UPRIGHT:
-      match = (raw[2] > g - thr);
+      match = (raw[2] < g + thr);
       break;
 
     case CALIB_UPDATE_UPSIDE_DOWN:
-      match = (raw[2] < -g + thr);
+      match = (raw[2] > -g - thr);
       break;
 
     case CALIB_UPDATE_NOSE_UP:
-      match = (raw[0] > g - thr);
+      match = (raw[0] < g + thr);
       break;
 
     case CALIB_UPDATE_NOSE_DOWN:
-      match = (raw[0] < -g + thr);
+      match = (raw[0] > -g - thr);
       break;
 
     case CALIB_UPDATE_RIGHT_DOWN:
-      match = (raw[1] > g - thr);
+      match = (raw[1] < g + thr);
       break;
 
     case CALIB_UPDATE_LEFT_DOWN:
-      match = (raw[1] < -g + thr);
+      match = (raw[1] > -g - thr);
       break;
 
     default:
@@ -1254,12 +1246,11 @@ static int wait_for_orientation(calib_update_type_t orient, float *accel_out) {
 
       // Progress update (every 5%)
       if (count % (target_samples / 20) == 0) {
-        payload[2] = CALIB_UPDATE_PROGRESS;
+        imu_calibration_telemetry.buffer[2] = CALIB_UPDATE_PROGRESS;
         float progress = (100.0f * count) / target_samples;
-        v_memcpy(&payload[3], &progress, 4);
-
-        send_packet(&g_telemetry_channel, PACKET_TYPE_SYSTEM_STATUS, payload,
-                    7);
+        v_memcpy(&imu_calibration_telemetry.buffer[3], &progress, 4);
+        imu_calibration_telemetry.size = 7;
+        imu_queue_calibration_telemetry_push(&imu_calibration_telemetry);
       }
 
     } else {
@@ -1388,11 +1379,13 @@ void calibration_task(void *args) {
       wait_for_orientation(CALIB_UPDATE_UPRIGHT, avg);
 
       float gsum[3] = {0, 0, 0};
+      bmx160_all_reading_t sample;
       for (int i = 0; i < 500; i++) {
-        gsum[0] += _bmx_data.converted.gyr_raw[0];
-        gsum[1] += _bmx_data.converted.gyr_raw[1];
-        gsum[2] += _bmx_data.converted.gyr_raw[2];
-        v_delay(5);
+        imu_queue_calibration_pop(&sample);
+        gsum[0] += sample.converted.gyr_raw[0];
+        gsum[1] += sample.converted.gyr_raw[1];
+        gsum[2] += sample.converted.gyr_raw[2];
+        v_delay(1);
       }
       bmx160_calib.gyr_offset[0] = gsum[0] / 500.0f;
       bmx160_calib.gyr_offset[1] = gsum[1] / 500.0f;
@@ -1403,13 +1396,14 @@ void calibration_task(void *args) {
         "[CALIB] Starting Magnetometer Quick Calibration (Free-Rotation)...");
 
     // Prompt user to rotate
-    uint8_t payload[7];
-    payload[0] = SYSTEM_ORIGIN_CALIBRATION;
-    payload[1] = 0x01; // nArgs
-    payload[2] = CALIB_UPDATE_FREE_ROT;
+    imu_calibration_telemetry_t imu_calibration_telemetry;
+    imu_calibration_telemetry.buffer[0] = SYSTEM_ORIGIN_CALIBRATION;
+    imu_calibration_telemetry.buffer[1] = 0x01; // nArgs
+    imu_calibration_telemetry.buffer[2] = CALIB_UPDATE_FREE_ROT;
     float zero = 0.0f;
-    v_memcpy(&payload[3], &zero, 4);
-    send_packet(&g_telemetry_channel, PACKET_TYPE_SYSTEM_STATUS, payload, 7);
+    v_memcpy(&imu_calibration_telemetry.buffer[3], &zero, 4);
+    imu_calibration_telemetry.size = 7;
+    imu_queue_calibration_telemetry_push(&imu_calibration_telemetry);
 
     v_delay(1000); // Give user time to see it
 
@@ -1442,11 +1436,11 @@ void calibration_task(void *args) {
 
       // Progress update every 5%
       if (i % (iterations / 20) == 0) {
-        payload[2] = CALIB_UPDATE_PROGRESS;
+        imu_calibration_telemetry.buffer[2] = CALIB_UPDATE_PROGRESS;
         float progress = (100.0f * i) / iterations;
-        v_memcpy(&payload[3], &progress, 4);
-        send_packet(&g_telemetry_channel, PACKET_TYPE_SYSTEM_STATUS, payload,
-                    7);
+        v_memcpy(&imu_calibration_telemetry.buffer[3], &progress, 4);
+        imu_calibration_telemetry.size = 7;
+        imu_queue_calibration_telemetry_push(&imu_calibration_telemetry);
       }
 
       v_delay(loop_delay_ms);
@@ -1488,13 +1482,14 @@ void calibration_task(void *args) {
   v_delay(10);
 
   // Send Final Success Packet
-  uint8_t payload[7];
-  payload[0] = SYSTEM_ORIGIN_CALIBRATION;
-  payload[1] = 0x01;
-  payload[2] = CALIB_UPDATE_PROGRESS;
+  imu_calibration_telemetry_t imu_calibration_telemetry;
+  imu_calibration_telemetry.buffer[0] = SYSTEM_ORIGIN_CALIBRATION;
+  imu_calibration_telemetry.buffer[1] = 0x01;
+  imu_calibration_telemetry.buffer[2] = CALIB_UPDATE_PROGRESS;
   float final_p = 100.0f;
-  v_memcpy(&payload[3], &final_p, 4);
-  send_packet(&g_telemetry_channel, PACKET_TYPE_SYSTEM_STATUS, payload, 7);
+  v_memcpy(&imu_calibration_telemetry.buffer[3], &final_p, 4);
+  imu_calibration_telemetry.size = 7;
+  imu_queue_calibration_telemetry_push(&imu_calibration_telemetry);
 
   i2c_error_count = 0;
   vfs_fd_t file =
