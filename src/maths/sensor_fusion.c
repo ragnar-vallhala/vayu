@@ -39,7 +39,7 @@ void m_acc_mag(const float ax, const float ay, const float az, const float mx,
 
   // Roll and Pitch
   ori->roll = to_degrees(m_atan2(-ay_n, az_n));
-  ori->pitch = to_degrees(m_atan2(ax_n, m_sqrt(ay_n * ay_n + az_n * az_n)));
+  ori->pitch = -to_degrees(m_atan2(ax_n, m_sqrt(ay_n * ay_n + az_n * az_n)));
 
   float sin_roll = m_sin(to_radians(ori->roll));
   float cos_roll = m_cos(to_radians(ori->roll));
@@ -157,7 +157,8 @@ void m_mahony_filter(const float ax, const float ay, const float az,
   float azn = az / norm;
 
   // Detect mag validity and Normalise magnetometer measurement
-  int mag_valid = 1;
+  // TODO: Add mag validity check
+  int mag_valid = 0;
   float mxn = 0.0f, myn = 0.0f, mzn = 0.0f;
   norm = m_sqrt(mx * mx + my * my + mz * mz);
   if (norm <= 1e-6f) {
@@ -169,9 +170,9 @@ void m_mahony_filter(const float ax, const float ay, const float az,
   }
 
   // Estimated direction of gravity (ALWAYS computed)
-  vx = 2.0f * (q1q3 - q0q2);
-  vy = 2.0f * (q0q1 + q2q3);
-  vz = q0q0 - q1q1 - q2q2 + q3q3;
+  vx = -2.0f * (q1q3 - q0q2);
+  vy = -2.0f * (q0q1 + q2q3);
+  vz = - (q0q0 - q1q1 - q2q2 + q3q3);
 
   // Compute error
   if (mag_valid) {

@@ -16,6 +16,7 @@
 #include "vayu_tasks.h"
 #include <math.h>
 #include <stdint.h>
+
 // PID Controllers
 static pid_controller_t pid_roll_angle, pid_roll_rate;
 static pid_controller_t pid_pitch_angle, pid_pitch_rate;
@@ -204,13 +205,13 @@ void control_task(void *args) {
     // Convert angle error to target rate
     float target_rate_roll =
         pid_calculate(&pid_roll_angle, target_angle_roll, attitude.roll, dt);
-    float target_rate_pitch =
-        pid_calculate(&pid_pitch_angle, target_angle_pitch, attitude.pitch, dt);
+    float target_rate_pitch = pid_calculate(
+        &pid_pitch_angle, target_angle_pitch, -attitude.pitch, dt);
 
     float target_rate_yaw = target_rate_yaw_stick;
 
     // 5. Inner Loop (Rate Control)
-    float out_roll = - pid_calculate(&pid_roll_rate, target_rate_roll,
+    float out_roll = pid_calculate(&pid_roll_rate, target_rate_roll,
                                    imu_data.converted.gyr[0], dt);
     float out_pitch = pid_calculate(&pid_pitch_rate, target_rate_pitch,
                                     imu_data.converted.gyr[1], dt);
@@ -229,6 +230,11 @@ void control_task(void *args) {
     // Rear Left   = M3
     // Rear Right  = M2
     // M1 = Front Right
+    if (throttle <= 0.06f) {
+      out_roll = 0;
+      out_pitch = 0;
+      out_yaw = 0;
+    }
     float m1 = throttle - out_roll - out_pitch - out_yaw;
 
     // M2 = Rear Right

@@ -3,18 +3,21 @@
 #include "structure.h"
 
 #define IMU_BUFFER_INTERNAL_CAPACITY (IMU_BUFFER_SIZE + 1)
-
+#define IMU_CALIBRATION_TELEMETRY_CAPACITY 2
 static bmx160_all_reading_t _imu_buffer_data[IMU_BUFFER_INTERNAL_CAPACITY];
 static bmx160_all_reading_t _imu_telemetry_buffer[IMU_BUFFER_INTERNAL_CAPACITY];
+static bmx160_all_reading_t _imu_calibration_buffer[IMU_BUFFER_INTERNAL_CAPACITY];
 static bmx160_all_reading_t _imu_control_buffer[IMU_BUFFER_INTERNAL_CAPACITY];
 static attitude_t _attitude_telemetry_buffer[IMU_BUFFER_INTERNAL_CAPACITY];
 static attitude_t _attitude_control_buffer[IMU_BUFFER_INTERNAL_CAPACITY];
-
+static imu_calibration_telemetry_t _imu_calibration_telemetry_buffer[IMU_CALIBRATION_TELEMETRY_CAPACITY]; // Keep just two
 static spsc_fifo_t _imu_fifo;
 static spsc_fifo_t _imu_telemetry_queue;
+static spsc_fifo_t _imu_calibration_queue;
 static spsc_fifo_t _imu_control_queue;
 static spsc_fifo_t _attitude_telemetry_queue;
 static spsc_fifo_t _attitude_control_queue;
+static spsc_fifo_t _imu_calibration_telemetry_queue;
 
 void imu_buffer_init(void) {
   spsc_init(&_imu_fifo, _imu_buffer_data, IMU_BUFFER_INTERNAL_CAPACITY,
@@ -24,6 +27,10 @@ void imu_buffer_init(void) {
   spsc_init(&_imu_telemetry_queue, _imu_telemetry_buffer,
             IMU_BUFFER_INTERNAL_CAPACITY, sizeof(bmx160_all_reading_t));
   spsc_set_policy(&_imu_telemetry_queue, SPSC_POLICY_OVERWRITE);
+
+  spsc_init(&_imu_calibration_queue, _imu_calibration_buffer,
+            IMU_BUFFER_INTERNAL_CAPACITY, sizeof(bmx160_all_reading_t));
+  spsc_set_policy(&_imu_calibration_queue, SPSC_POLICY_OVERWRITE);
 
   spsc_init(&_imu_control_queue, _imu_control_buffer,
             IMU_BUFFER_INTERNAL_CAPACITY, sizeof(bmx160_all_reading_t));
@@ -36,6 +43,10 @@ void imu_buffer_init(void) {
   spsc_init(&_attitude_control_queue, _attitude_control_buffer,
             IMU_BUFFER_INTERNAL_CAPACITY, sizeof(attitude_t));
   spsc_set_policy(&_attitude_control_queue, SPSC_POLICY_OVERWRITE);
+
+  spsc_init(&_imu_calibration_telemetry_queue, _imu_calibration_telemetry_buffer,
+            IMU_CALIBRATION_TELEMETRY_CAPACITY, sizeof(imu_calibration_telemetry_t));
+  spsc_set_policy(&_imu_calibration_telemetry_queue, SPSC_POLICY_OVERWRITE);
 }
 
 void imu_buffer_push(const bmx160_all_reading_t *sample) {
@@ -99,4 +110,24 @@ bool attitude_queue_control_pop(attitude_t *out_attitude) {
 }
 bool attitude_queue_control_peek(attitude_t *out_attitude) {
   return spsc_peek(&_attitude_control_queue, out_attitude, 1);
+}
+
+bool imu_queue_calibration_telemetry_push(const imu_calibration_telemetry_t *sample) {
+  return spsc_write(&_imu_calibration_telemetry_queue, sample, 1);
+}
+bool imu_queue_calibration_telemetry_pop(imu_calibration_telemetry_t *out_sample) {
+  return spsc_read(&_imu_calibration_telemetry_queue, out_sample, 1);
+}
+bool imu_queue_calibration_telemetry_peek(imu_calibration_telemetry_t *out_sample) {
+  return spsc_peek(&_imu_calibration_telemetry_queue, out_sample, 1);
+}
+
+bool imu_queue_calibration_push(const bmx160_all_reading_t *sample) {
+  return spsc_write(&_imu_calibration_queue, sample, 1) == 1;
+}
+bool imu_queue_calibration_pop(bmx160_all_reading_t *out_sample) {
+  return spsc_read(&_imu_calibration_queue, out_sample, 1) == 1;
+}
+bool imu_queue_calibration_peek(bmx160_all_reading_t *out_sample) {
+  return spsc_peek(&_imu_calibration_queue, out_sample, 1) == 1;
 }

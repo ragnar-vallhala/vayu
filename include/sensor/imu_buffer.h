@@ -26,4 +26,13 @@ bool attitude_queue_telemetry_peek(attitude_t *out_attitude);
 bool attitude_queue_control_push(const attitude_t *attitude);
 bool attitude_queue_control_pop(attitude_t *out_attitude);
 bool attitude_queue_control_peek(attitude_t *out_attitude);
+
+bool imu_queue_calibration_telemetry_push(const imu_calibration_telemetry_t *sample);
+bool imu_queue_calibration_telemetry_pop(imu_calibration_telemetry_t *out_sample);
+bool imu_queue_calibration_telemetry_peek(imu_calibration_telemetry_t *out_sample);
+
+bool imu_queue_calibration_push(const bmx160_all_reading_t *sample);
+bool imu_queue_calibration_pop(bmx160_all_reading_t *out_sample);
+bool imu_queue_calibration_peek(bmx160_all_reading_t *out_sample);
+
 #endif // VAYU_IMU_BUFFER_H

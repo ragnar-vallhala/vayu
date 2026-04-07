@@ -28,6 +28,7 @@ void imu_telemetry_task(void *args) {
   static motor_pwm_data_t m_data;
   static ibus_data_t rc_data;
   static attitude_t att;
+  static imu_calibration_telemetry_t imu_calibration_telemetry;
 
   while (1) {
     if (imu_queue_telemetry_pop(&samples)) {
@@ -116,6 +117,11 @@ void imu_telemetry_task(void *args) {
     if (send_motor && motor_queue_pop(&m_data)) {
       send_packet(&g_telemetry_channel, PACKET_TYPE_MOTOR_TELEMETRY,
                   (uint8_t *)m_data.motors, sizeof(m_data.motors));
+    }
+    if (imu_queue_calibration_telemetry_pop(&imu_calibration_telemetry)) {
+      send_packet(&g_telemetry_channel, PACKET_TYPE_SYSTEM_STATUS,
+                  imu_calibration_telemetry.buffer,
+                  imu_calibration_telemetry.size);
     }
     packet_counter++;
     v_delay(6); // ~166 Hz
