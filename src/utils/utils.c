@@ -1,6 +1,5 @@
 #include "utils/utils.h"
-#include "comm/serializer.h"
-#include "navhal.h"
+#include "ipc.h"
 #include "structure.h"
 #include "utils.h" // Kernels utils for vaprint_fmt_buf
 #include "variables.h"
@@ -16,7 +15,8 @@ static char log_buf[128];
 void vayu_log(const char *fmt, ...) {
   if (first_log) {
 
-    mpmc_init(&vayu_log_queue, log_queue_buffer, VAYU_LOG_QUEUE_SIZE, sizeof(char));
+    mpmc_init(&vayu_log_queue, log_queue_buffer, VAYU_LOG_QUEUE_SIZE,
+              sizeof(char));
     mpmc_set_policy(&vayu_log_queue, MPMC_POLICY_OVERWRITE);
     first_log = 0;
   }
@@ -50,3 +50,37 @@ void set_timestamp(uint32_t timestamp) {
 
 uint8_t get_device_id(void) { return _device_id; }
 void set_device_id(uint8_t device_id) { _device_id = device_id; }
+
+static MutexHandle_t crc_mutex = NULL;
+
+uint32_t utils_compute_crc32(const uint8_t *data, uint32_t len) {
+  if (crc_mutex == NULL) {
+    crc_mutex = v_mutex_create();
+  }
+  if (v_mutex_lock(crc_mutex, 0xFFFFFFFF)) {
+    crc_config_t crc_cfg = {.polynomial = CRC_POLY_CRC32,
+                            .init_value = 0xFFFFFFFF};
+    hal_crc_init(&crc_cfg);
+    uint32_t computed_crc = hal_crc_compute(data, len);
+
+    v_mutex_unlock(crc_mutex);
+    return computed_crc;
+  }
+  return 0;
+}
+
+uint32_t utils_try_compute_crc32(const uint8_t *data, uint32_t len) {
+  if (crc_mutex == NULL) {
+    crc_mutex = v_mutex_create();
+  }
+  if (v_mutex_lock(crc_mutex, 0)) {
+    crc_config_t crc_cfg = {.polynomial = CRC_POLY_CRC32,
+                            .init_value = 0xFFFFFFFF};
+    hal_crc_init(&crc_cfg);
+    uint32_t computed_crc = hal_crc_compute(data, len);
+
+    v_mutex_unlock(crc_mutex);
+    return computed_crc;
+  }
+  return 0;
+}
