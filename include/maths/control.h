@@ -5,47 +5,28 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-// Angle Loop Gains
-#define PID_ROLL_ANGLE_KP 0.005f
-#define PID_ROLL_ANGLE_KI 0.0f
-#define PID_ROLL_ANGLE_KD 0.001f
-#define PID_ROLL_ANGLE_I_LIMIT 0.0f
+typedef struct __attribute__((packed)) {
+  float kp;
+  float ki;
+  float kd;
+  float i_limit;
+  float out_limit;
+  float d_lpf_alpha;
+  float expo;
+} pid_params_t;
 
-#define PID_PITCH_ANGLE_KP 0.005f
-#define PID_PITCH_ANGLE_KI 0.0f
-#define PID_PITCH_ANGLE_KD 0.001f
-#define PID_PITCH_ANGLE_I_LIMIT 0.0f
+typedef struct __attribute__((packed)) {
+  pid_params_t roll_angle;
+  pid_params_t pitch_angle;
+  pid_params_t yaw_angle;
+  pid_params_t roll_rate;
+  pid_params_t pitch_rate;
+  pid_params_t yaw_rate;
+} control_config_t;
 
-#define PID_YAW_ANGLE_KP 0.0f
-#define PID_YAW_ANGLE_KI 0.0f
-#define PID_YAW_ANGLE_KD 0.0f
-#define PID_YAW_ANGLE_I_LIMIT 0.0f
-
-// Rate Loop Gains
-#define PID_ROLL_RATE_KP 0.005f
-#define PID_ROLL_RATE_KI 0.00f
-#define PID_ROLL_RATE_KD 0.0f
-#define PID_ROLL_RATE_KD_LPF_ALPHA 0.3f
-#define PID_ROLL_RATE_I_LIMIT 0.2f
-#define PID_ROLL_RATE_OUT_LIMIT 0.3f
-#define PID_ROLL_RATE_EXPO 0.7f
-
-#define PID_PITCH_RATE_KP 0.005f
-#define PID_PITCH_RATE_KI 0.00f
-#define PID_PITCH_RATE_KD 0.0f
-#define PID_PITCH_RATE_KD_LPF_ALPHA 0.3f
-#define PID_PITCH_RATE_I_LIMIT 0.2f
-#define PID_PITCH_RATE_OUT_LIMIT 0.3f
-#define PID_PITCH_RATE_EXPO 0.7f
+extern control_config_t g_control_config;
 
 #define RADIO_AVOID_BAND 10
-
-#define PID_YAW_RATE_KP 0.0f
-#define PID_YAW_RATE_KI 0.0f
-#define PID_YAW_RATE_KD 0.0f
-#define PID_YAW_RATE_I_LIMIT 0.5f
-#define PID_YAW_RATE_OUT_LIMIT 0.8f
-#define PID_YAW_RATE_EXPO 0.7f
 
 // Control Limits
 #define MAX_CONTROL_ANGLE 40.0f  // max tilt in degrees
@@ -90,8 +71,7 @@ typedef struct {
   float throttle_output;
 } control_loop_data_t;
 
-void pid_init(pid_controller_t *pid, float kp, float ki, float kd,
-              float i_limit, float out_limit);
+void pid_init(pid_controller_t *pid, const pid_params_t *params);
 float pid_calculate(pid_controller_t *pid, float setpoint, float current_value,
                     float dt);
 void pid_reset(pid_controller_t *pid);
