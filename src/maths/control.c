@@ -21,6 +21,50 @@
 #define CONTROL_LOOP_BUFFER_SIZE 6
 #define CONTROL_DATA_COUNTER_INTERVAL 25
 
+control_config_t g_control_config = {
+    .roll_angle = {.kp = 0.005f,
+                   .ki = 0.0f,
+                   .kd = 0.001f,
+                   .i_limit = 0.0f,
+                   .out_limit = MAX_CONTROL_RATE,
+                   .d_lpf_alpha = 0.3f,
+                   .expo = 0.0f},
+    .pitch_angle = {.kp = 0.005f,
+                    .ki = 0.0f,
+                    .kd = 0.001f,
+                    .i_limit = 0.0f,
+                    .out_limit = MAX_CONTROL_RATE,
+                    .d_lpf_alpha = 0.3f,
+                    .expo = 0.0f},
+    .yaw_angle = {.kp = 0.0f,
+                  .ki = 0.0f,
+                  .kd = 0.0f,
+                  .i_limit = 0.0f,
+                  .out_limit = MAX_CONTROL_RATE,
+                  .d_lpf_alpha = 0.3f,
+                  .expo = 0.0f},
+    .roll_rate = {.kp = 0.005f,
+                  .ki = 0.00f,
+                  .kd = 0.0f,
+                  .i_limit = 0.2f,
+                  .out_limit = 0.3f,
+                  .d_lpf_alpha = 0.3f,
+                  .expo = 0.7f},
+    .pitch_rate = {.kp = 0.005f,
+                   .ki = 0.00f,
+                   .kd = 0.0f,
+                   .i_limit = 0.2f,
+                   .out_limit = 0.3f,
+                   .d_lpf_alpha = 0.3f,
+                   .expo = 0.7f},
+    .yaw_rate = {.kp = 0.0f,
+                 .ki = 0.0f,
+                 .kd = 0.0f,
+                 .i_limit = 0.5f,
+                 .out_limit = 0.8f,
+                 .d_lpf_alpha = 0.3f,
+                 .expo = 0.7f}};
+
 // PID Controllers
 static pid_controller_t pid_roll_angle, pid_roll_rate;
 static pid_controller_t pid_pitch_angle, pid_pitch_rate;
@@ -43,16 +87,15 @@ bool control_loop_fifo_pop(control_loop_data_t *data) {
   return spsc_read(&control_loop_fifo, data, 1) == 1;
 }
 
-void pid_init(pid_controller_t *pid, float kp, float ki, float kd,
-              float i_limit, float out_limit) {
-  pid->kp = kp;
-  pid->ki = ki;
-  pid->kd = kd;
-  pid->i_limit = i_limit;
-  pid->output_limit = out_limit;
+void pid_init(pid_controller_t *pid, const pid_params_t *params) {
+  pid->kp = params->kp;
+  pid->ki = params->ki;
+  pid->kd = params->kd;
+  pid->i_limit = params->i_limit;
+  pid->output_limit = params->out_limit;
   pid->integral = 0.0f;
   pid->prev_error = 0.0f;
-  lpf_init(&pid->lpf_d, PID_ROLL_RATE_KD_LPF_ALPHA);
+  lpf_init(&pid->lpf_d, params->d_lpf_alpha);
 }
 static float expo(float x, float expo) {
   return x * (1.0f - expo) + x * x * x * expo;
@@ -111,20 +154,14 @@ void control_init(void) {
   control_loop_fifo_init();
 
   // Angle Loops (Outer)
-  pid_init(&pid_roll_angle, PID_ROLL_ANGLE_KP, PID_ROLL_ANGLE_KI,
-           PID_ROLL_ANGLE_KD, PID_ROLL_ANGLE_I_LIMIT, MAX_CONTROL_RATE);
-  pid_init(&pid_pitch_angle, PID_PITCH_ANGLE_KP, PID_PITCH_ANGLE_KI,
-           PID_PITCH_ANGLE_KD, PID_PITCH_ANGLE_I_LIMIT, MAX_CONTROL_RATE);
-  pid_init(&pid_yaw_angle, PID_YAW_ANGLE_KP, PID_YAW_ANGLE_KI, PID_YAW_ANGLE_KD,
-           PID_YAW_ANGLE_I_LIMIT, MAX_CONTROL_RATE);
+  pid_init(&pid_roll_angle, &g_control_config.roll_angle);
+  pid_init(&pid_pitch_angle, &g_control_config.pitch_angle);
+  pid_init(&pid_yaw_angle, &g_control_config.yaw_angle);
 
   // Rate Loops (Inner)
-  pid_init(&pid_roll_rate, PID_ROLL_RATE_KP, PID_ROLL_RATE_KI, PID_ROLL_RATE_KD,
-           PID_ROLL_RATE_I_LIMIT, PID_ROLL_RATE_OUT_LIMIT);
-  pid_init(&pid_pitch_rate, PID_PITCH_RATE_KP, PID_PITCH_RATE_KI,
-           PID_PITCH_RATE_KD, PID_PITCH_RATE_I_LIMIT, PID_PITCH_RATE_OUT_LIMIT);
-  pid_init(&pid_yaw_rate, PID_YAW_RATE_KP, PID_YAW_RATE_KI, PID_YAW_RATE_KD,
-           PID_YAW_RATE_I_LIMIT, PID_YAW_RATE_OUT_LIMIT);
+  pid_init(&pid_roll_rate, &g_control_config.roll_rate);
+  pid_init(&pid_pitch_rate, &g_control_config.pitch_rate);
+  pid_init(&pid_yaw_rate, &g_control_config.yaw_rate);
 }
 
 void control_task(void *args) {
@@ -210,17 +247,18 @@ void control_task(void *args) {
       throttle = 1.0f;
 
     // 3. Map RC sticks to Target Angles (Roll/Pitch) or Rate (Stick)
-    float target_angle_roll =
-        (expo(((float)rc_channels[0] - 1500.0f) / 500.0f, PID_ROLL_RATE_EXPO)) *
-        MAX_CONTROL_ANGLE;
+    float target_angle_roll = (expo(((float)rc_channels[0] - 1500.0f) / 500.0f,
+                                    g_control_config.roll_rate.expo)) *
+                              MAX_CONTROL_ANGLE;
 
     float target_angle_pitch = (expo(((float)rc_channels[1] - 1500.0f) / 500.0f,
-                                     PID_PITCH_RATE_EXPO)) *
+                                     g_control_config.pitch_rate.expo)) *
                                MAX_CONTROL_ANGLE;
 
     // For Angle Mode, Yaw is typically still rate controlled by the pilot.
     float target_rate_yaw_stick =
-        -(expo(((float)rc_channels[3] - 1500.0f) / 500.0f, PID_YAW_RATE_EXPO)) *
+        -(expo(((float)rc_channels[3] - 1500.0f) / 500.0f,
+               g_control_config.yaw_rate.expo)) *
         MAX_CONTROL_RATE;
 
     // 4. Outer Loop (Angle Control)
