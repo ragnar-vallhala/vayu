@@ -148,6 +148,16 @@ float pid_calculate(pid_controller_t *pid, float setpoint, float current_value,
   return output;
 }
 
+static void pid_update_gains(pid_controller_t *pid,
+                             const pid_params_t *params) {
+  pid->kp = params->kp;
+  pid->ki = params->ki;
+  pid->kd = params->kd;
+  pid->i_limit = params->i_limit;
+  pid->output_limit = params->out_limit;
+  pid->lpf_d.alpha = params->d_lpf_alpha;
+}
+
 void control_init(void) {
   control_loop_fifo_init();
 
@@ -221,7 +231,21 @@ void control_task(void *args) {
 
   int count = 0;
   uint32_t last = dwt_get_cycles();
+  static control_config_t new_cfg;
+
   while (1) {
+    if (pid_config_t2c_pop(&new_cfg)) {
+      g_control_config = new_cfg;
+      pid_update_gains(&pid_roll_angle, &g_control_config.roll_angle);
+      pid_update_gains(&pid_pitch_angle, &g_control_config.pitch_angle);
+      pid_update_gains(&pid_yaw_angle, &g_control_config.yaw_angle);
+      pid_update_gains(&pid_roll_rate, &g_control_config.roll_rate);
+      pid_update_gains(&pid_pitch_rate, &g_control_config.pitch_rate);
+      pid_update_gains(&pid_yaw_rate, &g_control_config.yaw_rate);
+
+      pid_config_c2t_push(&g_control_config);
+    }
+
     count++;
     uint32_t n = dwt_get_cycles();
     float dt = ((float)(n - last)) / (float)SYS_CLOCK_FREQ;

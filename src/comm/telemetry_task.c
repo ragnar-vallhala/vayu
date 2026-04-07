@@ -14,6 +14,7 @@
 #include "vaios.h"
 #include "vaios_app_config.h"
 #include "variables.h"
+#include "vfs.h"
 #include <stdint.h>
 
 channel_t g_telemetry_channel = {0};
@@ -30,8 +31,29 @@ void imu_telemetry_task(void *args) {
   static ibus_data_t rc_data;
   static attitude_t att;
   static imu_calibration_telemetry_t imu_calibration_telemetry;
+  static control_config_t new_cfg;
 
   while (1) {
+    if (pid_config_c2t_pop(&new_cfg)) {
+      vfs_fd_t fd =
+          vfs_open(PID_FILE_PATH, VFS_O_WRONLY | VFS_O_CREAT | VFS_O_TRUNC);
+      if (fd >= 0) {
+        uint32_t computed_crc = utils_try_compute_crc32(
+            (const uint8_t *)&new_cfg, sizeof(control_config_t));
+        vfs_write(fd, &new_cfg, sizeof(control_config_t));
+        vfs_write(fd, &computed_crc, sizeof(uint32_t));
+        vfs_close(fd);
+      }
+
+      uint8_t payload[2 + sizeof(control_config_t)];
+      payload[0] = SYSTEM_ORIGIN_PID_UPDATE;
+      payload[1] = 0x01; // PID_ACK
+      v_memcpy(&payload[2], &new_cfg, sizeof(control_config_t));
+
+      send_packet(&g_telemetry_channel, PACKET_TYPE_SYSTEM_STATUS, payload,
+                  sizeof(payload));
+    }
+
     if (imu_queue_telemetry_pop(&samples)) {
       current_floats[0] = (float)samples.converted.acc[0];
       current_floats[1] = (float)samples.converted.acc[1];
