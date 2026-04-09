@@ -6,6 +6,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
+#include <QQueue>
 #include <QScrollArea>
 #include <QVBoxLayout>
 #include <QWidget>
@@ -33,9 +34,6 @@ private:
   RealTimeGraph *m_dtGraph;
 
   // Angle labels
-  QLabel *m_rollAngleErrVal;
-  QLabel *m_pitchAngleErrVal;
-  QLabel *m_yawAngleErrVal;
   QLabel *m_rollAngleSpVal;
   QLabel *m_pitchAngleSpVal;
   QLabel *m_yawAngleSpVal;
@@ -44,9 +42,6 @@ private:
   QLabel *m_yawAngleCurrVal;
 
   // Rate labels
-  QLabel *m_rollRateErrVal;
-  QLabel *m_pitchRateErrVal;
-  QLabel *m_yawRateErrVal;
   QLabel *m_rollRateSpVal;
   QLabel *m_pitchRateSpVal;
   QLabel *m_yawRateSpVal;
@@ -59,7 +54,14 @@ private:
   QLabel *m_pitchOutVal;
   QLabel *m_yawOutVal;
   QLabel *m_throttleOutVal;
-  QLabel *m_dtVal;
+  QLabel *m_dtOuterVal;
+  QLabel *m_dtInnerVal;
+  QLabel *m_dtOuterStdVal;
+  QLabel *m_dtInnerStdVal;
+
+  QQueue<float> m_outerDtHistory;
+  QQueue<float> m_innerDtHistory;
+  const int m_stdWindowSize = 100;
 
   float m_gyroScale = 1.0f;
 };
