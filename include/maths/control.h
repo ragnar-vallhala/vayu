@@ -32,13 +32,15 @@ extern control_config_t g_control_config;
 #define MAX_CONTROL_ANGLE 40.0f  // max tilt in degrees
 #define MAX_CONTROL_RATE 40.0f   // max target rate in deg/s
 #define MOTOR_MIN_THROTTLE 0.05f // minimum for armed motors
+#define MAX_ALLOWED_ANGLE 50.0f  // max allowed tilt in degrees
 
 typedef struct {
   float kp;
   float ki;
   float kd;
+  float k;
   float integral;
-  float prev_error;
+  float prev_value;
   float i_limit;
   float output_limit;
   lpf_t lpf_d;
