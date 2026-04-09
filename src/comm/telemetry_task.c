@@ -1,9 +1,8 @@
+#include "actuator/motor.h"
 #include "comm/comm_types.h"
 #include "comm/ibus.h"
 #include "comm/rc_buffer.h"
 #include "comm/serializer.h"
-#include "maths/control.h"
-#include "maths/control_buffer.h"
 #include "maths/sensor_fusion.h"
 #include "sensor/bmx160.h"
 #include "sensor/imu_buffer.h"
@@ -26,34 +25,12 @@ void imu_telemetry_task(void *args) {
   static float previous_floats[10]; // For delta calculation
   static bool first_packet = true;
   static uint32_t packet_counter = 0;
-  static control_loop_data_t c_data;
-  static motor_pwm_data_t m_data;
   static ibus_data_t rc_data;
+  static motor_outputs_t m_data;
   static attitude_t att;
   static imu_calibration_telemetry_t imu_calibration_telemetry;
-  static control_config_t new_cfg;
 
   while (1) {
-    if (pid_config_c2t_pop(&new_cfg)) {
-      vfs_fd_t fd =
-          vfs_open(PID_FILE_PATH, VFS_O_WRONLY | VFS_O_CREAT | VFS_O_TRUNC);
-      if (fd >= 0) {
-        uint32_t computed_crc = utils_try_compute_crc32(
-            (const uint8_t *)&new_cfg, sizeof(control_config_t));
-        vfs_write(fd, &new_cfg, sizeof(control_config_t));
-        vfs_write(fd, &computed_crc, sizeof(uint32_t));
-        vfs_close(fd);
-      }
-
-      uint8_t payload[2 + sizeof(control_config_t)];
-      payload[0] = SYSTEM_ORIGIN_PID_UPDATE;
-      payload[1] = 0x01; // PID_ACK
-      v_memcpy(&payload[2], &new_cfg, sizeof(control_config_t));
-
-      send_packet(&g_telemetry_channel, PACKET_TYPE_SYSTEM_STATUS, payload,
-                  sizeof(payload));
-    }
-
     if (imu_queue_telemetry_pop(&samples)) {
       current_floats[0] = (float)samples.converted.acc[0];
       current_floats[1] = (float)samples.converted.acc[1];
@@ -101,14 +78,15 @@ void imu_telemetry_task(void *args) {
       send_packet(&g_telemetry_channel, PACKET_TYPE_SYSTEM_STATUS,
                   state_payload, 6);
     }
-    if (send_pid_err && control_loop_fifo_pop(&c_data)) {
-      uint8_t payload[70];
-      payload[0] = 0x05; // SYSTEM_ORIGIN_CONTROL_DATA (was PID ERROR)
-      payload[1] = 17;   // Number of elements (17 floats)
-      v_memcpy(&payload[2], &c_data, sizeof(control_loop_data_t));
-      // 2 bytes header + 17 * 4 bytes = 70 bytes
-      send_packet(&g_telemetry_channel, PACKET_TYPE_SYSTEM_STATUS, payload, 70);
-    }
+    // if (send_pid_err && control_loop_fifo_pop(&c_data)) {
+    //   uint8_t payload[70];
+    //   payload[0] = 0x05; // SYSTEM_ORIGIN_CONTROL_DATA (was PID ERROR)
+    //   payload[1] = 17;   // Number of elements (17 floats)
+    //   v_memcpy(&payload[2], &c_data, sizeof(control_loop_data_t));
+    //   // 2 bytes header + 17 * 4 bytes = 70 bytes
+    //   send_packet(&g_telemetry_channel, PACKET_TYPE_SYSTEM_STATUS, payload,
+    //   70);
+    // }
 
     if (send_full) {
       send_packet(&g_telemetry_channel, PACKET_TYPE_IMU_DATA_FULL,
@@ -137,9 +115,9 @@ void imu_telemetry_task(void *args) {
                   (uint8_t *)rc_data.channels, sizeof(rc_data.channels));
     }
 
-    if (send_motor && motor_queue_pop(&m_data)) {
+    if (send_motor && motor_telemetry_queue_pop(&m_data)) {
       send_packet(&g_telemetry_channel, PACKET_TYPE_MOTOR_TELEMETRY,
-                  (uint8_t *)m_data.motors, sizeof(m_data.motors));
+                  (uint8_t *)&m_data, sizeof(m_data));
     }
     if (imu_queue_calibration_telemetry_pop(&imu_calibration_telemetry)) {
       send_packet(&g_telemetry_channel, PACKET_TYPE_SYSTEM_STATUS,

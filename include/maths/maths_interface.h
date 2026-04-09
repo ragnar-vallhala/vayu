@@ -8,6 +8,8 @@ float m_asin(float x);
 float m_atan2(float y, float x);
 float m_sqrt(float x);
 float m_pow(float base, float exp);
+float m_clamp(float val, float min, float max);
+float m_fabsf(float x);
 #define to_radians(degrees) (degrees * (PI / 180.0f))
 #define to_degrees(radians) (radians * (180.0f / PI))
 typedef struct {
