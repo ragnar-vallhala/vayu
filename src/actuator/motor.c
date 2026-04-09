@@ -1,6 +1,7 @@
 #include "actuator/motor.h"
 #include "actuator/esc.h"
 #include "structure.h"
+#include "sys/state.h"
 #include "vaios.h"
 
 static spsc_fifo_t motor_angle_rate2motor_queue;
@@ -40,6 +41,7 @@ void motor_task(void *arg) {
   motor_init();
   static motor_outputs_t motor_outputs;
   static motor_outputs_t prev_motor_outputs;
+  static sys_state_t sys_state;
   while (1) {
     if (!get_motor_ready()) {
       v_delay(3);
@@ -47,6 +49,12 @@ void motor_task(void *arg) {
     }
     if (!spsc_read(&motor_angle_rate2motor_queue, &motor_outputs, 1)) {
       motor_outputs = prev_motor_outputs;
+    }
+    if (system_state_get() != SYSTEM_STATE_ARMED) {
+      motor_outputs.m1 = 0;
+      motor_outputs.m2 = 0;
+      motor_outputs.m3 = 0;
+      motor_outputs.m4 = 0;
     }
     prev_motor_outputs = motor_outputs;
     esc_set_throttle(&motors[0], motor_outputs.m1);
