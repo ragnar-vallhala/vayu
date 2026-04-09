@@ -2,7 +2,9 @@
 #include "actuator/motor.h"
 #include "comm/ibus.h"
 #include "comm/rc_buffer.h"
+#include "control/angle_controller.h"
 #include "core/cortex-m4/dwt.h"
+#include "maths/control_buffer.h"
 #include "sensor/bmx160.h"
 #include "sensor/imu_buffer.h"
 #include "vaios.h"
@@ -78,57 +80,15 @@ void angle_rate_controller_init(void) {
   }
 }
 
-typedef struct {
-  // normal rc channels
-  float channels[4];
-  //
-} rc_data_t;
-
-static inline rc_data_t normalize_rc_data(ibus_data_t rc_data) {
-  rc_data_t normalized_rc_data;
-  for (int i = 0; i < 4; i++) {
-    if (i != 2) {
-      // Apply deadband
-      if (rc_data.channels[i] > 1500 + PID_RC_DEADBAND) {
-        normalized_rc_data.channels[i] =
-            ((float)rc_data.channels[i] - 1500.0f) / 500.0f;
-      } else if (rc_data.channels[i] < 1500 - PID_RC_DEADBAND) {
-        normalized_rc_data.channels[i] =
-            ((float)rc_data.channels[i] - 1500.0f) / 500.0f;
-      } else {
-        normalized_rc_data.channels[i] = 0;
-      }
-    } else {
-      // Throttle is not deaband at 1500
-      normalized_rc_data.channels[i] =
-          ((float)rc_data.channels[i] - 1000.0f) / 1000.0f;
-    }
-  }
-
-  switch (PID_RC2ANGLE_RATE_MODE) {
-  case NORMALIZED_RC2ANGLE_RATE_LINEAR:
-    break;
-  case NORMALIZED_RC2ANGLE_RATE_CUBIC:
-    for (int i = 0; i < 4; i++) {
-      if (i != 2) {
-        normalized_rc_data.channels[i] = normalized_rc_data.channels[i] *
-                                         normalized_rc_data.channels[i] *
-                                         normalized_rc_data.channels[i];
-      }
-    }
-    break;
-  }
-  return normalized_rc_data;
-}
-
 void angle_rate_controller_task(void *arg) {
   angle_rate_controller_init();
   static bmx160_all_reading_t imu_data = {0};
   static bmx160_all_reading_t prev_imu_data = {0};
-  static ibus_data_t rc_data;
-  static ibus_data_t prev_rc_data;
   static float prev_target_rates[NUM_AXES] = {0};
   static motor_outputs_t motor_outputs = {0};
+  static angle_controller_outputs_t angle_controller_outputs;
+  static angle_controller_outputs_t last_angle_controller_outputs;
+
   set_motor_ready(true);
   while (1) {
     // Getting all the data
@@ -142,12 +102,6 @@ void angle_rate_controller_task(void *arg) {
 
     float dt = get_dt();
 
-    if (rc_queue_control_pop(&rc_data)) {
-      prev_rc_data = rc_data;
-    } else {
-      rc_data = prev_rc_data;
-    }
-
     // Applying deadband to the gyro data
     for (int i = 0; i < NUM_AXES; i++) {
       if (m_fabsf(imu_data.converted.gyr[i]) < PID_GYRO_DEADBAND) {
@@ -155,14 +109,15 @@ void angle_rate_controller_task(void *arg) {
       }
     }
 
-    // Normalizing the rc data
-    rc_data_t normalized_rc_data = normalize_rc_data(rc_data);
-    float target_roll_rate = normalized_rc_data.channels[0];
-    float target_pitch_rate = normalized_rc_data.channels[1];
-    float target_throttle = normalized_rc_data.channels[2];
-    float target_yaw_rate = normalized_rc_data.channels[3];
-    float target_rates[NUM_AXES] = {target_roll_rate, target_pitch_rate,
-                                    target_yaw_rate};
+    // Get rates from the angle controller
+    if (angle_controller_get_outputs(&angle_controller_outputs)) {
+      last_angle_controller_outputs = angle_controller_outputs;
+    } else {
+      angle_controller_outputs = last_angle_controller_outputs;
+    }
+    float target_rates[NUM_AXES] = {angle_controller_outputs.angle_rates[0],
+                                    angle_controller_outputs.angle_rates[1],
+                                    angle_controller_outputs.angle_rates[2]};
     float current_rates[NUM_AXES] = {imu_data.converted.gyr[0],
                                      imu_data.converted.gyr[1],
                                      imu_data.converted.gyr[2]};
@@ -171,14 +126,15 @@ void angle_rate_controller_task(void *arg) {
     for (int i = 0; i < NUM_AXES; i++) {
       float dot_sp = (target_rates[i] - prev_target_rates[i]) / dt;
       outputs[i] = v_pid_update(&angle_rate_controller.pid[i], target_rates[i],
-                                current_rates[i], dot_sp, dt);
+                                current_rates[i], 0, dt);
       prev_target_rates[i] = target_rates[i];
     }
+    float target_throttle = angle_controller_outputs.throttle;
 
     // calculate motor outputs
     if (target_throttle < MIN_ARMED_THROTTLE) {
       for (int i = 0; i < NUM_AXES; i++) {
-        outputs[i] = 0;
+        outputs[i] *= target_throttle / MIN_ARMED_THROTTLE;
       }
     }
     // Your layout:
@@ -228,6 +184,28 @@ void angle_rate_controller_task(void *arg) {
       motor_outputs.m4 /= max_output;
     }
     motor_set_outputs(motor_outputs);
+
+    control_telemetry_t telemetry = {
+        .roll_angle_sp = angle_controller_outputs.angle_sp[0],
+        .pitch_angle_sp = angle_controller_outputs.angle_sp[1],
+        .yaw_angle_sp = angle_controller_outputs.angle_sp[2],
+        .roll_angle_curr = angle_controller_outputs.angle_curr[0],
+        .pitch_angle_curr = angle_controller_outputs.angle_curr[1],
+        .yaw_angle_curr = angle_controller_outputs.angle_curr[2],
+        .roll_rate_sp = target_rates[0],
+        .pitch_rate_sp = target_rates[1],
+        .yaw_rate_sp = target_rates[2],
+        .roll_rate_curr = current_rates[0],
+        .pitch_rate_curr = current_rates[1],
+        .yaw_rate_curr = current_rates[2],
+        .roll_out = outputs[0],
+        .pitch_out = outputs[1],
+        .yaw_out = outputs[2],
+        .thro_out = target_throttle,
+        .outer_dt = angle_controller_outputs.dt,
+        .inner_dt = dt};
+    control_telemetry_queue_push(&telemetry);
+
     v_delay(1);
   }
 }

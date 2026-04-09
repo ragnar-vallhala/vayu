@@ -3,6 +3,7 @@
 #include <QGridLayout>
 #include <QScrollArea>
 #include <QSplitter>
+#include <cmath>
 
 ControlLoopPlot::ControlLoopPlot(QWidget *parent) : QWidget(parent) {
   auto *mainLayout = new QVBoxLayout(this);
@@ -109,6 +110,35 @@ ControlLoopPlot::ControlLoopPlot(QWidget *parent) : QWidget(parent) {
     parentLayout->addLayout(box);
   };
 
+  auto createValueWithStdLabel = [this](QHBoxLayout *parentLayout,
+                                        const QString &name,
+                                        const QString &color,
+                                        QLabel **outValueLabel,
+                                        QLabel **outStdLabel) {
+    auto *box = new QVBoxLayout();
+    auto *l = new QLabel(name, this);
+    l->setStyleSheet(
+        QString("color: %1; font-size: 11px; font-weight: bold;").arg(color));
+
+    *outValueLabel = new QLabel("0.00000", this);
+    (*outValueLabel)
+        ->setStyleSheet(
+            QString("color: %1; font-size: 18px; font-family: Monospace; "
+                    "font-weight: bold;")
+                .arg(color));
+
+    *outStdLabel = new QLabel("± σ 0.000000", this);
+    (*outStdLabel)
+        ->setStyleSheet(
+            "color: #ABB2BF; font-size: 10px; font-family: Monospace;");
+
+    box->addWidget(l);
+    box->addWidget(*outValueLabel);
+    box->addWidget(*outStdLabel);
+    box->setAlignment(Qt::AlignLeft);
+    parentLayout->addLayout(box);
+  };
+
   QHBoxLayout *angleStats;
   auto *angleSec = createSection("OUTER LOOP: ANGLE SP & CURRENT", &angleStats,
                                  &m_angleGraph, 6);
@@ -175,10 +205,14 @@ ControlLoopPlot::ControlLoopPlot(QWidget *parent) : QWidget(parent) {
   botHSplitter->addWidget(outSec);
 
   QHBoxLayout *dtStats;
-  auto *dtSec = createSection("LOOP TIME (dt)", &dtStats, &m_dtGraph, 1);
-  createValueLabel(dtStats, "dt (sec)", "#98C379", &m_dtVal);
+  auto *dtSec = createSection("LOOP TIME (dt)", &dtStats, &m_dtGraph, 2);
+  createValueWithStdLabel(dtStats, "Outer dt", "#98C379", &m_dtOuterVal,
+                          &m_dtOuterStdVal);
+  createValueWithStdLabel(dtStats, "Inner dt", "#61AFEF", &m_dtInnerVal,
+                          &m_dtInnerStdVal);
   dtStats->addStretch();
   m_dtGraph->setColor(0, QColor("#98C379"));
+  m_dtGraph->setColor(1, QColor("#61AFEF"));
   m_dtGraph->setDynamicYAxis(true);
   botHSplitter->addWidget(dtSec);
 
@@ -209,20 +243,43 @@ void ControlLoopPlot::setProtocol(DroneProtocol *protocol) {
 
 void ControlLoopPlot::onControlLoopDataReceived(const ControlLoopData &data) {
   // Update DT
-  m_dtVal->setText(QString::number(static_cast<double>(data.dt), 'f', 5));
-  m_dtGraph->appendData(data.dt, 0);
+  m_dtOuterVal->setText(
+      QString::number(static_cast<double>(data.outer_dt), 'f', 5));
+  m_dtInnerVal->setText(
+      QString::number(static_cast<double>(data.inner_dt), 'f', 5));
+  m_dtGraph->appendData(data.outer_dt, 0);
+  m_dtGraph->appendData(data.inner_dt, 1);
+
+  // Helper for rolling STD
+  auto updateStd = [this](QQueue<float> &history, float newVal, QLabel *label) {
+    history.enqueue(newVal);
+    if (history.size() > m_stdWindowSize)
+      history.dequeue();
+    if (history.size() < 2) {
+      label->setText("0.00000");
+      return;
+    }
+    double sum = 0;
+    for (float v : history)
+      sum += v;
+    double mean = sum / history.size();
+    double sqSum = 0;
+    for (float v : history)
+      sqSum += (v - mean) * (v - mean);
+    double stdDev = std::sqrt(sqSum / history.size());
+    label->setText(QString("± σ %1").arg(stdDev, 0, 'f', 6));
+  };
+
+  updateStd(m_outerDtHistory, data.outer_dt, m_dtOuterStdVal);
+  updateStd(m_innerDtHistory, data.inner_dt, m_dtInnerStdVal);
 
   // Angles
-  float rollCurrAngle = data.roll_angle_setpoint - data.roll_angle_error;
-  float pitchCurrAngle = data.pitch_angle_setpoint - data.pitch_angle_error;
-  float yawCurrAngle = data.yaw_angle_setpoint - data.yaw_angle_error;
-
   m_angleGraph->appendData(data.roll_angle_setpoint, 0);
   m_angleGraph->appendData(data.pitch_angle_setpoint, 1);
   m_angleGraph->appendData(data.yaw_angle_setpoint, 2);
-  m_angleGraph->appendData(rollCurrAngle, 3);
-  m_angleGraph->appendData(pitchCurrAngle, 4);
-  m_angleGraph->appendData(yawCurrAngle, 5);
+  m_angleGraph->appendData(data.roll_angle_current, 3);
+  m_angleGraph->appendData(data.pitch_angle_current, 4);
+  m_angleGraph->appendData(data.yaw_angle_current, 5);
 
   m_rollAngleSpVal->setText(
       QString::number(static_cast<double>(data.roll_angle_setpoint), 'f', 3));
@@ -231,11 +288,11 @@ void ControlLoopPlot::onControlLoopDataReceived(const ControlLoopData &data) {
   m_yawAngleSpVal->setText(
       QString::number(static_cast<double>(data.yaw_angle_setpoint), 'f', 3));
   m_rollAngleCurrVal->setText(
-      QString::number(static_cast<double>(rollCurrAngle), 'f', 3));
+      QString::number(static_cast<double>(data.roll_angle_current), 'f', 3));
   m_pitchAngleCurrVal->setText(
-      QString::number(static_cast<double>(pitchCurrAngle), 'f', 3));
+      QString::number(static_cast<double>(data.pitch_angle_current), 'f', 3));
   m_yawAngleCurrVal->setText(
-      QString::number(static_cast<double>(yawCurrAngle), 'f', 3));
+      QString::number(static_cast<double>(data.yaw_angle_current), 'f', 3));
 
   // Rates
   m_rateGraph->appendData(data.roll_rate_setpoint, 0);

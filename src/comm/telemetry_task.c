@@ -3,6 +3,7 @@
 #include "comm/ibus.h"
 #include "comm/rc_buffer.h"
 #include "comm/serializer.h"
+#include "maths/control_buffer.h"
 #include "maths/sensor_fusion.h"
 #include "sensor/bmx160.h"
 #include "sensor/imu_buffer.h"
@@ -27,6 +28,7 @@ void imu_telemetry_task(void *args) {
   static uint32_t packet_counter = 0;
   static ibus_data_t rc_data;
   static motor_outputs_t m_data;
+  static control_telemetry_t c_data;
   static attitude_t att;
   static imu_calibration_telemetry_t imu_calibration_telemetry;
 
@@ -78,15 +80,14 @@ void imu_telemetry_task(void *args) {
       send_packet(&g_telemetry_channel, PACKET_TYPE_SYSTEM_STATUS,
                   state_payload, 6);
     }
-    // if (send_pid_err && control_loop_fifo_pop(&c_data)) {
-    //   uint8_t payload[70];
-    //   payload[0] = 0x05; // SYSTEM_ORIGIN_CONTROL_DATA (was PID ERROR)
-    //   payload[1] = 17;   // Number of elements (17 floats)
-    //   v_memcpy(&payload[2], &c_data, sizeof(control_loop_data_t));
-    //   // 2 bytes header + 17 * 4 bytes = 70 bytes
-    //   send_packet(&g_telemetry_channel, PACKET_TYPE_SYSTEM_STATUS, payload,
-    //   70);
-    // }
+    if (send_pid_err && control_telemetry_queue_pop(&c_data)) {
+      uint8_t payload[74];
+      payload[0] = SYSTEM_ORIGIN_PID_ERROR;
+      payload[1] = 18; // Number of elements (18 floats)
+      v_memcpy(&payload[2], &c_data, sizeof(control_telemetry_t));
+      // 2 bytes header + 18 * 4 bytes = 74 bytes
+      send_packet(&g_telemetry_channel, PACKET_TYPE_SYSTEM_STATUS, payload, 74);
+    }
 
     if (send_full) {
       send_packet(&g_telemetry_channel, PACKET_TYPE_IMU_DATA_FULL,

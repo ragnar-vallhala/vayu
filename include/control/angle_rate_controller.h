@@ -2,8 +2,8 @@
 #define VAYU_ANGLE_RATE_CONTROLLER_H
 
 #include "maths/pid.h"
+#include "variables.h"
 
-#define NUM_AXES 3
 
 typedef struct {
   struct PID pid[NUM_AXES];

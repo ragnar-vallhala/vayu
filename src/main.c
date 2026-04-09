@@ -1,11 +1,13 @@
 #include "comm/channel.h"
 #include "comm/rc_buffer.h"
 #include "comm/serializer.h"
+#include "control/angle_controller.h"
 #include "control/angle_rate_controller.h"
 #include "core/cortex-m4/clock.h"
 #include "core/cortex-m4/uart.h"
 #include "drivers/i2c_manager.h"
 #include "logger/logger.h"
+#include "maths/control_buffer.h"
 #include "navhal.h"
 #include "sensor/bmx160.h"
 #include "sensor/imu_buffer.h"
@@ -48,6 +50,7 @@ void clock_setup(void) {
 
 void init_sensors(void) {
   imu_buffer_init();
+  control_telemetry_buffer_init();
   bmx160_init();
   rc_buffer_init();
 
@@ -65,9 +68,11 @@ void init_tasks(void) {
   task_create(comm_processor_task, NULL, 4096, 0);
   bmx160_task_id = task_create(bmx160_initiate_read, NULL, 4096, 2);
   task_create(rc_ibus_task, NULL, 4096, 0);
+  task_create(angle_controller_task, NULL, 1024 * 2,
+              1); // Higher priority for control
   task_create(angle_rate_controller_task, NULL, 1024 * 5,
               1);                             // Higher priority for control
-  task_create(motor_task, NULL, 1024 * 5, 1); // Higher priority for control
+  task_create(motor_task, NULL, 1024 * 2, 1); // Higher priority for control
   task_create(imu_telemetry_task, NULL, 1024 * 3, 0);
   task_create(flush_task, NULL, 4096, 0);
   // task_create(test_task, NULL, 4096, 0);
