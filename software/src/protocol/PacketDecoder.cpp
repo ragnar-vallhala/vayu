@@ -104,28 +104,29 @@ DecodedPacket PacketDecoder::decode(const QByteArray &data) {
             QString("INVALID SYSTEM_STATE LEN: %1").arg(result.length);
       }
     } else if (result.length >= 2 && raw[8] == 0x05) {
-      // SYSTEM_ORIGIN_CONTROL_DATA: [origin] [n] [17 floats]
-      if (result.length == 70) {
-        float vals[17];
-        memcpy(vals, raw + 10, 68);
+      // SYSTEM_ORIGIN_CONTROL_DATA: [origin] [n] [18 floats]
+      if (result.length == 74) {
+        float vals[18];
+        memcpy(vals, raw + 10, 72);
         ControlLoopData ctrl;
-        ctrl.roll_angle_error = vals[0];
-        ctrl.pitch_angle_error = vals[1];
-        ctrl.yaw_angle_error = vals[2];
-        ctrl.roll_rate_error = vals[3];
-        ctrl.pitch_rate_error = vals[4];
-        ctrl.yaw_rate_error = vals[5];
-        ctrl.dt = vals[6];
-        ctrl.roll_angle_setpoint = vals[7];
-        ctrl.pitch_angle_setpoint = vals[8];
-        ctrl.yaw_angle_setpoint = vals[9];
-        ctrl.roll_rate_setpoint = vals[10];
-        ctrl.pitch_rate_setpoint = vals[11];
-        ctrl.yaw_rate_setpoint = vals[12];
-        ctrl.roll_output = vals[13];
-        ctrl.pitch_output = vals[14];
-        ctrl.yaw_output = vals[15];
-        ctrl.throttle_output = vals[16];
+        ctrl.roll_angle_setpoint = vals[0];
+        ctrl.pitch_angle_setpoint = vals[1];
+        ctrl.yaw_angle_setpoint = vals[2];
+        ctrl.roll_angle_current = vals[3];
+        ctrl.pitch_angle_current = vals[4];
+        ctrl.yaw_angle_current = vals[5];
+        ctrl.roll_rate_setpoint = vals[6];
+        ctrl.pitch_rate_setpoint = vals[7];
+        ctrl.yaw_rate_setpoint = vals[8];
+        ctrl.roll_rate_current = vals[9];
+        ctrl.pitch_rate_current = vals[10];
+        ctrl.yaw_rate_current = vals[11];
+        ctrl.roll_output = vals[12];
+        ctrl.pitch_output = vals[13];
+        ctrl.yaw_output = vals[14];
+        ctrl.throttle_output = vals[15];
+        ctrl.outer_dt = vals[16];
+        ctrl.inner_dt = vals[17];
         ctrl.timestamp = result.timestamp;
         result.payload = ctrl;
       } else {

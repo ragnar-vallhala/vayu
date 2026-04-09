@@ -66,22 +66,29 @@ struct MotorData {
 // Control Loop Data  – mirrors SYSTEM_ORIGIN_CONTROL_DATA (0x05)
 // -----------------------------------------------------------
 struct ControlLoopData {
-  float roll_angle_error = 0.0f;
-  float pitch_angle_error = 0.0f;
-  float yaw_angle_error = 0.0f;
-  float roll_rate_error = 0.0f;
-  float pitch_rate_error = 0.0f;
-  float yaw_rate_error = 0.0f;
-  float dt = 0.0f;
   float roll_angle_setpoint = 0.0f;
   float pitch_angle_setpoint = 0.0f;
   float yaw_angle_setpoint = 0.0f;
+
+  float roll_angle_current = 0.0f;
+  float pitch_angle_current = 0.0f;
+  float yaw_angle_current = 0.0f;
+
   float roll_rate_setpoint = 0.0f;
   float pitch_rate_setpoint = 0.0f;
   float yaw_rate_setpoint = 0.0f;
+
+  float roll_rate_current = 0.0f;
+  float pitch_rate_current = 0.0f;
+  float yaw_rate_current = 0.0f;
+
   float roll_output = 0.0f;
   float pitch_output = 0.0f;
   float yaw_output = 0.0f;
   float throttle_output = 0.0f;
+
+  float outer_dt = 0.0f;
+  float inner_dt = 0.0f;
+
   uint64_t timestamp = 0;
 };

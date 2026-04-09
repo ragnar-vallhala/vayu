@@ -66,6 +66,7 @@
 // PID
 #define PID_FILE_PATH "0:pid.bin"
 #define PID_FILE_SIZE 1024 // 1KB Preallocated
+#define NUM_AXES 3
 // Gnereric Filtering and Deadbands
 #define PID_GYRO_DEADBAND 0.1f // in deg/sec
 #define PID_RC_DEADBAND 10     // in PWM
@@ -101,6 +102,40 @@
 #define DEAFULT_YAW_ANGLE_RATE_D_LPF_RC 0.0f
 #define DEAFULT_YAW_ANGLE_RATE_OUT_MIN 0.0f
 #define DEAFULT_YAW_ANGLE_RATE_OUT_MAX 0.0f
+
+// Angle controller
+#define DEAFULT_ROLL_ANGLE_KP 1.0f
+#define DEAFULT_ROLL_ANGLE_TARGET_MAX 100.0f
+#define DEAFULT_ROLL_ANGLE_OUT_MAX 100.0f
+
+#define DEAFULT_PITCH_ANGLE_KP 1.0f
+#define DEAFULT_PITCH_ANGLE_TARGET_MAX 100.0f
+#define DEAFULT_PITCH_ANGLE_OUT_MAX 100.0f
+
+#define DEAFULT_YAW_ANGLE_KP 1.0f
+#define DEAFULT_YAW_ANGLE_TARGET_MAX 100.0f
+#define DEAFULT_YAW_ANGLE_OUT_MAX 100.0f
+
+typedef struct __attribute__((packed)) {
+  float roll_angle_sp;
+  float pitch_angle_sp;
+  float yaw_angle_sp;
+  float roll_angle_curr;
+  float pitch_angle_curr;
+  float yaw_angle_curr;
+  float roll_rate_sp;
+  float pitch_rate_sp;
+  float yaw_rate_sp;
+  float roll_rate_curr;
+  float pitch_rate_curr;
+  float yaw_rate_curr;
+  float roll_out;
+  float pitch_out;
+  float yaw_out;
+  float thro_out;
+  float outer_dt;
+  float inner_dt;
+} control_telemetry_t;
 
 // Calibration
 #define CALIBRATION_FILE_PATH "0:cal.bin"
