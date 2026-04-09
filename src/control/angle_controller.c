@@ -2,10 +2,12 @@
 #include "comm/ibus.h"
 #include "comm/rc_buffer.h"
 #include "control/angle_rate_controller.h"
+#include "maths/maths_interface.h"
 #include "maths/pid.h"
 #include "maths/sensor_fusion.h"
 #include "sensor/imu_buffer.h"
 #include "structure.h"
+#include "sys/state.h"
 #include "vaios.h"
 #include "variables.h"
 
@@ -173,6 +175,11 @@ void angle_controller_task(void *arg) {
       attitude = last_attitude;
     }
     last_attitude = attitude;
+    if (m_fabsf(attitude.roll) > MAX_ANGLE_CUTOFF ||
+        m_fabsf(attitude.pitch) > MAX_ANGLE_CUTOFF ||
+        m_fabsf(attitude.yaw) > MAX_ANGLE_CUTOFF) {
+      system_state_set(SYSTEM_STATE_FAILSAFE);
+    }
     // Calculate target rates
     float current_angles[NUM_AXES];
     current_angles[0] = attitude.roll;
