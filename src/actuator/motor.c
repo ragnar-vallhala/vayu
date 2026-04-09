@@ -41,7 +41,6 @@ void motor_task(void *arg) {
   motor_init();
   static motor_outputs_t motor_outputs;
   static motor_outputs_t prev_motor_outputs;
-  static sys_state_t sys_state;
   while (1) {
     if (!get_motor_ready()) {
       v_delay(3);
