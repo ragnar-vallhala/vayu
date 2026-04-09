@@ -110,39 +110,52 @@ ControlLoopPlot::ControlLoopPlot(QWidget *parent) : QWidget(parent) {
   };
 
   QHBoxLayout *angleStats;
-  auto *angleSec =
-      createSection("OUTER LOOP: ANGLE ERROR", &angleStats, &m_angleGraph, 3);
-  createValueLabel(angleStats, "ROLL ERR", "#E06C75", &m_rollAngleErrVal);
-  createValueLabel(angleStats, "PITCH ERR", "#98C379", &m_pitchAngleErrVal);
-  createValueLabel(angleStats, "YAW ERR", "#61AFEF", &m_yawAngleErrVal);
+  auto *angleSec = createSection("OUTER LOOP: ANGLE SP & CURRENT", &angleStats,
+                                 &m_angleGraph, 6);
   createValueLabel(angleStats, "ROLL SP", "#D19A66", &m_rollAngleSpVal);
   createValueLabel(angleStats, "PITCH SP", "#C678DD", &m_pitchAngleSpVal);
   createValueLabel(angleStats, "YAW SP", "#56B6C2", &m_yawAngleSpVal);
+  createValueLabel(angleStats, "ROLL CURR", "#E06C75", &m_rollAngleCurrVal);
+  createValueLabel(angleStats, "PITCH CURR", "#98C379", &m_pitchAngleCurrVal);
+  createValueLabel(angleStats, "YAW CURR", "#61AFEF", &m_yawAngleCurrVal);
   angleStats->addStretch();
-  m_angleGraph->setColor(0, QColor("#E06C75"));
-  m_angleGraph->setColor(1, QColor("#98C379"));
-  m_angleGraph->setColor(2, QColor("#61AFEF"));
+
+  // SP colors (Dashed)
+  m_angleGraph->setColor(0, QColor("#D19A66"));
+  m_angleGraph->setColor(1, QColor("#C678DD"));
+  m_angleGraph->setColor(2, QColor("#56B6C2"));
+  m_angleGraph->setPenStyle(0, Qt::DashLine);
+  m_angleGraph->setPenStyle(1, Qt::DashLine);
+  m_angleGraph->setPenStyle(2, Qt::DashLine);
+  // Current colors (Solid)
+  m_angleGraph->setColor(3, QColor("#E06C75"));
+  m_angleGraph->setColor(4, QColor("#98C379"));
+  m_angleGraph->setColor(5, QColor("#61AFEF"));
+
   topHSplitter->addWidget(angleSec);
 
   QHBoxLayout *rateStats;
-  auto *rateSec = createSection("INNER LOOP: RATE ERROR & GYRO", &rateStats,
-                                &m_rateGraph, 6);
-  createValueLabel(rateStats, "ROLL RATE ERR", "#E06C75", &m_rollRateErrVal);
-  createValueLabel(rateStats, "PITCH RATE ERR", "#98C379", &m_pitchRateErrVal);
-  createValueLabel(rateStats, "YAW RATE ERR", "#61AFEF", &m_yawRateErrVal);
+  auto *rateSec =
+      createSection("INNER LOOP: RATE SP & GYRO", &rateStats, &m_rateGraph, 6);
   createValueLabel(rateStats, "ROLL RATE SP", "#D19A66", &m_rollRateSpVal);
   createValueLabel(rateStats, "PITCH RATE SP", "#C678DD", &m_pitchRateSpVal);
   createValueLabel(rateStats, "YAW RATE SP", "#56B6C2", &m_yawRateSpVal);
+  createValueLabel(rateStats, "ROLL CURR", "#BE5046", &m_rollRateCurrVal);
+  createValueLabel(rateStats, "PITCH CURR", "#7FB069", &m_pitchRateCurrVal);
+  createValueLabel(rateStats, "YAW CURR", "#4078BF", &m_yawRateCurrVal);
   rateStats->addStretch();
-  m_rateGraph->setColor(0, QColor("#E06C75"));
-  m_rateGraph->setColor(1, QColor("#98C379"));
-  m_rateGraph->setColor(2, QColor("#61AFEF"));
-  m_rateGraph->setColor(3, QColor("#BE5046")); // gyro
+
+  // SP colors (Dashed)
+  m_rateGraph->setColor(0, QColor("#D19A66"));
+  m_rateGraph->setColor(1, QColor("#C678DD"));
+  m_rateGraph->setColor(2, QColor("#56B6C2"));
+  m_rateGraph->setPenStyle(0, Qt::DashLine);
+  m_rateGraph->setPenStyle(1, Qt::DashLine);
+  m_rateGraph->setPenStyle(2, Qt::DashLine);
+  // Current (Gyro) colors (Solid)
+  m_rateGraph->setColor(3, QColor("#BE5046"));
   m_rateGraph->setColor(4, QColor("#7FB069"));
   m_rateGraph->setColor(5, QColor("#4078BF"));
-  m_rateGraph->setPenStyle(3, Qt::DashLine);
-  m_rateGraph->setPenStyle(4, Qt::DashLine);
-  m_rateGraph->setPenStyle(5, Qt::DashLine);
   topHSplitter->addWidget(rateSec);
 
   vSplitter->addWidget(topHSplitter);
@@ -200,32 +213,35 @@ void ControlLoopPlot::onControlLoopDataReceived(const ControlLoopData &data) {
   m_dtGraph->appendData(data.dt, 0);
 
   // Angles
-  m_angleGraph->appendData(data.roll_angle_error, 0);
-  m_angleGraph->appendData(data.pitch_angle_error, 1);
-  m_angleGraph->appendData(data.yaw_angle_error, 2);
-  m_rollAngleErrVal->setText(
-      QString::number(static_cast<double>(data.roll_angle_error), 'f', 3));
-  m_pitchAngleErrVal->setText(
-      QString::number(static_cast<double>(data.pitch_angle_error), 'f', 3));
-  m_yawAngleErrVal->setText(
-      QString::number(static_cast<double>(data.yaw_angle_error), 'f', 3));
+  float rollCurrAngle = data.roll_angle_setpoint - data.roll_angle_error;
+  float pitchCurrAngle = data.pitch_angle_setpoint - data.pitch_angle_error;
+  float yawCurrAngle = data.yaw_angle_setpoint - data.yaw_angle_error;
+
+  m_angleGraph->appendData(data.roll_angle_setpoint, 0);
+  m_angleGraph->appendData(data.pitch_angle_setpoint, 1);
+  m_angleGraph->appendData(data.yaw_angle_setpoint, 2);
+  m_angleGraph->appendData(rollCurrAngle, 3);
+  m_angleGraph->appendData(pitchCurrAngle, 4);
+  m_angleGraph->appendData(yawCurrAngle, 5);
+
   m_rollAngleSpVal->setText(
       QString::number(static_cast<double>(data.roll_angle_setpoint), 'f', 3));
   m_pitchAngleSpVal->setText(
       QString::number(static_cast<double>(data.pitch_angle_setpoint), 'f', 3));
   m_yawAngleSpVal->setText(
       QString::number(static_cast<double>(data.yaw_angle_setpoint), 'f', 3));
+  m_rollAngleCurrVal->setText(
+      QString::number(static_cast<double>(rollCurrAngle), 'f', 3));
+  m_pitchAngleCurrVal->setText(
+      QString::number(static_cast<double>(pitchCurrAngle), 'f', 3));
+  m_yawAngleCurrVal->setText(
+      QString::number(static_cast<double>(yawCurrAngle), 'f', 3));
 
   // Rates
-  m_rateGraph->appendData(data.roll_rate_error, 0);
-  m_rateGraph->appendData(data.pitch_rate_error, 1);
-  m_rateGraph->appendData(data.yaw_rate_error, 2);
-  m_rollRateErrVal->setText(
-      QString::number(static_cast<double>(data.roll_rate_error), 'f', 3));
-  m_pitchRateErrVal->setText(
-      QString::number(static_cast<double>(data.pitch_rate_error), 'f', 3));
-  m_yawRateErrVal->setText(
-      QString::number(static_cast<double>(data.yaw_rate_error), 'f', 3));
+  m_rateGraph->appendData(data.roll_rate_setpoint, 0);
+  m_rateGraph->appendData(data.pitch_rate_setpoint, 1);
+  m_rateGraph->appendData(data.yaw_rate_setpoint, 2);
+
   m_rollRateSpVal->setText(
       QString::number(static_cast<double>(data.roll_rate_setpoint), 'f', 3));
   m_pitchRateSpVal->setText(
@@ -249,7 +265,18 @@ void ControlLoopPlot::onControlLoopDataReceived(const ControlLoopData &data) {
 }
 
 void ControlLoopPlot::onImuReceived(const ImuData &data) {
-  m_rateGraph->appendData(data.gyr[0] * m_gyroScale, 3);
-  m_rateGraph->appendData(data.gyr[1] * m_gyroScale, 4);
-  m_rateGraph->appendData(data.gyr[2] * m_gyroScale, 5);
+  float rollRateCurr = data.gyr[0] * m_gyroScale;
+  float pitchRateCurr = data.gyr[1] * m_gyroScale;
+  float yawRateCurr = data.gyr[2] * m_gyroScale;
+
+  m_rateGraph->appendData(rollRateCurr, 3);
+  m_rateGraph->appendData(pitchRateCurr, 4);
+  m_rateGraph->appendData(yawRateCurr, 5);
+
+  m_rollRateCurrVal->setText(
+      QString::number(static_cast<double>(rollRateCurr), 'f', 3));
+  m_pitchRateCurrVal->setText(
+      QString::number(static_cast<double>(pitchRateCurr), 'f', 3));
+  m_yawRateCurrVal->setText(
+      QString::number(static_cast<double>(yawRateCurr), 'f', 3));
 }
