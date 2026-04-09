@@ -1,7 +1,5 @@
 #include "comm/comm_types.h"
 #include "comm/serializer.h"
-#include "maths/control.h"
-#include "maths/control_buffer.h"
 #include "memory.h"
 #include "sensor/bmx160.h"
 #include "sys/state.h"
@@ -50,11 +48,7 @@ void comm_processor_task(void *args) {
           }
           system_state_set(SYSTEM_STATE_STANDBY);
         } else if (cmd_id == CMD_SET_PID) {
-          control_config_t new_config;
-          if (pkt.length >= 2 + sizeof(control_config_t)) {
-            v_memcpy(&new_config, &pkt.payload[2], sizeof(control_config_t));
-            pid_config_t2c_push(&new_config);
-          }
+          
         }
       }
     } else {

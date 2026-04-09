@@ -32,6 +32,20 @@ float m_sqrt(float x) { return sqrtf(x); }
 float m_pow(float base, float exp) { return powf(base, exp); }
 
 // -------------------------
+// clamp(val, min, max)
+// -------------------------
+float m_clamp(float val, float min, float max) {
+  if (val < min) return min;
+  if (val > max) return max;
+  return val;
+}
+
+// -------------------------
+// absolute value
+// -------------------------
+float m_fabsf(float x) { return fabsf(x); }
+
+// -------------------------
 // normalize vector
 // -------------------------
 void normalize_vector(vector_t *v) {
