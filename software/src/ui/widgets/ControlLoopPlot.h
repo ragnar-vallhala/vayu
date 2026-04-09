@@ -39,6 +39,9 @@ private:
   QLabel *m_rollAngleSpVal;
   QLabel *m_pitchAngleSpVal;
   QLabel *m_yawAngleSpVal;
+  QLabel *m_rollAngleCurrVal;
+  QLabel *m_pitchAngleCurrVal;
+  QLabel *m_yawAngleCurrVal;
 
   // Rate labels
   QLabel *m_rollRateErrVal;
@@ -47,6 +50,9 @@ private:
   QLabel *m_rollRateSpVal;
   QLabel *m_pitchRateSpVal;
   QLabel *m_yawRateSpVal;
+  QLabel *m_rollRateCurrVal;
+  QLabel *m_pitchRateCurrVal;
+  QLabel *m_yawRateCurrVal;
 
   // Output labels
   QLabel *m_rollOutVal;
