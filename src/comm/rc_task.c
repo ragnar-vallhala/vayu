@@ -11,6 +11,25 @@
 static uint8_t ibus_dma_buf[IBUS_DMA_BUF_SIZE];
 static ibus_data_t ibus_raw_data;
 
+#ifdef VAYU_SIM
+/* SITL override: host-side bypasses the USART6/DMA/ibus-parser
+ * pipeline by writing here directly via Renode's sysbus. When
+ * sim_rc_enabled is non-zero, rc_ibus_task skips iBus parsing and
+ * uses these channels as the live RC input. tools/sim_renode/
+ * sim_rc_inject.py drives them.
+ *
+ * (The USART6 mock has a byte-drop bug that mangles ~half of each
+ * 32-byte iBus frame; rather than fixing that for M3, we feed the
+ * RC channels directly. Phase 5 Heavy will replace the whole iBus
+ * mock with a proper I2C BMX160 model.)
+ */
+volatile uint8_t  sim_rc_enabled = 0;
+volatile uint16_t sim_rc_channels[14] = {1500, 1500, 1000, 1500, 1000,
+                                         1000, 1500, 1500, 1500, 1500,
+                                         1500, 1500, 1500, 1500};
+volatile uint32_t dbg_rc_iter = 0;
+#endif
+
 void rc_ibus_task(void *args) {
   (void)args;
 
@@ -27,6 +46,41 @@ void rc_ibus_task(void *args) {
   static uint32_t last_log_time = 0;
   static uint8_t new_data = 0;
   while (1) {
+#ifdef VAYU_SIM
+    if (sim_rc_enabled) {
+      for (int i = 0; i < 14; i++) {
+        ibus_raw_data.channels[i] = sim_rc_channels[i];
+      }
+      ibus_raw_data.is_failsafe = false;
+      /* Run the same state-machine logic the parser-driven path runs. */
+      sys_state_t current_state = system_state_get();
+      for (int i = 0; i < 4; i++) {
+        if (i != 2 && (ibus_raw_data.channels[i] > 1500 - RADIO_AVOID_BAND &&
+                       ibus_raw_data.channels[i] < 1500 + RADIO_AVOID_BAND)) {
+          ibus_raw_data.channels[i] = 1500;
+        }
+      }
+      if (ibus_raw_data.channels[4] > 1500) {
+        if (current_state == SYSTEM_STATE_STANDBY &&
+            ibus_raw_data.channels[2] < 1100) {
+          system_state_set(SYSTEM_STATE_ARMED);
+        } else if (current_state == SYSTEM_STATE_STANDBY &&
+                   ibus_raw_data.channels[2] > 1100) {
+          system_state_set(SYSTEM_STATE_FAILSAFE);
+        }
+      } else {
+        if (current_state == SYSTEM_STATE_ARMED ||
+            current_state == SYSTEM_STATE_FAILSAFE) {
+          system_state_set(SYSTEM_STATE_STANDBY);
+        }
+      }
+      rc_queue_control_push(&ibus_raw_data);
+      rc_queue_telemetry_push(&ibus_raw_data);
+      dbg_rc_iter++;
+      v_delay(20);   /* 50 Hz, matches real iBus rate */
+      continue;
+    }
+#endif
     // Current remaining items in circular buffer from DMA NDTR register
     // USART1 is on DMA2, Stream 2
     uint16_t current_ndtr = DMA2->STREAM[2].NDTR;
@@ -42,7 +96,18 @@ void rc_ibus_task(void *args) {
 
     // write_ptr is where the DMA will write NEXT.
     uint16_t write_ptr = IBUS_DMA_BUF_SIZE - current_ndtr;
+#ifdef VAYU_SIM
+    /* If sim RC was just enabled, bail out of the iBus inner loop so we
+     * pick it up on the next outer iteration. */
+    if (sim_rc_enabled) {
+      v_delay(20);
+      continue;
+    }
+#endif
     while (read_ptr != write_ptr) {
+#ifdef VAYU_SIM
+      if (sim_rc_enabled) break;
+#endif
       uint8_t b = ibus_dma_buf[read_ptr];
       if (ibus_parse_byte(b, &ibus_raw_data)) {
         new_data = 1;

@@ -31,6 +31,13 @@ bool angle_controller_get_outputs(angle_controller_outputs_t *outputs) {
   return spsc_read(&angle_controller_fifo, outputs, 1);
 }
 
+#ifdef VAYU_SIM
+volatile uint32_t dbg_ang_ctrl_iter = 0;
+volatile float dbg_ang_target_throttle = -99.0f;
+volatile uint32_t dbg_ang_pop_ok = 0;
+volatile uint16_t dbg_ang_rc_ch2 = 0xBEEF;
+#endif
+
 static angle_controller_t angle_controller = {
     .pid = {
         {
@@ -153,9 +160,15 @@ void angle_controller_task(void *arg) {
     float dt = get_dt();
     if (rc_queue_control_pop(&rc_data)) {
       prev_rc_data = rc_data;
+#ifdef VAYU_SIM
+      dbg_ang_pop_ok++;
+#endif
     } else {
       rc_data = prev_rc_data;
     }
+#ifdef VAYU_SIM
+    dbg_ang_rc_ch2 = rc_data.channels[2];
+#endif
     // Normalizing the rc data
     rc_data_t normalized_rc_data = normalize_rc_data(rc_data);
     float target_angles[NUM_AXES];
@@ -194,6 +207,10 @@ void angle_controller_task(void *arg) {
     angle_controller_outputs.throttle = target_throttle;
     angle_controller_outputs.dt = dt;
     fifo_push(&angle_controller_outputs);
+#ifdef VAYU_SIM
+    dbg_ang_target_throttle = target_throttle;
+    dbg_ang_ctrl_iter++;
+#endif
     v_delay(2);
   }
 }
