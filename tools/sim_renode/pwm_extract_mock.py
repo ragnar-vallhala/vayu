@@ -82,58 +82,55 @@ if request.IsInit:
     last_emitted = [-1.0, -1.0, -1.0, -1.0]
     emit_count = 0
 
-    # Host FIFO setup. The write end is opened LAZILY (O_WRONLY |
-    # O_NONBLOCK) on the first emit attempt, because:
+    # Open the FIFO O_RDWR + O_NONBLOCK at IsInit (no lazy open).
     #
-    #  1) O_WRONLY | O_NONBLOCK fails with ENXIO if no reader is
-    #     connected yet, so opening at IsInit (pre-start, no bridge
-    #     yet) would just error out — we'd need to retry anyway.
+    # We *want* O_WRONLY semantics — pwm_extract is the producer side and
+    # vayu_pwm_to_gz.py is the consumer. The "obvious" form would be
+    #     fifo_fd = os.open(FIFO_PATH, O_WRONLY | O_NONBLOCK)
+    # on the first _emit() call, since O_WRONLY|O_NONBLOCK on a FIFO
+    # with no reader is supposed to fail fast with ENXIO. Two problems
+    # with that under Renode/IronPython:
     #
-    #  2) O_RDWR works around (1) but in IronPython/Mono the writes
-    #     go to a phantom internal buffer that external readers never
-    #     see (verified: os.write returns len(msg), but cat on the
-    #     FIFO captures 0 bytes). O_WRONLY avoids that quirk.
+    #  1) The lazy approach means the FIRST CCR write vayu issues
+    #     blocks inside the IsWrite handler while os.open negotiates
+    #     with the kernel. The CPU emulation freezes mid-instruction
+    #     (PC stays on `tim->CCR1 = compare_value`) and Renode's
+    #     local time source enters WaitingForReportBack forever.
+    #     Whether that's IronPython/Mono not honoring O_NONBLOCK, or
+    #     the kernel actually retrying, the practical effect is a
+    #     hang. (Previous note in this comment block claimed O_RDWR
+    #     writes went to a "phantom internal buffer that external
+    #     readers never see"; that turned out to be wrong — the bytes
+    #     do reach a real external reader; see (2).)
     #
-    # Net effect: emits before the bridge starts are silently dropped,
-    # which is fine — the bridge picks up the FIRST steady-state value
-    # via the deduplication: once the bridge opens the FIFO, the next
-    # CCR write (or motor task tick) emits the current duty.
+    #  2) imu_inject_mock.py already uses the same trick on its read
+    #     end (open O_RDWR so the kernel doesn't block waiting for a
+    #     writer), and it works. Symmetric: open the write end
+    #     O_RDWR so the kernel doesn't block waiting for a reader.
+    #     The mock becomes its own writer-and-reader; data we write
+    #     lands in the kernel pipe buffer (64 KB by default); when
+    #     the real consumer (vayu_pwm_to_gz.py) opens the FIFO
+    #     O_RDONLY, it reads buffered bytes.
     fifo_fd = -1
     try:
         os.system("mkfifo " + FIFO_PATH + " 2>/dev/null")
+        fifo_fd = os.open(FIFO_PATH, os.O_RDWR | O_NONBLOCK_LINUX)
         self.InfoLog("pwm-extract: FIFO at " + FIFO_PATH +
-                     " (write end opens lazily on first reader)")
+                     " (O_RDWR open, writes always non-blocking)")
     except Exception as exc:
-        self.WarningLog("pwm-extract: FIFO mkfifo failed: " + str(exc))
+        self.WarningLog("pwm-extract: FIFO setup failed: " + str(exc))
 
     def _emit(motor_idx, ccr_val):
         global fifo_fd, emit_count
         if arr == 0:
             return  # divide-by-zero guard before PWM init lands
+        if fifo_fd < 0:
+            return  # IsInit's open failed; nothing to do
         duty = float(ccr_val) / float(arr + 1)
         if duty < 0.0:
             duty = 0.0
         elif duty > 1.0:
             duty = 1.0
-
-        # Lazy open: O_WRONLY | O_NONBLOCK fails with ENXIO until a
-        # reader (vayu_pwm_to_gz.py) opens the FIFO. Once it does,
-        # this open succeeds and we cache the fd until the reader
-        # disappears (EPIPE on write).
-        if fifo_fd < 0:
-            try:
-                fifo_fd = os.open(FIFO_PATH,
-                                  os.O_WRONLY | O_NONBLOCK_LINUX)
-                self.InfoLog("pwm-extract: writer fd opened")
-                # Force a fresh emit of all 4 current duties on
-                # first connect; otherwise the dedup would skip
-                # the first identical-value write and the bridge
-                # would never see the steady-state hover values.
-                for i in range(4):
-                    last_emitted[i] = -1.0
-            except (OSError, IOError) as e:
-                # ENXIO (no reader) is expected; drop and try later.
-                return
 
         # Skip if unchanged (small epsilon — CCR is integer so equality
         # is exact in practice, but guard against float quantization).
@@ -153,16 +150,8 @@ if request.IsInit:
             if hasattr(e, "errno") and e.errno in (errno.EAGAIN,
                                                     errno.EWOULDBLOCK):
                 return
-            if hasattr(e, "errno") and e.errno == errno.EPIPE:
-                # Reader went away; close fd, will reopen on next emit.
-                self.InfoLog("pwm-extract: reader gone (EPIPE), "
-                             "will reopen")
-                try:
-                    os.close(fifo_fd)
-                except Exception:
-                    pass
-                fifo_fd = -1
-                return
+            # With O_RDWR there's always a reader (us), so EPIPE
+            # shouldn't fire — but log anything unexpected anyway.
             self.WarningLog("pwm-extract: FIFO write err: " + str(e))
 
 
