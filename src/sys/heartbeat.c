@@ -1,12 +1,10 @@
 #include "comm/channel.h"
 #include "comm/comm_types.h"
 #include "comm/serializer.h"
-#include "core/cortex-m4/gpio.h"
-#include "core/cortex-m4/uart.h"
+#include "navhal.h"
 #include "sys/state.h"
 #include "task.h"
 #include "utils.h"
-#include "utils/gpio_types.h"
 #include "utils/types.h"
 #include "vaios.h"
 #include "variables.h"
@@ -17,35 +15,35 @@ static uint8_t _green_led_state = 0;
 static uint8_t _red_led_state = 0;
 static uint8_t _buzzer_state = 0;
 
-static inline void _toggle_pin(hal_gpio_pin pin) {
+static inline void _toggle_pin(hal_gpio_pin_t pin) {
   if (pin == _BLUE_LED_PIN) {
     _blue_led_state = !_blue_led_state;
-    hal_gpio_digitalwrite(pin, _blue_led_state ? GPIO_HIGH : GPIO_LOW);
+    hal_gpio_write(pin, _blue_led_state ? HAL_GPIO_HIGH : HAL_GPIO_LOW);
   } else if (pin == _GREEN_LED_PIN) {
     _green_led_state = !_green_led_state;
-    hal_gpio_digitalwrite(pin, _green_led_state ? GPIO_HIGH : GPIO_LOW);
+    hal_gpio_write(pin, _green_led_state ? HAL_GPIO_HIGH : HAL_GPIO_LOW);
   } else if (pin == _RED_LED_PIN) {
     _red_led_state = !_red_led_state;
-    hal_gpio_digitalwrite(pin, _red_led_state ? GPIO_HIGH : GPIO_LOW);
+    hal_gpio_write(pin, _red_led_state ? HAL_GPIO_HIGH : HAL_GPIO_LOW);
   } else if (pin == _BUZZER_PIN) {
     _buzzer_state = !_buzzer_state;
-    hal_gpio_digitalwrite(pin, _buzzer_state ? GPIO_HIGH : GPIO_LOW);
+    hal_gpio_write(pin, _buzzer_state ? HAL_GPIO_HIGH : HAL_GPIO_LOW);
   }
 }
 static inline void _heartbeat_peripheral_init(void) {
-  hal_gpio_setmode(_BLUE_LED_PIN, GPIO_OUTPUT, GPIO_PUPD_NONE);
-  hal_gpio_setmode(_GREEN_LED_PIN, GPIO_OUTPUT, GPIO_PUPD_NONE);
-  hal_gpio_setmode(_RED_LED_PIN, GPIO_OUTPUT, GPIO_PUPD_NONE);
-  hal_gpio_setmode(_BUZZER_PIN, GPIO_OUTPUT, GPIO_PUPD_NONE);
+  hal_gpio_set_mode(_BLUE_LED_PIN, HAL_GPIO_MODE_OUTPUT, HAL_GPIO_PULL_NONE);
+  hal_gpio_set_mode(_GREEN_LED_PIN, HAL_GPIO_MODE_OUTPUT, HAL_GPIO_PULL_NONE);
+  hal_gpio_set_mode(_RED_LED_PIN, HAL_GPIO_MODE_OUTPUT, HAL_GPIO_PULL_NONE);
+  hal_gpio_set_mode(_BUZZER_PIN, HAL_GPIO_MODE_OUTPUT, HAL_GPIO_PULL_NONE);
 }
 
 static inline void _system_init(void) {
   static uint8_t _first_time = 1;
   if (_first_time) {
     _first_time = 0;
-    hal_gpio_digitalwrite(_BUZZER_PIN, GPIO_HIGH);
+    hal_gpio_write(_BUZZER_PIN, HAL_GPIO_HIGH);
     v_delay(100);
-    hal_gpio_digitalwrite(_BUZZER_PIN, GPIO_LOW);
+    hal_gpio_write(_BUZZER_PIN, HAL_GPIO_LOW);
   }
   _toggle_pin(_BLUE_LED_PIN);
 }
@@ -59,7 +57,7 @@ static inline void _system_prearm(void) {
 
 static inline void _system_armed(void) {
   _toggle_pin(_GREEN_LED_PIN);
-  hal_gpio_digitalwrite(_RED_LED_PIN, GPIO_HIGH);
+  hal_gpio_write(_RED_LED_PIN, HAL_GPIO_HIGH);
 }
 
 static inline void _system_in_air(void) {
@@ -79,22 +77,22 @@ static inline void _system_failsafe(void) {
 
   // Diagnostic: Solid Blue = Clock Mismatch
   if (boot_flags & BOOT_CHECK_SYSTEM_CLOCK_CHECK_FAIL) {
-    hal_gpio_digitalwrite(_BLUE_LED_PIN, GPIO_HIGH);
+    hal_gpio_write(_BLUE_LED_PIN, HAL_GPIO_HIGH);
   } else {
-    hal_gpio_digitalwrite(_BLUE_LED_PIN, GPIO_LOW);
+    hal_gpio_write(_BLUE_LED_PIN, HAL_GPIO_LOW);
   }
 
   // Diagnostic: Solid Green = SD Card Failure
   if (boot_flags & BOOT_CHECK_SD_CARD_CHECK_FAIL) {
-    hal_gpio_digitalwrite(_GREEN_LED_PIN, GPIO_HIGH);
+    hal_gpio_write(_GREEN_LED_PIN, HAL_GPIO_HIGH);
   } else {
-    hal_gpio_digitalwrite(_GREEN_LED_PIN, GPIO_LOW);
+    hal_gpio_write(_GREEN_LED_PIN, HAL_GPIO_LOW);
   }
 }
 
 static inline void _system_terminated(void) {
-  hal_gpio_digitalwrite(_RED_LED_PIN, GPIO_HIGH);
-  hal_gpio_digitalwrite(_BUZZER_PIN, GPIO_HIGH);
+  hal_gpio_write(_RED_LED_PIN, HAL_GPIO_HIGH);
+  hal_gpio_write(_BUZZER_PIN, HAL_GPIO_HIGH);
 }
 
 static inline void _run_heartbeat(channel_t *channel, uint32_t period) {
@@ -111,9 +109,9 @@ static inline void _run_heartbeat(channel_t *channel, uint32_t period) {
 
   if (current_state != last_state) {
     // Clear all LEDs on transition to ensure a clean slate for the new state
-    hal_gpio_digitalwrite(_BLUE_LED_PIN, GPIO_LOW);
-    hal_gpio_digitalwrite(_GREEN_LED_PIN, GPIO_LOW);
-    hal_gpio_digitalwrite(_RED_LED_PIN, GPIO_LOW);
+    hal_gpio_write(_BLUE_LED_PIN, HAL_GPIO_LOW);
+    hal_gpio_write(_GREEN_LED_PIN, HAL_GPIO_LOW);
+    hal_gpio_write(_RED_LED_PIN, HAL_GPIO_LOW);
     _blue_led_state = 0;
     _green_led_state = 0;
     _red_led_state = 0;

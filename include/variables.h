@@ -22,8 +22,8 @@
 #define MAX_I2C_DEVICES 10
 #define I2C_MAX_TX_LEN 32
 #define I2C_MAX_RX_LEN 64
-#define I2C_BUS I2C1
-#define I2C_MODE FAST_MODE
+#define I2C_BUS HAL_I2C_1
+#define I2C_MODE HAL_I2C_SPEED_FAST
 #define I2C_PIN_1 GPIO_PB08
 #define I2C_PIN_2 GPIO_PB09
 #define I2C_DR_REG_ADDR (uint32_t)(0x40005400 + 0x10)
@@ -159,11 +159,20 @@ extern channel_t g_telemetry_channel;
 #define ENABLE_BINARY_NAVLINK_PKT 1
 #define ENABLE_BINARY_NAVLINK_PKT_LOGGING 1
 #define NAVLINK_LOGGING_FILENAME "0:v_nav.bin"
-#define NAVLINK_LOGGING_FILE_SIZE 1024 * 1024 * 10 // 10MB Preallocated
 #define SYS_LOGGING_FILENAME "0:v_sys.bin"
-#define SYS_LOGGING_FILE_SIZE 1024 * 1024 * 10 // 10MB Preallocated
 #define GENERAL_LOGGING_FILENAME "0:v_gen.bin"
+#ifdef VAYU_SIM
+// Renode's SDIO mock takes ~2 ms / sector — 10 MB preallocation would
+// stall the boot for ~2 minutes. 64 KB per log is enough to verify the
+// vfs path and let the rest of init proceed.
+#define NAVLINK_LOGGING_FILE_SIZE (64 * 1024)
+#define SYS_LOGGING_FILE_SIZE     (64 * 1024)
+#define GENERAL_LOGGING_FILE_SIZE (64 * 1024)
+#else
+#define NAVLINK_LOGGING_FILE_SIZE 1024 * 1024 * 10 // 10MB Preallocated
+#define SYS_LOGGING_FILE_SIZE 1024 * 1024 * 10 // 10MB Preallocated
 #define GENERAL_LOGGING_FILE_SIZE 1024 * 1024 * 10 // 10MB Preallocated
+#endif
 #define NAVLINK_HEADER_SIZE 8
 #define NAVLINK_MAX_PAYLOAD_SIZE 256
 #define NAVLINK_CRC_SIZE 4

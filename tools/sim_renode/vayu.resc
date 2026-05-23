@@ -1,0 +1,50 @@
+:name: vayu
+:description: vayu firmware booted on an emulated Nucleo-F401RE.
+
+# Override $bin from the command line: `-e '$bin=@/path/to/main'`
+$bin?=@build/main
+$repl?=@tools/sim_renode/nucleo_f401re.repl
+
+mach create "vayu"
+machine LoadPlatformDescription $repl
+
+# Phase 4b: replace the stock STM32_Timer at TIM1's base with our
+# Python PWM-extract peripheral. Unregister first (REPL doesn't allow
+# redeclaring a `timer1` inherited from platforms/cpus/stm32f4.repl),
+# then register our Python peripheral at the same address.
+sysbus Unregister sysbus.timer1
+machine LoadPlatformDescriptionFromString "tim1_pwm_extract: Python.PythonPeripheral @ sysbus 0x40010000 { size: 0x100; initable: true; filename: \"/home/ragnar/Documents/Drone/vayu/tools/sim_renode/pwm_extract_mock.py\" }"
+
+# The SDIO peripheral is the custom Python mock at sysbus.sdio; it opens
+# the backing image (/tmp/vayu_sd.img by default, override with the env
+# var VAYU_SD_PATH) directly. Create the image with:
+#   truncate -s 32M /tmp/vayu_sd.img && mkfs.vfat -F 16 -n VAYU /tmp/vayu_sd.img
+
+# UART2 is vayu's telemetry / log output channel.
+# In GUI mode, opens an analyzer window; in --console mode, it still prints to stdout.
+showAnalyzer sysbus.usart2
+
+# Always record UART2 to a file too — survives across runs, easy to grep.
+sysbus.usart2 CreateFileBackend @/tmp/vayu_uart2.log true
+
+# Force the IMU-inject and PWM-extract peripherals' IsInit pre-start
+# so their host-side FIFOs exist before any bridge script tries to
+# connect. Both peripherals' IsInit is fast (just opens a FIFO; no
+# time-source scheduling), so doing this pre-start is safe.
+#
+# usart6_mock is NOT pre-init'd: its IsInit schedules a periodic
+# RX pump via LocalTimeSource.ExecuteInNearestSyncedState, which
+# blocks indefinitely when called before `start`. Instead, usart6's
+# FIFO is created lazily when vayu's first register access fires
+# IsInit post-start. The trade-off: ibus_inject.py needs to be
+# started AFTER vayu has booted enough to touch USART6 (a couple
+# of seconds in), or it'll block on the FIFO open.
+sysbus ReadDoubleWord 0x40002400   # Phase 5 IMU inject peripheral
+sysbus ReadDoubleWord 0x40010000   # Phase 4b PWM extract peripheral
+
+macro reset
+"""
+    sysbus LoadELF $bin
+"""
+
+runMacro $reset

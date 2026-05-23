@@ -6,8 +6,7 @@
  */
 
 #include "actuator/esc.h"
-#include "common/hal_pwm.h"
-#include "core/cortex-m4/gpio.h"
+#include "navhal.h"
 #include <stdint.h>
 
 #define DEFAULT_MIN_PULSE_MS 1.0f /**< 1ms for min throttle */
@@ -15,7 +14,7 @@
 #define DEFAULT_PWM_FREQ 400      /**< Typical 400Hz frequency for ESCs */
 
 void esc_init(ESC_Handle *esc, hal_timer_t timer, uint32_t channel,
-              hal_gpio_pin pin) {
+              hal_gpio_pin_t pin) {
   esc->min_pulse_ms = DEFAULT_MIN_PULSE_MS;
   esc->max_pulse_ms = DEFAULT_MAX_PULSE_MS;
   esc->frequency = DEFAULT_PWM_FREQ;
@@ -24,16 +23,16 @@ void esc_init(ESC_Handle *esc, hal_timer_t timer, uint32_t channel,
   esc->pwm.channel = channel;
 
   // Configure GPIO pin for PWM (Alternate Function)
-  hal_gpio_enable_rcc(pin);
-  hal_gpio_setmode(pin, GPIO_AF, GPIO_PUPD_NONE);
-  hal_gpio_set_output_speed(pin, GPIO_VERY_HIGH_SPEED);
+  hal_gpio_enable_clock(pin);
+  hal_gpio_set_mode(pin, HAL_GPIO_MODE_AF, HAL_GPIO_PULL_NONE);
+  hal_gpio_set_output_speed(pin, HAL_GPIO_SPEED_VERY_HIGH);
 
   // For TIM1-TIM5, AF1 is usually the timer AF.
   // TIM1 and TIM2 use AF1. TIM3,4,5 use AF2.
   if (timer == TIM1 || timer == TIM2) {
-    hal_gpio_set_alternate_function(pin, GPIO_AF01);
+    hal_gpio_set_alternate_function(pin, HAL_GPIO_AF1);
   } else if (timer == TIM3 || timer == TIM4 || timer == TIM5) {
-    hal_gpio_set_alternate_function(pin, GPIO_AF02);
+    hal_gpio_set_alternate_function(pin, HAL_GPIO_AF2);
   }
 
   // Initialize PWM at the required frequency with 0 throttle (min pulse)
