@@ -96,6 +96,46 @@ def source_test():
         yield [roll, pitch, thr, yaw, sw_a, sw_b]
 
 
+def source_arm_seq():
+    """Arming-aware stick sequence for the M3 closed-loop smoke test.
+
+    Phases (sw_a = CH5 = arm switch, throttle = CH3):
+        0.0–5.0 s    disarmed     sw_a=1000, thr=1000  -> vayu in STANDBY
+        5.0–10.0 s   arm @ low thr sw_a=2000, thr=1000 -> STANDBY -> ARMED
+        10.0–15.0 s  throttle ramp thr 1000 -> 1300 linear
+        15.0+        hold          sw_a=2000, thr=1300
+
+    The long disarm + arm-at-idle phases give vayu's iBus parser plenty
+    of time to land at least one frame in each phase, which avoids a
+    race where the first parsed packet sees sw_a high + throttle already
+    above the 1100 arming threshold (-> rc_task transitions STANDBY ->
+    FAILSAFE instead of ARMED).
+
+    Roll / pitch / yaw stay centred so the controller has zero attitude
+    setpoint — any motor reaction is the loop closing, not a stick command.
+    """
+    t0 = time.monotonic()
+    while True:
+        t = time.monotonic() - t0
+        sw_b  = 1000
+        yaw   = 1500
+        roll  = 1500
+        pitch = 1500
+        if t < 5.0:
+            sw_a = 1000
+            thr  = 1000
+        elif t < 10.0:
+            sw_a = 2000
+            thr  = 1000
+        elif t < 15.0:
+            sw_a = 2000
+            thr  = 1000 + int(60 * (t - 10.0))  # 1000 -> 1300
+        else:
+            sw_a = 2000
+            thr  = 1300
+        yield [roll, pitch, thr, yaw, sw_a, sw_b]
+
+
 # ---- main loop -----------------------------------------------------------
 
 def run(pty_path: str, source, rate_hz: float, verbose: bool) -> None:
@@ -161,7 +201,12 @@ def main(argv: list[str]) -> int:
               f"tools/sim_renode/vayu.resc?", file=sys.stderr)
         return 2
 
-    src = source_test() if args.source == "test" else source_serial(args.source)
+    if args.source == "test":
+        src = source_test()
+    elif args.source == "arm":
+        src = source_arm_seq()
+    else:
+        src = source_serial(args.source)
 
     try:
         run(args.pty, src, args.rate, verbose=not args.quiet)

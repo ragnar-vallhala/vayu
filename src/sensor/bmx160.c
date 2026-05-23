@@ -133,6 +133,16 @@ hal_status_t bmx160_init(void) {
   // polls would spin until I2C times out. Skip the whole chip init
   // under sim and let downstream tasks see "no IMU data" - Phase 5
   // will replace this with a proper Python I2C peripheral mock.
+  //
+  // We still need the orientation quaternion to start at identity
+  // (the normal init sets it at line ~227 below). Without this, the
+  // mahony filter starts with q=(0,0,0,0), normalizes by zero, and
+  // every attitude read is NaN — which immediately trips the
+  // angle_controller's MAX_ANGLE_CUTOFF failsafe.
+  _bmx_orientation.q.w = 1.0f;
+  _bmx_orientation.q.x = 0.0f;
+  _bmx_orientation.q.y = 0.0f;
+  _bmx_orientation.q.z = 0.0f;
   in_init = 0;
   return HAL_OK;
 #endif

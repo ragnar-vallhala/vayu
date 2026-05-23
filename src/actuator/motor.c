@@ -37,15 +37,29 @@ void motor_set_outputs(motor_outputs_t motor_outputs) {
   spsc_write(&motor_angle_rate2motor_queue, &motor_outputs, 1);
 }
 
+#ifdef VAYU_SIM
+volatile uint32_t dbg_motor_iter = 0;
+volatile uint32_t dbg_motor_ready_seen = 0;
+volatile uint32_t dbg_motor_armed_seen = 0;
+volatile float dbg_motor_m1_post = -99.0f;
+#endif
+
 void motor_task(void *arg) {
   motor_init();
   static motor_outputs_t motor_outputs;
   static motor_outputs_t prev_motor_outputs;
   while (1) {
+#ifdef VAYU_SIM
+    dbg_motor_iter++;
+#endif
     if (!get_motor_ready()) {
       v_delay(3);
       continue;
     }
+#ifdef VAYU_SIM
+    dbg_motor_ready_seen++;
+    if (system_state_get() == SYSTEM_STATE_ARMED) dbg_motor_armed_seen++;
+#endif
     if (!spsc_read(&motor_angle_rate2motor_queue, &motor_outputs, 1)) {
       motor_outputs = prev_motor_outputs;
     }
@@ -56,6 +70,9 @@ void motor_task(void *arg) {
       motor_outputs.m4 = 0;
     }
     prev_motor_outputs = motor_outputs;
+#ifdef VAYU_SIM
+    dbg_motor_m1_post = motor_outputs.m1;
+#endif
     esc_set_throttle(&motors[0], motor_outputs.m1);
     esc_set_throttle(&motors[1], motor_outputs.m2);
     esc_set_throttle(&motors[2], motor_outputs.m3);

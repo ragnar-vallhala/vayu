@@ -69,11 +69,11 @@ void init_tasks(void) {
   // imu_inject Renode peripheral instead of polling I2C.
   bmx160_task_id = task_create(bmx160_initiate_read, NULL, 4096, 2);
   task_create(rc_ibus_task, NULL, 4096, 0);
-  task_create(angle_controller_task, NULL, 1024 * 2,
+  task_create(angle_controller_task, NULL, 1024 * 8,
               1); // Higher priority for control
-  task_create(angle_rate_controller_task, NULL, 1024 * 5,
+  task_create(angle_rate_controller_task, NULL, 1024 * 8,
               1);                             // Higher priority for control
-  task_create(motor_task, NULL, 1024 * 2, 1); // Higher priority for control
+  task_create(motor_task, NULL, 1024 * 4, 1); // Higher priority for control
   task_create(imu_telemetry_task, NULL, 1024 * 3, 0);
   task_create(flush_task, NULL, 4096, 0);
   // task_create(test_task, NULL, 4096, 0);
