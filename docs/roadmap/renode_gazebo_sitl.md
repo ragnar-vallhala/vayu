@@ -105,18 +105,21 @@ The missing half: TIM1 CCR1..CCR4 writes → `/tmp/vayu_pwm.fifo`.
   attitude stays at its initial value of zero, which is fine for the
   M3 hover test.)
 
-*Latent USART6 mock byte-drop bug (worked around, not fixed):*
+*Note — the "USART6 mock byte-drop bug" was a diagnostic error:*
 
-`tools/sim_renode/usart6_mock.py` mangles incoming iBus frames so that
-~half of each 32-byte packet's bytes never reach the firmware's DMA
-buffer. The parsed channel values cycle between aligned (correct) and
-shifted (looks like RC failsafe), enough to occasionally arm but also
-enough to spuriously trip STANDBY→FAILSAFE. The workaround for the M3
-test is `volatile sim_rc_channels[14]` + `sim_rc_enabled` in
-`src/comm/rc_task.c` — when set, `rc_ibus_task` reads channels
-directly from these globals and skips iBus parsing entirely.
-`tools/sim_renode/sim_rc_inject.py` is the host-side companion that
-writes them through Renode's monitor `sysbus` commands.
+An earlier debug session reported that `tools/sim_renode/usart6_mock.py`
+was dropping ~half of every 32-byte iBus frame. That was wrong: the
+buffer was being read via `sysbus ReadDoubleWord` at offsets `0, 8, 16,
+24, ...` with a stride of 8 between 4-byte reads — so every other
+4-byte word was skipped, making each frame look like 16 bytes. Reading
+with a 4-byte stride or polling individual channel addresses (e.g.
+`sysbus ReadWord 0x2000197C` for `channels[2]`) shows the parser
+produces channel values that match the inject stream exactly
+(`channels[2]=1300`, `channels[4]=2000` when inject sends `thr=1300,
+sw_a=2000`). The `sim_rc_enabled` / `sim_rc_channels[14]` bypass in
+`src/comm/rc_task.c` is therefore not strictly necessary for the iBus
+path; it's still useful as a deterministic-RC source for closed-loop
+testing once Renode's time-source wedge (below) is resolved.
 
 *Open issue — Renode time-source wedges:*
 
