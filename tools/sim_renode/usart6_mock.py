@@ -135,9 +135,24 @@ if request.IsInit:
         ndtr = IBUS_BUF_SIZE if wp_mod == 0 else (IBUS_BUF_SIZE - wp_mod)
         sb.WriteDoubleWord(DMA2_S2_NDTR, ndtr)
 
+    # Throttle: only actually drain the FIFO every Nth wakeup. With
+    # Renode's default 100us quantum the time source fires us every
+    # quantum (= 10 kHz), but real iBus is only 50 Hz, so we'd be
+    # rescheduling 200x more often than needed. That high callback
+    # rate appears to push Renode's local-time-source into
+    # WaitingForReportBack and stop advancing virtual time entirely.
+    # Skipping most wakeups keeps the schedule chain alive without
+    # burning the time source on no-op os.read calls.
+    PUMP_SKIP = 200   # drain every ~20 ms of vtime (50 Hz)
+    pump_skip_counter = 0
+
     def _pump_and_reschedule(ts):
+        global pump_skip_counter
         try:
-            _pump_once()
+            pump_skip_counter = pump_skip_counter + 1
+            if pump_skip_counter >= PUMP_SKIP:
+                pump_skip_counter = 0
+                _pump_once()
         finally:
             self.GetMachine().LocalTimeSource.ExecuteInNearestSyncedState(
                 _pump_and_reschedule)
