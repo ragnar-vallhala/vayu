@@ -1,7 +1,6 @@
 #include "comm/ibus.h"
 #include "comm/rc_buffer.h"
-#include "core/cortex-m4/dma_reg.h"
-#include "core/cortex-m4/uart.h"
+#include "navhal.h"
 #include "sys/state.h"
 #include "utils.h"
 #include "vaios.h"
@@ -19,8 +18,9 @@ void rc_ibus_task(void *args) {
   ibus_init(&ibus_raw_data);
 
   // Initialize UART6 DMA RX (115200 baud is standard for iBus)
-  uart6_init(115200);
-  uart6_init_dma_rx(ibus_dma_buf, IBUS_DMA_BUF_SIZE);
+  hal_uart_config_t ibus_uart_cfg = {.baudrate = 115200};
+  hal_uart_init(HAL_UART_6, &ibus_uart_cfg);
+  hal_uart_init_dma_rx(HAL_UART_6, ibus_dma_buf, IBUS_DMA_BUF_SIZE);
 
   static uint16_t read_ptr = 0;
   static uint16_t last_ndtr = IBUS_DMA_BUF_SIZE;

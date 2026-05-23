@@ -1,7 +1,5 @@
 #include "utils/timer_callbacks.h"
-#include "core/cortex-m4/clock.h"
-#include "core/cortex-m4/rcc_reg.h"
-#include "core/cortex-m4/timer.h"
+#include "navhal.h"
 #include "utils.h"
 #include "utils/utils.h"
 #include "variables.h"
@@ -41,28 +39,12 @@ static void _timer_isr_handler(void) {
 
 void timer_callback_init(uint32_t freq_hz) {
   v_memset(_callbacks, 0, sizeof(_callback_t) * MAX_TIMER_CALLBACKS);
-  // Calculate PSC and ARR for desired frequency
-  // Freq = TimerClock / ((PSC + 1) * (ARR + 1))
-  // We'll use hal_clock_get_apb1clk() as the base.
-  // Note: On STM32F4, if APB prescaler is 1, Timer Clock = APB Clock.
-  // Otherwise, Timer Clock = 2 * APB Clock.
-  uint32_t ppre1 = (RCC->CFGR >> RCC_CFGR_PPRE1_BIT) & 0x7;
-
-  uint32_t apb_clk;
-  uint32_t timer_clk;
-
-  apb_clk = hal_clock_get_apb1clk();
-  timer_clk = (ppre1 == 0) ? apb_clk : (apb_clk * 2);
-
-  // To minimize error and avoid overflow:
-  // Try PSC = 0 first.
-  uint32_t total_div = timer_clk / freq_hz;
-  uint32_t psc = 0;
-  uint32_t arr = total_div - 1;
+  // hal_timer_init_freq() handles the PSC/ARR derivation from the timer's
+  // base clock for the requested update frequency.
   _timer_interrupt_freq = freq_hz;
-  timer_init(_timer_inst, psc, arr);
-  timer_attach_callback(_timer_inst, _timer_isr_handler);
-  timer_enable_interrupt(_timer_inst);
+  hal_timer_init_freq(_timer_inst, freq_hz);
+  hal_timer_attach_callback(_timer_inst, _timer_isr_handler);
+  hal_timer_enable_interrupt(_timer_inst);
 }
 uint32_t timer_get_callback_frequency(void) { return _timer_interrupt_freq; }
 

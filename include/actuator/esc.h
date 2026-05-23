@@ -8,15 +8,14 @@
 #ifndef ESC_H
 #define ESC_H
 
-#include "common/hal_pwm.h"
-#include "utils/gpio_types.h"
+#include "navhal.h"
 #include <stdint.h>
 
 /**
  * @brief ESC handle structure.
  */
 typedef struct {
-  PWM_Handle pwm;
+  hal_pwm_handle_t pwm;
   float min_pulse_ms;
   float max_pulse_ms;
   uint32_t frequency;
@@ -31,7 +30,7 @@ typedef struct {
  * @param pin GPIO pin for PWM output.
  */
 void esc_init(ESC_Handle *esc, hal_timer_t timer, uint32_t channel,
-              hal_gpio_pin pin);
+              hal_gpio_pin_t pin);
 
 /**
  * @brief Arm the ESC (usually involves sending min throttle for a period).

@@ -3,8 +3,6 @@
 #include "comm/serializer.h"
 #include "control/angle_controller.h"
 #include "control/angle_rate_controller.h"
-#include "core/cortex-m4/clock.h"
-#include "core/cortex-m4/uart.h"
 #include "drivers/i2c_manager.h"
 #include "logger/logger.h"
 #include "maths/control_buffer.h"
@@ -36,7 +34,7 @@ void clock_setup(void) {
       .pll_q = 7                         /**< PLLQ division factor */
   };
   hal_pll_config_t pll_cfg_hsi = {
-      .input_src = HAL_CLOCK_SOURCE_HSI, /**< External 8 MHz crystal */
+      .input_src = HAL_CLOCK_SOURCE_HSI, /**< Internal 16 MHz crystal */
       .pll_m = 16,                       /**< PLLM divider */
       .pll_n = 336,                      /**< PLLN multiplier */
       .pll_p = 4,                        /**< PLLP division factor */
@@ -56,7 +54,7 @@ void init_sensors(void) {
 
   // Initialize global telemetry
   serial_args_t uart_args = {
-      .baud_rate = UART_BAUDRATE, .uart = UART2, .timeout = 100};
+      .baud_rate = UART_BAUDRATE, .uart = HAL_UART_2, .timeout = 100};
 
   if (get_handler(CHANNEL_TYPE_SERIAL, &g_telemetry_channel, &uart_args,
                   uart2_packet_recv_callback) != NONE) {
@@ -66,6 +64,9 @@ void init_sensors(void) {
 
 void init_tasks(void) {
   task_create(comm_processor_task, NULL, 4096, 0);
+  // Under VAYU_SIM, bmx160_initiate_read is defined in
+  // src/sensor/bmx160_sim.c and reads IMU samples from the
+  // imu_inject Renode peripheral instead of polling I2C.
   bmx160_task_id = task_create(bmx160_initiate_read, NULL, 4096, 2);
   task_create(rc_ibus_task, NULL, 4096, 0);
   task_create(angle_controller_task, NULL, 1024 * 2,
@@ -89,11 +90,13 @@ void system_init_tasks(void) {
   task_create(boot_task, NULL, 1024, 0);
 }
 hal_i2c_config_t i2c_config = {
-    .clock_speed = FAST_MODE, .own_address = I2C_MASTER, .acknowledge = true};
+    .clock_speed = HAL_I2C_SPEED_FAST,
+    .own_address = I2C_MASTER,
+    .acknowledge = true};
 
 int main() {
   clock_setup();
-  dwt_init();
+  hal_cycle_counter_init();
   vaios_init_config_t cfg = {.internal_clock_setup = 0,
                              .internal_sd_card_setup = 1};
 

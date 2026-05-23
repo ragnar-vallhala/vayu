@@ -51,6 +51,17 @@ set_target_properties(main PROPERTIES COMPILE_FLAGS "${BASE_C_FLAGS}")
 option(USE_STANDARD_MATH "Use standard math.h backend" ON)
 
 #-------------------------
+# Simulation build
+#-------------------------
+# Set -DVAYU_SIM=ON when building for Renode/Gazebo SITL. Skips init
+# paths that depend on peripherals Renode does not model (SD-card init).
+option(VAYU_SIM "Build for simulation (Renode + Gazebo SITL)" OFF)
+if(VAYU_SIM)
+  target_compile_definitions(main PRIVATE VAYU_SIM)
+  message(STATUS "VAYU_SIM enabled: simulation build")
+endif()
+
+#-------------------------
 # Compiler flags (embedded friendly)
 #-------------------------
 # soft-float ABI (no FPU). Keep -fsingle-precision-constant to force float constants.

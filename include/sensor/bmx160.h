@@ -193,7 +193,7 @@ typedef union {
 } bmx160_all_reading_t;
 
 // Control APIs
-hal_i2c_status_t bmx160_init(void);
+hal_status_t bmx160_init(void);
 uint16_t bmx160_get_chip_id(void);
 // Sensor reading trigger and callback
 

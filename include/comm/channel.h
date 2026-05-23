@@ -1,8 +1,7 @@
 #ifndef VAYU_CHANNEL_H
 #define VAYU_CHANNEL_H
 
-#include "core/cortex-m4/i2c.h"
-#include "core/cortex-m4/uart.h"
+#include "navhal.h"
 #include "utils/types.h"
 #include <stdint.h>
 
