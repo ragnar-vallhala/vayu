@@ -1,7 +1,5 @@
 #include "comm/channel.h"
-#include "common/hal_types.h"
-#include "core/cortex-m4/interrupt_reg.h"
-#include "core/cortex-m4/uart.h"
+#include "navhal.h"
 #include "utils/types.h"
 #include "vaios.h"
 #include "variables.h"
@@ -25,7 +23,7 @@ static void _dma_complete_callback(void) {
   // For now, specifically handle USART2/DMA1_S6
   // In a more generic impl, we'd need to know which handler triggered this
   for (int i = 0; i < MAX_SERIAL_HANDLERS; i++) {
-    if (_serial_handlers[i].uart == UART2) {
+    if (_serial_handlers[i].uart == HAL_UART_2) {
       _serial_handlers[i].busy = 0;
       break;
     }
@@ -66,7 +64,8 @@ static err_t get_handler_serial(channel_t *handler, void *args,
   }
 
   // Initialize the UART peripheral
-  uart_init(s_args->baud_rate, s_args->uart);
+  hal_uart_config_t _uart_cfg = {.baudrate = s_args->baud_rate};
+  hal_uart_init(s_args->uart, &_uart_cfg);
 
   if (callback) {
     if (_serial_handlers[slot].is_interrupt_attached) {
@@ -74,8 +73,8 @@ static err_t get_handler_serial(channel_t *handler, void *args,
       // We should either detach it first or return an error if it's different.
       // For now, let's just update the list but be VERY careful.
     }
-    IRQn_Type usart_irq = s_args->uart == UART1   ? USART1_IRQn
-                          : s_args->uart == UART6 ? USART6_IRQn
+    hal_irq_t usart_irq = s_args->uart == HAL_UART_1   ? USART1_IRQn
+                          : s_args->uart == HAL_UART_6 ? USART6_IRQn
                                                   : USART2_IRQn;
     hal_interrupt_attach_callback(usart_irq, callback);
     hal_uart_enable_interrupt(s_args->uart, 1, 0);
@@ -99,12 +98,12 @@ static err_t get_handler_serial(channel_t *handler, void *args,
   _serial_handlers[slot].busy = 0;
 
   // Attach DMA callback if using USART2
-  if (s_args->uart == UART2) {
+  if (s_args->uart == HAL_UART_2) {
     // PROTECT: don't overwrite if kernel logging or another task already set
     // it! We should ideally have a multi-callback system, but for now, just
     // don't break existing ones.
     hal_interrupt_attach_callback(DMA1_Stream6_IRQn, _dma_complete_callback);
-    hal_enable_interrupt(DMA1_Stream6_IRQn);
+    hal_interrupt_enable(DMA1_Stream6_IRQn);
   }
 
   return NONE;
@@ -170,20 +169,21 @@ err_t flush_channel(channel_t channel) {
     s_handle->busy = 1;
 
     // Trigger transmission
-    if (s_handle->uart == UART2) {
+    if (s_handle->uart == HAL_UART_2) {
 #ifdef _UART_BACKEND_DMA
-      uart2_write_dma(s_handle->buffers[flush_idx], flush_len);
+      hal_uart_write_dma(HAL_UART_2, s_handle->buffers[flush_idx], flush_len);
 #else
       // Fallback if DMA not enabled
       for (uint16_t i = 0; i < flush_len; i++) {
-        uart2_write_char((char)s_handle->buffers[flush_idx][i]);
+        hal_uart_write_char(HAL_UART_2, (char)s_handle->buffers[flush_idx][i]);
       }
       s_handle->busy = 0;
 #endif
     } else {
       // Other UARTs (currently blocking)
       for (uint16_t i = 0; i < flush_len; i++) {
-        uart_write_char((char)s_handle->buffers[flush_idx][i], s_handle->uart);
+        hal_uart_write_char(s_handle->uart,
+                            (char)s_handle->buffers[flush_idx][i]);
       }
       s_handle->busy = 0;
     }
@@ -220,10 +220,10 @@ err_t get_handler(channel_type_t channel_type, channel_t *handler, void *args,
 
   if (status == NONE && handler != NULL) {
     // Add to linked list
-    uint32_t state = hal_disable_global_interrupts();
+    uint32_t state = hal_interrupt_disable_global();
     handler->next = active_handlers;
     active_handlers = handler;
-    hal_enable_global_interrupts(state);
+    hal_interrupt_enable_global(state);
   }
   return status;
 }
@@ -251,10 +251,10 @@ err_t del_handler(channel_t *handler) {
       s_handle->uart = 0; // Mark slot as free
     }
     if (s_handle->is_interrupt_attached) {
-      IRQn_Type usart_irq = s_handle->uart == UART1   ? USART1_IRQn
-                            : s_handle->uart == UART6 ? USART6_IRQn
+      hal_irq_t usart_irq = s_handle->uart == HAL_UART_1   ? USART1_IRQn
+                            : s_handle->uart == HAL_UART_6 ? USART6_IRQn
                                                       : USART2_IRQn;
-      if (hal_disable_interrupt(usart_irq) == 1)
+      if (hal_interrupt_disable(usart_irq) == 1)
         return USAGE;
       hal_interrupt_detach_callback(usart_irq);
     }

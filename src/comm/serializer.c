@@ -2,8 +2,7 @@
 #include "comm/channel.h"
 #include "comm/comm_types.h"
 #include "comm/deserializer.h"
-#include "common/hal_types.h"
-#include "core/cortex-m4/uart.h"
+#include "navhal.h"
 #include "utils.h"
 #include "utils/utils.h"
 #include "variables.h"
@@ -76,7 +75,7 @@ err_t send_packet(channel_t *channel, packet_type_t packet_type, byte *payload,
 
 void uart2_packet_recv_callback(void) {
   // 1. Read the SINGLE available byte that triggered the interrupt
-  uint8_t b = (uint8_t)uart2_read_char();
+  uint8_t b = (uint8_t)hal_uart_read_char(HAL_UART_2);
   // 2. Feed to non-blocking state machine
   if (deserializer_feed(&_uart_recv_state, b)) {
     // 3. Valid Packet Found! Find a free slot to store it

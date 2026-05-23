@@ -1,13 +1,13 @@
 #include "maths/sensor_fusion.h"
-#include "core/cortex-m4/dwt.h"
 #include "maths/maths_interface.h"
+#include "navhal.h"
 #include "utils.h"
 #include "vaios_config_default.h"
 #include "variables.h"
 
 static inline float get_dt() {
   static uint32_t last_dwt = 0; // used to calculate dt
-  uint32_t now = dwt_get_cycles();
+  uint32_t now = hal_cycle_counter_get();
   // convert to s
   float dt = ((float)(now - last_dwt)) / (float)SYS_CLOCK_FREQ;
   if (dt < 1e-3f)

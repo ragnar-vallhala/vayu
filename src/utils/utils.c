@@ -58,8 +58,8 @@ uint32_t utils_compute_crc32(const uint8_t *data, uint32_t len) {
     crc_mutex = v_mutex_create();
   }
   if (v_mutex_lock(crc_mutex, 0xFFFFFFFF)) {
-    crc_config_t crc_cfg = {.polynomial = CRC_POLY_CRC32,
-                            .init_value = 0xFFFFFFFF};
+    hal_crc_config_t crc_cfg = {.polynomial = HAL_CRC_POLY_CRC32,
+                                .init_value = 0xFFFFFFFF};
     hal_crc_init(&crc_cfg);
     uint32_t computed_crc = hal_crc_compute(data, len);
 
@@ -74,8 +74,8 @@ uint32_t utils_try_compute_crc32(const uint8_t *data, uint32_t len) {
     crc_mutex = v_mutex_create();
   }
   if (v_mutex_lock(crc_mutex, 0)) {
-    crc_config_t crc_cfg = {.polynomial = CRC_POLY_CRC32,
-                            .init_value = 0xFFFFFFFF};
+    hal_crc_config_t crc_cfg = {.polynomial = HAL_CRC_POLY_CRC32,
+                                .init_value = 0xFFFFFFFF};
     hal_crc_init(&crc_cfg);
     uint32_t computed_crc = hal_crc_compute(data, len);
 

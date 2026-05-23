@@ -1,7 +1,7 @@
 #include "sensor/bmx160.h"
 #include "comm/serializer.h"
-#include "core/cortex-m4/i2c.h"
 #include "drivers/i2c_manager.h"
+#include "navhal.h"
 #include "ipc.h"
 #include "maths/lpf.h"
 #include "maths/sensor_fusion.h"
@@ -89,7 +89,7 @@ static bmx160_err_type bmx160_wait_mag_manual_op(void) {
   int timeout = 100;
   do {
     if (i2c_manager_write_read(BMX160_I2C_ADDR, &status_reg, 1, &status, 1) !=
-        HAL_I2C_OK)
+        HAL_OK)
       return ERR0;
     if (!(status & 0x04)) // mag_man_op bit clear = operation done
       return NO_ERR;
@@ -100,7 +100,7 @@ static bmx160_err_type bmx160_wait_mag_manual_op(void) {
   timeout = 100;
   do {
     if (i2c_manager_write_read(BMX160_I2C_ADDR, &status_reg, 1, &status, 1) !=
-        HAL_I2C_OK)
+        HAL_OK)
       return ERR0;
     if (!(status & 0x04))
       return NO_ERR;
@@ -115,7 +115,7 @@ static bmx160_err_type bmx160_verify_pmu(uint8_t mask, uint8_t expected) {
   uint8_t reg = BMX160_PMU_STAT_ADDR;
 
   if (i2c_manager_write_read(BMX160_I2C_ADDR, &reg, 1, rx_buf, 1) !=
-      HAL_I2C_OK) {
+      HAL_OK) {
 
     return ERR0;
   }
@@ -127,7 +127,15 @@ static bmx160_err_type bmx160_verify_pmu(uint8_t mask, uint8_t expected) {
   return ERR1;
 }
 
-hal_i2c_status_t bmx160_init(void) {
+hal_status_t bmx160_init(void) {
+#ifdef VAYU_SIM
+  // Renode has no BMX160 I2C model; the chip-ID read and PMU-status
+  // polls would spin until I2C times out. Skip the whole chip init
+  // under sim and let downstream tasks see "no IMU data" - Phase 5
+  // will replace this with a proper Python I2C peripheral mock.
+  in_init = 0;
+  return HAL_OK;
+#endif
 
   // Create I2C bus semaphore early. Ensure it starts "given"
   in_init = 1; // Explicitly set it here as well
@@ -148,7 +156,7 @@ hal_i2c_status_t bmx160_init(void) {
   // 1. Verify Chip ID
   uint16_t chip_id = bmx160_get_chip_id();
   if (chip_id != BMX160_CHIP_ID) {
-    return HAL_I2C_ERR_REINIT;
+    return HAL_ERR_NOT_INITIALIZED;
   }
 
   // 2. Soft Reset to ensure clean state
@@ -212,7 +220,7 @@ hal_i2c_status_t bmx160_init(void) {
 
   // 6. Configure Magnetometer (BMM150 setup)
   if (bmx160_set_mag_conf() != NO_ERR) {
-    return HAL_I2C_ERR_REINIT;
+    return HAL_ERR_NOT_INITIALIZED;
   }
 
   // Initialize orientation quaternion to identity
@@ -226,7 +234,7 @@ hal_i2c_status_t bmx160_init(void) {
     bmx160_ready_sema = v_semaphore_create_counting(10, 0);
   }
   if (bmx160_ready_sema == NULL) {
-    return HAL_I2C_ERR_REINIT;
+    return HAL_ERR_NOT_INITIALIZED;
   }
 
   in_init = 0; // Success! Disable blocking bypass
@@ -237,14 +245,14 @@ hal_i2c_status_t bmx160_init(void) {
   // Kick off the loop from task context by giving the semaphore
   v_semaphore_give(bmx160_ready_sema);
 
-  return HAL_I2C_OK;
+  return HAL_OK;
 }
 
 static bmx160_err_type bmx160_write_bmm150_reg(uint8_t reg, uint8_t data) {
   tx_buf[0] = BMX160_MAG_IF_3_DATA_ADDR;
   tx_buf[1] = data;
 
-  if (i2c_manager_write(BMX160_I2C_ADDR, tx_buf, 2) != HAL_I2C_OK) {
+  if (i2c_manager_write(BMX160_I2C_ADDR, tx_buf, 2) != HAL_OK) {
     return ERR0;
   }
 
@@ -253,7 +261,7 @@ static bmx160_err_type bmx160_write_bmm150_reg(uint8_t reg, uint8_t data) {
   tx_buf[0] = BMX160_MAG_IF_2_REG_ADDR;
   tx_buf[1] = reg;
 
-  if (i2c_manager_write(BMX160_I2C_ADDR, tx_buf, 2) != HAL_I2C_OK) {
+  if (i2c_manager_write(BMX160_I2C_ADDR, tx_buf, 2) != HAL_OK) {
     return ERR0;
   }
 
@@ -267,7 +275,7 @@ static bmx160_err_type bmx160_read_bmm150_reg(uint8_t reg, uint8_t *data) {
   tx_buf[0] = BMX160_MAG_IF_1_READ_ADDR;
   tx_buf[1] = reg;
 
-  if (i2c_manager_write(BMX160_I2C_ADDR, tx_buf, 2) != HAL_I2C_OK) {
+  if (i2c_manager_write(BMX160_I2C_ADDR, tx_buf, 2) != HAL_OK) {
     return ERR0;
   }
 
@@ -277,7 +285,7 @@ static bmx160_err_type bmx160_read_bmm150_reg(uint8_t reg, uint8_t *data) {
   uint8_t read_reg = 0x04; // MAG_X_LSB in BMX160 is where IF data appears
 
   if (i2c_manager_write_read(BMX160_I2C_ADDR, &read_reg, 1, data, 1) !=
-      HAL_I2C_OK) {
+      HAL_OK) {
     return ERR0;
   }
   return NO_ERR;
@@ -375,10 +383,10 @@ static bmx160_err_type bmx160_set_mag_conf() {
 
 uint16_t bmx160_get_chip_id(void) {
   uint8_t reg = BMX160_CHIP_ID_ADDR;
-  hal_i2c_status_t ret;
+  hal_status_t ret;
 
   ret = i2c_manager_write_read(BMX160_I2C_ADDR, &reg, 1, rx_buf, 1);
-  if (ret != HAL_I2C_OK) {
+  if (ret != HAL_OK) {
     return 0xFFFF;
   }
   int16_t chip_id = (int16_t)(rx_buf[0]);
@@ -580,7 +588,7 @@ bmx160_err_type bmx160_read_acc_config(bmx160_config_t *config) {
   // Reading ACC conf
   tx_buf[0] = BMX160_ACC_CONF_ADDR;
   if (i2c_manager_write_read(BMX160_I2C_ADDR, tx_buf, 1, rx_buf, 1) ==
-      HAL_I2C_OK) {
+      HAL_OK) {
     config->bmx160_acc_us = GET_ACC_US(rx_buf[0]);
     config->bmx160_acc_bwp = GET_ACC_BWP(rx_buf[0]);
     config->bmx160_acc_odr = GET_ACC_ODR(rx_buf[0]);
@@ -589,7 +597,7 @@ bmx160_err_type bmx160_read_acc_config(bmx160_config_t *config) {
 
   tx_buf[0] = BMX160_ACC_RANGE_ADDR;
   if (i2c_manager_write_read(BMX160_I2C_ADDR, tx_buf, 1, rx_buf, 1) ==
-      HAL_I2C_OK) {
+      HAL_OK) {
     config->bmx160_acc_range = GET_ACC_RANGE(rx_buf[0]);
   } else
     return ERR0;
@@ -600,7 +608,7 @@ bmx160_err_type bmx160_read_gyr_config(bmx160_config_t *config) {
   // Reading GYR conf
   tx_buf[0] = BMX160_GYR_CONF_ADDR;
   if (i2c_manager_write_read(BMX160_I2C_ADDR, tx_buf, 1, rx_buf, 1) ==
-      HAL_I2C_OK) {
+      HAL_OK) {
     config->bmx160_gyr_bwp = GET_GYR_BWP(rx_buf[0]);
     config->bmx160_gyr_odr = GET_GYR_ODR(rx_buf[0]);
   } else
@@ -608,7 +616,7 @@ bmx160_err_type bmx160_read_gyr_config(bmx160_config_t *config) {
 
   tx_buf[0] = BMX160_GYR_RANGE_ADDR;
   if (i2c_manager_write_read(BMX160_I2C_ADDR, tx_buf, 1, rx_buf, 1) ==
-      HAL_I2C_OK) {
+      HAL_OK) {
     config->bmx160_gyr_range = GET_GYR_RANGE(rx_buf[0]);
   } else
     return ERR0;
@@ -619,7 +627,7 @@ bmx160_err_type bmx160_read_mag_config(bmx160_config_t *config) {
   // Reading MAG conf
   tx_buf[0] = BMX160_MAG_CONF_ADDR;
   if (i2c_manager_write_read(BMX160_I2C_ADDR, tx_buf, 1, rx_buf, 1) ==
-      HAL_I2C_OK) {
+      HAL_OK) {
     config->bmx160_mag_odr = GET_MAG_ODR(rx_buf[0]);
   } else
     return ERR0;
@@ -693,14 +701,14 @@ bmx160_err_type bmx160_write_acc_config(bmx160_config_t *config) {
   val = bmx160_get_acc_conf(config);
   tx_buf[0] = BMX160_ACC_CONF_ADDR;
   tx_buf[1] = val;
-  if (i2c_manager_write(BMX160_I2C_ADDR, tx_buf, 2) != HAL_I2C_OK)
+  if (i2c_manager_write(BMX160_I2C_ADDR, tx_buf, 2) != HAL_OK)
     return ERR0;
 
   // --- ACC_RANGE ---
   val = bmx160_get_acc_range(config);
   tx_buf[0] = BMX160_ACC_RANGE_ADDR;
   tx_buf[1] = val;
-  if (i2c_manager_write(BMX160_I2C_ADDR, tx_buf, 2) != HAL_I2C_OK)
+  if (i2c_manager_write(BMX160_I2C_ADDR, tx_buf, 2) != HAL_OK)
     return ERR0;
 
   return NO_ERR;
@@ -713,14 +721,14 @@ bmx160_err_type bmx160_write_gyr_config(bmx160_config_t *config) {
   val = bmx160_get_gyr_conf(config);
   tx_buf[0] = BMX160_GYR_CONF_ADDR;
   tx_buf[1] = val;
-  if (i2c_manager_write(BMX160_I2C_ADDR, tx_buf, 2) != HAL_I2C_OK)
+  if (i2c_manager_write(BMX160_I2C_ADDR, tx_buf, 2) != HAL_OK)
     return ERR0;
 
   // --- GYR_RANGE ---
   val = bmx160_get_gyr_range(config);
   tx_buf[0] = BMX160_GYR_RANGE_ADDR;
   tx_buf[1] = val;
-  if (i2c_manager_write(BMX160_I2C_ADDR, tx_buf, 2) != HAL_I2C_OK)
+  if (i2c_manager_write(BMX160_I2C_ADDR, tx_buf, 2) != HAL_OK)
     return ERR0;
 
   return NO_ERR;
@@ -733,7 +741,7 @@ bmx160_err_type bmx160_write_mag_config(bmx160_config_t *config) {
   val = bmx160_get_mag_conf(config);
   tx_buf[0] = BMX160_MAG_CONF_ADDR;
   tx_buf[1] = val;
-  if (i2c_manager_write(BMX160_I2C_ADDR, tx_buf, 2) != HAL_I2C_OK)
+  if (i2c_manager_write(BMX160_I2C_ADDR, tx_buf, 2) != HAL_OK)
     return ERR0;
 
   return NO_ERR;
@@ -792,6 +800,7 @@ static int dt_last = 0;
 static int dt_count = 0;
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 
+#ifndef VAYU_SIM     /* sim build links src/sensor/bmx160_sim.c's version */
 void bmx160_initiate_read(void *args) {
   (void)args;
   static uint32_t last_tick = 0;
@@ -805,7 +814,7 @@ void bmx160_initiate_read(void *args) {
       }
 
       // 2. Start the NEXT op in the chain
-      hal_i2c_status_t ret = HAL_I2C_OK;
+      hal_status_t ret = HAL_OK;
       _last_op = _next_op;
 
       switch (_next_op) {
@@ -823,7 +832,7 @@ void bmx160_initiate_read(void *args) {
         break;
       }
 
-      if (ret != HAL_I2C_OK) {
+      if (ret != HAL_OK) {
         vayu_log("DMA FAIL -> HARD RECOVERY");
         i2c_manager_unstick();
         _next_op = IMU_OP_FAST;
@@ -846,10 +855,10 @@ void bmx160_initiate_read(void *args) {
         _last_op = IMU_OP_FAST;
 
         // CRITICAL: START DMA MANUALLY
-        hal_i2c_status_t ret = i2c_manager_read_async(BMX160_I2C_ADDR, 0x0C, 12,
+        hal_status_t ret = i2c_manager_read_async(BMX160_I2C_ADDR, 0x0C, 12,
                                                       bmx160_dma_callback_fast);
 
-        if (ret != HAL_I2C_OK) {
+        if (ret != HAL_OK) {
           vayu_log("RESTART FAILED");
         }
         task_count = 0;
@@ -859,6 +868,7 @@ void bmx160_initiate_read(void *args) {
     }
   }
 }
+#endif /* !VAYU_SIM */
 
 void bmx160_dma_callback_fast(void *args) {
   static uint32_t slow_counter = 0;

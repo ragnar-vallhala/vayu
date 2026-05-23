@@ -94,7 +94,7 @@ void angle_controller_init(void) {
 
 static inline float get_dt(void) {
   static uint32_t last_time = 0;
-  uint32_t current_time = dwt_get_cycles();
+  uint32_t current_time = hal_cycle_counter_get();
   float dt = (float)(current_time - last_time) / SYS_CLOCK_FREQ;
   last_time = current_time;
   return dt;

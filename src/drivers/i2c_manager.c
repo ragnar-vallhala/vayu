@@ -1,6 +1,6 @@
 #include "drivers/i2c_manager.h"
-#include "core/cortex-m4/i2c.h"
 #include "ipc.h"
+#include "navhal.h"
 #include "port.h"
 #include "utils.h"
 #include "utils/utils.h"
@@ -32,36 +32,36 @@ static inline int i2c_manager_acquire_bus(void) {
 static inline void i2c_manager_release_bus(void) { atomic_set(&_bus_busy, 0); }
 
 void i2c_manager_unstick(void) {
-  hal_gpio_setmode(I2C_PIN_1, GPIO_OUTPUT, GPIO_PULLUP);
-  hal_gpio_setmode(I2C_PIN_2, GPIO_OUTPUT, GPIO_PULLUP);
-  hal_gpio_set_output_type(I2C_PIN_1, GPIO_OPEN_DRAIN);
-  hal_gpio_set_output_type(I2C_PIN_2, GPIO_OPEN_DRAIN);
+  hal_gpio_set_mode(I2C_PIN_1, HAL_GPIO_MODE_OUTPUT, HAL_GPIO_PULL_UP);
+  hal_gpio_set_mode(I2C_PIN_2, HAL_GPIO_MODE_OUTPUT, HAL_GPIO_PULL_UP);
+  hal_gpio_set_output_type(I2C_PIN_1, HAL_GPIO_OTYPE_OPEN_DRAIN);
+  hal_gpio_set_output_type(I2C_PIN_2, HAL_GPIO_OTYPE_OPEN_DRAIN);
 
-  hal_gpio_digitalwrite(I2C_PIN_2, GPIO_HIGH);
+  hal_gpio_write(I2C_PIN_2, HAL_GPIO_HIGH);
   for (volatile int i = 0; i < 100; i++)
     ;
 
   for (int i = 0; i < 9; ++i) {
-    hal_gpio_digitalwrite(I2C_PIN_1, GPIO_LOW);
+    hal_gpio_write(I2C_PIN_1, HAL_GPIO_LOW);
     for (volatile int j = 0; j < 200; j++)
       ;
-    hal_gpio_digitalwrite(I2C_PIN_1, GPIO_HIGH);
+    hal_gpio_write(I2C_PIN_1, HAL_GPIO_HIGH);
     for (volatile int j = 0; j < 200; j++)
       ;
   }
 
-  hal_gpio_digitalwrite(I2C_PIN_2, GPIO_LOW);
+  hal_gpio_write(I2C_PIN_2, HAL_GPIO_LOW);
   for (volatile int j = 0; j < 200; j++)
     ;
-  hal_gpio_digitalwrite(I2C_PIN_1, GPIO_HIGH);
+  hal_gpio_write(I2C_PIN_1, HAL_GPIO_HIGH);
   for (volatile int j = 0; j < 200; j++)
     ;
-  hal_gpio_digitalwrite(I2C_PIN_2, GPIO_HIGH);
+  hal_gpio_write(I2C_PIN_2, HAL_GPIO_HIGH);
   for (volatile int j = 0; j < 200; j++)
     ;
 }
 
-hal_i2c_status_t init_i2c_manager(hal_i2c_config_t *cfg) {
+hal_status_t init_i2c_manager(hal_i2c_config_t *cfg) {
   i2c_config = *cfg;
   _i2c_sema = v_mutex_create();
 
@@ -79,18 +79,18 @@ i2c_init:
   // Configure GPIO for I2C1 (PB8=SCL, PB9=SDA)
   hal_gpio_set_alternate_function(I2C_PIN_1, GPIO_FUNC_I2C);
   hal_gpio_set_alternate_function(I2C_PIN_2, GPIO_FUNC_I2C);
-  hal_gpio_set_output_type(I2C_PIN_1, GPIO_OPEN_DRAIN);
-  hal_gpio_set_output_type(I2C_PIN_2, GPIO_OPEN_DRAIN);
-  hal_gpio_set_output_speed(I2C_PIN_1, GPIO_VERY_HIGH_SPEED);
-  hal_gpio_set_output_speed(I2C_PIN_2, GPIO_VERY_HIGH_SPEED);
-  hal_i2c_status_t ts = hal_i2c_init(I2C_BUS, &i2c_config);
+  hal_gpio_set_output_type(I2C_PIN_1, HAL_GPIO_OTYPE_OPEN_DRAIN);
+  hal_gpio_set_output_type(I2C_PIN_2, HAL_GPIO_OTYPE_OPEN_DRAIN);
+  hal_gpio_set_output_speed(I2C_PIN_1, HAL_GPIO_SPEED_VERY_HIGH);
+  hal_gpio_set_output_speed(I2C_PIN_2, HAL_GPIO_SPEED_VERY_HIGH);
+  hal_status_t ts = hal_i2c_init(I2C_BUS, &i2c_config);
 
-  if (ts != HAL_I2C_OK && ts != HAL_I2C_ERR_REINIT) {
+  if (ts != HAL_OK && ts != HAL_ERR_NOT_INITIALIZED) {
     return ts;
   }
-  if (ts == HAL_I2C_ERR_REINIT && init_count < 3) {
+  if (ts == HAL_ERR_NOT_INITIALIZED && init_count < 3) {
     goto i2c_init;
-  } else if (ts == HAL_I2C_OK) {
+  } else if (ts == HAL_OK) {
     initialized = 1;
   }
   return ts;
@@ -98,52 +98,52 @@ i2c_init:
 
 static uint32_t _consecutive_errors = 0;
 
-hal_i2c_status_t i2c_manager_write(uint8_t addr, uint8_t *data, uint16_t len) {
+hal_status_t i2c_manager_write(uint8_t addr, uint8_t *data, uint16_t len) {
   if (v_mutex_lock(_i2c_sema, MS_TO_TICKS(5)) != VA_PASS) {
-    return HAL_I2C_ERR_TIMEOUT;
+    return HAL_ERR_TIMEOUT;
   }
   if (!i2c_manager_acquire_bus()) {
     v_mutex_unlock(_i2c_sema);
-    return HAL_I2C_ERR_TIMEOUT;
+    return HAL_ERR_TIMEOUT;
   }
-  hal_i2c_status_t ts = hal_i2c_write(I2C_BUS, addr, data, len);
+  hal_status_t ts = hal_i2c_write(I2C_BUS, addr, data, len);
   i2c_manager_release_bus();
   v_mutex_unlock(_i2c_sema);
   return ts;
 }
 
-hal_i2c_status_t i2c_manager_read(uint8_t addr, uint8_t *data, uint16_t len) {
+hal_status_t i2c_manager_read(uint8_t addr, uint8_t *data, uint16_t len) {
   if (v_mutex_lock(_i2c_sema, MS_TO_TICKS(5)) != VA_PASS) {
-    return HAL_I2C_ERR_TIMEOUT;
+    return HAL_ERR_TIMEOUT;
   }
   if (!i2c_manager_acquire_bus()) {
     v_mutex_unlock(_i2c_sema);
-    return HAL_I2C_ERR_TIMEOUT;
+    return HAL_ERR_TIMEOUT;
   }
-  hal_i2c_status_t ts = hal_i2c_read(I2C_BUS, addr, data, len);
+  hal_status_t ts = hal_i2c_read(I2C_BUS, addr, data, len);
   i2c_manager_release_bus();
   v_mutex_unlock(_i2c_sema);
   return ts;
 }
 
-hal_i2c_status_t i2c_manager_write_read(uint8_t addr, uint8_t *tx_data,
+hal_status_t i2c_manager_write_read(uint8_t addr, uint8_t *tx_data,
                                         uint16_t tx_len, uint8_t *rx_data,
                                         uint16_t rx_len) {
   if (v_mutex_lock(_i2c_sema, MS_TO_TICKS(5)) != VA_PASS) {
-    return HAL_I2C_ERR_TIMEOUT;
+    return HAL_ERR_TIMEOUT;
   }
   if (!i2c_manager_acquire_bus()) {
     v_mutex_unlock(_i2c_sema);
-    return HAL_I2C_ERR_TIMEOUT;
+    return HAL_ERR_TIMEOUT;
   }
-  hal_i2c_status_t ts =
+  hal_status_t ts =
       hal_i2c_write_read(I2C_BUS, addr, tx_data, tx_len, rx_data, rx_len);
   i2c_manager_release_bus();
   v_mutex_unlock(_i2c_sema);
   return ts;
 }
 
-hal_i2c_status_t i2c_manager_read_async(uint8_t addr, uint8_t reg_addr,
+hal_status_t i2c_manager_read_async(uint8_t addr, uint8_t reg_addr,
                                         uint16_t len,
                                         void (*callback)(void *)) {
   if (!i2c_manager_acquire_bus()) {
@@ -153,7 +153,7 @@ hal_i2c_status_t i2c_manager_read_async(uint8_t addr, uint8_t reg_addr,
       init_i2c_manager(&i2c_config);
       _consecutive_errors = 0;
     }
-    return HAL_I2C_ERR_TIMEOUT;
+    return HAL_ERR_TIMEOUT;
   }
 
   _consecutive_errors = 0;
@@ -166,23 +166,23 @@ hal_i2c_status_t i2c_manager_read_async(uint8_t addr, uint8_t reg_addr,
   _current_trans.state = I2C_TRANS_BUSY;
   EXIT_CRITICAL();
 
-  dma_config_t i2c_dma_cfg = {.controller = DMA_CONTROLLER_1,
-                              .stream = 0,
-                              .channel = 1,
-                              .direction = DMA_DIR_P2M,
-                              .src_addr = I2C_DR_REG_ADDR,
-                              .dst_addr = (uint32_t)_rx_data,
-                              .data_count = len,
-                              .src_inc = 0,
-                              .dst_inc = 1,
-                              .data_width = DMA_DATA_WIDTH_8,
-                              .priority = DMA_PRIORITY_VERY_HIGH,
-                              .circular = 0};
+  hal_dma_config_t i2c_dma_cfg = {.controller = HAL_DMA_CONTROLLER_1,
+                                  .stream = 0,
+                                  .channel = 1,
+                                  .direction = HAL_DMA_DIR_P2M,
+                                  .src_addr = I2C_DR_REG_ADDR,
+                                  .dst_addr = (uint32_t)_rx_data,
+                                  .data_count = len,
+                                  .src_inc = 0,
+                                  .dst_inc = 1,
+                                  .data_width = HAL_DMA_DATA_WIDTH_8,
+                                  .priority = HAL_DMA_PRIORITY_VERY_HIGH,
+                                  .circular = 0};
 
-  hal_i2c_status_t ret = hal_i2c_read_regs_dma(
-      I2C1, addr, reg_addr, &i2c_dma_cfg, i2c_manager_callback);
+  hal_status_t ret = hal_i2c_read_regs_dma(
+      HAL_I2C_1, addr, reg_addr, &i2c_dma_cfg, i2c_manager_callback);
 
-  if (ret != HAL_I2C_OK) {
+  if (ret != HAL_OK) {
     i2c_manager_release_bus();
     vayu_log("I2C DMA START FAIL: %d", ret);
     i2c_manager_unstick();
@@ -190,7 +190,7 @@ hal_i2c_status_t i2c_manager_read_async(uint8_t addr, uint8_t reg_addr,
     return ret;
   }
 
-  return HAL_I2C_OK;
+  return HAL_OK;
 }
 
 // Called from DMA IRQ handler (ISR context)
