@@ -50,22 +50,37 @@ MOTOR_CONSTANT  = 8.54858e-06
 MOMENT_CONSTANT = 0.016
 
 # Per-motor (x, y) position in base_link's frame and spin direction.
-# Taken from the X3 UAV Config 1 model.sdf (the included drone model):
-#   rotor_0 at (+0.13, -0.22), CCW
-#   rotor_1 at (-0.13, +0.20), CCW
-#   rotor_2 at (+0.13, +0.22), CW
-#   rotor_3 at (-0.13, -0.20), CW
-# We don't apply force on the rotor links themselves - bullet-featherstone's
-# articulated-body solver ignores external wrenches on non-root links. So
-# every motor's force and counter-torque is aggregated into a single wrench
-# applied at base_link, computing the moment arms ourselves:
+# These DO NOT have to match the X3's actual rotor indices - we apply a
+# single aggregated wrench on base_link rather than per-rotor forces, so
+# only the moment arms we use here matter. They must match vayu's motor
+# mixing convention as declared in src/control/angle_rate_controller.c:
+#   M1 = Front Right (FR)
+#   M2 = Rear Right  (RR)
+#   M3 = Rear Left   (RL)
+#   M4 = Front Left  (FL)
+# Body frame is X-forward, Y-left, Z-up (Gazebo SDF / FLU). So in body:
+#   FR = (+0.13, -0.22)    front, right (= -Y)
+#   RR = (-0.13, -0.20)    back,  right
+#   RL = (-0.13, +0.20)    back,  left
+#   FL = (+0.13, +0.22)    front, left
+#
+# We aggregate every rotor's force + counter-torque into a single wrench
+# on base_link (bullet-featherstone's articulated solver ignores external
+# wrenches on non-root links), computing the moment arms ourselves:
 #   F_body  = (0, 0, sum_i motorConstant * vel_i^2)
 #   tau_x   = sum_i ( pos_y_i  * motorConstant * vel_i^2 )            // roll
 #   tau_y   = sum_i ( -pos_x_i * motorConstant * vel_i^2 )            // pitch
 #   tau_z   = sum_i ( -spin_i  * motorConstant * momentConstant * vel_i^2 )
-ROTOR_POS_X = [+0.13, -0.13, +0.13, -0.13]
-ROTOR_POS_Y = [-0.22, +0.20, +0.22, -0.20]
-ROTOR_SPIN  = [+1,    +1,    -1,    -1]  # CCW=+1, CW=-1
+#
+# ROTOR_SPIN: vayu's yaw mixing makes M1, M3 increase together (one
+# diagonal) and M2, M4 increase together (the other), so those diagonals
+# spin in opposite directions. With our sign convention (CCW=+1, CW=-1),
+# the choice that makes vayu's "+yaw output" produce vayu's intended
+# turn direction (right / clockwise from above in the NED-style sticks)
+# is M1+M3 CCW, M2+M4 CW.
+ROTOR_POS_X = [+0.13, -0.13, -0.13, +0.13]   # M1, M2, M3, M4
+ROTOR_POS_Y = [-0.22, -0.20, +0.20, +0.22]
+ROTOR_SPIN  = [+1,    -1,    +1,    -1]      # M1+M3 CCW, M2+M4 CW
 
 # Map an ESC duty cycle to a rotor angular velocity. NavHAL's PWM is
 # configured at 400 Hz (period 2.5 ms); esc_set_throttle() converts a
