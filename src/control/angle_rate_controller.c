@@ -4,9 +4,11 @@
 #include "comm/rc_buffer.h"
 #include "control/angle_controller.h"
 #include "maths/control_buffer.h"
+#include "maths/pid.h"
 #include "navhal.h"
 #include "sensor/bmx160.h"
 #include "sensor/imu_buffer.h"
+#include "sys/state.h"
 #include "vaios.h"
 #include "variables.h"
 
@@ -88,6 +90,16 @@ void angle_rate_controller_task(void *arg) {
   static motor_outputs_t motor_outputs = {0};
   static angle_controller_outputs_t angle_controller_outputs;
   static angle_controller_outputs_t last_angle_controller_outputs;
+  static sys_state_t prev_state = SYSTEM_STATE_UNINITIALIZED;
+
+  /* Throttle threshold below which we hold the rate PIDs in reset.
+   * The drone can't actually rotate while it's sitting on the ground
+   * with idle / near-idle motors, so the I-term would otherwise wind up
+   * against an unsatisfiable rate error and saturate one motor on
+   * takeoff. 0.3 is well above MIN_ARMED_THROTTLE (0.1) and below the
+   * X3's ~0.55 hover throttle, so the integrator wakes up just before
+   * the drone leaves the ground. */
+#define RATE_PID_INTEGRATE_THROTTLE 0.3f
 
   set_motor_ready(true);
   while (1) {
@@ -121,6 +133,28 @@ void angle_rate_controller_task(void *arg) {
     float current_rates[NUM_AXES] = {imu_data.converted.gyr[0],
                                      imu_data.converted.gyr[1],
                                      imu_data.converted.gyr[2]};
+
+    /* (B) Hard reset on every STANDBY -> ARMED transition. Carries no
+     * windup from the previous arm cycle into the new one. */
+    sys_state_t state = system_state_get();
+    if (state == SYSTEM_STATE_ARMED && prev_state != SYSTEM_STATE_ARMED) {
+      for (int i = 0; i < NUM_AXES; i++)
+        v_pid_reset(&angle_rate_controller.pid[i]);
+    }
+    prev_state = state;
+
+    float target_throttle = angle_controller_outputs.throttle;
+
+    /* (A) Hold the integrator at zero while throttle is below the
+     * gate. This prevents windup-on-the-ground: the drone can't rotate
+     * with motors at idle, so a non-zero rate setpoint would otherwise
+     * accumulate forever in the I-term and saturate one motor the
+     * moment we cross hover. */
+    if (target_throttle < RATE_PID_INTEGRATE_THROTTLE) {
+      for (int i = 0; i < NUM_AXES; i++)
+        v_pid_set_integral(&angle_rate_controller.pid[i], 0.0f);
+    }
+
     // Apply PID to each axis
     float outputs[NUM_AXES] = {0};
     for (int i = 0; i < NUM_AXES; i++) {
@@ -129,7 +163,6 @@ void angle_rate_controller_task(void *arg) {
                                 current_rates[i], 0, dt);
       prev_target_rates[i] = target_rates[i];
     }
-    float target_throttle = angle_controller_outputs.throttle;
 
     // calculate motor outputs
     if (target_throttle < MIN_ARMED_THROTTLE) {
