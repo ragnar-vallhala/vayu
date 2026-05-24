@@ -14,6 +14,7 @@
 #include <QVBoxLayout>
 #include <errno.h>
 #include <fcntl.h>
+#include <stdlib.h>      // posix_openpt, grantpt, unlockpt, ptsname
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -22,6 +23,7 @@ namespace {
 constexpr const char* kPwmFifoPath = "/tmp/vayu_pwm.fifo";
 constexpr const char* kRepoRootSettingKey = "simulator/repoRoot";
 constexpr const char* kPassthroughSettingKey = "simulator/passthrough";
+constexpr const char* kVirtualRcSettingKey = "simulator/virtualRc";
 constexpr const char* kCommandsGroupPrefix = "simulator/cmds/";
 
 // Default commands, relative to the repo root.
@@ -86,6 +88,7 @@ SimulatorWidget::~SimulatorWidget() {
     }
   }
   closePwmFifo();
+  closeVirtualRcPty();
 }
 
 // ----------------------------------------------------------------------------
@@ -148,6 +151,102 @@ void SimulatorWidget::buildUi() {
   ptRow->addWidget(m_passthroughCheck);
   ptRow->addStretch();
   root->addLayout(ptRow);
+
+  // ---- Virtual RC group ----
+  // Creates a pty pair on toggle; the GCS writes CSV channel widths
+  // to the master fd at 50 Hz from the slider state, and exports the
+  // slave path (/dev/pts/N) as VAYU_UART_RC_PATH on the SITL command
+  // at launch. Same firmware path the real sim_bridge MCU drives.
+  auto* rcGroup = new QGroupBox("Virtual RC (pty-backed Arduino stand-in)", this);
+  auto* rcV = new QVBoxLayout(rcGroup);
+
+  auto* rcEnableRow = new QHBoxLayout();
+  m_virtualRcCheck = new QCheckBox(
+      "Enable virtual RC (sticks below drive vayu_sitl over a pty)", this);
+  m_virtualRcCheck->setStyleSheet("color: #ABB2BF; padding: 2px;");
+  m_virtualRcCheck->setChecked(
+      QSettings().value(kVirtualRcSettingKey, false).toBool());
+  connect(m_virtualRcCheck, &QCheckBox::toggled, this,
+          &SimulatorWidget::onVirtualRcToggled);
+  rcEnableRow->addWidget(m_virtualRcCheck);
+  m_virtualRcPathLabel = new QLabel("(pty not open)", this);
+  m_virtualRcPathLabel->setStyleSheet(
+      "color: #61AFEF; font-family: monospace; font-size: 11px;");
+  rcEnableRow->addWidget(m_virtualRcPathLabel);
+  rcEnableRow->addStretch();
+  rcV->addLayout(rcEnableRow);
+
+  auto* rcGrid = new QGridLayout();
+  rcGrid->setHorizontalSpacing(8);
+
+  struct SliderSpec {
+    const char* label;
+    QSlider** target;
+    QLabel** valueLabel;
+    int defaultVal;
+  };
+  SliderSpec specs[] = {
+      {"Roll",     &m_rcRollSlider,     &m_rcRollLabel,     1500},
+      {"Pitch",    &m_rcPitchSlider,    &m_rcPitchLabel,    1500},
+      {"Throttle", &m_rcThrottleSlider, &m_rcThrottleLabel, 1000},
+      {"Yaw",      &m_rcYawSlider,      &m_rcYawLabel,      1500},
+  };
+  for (int i = 0; i < 4; ++i) {
+    auto* nameLbl = new QLabel(specs[i].label, this);
+    nameLbl->setMinimumWidth(60);
+    nameLbl->setStyleSheet("color: #ABB2BF;");
+    rcGrid->addWidget(nameLbl, i, 0);
+
+    auto* s = new QSlider(Qt::Horizontal, this);
+    s->setRange(1000, 2000);
+    s->setValue(specs[i].defaultVal);
+    s->setStyleSheet(
+        "QSlider::groove:horizontal { background: #21252B; height: 6px; "
+        "border-radius: 3px; }"
+        "QSlider::handle:horizontal { background: #61AFEF; width: 14px; "
+        "margin: -6px 0; border-radius: 3px; }");
+    rcGrid->addWidget(s, i, 1);
+    *specs[i].target = s;
+
+    auto* val = new QLabel(QString::number(specs[i].defaultVal), this);
+    val->setMinimumWidth(50);
+    val->setStyleSheet("color: #61AFEF; font-family: monospace;");
+    rcGrid->addWidget(val, i, 2);
+    *specs[i].valueLabel = val;
+
+    connect(s, &QSlider::valueChanged, val,
+            [val](int v) { val->setText(QString::number(v)); });
+  }
+  rcV->addLayout(rcGrid);
+
+  auto* rcBtnRow = new QHBoxLayout();
+  m_rcArmSwitch = new QCheckBox("SwA armed (ch5 = 2000)", this);
+  m_rcArmSwitch->setStyleSheet("color: #ABB2BF;");
+  rcBtnRow->addWidget(m_rcArmSwitch);
+  m_rcRecenterBtn = new QPushButton("Re-center sticks", this);
+  m_rcRecenterBtn->setStyleSheet(
+      "QPushButton { background: #2C313A; color: #ABB2BF; border: 1px solid "
+      "#3E4452; padding: 4px 12px; border-radius: 3px; }"
+      "QPushButton:hover { background: #3E4452; }");
+  connect(m_rcRecenterBtn, &QPushButton::clicked, this, [this]() {
+    m_rcRollSlider->setValue(1500);
+    m_rcPitchSlider->setValue(1500);
+    m_rcThrottleSlider->setValue(1000);
+    m_rcYawSlider->setValue(1500);
+  });
+  rcBtnRow->addWidget(m_rcRecenterBtn);
+  rcBtnRow->addStretch();
+  rcV->addLayout(rcBtnRow);
+
+  root->addWidget(rcGroup);
+
+  // 50 Hz timer for CSV frame emission - matches the real sim_bridge cadence.
+  m_rcTimer = new QTimer(this);
+  m_rcTimer->setInterval(20);
+  connect(m_rcTimer, &QTimer::timeout, this, &SimulatorWidget::onRcTimerTick);
+
+  // Apply persisted enabled state without retriggering writes to QSettings.
+  if (m_virtualRcCheck->isChecked()) onVirtualRcToggled(true);
 
   // ---- Processes group ----
   auto* procGroup = new QGroupBox("Processes", this);
@@ -338,6 +437,16 @@ void SimulatorWidget::startProcess(Proc* p) {
     }
   }
 
+  // Virtual RC: when the pty is open, route the SITL's UART RC reader
+  // at the slave end. The firmware sees a normal serial source streaming
+  // sim_bridge-style CSV at 50 Hz.
+  if (p == &m_sitl && m_virtualRcCheck && m_virtualRcCheck->isChecked() &&
+      !m_ptySlavePath.isEmpty()) {
+    if (!cmd.contains("VAYU_UART_RC_PATH")) {
+      cmd = QString("env VAYU_UART_RC_PATH=%1 %2").arg(m_ptySlavePath, cmd);
+    }
+  }
+
   p->process->setWorkingDirectory(workingDir());
 
   // QProcess::startCommand handles shell-style splitting reasonably.
@@ -509,4 +618,70 @@ QString SimulatorWidget::workingDir() const {
   // QProcess does the right thing if root doesn't exist (start will fail
   // and surface via errorOccurred). We don't fight it here.
   return root;
+}
+
+// ----------------------------------------------------------------------------
+// Virtual RC: pty pair + 50 Hz CSV emitter
+// ----------------------------------------------------------------------------
+
+bool SimulatorWidget::openVirtualRcPty() {
+  if (m_ptyMasterFd >= 0) return true;
+
+  // POSIX pty allocation. The master fd is what we write to; the slave's
+  // path (/dev/pts/N) is what we hand to vayu_sitl as VAYU_UART_RC_PATH.
+  int fd = ::posix_openpt(O_RDWR | O_NOCTTY);
+  if (fd < 0 || ::grantpt(fd) < 0 || ::unlockpt(fd) < 0) {
+    appendLog("rc", QString("pty open failed: %1\n")
+                          .arg(QString::fromUtf8(strerror(errno))));
+    if (fd >= 0) ::close(fd);
+    return false;
+  }
+  const char* slave = ::ptsname(fd);
+  if (!slave) {
+    appendLog("rc", "ptsname failed\n");
+    ::close(fd);
+    return false;
+  }
+  m_ptyMasterFd = fd;
+  m_ptySlavePath = QString::fromUtf8(slave);
+  appendLog("rc",
+            QString("virtual RC pty open: slave=%1\n").arg(m_ptySlavePath));
+  if (m_virtualRcPathLabel)
+    m_virtualRcPathLabel->setText(QString("slave: %1").arg(m_ptySlavePath));
+  return true;
+}
+
+void SimulatorWidget::closeVirtualRcPty() {
+  if (m_rcTimer && m_rcTimer->isActive()) m_rcTimer->stop();
+  if (m_ptyMasterFd >= 0) {
+    ::close(m_ptyMasterFd);
+    m_ptyMasterFd = -1;
+  }
+  m_ptySlavePath.clear();
+  if (m_virtualRcPathLabel) m_virtualRcPathLabel->setText("(pty not open)");
+}
+
+void SimulatorWidget::onVirtualRcToggled(bool on) {
+  QSettings().setValue(kVirtualRcSettingKey, on);
+  if (on) {
+    if (openVirtualRcPty() && m_rcTimer) m_rcTimer->start();
+  } else {
+    closeVirtualRcPty();
+  }
+}
+
+void SimulatorWidget::onRcTimerTick() {
+  if (m_ptyMasterFd < 0) return;
+  int ch1 = m_rcRollSlider     ? m_rcRollSlider->value()     : 1500;
+  int ch2 = m_rcPitchSlider    ? m_rcPitchSlider->value()    : 1500;
+  int ch3 = m_rcThrottleSlider ? m_rcThrottleSlider->value() : 1000;
+  int ch4 = m_rcYawSlider      ? m_rcYawSlider->value()      : 1500;
+  int ch5 = (m_rcArmSwitch && m_rcArmSwitch->isChecked()) ? 2000 : 1000;
+  int ch6 = 1000;
+  QByteArray line = QString("%1,%2,%3,%4,%5,%6\n")
+                        .arg(ch1).arg(ch2).arg(ch3).arg(ch4)
+                        .arg(ch5).arg(ch6)
+                        .toUtf8();
+  ssize_t n = ::write(m_ptyMasterFd, line.constData(), line.size());
+  (void)n;  // best-effort - pty consumer may not be connected yet
 }

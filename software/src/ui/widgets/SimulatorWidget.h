@@ -7,8 +7,10 @@
 #include <QProcess>
 #include <QProgressBar>
 #include <QPushButton>
+#include <QSlider>
 #include <QSocketNotifier>
 #include <QString>
+#include <QTimer>
 #include <QWidget>
 
 class QGridLayout;
@@ -38,6 +40,8 @@ class SimulatorWidget : public QWidget {
   void onLaunchAll();
   void onStopAll();
   void onPwmReadable();
+  void onVirtualRcToggled(bool on);
+  void onRcTimerTick();
 
  private:
   struct Proc {
@@ -64,6 +68,9 @@ class SimulatorWidget : public QWidget {
   void closePwmFifo();
   void parsePwmBuffer();
 
+  bool openVirtualRcPty();
+  void closeVirtualRcPty();
+
   QString workingDir() const;
 
   // ---- repo root + persistence ----
@@ -86,6 +93,30 @@ class SimulatorWidget : public QWidget {
   int m_pwmFd = -1;
   QSocketNotifier* m_pwmNotifier = nullptr;
   QByteArray m_pwmBuf;
+
+  // ---- virtual RC (sliders + arm switch -> pty CSV stream) ----
+  //
+  // When enabled, the GCS opens a pty pair, writes CSV frames in the
+  // same format tools/sim_bridge/ emits (FS-i6 PPM channel widths at
+  // 50 Hz) to the master fd, and the slave's /dev/pts/N path is
+  // automatically prepended as VAYU_UART_RC_PATH=... to the SITL
+  // process command at launch time. So the firmware's RC feeder sees
+  // a normal serial source - same code path as the real Arduino.
+  QCheckBox* m_virtualRcCheck = nullptr;
+  QLabel* m_virtualRcPathLabel = nullptr;
+  QSlider* m_rcRollSlider = nullptr;
+  QSlider* m_rcPitchSlider = nullptr;
+  QSlider* m_rcThrottleSlider = nullptr;
+  QSlider* m_rcYawSlider = nullptr;
+  QCheckBox* m_rcArmSwitch = nullptr;
+  QLabel* m_rcRollLabel = nullptr;
+  QLabel* m_rcPitchLabel = nullptr;
+  QLabel* m_rcThrottleLabel = nullptr;
+  QLabel* m_rcYawLabel = nullptr;
+  QPushButton* m_rcRecenterBtn = nullptr;
+  int m_ptyMasterFd = -1;
+  QString m_ptySlavePath;
+  QTimer* m_rcTimer = nullptr;
 
   // ---- log ----
   QPlainTextEdit* m_log = nullptr;
