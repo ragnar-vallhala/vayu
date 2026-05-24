@@ -44,6 +44,7 @@ set(GCS_SOURCES
     src/ui/widgets/MotorStatusWidget.cpp
     src/ui/widgets/Drone3DWidget.cpp
     src/ui/widgets/ControlLoopPlot.cpp
+    src/ui/widgets/SimulatorWidget.cpp
 )
 
 set(GCS_HEADERS
@@ -68,6 +69,7 @@ set(GCS_HEADERS
     src/ui/widgets/MotorStatusWidget.h
     src/ui/widgets/Drone3DWidget.h
     src/ui/widgets/ControlLoopPlot.h
+    src/ui/widgets/SimulatorWidget.h
 )
 
 set(GCS_RESOURCES

@@ -21,6 +21,7 @@
 #include "RollingStats.h"
 #include "SerialManager.h"
 #include "SettingsWidget.h"
+#include "SimulatorWidget.h"
 #include "Types.h"
 
 class MainWindow : public QMainWindow {
@@ -39,6 +40,7 @@ private slots:
   void showCalibration();
   void showMotorStatus();
   void showControlLoopPlot();
+  void showSimulator();
   // Toolbar actions
   void onConnectClicked();
   void onRefreshPorts();
@@ -89,6 +91,7 @@ private:
   CalibrationWidget *m_calibrationWidget = nullptr;
   MotorStatusWidget *m_motorWidget = nullptr;
   ControlLoopPlot *m_controlLoopWidget = nullptr;
+  SimulatorWidget *m_simulatorWidget = nullptr;
   QStackedWidget *m_stackedWidget = nullptr;
   QStackedWidget *m_attStack = nullptr;
   Drone3DWidget *m_drone3d = nullptr;
