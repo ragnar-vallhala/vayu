@@ -53,6 +53,16 @@
       name="gz::sim::systems::Magnetometer">
     </plugin>
 
+    <!-- Force-application escape hatch. The bridge can publish
+         gz.msgs.EntityWrench messages on
+         /world/vayu_quad_world/wrench/persistent to push the X3
+         directly, in case MulticopterMotorModel + the active physics
+         engine isn't applying rotor forces. -->
+    <plugin
+      filename="gz-sim-apply-link-wrench-system"
+      name="gz::sim::systems::ApplyLinkWrench">
+    </plugin>
+
 
     <light type="directional" name="sun">
       <cast_shadows>true</cast_shadows>
