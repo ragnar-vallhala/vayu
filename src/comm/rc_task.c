@@ -12,22 +12,13 @@ static uint8_t ibus_dma_buf[IBUS_DMA_BUF_SIZE];
 static ibus_data_t ibus_raw_data;
 
 #ifdef VAYU_SIM
-/* SITL override: host-side bypasses the USART6/DMA/ibus-parser
- * pipeline by writing here directly via Renode's sysbus. When
- * sim_rc_enabled is non-zero, rc_ibus_task skips iBus parsing and
- * uses these channels as the live RC input. tools/sim_renode/
- * sim_rc_inject.py drives them.
- *
- * (The USART6 mock has a byte-drop bug that mangles ~half of each
- * 32-byte iBus frame; rather than fixing that for M3, we feed the
- * RC channels directly. Phase 5 Heavy will replace the whole iBus
- * mock with a proper I2C BMX160 model.)
- */
+/* SITL override: when sim_rc_enabled is non-zero, rc_ibus_task skips
+ * iBus parsing and uses sim_rc_channels[] as the live RC input. The
+ * host SITL driver writes these directly. */
 volatile uint8_t  sim_rc_enabled = 0;
 volatile uint16_t sim_rc_channels[14] = {1500, 1500, 1000, 1500, 1000,
                                          1000, 1500, 1500, 1500, 1500,
                                          1500, 1500, 1500, 1500};
-volatile uint32_t dbg_rc_iter = 0;
 #endif
 
 void rc_ibus_task(void *args) {
@@ -76,7 +67,6 @@ void rc_ibus_task(void *args) {
       }
       rc_queue_control_push(&ibus_raw_data);
       rc_queue_telemetry_push(&ibus_raw_data);
-      dbg_rc_iter++;
       v_delay(20);   /* 50 Hz, matches real iBus rate */
       continue;
     }

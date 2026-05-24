@@ -162,9 +162,8 @@ extern channel_t g_telemetry_channel;
 #define SYS_LOGGING_FILENAME "0:v_sys.bin"
 #define GENERAL_LOGGING_FILENAME "0:v_gen.bin"
 #ifdef VAYU_SIM
-// Renode's SDIO mock takes ~2 ms / sector — 10 MB preallocation would
-// stall the boot for ~2 minutes. 64 KB per log is enough to verify the
-// vfs path and let the rest of init proceed.
+// SITL build: keep log files small so init does not stall on
+// pre-allocation against a simulated SD backend.
 #define NAVLINK_LOGGING_FILE_SIZE (64 * 1024)
 #define SYS_LOGGING_FILE_SIZE     (64 * 1024)
 #define GENERAL_LOGGING_FILE_SIZE (64 * 1024)

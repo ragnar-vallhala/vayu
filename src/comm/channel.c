@@ -170,12 +170,9 @@ err_t flush_channel(channel_t channel) {
 
     // Trigger transmission
     if (s_handle->uart == HAL_UART_2) {
-#if defined(_UART_BACKEND_DMA) && !defined(VAYU_SIM)
+#ifdef _UART_BACKEND_DMA
       hal_uart_write_dma(HAL_UART_2, s_handle->buffers[flush_idx], flush_len);
 #else
-      // Polling path: used when DMA is disabled, OR under VAYU_SIM because
-      // Renode's STM32_UART doesn't issue TX DMA requests (the CR3 DMAT bit
-      // is "unhandled"), so the DMA-driven write would never complete.
       for (uint16_t i = 0; i < flush_len; i++) {
         hal_uart_write_char(HAL_UART_2, (char)s_handle->buffers[flush_idx][i]);
       }

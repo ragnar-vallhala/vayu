@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 """
-gz_imu_to_vayu.py - Phase 4a of the co-sim bridge.
+gz_imu_to_vayu.py - Gazebo IMU -> host SITL bridge.
 
 Subscribes to the Gazebo IMU + magnetometer topics, packs each sample
 into the bmx160_all_converted_reading_t layout vayu expects, and writes
-it to /tmp/vayu_imu.fifo (the Phase 5 Light Renode peripheral's FIFO).
-Vayu's bmx160_sim_task memcpys from that peripheral every millisecond
-and pushes through imu_buffer / imu_queue_control / imu_queue_telemetry
-- so vayu's sensor fusion and control loops see Gazebo's IMU.
+it to /tmp/vayu_imu.fifo. The host SITL binary reads the FIFO and pushes
+each sample through imu_buffer / imu_queue_control / imu_queue_telemetry
+so vayu's sensor fusion and control loops see Gazebo's IMU.
 
 Why subprocess and not gz.transport13 bindings? On this host the
 Python subscribe() returned True but the discovery service never
@@ -16,10 +15,8 @@ reported "No subscribers"). The `gz topic -e` CLI works reliably; we
 spawn one per topic and parse the streaming text-proto output.
 
 Closed-loop usage:
-    Terminal 1:  gz sim -r tools/sim_gazebo/worlds/vayu_quad.sdf
-    Terminal 2:  renode --disable-gui --console \\
-                   -e 'include @tools/sim_renode/vayu.resc' \\
-                   -e 'start'
+    Terminal 1:  gz sim -s -r --headless-rendering tools/sim_gazebo/worlds/vayu_quad.sdf
+    Terminal 2:  ./build_sitl/vayu_sitl
     Terminal 3:  python3 tools/sim_gazebo/gz_imu_to_vayu.py
 
 bmx160_all_converted_reading_t layout (76 B, little-endian):
@@ -202,9 +199,8 @@ def run(fifo_path: str, world: str, model: str, rate_hz: float,
         time.sleep(0.5)
         waited += 0.5
     if not os.path.exists(fifo_path):
-        print("ERR: {} did not appear within 30 s. Is Renode running "
-              "the vayu.resc with the imu_inject peripheral?"
-              .format(fifo_path), file=sys.stderr)
+        print("ERR: {} did not appear within 30 s. Is the SITL "
+              "binary running?".format(fifo_path), file=sys.stderr)
         return 2
 
     state = LatestState()
