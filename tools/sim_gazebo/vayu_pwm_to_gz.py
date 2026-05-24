@@ -30,12 +30,30 @@ DEFAULT_TOPIC  = "/X3/gazebo/command/motor_speed"
 DEFAULT_RATE   = 200    # Hz
 N_MOTORS       = 4
 
-# Map a 0..1 duty cycle to a rotor angular velocity in rad/s. The
-# MulticopterMotorModel plugin in tools/sim_gazebo/worlds/vayu_quad.sdf
-# uses maxRotVelocity=800. Real ESCs map 1ms..2ms pulses at 400 Hz to
-# 0..100% throttle. esc_set_throttle() takes 0..1 directly, so the
-# duty -> velocity mapping is linear over [0, MAX_ROT_VEL].
-MAX_ROT_VEL_RAD_S = 800.0
+# Map an ESC duty cycle to a rotor angular velocity. NavHAL's PWM is
+# configured at 400 Hz (period 2.5 ms); esc_set_throttle() converts a
+# 0..1 throttle into a 1..2 ms pulse, so the duty cycle vayu writes is
+#     duty = (pulse_ms) / 2.5 ms
+#            in [1/2.5 = 0.4 (idle / 0% throttle),
+#               2/2.5 = 0.8 (max / 100% throttle)]
+# We have to undo that offset before mapping to rotor velocity, or 0%
+# throttle ends up commanding 0.4 * MAX_ROT_VEL rad/s of phantom thrust
+# and 100% throttle only gets 0.8 * MAX_ROT_VEL - leaving the drone
+# under-thrusted and unable to lift off at full stick.
+PWM_IDLE_DUTY     = 0.4   # 1.0 ms / 2.5 ms
+PWM_FULL_DUTY     = 0.8   # 2.0 ms / 2.5 ms
+MAX_ROT_VEL_RAD_S = 800.0 # matches <maxRotVelocity> in vayu_quad.sdf
+
+
+def duty_to_velocity(d: float) -> float:
+    """ESC duty (0.4..0.8) -> rotor velocity (0..MAX_ROT_VEL_RAD_S).
+    Clamps anything outside the band to its endpoint."""
+    if d <= PWM_IDLE_DUTY:
+        return 0.0
+    if d >= PWM_FULL_DUTY:
+        return MAX_ROT_VEL_RAD_S
+    throttle = (d - PWM_IDLE_DUTY) / (PWM_FULL_DUTY - PWM_IDLE_DUTY)
+    return throttle * MAX_ROT_VEL_RAD_S
 
 
 class MotorState:
@@ -125,7 +143,7 @@ def run(fifo_path: str, topic: str, rate_hz: float, source: str,
     msg      = Actuators()
     while True:
         duty = state.snapshot()
-        velocities = [d * MAX_ROT_VEL_RAD_S for d in duty]
+        velocities = [duty_to_velocity(d) for d in duty]
         del msg.velocity[:]
         msg.velocity.extend(velocities)
         pub.publish(msg)
