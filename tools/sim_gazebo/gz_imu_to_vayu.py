@@ -79,13 +79,28 @@ class LatestState:
 
     def set_imu(self, ang_vel, lin_acc):
         with self._lock:
-            self.acc = lin_acc
-            self.gyr_dps = tuple(v * RAD_TO_DEG for v in ang_vel)
+            # Body-frame ENU/FLU -> NED transform. Gazebo's IMU plugin
+            # reports linear_acceleration and angular_velocity in the model
+            # body frame, which the X3 model defines Forward-Left-Up
+            # (X-forward, Y-left, Z-up). vayu's firmware (mahony filter,
+            # PID mixing) is written for body Forward-Right-Down (X-forward,
+            # Y-right, Z-down) - the standard aerospace NED-body. The
+            # mapping (x, y, z)_NED = (x, -y, -z)_FLU applies to every
+            # body-frame vector. Without this, a stationary level drone
+            # reads acc = (0,0,+9.81), mahony aligns its quaternion to the
+            # opposite of expected gravity, attitude locks at roll = 180,
+            # angle_controller hits MAX_ANGLE_CUTOFF and the system stays
+            # in FAILSAFE forever.
+            self.acc = (lin_acc[0], -lin_acc[1], -lin_acc[2])
+            gyr_dps_flu = tuple(v * RAD_TO_DEG for v in ang_vel)
+            self.gyr_dps = (gyr_dps_flu[0], -gyr_dps_flu[1], -gyr_dps_flu[2])
             self.imu_count += 1
 
     def set_mag(self, field_tesla):
         with self._lock:
-            self.mag_uT = tuple(f * TESLA_TO_UT for f in field_tesla)
+            mag_uT_flu = tuple(f * TESLA_TO_UT for f in field_tesla)
+            # Same FLU -> NED flip as set_imu().
+            self.mag_uT = (mag_uT_flu[0], -mag_uT_flu[1], -mag_uT_flu[2])
             self.mag_count += 1
 
     def snapshot(self):
