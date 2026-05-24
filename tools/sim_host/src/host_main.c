@@ -22,6 +22,8 @@
 #include "task.h"
 #include "vaios.h"
 
+#include "host_imu_feeder.h"
+
 #include <pthread.h>
 #include <signal.h>
 #include <stdio.h>
@@ -51,36 +53,6 @@ static void *rc_feeder(void *arg) {
         rc_queue_control_push(&rc);
         rc_queue_telemetry_push(&rc);
         v_delay(20);
-    }
-    return NULL;
-}
-
-/* Synthetic IMU feeder: 1 kHz zero-gyro, gravity-on-Z accelerometer. */
-static void *imu_feeder(void *arg) {
-    (void)arg;
-    bmx160_all_reading_t s = {0};
-    s.converted.acc[0] = 0.0f;
-    s.converted.acc[1] = 0.0f;
-    s.converted.acc[2] = -9.81f;
-    fprintf(stderr, "host_main: IMU feeder up (synthetic still-on-bench @ 1 kHz)\n");
-    while (running) {
-        imu_queue_control_push(&s);
-        imu_queue_telemetry_push(&s);
-        v_delay(1);
-    }
-    return NULL;
-}
-
-/* Synthetic attitude feeder: 500 Hz level. */
-static void *attitude_feeder(void *arg) {
-    (void)arg;
-    attitude_t att = { .roll = 0.0f, .pitch = 0.0f, .yaw = 0.0f,
-                       .q = { 1.0f, 0.0f, 0.0f, 0.0f } };
-    fprintf(stderr, "host_main: attitude feeder up (level @ 500 Hz)\n");
-    while (running) {
-        attitude_queue_control_push(&att);
-        attitude_queue_telemetry_push(&att);
-        v_delay(2);
     }
     return NULL;
 }
@@ -115,11 +87,10 @@ int main(int argc, char **argv) {
     system_state_set(SYSTEM_STATE_ARMED);
     fprintf(stderr, "host_main: state = ARMED, motor_ready = true\n");
 
-    /* Spawn the synthetic feeders. */
-    pthread_t th_rc, th_imu, th_att;
-    pthread_create(&th_rc,  NULL, rc_feeder,       NULL);
-    pthread_create(&th_imu, NULL, imu_feeder,      NULL);
-    pthread_create(&th_att, NULL, attitude_feeder, NULL);
+    /* RC stays synthetic for now; IMU + attitude come from Gazebo. */
+    pthread_t th_rc;
+    pthread_create(&th_rc, NULL, rc_feeder, NULL);
+    host_imu_feeder_start();
 
     while (running) {
         v_delay(1000);
@@ -130,8 +101,5 @@ int main(int argc, char **argv) {
     return EXIT_SUCCESS;
 }
 
-/* TODO: replace the three synthetic feeders with:
- *   - rc_feeder    -> read /dev/ttyUSB0 CSV from sim_bridge MCU
- *   - imu_feeder   -> read /tmp/vayu_imu.fifo from gz_imu_to_vayu.py
- *   - attitude_feeder -> drive mahony from the live IMU samples
- */
+/* TODO: replace the synthetic rc_feeder with a /dev/ttyUSB0 CSV reader
+ * fed by tools/sim_bridge/ (task #19). */

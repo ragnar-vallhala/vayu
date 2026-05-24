@@ -20,6 +20,7 @@
 #include "navhal.h"
 
 #include <fcntl.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -149,15 +150,40 @@ hal_status_t hal_clock_init(const hal_clock_config_t *cfg,
     (void)cfg; (void)pll; return HAL_OK;
 }
 
-/* ---- Cycle counter (DWT-style) on host ------------------------------- */
-hal_status_t hal_cycle_counter_init(void) { return HAL_OK; }
+/* ---- Cycle counter (DWT-style) on host -------------------------------
+ *
+ * The firmware's sensor_fusion get_dt() reads this on the first sample
+ * with `last_dwt = 0`, then computes (now - last_dwt) / 84e6 to get dt
+ * in seconds. On real hardware, "now" is small at first boot. On host,
+ * CLOCK_MONOTONIC is the kernel monotonic counter, which can be huge
+ * (uptime in seconds). Taking that mod 2^32 produces a near-random
+ * first dt that triggers a ~100 deg attitude integration spike and
+ * trips the controller's MAX_ANGLE_CUTOFF failsafe.
+ *
+ * Anchor the host cycle counter at process start so the firmware's
+ * "first sample has last_dwt = 0" assumption matches a small "now". */
+static struct timespec hal_cyc_origin;
+static int hal_cyc_origin_set = 0;
+static pthread_once_t hal_cyc_once = PTHREAD_ONCE_INIT;
+
+static void hal_cyc_anchor(void) {
+    clock_gettime(CLOCK_MONOTONIC, &hal_cyc_origin);
+    hal_cyc_origin_set = 1;
+}
+
+hal_status_t hal_cycle_counter_init(void) {
+    pthread_once(&hal_cyc_once, hal_cyc_anchor);
+    return HAL_OK;
+}
 
 uint32_t hal_cycle_counter_get(void) {
+    pthread_once(&hal_cyc_once, hal_cyc_anchor);
     struct timespec t;
     clock_gettime(CLOCK_MONOTONIC, &t);
-    /* 84 MHz virtual clock so dt math in the firmware matches expectations.
-     * 84 cycles per microsecond. */
-    uint64_t cycles = (uint64_t)t.tv_sec * 84000000ULL
-                    + (uint64_t)t.tv_nsec * 84ULL / 1000ULL;
+    uint64_t sec  = (uint64_t)(t.tv_sec  - hal_cyc_origin.tv_sec);
+    int64_t  nsec = (int64_t)t.tv_nsec - (int64_t)hal_cyc_origin.tv_nsec;
+    if (nsec < 0) { sec--; nsec += 1000000000L; }
+    /* 84 MHz virtual clock = 84 cycles/usec. */
+    uint64_t cycles = sec * 84000000ULL + (uint64_t)nsec * 84ULL / 1000ULL;
     return (uint32_t)(cycles & 0xFFFFFFFFu);
 }

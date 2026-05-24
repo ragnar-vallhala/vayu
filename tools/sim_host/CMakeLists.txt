@@ -42,6 +42,7 @@ set(HOST_SOURCES
     src/host_port.c
     src/host_vaios.c
     src/host_navhal.c
+    src/host_imu_feeder.c
 )
 
 # Firmware sources the host binary reuses verbatim.
