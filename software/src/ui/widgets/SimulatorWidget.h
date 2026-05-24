@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QCheckBox>
 #include <QLabel>
 #include <QLineEdit>
 #include <QPlainTextEdit>
@@ -68,6 +69,9 @@ class SimulatorWidget : public QWidget {
   // ---- repo root + persistence ----
   QString m_repoRoot;
   QLineEdit* m_repoRootEdit = nullptr;
+
+  // ---- passthrough toggle (env VAYU_SITL_PASSTHROUGH=1 prepended to SITL) ----
+  QCheckBox* m_passthroughCheck = nullptr;
 
   // ---- four managed processes ----
   Proc m_gz;
