@@ -77,10 +77,17 @@
 // (Ixx=0.025, Iyy=0.009) than the real vayu drone and the controller
 // otherwise applies too much corrective motor swing per degree of
 // attitude error, slamming motors into saturation on every transient.
+//
+// Iterated tuning from the SITL logs:
+//   1x firmware defaults -> drone flipped immediately on arm
+//   4x reduction          -> drone armed briefly, hit FAILSAFE in ~2 s
+//   16x reduction (here)  -> single mahony-attitude glitch can no
+//                            longer drive any motor to saturation
+//                            even on the X3's low-inertia airframe
 #ifdef VAYU_SIM
-#define DEAFULT_ROLL_ANGLE_RATE_KP 0.02f
-#define DEAFULT_ROLL_ANGLE_RATE_KI 0.005f
-#define DEAFULT_ROLL_ANGLE_RATE_KD 0.002f
+#define DEAFULT_ROLL_ANGLE_RATE_KP 0.005f
+#define DEAFULT_ROLL_ANGLE_RATE_KI 0.001f
+#define DEAFULT_ROLL_ANGLE_RATE_KD 0.0005f
 #define DEAFULT_ROLL_ANGLE_RATE_KFF 0.0f
 #else
 #define DEAFULT_ROLL_ANGLE_RATE_KP 0.08f
@@ -95,9 +102,9 @@
 #define DEAFULT_ROLL_ANGLE_RATE_OUT_MAX 1.0f
 
 #ifdef VAYU_SIM
-#define DEAFULT_PITCH_ANGLE_RATE_KP 0.02f
-#define DEAFULT_PITCH_ANGLE_RATE_KI 0.005f
-#define DEAFULT_PITCH_ANGLE_RATE_KD 0.002f
+#define DEAFULT_PITCH_ANGLE_RATE_KP 0.005f
+#define DEAFULT_PITCH_ANGLE_RATE_KI 0.001f
+#define DEAFULT_PITCH_ANGLE_RATE_KD 0.0005f
 #define DEAFULT_PITCH_ANGLE_RATE_KFF 0.0f
 #else
 #define DEAFULT_PITCH_ANGLE_RATE_KP 0.08f
@@ -123,7 +130,7 @@
 
 // Angle controller
 #ifdef VAYU_SIM
-#define DEAFULT_ROLL_ANGLE_KP 1.0f
+#define DEAFULT_ROLL_ANGLE_KP 0.25f
 #else
 #define DEAFULT_ROLL_ANGLE_KP 4.0f
 #endif
@@ -131,7 +138,7 @@
 #define DEAFULT_ROLL_ANGLE_OUT_MAX 100.0f
 
 #ifdef VAYU_SIM
-#define DEAFULT_PITCH_ANGLE_KP 1.0f
+#define DEAFULT_PITCH_ANGLE_KP 0.25f
 #else
 #define DEAFULT_PITCH_ANGLE_KP 4.0f
 #endif
