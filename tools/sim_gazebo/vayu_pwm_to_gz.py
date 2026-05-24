@@ -30,8 +30,13 @@ from gz.msgs10.entity_pb2 import Entity
 DEFAULT_FIFO         = "/tmp/vayu_pwm.fifo"
 DEFAULT_TOPIC        = "/X3/gazebo/command/motor_speed"
 DEFAULT_WRENCH_TOPIC = "/world/vayu_quad_world/wrench/persistent"
+DEFAULT_CLEAR_TOPIC  = "/world/vayu_quad_world/wrench/clear"
 DEFAULT_BASE_LINK    = "X3::base_link"
-DEFAULT_RATE         = 200    # Hz
+# 100 Hz is plenty for motor commands (motor_task runs at 500 Hz on the
+# firmware side; the bridge being below that is fine because the persistent
+# wrench stays active between updates). Higher rates were starving the
+# physics engine and pulling real-time-factor down to ~2%.
+DEFAULT_RATE         = 100
 N_MOTORS             = 4
 
 # motorConstant + momentConstant match tools/sim_gazebo/worlds/vayu_quad.sdf.
@@ -181,16 +186,30 @@ def run(fifo_path: str, topic: str, rate_hz: float, source: str,
     # mismatch would call for orientation-tracking and rotating the
     # torque vector each step. For now, level-attitude PID stabilization
     # is the regime we need.
+    #
+    # The persistent topic keeps applying the most recent wrench every
+    # sim step. When motors drop to zero we explicitly publish to the
+    # /wrench/clear topic - the plugin's persistent map drops the entry
+    # so gravity actually pulls the drone back down. (Otherwise the
+    # zero-wrench update is fine for force calc but tests show the
+    # plugin can latch when force/torque go all-zero on persistent.)
     wpub = node.advertise(DEFAULT_WRENCH_TOPIC, EntityWrench)
+    cpub = node.advertise(DEFAULT_CLEAR_TOPIC, Entity)
     if wpub:
         print("publishing base_link wrench to:", DEFAULT_WRENCH_TOPIC,
               "on", DEFAULT_BASE_LINK, flush=True)
-    else:
-        print("WARN: wrench publisher failed to advertise", file=sys.stderr)
+    if cpub:
+        print("clear topic:", DEFAULT_CLEAR_TOPIC, flush=True)
 
     base_msg = EntityWrench()
     base_msg.entity.name = DEFAULT_BASE_LINK
     base_msg.entity.type = Entity.LINK
+
+    clear_msg = Entity()
+    clear_msg.name = DEFAULT_BASE_LINK
+    clear_msg.type = Entity.LINK
+
+    last_was_active = False  # only publish clear when transitioning to idle
 
     period   = 1.0 / rate_hz
     next_pub = time.monotonic()
@@ -212,15 +231,22 @@ def run(fifo_path: str, topic: str, rate_hz: float, source: str,
         tau_z = sum(-ROTOR_SPIN[i] * thrusts[i] * MOMENT_CONSTANT
                     for i in range(4))                                # yaw
 
-        base_msg.wrench.force.x  = 0.0
-        base_msg.wrench.force.y  = 0.0
-        base_msg.wrench.force.z  = F_z
-        base_msg.wrench.torque.x = tau_x
-        base_msg.wrench.torque.y = tau_y
-        base_msg.wrench.torque.z = tau_z
-
-        if wpub:
-            wpub.publish(base_msg)
+        active = (F_z > 1e-6)
+        if active:
+            base_msg.wrench.force.x  = 0.0
+            base_msg.wrench.force.y  = 0.0
+            base_msg.wrench.force.z  = F_z
+            base_msg.wrench.torque.x = tau_x
+            base_msg.wrench.torque.y = tau_y
+            base_msg.wrench.torque.z = tau_z
+            if wpub:
+                wpub.publish(base_msg)
+        elif last_was_active:
+            # Motors just went idle; release the persistent wrench so
+            # gravity takes over cleanly.
+            if cpub:
+                cpub.publish(clear_msg)
+        last_was_active = active
 
         now = time.monotonic()
         if verbose and now - last_log >= 1.0:
