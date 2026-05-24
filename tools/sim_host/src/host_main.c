@@ -23,6 +23,7 @@
 #include "vaios.h"
 
 #include "host_imu_feeder.h"
+#include "host_rc_feeder.h"
 
 #include <pthread.h>
 #include <signal.h>
@@ -34,28 +35,6 @@
 static volatile int running = 1;
 
 static void on_sigint(int sig) { (void)sig; running = 0; }
-
-/* Synthetic RC feeder: pushes a hover frame at 50 Hz.
- * channels: roll=1500, pitch=1500, throttle=1300, yaw=1500, sw_a=2000(arm) */
-static void *rc_feeder(void *arg) {
-    (void)arg;
-    ibus_data_t rc = {0};
-    rc.channels[0] = 1500;   /* roll */
-    rc.channels[1] = 1500;   /* pitch */
-    rc.channels[2] = 1300;   /* throttle - just above min */
-    rc.channels[3] = 1500;   /* yaw */
-    rc.channels[4] = 2000;   /* SwA = arm */
-    for (int i = 5; i < 14; i++) rc.channels[i] = 1500;
-    rc.is_failsafe = false;
-
-    fprintf(stderr, "host_main: RC feeder up (synthetic hover frame @ 50 Hz)\n");
-    while (running) {
-        rc_queue_control_push(&rc);
-        rc_queue_telemetry_push(&rc);
-        v_delay(20);
-    }
-    return NULL;
-}
 
 int main(int argc, char **argv) {
     (void)argc; (void)argv;
@@ -87,9 +66,9 @@ int main(int argc, char **argv) {
     system_state_set(SYSTEM_STATE_ARMED);
     fprintf(stderr, "host_main: state = ARMED, motor_ready = true\n");
 
-    /* RC stays synthetic for now; IMU + attitude come from Gazebo. */
-    pthread_t th_rc;
-    pthread_create(&th_rc, NULL, rc_feeder, NULL);
+    /* RC from sim_bridge MCU on /dev/ttyUSB0 (falls back to synthetic
+     * hover if the port isn't present). IMU + attitude from Gazebo. */
+    host_rc_feeder_start();
     host_imu_feeder_start();
 
     while (running) {
@@ -101,5 +80,3 @@ int main(int argc, char **argv) {
     return EXIT_SUCCESS;
 }
 
-/* TODO: replace the synthetic rc_feeder with a /dev/ttyUSB0 CSV reader
- * fed by tools/sim_bridge/ (task #19). */
