@@ -1,25 +1,15 @@
 <?xml version="1.0" ?>
 <!--
-  vayu_quad.sdf — Phase 3 quadrotor world.
+  Multicopter motor plugin demo
 
-  Built on Gazebo's stock /usr/share/gz/gz-sim8/worlds/quadcopter.sdf
-  with two changes vayu needs:
-    * include the X3 UAV Config 1 model variant (carries IMU,
-      magnetometer, air-pressure, camera_front) instead of the bare
-      X3 UAV (which has only links + rotor joints, no sensors). The
-      Config 1 link/joint names omit the X3/ prefix that the stock
-      plugins assume, so the MulticopterMotorModel jointName / linkName
-      tags below use `rotor_N_*` not `X3/rotor_N_*`.
-    * load the IMU + magnetometer + air-pressure system plugins so the
-      Config 1 sensors actually publish to gz-transport.
+  Send commands to go straight up:
 
-  Send commands to take off (idle is ~600 rad/s; hover ~700):
-      gz topic -t /X3/gazebo/command/motor_speed \
-        --msgtype gz.msgs.Actuators -p 'velocity:[700, 700, 700, 700]'
+      gz topic -t /X3/gazebo/command/motor_speed --msgtype gz.msgs.Actuators -p 'velocity:[700, 700, 700, 700]'
 
-  Cut motors:
-      gz topic -t /X3/gazebo/command/motor_speed \
-        --msgtype gz.msgs.Actuators -p 'velocity:[0, 0, 0, 0]'
+  And to turn off propellers:
+
+      gz topic -t /X3/gazebo/command/motor_speed --msgtype gz.msgs.Actuators -p 'velocity:[0, 0, 0, 0]'
+
 -->
 <sdf version="1.6">
   <world name="vayu_quad_world">
@@ -27,27 +17,42 @@
       <max_step_size>0.001</max_step_size>
       <real_time_factor>1.0</real_time_factor>
     </physics>
-
-    <plugin filename="gz-sim-physics-system"
-            name="gz::sim::systems::Physics"/>
-    <plugin filename="gz-sim-scene-broadcaster-system"
-            name="gz::sim::systems::SceneBroadcaster"/>
-    <plugin filename="gz-sim-user-commands-system"
-            name="gz::sim::systems::UserCommands"/>
-    <plugin filename="gz-sim-sensors-system"
-            name="gz::sim::systems::Sensors">
-      <render_engine>ogre2</render_engine>
-    </plugin>
-    <plugin filename="gz-sim-imu-system"
-            name="gz::sim::systems::Imu"/>
-    <plugin filename="gz-sim-magnetometer-system"
-            name="gz::sim::systems::Magnetometer"/>
-    <plugin filename="gz-sim-air-pressure-system"
-            name="gz::sim::systems::AirPressure"/>
-
     <gravity>0 0 -9.8</gravity>
     <magnetic_field>6e-06 2.3e-05 -4.2e-05</magnetic_field>
-    <atmosphere type="adiabatic"/>
+    <!-- bullet-featherstone is preferred for multirotors. Harmonic's
+         default dartsim has been observed to hit an internal abort()
+         in ODE's collision detector when a multirotor with multiple
+         revolute rotor joints is stepped (dDebug -> abort()), even
+         on the reference quadcopter.sdf in this install. -->
+    <plugin
+      filename="gz-sim-physics-system"
+      name="gz::sim::systems::Physics">
+      <engine>
+        <filename>gz-physics-bullet-featherstone-plugin</filename>
+      </engine>
+    </plugin>
+    <plugin
+      filename="gz-sim-scene-broadcaster-system"
+      name="gz::sim::systems::SceneBroadcaster">
+    </plugin>
+    <plugin
+      filename="gz-sim-user-commands-system"
+      name="gz::sim::systems::UserCommands">
+    </plugin>
+    <plugin
+      filename="gz-sim-sensors-system"
+      name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+    <plugin
+      filename="gz-sim-imu-system"
+      name="gz::sim::systems::Imu">
+    </plugin>
+    <plugin
+      filename="gz-sim-magnetometer-system"
+      name="gz::sim::systems::Magnetometer">
+    </plugin>
+
 
     <light type="directional" name="sun">
       <cast_shadows>true</cast_shadows>
@@ -67,26 +72,40 @@
       <static>true</static>
       <link name="link">
         <collision name="collision">
-          <geometry><plane><normal>0 0 1</normal><size>100 100</size></plane></geometry>
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>100 100</size>
+            </plane>
+          </geometry>
         </collision>
         <visual name="visual">
-          <geometry><plane><normal>0 0 1</normal><size>100 100</size></plane></geometry>
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>100 100</size>
+            </plane>
+          </geometry>
           <material>
-            <ambient>0.2 0.5 0.2 1</ambient>
-            <diffuse>0.2 0.5 0.2 1</diffuse>
-            <specular>0.1 0.1 0.1 1</specular>
+            <ambient>0.8 0.8 0.8 1</ambient>
+            <diffuse>0.8 0.8 0.8 1</diffuse>
+            <specular>0.8 0.8 0.8 1</specular>
           </material>
         </visual>
       </link>
     </model>
 
     <include>
-      <uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/X3 UAV Config 1</uri>
-      <name>X3</name>
-      <pose>0 0 0.1 0 0 0</pose>
-
-      <plugin filename="gz-sim-multicopter-motor-model-system"
-              name="gz::sim::systems::MulticopterMotorModel">
+      <!-- X3 UAV Config 1 ships with IMU + Magnetometer + AirPressure
+           sensors attached to base_link. The base X3 UAV used by the
+           reference quadcopter.sdf has rotors but no onboard sensors,
+           which would leave the SITL's IMU + mag streams empty. -->
+      <uri>
+        https://fuel.gazebosim.org/1.0/OpenRobotics/models/X3 UAV Config 1
+      </uri>
+      <plugin
+        filename="gz-sim-multicopter-motor-model-system"
+        name="gz::sim::systems::MulticopterMotorModel">
         <robotNamespace>X3</robotNamespace>
         <jointName>X3/rotor_0_joint</jointName>
         <linkName>X3/rotor_0</linkName>
@@ -104,8 +123,9 @@
         <rotorVelocitySlowdownSim>10</rotorVelocitySlowdownSim>
         <motorType>velocity</motorType>
       </plugin>
-      <plugin filename="gz-sim-multicopter-motor-model-system"
-              name="gz::sim::systems::MulticopterMotorModel">
+      <plugin
+        filename="gz-sim-multicopter-motor-model-system"
+        name="gz::sim::systems::MulticopterMotorModel">
         <robotNamespace>X3</robotNamespace>
         <jointName>X3/rotor_1_joint</jointName>
         <linkName>X3/rotor_1</linkName>
@@ -123,8 +143,9 @@
         <rotorVelocitySlowdownSim>10</rotorVelocitySlowdownSim>
         <motorType>velocity</motorType>
       </plugin>
-      <plugin filename="gz-sim-multicopter-motor-model-system"
-              name="gz::sim::systems::MulticopterMotorModel">
+      <plugin
+        filename="gz-sim-multicopter-motor-model-system"
+        name="gz::sim::systems::MulticopterMotorModel">
         <robotNamespace>X3</robotNamespace>
         <jointName>X3/rotor_2_joint</jointName>
         <linkName>X3/rotor_2</linkName>
@@ -142,8 +163,9 @@
         <rotorVelocitySlowdownSim>10</rotorVelocitySlowdownSim>
         <motorType>velocity</motorType>
       </plugin>
-      <plugin filename="gz-sim-multicopter-motor-model-system"
-              name="gz::sim::systems::MulticopterMotorModel">
+      <plugin
+        filename="gz-sim-multicopter-motor-model-system"
+        name="gz::sim::systems::MulticopterMotorModel">
         <robotNamespace>X3</robotNamespace>
         <jointName>X3/rotor_3_joint</jointName>
         <linkName>X3/rotor_3</linkName>
