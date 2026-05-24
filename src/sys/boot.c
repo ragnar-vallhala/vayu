@@ -21,13 +21,6 @@ void boot_task(void *args) {
   system_boot_check_state_set((sys_boot_check_state_t)boot_status);
 
   // 2. System Clock Check
-#ifdef VAYU_SIM
-  // Renode's RCC model doesn't track the firmware's PLL configuration,
-  // so hal_clock_get_sysclk() returns the HSI default (16 MHz) instead
-  // of the 84 MHz the firmware programmed. Skip the check in sim so
-  // boot can reach STANDBY.
-  boot_status |= BOOT_CHECK_SYSTEM_CLOCK_CHECK_PASS;
-#else
   uint32_t current_sys_clock = hal_clock_get_sysclk();
   bool clock_ok = (current_sys_clock == SYS_CLOCK_FREQ);
   if (clock_ok) {
@@ -35,7 +28,6 @@ void boot_task(void *args) {
   } else {
     boot_status |= BOOT_CHECK_SYSTEM_CLOCK_CHECK_FAIL;
   }
-#endif
   system_boot_check_state_set((sys_boot_check_state_t)boot_status);
 
   // 3. SD Card Check

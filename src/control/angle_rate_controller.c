@@ -80,13 +80,6 @@ void angle_rate_controller_init(void) {
   }
 }
 
-#ifdef VAYU_SIM
-volatile uint32_t dbg_rate_ctrl_iter = 0;
-volatile float dbg_rate_target_throttle = -99.0f;
-volatile float dbg_rate_m1 = -99.0f;
-volatile uint32_t dbg_rate_ang_pop_ok = 0;
-#endif
-
 void angle_rate_controller_task(void *arg) {
   angle_rate_controller_init();
   static bmx160_all_reading_t imu_data = {0};
@@ -119,9 +112,6 @@ void angle_rate_controller_task(void *arg) {
     // Get rates from the angle controller
     if (angle_controller_get_outputs(&angle_controller_outputs)) {
       last_angle_controller_outputs = angle_controller_outputs;
-#ifdef VAYU_SIM
-      dbg_rate_ang_pop_ok++;
-#endif
     } else {
       angle_controller_outputs = last_angle_controller_outputs;
     }
@@ -193,11 +183,6 @@ void angle_rate_controller_task(void *arg) {
       motor_outputs.m3 /= max_output;
       motor_outputs.m4 /= max_output;
     }
-#ifdef VAYU_SIM
-    dbg_rate_target_throttle = target_throttle;
-    dbg_rate_m1 = motor_outputs.m1;
-    dbg_rate_ctrl_iter++;
-#endif
     motor_set_outputs(motor_outputs);
 
     control_telemetry_t telemetry = {

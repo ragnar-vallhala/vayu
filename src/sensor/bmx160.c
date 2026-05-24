@@ -128,24 +128,6 @@ static bmx160_err_type bmx160_verify_pmu(uint8_t mask, uint8_t expected) {
 }
 
 hal_status_t bmx160_init(void) {
-#ifdef VAYU_SIM
-  // Renode has no BMX160 I2C model; the chip-ID read and PMU-status
-  // polls would spin until I2C times out. Skip the whole chip init
-  // under sim and let downstream tasks see "no IMU data" - Phase 5
-  // will replace this with a proper Python I2C peripheral mock.
-  //
-  // We still need the orientation quaternion to start at identity
-  // (the normal init sets it at line ~227 below). Without this, the
-  // mahony filter starts with q=(0,0,0,0), normalizes by zero, and
-  // every attitude read is NaN — which immediately trips the
-  // angle_controller's MAX_ANGLE_CUTOFF failsafe.
-  _bmx_orientation.q.w = 1.0f;
-  _bmx_orientation.q.x = 0.0f;
-  _bmx_orientation.q.y = 0.0f;
-  _bmx_orientation.q.z = 0.0f;
-  in_init = 0;
-  return HAL_OK;
-#endif
 
   // Create I2C bus semaphore early. Ensure it starts "given"
   in_init = 1; // Explicitly set it here as well
@@ -810,7 +792,6 @@ static int dt_last = 0;
 static int dt_count = 0;
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 
-#ifndef VAYU_SIM     /* sim build links src/sensor/bmx160_sim.c's version */
 void bmx160_initiate_read(void *args) {
   (void)args;
   static uint32_t last_tick = 0;
@@ -878,7 +859,6 @@ void bmx160_initiate_read(void *args) {
     }
   }
 }
-#endif /* !VAYU_SIM */
 
 void bmx160_dma_callback_fast(void *args) {
   static uint32_t slow_counter = 0;
