@@ -72,21 +72,39 @@
 #define PID_RC_DEADBAND 10     // in PWM
 #define PID_RC2ANGLE_RATE_MODE NORMALIZED_RC2ANGLE_RATE_CUBIC
 #define MIN_ARMED_THROTTLE 0.1f
-// Gains
+// Gains - VAYU_SIM overrides ship the SITL build with gentler
+// gains because the X3 in Gazebo has lower inertia
+// (Ixx=0.025, Iyy=0.009) than the real vayu drone and the controller
+// otherwise applies too much corrective motor swing per degree of
+// attitude error, slamming motors into saturation on every transient.
+#ifdef VAYU_SIM
+#define DEAFULT_ROLL_ANGLE_RATE_KP 0.02f
+#define DEAFULT_ROLL_ANGLE_RATE_KI 0.005f
+#define DEAFULT_ROLL_ANGLE_RATE_KD 0.002f
+#define DEAFULT_ROLL_ANGLE_RATE_KFF 0.0f
+#else
 #define DEAFULT_ROLL_ANGLE_RATE_KP 0.08f
 #define DEAFULT_ROLL_ANGLE_RATE_KI 0.04f
 #define DEAFULT_ROLL_ANGLE_RATE_KD 0.01f
 #define DEAFULT_ROLL_ANGLE_RATE_KFF 0.1f
+#endif
 #define DEAFULT_ROLL_ANGLE_RATE_I_MAX 0.2f
 #define DEAFULT_ROLL_ANGLE_RATE_D_MAX 0.25f
 #define DEAFULT_ROLL_ANGLE_RATE_D_LPF_RC 0.3f
 #define DEAFULT_ROLL_ANGLE_RATE_OUT_MIN -1.0f
 #define DEAFULT_ROLL_ANGLE_RATE_OUT_MAX 1.0f
 
+#ifdef VAYU_SIM
+#define DEAFULT_PITCH_ANGLE_RATE_KP 0.02f
+#define DEAFULT_PITCH_ANGLE_RATE_KI 0.005f
+#define DEAFULT_PITCH_ANGLE_RATE_KD 0.002f
+#define DEAFULT_PITCH_ANGLE_RATE_KFF 0.0f
+#else
 #define DEAFULT_PITCH_ANGLE_RATE_KP 0.08f
 #define DEAFULT_PITCH_ANGLE_RATE_KI 0.04f
 #define DEAFULT_PITCH_ANGLE_RATE_KD 0.01f
 #define DEAFULT_PITCH_ANGLE_RATE_KFF 0.1f
+#endif
 #define DEAFULT_PITCH_ANGLE_RATE_I_MAX 0.2f
 #define DEAFULT_PITCH_ANGLE_RATE_D_MAX 0.25f
 #define DEAFULT_PITCH_ANGLE_RATE_D_LPF_RC 0.3f
@@ -104,11 +122,19 @@
 #define DEAFULT_YAW_ANGLE_RATE_OUT_MAX 0.0f
 
 // Angle controller
+#ifdef VAYU_SIM
+#define DEAFULT_ROLL_ANGLE_KP 1.0f
+#else
 #define DEAFULT_ROLL_ANGLE_KP 4.0f
+#endif
 #define DEAFULT_ROLL_ANGLE_TARGET_MAX 100.0f
 #define DEAFULT_ROLL_ANGLE_OUT_MAX 100.0f
 
+#ifdef VAYU_SIM
+#define DEAFULT_PITCH_ANGLE_KP 1.0f
+#else
 #define DEAFULT_PITCH_ANGLE_KP 4.0f
+#endif
 #define DEAFULT_PITCH_ANGLE_TARGET_MAX 100.0f
 #define DEAFULT_PITCH_ANGLE_OUT_MAX 100.0f
 
