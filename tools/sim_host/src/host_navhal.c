@@ -19,6 +19,7 @@
 #define _GNU_SOURCE
 #include "navhal.h"
 
+#include <errno.h>
 #include <fcntl.h>
 #include <pthread.h>
 #include <stdio.h>
@@ -28,7 +29,9 @@
 #include <time.h>
 #include <unistd.h>
 
-#define VAYU_PWM_FIFO_PATH "/tmp/vayu_pwm.fifo"
+#define VAYU_PWM_FIFO_PATH    "/tmp/vayu_pwm.fifo"
+#define VAYU_UART2_LOG_PATH   "/tmp/vayu_uart2.log"
+#define VAYU_UART2_PTY_PATH   "/tmp/vayu_uart2_pty"  /* slave-path advertisement */
 #define PWM_NUM_TIMER_CHANNELS 4
 
 /* The four ESCs all share TIM1; we identify the motor by channel 1..4. */
@@ -137,6 +140,184 @@ hal_status_t hal_gpio_set_output_type(hal_gpio_pin_t pin, hal_gpio_output_type_t
 }
 hal_status_t hal_gpio_set_output_speed(hal_gpio_pin_t pin, hal_gpio_output_speed_t s) {
     (void)pin; (void)s; return HAL_OK;
+}
+
+/* ---- UART HAL ---------------------------------------------------------
+ *
+ * UART2 carries vayu's binary telemetry (DroneProtocol packets). The SITL
+ * pipes those bytes through a pty so the GCS can connect to a /dev/pts/N
+ * "serial port" the same way it talks to real hardware, AND tees a copy
+ * to a raw log file for post-sim analysis.
+ *
+ * UART6 is the iBus RC input on hardware; the firmware's rc_task uses
+ * the sim_rc bypass when sim_rc_enabled is set, so its hal_uart_read_char
+ * here is a no-op.
+ */
+static pthread_mutex_t uart2_mu = PTHREAD_MUTEX_INITIALIZER;
+static int uart2_pty_master_fd = -1;
+static int uart2_log_fd = -1;
+static char uart2_slave_path[256];
+
+static void uart2_ensure_open(void) {
+    pthread_mutex_lock(&uart2_mu);
+    if (uart2_pty_master_fd < 0) {
+        int fd = posix_openpt(O_RDWR | O_NOCTTY);
+        if (fd >= 0 && grantpt(fd) == 0 && unlockpt(fd) == 0) {
+            const char *p = ptsname(fd);
+            if (p) {
+                strncpy(uart2_slave_path, p, sizeof(uart2_slave_path) - 1);
+                uart2_slave_path[sizeof(uart2_slave_path) - 1] = '\0';
+                uart2_pty_master_fd = fd;
+                /* Advertise the slave path. The GCS user can either
+                 * read /tmp/vayu_uart2_pty or look at stderr. */
+                FILE *adv = fopen(VAYU_UART2_PTY_PATH, "w");
+                if (adv) { fprintf(adv, "%s\n", uart2_slave_path); fclose(adv); }
+                fprintf(stderr, "host_navhal: UART2 pty open, slave=%s\n",
+                        uart2_slave_path);
+                fprintf(stderr, "host_navhal: connect the GCS to %s "
+                                "(or read %s)\n",
+                        uart2_slave_path, VAYU_UART2_PTY_PATH);
+            } else {
+                close(fd);
+            }
+        } else {
+            if (fd >= 0) close(fd);
+            fprintf(stderr, "host_navhal: UART2 pty open failed: %s\n",
+                    strerror(errno));
+        }
+    }
+    if (uart2_log_fd < 0) {
+        uart2_log_fd = open(VAYU_UART2_LOG_PATH,
+                            O_WRONLY | O_CREAT | O_TRUNC, 0666);
+        if (uart2_log_fd >= 0) {
+            fprintf(stderr, "host_navhal: UART2 raw log -> %s\n",
+                    VAYU_UART2_LOG_PATH);
+        } else {
+            fprintf(stderr, "host_navhal: open %s failed: %s\n",
+                    VAYU_UART2_LOG_PATH, strerror(errno));
+        }
+    }
+    pthread_mutex_unlock(&uart2_mu);
+}
+
+static void uart2_write_bytes(const void *buf, size_t n) {
+    if (n == 0) return;
+    uart2_ensure_open();
+    if (uart2_pty_master_fd >= 0) {
+        ssize_t w = write(uart2_pty_master_fd, buf, n);
+        (void)w;  /* drop if the consumer hasn't connected */
+    }
+    if (uart2_log_fd >= 0) {
+        ssize_t w = write(uart2_log_fd, buf, n);
+        (void)w;
+    }
+}
+
+hal_status_t hal_uart_init(hal_uart_t uart, const hal_uart_config_t *cfg) {
+    (void)cfg;
+    if (uart == HAL_UART_2) uart2_ensure_open();
+    return HAL_OK;
+}
+
+hal_status_t hal_uart_init_dma_rx(hal_uart_t uart, uint8_t *buf, uint16_t len) {
+    (void)uart; (void)buf; (void)len;
+    return HAL_OK;
+}
+
+hal_status_t hal_uart_write_char(hal_uart_t uart, char c) {
+    if (uart == HAL_UART_2) uart2_write_bytes(&c, 1);
+    return HAL_OK;
+}
+
+hal_status_t hal_uart_write_dma(hal_uart_t uart, const uint8_t *buf,
+                                 uint16_t len) {
+    if (uart == HAL_UART_2) uart2_write_bytes(buf, len);
+    /* The firmware's channel.c uses a busy flag that only clears on
+     * the DMA-TX-complete IRQ. Our hal_uart_write_dma is synchronous,
+     * so we manually invoke the registered TX-complete handler to
+     * unstick the next flush. dma_tx_complete_callback is the
+     * symbol defined in extern/vaios/kernel/utils.c that channel.c
+     * registers; calling it directly bypasses the IRQ plumbing. */
+    extern void dma_tx_complete_callback(void);
+    dma_tx_complete_callback();
+    return HAL_OK;
+}
+
+char hal_uart_read_char(hal_uart_t uart) {
+    (void)uart;
+    return 0;
+}
+
+hal_status_t hal_uart_enable_interrupt(hal_uart_t uart, uint8_t rx, uint8_t tx) {
+    (void)uart; (void)rx; (void)tx; return HAL_OK;
+}
+
+/* ---- Interrupt HAL: all stubs --------------------------------------- */
+hal_status_t hal_interrupt_attach_callback(hal_irq_t irq, void (*cb)(void)) {
+    (void)irq; (void)cb; return HAL_OK;
+}
+hal_status_t hal_interrupt_detach_callback(hal_irq_t irq) {
+    (void)irq; return HAL_OK;
+}
+hal_status_t hal_interrupt_enable(hal_irq_t irq)  { (void)irq; return HAL_OK; }
+hal_status_t hal_interrupt_disable(hal_irq_t irq) { (void)irq; return HAL_OK; }
+
+/* Compat shims used by both vaios and vayu's channel.c. Both pairs
+ * exist on real NavHAL because the API has been renamed over time;
+ * we provide both so neither set of callers needs adjustment. */
+uint32_t hal_disable_global_interrupts(void) { return 0; }
+void     hal_enable_global_interrupts(uint32_t state) { (void)state; }
+uint32_t hal_interrupt_disable_global(void) { return 0; }
+void     hal_interrupt_enable_global(uint32_t state) { (void)state; }
+
+/* ---- CRC HAL: software CRC32 (IEEE 802.3) -----------------------------
+ * The firmware computes packet checksums via utils_try_compute_crc32,
+ * which in turn calls hal_crc_init + hal_crc_compute. Real NavHAL uses
+ * the STM32's hardware CRC peripheral. On host we just provide the same
+ * polynomial in software so the GCS deserializer accepts our packets. */
+static uint32_t crc32_table[256];
+static int crc32_table_ready = 0;
+static void crc32_table_init(void) {
+    if (crc32_table_ready) return;
+    for (uint32_t i = 0; i < 256; ++i) {
+        uint32_t c = i;
+        for (int k = 0; k < 8; ++k)
+            c = (c >> 1) ^ (0xEDB88320u & -(c & 1));
+        crc32_table[i] = c;
+    }
+    crc32_table_ready = 1;
+}
+
+hal_status_t hal_crc_init(const hal_crc_config_t *cfg) {
+    (void)cfg;
+    crc32_table_init();
+    return HAL_OK;
+}
+
+uint32_t hal_crc_compute(const uint8_t *data, uint32_t length) {
+    crc32_table_init();
+    uint32_t c = 0xFFFFFFFFu;
+    for (uint32_t i = 0; i < length; ++i)
+        c = crc32_table[(c ^ data[i]) & 0xFF] ^ (c >> 8);
+    return c ^ 0xFFFFFFFFu;
+}
+
+/* ---- calibration_task stub ---------------------------------------------
+ * On hardware, calibration_task lives in src/sensor/bmx160.c (which we
+ * don't compile - it's I2C-driver heavy). The host SITL doesn't expose
+ * a calibration flow, so provide a do-nothing task body so comm_processor.c
+ * can reference it. */
+void calibration_task(void *args) { (void)args; }
+
+/* ---- Timer HAL: stubs (heartbeat uses it via task delays, not real timers) */
+hal_status_t hal_timer_init_freq(hal_timer_t t, uint32_t freq_hz) {
+    (void)t; (void)freq_hz; return HAL_OK;
+}
+hal_status_t hal_timer_attach_callback(hal_timer_t t, void (*cb)(void)) {
+    (void)t; (void)cb; return HAL_OK;
+}
+hal_status_t hal_timer_enable_interrupt(hal_timer_t t) {
+    (void)t; return HAL_OK;
 }
 
 /* ---- Clock HAL: stub fixed sysclk ------------------------------------ */
