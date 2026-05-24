@@ -158,28 +158,23 @@ def run(fifo_path: str, topic: str, rate_hz: float, source: str,
     pub  = node.advertise(topic, Actuators)
     print("publishing to:", topic, "at", rate_hz, "Hz", flush=True)
 
-    # Per-rotor wrenches via the ApplyLinkWrench system plugin. We
-    # publish one EntityWrench per rotor link with force = (0, 0,
-    # motorConstant * vel^2). Since each rotor sits at a different
-    # (x, y) offset from base_link, the joint constraint transmits the
-    # forces into base_link AND produces the moment-arm roll / pitch
-    # torques automatically. No need to compute pos x F by hand.
-    #
-    # The yaw counter-torque from prop drag CAN'T be transmitted via
-    # the revolute joint (it's exactly along the joint's free axis),
-    # so we aggregate it and apply it on base_link as a Z-torque only.
-    rotor_pubs = []
-    for link_name in ROTOR_LINKS:
-        p = node.advertise(DEFAULT_WRENCH_TOPIC, EntityWrench)
-        rotor_pubs.append(p)
-    base_pub = node.advertise(DEFAULT_WRENCH_TOPIC, EntityWrench)
-    if all(rotor_pubs) and base_pub:
+    # Per-rotor wrenches via the ApplyLinkWrench system plugin. The
+    # plugin keys persistent wrenches by entity name, so we publish
+    # one EntityWrench per rotor link plus one for base_link (for the
+    # aggregated yaw counter-torque). IMPORTANT: use a single publisher
+    # for all of them - gz_transport can't reliably arbitrate multiple
+    # publishers on the same topic from the same process. Multiple
+    # advertises split traffic across publishers and only one stream
+    # actually reaches the plugin, which means when throttle drops to
+    # zero only one entity's wrench updates - the others keep stale
+    # non-zero wrenches and the drone tumbles forever.
+    wpub = node.advertise(DEFAULT_WRENCH_TOPIC, EntityWrench)
+    if wpub:
         print("publishing wrenches to:", DEFAULT_WRENCH_TOPIC, flush=True)
         print("  rotors:", ROTOR_LINKS, flush=True)
         print("  yaw-torque sink:", DEFAULT_BASE_LINK, flush=True)
     else:
-        print("WARN: some wrench publishers failed to advertise",
-              file=sys.stderr)
+        print("WARN: wrench publisher failed to advertise", file=sys.stderr)
 
     rotor_msgs = []
     for link_name in ROTOR_LINKS:
@@ -213,9 +208,10 @@ def run(fifo_path: str, topic: str, rate_hz: float, source: str,
                          for s, F in zip(ROTOR_SPIN, thrusts))
         base_msg.wrench.torque.z = yaw_torque
 
-        for p, m in zip(rotor_pubs, rotor_msgs):
-            if p: p.publish(m)
-        if base_pub: base_pub.publish(base_msg)
+        if wpub:
+            for m in rotor_msgs:
+                wpub.publish(m)
+            wpub.publish(base_msg)
 
         now = time.monotonic()
         if verbose and now - last_log >= 1.0:
