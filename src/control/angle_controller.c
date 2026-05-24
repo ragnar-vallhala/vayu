@@ -176,8 +176,15 @@ void angle_controller_task(void *arg) {
     }
     last_attitude = attitude;
     if (m_fabsf(attitude.roll) > MAX_ANGLE_CUTOFF ||
-        m_fabsf(attitude.pitch) > MAX_ANGLE_CUTOFF ||
-        m_fabsf(attitude.yaw) > MAX_ANGLE_CUTOFF) {
+        m_fabsf(attitude.pitch) > MAX_ANGLE_CUTOFF) {
+      // Yaw is intentionally excluded from the failsafe condition:
+      // a drone can rotate freely around its vertical axis without
+      // being in danger, and on a sim build without working mag
+      // correction the mahony filter's yaw drifts past 45 deg over
+      // tens of seconds while the airframe is sitting still. That
+      // false-tripped FAILSAFE the moment the integrator's small
+      // bias accumulated. Real hardware with a calibrated mag would
+      // be largely immune, but the check is unnecessary either way.
       system_state_set(SYSTEM_STATE_FAILSAFE);
     }
     // Calculate target rates
