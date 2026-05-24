@@ -164,6 +164,12 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   connect(m_controlLoopWidget, &ControlLoopPlot::backToHomeRequested, this,
           &MainWindow::showHome);
 
+  // Build Simulator (host SITL launcher + monitor)
+  m_simulatorWidget = new SimulatorWidget(this);
+  m_stackedWidget->addWidget(m_simulatorWidget);
+  connect(m_simulatorWidget, &SimulatorWidget::backToHomeRequested, this,
+          &MainWindow::showHome);
+
   showHome();
 }
 
@@ -195,6 +201,10 @@ void MainWindow::showMotorStatus() {
 
 void MainWindow::showControlLoopPlot() {
   m_stackedWidget->setCurrentWidget(m_controlLoopWidget);
+}
+
+void MainWindow::showSimulator() {
+  m_stackedWidget->setCurrentWidget(m_simulatorWidget);
 }
 
 // ---------------------------------------------------------------------------
@@ -354,6 +364,7 @@ void MainWindow::buildMenuBar() {
   windowMenu->addAction("&Motor Status", this, &MainWindow::showMotorStatus);
   windowMenu->addAction("&Control Loop", this,
                         &MainWindow::showControlLoopPlot);
+  windowMenu->addAction("Si&mulator", this, &MainWindow::showSimulator);
 
   fileMenu->addSeparator();
 
