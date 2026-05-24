@@ -94,7 +94,7 @@ ROTOR_SPIN  = [+1,    -1,    +1,    -1]      # M1+M3 CCW, M2+M4 CW
 # under-thrusted and unable to lift off at full stick.
 PWM_IDLE_DUTY     = 0.4   # 1.0 ms / 2.5 ms
 PWM_FULL_DUTY     = 0.8   # 2.0 ms / 2.5 ms
-MAX_ROT_VEL_RAD_S = 800.0 # matches <maxRotVelocity> in vayu_quad.sdf
+MAX_ROT_VEL_RAD_S = 1200.0 # matches <maxRotVelocity> in vayu_quad.sdf
 
 
 def duty_to_velocity(d: float) -> float:
