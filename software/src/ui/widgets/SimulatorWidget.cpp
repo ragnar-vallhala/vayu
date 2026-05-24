@@ -21,6 +21,7 @@ namespace {
 
 constexpr const char* kPwmFifoPath = "/tmp/vayu_pwm.fifo";
 constexpr const char* kRepoRootSettingKey = "simulator/repoRoot";
+constexpr const char* kPassthroughSettingKey = "simulator/passthrough";
 constexpr const char* kCommandsGroupPrefix = "simulator/cmds/";
 
 // Default commands, relative to the repo root.
@@ -126,6 +127,27 @@ void SimulatorWidget::buildUi() {
   });
   repoRow->addWidget(m_repoRootEdit, 1);
   root->addLayout(repoRow);
+
+  // ---- Passthrough toggle ----
+  // Prepends `env VAYU_SITL_PASSTHROUGH=1` to the vayu_sitl command at
+  // launch, which makes the SITL binary skip the cascaded PID and write
+  // throttle directly to all four motors. Useful when the rate-PID
+  // integrator winds up against the drone's ground-friction-locked
+  // attitude and starves one motor (a classic "PID windup on the ground"
+  // pattern that prevents liftoff).
+  auto* ptRow = new QHBoxLayout();
+  m_passthroughCheck = new QCheckBox(
+      "Passthrough mode (bypass cascaded PID — throttle → all 4 motors)",
+      this);
+  m_passthroughCheck->setChecked(
+      QSettings().value(kPassthroughSettingKey, false).toBool());
+  m_passthroughCheck->setStyleSheet("color: #ABB2BF; padding: 2px;");
+  connect(m_passthroughCheck, &QCheckBox::toggled, this, [](bool on) {
+    QSettings().setValue(kPassthroughSettingKey, on);
+  });
+  ptRow->addWidget(m_passthroughCheck);
+  ptRow->addStretch();
+  root->addLayout(ptRow);
 
   // ---- Processes group ----
   auto* procGroup = new QGroupBox("Processes", this);
@@ -305,6 +327,15 @@ void SimulatorWidget::startProcess(Proc* p) {
   if (cmd.isEmpty()) {
     appendLog(p->tag, "(empty command, skipped)\n");
     return;
+  }
+
+  // Passthrough toggle: only affects the SITL row. We prepend
+  // `env VAYU_SITL_PASSTHROUGH=1` rather than touching the command field
+  // itself so the user's edited command stays clean.
+  if (p == &m_sitl && m_passthroughCheck && m_passthroughCheck->isChecked()) {
+    if (!cmd.contains("VAYU_SITL_PASSTHROUGH")) {
+      cmd = "env VAYU_SITL_PASSTHROUGH=1 " + cmd;
+    }
   }
 
   p->process->setWorkingDirectory(workingDir());
