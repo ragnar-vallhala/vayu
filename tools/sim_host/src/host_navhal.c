@@ -270,36 +270,31 @@ void     hal_enable_global_interrupts(uint32_t state) { (void)state; }
 uint32_t hal_interrupt_disable_global(void) { return 0; }
 void     hal_interrupt_enable_global(uint32_t state) { (void)state; }
 
-/* ---- CRC HAL: software CRC32 (IEEE 802.3) -----------------------------
+/* ---- CRC HAL: STM32-compatible CRC32 -----------------------------------
  * The firmware computes packet checksums via utils_try_compute_crc32,
- * which in turn calls hal_crc_init + hal_crc_compute. Real NavHAL uses
- * the STM32's hardware CRC peripheral. On host we just provide the same
- * polynomial in software so the GCS deserializer accepts our packets. */
-static uint32_t crc32_table[256];
-static int crc32_table_ready = 0;
-static void crc32_table_init(void) {
-    if (crc32_table_ready) return;
-    for (uint32_t i = 0; i < 256; ++i) {
-        uint32_t c = i;
-        for (int k = 0; k < 8; ++k)
-            c = (c >> 1) ^ (0xEDB88320u & -(c & 1));
-        crc32_table[i] = c;
-    }
-    crc32_table_ready = 1;
-}
+ * which calls hal_crc_init + hal_crc_compute. On real hardware that
+ * lands in the STM32's CRC peripheral, which uses polynomial 0x04C11DB7
+ * MSB-first, init 0xFFFFFFFF, no input/output reflection, no final XOR.
+ * The GCS's software_crc.cpp implements the same algorithm. To make the
+ * SITL's packets pass the GCS's checksum check (it gates ALL packet
+ * dispatch on it), the SITL has to use the same variant - NOT the
+ * reflected IEEE 802.3 / zlib CRC32 we shipped first. */
 
 hal_status_t hal_crc_init(const hal_crc_config_t *cfg) {
     (void)cfg;
-    crc32_table_init();
     return HAL_OK;
 }
 
 uint32_t hal_crc_compute(const uint8_t *data, uint32_t length) {
-    crc32_table_init();
-    uint32_t c = 0xFFFFFFFFu;
-    for (uint32_t i = 0; i < length; ++i)
-        c = crc32_table[(c ^ data[i]) & 0xFF] ^ (c >> 8);
-    return c ^ 0xFFFFFFFFu;
+    uint32_t crc = 0xFFFFFFFFu;
+    for (uint32_t i = 0; i < length; ++i) {
+        crc ^= ((uint32_t)data[i]) << 24;
+        for (int b = 0; b < 8; ++b) {
+            if (crc & 0x80000000u) crc = (crc << 1) ^ 0x04C11DB7u;
+            else                   crc = (crc << 1);
+        }
+    }
+    return crc;
 }
 
 /* ---- calibration_task stub ---------------------------------------------
