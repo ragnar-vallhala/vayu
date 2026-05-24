@@ -12,6 +12,7 @@
 #include "control/angle_controller.h"
 #include "control/angle_rate_controller.h"
 #include "actuator/motor.h"
+#include "comm/channel.h"
 #include "comm/ibus.h"
 #include "comm/rc_buffer.h"
 #include "maths/control_buffer.h"
@@ -21,6 +22,7 @@
 #include "sys/state.h"
 #include "task.h"
 #include "vaios.h"
+#include "vayu_tasks.h"
 
 #include "host_imu_feeder.h"
 #include "host_rc_feeder.h"
@@ -90,6 +92,34 @@ int main(int argc, char **argv) {
     rc_buffer_init();
     control_telemetry_buffer_init();
 
+    /* vayu_log_queue is lazy-initialized on the first vayu_log() call.
+     * imu_telemetry_task does mpmc_pop_bulk on it; if nothing's pushed
+     * yet, the queue's not_empty semaphore is NULL and sem_timedwait
+     * segfaults. Force the init now. */
+    extern void vayu_log(const char *fmt, ...);
+    vayu_log("vayu_sitl: telemetry chain initialized\n");
+
+    /* Telemetry channel: same call the firmware's main.c makes. Allocates
+     * the channel handle, points it at UART2, and registers the receive
+     * callback for incoming commands (currently a no-op on the SITL side
+     * since the firmware doesn't accept commands over UART2 by default
+     * but the deserializer is still wired up so future commands work). */
+    {
+        extern channel_t g_telemetry_channel;
+        extern void uart2_packet_recv_callback(void);
+        serial_args_t uart_args = {
+            .baud_rate = UART_BAUDRATE,
+            .uart = HAL_UART_2,
+            .timeout = 100,
+        };
+        if (get_handler(CHANNEL_TYPE_SERIAL, &g_telemetry_channel, &uart_args,
+                        uart2_packet_recv_callback) != NONE) {
+            fprintf(stderr, "host_main: telemetry channel init FAILED\n");
+        } else {
+            fprintf(stderr, "host_main: telemetry channel on UART2 registered\n");
+        }
+    }
+
     /* System state: jump straight to STANDBY so rc_task's state machine
      * can transition to ARMED on the next SwA-up frame. */
     system_state_set(SYSTEM_STATE_STANDBY);
@@ -104,6 +134,12 @@ int main(int argc, char **argv) {
         task_create(passthrough_task,           NULL, 1024 * 8, 1);
     }
     task_create(motor_task,                     NULL, 1024 * 8, 1);
+
+    /* Telemetry chain: imu_telemetry_task builds DroneProtocol packets at
+     * up to 25 Hz; flush_task drains the channel TX buffers onto UART2
+     * (which host_navhal pipes to a pty + tees to /tmp/vayu_uart2.log). */
+    task_create(imu_telemetry_task,             NULL, 1024 * 8, 1);
+    task_create(flush_task,                     NULL, 1024 * 4, 0);
 
     /* Let motor_init finish, then enable motor outputs. */
     v_delay(200);

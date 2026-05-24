@@ -57,10 +57,19 @@ set(VAYU_SOURCES
     ${VAYU_ROOT}/src/maths/maths_interface.c
     ${VAYU_ROOT}/src/maths/pid.c
     ${VAYU_ROOT}/src/utils/math_utils.c
+    ${VAYU_ROOT}/src/utils/utils.c
     ${VAYU_ROOT}/src/maths/sensor_fusion.c
     ${VAYU_ROOT}/src/sensor/imu_buffer.c
     ${VAYU_ROOT}/src/sys/state.c
     ${VAYU_ROOT}/src/comm/rc_buffer.c
+    # Telemetry chain: produces DroneProtocol packets the GCS reads.
+    # UART2 in host_navhal pipes them to a pty (for live GCS attach) and
+    # tees a raw copy to /tmp/vayu_uart2.log (for post-sim analysis).
+    ${VAYU_ROOT}/src/comm/channel.c
+    ${VAYU_ROOT}/src/comm/serializer.c
+    ${VAYU_ROOT}/src/comm/deserializer.c
+    ${VAYU_ROOT}/src/comm/comm_processor.c
+    ${VAYU_ROOT}/src/comm/telemetry_task.c
 )
 
 # vaios kernel pieces that are pure C and portable.
