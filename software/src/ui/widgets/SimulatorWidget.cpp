@@ -24,8 +24,14 @@ constexpr const char* kRepoRootSettingKey = "simulator/repoRoot";
 constexpr const char* kCommandsGroupPrefix = "simulator/cmds/";
 
 // Default commands, relative to the repo root.
+// Gazebo GUI is forced onto the AMD Vega 6 via DRI_PRIME=0 and Mesa, so it
+// never touches the NVIDIA driver. The hybrid Optimus setup on this host has
+// crashed Gazebo's GUI before when it tried to use the NVIDIA path; rendering
+// on the integrated GPU is slower but stable. If you want to go back to
+// headless, edit the field to: gz sim -s -r --headless-rendering ...
 constexpr const char* kDefaultGzCmd =
-    "gz sim -s -r --headless-rendering tools/sim_gazebo/worlds/vayu_quad.sdf";
+    "env DRI_PRIME=0 __GLX_VENDOR_LIBRARY_NAME=mesa "
+    "gz sim -r tools/sim_gazebo/worlds/vayu_quad.sdf";
 constexpr const char* kDefaultImuBridgeCmd =
     "python3 tools/sim_gazebo/gz_imu_to_vayu.py";
 constexpr const char* kDefaultPwmBridgeCmd =
