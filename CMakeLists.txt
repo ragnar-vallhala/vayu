@@ -53,12 +53,12 @@ option(USE_STANDARD_MATH "Use standard math.h backend" ON)
 #-------------------------
 # Simulation build
 #-------------------------
-# Set -DVAYU_SIM=ON when building for Renode/Gazebo SITL. Skips init
-# paths that depend on peripherals Renode does not model (SD-card init).
-option(VAYU_SIM "Build for simulation (Renode + Gazebo SITL)" OFF)
+# Set -DVAYU_SIM=ON for the host SITL build. Enables the RC override
+# path and other sim hooks that bypass real hardware.
+option(VAYU_SIM "Build for host SITL simulation" OFF)
 if(VAYU_SIM)
   target_compile_definitions(main PRIVATE VAYU_SIM)
-  message(STATUS "VAYU_SIM enabled: simulation build")
+  message(STATUS "VAYU_SIM enabled: SITL build")
 endif()
 
 #-------------------------

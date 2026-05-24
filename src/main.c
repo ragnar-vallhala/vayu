@@ -64,9 +64,6 @@ void init_sensors(void) {
 
 void init_tasks(void) {
   task_create(comm_processor_task, NULL, 4096, 0);
-  // Under VAYU_SIM, bmx160_initiate_read is defined in
-  // src/sensor/bmx160_sim.c and reads IMU samples from the
-  // imu_inject Renode peripheral instead of polling I2C.
   bmx160_task_id = task_create(bmx160_initiate_read, NULL, 4096, 2);
   task_create(rc_ibus_task, NULL, 4096, 0);
   task_create(angle_controller_task, NULL, 1024 * 8,

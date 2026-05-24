@@ -1,6 +1,9 @@
 # sim_gazebo — Gazebo Harmonic + quadrotor world
 
-Phase 3 of the SITL plan: Gazebo as the physical plant. Phase 4 will wire it to the Renode-emulated firmware via a co-sim bridge (motors PWM out → rotor thrust in; IMU out → I²C BMX160 mock).
+Gazebo as the physical plant for the host SITL build. Two bridges pair Gazebo to the host SITL binary over named FIFOs:
+
+- `vayu_pwm_to_gz.py` — reads motor duty from `/tmp/vayu_pwm.fifo` (written by the SITL binary) and publishes `gz.msgs.Actuators` on the X3's motor_speed topic.
+- `gz_imu_to_vayu.py` — subscribes to the X3 IMU + magnetometer topics and writes the BMX160-layout sample to `/tmp/vayu_imu.fifo` (read by the SITL binary).
 
 ## Install Gazebo Harmonic (one-time)
 
@@ -68,10 +71,20 @@ Our world layers on top of that: the four `gz::sim::systems::MulticopterMotorMod
 
 Note the rotor naming difference between variants: `X3 UAV` uses link names like `X3/rotor_0`, but `X3 UAV Config 1` drops the `X3/` prefix and uses `rotor_0`. The `MulticopterMotorModel` plugins in our world reference the un-prefixed names.
 
-## Phase 4 hookup (next session)
+## Closed-loop run
 
-A Python bridge that, every Gazebo step:
-1. Reads `/world/vayu_quad_world/model/vayu_quad/link/base_link/sensor/imu_sensor/imu` → packs into a BMX160 register response → answers Renode's I²C reads (Phase 5 BMX160 mock).
-2. Reads vayu's emulated TIM PWM CCR registers → converts duty cycle → rotor velocity → publishes to the four `/.../motor_speed` topics.
+```bash
+# Terminal 1: Gazebo, headless
+gz sim -s -r --headless-rendering tools/sim_gazebo/worlds/vayu_quad.sdf
 
-The closed loop runs vayu's actual control code against Gazebo's physics — same firmware as on hardware.
+# Terminal 2: host SITL binary (Stage 2 — see tools/sim_host/)
+./build_sitl/vayu_sitl
+
+# Terminal 3: PWM out bridge
+python3 tools/sim_gazebo/vayu_pwm_to_gz.py
+
+# Terminal 4: IMU in bridge
+python3 tools/sim_gazebo/gz_imu_to_vayu.py
+```
+
+The closed loop runs vayu's actual controller and sensor-fusion code against Gazebo's physics — same source as on hardware.

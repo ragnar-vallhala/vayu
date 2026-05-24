@@ -1,18 +1,11 @@
 #!/usr/bin/env python3
 """
-vayu_pwm_to_gz.py - Phase 4b (motor PWM out -> Gazebo).
+vayu_pwm_to_gz.py - motor PWM out -> Gazebo bridge.
 
 Reads motor duty cycles from /tmp/vayu_pwm.fifo (one "motor_idx duty\\n"
-line per CCRx write, emitted by tools/sim_renode/pwm_extract_mock.py),
-maps duty -> rotor velocity, and publishes gz.msgs.Actuators on
+line per update, written by the host SITL binary), maps duty -> rotor
+velocity, and publishes gz.msgs.Actuators on
 /X3/gazebo/command/motor_speed at 200 Hz.
-
-Co-sim layout:
-    Renode TIM1 register-write @ 0x40010034..0x40010040 (CCR1..CCR4)
-      -> pwm_extract_mock.py computes duty = CCR / (ARR + 1)
-      -> "idx duty\\n" line into /tmp/vayu_pwm.fifo
-      -> this script picks it up and publishes Actuators
-      -> Gazebo MulticopterMotorModel spins rotor_N at velocity
 
 rotor topology (per src/actuator/motor.c):
     motor 0 = TIM1 ch1, GPIO PA8   (motor_outputs.m1)
@@ -67,7 +60,7 @@ class MotorState:
 
 
 def fifo_reader(path: str, state: MotorState) -> None:
-    """Daemon thread: read 'idx duty' lines from the Renode-side FIFO.
+    """Daemon thread: read 'idx duty' lines from the FIFO.
     Tolerates the writer end disappearing and reappearing."""
     while True:
         try:
@@ -88,9 +81,10 @@ def fifo_reader(path: str, state: MotorState) -> None:
 
 
 def test_source(state: MotorState) -> None:
-    """Synthetic stand-in for the Renode FIFO: ramps motor 0 alone
+    """Synthetic stand-in for the FIFO writer: ramps motor 0 alone
     from 0..1 and back, leaves motors 1-3 at hover (0.6). Lets you
-    verify the gz-transport half end-to-end without Renode running."""
+    verify the gz-transport half end-to-end without the SITL binary
+    running."""
     t0 = time.monotonic()
     while True:
         t = time.monotonic() - t0
@@ -107,16 +101,15 @@ def run(fifo_path: str, topic: str, rate_hz: float, source: str,
     if source == "test":
         t = threading.Thread(target=test_source, args=(state,), daemon=True)
     else:
-        # Wait up to 30 s for the Renode-side peripheral to create the
-        # FIFO. Lets us start the bridge before Renode without bailing.
+        # Wait up to 30 s for the SITL binary to create the FIFO. Lets
+        # us start the bridge before the SITL binary without bailing.
         waited = 0.0
         while not os.path.exists(fifo_path) and waited < 30.0:
             time.sleep(0.5)
             waited += 0.5
         if not os.path.exists(fifo_path):
-            print("ERR: {} did not appear within 30 s. Is Renode running "
-                  "the vayu.resc with the pwm_extract peripheral?"
-                  .format(fifo_path), file=sys.stderr)
+            print("ERR: {} did not appear within 30 s. Is the SITL "
+                  "binary running?".format(fifo_path), file=sys.stderr)
             return 2
         t = threading.Thread(target=fifo_reader,
                              args=(fifo_path, state), daemon=True)
@@ -160,9 +153,9 @@ def main(argv) -> int:
     ap.add_argument("--rate",   type=float, default=DEFAULT_RATE)
     ap.add_argument("--source", default="fifo",
                     choices=("fifo", "test"),
-                    help='"fifo" reads from the Renode-side FIFO; "test" '
+                    help='"fifo" reads from the SITL FIFO; "test" '
                          'generates a synthetic ramp on motor 0 so you '
-                         'can verify the gz publisher without Renode.')
+                         'can verify the gz publisher standalone.')
     ap.add_argument("--quiet",  action="store_true")
     args = ap.parse_args(argv)
     try:
@@ -175,15 +168,3 @@ def main(argv) -> int:
 
 if __name__ == "__main__":
     sys.exit(main(sys.argv[1:]))
-
-
-# ---------------------------------------------------------------------
-# Renode hookup
-# ---------------------------------------------------------------------
-# Done — see tools/sim_renode/pwm_extract_mock.py. That peripheral
-# replaces Renode's stock STM32_Timer at TIM1's base (0x40010000),
-# shadows enough of the timer register layout that NavHAL's reads
-# still work, computes duty = CCR / (ARR + 1) on every CCRx write,
-# and writes "idx duty\n" lines to /tmp/vayu_pwm.fifo. ARR is fixed
-# at 2499 in normal operation because hal_pwm_init derives PSC to
-# give a 1 MHz timer tick (so a 400 Hz PWM has ARR = 1e6/400 - 1).
