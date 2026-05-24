@@ -5,12 +5,14 @@
 #include <QAction>
 #include <QApplication>
 #include <QDateTime>
+#include <QFile>
 #include <QFont>
 #include <QGridLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QIcon>
 #include <QLabel>
+#include <QLineEdit>
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
@@ -397,9 +399,16 @@ void MainWindow::buildToolBar() {
 
   tb->addSeparator();
 
-  // Port
+  // Port. Editable so the user can type a custom path (e.g. /dev/pts/N
+  // when the firmware-side UART2 telemetry is piped through a pty for SITL).
+  // The drop-down still shows auto-detected /dev/ttyUSB*, /dev/ttyACM*
+  // entries; "(custom path…)" appears at the bottom of the list as a
+  // hint, but the field is freely editable regardless of selection.
   tb->addWidget(new QLabel(" Port: ", this));
   m_portCombo = new QComboBox(this);
+  m_portCombo->setEditable(true);
+  m_portCombo->setInsertPolicy(QComboBox::NoInsert);
+  m_portCombo->lineEdit()->setPlaceholderText("(custom path… e.g. /dev/pts/3)");
   tb->addWidget(m_portCombo);
 
   // Refresh ports
@@ -513,20 +522,45 @@ void MainWindow::applyDarkTheme() {
 // ---------------------------------------------------------------------------
 
 void MainWindow::onRefreshPorts() {
+  // Preserve whatever the user has typed (e.g. a custom /dev/pts/N) so
+  // refreshing the auto-detected list doesn't clobber a SITL pty path.
+  const QString currentText = m_portCombo->currentText();
+
   m_portCombo->clear();
   const QStringList ports = SerialManager::availablePorts();
-  if (ports.isEmpty()) {
-    m_portCombo->addItem("(no ports found)");
-  } else {
-    m_portCombo->addItems(ports);
+  if (!ports.isEmpty()) m_portCombo->addItems(ports);
+
+  // Always offer the SITL UART2 telemetry pty if the SITL is running
+  // and advertised its slave path via /tmp/vayu_uart2_pty.
+  QFile ptyAdv("/tmp/vayu_uart2_pty");
+  if (ptyAdv.exists() && ptyAdv.open(QIODevice::ReadOnly | QIODevice::Text)) {
+    const QString ptyPath = QString::fromUtf8(ptyAdv.readAll()).trimmed();
+    if (!ptyPath.isEmpty() && !ports.contains(ptyPath))
+      m_portCombo->addItem(ptyPath + "  (SITL UART2)");
   }
+
+  if (m_portCombo->count() == 0)
+    m_portCombo->addItem("(no ports found)");
+
+  // Restore prior text. The user may have typed a path we don't auto-list;
+  // we want that text to remain so Connect uses it.
+  if (!currentText.isEmpty()) m_portCombo->setEditText(currentText);
 }
 
 void MainWindow::onConnectClicked() {
   if (m_connected) {
     m_serial->close();
   } else {
-    const QString port = m_portCombo->currentText();
+    QString port = m_portCombo->currentText().trimmed();
+    // Strip annotation suffix used in the dropdown (e.g.
+    // "/dev/pts/3  (SITL UART2)" -> "/dev/pts/3"). Anything after
+    // two-or-more spaces is decoration, not part of the path.
+    int decoIdx = port.indexOf(QStringLiteral("  "));
+    if (decoIdx > 0) port = port.left(decoIdx).trimmed();
+    if (port.isEmpty() || port.startsWith('(')) {
+      m_logPanel->appendLog("[GCS] No port specified");
+      return;
+    }
     const int baud = m_baudCombo->currentData().toInt();
     m_serial->open(port, baud);
   }
