@@ -24,11 +24,19 @@ import time
 
 import gz.transport13 as transport
 from gz.msgs10.actuators_pb2 import Actuators
+from gz.msgs10.entity_wrench_pb2 import EntityWrench
+from gz.msgs10.entity_pb2 import Entity
 
-DEFAULT_FIFO   = "/tmp/vayu_pwm.fifo"
-DEFAULT_TOPIC  = "/X3/gazebo/command/motor_speed"
-DEFAULT_RATE   = 200    # Hz
-N_MOTORS       = 4
+DEFAULT_FIFO         = "/tmp/vayu_pwm.fifo"
+DEFAULT_TOPIC        = "/X3/gazebo/command/motor_speed"
+DEFAULT_WRENCH_TOPIC = "/world/vayu_quad_world/wrench/persistent"
+DEFAULT_WRENCH_LINK  = "X3::base_link"
+DEFAULT_RATE         = 200    # Hz
+N_MOTORS             = 4
+
+# motorConstant matches the value in tools/sim_gazebo/worlds/vayu_quad.sdf.
+# Per-motor thrust = motorConstant * vel^2; total thrust is the sum.
+MOTOR_CONSTANT = 8.54858e-06
 
 # Map an ESC duty cycle to a rotor angular velocity. NavHAL's PWM is
 # configured at 400 Hz (period 2.5 ms); esc_set_throttle() converts a
@@ -137,6 +145,28 @@ def run(fifo_path: str, topic: str, rate_hz: float, source: str,
     pub  = node.advertise(topic, Actuators)
     print("publishing to:", topic, "at", rate_hz, "Hz", flush=True)
 
+    # Also publish a vertical wrench on base_link via the
+    # ApplyLinkWrench system plugin. This is a workaround for
+    # Gazebo 8.11's MulticopterMotorModel failing to apply rotor
+    # forces under bullet-featherstone (and aborting under dartsim
+    # for multirotor worlds). The wrench is the SUM of the four
+    # per-motor thrusts, applied upward at base_link's origin. That
+    # gives us liftoff in passthrough mode where all four motors are
+    # equal; once the firmware-side PID is tuned for sim, per-rotor
+    # wrenches at each rotor link can replace this single base_link
+    # wrench for proper attitude control.
+    wpub = node.advertise(DEFAULT_WRENCH_TOPIC, EntityWrench)
+    if wpub:
+        print("publishing wrench to:", DEFAULT_WRENCH_TOPIC,
+              "on", DEFAULT_WRENCH_LINK, flush=True)
+    else:
+        print("WARN: wrench advertise failed; multicopter plugin only",
+              file=sys.stderr)
+
+    wmsg = EntityWrench()
+    wmsg.entity.name = DEFAULT_WRENCH_LINK
+    wmsg.entity.type = Entity.LINK
+
     period   = 1.0 / rate_hz
     next_pub = time.monotonic()
     last_log = next_pub
@@ -148,12 +178,25 @@ def run(fifo_path: str, topic: str, rate_hz: float, source: str,
         msg.velocity.extend(velocities)
         pub.publish(msg)
 
+        # Vertical lift wrench = sum of per-motor thrusts.
+        total_thrust = sum(MOTOR_CONSTANT * (v * v) for v in velocities)
+        wmsg.wrench.force.x = 0.0
+        wmsg.wrench.force.y = 0.0
+        wmsg.wrench.force.z = total_thrust
+        wmsg.wrench.torque.x = 0.0
+        wmsg.wrench.torque.y = 0.0
+        wmsg.wrench.torque.z = 0.0
+        if wpub:
+            wpub.publish(wmsg)
+
         now = time.monotonic()
         if verbose and now - last_log >= 1.0:
             last_log = now
             print("updates={} duty=[{:.2f} {:.2f} {:.2f} {:.2f}] "
-                  "vel_rad_s=[{:.0f} {:.0f} {:.0f} {:.0f}]"
-                  .format(state.updates, *duty, *velocities), flush=True)
+                  "vel_rad_s=[{:.0f} {:.0f} {:.0f} {:.0f}] "
+                  "F_up={:.2f} N"
+                  .format(state.updates, *duty, *velocities, total_thrust),
+                  flush=True)
 
         next_pub += period
         sleep_for = next_pub - time.monotonic()
