@@ -44,12 +44,23 @@ N_MOTORS             = 4
 MOTOR_CONSTANT  = 8.54858e-06
 MOMENT_CONSTANT = 0.016
 
-# Per-motor rotor link name + sign convention for counter-torque.
-# Spin direction matches the <turningDirection> in vayu_quad.sdf:
-#   rotor 0, 1 are CCW (+1);  rotor 2, 3 are CW (-1).
-# Counter-torque sign on the body is the opposite of the rotor's spin.
-ROTOR_LINKS = ["X3::rotor_0", "X3::rotor_1", "X3::rotor_2", "X3::rotor_3"]
-ROTOR_SPIN  = [+1,            +1,            -1,            -1]  # CCW=+1, CW=-1
+# Per-motor (x, y) position in base_link's frame and spin direction.
+# Taken from the X3 UAV Config 1 model.sdf (the included drone model):
+#   rotor_0 at (+0.13, -0.22), CCW
+#   rotor_1 at (-0.13, +0.20), CCW
+#   rotor_2 at (+0.13, +0.22), CW
+#   rotor_3 at (-0.13, -0.20), CW
+# We don't apply force on the rotor links themselves - bullet-featherstone's
+# articulated-body solver ignores external wrenches on non-root links. So
+# every motor's force and counter-torque is aggregated into a single wrench
+# applied at base_link, computing the moment arms ourselves:
+#   F_body  = (0, 0, sum_i motorConstant * vel_i^2)
+#   tau_x   = sum_i ( pos_y_i  * motorConstant * vel_i^2 )            // roll
+#   tau_y   = sum_i ( -pos_x_i * motorConstant * vel_i^2 )            // pitch
+#   tau_z   = sum_i ( -spin_i  * motorConstant * momentConstant * vel_i^2 )
+ROTOR_POS_X = [+0.13, -0.13, +0.13, -0.13]
+ROTOR_POS_Y = [-0.22, +0.20, +0.22, -0.20]
+ROTOR_SPIN  = [+1,    +1,    -1,    -1]  # CCW=+1, CW=-1
 
 # Map an ESC duty cycle to a rotor angular velocity. NavHAL's PWM is
 # configured at 400 Hz (period 2.5 ms); esc_set_throttle() converts a
@@ -158,30 +169,25 @@ def run(fifo_path: str, topic: str, rate_hz: float, source: str,
     pub  = node.advertise(topic, Actuators)
     print("publishing to:", topic, "at", rate_hz, "Hz", flush=True)
 
-    # Per-rotor wrenches via the ApplyLinkWrench system plugin. The
-    # plugin keys persistent wrenches by entity name, so we publish
-    # one EntityWrench per rotor link plus one for base_link (for the
-    # aggregated yaw counter-torque). IMPORTANT: use a single publisher
-    # for all of them - gz_transport can't reliably arbitrate multiple
-    # publishers on the same topic from the same process. Multiple
-    # advertises split traffic across publishers and only one stream
-    # actually reaches the plugin, which means when throttle drops to
-    # zero only one entity's wrench updates - the others keep stale
-    # non-zero wrenches and the drone tumbles forever.
+    # Single wrench on X3::base_link. bullet-featherstone's articulated
+    # body solver only accepts external wrenches on the root link, so we
+    # aggregate every rotor's thrust + counter-torque into one base_link
+    # wrench, computing r x F moment arms ourselves from each rotor's
+    # known (x, y) position in body frame.
+    #
+    # The torque vector is in body frame but published as a world-frame
+    # wrench by ApplyLinkWrench. While the drone is roughly level this is
+    # a good approximation; for large tilt angles the body-vs-world
+    # mismatch would call for orientation-tracking and rotating the
+    # torque vector each step. For now, level-attitude PID stabilization
+    # is the regime we need.
     wpub = node.advertise(DEFAULT_WRENCH_TOPIC, EntityWrench)
     if wpub:
-        print("publishing wrenches to:", DEFAULT_WRENCH_TOPIC, flush=True)
-        print("  rotors:", ROTOR_LINKS, flush=True)
-        print("  yaw-torque sink:", DEFAULT_BASE_LINK, flush=True)
+        print("publishing base_link wrench to:", DEFAULT_WRENCH_TOPIC,
+              "on", DEFAULT_BASE_LINK, flush=True)
     else:
         print("WARN: wrench publisher failed to advertise", file=sys.stderr)
 
-    rotor_msgs = []
-    for link_name in ROTOR_LINKS:
-        m = EntityWrench()
-        m.entity.name = link_name
-        m.entity.type = Entity.LINK
-        rotor_msgs.append(m)
     base_msg = EntityWrench()
     base_msg.entity.name = DEFAULT_BASE_LINK
     base_msg.entity.type = Entity.LINK
@@ -197,32 +203,33 @@ def run(fifo_path: str, topic: str, rate_hz: float, source: str,
         msg.velocity.extend(velocities)
         pub.publish(msg)
 
-        # Per-rotor thrust (gives roll + pitch torques naturally via
-        # the joint at each rotor's offset).
+        # Per-motor thrust and counter-torque magnitudes.
         thrusts = [MOTOR_CONSTANT * (v * v) for v in velocities]
-        for m, F in zip(rotor_msgs, thrusts):
-            m.wrench.force.z = F
-        # Yaw counter-torque on base_link = sum_i ( -spin_i * F_i * momentConstant )
-        # CCW rotor (spin=+1) -> body feels negative Z torque (drag opposes).
-        yaw_torque = sum(-s * F * MOMENT_CONSTANT
-                         for s, F in zip(ROTOR_SPIN, thrusts))
-        base_msg.wrench.torque.z = yaw_torque
+
+        F_z = sum(thrusts)
+        tau_x = sum(ROTOR_POS_Y[i] * thrusts[i]  for i in range(4))   # roll
+        tau_y = sum(-ROTOR_POS_X[i] * thrusts[i] for i in range(4))   # pitch
+        tau_z = sum(-ROTOR_SPIN[i] * thrusts[i] * MOMENT_CONSTANT
+                    for i in range(4))                                # yaw
+
+        base_msg.wrench.force.x  = 0.0
+        base_msg.wrench.force.y  = 0.0
+        base_msg.wrench.force.z  = F_z
+        base_msg.wrench.torque.x = tau_x
+        base_msg.wrench.torque.y = tau_y
+        base_msg.wrench.torque.z = tau_z
 
         if wpub:
-            for m in rotor_msgs:
-                wpub.publish(m)
             wpub.publish(base_msg)
 
         now = time.monotonic()
         if verbose and now - last_log >= 1.0:
             last_log = now
-            total = sum(thrusts)
             print("updates={} duty=[{:.2f} {:.2f} {:.2f} {:.2f}] "
-                  "vel_rad_s=[{:.0f} {:.0f} {:.0f} {:.0f}] "
-                  "F=[{:.2f} {:.2f} {:.2f} {:.2f}] tot={:.2f} N "
-                  "tau_z={:.3f} Nm"
-                  .format(state.updates, *duty, *velocities, *thrusts,
-                          total, yaw_torque),
+                  "vel=[{:.0f} {:.0f} {:.0f} {:.0f}] "
+                  "F_z={:.2f} N tau=[{:+.3f} {:+.3f} {:+.3f}] Nm"
+                  .format(state.updates, *duty, *velocities,
+                          F_z, tau_x, tau_y, tau_z),
                   flush=True)
 
         next_pub += period
