@@ -181,40 +181,59 @@ void angle_rate_controller_task(void *arg) {
     motor_outputs.m3 = target_throttle + outputs[0] - outputs[1] + outputs[2];
     motor_outputs.m4 = target_throttle + outputs[0] + outputs[1] - outputs[2];
 
-    if (motor_outputs.m1 < 0 || motor_outputs.m2 < 0 || motor_outputs.m3 < 0 ||
-        motor_outputs.m4 < 0) {
-      float min_output = motor_outputs.m1;
-      if (motor_outputs.m2 < min_output) {
-        min_output = motor_outputs.m2;
-      }
-      if (motor_outputs.m3 < min_output) {
-        min_output = motor_outputs.m3;
-      }
-      if (motor_outputs.m4 < min_output) {
-        min_output = motor_outputs.m4;
-      }
-      motor_outputs.m1 -= min_output;
-      motor_outputs.m2 -= min_output;
-      motor_outputs.m3 -= min_output;
-      motor_outputs.m4 -= min_output;
-    }
+    // Saturation handling: scale the PID differential (deviation from
+    // target_throttle) so every motor fits in [0, 1] WITHOUT changing
+    // the pilot's commanded throttle.
+    //
+    // The previous "shift-all-up-by-|min|" pattern silently added thrust
+    // the pilot never asked for: e.g. at target_throttle=0.14 with a
+    // PID asking for a big roll torque, m4 would come out at -0.30; the
+    // shift then added +0.30 to all four motors, average thrust jumped
+    // from 14% to 44%, drone took off uncommanded ("shot up") with the
+    // residual differential still tilting it ("rolled down"). The
+    // subsequent divide-by-max for positives further re-scaled, but the
+    // total energy bump from the lift step had already happened.
+    //
+    // Correct anti-saturation: find the worst-violating PID excursion
+    // and scale ALL PID outputs by the same factor (<=1) so the worst
+    // motor sits exactly at the limit (0 or 1) while throttle stays
+    // intact. Authority over attitude is reduced when limits bite, but
+    // the pilot keeps the throttle they asked for.
+    {
+      float min_m = motor_outputs.m1, max_m = motor_outputs.m1;
+      if (motor_outputs.m2 < min_m) min_m = motor_outputs.m2;
+      if (motor_outputs.m3 < min_m) min_m = motor_outputs.m3;
+      if (motor_outputs.m4 < min_m) min_m = motor_outputs.m4;
+      if (motor_outputs.m2 > max_m) max_m = motor_outputs.m2;
+      if (motor_outputs.m3 > max_m) max_m = motor_outputs.m3;
+      if (motor_outputs.m4 > max_m) max_m = motor_outputs.m4;
 
-    if (motor_outputs.m1 > 1.0f || motor_outputs.m2 > 1.0f ||
-        motor_outputs.m3 > 1.0f || motor_outputs.m4 > 1.0f) {
-      float max_output = motor_outputs.m1;
-      if (motor_outputs.m2 > max_output) {
-        max_output = motor_outputs.m2;
+      float scale = 1.0f;
+      if (min_m < 0.0f) {
+        // need to shrink (target_throttle - min_m) to (target_throttle - 0)
+        float k = (target_throttle) / (target_throttle - min_m);
+        if (k < scale) scale = k;
       }
-      if (motor_outputs.m3 > max_output) {
-        max_output = motor_outputs.m3;
+      if (max_m > 1.0f) {
+        float k = (1.0f - target_throttle) / (max_m - target_throttle);
+        if (k < scale) scale = k;
       }
-      if (motor_outputs.m4 > max_output) {
-        max_output = motor_outputs.m4;
+      if (scale < 1.0f) {
+        motor_outputs.m1 = target_throttle + scale * (motor_outputs.m1 - target_throttle);
+        motor_outputs.m2 = target_throttle + scale * (motor_outputs.m2 - target_throttle);
+        motor_outputs.m3 = target_throttle + scale * (motor_outputs.m3 - target_throttle);
+        motor_outputs.m4 = target_throttle + scale * (motor_outputs.m4 - target_throttle);
       }
-      motor_outputs.m1 /= max_output;
-      motor_outputs.m2 /= max_output;
-      motor_outputs.m3 /= max_output;
-      motor_outputs.m4 /= max_output;
+      // Final clip in case throttle itself is out of range (shouldn't be
+      // - normalized RC is [0, 1] - but cheap insurance).
+      if (motor_outputs.m1 < 0) motor_outputs.m1 = 0;
+      if (motor_outputs.m2 < 0) motor_outputs.m2 = 0;
+      if (motor_outputs.m3 < 0) motor_outputs.m3 = 0;
+      if (motor_outputs.m4 < 0) motor_outputs.m4 = 0;
+      if (motor_outputs.m1 > 1) motor_outputs.m1 = 1;
+      if (motor_outputs.m2 > 1) motor_outputs.m2 = 1;
+      if (motor_outputs.m3 > 1) motor_outputs.m3 = 1;
+      if (motor_outputs.m4 > 1) motor_outputs.m4 = 1;
     }
     motor_set_outputs(motor_outputs);
 
