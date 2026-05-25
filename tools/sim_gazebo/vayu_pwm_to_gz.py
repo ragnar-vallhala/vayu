@@ -82,30 +82,20 @@ ROTOR_POS_X = [+0.13, -0.13, -0.13, +0.13]   # M1, M2, M3, M4
 ROTOR_POS_Y = [-0.22, -0.20, +0.20, +0.22]
 ROTOR_SPIN  = [+1,    -1,    +1,    -1]      # M1+M3 CCW, M2+M4 CW
 
-# Map an ESC duty cycle to a rotor angular velocity. NavHAL's PWM is
-# configured at 400 Hz (period 2.5 ms); esc_set_throttle() converts a
-# 0..1 throttle into a 1..2 ms pulse, so the duty cycle vayu writes is
-#     duty = (pulse_ms) / 2.5 ms
-#            in [1/2.5 = 0.4 (idle / 0% throttle),
-#               2/2.5 = 0.8 (max / 100% throttle)]
-# We have to undo that offset before mapping to rotor velocity, or 0%
-# throttle ends up commanding 0.4 * MAX_ROT_VEL rad/s of phantom thrust
-# and 100% throttle only gets 0.8 * MAX_ROT_VEL - leaving the drone
-# under-thrusted and unable to lift off at full stick.
-PWM_IDLE_DUTY     = 0.4   # 1.0 ms / 2.5 ms
-PWM_FULL_DUTY     = 0.8   # 2.0 ms / 2.5 ms
+# The SITL host shim (tools/sim_host/src/host_navhal.c) already strips
+# the firmware's ESC 0.4..0.8 pulse-width band, so the FIFO carries a
+# direct linear motor command in [0, 1]. We just multiply by the
+# rotor's max velocity to get rad/s.
 MAX_ROT_VEL_RAD_S = 1200.0 # matches <maxRotVelocity> in vayu_quad.sdf
 
 
 def duty_to_velocity(d: float) -> float:
-    """ESC duty (0.4..0.8) -> rotor velocity (0..MAX_ROT_VEL_RAD_S).
-    Clamps anything outside the band to its endpoint."""
-    if d <= PWM_IDLE_DUTY:
+    """Linear motor command (0..1) -> rotor velocity."""
+    if d <= 0.0:
         return 0.0
-    if d >= PWM_FULL_DUTY:
+    if d >= 1.0:
         return MAX_ROT_VEL_RAD_S
-    throttle = (d - PWM_IDLE_DUTY) / (PWM_FULL_DUTY - PWM_IDLE_DUTY)
-    return throttle * MAX_ROT_VEL_RAD_S
+    return d * MAX_ROT_VEL_RAD_S
 
 
 class MotorState:

@@ -1,29 +1,40 @@
 #pragma once
 
-#include <QCheckBox>
+#include "vsim/SimWorker.h"
+#include "vsim/SimRendererWidget.h"
+
+extern "C" {
+#include "vsim_iface.h"
+}
+
+#include <QFile>
 #include <QLabel>
 #include <QLineEdit>
 #include <QPlainTextEdit>
-#include <QProcess>
 #include <QProgressBar>
 #include <QPushButton>
-#include <QSocketNotifier>
 #include <QString>
 #include <QWidget>
+#include <memory>
 
 class QGridLayout;
 
 /**
- * SimulatorWidget — control + monitor page for the native host SITL stack
- * (tools/sim_host/vayu_sitl + tools/sim_gazebo/ bridges + Gazebo Harmonic).
+ * SimulatorWidget - control + monitor page for the in-app SITL.
  *
- * Provides:
- *   - per-process Start / Stop + status, with editable commands and
- *     persistent vayu repo root
- *   - "Launch All" / "Stop All" buttons that walk the four processes in
- *     order (gz sim, IMU bridge, vayu_sitl, PWM bridge)
- *   - live PWM duty bars driven by reading /tmp/vayu_pwm.fifo
- *   - merged stdout/stderr log
+ * Single-process architecture: this widget owns
+ *   - a vsim_iface_t (the shared firmware<->host channel)
+ *   - a vsim::SimWorker thread (physics + sensors)
+ *   - a vsim::SimRendererWidget (OpenGL view of the airframe)
+ * and calls vayu_sitl_start(iface) to boot the firmware in-process.
+ * There is no /tmp/ FIFO round-trip; there are no Python bridges;
+ * Gazebo is gone. RC still reads from the sim_bridge MCU on
+ * /dev/ttyUSB0 (or env VAYU_UART_RC_PATH), unchanged.
+ *
+ * vayu_sitl_start can be called at most ONCE per Navigator process
+ * (see host_lifecycle.c comments); the Stop button pauses the
+ * physics + IMU pipeline but cannot reset the firmware state. A
+ * Navigator restart fully resets.
  */
 class SimulatorWidget : public QWidget {
   Q_OBJECT
@@ -34,58 +45,55 @@ class SimulatorWidget : public QWidget {
  signals:
   void backToHomeRequested();
 
- private slots:
-  void onLaunchAll();
-  void onStopAll();
-  void onPwmReadable();
+  /* Mirror of SerialManager::dataReceived. Emitted on the GUI thread
+   * whenever the in-process firmware writes to UART2 - DroneProtocol
+   * packets, vayu_log() text, telemetry. MainWindow connects this to
+   * the same DroneProtocol parser the real serial path feeds, so the
+   * existing telemetry panels light up without further plumbing. */
+  void dataReceived(const QByteArray& bytes);
+
+ public slots:
+  // Called from the C UART2 callback via QMetaObject::invokeMethod
+  // (Qt::QueuedConnection) so the firmware thread crossing the
+  // boundary is safe. Public so the static C trampoline can find it
+  // by name through the meta-object system.
+  void onUartBytes(QByteArray bytes);
 
  private:
-  struct Proc {
-    QString name;
-    QString tag;            // short tag for log lines
-    QString defaultCmd;
-    QPushButton* startBtn = nullptr;
-    QPushButton* stopBtn = nullptr;
-    QLabel* statusLabel = nullptr;
-    QLineEdit* commandEdit = nullptr;
-    QProcess* process = nullptr;
-  };
-
   void buildUi();
-  void buildProcessRow(QGridLayout* grid, int row, Proc* p);
-  void connectProcessSignals(Proc* p);
-
-  void startProcess(Proc* p);
-  void stopProcess(Proc* p);
-  void updateStatusLabel(Proc* p);
   void appendLog(const QString& tag, const QString& text);
 
-  void openPwmFifo();
-  void closePwmFifo();
-  void parsePwmBuffer();
+  void startInAppSim();
+  void stopInAppSim();
 
-  QString workingDir() const;
+  void openNewLogFile();
+  void closeLogFile();
 
-  // ---- repo root + persistence ----
+  // ---- repo root (kept for legacy widget consistency) ----
   QString m_repoRoot;
   QLineEdit* m_repoRootEdit = nullptr;
 
-  // ---- passthrough toggle (env VAYU_SITL_PASSTHROUGH=1 prepended to SITL) ----
-  QCheckBox* m_passthroughCheck = nullptr;
+  // ---- per-run raw UART2 byte log ----
+  QString m_logDir;                                  // editable in UI
+  QLineEdit* m_logDirEdit = nullptr;
+  QLabel* m_logPathLabel = nullptr;                  // shows current run's file
+  std::unique_ptr<QFile> m_runLog;                   // open while sim running
+  qint64 m_runLogBytes = 0;
 
-  // ---- four managed processes ----
-  Proc m_gz;
-  Proc m_imuBridge;
-  Proc m_pwmBridge;
-  Proc m_sitl;
+  // ---- shared iface + in-app sim ----
+  vsim_iface_t m_iface{};
+  bool m_ifaceInit = false;
+  bool m_sitlStarted = false;
+  vsim::SimWorker* m_sim = nullptr;
+  vsim::SimRendererWidget* m_renderer = nullptr;
+  QPushButton* m_simStartBtn = nullptr;
+  QPushButton* m_simStopBtn = nullptr;
+  QLabel* m_simStatusLabel = nullptr;
+  QLabel* m_simPoseLabel = nullptr;
 
-  // ---- PWM monitor ----
+  // ---- live readouts derived from snapshot ----
   QProgressBar* m_motorBars[4] = {nullptr, nullptr, nullptr, nullptr};
   QLabel* m_motorLabels[4] = {nullptr, nullptr, nullptr, nullptr};
-  QLabel* m_pwmStatusLabel = nullptr;
-  int m_pwmFd = -1;
-  QSocketNotifier* m_pwmNotifier = nullptr;
-  QByteArray m_pwmBuf;
 
   // ---- log ----
   QPlainTextEdit* m_log = nullptr;

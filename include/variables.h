@@ -72,6 +72,30 @@
 #define PID_RC_DEADBAND 10     // in PWM
 #define PID_RC2ANGLE_RATE_MODE NORMALIZED_RC2ANGLE_RATE_CUBIC
 #define MIN_ARMED_THROTTLE 0.1f
+/* Per-motor "alive" thrust floor applied while ARMED. Below this
+ * level the motors are held at the floor instead of going to zero.
+ * Matches what a real ESC does when MOTOR_STOP=false (props keep
+ * spinning slowly so the next throttle command doesn't have to
+ * cold-start the motor), and -- in SITL -- gives the Gazebo bridge
+ * a non-zero motor signal to detect "armed and alive" vs the
+ * disarmed motors=0 condition (the bridge gravity-cancellation
+ * floor keys off this). */
+#define MOTOR_IDLE_FLOOR 0.005f
+/* Below this throttle the rate-PID outputs are ramped from 0 (at
+ * MIN_ARMED_THROTTLE) to full authority. The point is to keep the PID
+ * silent while the drone is still ground-bound: an attitude correction
+ * the airframe can't physically execute would otherwise just torque
+ * the ground reaction, the mahony filter would track the resulting
+ * wobble, and the loop diverges before the pilot ever lifts off. The
+ * SITL X3 hovers around ~0.55 throttle, so the gate sits a bit below
+ * that; on real vayu hardware TWR is high and hover is closer to 0.5,
+ * but we also want the SAFE behavior of "PID quiet until you commit
+ * to taking off". */
+#ifdef VAYU_SIM
+#define PID_FULL_AUTHORITY_THROTTLE 0.45f
+#else
+#define PID_FULL_AUTHORITY_THROTTLE 0.30f
+#endif
 // Gains - VAYU_SIM overrides ship the SITL build with gentler
 // gains because the X3 in Gazebo has lower inertia
 // (Ixx=0.025, Iyy=0.009) than the real vayu drone and the controller

@@ -45,6 +45,12 @@ set(GCS_SOURCES
     src/ui/widgets/Drone3DWidget.cpp
     src/ui/widgets/ControlLoopPlot.cpp
     src/ui/widgets/SimulatorWidget.cpp
+    src/vsim/PhysicsCore.cpp
+    src/vsim/MotorModel.cpp
+    src/vsim/SensorModels.cpp
+    src/vsim/SimController.cpp
+    src/vsim/SimWorker.cpp
+    src/vsim/SimRendererWidget.cpp
 )
 
 set(GCS_HEADERS
@@ -70,6 +76,13 @@ set(GCS_HEADERS
     src/ui/widgets/Drone3DWidget.h
     src/ui/widgets/ControlLoopPlot.h
     src/ui/widgets/SimulatorWidget.h
+    src/vsim/VsimTypes.h
+    src/vsim/PhysicsCore.h
+    src/vsim/MotorModel.h
+    src/vsim/SensorModels.h
+    src/vsim/SimController.h
+    src/vsim/SimWorker.h
+    src/vsim/SimRendererWidget.h
 )
 
 set(GCS_RESOURCES
@@ -90,8 +103,9 @@ target_include_directories(Navigator PRIVATE
     src/core 
     src/comm 
     src/protocol 
-    src/ui/main 
+    src/ui/main
     src/ui/widgets
+    src/vsim
 )
 
 target_link_libraries(Navigator PRIVATE
@@ -101,6 +115,24 @@ target_link_libraries(Navigator PRIVATE
     Qt6::OpenGL
     Qt6::OpenGLWidgets
 )
+
+# -------------------------------------------------------
+# vayu_sitl_core: the firmware-side SITL built as a static library.
+# Navigator links it in directly so the simulator + firmware live in
+# one process (the legacy /tmp/vayu_pwm.fifo + /tmp/vayu_imu.fifo
+# round-trip is gone for in-app simulation).
+# -------------------------------------------------------
+set(VAYU_SITL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../tools/sim_host")
+if(EXISTS "${VAYU_SITL_DIR}/CMakeLists.txt")
+    add_subdirectory("${VAYU_SITL_DIR}"
+                     "${CMAKE_BINARY_DIR}/vayu_sitl"
+                     EXCLUDE_FROM_ALL)
+    target_link_libraries(Navigator PRIVATE vayu_sitl_core)
+    target_compile_definitions(Navigator PRIVATE NAVIGATOR_HAS_SITL=1)
+    message(STATUS "Navigator: linking against vayu_sitl_core")
+else()
+    message(WARNING "Navigator: ${VAYU_SITL_DIR} not found; SITL features disabled")
+endif()
 
 # Platform-specific settings
 if(APPLE)

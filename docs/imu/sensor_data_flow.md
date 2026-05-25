@@ -75,7 +75,7 @@ sequenceDiagram
     I2C->>I2C: take(_i2c_sema)
     I2C->>DMA: start I2C + DMA
 
-    Note over DMA: I2C transfer ~0.75 ms ✅ (measured ~64k cycles)
+    Note over DMA: I2C transfer ~0.75 ms  (measured ~64k cycles)
 
     DMA-->>ISR: DMA complete IRQ
 

@@ -113,10 +113,14 @@
       <uri>
         https://fuel.gazebosim.org/1.0/OpenRobotics/models/X3 UAV Config 1
       </uri>
-      <!-- Spawn well above the ground so the drone hangs in mid-air at
-           t=0; the bridge's wrench drops it under gravity instead of
-           sitting on the rotor collision shapes. -->
-      <pose>0 0 0.5 0 0 0</pose>
+      <!-- Spawn elevated so the landing-skid model below has room to
+           hang under the airframe and settle on the ground first. The
+           skid is wider than the rotor footprint, so when the drone
+           is at rest the contact is a stable 0.7 m square instead of
+           four narrow points on the rotor housings (the X3 ships
+           without landing gear and tips over from any disturbance on
+           the bare rotor cylinders). -->
+      <pose>0 0 0.6 0 0 0</pose>
       <plugin
         filename="gz-sim-multicopter-motor-model-system"
         name="gz::sim::systems::MulticopterMotorModel">
@@ -128,11 +132,11 @@
         <timeConstantDown>0.025</timeConstantDown>
         <maxRotVelocity>1200.0</maxRotVelocity>
         <motorConstant>0.0</motorConstant>
-        <momentConstant>0.016</momentConstant>
+        <momentConstant>0.0</momentConstant>
         <commandSubTopic>gazebo/command/motor_speed</commandSubTopic>
         <actuator_number>0</actuator_number>
-        <rotorDragCoefficient>8.06428e-05</rotorDragCoefficient>
-        <rollingMomentCoefficient>1e-06</rollingMomentCoefficient>
+        <rotorDragCoefficient>0.0</rotorDragCoefficient>
+        <rollingMomentCoefficient>0.0</rollingMomentCoefficient>
         <motorSpeedPubTopic>motor_speed/0</motorSpeedPubTopic>
         <rotorVelocitySlowdownSim>10</rotorVelocitySlowdownSim>
         <motorType>velocity</motorType>
@@ -148,11 +152,11 @@
         <timeConstantDown>0.025</timeConstantDown>
         <maxRotVelocity>1200.0</maxRotVelocity>
         <motorConstant>0.0</motorConstant>
-        <momentConstant>0.016</momentConstant>
+        <momentConstant>0.0</momentConstant>
         <commandSubTopic>gazebo/command/motor_speed</commandSubTopic>
         <actuator_number>1</actuator_number>
-        <rotorDragCoefficient>8.06428e-05</rotorDragCoefficient>
-        <rollingMomentCoefficient>1e-06</rollingMomentCoefficient>
+        <rotorDragCoefficient>0.0</rotorDragCoefficient>
+        <rollingMomentCoefficient>0.0</rollingMomentCoefficient>
         <motorSpeedPubTopic>motor_speed/1</motorSpeedPubTopic>
         <rotorVelocitySlowdownSim>10</rotorVelocitySlowdownSim>
         <motorType>velocity</motorType>
@@ -168,11 +172,11 @@
         <timeConstantDown>0.025</timeConstantDown>
         <maxRotVelocity>1200.0</maxRotVelocity>
         <motorConstant>0.0</motorConstant>
-        <momentConstant>0.016</momentConstant>
+        <momentConstant>0.0</momentConstant>
         <commandSubTopic>gazebo/command/motor_speed</commandSubTopic>
         <actuator_number>2</actuator_number>
-        <rotorDragCoefficient>8.06428e-05</rotorDragCoefficient>
-        <rollingMomentCoefficient>1e-06</rollingMomentCoefficient>
+        <rotorDragCoefficient>0.0</rotorDragCoefficient>
+        <rollingMomentCoefficient>0.0</rollingMomentCoefficient>
         <motorSpeedPubTopic>motor_speed/2</motorSpeedPubTopic>
         <rotorVelocitySlowdownSim>10</rotorVelocitySlowdownSim>
         <motorType>velocity</motorType>
@@ -188,15 +192,82 @@
         <timeConstantDown>0.025</timeConstantDown>
         <maxRotVelocity>1200.0</maxRotVelocity>
         <motorConstant>0.0</motorConstant>
-        <momentConstant>0.016</momentConstant>
+        <momentConstant>0.0</momentConstant>
         <commandSubTopic>gazebo/command/motor_speed</commandSubTopic>
         <actuator_number>3</actuator_number>
-        <rotorDragCoefficient>8.06428e-05</rotorDragCoefficient>
-        <rollingMomentCoefficient>1e-06</rollingMomentCoefficient>
+        <rotorDragCoefficient>0.0</rotorDragCoefficient>
+        <rollingMomentCoefficient>0.0</rollingMomentCoefficient>
         <motorSpeedPubTopic>motor_speed/3</motorSpeedPubTopic>
         <rotorVelocitySlowdownSim>10</rotorVelocitySlowdownSim>
         <motorType>velocity</motorType>
       </plugin>
     </include>
+
+    <!-- Landing skid: a flat plate 0.7 m square slung below the X3's
+         base_link. The skid is wider than the rotor footprint (~0.26 m
+         x 0.44 m), so the four rotor housings never form the ground
+         contact - the flat skid does, on its full perimeter. Without
+         this, the X3 sits on four small rotor cylinders arranged in a
+         narrow rectangle: a 4-point contact whose CG is high relative
+         to its base, statically unstable, and any small motor-mix
+         asymmetry or throttle change tips it (see telemetry around
+         idx 2010-2030 in /tmp/vayu_uart2.log from the May 25 run).
+
+         Mass is small (0.05 kg) so the skid does not perturb the X3's
+         inertia tensor that the PID gains are tuned for.
+
+         Welded to X3::base_link by the DetachableJoint plugin defined
+         on the skid model itself - see plugin block below. -->
+    <model name="vayu_skid">
+      <pose>0 0 0.40 0 0 0</pose>
+      <link name="skid">
+        <inertial>
+          <mass>0.05</mass>
+          <inertia>
+            <ixx>0.002</ixx><iyy>0.002</iyy><izz>0.004</izz>
+            <ixy>0</ixy><ixz>0</ixz><iyz>0</iyz>
+          </inertia>
+        </inertial>
+        <collision name="skid_plate">
+          <geometry>
+            <box><size>0.70 0.70 0.02</size></box>
+          </geometry>
+          <surface>
+            <friction>
+              <ode>
+                <mu>0.8</mu>
+                <mu2>0.8</mu2>
+              </ode>
+            </friction>
+          </surface>
+        </collision>
+        <visual name="skid_plate_vis">
+          <geometry>
+            <box><size>0.70 0.70 0.02</size></box>
+          </geometry>
+          <material>
+            <ambient>0.15 0.15 0.15 1</ambient>
+            <diffuse>0.15 0.15 0.15 1</diffuse>
+            <specular>0.2 0.2 0.2 1</specular>
+          </material>
+        </visual>
+      </link>
+      <!-- DetachableJoint welds this skid to X3::base_link at runtime.
+           SDF's world-level <joint> can't reference links inside an
+           <include>'d Fuel model (the included model's frame names
+           aren't visible to the world-level frame graph), so we use
+           the DetachableJoint system plugin instead - it sets up the
+           same fixed joint at simulation start time, after both
+           models are spawned. The detach topic is unused (we never
+           call it); the joint stays welded for the entire run. -->
+      <plugin
+          filename="gz-sim-detachable-joint-system"
+          name="gz::sim::systems::DetachableJoint">
+        <parent_link>skid</parent_link>
+        <child_model>X3</child_model>
+        <child_link>base_link</child_link>
+        <topic>/vayu/skid/detach</topic>
+      </plugin>
+    </model>
   </world>
 </sdf>
