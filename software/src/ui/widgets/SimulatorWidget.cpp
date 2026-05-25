@@ -1,51 +1,45 @@
 #include "SimulatorWidget.h"
 
-#include <QApplication>
+#include <QDateTime>
+#include <QDesktopServices>
 #include <QDir>
 #include <QFileInfo>
-#include <QGridLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
-#include <QProcessEnvironment>
+#include <QMetaObject>
 #include <QScrollBar>
 #include <QSettings>
 #include <QSplitter>
-#include <QTextCursor>
+#include <QUrl>
 #include <QVBoxLayout>
-#include <errno.h>
-#include <fcntl.h>
-#include <sys/stat.h>
-#include <unistd.h>
 
 namespace {
 
-constexpr const char* kPwmFifoPath = "/tmp/vayu_pwm.fifo";
 constexpr const char* kRepoRootSettingKey = "simulator/repoRoot";
-constexpr const char* kPassthroughSettingKey = "simulator/passthrough";
-constexpr const char* kCommandsGroupPrefix = "simulator/cmds/";
-
-// Default commands, relative to the repo root.
-// Gazebo GUI is forced onto the AMD Vega 6 via DRI_PRIME=0 and Mesa, so it
-// never touches the NVIDIA driver. The hybrid Optimus setup on this host has
-// crashed Gazebo's GUI before when it tried to use the NVIDIA path; rendering
-// on the integrated GPU is slower but stable. If you want to go back to
-// headless, edit the field to: gz sim -s -r --headless-rendering ...
-constexpr const char* kDefaultGzCmd =
-    "env DRI_PRIME=0 __GLX_VENDOR_LIBRARY_NAME=mesa "
-    "gz sim -r tools/sim_gazebo/worlds/vayu_quad.sdf";
-constexpr const char* kDefaultImuBridgeCmd =
-    "python3 tools/sim_gazebo/gz_imu_to_vayu.py";
-constexpr const char* kDefaultPwmBridgeCmd =
-    "python3 tools/sim_gazebo/vayu_pwm_to_gz.py";
-constexpr const char* kDefaultSitlCmd = "./build_sitl/vayu_sitl";
+constexpr const char* kLogDirSettingKey   = "simulator/logDir";
 
 QString defaultRepoRoot() {
-  // Honor VAYU_REPO if set; otherwise default to ~/Documents/Drone/vayu
-  // which matches the user's actual layout. The path is editable + saved
-  // via QSettings, so this default only matters on first launch.
   QByteArray env = qgetenv("VAYU_REPO");
   if (!env.isEmpty()) return QString::fromUtf8(env);
   return QDir::homePath() + "/Documents/Drone/vayu";
+}
+
+QString defaultLogDir() {
+  return defaultRepoRoot() + "/logs";
+}
+
+// C trampoline registered with vsim_iface_set_uart2_callback. Runs
+// on whichever firmware thread is producing the bytes (telemetry
+// task, flush task, ...). Marshals onto the widget's thread via
+// queued invocation -- Qt does the heavy lifting; we don't share any
+// Qt object across threads here, the QByteArray is copied across the
+// connection.
+void uart2_to_widget_trampoline(void* user, const uint8_t* data, size_t n) {
+  auto* w = static_cast<SimulatorWidget*>(user);
+  if (!w || n == 0) return;
+  QByteArray ba(reinterpret_cast<const char*>(data), static_cast<int>(n));
+  QMetaObject::invokeMethod(w, "onUartBytes", Qt::QueuedConnection,
+                            Q_ARG(QByteArray, ba));
 }
 
 }  // namespace
@@ -56,40 +50,38 @@ SimulatorWidget::SimulatorWidget(QWidget* parent) : QWidget(parent) {
   QSettings settings;
   m_repoRoot =
       settings.value(kRepoRootSettingKey, defaultRepoRoot()).toString();
+  m_logDir =
+      settings.value(kLogDirSettingKey, defaultLogDir()).toString();
 
-  m_gz.name = "Gazebo (headless)";
-  m_gz.tag = "gz";
-  m_gz.defaultCmd = kDefaultGzCmd;
+  // Initialize the shared iface up front. The pthread mutex/cond is
+  // safe to leave constructed for the lifetime of Navigator; the
+  // SimWorker + firmware threads both reference it.
+  vsim_iface_init(&m_iface);
+  m_ifaceInit = true;
 
-  m_imuBridge.name = "IMU bridge (gz → vayu)";
-  m_imuBridge.tag = "imu";
-  m_imuBridge.defaultCmd = kDefaultImuBridgeCmd;
-
-  m_pwmBridge.name = "PWM bridge (vayu → gz)";
-  m_pwmBridge.tag = "pwm";
-  m_pwmBridge.defaultCmd = kDefaultPwmBridgeCmd;
-
-  m_sitl.name = "vayu_sitl";
-  m_sitl.tag = "sitl";
-  m_sitl.defaultCmd = kDefaultSitlCmd;
+  // Route firmware UART2 bytes through our queued slot. Once
+  // vayu_sitl_start spins up the telemetry chain, packets begin
+  // flowing into onUartBytes() on the GUI thread, which re-emits
+  // them as dataReceived(). MainWindow connects that to its existing
+  // DroneProtocol parser so the regular telemetry / log panels light
+  // up automatically.
+  vsim_iface_set_uart2_callback(&m_iface, &uart2_to_widget_trampoline, this);
 
   buildUi();
-  openPwmFifo();
 }
 
 SimulatorWidget::~SimulatorWidget() {
-  for (Proc* p : {&m_gz, &m_imuBridge, &m_pwmBridge, &m_sitl}) {
-    if (p->process &&
-        p->process->state() != QProcess::NotRunning) {
-      p->process->terminate();
-      if (!p->process->waitForFinished(1500)) p->process->kill();
-    }
+  stopInAppSim();
+  closeLogFile();    // belt-and-suspenders: stopInAppSim already does this
+  // We do NOT call vayu_sitl_stop()'s teardown completely; the firmware
+  // threads keep running until the process exits. See host_lifecycle.c.
+  if (m_ifaceInit) {
+    vsim_iface_destroy(&m_iface);
   }
-  closePwmFifo();
 }
 
 // ----------------------------------------------------------------------------
-// UI construction
+// UI
 // ----------------------------------------------------------------------------
 
 void SimulatorWidget::buildUi() {
@@ -97,416 +89,289 @@ void SimulatorWidget::buildUi() {
   root->setContentsMargins(16, 16, 16, 16);
   root->setSpacing(12);
 
-  // ---- Header: title + back button ----
-  auto* headerRow = new QHBoxLayout();
-  auto* title = new QLabel("<h2>Simulator</h2>", this);
-  title->setStyleSheet("color: #61AFEF;");
-  headerRow->addWidget(title);
-  headerRow->addStretch();
+  // ---- Header ----
+  {
+    auto* header = new QHBoxLayout();
+    auto* title = new QLabel(tr("Simulator (in-app)"), this);
+    title->setStyleSheet(
+        "color: #61AFEF; font-size: 18px; font-weight: bold;");
+    header->addWidget(title);
+    header->addStretch();
+    auto* backBtn = new QPushButton(tr("Back"), this);
+    backBtn->setStyleSheet(
+        "QPushButton { background: #3E4452; color: #ABB2BF; padding: 6px 12px;"
+        " border-radius: 4px; }"
+        "QPushButton:hover { background: #4F5662; }");
+    connect(backBtn, &QPushButton::clicked, this,
+            [this] { emit backToHomeRequested(); });
+    header->addWidget(backBtn);
+    root->addLayout(header);
+  }
 
-  auto* backBtn = new QPushButton("← Home", this);
-  backBtn->setStyleSheet(
-      "QPushButton { background: #2C313A; color: #ABB2BF; border: 1px solid "
-      "#3E4452; padding: 4px 14px; border-radius: 4px; font-weight: bold; }"
-      "QPushButton:hover { background: #3E4452; }");
-  connect(backBtn, &QPushButton::clicked, this,
-          &SimulatorWidget::backToHomeRequested);
-  headerRow->addWidget(backBtn);
-  root->addLayout(headerRow);
-
-  // ---- Repo root row ----
-  auto* repoRow = new QHBoxLayout();
-  repoRow->addWidget(new QLabel("Repo root:", this));
-  m_repoRootEdit = new QLineEdit(m_repoRoot, this);
-  m_repoRootEdit->setStyleSheet(
-      "background: #21252B; color: #ABB2BF; border: 1px solid #3E4452; "
-      "padding: 4px; font-family: monospace;");
-  connect(m_repoRootEdit, &QLineEdit::editingFinished, this, [this]() {
-    m_repoRoot = m_repoRootEdit->text();
-    QSettings().setValue(kRepoRootSettingKey, m_repoRoot);
-  });
-  repoRow->addWidget(m_repoRootEdit, 1);
-  root->addLayout(repoRow);
-
-  // ---- Passthrough toggle ----
-  // Prepends `env VAYU_SITL_PASSTHROUGH=1` to the vayu_sitl command at
-  // launch, which makes the SITL binary skip the cascaded PID and write
-  // throttle directly to all four motors. Useful when the rate-PID
-  // integrator winds up against the drone's ground-friction-locked
-  // attitude and starves one motor (a classic "PID windup on the ground"
-  // pattern that prevents liftoff).
-  auto* ptRow = new QHBoxLayout();
-  m_passthroughCheck = new QCheckBox(
-      "Passthrough mode (bypass cascaded PID — throttle → all 4 motors)",
-      this);
-  m_passthroughCheck->setChecked(
-      QSettings().value(kPassthroughSettingKey, false).toBool());
-  m_passthroughCheck->setStyleSheet("color: #ABB2BF; padding: 2px;");
-  connect(m_passthroughCheck, &QCheckBox::toggled, this, [](bool on) {
-    QSettings().setValue(kPassthroughSettingKey, on);
-  });
-  ptRow->addWidget(m_passthroughCheck);
-  ptRow->addStretch();
-  root->addLayout(ptRow);
-
-  // ---- Processes group ----
-  auto* procGroup = new QGroupBox("Processes", this);
-  auto* procV = new QVBoxLayout(procGroup);
-
-  auto* grid = new QGridLayout();
-  grid->setHorizontalSpacing(8);
-  grid->setVerticalSpacing(6);
-  // Header row
-  grid->addWidget(new QLabel("<b>Process</b>", this), 0, 0);
-  grid->addWidget(new QLabel("<b>Status</b>", this), 0, 1);
-  grid->addWidget(new QLabel("<b>Command (cwd = repo root)</b>", this), 0, 2);
-  grid->addWidget(new QLabel("", this), 0, 3);
-  grid->addWidget(new QLabel("", this), 0, 4);
-  grid->setColumnStretch(2, 1);
-
-  buildProcessRow(grid, 1, &m_gz);
-  buildProcessRow(grid, 2, &m_imuBridge);
-  buildProcessRow(grid, 3, &m_pwmBridge);
-  buildProcessRow(grid, 4, &m_sitl);
-  procV->addLayout(grid);
-
-  auto* allRow = new QHBoxLayout();
-  auto* launchAllBtn = new QPushButton("⏵ Launch All", this);
-  launchAllBtn->setStyleSheet(
-      "QPushButton { background: #2BBC8A; color: #21252B; border: none; "
-      "padding: 6px 18px; border-radius: 4px; font-weight: bold; }"
-      "QPushButton:hover { background: #3FD49F; }");
-  connect(launchAllBtn, &QPushButton::clicked, this,
-          &SimulatorWidget::onLaunchAll);
-
-  auto* stopAllBtn = new QPushButton("⏹ Stop All", this);
-  stopAllBtn->setStyleSheet(
-      "QPushButton { background: #E06C75; color: #21252B; border: none; "
-      "padding: 6px 18px; border-radius: 4px; font-weight: bold; }"
-      "QPushButton:hover { background: #EF8088; }");
-  connect(stopAllBtn, &QPushButton::clicked, this,
-          &SimulatorWidget::onStopAll);
-
-  allRow->addWidget(launchAllBtn);
-  allRow->addWidget(stopAllBtn);
-  allRow->addStretch();
-  procV->addLayout(allRow);
-
-  root->addWidget(procGroup);
-
-  // ---- PWM monitor + log split ----
-  auto* splitter = new QSplitter(Qt::Horizontal, this);
-
-  // PWM monitor group
-  auto* pwmGroup = new QGroupBox("PWM monitor (/tmp/vayu_pwm.fifo)", splitter);
-  auto* pwmV = new QVBoxLayout(pwmGroup);
-  m_pwmStatusLabel = new QLabel("(waiting for SITL output…)", pwmGroup);
-  m_pwmStatusLabel->setStyleSheet("color: #ABB2BF; font-style: italic;");
-  pwmV->addWidget(m_pwmStatusLabel);
-
-  for (int i = 0; i < 4; ++i) {
+  // ---- Repo-root row + Launch / Stop ----
+  {
     auto* row = new QHBoxLayout();
-    auto* nameLabel = new QLabel(QString("M%1").arg(i), pwmGroup);
-    nameLabel->setMinimumWidth(28);
-    nameLabel->setStyleSheet("color: #ABB2BF; font-weight: bold;");
-    row->addWidget(nameLabel);
+    row->addWidget(new QLabel(tr("Repo root:"), this));
+    m_repoRootEdit = new QLineEdit(m_repoRoot, this);
+    m_repoRootEdit->setStyleSheet(
+        "QLineEdit { background: #21252B; color: #DCDFE4; border: 1px solid"
+        " #3E4452; border-radius: 3px; padding: 4px; }");
+    connect(m_repoRootEdit, &QLineEdit::editingFinished, this, [this] {
+      m_repoRoot = m_repoRootEdit->text();
+      QSettings().setValue(kRepoRootSettingKey, m_repoRoot);
+    });
+    row->addWidget(m_repoRootEdit, 1);
 
-    m_motorBars[i] = new QProgressBar(pwmGroup);
-    m_motorBars[i]->setRange(0, 1000);
-    m_motorBars[i]->setValue(0);
-    m_motorBars[i]->setTextVisible(false);
-    m_motorBars[i]->setStyleSheet(
-        "QProgressBar { background: #21252B; border: 1px solid #3E4452; "
-        "border-radius: 3px; height: 14px; }"
-        "QProgressBar::chunk { background: #61AFEF; border-radius: 2px; }");
-    row->addWidget(m_motorBars[i], 1);
+    auto* launchBtn = new QPushButton(tr("Launch"), this);
+    launchBtn->setStyleSheet(
+        "QPushButton { background: #98C379; color: #21252B; font-weight: bold;"
+        " padding: 6px 14px; border-radius: 4px; }"
+        "QPushButton:hover { background: #B5D89A; }");
+    connect(launchBtn, &QPushButton::clicked, this,
+            &SimulatorWidget::startInAppSim);
+    row->addWidget(launchBtn);
 
-    m_motorLabels[i] = new QLabel("—", pwmGroup);
-    m_motorLabels[i]->setMinimumWidth(70);
-    m_motorLabels[i]->setStyleSheet(
-        "color: #61AFEF; font-family: monospace; font-weight: bold;");
-    row->addWidget(m_motorLabels[i]);
-
-    pwmV->addLayout(row);
+    auto* stopBtn = new QPushButton(tr("Stop"), this);
+    stopBtn->setStyleSheet(
+        "QPushButton { background: #E06C75; color: #21252B; font-weight: bold;"
+        " padding: 6px 14px; border-radius: 4px; }"
+        "QPushButton:hover { background: #EA8089; }");
+    connect(stopBtn, &QPushButton::clicked, this,
+            &SimulatorWidget::stopInAppSim);
+    row->addWidget(stopBtn);
+    root->addLayout(row);
   }
-  pwmV->addStretch();
-  splitter->addWidget(pwmGroup);
 
-  // Log group
-  auto* logGroup = new QGroupBox("Process log", splitter);
-  auto* logV = new QVBoxLayout(logGroup);
-  m_log = new QPlainTextEdit(logGroup);
-  m_log->setReadOnly(true);
-  m_log->setMaximumBlockCount(2000);
-  m_log->setStyleSheet(
-      "background: #1A1D27; color: #ABB2BF; border: 1px solid #2A3347; "
-      "font-family: monospace; font-size: 11px;");
-  logV->addWidget(m_log);
-  splitter->addWidget(logGroup);
-  splitter->setSizes({240, 600});
+  // ---- Log dir row + current-file display ----
+  {
+    auto* row = new QHBoxLayout();
+    row->addWidget(new QLabel(tr("Log dir:"), this));
+    m_logDirEdit = new QLineEdit(m_logDir, this);
+    m_logDirEdit->setStyleSheet(
+        "QLineEdit { background: #21252B; color: #DCDFE4; border: 1px solid"
+        " #3E4452; border-radius: 3px; padding: 4px; }");
+    connect(m_logDirEdit, &QLineEdit::editingFinished, this, [this] {
+      m_logDir = m_logDirEdit->text();
+      QSettings().setValue(kLogDirSettingKey, m_logDir);
+    });
+    row->addWidget(m_logDirEdit, 1);
 
+    auto* openBtn = new QPushButton(tr("Open dir"), this);
+    openBtn->setStyleSheet(
+        "QPushButton { background: #3E4452; color: #DCDFE4; padding: 6px 12px;"
+        " border-radius: 4px; }"
+        "QPushButton:hover { background: #4F5662; }");
+    connect(openBtn, &QPushButton::clicked, this, [this] {
+      QDesktopServices::openUrl(QUrl::fromLocalFile(m_logDir));
+    });
+    row->addWidget(openBtn);
+    root->addLayout(row);
+
+    m_logPathLabel = new QLabel(tr("Current log: (none)"), this);
+    m_logPathLabel->setStyleSheet(
+        "color: #ABB2BF; font-family: monospace; font-size: 11px;");
+    m_logPathLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    root->addWidget(m_logPathLabel);
+  }
+
+  // ---- Main split: renderer | right column ----
+  auto* splitter = new QSplitter(Qt::Horizontal, this);
   root->addWidget(splitter, 1);
-}
 
-void SimulatorWidget::buildProcessRow(QGridLayout* grid, int row, Proc* p) {
-  auto* nameLbl = new QLabel(p->name, this);
-  nameLbl->setStyleSheet("color: #ABB2BF;");
-  grid->addWidget(nameLbl, row, 0);
+  m_renderer = new vsim::SimRendererWidget(splitter);
+  splitter->addWidget(m_renderer);
 
-  p->statusLabel = new QLabel("● Stopped", this);
-  p->statusLabel->setStyleSheet("color: #E06C75; font-weight: bold;");
-  grid->addWidget(p->statusLabel, row, 1);
+  auto* right = new QWidget(splitter);
+  splitter->addWidget(right);
+  auto* rcol = new QVBoxLayout(right);
+  rcol->setContentsMargins(0, 0, 0, 0);
+  rcol->setSpacing(10);
 
-  // Restore command from settings (per-tag), else default.
-  QSettings settings;
-  QString savedCmd =
-      settings.value(QString(kCommandsGroupPrefix) + p->tag, p->defaultCmd)
-          .toString();
-  p->commandEdit = new QLineEdit(savedCmd, this);
-  p->commandEdit->setStyleSheet(
-      "background: #21252B; color: #ABB2BF; border: 1px solid #3E4452; "
-      "padding: 4px; font-family: monospace; font-size: 11px;");
-  connect(p->commandEdit, &QLineEdit::editingFinished, this, [this, p]() {
-    QSettings().setValue(QString(kCommandsGroupPrefix) + p->tag,
-                         p->commandEdit->text());
-  });
-  grid->addWidget(p->commandEdit, row, 2);
+  // -- Sim status group --
+  {
+    auto* g = new QGroupBox(tr("In-app sim"), right);
+    auto* gv = new QVBoxLayout(g);
+    m_simStatusLabel = new QLabel(tr("● Stopped"), g);
+    m_simStatusLabel->setStyleSheet("color: #ABB2BF;");
+    gv->addWidget(m_simStatusLabel);
 
-  p->startBtn = new QPushButton("Start", this);
-  p->startBtn->setStyleSheet(
-      "QPushButton { background: #2C313A; color: #ABB2BF; border: 1px solid "
-      "#3E4452; padding: 4px 12px; border-radius: 3px; }"
-      "QPushButton:hover { background: #3E4452; }");
-  connect(p->startBtn, &QPushButton::clicked, this,
-          [this, p]() { startProcess(p); });
-  grid->addWidget(p->startBtn, row, 3);
+    auto* hb = new QHBoxLayout();
+    m_simStartBtn = new QPushButton(tr("Start"), g);
+    m_simStartBtn->setStyleSheet(
+        "QPushButton { background: #61AFEF; color: #21252B; font-weight: bold;"
+        " padding: 6px 12px; border-radius: 4px; }"
+        "QPushButton:hover { background: #80BFF1; }");
+    connect(m_simStartBtn, &QPushButton::clicked, this,
+            &SimulatorWidget::startInAppSim);
+    hb->addWidget(m_simStartBtn);
+    m_simStopBtn = new QPushButton(tr("Stop"), g);
+    m_simStopBtn->setEnabled(false);
+    m_simStopBtn->setStyleSheet(
+        "QPushButton { background: #3E4452; color: #DCDFE4; padding: 6px 12px;"
+        " border-radius: 4px; }"
+        "QPushButton:hover { background: #4F5662; }");
+    connect(m_simStopBtn, &QPushButton::clicked, this,
+            &SimulatorWidget::stopInAppSim);
+    hb->addWidget(m_simStopBtn);
+    gv->addLayout(hb);
 
-  p->stopBtn = new QPushButton("Stop", this);
-  p->stopBtn->setStyleSheet(p->startBtn->styleSheet());
-  p->stopBtn->setEnabled(false);
-  connect(p->stopBtn, &QPushButton::clicked, this,
-          [this, p]() { stopProcess(p); });
-  grid->addWidget(p->stopBtn, row, 4);
+    m_simPoseLabel = new QLabel(tr("pose: -"), g);
+    m_simPoseLabel->setStyleSheet(
+        "color: #61AFEF; font-family: monospace;");
+    gv->addWidget(m_simPoseLabel);
+    rcol->addWidget(g);
+  }
+
+  // -- Log --
+  {
+    auto* g = new QGroupBox(tr("Log"), right);
+    auto* gv = new QVBoxLayout(g);
+    m_log = new QPlainTextEdit(g);
+    m_log->setReadOnly(true);
+    m_log->setMaximumBlockCount(2000);
+    m_log->setStyleSheet(
+        "QPlainTextEdit { background: #21252B; color: #DCDFE4;"
+        " font-family: monospace; font-size: 11px; border: 1px solid #3E4452;"
+        " border-radius: 3px; }");
+    gv->addWidget(m_log);
+    rcol->addWidget(g, 1);
+  }
+
+  splitter->setStretchFactor(0, 3);
+  splitter->setStretchFactor(1, 2);
 }
 
 // ----------------------------------------------------------------------------
-// Process management
+// Sim lifecycle
 // ----------------------------------------------------------------------------
 
-void SimulatorWidget::connectProcessSignals(Proc* p) {
-  connect(p->process, &QProcess::readyReadStandardOutput, this, [this, p]() {
-    QString text = QString::fromUtf8(p->process->readAllStandardOutput());
-    appendLog(p->tag, text);
-  });
-  connect(p->process, &QProcess::readyReadStandardError, this, [this, p]() {
-    QString text = QString::fromUtf8(p->process->readAllStandardError());
-    appendLog(p->tag, text);
-  });
-  connect(p->process, &QProcess::stateChanged, this,
-          [this, p](QProcess::ProcessState) { updateStatusLabel(p); });
-  connect(p->process, &QProcess::errorOccurred, this,
-          [this, p](QProcess::ProcessError err) {
-            appendLog(p->tag, QString("[error %1] %2\n").arg(err).arg(
-                                    p->process->errorString()));
-          });
-}
+void SimulatorWidget::startInAppSim() {
+  if (m_sim) return;
 
-void SimulatorWidget::startProcess(Proc* p) {
-  if (p->process && p->process->state() != QProcess::NotRunning) {
-    appendLog(p->tag, "(already running)\n");
-    return;
-  }
+  // Open a fresh per-run log file before the firmware starts emitting.
+  openNewLogFile();
 
-  if (!p->process) {
-    p->process = new QProcess(this);
-    p->process->setProcessChannelMode(QProcess::SeparateChannels);
-    connectProcessSignals(p);
-  }
-
-  QString cmd = p->commandEdit->text().trimmed();
-  if (cmd.isEmpty()) {
-    appendLog(p->tag, "(empty command, skipped)\n");
-    return;
-  }
-
-  // Passthrough toggle: only affects the SITL row. We prepend
-  // `env VAYU_SITL_PASSTHROUGH=1` rather than touching the command field
-  // itself so the user's edited command stays clean.
-  if (p == &m_sitl && m_passthroughCheck && m_passthroughCheck->isChecked()) {
-    if (!cmd.contains("VAYU_SITL_PASSTHROUGH")) {
-      cmd = "env VAYU_SITL_PASSTHROUGH=1 " + cmd;
+  // First Start: also boot the firmware in-process. host_lifecycle.c
+  // spawns the vaios task pthreads (PID controllers, motor task,
+  // telemetry, IMU feeder, RC feeder). Subsequent Starts only
+  // resume the physics worker.
+  if (!m_sitlStarted) {
+    if (vayu_sitl_start(&m_iface) == 0) {
+      m_sitlStarted = true;
+      appendLog("sitl", "[vayu_sitl_start ok]");
+    } else {
+      appendLog("sitl", "[vayu_sitl_start failed - already running?]");
     }
   }
 
-  p->process->setWorkingDirectory(workingDir());
+  m_sim = new vsim::SimWorker(this);
+  m_sim->setIface(&m_iface);
+  connect(m_sim, &vsim::SimWorker::poseUpdated,
+          m_renderer, &vsim::SimRendererWidget::setSnapshot);
+  connect(m_sim, &vsim::SimWorker::poseUpdated,
+          this, [this](vsim::SimSnapshot snap) {
+            float pitch, yaw, roll;
+            snap.att.getEulerAngles(&pitch, &yaw, &roll);
+            m_simPoseLabel->setText(
+                QString("pos=(%1, %2, %3) m   rpy=(%4, %5, %6) deg")
+                    .arg(snap.pos_w.x(), 0, 'f', 2)
+                    .arg(snap.pos_w.y(), 0, 'f', 2)
+                    .arg(snap.pos_w.z(), 0, 'f', 2)
+                    .arg(roll, 0, 'f', 1)
+                    .arg(pitch, 0, 'f', 1)
+                    .arg(yaw, 0, 'f', 1));
+          });
+  connect(m_sim, &vsim::SimWorker::logLine, this,
+          [this](const QString& s) { appendLog("vsim", s); });
+  m_sim->start(QThread::TimeCriticalPriority);
 
-  // QProcess::startCommand handles shell-style splitting reasonably.
-  appendLog(p->tag, QString("$ %1\n").arg(cmd));
-  p->process->startCommand(cmd);
+  m_simStartBtn->setEnabled(false);
+  m_simStopBtn->setEnabled(true);
+  m_simStatusLabel->setText(tr("● Running"));
+  m_simStatusLabel->setStyleSheet("color: #98C379;");
 }
 
-void SimulatorWidget::stopProcess(Proc* p) {
-  if (!p->process || p->process->state() == QProcess::NotRunning) {
+void SimulatorWidget::stopInAppSim() {
+  if (!m_sim) return;
+  m_sim->requestStop();
+  if (!m_sim->wait(2000)) {
+    m_sim->terminate();
+    m_sim->wait(1000);
+  }
+  m_sim->deleteLater();
+  m_sim = nullptr;
+  m_simStartBtn->setEnabled(true);
+  m_simStopBtn->setEnabled(false);
+  m_simStatusLabel->setText(tr("● Stopped (firmware idle)"));
+  m_simStatusLabel->setStyleSheet("color: #ABB2BF;");
+  // Close the per-run log file so its trailing bytes flush to disk.
+  closeLogFile();
+  // Note: we don't call vayu_sitl_stop() here on the Stop button.
+  // The firmware threads stay alive but receive no fresh IMU samples
+  // (SimWorker isn't pushing). Restarting the sim resumes the pipe.
+}
+
+void SimulatorWidget::onUartBytes(QByteArray bytes) {
+  // 1) Persist to the per-run raw byte log so post-run analysis has
+  //    the exact same byte stream the GCS saw.
+  if (m_runLog && m_runLog->isOpen()) {
+    m_runLog->write(bytes);
+    m_runLogBytes += bytes.size();
+  }
+  // 2) Forward to anything connected to dataReceived (MainWindow's
+  //    DroneProtocol parser typically).
+  emit dataReceived(bytes);
+  // 3) Periodic one-line size readout in the panel log.
+  static int chatter_div = 0;
+  if (++chatter_div % 200 == 0 && m_runLog) {
+    appendLog("uart2", QString("logged %1 KB").arg(m_runLogBytes / 1024));
+  }
+}
+
+void SimulatorWidget::openNewLogFile() {
+  closeLogFile();
+  QDir dir(m_logDir);
+  if (!dir.exists() && !dir.mkpath(".")) {
+    appendLog("log", QString("[mkdir failed: %1]").arg(m_logDir));
     return;
   }
-  appendLog(p->tag, "(SIGTERM)\n");
-  p->process->terminate();
-  // Don't block the UI; let the process land. If it doesn't, the destructor
-  // will kill it on widget shutdown.
-}
-
-void SimulatorWidget::updateStatusLabel(Proc* p) {
-  if (!p->process) return;
-  switch (p->process->state()) {
-    case QProcess::NotRunning:
-      p->statusLabel->setText("● Stopped");
-      p->statusLabel->setStyleSheet("color: #E06C75; font-weight: bold;");
-      p->startBtn->setEnabled(true);
-      p->stopBtn->setEnabled(false);
-      break;
-    case QProcess::Starting:
-      p->statusLabel->setText("● Starting");
-      p->statusLabel->setStyleSheet("color: #E5C07B; font-weight: bold;");
-      p->startBtn->setEnabled(false);
-      p->stopBtn->setEnabled(true);
-      break;
-    case QProcess::Running:
-      p->statusLabel->setText(
-          QString("● Running (pid %1)").arg(p->process->processId()));
-      p->statusLabel->setStyleSheet("color: #2BBC8A; font-weight: bold;");
-      p->startBtn->setEnabled(false);
-      p->stopBtn->setEnabled(true);
-      break;
+  QString stamp =
+      QDateTime::currentDateTime().toString("yyyy-MM-dd_HH-mm-ss");
+  QString path = dir.absoluteFilePath(QString("sim-%1.bin").arg(stamp));
+  m_runLog = std::make_unique<QFile>(path);
+  if (!m_runLog->open(QIODevice::WriteOnly)) {
+    appendLog("log", QString("[open failed: %1]").arg(path));
+    m_runLog.reset();
+    return;
   }
+  m_runLogBytes = 0;
+  if (m_logPathLabel) {
+    m_logPathLabel->setText(QString("Current log: %1").arg(path));
+    m_logPathLabel->setStyleSheet(
+        "color: #98C379; font-family: monospace; font-size: 11px;");
+  }
+  appendLog("log", QString("[opened %1]").arg(path));
 }
 
-// "Launch All" walks the dependency order: gazebo, then the bridges, then SITL.
-// We don't wait synchronously — the bridges/SITL retry their FIFO opens so a
-// staggered come-up resolves itself within a couple of seconds.
-void SimulatorWidget::onLaunchAll() {
-  startProcess(&m_gz);
-  startProcess(&m_imuBridge);
-  startProcess(&m_pwmBridge);
-  startProcess(&m_sitl);
+void SimulatorWidget::closeLogFile() {
+  if (!m_runLog) return;
+  if (m_runLog->isOpen()) {
+    m_runLog->flush();
+    appendLog("log", QString("[closed: %1 bytes total]").arg(m_runLogBytes));
+    m_runLog->close();
+  }
+  m_runLog.reset();
 }
-
-void SimulatorWidget::onStopAll() {
-  // Reverse order: stop SITL first so it doesn't keep producing PWM into the
-  // FIFO with no consumer.
-  stopProcess(&m_sitl);
-  stopProcess(&m_pwmBridge);
-  stopProcess(&m_imuBridge);
-  stopProcess(&m_gz);
-}
-
-// ----------------------------------------------------------------------------
-// Log
-// ----------------------------------------------------------------------------
 
 void SimulatorWidget::appendLog(const QString& tag, const QString& text) {
-  if (!m_log) return;
-  // Split on newlines so we can prefix each line with the tag.
-  QString prefixed;
-  prefixed.reserve(text.size() + tag.size() + 8);
-  for (const QString& rawLine : text.split('\n')) {
-    if (rawLine.isEmpty()) continue;
-    prefixed.append(QString("[%1] %2\n").arg(tag, rawLine));
+  QString trimmed = text;
+  while (trimmed.endsWith('\n') || trimmed.endsWith('\r')) {
+    trimmed.chop(1);
   }
-  if (prefixed.isEmpty()) return;
-  // Append without inserting an extra newline; QPlainTextEdit's appendPlainText
-  // adds one of its own, which would double-space our log.
-  QTextCursor cur(m_log->document());
-  cur.movePosition(QTextCursor::End);
-  cur.insertText(prefixed);
-  m_log->verticalScrollBar()->setValue(m_log->verticalScrollBar()->maximum());
-}
-
-// ----------------------------------------------------------------------------
-// PWM FIFO monitor
-// ----------------------------------------------------------------------------
-
-void SimulatorWidget::openPwmFifo() {
-  // mkfifo if missing, then open non-blocking O_RDWR. O_RDWR is the
-  // same trick the SITL uses on its producer side: the kernel doesn't
-  // block waiting for the "other end" because we are the other end.
-  struct stat st;
-  if (::stat(kPwmFifoPath, &st) != 0) {
-    if (::mkfifo(kPwmFifoPath, 0666) != 0 && errno != EEXIST) {
-      m_pwmStatusLabel->setText(
-          QString("FIFO error: mkfifo %1 failed (%2)").arg(kPwmFifoPath,
-              QString::fromUtf8(strerror(errno))));
-      return;
-    }
+  if (trimmed.isEmpty()) return;
+  for (const QString& line : trimmed.split('\n', Qt::SkipEmptyParts)) {
+    m_log->appendPlainText(QString("[%1] %2").arg(tag, line));
   }
-  m_pwmFd = ::open(kPwmFifoPath, O_RDWR | O_NONBLOCK);
-  if (m_pwmFd < 0) {
-    m_pwmStatusLabel->setText(
-        QString("FIFO error: open %1 failed (%2)").arg(kPwmFifoPath,
-            QString::fromUtf8(strerror(errno))));
-    return;
-  }
-  m_pwmNotifier = new QSocketNotifier(m_pwmFd, QSocketNotifier::Read, this);
-  connect(m_pwmNotifier, &QSocketNotifier::activated, this,
-          &SimulatorWidget::onPwmReadable);
-  m_pwmStatusLabel->setText(
-      QString("FIFO: %1 (open, waiting for data)").arg(kPwmFifoPath));
-}
-
-void SimulatorWidget::closePwmFifo() {
-  if (m_pwmNotifier) {
-    m_pwmNotifier->setEnabled(false);
-    m_pwmNotifier->deleteLater();
-    m_pwmNotifier = nullptr;
-  }
-  if (m_pwmFd >= 0) {
-    ::close(m_pwmFd);
-    m_pwmFd = -1;
-  }
-}
-
-void SimulatorWidget::onPwmReadable() {
-  if (m_pwmFd < 0) return;
-  char chunk[1024];
-  ssize_t r = ::read(m_pwmFd, chunk, sizeof(chunk));
-  if (r > 0) {
-    m_pwmBuf.append(chunk, static_cast<int>(r));
-    parsePwmBuffer();
-  } else if (r == 0 || (r < 0 && errno != EAGAIN && errno != EWOULDBLOCK)) {
-    // Producer closed (rare with O_RDWR, but handle anyway) or real error.
-    // Don't tear down — just note it; next writer reconnect will resume.
-  }
-}
-
-void SimulatorWidget::parsePwmBuffer() {
-  // Each frame is "<idx> <duty>\n", e.g. "0 0.520000\n". Pull whole lines,
-  // leave a partial trailing line in the buffer for next time.
-  int newlineIdx;
-  while ((newlineIdx = m_pwmBuf.indexOf('\n')) >= 0) {
-    QByteArray line = m_pwmBuf.left(newlineIdx);
-    m_pwmBuf.remove(0, newlineIdx + 1);
-    if (line.isEmpty()) continue;
-
-    bool okIdx = false, okDuty = false;
-    int spaceIdx = line.indexOf(' ');
-    if (spaceIdx <= 0) continue;
-    int idx = line.left(spaceIdx).toInt(&okIdx);
-    double duty = line.mid(spaceIdx + 1).toDouble(&okDuty);
-    if (!okIdx || !okDuty) continue;
-    if (idx < 0 || idx >= 4) continue;
-
-    if (duty < 0.0) duty = 0.0;
-    if (duty > 1.0) duty = 1.0;
-    m_motorBars[idx]->setValue(static_cast<int>(duty * 1000.0));
-    m_motorLabels[idx]->setText(QString::number(duty, 'f', 3));
-  }
-  m_pwmStatusLabel->setText(
-      QString("FIFO: %1 (streaming)").arg(kPwmFifoPath));
-}
-
-QString SimulatorWidget::workingDir() const {
-  QString root = m_repoRoot.trimmed();
-  if (root.isEmpty()) root = defaultRepoRoot();
-  // QProcess does the right thing if root doesn't exist (start will fail
-  // and surface via errorOccurred). We don't fight it here.
-  return root;
+  m_log->verticalScrollBar()->setValue(
+      m_log->verticalScrollBar()->maximum());
 }

@@ -18,6 +18,7 @@
  */
 #define _GNU_SOURCE
 #include "navhal.h"
+#include "vsim_iface.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -97,13 +98,48 @@ hal_status_t hal_pwm_set_duty_cycle(hal_pwm_handle_t *pwm, float duty_cycle) {
     if (duty_cycle > 1.0f) duty_cycle = 1.0f;
     pwm_state[pwm->channel].last_duty = duty_cycle;
 
+    /* Strip the firmware ESC's 1..2 ms pulse band so motor=0..1 is
+     * the linear motor command (see longer comment below). Done here
+     * so both the in-process iface and the legacy FIFO see the same
+     * 0..1 value. */
+    int motor_idx = (int)pwm->channel - 1;
+    const float esc_idle = 0.4f;
+    const float esc_full = 0.8f;
+    float cmd = (duty_cycle - esc_idle) / (esc_full - esc_idle);
+    if (cmd < 0.0f) cmd = 0.0f;
+    if (cmd > 1.0f) cmd = 1.0f;
+
+    /* In-process path: write to the shared iface and we're done. The
+     * GCS-side SimWorker pulls from iface->motor_duty[] each tick. */
+    vsim_iface_t *iface = vsim_iface_get_global();
+    if (iface) {
+        pthread_mutex_lock(&iface->lock);
+        iface->motor_duty[motor_idx] = cmd;
+        pthread_mutex_unlock(&iface->lock);
+        return HAL_OK;
+    }
+
+    /* Fallback (no iface set): legacy FIFO mode for the standalone
+     * vayu_sitl binary. */
     if (pwm_fifo_fd < 0) pwm_fifo_ensure_open();
     if (pwm_fifo_fd < 0) return HAL_OK; /* degrade: skip */
 
-    /* Channel 1..4 -> motor index 0..3 (vayu_pwm_to_gz.py expects 0..3). */
-    int motor_idx = (int)pwm->channel - 1;
+    /* Channel 1..4 -> motor index 0..3 (vayu_pwm_to_gz.py expects 0..3).
+     *
+     * Undo the firmware ESC's pulse-width band before writing. The
+     * firmware's esc_set_throttle() maps motor_outputs (0..1) into a
+     * 1..2 ms pulse on a 2.5 ms (400 Hz) period -> duty 0.4..0.8. On
+     * real hardware that band is the ESC's expected throw and the ESC
+     * driver chip translates it back to motor power; in sim there is
+     * no ESC, so we strip the band here and write the linear motor
+     * command (0..1) the controller actually produced. This matches
+     * the user's mental model -- "motor output 0.4 means 40% motor
+     * power, not idle" -- and lets the bridge map the FIFO value
+     * directly to rotor velocity without inverting a phantom ESC.
+     * (cmd / motor_idx are computed above, shared between iface and
+     * FIFO paths.) */
     char buf[40];
-    int n = snprintf(buf, sizeof(buf), "%d %.6f\n", motor_idx, duty_cycle);
+    int n = snprintf(buf, sizeof(buf), "%d %.6f\n", motor_idx, cmd);
     if (n > 0) {
         ssize_t w = write(pwm_fifo_fd, buf, (size_t)n);
         (void)w;
@@ -202,10 +238,30 @@ static void uart2_ensure_open(void) {
 
 static void uart2_write_bytes(const void *buf, size_t n) {
     if (n == 0) return;
+
+    /* In-process callback path. We grab a local copy of the function
+     * pointer + user data under the iface lock, then release before
+     * invoking - the host's callback is allowed to take its own
+     * locks / queue work without deadlocking against the iface mutex. */
+    vsim_iface_t *iface = vsim_iface_get_global();
+    if (iface) {
+        pthread_mutex_lock(&iface->lock);
+        void (*cb)(void *, const uint8_t *, size_t) = iface->on_uart2_bytes;
+        void *user = iface->on_uart2_bytes_user;
+        pthread_mutex_unlock(&iface->lock);
+        if (cb) cb(user, (const uint8_t *)buf, n);
+    }
+
+    /* When an iface is set the host owns both transport (callback) AND
+     * logging - skip the legacy pty + /tmp/vayu_uart2.log tee. They
+     * are still used in the standalone binary's legacy mode where no
+     * iface has been registered. */
+    if (iface) return;
+
     uart2_ensure_open();
     if (uart2_pty_master_fd >= 0) {
         ssize_t w = write(uart2_pty_master_fd, buf, n);
-        (void)w;  /* drop if the consumer hasn't connected */
+        (void)w;
     }
     if (uart2_log_fd >= 0) {
         ssize_t w = write(uart2_log_fd, buf, n);
