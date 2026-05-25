@@ -36,14 +36,19 @@ include_directories(
     ${NAVHAL_ROOT}/include/port/cortex-m4   # utility type-only headers
 )
 
-# Host shim sources.
+# Host shim sources -- everything that goes into the library.
+# main() lives separately so only the binary picks it up.
 set(HOST_SOURCES
-    src/host_main.c
     src/host_port.c
     src/host_vaios.c
     src/host_navhal.c
     src/host_imu_feeder.c
     src/host_rc_feeder.c
+    src/host_lifecycle.c
+    src/vsim_iface.c
+)
+set(HOST_MAIN_SOURCES
+    src/host_main.c
 )
 
 # Firmware sources the host binary reuses verbatim.
@@ -77,13 +82,39 @@ set(VAIOS_HOST_SOURCES
     ${VAIOS_ROOT}/kernel/structure.c
 )
 
-add_executable(vayu_sitl
+# ----------------------------------------------------------------------------
+# Targets
+#
+# libvayu_sitl_core.a (static): firmware sources + host shims + vsim_iface +
+# the vayu_sitl_start / vayu_sitl_stop API. The Navigator GCS links this in
+# directly so it can spawn the firmware threads inside its own process.
+#
+# vayu_sitl (executable): thin wrapper around the library that calls
+# vayu_sitl_start(NULL) so the standalone binary still works for offline
+# tests with the legacy /tmp FIFOs.
+# ----------------------------------------------------------------------------
+
+add_library(vayu_sitl_core STATIC
     ${HOST_SOURCES}
+    ${HOST_MAIN_SOURCES}
     ${VAYU_SOURCES}
     ${VAIOS_HOST_SOURCES}
 )
+target_include_directories(vayu_sitl_core PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${VAYU_ROOT}/include
+    ${VAIOS_ROOT}/include
+    ${NAVHAL_ROOT}/include
+    ${NAVHAL_ROOT}/include/port/cortex-m4
+)
 
 find_package(Threads REQUIRED)
-target_link_libraries(vayu_sitl PRIVATE Threads::Threads m rt)
+target_link_libraries(vayu_sitl_core PUBLIC Threads::Threads m rt)
 
-message(STATUS "vayu_sitl: native host SITL build configured")
+add_executable(vayu_sitl ${HOST_MAIN_SOURCES})
+# main() is also in the library, so the executable picks the library's
+# definition. Linker uses the .o from the explicit source. Same code,
+# same behavior as before.
+target_link_libraries(vayu_sitl PRIVATE vayu_sitl_core)
+
+message(STATUS "vayu_sitl: static library + standalone binary configured")

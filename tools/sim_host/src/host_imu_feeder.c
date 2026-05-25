@@ -18,6 +18,7 @@
  */
 #define _GNU_SOURCE
 #include "host_imu_feeder.h"
+#include "vsim_iface.h"
 
 #include "maths/sensor_fusion.h"
 #include "sensor/bmx160.h"
@@ -65,18 +66,26 @@ static int read_full(int fd, void *buf, size_t n) {
     return 1;
 }
 
+/* Block until the host posts a new IMU sample. Returns 1 with the
+ * sample copied into `sample`, or 0 if the iface signaled shutdown. */
+static int wait_iface_sample(vsim_iface_t *iface,
+                             bmx160_all_reading_t *sample,
+                             uint64_t *consumer_seq) {
+    pthread_mutex_lock(&iface->lock);
+    while (iface->running && iface->imu_seq == *consumer_seq) {
+        pthread_cond_wait(&iface->imu_cond, &iface->lock);
+    }
+    int alive = iface->running;
+    if (alive) {
+        memcpy(&sample->converted, iface->imu_frame, EXPECTED_FRAME_BYTES);
+        *consumer_seq = iface->imu_seq;
+    }
+    pthread_mutex_unlock(&iface->lock);
+    return alive;
+}
+
 static void *imu_feeder_thread(void *arg) {
     (void)arg;
-    ensure_fifo();
-
-    fprintf(stderr, "host_imu_feeder: waiting for producer on %s\n",
-            IMU_FIFO_PATH);
-    int fd = open(IMU_FIFO_PATH, O_RDONLY);
-    if (fd < 0) {
-        fprintf(stderr, "host_imu_feeder: open failed: %s\n", strerror(errno));
-        return NULL;
-    }
-    fprintf(stderr, "host_imu_feeder: producer connected, draining frames\n");
 
     /* Compile-time guarantee that the on-wire layout matches our struct. */
     _Static_assert(sizeof(bmx160_all_converted_reading_t) == EXPECTED_FRAME_BYTES,
@@ -89,10 +98,35 @@ static void *imu_feeder_thread(void *arg) {
     uint32_t frames = 0;
     uint32_t last_log_t = 0;
 
+    vsim_iface_t *iface = vsim_iface_get_global();
+    int fd = -1;
+    uint64_t consumer_seq = 0;
+
+    if (iface) {
+        fprintf(stderr,
+                "host_imu_feeder: in-process iface mode (no FIFO)\n");
+    } else {
+        ensure_fifo();
+        fprintf(stderr, "host_imu_feeder: waiting for producer on %s\n",
+                IMU_FIFO_PATH);
+        fd = open(IMU_FIFO_PATH, O_RDONLY);
+        if (fd < 0) {
+            fprintf(stderr, "host_imu_feeder: open failed: %s\n", strerror(errno));
+            return NULL;
+        }
+        fprintf(stderr, "host_imu_feeder: producer connected, draining frames\n");
+    }
+
     while (1) {
+        if (iface) {
+            if (!wait_iface_sample(iface, &sample, &consumer_seq)) {
+                /* Shutdown signaled. */
+                break;
+            }
+        } else {
         int rc = read_full(fd, &sample.converted, EXPECTED_FRAME_BYTES);
         if (rc == 0) {
-            /* Producer disconnected — reopen and keep going. */
+            /* Producer disconnected -- reopen and keep going. */
             fprintf(stderr, "host_imu_feeder: producer closed, reopening\n");
             close(fd);
             fd = open(IMU_FIFO_PATH, O_RDONLY);
@@ -105,6 +139,7 @@ static void *imu_feeder_thread(void *arg) {
         if (rc < 0) {
             fprintf(stderr, "host_imu_feeder: read failed: %s\n", strerror(errno));
             break;
+        }
         }
 
         /* The IMU sample feeds the angle_rate_controller directly. */
@@ -135,7 +170,7 @@ static void *imu_feeder_thread(void *arg) {
         }
     }
 
-    close(fd);
+    if (fd >= 0) close(fd);
     return NULL;
 }
 

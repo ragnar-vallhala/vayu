@@ -166,11 +166,19 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   connect(m_controlLoopWidget, &ControlLoopPlot::backToHomeRequested, this,
           &MainWindow::showHome);
 
-  // Build Simulator (host SITL launcher + monitor)
+  // Build Simulator (in-app SITL: physics + sensors + firmware threads)
   m_simulatorWidget = new SimulatorWidget(this);
   m_stackedWidget->addWidget(m_simulatorWidget);
   connect(m_simulatorWidget, &SimulatorWidget::backToHomeRequested, this,
           &MainWindow::showHome);
+  // Pipe the firmware's UART2 byte stream into the same DroneProtocol
+  // parser the real serial path feeds. This means every telemetry panel
+  // (IMU, attitude, log, motor, control loop, ...) lights up off the
+  // in-app sim with no further per-widget plumbing. The signature
+  // matches SerialManager::dataReceived so the receiver doesn't care
+  // which source is feeding it.
+  connect(m_simulatorWidget, &SimulatorWidget::dataReceived,
+          m_protocol, &DroneProtocol::processData);
 
   showHome();
 }

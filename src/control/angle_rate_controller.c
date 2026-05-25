@@ -143,7 +143,21 @@ void angle_rate_controller_task(void *arg) {
     }
     prev_state = state;
 
+    /* Clamp target_throttle to [0, 1]. The RC normalize step maps
+     * pulse 1000..2000 us to 0..1, but a remote with imperfect
+     * calibration / trim can dip below 1000 us at "idle", giving a
+     * tiny negative target_throttle. The anti-saturation block below
+     * then computes `k = target_throttle / (target_throttle - min_m)`
+     * with min_m == target_throttle (since PID outputs are zeroed at
+     * low throttle), divides by zero, and poisons all four motor
+     * outputs with NaN. NaN propagates through esc_set_throttle (the
+     * 0..1 clamp lets NaN through since `NaN < 0` is false), down the
+     * PWM FIFO as the literal string "nan", and into the Gazebo
+     * wrench bridge -- which then applies NaN force/torque to the
+     * airframe and physics explodes. */
     float target_throttle = angle_controller_outputs.throttle;
+    if (target_throttle < 0.0f) target_throttle = 0.0f;
+    if (target_throttle > 1.0f) target_throttle = 1.0f;
 
     /* (A) Hold the integrator at zero while throttle is below the
      * gate. This prevents windup-on-the-ground: the drone can't rotate
@@ -164,11 +178,27 @@ void angle_rate_controller_task(void *arg) {
       prev_target_rates[i] = target_rates[i];
     }
 
-    // calculate motor outputs
+    /* PID authority ramp. Below MIN_ARMED_THROTTLE the airframe is
+     * either disarmed-ish or so lightly throttled that the motors can't
+     * meaningfully rotate it; the only effect of a PID correction at
+     * that point is to fight whatever ground contact / friction is
+     * holding the drone down, which creates a feedback loop with the
+     * mahony filter (drone wobbles a degree -> PID asks for big rate ->
+     * motors deflect -> drone tips further against the ground
+     * constraint -> filter sees more rotation -> ...). The original
+     * piecewise that only ramped between 0 and MIN_ARMED_THROTTLE left
+     * the PID at full authority for any pilot throttle above 10%, which
+     * is well below the X3's ~0.55 hover point in sim. Ramp from
+     * MIN_ARMED_THROTTLE up to PID_FULL_AUTHORITY_THROTTLE so the loop
+     * is fully gated until the pilot is nearly at hover, at which point
+     * the drone is light on the ground or already lifting and the PID
+     * actually has authority over attitude. */
     if (target_throttle < MIN_ARMED_THROTTLE) {
-      for (int i = 0; i < NUM_AXES; i++) {
-        outputs[i] *= target_throttle / MIN_ARMED_THROTTLE;
-      }
+      for (int i = 0; i < NUM_AXES; i++) outputs[i] = 0.0f;
+    } else if (target_throttle < PID_FULL_AUTHORITY_THROTTLE) {
+      float ramp = (target_throttle - MIN_ARMED_THROTTLE) /
+                   (PID_FULL_AUTHORITY_THROTTLE - MIN_ARMED_THROTTLE);
+      for (int i = 0; i < NUM_AXES; i++) outputs[i] *= ramp;
     }
     // Your layout:
     // Front Left  = M4
@@ -234,8 +264,51 @@ void angle_rate_controller_task(void *arg) {
       if (motor_outputs.m2 > 1) motor_outputs.m2 = 1;
       if (motor_outputs.m3 > 1) motor_outputs.m3 = 1;
       if (motor_outputs.m4 > 1) motor_outputs.m4 = 1;
+      /* NaN guard. The clamps above use ordered comparisons (`< 0`,
+       * `> 1`), which return false for NaN -- so a stray NaN slips
+       * through unchanged. Force NaN/Inf to a safe 0. `x != x` is the
+       * standard NaN check; (x > -INF) is false for NaN too, but the
+       * self-comparison is portable across compilers without needing
+       * math.h's isnan. */
+      if (motor_outputs.m1 != motor_outputs.m1) motor_outputs.m1 = 0;
+      if (motor_outputs.m2 != motor_outputs.m2) motor_outputs.m2 = 0;
+      if (motor_outputs.m3 != motor_outputs.m3) motor_outputs.m3 = 0;
+      if (motor_outputs.m4 != motor_outputs.m4) motor_outputs.m4 = 0;
+
+      /* Idle thrust floor. Every motor is held at >= MOTOR_IDLE_FLOOR
+       * while armed. Two reasons:
+       *   1. It matches what a real ESC does in modern flight stacks
+       *      ("MOTOR_STOP=false"): the props keep spinning slowly while
+       *      armed, so the next throttle command doesn't have to cold-
+       *      start the motor.
+       *   2. In SITL it's how we signal "armed-and-alive" to the
+       *      bridge. With the floor at 0 the FIFO produces
+       *      indistinguishable motors=0 in two cases (disarmed, and
+       *      armed-at-idle-throttle); the bridge's gravity-
+       *      cancellation logic needs to tell them apart so it knows
+       *      whether to hold the drone in mid-air or let it fall onto
+       *      the skid. motor_task still zeros the outputs in non-ARMED
+       *      states, so the floor only takes effect when armed. */
+      if (motor_outputs.m1 < MOTOR_IDLE_FLOOR) motor_outputs.m1 = MOTOR_IDLE_FLOOR;
+      if (motor_outputs.m2 < MOTOR_IDLE_FLOOR) motor_outputs.m2 = MOTOR_IDLE_FLOOR;
+      if (motor_outputs.m3 < MOTOR_IDLE_FLOOR) motor_outputs.m3 = MOTOR_IDLE_FLOOR;
+      if (motor_outputs.m4 < MOTOR_IDLE_FLOOR) motor_outputs.m4 = MOTOR_IDLE_FLOOR;
     }
-    motor_set_outputs(motor_outputs);
+    /* Only feed the motor FIFO while the airframe is armed. The
+     * motor_task already zero-overrides outputs in non-ARMED states, so
+     * whatever it pulls from the queue is discarded. But the queue
+     * itself is OVERWRITE policy: a pre-arm asymmetric mix sits in the
+     * slot until the next read consumes it. The instant the state
+     * machine flips to ARMED, motor_task's "override to 0" path stops
+     * triggering and the very next FIFO read serves up the pre-arm
+     * value -- so the ESCs get a step kick of (target_throttle +/-
+     * PID outputs computed against gyro noise while the drone was
+     * disarmed) before angle_rate_controller has even had a chance to
+     * push a fresh, reset-PID value. Drone flips before throttle is
+     * touched. Pushing only while armed eliminates that stale slot. */
+    if (state == SYSTEM_STATE_ARMED) {
+      motor_set_outputs(motor_outputs);
+    }
 
     control_telemetry_t telemetry = {
         .roll_angle_sp = angle_controller_outputs.angle_sp[0],
