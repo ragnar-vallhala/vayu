@@ -17,8 +17,7 @@ DecodedPacket PacketDecoder::decode(const QByteArray &data) {
   uint8_t type_byte = raw[1];
   result.version = type_byte & 0x0F;
   result.type = (type_byte >> 4) & 0x0F;
-  result.length = raw[2]; // Wait, I need to add length to DecodedPacket or just
-                          // use data.size()
+  result.length = raw[2];
   result.deviceId = raw[3];
   memcpy(&result.timestamp, raw + 4, 4);
 

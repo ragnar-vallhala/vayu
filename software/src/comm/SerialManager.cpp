@@ -6,6 +6,8 @@ SerialManager::SerialManager(QObject *parent) : QObject(parent) {
   connect(&m_port, &QSerialPort::readyRead, this, &SerialManager::onReadyRead);
   connect(&m_port, &QSerialPort::errorOccurred, this,
           &SerialManager::onErrorOccurred);
+  m_retryTimer.setSingleShot(true);
+  connect(&m_retryTimer, &QTimer::timeout, this, &SerialManager::tryReconnect);
 }
 
 SerialManager::~SerialManager() { close(); }
@@ -29,14 +31,43 @@ bool SerialManager::open(const QString &portName, qint32 baudRate) {
     return false;
   }
 
+  // Successful open — remember these for auto-reconnect, reset the
+  // retry counter so the next transient failure starts a fresh ramp.
+  m_lastPort = portName;
+  m_lastBaud = baudRate;
+  m_retryCount = 0;
+  m_userClose = false;
+
   emit connectionStateChanged(true);
   return true;
 }
 
 void SerialManager::close() {
+  // UI-driven close — suppress auto-reconnect so a deliberate
+  // Disconnect doesn't immediately bounce back.
+  m_userClose = true;
+  m_retryTimer.stop();
   if (m_port.isOpen()) {
     m_port.close();
     emit connectionStateChanged(false);
+  }
+}
+
+void SerialManager::tryReconnect() {
+  if (m_userClose || m_lastPort.isEmpty()) return;
+  if (m_retryCount >= kMaxRetries) {
+    emit errorOccurred(tr("Auto-reconnect: gave up after %1 attempts")
+                           .arg(kMaxRetries));
+    return;
+  }
+  ++m_retryCount;
+  emit reconnectAttempt(m_retryCount, kMaxRetries);
+  if (!open(m_lastPort, m_lastBaud)) {
+    // open() emitted errorOccurred for us. Schedule the next attempt
+    // with exponential backoff capped at kMaxDelayMs.
+    const int delay =
+        std::min(kInitialDelayMs * (1 << (m_retryCount - 1)), kMaxDelayMs);
+    m_retryTimer.start(delay);
   }
 }
 
@@ -79,5 +110,10 @@ void SerialManager::onErrorOccurred(QSerialPort::SerialPortError error) {
   if (m_port.isOpen()) {
     m_port.close();
     emit connectionStateChanged(false);
+  }
+  // Schedule a reconnect if the user wants one and didn't ask for the
+  // disconnect themselves.
+  if (m_autoReconnect && !m_userClose && !m_lastPort.isEmpty()) {
+    if (!m_retryTimer.isActive()) m_retryTimer.start(kInitialDelayMs);
   }
 }

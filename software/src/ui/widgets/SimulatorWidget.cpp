@@ -1,5 +1,8 @@
 #include "SimulatorWidget.h"
 
+#include "core/Theme.h"
+#include "core/ui/Buttons.h"
+
 #include <QDateTime>
 #include <QDesktopServices>
 #include <QDir>
@@ -94,14 +97,12 @@ void SimulatorWidget::buildUi() {
     auto* header = new QHBoxLayout();
     auto* title = new QLabel(tr("Simulator (in-app)"), this);
     title->setStyleSheet(
-        "color: #61AFEF; font-size: 18px; font-weight: bold;");
+        QString("color: %1; font-size: 18px; font-weight: bold;")
+            .arg(Theme::hex(Theme::kAccent)));
     header->addWidget(title);
     header->addStretch();
-    auto* backBtn = new QPushButton(tr("Back"), this);
-    backBtn->setStyleSheet(
-        "QPushButton { background: #3E4452; color: #ABB2BF; padding: 6px 12px;"
-        " border-radius: 4px; }"
-        "QPushButton:hover { background: #4F5662; }");
+    auto* backBtn = new ui::BackButton(this);
+    backBtn->setToolTip(tr("Return to home"));
     connect(backBtn, &QPushButton::clicked, this,
             [this] { emit backToHomeRequested(); });
     header->addWidget(backBtn);
@@ -113,29 +114,21 @@ void SimulatorWidget::buildUi() {
     auto* row = new QHBoxLayout();
     row->addWidget(new QLabel(tr("Repo root:"), this));
     m_repoRootEdit = new QLineEdit(m_repoRoot, this);
-    m_repoRootEdit->setStyleSheet(
-        "QLineEdit { background: #21252B; color: #DCDFE4; border: 1px solid"
-        " #3E4452; border-radius: 3px; padding: 4px; }");
+    m_repoRootEdit->setToolTip(tr("Path to the vayu repo. Used for log paths."));
     connect(m_repoRootEdit, &QLineEdit::editingFinished, this, [this] {
       m_repoRoot = m_repoRootEdit->text();
       QSettings().setValue(kRepoRootSettingKey, m_repoRoot);
     });
     row->addWidget(m_repoRootEdit, 1);
 
-    auto* launchBtn = new QPushButton(tr("Launch"), this);
-    launchBtn->setStyleSheet(
-        "QPushButton { background: #98C379; color: #21252B; font-weight: bold;"
-        " padding: 6px 14px; border-radius: 4px; }"
-        "QPushButton:hover { background: #B5D89A; }");
+    auto* launchBtn = new ui::SuccessButton(tr("Launch"), this);
+    launchBtn->setToolTip(tr("Boot the in-process firmware + start the sim worker"));
     connect(launchBtn, &QPushButton::clicked, this,
             &SimulatorWidget::startInAppSim);
     row->addWidget(launchBtn);
 
-    auto* stopBtn = new QPushButton(tr("Stop"), this);
-    stopBtn->setStyleSheet(
-        "QPushButton { background: #E06C75; color: #21252B; font-weight: bold;"
-        " padding: 6px 14px; border-radius: 4px; }"
-        "QPushButton:hover { background: #EA8089; }");
+    auto* stopBtn = new ui::DangerButton(tr("Stop"), this);
+    stopBtn->setToolTip(tr("Pause the sim worker (firmware threads keep running)"));
     connect(stopBtn, &QPushButton::clicked, this,
             &SimulatorWidget::stopInAppSim);
     row->addWidget(stopBtn);
@@ -147,20 +140,15 @@ void SimulatorWidget::buildUi() {
     auto* row = new QHBoxLayout();
     row->addWidget(new QLabel(tr("Log dir:"), this));
     m_logDirEdit = new QLineEdit(m_logDir, this);
-    m_logDirEdit->setStyleSheet(
-        "QLineEdit { background: #21252B; color: #DCDFE4; border: 1px solid"
-        " #3E4452; border-radius: 3px; padding: 4px; }");
+    m_logDirEdit->setToolTip(tr("Directory the per-run UART2 byte log is written into"));
     connect(m_logDirEdit, &QLineEdit::editingFinished, this, [this] {
       m_logDir = m_logDirEdit->text();
       QSettings().setValue(kLogDirSettingKey, m_logDir);
     });
     row->addWidget(m_logDirEdit, 1);
 
-    auto* openBtn = new QPushButton(tr("Open dir"), this);
-    openBtn->setStyleSheet(
-        "QPushButton { background: #3E4452; color: #DCDFE4; padding: 6px 12px;"
-        " border-radius: 4px; }"
-        "QPushButton:hover { background: #4F5662; }");
+    auto* openBtn = new ui::GhostButton(tr("Open dir"), this);
+    openBtn->setToolTip(tr("Open the log directory in your file manager"));
     connect(openBtn, &QPushButton::clicked, this, [this] {
       QDesktopServices::openUrl(QUrl::fromLocalFile(m_logDir));
     });
@@ -169,7 +157,8 @@ void SimulatorWidget::buildUi() {
 
     m_logPathLabel = new QLabel(tr("Current log: (none)"), this);
     m_logPathLabel->setStyleSheet(
-        "color: #ABB2BF; font-family: monospace; font-size: 11px;");
+        QString("color: %1; font-family: monospace; font-size: 11px;")
+            .arg(Theme::hex(Theme::kTextMuted)));
     m_logPathLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
     root->addWidget(m_logPathLabel);
   }
@@ -192,24 +181,19 @@ void SimulatorWidget::buildUi() {
     auto* g = new QGroupBox(tr("In-app sim"), right);
     auto* gv = new QVBoxLayout(g);
     m_simStatusLabel = new QLabel(tr("● Stopped"), g);
-    m_simStatusLabel->setStyleSheet("color: #ABB2BF;");
+    m_simStatusLabel->setStyleSheet(
+        QString("color: %1;").arg(Theme::hex(Theme::kTextMuted)));
     gv->addWidget(m_simStatusLabel);
 
     auto* hb = new QHBoxLayout();
-    m_simStartBtn = new QPushButton(tr("Start"), g);
-    m_simStartBtn->setStyleSheet(
-        "QPushButton { background: #61AFEF; color: #21252B; font-weight: bold;"
-        " padding: 6px 12px; border-radius: 4px; }"
-        "QPushButton:hover { background: #80BFF1; }");
+    m_simStartBtn = new ui::PrimaryButton(tr("Start"), g);
+    m_simStartBtn->setToolTip(tr("Resume the sim worker (boots firmware on first call)"));
     connect(m_simStartBtn, &QPushButton::clicked, this,
             &SimulatorWidget::startInAppSim);
     hb->addWidget(m_simStartBtn);
-    m_simStopBtn = new QPushButton(tr("Stop"), g);
+    m_simStopBtn = new ui::GhostButton(tr("Stop"), g);
     m_simStopBtn->setEnabled(false);
-    m_simStopBtn->setStyleSheet(
-        "QPushButton { background: #3E4452; color: #DCDFE4; padding: 6px 12px;"
-        " border-radius: 4px; }"
-        "QPushButton:hover { background: #4F5662; }");
+    m_simStopBtn->setToolTip(tr("Stop the sim worker (firmware stays alive)"));
     connect(m_simStopBtn, &QPushButton::clicked, this,
             &SimulatorWidget::stopInAppSim);
     hb->addWidget(m_simStopBtn);
@@ -217,7 +201,8 @@ void SimulatorWidget::buildUi() {
 
     m_simPoseLabel = new QLabel(tr("pose: -"), g);
     m_simPoseLabel->setStyleSheet(
-        "color: #61AFEF; font-family: monospace;");
+        QString("color: %1; font-family: monospace;")
+            .arg(Theme::hex(Theme::kAccent)));
     gv->addWidget(m_simPoseLabel);
     rcol->addWidget(g);
   }
@@ -229,10 +214,7 @@ void SimulatorWidget::buildUi() {
     m_log = new QPlainTextEdit(g);
     m_log->setReadOnly(true);
     m_log->setMaximumBlockCount(2000);
-    m_log->setStyleSheet(
-        "QPlainTextEdit { background: #21252B; color: #DCDFE4;"
-        " font-family: monospace; font-size: 11px; border: 1px solid #3E4452;"
-        " border-radius: 3px; }");
+    // Editor chrome handled by global QSS (QPlainTextEdit rule).
     gv->addWidget(m_log);
     rcol->addWidget(g, 1);
   }
@@ -288,7 +270,8 @@ void SimulatorWidget::startInAppSim() {
   m_simStartBtn->setEnabled(false);
   m_simStopBtn->setEnabled(true);
   m_simStatusLabel->setText(tr("● Running"));
-  m_simStatusLabel->setStyleSheet("color: #98C379;");
+  m_simStatusLabel->setStyleSheet(
+      QString("color: %1;").arg(Theme::hex(Theme::kOk)));
 }
 
 void SimulatorWidget::stopInAppSim() {
@@ -303,7 +286,8 @@ void SimulatorWidget::stopInAppSim() {
   m_simStartBtn->setEnabled(true);
   m_simStopBtn->setEnabled(false);
   m_simStatusLabel->setText(tr("● Stopped (firmware idle)"));
-  m_simStatusLabel->setStyleSheet("color: #ABB2BF;");
+  m_simStatusLabel->setStyleSheet(
+      QString("color: %1;").arg(Theme::hex(Theme::kTextMuted)));
   // Close the per-run log file so its trailing bytes flush to disk.
   closeLogFile();
   // Note: we don't call vayu_sitl_stop() here on the Stop button.
@@ -348,7 +332,8 @@ void SimulatorWidget::openNewLogFile() {
   if (m_logPathLabel) {
     m_logPathLabel->setText(QString("Current log: %1").arg(path));
     m_logPathLabel->setStyleSheet(
-        "color: #98C379; font-family: monospace; font-size: 11px;");
+        QString("color: %1; font-family: monospace; font-size: 11px;")
+            .arg(Theme::hex(Theme::kOk)));
   }
   appendLog("log", QString("[opened %1]").arg(path));
 }

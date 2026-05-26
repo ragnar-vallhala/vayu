@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../../core/SettingsManager.h"
+#include <QCheckBox>
 #include <QDoubleSpinBox>
 #include <QPushButton>
 #include <QSpinBox>
@@ -20,9 +21,11 @@ signals:
   void syncPeriodChanged(int ms);
   void graphWindowChanged(int seconds);
   void graphDropoutChanged(double rate);
+  void autoReconnectChanged(bool enabled);
 
 private:
   QSpinBox *m_syncPeriodSpin = nullptr;
   QSpinBox *m_graphWindowSpin = nullptr;
   QDoubleSpinBox *m_graphDropoutSpin = nullptr;
+  QCheckBox *m_autoReconnectChk = nullptr;
 };

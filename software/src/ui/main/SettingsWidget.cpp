@@ -1,4 +1,8 @@
 #include "SettingsWidget.h"
+
+#include "core/Theme.h"
+#include "core/ui/Buttons.h"
+
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -10,7 +14,8 @@ SettingsWidget::SettingsWidget(QWidget *parent) : QWidget(parent) {
   layout->setSpacing(20);
 
   auto *headerLabel = new QLabel("<h2>Settings</h2>", this);
-  headerLabel->setStyleSheet("color: #61AFEF;");
+  headerLabel->setStyleSheet(
+      QString("color: %1;").arg(Theme::hex(Theme::kAccent)));
   layout->addWidget(headerLabel);
 
   // ---- Communication Group ----
@@ -25,8 +30,7 @@ SettingsWidget::SettingsWidget(QWidget *parent) : QWidget(parent) {
   m_syncPeriodSpin->setValue(5000);
   m_syncPeriodSpin->setSingleStep(100);
   m_syncPeriodSpin->setSuffix(" ms");
-  m_syncPeriodSpin->setStyleSheet("background: #21252B; color: #ABB2BF; "
-                                  "border: 1px solid #3E4452; padding: 4px;");
+  // Spinbox chrome comes from the global QSS now; no inline style needed.
 
   connect(m_syncPeriodSpin, QOverload<int>::of(&QSpinBox::valueChanged), this,
           &SettingsWidget::syncPeriodChanged);
@@ -34,6 +38,15 @@ SettingsWidget::SettingsWidget(QWidget *parent) : QWidget(parent) {
   syncRow->addWidget(m_syncPeriodSpin);
   syncRow->addStretch();
   commLayout->addLayout(syncRow);
+
+  m_autoReconnectChk = new QCheckBox("Auto-reconnect on serial error", this);
+  m_autoReconnectChk->setToolTip(
+      "When set, the serial connection is automatically re-opened with the "
+      "same port and baud after a transient error (up to 5 attempts with "
+      "exponential backoff).");
+  connect(m_autoReconnectChk, &QCheckBox::toggled, this,
+          &SettingsWidget::autoReconnectChanged);
+  commLayout->addWidget(m_autoReconnectChk);
 
   layout->addWidget(commGroup);
 
@@ -47,8 +60,6 @@ SettingsWidget::SettingsWidget(QWidget *parent) : QWidget(parent) {
   m_graphWindowSpin->setRange(1, 60);
   m_graphWindowSpin->setValue(5);
   m_graphWindowSpin->setSuffix(" s");
-  m_graphWindowSpin->setStyleSheet("background: #21252B; color: #ABB2BF; "
-                                   "border: 1px solid #3E4452; padding: 4px;");
   connect(m_graphWindowSpin, QOverload<int>::of(&QSpinBox::valueChanged), this,
           &SettingsWidget::graphWindowChanged);
   windowRow->addWidget(m_graphWindowSpin);
@@ -64,8 +75,6 @@ SettingsWidget::SettingsWidget(QWidget *parent) : QWidget(parent) {
   m_graphDropoutSpin->setDecimals(2);
   m_graphDropoutSpin->setToolTip(
       "Higher rate helps save RAM by dropping samples for visualization");
-  m_graphDropoutSpin->setStyleSheet("background: #21252B; color: #ABB2BF; "
-                                    "border: 1px solid #3E4452; padding: 4px;");
   connect(m_graphDropoutSpin,
           QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
           &SettingsWidget::graphDropoutChanged);
@@ -78,12 +87,9 @@ SettingsWidget::SettingsWidget(QWidget *parent) : QWidget(parent) {
   layout->addStretch();
 
   // ---- Back Button ----
-  auto *backBtn = new QPushButton("Back to Home", this);
+  auto *backBtn = new ui::BackButton(this);
+  backBtn->setText(tr("Back to Home"));
   backBtn->setFixedWidth(150);
-  backBtn->setStyleSheet(
-      "QPushButton { background: #2C313A; color: #ABB2BF; border: 1px solid "
-      "#3E4452; padding: 8px; font-weight: bold; borderRadius: 4px; }"
-      "QPushButton:hover { background: #3E4452; }");
   connect(backBtn, &QPushButton::clicked, this,
           &SettingsWidget::backToHomeRequested);
   layout->addWidget(backBtn);
@@ -101,6 +107,12 @@ void SettingsWidget::setSettings(const GcsSettings &s) {
   m_graphDropoutSpin->blockSignals(true);
   m_graphDropoutSpin->setValue(s.graphDropoutRate);
   m_graphDropoutSpin->blockSignals(false);
+
+  if (m_autoReconnectChk) {
+    m_autoReconnectChk->blockSignals(true);
+    m_autoReconnectChk->setChecked(s.autoReconnect);
+    m_autoReconnectChk->blockSignals(false);
+  }
 }
 
 GcsSettings SettingsWidget::getSettings() const {
@@ -108,5 +120,6 @@ GcsSettings SettingsWidget::getSettings() const {
   s.syncPeriodMs = m_syncPeriodSpin->value();
   s.graphWindowSec = m_graphWindowSpin->value();
   s.graphDropoutRate = m_graphDropoutSpin->value();
+  s.autoReconnect = m_autoReconnectChk && m_autoReconnectChk->isChecked();
   return s;
 }

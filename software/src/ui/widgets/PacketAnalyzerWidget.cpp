@@ -1,12 +1,16 @@
 #include "PacketAnalyzerWidget.h"
+
 #include "FrequencyRibbon.h"
 #include "PacketDetailWidget.h"
+#include "core/ui/Buttons.h"
+
 #include <QFileDialog>
 #include <QHeaderView>
 #include <QMessageBox>
 #include <QScrollBar>
 #include <QShowEvent>
 #include <QSplitter>
+#include <QStyle>
 #include <QTextStream>
 
 PacketAnalyzerWidget::PacketAnalyzerWidget(QWidget *parent) : QWidget(parent) {
@@ -20,26 +24,30 @@ PacketAnalyzerWidget::PacketAnalyzerWidget(QWidget *parent) : QWidget(parent) {
   // Top control bar
   auto *topBar = new QHBoxLayout();
 
-  m_btnBack = new QPushButton("← Back to Home", this);
-  m_btnBack->setStyleSheet(
-      "QPushButton { font-weight: bold; padding: 4px 12px; }");
+  m_btnBack = new ui::BackButton(this);
+  m_btnBack->setText(tr("← Back to Home"));
+  m_btnBack->setToolTip(tr("Return to home"));
   topBar->addWidget(m_btnBack);
 
   topBar->addStretch();
 
   m_chkAutoScroll = new QCheckBox("Auto-scroll", this);
   m_chkAutoScroll->setChecked(true);
+  m_chkAutoScroll->setToolTip(tr("Keep the table scrolled to the newest packet"));
   topBar->addWidget(m_chkAutoScroll);
 
-  m_btnClear = new QPushButton("Clear Logs", this);
+  m_btnClear = new ui::GhostButton(tr("Clear Logs"), this);
+  m_btnClear->setToolTip(tr("Drop all rows from the table (ring buffer reset)"));
   topBar->addWidget(m_btnClear);
 
-  m_btnStream = new QPushButton("Start Streaming", this);
-  m_btnStream->setStyleSheet(
-      "QPushButton { background: #3A5F3A; color: #98C379; }");
+  // Streaming toggle. Object name flips Success<->Danger on each click
+  // via repolish() so the colour matches the action it'll perform.
+  m_btnStream = new ui::SuccessButton(tr("Start Streaming"), this);
+  m_btnStream->setToolTip(tr("Tee captured packets to a CSV file"));
   topBar->addWidget(m_btnStream);
 
-  m_btnSave = new QPushButton("Save Table...", this);
+  m_btnSave = new ui::GhostButton(tr("Save Table…"), this);
+  m_btnSave->setToolTip(tr("Export the current table snapshot to CSV"));
   topBar->addWidget(m_btnSave);
 
   layout->addLayout(topBar);
@@ -49,18 +57,17 @@ PacketAnalyzerWidget::PacketAnalyzerWidget(QWidget *parent) : QWidget(parent) {
   filterBar->setSpacing(6);
   filterBar->addWidget(new QLabel(" <b>Filter Type:</b> ", this));
 
+  // Filter pills — checkable, accent-fill when active. Styled via the
+  // QPushButton#FilterPill selector in dark.qss.
   auto addFilter = [&](const QString &label, int type) {
     auto *btn = new QPushButton(label, this);
+    btn->setObjectName("FilterPill");
     btn->setCheckable(true);
     btn->setChecked(false);
     m_disabledTypes.insert(type);
     btn->setProperty("packetType", type);
     btn->setMinimumHeight(24);
-    btn->setStyleSheet(
-        "QPushButton { background: #2A3347; color: #ABB2BF; border: 1px "
-        "solid #3E4452; border-radius: 4px; padding: 2px 10px; }"
-        "QPushButton:checked { background: #61AFEF; color: #1A1D27; "
-        "font-weight: bold; border-color: #61AFEF; }");
+    btn->setToolTip(tr("Hide / show %1 packets").arg(label));
     connect(btn, &QPushButton::toggled, this,
             &PacketAnalyzerWidget::onFilterToggled);
     filterBar->addWidget(btn);
@@ -93,11 +100,7 @@ PacketAnalyzerWidget::PacketAnalyzerWidget(QWidget *parent) : QWidget(parent) {
   m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
   m_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
   m_table->setAlternatingRowColors(true);
-  m_table->setStyleSheet("QTableWidget { background: #1E212B; color: #ABB2BF; "
-                         "gridline-color: #2A3347; }"
-                         "QTableWidget::item { padding: 4px; }"
-                         "QHeaderView::section { background: #2A3347; color: "
-                         "#ABB2BF; padding: 4px; border: 1px solid #3E4452; }");
+  // Table chrome (background, gridline, header) handled by global QSS.
   m_detailView = new PacketDetailWidget(this);
 
   auto *splitter = new QSplitter(Qt::Vertical, this);
@@ -115,14 +118,20 @@ PacketAnalyzerWidget::PacketAnalyzerWidget(QWidget *parent) : QWidget(parent) {
           &PacketAnalyzerWidget::onClearClicked);
   connect(m_btnSave, &QPushButton::clicked, this,
           &PacketAnalyzerWidget::onSaveClicked);
-  connect(m_btnStream, &QPushButton::clicked, this, [this]() {
+  // Flip the streaming button's role (Success<->Danger) by changing
+  // objectName + re-polishing — no inline stylesheet text.
+  auto setStreamRole = [this](const char *roleName) {
+    m_btnStream->setObjectName(roleName);
+    m_btnStream->style()->unpolish(m_btnStream);
+    m_btnStream->style()->polish(m_btnStream);
+    m_btnStream->update();
+  };
+  connect(m_btnStream, &QPushButton::clicked, this, [this, setStreamRole]() {
     if (m_isStreaming) {
       m_isStreaming = false;
       m_streamFile.close();
-      m_btnStream->setText("Start Streaming");
-      m_btnStream->setStyleSheet("QPushButton { background: "
-                                 "#3A5F3A; "
-                                 "color: #98C379; }");
+      m_btnStream->setText(tr("Start Streaming"));
+      setStreamRole("SuccessButton");
     } else {
       QString fileName =
           QFileDialog::getSaveFileName(this, "Stream Packets to CSV", "",
@@ -137,10 +146,8 @@ PacketAnalyzerWidget::PacketAnalyzerWidget(QWidget *parent) : QWidget(parent) {
         m_streamOut << "Timestamp,Direction,Size,"
                        "Data\n";
         m_isStreaming = true;
-        m_btnStream->setText("Stop Streaming");
-        m_btnStream->setStyleSheet("QPushButton { background: "
-                                   "#5A3A3A; "
-                                   "color: #E06C75; }");
+        m_btnStream->setText(tr("Stop Streaming"));
+        setStreamRole("DangerButton");
       }
     }
   });

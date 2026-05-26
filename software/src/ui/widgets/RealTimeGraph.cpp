@@ -1,8 +1,11 @@
 #include "RealTimeGraph.h"
+
 #include <QPainter>
 #include <QPainterPath>
+#include <QTextStream>
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <random>
 
 RealTimeGraph::RealTimeGraph(QWidget *parent, int numSeries) : QWidget(parent) {
@@ -273,4 +276,58 @@ void RealTimeGraph::paintEvent(QPaintEvent *event) {
     }
     // ... rest of labels ...
   }
+}
+
+int RealTimeGraph::writeCsv(QTextStream &out, const QStringList &headers) const {
+  const int n = static_cast<int>(m_seriesData.size());
+
+  // Header row.
+  out << "timestamp_ms";
+  for (int i = 0; i < n; ++i) {
+    out << ',';
+    if (i < headers.size() && !headers[i].isEmpty()) {
+      // Quote-escape headers that contain commas or quotes.
+      QString h = headers[i];
+      if (h.contains(',') || h.contains('"')) {
+        h.replace('"', "\"\"");
+        out << '"' << h << '"';
+      } else {
+        out << h;
+      }
+    } else {
+      out << "series_" << i;
+    }
+  }
+  out << '\n';
+
+  // Build a unified timestamp axis: walk all series in parallel, pick
+  // the smallest unconsumed timestamp, write one row per distinct ts.
+  // Using vector indices instead of iterators so we can advance cheaply.
+  std::vector<size_t> idx(n, 0);
+  int rows = 0;
+  while (true) {
+    qint64 next = std::numeric_limits<qint64>::max();
+    bool any = false;
+    for (int i = 0; i < n; ++i) {
+      if (idx[i] < m_seriesData[i].size()) {
+        any = true;
+        next = std::min(next, m_seriesData[i][idx[i]].timestamp);
+      }
+    }
+    if (!any) break;
+
+    out << next;
+    for (int i = 0; i < n; ++i) {
+      out << ',';
+      if (idx[i] < m_seriesData[i].size() &&
+          m_seriesData[i][idx[i]].timestamp == next) {
+        // 6 sig figs is plenty for telemetry; saves bytes vs default.
+        out << QString::number(m_seriesData[i][idx[i]].value, 'g', 6);
+        ++idx[i];
+      }
+    }
+    out << '\n';
+    ++rows;
+  }
+  return rows;
 }
