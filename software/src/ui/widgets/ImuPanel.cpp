@@ -1,12 +1,18 @@
 #include "ImuPanel.h"
 #include "SettingsWidget.h"
 
+#include "core/CsvExport.h"
+#include "core/Notify.h"
+#include "core/ui/Buttons.h"
+
 #include <QColor>
+#include <QDateTime>
 #include <QFont>
 #include <QGridLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QPushButton>
 #include <QVBoxLayout>
 
 // --------------- ImuAxisGroup -----------------------------------------------
@@ -145,6 +151,32 @@ ImuPanel::ImuPanel(QWidget *parent) : QGroupBox("IMU — BMX160", parent) {
   layout->addWidget(m_gyr);
   layout->addWidget(m_mag);
   layout->addWidget(m_temp);
+
+  // Footer: CSV export button. Writes all four axis groups' current
+  // ring-buffer contents to one file with a shared timestamp axis.
+  auto *footer = new QHBoxLayout();
+  footer->addStretch();
+  auto *exportBtn = new ui::GhostButton(tr("Export CSV"), this);
+  exportBtn->setToolTip(
+      tr("Save the currently-buffered IMU traces (acc/gyr/mag/temp) "
+         "to a CSV file"));
+  connect(exportBtn, &QPushButton::clicked, this, [this] {
+    const QString stamp =
+        QDateTime::currentDateTime().toString("yyyyMMdd-HHmmss");
+    const QString path = CsvExport::promptAndWriteCombined(
+        this, QString("imu-%1.csv").arg(stamp),
+        {
+          {m_acc->graph(),  {"acc_x", "acc_y", "acc_z"}},
+          {m_gyr->graph(),  {"gyr_x", "gyr_y", "gyr_z"}},
+          {m_mag->graph(),  {"mag_x", "mag_y", "mag_z"}},
+          {m_temp->graph(), {"temp_c"}},
+        });
+    if (!path.isEmpty()) {
+      Notify::ok(this, tr("Wrote %1").arg(path));
+    }
+  });
+  footer->addWidget(exportBtn);
+  layout->addLayout(footer);
 }
 
 void ImuPanel::updateImu(const ImuData &data) {

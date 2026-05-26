@@ -23,8 +23,13 @@ find_package(Qt6 REQUIRED COMPONENTS
 # -------------------------------------------------------
 # Sources
 # -------------------------------------------------------
+# Always-built sources. SITL sources (vsim/* + SimulatorWidget) are
+# conditionally added below when sim_host is available, so Navigator
+# degrades gracefully (FR-0d / FR-SIM-10).
 set(GCS_SOURCES
     src/app/main.cpp
+    src/ui/main/MainStatusBar.cpp
+    src/ui/main/MainToolbar.cpp
     src/ui/main/MainWindow.cpp
     src/comm/SerialManager.cpp
     src/protocol/DroneProtocol.cpp
@@ -32,6 +37,10 @@ set(GCS_SOURCES
     src/ui/widgets/ImuPanel.cpp
     src/ui/widgets/LogPanel.cpp
     src/core/crc.cpp
+    src/core/CsvExport.cpp
+    src/core/Logger.cpp
+    src/core/Notify.cpp
+    src/core/Theme.cpp
     src/ui/widgets/PacketAnalyzerWidget.cpp
     src/ui/main/SettingsWidget.cpp
     src/protocol/PacketDecoder.cpp
@@ -44,13 +53,6 @@ set(GCS_SOURCES
     src/ui/widgets/MotorStatusWidget.cpp
     src/ui/widgets/Drone3DWidget.cpp
     src/ui/widgets/ControlLoopPlot.cpp
-    src/ui/widgets/SimulatorWidget.cpp
-    src/vsim/PhysicsCore.cpp
-    src/vsim/MotorModel.cpp
-    src/vsim/SensorModels.cpp
-    src/vsim/SimController.cpp
-    src/vsim/SimWorker.cpp
-    src/vsim/SimRendererWidget.cpp
 )
 
 set(GCS_HEADERS
@@ -63,6 +65,11 @@ set(GCS_HEADERS
     src/core/Types.h
     src/core/crc.h
     src/core/RollingStats.h
+    src/core/CsvExport.h
+    src/core/Logger.h
+    src/core/Notify.h
+    src/core/Theme.h
+    src/core/ui/Buttons.h
     src/ui/widgets/PacketAnalyzerWidget.h
     src/ui/main/SettingsWidget.h
     src/protocol/PacketDecoder.h
@@ -75,6 +82,21 @@ set(GCS_HEADERS
     src/ui/widgets/MotorStatusWidget.h
     src/ui/widgets/Drone3DWidget.h
     src/ui/widgets/ControlLoopPlot.h
+)
+
+# SITL-only sources. These pull in vsim_iface.h from tools/sim_host and
+# can't compile without it. Added to the target only when sim_host is
+# present (see the add_subdirectory check below).
+set(GCS_SITL_SOURCES
+    src/ui/widgets/SimulatorWidget.cpp
+    src/vsim/PhysicsCore.cpp
+    src/vsim/MotorModel.cpp
+    src/vsim/SensorModels.cpp
+    src/vsim/SimController.cpp
+    src/vsim/SimWorker.cpp
+    src/vsim/SimRendererWidget.cpp
+)
+set(GCS_SITL_HEADERS
     src/ui/widgets/SimulatorWidget.h
     src/vsim/VsimTypes.h
     src/vsim/PhysicsCore.h
@@ -98,11 +120,12 @@ qt_add_executable(Navigator
     ${GCS_RESOURCES}
 )
 
-target_include_directories(Navigator PRIVATE 
-    src 
-    src/core 
-    src/comm 
-    src/protocol 
+target_include_directories(Navigator PRIVATE
+    src
+    src/core
+    src/core/ui
+    src/comm
+    src/protocol
     src/ui/main
     src/ui/widgets
     src/vsim
@@ -127,9 +150,10 @@ if(EXISTS "${VAYU_SITL_DIR}/CMakeLists.txt")
     add_subdirectory("${VAYU_SITL_DIR}"
                      "${CMAKE_BINARY_DIR}/vayu_sitl"
                      EXCLUDE_FROM_ALL)
+    target_sources(Navigator PRIVATE ${GCS_SITL_SOURCES} ${GCS_SITL_HEADERS})
     target_link_libraries(Navigator PRIVATE vayu_sitl_core)
     target_compile_definitions(Navigator PRIVATE NAVIGATOR_HAS_SITL=1)
-    message(STATUS "Navigator: linking against vayu_sitl_core")
+    message(STATUS "Navigator: linking against vayu_sitl_core (SITL ON)")
 else()
     message(WARNING "Navigator: ${VAYU_SITL_DIR} not found; SITL features disabled")
 endif()

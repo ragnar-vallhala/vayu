@@ -2,9 +2,12 @@
 
 #include <QColor>
 #include <QDateTime>
+#include <QStringList>
 #include <QWidget>
 #include <deque>
 #include <vector>
+
+class QTextStream;
 
 class RealTimeGraph : public QWidget {
   Q_OBJECT
@@ -24,15 +27,36 @@ public:
   void clear();
   void setDynamicYAxis(bool enabled);
 
-protected:
-  void paintEvent(QPaintEvent *event) override;
+  // ---- CSV export (FR-LOG-04 / Phase-1 1d) ---------------------------------
+  //
+  // Writes the currently-buffered data to `out` as comma-separated
+  // rows. First column is `timestamp_ms` (Unix ms UTC), then one
+  // column per series. `headers`, if provided, names the per-series
+  // columns; missing names fall back to "series_N". Rows are emitted
+  // for the union of all series' timestamps, sorted ascending; cells
+  // without a sample at that instant are left empty.
+  //
+  // Returns the number of data rows written (excluding the header).
+  int writeCsv(QTextStream &out, const QStringList &headers = {}) const;
 
-private:
+  // Public POD so CSV-export helpers in core/CsvExport can iterate
+  // without friending or copying.
   struct DataPoint {
     qint64 timestamp;
     float value;
   };
 
+  // Read-only view of the in-memory series buffers. Useful for the
+  // shared CSV exporter — single-graph callers should prefer writeCsv()
+  // below.
+  const std::vector<std::deque<DataPoint>>& series() const {
+    return m_seriesData;
+  }
+
+protected:
+  void paintEvent(QPaintEvent *event) override;
+
+private:
   std::vector<std::deque<DataPoint>> m_seriesData;
   Mode m_mode = Mode::LinePlot;
   int m_windowSeconds = 5;

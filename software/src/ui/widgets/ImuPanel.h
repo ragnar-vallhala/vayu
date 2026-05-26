@@ -20,6 +20,8 @@ public:
   void setValues(float x, float y, float z);
   void setWindowSeconds(int seconds);
   void setDropoutRate(double rate);
+  // Exposed so panel-level CSV export can include this group's traces.
+  RealTimeGraph *graph() const { return m_graph; }
 
 private:
   QLabel *m_labels[3];

@@ -1,5 +1,9 @@
 #include "CalibrationWidget.h"
+
 #include "../core/crc.h"
+#include "core/Theme.h"
+#include "core/ui/Buttons.h"
+
 #include <QDateTime>
 #include <QGroupBox>
 #include <QHBoxLayout>
@@ -21,18 +25,15 @@ CalibrationWidget::CalibrationWidget(QWidget *parent) : QWidget(parent) {
   m_gyrBtn = new QPushButton("GYROSCOPE", this);
   m_magBtn = new QPushButton("MAGNETOMETER", this);
 
-  QString cardStyle =
-      "QPushButton { background: #21252B; color: #ABB2BF; border: 2px solid "
-      "#3E4452; border-radius: 8px; font-weight: bold; min-height: 80px; }"
-      "QPushButton:checked { background: #2C313C; color: #61AFEF; "
-      "border-color: #61AFEF; }"
-      "QPushButton:hover:!checked { background: #2C313C; }";
-
+  // Big checkable cards — styling lives in dark.qss under #SensorCard.
   for (auto *btn : {m_accBtn, m_gyrBtn, m_magBtn}) {
+    btn->setObjectName("SensorCard");
     btn->setCheckable(true);
-    btn->setStyleSheet(cardStyle);
     sensorLayout->addWidget(btn);
   }
+  m_accBtn->setToolTip(tr("Accelerometer — bias + 6-axis full calibration"));
+  m_gyrBtn->setToolTip(tr("Gyroscope — bias-only zeroing"));
+  m_magBtn->setToolTip(tr("Magnetometer — rotate the airframe for axis coverage"));
 
   m_typeGroup = new QButtonGroup(this);
   m_typeGroup->addButton(m_accBtn, 1);
@@ -47,29 +48,28 @@ CalibrationWidget::CalibrationWidget(QWidget *parent) : QWidget(parent) {
   // --- Configuration & Axis Status ---
   auto *midLayout = new QHBoxLayout();
 
+  // GroupBox chrome comes from global QSS.
   m_configGroup = new QGroupBox("Calibration Mode", this);
-  m_configGroup->setStyleSheet(
-      "QGroupBox { color: #ABB2BF; font-weight: bold; border: 1px solid "
-      "#3E4452; margin-top: 10px; padding: 10px; } "
-      "QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top "
-      "left; left: 10px; }");
   auto *configVBox = new QVBoxLayout(m_configGroup);
   m_biasOnlyRadio = new QRadioButton("Bias-Only (Zeroing)", this);
   m_fullCalibRadio =
       new QRadioButton("Full Calibration (Scale + Offset)", this);
   m_biasOnlyRadio->setChecked(true);
   m_fullCalibRadio->setEnabled(false); // Default is Gyroscope
-  m_biasOnlyRadio->setStyleSheet("color: #ABB2BF;");
-  m_fullCalibRadio->setStyleSheet("color: #ABB2BF;");
   configVBox->addWidget(m_biasOnlyRadio);
   configVBox->addWidget(m_fullCalibRadio);
   midLayout->addWidget(m_configGroup, 1);
 
   m_axisStatusArea = new QWidget(this);
   auto *axisGrid = new QGridLayout(m_axisStatusArea);
-  QString axisStyle =
-      "QLabel { background: #21252B; color: #5C6370; border: 1px solid "
-      "#3E4452; border-radius: 4px; padding: 5px; font-weight: bold; }";
+  // Idle style for the six axis pills; active pill is re-styled when
+  // the firmware advances the calibration step.
+  const QString axisStyle =
+      QString("QLabel { background: %1; color: %2; border: 1px solid %3; "
+              "border-radius: 4px; padding: 5px; font-weight: bold; }")
+          .arg(Theme::hex(Theme::kSurface),
+               Theme::hex(Theme::kTextDim),
+               Theme::hex(Theme::kBorderStrong));
 
   m_axisLabelX = new QLabel("X", this);
   m_axisLabelNX = new QLabel("-X", this);
@@ -97,28 +97,37 @@ CalibrationWidget::CalibrationWidget(QWidget *parent) : QWidget(parent) {
   mainLayout->addLayout(midLayout);
 
   // --- Instruction Panel ---
+  // Accented frame with title centered — this is intentionally louder
+  // than the global QGroupBox style.
   m_instructionGroup = new QGroupBox("Instruction Panel", this);
   m_instructionGroup->setStyleSheet(
-      "QGroupBox { color: #61AFEF; font-weight: bold; border: 2px solid "
-      "#61AFEF; border-radius: 8px; margin-top: 15px; padding: 20px; } "
-      "QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top "
-      "center; }");
+      QString("QGroupBox { color: %1; font-weight: bold; border: 2px solid %1; "
+              "border-radius: 8px; margin-top: 15px; padding: 20px; } "
+              "QGroupBox::title { subcontrol-origin: margin; "
+              "subcontrol-position: top center; }")
+          .arg(Theme::hex(Theme::kAccent)));
   auto *instrVBox = new QVBoxLayout(m_instructionGroup);
 
   m_instructionText = new QLabel("SELECT A SENSOR AND PRESS START", this);
   m_instructionText->setAlignment(Qt::AlignCenter);
   m_instructionText->setWordWrap(true);
   m_instructionText->setStyleSheet(
-      "font-size: 20px; font-weight: bold; color: #FFFFFF;");
+      QString("font-size: 20px; font-weight: bold; color: %1;")
+          .arg(Theme::hex(Theme::kText)));
   instrVBox->addWidget(m_instructionText);
 
   m_progressBar = new QProgressBar(this);
   m_progressBar->setFixedHeight(12);
   m_progressBar->setTextVisible(false);
+  // Custom chunk colour (success-green) overrides the QSS default
+  // (accent). Worth the inline rule for the visual cue.
   m_progressBar->setStyleSheet(
-      "QProgressBar { background: #21252B; border: 1px solid #3E4452; "
-      "border-radius: 6px; } "
-      "QProgressBar::chunk { background: #98C379; border-radius: 5px; }");
+      QString("QProgressBar { background: %1; border: 1px solid %2; "
+              "border-radius: 6px; } "
+              "QProgressBar::chunk { background: %3; border-radius: 5px; }")
+          .arg(Theme::hex(Theme::kSurface),
+               Theme::hex(Theme::kBorderStrong),
+               Theme::hex(Theme::kOk)));
   instrVBox->addWidget(m_progressBar);
 
   mainLayout->addWidget(m_instructionGroup);
@@ -126,33 +135,56 @@ CalibrationWidget::CalibrationWidget(QWidget *parent) : QWidget(parent) {
   // --- Footer Controls ---
   auto *footerLayout = new QHBoxLayout();
   m_statusLabel = new QLabel("SYSTEM READY", this);
-  m_statusLabel->setStyleSheet("color: #61AFEF; font-weight: bold;");
+  m_statusLabel->setStyleSheet(
+      QString("color: %1; font-weight: bold;").arg(Theme::hex(Theme::kAccent)));
   footerLayout->addWidget(m_statusLabel);
   footerLayout->addStretch();
 
-  m_cancelBtn = new QPushButton("CANCEL", this);
+  m_cancelBtn = new ui::DangerButton(tr("CANCEL"), this);
   m_cancelBtn->setFixedSize(120, 40);
-  m_cancelBtn->setStyleSheet(
-      "QPushButton { background: #E06C75; color: #21252B; font-weight: bold; "
-      "border-radius: 4px; }");
+  m_cancelBtn->setToolTip(tr("Abort the running calibration"));
   m_cancelBtn->setVisible(false);
   connect(m_cancelBtn, &QPushButton::clicked, this,
           &CalibrationWidget::onCancelClicked);
   footerLayout->addWidget(m_cancelBtn);
 
-  m_startBtn = new QPushButton("START CALIBRATION", this);
+  m_startBtn = new ui::SuccessButton(tr("START CALIBRATION"), this);
   m_startBtn->setFixedSize(200, 40);
-  m_startBtn->setStyleSheet(
-      "QPushButton { background: #98C379; color: #21252B; font-weight: bold; "
-      "border-radius: 4px; }"
-      "QPushButton:hover { background: #B5E890; }"
-      "QPushButton:disabled { background: #4B5263; color: #2C313C; }");
+  m_startBtn->setToolTip(tr("Begin calibrating the selected sensor"));
   connect(m_startBtn, &QPushButton::clicked, this,
           &CalibrationWidget::onStartClicked);
   footerLayout->addWidget(m_startBtn);
 
   mainLayout->addLayout(footerLayout);
   mainLayout->addStretch();
+
+  // Default to disconnected. MainWindow::setConnected drives the real
+  // value as soon as the serial port opens.
+  setConnected(false);
+}
+
+void CalibrationWidget::setConnected(bool connected) {
+  m_connected = connected;
+  if (m_sensorSelectArea) m_sensorSelectArea->setEnabled(connected);
+  if (m_configGroup)      m_configGroup->setEnabled(connected);
+  if (m_startBtn)         m_startBtn->setEnabled(connected);
+  // Cancel only makes sense mid-calibration, which can't happen while
+  // disconnected — leave it visibility-driven elsewhere.
+  if (!connected && m_statusLabel) {
+    m_statusLabel->setText(tr("NOT CONNECTED"));
+    m_statusLabel->setStyleSheet(
+        QString("color: %1; font-weight: bold;")
+            .arg(Theme::hex(Theme::kDanger)));
+    if (m_instructionText)
+      m_instructionText->setText(tr("CONNECT A DRONE TO CALIBRATE"));
+  } else if (connected && m_statusLabel) {
+    m_statusLabel->setText(tr("SYSTEM READY"));
+    m_statusLabel->setStyleSheet(
+        QString("color: %1; font-weight: bold;")
+            .arg(Theme::hex(Theme::kAccent)));
+    if (m_instructionText)
+      m_instructionText->setText(tr("SELECT A SENSOR AND PRESS START"));
+  }
 }
 
 void CalibrationWidget::setProtocol(DroneProtocol *protocol) {
@@ -209,12 +241,14 @@ void CalibrationWidget::onStartClicked() {
   m_configGroup->setEnabled(false);
   m_progressBar->setValue(0);
 
-  // Clear axis statuses
-  for (auto *lbl : m_axisMap) {
-    lbl->setStyleSheet(
-        "background: #21252B; color: #5C6370; border: 1px solid #3E4452; "
-        "border-radius: 4px; padding: 5px; font-weight: bold;");
-  }
+  // Clear axis statuses back to the muted idle look.
+  const QString idle =
+      QString("background: %1; color: %2; border: 1px solid %3; "
+              "border-radius: 4px; padding: 5px; font-weight: bold;")
+          .arg(Theme::hex(Theme::kSurface),
+               Theme::hex(Theme::kTextDim),
+               Theme::hex(Theme::kBorderStrong));
+  for (auto *lbl : m_axisMap) lbl->setStyleSheet(idle);
 
   int calType = m_fullCalibRadio->isChecked() ? 1 : 0;
   sendCalibrationCommand(m_selectedImuId, calType);
@@ -255,8 +289,10 @@ void CalibrationWidget::onProgressReceived(float pct) {
   if (pct >= 100.0f && m_currentAxis != CalibUpdateType::Progress) {
     if (m_axisMap.contains(m_currentAxis)) {
       m_axisMap[m_currentAxis]->setStyleSheet(
-          "background: #2D4A2D; color: #98C379; border: 2px solid #98C379; "
-          "border-radius: 4px; padding: 5px; font-weight: bold;");
+          QString("background: %1; color: %2; border: 2px solid %2; "
+                  "border-radius: 4px; padding: 5px; font-weight: bold;")
+              .arg(QColor(45, 74, 45).name(QColor::HexRgb),
+                   Theme::hex(Theme::kOk)));
     }
   }
 }
@@ -265,11 +301,13 @@ void CalibrationWidget::onInstructionReceived(int type) {
   CalibUpdateType instruction = static_cast<CalibUpdateType>(type);
   m_currentAxis = instruction;
 
-  // Highlight target axis
+  // Highlight target axis with the warn accent.
   if (m_axisMap.contains(instruction)) {
     m_axisMap[instruction]->setStyleSheet(
-        "background: #4A4A2D; color: #E5C07B; border: 2px solid #E5C07B; "
-        "border-radius: 4px; padding: 5px; font-weight: bold;");
+        QString("background: %1; color: %2; border: 2px solid %2; "
+                "border-radius: 4px; padding: 5px; font-weight: bold;")
+            .arg(QColor(74, 74, 45).name(QColor::HexRgb),
+                 Theme::hex(Theme::kWarn)));
   }
 
   QString msg;
@@ -302,10 +340,11 @@ void CalibrationWidget::onInstructionReceived(int type) {
 
   m_instructionText->setText(msg);
   m_instructionGroup->setStyleSheet(
-      "QGroupBox { color: #E5C07B; font-weight: bold; border: 2px solid "
-      "#E5C07B; border-radius: 8px; margin-top: 15px; padding: 20px; } "
-      "QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top "
-      "center; }");
+      QString("QGroupBox { color: %1; font-weight: bold; border: 2px solid %1; "
+              "border-radius: 8px; margin-top: 15px; padding: 20px; } "
+              "QGroupBox::title { subcontrol-origin: margin; "
+              "subcontrol-position: top center; }")
+          .arg(Theme::hex(Theme::kWarn)));
 }
 
 void CalibrationWidget::onCancelClicked() {
@@ -341,10 +380,12 @@ void CalibrationWidget::onStatusReceived(const QString &msg) {
       m_statusLabel->setText("SUCCESSFUL");
       m_instructionText->setText("CALIBRATION COMPLETE!");
       m_instructionGroup->setStyleSheet(
-          "QGroupBox { color: #98C379; font-weight: bold; border: 2px solid "
-          "#98C379; border-radius: 8px; margin-top: 15px; padding: 20px; } "
-          "QGroupBox::title { subcontrol-origin: margin; subcontrol-position: "
-          "top center; }");
+          QString("QGroupBox { color: %1; font-weight: bold; "
+                  "border: 2px solid %1; border-radius: 8px; "
+                  "margin-top: 15px; padding: 20px; } "
+                  "QGroupBox::title { subcontrol-origin: margin; "
+                  "subcontrol-position: top center; }")
+              .arg(Theme::hex(Theme::kOk)));
       m_startBtn->setEnabled(true);
       m_cancelBtn->setVisible(false);
       m_sensorSelectArea->setEnabled(true);

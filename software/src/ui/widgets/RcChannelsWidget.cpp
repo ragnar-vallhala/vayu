@@ -1,4 +1,7 @@
 #include "RcChannelsWidget.h"
+
+#include "core/ui/Buttons.h"
+
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QPushButton>
@@ -16,10 +19,10 @@ RcChannelsWidget::RcChannelsWidget(QWidget *parent) : QWidget(parent) {
 
   // Back button
   QHBoxLayout *topRow = new QHBoxLayout();
-  QPushButton *backBtn = new QPushButton(" ←  Back", this);
+  auto *backBtn = new ui::BackButton(this);
+  backBtn->setText(tr(" ←  Back"));
   backBtn->setFixedWidth(100);
-  backBtn->setStyleSheet("QPushButton { background: #3E4452; color: #fff; "
-                         "border-radius: 4px; padding: 6px; }");
+  backBtn->setToolTip(tr("Return to home"));
   connect(backBtn, &QPushButton::clicked, this,
           &RcChannelsWidget::backToHomeRequested);
   topRow->addWidget(backBtn);
@@ -61,11 +64,9 @@ RcChannelsWidget::RcChannelsWidget(QWidget *parent) : QWidget(parent) {
 
   mainLayout->addWidget(groupBox);
 
-  setStyleSheet("QWidget { background-color: #1e1e1e; color: #eee; "
-                "font-family: 'Segoe UI', Arial; } "
-                "QGroupBox { font-weight: bold; border: 1px solid #444; "
-                "margin-top: 10px; padding-top: 10px; } "
-                "QLabel { font-size: 11px; }");
+  // Surface colour comes from the global QSS; only the small label
+  // sizing is local to this widget.
+  setStyleSheet("QLabel { font-size: 11px; }");
 }
 
 void RcChannelsWidget::updateChannels(const RcData &data) {

@@ -1,4 +1,10 @@
 #include "MotorStatusWidget.h"
+
+#include "core/CsvExport.h"
+#include "core/Notify.h"
+#include "core/ui/Buttons.h"
+
+#include <QDateTime>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QPainter>
@@ -103,23 +109,33 @@ MotorStatusWidget::MotorStatusWidget(QWidget *parent) : QWidget(parent) {
 
   // Header
   auto *header = new QHBoxLayout();
-  auto *backBtn = new QPushButton("← BACK TO HOME", this);
+  auto *backBtn = new ui::BackButton(this);
+  backBtn->setText(tr("← BACK TO HOME"));
   backBtn->setFixedSize(140, 32);
-  backBtn->setStyleSheet(
-      "QPushButton { background: #2C313A; color: #61AFEF; border: 1px solid "
-      "#3E4452; border-radius: 4px; font-weight: bold; font-size: 11px; } "
-      "QPushButton:hover { background: #3E4452; }");
+  backBtn->setToolTip(tr("Return to home"));
   connect(backBtn, &QPushButton::clicked, this,
           &MotorStatusWidget::backToHomeRequested);
 
   auto *title = new QLabel("MOTOR STATUS", this);
   title->setStyleSheet("color: #ABB2BF; font-weight: bold; font-size: 14px;");
 
+  // Export CSV — the 4-series graph keyed by motor.
+  auto *exportBtn = new ui::GhostButton(tr("Export CSV"), this);
+  exportBtn->setToolTip(tr("Save the currently-buffered motor speed traces"));
+  connect(exportBtn, &QPushButton::clicked, this, [this] {
+    const QString stamp =
+        QDateTime::currentDateTime().toString("yyyyMMdd-HHmmss");
+    const QString path = CsvExport::promptAndWriteCombined(
+        this, QString("motors-%1.csv").arg(stamp),
+        {{m_graph, {"m1_fr", "m2_rr", "m3_rl", "m4_fl"}}});
+    if (!path.isEmpty()) Notify::ok(this, tr("Wrote %1").arg(path));
+  });
+
   header->addWidget(backBtn);
   header->addStretch();
   header->addWidget(title);
   header->addStretch();
-  header->addSpacing(140);
+  header->addWidget(exportBtn);
   mainLayout->addLayout(header);
 
   // Content Area
@@ -180,7 +196,7 @@ MotorStatusWidget::MotorStatusWidget(QWidget *parent) : QWidget(parent) {
   content->addLayout(rightPanel, 2);
   mainLayout->addLayout(content, 1);
 
-  setStyleSheet("background: #1A1D27;");
+  // Page background comes from the global QSS QMainWindow rule.
 }
 
 void MotorStatusWidget::setMotorSpeeds(const QVector<float> &speeds) {

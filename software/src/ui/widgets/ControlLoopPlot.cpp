@@ -1,4 +1,11 @@
 #include "ControlLoopPlot.h"
+
+#include "core/CsvExport.h"
+#include "core/Notify.h"
+#include "core/Theme.h"
+#include "core/ui/Buttons.h"
+
+#include <QDateTime>
 #include <QDoubleValidator>
 #include <QGridLayout>
 #include <QScrollArea>
@@ -11,17 +18,17 @@ ControlLoopPlot::ControlLoopPlot(QWidget *parent) : QWidget(parent) {
   mainLayout->setContentsMargins(15, 15, 15, 15);
 
   auto *header = new QHBoxLayout();
-  auto *backBtn = new QPushButton("← BACK", this);
+  auto *backBtn = new ui::BackButton(this);
+  backBtn->setText(tr("← BACK"));
   backBtn->setFixedSize(80, 30);
-  backBtn->setStyleSheet(
-      "QPushButton { background: #2C313A; color: #ABB2BF; border: 1px solid "
-      "#3E4452; border-radius: 4px; font-weight: bold; }"
-      "QPushButton:hover { background: #3E4452; }");
+  backBtn->setToolTip(tr("Return to home"));
   connect(backBtn, &QPushButton::clicked, this,
           &ControlLoopPlot::backToHomeRequested);
 
   auto *title = new QLabel("CONTROL LOOP DASHBOARD", this);
-  title->setStyleSheet("font-size: 18px; font-weight: bold; color: #61AFEF;");
+  title->setStyleSheet(
+      QString("font-size: 18px; font-weight: bold; color: %1;")
+          .arg(Theme::hex(Theme::kAccent)));
 
   header->addWidget(backBtn);
   header->addSpacing(20);
@@ -29,43 +36,57 @@ ControlLoopPlot::ControlLoopPlot(QWidget *parent) : QWidget(parent) {
   header->addStretch();
 
   auto *scaleLabel = new QLabel("Gyro Scale:", this);
-  scaleLabel->setStyleSheet("color: #ABB2BF; font-size: 12px;");
+  scaleLabel->setStyleSheet(
+      QString("color: %1; font-size: 12px;").arg(Theme::hex(Theme::kTextMuted)));
   auto *scaleEdit = new QLineEdit("1.0", this);
   scaleEdit->setFixedWidth(60);
   scaleEdit->setValidator(new QDoubleValidator(0.0, 1000.0, 4, this));
-  scaleEdit->setStyleSheet(
-      "QLineEdit { background: #2C313A; color: #ABB2BF; border: 1px solid "
-      "#3E4452; border-radius: 4px; padding: 2px; }"
-      "QLineEdit:focus { border-color: #61AFEF; }");
+  scaleEdit->setToolTip(tr("Multiplier applied to gyro current traces"));
+  // QLineEdit chrome comes from the global QSS.
   connect(scaleEdit, &QLineEdit::textChanged, this,
           [this](const QString &text) { m_gyroScale = text.toFloat(); });
 
   header->addWidget(scaleLabel);
   header->addSpacing(5);
   header->addWidget(scaleEdit);
+  header->addSpacing(20);
+
+  // CSV export. Combines all four sub-graphs into one file along a
+  // unified timestamp axis so they can be analysed together off-line.
+  auto *exportBtn = new ui::GhostButton(tr("Export CSV"), this);
+  exportBtn->setToolTip(
+      tr("Save the currently-buffered angle / rate / output / dt traces"));
+  connect(exportBtn, &QPushButton::clicked, this, [this] {
+    const QString stamp =
+        QDateTime::currentDateTime().toString("yyyyMMdd-HHmmss");
+    const QString path = CsvExport::promptAndWriteCombined(
+        this, QString("controlloop-%1.csv").arg(stamp),
+        {
+          {m_angleGraph,  {"roll_angle_sp", "pitch_angle_sp", "yaw_angle_sp",
+                           "roll_angle_curr", "pitch_angle_curr", "yaw_angle_curr"}},
+          {m_rateGraph,   {"roll_rate_sp", "pitch_rate_sp", "yaw_rate_sp",
+                           "roll_rate_curr", "pitch_rate_curr", "yaw_rate_curr"}},
+          {m_outputGraph, {"roll_out", "pitch_out", "yaw_out", "throttle_out"}},
+          {m_dtGraph,     {"outer_dt", "inner_dt"}},
+        });
+    if (!path.isEmpty()) Notify::ok(this, tr("Wrote %1").arg(path));
+  });
+  header->addWidget(exportBtn);
 
   mainLayout->addLayout(header);
 
   auto *scrollArea = new QScrollArea(this);
   scrollArea->setWidgetResizable(true);
-  scrollArea->setStyleSheet(
-      "QScrollArea { border: none; background: #21252B; }");
+  scrollArea->setStyleSheet("QScrollArea { border: none; }");
 
   auto *scrollContent = new QWidget();
   auto *scrollLayout = new QVBoxLayout(scrollContent);
   scrollLayout->setContentsMargins(0, 0, 0, 0);
 
   auto *vSplitter = new QSplitter(Qt::Vertical, scrollContent);
-  vSplitter->setStyleSheet(
-      "QSplitter::handle { background: #3E4452; height: 4px; }");
-
   auto *topHSplitter = new QSplitter(Qt::Horizontal, vSplitter);
-  topHSplitter->setStyleSheet(
-      "QSplitter::handle { background: #3E4452; width: 4px; }");
-
   auto *botHSplitter = new QSplitter(Qt::Horizontal, vSplitter);
-  botHSplitter->setStyleSheet(
-      "QSplitter::handle { background: #3E4452; width: 4px; }");
+  // Splitter handle styling comes from the global QSS.
 
   scrollLayout->addWidget(vSplitter);
 
@@ -218,11 +239,9 @@ ControlLoopPlot::ControlLoopPlot(QWidget *parent) : QWidget(parent) {
 
   vSplitter->addWidget(botHSplitter);
 
-  scrollContent->setStyleSheet("background: #21252B;");
+  // Background + text colour come from the global QSS (QMainWindow + QWidget).
   scrollArea->setWidget(scrollContent);
   mainLayout->addWidget(scrollArea, 1);
-
-  setStyleSheet("background: #21252B; color: #ABB2BF;");
 }
 
 void ControlLoopPlot::setProtocol(DroneProtocol *protocol) {
