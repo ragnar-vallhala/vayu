@@ -20,6 +20,13 @@ public:
   explicit CalibrationWidget(QWidget *parent = nullptr);
   void setProtocol(DroneProtocol *protocol);
 
+public slots:
+  // Enable / disable the calibration action surface based on the
+  // current serial connection. When disconnected, sensor cards +
+  // Start / Cancel are disabled and the footer reads "NOT CONNECTED"
+  // so the user doesn't trigger a no-op (FR-UX-18 / Phase-0 0o).
+  void setConnected(bool connected);
+
 signals:
   void backToHomeRequested();
   void commandRequested(const QByteArray &data);
@@ -31,6 +38,9 @@ private slots:
   void onSensorSelected(int id);
   void onProgressReceived(float pct);
   void onInstructionReceived(int type);
+
+private:
+  bool m_connected = false;
 
 private:
   DroneProtocol *m_protocol = nullptr;

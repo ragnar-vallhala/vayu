@@ -1,25 +1,22 @@
 #include "MainWindow.h"
 #include "../core/SettingsManager.h"
+#include "../core/Theme.h"
 #include "../core/crc.h"
 
 #include <QAction>
 #include <QApplication>
+#include <QCloseEvent>
 #include <QDateTime>
-#include <QFile>
-#include <QFont>
-#include <QGridLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
-#include <QIcon>
 #include <QLabel>
-#include <QLineEdit>
 #include <QMenu>
 #include <QMenuBar>
-#include <QMessageBox>
+#include <QPushButton>
+#include <QSettings>
+#include <QShortcut>
 #include <QSplitter>
 #include <QStatusBar>
-#include <QStyleFactory>
-#include <QToolBar>
 #include <QVBoxLayout>
 #include <QWidget>
 #include <cmath>
@@ -29,7 +26,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   setMinimumSize(1100, 700);
   resize(1300, 820);
 
-  applyDarkTheme();
+  // Palette + stylesheet are applied in main() via Theme::apply() so
+  // every dialog/secondary window picks them up; nothing to do here.
 
   // Back-end objects
   m_serial = new SerialManager(this);
@@ -125,6 +123,11 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
             m_imuPanel->setGraphDropout(rate);
             SettingsManager::save(m_settingsWidget->getSettings());
           });
+  connect(m_settingsWidget, &SettingsWidget::autoReconnectChanged, this,
+          [this](bool on) {
+            if (m_serial) m_serial->setAutoReconnect(on);
+            SettingsManager::save(m_settingsWidget->getSettings());
+          });
 
   // Load and apply persistent settings
   GcsSettings savedSettings;
@@ -134,11 +137,30 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     m_syncTimer->setInterval(savedSettings.syncPeriodMs);
     m_imuPanel->setGraphWindow(savedSettings.graphWindowSec);
     m_imuPanel->setGraphDropout(savedSettings.graphDropoutRate);
+    m_serial->setAutoReconnect(savedSettings.autoReconnect);
   }
 
   buildMenuBar();
-  buildToolBar();
-  onRefreshPorts(); // populate port list on startup
+
+  // Toolbar + status bar are pulled out into their own classes
+  // (Phase-1 1a). MainWindow only wires their intent signals to
+  // serial/protocol side-effects.
+  m_toolbar = new MainToolbar(this);
+  addToolBar(m_toolbar);
+  m_statusBar = new MainStatusBar(this);
+  setStatusBar(m_statusBar);
+
+  connect(m_toolbar, &MainToolbar::connectRequested, this,
+          &MainWindow::onConnectRequested);
+  connect(m_toolbar, &MainToolbar::disconnectRequested, this,
+          &MainWindow::onDisconnectRequested);
+  connect(m_toolbar, &MainToolbar::armClicked, this, &MainWindow::onArmClicked);
+  connect(m_toolbar, &MainToolbar::showRcRequested, this,
+          &MainWindow::showRcMonitor);
+  connect(m_toolbar, &MainToolbar::showCalibRequested, this,
+          &MainWindow::showCalibration);
+
+  m_toolbar->refreshPorts();  // populate port list on startup
   setConnected(false);
   // Build Calibration
   m_calibrationWidget = new CalibrationWidget(this);
@@ -166,7 +188,11 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   connect(m_controlLoopWidget, &ControlLoopPlot::backToHomeRequested, this,
           &MainWindow::showHome);
 
-  // Build Simulator (in-app SITL: physics + sensors + firmware threads)
+#ifdef NAVIGATOR_HAS_SITL
+  // Build Simulator (in-app SITL: physics + sensors + firmware threads).
+  // Only present when sim_host was found at configure time — see the
+  // CMake guard around vayu_sitl_core. When omitted, the Simulator menu
+  // entry below is suppressed and Ctrl+8 has no target.
   m_simulatorWidget = new SimulatorWidget(this);
   m_stackedWidget->addWidget(m_simulatorWidget);
   connect(m_simulatorWidget, &SimulatorWidget::backToHomeRequested, this,
@@ -179,8 +205,20 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   // which source is feeding it.
   connect(m_simulatorWidget, &SimulatorWidget::dataReceived,
           m_protocol, &DroneProtocol::processData);
+#endif
 
-  showHome();
+  installShortcuts();
+  // Restore window geometry, splitter sizes, last page, port/baud.
+  // Must run after every widget the state references has been built.
+  restoreUiState();
+
+  // If restoreUiState didn't put us on a page (first run), default to home.
+  if (m_stackedWidget->currentWidget() == nullptr) showHome();
+}
+
+void MainWindow::closeEvent(QCloseEvent *event) {
+  saveUiState();
+  QMainWindow::closeEvent(event);
 }
 
 // ---------------------------------------------------------------------------
@@ -214,7 +252,9 @@ void MainWindow::showControlLoopPlot() {
 }
 
 void MainWindow::showSimulator() {
-  m_stackedWidget->setCurrentWidget(m_simulatorWidget);
+#ifdef NAVIGATOR_HAS_SITL
+  if (m_simulatorWidget) m_stackedWidget->setCurrentWidget(m_simulatorWidget);
+#endif
 }
 
 // ---------------------------------------------------------------------------
@@ -228,7 +268,9 @@ void MainWindow::buildUi() {
   rootVBox->setContentsMargins(8, 8, 8, 8);
 
   // ---- Top row: attitude + attitude labels + IMU panel ----
-  auto *topSplitter = new QSplitter(Qt::Horizontal, m_homeWidget);
+  m_topSplitter = new QSplitter(Qt::Horizontal, m_homeWidget);
+  m_topSplitter->setObjectName("HomeTopSplitter");
+  auto *topSplitter = m_topSplitter;
 
   // ---- Attitude group ----
   auto *attGroup = new QGroupBox("Attitude", m_homeWidget);
@@ -238,13 +280,10 @@ void MainWindow::buildUi() {
   auto *headerLayout = new QHBoxLayout();
   headerLayout->addStretch();
   auto *toggleBtn = new QPushButton("3D VIEW", attGroup);
+  toggleBtn->setObjectName("ToggleButton");
   toggleBtn->setCheckable(true);
   toggleBtn->setFixedSize(70, 22);
-  toggleBtn->setStyleSheet(
-      "QPushButton { background: #2C313A; color: #ABB2BF; border: 1px solid "
-      "#3E4452; "
-      "border-radius: 4px; font-weight: bold; font-size: 10px; }"
-      "QPushButton:checked { background: #61AFEF; color: #21252B; }");
+  toggleBtn->setToolTip(tr("Toggle between the 2D HUD and 3D airframe view"));
   headerLayout->addWidget(toggleBtn);
   attLayout->addLayout(headerLayout);
 
@@ -257,12 +296,19 @@ void MainWindow::buildUi() {
 
   connect(toggleBtn, &QPushButton::toggled, this, &MainWindow::onToggle3d);
 
-  m_statusLabel = new QLabel("DISCONNECTED", attGroup);
+  // Firmware system-state pill. Shows ARMED / STANDBY / FAILSAFE /…
+  // as system-status packets arrive. Connection state lives in the
+  // status-bar pill; this label deliberately starts as a muted dash so
+  // it doesn't compete with that (FR-UX-05).
+  m_statusLabel = new QLabel("—", attGroup);
   m_statusLabel->setAlignment(Qt::AlignCenter);
   m_statusLabel->setStyleSheet(
-      "font-size: 18px; font-weight: bold; color: #E06C75; "
-      "background: #1A1D27; border: 1px solid #2A3347; "
-      "border-radius: 4px; padding: 4px; margin-bottom: 8px;");
+      QString("font-size: 18px; font-weight: bold; color: %1; "
+              "background: %2; border: 1px solid %3; "
+              "border-radius: 4px; padding: 4px; margin-bottom: 8px;")
+          .arg(Theme::hex(Theme::kTextDim),
+               Theme::hex(Theme::kBg),
+               Theme::hex(Theme::kBorder)));
   attLayout->addWidget(m_statusLabel);
 
   // Numeric roll/pitch/yaw labels in a horizontal line
@@ -321,39 +367,22 @@ void MainWindow::buildUi() {
   m_logPanel->setMinimumHeight(180);
 
   // ---- Vertical splitter: attitude+imu / log ----
-  auto *vSplitter = new QSplitter(Qt::Vertical, m_homeWidget);
-  vSplitter->addWidget(topSplitter);
-  vSplitter->addWidget(m_logPanel);
-  vSplitter->setStretchFactor(0, 3);
-  vSplitter->setStretchFactor(1, 1);
+  m_vSplitter = new QSplitter(Qt::Vertical, m_homeWidget);
+  m_vSplitter->setObjectName("HomeVSplitter");
+  m_vSplitter->addWidget(topSplitter);
+  m_vSplitter->addWidget(m_logPanel);
+  m_vSplitter->setStretchFactor(0, 3);
+  m_vSplitter->setStretchFactor(1, 1);
 
-  rootVBox->addWidget(vSplitter);
+  rootVBox->addWidget(m_vSplitter);
   m_stackedWidget->addWidget(m_homeWidget);
 
-  // ---- Status bar ----
-  m_connStatus = new QLabel("  ● Disconnected  ", this);
-  m_connStatus->setStyleSheet("color: #E06C75; font-weight: bold;");
-  m_syncStatus = new QLabel("  Diff: ---  ", this);
-  m_syncStatus->setStyleSheet("color: #ABB2BF; font-family: Monospace;");
-  m_pktStatus = new QLabel("  Packets: 0  ", this);
-
-  statusBar()->addPermanentWidget(m_connStatus);
-  statusBar()->addPermanentWidget(m_syncStatus);
-  statusBar()->addPermanentWidget(m_pktStatus);
-  statusBar()->setStyleSheet("background: #1A1D27; color: #ABB2BF;");
+  // Status bar widgets are owned by MainStatusBar, constructed in the
+  // ctor after the home page is built.
 }
 
 void MainWindow::buildMenuBar() {
   QMenuBar *menu = menuBar();
-  menu->setStyleSheet(
-      "QMenuBar { background: #1A1D27; color: #ABB2BF; "
-      "border-bottom: 1px solid #2A3347; }"
-      "QMenuBar::item { background: transparent; padding: 4px 10px; }"
-      "QMenuBar::item:selected { background: #2A3347; color: #FFFFFF; }"
-      "QMenu { background: #21252B; color: #ABB2BF; border: 1px solid #3E4452; "
-      "}"
-      "QMenu::item { padding: 4px 24px 4px 20px; }"
-      "QMenu::item:selected { background: #3E4452; color: #FFFFFF; }");
 
   QMenu *fileMenu = menu->addMenu("&File");
 
@@ -374,7 +403,9 @@ void MainWindow::buildMenuBar() {
   windowMenu->addAction("&Motor Status", this, &MainWindow::showMotorStatus);
   windowMenu->addAction("&Control Loop", this,
                         &MainWindow::showControlLoopPlot);
+#ifdef NAVIGATOR_HAS_SITL
   windowMenu->addAction("Si&mulator", this, &MainWindow::showSimulator);
+#endif
 
   fileMenu->addSeparator();
 
@@ -383,215 +414,32 @@ void MainWindow::buildMenuBar() {
   connect(exitAction, &QAction::triggered, this, &MainWindow::close);
 }
 
-void MainWindow::buildToolBar() {
-  auto *tb = addToolBar("Main");
-  tb->setMovable(false);
-  tb->setStyleSheet(
-      "QToolBar { background: #1A1D27; border-bottom: 1px solid #2A3347; "
-      "spacing: 6px; }"
-      "QToolBar QLabel { color: #ABB2BF; }"
-      "QComboBox { background: #21252B; color: #ABB2BF; border: 1px solid "
-      "#3E4452; "
-      "            padding: 2px 6px; border-radius: 4px; min-width: 110px; }"
-      "QPushButton { background: #2C313A; color: #ABB2BF; border: 1px solid "
-      "#3E4452; "
-      "              padding: 4px 14px; border-radius: 4px; font-weight: bold; "
-      "}"
-      "QPushButton:hover { background: #3E4452; }"
-      "QPushButton:pressed { background: #4B5263; }");
-
-  // Logo / title
-  auto *title = new QLabel(" ✈  <b>Vayu GCS</b> ", this);
-  title->setStyleSheet("color: #61AFEF; font-size: 16px; padding: 0 8px;");
-  tb->addWidget(title);
-
-  tb->addSeparator();
-
-  // Port. Editable so the user can type a custom path (e.g. /dev/pts/N
-  // when the firmware-side UART2 telemetry is piped through a pty for SITL).
-  // The drop-down still shows auto-detected /dev/ttyUSB*, /dev/ttyACM*
-  // entries; "(custom path…)" appears at the bottom of the list as a
-  // hint, but the field is freely editable regardless of selection.
-  tb->addWidget(new QLabel(" Port: ", this));
-  m_portCombo = new QComboBox(this);
-  m_portCombo->setEditable(true);
-  m_portCombo->setInsertPolicy(QComboBox::NoInsert);
-  m_portCombo->lineEdit()->setPlaceholderText("(custom path… e.g. /dev/pts/3)");
-  tb->addWidget(m_portCombo);
-
-  // Refresh ports
-  auto *refreshBtn = new QPushButton("⟳", this);
-  refreshBtn->setToolTip("Refresh port list");
-  refreshBtn->setFixedWidth(32);
-  connect(refreshBtn, &QPushButton::clicked, this, &MainWindow::onRefreshPorts);
-  tb->addWidget(refreshBtn);
-
-  tb->addSeparator();
-
-  // Baud
-  tb->addWidget(new QLabel(" Baud: ", this));
-  m_baudCombo = new QComboBox(this);
-  const QList<int> bauds = {9600,   19200,  38400,  57600,
-                            115200, 230400, 460800, 921600};
-  for (int b : bauds)
-    m_baudCombo->addItem(QString::number(b), b);
-  m_baudCombo->setCurrentIndex(4); // 115200 default
-  tb->addWidget(m_baudCombo);
-
-  tb->addSeparator();
-
-  // Connect / Disconnect
-  m_connectBtn = new QPushButton("Connect", this);
-  m_connectBtn->setStyleSheet("QPushButton { background: #3A5F3A; color: "
-                              "#98C379; border: 1px solid #5A8F5A; "
-                              "              padding: 4px 18px; border-radius: "
-                              "4px; font-weight: bold; }"
-                              "QPushButton:hover { background: #4A7A4A; }");
-  connect(m_connectBtn, &QPushButton::clicked, this,
-          &MainWindow::onConnectClicked);
-  tb->addWidget(m_connectBtn);
-
-  tb->addSeparator();
-
-  // Arm / Disarm
-  m_armBtn = new QPushButton("ARM", this);
-  m_armBtn->setEnabled(false);
-  m_armBtn->setStyleSheet("QPushButton { background: #5A3A3A; color: #E06C75; "
-                          "border: 1px solid #8F5A5A; "
-                          "              padding: 4px 18px; border-radius: "
-                          "4px; font-weight: bold; }"
-                          "QPushButton:hover { background: #7A4A4A; }"
-                          "QPushButton:disabled { color: #4A4A4A; "
-                          "border-color: #3A3A3A; background: #252525; }");
-  connect(m_armBtn, &QPushButton::clicked, this, &MainWindow::onArmClicked);
-  tb->addWidget(m_armBtn);
-
-  tb->addSeparator();
-
-  // RC Monitor
-  auto *rcBtn = new QPushButton("RC", this);
-  rcBtn->setToolTip("Open RC Channels Monitor");
-  rcBtn->setFixedWidth(40);
-  rcBtn->setStyleSheet("QPushButton { font-weight: bold; }");
-  connect(rcBtn, &QPushButton::clicked, this, &MainWindow::showRcMonitor);
-  tb->addWidget(rcBtn);
-
-  tb->addSeparator();
-
-  // Calibration
-  auto *calBtn = new QPushButton("CALIB", this);
-  calBtn->setToolTip("Open Calibration IMU");
-  calBtn->setFixedWidth(60);
-  calBtn->setStyleSheet("QPushButton { font-weight: bold; }");
-  connect(calBtn, &QPushButton::clicked, this, &MainWindow::showCalibration);
-  tb->addWidget(calBtn);
-
-  tb->addSeparator();
-
-  // LIVE blinker
-  m_liveLabel = new QLabel(" LIVE ", this);
-  m_liveLabel->setAlignment(Qt::AlignCenter);
-  m_liveLabel->setStyleSheet(
-      "background: #1A1D27; color: #ABB2BF; border-radius: 4px; font-weight: "
-      "bold; padding: 2px 8px; border: 1px solid #2A3347;");
-  tb->addWidget(m_liveLabel);
-}
-
-void MainWindow::applyDarkTheme() {
-  qApp->setStyle(QStyleFactory::create("Fusion"));
-
-  QPalette dark;
-  dark.setColor(QPalette::Window, QColor(26, 29, 39));
-  dark.setColor(QPalette::WindowText, QColor(171, 178, 191));
-  dark.setColor(QPalette::Base, QColor(19, 20, 27));
-  dark.setColor(QPalette::AlternateBase, QColor(30, 33, 43));
-  dark.setColor(QPalette::ToolTipBase, QColor(40, 44, 58));
-  dark.setColor(QPalette::ToolTipText, QColor(171, 178, 191));
-  dark.setColor(QPalette::Text, QColor(171, 178, 191));
-  dark.setColor(QPalette::Button, QColor(40, 44, 58));
-  dark.setColor(QPalette::ButtonText, QColor(171, 178, 191));
-  dark.setColor(QPalette::BrightText, Qt::red);
-  dark.setColor(QPalette::Link, QColor(97, 175, 239));
-  dark.setColor(QPalette::Highlight, QColor(97, 175, 239));
-  dark.setColor(QPalette::HighlightedText, Qt::black);
-  qApp->setPalette(dark);
-
-  qApp->setStyleSheet(
-      "QGroupBox { border: 1px solid #2A3347; border-radius: 6px; "
-      "            margin-top: 8px; padding-top: 6px; color: #7090C8; "
-      "font-weight: bold; }"
-      "QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 "
-      "4px; }"
-      "QSplitter::handle { background: #2A3347; }");
-}
-
 // ---------------------------------------------------------------------------
-// Toolbar Slots
+// Toolbar intent slots — toolbar emits, MainWindow drives serial.
 // ---------------------------------------------------------------------------
 
-void MainWindow::onRefreshPorts() {
-  // Preserve whatever the user has typed (e.g. a custom /dev/pts/N) so
-  // refreshing the auto-detected list doesn't clobber a SITL pty path.
-  const QString currentText = m_portCombo->currentText();
-
-  m_portCombo->clear();
-  const QStringList ports = SerialManager::availablePorts();
-  if (!ports.isEmpty()) m_portCombo->addItems(ports);
-
-  // Always offer the SITL UART2 telemetry pty if the SITL is running
-  // and advertised its slave path via /tmp/vayu_uart2_pty.
-  QFile ptyAdv("/tmp/vayu_uart2_pty");
-  if (ptyAdv.exists() && ptyAdv.open(QIODevice::ReadOnly | QIODevice::Text)) {
-    const QString ptyPath = QString::fromUtf8(ptyAdv.readAll()).trimmed();
-    if (!ptyPath.isEmpty() && !ports.contains(ptyPath))
-      m_portCombo->addItem(ptyPath + "  (SITL UART2)");
+void MainWindow::onConnectRequested(const QString &port, int baud) {
+  if (port.isEmpty()) {
+    m_logPanel->appendLog("[GCS] No port specified");
+    return;
   }
-
-  if (m_portCombo->count() == 0)
-    m_portCombo->addItem("(no ports found)");
-
-  // Restore prior text. The user may have typed a path we don't auto-list;
-  // we want that text to remain so Connect uses it.
-  if (!currentText.isEmpty()) m_portCombo->setEditText(currentText);
+  if (m_serial->open(port, baud)) {
+    persistPortBaud();
+  }
 }
 
-void MainWindow::onConnectClicked() {
-  if (m_connected) {
-    m_serial->close();
-  } else {
-    QString port = m_portCombo->currentText().trimmed();
-    // Strip annotation suffix used in the dropdown (e.g.
-    // "/dev/pts/3  (SITL UART2)" -> "/dev/pts/3"). Anything after
-    // two-or-more spaces is decoration, not part of the path.
-    int decoIdx = port.indexOf(QStringLiteral("  "));
-    if (decoIdx > 0) port = port.left(decoIdx).trimmed();
-    if (port.isEmpty() || port.startsWith('(')) {
-      m_logPanel->appendLog("[GCS] No port specified");
-      return;
-    }
-    const int baud = m_baudCombo->currentData().toInt();
-    m_serial->open(port, baud);
-  }
+void MainWindow::onDisconnectRequested() {
+  if (m_serial) m_serial->close();
 }
 
 void MainWindow::onArmClicked() {
-  m_armed = !m_armed;
-  if (m_armed) {
-    m_armBtn->setText("DISARM");
-    m_armBtn->setStyleSheet("QPushButton { background: #8F5A5A; color: "
-                            "#FF8888; border: 1px solid #BF6060; "
-                            "              padding: 4px 18px; border-radius: "
-                            "4px; font-weight: bold; }");
-    m_logPanel->appendLog("[GCS] ARM command sent");
-    // TODO: send ARM command over serial when protocol is defined
-  } else {
-    m_armBtn->setText("ARM");
-    m_armBtn->setStyleSheet("QPushButton { background: #5A3A3A; color: "
-                            "#E06C75; border: 1px solid #8F5A5A; "
-                            "              padding: 4px 18px; border-radius: "
-                            "4px; font-weight: bold; }");
-    m_logPanel->appendLog("[GCS] DISARM command sent");
-  }
+  // Intentional no-op until FR-TX-02 (Phase-0 item 0a) defines the
+  // ARM packet with the firmware. The button stays disabled in the
+  // toolbar, so this slot is only reachable via keyboard shortcut or
+  // a future state change. Log so the action is observable.
+  m_logPanel->appendLog(
+      "[GCS] ARM/DISARM not implemented — pending firmware packet "
+      "definition (FR-TX-02)");
 }
 
 void MainWindow::onToggle3d(bool checked) {
@@ -680,46 +528,53 @@ void MainWindow::onConnectionStateChanged(bool connected) {
 
 void MainWindow::onSerialError(const QString &msg) {
   m_logPanel->appendLog("[ERROR] " + msg);
-  m_connStatus->setText(QString("  ● Error: %1  ").arg(msg));
-  m_connStatus->setStyleSheet("color: #E06C75; font-weight: bold;");
+  if (m_statusBar) m_statusBar->setError(msg);
   setConnected(false);
 }
 
 void MainWindow::setConnected(bool on) {
   m_connected = on;
 
+  // Page-level gating: any page whose actions only make sense with a
+  // live serial link is told to disable its action surface here.
+  // Read-only display pages (Motor / ControlLoop) are intentionally
+  // left interactive so the last known data stays visible.
+  if (m_calibrationWidget) m_calibrationWidget->setConnected(on);
+
+  if (m_toolbar)   m_toolbar->setConnected(on, m_serial->currentPort());
+  if (m_statusBar) m_statusBar->setConnectionStatus(on, m_serial->currentPort());
+
+  // System-state pill on the attitude page. Stays here because it's
+  // tied to firmware status packets, not to the connection per se.
+  if (m_statusLabel) {
+    if (on) {
+      m_statusLabel->setText("WAITING");
+      m_statusLabel->setStyleSheet(
+          QString("font-size: 18px; font-weight: bold; color: %1; "
+                  "background: %2; border: 1px solid %3; "
+                  "border-radius: 4px; padding: 4px; margin-bottom: 8px;")
+              .arg(Theme::hex(Theme::kAccent),
+                   Theme::hex(Theme::kBg),
+                   Theme::hex(Theme::kAccent)));
+    } else {
+      m_statusLabel->setText("—");
+      m_statusLabel->setStyleSheet(
+          QString("font-size: 18px; font-weight: bold; color: %1; "
+                  "background: %2; border: 1px solid %3; "
+                  "border-radius: 4px; padding: 4px; margin-bottom: 8px;")
+              .arg(Theme::hex(Theme::kTextDim),
+                   Theme::hex(Theme::kBg),
+                   Theme::hex(Theme::kBorder)));
+    }
+  }
+
   if (on) {
-    m_connectBtn->setText("Disconnect");
-    m_connectBtn->setStyleSheet("QPushButton { background: #5A3A3A; color: "
-                                "#E06C75; border: 1px solid #8F5A5A; "
-                                "              padding: 4px 18px; "
-                                "border-radius: 4px; font-weight: bold; }"
-                                "QPushButton:hover { background: #7A4A4A; }");
-    m_connStatus->setText(
-        QString("  ● Connected: %1  ").arg(m_serial->currentPort()));
-    m_connStatus->setStyleSheet("color: #98C379; font-weight: bold;");
-    m_armBtn->setEnabled(true);
-    m_portCombo->setEnabled(false);
-    m_baudCombo->setEnabled(false);
     m_pktCount = 0;
     m_syncTimer->start(5000);
     onTimeSyncRequested();
   } else {
-    m_connected = false;
     m_armed = false;
     m_syncTimer->stop();
-    m_connectBtn->setText("Connect");
-    m_connectBtn->setStyleSheet("QPushButton { background: #3A5F3A; color: "
-                                "#98C379; border: 1px solid #5A8F5A; "
-                                "              padding: 4px 18px; "
-                                "border-radius: 4px; font-weight: bold; }"
-                                "QPushButton:hover { background: #4A7A4A; }");
-    m_armBtn->setText("ARM");
-    m_armBtn->setEnabled(false);
-    m_connStatus->setText("  ● Disconnected  ");
-    m_connStatus->setStyleSheet("color: #E06C75; font-weight: bold;");
-    m_portCombo->setEnabled(true);
-    m_baudCombo->setEnabled(true);
   }
 }
 
@@ -737,13 +592,12 @@ void MainWindow::onUiTimer() {
   // Throttled updates for numeric labels (update every 4 ticks = 5Hz)
   if (tick % 4 != 0) {
     // Still update packet count and live blinker every tick for smoothness
-    m_pktStatus->setText(QString("  Packets: %1  ").arg(m_pktCount));
+    if (m_statusBar) m_statusBar->setPacketCount(m_pktCount);
     updateLiveBlinker();
     return;
   }
 
-  // Update attitude numeric labels
-  // Update attitude numeric labels (stable 20Hz update)
+  // Update attitude numeric labels (stable 5Hz update)
   auto fmtVal = [](float v) {
     return QString("%1°").arg(static_cast<double>(v), 7, 'f', 2);
   };
@@ -759,77 +613,39 @@ void MainWindow::onUiTimer() {
   m_pitchStd->setText(fmtStd(m_attStats[1].stdDev()));
   m_yawStd->setText(fmtStd(m_attStats[2].stdDev()));
 
-  // Update packet counter in status bar
-  m_pktStatus->setText(QString("  Packets: %1  ").arg(m_pktCount));
-
+  if (m_statusBar) m_statusBar->setPacketCount(m_pktCount);
   updateLiveBlinker();
 }
 
 void MainWindow::updateLiveBlinker() {
-  qint64 now = QDateTime::currentMSecsSinceEpoch();
-  qint64 elapsed = now - m_lastHbTime;
+  if (!m_toolbar) return;
+  QLabel *live = m_toolbar->liveLabel();
+  if (!live) return;
 
   if (m_lastHbTime == 0) {
-    // Never received a heartbeat yet — show dark
-    m_liveLabel->setStyleSheet(
-        "background: #1A1D27; color: #4B5263; border-radius: 4px; "
-        "font-weight: bold; padding: 2px 8px; border: 1px solid #2A3347;");
-  } else if (elapsed < 150) {
-    // Hold bright for 150ms before fading
-    // stylesheet already set in onHeartbeatReceived, leave it
-  } else if (elapsed < 2000) {
-    double factor = std::exp(-4.0 * (elapsed - 150) / 1850.0);
-    int alpha = static_cast<int>(255 * factor);
-    int green = static_cast<int>(106 * factor + 29); // 29 minimum
-    m_liveLabel->setStyleSheet(
-        QString("background: rgba(30, %1, 30, 200); "
-                "color: rgba(255, 255, 255, %2); "
-                "border-radius: 4px; font-weight: bold; padding: 2px 8px; "
-                "border: 1px solid rgba(152, 195, 121, %2);")
-            .arg(green)
-            .arg(alpha));
-  } else {
-    m_liveLabel->setStyleSheet(
-        "background: #1A1D27; color: #4B5263; border-radius: 4px; "
-        "font-weight: bold; padding: 2px 8px; border: 1px solid #2A3347;");
+    // Never received a heartbeat — leave the idle qss styling in place.
+    live->setStyleSheet(QString());
+    return;
   }
+  const qint64 elapsed =
+      QDateTime::currentMSecsSinceEpoch() - m_lastHbTime;
+  MainStatusBar::fadeLive(live, elapsed);
 }
 
 void MainWindow::onHeartbeatReceived(uint64_t timestamp, uint8_t deviceId) {
   ++m_pktCount;
   m_lastHbTime = QDateTime::currentMSecsSinceEpoch();
-  // Flash immediately bright on receipt
-  m_liveLabel->setStyleSheet(
-      "background: #2D6A2D; color: #FFFFFF; border-radius: 4px; "
-      "font-weight: bold; padding: 2px 8px; "
-      "border: 1px solid #98C379;");
-  // Calculate time difference (drone timestamp is 32-bit ms)
-  uint32_t gcs_now_32 = static_cast<uint32_t>(m_lastHbTime);
-  uint32_t drone_ts_32 = static_cast<uint32_t>(timestamp);
 
-  // Use signed 32-bit to get the shortest modular distance (handles
-  // wrap-around)
-  int32_t diff_ms = static_cast<int32_t>(gcs_now_32 - drone_ts_32);
+  // Flash the LIVE label bright; the UI tick will fade it back.
+  if (m_toolbar) MainStatusBar::flashLive(m_toolbar->liveLabel());
 
-  QString diffStr =
-      QString("  Diff: %1%2ms  ").arg(diff_ms >= 0 ? "+" : "").arg(diff_ms);
+  // Drone timestamp is 32-bit ms; signed subtraction yields the
+  // shortest modular distance (handles wrap-around).
+  const uint32_t gcs_now_32  = static_cast<uint32_t>(m_lastHbTime);
+  const uint32_t drone_ts_32 = static_cast<uint32_t>(timestamp);
+  const qint32 diff_ms = static_cast<qint32>(gcs_now_32 - drone_ts_32);
 
-  m_syncStatus->setText(diffStr);
-
-  // Color grade based on error
-  int32_t absDiff = std::abs(diff_ms);
-  if (absDiff < 20) {
-    m_syncStatus->setStyleSheet(
-        "color: #98C379; font-weight: bold; font-family: Monospace;"); // Green
-  } else if (absDiff < 100) {
-    m_syncStatus->setStyleSheet("color: #D19A66; font-weight: bold; "
-                                "font-family: Monospace;"); // Yellow/Orange
-  } else {
-    m_syncStatus->setStyleSheet(
-        "color: #E06C75; font-weight: bold; font-family: Monospace;"); // Red
-  }
-
-  // Optional: Update UI with heartbeat info
+  if (m_statusBar) m_statusBar->showSyncDrift(diff_ms);
   statusBar()->showMessage(QString("Heartbeat from Device %1").arg(deviceId),
                            1000);
 }
@@ -856,4 +672,104 @@ void MainWindow::onTimeSyncRequested() {
   pkt.append(reinterpret_cast<const char *>(&crc), 4);
 
   m_serial->write(pkt);
+}
+
+// ---------------------------------------------------------------------------
+// Shortcuts (Phase-0 0l) and UI state persistence (0c + 0m)
+// ---------------------------------------------------------------------------
+//
+// QSettings is namespaced by the org/app name set in main.cpp, so we
+// just use grouped string keys. Splitter state goes through Qt's
+// built-in saveState()/restoreState() — opaque blob, version-tagged
+// by Qt internally, robust to widget add/remove as long as the
+// splitter shape doesn't change.
+
+namespace {
+constexpr const char *kGeomKey       = "ui/geometry";
+constexpr const char *kWinStateKey   = "ui/windowState";
+constexpr const char *kTopSplitKey   = "ui/topSplitter";
+constexpr const char *kVSplitKey     = "ui/vSplitter";
+constexpr const char *kPageKey       = "ui/lastPage";
+constexpr const char *kPortKey       = "comm/lastPort";
+constexpr const char *kBaudKey       = "comm/lastBaud";
+}  // namespace
+
+void MainWindow::installShortcuts() {
+  // Page navigation — Ctrl+1..7 maps to QStackedWidget indices in the
+  // order they were added in the ctor (home, packet analyzer, rc,
+  // settings, calibration, motor status, control loop, simulator).
+  // Bind sequentially; the count must stay <= the number of pages.
+  const QList<QKeyCombination> keys = {
+      Qt::CTRL | Qt::Key_1, Qt::CTRL | Qt::Key_2, Qt::CTRL | Qt::Key_3,
+      Qt::CTRL | Qt::Key_4, Qt::CTRL | Qt::Key_5, Qt::CTRL | Qt::Key_6,
+      Qt::CTRL | Qt::Key_7, Qt::CTRL | Qt::Key_8,
+  };
+  for (int i = 0; i < keys.size() && i < m_stackedWidget->count(); ++i) {
+    auto *sc = new QShortcut(QKeySequence(keys[i]), this);
+    const int idx = i;
+    connect(sc, &QShortcut::activated, this,
+            [this, idx] { m_stackedWidget->setCurrentIndex(idx); });
+  }
+
+  // Ctrl+K — toggle connection (same path as a click on the toolbar's
+  // Connect/Disconnect button).
+  auto *scConn = new QShortcut(
+      QKeySequence(QKeyCombination(Qt::CTRL, Qt::Key_K)), this);
+  connect(scConn, &QShortcut::activated, this,
+          [this] { if (m_toolbar) m_toolbar->onConnectClicked(); });
+
+  // Ctrl+L — clear the log panel.
+  auto *scClr = new QShortcut(
+      QKeySequence(QKeyCombination(Qt::CTRL, Qt::Key_L)), this);
+  connect(scClr, &QShortcut::activated, this, [this] {
+    if (m_logPanel) m_logPanel->clearLog();
+  });
+
+  // F11 — toggle fullscreen.
+  auto *scFs = new QShortcut(QKeySequence(Qt::Key_F11), this);
+  connect(scFs, &QShortcut::activated, this, [this] {
+    if (isFullScreen()) showNormal();
+    else showFullScreen();
+  });
+}
+
+void MainWindow::saveUiState() {
+  QSettings s;
+  s.setValue(kGeomKey,     saveGeometry());
+  s.setValue(kWinStateKey, saveState());
+  if (m_topSplitter) s.setValue(kTopSplitKey, m_topSplitter->saveState());
+  if (m_vSplitter)   s.setValue(kVSplitKey,   m_vSplitter->saveState());
+  if (m_stackedWidget) s.setValue(kPageKey, m_stackedWidget->currentIndex());
+  persistPortBaud();
+}
+
+void MainWindow::restoreUiState() {
+  QSettings s;
+  if (s.contains(kGeomKey))     restoreGeometry(s.value(kGeomKey).toByteArray());
+  if (s.contains(kWinStateKey)) restoreState(s.value(kWinStateKey).toByteArray());
+  if (m_topSplitter && s.contains(kTopSplitKey))
+    m_topSplitter->restoreState(s.value(kTopSplitKey).toByteArray());
+  if (m_vSplitter && s.contains(kVSplitKey))
+    m_vSplitter->restoreState(s.value(kVSplitKey).toByteArray());
+
+  // Restore last-used port / baud through the toolbar's typed accessors.
+  // setPort handles both "matches a known item" and "custom path" cases.
+  if (m_toolbar) {
+    m_toolbar->setPort(s.value(kPortKey).toString());
+    m_toolbar->setBaud(s.value(kBaudKey).toInt());
+  }
+
+  // Last page index. Default to home (0) on first run.
+  if (m_stackedWidget && s.contains(kPageKey)) {
+    const int idx = s.value(kPageKey).toInt();
+    if (idx >= 0 && idx < m_stackedWidget->count())
+      m_stackedWidget->setCurrentIndex(idx);
+  }
+}
+
+void MainWindow::persistPortBaud() {
+  if (!m_toolbar) return;
+  QSettings s;
+  s.setValue(kPortKey, m_toolbar->currentPort());
+  s.setValue(kBaudKey, m_toolbar->currentBaud());
 }

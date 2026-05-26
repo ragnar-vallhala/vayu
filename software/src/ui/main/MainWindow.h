@@ -1,10 +1,9 @@
 #pragma once
 
-#include <QComboBox>
 #include <QElapsedTimer>
 #include <QLabel>
 #include <QMainWindow>
-#include <QPushButton>
+#include <QSplitter>
 #include <QStackedWidget>
 #include <QTimer>
 
@@ -15,14 +14,19 @@
 #include "DroneProtocol.h"
 #include "ImuPanel.h"
 #include "LogPanel.h"
+#include "MainStatusBar.h"
+#include "MainToolbar.h"
 #include "MotorStatusWidget.h"
 #include "PacketAnalyzerWidget.h"
 #include "RcChannelsWidget.h"
 #include "RollingStats.h"
 #include "SerialManager.h"
 #include "SettingsWidget.h"
-#include "SimulatorWidget.h"
 #include "Types.h"
+
+#ifdef NAVIGATOR_HAS_SITL
+#include "SimulatorWidget.h"
+#endif
 
 class MainWindow : public QMainWindow {
   Q_OBJECT
@@ -30,6 +34,9 @@ class MainWindow : public QMainWindow {
 public:
   explicit MainWindow(QWidget *parent = nullptr);
   ~MainWindow() override = default;
+
+protected:
+  void closeEvent(QCloseEvent *event) override;
 
 private slots:
   // Navigation
@@ -41,9 +48,10 @@ private slots:
   void showMotorStatus();
   void showControlLoopPlot();
   void showSimulator();
-  // Toolbar actions
-  void onConnectClicked();
-  void onRefreshPorts();
+  // Toolbar wire-up. The toolbar emits intent signals; MainWindow owns
+  // the serial open/close + persistence side-effects.
+  void onConnectRequested(const QString &port, int baud);
+  void onDisconnectRequested();
   void onArmClicked();
   void onToggle3d(bool checked);
 
@@ -69,17 +77,16 @@ private slots:
 private:
   void buildUi();
   void buildMenuBar();
-  void buildToolBar();
-  void applyDarkTheme();
+  void installShortcuts();
   void setConnected(bool on);
   void updateLiveBlinker();
+  void saveUiState();
+  void restoreUiState();
+  void persistPortBaud();
 
-  // ---- Toolbar widgets ----
-  QComboBox *m_portCombo = nullptr;
-  QComboBox *m_baudCombo = nullptr;
-  QPushButton *m_connectBtn = nullptr;
-  QPushButton *m_armBtn = nullptr;
-  QLabel *m_liveLabel = nullptr;
+  // ---- Toolbar / status bar (extracted in Phase-1 1a) ----
+  MainToolbar   *m_toolbar   = nullptr;
+  MainStatusBar *m_statusBar = nullptr;
 
   // ---- Central panels ----
   ImuPanel *m_imuPanel = nullptr;
@@ -91,11 +98,17 @@ private:
   CalibrationWidget *m_calibrationWidget = nullptr;
   MotorStatusWidget *m_motorWidget = nullptr;
   ControlLoopPlot *m_controlLoopWidget = nullptr;
+#ifdef NAVIGATOR_HAS_SITL
   SimulatorWidget *m_simulatorWidget = nullptr;
+#endif
   QStackedWidget *m_stackedWidget = nullptr;
   QStackedWidget *m_attStack = nullptr;
   Drone3DWidget *m_drone3d = nullptr;
   QWidget *m_homeWidget = nullptr;
+
+  // Splitters retained as members so their state can be saved/restored.
+  QSplitter *m_topSplitter = nullptr;
+  QSplitter *m_vSplitter = nullptr;
 
   QAction *m_homeAction = nullptr;
   QAction *m_analyzerAction = nullptr;
@@ -109,10 +122,7 @@ private:
   QLabel *m_yawStd = nullptr;
   RollingStats m_attStats[3];
 
-  // ---- Status bar ----
-  QLabel *m_connStatus = nullptr;
-  QLabel *m_pktStatus = nullptr;
-  QLabel *m_syncStatus = nullptr;
+  // ---- System-state pill on the attitude page (firmware state, not connection) ----
   QLabel *m_statusLabel = nullptr;
 
   // ---- Back-end ----
