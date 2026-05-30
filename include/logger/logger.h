@@ -1,7 +1,15 @@
 #ifndef LOGGER_H
 #define LOGGER_H
+#include "structure.h"
 #include "vfs.h"
 #include <stdint.h>
+
+/* Text-log producer (src/logger/log_text.c). The telemetry task drains
+ * this queue to the LOG channel (LOG-TXT-002). @implements LOG-TXT-001 */
+extern mpmc_queue_t vayu_log_queue;
+#define VAYU_LOG_QUEUE_SIZE 128
+void vayu_log(const char *fmt, ...);
+
 typedef enum {
   NAVLINK_LOGGER,
   SYSTEM_LOGGER,
