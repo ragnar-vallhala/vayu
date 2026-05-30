@@ -1,0 +1,127 @@
+# Vayu firmware CI (R12.1). Runs on every push / PR.
+#
+# Two tiers of jobs:
+#   * Always-on gates that work on the committed tree:
+#       - build-target  : arm-none-eabi build, all modules under -Werror (R1.2)
+#       - trace-gate    : tools/trace.py --check, unknown-ID fails (R12.5)
+#       - cppcheck      : static analysis (report-only baseline, R12.3)
+#   * SITL-dependent jobs, guarded on the host test harness being present
+#     (it currently lives alongside the in-app vsim integration). They
+#     skip until tools/sim_host/tests/ is committed, then auto-activate:
+#       - sitl-tests    : host unit tests (R12.1)
+#       - sanitizers    : ASan + UBSan unit tests (R12.2)
+#       - coverage      : gcov/gcovr summary on CTRL/EST/COMM (R12.4)
+#       - clang-tidy    : .clang-tidy ruleset (report-only, CONV-04 / R12.3)
+#
+# Deferred (heavy, tracked separately): Renode ISR/timing (R12.6),
+# state-machine SITL transition coverage (R12.7).
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-target:
+    name: build (arm-none-eabi, -Werror)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install toolchain
+        run: sudo apt-get update && sudo apt-get install -y gcc-arm-none-eabi cmake
+      - name: Configure + build
+        run: |
+          cmake -B build
+          cmake --build build -j
+
+  trace-gate:
+    name: trace gate (--check)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: trace.py --check (unknown ID fails; R12.5)
+        run: python3 tools/trace.py --check
+
+  cppcheck:
+    name: cppcheck (baseline)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y cppcheck
+      - name: cppcheck over src/ (vendored extern/ excluded)
+        # Report-only until the baseline is burned down (R12.3); flip to
+        # failing once clean.
+        continue-on-error: true
+        run: |
+          cppcheck --enable=warning,portability --std=c11 --quiet \
+            --suppress=missingInclude -I include src/
+
+  sitl-tests:
+    name: SITL unit tests
+    runs-on: ubuntu-latest
+    # Activates once the host test harness lands (with the vsim integration).
+    if: ${{ hashFiles('tools/sim_host/tests/test_phase3_ctrl.c') != '' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - run: sudo apt-get update && sudo apt-get install -y cmake
+      - run: |
+          cmake -S tools/sim_host -B build_sitl
+          cmake --build build_sitl -j
+          ctest --test-dir build_sitl --output-on-failure
+
+  sanitizers:
+    name: SITL ASan + UBSan (R12.2)
+    runs-on: ubuntu-latest
+    if: ${{ hashFiles('tools/sim_host/tests/test_phase3_ctrl.c') != '' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - run: sudo apt-get update && sudo apt-get install -y cmake
+      - run: |
+          cmake -S tools/sim_host -B build_san -DVAYU_SANITIZE=ON
+          cmake --build build_san -j
+          ctest --test-dir build_san --output-on-failure
+
+  coverage:
+    name: SITL coverage (R12.4)
+    runs-on: ubuntu-latest
+    if: ${{ hashFiles('tools/sim_host/tests/test_phase3_ctrl.c') != '' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - run: sudo apt-get update && sudo apt-get install -y cmake gcovr
+      - name: Build + coverage summary
+        # Threshold enforcement (initial 70% on CTRL/EST/COMM-PKT) lands
+        # once the integration tests exercise those modules; report-only now.
+        run: |
+          cmake -S tools/sim_host -B build_cov -DVAYU_COVERAGE=ON
+          cmake --build build_cov -j
+          cmake --build build_cov --target coverage
+
+  clang-tidy:
+    name: clang-tidy (.clang-tidy, baseline)
+    runs-on: ubuntu-latest
+    if: ${{ hashFiles('tools/sim_host/tests/test_phase3_ctrl.c') != '' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - run: sudo apt-get update && sudo apt-get install -y cmake clang-tidy
+      - name: Generate compile_commands + run clang-tidy
+        # Report-only until the baseline is burned down (R12.3).
+        continue-on-error: true
+        run: |
+          cmake -S tools/sim_host -B build_tidy -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+          cmake --build build_tidy -j --target vayu_sitl_core
+          git ls-files 'src/*.c' | xargs -P4 -I{} clang-tidy -p build_tidy {}
