@@ -30,7 +30,7 @@ already-clean module before the heavier ones.
 | EST    | `est/sensor_fusion.c`, `est/lpf.c` | `include/est/est.h` (merged sensor_fusion.h+lpf.h) | ✅ `maths/{sensor_fusion,lpf}.c` → `src/est/` | **full R1.2 + `-Werror`** | ✅ done |
 | CTRL   | `control/{angle_controller,angle_rate_controller,pid_config,pid,control_buffer}.c` | `include/control/control.h` | ✅ `maths/{pid,control_buffer}.c` → `src/control/` | **full R1.2 + `-Werror`** | ✅ done |
 | COMM   | `comm/*.c` (channel, serializer, deserializer, comm_processor, telemetry_task, ibus, rc_task, rc_buffer, rc_safety) | `include/comm/comm.h` | none | **full R1.2 + `-Werror`** | ✅ done |
-| LOG    | `logger/logger.c` (+`utils/utils.c` → `logger/`) | `include/logger/logger.h` (exists) | `utils/utils.c` → `src/logger/` | `-Wall` | ⬜ pending (~6 warns) |
+| LOG    | `logger/logger.c`, `logger/log_text.c` | `include/logger/logger.h` | ✅ logging (vayu_log + queue) extracted from `utils/utils.c` → `src/logger/log_text.c` | **full R1.2 + `-Werror`** | ✅ done |
 | SYS    | `sys/*.c` | `include/sys/sys.h` | `utils/{math_utils,timer_callbacks,types}.h` → `include/sys/` | `-Wall` | ⬜ pending (~13 warns) |
 
 Warning counts are the R1.2 load measured on the current tree (pre-fix);
