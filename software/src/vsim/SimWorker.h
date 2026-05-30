@@ -1,24 +1,24 @@
 #pragma once
 
-#include "SimController.h"
 #include "VsimTypes.h"
-
-extern "C" {
-#include "vsim_iface.h"
-}
 
 #include <QObject>
 #include <QString>
 #include <QThread>
 #include <array>
 #include <atomic>
+#include <cstdint>
 #include <mutex>
 
 namespace vsim {
 
-// Snapshot of "what the renderer needs to draw the drone". Sent via
-// Qt::QueuedConnection signal from the sim thread to the GUI thread
-// at ~60 Hz; intentionally small + trivially copyable.
+// Snapshot of "what the renderer needs to draw the drone". Decoded from
+// a vsim_pose_frame_t coming off /tmp/vsim_pose; sent to the GUI thread
+// via Qt::QueuedConnection at ~60 Hz; intentionally small + trivially
+// copyable.
+//
+// Types here are still QVector3D / QQuaternion (aliased in VsimTypes.h)
+// so SimRendererWidget keeps consuming this struct unchanged.
 struct SimSnapshot {
   Vec3  pos_w   = {0, 0, 0};
   Quat  att     = Quat(1, 0, 0, 0);
@@ -29,81 +29,74 @@ struct SimSnapshot {
   uint64_t tick_count = 0;
 };
 
-// SimWorker drives SimController in real time on its own thread.
+// SimWorker -- vsim_d process supervisor + pose reader.
 //
-// IO is via the existing two FIFOs the firmware already understands:
-//   - reads "motor_idx duty\n" ASCII lines from /tmp/vayu_pwm.fifo
-//   - writes a 76-byte bmx160_all_converted_reading_t to /tmp/vayu_imu.fifo
-//     at 200 Hz
-// This means the standalone vayu_sitl binary still works unchanged.
-// Once the library refactor lands the FIFO calls can be swapped for
-// direct in-process callbacks without touching the rest of the class.
+// One-shot lifecycle:
+//   1. construct on the GUI thread.
+//   2. (optional) setVsimBinary("...path/to/vsim_d") if the daemon
+//      isn't in $PATH and isn't beside the Navigator binary.
+//   3. start() -- worker thread spawns vsim_d via posix_spawnp, opens
+//      /tmp/vsim_pose for reading + /tmp/vsim_ctl for writing, then
+//      pumps pose frames until requestStop().
+//   4. requestStop() -- worker sends SIGTERM to vsim_d and exits the
+//      read loop. wait() joins as usual.
 //
-// The worker subclasses QThread (not QObject-on-a-thread) because
-// we want a tight integration loop, not Qt's event loop, at 1 kHz.
+// All physics + sensor simulation lives in the vsim_d binary now.
+// SimWorker no longer holds a SimController, no longer pushes IMU,
+// no longer pulls PWM -- those happen between vsim_d and the firmware
+// (whether the firmware is the standalone vayu_sitl binary or living
+// inside Navigator). SimWorker exists only to (a) own the daemon's
+// lifetime relative to the SimulatorWidget page, (b) decode pose
+// frames for the renderer, and (c) ferry control messages back.
 class SimWorker : public QThread {
   Q_OBJECT
  public:
   explicit SimWorker(QObject* parent = nullptr);
   ~SimWorker() override;
 
-  // Configuration (call before start()).
-  void setDroneParams(const DroneParams& p) { ctl_.setDroneParams(p); }
-  void setMotorParams(const MotorParams& p) { ctl_.setMotorParams(p); }
-  void setNoise(const SensorNoise& n)       { ctl_.setNoise(n); }
+  // Path to the vsim_d binary. Default is whatever VSIM_BIN_PATH env
+  // var points at, falling back to "vsim_d" (PATH lookup).
+  void setVsimBinary(const QString& path) { vsim_bin_ = path; }
 
-  void setPwmFifoPath(const QString& p)     { pwm_fifo_path_ = p; }
-  void setImuFifoPath(const QString& p)     { imu_fifo_path_ = p; }
-
-  // In-process iface (set before start). When non-null the worker
-  // talks through shared memory instead of the two /tmp FIFOs.
-  void setIface(vsim_iface_t* iface)        { iface_ = iface; }
-
-  // Snapshot getter for renderers / panels that pull instead of subscribe.
+  // Snapshot getter for pull-style consumers.
   SimSnapshot snapshot() const;
 
-  // Tell the worker to shut down (also called from destructor).
+  // Tell the worker to shut down (also called from destructor). Kills
+  // the spawned vsim_d via SIGTERM.
   void requestStop();
+
+  // Send a CTL_RESET to vsim_d. With no args, re-spawns at level pose
+  // slightly above ground (matches the daemon's own initial state).
+  void sendReset();
 
  signals:
   void poseUpdated(SimSnapshot snap);
-  void logLine(QString line);   // status / error messages
+  void logLine(QString line);
   void stoppedCleanly();
 
  protected:
   void run() override;
 
  private:
-  void openPwmFifo();
-  void openImuFifo();
-  void drainPwmFifo();
-  void writeImuSample(const ImuSample& s);
-  void publishSnapshot(uint64_t tick);
+  bool spawnDaemon();
+  void killDaemon();
+  bool openFifos();
+  void closeFifos();
+  void emitFromFrame(const void* frame_bytes);
 
-  SimController ctl_;
+  QString vsim_bin_;
 
-  QString pwm_fifo_path_ = "/tmp/vayu_pwm.fifo";
-  QString imu_fifo_path_ = "/tmp/vayu_imu.fifo";
-  int pwm_fd_ = -1;
-  int imu_fd_ = -1;
+  // pid of the spawned vsim_d process; -1 if not running.
+  int daemon_pid_ = -1;
 
-  // Optional in-process iface for talking to libvayu_sitl_core directly.
-  // When set, PWM is pulled via vsim_iface_get_motor_duty and IMU is
-  // pushed via vsim_iface_post_imu; the FIFO paths are bypassed.
-  vsim_iface_t* iface_ = nullptr;
+  int pose_fd_ = -1;
+  int ctl_fd_  = -1;
 
-  // Latest motor duty (shared with the GL renderer for display).
-  std::atomic<float> motor_duty_a_[4] = {{0.0f}, {0.0f}, {0.0f}, {0.0f}};
+  std::atomic<bool> stop_flag_{false};
 
   // Pose latch for snapshot() pull-style readers.
   mutable std::mutex snap_mtx_;
   SimSnapshot last_snap_;
-
-  std::atomic<bool> stop_flag_{false};
-
-  // Partial line buffer for the PWM FIFO reader. Firmware emits
-  // "%d %f\n" which we have to reassemble across read() boundaries.
-  std::string pwm_residual_;
 };
 
 }  // namespace vsim

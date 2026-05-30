@@ -73,7 +73,7 @@ Cross-references:
 | ID       | Requirement                                                                                  |
 |----------|----------------------------------------------------------------------------------------------|
 | NFR-01   | UI thread never blocked > 16 ms by sim/serial work. Heavy work runs in `SimWorker`/timers.   |
-| NFR-02   | SITL physics steps at 1 kHz, IMU emit 200 Hz, snapshot 60 Hz (see `SimWorker.cpp:23`).       |
+| NFR-02   | SITL physics steps at 1 kHz, IMU emit 200 Hz, snapshot 60 Hz (paced in `vsim_d`, `tools/vsim/src/main.cpp`). |
 | NFR-03   | No data copies between firmware and renderer beyond the queued `SimSnapshot` (trivially copyable). |
 | NFR-04   | `DroneProtocol` parser handles partial reads and drops at most 1 byte per CRC failure.       |
 | NFR-05   | Heartbeat round-trip drift surfaced to the user, colour-banded at ±20 ms / ±100 ms.          |
@@ -164,23 +164,33 @@ GCS → drone is the weak side.
 | FR-CONN-06| Disconnect cleans state, disarms UI, stops sync timer                  | ✅     |
 | FR-CONN-07| Last port + baud persisted across restarts                             | ✅     | QSettings round-trip in `restoreUiState`/`persistPortBaud` |
 
-### 2.6 Embedded SITL (`vsim/` + `SimulatorWidget`)
+### 2.6 Embedded SITL (`vsim/` + `SimulatorWidget` + `vsim_d`)
 
-Design doc: `docs/in-app-sim.md`. Code: `src/vsim/`,
-`src/ui/widgets/SimulatorWidget.{h,cpp}`.
+Design doc: `docs/in-app-sim.md`. Wire protocol: `tools/vsim/include/vsim_proto.h`.
+Navigator-side code: `src/vsim/`, `src/ui/widgets/SimulatorWidget.{h,cpp}`.
+Physics daemon: `tools/vsim/` (builds the standalone `vsim_d` binary).
+
+Two-process architecture (since the vsim_d split). The firmware threads
+still run *in-process* inside Navigator via `vayu_sitl_start`, but the
+physics + sensor simulation moved out to the standalone `vsim_d`
+process. The two talk over four latest-wins FIFOs (see `vsim_proto.h`):
+firmware → `/tmp/vsim_pwm` → vsim_d, vsim_d → `/tmp/vsim_imu` → firmware,
+vsim_d → `/tmp/vsim_pose` → Navigator renderer, Navigator →
+`/tmp/vsim_ctl` → vsim_d (reset/control). `SimWorker` no longer runs
+physics; it spawns/supervises `vsim_d` and decodes pose frames.
 
 | ID       | Requirement                                                              | Status |
 |----------|--------------------------------------------------------------------------|--------|
-| FR-SIM-01| Run firmware in-process via `vayu_sitl_start(iface)`                     | ✅     |
-| FR-SIM-02| 1 kHz physics (RK4), 200 Hz IMU emit, 60 Hz pose snapshot                | ✅     |
-| FR-SIM-03| Drone parameters (mass, inertia, motor geometry) editable from UI        | ❌     | Compile-time defaults in `VsimTypes.h` |
-| FR-SIM-04| Sensor noise / bias parameters editable from UI                          | ❌     |
+| FR-SIM-01| Run firmware in-process via `vayu_sitl_start(&iface)`                    | ✅     | Physics now out-of-process in `vsim_d`; firmware threads still in Navigator |
+| FR-SIM-02| 1 kHz physics (RK4), 200 Hz IMU emit, 60 Hz pose snapshot                | ✅     | Driven by `vsim_d` (`tools/vsim/src/main.cpp`); SimWorker only reads pose |
+| FR-SIM-03| Drone parameters (mass, inertia, motor geometry) editable from UI        | ❌     | Compile-time defaults in `tools/vsim/include/vsim_types.h` |
+| FR-SIM-04| Sensor noise / bias parameters editable from UI                          | ❌     | `VSIM_CTL_SET_NOISE` opcode reserved in `vsim_proto.h`; no UI yet |
 | FR-SIM-05| Pose snapshot rendered live (OpenGL)                                     | ✅     |
 | FR-SIM-06| Per-run raw UART byte log to `logs/sim-<ts>.bin`                         | ✅     |
-| FR-SIM-07| Hot reset of firmware state between runs                                 | 🔥     | `vayu_sitl_start` is one-shot per process — Navigator restart needed |
+| FR-SIM-07| Hot reset of physics / firmware state between runs                       | 🟡🔥  | Physics resets via `VSIM_CTL_RESET` (`SimWorker::sendReset`); firmware state still can't (`vayu_sitl_start` one-shot — Navigator restart needed) |
 | FR-SIM-08| Wind / external-force injection                                          | ❌     |
-| FR-SIM-09| Ground-contact model (tipping, friction)                                 | ❌     | Intentional: hard clamp only (`PhysicsCore.cpp:102`) |
-| FR-SIM-10| FIFO transport mode for legacy `vayu_sitl` binary                        | ✅     | `SimWorker.cpp` keeps both code paths        |
+| FR-SIM-09| Ground-contact model (tipping, friction)                                 | ❌     | Intentional: hard clamp only (`tools/vsim/src/physics_core.cpp`) |
+| FR-SIM-10| FIFO transport to the standalone firmware binary                         | ✅     | `vsim_d` FIFOs are the only transport; the standalone `vayu_sitl` binary attaches to the same `/tmp/vsim_{pwm,imu}` paths |
 
 ### 2.7 Persistence (`SettingsManager`)
 
@@ -381,13 +391,19 @@ A new reader's "where do I find things" cheatsheet. File paths under
 - `SimulatorWidget` — SITL control surface (gated on `NAVIGATOR_HAS_SITL`).
 - `RealTimeGraph` — the per-trace ring-buffered plotter every panel uses.
 
-**Embedded SITL** (`vsim/`, only when `NAVIGATOR_HAS_SITL=1`)
-- `PhysicsCore` + `MotorModel` + `SensorModels` — RK4 6-DOF + rotor
-  dynamics + IMU noise. NED frame throughout.
-- `SimController` — composes the three above; single `tick()` entry.
-- `SimWorker` — owns the 1 kHz physics thread; either talks to the
-  in-process firmware via `vsim_iface` or to the legacy `/tmp/` FIFOs.
-- `SimRendererWidget` — OpenGL view of the airframe pose.
+**Embedded SITL** — two processes (Navigator side only when `NAVIGATOR_HAS_SITL=1`)
+- `tools/vsim/` — the standalone `vsim_d` physics daemon. Holds
+  `physics_core` + `motor_model` + `sensor_models` (RK4 6-DOF + rotor
+  dynamics + IMU noise, NED throughout) composed by `sim_controller`,
+  plus `fifo_transport`. `vsim_proto.h` defines the four-FIFO wire
+  format (`/tmp/vsim_{pwm,imu,pose,ctl}`). These classes used to live
+  in `software/src/vsim/` in-process; they moved here in the vsim_d split.
+- `src/vsim/SimWorker.{h,cpp}` — thin supervisor: spawns `vsim_d` via
+  `posix_spawnp`, reads pose frames off `/tmp/vsim_pose`, writes control
+  (e.g. reset) to `/tmp/vsim_ctl`. No physics, no IMU push, no PWM pull.
+- `src/vsim/VsimTypes.h` — Qt type aliases (`Vec3`/`Quat`) for the
+  `SimSnapshot` the renderer consumes; physics structs now daemon-side.
+- `src/vsim/SimRendererWidget` — OpenGL view of the airframe pose.
 
 ---
 

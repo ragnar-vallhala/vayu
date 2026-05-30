@@ -1,0 +1,56 @@
+#include "sensor_models.h"
+
+#include <algorithm>
+
+namespace vsim {
+
+SensorModels::SensorModels()
+    : rng_(0xC0FFEE), norm_(0.0f, 1.0f) {}
+
+void SensorModels::seed(uint64_t s) { rng_.seed(s); }
+
+float SensorModels::randn(float std) {
+    return norm_(rng_) * std;
+}
+
+Vec3 SensorModels::walk(Vec3& bias, float walk_std, float clip) {
+    bias += Vec3(randn(walk_std), randn(walk_std), randn(walk_std));
+    bias.setX(std::clamp(bias.x(), -clip, clip));
+    bias.setY(std::clamp(bias.y(), -clip, clip));
+    bias.setZ(std::clamp(bias.z(), -clip, clip));
+    return bias;
+}
+
+ImuSample SensorModels::sample(const RigidBodyState& state,
+                               const Vec3& a_world,
+                               float dt) {
+    (void)dt;  // walk is per-call, not per-second
+    walk(acc_bias_, noise_.acc_bias_walk, noise_.acc_bias_clip);
+    walk(gyr_bias_, noise_.gyr_bias_walk, noise_.gyr_bias_clip);
+    walk(mag_bias_, noise_.mag_bias_walk, noise_.mag_bias_clip);
+
+    // Specific force in WORLD frame = a_world - gravity_world.
+    // At rest a_world = (0,0,0) so spec = -(0,0,G) = (0,0,-G); a level
+    // airframe sees (0,0,-G) in body frame -- the standard BMX160
+    // reading firmware expects.
+    Vec3 spec_w = a_world - Vec3(0.0f, 0.0f, kG);
+
+    Quat q_inv = state.att.conjugated();
+    Vec3 acc_b = q_inv.rotatedVector(spec_w);
+    Vec3 mag_b = q_inv.rotatedVector(magWorldNed());
+
+    ImuSample s;
+    s.acc = acc_b + acc_bias_ + Vec3(randn(noise_.acc_noise_std),
+                                     randn(noise_.acc_noise_std),
+                                     randn(noise_.acc_noise_std));
+    s.gyr = state.omega_b + gyr_bias_ + Vec3(randn(noise_.gyr_noise_std),
+                                             randn(noise_.gyr_noise_std),
+                                             randn(noise_.gyr_noise_std));
+    s.mag = mag_b + mag_bias_ + Vec3(randn(noise_.mag_noise_std),
+                                     randn(noise_.mag_noise_std),
+                                     randn(noise_.mag_noise_std));
+    s.temp = noise_.temp_mean + randn(noise_.temp_noise_std);
+    return s;
+}
+
+}  // namespace vsim
