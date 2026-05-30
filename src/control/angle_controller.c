@@ -4,7 +4,7 @@
 #include "control/angle_rate_controller.h"
 #include "control/pid_config.h"
 #include "maths/maths_interface.h"
-#include "maths/pid.h"
+#include "control/pid.h"
 #include "est/est.h"
 #include "sensor/sensor.h"
 #include "structure.h"
@@ -15,11 +15,11 @@
 #define ANGLE_CONTROLLER_2_RATE_CONTROLLER_BUFFER_SIZE 4
 
 static angle_controller_outputs_t
-    angle_controller_outputs[ANGLE_CONTROLLER_2_RATE_CONTROLLER_BUFFER_SIZE] = {
+    angle_controller_out_buf[ANGLE_CONTROLLER_2_RATE_CONTROLLER_BUFFER_SIZE] = {
         0};
 static spsc_fifo_t angle_controller_fifo;
 static void init_fifo(void) {
-  spsc_init(&angle_controller_fifo, angle_controller_outputs,
+  spsc_init(&angle_controller_fifo, angle_controller_out_buf,
             ANGLE_CONTROLLER_2_RATE_CONTROLLER_BUFFER_SIZE,
             sizeof(angle_controller_outputs_t));
   spsc_set_policy(&angle_controller_fifo, SPSC_POLICY_OVERWRITE);
@@ -159,6 +159,7 @@ static inline rc_data_t normalize_rc_data(ibus_data_t rc_data) {
 }
 
 void angle_controller_task(void *arg) {
+  (void)arg;
   angle_controller_init();
   static attitude_t attitude;
   static attitude_t last_attitude;

@@ -1,7 +1,7 @@
 #ifndef VAYU_ANGLE_RATE_CONTROLLER_H
 #define VAYU_ANGLE_RATE_CONTROLLER_H
 
-#include "maths/pid.h"
+#include "control/pid.h"
 #include "variables.h"
 #include <stdbool.h>
 #include <stdint.h>

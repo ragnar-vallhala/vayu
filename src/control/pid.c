@@ -1,4 +1,4 @@
-#include "maths/pid.h"
+#include "control/pid.h"
 #include "maths/maths_interface.h"
 #include <stdbool.h>
 

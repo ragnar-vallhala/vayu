@@ -96,7 +96,7 @@ Nine prefixes, mapped to the actual source layout:
 | `VOS`  | RTOS — scheduler, IPC, memory, time.         | `extern/vaios/kernel/`, `extern/vaios/portable/cortex-m4/`      | vendored       |
 | `SNS`  | Sensor drivers + sample buffering.            | `src/sensor/` (BMX160, IMU buffer, I2C manager)                 | owned          |
 | `EST`  | State estimation (attitude / position).      | `src/est/` (sensor_fusion, lpf)                                 | owned          |
-| `CTRL` | Control loops + mixing + PID.                | `src/control/`, `src/maths/pid.c`, `src/maths/control_buffer.c` | owned          |
+| `CTRL` | Control loops + mixing + PID.                | `src/control/` (controllers, PID core, control buffer)         | owned          |
 | `ACT`  | Actuator output (motors, ESCs).              | `src/actuator/` (esc, motor)                                    | owned          |
 | `COMM` | Communications — RC ingest + telemetry tx/rx. | `src/comm/`, `include/comm/`                                   | owned          |
 | `LOG`  | On-device logging subsystem.                  | `src/logger/`                                                   | owned          |
@@ -355,8 +355,8 @@ here), COV (convergence / health monitor).
 ### 4.5 CTRL — Control loops
 
 **Scope.** Inner rate loop, outer angle loop, motor mixing, PID
-implementation. Lives in `src/control/`, `src/maths/pid.c`,
-`src/maths/control_buffer.c`. Position / waypoint control is out of scope.
+implementation. Lives in `src/control/` (PID core + control buffer folded
+in from `maths/` per Phase 4 R2.6). Position / waypoint control is out of scope.
 
 **Reserved IDs.** `CTRL-*-001..099`, `CTRL-*-101..199`.
 

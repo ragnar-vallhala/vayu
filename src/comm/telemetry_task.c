@@ -5,7 +5,7 @@
 #include "comm/rc_buffer.h"
 #include "comm/serializer.h"
 #include "logger/logger.h"
-#include "maths/control_buffer.h"
+#include "control/control.h"
 #include "est/est.h"
 #include "sensor/sensor.h"
 #include "sys/state.h"

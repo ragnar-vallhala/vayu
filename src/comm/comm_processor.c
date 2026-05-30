@@ -1,6 +1,6 @@
 #include "comm/comm_types.h"
 #include "comm/serializer.h"
-#include "control/pid_config.h"
+#include "control/control.h"
 #include "memory.h"
 #include "sensor/sensor.h"
 #include "sys/state.h"
