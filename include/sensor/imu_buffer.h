@@ -9,6 +9,13 @@
 
 void imu_buffer_init(void);
 void imu_buffer_push(const bmx160_all_reading_t *sample);
+
+/**
+ * @brief Number of IMU samples discarded by the OVERWRITE ring because
+ *        the consumer fell behind. Surfaced through telemetry.
+ * @implements SNS-BUF-002
+ */
+uint32_t imu_buffer_drop_count(void);
 bool imu_buffer_peek(bmx160_all_reading_t *out_sample);
 int imu_buffer_peek_all(bmx160_all_reading_t *out_samples, int max_count);
 int imu_buffer_count(void);
