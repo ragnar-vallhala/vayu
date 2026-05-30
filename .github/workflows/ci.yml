@@ -58,10 +58,9 @@ jobs:
       - name: cppcheck over src/ (vendored extern/ excluded)
         # Report-only until the baseline is burned down (R12.3); flip to
         # failing once clean.
-        continue-on-error: true
         run: |
-          cppcheck --enable=warning,portability --std=c11 --quiet \
-            --suppress=missingInclude -I include src/
+          cppcheck --enable=warning,portability --std=c11 --quiet --error-exitcode=1 \
+            --inline-suppr --suppress=missingInclude -I include src/
 
   sitl-tests:
     name: SITL unit tests

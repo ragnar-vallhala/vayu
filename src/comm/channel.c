@@ -258,15 +258,15 @@ err_t del_handler(channel_t *handler) {
     serial_channel_handle_t *s_handle =
         (serial_channel_handle_t *)handler->handle;
     if (s_handle != NULL) {
-      s_handle->uart = 0; // Mark slot as free
-    }
-    if (s_handle->is_interrupt_attached) {
-      hal_irq_t usart_irq = s_handle->uart == HAL_UART_1   ? USART1_IRQn
-                            : s_handle->uart == HAL_UART_6 ? USART6_IRQn
-                                                      : USART2_IRQn;
-      if (hal_interrupt_disable(usart_irq) == 1)
-        return USAGE;
-      hal_interrupt_detach_callback(usart_irq);
+      if (s_handle->is_interrupt_attached) {
+        hal_irq_t usart_irq = s_handle->uart == HAL_UART_1   ? USART1_IRQn
+                              : s_handle->uart == HAL_UART_6 ? USART6_IRQn
+                                                        : USART2_IRQn;
+        if (hal_interrupt_disable(usart_irq) == 1)
+          return USAGE;
+        hal_interrupt_detach_callback(usart_irq);
+      }
+      s_handle->uart = 0; // Mark slot as free (after detaching its IRQ)
     }
   }
 
