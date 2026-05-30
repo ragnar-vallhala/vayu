@@ -1,6 +1,6 @@
 #include "sensor/bmx160.h"
 #include "comm/serializer.h"
-#include "drivers/i2c_manager.h"
+#include "sensor/i2c_manager.h"
 #include "navhal.h"
 #include "ipc.h"
 #include "est/est.h"
@@ -23,7 +23,7 @@ extern float fabsf(float x);
 #define FABS_F(x) ((x) < 0.0f ? -(x) : (x))
 #define SQRT_F(x) sqrtf(x)
 static int in_init = 1;
-#define IS_FINITE(x) ((x) - (x) == 0.0f)
+#define IS_FINITE(x) (isfinite(x))
 uint8_t tx_buf[2];
 uint8_t rx_buf[14]; // Increased for safer multi-byte reads
 
@@ -74,7 +74,7 @@ static bmm150_trim_data_t _mag_trim;
 static int i2c_error_count = 0;
 
 // Helper functions
-static bmx160_err_type bmx160_set_mag_conf();
+static bmx160_err_type bmx160_set_mag_conf(void);
 static bmx160_err_type bmx160_convert_raw_temp_to_celcius(int16_t raw_temp,
                                                           float *celcius);
 static float bmx160_range_code_to_g(uint8_t range_code);
@@ -312,7 +312,7 @@ static void bmx160_read_mag_trim_data(void) {
   _mag_trim.dig_xyz1 = (uint16_t)(tmp[1] << 8 | tmp[0]);
 }
 
-static bmx160_err_type bmx160_set_mag_conf() {
+static bmx160_err_type bmx160_set_mag_conf(void) {
   // 1. Route secondary I2C interface to Magnetometer (0x6B = 0x20)
   tx_buf[0] = BMX160_IF_CONF_ADDR;
   tx_buf[1] = 0x20;
@@ -786,9 +786,6 @@ void bmx160_set_current_config(bmx160_config_t *cfg) { bmx160_cfg = *cfg; }
 extern uint32_t bmx160_task_id;
 
 // Run from ISR
-static int dt = 0;
-static int dt_last = 0;
-static int dt_count = 0;
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 
 void bmx160_initiate_read(void *args) {
@@ -1076,7 +1073,8 @@ void bmx160_process_data(void) {
 
     // Disturbance detection (dot product with previous valid reading)
     if (mag_fusion_valid &&
-        (last_mag[0] != 0.0f || last_mag[1] != 0.0f || last_mag[2] != 0.0f)) {
+        (fabsf(last_mag[0]) > 0.0f || fabsf(last_mag[1]) > 0.0f ||
+         fabsf(last_mag[2]) > 0.0f)) {
       // Calculate dot product of current reading and last valid reading
       float dot = _bmx_data.converted.mag[0] * last_mag[0] +
                   _bmx_data.converted.mag[1] * last_mag[1] +
@@ -1258,7 +1256,7 @@ static int wait_for_orientation(calib_update_type_t orient, float *accel_out) {
       // Progress update (every 5%)
       if (count % (target_samples / 20) == 0) {
         imu_calibration_telemetry.buffer[2] = CALIB_UPDATE_PROGRESS;
-        float progress = (100.0f * count) / target_samples;
+        float progress = (100.0f * (float)count) / (float)target_samples;
         v_memcpy(&imu_calibration_telemetry.buffer[3], &progress, 4);
         imu_calibration_telemetry.size = 7;
         imu_queue_calibration_telemetry_push(&imu_calibration_telemetry);
@@ -1296,7 +1294,7 @@ void calibration_task(void *args) {
   VAYU_DISCARD(system_state_set(SYSTEM_STATE_CALIBRATING));
   v_delay(500);
   vayu_log("[CALIB] IMU ID: %.1f, Type: %.1f", imu_id, cal_args->type);
-  if (imu_id == 1.0f) { // ACCEL
+  if ((int)imu_id == 1) { // ACCEL
     calib_update_type_t orients[] = {
         CALIB_UPDATE_UPRIGHT,    CALIB_UPDATE_UPSIDE_DOWN,
         CALIB_UPDATE_NOSE_UP,    CALIB_UPDATE_NOSE_DOWN,
@@ -1311,7 +1309,7 @@ void calibration_task(void *args) {
     }
 
     // Calibration calculation
-    if (cal_args->type == 1.0f) { // FULL CALIBRATION (Bias + Scale)
+    if ((int)cal_args->type == 1) { // FULL CALIBRATION (Bias + Scale)
       vayu_log("[CALIB] Calculating Full Accel Calibration...");
 
       // X-axis: Nose Up (2) and Nose Down (3)
@@ -1350,8 +1348,8 @@ void calibration_task(void *args) {
                bmx160_calib.acc_offset[2]);
     }
 
-  } else if (imu_id == 2.0f) {    // GYRO
-    if (cal_args->type == 1.0f) { // FULL CALIBRATION (6-point Bias Check)
+  } else if ((int)imu_id == 2) {    // GYRO
+    if ((int)cal_args->type == 1) { // FULL CALIBRATION (6-point Bias Check)
       vayu_log("[CALIB] Starting Full Gyro Calibration (6-point bias)...");
       calib_update_type_t orients[] = {
           CALIB_UPDATE_UPRIGHT,    CALIB_UPDATE_UPSIDE_DOWN,
@@ -1402,7 +1400,7 @@ void calibration_task(void *args) {
       bmx160_calib.gyr_offset[1] = gsum[1] / 500.0f;
       bmx160_calib.gyr_offset[2] = gsum[2] / 500.0f;
     }
-  } else if (imu_id == 3.0f) { // MAGNETOMETER
+  } else if ((int)imu_id == 3) { // MAGNETOMETER
     vayu_log(
         "[CALIB] Starting Magnetometer Quick Calibration (Free-Rotation)...");
 
@@ -1448,7 +1446,7 @@ void calibration_task(void *args) {
       // Progress update every 5%
       if (i % (iterations / 20) == 0) {
         imu_calibration_telemetry.buffer[2] = CALIB_UPDATE_PROGRESS;
-        float progress = (100.0f * i) / iterations;
+        float progress = (100.0f * (float)i) / (float)iterations;
         v_memcpy(&imu_calibration_telemetry.buffer[3], &progress, 4);
         imu_calibration_telemetry.size = 7;
         imu_queue_calibration_telemetry_push(&imu_calibration_telemetry);
@@ -1509,7 +1507,7 @@ void calibration_task(void *args) {
     vayu_log("[CALIB] Failed to open calibration file.");
     return;
   }
-  uint8_t res = vfs_write(file, &bmx160_calib, sizeof(bmx160_calibration_t));
+  int res = vfs_write(file, &bmx160_calib, sizeof(bmx160_calibration_t));
   vayu_log("[CALIB] Calibration file written. Result: %d", res);
   vfs_close(file);
   // bmx160_init();

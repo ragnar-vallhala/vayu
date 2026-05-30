@@ -6,7 +6,7 @@
 #include "maths/maths_interface.h"
 #include "maths/pid.h"
 #include "est/est.h"
-#include "sensor/imu_buffer.h"
+#include "sensor/sensor.h"
 #include "structure.h"
 #include "sys/state.h"
 #include "vaios.h"

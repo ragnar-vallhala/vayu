@@ -1,4 +1,4 @@
-#include "drivers/i2c_manager.h"
+#include "sensor/i2c_manager.h"
 #include "ipc.h"
 #include "navhal.h"
 #include "port.h"
