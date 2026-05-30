@@ -1,6 +1,6 @@
 #include "comm/channel.h"
 #include "navhal.h"
-#include "utils/types.h"
+#include "sys/types.h"
 #include "vaios.h"
 #include "variables.h"
 #include <stdint.h>

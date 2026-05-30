@@ -12,7 +12,7 @@
  */
 #include "sys/state.h"
 
-#include "utils/utils.h"   /* vayu_log */
+#include "logger/logger.h"   /* vayu_log */
 #include "vayu_status.h"
 
 #include <stddef.h>

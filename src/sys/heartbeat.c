@@ -3,7 +3,7 @@
 #include "sys/state.h"
 #include "task.h"
 #include "utils.h"
-#include "utils/types.h"
+#include "sys/types.h"
 #include "vaios.h"
 #include "variables.h"
 #include "vayu_tasks.h"
@@ -94,6 +94,7 @@ static inline void _system_terminated(void) {
 }
 
 static inline void _run_heartbeat(channel_t *channel, uint32_t period) {
+  (void)channel; /* LED heartbeat is state-driven; channel unused */
   static uint32_t last_time = 0;
   uint32_t current_time = v_get_ticks();
   if (current_time - last_time < period) {
