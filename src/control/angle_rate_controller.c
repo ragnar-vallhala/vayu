@@ -273,6 +273,8 @@ void angle_rate_controller_task(void *arg) {
     // intact. Authority over attitude is reduced when limits bite, but
     // the pilot keeps the throttle they asked for.
     {
+      /* cppcheck-suppress duplicateAssignExpression
+       * (min_m and max_m intentionally both seed from m1 for the min/max scan) */
       float min_m = motor_outputs.m1, max_m = motor_outputs.m1;
       if (motor_outputs.m2 < min_m) min_m = motor_outputs.m2;
       if (motor_outputs.m3 < min_m) min_m = motor_outputs.m3;

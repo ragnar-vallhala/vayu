@@ -1287,9 +1287,16 @@ static int wait_for_orientation(calib_update_type_t orient, float *accel_out) {
 
 void calibration_task(void *args) {
   calibration_args_t *cal_args = (calibration_args_t *)args;
-  float imu_id = 1.0f; // Default to Accel if nothing specified
-  if (cal_args)
-    imu_id = cal_args->imu_id;
+  /* args is NULL only when the command dispatcher's malloc failed; the
+   * task dereferences cal_args->type throughout, so bail safely instead
+   * of crashing (was a latent null-deref — cppcheck nullPointerRedundantCheck). */
+  if (cal_args == NULL) {
+    vayu_log("[CALIB] no calibration args; aborting");
+    VAYU_DISCARD(system_state_set(SYSTEM_STATE_STANDBY));
+    task_exit();
+    return;
+  }
+  float imu_id = cal_args->imu_id;
 
   VAYU_DISCARD(system_state_set(SYSTEM_STATE_CALIBRATING));
   v_delay(500);
