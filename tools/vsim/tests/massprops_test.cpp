@@ -92,6 +92,22 @@ int main(int argc, char** argv) {
           "products~0 (axis-aligned)", mp.ixy, 0);
   }
 
+  // --- Recenter-on-CoM invariant (what the editor does): shifting a soup
+  //     by -CoM yields a CoM-centered body, and the inertia about the CoM
+  //     is unchanged (translation-invariant about the CoM).
+  {
+    std::printf("[recenter on CoM]\n");
+    const float lx = 0.2f, ly = 0.6f, lz = 0.4f, m = 3.0f;
+    auto soup = box(lx, ly, lz, {1.0f, -2.0f, 0.5f});
+    auto a = computeMassProperties(soup, m);
+    for (auto& v : soup) v -= a.com;          // editor's loadAndCompute shift
+    auto b = computeMassProperties(soup, m);
+    check(close(b.com.length(), 0, 1e-4), "recentered com~0", b.com.length(), 0);
+    check(close(b.ixx, a.ixx, 1e-5) && close(b.iyy, a.iyy, 1e-5) &&
+              close(b.izz, a.izz, 1e-5),
+          "inertia unchanged by recenter", b.ixx, a.ixx);
+  }
+
   // --- Mat3 inverse: I * I^-1 == identity for a non-diagonal tensor.
   {
     std::printf("[Mat3 inverse]\n");

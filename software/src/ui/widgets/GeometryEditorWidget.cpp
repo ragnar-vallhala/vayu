@@ -9,11 +9,13 @@
 #include <QDoubleSpinBox>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QFrame>
 #include <QGridLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
+#include <QScrollArea>
 #include <QVBoxLayout>
 
 #include <cmath>
@@ -102,9 +104,12 @@ void GeometryEditorWidget::buildUi() {
   // -- Motor grid --
   {
     auto* g = new QGroupBox(tr("Motors (body frame)"), this);
-    auto* grid = new QGridLayout(g);
+    auto* gv = new QVBoxLayout(g);
+    auto* gridHost = new QWidget();
+    auto* grid = new QGridLayout(gridHost);
     grid->setHorizontalSpacing(4);
     grid->setVerticalSpacing(3);
+    grid->setContentsMargins(0, 0, 0, 0);
 
     const char* heads[] = {"", "x", "y", "z", "ax", "ay", "az",
                            "spin", "kT", "kM", "ω max"};
@@ -130,6 +135,20 @@ void GeometryEditorWidget::buildUi() {
                           r.spin, r.kt, r.km, r.wmax};
       for (int c = 0; c < 10; ++c) grid->addWidget(cells[c], i + 1, c + 1);
     }
+    // The grid is wider than the right-hand column; give it its OWN
+    // horizontal scroll so it doesn't stretch the whole editor wide
+    // (which pushed the mesh/Browse row off-screen). The panel itself
+    // never scrolls horizontally — see the outer scroll area in
+    // SimulatorWidget.
+    auto* gscroll = new QScrollArea(g);
+    gscroll->setWidget(gridHost);
+    gscroll->setWidgetResizable(false);
+    gscroll->setFrameShape(QFrame::NoFrame);
+    gscroll->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    gscroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    // Tall enough to show all rows so only the horizontal bar appears.
+    gscroll->setMinimumHeight(gridHost->sizeHint().height() + 18);
+    gv->addWidget(gscroll);
     root->addWidget(g);
   }
 
@@ -204,6 +223,10 @@ bool GeometryEditorWidget::loadAndCompute(QString* err) {
   meshPos_ = mesh.positions;
   meshNrm_ = mesh.normals;
   cfg_.com = mp.com;
+  // Recenter the mesh on the CoM so the renderer draws it about the same
+  // point the physics integrates. Motor arms get the matching shift via
+  // physicsConfig(); the inertia tensor is already about the CoM.
+  for (auto& v : meshPos_) v -= mp.com;
   // Row-major symmetric tensor into the 9-float config.
   cfg_.inertia = {mp.ixx, mp.ixy, mp.ixz,
                   mp.ixy, mp.iyy, mp.iyz,
@@ -225,18 +248,15 @@ void GeometryEditorWidget::onCompute() {
     statusLbl_->setStyleSheet(QString("color:%1;").arg(Theme::hex(Theme::kDanger)));
     return;
   }
+  // The mesh + motor arms are recentered on the CoM, so the offset is
+  // handled, not a problem — report it as information.
   const double comMag = cfg_.com.length();
-  statusLbl_->setText(tr("Loaded %1 triangles.").arg(meshPos_.size() / 3));
-  // Warn if the model origin is far from the CoM — physics rotates about
-  // the body origin, so a large offset means the sim won't match reality.
-  if (comMag > 0.02) {
-    statusLbl_->setText(statusLbl_->text() +
-                        tr("  ⚠ CoM is %1 mm from origin — recenter the model.")
-                            .arg(comMag * 1000.0, 0, 'f', 0));
-    statusLbl_->setStyleSheet(QString("color:%1;").arg(Theme::hex(Theme::kWarn)));
-  } else {
-    statusLbl_->setStyleSheet(QString("color:%1;").arg(Theme::hex(Theme::kOk)));
-  }
+  statusLbl_->setText(
+      tr("Loaded %1 triangles. CoM offset %2 mm from model origin "
+         "(handled — dynamics about CoM).")
+          .arg(meshPos_.size() / 3)
+          .arg(comMag * 1000.0, 0, 'f', 1));
+  statusLbl_->setStyleSheet(QString("color:%1;").arg(Theme::hex(Theme::kOk)));
   showMassProps();
   emit previewUpdated();
 }
