@@ -1,4 +1,4 @@
-#include "actuator/motor.h"
+#include "actuator/actuator.h"
 #include "comm/channel.h"
 #include "comm/comm_types.h"
 #include "comm/ibus.h"
