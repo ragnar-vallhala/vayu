@@ -19,6 +19,16 @@ static uint32_t system_write_pos = 0;
 static uint32_t general_write_pos = 0;
 
 /* =========================
+ * Wrap counters (LOG-SD-002)
+ * Incremented each time a log's circular write position wraps back to 0,
+ * i.e. the oldest records are about to be overwritten. Exposed via
+ * logger_wrap_count() so the loss is accountable rather than silent.
+ * ========================= */
+static volatile uint32_t navlink_wrap_count = 0;
+static volatile uint32_t system_wrap_count = 0;
+static volatile uint32_t general_wrap_count = 0;
+
+/* =========================
  * Mutexes
  * ========================= */
 static MutexHandle_t navlink_logger_mutex;
@@ -30,6 +40,7 @@ static MutexHandle_t general_logger_mutex;
  * ========================= */
 static inline void logger_write_internal(vfs_fd_t fd, MutexHandle_t mutex,
                                          uint32_t *write_pos,
+                                         volatile uint32_t *wrap_count,
                                          uint32_t file_size,
                                          const uint8_t *data, uint32_t len) {
   if (fd < 0 || data == NULL || len == 0)
@@ -37,9 +48,13 @@ static inline void logger_write_internal(vfs_fd_t fd, MutexHandle_t mutex,
 
   v_mutex_lock(mutex, 0);
 
-  /* Ensure we never overflow */
+  /* Ensure we never overflow. LOG-SD-002: wrapping discards the oldest
+   * records — count it so the loss is accountable. */
   if (*write_pos > (file_size - len)) {
     *write_pos = 0;
+    if (wrap_count != NULL) {
+      (*wrap_count)++;
+    }
   }
 
   /* Seek to deterministic position */
@@ -131,23 +146,40 @@ void logger_write(logger_type_t type, void *buffer, uint32_t len) {
   switch (type) {
   case NAVLINK_LOGGER:
     logger_write_internal(navlink_logger_fd, navlink_logger_mutex,
-                          &navlink_write_pos, NAVLINK_LOGGING_FILE_SIZE, buffer,
-                          len);
+                          &navlink_write_pos, &navlink_wrap_count,
+                          NAVLINK_LOGGING_FILE_SIZE, buffer, len);
     break;
 
   case SYSTEM_LOGGER:
     logger_write_internal(system_logger_fd, system_logger_mutex,
-                          &system_write_pos, SYS_LOGGING_FILE_SIZE, buffer,
-                          len);
+                          &system_write_pos, &system_wrap_count,
+                          SYS_LOGGING_FILE_SIZE, buffer, len);
     break;
 
   case GENERAL_LOGGER:
   default:
     logger_write_internal(general_logger_fd, general_logger_mutex,
-                          &general_write_pos, GENERAL_LOGGING_FILE_SIZE, buffer,
-                          len);
+                          &general_write_pos, &general_wrap_count,
+                          GENERAL_LOGGING_FILE_SIZE, buffer, len);
     break;
   }
+}
+
+/* LOG-SD-002: per-log and aggregate wrap accounting. @implements LOG-SD-002 */
+uint32_t logger_wrap_count(logger_type_t type) {
+  switch (type) {
+  case NAVLINK_LOGGER:
+    return navlink_wrap_count;
+  case SYSTEM_LOGGER:
+    return system_wrap_count;
+  case GENERAL_LOGGER:
+  default:
+    return general_wrap_count;
+  }
+}
+
+uint32_t logger_wrap_count_total(void) {
+  return navlink_wrap_count + system_wrap_count + general_wrap_count;
 }
 
 /* =========================

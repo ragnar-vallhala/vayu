@@ -9,6 +9,13 @@
  * before init silently skip the signal (the data ring tolerates it). */
 static SemaphoreHandle_t _imu_control_sema = NULL;
 
+/* SNS-BUF-002: count of IMU samples silently discarded by the OVERWRITE
+ * ring when the consumer fell behind. Monotonic; surfaced via telemetry
+ * (SYSTEM_ORIGIN_HEALTH). Single 32-bit scalar (R8.6). */
+static volatile uint32_t _imu_drop_count = 0;
+
+uint32_t imu_buffer_drop_count(void) { return _imu_drop_count; }
+
 #define IMU_BUFFER_INTERNAL_CAPACITY (IMU_BUFFER_SIZE + 1)
 #define IMU_CALIBRATION_TELEMETRY_CAPACITY 2
 static bmx160_all_reading_t _imu_buffer_data[IMU_BUFFER_INTERNAL_CAPACITY];
@@ -64,6 +71,12 @@ void imu_buffer_push(const bmx160_all_reading_t *sample) {
   // Called from DMA ISR (High Priority)
   if (_imu_fifo.buffer == NULL) {
     return;
+  }
+  /* SNS-BUF-002: spsc leaves one slot empty, so space()==0 means the ring
+   * is full and this OVERWRITE write will discard the oldest unread
+   * sample — account for it before writing. @implements SNS-BUF-002 */
+  if (spsc_space(&_imu_fifo) == 0) {
+    _imu_drop_count++;
   }
   // spsc_write with SPSC_POLICY_OVERWRITE handles full buffer by skipping
   // oldest

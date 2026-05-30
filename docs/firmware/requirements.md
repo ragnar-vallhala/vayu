@@ -297,7 +297,7 @@ BUF (buffering), CAL (online calibration), I2C (bus manager).
 | SNS-CAL-001   | Persistent calibration store   | Accel offset+scale, gyro offset, and mag hard-iron+soft-iron constants shall persist across power cycles, stored in `0:cal.bin` (1 KB on SD).                                                  | SYS-CAL-004         | Test (bench, power-cycle)     |
 | SNS-CAL-002   | Online gyro bias estimator     | While not in CALIBRATING and not in motion (gyro norm < 0.2 °/s, acc-jerk-equivalent < 0.2 m/s² for ≥ 200 consecutive samples), the driver shall update gyro bias with α = 0.0034, clamped to ±5 °/s per axis. | (process)           | Test (unit + bench)           |
 | SNS-BUF-001   | IMU buffer SPSC ring           | IMU samples and attitude estimates shall flow through SPSC ring buffers with `OVERWRITE` policy on full; capacities: main IMU ring 11, telemetry queue 11, control queue 11, calibration queue 11, calibration-telemetry queue 2. | (process)           | Inspection + Test (unit)      |
-| SNS-BUF-002   | Drop accounting                | The IMU buffer shall expose a drop counter incremented on every overwrite, surfaced through telemetry or the LOG channel.                                                                       | (process)           | Test (unit, fault injection)  | **🟡 gap** — overwrites silently today; no counter. |
+| SNS-BUF-002   | Drop accounting                | The IMU buffer shall expose a drop counter incremented on every overwrite, surfaced through telemetry or the LOG channel.                                                                       | (process)           | Test (unit, fault injection)  | ✅ `imu_buffer_drop_count()` increments on each OVERWRITE; emitted in the HEALTH status (Phase 3 SLOG). |
 | SNS-I2C-001   | I2C bus contract               | The I2C manager shall provide thread-safe synchronous read/write and ISR-driven async read APIs, recovering from a stuck bus via the 9-clock bit-bang procedure after ≥ 100 consecutive acquire failures. | HAL-I2C-001         | Test (unit + target, fault injection) |
 
 #### 4.3.2 SNS-LLR
@@ -464,10 +464,10 @@ ring-buffer files on SD), PERSIST (cross-restart persistence).
 | ID            | Title                              | Statement                                                                                                                                                                                          | Parent           | Verification    |
 |---------------|------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|------------------|-----------------|
 | LOG-TXT-001   | Log line emission                  | The logger shall accept text lines from any task via `vayu_log()` and emit them as `0x7` LOG packets on the telemetry transport at ≥ 15 Hz.                                                        | SYS-TEL-004      | Test (unit)     |
-| LOG-TXT-002   | Log queue drain                    | The text-log queue (`vayu_log_queue`) shall be drained by the telemetry task. **🟡 gap** — queue exists (utils.c:10) but no consumer is wired today; lines accumulate then overwrite silently. | LOG-TXT-001      | Inspection      |
+| LOG-TXT-002   | Log queue drain                    | The text-log queue (`vayu_log_queue`) shall be drained by the telemetry task. ✅ `imu_telemetry_task` drains it via `mpmc_pop_bulk` into `PACKET_TYPE_LOG` at ~15 Hz (Phase 3 SLOG). | LOG-TXT-001      | Inspection      |
 | LOG-RATE-001  | Bounded log rate                   | The logger shall enforce a maximum emission rate (default 50 lines/s) and drop excess lines with a single "rate-limited" summary.                                                                  | (process)        | Test (unit)     |
 | LOG-SD-001    | SD-card ring-buffer logs           | Three independent binary ring-buffer files shall be preallocated at boot: `v_nav.bin` (Navlink telemetry mirror), `v_sys.bin` (system events), `v_gen.bin` (general). Each: 10 MB on hardware, 64 KB in SITL. | (process)     | Inspection + Test (bench) |
-| LOG-SD-002    | Wrap-on-full                       | Each SD log shall wrap (overwrite oldest) when its write position exceeds the file size. **🟡 gap** — wrap is silent today; no marker or counter; oldest record is unrecoverable.                  | LOG-SD-001       | Test (bench)    |
+| LOG-SD-002    | Wrap-on-full                       | Each SD log shall wrap (overwrite oldest) when its write position exceeds the file size. ✅ wrap now increments a per-log counter (`logger_wrap_count()` / `_total`); aggregate surfaced in the HEALTH status. Bench round-trip on real SD deferred (Phase 3 SLOG).                  | LOG-SD-001       | Test (bench)    |
 
 #### 4.8.2 LOG-LLR
 
@@ -558,7 +558,7 @@ sections 3–4 collectively represent.
 | Rate loop triggered by IMU queue arrival              | ✅ sample-driven via `imu_queue_control_wait()` + 5 ms safety timeout (CTRL-RATE-101)     |
 | Estimator emits a degraded flag                       | Does not emit it; EST-MAH-002 🟡                                                          |
 | RC loss detected by elapsed time                      | Detected only via iBUS `channel[0] == 0` bit (COMM-RC-002 🟡)                            |
-| `vayu_log_queue` is consumed by telemetry             | Producer-only; orphaned (LOG-TXT-002 🟡)                                                  |
+| `vayu_log_queue` is consumed by telemetry             | ✅ drained by `imu_telemetry_task` into PACKET_TYPE_LOG (LOG-TXT-002)                      |
 | State transitions guarded                             | Any task can write any state at any time (SYS-SAFE-006 🟡, SYS-STATE-002 needs guard layer) |
 
 ### Cleanup backlog (every 🟡 in this doc)
@@ -577,7 +577,7 @@ work is tracked in the trace matrix when `tools/trace.py` lands.
 - **Control**
   - ✅ CTRL-RATE-101 — refactor rate loop from `v_delay(1)` polling to wait-on-queue.
 - **Sensors**
-  - SNS-BUF-002 — expose IMU buffer drop counter via telemetry.
+  - ✅ SNS-BUF-002 — expose IMU buffer drop counter via telemetry.
 - **Communications**
   - COMM-RC-002 — RC watchdog (already named).
   - ✅ COMM-CH-002 — surface `tx_overflow` counter.
@@ -585,8 +585,8 @@ work is tracked in the trace matrix when `tools/trace.py` lands.
   - ✅ COMM-CMD-003 — implement `CMD_SET_PID` end-to-end (currently a stub).
   - ✅ COMM-TEL-002 — fix heartbeat cadence to true 1 Hz (or update SYS-TEL-001 to 1.11 Hz officially).
 - **Logging**
-  - LOG-TXT-002 — wire `vayu_log_queue` to telemetry consumer.
-  - LOG-SD-002 — wrap marker / counter on ring-buffer file wrap.
+  - ✅ LOG-TXT-002 — wire `vayu_log_queue` to telemetry consumer.
+  - ✅ LOG-SD-002 — wrap marker / counter on ring-buffer file wrap.
 
 ### What's healthy (worth recording as "verified by reading")
 

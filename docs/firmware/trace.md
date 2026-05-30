@@ -6,11 +6,11 @@
 ## Summary
 
 - Total requirements: **133**
-- Active: **127** (of which 9 carry an inline 🟡 gap marker)
+- Active: **127** (of which 6 carry an inline 🟡 gap marker)
 - Dropped: **4**
 - Deferred: **2**
-- Active with implementer: **15 / 127**
-- Active with verifier (or verified-upstream): **12 / 127**
+- Active with implementer: **18 / 127**
+- Active with verifier (or verified-upstream): **13 / 127**
 
 ## Trace
 
@@ -86,11 +86,11 @@
 | `HAL-TIME-001` | active | Monotonic time | — | — |
 | `LOG-RATE-001` | active | Bounded log rate | — | — |
 | `LOG-SD-001` | active | SD-card ring-buffer logs | — | — |
-| `LOG-SD-002` | 🟡 active (gap) | Wrap-on-full | — | — |
+| `LOG-SD-002` | active | Wrap-on-full | `include/logger/logger.h`<br>`src/comm/telemetry_task.c`<br>`src/logger/logger.c` | — |
 | `LOG-SD-101` | active | Per-file mutex | — | — |
 | `LOG-SD-102` | active | Sync on every write | — | — |
 | `LOG-TXT-001` | active | Log line emission | — | — |
-| `LOG-TXT-002` | 🟡 active (gap) | Log queue drain | — | — |
+| `LOG-TXT-002` | active | Log queue drain | `src/comm/telemetry_task.c` | — |
 | `SNS-BMX-101` | active | Init sequence | — | — |
 | `SNS-BMX-102` | active | Sensor ranges | — | — |
 | `SNS-BMX-103` | active | Scale factors | — | — |
@@ -98,7 +98,7 @@
 | `SNS-BMX-105` | active | DMA + semaphore handshake | — | — |
 | `SNS-BMX-106` | active | Axis-frame remap | — | — |
 | `SNS-BUF-001` | active | IMU buffer SPSC ring | — | — |
-| `SNS-BUF-002` | 🟡 active (gap) | Drop accounting | — | — |
+| `SNS-BUF-002` | active | Drop accounting | `include/sensor/imu_buffer.h`<br>`src/comm/telemetry_task.c`<br>`src/sensor/imu_buffer.c` | `tools/sim_host/tests/test_phase3_slog.c` |
 | `SNS-CAL-001` | active | Persistent calibration store | — | — |
 | `SNS-CAL-002` | active | Online gyro bias estimator | — | — |
 | `SNS-CAL-101` | active | Accel 6-point calibration | — | — |
