@@ -1,4 +1,5 @@
 #include "actuator/motor.h"
+#include "comm/channel.h"
 #include "comm/comm_types.h"
 #include "comm/ibus.h"
 #include "comm/rc_buffer.h"
@@ -46,11 +47,13 @@ void imu_telemetry_task(void *args) {
       current_floats[9] = (float)samples.converted.temp;
     }
 
-    // 150 Hz Base Loop (approx 6.66ms)
-    // - 1 Hz: Full IMU (every 150 ticks)
-    // - 50 Hz: Compressed IMU (every 3 ticks)
-    // - 10 Hz: Attitude (every 15 ticks)
-    bool send_heartbeat = (packet_counter % 150 == 0); // 1 Hz
+    // Base loop is v_delay(6) below => ~166 Hz tick.
+    // COMM-TEL-002 / SYS-TEL-001: heartbeat must be >= 1 Hz. 166 ticks x
+    // 6 ms = 996 ms => 1.004 Hz (the previous 150 ticks = 900 ms = 1.11 Hz
+    // was mislabelled "1 Hz"; 166 is the closest period to 1 s that still
+    // satisfies >= 1 Hz).
+#define HEARTBEAT_PERIOD_TICKS 166
+    bool send_heartbeat = (packet_counter % HEARTBEAT_PERIOD_TICKS == 0); // ~1 Hz
     bool send_full = (packet_counter % 100 == 0);      // 1 Hz
     bool send_comp = (packet_counter % 6 == 0);        // 25 Hz
     bool send_att = (packet_counter % 15 == 0);        // 10 Hz
@@ -68,6 +71,7 @@ void imu_telemetry_task(void *args) {
       }
     }
     if (send_heartbeat) {
+      /* @implements COMM-TEL-002 */
       send_packet(&g_telemetry_channel, PACKET_TYPE_HEARTBEAT, NULL, 0);
     }
     if (send_status) {
@@ -79,6 +83,16 @@ void imu_telemetry_task(void *args) {
 
       send_packet(&g_telemetry_channel, PACKET_TYPE_SYSTEM_STATUS,
                   state_payload, 6);
+
+      /* COMM-CH-002: surface the TX-overflow counter as a HEALTH status.
+       * @implements COMM-CH-002 */
+      uint8_t health_payload[6];
+      health_payload[0] = SYSTEM_ORIGIN_HEALTH;
+      health_payload[1] = 0x00; // reserved/padding
+      uint32_t tx_overflow = channel_tx_overflow_count();
+      v_memcpy(&health_payload[2], &tx_overflow, 4);
+      send_packet(&g_telemetry_channel, PACKET_TYPE_SYSTEM_STATUS,
+                  health_payload, 6);
     }
     if (send_pid_err && control_telemetry_queue_pop(&c_data)) {
       uint8_t payload[74];
