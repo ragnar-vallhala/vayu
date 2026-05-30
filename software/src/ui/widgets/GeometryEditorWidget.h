@@ -28,6 +28,18 @@ class GeometryEditorWidget : public QWidget {
   explicit GeometryEditorWidget(QWidget* parent = nullptr);
 
   const vsim::GeometryConfig& config() const { return cfg_; }
+  // The config expressed about the center of mass: motor arms shifted to
+  // be CoM-relative and com zeroed. This is what the daemon + renderer
+  // consume, so ALL dynamics (inertia, torque arms, the tracked point)
+  // are about the CoM. cfg_ itself stays in the user's model-origin frame
+  // for display/persistence; the mesh (meshPositions()) is already
+  // recentered on the CoM in loadAndCompute().
+  vsim::GeometryConfig physicsConfig() const {
+    vsim::GeometryConfig c = cfg_;
+    for (auto& m : c.motors) m.pos -= cfg_.com;
+    c.com = QVector3D(0, 0, 0);
+    return c;
+  }
   // Load a persisted config: populates the form and, if the mesh path
   // still resolves, loads + recomputes so the preview is ready.
   void setConfig(const vsim::GeometryConfig& c);

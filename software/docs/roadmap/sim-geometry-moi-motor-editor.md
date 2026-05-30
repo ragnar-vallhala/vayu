@@ -85,11 +85,25 @@ preserves the two-process split. Scope is entirely `software/` +
     extend `simworker_smoke` with `sendGeometry`, ship a sample STL,
     update `requirements.md` (FR-SIM-03/04, new FR-SIM-11, Phase-1 1e).
 
+## Dynamics are about the center of mass
+
+The CoM, not the model origin, is the reference for all dynamics. After
+the mass-properties integral yields the CoM, the GCS:
+- recenters the imported mesh on the CoM (`loadAndCompute` shifts every
+  vertex by −CoM), and
+- exposes `GeometryEditorWidget::physicsConfig()`, which shifts the motor
+  arms to be CoM-relative and zeroes the offset.
+
+Both the renderer and the daemon consume that CoM-frame config, and the
+inertia tensor is already computed about the CoM, so the tracked point,
+the torque arms, and the inertia all share one reference. The daemon
+needs no change — it already treats its tracked point as the CoM. The
+editor still *displays* the CoM offset from the model origin as
+information. `cfg_` (and persistence) stay in the user's model-origin
+frame for intuitive editing.
+
 ## v1 limitations (documented, not bugs)
 
-- Physics rotates about the body origin, so v1 **assumes the model's
-  origin ≈ center of mass**. The editor computes and displays the CoM
-  offset and warns if it's large, rather than auto-recentering.
 - Uniform density only (no per-part materials).
 
 ## Out of scope (future)
