@@ -10,7 +10,7 @@
 
 #include "sys/state.h"
 #include "utils.h"          /* vaios v_panic (extern/vaios/include/utils.h) */
-#include "utils/utils.h"    /* vayu_log */
+#include "logger/logger.h"    /* vayu_log */
 
 void vayu_assert_fail(const char *file, int line, const char *expr) {
     /* Log first so the failure site is captured regardless of which

@@ -31,7 +31,11 @@ already-clean module before the heavier ones.
 | CTRL   | `control/{angle_controller,angle_rate_controller,pid_config,pid,control_buffer}.c` | `include/control/control.h` | ✅ `maths/{pid,control_buffer}.c` → `src/control/` | **full R1.2 + `-Werror`** | ✅ done |
 | COMM   | `comm/*.c` (channel, serializer, deserializer, comm_processor, telemetry_task, ibus, rc_task, rc_buffer, rc_safety) | `include/comm/comm.h` | none | **full R1.2 + `-Werror`** | ✅ done |
 | LOG    | `logger/logger.c`, `logger/log_text.c` | `include/logger/logger.h` | ✅ logging (vayu_log + queue) extracted from `utils/utils.c` → `src/logger/log_text.c` | **full R1.2 + `-Werror`** | ✅ done |
-| SYS    | `sys/*.c` | `include/sys/sys.h` | `utils/{math_utils,timer_callbacks,types}.h` → `include/sys/` | `-Wall` | ⬜ pending (~13 warns) |
+| SYS    | `sys/{state,boot,assert,heartbeat,sys_utils,math_utils,timer_callbacks}.c` | `include/sys/sys.h` | ✅ `utils/{utils.c→sys_utils.c, math_utils.c, timer_callbacks.c}` → `src/sys/`; `utils/{math_utils,timer_callbacks,types}.h` → `include/sys/`; `utils/utils.h` deleted (timing/device/CRC → `sys/sys_utils.h`) | **full R1.2 + `-Werror`** | ✅ done |
+
+**Phase 4 complete — all 7 modules conformant.** Only `src/utils/test_file.c`
++ `include/utils/test_file.h` remain under `utils/` (a standalone test/demo
+harness, not a module; left in place — not globbed into module conformance).
 
 Warning counts are the R1.2 load measured on the current tree (pre-fix);
 they are the work each module's PR clears before its `-Werror` flip.

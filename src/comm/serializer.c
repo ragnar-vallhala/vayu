@@ -4,7 +4,7 @@
 #include "comm/deserializer.h"
 #include "navhal.h"
 #include "utils.h"
-#include "utils/utils.h"
+#include "sys/sys_utils.h"
 #include "variables.h"
 #include <stdint.h>
 

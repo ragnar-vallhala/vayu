@@ -451,8 +451,9 @@ PKT (frame encoder/decoder), CMD (inbound command dispatch), TEL
 
 ### 4.8 LOG — On-device logging
 
-**Scope.** `src/logger/` (SD-card binary ring-buffer logger),
-`src/utils/utils.c` (in-memory `vayu_log_queue` text feeder).
+**Scope.** `src/logger/` — SD-card binary ring-buffer logger (`logger.c`)
++ in-memory `vayu_log_queue` text feeder (`log_text.c`, moved from
+`utils/` per Phase 4 R2.6).
 
 **Reserved IDs.** `LOG-*-001..099`, `LOG-*-101..199`.
 

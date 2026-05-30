@@ -1,7 +1,6 @@
-#include "utils/timer_callbacks.h"
+#include "sys/timer_callbacks.h"
 #include "navhal.h"
 #include "utils.h"
-#include "utils/utils.h"
 #include "variables.h"
 #include <stddef.h>
 #include <stdint.h>
@@ -32,7 +31,7 @@ static void _timer_isr_handler(void) {
 
     if (_interrupt_count >= _callbacks[i].last_call + delay_interrupts) {
       _callbacks[i].callback();
-      _callbacks[i].last_call = _interrupt_count;
+      _callbacks[i].last_call = (uint32_t)_interrupt_count;
     }
   }
 }

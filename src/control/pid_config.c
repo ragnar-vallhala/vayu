@@ -15,7 +15,7 @@
 #include "control/angle_controller.h"
 #include "control/angle_rate_controller.h"
 #include "memory.h"                   /* v_memcpy */
-#include "utils/utils.h"              /* vayu_log */
+#include "logger/logger.h"              /* vayu_log */
 #include "variables.h"                /* NUM_AXES */
 #include "vfs.h"
 #include <math.h>

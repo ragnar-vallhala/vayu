@@ -3,7 +3,7 @@
 #include "navhal.h"
 #include "sys/state.h"
 #include "utils.h"              /* v_get_ticks (vaios) */
-#include "utils/utils.h"        /* vayu_log */
+#include "logger/logger.h"        /* vayu_log */
 #include "vaios_config_default.h"
 #include "variables.h"
 

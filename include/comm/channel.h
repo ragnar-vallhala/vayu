@@ -2,7 +2,7 @@
 #define VAYU_CHANNEL_H
 
 #include "navhal.h"
-#include "utils/types.h"
+#include "sys/types.h"
 #include <stdint.h>
 
 typedef struct {
