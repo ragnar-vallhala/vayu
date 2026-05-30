@@ -5,7 +5,7 @@
 #include <stdint.h>
 
 #define BMX160_CHIP_ID_ADDR 0x00
-#define BMX160_CHIP_ID 0b11011000
+#define BMX160_CHIP_ID 0xD8 /* 0b11011000 */
 #define BMX160_ERR_REG_ADDR 0x02
 #define IS_DROPPED_TO_CMD(val) (val & (1 << 6))
 #define IS_FATAL_ERR(val) (val & 1)
