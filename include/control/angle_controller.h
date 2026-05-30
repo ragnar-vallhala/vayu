@@ -1,7 +1,7 @@
 #ifndef ANGLE_CONTROLLER_H
 #define ANGLE_CONTROLLER_H
 
-#include "maths/pid.h"
+#include "control/pid.h"
 #include "variables.h"
 #include <stdbool.h>
 #include <stdint.h>

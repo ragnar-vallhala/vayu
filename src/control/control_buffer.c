@@ -1,4 +1,4 @@
-#include "maths/control_buffer.h"
+#include "control/control_buffer.h"
 #include "structure.h"
 
 static spsc_fifo_t _telemetry_queue;

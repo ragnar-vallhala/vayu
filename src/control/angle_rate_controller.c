@@ -1,11 +1,12 @@
 #include "control/angle_rate_controller.h"
+#include <math.h>
 #include "actuator/actuator.h"
 #include "comm/ibus.h"
 #include "comm/rc_buffer.h"
 #include "control/angle_controller.h"
 #include "control/pid_config.h"
-#include "maths/control_buffer.h"
-#include "maths/pid.h"
+#include "control/control_buffer.h"
+#include "control/pid.h"
 #include "navhal.h"
 #include "sensor/sensor.h"
 #include "sys/state.h"
@@ -115,10 +116,10 @@ bool angle_rate_controller_get_gains(uint8_t axis, float *kp, float *ki,
 }
 
 void angle_rate_controller_task(void *arg) {
+  (void)arg;
   angle_rate_controller_init();
   static bmx160_all_reading_t imu_data = {0};
   static bmx160_all_reading_t prev_imu_data = {0};
-  static float prev_target_rates[NUM_AXES] = {0};
   static motor_outputs_t motor_outputs = {0};
   static angle_controller_outputs_t angle_controller_outputs;
   static angle_controller_outputs_t last_angle_controller_outputs;
@@ -217,10 +218,8 @@ void angle_rate_controller_task(void *arg) {
     // Apply PID to each axis
     float outputs[NUM_AXES] = {0};
     for (int i = 0; i < NUM_AXES; i++) {
-      float dot_sp = (target_rates[i] - prev_target_rates[i]) / dt;
       outputs[i] = v_pid_update(&angle_rate_controller.pid[i], target_rates[i],
                                 current_rates[i], 0, dt);
-      prev_target_rates[i] = target_rates[i];
     }
 
     /* PID authority ramp. Below MIN_ARMED_THROTTLE the airframe is
@@ -311,14 +310,11 @@ void angle_rate_controller_task(void *arg) {
       if (motor_outputs.m4 > 1) motor_outputs.m4 = 1;
       /* NaN guard. The clamps above use ordered comparisons (`< 0`,
        * `> 1`), which return false for NaN -- so a stray NaN slips
-       * through unchanged. Force NaN/Inf to a safe 0. `x != x` is the
-       * standard NaN check; (x > -INF) is false for NaN too, but the
-       * self-comparison is portable across compilers without needing
-       * math.h's isnan. */
-      if (motor_outputs.m1 != motor_outputs.m1) motor_outputs.m1 = 0;
-      if (motor_outputs.m2 != motor_outputs.m2) motor_outputs.m2 = 0;
-      if (motor_outputs.m3 != motor_outputs.m3) motor_outputs.m3 = 0;
-      if (motor_outputs.m4 != motor_outputs.m4) motor_outputs.m4 = 0;
+       * through unchanged. Force NaN to a safe 0 via isnan(). */
+      if (isnan(motor_outputs.m1)) motor_outputs.m1 = 0;
+      if (isnan(motor_outputs.m2)) motor_outputs.m2 = 0;
+      if (isnan(motor_outputs.m3)) motor_outputs.m3 = 0;
+      if (isnan(motor_outputs.m4)) motor_outputs.m4 = 0;
 
       /* Idle thrust floor. Every motor is held at >= MOTOR_IDLE_FLOOR
        * while armed. Two reasons:
