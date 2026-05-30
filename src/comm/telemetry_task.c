@@ -6,7 +6,7 @@
 #include "comm/serializer.h"
 #include "logger/logger.h"
 #include "maths/control_buffer.h"
-#include "maths/sensor_fusion.h"
+#include "est/est.h"
 #include "sensor/bmx160.h"
 #include "sensor/imu_buffer.h"
 #include "sys/state.h"

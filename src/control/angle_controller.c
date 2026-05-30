@@ -5,7 +5,7 @@
 #include "control/pid_config.h"
 #include "maths/maths_interface.h"
 #include "maths/pid.h"
-#include "maths/sensor_fusion.h"
+#include "est/est.h"
 #include "sensor/imu_buffer.h"
 #include "structure.h"
 #include "sys/state.h"
