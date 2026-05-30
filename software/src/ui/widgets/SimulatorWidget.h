@@ -20,21 +20,22 @@ extern "C" {
 class QGridLayout;
 
 /**
- * SimulatorWidget - control + monitor page for the in-app SITL.
+ * SimulatorWidget - control + monitor page for the SITL.
  *
- * Single-process architecture: this widget owns
- *   - a vsim_iface_t (the shared firmware<->host channel)
- *   - a vsim::SimWorker thread (physics + sensors)
+ * Two-process architecture: this widget owns
+ *   - a vsim_iface_t (used only for the UART2 telemetry callback;
+ *     PWM and IMU no longer ride through it)
+ *   - a vsim::SimWorker, which spawns the standalone vsim_d physics
+ *     daemon on Start and reads pose frames off /tmp/vsim_pose
  *   - a vsim::SimRendererWidget (OpenGL view of the airframe)
- * and calls vayu_sitl_start(iface) to boot the firmware in-process.
- * There is no /tmp/ FIFO round-trip; there are no Python bridges;
- * Gazebo is gone. RC still reads from the sim_bridge MCU on
- * /dev/ttyUSB0 (or env VAYU_UART_RC_PATH), unchanged.
+ * and calls vayu_sitl_start(&iface) to boot the firmware threads
+ * inside Navigator. The firmware's host shims (host_navhal +
+ * host_imu_feeder) talk to vsim_d via /tmp/vsim_{pwm,imu}.
  *
  * vayu_sitl_start can be called at most ONCE per Navigator process
- * (see host_lifecycle.c comments); the Stop button pauses the
- * physics + IMU pipeline but cannot reset the firmware state. A
- * Navigator restart fully resets.
+ * (see host_lifecycle.c comments); the Stop button only tears down
+ * the vsim_d process and pose reader. A Navigator restart fully
+ * resets the firmware state.
  */
 class SimulatorWidget : public QWidget {
   Q_OBJECT
