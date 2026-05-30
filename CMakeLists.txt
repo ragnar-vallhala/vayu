@@ -44,6 +44,25 @@ add_executable(main ${STARTUP_FILE} ${VAYU_SOURCES})
 target_compile_options(main PRIVATE ${BASE_C_FLAGS})
 set_target_properties(main PROPERTIES COMPILE_FLAGS "${BASE_C_FLAGS}")
 
+#-------------------------
+# Phase 4 — per-module warning rollout (CONV-06 / R1.2)
+#-------------------------
+# Sources of modules brought to structural conformance build with the
+# full R1.2 warning set and -Werror; the rest of the tree stays at the
+# baseline -Wall until its module's turn. Progress tracked in
+# docs/firmware/plan/warning-rollout.md. Add a module's TUs here once
+# they compile clean under these flags.
+set(VAYU_R12_WARN_FLAGS
+    -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wcast-align
+    -Wpointer-arith -Wstrict-prototypes -Wmissing-prototypes -Wundef
+    -Wfloat-equal -Werror)
+set(VAYU_R12_CLEAN_SOURCES
+    # ACT module (Phase 4)
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/actuator/esc.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/actuator/motor.c)
+set_source_files_properties(${VAYU_R12_CLEAN_SOURCES}
+    PROPERTIES COMPILE_OPTIONS "${VAYU_R12_WARN_FLAGS}")
+
 
 #-------------------------
 # Math backend options

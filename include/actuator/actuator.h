@@ -1,0 +1,76 @@
+/**
+ * @file actuator.h
+ * @brief Public umbrella header for the actuator module (ESC + motor mixer).
+ *
+ * @implements R2.1
+ *
+ * Single public surface for the module per R2.1 — external code includes
+ * only this header, never the per-type sources. Consolidates the former
+ * `actuator/esc.h` and `actuator/motor.h`.
+ *
+ * @copyright © NAVROBOTEC PVT. LTD.
+ */
+#ifndef VAYU_ACTUATOR_H
+#define VAYU_ACTUATOR_H
+
+#include "navhal.h"
+#include "structure.h"
+#include <stdbool.h>
+#include <stdint.h>
+
+/* ----------------------------------------------------------------------------
+ * ESC — single Electronic Speed Controller driven over PWM.
+ * --------------------------------------------------------------------------*/
+
+/** @brief ESC handle structure. */
+typedef struct {
+  hal_pwm_handle_t pwm;
+  float min_pulse_ms;
+  float max_pulse_ms;
+  uint32_t frequency;
+} ESC_Handle;
+
+/**
+ * @brief Initialize an ESC on a specific timer and channel.
+ * @param esc Pointer to the ESC handle.
+ * @param timer Hardware timer.
+ * @param channel PWM channel.
+ * @param pin GPIO pin for PWM output.
+ */
+void esc_init(ESC_Handle *esc, hal_timer_t timer, uint32_t channel,
+              hal_gpio_pin_t pin);
+
+/** @brief Arm the ESC (sends min throttle for a period). */
+void esc_arm(ESC_Handle *esc);
+
+/** @brief Disarm the ESC (stops PWM or sends a safe signal). */
+void esc_disarm(ESC_Handle *esc);
+
+/**
+ * @brief Set the throttle level for the ESC.
+ * @param throttle Throttle value from 0.0 to 1.0.
+ */
+void esc_set_throttle(ESC_Handle *esc, float throttle);
+
+/* ----------------------------------------------------------------------------
+ * Motor mixer — the four-rotor output stage.
+ * --------------------------------------------------------------------------*/
+
+#define NUM_MOTORS 4
+#define MOTOR_QUEUE_SIZE 4
+
+typedef struct {
+  float m1;
+  float m2;
+  float m3;
+  float m4;
+} motor_outputs_t;
+
+void motor_init(void);
+void set_motor_ready(bool ready);
+bool get_motor_ready(void);
+void motor_set_outputs(motor_outputs_t motor_outputs);
+void motor_task(void *arg);
+bool motor_telemetry_queue_pop(motor_outputs_t *out_data);
+
+#endif // VAYU_ACTUATOR_H

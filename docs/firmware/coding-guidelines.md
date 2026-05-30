@@ -25,7 +25,7 @@ up the firmware engineering standard.
 | ID    | Rule | Status |
 |-------|------|--------|
 | R1.1  | The codebase shall target C11 with GNU extensions disabled in upper layers (HAL and below may use vendor extensions where unavoidable). |  |
-| R1.2  | All translation units shall compile cleanly with: `-Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wcast-align -Wpointer-arith -Wstrict-prototypes -Wmissing-prototypes -Wundef -Wfloat-equal -Werror`. | 🟡 gap — current build uses only `-Wall`. Widen incrementally per module. |
+| R1.2  | All translation units shall compile cleanly with: `-Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wcast-align -Wpointer-arith -Wstrict-prototypes -Wmissing-prototypes -Wundef -Wfloat-equal -Werror`. | 🟡 Phase 4 underway — per-module rollout mechanism landed (`VAYU_R12_*` in `CMakeLists.txt`); ACT module at full set + `-Werror`. Tracking: `docs/firmware/plan/warning-rollout.md`. |
 | R1.3  | Optimisation level for release shall be `-Os` or `-O2`; `-O3` is prohibited without a documented justification. Current vayu uses `-O2`. |  |
 | R1.4  | Compiler version and flags shall be pinned in the build system and reproducible. Target chain: `arm-none-eabi-gcc` for Cortex-M4; `gcc`/`clang` for host SITL. |  |
 | R1.5  | Cortex-M4 target builds shall use `-mfpu=fpv4-sp-d16 -mfloat-abi=hard -fsingle-precision-constant`. Already pinned in `CMakeLists.txt`. |  |
@@ -184,7 +184,7 @@ that don't exist in the codebase yet. They become tracked work items.
 | CONV-03 | `tools/trace.py`                    | ✅ landed (warn-only mode, per Phase 1). Walks `src/`, `extern/vaios/`, `extern/vaios/extern/NavHAL/`, parses `@implements` / `@verifies`, produces `docs/firmware/trace.md`. `--check` fails on unknown ID; missing implementer / verifier currently warn. Flip to fail-on-missing lands in Phase 5 (R12.5). |
 | CONV-04 | `.clang-tidy` baseline              | Adopted ruleset list. Start narrow (bugprone-*, cert-*, readability-*) and widen. |
 | CONV-05 | Host SITL coverage build            | `tools/sim_host/` extended with a `coverage` target that runs the unit-test suite under gcov/lcov. |
-| CONV-06 | Compiler-flag widening rollout      | Per-module enabling of the full R1.2 warning set; each module flips warnings → errors when clean. Tracked in `docs/firmware/plan/warning-rollout.md` (to be written). |
+| CONV-06 | Compiler-flag widening rollout      | 🟡 Phase 4 underway. Per-module enabling of the full R1.2 warning set; each module flips warnings → errors when clean. Mechanism landed; ACT module done. Tracked in `docs/firmware/plan/warning-rollout.md`. |
 
 ---
 
