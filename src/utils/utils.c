@@ -1,35 +1,12 @@
+/* NOTE (Phase 4): text logging (vayu_log + vayu_log_queue) moved to
+ * src/logger/log_text.c (LOG module). What remains here — timestamp,
+ * device-id, and CRC helpers — moves to src/sys/ in the SYS pass. */
 #include "utils/utils.h"
 #include "ipc.h"
 #include "structure.h"
-#include "utils.h" // Kernels utils for vaprint_fmt_buf
+#include "utils.h"
 #include "variables.h"
-#include <stdarg.h>
 #include <stdint.h>
-
-static uint8_t first_log = 1;
-mpmc_queue_t vayu_log_queue;
-
-static uint8_t log_queue_buffer[VAYU_LOG_QUEUE_SIZE];
-static char log_buf[128];
-
-void vayu_log(const char *fmt, ...) {
-  if (first_log) {
-
-    mpmc_init(&vayu_log_queue, log_queue_buffer, VAYU_LOG_QUEUE_SIZE,
-              sizeof(char));
-    mpmc_set_policy(&vayu_log_queue, MPMC_POLICY_OVERWRITE);
-    first_log = 0;
-  }
-
-  va_list args;
-  va_start(args, fmt);
-  int len = vaprint_fmt_buf(log_buf, sizeof(log_buf), fmt, args);
-  va_end(args);
-
-  if (len > 0) {
-    mpmc_push_bulk(&vayu_log_queue, log_buf, len);
-  }
-}
 
 static volatile uint64_t _time_stamp_high_freq = 0;
 void increment_high_freq_timer(void) { _time_stamp_high_freq++; }

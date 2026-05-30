@@ -9,7 +9,7 @@
 - Active: **127** (of which 6 carry an inline 🟡 gap marker)
 - Dropped: **4**
 - Deferred: **2**
-- Active with implementer: **18 / 127**
+- Active with implementer: **19 / 127**
 - Active with verifier (or verified-upstream): **14 / 127**
 
 ## Trace
@@ -89,7 +89,7 @@
 | `LOG-SD-002` | active | Wrap-on-full | `include/logger/logger.h`<br>`src/comm/telemetry_task.c`<br>`src/logger/logger.c` | — |
 | `LOG-SD-101` | active | Per-file mutex | — | — |
 | `LOG-SD-102` | active | Sync on every write | — | — |
-| `LOG-TXT-001` | active | Log line emission | — | — |
+| `LOG-TXT-001` | active | Log line emission | `include/logger/logger.h`<br>`src/logger/log_text.c` | — |
 | `LOG-TXT-002` | active | Log queue drain | `src/comm/telemetry_task.c` | — |
 | `SNS-BMX-101` | active | Init sequence | — | — |
 | `SNS-BMX-102` | active | Sensor ranges | — | — |

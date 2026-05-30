@@ -78,7 +78,7 @@ static void ensure_file_size(vfs_fd_t fd, uint32_t file_size) {
 
   if (current_size < (int)file_size) {
 
-    vfs_lseek(fd, file_size - 1, VFS_SEEK_SET);
+    vfs_lseek(fd, (long)(file_size - 1), VFS_SEEK_SET);
 
     uint8_t dummy = 0;
     vfs_write(fd, &dummy, 1);

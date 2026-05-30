@@ -88,7 +88,10 @@ set(VAYU_R12_CLEAN_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/comm/ibus.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/comm/rc_task.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/comm/rc_buffer.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/comm/rc_safety.c)
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/comm/rc_safety.c
+    # LOG module (Phase 4)
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/logger/logger.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/logger/log_text.c)
 set_source_files_properties(${VAYU_R12_CLEAN_SOURCES}
     PROPERTIES COMPILE_OPTIONS "${VAYU_R12_WARN_FLAGS}")
 
