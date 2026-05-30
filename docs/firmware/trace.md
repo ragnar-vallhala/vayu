@@ -10,7 +10,7 @@
 - Dropped: **4**
 - Deferred: **2**
 - Active with implementer: **18 / 127**
-- Active with verifier (or verified-upstream): **13 / 127**
+- Active with verifier (or verified-upstream): **14 / 127**
 
 ## Trace
 
@@ -23,7 +23,7 @@
 | `ACT-MOT-002` | active | Motor task period | — | — |
 | `ACT-MOT-003` | active | Per-motor channel mapping | — | — |
 | `COMM-CH-001` | active | UART TX ping-pong buffer | — | — |
-| `COMM-CH-002` | active | UART backpressure | `include/comm/channel.h`<br>`src/comm/channel.c`<br>`src/comm/telemetry_task.c` | — |
+| `COMM-CH-002` | active | UART backpressure | `include/comm/channel.h`<br>`src/comm/channel.c`<br>`src/comm/telemetry_task.c` | `tools/sim_host/tests/test_phase3_comm.c` |
 | `COMM-CMD-001` | active | Calibration commands | — | — |
 | `COMM-CMD-002` | active | Command payload validation | `include/control/pid_config.h`<br>`src/comm/comm_processor.c` | `tools/sim_host/tests/test_phase3_comm.c` |
 | `COMM-CMD-003` | active | CMD_SET_PID | `include/control/angle_controller.h`<br>`include/control/angle_rate_controller.h`<br>`include/control/pid_config.h`<br>`src/control/pid_config.c` | `tools/sim_host/tests/test_phase3_comm.c` |
