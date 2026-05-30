@@ -9,18 +9,28 @@
 Checks: >
   bugprone-*,
   cert-*,
-  readability-*,
   -bugprone-easily-swappable-parameters,
   -bugprone-narrowing-conversions,
   -bugprone-macro-parentheses,
+  -bugprone-reserved-identifier,
+  -cert-dcl37-c,
+  -cert-dcl51-cpp,
   -cert-err33-c,
-  -readability-magic-numbers,
-  -readability-identifier-length,
-  -readability-function-cognitive-complexity,
-  -readability-isolate-declaration,
-  -readability-uppercase-literal-suffix,
-  -readability-braces-around-statements,
   -clang-analyzer-*
+# Held out as accepted house style (internally consistent, low value to
+# churn across the whole flight tree):
+#   * readability-* — avoid-const-params-in-decls (~576 hits; const-by-value
+#     params document non-mutation), magic-numbers, cognitive-complexity.
+#   * bugprone-reserved-identifier / cert-dcl37-c — the `_name` prefix on
+#     file-static symbols is used pervasively and deliberately.
+# Re-introduce selected checks as the baseline is cleaned.
+#
+# Under this set the analysable baseline is clean (the genuine findings —
+# bugprone-branch-clone, bugprone-switch-missing-default-case, the
+# MS_TO_TICKS macro redefine — were fixed in the Phase-5 burn-down). A few
+# TUs not present in the host SITL compile_commands (e.g. main.c) report
+# clang-parse artifacts; the authoritative warning gate is the arm
+# -Werror build.
 
 # Treat nothing as an error yet — the CI clang-tidy job reports findings
 # (does not fail the build) until the existing baseline is burned down,

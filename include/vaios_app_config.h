@@ -5,6 +5,12 @@
 
 #define TICKS_TO_MS(x) ((x * SYSTICK_PERIOD) / 1000)
 
+/* vaios task.h provides a fallback MS_TO_TICKS under its own #ifndef; undo
+ * it first so this app-config definition wins consistently regardless of
+ * include order (silences -Wmacro-redefined). */
+#ifdef MS_TO_TICKS
+#undef MS_TO_TICKS
+#endif
 #define MS_TO_TICKS(x) ((x * 1000) / SYSTICK_PERIOD)
 
 #define US_TO_TICKS(x) ((x * 1) / SYSTICK_PERIOD)
