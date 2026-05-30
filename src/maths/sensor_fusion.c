@@ -1,9 +1,76 @@
 #include "maths/sensor_fusion.h"
 #include "maths/maths_interface.h"
 #include "navhal.h"
-#include "utils.h"
+#include "sys/state.h"
+#include "utils.h"              /* v_get_ticks (vaios) */
+#include "utils/utils.h"        /* vayu_log */
 #include "vaios_config_default.h"
 #include "variables.h"
+
+/* ----------------------------------------------------------------------------
+ * Estimator health (EST-MAH-002 / SYS-SAFE-003) — see sensor_fusion.h.
+ *
+ * Single-writer (the IMU/fusion task) / multi-reader (telemetry, CTRL,
+ * safety task). Each field is a 32-bit or smaller aligned scalar, so a
+ * volatile load/store is atomic on Cortex-M4 (R8.6: no locks in hot
+ * loops).
+ * --------------------------------------------------------------------------*/
+static volatile bool     s_in_rejection      = false;
+static volatile uint32_t s_rejection_start_ms = 0;
+static volatile bool     s_degraded          = false;
+
+/**
+ * @implements EST-MAH-002
+ */
+void estimator_mark_sample(bool valid) {
+  if (valid) {
+    if (s_degraded) {
+      vayu_log("[EST] degraded CLEARED");
+    }
+    s_in_rejection = false;
+    s_degraded     = false;
+    return;
+  }
+  uint32_t now = v_get_ticks();
+  if (!s_in_rejection) {
+    s_in_rejection       = true;
+    s_rejection_start_ms = now;
+    return;
+  }
+  if (!s_degraded && (now - s_rejection_start_ms) > EST_DEGRADED_TIMEOUT_MS) {
+    s_degraded = true;
+    vayu_log("[EST] degraded RAISED (continuous reject %u ms)",
+             (unsigned)(now - s_rejection_start_ms));
+  }
+}
+
+/**
+ * @implements EST-MAH-002, SYS-SAFE-003
+ */
+bool estimator_is_degraded(void) {
+  return s_degraded;
+}
+
+/* States in which an estimator failure should drive FAILSAFE. Mirrors
+ * the RC watchdog gating in src/comm/rc_task.c — INIT and CALIBRATING
+ * are spared. */
+static bool estimator_safety_state_active(sys_state_t s) {
+  return s == SYSTEM_STATE_STANDBY || s == SYSTEM_STATE_PREARM ||
+         s == SYSTEM_STATE_ARMED   || s == SYSTEM_STATE_IN_AIR;
+}
+
+/**
+ * @implements SYS-SAFE-003
+ */
+void estimator_safety_step(void) {
+  if (!s_degraded) {
+    return;
+  }
+  sys_state_t cur = system_state_get();
+  if (estimator_safety_state_active(cur) && cur != SYSTEM_STATE_FAILSAFE) {
+    VAYU_DISCARD(system_state_set(SYSTEM_STATE_FAILSAFE));
+  }
+}
 
 static inline float get_dt() {
   static uint32_t last_dwt = 0; // used to calculate dt
