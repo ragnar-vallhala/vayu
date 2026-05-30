@@ -87,22 +87,19 @@ set(GCS_HEADERS
 # SITL-only sources. These pull in vsim_iface.h from tools/sim_host and
 # can't compile without it. Added to the target only when sim_host is
 # present (see the add_subdirectory check below).
+#
+# After the vsim_d split, Navigator no longer contains the physics
+# simulator -- PhysicsCore/MotorModel/SensorModels/SimController moved
+# to tools/vsim/. SimWorker became a thin process supervisor that
+# spawns vsim_d and decodes pose frames off /tmp/vsim_pose.
 set(GCS_SITL_SOURCES
     src/ui/widgets/SimulatorWidget.cpp
-    src/vsim/PhysicsCore.cpp
-    src/vsim/MotorModel.cpp
-    src/vsim/SensorModels.cpp
-    src/vsim/SimController.cpp
     src/vsim/SimWorker.cpp
     src/vsim/SimRendererWidget.cpp
 )
 set(GCS_SITL_HEADERS
     src/ui/widgets/SimulatorWidget.h
     src/vsim/VsimTypes.h
-    src/vsim/PhysicsCore.h
-    src/vsim/MotorModel.h
-    src/vsim/SensorModels.h
-    src/vsim/SimController.h
     src/vsim/SimWorker.h
     src/vsim/SimRendererWidget.h
 )
@@ -129,6 +126,7 @@ target_include_directories(Navigator PRIVATE
     src/ui/main
     src/ui/widgets
     src/vsim
+    ${CMAKE_CURRENT_SOURCE_DIR}/../tools/vsim/include  # vsim_proto.h
 )
 
 target_link_libraries(Navigator PRIVATE

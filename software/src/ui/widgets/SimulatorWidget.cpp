@@ -246,8 +246,11 @@ void SimulatorWidget::startInAppSim() {
     }
   }
 
+  // SimWorker spawns the vsim_d daemon and reads pose frames off
+  // /tmp/vsim_pose; the iface is no longer used for PWM/IMU transport
+  // (those went FIFO-only when we split the daemon out). The iface is
+  // still alive for the UART2 telemetry callback above.
   m_sim = new vsim::SimWorker(this);
-  m_sim->setIface(&m_iface);
   connect(m_sim, &vsim::SimWorker::poseUpdated,
           m_renderer, &vsim::SimRendererWidget::setSnapshot);
   connect(m_sim, &vsim::SimWorker::poseUpdated,
