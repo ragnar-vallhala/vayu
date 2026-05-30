@@ -124,11 +124,11 @@ static inline rc_data_t normalize_rc_data(ibus_data_t rc_data) {
   rc_data_t normalized_rc_data;
   for (int i = 0; i < 4; i++) {
     if (i != 2) {
-      // Apply deadband
-      if (rc_data.channels[i] > 1500 + PID_RC_DEADBAND) {
-        normalized_rc_data.channels[i] =
-            ((float)rc_data.channels[i] - 1500.0f) / 500.0f;
-      } else if (rc_data.channels[i] < 1500 - PID_RC_DEADBAND) {
+      // Apply deadband: linear outside the ±PID_RC_DEADBAND band around
+      // centre (1500), zero inside. (Both sides map identically, so the
+      // former separate if/else-if branches are merged — bugprone-branch-clone.)
+      if (rc_data.channels[i] > 1500 + PID_RC_DEADBAND ||
+          rc_data.channels[i] < 1500 - PID_RC_DEADBAND) {
         normalized_rc_data.channels[i] =
             ((float)rc_data.channels[i] - 1500.0f) / 500.0f;
       } else {
@@ -152,6 +152,9 @@ static inline rc_data_t normalize_rc_data(ibus_data_t rc_data) {
                                          normalized_rc_data.channels[i];
       }
     }
+    break;
+  default:
+    /* LINEAR mapping (no shaping) — also the safe fallback. */
     break;
   }
   return normalized_rc_data;
