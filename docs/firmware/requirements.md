@@ -348,7 +348,7 @@ here), COV (convergence / health monitor).
 | EST-MAH-102   | Mahony gains                   | The filter shall use proportional gain `Kp = 3.0` and integral gain `Ki = 0.0025` from `variables.h:61-62`.                                                                                | EST-MAH-001      | Inspection                    |
 | EST-MAH-103   | dt source                      | The filter shall measure dt from the DWT cycle counter (clock 84 MHz), clamped to a minimum of 1 ms to avoid divide-by-zero on hot loops.                                                  | SYS-TIM-004      | Inspection + Test (unit)      |
 | EST-MAH-104   | Mag conditional update         | If `‖m‖ < 1e-6` the mag correction term shall be skipped and yaw drift is bounded by gyro integration alone for that step.                                                                 | EST-MAH-001      | Test (unit)                   |
-| EST-MAH-105   | Integral feedback bound        | The Mahony integral feedback term `(integralFBx, integralFBy, integralFBz)` shall be clamped per-axis (recommended ±0.5 rad/s) and re-initialised on estimator reset.                       | EST-MAH-001      | Test (unit) + Analysis        | **🟡 gap** — no clamp, no reset; integral can wind up over hours. |
+| EST-MAH-105   | Integral feedback bound        | The Mahony integral feedback term `(integralFBx, integralFBy, integralFBz)` shall be clamped per-axis (recommended ±0.5 rad/s) and re-initialised on estimator reset.                       | EST-MAH-001      | Test (unit) + Analysis        | ✅ clamped at ±0.5 rad/s; `estimator_reset()` zeroes the term (Phase 3 CTRL). |
 | EST-MAH-106   | Init quaternion                | At init the estimator shall set the quaternion to identity `(1, 0, 0, 0)` and zero the integral feedback state.                                                                            | EST-MAH-001      | Inspection                    |
 | EST-COMP-101  | Complementary parameters       | The complementary filter (unused at runtime) shall use α = 0.98 for gyro weighting; documented in code only as a fallback path.                                                            | EST-MAH-003      | Inspection                    |
 
@@ -383,7 +383,7 @@ authority ramp), NUM (numerical hygiene).
 
 | ID                | Title                       | Statement                                                                                                                                                                                                                                                  | Parent                  | Verification              |
 |-------------------|-----------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------|---------------------------|
-| CTRL-RATE-101     | Rate-loop trigger            | The rate loop shall be triggered by arrival of a valid IMU sample on the IMU control queue and shall not poll the clock. **🟡 gap** — currently uses `v_delay(1)` and polls the queue; refactor to wait-on-queue with timeout.                              | CTRL-RATE-001, VOS-IPC-001 | Inspection + Test       |
+| CTRL-RATE-101     | Rate-loop trigger            | The rate loop shall be triggered by arrival of a valid IMU sample on the IMU control queue and shall not poll the clock. ✅ waits on `imu_queue_control_wait()` (binary sema given per control-queue push), with a 5 ms timeout bounding the worst-case period if the IMU stalls (Phase 3 CTRL).                              | CTRL-RATE-001, VOS-IPC-001 | Inspection + Test       |
 | CTRL-RATE-102     | Rate PID gains (hardware)    | Rate-loop PID gains on hardware: roll `Kp=0.08, Ki=0.04, Kd=0.01, Kff=0.1`, `i_max=0.2`, `d_max=0.25`. Pitch identical. Yaw all zero (yaw-rate loop intentionally disabled in current firmware).                                                              | CTRL-RATE-001           | Inspection                |
 | CTRL-RATE-103     | Rate PID gains (SITL)        | Rate-loop PID gains in SITL (`VAYU_SIM`): 16× smaller than hardware. Documented in `variables.h`; controlled by the SITL build flag.                                                                                                                        | CTRL-RATE-001           | Inspection                |
 | CTRL-ANGLE-101    | Angle-loop trigger           | The angle loop shall run as a periodic task at ~500 Hz (`v_delay(2)`), reading the latest RC sticks, the latest attitude estimate, and writing rate setpoints to the rate loop's queue.                                                                     | CTRL-ANGLE-001          | Inspection + Test         |
@@ -555,7 +555,7 @@ sections 3–4 collectively represent.
 | BMX160 on SPI with DRDY interrupt + FIFO              | I²C 0x68 fast-mode; **no DRDY**, **no FIFO**; polled register reads with DMA-completion semaphore handshake (SNS-BMX-105). `HAL-IMU-101/102` dropped, replaced by `HAL-I2C-001` + `HAL-DMA-001`. |
 | Heartbeat ≥ 1 Hz                                      | 1.11 Hz (every 900 ms; code comment lies)                                                |
 | 8 priority levels in scheduler                        | 3 priorities used (0, 1, 2); scheduler supports more                                     |
-| Rate loop triggered by IMU queue arrival              | `v_delay(1)` polling; not sample-driven yet (CTRL-RATE-101 🟡)                            |
+| Rate loop triggered by IMU queue arrival              | ✅ sample-driven via `imu_queue_control_wait()` + 5 ms safety timeout (CTRL-RATE-101)     |
 | Estimator emits a degraded flag                       | Does not emit it; EST-MAH-002 🟡                                                          |
 | RC loss detected by elapsed time                      | Detected only via iBUS `channel[0] == 0` bit (COMM-RC-002 🟡)                            |
 | `vayu_log_queue` is consumed by telemetry             | Producer-only; orphaned (LOG-TXT-002 🟡)                                                  |
@@ -573,9 +573,9 @@ work is tracked in the trace matrix when `tools/trace.py` lands.
   - SYS-SAFE-006 — static allowed-transitions table in `state.c`; reject + log out-of-order requests.
 - **Estimation**
   - EST-MAH-002 — `estimator_degraded` flag after 100 ms continuous sample rejection.
-  - EST-MAH-105 — clamp Mahony integral feedback term and reset it on estimator reset.
+  - ✅ EST-MAH-105 — clamp Mahony integral feedback term and reset it on estimator reset.
 - **Control**
-  - CTRL-RATE-101 — refactor rate loop from `v_delay(1)` polling to wait-on-queue.
+  - ✅ CTRL-RATE-101 — refactor rate loop from `v_delay(1)` polling to wait-on-queue.
 - **Sensors**
   - SNS-BUF-002 — expose IMU buffer drop counter via telemetry.
 - **Communications**

@@ -53,6 +53,13 @@ bool estimator_is_degraded(void);
  */
 void estimator_safety_step(void);
 
+/**
+ * @brief Re-initialise the estimator's integral feedback state to zero.
+ *
+ * @implements EST-MAH-105
+ */
+void estimator_reset(void);
+
 typedef enum {
   SF_COMPLEMENTARY,
   SF_MAHONY,

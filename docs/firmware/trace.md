@@ -6,11 +6,11 @@
 ## Summary
 
 - Total requirements: **133**
-- Active: **127** (of which 15 carry an inline 🟡 gap marker)
+- Active: **127** (of which 13 carry an inline 🟡 gap marker)
 - Dropped: **4**
 - Deferred: **2**
-- Active with implementer: **9 / 127**
-- Active with verifier (or verified-upstream): **8 / 127**
+- Active with implementer: **11 / 127**
+- Active with verifier (or verified-upstream): **10 / 127**
 
 ## Trace
 
@@ -59,7 +59,7 @@
 | `CTRL-PID-102` | active | PID reset on ARM transition | — | — |
 | `CTRL-PID-103` | active | PID integrator gating | — | — |
 | `CTRL-RATE-001` | active | Rate-loop frequency | — | — |
-| `CTRL-RATE-101` | 🟡 active (gap) | Rate-loop trigger | — | — |
+| `CTRL-RATE-101` | active | Rate-loop trigger | `include/sensor/imu_buffer.h` | `tools/sim_host/tests/test_phase3_ctrl.c` |
 | `CTRL-RATE-102` | active | Rate PID gains (hardware) | — | — |
 | `CTRL-RATE-103` | active | Rate PID gains (SITL) | — | — |
 | `EST-COMP-101` | active | Complementary parameters | — | — |
@@ -71,7 +71,7 @@
 | `EST-MAH-102` | active | Mahony gains | — | — |
 | `EST-MAH-103` | active | dt source | — | — |
 | `EST-MAH-104` | active | Mag conditional update | — | — |
-| `EST-MAH-105` | 🟡 active (gap) | Integral feedback bound | — | — |
+| `EST-MAH-105` | active | Integral feedback bound | `include/maths/sensor_fusion.h`<br>`src/maths/sensor_fusion.c` | `tools/sim_host/tests/test_phase3_ctrl.c` |
 | `EST-MAH-106` | active | Init quaternion | — | — |
 | `HAL-API-001` | active | Host-stub portability | — | — |
 | `HAL-API-101` | active | Header-only API | — | — |
