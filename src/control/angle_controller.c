@@ -2,6 +2,7 @@
 #include "comm/ibus.h"
 #include "comm/rc_buffer.h"
 #include "control/angle_rate_controller.h"
+#include "control/pid_config.h"
 #include "maths/maths_interface.h"
 #include "maths/pid.h"
 #include "maths/sensor_fusion.h"
@@ -89,7 +90,22 @@ void angle_controller_init(void) {
                angle_controller.pid[i].d_max, angle_controller.pid[i].d_lpf_rc,
                angle_controller.pid[i].out_min,
                angle_controller.pid[i].out_max);
+
+    /* COMM-CMD-003: override compiled defaults with any persisted tune. */
+    float kp, ki, kd, kff;
+    if (pid_config_get_angle((uint8_t)i, &kp, &ki, &kd, &kff)) {
+      v_pid_set_gains(&angle_controller.pid[i], kp, ki, kd, kff);
+    }
   }
+}
+
+bool angle_controller_set_gains(uint8_t axis, float kp, float ki, float kd,
+                                float kff) {
+  if (axis >= NUM_AXES) {
+    return false;
+  }
+  v_pid_set_gains(&angle_controller.pid[axis], kp, ki, kd, kff);
+  return true;
 }
 
 static inline float get_dt(void) {

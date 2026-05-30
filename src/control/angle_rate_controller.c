@@ -3,6 +3,7 @@
 #include "comm/ibus.h"
 #include "comm/rc_buffer.h"
 #include "control/angle_controller.h"
+#include "control/pid_config.h"
 #include "maths/control_buffer.h"
 #include "maths/pid.h"
 #include "navhal.h"
@@ -79,7 +80,39 @@ void angle_rate_controller_init(void) {
                angle_rate_controller.pid[i].d_lpf_rc,
                angle_rate_controller.pid[i].out_min,
                angle_rate_controller.pid[i].out_max);
+
+    /* COMM-CMD-003: override compiled defaults with any tune persisted
+     * to SD (loaded by pid_config_init() before the scheduler started). */
+    float kp, ki, kd, kff;
+    if (pid_config_get_rate((uint8_t)i, &kp, &ki, &kd, &kff)) {
+      v_pid_set_gains(&angle_rate_controller.pid[i], kp, ki, kd, kff);
+    }
   }
+}
+
+bool angle_rate_controller_set_gains(uint8_t axis, float kp, float ki, float kd,
+                                     float kff) {
+  if (axis >= NUM_AXES) {
+    return false;
+  }
+  /* Each field is a 32-bit scalar; a control-loop iteration concurrent
+   * with this update may read a one-cycle mix of old/new gains, which is
+   * harmless for PID gains (R8.6: no lock in the hot loop). */
+  v_pid_set_gains(&angle_rate_controller.pid[axis], kp, ki, kd, kff);
+  return true;
+}
+
+bool angle_rate_controller_get_gains(uint8_t axis, float *kp, float *ki,
+                                     float *kd, float *kff) {
+  if (axis >= NUM_AXES) {
+    return false;
+  }
+  const struct PID *p = &angle_rate_controller.pid[axis];
+  *kp = p->Kp;
+  *ki = p->Ki;
+  *kd = p->Kd;
+  *kff = p->Kff;
+  return true;
 }
 
 void angle_rate_controller_task(void *arg) {

@@ -19,6 +19,14 @@ typedef struct {
 // Serial handlers
 static serial_channel_handle_t _serial_handlers[MAX_SERIAL_HANDLERS] = {};
 
+/* COMM-CH-002: count of writes dropped because the active 512 B buffer
+ * had no room. Monotonic; surfaced through telemetry (SYSTEM_ORIGIN_HEALTH).
+ * Single 32-bit scalar — atomic load/store on Cortex-M4 (R8.6).
+ * @implements COMM-CH-002 */
+static volatile uint32_t _tx_overflow_count = 0;
+
+uint32_t channel_tx_overflow_count(void) { return _tx_overflow_count; }
+
 static void _dma_complete_callback(void) {
   // For now, specifically handle USART2/DMA1_S6
   // In a more generic impl, we'd need to know which handler triggered this
@@ -124,6 +132,7 @@ err_t write_channel(channel_t channel, byte *data, uint16_t length) {
     // Check if buffer has space; if not, drop data
     if (s_handle->buf_lens[idx] + length > 512) {
       // hal_enable_global_interrupts(state);
+      _tx_overflow_count++; // COMM-CH-002
       return ERROR; // Buffer full, dropping data
     }
 
