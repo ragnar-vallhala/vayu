@@ -192,7 +192,7 @@ physics; it spawns/supervises `vsim_d` and decodes pose frames.
 | FR-SIM-08| Wind / external-force injection                                          | ❌     |
 | FR-SIM-09| Ground-contact model (tipping, friction)                                 | ❌     | Intentional: hard clamp only (`tools/vsim/src/physics_core.cpp`) |
 | FR-SIM-10| FIFO transport to the standalone firmware binary                         | ✅     | `vsim_d` FIFOs are the only transport; the standalone `vayu_sitl` binary attaches to the same `/tmp/vsim_{pwm,imu}` paths |
-| FR-SIM-11| Mesh-derived mass properties + motor-mapping editor                      | ✅     | Import STL/glTF (assimp) → full 3×3 inertia tensor via `MassProperties` (closed-polyhedron integral); 4-motor position/axis/spin/coeff editor (`GeometryEditorWidget`); pushed to `vsim_d` over `VSIM_CTL_SET_GEOMETRY`. Daemon integrates the full tensor (`Mat3` in `vsim_math.h`). v1 assumes model origin ≈ CoM (offset shown + warned). Design: [`roadmap/sim-geometry-moi-motor-editor.md`](roadmap/sim-geometry-moi-motor-editor.md). |
+| FR-SIM-11| Mesh-derived mass properties + motor-mapping editor                      | ✅     | Import STL/glTF (assimp) → full 3×3 inertia tensor via `MassProperties` (closed-polyhedron integral); 4-motor position/axis/spin/coeff editor (`GeometryEditorWidget`); pushed to `vsim_d` over `VSIM_CTL_SET_GEOMETRY`. Daemon integrates the full tensor (`Mat3` in `vsim_math.h`). All dynamics are about the CoM — the mesh is recentered and motor arms made CoM-relative GCS-side (`physicsConfig()`), so the model origin need not coincide with the CoM. Design: [`roadmap/sim-geometry-moi-motor-editor.md`](roadmap/sim-geometry-moi-motor-editor.md). |
 
 ### 2.7 Persistence (`SettingsManager`)
 

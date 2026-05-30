@@ -216,18 +216,21 @@ void SimulatorWidget::buildUi() {
             [this] { applyGeometryToRenderer(); });
     connect(m_geomEditor, &GeometryEditorWidget::geometryApplied, this, [this] {
       applyGeometryToRenderer();
-      if (m_sim) m_sim->sendGeometry(m_geomEditor->config());
+      if (m_sim) m_sim->sendGeometry(m_geomEditor->physicsConfig());
       persistGeometry(m_geomEditor->config());
       appendLog("geom", tr("geometry applied (m=%1 kg)")
                             .arg(m_geomEditor->config().mass));
     });
 
-    // The motor grid is wider than the right column; scroll rather than
-    // squeeze it.
+    // The editor scrolls vertically only; its motor grid has its own
+    // inner horizontal scroll, so the panel never scrolls sideways and
+    // the mesh/Browse row stays at column width (reachable without a
+    // horizontal scroll).
     auto* scroll = new QScrollArea(right);
     scroll->setWidgetResizable(true);
     scroll->setWidget(m_geomEditor);
     scroll->setMinimumHeight(240);
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     rcol->addWidget(scroll, 1);
   }
 
@@ -299,7 +302,7 @@ void SimulatorWidget::startInAppSim() {
   // Once the daemon's FIFOs are up, push the configured airframe so the
   // sim flies the edited mass properties + motor layout from frame one.
   connect(m_sim, &vsim::SimWorker::online, this, [this] {
-    if (m_sim) m_sim->sendGeometry(m_geomEditor->config());
+    if (m_sim) m_sim->sendGeometry(m_geomEditor->physicsConfig());
   });
   m_sim->start(QThread::TimeCriticalPriority);
 
@@ -337,12 +340,14 @@ void SimulatorWidget::stopInAppSim() {
 
 void SimulatorWidget::applyGeometryToRenderer() {
   if (!m_renderer || !m_geomEditor) return;
-  const auto& cfg = m_geomEditor->config();
+  // CoM frame: mesh is already recentered, motor arms are CoM-relative,
+  // and the CoM sits at the body origin.
+  const auto cfg = m_geomEditor->physicsConfig();
   if (m_geomEditor->hasMesh()) {
     m_renderer->setDroneMesh(m_geomEditor->meshPositions(),
                              m_geomEditor->meshNormals());
   }
-  m_renderer->setComMarker(cfg.com);
+  m_renderer->setComMarker(QVector3D(0, 0, 0));  // CoM == body origin now
   std::array<QVector3D, 4> pos, axis;
   std::array<int, 4> spin;
   for (int i = 0; i < 4; ++i) {
