@@ -26,10 +26,10 @@ err_t send_packet(channel_t *channel, packet_type_t packet_type, byte *payload,
     init_serializer();
     _initialized = 1;
   }
-  packet_t packet = {};
+  packet_t packet = {0};
   packet.sync = SYNC_BYTE;
   packet.protocol_packet_type =
-      ((packet_type & 0b1111) << 4) | (PROTOCOL_VERSION & 0b1111);
+      ((packet_type & 0xF) << 4) | (PROTOCOL_VERSION & 0xF);
   packet.length = payload_size;
   packet.device_id = get_device_id();
   packet.timestamp = get_timestamp_unix();
@@ -40,7 +40,7 @@ err_t send_packet(channel_t *channel, packet_type_t packet_type, byte *payload,
   // Header size is 8 bytes: sync (1) + type (1) + length (1) + dev_id (1) +
   // timestamp (4)
   uint8_t header_size = 8;
-  uint8_t packet_size = header_size + payload_size + sizeof(packet.crc32);
+  uint8_t packet_size = (uint8_t)(header_size + payload_size + sizeof(packet.crc32));
 
   // if (g_comm_mutex) {
   //   if (v_mutex_lock(g_comm_mutex, 0) != VA_PASS) {

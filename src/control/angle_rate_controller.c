@@ -1,8 +1,7 @@
 #include "control/angle_rate_controller.h"
 #include <math.h>
 #include "actuator/actuator.h"
-#include "comm/ibus.h"
-#include "comm/rc_buffer.h"
+#include "comm/comm.h"
 #include "control/angle_controller.h"
 #include "control/pid_config.h"
 #include "control/control_buffer.h"
