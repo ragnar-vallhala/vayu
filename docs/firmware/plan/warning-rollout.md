@@ -28,7 +28,7 @@ already-clean module before the heavier ones.
 | ACT    | `actuator/esc.c`, `actuator/motor.c` | `include/actuator/actuator.h` (merged esc.h+motor.h) | none (already a module) | **full R1.2 + `-Werror`** | ✅ done |
 | SNS    | `sensor/{bmx160,imu_buffer,i2c_manager}.c` | `include/sensor/sensor.h` (facade — driver header kept) | ✅ `drivers/` folded into `src/sensor/` | **full R1.2 + `-Werror`** | ✅ done |
 | EST    | `est/sensor_fusion.c`, `est/lpf.c` | `include/est/est.h` (merged sensor_fusion.h+lpf.h) | ✅ `maths/{sensor_fusion,lpf}.c` → `src/est/` | **full R1.2 + `-Werror`** | ✅ done |
-| CTRL   | `control/*.c` (+`maths/pid.c`, `maths/control_buffer.c` → `control/`) | `include/control/control.h` | `maths/{pid,control_buffer}.c` → `src/control/` | `-Wall` | ⬜ pending (~13 warns) |
+| CTRL   | `control/{angle_controller,angle_rate_controller,pid_config,pid,control_buffer}.c` | `include/control/control.h` | ✅ `maths/{pid,control_buffer}.c` → `src/control/` | **full R1.2 + `-Werror`** | ✅ done |
 | COMM   | `comm/*.c` | `include/comm/comm.h` | none | `-Wall` | ⬜ pending (~20 warns) |
 | LOG    | `logger/logger.c` (+`utils/utils.c` → `logger/`) | `include/logger/logger.h` (exists) | `utils/utils.c` → `src/logger/` | `-Wall` | ⬜ pending (~6 warns) |
 | SYS    | `sys/*.c` | `include/sys/sys.h` | `utils/{math_utils,timer_callbacks,types}.h` → `include/sys/` | `-Wall` | ⬜ pending (~13 warns) |

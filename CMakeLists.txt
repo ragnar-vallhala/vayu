@@ -66,7 +66,13 @@ set(VAYU_R12_CLEAN_SOURCES
     # SNS module (Phase 4)
     ${CMAKE_CURRENT_SOURCE_DIR}/src/sensor/bmx160.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/sensor/imu_buffer.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/sensor/i2c_manager.c)
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/sensor/i2c_manager.c
+    # CTRL module (Phase 4)
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/angle_controller.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/angle_rate_controller.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/pid_config.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/pid.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/control_buffer.c)
 set_source_files_properties(${VAYU_R12_CLEAN_SOURCES}
     PROPERTIES COMPILE_OPTIONS "${VAYU_R12_WARN_FLAGS}")
 
