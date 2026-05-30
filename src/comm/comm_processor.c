@@ -2,7 +2,7 @@
 #include "comm/serializer.h"
 #include "control/pid_config.h"
 #include "memory.h"
-#include "sensor/bmx160.h"
+#include "sensor/sensor.h"
 #include "sys/state.h"
 #include "task.h"
 #include "utils.h"

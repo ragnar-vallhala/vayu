@@ -62,7 +62,11 @@ set(VAYU_R12_CLEAN_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/actuator/motor.c
     # EST module (Phase 4)
     ${CMAKE_CURRENT_SOURCE_DIR}/src/est/sensor_fusion.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/est/lpf.c)
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/est/lpf.c
+    # SNS module (Phase 4)
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/sensor/bmx160.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/sensor/imu_buffer.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/sensor/i2c_manager.c)
 set_source_files_properties(${VAYU_R12_CLEAN_SOURCES}
     PROPERTIES COMPILE_OPTIONS "${VAYU_R12_WARN_FLAGS}")
 

@@ -26,7 +26,7 @@ already-clean module before the heavier ones.
 | Module | TUs | Umbrella header | Folder move (R2.6) | Warning level | Status |
 |--------|-----|-----------------|--------------------|---------------|--------|
 | ACT    | `actuator/esc.c`, `actuator/motor.c` | `include/actuator/actuator.h` (merged esc.h+motor.h) | none (already a module) | **full R1.2 + `-Werror`** | ✅ done |
-| SNS    | `sensor/bmx160.c`, `sensor/imu_buffer.c`, (+`drivers/i2c_manager.c` → `sensor/`) | `include/sensor/sensor.h` | `drivers/i2c_manager.c` → `src/sensor/` | `-Wall` | ⬜ pending (~25 warns) |
+| SNS    | `sensor/{bmx160,imu_buffer,i2c_manager}.c` | `include/sensor/sensor.h` (facade — driver header kept) | ✅ `drivers/` folded into `src/sensor/` | **full R1.2 + `-Werror`** | ✅ done |
 | EST    | `est/sensor_fusion.c`, `est/lpf.c` | `include/est/est.h` (merged sensor_fusion.h+lpf.h) | ✅ `maths/{sensor_fusion,lpf}.c` → `src/est/` | **full R1.2 + `-Werror`** | ✅ done |
 | CTRL   | `control/*.c` (+`maths/pid.c`, `maths/control_buffer.c` → `control/`) | `include/control/control.h` | `maths/{pid,control_buffer}.c` → `src/control/` | `-Wall` | ⬜ pending (~13 warns) |
 | COMM   | `comm/*.c` | `include/comm/comm.h` | none | `-Wall` | ⬜ pending (~20 warns) |
