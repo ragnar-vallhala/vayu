@@ -1,5 +1,4 @@
-#include "comm/comm_types.h"
-#include "comm/serializer.h"
+#include "comm/comm.h"
 #include "logger/logger.h"
 #include "navhal.h"
 #include "vaios.h"

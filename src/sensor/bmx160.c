@@ -1,5 +1,5 @@
 #include "sensor/bmx160.h"
-#include "comm/serializer.h"
+#include "comm/comm.h"
 #include "sensor/i2c_manager.h"
 #include "navhal.h"
 #include "ipc.h"
