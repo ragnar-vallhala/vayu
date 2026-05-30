@@ -69,10 +69,18 @@ class SimWorker : public QThread {
   // slightly above ground (matches the daemon's own initial state).
   void sendReset();
 
+  // Push mass properties + motor layout (VSIM_CTL_SET_GEOMETRY). The
+  // mesh/scale/com fields of `g` stay GCS-side; only mass, the inertia
+  // tensor, and the 4-motor params cross the wire.
+  void sendGeometry(const GeometryConfig& g);
+
  signals:
   void poseUpdated(SimSnapshot snap);
   void logLine(QString line);
   void stoppedCleanly();
+  // Emitted once the daemon is spawned and the ctl/pose FIFOs are open,
+  // so callers can safely push initial control (e.g. geometry).
+  void online();
 
  protected:
   void run() override;
