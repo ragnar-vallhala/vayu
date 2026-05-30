@@ -36,7 +36,7 @@ void rc_mark_frame_valid(void) {
 }
 
 /**
- * @implements COMM-RC-002, SYS-SAFE-002
+ * @implements SYS-SAFE-002
  */
 bool rc_has_signal(void) {
   uint32_t now = v_get_ticks();
@@ -44,6 +44,19 @@ bool rc_has_signal(void) {
   /* Unsigned subtraction is well-defined and wraps correctly so long as
    * one tick interval (1 ms) is shorter than the wrap horizon (~49 days). */
   return (now - last) <= RC_LOSS_TIMEOUT_MS;
+}
+
+/**
+ * @implements COMM-RC-002
+ *
+ * Fast COMM-layer loss detect: trips after RC_LOSS_DETECT_MS (100 ms),
+ * an order of magnitude before rc_has_signal()'s 1.0 s failsafe horizon,
+ * so higher layers can flag a degraded link early.
+ */
+bool rc_loss(void) {
+  uint32_t now = v_get_ticks();
+  uint32_t last = s_last_valid_frame_ms;
+  return (now - last) > RC_LOSS_DETECT_MS;
 }
 
 /* States in which RC loss should drive a FAILSAFE transition. INIT and
