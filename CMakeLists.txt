@@ -91,7 +91,15 @@ set(VAYU_R12_CLEAN_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/comm/rc_safety.c
     # LOG module (Phase 4)
     ${CMAKE_CURRENT_SOURCE_DIR}/src/logger/logger.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/logger/log_text.c)
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/logger/log_text.c
+    # SYS module (Phase 4)
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/sys/state.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/sys/boot.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/sys/assert.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/sys/heartbeat.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/sys/sys_utils.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/sys/math_utils.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/sys/timer_callbacks.c)
 set_source_files_properties(${VAYU_R12_CLEAN_SOURCES}
     PROPERTIES COMPILE_OPTIONS "${VAYU_R12_WARN_FLAGS}")
 

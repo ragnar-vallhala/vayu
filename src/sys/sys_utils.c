@@ -1,10 +1,14 @@
-/* NOTE (Phase 4): text logging (vayu_log + vayu_log_queue) moved to
- * src/logger/log_text.c (LOG module). What remains here — timestamp,
- * device-id, and CRC helpers — moves to src/sys/ in the SYS pass. */
-#include "utils/utils.h"
+/**
+ * @file src/sys/sys_utils.c
+ * @brief System utilities — timestamp, device id, CRC32.
+ *
+ * Moved here from src/utils/utils.c per Phase 4 R2.6 (the text-logging
+ * half went to src/logger/log_text.c).
+ */
+#include "sys/sys_utils.h"
+
 #include "ipc.h"
-#include "structure.h"
-#include "utils.h"
+#include "navhal.h" /* hal_crc_* */
 #include "variables.h"
 #include <stdint.h>
 
@@ -16,13 +20,14 @@ static uint8_t _device_id = 0;
 uint64_t get_timestamp(void) { return _time_stamp_high_freq; }
 
 uint32_t get_timestamp_unix(void) {
-  return _time_stamp_high_freq / (HIGH_FREQ_TIMER_FREQ / 1000) +
+  return (uint32_t)(_time_stamp_high_freq / (HIGH_FREQ_TIMER_FREQ / 1000)) +
          _time_stamp_high_freq_offset;
 }
 
 void set_timestamp(uint32_t timestamp) {
   _time_stamp_high_freq_offset =
-      timestamp - _time_stamp_high_freq / (HIGH_FREQ_TIMER_FREQ / 1000);
+      timestamp -
+      (uint32_t)(_time_stamp_high_freq / (HIGH_FREQ_TIMER_FREQ / 1000));
 }
 
 uint8_t get_device_id(void) { return _device_id; }

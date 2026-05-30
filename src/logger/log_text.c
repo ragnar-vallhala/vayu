@@ -9,7 +9,7 @@
  * vayu_log_queue to the LOG channel (LOG-TXT-002). Declarations live in
  * utils/utils.h for now (consolidated into the SYS pass).
  */
-#include "utils/utils.h"
+#include "logger/logger.h"
 
 #include "ipc.h"
 #include "structure.h"
