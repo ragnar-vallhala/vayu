@@ -6,7 +6,7 @@
 ## Summary
 
 - Total requirements: **133**
-- Active: **127** (of which 2 carry an inline 🟡 gap marker)
+- Active: **127** (of which 1 carry an inline 🟡 gap marker)
 - Dropped: **4**
 - Deferred: **2**
 - Active with implementer: **19 / 127**
@@ -33,7 +33,7 @@
 | `COMM-PKT-002` | active | Inbound frame parsing | — | — |
 | `COMM-PKT-003` | active | Inbound packet buffer | — | — |
 | `COMM-RC-001` | active | iBUS frame validity | — | — |
-| `COMM-RC-002` | 🟡 active (gap) | RC loss detection | `include/comm/ibus.h`<br>`src/comm/rc_safety.c` | `tools/sim_host/tests/test_safety_phase2.c` |
+| `COMM-RC-002` | active | RC loss detection | `include/comm/ibus.h`<br>`src/comm/rc_safety.c` | `tools/sim_host/tests/test_safety_phase2.c` |
 | `COMM-RC-003` | active | RC arming logic | — | — |
 | `COMM-RC-004` | active | iBUS transport | — | — |
 | `COMM-TEL-001` | active | Telemetry task cadence | — | — |
