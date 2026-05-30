@@ -4,6 +4,7 @@
 #include "comm/ibus.h"
 #include "comm/rc_buffer.h"
 #include "comm/serializer.h"
+#include "logger/logger.h"
 #include "maths/control_buffer.h"
 #include "maths/sensor_fusion.h"
 #include "sensor/bmx160.h"
@@ -63,6 +64,8 @@ void imu_telemetry_task(void *args) {
     bool send_pid_err = (packet_counter % 8 == 0);     // 18 Hz
     bool send_log = (packet_counter % 10 == 0);        // 15 Hz
     if (send_log) {
+      /* LOG-TXT-002: drain the text-log queue to the LOG channel.
+       * @implements LOG-TXT-002 */
       static char log_buf[VAYU_LOG_QUEUE_SIZE];
       uint8_t len = mpmc_pop_bulk(&vayu_log_queue, log_buf, sizeof(log_buf));
       if (len > 0) {
@@ -84,15 +87,20 @@ void imu_telemetry_task(void *args) {
       send_packet(&g_telemetry_channel, PACKET_TYPE_SYSTEM_STATUS,
                   state_payload, 6);
 
-      /* COMM-CH-002: surface the TX-overflow counter as a HEALTH status.
-       * @implements COMM-CH-002 */
-      uint8_t health_payload[6];
+      /* Surface the health counters as a HEALTH status:
+       *   [origin][pad][tx_overflow:4][imu_drop:4][log_wrap:4]
+       * @implements COMM-CH-002, SNS-BUF-002, LOG-SD-002 */
+      uint8_t health_payload[14];
       health_payload[0] = SYSTEM_ORIGIN_HEALTH;
       health_payload[1] = 0x00; // reserved/padding
       uint32_t tx_overflow = channel_tx_overflow_count();
+      uint32_t imu_drop = imu_buffer_drop_count();
+      uint32_t log_wrap = logger_wrap_count_total();
       v_memcpy(&health_payload[2], &tx_overflow, 4);
+      v_memcpy(&health_payload[6], &imu_drop, 4);
+      v_memcpy(&health_payload[10], &log_wrap, 4);
       send_packet(&g_telemetry_channel, PACKET_TYPE_SYSTEM_STATUS,
-                  health_payload, 6);
+                  health_payload, 14);
     }
     if (send_pid_err && control_telemetry_queue_pop(&c_data)) {
       uint8_t payload[74];
