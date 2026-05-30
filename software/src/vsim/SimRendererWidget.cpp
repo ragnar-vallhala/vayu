@@ -41,6 +41,36 @@ void main() {
 }
 )GLSL";
 
+// Lit program for the imported airframe mesh: world-space directional
+// Lambert + ambient so the solid reads as 3D rather than a flat blob.
+const char* kLitVertexShader = R"GLSL(
+#version 330 core
+layout(location=0) in vec3 a_pos;
+layout(location=1) in vec3 a_normal;
+uniform mat4 u_mvp;
+uniform mat3 u_nmat;
+out vec3 v_normal;
+void main() {
+  gl_Position = u_mvp * vec4(a_pos, 1.0);
+  v_normal = u_nmat * a_normal;
+}
+)GLSL";
+
+const char* kLitFragmentShader = R"GLSL(
+#version 330 core
+in vec3 v_normal;
+out vec4 o_color;
+uniform vec3 u_color;
+uniform vec3 u_lightdir;   // world-space direction toward the light
+void main() {
+  vec3 n = normalize(v_normal);
+  float ndl = max(dot(n, normalize(u_lightdir)), 0.0);
+  float ambient = 0.35;
+  float intensity = ambient + (1.0 - ambient) * ndl;
+  o_color = vec4(u_color * intensity, 1.0);
+}
+)GLSL";
+
 }  // namespace
 
 SimRendererWidget::SimRendererWidget(QWidget* parent)
@@ -52,20 +82,39 @@ SimRendererWidget::SimRendererWidget(QWidget* parent)
 SimRendererWidget::~SimRendererWidget() {
   // Need a current context to release GL resources cleanly.
   makeCurrent();
-  ground_.vbo.destroy();
-  axes_.vbo.destroy();
-  body_.vbo.destroy();
-  rotor_.vbo.destroy();
-  ground_.vao.destroy();
-  axes_.vao.destroy();
-  body_.vao.destroy();
-  rotor_.vao.destroy();
+  for (Mesh* m : {&ground_, &axes_, &body_, &rotor_, &thrustLine_, &comMarker_,
+                  &droneMesh_}) {
+    m->vbo.destroy();
+    m->vao.destroy();
+  }
   doneCurrent();
 }
 
 void SimRendererWidget::setSnapshot(const vsim::SimSnapshot& s) {
   snap_ = s;
   update();   // schedules paintGL on the GUI thread
+}
+
+void SimRendererWidget::setDroneMesh(const std::vector<QVector3D>& positions,
+                                     const std::vector<QVector3D>& normals) {
+  pendingPos_ = positions;
+  pendingNrm_ = normals;
+  meshDirty_ = true;          // uploaded lazily in paintGL (needs GL context)
+  update();
+}
+
+void SimRendererWidget::setMotorLayout(const std::array<QVector3D, 4>& pos,
+                                       const std::array<QVector3D, 4>& axis,
+                                       const std::array<int, 4>& spin) {
+  motorPos_ = pos;
+  motorAxis_ = axis;
+  motorSpin_ = spin;
+  update();
+}
+
+void SimRendererWidget::setComMarker(const QVector3D& com) {
+  comOffset_ = com;
+  update();
 }
 
 void SimRendererWidget::initializeGL() {
@@ -80,10 +129,20 @@ void SimRendererWidget::initializeGL() {
   u_mvp_   = prog_.uniformLocation("u_mvp");
   u_color_ = prog_.uniformLocation("u_color");
 
+  progLit_.addShaderFromSourceCode(QOpenGLShader::Vertex,   kLitVertexShader);
+  progLit_.addShaderFromSourceCode(QOpenGLShader::Fragment, kLitFragmentShader);
+  progLit_.link();
+  ul_mvp_   = progLit_.uniformLocation("u_mvp");
+  ul_nmat_  = progLit_.uniformLocation("u_nmat");
+  ul_color_ = progLit_.uniformLocation("u_color");
+  ul_light_ = progLit_.uniformLocation("u_lightdir");
+
   buildGroundGrid();
   buildAxes();
   buildDroneBody();
   buildRotorDisk();
+  buildThrustLine();
+  buildComMarker();
 }
 
 void SimRendererWidget::resizeGL(int w, int h) {
@@ -109,54 +168,113 @@ QMatrix4x4 SimRendererWidget::cameraView() const {
 
 void SimRendererWidget::paintGL() {
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-  prog_.bind();
+  if (meshDirty_) uploadDroneMesh();
+
   QMatrix4x4 view = cameraView();
 
-  // Ground at z=0
+  // Ground at z=0, world axes at origin.
   drawMesh(ground_, view, QVector3D(0.25f, 0.27f, 0.32f));
+  drawMesh(axes_,   view, QVector3D(1, 1, 1));
 
-  // World axes at origin
-  drawMesh(axes_, view, QVector3D(1, 1, 1));
-
-  // Drone body+rotors: apply pos+orientation
+  // Drone body: apply pos+orientation. Quaternion is normalized by the
+  // sim after every step.
   QMatrix4x4 model;
   model.translate(snap_.pos_w);
-  // QQuaternion -> rotation: use rotate(QQuaternion). Make sure the
-  // quaternion is normalized; the sim normalizes after every step.
   model.rotate(snap_.att);
 
-  drawMesh(body_, view * model, QVector3D(0.85f, 0.55f, 0.20f));
-
-  // Rotors: at body-frame positions, colored by spin direction
-  const std::array<QVector3D, 4> rpos = {
-      QVector3D( 0.13f, +0.22f, 0.0f),
-      QVector3D(-0.13f, +0.20f, 0.0f),
-      QVector3D(-0.13f, -0.20f, 0.0f),
-      QVector3D( 0.13f, -0.22f, 0.0f),
-  };
-  const std::array<QVector3D, 4> rcol = {
-      QVector3D(0.30f, 0.85f, 0.30f),   // M1 FR  CCW
-      QVector3D(0.85f, 0.30f, 0.30f),   // M2 RR  CW
-      QVector3D(0.30f, 0.85f, 0.30f),   // M3 RL  CCW
-      QVector3D(0.85f, 0.30f, 0.30f),   // M4 FL  CW
-  };
-  for (int i = 0; i < 4; ++i) {
-    QMatrix4x4 mr = model;
-    mr.translate(rpos[i]);
-    // Tint by motor activity so the user can see which rotors are hot.
-    float duty = snap_.motor_duty[i];
-    QVector3D c = rcol[i] * (0.4f + 0.6f * duty);
-    drawMesh(rotor_, view * mr, c);
+  if (hasMesh_) {
+    drawLit(droneMesh_, view, model, QVector3D(0.80f, 0.81f, 0.85f));
+  } else {
+    drawMesh(body_, view * model, QVector3D(0.85f, 0.55f, 0.20f));
   }
-  prog_.release();
+
+  // Motor markers (disk colored by spin + activity) and a thrust-axis
+  // line, at the editable body-frame positions/axes.
+  for (int i = 0; i < 4; ++i) {
+    QVector3D axisN = motorAxis_[i];
+    if (axisN.lengthSquared() < 1e-12f) axisN = QVector3D(0, 0, -1);
+    axisN.normalize();
+    const QQuaternion ori = QQuaternion::rotationTo(QVector3D(0, 0, 1), axisN);
+
+    QMatrix4x4 mr = model;
+    mr.translate(motorPos_[i]);
+    mr.rotate(ori);
+    const QVector3D base = (motorSpin_[i] >= 0) ? QVector3D(0.30f, 0.85f, 0.30f)
+                                                : QVector3D(0.85f, 0.30f, 0.30f);
+    const float duty = snap_.motor_duty[i];
+    drawMesh(rotor_, view * mr, base * (0.4f + 0.6f * duty));
+
+    // Thrust direction: unit +Z segment rotated onto the axis, shortened.
+    QMatrix4x4 ml = model;
+    ml.translate(motorPos_[i]);
+    ml.rotate(ori);
+    ml.scale(1.0f, 1.0f, 0.18f);
+    drawMesh(thrustLine_, view * ml, QVector3D(0.95f, 0.95f, 0.40f));
+  }
+
+  // Center-of-mass crosshair (body frame, diagnostic).
+  QMatrix4x4 mc = model;
+  mc.translate(comOffset_);
+  drawMesh(comMarker_, view * mc, QVector3D(0.95f, 0.35f, 0.95f));
 }
 
 void SimRendererWidget::drawMesh(const Mesh& m, const QMatrix4x4& mvp,
                                  const QVector3D& color) {
+  prog_.bind();
   prog_.setUniformValue(u_mvp_, proj_ * mvp);
   prog_.setUniformValue(u_color_, color);
   QOpenGLVertexArrayObject::Binder b(const_cast<QOpenGLVertexArrayObject*>(&m.vao));
   glDrawArrays(m.primitive, 0, m.vertex_count);
+  prog_.release();
+}
+
+void SimRendererWidget::drawLit(const Mesh& m, const QMatrix4x4& view,
+                                const QMatrix4x4& model,
+                                const QVector3D& color) {
+  if (m.vertex_count == 0) return;
+  progLit_.bind();
+  progLit_.setUniformValue(ul_mvp_, proj_ * view * model);
+  progLit_.setUniformValue(ul_nmat_, model.normalMatrix());
+  progLit_.setUniformValue(ul_color_, color);
+  // Light mostly from above (NED up is -Z) with a slight side bias.
+  progLit_.setUniformValue(ul_light_, QVector3D(0.3f, 0.2f, -1.0f));
+  QOpenGLVertexArrayObject::Binder b(const_cast<QOpenGLVertexArrayObject*>(&m.vao));
+  glDrawArrays(GL_TRIANGLES, 0, m.vertex_count);
+  progLit_.release();
+}
+
+void SimRendererWidget::uploadDroneMesh() {
+  meshDirty_ = false;
+  hasMesh_ = !pendingPos_.empty();
+  if (!hasMesh_) return;
+
+  // Interleave [px,py,pz, nx,ny,nz] per vertex (triangle soup).
+  std::vector<float> data;
+  data.reserve(pendingPos_.size() * 6);
+  for (size_t i = 0; i < pendingPos_.size(); ++i) {
+    const QVector3D& p = pendingPos_[i];
+    const QVector3D n = (i < pendingNrm_.size()) ? pendingNrm_[i]
+                                                 : QVector3D(0, 0, 1);
+    data.insert(data.end(), {p.x(), p.y(), p.z(), n.x(), n.y(), n.z()});
+  }
+
+  if (!droneMesh_.vao.isCreated()) droneMesh_.vao.create();
+  droneMesh_.vao.bind();
+  if (!droneMesh_.vbo.isCreated()) droneMesh_.vbo.create();
+  droneMesh_.vbo.bind();
+  droneMesh_.vbo.allocate(data.data(), int(data.size() * sizeof(float)));
+  glEnableVertexAttribArray(0);
+  glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), nullptr);
+  glEnableVertexAttribArray(1);
+  glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float),
+                        reinterpret_cast<void*>(3 * sizeof(float)));
+  droneMesh_.vbo.release();
+  droneMesh_.vao.release();
+  droneMesh_.vertex_count = int(pendingPos_.size());
+  droneMesh_.primitive = GL_TRIANGLES;
+
+  pendingPos_.clear();
+  pendingNrm_.clear();
 }
 
 // ---------- geometry generators ----------
@@ -265,6 +383,43 @@ void SimRendererWidget::buildRotorDisk() {
   rotor_.vao.release();
   rotor_.vertex_count = int(v.size() / 3);
   rotor_.primitive = GL_TRIANGLE_FAN;
+}
+
+void SimRendererWidget::buildThrustLine() {
+  // Unit segment along +Z; paintGL rotates it onto each motor's axis.
+  float v[] = {0, 0, 0, 0, 0, 1};
+  thrustLine_.vao.create();
+  thrustLine_.vao.bind();
+  thrustLine_.vbo.create();
+  thrustLine_.vbo.bind();
+  thrustLine_.vbo.allocate(v, sizeof(v));
+  glEnableVertexAttribArray(0);
+  glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), nullptr);
+  thrustLine_.vbo.release();
+  thrustLine_.vao.release();
+  thrustLine_.vertex_count = 2;
+  thrustLine_.primitive = GL_LINES;
+}
+
+void SimRendererWidget::buildComMarker() {
+  // Small 3-axis crosshair centered at origin.
+  const float s = 0.06f;
+  float v[] = {
+      -s, 0, 0,  s, 0, 0,
+       0,-s, 0,  0, s, 0,
+       0, 0,-s,  0, 0, s,
+  };
+  comMarker_.vao.create();
+  comMarker_.vao.bind();
+  comMarker_.vbo.create();
+  comMarker_.vbo.bind();
+  comMarker_.vbo.allocate(v, sizeof(v));
+  glEnableVertexAttribArray(0);
+  glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), nullptr);
+  comMarker_.vbo.release();
+  comMarker_.vao.release();
+  comMarker_.vertex_count = 6;
+  comMarker_.primitive = GL_LINES;
 }
 
 // ---------- camera controls ----------

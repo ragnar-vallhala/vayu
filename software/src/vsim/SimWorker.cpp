@@ -91,6 +91,37 @@ void SimWorker::sendReset() {
     ::write(ctl_fd_, &f, sizeof(f));
 }
 
+void SimWorker::sendGeometry(const GeometryConfig& g) {
+    if (ctl_fd_ < 0) return;
+    vsim_ctl_frame_t f{};
+    f.hdr.magic         = VSIM_MAGIC;
+    f.hdr.version       = VSIM_PROTO_VERSION;
+    f.hdr.type          = VSIM_FRAME_CTL;
+    f.hdr.payload_bytes = sizeof(f) - sizeof(vsim_hdr_t);
+    f.hdr.seq_no        = 0;
+    f.subtype           = VSIM_CTL_SET_GEOMETRY;
+
+    vsim_ctl_geometry_t body{};
+    body.mass = g.mass;
+    for (int i = 0; i < 9; ++i) body.inertia[i] = g.inertia[i];
+    for (int i = 0; i < 4; ++i) {
+        const auto& m = g.motors[i];
+        body.motors[i].pos[0]   = m.pos.x();
+        body.motors[i].pos[1]   = m.pos.y();
+        body.motors[i].pos[2]   = m.pos.z();
+        body.motors[i].axis[0]  = m.axis.x();
+        body.motors[i].axis[1]  = m.axis.y();
+        body.motors[i].axis[2]  = m.axis.z();
+        body.motors[i].spin      = static_cast<float>(m.spin);
+        body.motors[i].k_thrust  = m.k_thrust;
+        body.motors[i].k_moment  = m.k_moment;
+        body.motors[i].max_omega = m.max_omega;
+    }
+    std::memcpy(f.body, &body, sizeof(body));  // 200 B into the 256 B body
+    ::write(ctl_fd_, &f, sizeof(f));
+    emit logLine("vsim_d: geometry pushed");
+}
+
 bool SimWorker::spawnDaemon() {
     const QString bin_q = resolveBinary(vsim_bin_);
     const QByteArray bin_b = bin_q.toLocal8Bit();
@@ -183,6 +214,7 @@ void SimWorker::run() {
     if (!openFifos())    { killDaemon(); emit stoppedCleanly(); return; }
 
     emit logLine("vsim_d: pose reader online");
+    emit online();
 
     // Magic-resync buffer. vsim_d writes complete frames per write(),
     // but if we connect mid-stream we may need to walk to the next

@@ -19,7 +19,9 @@ public:
     PhysicsCore() = default;
 
     void reset(const RigidBodyState& initial = {});
-    void setParams(const DroneParams& p) { params_ = p; }
+    // Caches the inverse inertia tensor so the RK4 derive() (4x per
+    // 1 kHz step) doesn't re-invert a 3x3 every call.
+    void setParams(const DroneParams& p) { params_ = p; I_inv_ = params_.inertia.inverse(); }
 
     // One RK4 step. force_b and torque_b are body-frame.
     void step(const Vec3& force_b, const Vec3& torque_b, float dt);
@@ -43,6 +45,9 @@ private:
 
     RigidBodyState state_;
     DroneParams    params_;
+    // Cached inverse of params_.inertia; kept in sync by setParams().
+    // Default matches the default DroneParams inertia.
+    Mat3           I_inv_ = DroneParams{}.inertia.inverse();
 };
 
 }  // namespace vsim

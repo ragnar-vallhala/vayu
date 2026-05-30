@@ -107,18 +107,23 @@ typedef struct {
 // Ctl message types. Body interpretation varies; readers should
 // branch on hdr.type's subtype field encoded in payload[0..3].
 enum {
-    VSIM_CTL_RESET     = 1,  // body: vsim_ctl_reset_t
-    VSIM_CTL_PAUSE     = 2,  // body: int32 paused (0/1)
-    VSIM_CTL_SET_NOISE = 3,  // body: vsim_ctl_noise_t (future)
-    VSIM_CTL_PING      = 4,  // body: empty; daemon replies via stderr log
+    VSIM_CTL_RESET        = 1,  // body: vsim_ctl_reset_t
+    VSIM_CTL_PAUSE        = 2,  // body: int32 paused (0/1)
+    VSIM_CTL_SET_NOISE    = 3,  // body: vsim_ctl_noise_t (future)
+    VSIM_CTL_PING         = 4,  // body: empty; daemon replies via stderr log
+    VSIM_CTL_SET_GEOMETRY = 5,  // body: vsim_ctl_geometry_t (mass+inertia+motors)
 };
 
 typedef struct {
     vsim_hdr_t hdr;
     uint32_t subtype;        // one of VSIM_CTL_*
     uint32_t reserved;       // pad to 8-byte alignment for the body below
-    // Body varies by subtype. Up to 64 B reserved; unused bytes ignored.
-    uint8_t body[64];
+    // Body varies by subtype. 256 B is sized to hold the largest payload
+    // (vsim_ctl_geometry_t, ~200 B); unused bytes ignored. NOTE: the ctl
+    // channel is Navigator <-> vsim_d ONLY -- the firmware host shims
+    // never touch it -- so growing this body does NOT change the
+    // pwm/imu/pose wire formats and needs no VSIM_PROTO_VERSION bump.
+    uint8_t body[256];
 } vsim_ctl_frame_t;
 
 // Body for VSIM_CTL_RESET: re-spawn at this pose.
@@ -128,6 +133,25 @@ typedef struct {
     float vel_w[3];
     float omega_b[3];
 } vsim_ctl_reset_t;
+
+// Body for VSIM_CTL_SET_GEOMETRY: full mass properties + 4-motor layout,
+// computed GCS-side from the airframe mesh + the motor-mapping editor.
+//   mass     -- kg
+//   inertia  -- body-frame 3x3 tensor [kg*m^2], row-major (9 floats)
+//   motors[] -- per rotor: position [m], unit thrust axis, spin (+1 CCW /
+//               -1 CW), k_thrust, k_moment, max_omega [rad/s]
+typedef struct {
+    float mass;
+    float inertia[9];
+    struct {
+        float pos[3];
+        float axis[3];
+        float spin;
+        float k_thrust;
+        float k_moment;
+        float max_omega;
+    } motors[4];
+} vsim_ctl_geometry_t;
 
 // Canonical FIFO paths. Daemon and clients both default to these.
 #define VSIM_FIFO_PWM   "/tmp/vsim_pwm"
@@ -142,13 +166,15 @@ static_assert(sizeof(vsim_hdr_t)        == 16, "vsim_hdr_t size");
 static_assert(sizeof(vsim_pwm_frame_t)  == 16 + 16,  "vsim_pwm_frame_t size");
 static_assert(sizeof(vsim_imu_frame_t)  == 16 + 76,  "vsim_imu_frame_t size");
 static_assert(sizeof(vsim_pose_frame_t) == 16 + 92,  "vsim_pose_frame_t size");
-static_assert(sizeof(vsim_ctl_frame_t)  == 16 + 72,  "vsim_ctl_frame_t size");
+static_assert(sizeof(vsim_ctl_frame_t)  == 16 + 264, "vsim_ctl_frame_t size");
+static_assert(sizeof(vsim_ctl_geometry_t) == 200,    "vsim_ctl_geometry_t size");
 #else
 _Static_assert(sizeof(vsim_hdr_t)        == 16, "vsim_hdr_t size");
 _Static_assert(sizeof(vsim_pwm_frame_t)  == 16 + 16,  "vsim_pwm_frame_t size");
 _Static_assert(sizeof(vsim_imu_frame_t)  == 16 + 76,  "vsim_imu_frame_t size");
 _Static_assert(sizeof(vsim_pose_frame_t) == 16 + 92,  "vsim_pose_frame_t size");
-_Static_assert(sizeof(vsim_ctl_frame_t)  == 16 + 72,  "vsim_ctl_frame_t size");
+_Static_assert(sizeof(vsim_ctl_frame_t)  == 16 + 264, "vsim_ctl_frame_t size");
+_Static_assert(sizeof(vsim_ctl_geometry_t) == 200,    "vsim_ctl_geometry_t size");
 #endif
 
 #ifdef __cplusplus

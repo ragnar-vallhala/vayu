@@ -94,14 +94,20 @@ set(GCS_HEADERS
 # spawns vsim_d and decodes pose frames off /tmp/vsim_pose.
 set(GCS_SITL_SOURCES
     src/ui/widgets/SimulatorWidget.cpp
+    src/ui/widgets/GeometryEditorWidget.cpp
     src/vsim/SimWorker.cpp
     src/vsim/SimRendererWidget.cpp
+    src/vsim/MeshLoader.cpp
+    src/vsim/MassProperties.cpp
 )
 set(GCS_SITL_HEADERS
     src/ui/widgets/SimulatorWidget.h
+    src/ui/widgets/GeometryEditorWidget.h
     src/vsim/VsimTypes.h
     src/vsim/SimWorker.h
     src/vsim/SimRendererWidget.h
+    src/vsim/MeshLoader.h
+    src/vsim/MassProperties.h
 )
 
 set(GCS_RESOURCES
@@ -148,10 +154,13 @@ if(EXISTS "${VAYU_SITL_DIR}/CMakeLists.txt")
     add_subdirectory("${VAYU_SITL_DIR}"
                      "${CMAKE_BINARY_DIR}/vayu_sitl"
                      EXCLUDE_FROM_ALL)
+    # assimp imports the airframe mesh for the geometry/MoI editor; it's
+    # only needed on the SITL path, so it's found inside this gate.
+    find_package(assimp REQUIRED)
     target_sources(Navigator PRIVATE ${GCS_SITL_SOURCES} ${GCS_SITL_HEADERS})
-    target_link_libraries(Navigator PRIVATE vayu_sitl_core)
+    target_link_libraries(Navigator PRIVATE vayu_sitl_core assimp::assimp)
     target_compile_definitions(Navigator PRIVATE NAVIGATOR_HAS_SITL=1)
-    message(STATUS "Navigator: linking against vayu_sitl_core (SITL ON)")
+    message(STATUS "Navigator: linking against vayu_sitl_core + assimp (SITL ON)")
 else()
     message(WARNING "Navigator: ${VAYU_SITL_DIR} not found; SITL features disabled")
 endif()
