@@ -11,7 +11,7 @@
  * via the declarations in comm/ibus.h.
  */
 #include "comm/ibus.h"
-#include "maths/sensor_fusion.h"   /* estimator_is_degraded */
+#include "est/est.h"   /* estimator_is_degraded */
 #include "sys/state.h"
 #include "utils.h"                 /* v_get_ticks (vaios) */
 #include "vayu_status.h"           /* VAYU_DISCARD */

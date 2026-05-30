@@ -1,6 +1,6 @@
 #ifndef VAYU_BMX160_H
 #define VAYU_BMX160_H
-#include "maths/sensor_fusion.h"
+#include "est/est.h"
 #include "navhal.h"
 #include <stdint.h>
 
@@ -197,7 +197,7 @@ hal_status_t bmx160_init(void);
 uint16_t bmx160_get_chip_id(void);
 // Sensor reading trigger and callback
 
-void wake_imu_read_task();
+void wake_imu_read_task(void);
 void bmx160_initiate_read(void *args);
 void bmx160_dma_callback(void *args);
 

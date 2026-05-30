@@ -1,14 +1,28 @@
-#ifndef VAYU_MATHS_SENSOR_FUSION_H
-#define VAYU_MATHS_SENSOR_FUSION_H
+/**
+ * @file est.h
+ * @brief Public umbrella header for the estimation module (EST).
+ *
+ * @implements R2.1
+ *
+ * Single public surface for the attitude estimator and its support
+ * filters (R2.1). Consolidates the former `maths/sensor_fusion.h` and
+ * `maths/lpf.h`; the sources live in `src/est/` (R2.6).
+ */
+#ifndef VAYU_EST_H
+#define VAYU_EST_H
+
 #include "maths/maths_interface.h"
 #include <stdbool.h>
 
+/* ----------------------------------------------------------------------------
+ * Attitude estimate
+ * --------------------------------------------------------------------------*/
 typedef struct {
   float roll;
   float pitch;
   float yaw;
   quaternion_t q;
-  bool degraded;   /**< Set when estimator_is_degraded() — see EST-MAH-002. */
+  bool degraded; /**< Set when estimator_is_degraded() — see EST-MAH-002. */
 } attitude_t;
 
 /* ----------------------------------------------------------------------------
@@ -78,4 +92,24 @@ void m_mahony_filter(const float ax, const float ay, const float az,
                      const float mx, const float my, const float mz,
                      attitude_t *ori);
 
-#endif // VAYU_MATHS_SENSOR_FUSION_H
+/* ----------------------------------------------------------------------------
+ * First-order low-pass filter (support)
+ * --------------------------------------------------------------------------*/
+typedef struct {
+  float alpha;
+  float output;
+} lpf_t;
+
+/**
+ * @brief Initialize the LPF.
+ * @param alpha Smoothing factor (0.0 to 1.0). Smaller value = more filtering.
+ */
+void lpf_init(lpf_t *lpf, float alpha);
+
+/**
+ * @brief Apply the LPF to a new input sample.
+ * @return Filtered output.
+ */
+float lpf_apply(lpf_t *lpf, float input);
+
+#endif // VAYU_EST_H

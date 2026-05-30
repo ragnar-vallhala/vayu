@@ -95,7 +95,7 @@ Nine prefixes, mapped to the actual source layout:
 | `HAL`  | Hardware Abstraction Layer (drivers, MCU peripherals). | `extern/vaios/extern/NavHAL/`                          | vendored       |
 | `VOS`  | RTOS — scheduler, IPC, memory, time.         | `extern/vaios/kernel/`, `extern/vaios/portable/cortex-m4/`      | vendored       |
 | `SNS`  | Sensor drivers + sample buffering.            | `src/sensor/` (BMX160, IMU buffer), `src/drivers/`              | owned          |
-| `EST`  | State estimation (attitude / position).      | `src/maths/sensor_fusion.c`, `src/maths/lpf.c`                  | owned          |
+| `EST`  | State estimation (attitude / position).      | `src/est/` (sensor_fusion, lpf)                                 | owned          |
 | `CTRL` | Control loops + mixing + PID.                | `src/control/`, `src/maths/pid.c`, `src/maths/control_buffer.c` | owned          |
 | `ACT`  | Actuator output (motors, ESCs).              | `src/actuator/` (esc, motor)                                    | owned          |
 | `COMM` | Communications — RC ingest + telemetry tx/rx. | `src/comm/`, `include/comm/`                                   | owned          |
@@ -320,8 +320,8 @@ BUF (buffering), CAL (online calibration), I2C (bus manager).
 
 ### 4.4 EST — State estimation
 
-**Scope.** Attitude estimator (`src/maths/sensor_fusion.c`, Mahony
-filter per `docs/sensor_fusion/`), low-pass filters (`src/maths/lpf.c`).
+**Scope.** Attitude estimator (`src/est/sensor_fusion.c`, Mahony
+filter per `docs/sensor_fusion/`), low-pass filters (`src/est/lpf.c`).
 Position estimation is **out of scope** until a GPS / OF / range sensor
 arrives.
 
