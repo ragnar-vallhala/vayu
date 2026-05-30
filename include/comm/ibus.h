@@ -29,8 +29,12 @@ bool ibus_parse_byte(uint8_t byte, ibus_data_t *data);
  * RC link watchdog (SYS-SAFE-002 / COMM-RC-002)
  * --------------------------------------------------------------------------*/
 
-/** Time horizon (ms) within which a valid RC frame must be received. */
+/** Failsafe horizon (ms): RC loss this long drives FAILSAFE (SYS-SAFE-002). */
 #define RC_LOSS_TIMEOUT_MS 1000U
+
+/** Fast COMM-layer detect horizon (ms): rc_loss() trips this quickly so
+ *  higher layers can react before the slower failsafe transition (COMM-RC-002). */
+#define RC_LOSS_DETECT_MS 100U
 
 /**
  * @brief Mark "right now" as the most recent valid RC frame.
@@ -44,13 +48,24 @@ void rc_mark_frame_valid(void);
 
 /**
  * @brief Predicate: was a valid RC frame received within
- *        RC_LOSS_TIMEOUT_MS of now?
+ *        RC_LOSS_TIMEOUT_MS (1.0 s) of now? Backs the failsafe gate.
  *
  * Lock-free; safe to call from the rate-loop hot path (R8.6).
  *
- * @implements COMM-RC-002, SYS-SAFE-002
+ * @implements SYS-SAFE-002
  */
 bool rc_has_signal(void);
+
+/**
+ * @brief Predicate: has the RC link been lost for more than
+ *        RC_LOSS_DETECT_MS (100 ms)? The fast COMM-layer rc_loss flag,
+ *        distinct from (and tripping well before) the 1.0 s failsafe.
+ *
+ * Lock-free; safe from any context (R8.6).
+ *
+ * @implements COMM-RC-002
+ */
+bool rc_loss(void);
 
 /**
  * @brief One RC-watchdog tick: if the link is lost in a flight-relevant
