@@ -1,5 +1,6 @@
 #include "comm/comm_types.h"
 #include "comm/serializer.h"
+#include "control/pid_config.h"
 #include "memory.h"
 #include "sensor/bmx160.h"
 #include "sys/state.h"
@@ -8,9 +9,26 @@
 #include "utils/utils.h"
 #include "vaios.h"
 #include "variables.h"
+#include "vayu_status.h"
 #include "vayu_tasks.h"
+#include <stdbool.h>
 #include <stdint.h>
 static uint32_t _calibration_task_handle = 0;
+
+/* COMM-CMD-002: a command payload is laid out as
+ *   [cmd_id:2][argc:1][arg0:4][arg1:4]...
+ * so reading `argc` 4-byte args requires the framing layer to have
+ * delivered at least argc*4 + 3 payload bytes. Validate both argc and the
+ * payload length before any handler dereferences an argument. `len` is
+ * pkt.length — the payload byte count produced by the deserializer.
+ * @implements COMM-CMD-002 */
+static bool command_payload_valid(uint16_t len, uint8_t argc,
+                                  uint8_t expected_argc) {
+  if (argc < expected_argc) {
+    return false;
+  }
+  return len >= (uint16_t)argc * 4u + 3u;
+}
 void comm_processor_task(void *args) {
   (void)args;
   packet_t pkt;
@@ -22,21 +40,22 @@ void comm_processor_task(void *args) {
       if (packet_type == PACKET_TYPE_HEARTBEAT) {
         set_timestamp(pkt.timestamp);
         set_device_id(pkt.device_id);
-      } else if (packet_type == PACKET_TYPE_COMMAND) {
+      } else if (packet_type == PACKET_TYPE_COMMAND && pkt.length >= 2) {
         uint16_t cmd_id;
         v_memcpy(&cmd_id, pkt.payload, 2);
+        /* argc is payload[2]; only present when length >= 3. */
+        uint8_t argc = (pkt.length >= 3) ? pkt.payload[2] : 0;
 
         if (cmd_id == CMD_CALIBRATE_IMU) {
-          if (system_state_get() != SYSTEM_STATE_CALIBRATING) {
-            uint8_t argc = pkt.payload[2];
-            calibration_args_t *cal_args = NULL;
-            if (argc >= 2) {
-              cal_args =
-                  (calibration_args_t *)v_malloc(sizeof(calibration_args_t));
-              if (cal_args != NULL) {
-                v_memcpy(&cal_args->imu_id, &pkt.payload[3], 4);
-                v_memcpy(&cal_args->type, &pkt.payload[7], 4);
-              }
+          /* COMM-CMD-002: need 2 args (imu_id, type) -> argc>=2 and a
+           * payload long enough to actually hold them. */
+          if (system_state_get() != SYSTEM_STATE_CALIBRATING &&
+              command_payload_valid(pkt.length, argc, 2)) {
+            calibration_args_t *cal_args =
+                (calibration_args_t *)v_malloc(sizeof(calibration_args_t));
+            if (cal_args != NULL) {
+              v_memcpy(&cal_args->imu_id, &pkt.payload[3], 4);
+              v_memcpy(&cal_args->type, &pkt.payload[7], 4);
             }
             _calibration_task_handle =
                 task_create(calibration_task, cal_args, 4096, 0);
@@ -48,7 +67,8 @@ void comm_processor_task(void *args) {
           }
           VAYU_DISCARD(system_state_set(SYSTEM_STATE_STANDBY));
         } else if (cmd_id == CMD_SET_PID) {
-          
+          /* COMM-CMD-003: validate, apply to the live controller, persist. */
+          VAYU_DISCARD(pid_config_apply_command(pkt.payload, pkt.length));
         }
       }
     } else {

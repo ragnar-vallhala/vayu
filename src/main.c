@@ -3,6 +3,7 @@
 #include "comm/serializer.h"
 #include "control/angle_controller.h"
 #include "control/angle_rate_controller.h"
+#include "control/pid_config.h"
 #include "drivers/i2c_manager.h"
 #include "logger/logger.h"
 #include "maths/control_buffer.h"
@@ -111,6 +112,7 @@ int main() {
 
   init_i2c_manager(&i2c_config);
   logger_init();
+  pid_config_init(); /* COMM-CMD-003: restore persisted PID tune from SD */
   system_state_init();
   init_sensors();
   system_init_tasks();

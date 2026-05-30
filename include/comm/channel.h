@@ -32,5 +32,12 @@ err_t del_handler(channel_t *handler);
 err_t write_channel(channel_t channel, byte *data, uint16_t length);
 err_t flush_channel(channel_t channel);
 
+/**
+ * @brief Number of channel writes dropped due to a full TX buffer.
+ *        Surfaced through telemetry (SYSTEM_ORIGIN_HEALTH).
+ * @implements COMM-CH-002
+ */
+uint32_t channel_tx_overflow_count(void);
+
 void flush_task(void *args);
 #endif // VAYU_CHANNEL_H
