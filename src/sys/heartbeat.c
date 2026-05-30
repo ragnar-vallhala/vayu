@@ -1,6 +1,4 @@
-#include "comm/channel.h"
-#include "comm/comm_types.h"
-#include "comm/serializer.h"
+#include "comm/comm.h"
 #include "navhal.h"
 #include "sys/state.h"
 #include "task.h"

@@ -55,7 +55,13 @@ set_target_properties(main PROPERTIES COMPILE_FLAGS "${BASE_C_FLAGS}")
 set(VAYU_R12_WARN_FLAGS
     -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wcast-align
     -Wpointer-arith -Wstrict-prototypes -Wmissing-prototypes -Wundef
-    -Wfloat-equal -Werror)
+    -Wfloat-equal -Werror
+    # §5.3 vendor exemption: treat vaios/NavHAL headers as system so their
+    # warnings never fail a vayu module's -Werror build.
+    -isystem ${CMAKE_CURRENT_SOURCE_DIR}/extern/vaios/include
+    -isystem ${CMAKE_CURRENT_SOURCE_DIR}/extern/vaios/extern/NavHAL/include
+    -isystem ${CMAKE_CURRENT_SOURCE_DIR}/extern/vaios/extern/NavHAL/include/port/cortex-m4
+    -isystem ${CMAKE_CURRENT_SOURCE_DIR}/extern/vaios/extern/NavHAL/src/vendor/stm32/family/stm32f4/include)
 set(VAYU_R12_CLEAN_SOURCES
     # ACT module (Phase 4)
     ${CMAKE_CURRENT_SOURCE_DIR}/src/actuator/esc.c
@@ -72,7 +78,17 @@ set(VAYU_R12_CLEAN_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/angle_rate_controller.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/pid_config.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/pid.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/control_buffer.c)
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/control_buffer.c
+    # COMM module (Phase 4)
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/comm/channel.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/comm/serializer.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/comm/deserializer.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/comm/comm_processor.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/comm/telemetry_task.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/comm/ibus.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/comm/rc_task.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/comm/rc_buffer.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/comm/rc_safety.c)
 set_source_files_properties(${VAYU_R12_CLEAN_SOURCES}
     PROPERTIES COMPILE_OPTIONS "${VAYU_R12_WARN_FLAGS}")
 

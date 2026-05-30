@@ -17,7 +17,7 @@ typedef struct {
 } serial_channel_handle_t;
 
 // Serial handlers
-static serial_channel_handle_t _serial_handlers[MAX_SERIAL_HANDLERS] = {};
+static serial_channel_handle_t _serial_handlers[MAX_SERIAL_HANDLERS] = {0};
 
 /* COMM-CH-002: count of writes dropped because the active 512 B buffer
  * had no room. Monotonic; surfaced through telemetry (SYSTEM_ORIGIN_HEALTH).
@@ -206,6 +206,8 @@ err_t flush_channel(channel_t channel) {
 static channel_t *active_handlers = NULL;
 
 static err_t get_handler_default(channel_t *handler, void *args) {
+  (void)handler;
+  (void)args;
   return USAGE;
 }
 
@@ -275,6 +277,7 @@ err_t del_handler(channel_t *handler) {
 }
 
 void flush_task(void *args) {
+  (void)args;
   while (1) {
     channel_t *curr = active_handlers;
     while (curr != NULL) {

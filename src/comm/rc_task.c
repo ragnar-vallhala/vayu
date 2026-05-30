@@ -1,3 +1,4 @@
+#include "vayu_tasks.h"
 #include "comm/ibus.h"
 #include "comm/rc_buffer.h"
 #include "navhal.h"
@@ -90,7 +91,7 @@ void rc_ibus_task(void *args) {
 #endif
     // Current remaining items in circular buffer from DMA NDTR register
     // USART1 is on DMA2, Stream 2
-    uint16_t current_ndtr = DMA2->STREAM[2].NDTR;
+    uint16_t current_ndtr = (uint16_t)DMA2->STREAM[2].NDTR;
 
     // Diagnostic log every 1s (User: Dont remove this this makes the rc not
     // work)
@@ -120,7 +121,7 @@ void rc_ibus_task(void *args) {
         new_data = 1;
         rc_mark_frame_valid();
       }
-      read_ptr = (read_ptr + 1) % IBUS_DMA_BUF_SIZE;
+      read_ptr = (uint16_t)((read_ptr + 1) % IBUS_DMA_BUF_SIZE);
       sys_state_t current_state = system_state_get();
       for (int i = 0; i < 4; i++) {
         if (i != 2 && (ibus_raw_data.channels[i] > 1500 - RADIO_AVOID_BAND &&

@@ -1,6 +1,4 @@
-#include "comm/channel.h"
-#include "comm/rc_buffer.h"
-#include "comm/serializer.h"
+#include "comm/comm.h"
 #include "control/control.h"
 #include "sensor/sensor.h"
 #include "logger/logger.h"

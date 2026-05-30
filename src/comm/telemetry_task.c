@@ -1,3 +1,4 @@
+#include "vayu_tasks.h"
 #include "actuator/actuator.h"
 #include "comm/channel.h"
 #include "comm/comm_types.h"
@@ -66,7 +67,7 @@ void imu_telemetry_task(void *args) {
       /* LOG-TXT-002: drain the text-log queue to the LOG channel.
        * @implements LOG-TXT-002 */
       static char log_buf[VAYU_LOG_QUEUE_SIZE];
-      uint8_t len = mpmc_pop_bulk(&vayu_log_queue, log_buf, sizeof(log_buf));
+      uint8_t len = (uint8_t)mpmc_pop_bulk(&vayu_log_queue, log_buf, sizeof(log_buf));
       if (len > 0) {
         send_packet(&g_telemetry_channel, PACKET_TYPE_LOG, (uint8_t *)log_buf,
                     len);
