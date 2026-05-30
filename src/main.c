@@ -20,6 +20,8 @@
 #include "vaios.h"
 #include "vaios_config_default.h"
 #include "variables.h"
+#include "vayu_assert.h"
+#include "vayu_status.h"
 #include "vayu_tasks.h"
 
 // Global state values
@@ -92,6 +94,14 @@ hal_i2c_config_t i2c_config = {
     .acknowledge = true};
 
 int main() {
+  /* CONV-01 / CONV-02 canary: forces vayu_status.h and vayu_assert.h
+   * into the link; doubles as a real check that the state machine
+   * static-init landed before main(). */
+  vayu_status_t boot_state_ok =
+      (system_state_get() == SYSTEM_STATE_UNINITIALIZED) ? VAYU_OK
+                                                         : VAYU_ERR_INVALID;
+  VAYU_ASSERT(boot_state_ok == VAYU_OK);
+
   clock_setup();
   hal_cycle_counter_init();
   vaios_init_config_t cfg = {.internal_clock_setup = 0,
