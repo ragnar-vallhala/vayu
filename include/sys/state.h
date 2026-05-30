@@ -1,5 +1,8 @@
 #ifndef SYS_STATE_H
 #define SYS_STATE_H
+
+#include "vayu_status.h"
+
 typedef enum {
   SYSTEM_STATE_UNINITIALIZED = 0x1,
   SYSTEM_STATE_INIT = 0x2,
@@ -11,12 +14,42 @@ typedef enum {
   SYSTEM_STATE_TERMINATED=0x80,
   SYSTEM_STATE_CALIBRATING=0x100,
 } sys_state_t;
+
 extern volatile sys_state_t _system_current_status;
-inline void system_state_init() { _system_current_status = SYSTEM_STATE_INIT; }
-inline void system_state_set(sys_state_t state) {
-  _system_current_status = state;
+
+static inline void system_state_init(void) {
+  _system_current_status = SYSTEM_STATE_INIT;
 }
-inline sys_state_t system_state_get() { return _system_current_status; }
+
+/**
+ * @brief Read the current state. O(1), callable from any context
+ *        including ISRs (single 32-bit aligned volatile load).
+ *
+ * @implements SYS-STATE-002
+ */
+static inline sys_state_t system_state_get(void) {
+  return _system_current_status;
+}
+
+/**
+ * @brief Request a state transition, validated against the static
+ *        allowed[][] table in src/sys/state.c.
+ *
+ * Returns VAYU_OK on success, VAYU_ERR_INVALID on a rejected
+ * transition (rejection is logged via vayu_log so the GCS sees it).
+ *
+ * Two special cases bake into this function:
+ *   - cur == new : no-op, VAYU_OK
+ *   - new == FAILSAFE : always allowed regardless of table (safety
+ *                       overrides protocol — invariant of SYS-SAFE-*).
+ *
+ * R7.5 / R9.1: callers must check the return or `(void)`-cast to
+ * acknowledge they intentionally ignore it.
+ *
+ * @implements SYS-SAFE-006
+ */
+vayu_status_t system_state_set(sys_state_t state)
+    __attribute__((warn_unused_result));
 
 typedef enum {
   BOOT_CHECK_NO_CHECK = 0x1,
@@ -29,13 +62,13 @@ typedef enum {
 } sys_boot_check_state_t;
 
 extern volatile sys_boot_check_state_t _system_boot_check_current_status;
-inline void system_boot_check_state_init() {
+static inline void system_boot_check_state_init(void) {
   _system_boot_check_current_status = BOOT_CHECK_NO_CHECK;
 }
-inline void system_boot_check_state_set(sys_boot_check_state_t state) {
+static inline void system_boot_check_state_set(sys_boot_check_state_t state) {
   _system_boot_check_current_status = state;
 }
-inline sys_boot_check_state_t system_boot_check_state_get() {
+static inline sys_boot_check_state_t system_boot_check_state_get(void) {
   return _system_boot_check_current_status;
 }
 
@@ -62,14 +95,14 @@ typedef enum {
 } sys_imu_health_check_state_t;
 
 extern volatile sys_imu_health_check_state_t _system_imu_health_check_current_status;
-inline void system_imu_health_check_state_init() {
+static inline void system_imu_health_check_state_init(void) {
   _system_imu_health_check_current_status = IMU_HEALTH_NO_CHECK;
 }
-inline void
+static inline void
 system_imu_health_check_state_set(sys_imu_health_check_state_t state) {
   _system_imu_health_check_current_status = state;
 }
-inline sys_imu_health_check_state_t system_imu_health_check_state_get() {
+static inline sys_imu_health_check_state_t system_imu_health_check_state_get(void) {
   return _system_imu_health_check_current_status;
 }
 

@@ -12,7 +12,7 @@ void boot_task(void *args) {
 
   // Start with a clean status
   system_boot_check_state_init();
-  system_state_set(SYSTEM_STATE_INIT);
+  VAYU_DISCARD(system_state_set(SYSTEM_STATE_INIT));
   // We will accumulate status flags into a local bitmask variable
   // and periodically push it to the global state.
   // The system being alive enough to run this task implies startup checks
@@ -43,10 +43,10 @@ void boot_task(void *args) {
 
   if ((boot_status & required_passes) == required_passes) {
     // All checks passed! Elevate system state out of INIT
-    system_state_set(SYSTEM_STATE_STANDBY);
+    VAYU_DISCARD(system_state_set(SYSTEM_STATE_STANDBY));
   } else {
     // One or more checks failed
-    system_state_set(SYSTEM_STATE_FAILSAFE);
+    VAYU_DISCARD(system_state_set(SYSTEM_STATE_FAILSAFE));
   }
 
   // The boot sequence is complete. Remove this task from the scheduler.

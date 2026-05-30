@@ -11,6 +11,11 @@
 static uint8_t ibus_dma_buf[IBUS_DMA_BUF_SIZE];
 static ibus_data_t ibus_raw_data;
 
+/* The RC watchdog + arm-precondition policy lives in src/comm/rc_safety.c
+ * (DMA/UART-free, host-buildable, unit-verified). rc_mark_frame_valid,
+ * rc_has_signal, rc_watchdog_step and arm_preconditions_met are declared
+ * in comm/ibus.h and called below. */
+
 #ifdef VAYU_SIM
 /* SITL override: when sim_rc_enabled is non-zero, rc_ibus_task skips
  * iBus parsing and uses sim_rc_channels[] as the live RC input. The
@@ -19,6 +24,9 @@ volatile uint8_t  sim_rc_enabled = 0;
 volatile uint16_t sim_rc_channels[14] = {1500, 1500, 1000, 1500, 1000,
                                          1000, 1500, 1500, 1500, 1500,
                                          1500, 1500, 1500, 1500};
+/* When non-zero, suppresses rc_mark_frame_valid() so SITL scenarios
+ * can exercise the RC-loss watchdog without disabling the synth feed. */
+volatile uint8_t sim_rc_force_loss = 0;
 #endif
 
 void rc_ibus_task(void *args) {
@@ -31,6 +39,10 @@ void rc_ibus_task(void *args) {
   hal_uart_config_t ibus_uart_cfg = {.baudrate = 115200};
   hal_uart_init(HAL_UART_6, &ibus_uart_cfg);
   hal_uart_init_dma_rx(HAL_UART_6, ibus_dma_buf, IBUS_DMA_BUF_SIZE);
+
+  /* Seed the watchdog clock so a cold-booted vehicle has the full
+   * RC_LOSS_TIMEOUT_MS to receive the first frame before FAILSAFE. */
+  rc_mark_frame_valid();
 
   static uint16_t read_ptr = 0;
   static uint16_t last_ndtr = IBUS_DMA_BUF_SIZE;
@@ -53,20 +65,25 @@ void rc_ibus_task(void *args) {
       }
       if (ibus_raw_data.channels[4] > 1500) {
         if (current_state == SYSTEM_STATE_STANDBY &&
-            ibus_raw_data.channels[2] < 1100) {
-          system_state_set(SYSTEM_STATE_ARMED);
-        } else if (current_state == SYSTEM_STATE_STANDBY &&
-                   ibus_raw_data.channels[2] > 1100) {
-          system_state_set(SYSTEM_STATE_FAILSAFE);
+            arm_preconditions_met(&ibus_raw_data)) {
+          VAYU_DISCARD(system_state_set(SYSTEM_STATE_ARMED));
+        } else if (current_state == SYSTEM_STATE_STANDBY) {
+          /* Arm-switch requested ARM but a precondition failed —
+           * throttle high, RC marginal, or estimator unhealthy. */
+          VAYU_DISCARD(system_state_set(SYSTEM_STATE_FAILSAFE));
         }
       } else {
         if (current_state == SYSTEM_STATE_ARMED ||
             current_state == SYSTEM_STATE_FAILSAFE) {
-          system_state_set(SYSTEM_STATE_STANDBY);
+          VAYU_DISCARD(system_state_set(SYSTEM_STATE_STANDBY));
         }
+      }
+      if (!sim_rc_force_loss) {
+        rc_mark_frame_valid();
       }
       rc_queue_control_push(&ibus_raw_data);
       rc_queue_telemetry_push(&ibus_raw_data);
+      rc_watchdog_step();
       v_delay(20);   /* 50 Hz, matches real iBus rate */
       continue;
     }
@@ -101,6 +118,7 @@ void rc_ibus_task(void *args) {
       uint8_t b = ibus_dma_buf[read_ptr];
       if (ibus_parse_byte(b, &ibus_raw_data)) {
         new_data = 1;
+        rc_mark_frame_valid();
       }
       read_ptr = (read_ptr + 1) % IBUS_DMA_BUF_SIZE;
       sys_state_t current_state = system_state_get();
@@ -112,17 +130,18 @@ void rc_ibus_task(void *args) {
       }
       if (ibus_raw_data.channels[4] > 1500) {
         // Switch is UP (Armed position)
-        if (current_state == SYSTEM_STATE_STANDBY && ibus_raw_data.channels[2] < 1100) {
-          system_state_set(SYSTEM_STATE_ARMED);
-        } else if (current_state == SYSTEM_STATE_STANDBY &&
-                   ibus_raw_data.channels[2] > 1100) {
-          system_state_set(SYSTEM_STATE_FAILSAFE);
+        if (current_state == SYSTEM_STATE_STANDBY &&
+            arm_preconditions_met(&ibus_raw_data)) {
+          VAYU_DISCARD(system_state_set(SYSTEM_STATE_ARMED));
+        } else if (current_state == SYSTEM_STATE_STANDBY) {
+          /* Arm-switch requested ARM but a precondition failed. */
+          VAYU_DISCARD(system_state_set(SYSTEM_STATE_FAILSAFE));
         }
       } else {
         // Switch is DOWN (Disarmed position)
         if (current_state == SYSTEM_STATE_ARMED ||
             current_state == SYSTEM_STATE_FAILSAFE) {
-          system_state_set(SYSTEM_STATE_STANDBY);
+          VAYU_DISCARD(system_state_set(SYSTEM_STATE_STANDBY));
         }
       }
       if (new_data) {
@@ -132,6 +151,9 @@ void rc_ibus_task(void *args) {
       }
     }
 
+    /* Run after each polling cycle (500 Hz). Latency to FAILSAFE on
+     * loss is bounded by 2 ms + RC_LOSS_TIMEOUT_MS. */
+    rc_watchdog_step();
     v_delay(2); // 500Hz
   }
 }

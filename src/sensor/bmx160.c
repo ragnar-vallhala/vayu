@@ -1149,6 +1149,12 @@ void bmx160_process_data(void) {
     return;
   }
 
+  /* EST-MAH-002: feed the sample's validity flag into the estimator
+   * health tracker. _is_mag_invalid (rhall ∉ [50, 30000]) is the
+   * validity surface available today; SNS-IMU-002 will eventually
+   * include I2C-read and over-saturation faults too. */
+  estimator_mark_sample(!_is_mag_invalid);
+
   if (SF_FILTER_USED == SF_MAHONY) {
     m_mahony_filter(_bmx_data.converted.acc[0], _bmx_data.converted.acc[1],
                     _bmx_data.converted.acc[2], _bmx_data.converted.gyr[0],
@@ -1163,8 +1169,14 @@ void bmx160_process_data(void) {
         _bmx_data.converted.mag[0], _bmx_data.converted.mag[1],
         _bmx_data.converted.mag[2], &_bmx_orientation);
   }
+  _bmx_orientation.degraded = estimator_is_degraded();
   attitude_queue_telemetry_push(&_bmx_orientation);
   attitude_queue_control_push(&_bmx_orientation);
+
+  /* SYS-SAFE-003: if degraded persists in a flight-relevant state,
+   * request FAILSAFE. Co-located with the estimator step so the
+   * latency to action is one IMU period. */
+  estimator_safety_step();
 }
 
 static int wait_for_orientation(calib_update_type_t orient, float *accel_out) {
@@ -1282,7 +1294,7 @@ void calibration_task(void *args) {
   if (cal_args)
     imu_id = cal_args->imu_id;
 
-  system_state_set(SYSTEM_STATE_CALIBRATING);
+  VAYU_DISCARD(system_state_set(SYSTEM_STATE_CALIBRATING));
   v_delay(500);
   vayu_log("[CALIB] IMU ID: %.1f, Type: %.1f", imu_id, cal_args->type);
   if (imu_id == 1.0f) { // ACCEL
@@ -1505,7 +1517,7 @@ void calibration_task(void *args) {
   // v_delay(50);
   // wake_imu_read_task();
   // v_delay(10);
-  system_state_set(SYSTEM_STATE_STANDBY);
+  VAYU_DISCARD(system_state_set(SYSTEM_STATE_STANDBY));
 
   if (cal_args)
     v_free(cal_args);
