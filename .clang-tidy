@@ -1,0 +1,30 @@
+# Vayu firmware static-analysis ruleset (CONV-04).
+#
+# Start narrow — high-value bug and security checks — and widen over time
+# as the baseline is burned down (R12.3). Noisy style/complexity checks are
+# disabled for now; re-enable per-family as the tree is cleaned.
+#
+# Vendored code (extern/**) is excluded at the CI invocation (clang-tidy is
+# run only over src/), per the §5.3 vendor exemption.
+Checks: >
+  bugprone-*,
+  cert-*,
+  readability-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-narrowing-conversions,
+  -bugprone-macro-parentheses,
+  -cert-err33-c,
+  -readability-magic-numbers,
+  -readability-identifier-length,
+  -readability-function-cognitive-complexity,
+  -readability-isolate-declaration,
+  -readability-uppercase-literal-suffix,
+  -readability-braces-around-statements,
+  -clang-analyzer-*
+
+# Treat nothing as an error yet — the CI clang-tidy job reports findings
+# (does not fail the build) until the existing baseline is burned down,
+# then flips to warnings-as-errors. New code should land clean.
+WarningsAsErrors: ''
+
+HeaderFilterRegex: '.*/(src|include)/.*'
