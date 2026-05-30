@@ -101,8 +101,21 @@ void angle_rate_controller_task(void *arg) {
    * the drone leaves the ground. */
 #define RATE_PID_INTEGRATE_THROTTLE 0.3f
 
+  /* CTRL-RATE-101: worst-case rate-loop period. Under normal operation
+   * the loop wakes on IMU arrival (~sub-ms); this timeout only bounds
+   * the period if the IMU stalls, keeping the failsafe / motor path
+   * alive at >= 200 Hz. */
+#define RATE_LOOP_MAX_PERIOD_MS 5
+
   set_motor_ready(true);
   while (1) {
+    /* CTRL-RATE-101: the rate loop is triggered by IMU-sample arrival,
+     * not by polling the clock. Block until the IMU task pushes a fresh
+     * control sample, with a timeout that bounds the worst-case loop
+     * period so the failsafe / motor-output path keeps running even if
+     * the IMU stalls (the pop below then falls back to prev_imu_data). */
+    imu_queue_control_wait(MS_TO_TICKS(RATE_LOOP_MAX_PERIOD_MS));
+
     // Getting all the data
 
     // Get IMU data
@@ -330,7 +343,7 @@ void angle_rate_controller_task(void *arg) {
         .outer_dt = angle_controller_outputs.dt,
         .inner_dt = dt};
     control_telemetry_queue_push(&telemetry);
-
-    v_delay(1);
+    /* CTRL-RATE-101: no v_delay() here — the loop blocks on
+     * imu_queue_control_wait() at the top instead of clock-polling. */
   }
 }
