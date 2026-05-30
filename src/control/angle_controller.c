@@ -185,7 +185,7 @@ void angle_controller_task(void *arg) {
       // false-tripped FAILSAFE the moment the integrator's small
       // bias accumulated. Real hardware with a calibrated mag would
       // be largely immune, but the check is unnecessary either way.
-      system_state_set(SYSTEM_STATE_FAILSAFE);
+      VAYU_DISCARD(system_state_set(SYSTEM_STATE_FAILSAFE));
     }
     // Calculate target rates
     float current_angles[NUM_AXES];

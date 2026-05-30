@@ -46,7 +46,7 @@ void comm_processor_task(void *args) {
             task_exit_request(_calibration_task_handle);
             _calibration_task_handle = 0;
           }
-          system_state_set(SYSTEM_STATE_STANDBY);
+          VAYU_DISCARD(system_state_set(SYSTEM_STATE_STANDBY));
         } else if (cmd_id == CMD_SET_PID) {
           
         }
