@@ -1,6 +1,13 @@
 #include "sensor/imu_buffer.h"
+#include "ipc.h"            /* CTRL-RATE-101: control-queue notify semaphore */
 #include "sensor/bmx160.h"
 #include "structure.h"
+
+/* CTRL-RATE-101: binary semaphore the rate loop blocks on. Given once
+ * per control-queue push so the loop is woken by IMU-sample arrival
+ * rather than clock polling. NULL until imu_buffer_init() runs; pushes
+ * before init silently skip the signal (the data ring tolerates it). */
+static SemaphoreHandle_t _imu_control_sema = NULL;
 
 #define IMU_BUFFER_INTERNAL_CAPACITY (IMU_BUFFER_SIZE + 1)
 #define IMU_CALIBRATION_TELEMETRY_CAPACITY 2
@@ -47,6 +54,10 @@ void imu_buffer_init(void) {
   spsc_init(&_imu_calibration_telemetry_queue, _imu_calibration_telemetry_buffer,
             IMU_CALIBRATION_TELEMETRY_CAPACITY, sizeof(imu_calibration_telemetry_t));
   spsc_set_policy(&_imu_calibration_telemetry_queue, SPSC_POLICY_OVERWRITE);
+
+  /* CTRL-RATE-101: created empty so the first wait() blocks until the
+   * first sample is pushed. */
+  _imu_control_sema = v_semaphore_create_binary();
 }
 
 void imu_buffer_push(const bmx160_all_reading_t *sample) {
@@ -82,7 +93,15 @@ bool imu_queue_telemetry_peek(bmx160_all_reading_t *out_sample) {
 }
 
 bool imu_queue_control_push(const bmx160_all_reading_t *sample) {
-  return spsc_write(&_imu_control_queue, sample, 1) == 1;
+  bool ok = spsc_write(&_imu_control_queue, sample, 1) == 1;
+  /* CTRL-RATE-101: wake the rate loop on every arrival. Runs in the
+   * IMU task context (bmx160_initiate_read), not an ISR, so the plain
+   * give is correct. A binary sema coalesces bursts to a single wake;
+   * the OVERWRITE ring guarantees the loop reads the latest sample. */
+  if (_imu_control_sema != NULL) {
+    v_semaphore_give(_imu_control_sema);
+  }
+  return ok;
 }
 
 bool imu_queue_control_pop(bmx160_all_reading_t *out_sample) {
@@ -91,6 +110,13 @@ bool imu_queue_control_pop(bmx160_all_reading_t *out_sample) {
 
 bool imu_queue_control_peek(bmx160_all_reading_t *out_sample) {
   return spsc_peek(&_imu_control_queue, out_sample, 1) == 1;
+}
+
+bool imu_queue_control_wait(uint32_t ticks_to_wait) {
+  if (_imu_control_sema == NULL) {
+    return false;
+  }
+  return v_semaphore_take(_imu_control_sema, ticks_to_wait) == VA_PASS;
 }
 
 bool attitude_queue_telemetry_push(const attitude_t *attitude) {

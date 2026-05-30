@@ -192,7 +192,28 @@ void m_quat_to_euler(const quaternion_t *q, attitude_t *ori) {
 #define Kp SF_MAHONY_KP
 #define Ki SF_MAHONY_KI
 
+/* EST-MAH-105: per-axis bound on the Mahony integral feedback term.
+ * Without it a small persistent error (sensor bias, ground vibration)
+ * winds integralFB up unbounded over hours of runtime, eventually
+ * poisoning the rate setpoint. 0.5 rad/s is well above any legitimate
+ * steady-state gyro bias correction yet far below a flight rate. */
+#define SF_MAHONY_INTEGRAL_LIMIT 0.5f
+
 static float integralFBx = 0.0f, integralFBy = 0.0f, integralFBz = 0.0f;
+
+/**
+ * @brief Re-initialise the Mahony integral feedback state to zero.
+ *
+ * Drops any accumulated integral windup. The caller owns the quaternion
+ * (attitude_t), which it re-seeds to identity separately (EST-MAH-106).
+ *
+ * @implements EST-MAH-105
+ */
+void estimator_reset(void) {
+  integralFBx = 0.0f;
+  integralFBy = 0.0f;
+  integralFBz = 0.0f;
+}
 
 void m_mahony_filter(const float ax, const float ay, const float az,
                      const float gx, const float gy, const float gz,
@@ -276,6 +297,14 @@ void m_mahony_filter(const float ax, const float ay, const float az,
     integralFBx += Ki * ex * dt; // integral error scaled by Ki
     integralFBy += Ki * ey * dt;
     integralFBz += Ki * ez * dt;
+
+    /* EST-MAH-105: clamp each axis to ±SF_MAHONY_INTEGRAL_LIMIT rad/s. */
+    if (integralFBx > SF_MAHONY_INTEGRAL_LIMIT)  integralFBx = SF_MAHONY_INTEGRAL_LIMIT;
+    if (integralFBx < -SF_MAHONY_INTEGRAL_LIMIT) integralFBx = -SF_MAHONY_INTEGRAL_LIMIT;
+    if (integralFBy > SF_MAHONY_INTEGRAL_LIMIT)  integralFBy = SF_MAHONY_INTEGRAL_LIMIT;
+    if (integralFBy < -SF_MAHONY_INTEGRAL_LIMIT) integralFBy = -SF_MAHONY_INTEGRAL_LIMIT;
+    if (integralFBz > SF_MAHONY_INTEGRAL_LIMIT)  integralFBz = SF_MAHONY_INTEGRAL_LIMIT;
+    if (integralFBz < -SF_MAHONY_INTEGRAL_LIMIT) integralFBz = -SF_MAHONY_INTEGRAL_LIMIT;
   } else {
     integralFBx = 0.0f; // prevent integral windup
     integralFBy = 0.0f;
