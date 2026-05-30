@@ -162,13 +162,13 @@ up the firmware engineering standard.
 
 | ID    | Rule |
 |-------|------|
-| R12.1 | CI shall run on every PR and shall fail the build on any of: compiler warnings (per R1.2), `clang-tidy` violations, `cppcheck` violations (including MISRA addon where adopted), failed unit tests, drop in coverage. | 🟡 gap — CI not yet wired. |
-| R12.2 | Host-side unit-test builds shall enable AddressSanitizer (`-fsanitize=address`) and UndefinedBehaviorSanitizer (`-fsanitize=undefined`). | 🟡 gap. |
-| R12.3 | A static-analysis baseline shall be maintained; new violations are not allowed, existing ones are tracked and burned down. | 🟡 gap. |
-| R12.4 | Coverage reports (`gcov`/`lcov`) are published per build; branch coverage on `CTRL`, `EST`, and `COMM-PKT` modules shall not drop below an agreed threshold (initial target 70 %, growing). | 🟡 gap. |
-| R12.5 | Every requirement ID referenced in code or tests must exist in `docs/firmware/requirements.md`; the `tools/trace.py` CI step (to be written) fails the build otherwise. | 🟡 gap. |
-| R12.6 | Renode-based ISR/timing tests run on every PR that touches `HAL`, `SNS-IMU`, or `CTRL-RATE`. | 🟡 gap. |
-| R12.7 | SITL coverage of the state machine — every transition in `docs/state_machine/` shall be exercised by at least one SITL test. | 🟡 gap. |
+| R12.1 | CI shall run on every PR and shall fail the build on any of: compiler warnings (per R1.2), `clang-tidy` violations, `cppcheck` violations (including MISRA addon where adopted), failed unit tests, drop in coverage. | ✅ wired — `.github/workflows/ci.yml`. Always-on gates: target build (`-Werror`), trace `--check`, cppcheck. SITL gates (tests, ASan/UBSan, coverage, clang-tidy) auto-activate once the host test harness lands with the vsim integration. |
+| R12.2 | Host-side unit-test builds shall enable AddressSanitizer (`-fsanitize=address`) and UndefinedBehaviorSanitizer (`-fsanitize=undefined`). | ✅ `VAYU_SANITIZE` option + CI `sanitizers` job; the 5-suite ctest runs ASan+UBSan clean. |
+| R12.3 | A static-analysis baseline shall be maintained; new violations are not allowed, existing ones are tracked and burned down. | 🟡 baseline established (clang-tidy + cppcheck, report-only); burn-down + flip-to-failing pending. |
+| R12.4 | Coverage reports (`gcov`/`lcov`) are published per build; branch coverage on `CTRL`, `EST`, and `COMM-PKT` modules shall not drop below an agreed threshold (initial target 70 %, growing). | 🟡 mechanism landed (gcov + gcovr `coverage` target/CI job); 70 % threshold deferred until integration tests exercise CTRL/EST/COMM (unit suite ≈ 26 % today). |
+| R12.5 | Every requirement ID referenced in code or tests must exist in `docs/firmware/requirements.md`; the `tools/trace.py` CI step (to be written) fails the build otherwise. | ✅ CI `trace-gate` runs `tools/trace.py --check` — unknown IDs fail the build. (Fail-on-missing-implementer stays warn: most requirements are unimplemented future features.) |
+| R12.6 | Renode-based ISR/timing tests run on every PR that touches `HAL`, `SNS-IMU`, or `CTRL-RATE`. | 🟡 deferred — needs a Renode harness (heavy); tracked as a follow-up. |
+| R12.7 | SITL coverage of the state machine — every transition in `docs/state_machine/` shall be exercised by at least one SITL test. | 🟡 deferred — needs a state-transition coverage harness; follow-up. |
 
 ---
 
@@ -182,8 +182,8 @@ that don't exist in the codebase yet. They become tracked work items.
 | CONV-01 | `include/vayu_status.h`             | ✅ landed. Canonical `vayu_status_t` enum with `VAYU_OK`, `VAYU_ERR_INVALID`, `VAYU_ERR_TIMEOUT`, `VAYU_ERR_BUSY`, `VAYU_ERR_RANGE`, `VAYU_ERR_FAULT`, `VAYU_ERR_NOT_IMPL`. `_Static_assert` bounds width to `int32_t`. |
 | CONV-02 | `include/vayu_assert.h`             | ✅ landed. `VAYU_ASSERT(cond)` macro forwarding to `vayu_assert_fail()` in `src/sys/assert.c`. Debug: log + `v_panic` trap. Release (`NDEBUG`): log + request `SYSTEM_STATE_FAILSAFE` + halt calling task. Distinct from `TEST_ASSERT`. |
 | CONV-03 | `tools/trace.py`                    | ✅ landed (warn-only mode, per Phase 1). Walks `src/`, `extern/vaios/`, `extern/vaios/extern/NavHAL/`, parses `@implements` / `@verifies`, produces `docs/firmware/trace.md`. `--check` fails on unknown ID; missing implementer / verifier currently warn. Flip to fail-on-missing lands in Phase 5 (R12.5). |
-| CONV-04 | `.clang-tidy` baseline              | Adopted ruleset list. Start narrow (bugprone-*, cert-*, readability-*) and widen. |
-| CONV-05 | Host SITL coverage build            | `tools/sim_host/` extended with a `coverage` target that runs the unit-test suite under gcov/lcov. |
+| CONV-04 | `.clang-tidy` baseline              | ✅ landed. `.clang-tidy` (bugprone-* + cert-* + readability-*, noisy checks disabled); CI `clang-tidy` job report-only until the baseline is burned down (R12.3), then flips to failing. |
+| CONV-05 | Host SITL coverage build            | ✅ landed. `tools/sim_host` `VAYU_COVERAGE` option + `coverage` target run the unit suite under gcov and print a gcovr summary; CI `coverage` job. |
 | CONV-06 | Compiler-flag widening rollout      | ✅ Phase 4 complete. All 7 owned modules flipped to the full R1.2 warning set with `-Werror`. Tracked in `docs/firmware/plan/warning-rollout.md`. |
 
 ---
