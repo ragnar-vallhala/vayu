@@ -1,5 +1,4 @@
-#include "actuator/motor.h"
-#include "actuator/esc.h"
+#include "actuator/actuator.h"
 #include "structure.h"
 #include "sys/state.h"
 #include "vaios.h"
@@ -26,7 +25,7 @@ void motor_init(void) {
   esc_init(&motors[2], TIM1, 3, GPIO_PA10); // Motor 3
   esc_init(&motors[3], TIM1, 4, GPIO_PA11); // Motor 4
 
-  for (int i = 0; i < 4; i++) {
+  for (int i = 0; i < NUM_MOTORS; i++) {
     esc_arm(&motors[i]);
     v_delay(4);
   }
@@ -38,6 +37,7 @@ void motor_set_outputs(motor_outputs_t motor_outputs) {
 }
 
 void motor_task(void *arg) {
+  (void)arg;
   motor_init();
   static motor_outputs_t motor_outputs;
   static motor_outputs_t prev_motor_outputs;

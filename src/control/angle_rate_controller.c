@@ -1,5 +1,5 @@
 #include "control/angle_rate_controller.h"
-#include "actuator/motor.h"
+#include "actuator/actuator.h"
 #include "comm/ibus.h"
 #include "comm/rc_buffer.h"
 #include "control/angle_controller.h"
