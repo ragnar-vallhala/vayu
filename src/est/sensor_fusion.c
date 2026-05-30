@@ -1,4 +1,4 @@
-#include "maths/sensor_fusion.h"
+#include "est/est.h"
 #include "maths/maths_interface.h"
 #include "navhal.h"
 #include "sys/state.h"
@@ -72,7 +72,7 @@ void estimator_safety_step(void) {
   }
 }
 
-static inline float get_dt() {
+static inline float get_dt(void) {
   static uint32_t last_dwt = 0; // used to calculate dt
   uint32_t now = hal_cycle_counter_get();
   // convert to s
@@ -166,7 +166,7 @@ void m_complementary_filter(const float ax, const float ay, const float az,
     ori->yaw += 360.0f;
 }
 
-void m_quat_to_euler(const quaternion_t *q, attitude_t *ori) {
+static void m_quat_to_euler(const quaternion_t *q, attitude_t *ori) {
   // Roll (X-axis rotation)
   ori->roll = to_degrees(m_atan2(2.0f * (q->w * q->x + q->y * q->z),
                                  1.0f - 2.0f * (q->x * q->x + q->y * q->y)));

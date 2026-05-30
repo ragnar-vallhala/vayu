@@ -59,7 +59,10 @@ set(VAYU_R12_WARN_FLAGS
 set(VAYU_R12_CLEAN_SOURCES
     # ACT module (Phase 4)
     ${CMAKE_CURRENT_SOURCE_DIR}/src/actuator/esc.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/actuator/motor.c)
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/actuator/motor.c
+    # EST module (Phase 4)
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/est/sensor_fusion.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/est/lpf.c)
 set_source_files_properties(${VAYU_R12_CLEAN_SOURCES}
     PROPERTIES COMPILE_OPTIONS "${VAYU_R12_WARN_FLAGS}")
 

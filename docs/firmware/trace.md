@@ -65,13 +65,13 @@
 | `EST-COMP-101` | active | Complementary parameters | — | — |
 | `EST-COV-001` | active | Estimator output queues | — | — |
 | `EST-MAH-001` | active | Attitude convergence | — | — |
-| `EST-MAH-002` | 🟡 active (gap) | Fault-sample rejection | `include/maths/sensor_fusion.h`<br>`src/maths/sensor_fusion.c` | `tools/sim_host/tests/test_safety_phase2.c` |
+| `EST-MAH-002` | 🟡 active (gap) | Fault-sample rejection | `include/est/est.h`<br>`src/est/sensor_fusion.c` | `tools/sim_host/tests/test_safety_phase2.c` |
 | `EST-MAH-003` | active | Filter selection | — | — |
 | `EST-MAH-101` | active | Quaternion representation | — | — |
 | `EST-MAH-102` | active | Mahony gains | — | — |
 | `EST-MAH-103` | active | dt source | — | — |
 | `EST-MAH-104` | active | Mag conditional update | — | — |
-| `EST-MAH-105` | active | Integral feedback bound | `include/maths/sensor_fusion.h`<br>`src/maths/sensor_fusion.c` | `tools/sim_host/tests/test_phase3_ctrl.c` |
+| `EST-MAH-105` | active | Integral feedback bound | `include/est/est.h`<br>`src/est/sensor_fusion.c` | `tools/sim_host/tests/test_phase3_ctrl.c` |
 | `EST-MAH-106` | active | Init quaternion | — | — |
 | `HAL-API-001` | active | Host-stub portability | — | — |
 | `HAL-API-101` | active | Header-only API | — | — |
@@ -124,7 +124,7 @@
 | `SYS-PWR-002` | deferred | Low-battery failsafe | — | — |
 | `SYS-SAFE-001` | active | Emergency disarm | — | — |
 | `SYS-SAFE-002` | 🟡 active (gap) | RC loss behaviour | `include/comm/ibus.h`<br>`src/comm/rc_safety.c` | `tools/sim_host/tests/test_safety_phase2.c` |
-| `SYS-SAFE-003` | 🟡 active (gap) | Sensor-fault failsafe | `include/maths/sensor_fusion.h`<br>`src/maths/sensor_fusion.c` | `tools/sim_host/tests/test_safety_phase2.c` |
+| `SYS-SAFE-003` | 🟡 active (gap) | Sensor-fault failsafe | `include/est/est.h`<br>`src/est/sensor_fusion.c` | `tools/sim_host/tests/test_safety_phase2.c` |
 | `SYS-SAFE-004` | active | Max attitude failsafe | — | — |
 | `SYS-SAFE-005` | 🟡 active (gap) | Arming preconditions | `include/comm/ibus.h`<br>`src/comm/rc_safety.c` | `tools/sim_host/tests/test_safety_phase2.c` |
 | `SYS-SAFE-006` | active | State-transition validation | `include/sys/state.h`<br>`src/sys/state.c` | `tools/sim_host/tests/test_safety_phase2.c` |
