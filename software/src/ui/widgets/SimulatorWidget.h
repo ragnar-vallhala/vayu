@@ -2,6 +2,7 @@
 
 #include "vsim/SimWorker.h"
 #include "vsim/SimRendererWidget.h"
+#include "GeometryEditorWidget.h"
 
 extern "C" {
 #include "vsim_iface.h"
@@ -70,6 +71,12 @@ class SimulatorWidget : public QWidget {
   void openNewLogFile();
   void closeLogFile();
 
+  // Push the editor's motor layout + CoM (and mesh, if loaded) into the
+  // renderer so the 3D preview matches the configured airframe.
+  void applyGeometryToRenderer();
+  void persistGeometry(const vsim::GeometryConfig& g);
+  vsim::GeometryConfig restoreGeometry();
+
   // ---- repo root (kept for legacy widget consistency) ----
   QString m_repoRoot;
   QLineEdit* m_repoRootEdit = nullptr;
@@ -87,6 +94,7 @@ class SimulatorWidget : public QWidget {
   bool m_sitlStarted = false;
   vsim::SimWorker* m_sim = nullptr;
   vsim::SimRendererWidget* m_renderer = nullptr;
+  GeometryEditorWidget* m_geomEditor = nullptr;
   QPushButton* m_simStartBtn = nullptr;
   QPushButton* m_simStopBtn = nullptr;
   QLabel* m_simStatusLabel = nullptr;

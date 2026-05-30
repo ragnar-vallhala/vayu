@@ -18,6 +18,7 @@ Cross-references:
 - [`docs/in-app-sim.md`](../../docs/in-app-sim.md) — the embedded SITL design.
 - [`docs/telemetry/`](../../docs/telemetry/) — wire format authority.
 - [`docs/coordinate_ref.md`](../../docs/coordinate_ref.md) — NED conventions.
+- [`roadmap/`](roadmap/) — forward-looking GCS feature designs.
 
 ---
 
@@ -183,7 +184,7 @@ physics; it spawns/supervises `vsim_d` and decodes pose frames.
 |----------|--------------------------------------------------------------------------|--------|
 | FR-SIM-01| Run firmware in-process via `vayu_sitl_start(&iface)`                    | ✅     | Physics now out-of-process in `vsim_d`; firmware threads still in Navigator |
 | FR-SIM-02| 1 kHz physics (RK4), 200 Hz IMU emit, 60 Hz pose snapshot                | ✅     | Driven by `vsim_d` (`tools/vsim/src/main.cpp`); SimWorker only reads pose |
-| FR-SIM-03| Drone parameters (mass, inertia, motor geometry) editable from UI        | ❌     | Compile-time defaults in `tools/vsim/include/vsim_types.h` |
+| FR-SIM-03| Drone parameters (mass, inertia, motor geometry) editable from UI        | ✅     | `GeometryEditorWidget`: mass + 4-motor layout editable; inertia tensor derived from the airframe mesh; pushed live via `VSIM_CTL_SET_GEOMETRY`. See FR-SIM-11. |
 | FR-SIM-04| Sensor noise / bias parameters editable from UI                          | ❌     | `VSIM_CTL_SET_NOISE` opcode reserved in `vsim_proto.h`; no UI yet |
 | FR-SIM-05| Pose snapshot rendered live (OpenGL)                                     | ✅     |
 | FR-SIM-06| Per-run raw UART byte log to `logs/sim-<ts>.bin`                         | ✅     |
@@ -191,6 +192,7 @@ physics; it spawns/supervises `vsim_d` and decodes pose frames.
 | FR-SIM-08| Wind / external-force injection                                          | ❌     |
 | FR-SIM-09| Ground-contact model (tipping, friction)                                 | ❌     | Intentional: hard clamp only (`tools/vsim/src/physics_core.cpp`) |
 | FR-SIM-10| FIFO transport to the standalone firmware binary                         | ✅     | `vsim_d` FIFOs are the only transport; the standalone `vayu_sitl` binary attaches to the same `/tmp/vsim_{pwm,imu}` paths |
+| FR-SIM-11| Mesh-derived mass properties + motor-mapping editor                      | ✅     | Import STL/glTF (assimp) → full 3×3 inertia tensor via `MassProperties` (closed-polyhedron integral); 4-motor position/axis/spin/coeff editor (`GeometryEditorWidget`); pushed to `vsim_d` over `VSIM_CTL_SET_GEOMETRY`. Daemon integrates the full tensor (`Mat3` in `vsim_math.h`). v1 assumes model origin ≈ CoM (offset shown + warned). Design: [`roadmap/sim-geometry-moi-motor-editor.md`](roadmap/sim-geometry-moi-motor-editor.md). |
 
 ### 2.7 Persistence (`SettingsManager`)
 
@@ -309,7 +311,7 @@ surface and breaks `MainWindow.cpp` apart before it hits 1500 LOC.
 | 1b| **Parameter tree (FR-TX-05 + FR-UI-17)**. Needs paired firmware work — keep the GCS side behind a feature flag until both ends ship. | new `src/params/`                    |
 | 1c| Persistent text log with rotation (FR-LOG-03). **✅ shipped.**     | `core/Logger.{h,cpp}`                 |
 | 1d| CSV export of telemetry traces (FR-LOG-04). **✅ shipped.**        | `core/CsvExport.{h,cpp}`; ImuPanel/ControlLoopPlot/MotorStatusWidget |
-| 1e| Sim parameter editor: mass, inertia, k_thrust, max_omega, noise (FR-SIM-03, -04). | `SimulatorWidget` + form widget |
+| 1e| Sim parameter editor: mass, inertia, k_thrust, max_omega, noise (FR-SIM-03, -04). **🟡 mostly shipped** — mesh-derived mass/inertia + per-motor position/axis/spin/k_thrust/k_moment/max_omega land via `GeometryEditorWidget` (FR-SIM-11). Sensor-noise editing (FR-SIM-04) still pending. | `GeometryEditorWidget`, `MeshLoader`, `MassProperties` |
 | 1f| CRC32 lookup table (perf nit; only if profile shows it).          | `core/crc.cpp`                       |
 
 Exit criteria for Phase 1:

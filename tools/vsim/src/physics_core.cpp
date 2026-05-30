@@ -14,8 +14,8 @@ void PhysicsCore::reset(const RigidBodyState& initial) {
 //   quat_dot  = 0.5 * q * Quat(0, omega_b)
 //   omega_dot = I^-1 * (tau_b - omega_b x I*omega_b - c_w * omega_b)
 //
-// Inertia is diagonal (typical for a symmetric quad) so I^-1 is just
-// element-wise reciprocal.
+// Inertia is a full symmetric 3x3 tensor (mesh-derived airframes have
+// products of inertia), so I^-1 is the cached matrix inverse I_inv_.
 PhysicsCore::Deriv PhysicsCore::derive(const RigidBodyState& s,
                                        const Vec3& force_b,
                                        const Vec3& torque_b) const {
@@ -36,16 +36,12 @@ PhysicsCore::Deriv PhysicsCore::derive(const RigidBodyState& s,
                     0.5f * q_dot.y(),
                     0.5f * q_dot.z());
 
-    // Euler's equations with diagonal inertia.
-    const Vec3& I = params_.inertia_diag;
-    Vec3 Iw(I.x() * s.omega_b.x(),
-            I.y() * s.omega_b.y(),
-            I.z() * s.omega_b.z());
-    Vec3 wxIw = Vec3::crossProduct(s.omega_b, Iw);
+    // Euler's equations with a full inertia tensor:
+    //   omega_dot = I^-1 * (tau - omega x (I*omega) - c_w*omega)
+    Vec3 Iw      = params_.inertia * s.omega_b;
+    Vec3 wxIw    = Vec3::crossProduct(s.omega_b, Iw);
     Vec3 net_tau = torque_b - wxIw - s.omega_b * params_.angular_drag;
-    d.d_omega = Vec3(net_tau.x() / I.x(),
-                     net_tau.y() / I.y(),
-                     net_tau.z() / I.z());
+    d.d_omega    = I_inv_ * net_tau;
 
     return d;
 }

@@ -134,6 +134,30 @@ int main(int /*argc*/, char** /*argv*/) {
                     std::fprintf(stderr, "vsim_d: ping ok, tick=%llu\n",
                                  static_cast<unsigned long long>(tick));
                     break;
+                case VSIM_CTL_SET_GEOMETRY: {
+                    vsim_ctl_geometry_t g;
+                    std::memcpy(&g, cmd.body, sizeof(g));
+                    // Mass + full inertia tensor (row-major into Mat3).
+                    vsim::DroneParams dp;  // defaults carry drag/ground terms
+                    dp.mass = g.mass;
+                    for (int k = 0; k < 9; ++k) dp.inertia.m[k] = g.inertia[k];
+                    // Per-rotor layout.
+                    vsim::MotorParams mp;
+                    for (int i = 0; i < 4; ++i) {
+                        mp.pos_b[i]     = vsim::Vec3(g.motors[i].pos[0], g.motors[i].pos[1], g.motors[i].pos[2]);
+                        mp.axis_b[i]    = vsim::Vec3(g.motors[i].axis[0], g.motors[i].axis[1], g.motors[i].axis[2]);
+                        mp.spin[i]      = (g.motors[i].spin >= 0.0f) ? +1 : -1;
+                        mp.k_thrust[i]  = g.motors[i].k_thrust;
+                        mp.k_moment[i]  = g.motors[i].k_moment;
+                        mp.max_omega[i] = g.motors[i].max_omega;
+                    }
+                    ctl.setDroneParams(dp);
+                    ctl.setMotorParams(mp);
+                    std::fprintf(stderr,
+                                 "vsim_d: geometry set (m=%.3f kg, Idiag=%.4g/%.4g/%.4g)\n",
+                                 dp.mass, dp.inertia.at(0,0), dp.inertia.at(1,1), dp.inertia.at(2,2));
+                    break;
+                }
                 default:
                     break;
             }

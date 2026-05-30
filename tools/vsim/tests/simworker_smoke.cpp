@@ -40,6 +40,16 @@ int main(int argc, char** argv) {
     // Fire a reset ~0.6 s in to exercise the ctl FIFO write path too.
     QTimer::singleShot(600, &app, [&] { worker.sendReset(); });
 
+    // ~0.9 s in, push a custom geometry (heavier, more top-heavy inertia)
+    // to exercise VSIM_CTL_SET_GEOMETRY end-to-end. The daemon should log
+    // "geometry set" and the pose stream must stay healthy (no desync).
+    QTimer::singleShot(900, &app, [&] {
+        vsim::GeometryConfig g;
+        g.mass = 1.5f;
+        g.inertia = {0.05f, 0, 0, 0, 0.05f, 0, 0, 0, 0.09f};
+        worker.sendGeometry(g);
+    });
+
     // Run for ~1.5 s of pose streaming, then stop + quit.
     QTimer::singleShot(1500, &app, [&] {
         worker.requestStop();

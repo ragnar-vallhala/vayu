@@ -24,14 +24,20 @@ struct RigidBodyState {
 // Quad params. Defaults are roughly X3-class.
 struct DroneParams {
     float mass         = 1.0f;                              // kg
-    Vec3  inertia_diag = {0.012f, 0.012f, 0.022f};          // kg*m^2
+    // Full body-frame inertia tensor [kg*m^2]. Default is the old
+    // diagonal X3 value; a mesh-derived tensor (with products of
+    // inertia) can be pushed in via VSIM_CTL_SET_GEOMETRY.
+    Mat3  inertia      = Mat3::diagonal(0.012f, 0.012f, 0.022f);
     float linear_drag  = 0.10f;                             // N per (m/s)
     float angular_drag = 0.005f;                            // N*m per (rad/s)
     float ground_z     = 0.0f;                              // NED z of ground
     float ground_restitution = 0.0f;                        // bounce factor
 };
 
-// M1=FR, M2=RR, M3=RL, M4=FL — matches firmware motor mixing.
+// M1=FR, M2=RR, M3=RL, M4=FL — matches firmware motor mixing. Positions
+// are body-frame [m] relative to the CoM; thrust axes are body-frame
+// unit vectors (default body -Z, i.e. up in NED). All per-rotor so the
+// motor-mapping editor can drive each independently.
 struct MotorParams {
     std::array<Vec3, 4> pos_b = {
         Vec3{ 0.13f, +0.22f, 0.0f},   // M1 FR
@@ -39,15 +45,23 @@ struct MotorParams {
         Vec3{-0.13f, -0.20f, 0.0f},   // M3 RL
         Vec3{ 0.13f, -0.22f, 0.0f},   // M4 FL
     };
+    // Per-rotor thrust axis (unit, body frame). Body +Z is DOWN in NED,
+    // so lift points body -Z.
+    std::array<Vec3, 4> axis_b = {
+        Vec3{0.0f, 0.0f, -1.0f}, Vec3{0.0f, 0.0f, -1.0f},
+        Vec3{0.0f, 0.0f, -1.0f}, Vec3{0.0f, 0.0f, -1.0f},
+    };
     // +1 = CCW seen from above, -1 = CW. Vayu mixing: M1+M3 CCW, M2+M4 CW.
     std::array<int, 4> spin = {+1, -1, +1, -1};
 
-    float k_thrust = 1.522e-5f;   // thrust_N = k_thrust * omega^2 per rotor
-    float k_moment = 2.44e-7f;    // reaction torque magnitude per rotor
+    // thrust_N = k_thrust * omega^2 per rotor.
+    std::array<float, 4> k_thrust = {1.522e-5f, 1.522e-5f, 1.522e-5f, 1.522e-5f};
+    // reaction-torque magnitude per rotor.
+    std::array<float, 4> k_moment = {2.44e-7f, 2.44e-7f, 2.44e-7f, 2.44e-7f};
+    // duty=1 commands this omega [rad/s], per rotor.
+    std::array<float, 4> max_omega = {1200.0f, 1200.0f, 1200.0f, 1200.0f};
 
-    float max_omega = 1200.0f;    // duty=1 commands this omega [rad/s]
-
-    // First-order rotor spin-up filter time constants (asymmetric).
+    // First-order rotor spin-up filter time constants (asymmetric, shared).
     float tau_up   = 0.0125f;
     float tau_down = 0.025f;
 };

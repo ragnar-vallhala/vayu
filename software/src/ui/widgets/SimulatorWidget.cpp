@@ -10,6 +10,7 @@
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QMetaObject>
+#include <QScrollArea>
 #include <QScrollBar>
 #include <QSettings>
 #include <QSplitter>
@@ -20,6 +21,7 @@ namespace {
 
 constexpr const char* kRepoRootSettingKey = "simulator/repoRoot";
 constexpr const char* kLogDirSettingKey   = "simulator/logDir";
+constexpr const char* kGeomGroup          = "simulator/geometry";
 
 QString defaultRepoRoot() {
   QByteArray env = qgetenv("VAYU_REPO");
@@ -207,6 +209,28 @@ void SimulatorWidget::buildUi() {
     rcol->addWidget(g);
   }
 
+  // -- Geometry & motor editor --
+  {
+    m_geomEditor = new GeometryEditorWidget(right);
+    connect(m_geomEditor, &GeometryEditorWidget::previewUpdated, this,
+            [this] { applyGeometryToRenderer(); });
+    connect(m_geomEditor, &GeometryEditorWidget::geometryApplied, this, [this] {
+      applyGeometryToRenderer();
+      if (m_sim) m_sim->sendGeometry(m_geomEditor->config());
+      persistGeometry(m_geomEditor->config());
+      appendLog("geom", tr("geometry applied (m=%1 kg)")
+                            .arg(m_geomEditor->config().mass));
+    });
+
+    // The motor grid is wider than the right column; scroll rather than
+    // squeeze it.
+    auto* scroll = new QScrollArea(right);
+    scroll->setWidgetResizable(true);
+    scroll->setWidget(m_geomEditor);
+    scroll->setMinimumHeight(240);
+    rcol->addWidget(scroll, 1);
+  }
+
   // -- Log --
   {
     auto* g = new QGroupBox(tr("Log"), right);
@@ -221,6 +245,10 @@ void SimulatorWidget::buildUi() {
 
   splitter->setStretchFactor(0, 3);
   splitter->setStretchFactor(1, 2);
+
+  // Restore the persisted airframe; setConfig loads the mesh + recomputes
+  // and fires previewUpdated -> applyGeometryToRenderer for the 3D view.
+  m_geomEditor->setConfig(restoreGeometry());
 }
 
 // ----------------------------------------------------------------------------
@@ -268,6 +296,11 @@ void SimulatorWidget::startInAppSim() {
           });
   connect(m_sim, &vsim::SimWorker::logLine, this,
           [this](const QString& s) { appendLog("vsim", s); });
+  // Once the daemon's FIFOs are up, push the configured airframe so the
+  // sim flies the edited mass properties + motor layout from frame one.
+  connect(m_sim, &vsim::SimWorker::online, this, [this] {
+    if (m_sim) m_sim->sendGeometry(m_geomEditor->config());
+  });
   m_sim->start(QThread::TimeCriticalPriority);
 
   m_simStartBtn->setEnabled(false);
@@ -296,6 +329,88 @@ void SimulatorWidget::stopInAppSim() {
   // Note: we don't call vayu_sitl_stop() here on the Stop button.
   // The firmware threads stay alive but receive no fresh IMU samples
   // (SimWorker isn't pushing). Restarting the sim resumes the pipe.
+}
+
+// ----------------------------------------------------------------------------
+// Geometry editor <-> renderer / daemon / persistence
+// ----------------------------------------------------------------------------
+
+void SimulatorWidget::applyGeometryToRenderer() {
+  if (!m_renderer || !m_geomEditor) return;
+  const auto& cfg = m_geomEditor->config();
+  if (m_geomEditor->hasMesh()) {
+    m_renderer->setDroneMesh(m_geomEditor->meshPositions(),
+                             m_geomEditor->meshNormals());
+  }
+  m_renderer->setComMarker(cfg.com);
+  std::array<QVector3D, 4> pos, axis;
+  std::array<int, 4> spin;
+  for (int i = 0; i < 4; ++i) {
+    pos[i]  = cfg.motors[i].pos;
+    axis[i] = cfg.motors[i].axis;
+    spin[i] = cfg.motors[i].spin;
+  }
+  m_renderer->setMotorLayout(pos, axis, spin);
+}
+
+void SimulatorWidget::persistGeometry(const vsim::GeometryConfig& g) {
+  QSettings s;
+  s.beginGroup(kGeomGroup);
+  s.setValue("meshPath", g.meshPath);
+  s.setValue("scale", g.scale);
+  s.setValue("mass", g.mass);
+  s.setValue("comX", g.com.x());
+  s.setValue("comY", g.com.y());
+  s.setValue("comZ", g.com.z());
+  for (int i = 0; i < 9; ++i) s.setValue(QString("I%1").arg(i), g.inertia[i]);
+  for (int i = 0; i < 4; ++i) {
+    const auto& m = g.motors[i];
+    const QString p = QString("m%1_").arg(i);
+    s.setValue(p + "px", m.pos.x());
+    s.setValue(p + "py", m.pos.y());
+    s.setValue(p + "pz", m.pos.z());
+    s.setValue(p + "ax", m.axis.x());
+    s.setValue(p + "ay", m.axis.y());
+    s.setValue(p + "az", m.axis.z());
+    s.setValue(p + "spin", m.spin);
+    s.setValue(p + "kt", m.k_thrust);
+    s.setValue(p + "km", m.k_moment);
+    s.setValue(p + "wmax", m.max_omega);
+  }
+  s.endGroup();
+}
+
+vsim::GeometryConfig SimulatorWidget::restoreGeometry() {
+  vsim::GeometryConfig g;  // sensible defaults if nothing was saved
+  QSettings s;
+  s.beginGroup(kGeomGroup);
+  if (!s.contains("mass")) {
+    s.endGroup();
+    return g;
+  }
+  g.meshPath = s.value("meshPath").toString();
+  g.scale = s.value("scale", g.scale).toFloat();
+  g.mass = s.value("mass", g.mass).toFloat();
+  g.com = QVector3D(s.value("comX").toFloat(), s.value("comY").toFloat(),
+                    s.value("comZ").toFloat());
+  for (int i = 0; i < 9; ++i)
+    g.inertia[i] = s.value(QString("I%1").arg(i), g.inertia[i]).toFloat();
+  for (int i = 0; i < 4; ++i) {
+    auto& m = g.motors[i];
+    const QString p = QString("m%1_").arg(i);
+    m.pos = QVector3D(s.value(p + "px", m.pos.x()).toFloat(),
+                      s.value(p + "py", m.pos.y()).toFloat(),
+                      s.value(p + "pz", m.pos.z()).toFloat());
+    m.axis = QVector3D(s.value(p + "ax", m.axis.x()).toFloat(),
+                       s.value(p + "ay", m.axis.y()).toFloat(),
+                       s.value(p + "az", m.axis.z()).toFloat());
+    m.spin = s.value(p + "spin", m.spin).toInt();
+    m.k_thrust = s.value(p + "kt", m.k_thrust).toFloat();
+    m.k_moment = s.value(p + "km", m.k_moment).toFloat();
+    m.max_omega = s.value(p + "wmax", m.max_omega).toFloat();
+  }
+  s.endGroup();
+  return g;
 }
 
 void SimulatorWidget::onUartBytes(QByteArray bytes) {
