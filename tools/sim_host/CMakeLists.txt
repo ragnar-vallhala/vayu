@@ -18,6 +18,18 @@ set(VAIOS_ROOT  "${VAYU_ROOT}/extern/vaios")
 set(NAVHAL_ROOT "${VAIOS_ROOT}/extern/NavHAL")
 
 add_compile_options(-Wall -Wextra -O2 -g -fno-strict-aliasing)
+
+# Phase 5 — sanitizers (R12.2) and coverage (CONV-05 / R12.4).
+option(VAYU_SANITIZE "Build host SITL + tests with ASan + UBSan" OFF)
+option(VAYU_COVERAGE "Build host SITL + tests with gcov instrumentation" OFF)
+if(VAYU_SANITIZE)
+    add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
+    add_link_options(-fsanitize=address,undefined)
+endif()
+if(VAYU_COVERAGE)
+    add_compile_options(--coverage -O0)
+    add_link_options(--coverage)
+endif()
 add_compile_definitions(
     VAYU_SIM=1
     VAYU_SITL=1
@@ -27,13 +39,14 @@ add_compile_definitions(
     VAIOS_CONFIG_FILE="${VAYU_ROOT}/include/vaios_app_config.h"
 )
 
-# Shadow + firmware + vaios + NavHAL headers, in priority order.
+# Shadow + firmware + vaios + NavHAL + vsim_proto headers, in priority order.
 include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${VAYU_ROOT}/include
     ${VAIOS_ROOT}/include
     ${NAVHAL_ROOT}/include
     ${NAVHAL_ROOT}/include/port/cortex-m4   # utility type-only headers
+    ${VAYU_ROOT}/tools/vsim/include         # vsim_proto.h (shared with vsim_d)
 )
 
 # Host shim sources -- everything that goes into the library.
@@ -45,6 +58,7 @@ set(HOST_SOURCES
     src/host_imu_feeder.c
     src/host_rc_feeder.c
     src/host_lifecycle.c
+    src/host_vfs.c
     src/vsim_iface.c
 )
 set(HOST_MAIN_SOURCES
@@ -57,16 +71,21 @@ set(VAYU_SOURCES
     ${VAYU_ROOT}/src/actuator/motor.c
     ${VAYU_ROOT}/src/control/angle_controller.c
     ${VAYU_ROOT}/src/control/angle_rate_controller.c
-    ${VAYU_ROOT}/src/maths/control_buffer.c
-    ${VAYU_ROOT}/src/maths/lpf.c
+    ${VAYU_ROOT}/src/control/pid_config.c   # CMD_SET_PID apply + SD persistence
+    ${VAYU_ROOT}/src/control/control_buffer.c
+    ${VAYU_ROOT}/src/est/lpf.c
     ${VAYU_ROOT}/src/maths/maths_interface.c
-    ${VAYU_ROOT}/src/maths/pid.c
-    ${VAYU_ROOT}/src/utils/math_utils.c
-    ${VAYU_ROOT}/src/utils/utils.c
-    ${VAYU_ROOT}/src/maths/sensor_fusion.c
+    ${VAYU_ROOT}/src/control/pid.c
+    ${VAYU_ROOT}/src/sys/math_utils.c
+    ${VAYU_ROOT}/src/sys/sys_utils.c
+    ${VAYU_ROOT}/src/est/sensor_fusion.c
     ${VAYU_ROOT}/src/sensor/imu_buffer.c
+    ${VAYU_ROOT}/src/logger/logger.c    # wrap counters; telemetry reads them
+    ${VAYU_ROOT}/src/logger/log_text.c  # vayu_log + queue (moved from utils.c)
     ${VAYU_ROOT}/src/sys/state.c
+    ${VAYU_ROOT}/src/sys/assert.c
     ${VAYU_ROOT}/src/comm/rc_buffer.c
+    ${VAYU_ROOT}/src/comm/rc_safety.c   # RC watchdog + arm gate (host-buildable)
     # Telemetry chain: produces DroneProtocol packets the GCS reads.
     # UART2 in host_navhal pipes them to a pty (for live GCS attach) and
     # tees a raw copy to /tmp/vayu_uart2.log (for post-sim analysis).
@@ -118,3 +137,52 @@ add_executable(vayu_sitl ${HOST_MAIN_SOURCES})
 target_link_libraries(vayu_sitl PRIVATE vayu_sitl_core)
 
 message(STATUS "vayu_sitl: static library + standalone binary configured")
+
+# ----------------------------------------------------------------------------
+# Verification suite
+#
+# Test binaries provide their own main() and link the firmware sources
+# from the static library. The library's host_main.o is not pulled in
+# (its main symbol is already satisfied by the test's own main).
+# Run with:  ctest --test-dir build_sitl   (or invoke the binary directly).
+# ----------------------------------------------------------------------------
+enable_testing()
+
+add_executable(test_safety_phase2 tests/test_safety_phase2.c)
+target_link_libraries(test_safety_phase2 PRIVATE vayu_sitl_core)
+add_test(NAME safety_phase2 COMMAND test_safety_phase2)
+
+add_executable(test_phase3_ctrl tests/test_phase3_ctrl.c)
+target_link_libraries(test_phase3_ctrl PRIVATE vayu_sitl_core m)
+add_test(NAME phase3_ctrl COMMAND test_phase3_ctrl)
+
+add_executable(test_phase3_comm tests/test_phase3_comm.c)
+target_link_libraries(test_phase3_comm PRIVATE vayu_sitl_core m)
+add_test(NAME phase3_comm COMMAND test_phase3_comm)
+
+add_executable(test_phase3_slog tests/test_phase3_slog.c)
+target_link_libraries(test_phase3_slog PRIVATE vayu_sitl_core m)
+add_test(NAME phase3_slog COMMAND test_phase3_slog)
+
+# Standalone: compiles assert.c with NDEBUG (release branch) and stubs its
+# deps locally — it must NOT link vayu_sitl_core, which carries the debug
+# build of assert.c (duplicate symbol + wrong branch).
+add_executable(test_phase0_assert
+    tests/test_phase0_assert.c
+    ${VAYU_ROOT}/src/sys/assert.c)
+target_compile_definitions(test_phase0_assert PRIVATE NDEBUG)
+target_link_libraries(test_phase0_assert PRIVATE Threads::Threads)
+add_test(NAME phase0_assert COMMAND test_phase0_assert)
+
+# ----------------------------------------------------------------------------
+# Coverage report (CONV-05 / R12.4)
+#   cmake -S tools/sim_host -B build_cov -DVAYU_COVERAGE=ON
+#   cmake --build build_cov --target coverage
+# Prints a gcovr summary over src/ (vendored extern/ excluded).
+# ----------------------------------------------------------------------------
+add_custom_target(coverage
+    COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure
+    COMMAND gcovr --root ${VAYU_ROOT} --filter "${VAYU_ROOT}/src/"
+            --print-summary --decisions
+    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+    COMMENT "Running unit tests + gcovr coverage summary")

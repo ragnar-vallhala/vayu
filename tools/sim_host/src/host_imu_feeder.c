@@ -1,12 +1,14 @@
 /*
- * host_imu_feeder.c -- read Gazebo IMU samples from /tmp/vayu_imu.fifo,
- * push them into vayu's imu_queue, run mahony to derive the attitude,
- * push that into vayu's attitude_queue.
+ * host_imu_feeder.c -- read IMU samples from /tmp/vsim_imu (binary
+ * vsim_imu_frame_t per the vsim_proto wire spec), push them into
+ * vayu's imu_queue, run mahony to derive attitude, push the attitude
+ * into vayu's attitude_queue.
  *
- * Wire format: tools/sim_gazebo/gz_imu_to_vayu.py writes the
- * bmx160_all_converted_reading_t struct (76 B, little-endian) on every
- * Gazebo IMU sample. We read that whole frame and use the calibrated
- * acc / gyr / mag triplets.
+ * Wire format: vsim_imu_frame_t = 16-byte vsim_hdr_t + 76-byte
+ * bmx160_all_converted_reading_t payload (little-endian, gyr in deg/s).
+ * Older builds used a raw 76-byte frame on /tmp/vayu_imu.fifo; that
+ * path is gone -- the vsim_d daemon and the Gazebo bridge both now
+ * speak the framed protocol.
  *
  * The mahony filter holds its quaternion state inside the attitude_t
  * we pass in - the same pattern bmx160.c uses on real hardware. We
@@ -19,10 +21,10 @@
 #define _GNU_SOURCE
 #include "host_imu_feeder.h"
 #include "vsim_iface.h"
+#include "vsim_proto.h"
 
-#include "maths/sensor_fusion.h"
-#include "sensor/bmx160.h"
-#include "sensor/imu_buffer.h"
+#include "est/est.h"
+#include "sensor/sensor.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -37,19 +39,18 @@
 #include "task.h"   /* v_delay */
 #include "utils.h"  /* v_get_ticks */
 
-#define IMU_FIFO_PATH "/tmp/vayu_imu.fifo"
-
-/* Sanity: gz_imu_to_vayu.py packs exactly this many bytes per sample.
- * If bmx160_all_converted_reading_t ever grows, the bridge will need
- * to grow with it. */
-#define EXPECTED_FRAME_BYTES 76
+/* IMU payload (within the framed protocol) is the firmware's converted
+ * reading struct -- 76 B little-endian. The static_assert below couples
+ * the wire layout to the firmware's struct so any drift is a build
+ * failure, not a runtime mystery. */
+#define EXPECTED_FRAME_BYTES VSIM_IMU_PAYLOAD_BYTES
 
 static void ensure_fifo(void) {
     struct stat st;
-    if (stat(IMU_FIFO_PATH, &st) != 0) {
-        if (mkfifo(IMU_FIFO_PATH, 0666) != 0 && errno != EEXIST) {
+    if (stat(VSIM_FIFO_IMU, &st) != 0) {
+        if (mkfifo(VSIM_FIFO_IMU, 0666) != 0 && errno != EEXIST) {
             fprintf(stderr, "host_imu_feeder: mkfifo %s failed: %s\n",
-                    IMU_FIFO_PATH, strerror(errno));
+                    VSIM_FIFO_IMU, strerror(errno));
         }
     }
 }
@@ -66,22 +67,48 @@ static int read_full(int fd, void *buf, size_t n) {
     return 1;
 }
 
-/* Block until the host posts a new IMU sample. Returns 1 with the
- * sample copied into `sample`, or 0 if the iface signaled shutdown. */
-static int wait_iface_sample(vsim_iface_t *iface,
-                             bmx160_all_reading_t *sample,
-                             uint64_t *consumer_seq) {
-    pthread_mutex_lock(&iface->lock);
-    while (iface->running && iface->imu_seq == *consumer_seq) {
-        pthread_cond_wait(&iface->imu_cond, &iface->lock);
+/* Read one framed IMU message from `fd`. Hunts forward byte-by-byte
+ * until VSIM_MAGIC appears, then validates type/version/length and
+ * copies the 76-byte payload into `out_payload`. Returns 1 on a good
+ * frame, 0 on EOF (writer closed), -1 on a read error. */
+static int read_framed_imu(int fd, void *out_payload) {
+    vsim_hdr_t hdr;
+    /* Magic resync: read until we land on the magic word. The producer
+     * (vsim_d) only writes whole frames, but if the reader connects
+     * mid-stream we may need to walk to the next boundary. */
+    while (1) {
+        int rc = read_full(fd, &hdr, sizeof(hdr));
+        if (rc <= 0) return rc;
+        if (hdr.magic == VSIM_MAGIC) break;
+        /* Shift one byte forward and refill. Slow but only runs at
+         * connect time / after a producer crash. */
+        memmove(&hdr, ((char *)&hdr) + 1, sizeof(hdr) - 1);
+        char extra;
+        rc = read_full(fd, &extra, 1);
+        if (rc <= 0) return rc;
+        ((char *)&hdr)[sizeof(hdr) - 1] = extra;
     }
-    int alive = iface->running;
-    if (alive) {
-        memcpy(&sample->converted, iface->imu_frame, EXPECTED_FRAME_BYTES);
-        *consumer_seq = iface->imu_seq;
+
+    if (hdr.version != VSIM_PROTO_VERSION ||
+        hdr.type    != VSIM_FRAME_IMU      ||
+        hdr.payload_bytes != EXPECTED_FRAME_BYTES) {
+        /* Wire mismatch -- consume the body to stay aligned, then bail
+         * on the caller's next call. */
+        char drop[256];
+        size_t remain = hdr.payload_bytes;
+        while (remain > 0) {
+            size_t chunk = remain > sizeof(drop) ? sizeof(drop) : remain;
+            int rc = read_full(fd, drop, chunk);
+            if (rc <= 0) return rc;
+            remain -= chunk;
+        }
+        fprintf(stderr, "host_imu_feeder: bad frame "
+                "(ver=%u type=%u len=%u); resyncing\n",
+                hdr.version, hdr.type, hdr.payload_bytes);
+        return read_framed_imu(fd, out_payload);
     }
-    pthread_mutex_unlock(&iface->lock);
-    return alive;
+
+    return read_full(fd, out_payload, EXPECTED_FRAME_BYTES);
 }
 
 static void *imu_feeder_thread(void *arg) {
@@ -98,38 +125,27 @@ static void *imu_feeder_thread(void *arg) {
     uint32_t frames = 0;
     uint32_t last_log_t = 0;
 
-    vsim_iface_t *iface = vsim_iface_get_global();
-    int fd = -1;
-    uint64_t consumer_seq = 0;
-
-    if (iface) {
-        fprintf(stderr,
-                "host_imu_feeder: in-process iface mode (no FIFO)\n");
-    } else {
-        ensure_fifo();
-        fprintf(stderr, "host_imu_feeder: waiting for producer on %s\n",
-                IMU_FIFO_PATH);
-        fd = open(IMU_FIFO_PATH, O_RDONLY);
-        if (fd < 0) {
-            fprintf(stderr, "host_imu_feeder: open failed: %s\n", strerror(errno));
-            return NULL;
-        }
-        fprintf(stderr, "host_imu_feeder: producer connected, draining frames\n");
+    /* IMU transport is FIFO-only as of the vsim_d split. Whether the
+     * firmware is the standalone vayu_sitl binary or living inside
+     * Navigator, samples arrive on /tmp/vsim_imu in the framed
+     * protocol. */
+    ensure_fifo();
+    fprintf(stderr, "host_imu_feeder: waiting for producer on %s\n",
+            VSIM_FIFO_IMU);
+    int fd = open(VSIM_FIFO_IMU, O_RDONLY);
+    if (fd < 0) {
+        fprintf(stderr, "host_imu_feeder: open failed: %s\n", strerror(errno));
+        return NULL;
     }
+    fprintf(stderr, "host_imu_feeder: producer connected, draining frames\n");
 
     while (1) {
-        if (iface) {
-            if (!wait_iface_sample(iface, &sample, &consumer_seq)) {
-                /* Shutdown signaled. */
-                break;
-            }
-        } else {
-        int rc = read_full(fd, &sample.converted, EXPECTED_FRAME_BYTES);
+        int rc = read_framed_imu(fd, &sample.converted);
         if (rc == 0) {
             /* Producer disconnected -- reopen and keep going. */
             fprintf(stderr, "host_imu_feeder: producer closed, reopening\n");
             close(fd);
-            fd = open(IMU_FIFO_PATH, O_RDONLY);
+            fd = open(VSIM_FIFO_IMU, O_RDONLY);
             if (fd < 0) {
                 fprintf(stderr, "host_imu_feeder: reopen failed\n");
                 return NULL;
@@ -139,7 +155,6 @@ static void *imu_feeder_thread(void *arg) {
         if (rc < 0) {
             fprintf(stderr, "host_imu_feeder: read failed: %s\n", strerror(errno));
             break;
-        }
         }
 
         /* The IMU sample feeds the angle_rate_controller directly. */
