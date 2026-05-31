@@ -50,6 +50,8 @@ typedef enum {
  */
 typedef enum {
   CMD_CALIBRATE_IMU = 0x0001,
+  CMD_ARM = 0x0002,    // GCS-initiated arm request (sets the software-arm latch)
+  CMD_DISARM = 0x0003, // GCS-initiated disarm (clears the software-arm latch)
   CMD_SET_PID = 0x000A,
 } packet_command_type_t;
 

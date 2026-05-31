@@ -18,6 +18,11 @@ Status: ⬜ todo · 🟡 in progress · ✅ done · ⛔ blocked
   thread, `comm_processor_task`). `vayu_sitl` reaches STANDDBY.
 - ✅ SITL harness committed (`tools/sim_host`, `d97b80d`); rebuilds against
   the GCS instance's `vsim_proto.h` (HANDOFF §5.5).
+- ✅ **GCS software-arm** (`CMD_ARM`/`CMD_DISARM`): a `g_sw_arm_request` latch
+  OR'd with the physical arm switch via `rc_arm_engaged()`, so a 4-channel
+  USB-HID stick (no arm channel) can arm from the GCS. Preconditions
+  (throttle <1100, RC healthy, estimator OK) still enforced. fw side done +
+  tested (`test_software_arm_latch`). **GCS side pending** — see contract.
 
 ## In progress / next
 | # | Item | Owner | Status | Notes |
@@ -28,6 +33,22 @@ Status: ⬜ todo · 🟡 in progress · ✅ done · ⛔ blocked
 | 4 | **Control tuning vs airframe MoI/mass** | firmware (`src/control`) | ⬜ | HANDOFF §5.2 — if it tumbles when armed, retune rate/angle PIDs against the configured inertia. |
 | 5 | RC calibration wizard | GCS | ⬜ | HANDOFF §5.3 — auto-detect axes/direction; ends manual-mapping friction. |
 | 6 | Verify `MAX_ANGLE_CUTOFF` (45→70) provenance | firmware | ⬜ | Long-dangling uncommitted tuning of the angle failsafe; confirm intended before committing. |
+| 7 | **Wire ARM button → `CMD_ARM`** | GCS | ⬜ | USB-HID gives only 4 channels (no arm switch). fw now accepts `CMD_ARM`/`CMD_DISARM`; `MainToolbar` ARM/DISARM button must send them — see contract below. |
+
+## Contract: GCS software-arm (`CMD_ARM` / `CMD_DISARM`) — GCS side TODO
+The firmware accepts two new NavLink commands over the UART2 command channel.
+The `MainToolbar` ARM button (`software/src/ui/main/MainToolbar.cpp:84`) must
+send a `PACKET_TYPE_COMMAND` (0x3) framed exactly like the existing
+`CMD_CALIBRATE_IMU` path (`CalibrationWidget.cpp:269`):
+- **payload** = `cmd_id` as 2 little-endian bytes; **no args** (argc absent,
+  `length == 2`).
+- **`CMD_ARM = 0x0002`** on press-to-arm, **`CMD_DISARM = 0x0003`** on disarm.
+
+Firmware behavior: `CMD_ARM` sets the latch; on the **next RC frame** the arm
+preconditions are checked (throttle <1100, RC link healthy, estimator OK) and
+STANDBY→ARMED follows. `CMD_DISARM` clears the latch → STANDBY. So the UI flow
+is: **lower throttle, then ARM** (arming with throttle up trips FAILSAFE, by
+design). The button should reflect the telemetry state, not assume success.
 
 ## Contract: `VSIM_FIFO_SUFFIX` (per-instance isolation) — GCS side TODO
 The firmware shim appends `$VSIM_FIFO_SUFFIX` (default empty) to its base

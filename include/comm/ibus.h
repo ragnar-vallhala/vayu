@@ -86,6 +86,23 @@ void rc_watchdog_step(void);
  */
 bool arm_preconditions_met(const ibus_data_t *rc);
 
+/**
+ * @brief GCS software-arm latch. Set by CMD_ARM, cleared by CMD_DISARM
+ *        (src/comm/comm_processor.c). OR'd with the RC arm switch by
+ *        rc_arm_engaged() so the vehicle can be armed from the GCS when no
+ *        physical arm channel is available (e.g. a 4-channel USB-HID stick in
+ *        SITL). Defined in src/comm/rc_safety.c.
+ */
+extern volatile uint8_t g_sw_arm_request;
+
+/**
+ * @brief Unified arm-request predicate: true when the RC arm switch
+ *        (channel 5 > 1500) OR the GCS software-arm latch is engaged.
+ *        Arm preconditions (throttle, link, estimator) are still enforced
+ *        separately by the caller. Defined in src/comm/rc_safety.c.
+ */
+bool rc_arm_engaged(const ibus_data_t *rc);
+
 #ifdef VAYU_SIM
 /**
  * SITL-only fault-injection hook. When non-zero, the iBUS task
