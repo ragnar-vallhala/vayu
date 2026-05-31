@@ -22,8 +22,7 @@
 #define _GNU_SOURCE
 #include "host_rc_feeder.h"
 
-#include "comm/ibus.h"
-#include "comm/rc_buffer.h"
+#include "comm/comm.h"
 #include "sys/state.h"
 
 #include <errno.h>
@@ -144,13 +143,13 @@ static void apply_arm_logic(const ibus_data_t *rc) {
     sys_state_t cur = system_state_get();
     if (rc->channels[4] > 1500) {
         if (cur == SYSTEM_STATE_STANDBY && rc->channels[2] < 1100) {
-            system_state_set(SYSTEM_STATE_ARMED);
+            VAYU_DISCARD(system_state_set(SYSTEM_STATE_ARMED));
         } else if (cur == SYSTEM_STATE_STANDBY && rc->channels[2] > 1100) {
-            system_state_set(SYSTEM_STATE_FAILSAFE);
+            VAYU_DISCARD(system_state_set(SYSTEM_STATE_FAILSAFE));
         }
     } else {
         if (cur == SYSTEM_STATE_ARMED || cur == SYSTEM_STATE_FAILSAFE) {
-            system_state_set(SYSTEM_STATE_STANDBY);
+            VAYU_DISCARD(system_state_set(SYSTEM_STATE_STANDBY));
         }
     }
 }
