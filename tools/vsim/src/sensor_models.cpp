@@ -23,6 +23,7 @@ Vec3 SensorModels::walk(Vec3& bias, float walk_std, float clip) {
 
 ImuSample SensorModels::sample(const RigidBodyState& state,
                                const Vec3& a_world,
+                               float gravity,
                                float dt) {
     (void)dt;  // walk is per-call, not per-second
     walk(acc_bias_, noise_.acc_bias_walk, noise_.acc_bias_clip);
@@ -33,7 +34,7 @@ ImuSample SensorModels::sample(const RigidBodyState& state,
     // At rest a_world = (0,0,0) so spec = -(0,0,G) = (0,0,-G); a level
     // airframe sees (0,0,-G) in body frame -- the standard BMX160
     // reading firmware expects.
-    Vec3 spec_w = a_world - Vec3(0.0f, 0.0f, kG);
+    Vec3 spec_w = a_world - Vec3(0.0f, 0.0f, gravity);
 
     Quat q_inv = state.att.conjugated();
     Vec3 acc_b = q_inv.rotatedVector(spec_w);

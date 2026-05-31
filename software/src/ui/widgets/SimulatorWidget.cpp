@@ -1,12 +1,18 @@
 #include "SimulatorWidget.h"
 
+#include "CollapsibleSection.h"
 #include "core/Theme.h"
 #include "core/ui/Buttons.h"
 
+#include <QButtonGroup>
+#include <QCheckBox>
+#include <QComboBox>
 #include <QDateTime>
 #include <QDesktopServices>
 #include <QDir>
+#include <QEvent>
 #include <QFileInfo>
+#include <QGridLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QMetaObject>
@@ -14,14 +20,26 @@
 #include <QScrollBar>
 #include <QSettings>
 #include <QSplitter>
+#include <QStackedWidget>
 #include <QUrl>
 #include <QVBoxLayout>
+
+#include <cmath>
 
 namespace {
 
 constexpr const char* kRepoRootSettingKey = "simulator/repoRoot";
 constexpr const char* kLogDirSettingKey   = "simulator/logDir";
 constexpr const char* kGeomGroup          = "simulator/geometry";
+constexpr const char* kWorldGroup         = "simulator/world";
+constexpr const char* kRcEnableKey        = "simulator/rcEnable";
+constexpr const char* kRcPathKey          = "simulator/rcPath";
+constexpr const char* kRcMapAxisKey       = "simulator/rcMapAxis";   // + func
+constexpr const char* kRcMapInvKey        = "simulator/rcMapInv";    // + func
+
+// Default joystick axis for each function (roll,pitch,throttle,yaw,arm).
+constexpr int kRcDefaultAxis[5] = {0, 1, 2, 3, 4};
+constexpr const char* kRcFuncName[5] = {"Roll", "Pitch", "Throttle", "Yaw", "Arm"};
 
 QString defaultRepoRoot() {
   QByteArray env = qgetenv("VAYU_REPO");
@@ -73,9 +91,55 @@ SimulatorWidget::SimulatorWidget(QWidget* parent) : QWidget(parent) {
   vsim_iface_set_uart2_callback(&m_iface, &uart2_to_widget_trampoline, this);
 
   buildUi();
+
+  // Stand up the RC bridge NOW, before any vayu_sitl_start: the firmware's
+  // RC feeder reads $VAYU_UART_RC_PATH once at boot, so the pty + env must
+  // exist beforehand. The bridge runs continuously and streams a neutral
+  // frame until enabled; the checkbox toggles joystick influence live.
+  m_rc = new RcBridge(this);
+  m_rc->setJoystickPath(m_rcPath->text());
+  m_rc->setEnabled(m_rcEnable->isChecked());
+  QString rcErr;
+  if (m_rc->openPty(&rcErr)) {
+    qputenv("VAYU_UART_RC_PATH", m_rc->slavePath().toLocal8Bit());
+    connect(m_rc, &RcBridge::logLine, this,
+            [this](const QString& s) { appendLog("rc", s); });
+    connect(m_rc, &RcBridge::channelsUpdated, this,
+            [this](int r, int pi, int t, int y, int a) {
+              if (m_rcReadout)
+                m_rcReadout->setText(QString("RC: R%1 P%2 T%3 Y%4 A%5")
+                                         .arg(r).arg(pi).arg(t).arg(y).arg(a));
+            });
+    connect(m_rc, &RcBridge::axesUpdated, this,
+            [this](QVector<int> au, QVector<int> bu) {
+              if (!m_rcAxesLabel) return;
+              QString s = QStringLiteral("Ax");
+              for (int i = 0; i < au.size(); ++i) s += QString(" %1:%2").arg(i).arg(au[i]);
+              s += QStringLiteral("  Btn");
+              for (int i = 0; i < bu.size(); ++i) s += QString(" %1:%2").arg(i).arg(bu[i]);
+              m_rcAxesLabel->setText(s);
+            });
+    // Apply the persisted channel→axis mapping to the bridge.
+    for (int f = 0; f < 5; ++f)
+      if (m_rcAxisCombo[f])
+        m_rc->setMapping(f, m_rcAxisCombo[f]->currentData().toInt(),
+                         m_rcInvert[f]->isChecked());
+    m_rc->start();
+  } else {
+    delete m_rc;
+    m_rc = nullptr;
+  }
 }
 
 SimulatorWidget::~SimulatorWidget() {
+  // Detach the UART2 callback FIRST. The firmware threads outlive this
+  // widget (vayu_sitl is one-shot — they run until the process exits), and
+  // would otherwise invoke the trampoline on a half-destroyed widget:
+  // "QMetaObject::invokeMethod: No such method QWidget::onUartBytes" and a
+  // dangling-pointer crash risk.
+  if (m_ifaceInit) {
+    vsim_iface_set_uart2_callback(&m_iface, nullptr, nullptr);
+  }
   stopInAppSim();
   closeLogFile();    // belt-and-suspenders: stopInAppSim already does this
   // We do NOT call vayu_sitl_stop()'s teardown completely; the firmware
@@ -92,16 +156,35 @@ SimulatorWidget::~SimulatorWidget() {
 void SimulatorWidget::buildUi() {
   auto* root = new QVBoxLayout(this);
   root->setContentsMargins(16, 16, 16, 16);
-  root->setSpacing(12);
+  root->setSpacing(10);
 
-  // ---- Header ----
+  // ---- Header: title + mode tabs (Vehicle | World) + back ----
   {
     auto* header = new QHBoxLayout();
-    auto* title = new QLabel(tr("Simulator (in-app)"), this);
+    auto* title = new QLabel(tr("Simulator"), this);
     title->setStyleSheet(
         QString("color: %1; font-size: 18px; font-weight: bold;")
             .arg(Theme::hex(Theme::kAccent)));
     header->addWidget(title);
+    header->addSpacing(18);
+
+    m_vehicleTab = new QPushButton(tr("Vehicle"), this);
+    m_worldTab   = new QPushButton(tr("World"), this);
+    auto* grp = new QButtonGroup(this);
+    grp->setExclusive(true);
+    for (auto* b : {m_vehicleTab, m_worldTab}) {
+      b->setCheckable(true);
+      b->setObjectName("ToggleButton");
+      b->setCursor(Qt::PointingHandCursor);
+    }
+    m_vehicleTab->setToolTip(tr("Configure the airframe (locked while simulating)"));
+    m_worldTab->setToolTip(tr("Design the world and run the simulation"));
+    grp->addButton(m_vehicleTab, 0);
+    grp->addButton(m_worldTab, 1);
+    m_vehicleTab->setChecked(true);
+    header->addWidget(m_vehicleTab);
+    header->addWidget(m_worldTab);
+
     header->addStretch();
     auto* backBtn = new ui::BackButton(this);
     backBtn->setToolTip(tr("Return to home"));
@@ -109,111 +192,36 @@ void SimulatorWidget::buildUi() {
             [this] { emit backToHomeRequested(); });
     header->addWidget(backBtn);
     root->addLayout(header);
+
+    connect(grp, &QButtonGroup::idClicked, this, [this](int id) { setMode(id); });
   }
 
-  // ---- Repo-root row + Launch / Stop ----
-  {
-    auto* row = new QHBoxLayout();
-    row->addWidget(new QLabel(tr("Repo root:"), this));
-    m_repoRootEdit = new QLineEdit(m_repoRoot, this);
-    m_repoRootEdit->setToolTip(tr("Path to the vayu repo. Used for log paths."));
-    connect(m_repoRootEdit, &QLineEdit::editingFinished, this, [this] {
-      m_repoRoot = m_repoRootEdit->text();
-      QSettings().setValue(kRepoRootSettingKey, m_repoRoot);
-    });
-    row->addWidget(m_repoRootEdit, 1);
-
-    auto* launchBtn = new ui::SuccessButton(tr("Launch"), this);
-    launchBtn->setToolTip(tr("Boot the in-process firmware + start the sim worker"));
-    connect(launchBtn, &QPushButton::clicked, this,
-            &SimulatorWidget::startInAppSim);
-    row->addWidget(launchBtn);
-
-    auto* stopBtn = new ui::DangerButton(tr("Stop"), this);
-    stopBtn->setToolTip(tr("Pause the sim worker (firmware threads keep running)"));
-    connect(stopBtn, &QPushButton::clicked, this,
-            &SimulatorWidget::stopInAppSim);
-    row->addWidget(stopBtn);
-    root->addLayout(row);
-  }
-
-  // ---- Log dir row + current-file display ----
-  {
-    auto* row = new QHBoxLayout();
-    row->addWidget(new QLabel(tr("Log dir:"), this));
-    m_logDirEdit = new QLineEdit(m_logDir, this);
-    m_logDirEdit->setToolTip(tr("Directory the per-run UART2 byte log is written into"));
-    connect(m_logDirEdit, &QLineEdit::editingFinished, this, [this] {
-      m_logDir = m_logDirEdit->text();
-      QSettings().setValue(kLogDirSettingKey, m_logDir);
-    });
-    row->addWidget(m_logDirEdit, 1);
-
-    auto* openBtn = new ui::GhostButton(tr("Open dir"), this);
-    openBtn->setToolTip(tr("Open the log directory in your file manager"));
-    connect(openBtn, &QPushButton::clicked, this, [this] {
-      QDesktopServices::openUrl(QUrl::fromLocalFile(m_logDir));
-    });
-    row->addWidget(openBtn);
-    root->addLayout(row);
-
-    m_logPathLabel = new QLabel(tr("Current log: (none)"), this);
-    m_logPathLabel->setStyleSheet(
-        QString("color: %1; font-family: monospace; font-size: 11px;")
-            .arg(Theme::hex(Theme::kTextMuted)));
-    m_logPathLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    root->addWidget(m_logPathLabel);
-  }
-
-  // ---- Main split: renderer | right column ----
+  // ---- Split: 3D viewport | stacked properties panel ----
   auto* splitter = new QSplitter(Qt::Horizontal, this);
   root->addWidget(splitter, 1);
 
   m_renderer = new vsim::SimRendererWidget(splitter);
   splitter->addWidget(m_renderer);
 
-  auto* right = new QWidget(splitter);
-  splitter->addWidget(right);
-  auto* rcol = new QVBoxLayout(right);
-  rcol->setContentsMargins(0, 0, 0, 0);
-  rcol->setSpacing(10);
+  // FPV telemetry HUD: full-viewport overlay child, shown while the sim
+  // runs. It's mouse-transparent so camera orbit still works; an event
+  // filter keeps it sized to the viewport.
+  m_hud = new SimHudWidget(m_renderer);
+  m_hud->setGeometry(m_renderer->rect());
+  m_hud->hide();
+  m_renderer->installEventFilter(this);
 
-  // -- Sim status group --
+  m_rightStack = new QStackedWidget(splitter);
+  splitter->addWidget(m_rightStack);
+
+  // ===== Vehicle page: airframe geometry + motor editor =====
   {
-    auto* g = new QGroupBox(tr("In-app sim"), right);
-    auto* gv = new QVBoxLayout(g);
-    m_simStatusLabel = new QLabel(tr("● Stopped"), g);
-    m_simStatusLabel->setStyleSheet(
-        QString("color: %1;").arg(Theme::hex(Theme::kTextMuted)));
-    gv->addWidget(m_simStatusLabel);
-
-    auto* hb = new QHBoxLayout();
-    m_simStartBtn = new ui::PrimaryButton(tr("Start"), g);
-    m_simStartBtn->setToolTip(tr("Resume the sim worker (boots firmware on first call)"));
-    connect(m_simStartBtn, &QPushButton::clicked, this,
-            &SimulatorWidget::startInAppSim);
-    hb->addWidget(m_simStartBtn);
-    m_simStopBtn = new ui::GhostButton(tr("Stop"), g);
-    m_simStopBtn->setEnabled(false);
-    m_simStopBtn->setToolTip(tr("Stop the sim worker (firmware stays alive)"));
-    connect(m_simStopBtn, &QPushButton::clicked, this,
-            &SimulatorWidget::stopInAppSim);
-    hb->addWidget(m_simStopBtn);
-    gv->addLayout(hb);
-
-    m_simPoseLabel = new QLabel(tr("pose: -"), g);
-    m_simPoseLabel->setStyleSheet(
-        QString("color: %1; font-family: monospace;")
-            .arg(Theme::hex(Theme::kAccent)));
-    gv->addWidget(m_simPoseLabel);
-    rcol->addWidget(g);
-  }
-
-  // -- Geometry & motor editor --
-  {
-    m_geomEditor = new GeometryEditorWidget(right);
+    m_geomEditor = new GeometryEditorWidget();
     connect(m_geomEditor, &GeometryEditorWidget::previewUpdated, this,
             [this] { applyGeometryToRenderer(); });
+    // Gizmo edits in the 3D view flow back into the editor (CoM frame).
+    connect(m_renderer, &vsim::SimRendererWidget::motorEdited, m_geomEditor,
+            &GeometryEditorWidget::setMotorFromGizmo);
     connect(m_geomEditor, &GeometryEditorWidget::geometryApplied, this, [this] {
       applyGeometryToRenderer();
       if (m_sim) m_sim->sendGeometry(m_geomEditor->physicsConfig());
@@ -221,37 +229,234 @@ void SimulatorWidget::buildUi() {
       appendLog("geom", tr("geometry applied (m=%1 kg)")
                             .arg(m_geomEditor->config().mass));
     });
-
-    // The editor scrolls vertically only; its motor grid has its own
-    // inner horizontal scroll, so the panel never scrolls sideways and
-    // the mesh/Browse row stays at column width (reachable without a
-    // horizontal scroll).
-    auto* scroll = new QScrollArea(right);
+    auto* scroll = new QScrollArea();
     scroll->setWidgetResizable(true);
     scroll->setWidget(m_geomEditor);
-    scroll->setMinimumHeight(240);
     scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    rcol->addWidget(scroll, 1);
+    m_rightStack->addWidget(scroll);   // index 0 = Vehicle
   }
 
-  // -- Log --
+  // ===== World page: environment + aerodynamics + simulation =====
   {
-    auto* g = new QGroupBox(tr("Log"), right);
-    auto* gv = new QVBoxLayout(g);
-    m_log = new QPlainTextEdit(g);
+    auto* page = new QWidget();
+    auto* pv = new QVBoxLayout(page);
+    pv->setContentsMargins(0, 0, 0, 0);
+    pv->setSpacing(6);
+
+    m_worldEditor = new WorldEditorWidget(page);
+    connect(m_worldEditor, &WorldEditorWidget::worldApplied, this, [this] {
+      if (m_sim) m_sim->sendWorld(m_worldEditor->config());
+      persistWorld(m_worldEditor->config());
+      appendLog("world", tr("world applied (g=%1 m/s²)")
+                             .arg(m_worldEditor->config().gravity));
+    });
+    pv->addWidget(m_worldEditor);
+
+    auto* simSec = new CollapsibleSection(tr("Simulation"), page);
+    auto* simBody = new QWidget();
+    auto* sv = new QVBoxLayout(simBody);
+    sv->setContentsMargins(0, 0, 0, 0);
+    sv->setSpacing(6);
+
+    m_simStatusLabel = new QLabel(tr("● Stopped"), simBody);
+    m_simStatusLabel->setStyleSheet(
+        QString("color: %1;").arg(Theme::hex(Theme::kTextMuted)));
+    sv->addWidget(m_simStatusLabel);
+
+    auto* runRow = new QHBoxLayout();
+    m_simStartBtn = new ui::SuccessButton(tr("Start"), simBody);
+    m_simStartBtn->setToolTip(tr("Boot firmware (first time) + start the sim"));
+    connect(m_simStartBtn, &QPushButton::clicked, this,
+            &SimulatorWidget::startInAppSim);
+    m_simStopBtn = new ui::DangerButton(tr("Stop"), simBody);
+    m_simStopBtn->setEnabled(false);
+    m_simStopBtn->setToolTip(tr("Stop the sim worker (firmware stays alive)"));
+    connect(m_simStopBtn, &QPushButton::clicked, this,
+            &SimulatorWidget::stopInAppSim);
+    m_simResetBtn = new ui::GhostButton(tr("Reset"), simBody);
+    m_simResetBtn->setEnabled(false);
+    m_simResetBtn->setToolTip(tr("Reset the airframe to the spawn pose"));
+    connect(m_simResetBtn, &QPushButton::clicked, this,
+            [this] { if (m_sim) m_sim->sendReset(); });
+    runRow->addWidget(m_simStartBtn);
+    runRow->addWidget(m_simStopBtn);
+    runRow->addWidget(m_simResetBtn);
+    runRow->addStretch();
+    sv->addLayout(runRow);
+
+    m_simPoseLabel = new QLabel(tr("pose: -"), simBody);
+    m_simPoseLabel->setStyleSheet(
+        QString("color: %1; font-family: monospace;")
+            .arg(Theme::hex(Theme::kAccent)));
+    sv->addWidget(m_simPoseLabel);
+
+    // RC transmitter (USB joystick) → firmware RC. Must be set before the
+    // first Start (firmware reads the RC path once at boot).
+    {
+      QSettings st;
+      auto* rcRow = new QHBoxLayout();
+      m_rcEnable = new QCheckBox(tr("RC transmitter"), simBody);
+      m_rcEnable->setChecked(st.value(kRcEnableKey, true).toBool());
+      m_rcEnable->setToolTip(tr("Feed a USB RC transmitter (joystick) into "
+                                "the sim. Enable before the first Start."));
+      connect(m_rcEnable, &QCheckBox::toggled, this, [this](bool on) {
+        QSettings().setValue(kRcEnableKey, on);
+        if (m_rc) m_rc->setEnabled(on);   // live, no restart
+      });
+      rcRow->addWidget(m_rcEnable);
+      m_rcPath = new QLineEdit(
+          st.value(kRcPathKey, "/dev/input/js0").toString(), simBody);
+      m_rcPath->setToolTip(tr("Joystick device (Linux js API)."));
+      connect(m_rcPath, &QLineEdit::editingFinished, this,
+              [this] { QSettings().setValue(kRcPathKey, m_rcPath->text()); });
+      rcRow->addWidget(m_rcPath, 1);
+      sv->addLayout(rcRow);
+
+      m_rcReadout = new QLabel(tr("RC: —"), simBody);
+      m_rcReadout->setStyleSheet(
+          QString("color: %1; font-family: monospace; font-size: 11px;")
+              .arg(Theme::hex(Theme::kTextMuted)));
+      sv->addWidget(m_rcReadout);
+
+      // Live per-axis readout — move a control and see which axis changes.
+      m_rcAxesLabel = new QLabel(tr("Axes: —"), simBody);
+      m_rcAxesLabel->setStyleSheet(
+          QString("color: %1; font-family: monospace; font-size: 11px;")
+              .arg(Theme::hex(Theme::kTextDim)));
+      sv->addWidget(m_rcAxesLabel);
+
+      // Channel → axis mapping (+ invert), one row per function.
+      auto* mapGrid = new QGridLayout();
+      mapGrid->setHorizontalSpacing(6);
+      mapGrid->setVerticalSpacing(2);
+      for (int f = 0; f < 5; ++f) {
+        const int savedSrc =
+            st.value(QString(kRcMapAxisKey) + QString::number(f), kRcDefaultAxis[f]).toInt();
+        const bool savedInv =
+            st.value(QString(kRcMapInvKey) + QString::number(f), false).toBool();
+        mapGrid->addWidget(new QLabel(tr(kRcFuncName[f]), simBody), f, 0);
+        auto* combo = new QComboBox(simBody);
+        for (int a = 0; a < 6; ++a) combo->addItem(tr("Axis %1").arg(a), a);
+        for (int b = 0; b < 3; ++b)
+          combo->addItem(tr("Button %1").arg(b), RcBridge::kButtonBase + b);
+        const int idx = combo->findData(savedSrc);
+        combo->setCurrentIndex(idx >= 0 ? idx : 0);
+        mapGrid->addWidget(combo, f, 1);
+        auto* inv = new QCheckBox(tr("invert"), simBody);
+        inv->setChecked(savedInv);
+        mapGrid->addWidget(inv, f, 2);
+        m_rcAxisCombo[f] = combo;
+        m_rcInvert[f] = inv;
+        connect(combo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+                [this, f] { pushRcMapping(f); });
+        connect(inv, &QCheckBox::toggled, this, [this, f] { pushRcMapping(f); });
+      }
+      sv->addLayout(mapGrid);
+
+      // Software arm — for TXs with no usable arm switch. Overrides the
+      // Arm channel: checked = armed (2000), unchecked = use the mapping.
+      m_swArm = new QCheckBox(tr("Software arm (override)"), simBody);
+      m_swArm->setToolTip(tr("Force the arm channel high. Use with throttle "
+                             "down to ARM when your TX has no arm switch."));
+      connect(m_swArm, &QCheckBox::toggled, this, [this](bool on) {
+        if (m_rc) m_rc->setArmOverride(on ? 1 : -1);
+      });
+      sv->addWidget(m_swArm);
+    }
+
+    auto* repoRow = new QHBoxLayout();
+    repoRow->addWidget(new QLabel(tr("Repo root:"), simBody));
+    m_repoRootEdit = new QLineEdit(m_repoRoot, simBody);
+    m_repoRootEdit->setToolTip(tr("Path to the vayu repo. Used for log paths."));
+    connect(m_repoRootEdit, &QLineEdit::editingFinished, this, [this] {
+      m_repoRoot = m_repoRootEdit->text();
+      QSettings().setValue(kRepoRootSettingKey, m_repoRoot);
+    });
+    repoRow->addWidget(m_repoRootEdit, 1);
+    sv->addLayout(repoRow);
+
+    auto* logRow = new QHBoxLayout();
+    logRow->addWidget(new QLabel(tr("Log dir:"), simBody));
+    m_logDirEdit = new QLineEdit(m_logDir, simBody);
+    m_logDirEdit->setToolTip(tr("Directory the per-run UART2 byte log is written into"));
+    connect(m_logDirEdit, &QLineEdit::editingFinished, this, [this] {
+      m_logDir = m_logDirEdit->text();
+      QSettings().setValue(kLogDirSettingKey, m_logDir);
+    });
+    logRow->addWidget(m_logDirEdit, 1);
+    auto* openBtn = new ui::GhostButton(tr("Open"), simBody);
+    openBtn->setToolTip(tr("Open the log directory in your file manager"));
+    connect(openBtn, &QPushButton::clicked, this, [this] {
+      QDesktopServices::openUrl(QUrl::fromLocalFile(m_logDir));
+    });
+    logRow->addWidget(openBtn);
+    sv->addLayout(logRow);
+
+    m_logPathLabel = new QLabel(tr("Current log: (none)"), simBody);
+    m_logPathLabel->setStyleSheet(
+        QString("color: %1; font-family: monospace; font-size: 11px;")
+            .arg(Theme::hex(Theme::kTextMuted)));
+    m_logPathLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    sv->addWidget(m_logPathLabel);
+
+    m_log = new QPlainTextEdit(simBody);
     m_log->setReadOnly(true);
     m_log->setMaximumBlockCount(2000);
-    // Editor chrome handled by global QSS (QPlainTextEdit rule).
-    gv->addWidget(m_log);
-    rcol->addWidget(g, 1);
+    m_log->setMinimumHeight(150);
+    sv->addWidget(m_log);
+
+    simSec->setContentWidget(simBody);
+    pv->addWidget(simSec);
+    pv->addStretch();
+
+    auto* scroll = new QScrollArea();
+    scroll->setWidgetResizable(true);
+    scroll->setWidget(page);
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_rightStack->addWidget(scroll);   // index 1 = World
   }
 
   splitter->setStretchFactor(0, 3);
   splitter->setStretchFactor(1, 2);
 
-  // Restore the persisted airframe; setConfig loads the mesh + recomputes
-  // and fires previewUpdated -> applyGeometryToRenderer for the 3D view.
+  // Restore persisted configs (geometry setConfig also loads the mesh +
+  // recomputes, firing previewUpdated -> applyGeometryToRenderer).
   m_geomEditor->setConfig(restoreGeometry());
+  m_worldEditor->setConfig(restoreWorld());
+
+  setMode(0);   // start in Vehicle (sim stopped)
+}
+
+void SimulatorWidget::setMode(int mode) {
+  if (!m_rightStack) return;
+  // Vehicle is config-only and locked while the sim runs.
+  if (mode == 0 && m_sim) mode = 1;
+  m_rightStack->setCurrentIndex(mode);
+  if (m_vehicleTab) m_vehicleTab->setChecked(mode == 0);
+  if (m_worldTab)   m_worldTab->setChecked(mode == 1);
+  // Motor gizmos belong to Vehicle mode (and thus only when stopped).
+  if (m_renderer) m_renderer->setMotorsEditable(mode == 0);
+}
+
+void SimulatorWidget::updateHud(const vsim::SimSnapshot& s) {
+  if (m_hud) m_hud->setSnapshot(s);
+}
+
+void SimulatorWidget::pushRcMapping(int func) {
+  if (func < 0 || func >= 5 || !m_rcAxisCombo[func]) return;
+  const int axis = m_rcAxisCombo[func]->currentData().toInt();
+  const bool inv = m_rcInvert[func]->isChecked();
+  if (m_rc) m_rc->setMapping(func, axis, inv);
+  QSettings s;
+  s.setValue(QString(kRcMapAxisKey) + QString::number(func), axis);
+  s.setValue(QString(kRcMapInvKey) + QString::number(func), inv);
+}
+
+bool SimulatorWidget::eventFilter(QObject* obj, QEvent* ev) {
+  if (obj == m_renderer && ev->type() == QEvent::Resize && m_hud) {
+    m_hud->setGeometry(m_renderer->rect());
+  }
+  return QWidget::eventFilter(obj, ev);
 }
 
 // ----------------------------------------------------------------------------
@@ -296,21 +501,30 @@ void SimulatorWidget::startInAppSim() {
                     .arg(roll, 0, 'f', 1)
                     .arg(pitch, 0, 'f', 1)
                     .arg(yaw, 0, 'f', 1));
+            updateHud(snap);
           });
   connect(m_sim, &vsim::SimWorker::logLine, this,
           [this](const QString& s) { appendLog("vsim", s); });
-  // Once the daemon's FIFOs are up, push the configured airframe so the
-  // sim flies the edited mass properties + motor layout from frame one.
+  // Once the daemon's FIFOs are up, push the configured airframe + world
+  // so the sim flies the edited params from frame one.
   connect(m_sim, &vsim::SimWorker::online, this, [this] {
-    if (m_sim) m_sim->sendGeometry(m_geomEditor->physicsConfig());
+    if (!m_sim) return;
+    m_sim->sendGeometry(m_geomEditor->physicsConfig());
+    m_sim->sendWorld(m_worldEditor->config());
   });
   m_sim->start(QThread::TimeCriticalPriority);
 
   m_simStartBtn->setEnabled(false);
   m_simStopBtn->setEnabled(true);
+  if (m_simResetBtn) m_simResetBtn->setEnabled(true);
   m_simStatusLabel->setText(tr("● Running"));
   m_simStatusLabel->setStyleSheet(
       QString("color: %1;").arg(Theme::hex(Theme::kOk)));
+  // Vehicle configuration is locked while simulating; force World mode.
+  if (m_vehicleTab) m_vehicleTab->setEnabled(false);
+  setMode(1);
+  // Show the telemetry HUD over the viewport.
+  if (m_hud) { m_hud->setGeometry(m_renderer->rect()); m_hud->raise(); m_hud->show(); }
 }
 
 void SimulatorWidget::stopInAppSim() {
@@ -324,9 +538,14 @@ void SimulatorWidget::stopInAppSim() {
   m_sim = nullptr;
   m_simStartBtn->setEnabled(true);
   m_simStopBtn->setEnabled(false);
+  if (m_simResetBtn) m_simResetBtn->setEnabled(false);
   m_simStatusLabel->setText(tr("● Stopped (firmware idle)"));
   m_simStatusLabel->setStyleSheet(
       QString("color: %1;").arg(Theme::hex(Theme::kTextMuted)));
+  // Vehicle config is editable again; stay in World until the user
+  // switches back (clicking the Vehicle tab re-enables motor gizmos).
+  if (m_vehicleTab) m_vehicleTab->setEnabled(true);
+  if (m_hud) m_hud->hide();
   // Close the per-run log file so its trailing bytes flush to disk.
   closeLogFile();
   // Note: we don't call vayu_sitl_stop() here on the Stop button.
@@ -364,6 +583,8 @@ void SimulatorWidget::persistGeometry(const vsim::GeometryConfig& g) {
   s.setValue("meshPath", g.meshPath);
   s.setValue("scale", g.scale);
   s.setValue("mass", g.mass);
+  s.setValue("tx", g.translate.x()); s.setValue("ty", g.translate.y()); s.setValue("tz", g.translate.z());
+  s.setValue("rx", g.rotate.x());    s.setValue("ry", g.rotate.y());    s.setValue("rz", g.rotate.z());
   s.setValue("comX", g.com.x());
   s.setValue("comY", g.com.y());
   s.setValue("comZ", g.com.z());
@@ -396,6 +617,10 @@ vsim::GeometryConfig SimulatorWidget::restoreGeometry() {
   g.meshPath = s.value("meshPath").toString();
   g.scale = s.value("scale", g.scale).toFloat();
   g.mass = s.value("mass", g.mass).toFloat();
+  g.translate = QVector3D(s.value("tx").toFloat(), s.value("ty").toFloat(),
+                          s.value("tz").toFloat());
+  g.rotate = QVector3D(s.value("rx").toFloat(), s.value("ry").toFloat(),
+                       s.value("rz").toFloat());
   g.com = QVector3D(s.value("comX").toFloat(), s.value("comY").toFloat(),
                     s.value("comZ").toFloat());
   for (int i = 0; i < 9; ++i)
@@ -416,6 +641,34 @@ vsim::GeometryConfig SimulatorWidget::restoreGeometry() {
   }
   s.endGroup();
   return g;
+}
+
+void SimulatorWidget::persistWorld(const vsim::WorldConfig& w) {
+  QSettings s;
+  s.beginGroup(kWorldGroup);
+  s.setValue("gravity", w.gravity);
+  s.setValue("ground_z", w.ground_z);
+  s.setValue("restitution", w.restitution);
+  s.setValue("linear_drag", w.linear_drag);
+  s.setValue("angular_drag", w.angular_drag);
+  s.endGroup();
+}
+
+vsim::WorldConfig SimulatorWidget::restoreWorld() {
+  vsim::WorldConfig w;   // defaults if nothing saved
+  QSettings s;
+  s.beginGroup(kWorldGroup);
+  if (!s.contains("gravity")) {
+    s.endGroup();
+    return w;
+  }
+  w.gravity      = s.value("gravity", w.gravity).toFloat();
+  w.ground_z     = s.value("ground_z", w.ground_z).toFloat();
+  w.restitution  = s.value("restitution", w.restitution).toFloat();
+  w.linear_drag  = s.value("linear_drag", w.linear_drag).toFloat();
+  w.angular_drag = s.value("angular_drag", w.angular_drag).toFloat();
+  s.endGroup();
+  return w;
 }
 
 void SimulatorWidget::onUartBytes(QByteArray bytes) {
