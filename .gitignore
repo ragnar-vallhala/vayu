@@ -7,3 +7,4 @@ logs
 .vscode
 venv
 __pycache__
+build_vsim/

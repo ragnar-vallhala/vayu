@@ -3,10 +3,14 @@
  * controller and ESC layers call.
  *
  * Coverage:
- *   PWM: hal_pwm_init / start / stop / set_duty_cycle -> writes
- *        "motor_idx duty\n" to /tmp/vayu_pwm.fifo. The FIFO is opened
- *        O_RDWR + O_NONBLOCK so writes never block whether a consumer
- *        has connected yet or not (kernel pipe buffer absorbs).
+ *   PWM: hal_pwm_init / start / stop / set_duty_cycle -> writes a
+ *        binary vsim_pwm_frame_t (32 B, four 0..1 floats + header) to
+ *        /tmp/vsim_pwm on every duty update. The FIFO is opened O_RDWR
+ *        + O_NONBLOCK so writes never block whether the vsim_d daemon
+ *        has connected yet or not (kernel pipe buffer absorbs). The
+ *        frame is a snapshot of all four motors; the daemon does
+ *        latest-wins so the staleness on the un-updated motors during
+ *        a controller iteration is harmless.
  *   GPIO: no-ops.
  *   Clock: SYSCLK = 84 MHz.
  *   Cycle counter: CLOCK_MONOTONIC nanoseconds scaled to 84 MHz.
@@ -19,9 +23,11 @@
 #define _GNU_SOURCE
 #include "navhal.h"
 #include "vsim_iface.h"
+#include "vsim_proto.h"
 
 #include <errno.h>
 #include <fcntl.h>
+#include <termios.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -30,7 +36,6 @@
 #include <time.h>
 #include <unistd.h>
 
-#define VAYU_PWM_FIFO_PATH    "/tmp/vayu_pwm.fifo"
 #define VAYU_UART2_LOG_PATH   "/tmp/vayu_uart2.log"
 #define VAYU_UART2_PTY_PATH   "/tmp/vayu_uart2_pty"  /* slave-path advertisement */
 #define PWM_NUM_TIMER_CHANNELS 4
@@ -43,25 +48,30 @@ typedef struct {
 } host_pwm_state_t;
 
 static host_pwm_state_t pwm_state[PWM_NUM_TIMER_CHANNELS + 1]; /* 1..4 indexed */
-static int  pwm_fifo_fd = -1;
-static char pwm_fifo_open_failed = 0;
+static int      pwm_fifo_fd = -1;
+static char     pwm_fifo_open_failed = 0;
+static uint32_t pwm_seq;
+/* Latest 0..1 (post-ESC-band-strip) command for each motor. Updated by
+ * hal_pwm_set_duty_cycle, then snapshot-emitted as a single 4-float
+ * frame on every call. Indices 0..3 = motors 1..4. */
+static float    pwm_latest[4];
 
 static void pwm_fifo_ensure_open(void) {
     if (pwm_fifo_fd >= 0 || pwm_fifo_open_failed) return;
     struct stat st;
-    if (stat(VAYU_PWM_FIFO_PATH, &st) != 0) {
+    if (stat(VSIM_FIFO_PWM, &st) != 0) {
         /* Best-effort create. mkfifo lives in libc on Linux. */
-        if (mkfifo(VAYU_PWM_FIFO_PATH, 0666) != 0) {
+        if (mkfifo(VSIM_FIFO_PWM, 0666) != 0) {
             /* If somebody else just created it, fall through. */
         }
     }
-    pwm_fifo_fd = open(VAYU_PWM_FIFO_PATH, O_RDWR | O_NONBLOCK);
+    pwm_fifo_fd = open(VSIM_FIFO_PWM, O_RDWR | O_NONBLOCK);
     if (pwm_fifo_fd < 0) {
-        fprintf(stderr, "host_navhal: open %s failed\n", VAYU_PWM_FIFO_PATH);
+        fprintf(stderr, "host_navhal: open %s failed\n", VSIM_FIFO_PWM);
         pwm_fifo_open_failed = 1;
     } else {
         fprintf(stderr, "host_navhal: PWM FIFO %s open (fd=%d)\n",
-                VAYU_PWM_FIFO_PATH, pwm_fifo_fd);
+                VSIM_FIFO_PWM, pwm_fifo_fd);
     }
 }
 
@@ -99,9 +109,12 @@ hal_status_t hal_pwm_set_duty_cycle(hal_pwm_handle_t *pwm, float duty_cycle) {
     pwm_state[pwm->channel].last_duty = duty_cycle;
 
     /* Strip the firmware ESC's 1..2 ms pulse band so motor=0..1 is
-     * the linear motor command (see longer comment below). Done here
-     * so both the in-process iface and the legacy FIFO see the same
-     * 0..1 value. */
+     * the linear motor command. The firmware's esc_set_throttle()
+     * maps motor outputs (0..1) into a 1..2 ms pulse on a 2.5 ms
+     * (400 Hz) period -> duty 0.4..0.8. On real hardware that band is
+     * the ESC's expected throw; in sim there is no ESC, so we strip
+     * the band here and write the linear motor command (0..1) the
+     * controller actually produced. */
     int motor_idx = (int)pwm->channel - 1;
     const float esc_idle = 0.4f;
     const float esc_full = 0.8f;
@@ -109,41 +122,35 @@ hal_status_t hal_pwm_set_duty_cycle(hal_pwm_handle_t *pwm, float duty_cycle) {
     if (cmd < 0.0f) cmd = 0.0f;
     if (cmd > 1.0f) cmd = 1.0f;
 
-    /* In-process path: write to the shared iface and we're done. The
-     * GCS-side SimWorker pulls from iface->motor_duty[] each tick. */
-    vsim_iface_t *iface = vsim_iface_get_global();
-    if (iface) {
-        pthread_mutex_lock(&iface->lock);
-        iface->motor_duty[motor_idx] = cmd;
-        pthread_mutex_unlock(&iface->lock);
-        return HAL_OK;
-    }
-
-    /* Fallback (no iface set): legacy FIFO mode for the standalone
-     * vayu_sitl binary. */
+    /* PWM transport is FIFO-only as of the vsim_d split. The iface is
+     * still set by Navigator for the UART2 telemetry callback, but
+     * PWM no longer rides on it -- the physics daemon (vsim_d) reads
+     * /tmp/vsim_pwm directly. This keeps the firmware<->physics
+     * boundary identical whether the firmware runs inside Navigator
+     * or as the standalone vayu_sitl binary.
+     *
+     * Snapshot semantics: the wire frame carries all four motor duties.
+     * The controller calls this function once per motor per iteration,
+     * so we update the snapshot slot and emit a full frame each call.
+     * The daemon does latest-wins so seeing intermediate snapshots is
+     * harmless. */
     if (pwm_fifo_fd < 0) pwm_fifo_ensure_open();
     if (pwm_fifo_fd < 0) return HAL_OK; /* degrade: skip */
 
-    /* Channel 1..4 -> motor index 0..3 (vayu_pwm_to_gz.py expects 0..3).
-     *
-     * Undo the firmware ESC's pulse-width band before writing. The
-     * firmware's esc_set_throttle() maps motor_outputs (0..1) into a
-     * 1..2 ms pulse on a 2.5 ms (400 Hz) period -> duty 0.4..0.8. On
-     * real hardware that band is the ESC's expected throw and the ESC
-     * driver chip translates it back to motor power; in sim there is
-     * no ESC, so we strip the band here and write the linear motor
-     * command (0..1) the controller actually produced. This matches
-     * the user's mental model -- "motor output 0.4 means 40% motor
-     * power, not idle" -- and lets the bridge map the FIFO value
-     * directly to rotor velocity without inverting a phantom ESC.
-     * (cmd / motor_idx are computed above, shared between iface and
-     * FIFO paths.) */
-    char buf[40];
-    int n = snprintf(buf, sizeof(buf), "%d %.6f\n", motor_idx, cmd);
-    if (n > 0) {
-        ssize_t w = write(pwm_fifo_fd, buf, (size_t)n);
-        (void)w;
-    }
+    pwm_latest[motor_idx] = cmd;
+
+    vsim_pwm_frame_t frame;
+    frame.hdr.magic         = VSIM_MAGIC;
+    frame.hdr.version       = VSIM_PROTO_VERSION;
+    frame.hdr.type          = VSIM_FRAME_PWM;
+    frame.hdr.payload_bytes = sizeof(frame) - sizeof(vsim_hdr_t);
+    frame.hdr.seq_no        = ++pwm_seq;
+    frame.duty[0] = pwm_latest[0];
+    frame.duty[1] = pwm_latest[1];
+    frame.duty[2] = pwm_latest[2];
+    frame.duty[3] = pwm_latest[3];
+    ssize_t w = write(pwm_fifo_fd, &frame, sizeof(frame));
+    (void)w;
     return HAL_OK;
 }
 
@@ -194,11 +201,49 @@ static int uart2_pty_master_fd = -1;
 static int uart2_log_fd = -1;
 static char uart2_slave_path[256];
 
+/* UART2 RX (GCS -> FC). On hardware a per-byte RX IRQ calls
+ * uart2_packet_recv_callback(), which pulls the byte via
+ * hal_uart_read_char(). In SITL we emulate that: a reader thread on the
+ * pty master stashes each received byte and drives the same callback, so
+ * a GCS attached to the pty slave can send NavLink commands. */
+static volatile unsigned char uart2_rx_byte;
+static int uart2_rx_started;
+extern void uart2_packet_recv_callback(void);
+
+static void *uart2_rx_thread(void *arg) {
+    int fd = (int)(intptr_t)arg;
+    for (;;) {
+        unsigned char b;
+        ssize_t r = read(fd, &b, 1);
+        if (r == 1) {
+            uart2_rx_byte = b;
+            uart2_packet_recv_callback();
+        } else if (r == 0) {
+            /* slave not open yet / hung up — back off briefly */
+            struct timespec ts = {0, 2 * 1000 * 1000};
+            nanosleep(&ts, NULL);
+        } else {
+            if (errno == EINTR) continue;
+            struct timespec ts = {0, 2 * 1000 * 1000};
+            nanosleep(&ts, NULL);
+        }
+    }
+    return NULL;
+}
+
 static void uart2_ensure_open(void) {
     pthread_mutex_lock(&uart2_mu);
     if (uart2_pty_master_fd < 0) {
         int fd = posix_openpt(O_RDWR | O_NOCTTY);
         if (fd >= 0 && grantpt(fd) == 0 && unlockpt(fd) == 0) {
+            /* Raw mode: no echo / no canonical / no CR-NL translation, so
+             * binary telemetry isn't echoed back to us (which would loop
+             * into the RX path) and GCS command bytes pass through intact. */
+            struct termios tio;
+            if (tcgetattr(fd, &tio) == 0) {
+                cfmakeraw(&tio);
+                tcsetattr(fd, TCSANOW, &tio);
+            }
             const char *p = ptsname(fd);
             if (p) {
                 strncpy(uart2_slave_path, p, sizeof(uart2_slave_path) - 1);
@@ -213,6 +258,17 @@ static void uart2_ensure_open(void) {
                 fprintf(stderr, "host_navhal: connect the GCS to %s "
                                 "(or read %s)\n",
                         uart2_slave_path, VAYU_UART2_PTY_PATH);
+                /* Start the RX reader so GCS->FC commands are delivered. */
+                if (!uart2_rx_started) {
+                    pthread_t th;
+                    if (pthread_create(&th, NULL, uart2_rx_thread,
+                                       (void *)(intptr_t)uart2_pty_master_fd) == 0) {
+                        pthread_detach(th);
+                        uart2_rx_started = 1;
+                        fprintf(stderr, "host_navhal: UART2 RX reader started "
+                                        "(GCS->FC commands enabled)\n");
+                    }
+                }
             } else {
                 close(fd);
             }
@@ -301,7 +357,9 @@ hal_status_t hal_uart_write_dma(hal_uart_t uart, const uint8_t *buf,
 
 char hal_uart_read_char(hal_uart_t uart) {
     (void)uart;
-    return 0;
+    /* Returns the byte the RX reader just stashed before driving
+     * uart2_packet_recv_callback() (UART2 GCS->FC path). */
+    return (char)uart2_rx_byte;
 }
 
 hal_status_t hal_uart_enable_interrupt(hal_uart_t uart, uint8_t rx, uint8_t tx) {

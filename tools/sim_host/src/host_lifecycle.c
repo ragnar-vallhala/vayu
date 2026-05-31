@@ -16,19 +16,15 @@
  *   - For a true reset, restart the host process.
  */
 #define _GNU_SOURCE
-#include "control/angle_controller.h"
-#include "control/angle_rate_controller.h"
-#include "actuator/motor.h"
-#include "comm/channel.h"
-#include "comm/ibus.h"
-#include "comm/rc_buffer.h"
-#include "maths/control_buffer.h"
-#include "maths/sensor_fusion.h"
-#include "sensor/imu_buffer.h"
-#include "sensor/bmx160.h"
+#include "control/control.h"
+#include "actuator/actuator.h"
+#include "comm/comm.h"
+#include "est/est.h"
+#include "sensor/sensor.h"
 #include "sys/state.h"
 #include "task.h"
-#include "utils/utils.h"
+#include "logger/logger.h"
+#include "sys/sys_utils.h"
 #include "variables.h"   /* HIGH_FREQ_TIMER_FREQ */
 #include "vaios.h"
 #include "vayu_tasks.h"
@@ -162,7 +158,11 @@ int vayu_sitl_start(vsim_iface_t *iface) {
         }
     }
 
-    system_state_set(SYSTEM_STATE_STANDBY);
+    /* Walk the allowed transition path (SYS-SAFE-006): UNINITIALIZED ->
+     * INIT (via system_state_init) -> STANDBY. A direct jump to STANDBY is
+     * rejected by the transition table. (On hardware boot_task does this.) */
+    system_state_init();
+    VAYU_DISCARD(system_state_set(SYSTEM_STATE_STANDBY));
 
     if (!passthrough_mode) {
         task_create(angle_controller_task,      NULL, 1024 * 8, 1);
@@ -173,6 +173,10 @@ int vayu_sitl_start(vsim_iface_t *iface) {
     task_create(motor_task,                     NULL, 1024 * 8, 1);
     task_create(imu_telemetry_task,             NULL, 1024 * 8, 1);
     task_create(flush_task,                     NULL, 1024 * 4, 0);
+    /* GCS->FC command path: consume RX packets (CMD_SET_PID, calibrate,
+     * heartbeat) the UART2 reader buffers. Without this, commands are
+     * received but never dispatched. */
+    task_create(comm_processor_task,            NULL, 1024 * 4, 0);
 
     v_delay(200);
     set_motor_ready(true);
