@@ -173,7 +173,7 @@
 #define DEAFULT_YAW_ANGLE_TARGET_MAX 100.0f
 #define DEAFULT_YAW_ANGLE_OUT_MAX 100.0f
 
-#define MAX_ANGLE_CUTOFF 45.0f
+#define MAX_ANGLE_CUTOFF 70.0f
 
 typedef struct __attribute__((packed)) {
   float roll_angle_sp;
