@@ -23,7 +23,7 @@ ImuSample SimController::tick(const std::array<float, 4>& duty, float dt) {
         last_a_world_ = (phys_.state().vel_w - vel_before) / dt;
     }
 
-    return sensors_.sample(phys_.state(), last_a_world_, dt);
+    return sensors_.sample(phys_.state(), last_a_world_, phys_.params().gravity, dt);
 }
 
 }  // namespace vsim

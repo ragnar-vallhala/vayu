@@ -39,6 +39,7 @@ public:
     // force (= a_world - gravity_world) rotated into body frame.
     ImuSample sample(const RigidBodyState& state,
                      const Vec3& a_world,
+                     float gravity,
                      float dt);
 
 private:

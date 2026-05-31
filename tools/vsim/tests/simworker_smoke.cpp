@@ -50,6 +50,15 @@ int main(int argc, char** argv) {
         worker.sendGeometry(g);
     });
 
+    // ~1.1 s: push a world config (lunar gravity) to exercise
+    // VSIM_CTL_SET_WORLD; daemon should log "world set" and keep streaming.
+    QTimer::singleShot(1100, &app, [&] {
+        vsim::WorldConfig w;
+        w.gravity = 1.62f;
+        w.linear_drag = 0.2f;
+        worker.sendWorld(w);
+    });
+
     // Run for ~1.5 s of pose streaming, then stop + quit.
     QTimer::singleShot(1500, &app, [&] {
         worker.requestStop();

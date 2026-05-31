@@ -2,7 +2,10 @@
 
 #include "vsim/SimWorker.h"
 #include "vsim/SimRendererWidget.h"
+#include "vsim/RcBridge.h"
 #include "GeometryEditorWidget.h"
+#include "WorldEditorWidget.h"
+#include "SimHudWidget.h"
 
 extern "C" {
 #include "vsim_iface.h"
@@ -19,6 +22,10 @@ extern "C" {
 #include <memory>
 
 class QGridLayout;
+class QStackedWidget;
+class QPushButton;
+class QCheckBox;
+class QComboBox;
 
 /**
  * SimulatorWidget - control + monitor page for the SITL.
@@ -54,6 +61,10 @@ class SimulatorWidget : public QWidget {
    * existing telemetry panels light up without further plumbing. */
   void dataReceived(const QByteArray& bytes);
 
+ protected:
+  // Keeps the HUD overlay sized to the viewport (watches m_renderer resize).
+  bool eventFilter(QObject* obj, QEvent* ev) override;
+
  public slots:
   // Called from the C UART2 callback via QMetaObject::invokeMethod
   // (Qt::QueuedConnection) so the firmware thread crossing the
@@ -76,6 +87,15 @@ class SimulatorWidget : public QWidget {
   void applyGeometryToRenderer();
   void persistGeometry(const vsim::GeometryConfig& g);
   vsim::GeometryConfig restoreGeometry();
+  void persistWorld(const vsim::WorldConfig& w);
+  vsim::WorldConfig restoreWorld();
+
+  // Switch the right-hand properties panel: 0 = Vehicle, 1 = World.
+  // Vehicle is locked while the sim is running.
+  void setMode(int mode);
+
+  // Refresh the viewport HUD overlay from a pose snapshot.
+  void updateHud(const vsim::SimSnapshot& s);
 
   // ---- repo root (kept for legacy widget consistency) ----
   QString m_repoRoot;
@@ -93,10 +113,25 @@ class SimulatorWidget : public QWidget {
   bool m_ifaceInit = false;
   bool m_sitlStarted = false;
   vsim::SimWorker* m_sim = nullptr;
+  RcBridge* m_rc = nullptr;        // USB RC transmitter → firmware RC feeder
+  QCheckBox* m_rcEnable = nullptr;
+  QLineEdit* m_rcPath = nullptr;
+  QLabel* m_rcReadout = nullptr;
+  QLabel* m_rcAxesLabel = nullptr;          // live per-axis µs (identify)
+  QComboBox* m_rcAxisCombo[5] = {nullptr, nullptr, nullptr, nullptr, nullptr};
+  QCheckBox* m_rcInvert[5] = {nullptr, nullptr, nullptr, nullptr, nullptr};
+  QCheckBox* m_swArm = nullptr;             // software arm (no hardware switch)
+  void pushRcMapping(int func);             // combo/invert → bridge + persist
   vsim::SimRendererWidget* m_renderer = nullptr;
+  SimHudWidget* m_hud = nullptr;   // FPV telemetry overlay on the viewport
   GeometryEditorWidget* m_geomEditor = nullptr;
+  WorldEditorWidget* m_worldEditor = nullptr;
+  QStackedWidget* m_rightStack = nullptr;   // 0 = Vehicle, 1 = World
+  QPushButton* m_vehicleTab = nullptr;
+  QPushButton* m_worldTab = nullptr;
   QPushButton* m_simStartBtn = nullptr;
   QPushButton* m_simStopBtn = nullptr;
+  QPushButton* m_simResetBtn = nullptr;
   QLabel* m_simStatusLabel = nullptr;
   QLabel* m_simPoseLabel = nullptr;
 

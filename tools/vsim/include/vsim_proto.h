@@ -112,6 +112,7 @@ enum {
     VSIM_CTL_SET_NOISE    = 3,  // body: vsim_ctl_noise_t (future)
     VSIM_CTL_PING         = 4,  // body: empty; daemon replies via stderr log
     VSIM_CTL_SET_GEOMETRY = 5,  // body: vsim_ctl_geometry_t (mass+inertia+motors)
+    VSIM_CTL_SET_WORLD    = 6,  // body: vsim_ctl_world_t (gravity+ground+drag)
 };
 
 typedef struct {
@@ -153,6 +154,22 @@ typedef struct {
     } motors[4];
 } vsim_ctl_geometry_t;
 
+// Body for VSIM_CTL_SET_WORLD: environment + aerodynamics, edited in the
+// World tab. Composes with SET_GEOMETRY on the daemon side (each message
+// touches a disjoint set of DroneParams fields).
+//   gravity      -- m/s^2 (world +Z down)
+//   ground_z     -- NED z of the ground plane [m]
+//   restitution  -- ground bounce factor [0,1]
+//   linear_drag  -- N per (m/s)
+//   angular_drag -- N*m per (rad/s)
+typedef struct {
+    float gravity;
+    float ground_z;
+    float restitution;
+    float linear_drag;
+    float angular_drag;
+} vsim_ctl_world_t;
+
 // Canonical FIFO paths. Daemon and clients both default to these.
 #define VSIM_FIFO_PWM   "/tmp/vsim_pwm"
 #define VSIM_FIFO_IMU   "/tmp/vsim_imu"
@@ -168,6 +185,7 @@ static_assert(sizeof(vsim_imu_frame_t)  == 16 + 76,  "vsim_imu_frame_t size");
 static_assert(sizeof(vsim_pose_frame_t) == 16 + 92,  "vsim_pose_frame_t size");
 static_assert(sizeof(vsim_ctl_frame_t)  == 16 + 264, "vsim_ctl_frame_t size");
 static_assert(sizeof(vsim_ctl_geometry_t) == 200,    "vsim_ctl_geometry_t size");
+static_assert(sizeof(vsim_ctl_world_t)   == 20,      "vsim_ctl_world_t size");
 #else
 _Static_assert(sizeof(vsim_hdr_t)        == 16, "vsim_hdr_t size");
 _Static_assert(sizeof(vsim_pwm_frame_t)  == 16 + 16,  "vsim_pwm_frame_t size");
@@ -175,6 +193,7 @@ _Static_assert(sizeof(vsim_imu_frame_t)  == 16 + 76,  "vsim_imu_frame_t size");
 _Static_assert(sizeof(vsim_pose_frame_t) == 16 + 92,  "vsim_pose_frame_t size");
 _Static_assert(sizeof(vsim_ctl_frame_t)  == 16 + 264, "vsim_ctl_frame_t size");
 _Static_assert(sizeof(vsim_ctl_geometry_t) == 200,    "vsim_ctl_geometry_t size");
+_Static_assert(sizeof(vsim_ctl_world_t)   == 20,      "vsim_ctl_world_t size");
 #endif
 
 #ifdef __cplusplus

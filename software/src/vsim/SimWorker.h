@@ -74,6 +74,9 @@ class SimWorker : public QThread {
   // tensor, and the 4-motor params cross the wire.
   void sendGeometry(const GeometryConfig& g);
 
+  // Push environment + aerodynamics (VSIM_CTL_SET_WORLD).
+  void sendWorld(const WorldConfig& w);
+
  signals:
   void poseUpdated(SimSnapshot snap);
   void logLine(QString line);

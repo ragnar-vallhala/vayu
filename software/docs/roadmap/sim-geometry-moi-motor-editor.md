@@ -106,11 +106,24 @@ frame for intuitive editing.
 
 - Uniform density only (no per-part materials).
 
+## Interactive motor gizmos (shipped)
+
+Blender-style direct manipulation of motors in the 3D view, active only
+when the sim is stopped (`SimRendererWidget::setMotorsEditable`). Click a
+motor marker to select it (screen-space pixel pick), then **G** to move /
+**R** to rotate the thrust axis, with **X/Y/Z** to lock to a body axis;
+click confirms, **Esc** cancels. Move drags on the camera-facing plane
+(or the locked axis); rotate spins the thrust axis about the locked body
+axis. On confirm the renderer emits `motorEdited(index, posComFrame,
+axis)`; `GeometryEditorWidget::setMotorFromGizmo` converts back to the
+model-origin frame, updates the numeric grid + config, and refreshes the
+preview. All gizmo work is in the CoM frame the renderer/daemon share.
+
 ## Out of scope (future)
 
 Arbitrary motor count (hexa/octo — needs wider wire frames + firmware),
-interactive 3D drag-gizmos, true STEP via OpenCASCADE, per-part
-densities, time-varying inertia.
+true STEP via OpenCASCADE, per-part densities, time-varying inertia,
+free (view-axis) rotate and translate-snap increments.
 
 ## Coordination note
 
