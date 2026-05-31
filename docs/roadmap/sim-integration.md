@@ -25,6 +25,10 @@ Status: ⬜ todo · 🟡 in progress · ✅ done · ⛔ blocked
   (`test_software_arm_latch`). **GCS side wired**: `MainToolbar` ARM button →
   `MainWindow::onArmClicked` sends `CMD_ARM`/`CMD_DISARM`; button enabled on
   connect and its label (ARM/DISARM) follows the FC state from telemetry.
+  **Link verified end-to-end** (`test_arm_command_wire`): the exact frame the
+  Navigator emits is run through `deserializer_feed` → `comm_processor_dispatch`
+  (extracted from the task loop for testability), flipping `g_sw_arm_request`;
+  a bad-CRC frame is dropped and leaves the latch untouched.
 
 ## In progress / next
 | # | Item | Owner | Status | Notes |
