@@ -270,17 +270,38 @@ void SimWorker::run() {
     // Magic-resync buffer. vsim_d writes complete frames per write(),
     // but if we connect mid-stream we may need to walk to the next
     // boundary. Also handles short reads.
+    //
+    // Startup EOF tolerance: openFifos() only waits for the pose FIFO *file*
+    // to exist. On a restart the file is a leftover from the previous run, so
+    // it exists immediately — before the freshly spawned vsim_d has opened it
+    // for writing. A read() on a writer-less FIFO returns 0 (EOF); treating
+    // that as "daemon died" here would break the loop and killDaemon() the
+    // daemon we just spawned (the restart-freeze bug). So tolerate EOF until
+    // the producer connects — bounded by a grace window — and only treat a
+    // *later* EOF (after we've seen the producer) as a real disconnect.
     std::string buf;
+    bool producer_seen = false;
+    const auto startup_deadline =
+        std::chrono::steady_clock::now() + std::chrono::seconds(5);
     while (!stop_flag_.load(std::memory_order_acquire)) {
         char chunk[2048];
         ssize_t r = ::read(pose_fd_, chunk, sizeof(chunk));
         if (r > 0) {
+            producer_seen = true;
             buf.append(chunk, static_cast<size_t>(r));
-        } else if (r == 0 || (r < 0 && errno != EAGAIN)) {
-            // Daemon closed or hard error.
-            break;
+        } else if (r == 0) {
+            // No writer on the FIFO right now.
+            if (producer_seen) break;  // producer connected, then went away
+            if (std::chrono::steady_clock::now() > startup_deadline) {
+                emit logLine("vsim_d: no pose producer within startup grace");
+                break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        } else if (r < 0 && errno != EAGAIN) {
+            break;  // hard error
         } else {
-            // EAGAIN: sleep for ~1/poseHz to avoid spinning.
+            // EAGAIN: a writer is present but no data yet.
+            producer_seen = true;
             std::this_thread::sleep_for(std::chrono::milliseconds(8));
         }
 
