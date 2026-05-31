@@ -32,6 +32,7 @@ struct DroneParams {
     float angular_drag = 0.005f;                            // N*m per (rad/s)
     float ground_z     = 0.0f;                              // NED z of ground
     float ground_restitution = 0.0f;                        // bounce factor
+    float gravity      = kG;                                // m/s^2 (world, +Z down)
 };
 
 // M1=FR, M2=RR, M3=RL, M4=FL — matches firmware motor mixing. Positions

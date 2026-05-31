@@ -1,0 +1,78 @@
+#pragma once
+
+#include <QString>
+#include <QThread>
+#include <QVector>
+
+#include <array>
+#include <atomic>
+
+// RcBridge — feeds a USB RC transmitter (a Linux joystick, e.g. the
+// "Artery PPM Controller" / FlySky-via-PPM dongle on /dev/input/js0) into
+// the in-process firmware's RC input.
+//
+// The firmware's host_rc_feeder reads CSV microsecond frames from a tty at
+// $VAYU_UART_RC_PATH (channels: [0]=roll [1]=pitch [2]=throttle [3]=yaw
+// [4]=arm switch ...). We can't point that at a joystick directly, so this
+// bridge opens a pty, hands the slave path to the caller (who sets the env
+// var before vayu_sitl_start), reads the joystick, and writes one CSV
+// frame per ~20 ms to the pty master.
+//
+// Axis → channel is linear: us = 1500 + axis*500/32767 (axis is
+// -32767..32767), optionally inverted per channel. Throttle idles low when
+// the stick is down (axis rests at -32767 → 1000 us).
+class RcBridge : public QThread {
+  Q_OBJECT
+ public:
+  explicit RcBridge(QObject* parent = nullptr);
+  ~RcBridge() override;
+
+  void setJoystickPath(const QString& p) { js_path_ = p; }
+
+  // When disabled, the bridge streams a neutral/idle frame (throttle low,
+  // everything else centered) instead of the joystick — so toggling RC on
+  // the running sim takes effect live, without a restart.
+  void setEnabled(bool on) { enabled_.store(on, std::memory_order_release); }
+
+  // Map an output function to a joystick source (+ invert). func: 0=roll,
+  // 1=pitch, 2=throttle, 3=yaw, 4=arm. `source` encodes the input:
+  // 0..15 = axis index; 1000+b = button b (pressed→2000, released→1000).
+  // Live; safe from the GUI thread.
+  enum Func { Roll = 0, Pitch = 1, Throttle = 2, Yaw = 3, Arm = 4 };
+  static constexpr int kButtonBase = 1000;
+  void setMapping(int func, int source, bool invert);
+
+  // Software arm override for TXs with no usable arm switch.
+  // v: -1 = use the mapped source; 0 = force disarmed; 1 = force armed.
+  void setArmOverride(int v) { armOverride_.store(v, std::memory_order_relaxed); }
+
+  // Create the pty pair; slavePath() is then valid. Returns false (and
+  // sets *err) on failure. Call before start() / before vayu_sitl_start.
+  bool openPty(QString* err);
+  QString slavePath() const { return slave_path_; }
+
+  void requestStop();
+
+ signals:
+  // Latest output channel values (microseconds), for an on-screen readout.
+  void channelsUpdated(int roll, int pitch, int thr, int yaw, int arm);
+  // Per-axis µs + per-button states (0/1), to identify which input each
+  // physical control is on.
+  void axesUpdated(QVector<int> axisUs, QVector<int> buttons);
+  void logLine(QString line);
+
+ protected:
+  void run() override;
+
+ private:
+  QString js_path_ = QStringLiteral("/dev/input/js0");
+  QString slave_path_;
+  int master_fd_ = -1;
+  std::atomic<bool> stop_{false};
+  std::atomic<bool> enabled_{true};
+  std::atomic<int> armOverride_{-1};   // -1 use mapping, 0 disarm, 1 arm
+  std::atomic<int> mapAxis_[5];   // func → source code (axis idx or 1000+btn)
+  std::atomic<int> mapInv_[5];    // func → invert (0/1)
+  std::array<int, 16> axis_{};    // raw -32767..32767
+  std::array<int, 16> button_{};  // 0/1
+};

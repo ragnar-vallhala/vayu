@@ -42,6 +42,9 @@ private:
     RigidBodyState advance(const RigidBodyState& s, const Deriv& k,
                            float dt) const;
     void           groundClamp();
+    // Reset on non-finite state and clamp runaway rates so a control
+    // divergence can't permanently poison the sim with NaN/inf.
+    void           sanitize();
 
     RigidBodyState state_;
     DroneParams    params_;

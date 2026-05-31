@@ -1,5 +1,8 @@
 #include "physics_core.h"
 
+#include <algorithm>
+#include <cmath>
+
 namespace vsim {
 
 void PhysicsCore::reset(const RigidBodyState& initial) {
@@ -25,7 +28,7 @@ PhysicsCore::Deriv PhysicsCore::derive(const RigidBodyState& s,
     Vec3 F_world = s.att.rotatedVector(force_b);
     Vec3 a = F_world / params_.mass;
     a -= s.vel_w * (params_.linear_drag / params_.mass);
-    a += Vec3(0.0f, 0.0f, kG);   // gravity is +Z in NED
+    a += Vec3(0.0f, 0.0f, params_.gravity);   // gravity is +Z in NED
     d.d_vel = a;
 
     // q_dot = 0.5 * q * (0, omega_b)
@@ -80,6 +83,35 @@ void PhysicsCore::step(const Vec3& force_b, const Vec3& torque_b, float dt) {
     state_.att.normalize();
 
     groundClamp();
+    sanitize();
+}
+
+// Reset on non-finite state, clamp runaway rates. A diverged controller
+// (or a stiff config) can drive omega/vel toward inf; without this the
+// first inf turns into NaN on the next step and poisons every downstream
+// consumer (IMU, estimator, HUD) permanently.
+void PhysicsCore::sanitize() {
+    auto fin3 = [](const Vec3& v) {
+        return std::isfinite(v.x()) && std::isfinite(v.y()) && std::isfinite(v.z());
+    };
+    const bool ok = fin3(state_.pos_w) && fin3(state_.vel_w) &&
+                    fin3(state_.omega_b) && std::isfinite(state_.att.scalar()) &&
+                    std::isfinite(state_.att.x()) && std::isfinite(state_.att.y()) &&
+                    std::isfinite(state_.att.z());
+    if (!ok) {
+        const Vec3 keep = fin3(state_.pos_w) ? state_.pos_w
+                                             : Vec3(0.0f, 0.0f, params_.ground_z - 0.05f);
+        state_ = RigidBodyState{};   // level, zero vel/omega
+        state_.pos_w = keep;
+        return;
+    }
+    auto clampVec = [](Vec3& v, float lim) {
+        v.setX(std::clamp(v.x(), -lim, lim));
+        v.setY(std::clamp(v.y(), -lim, lim));
+        v.setZ(std::clamp(v.z(), -lim, lim));
+    };
+    clampVec(state_.omega_b, 100.0f);   // rad/s — generous; real quad « this
+    clampVec(state_.vel_w, 200.0f);     // m/s
 }
 
 // Hard floor at z == ground_z (NED, so larger z is lower). When the

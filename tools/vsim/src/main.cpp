@@ -21,11 +21,17 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <csignal>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <thread>
+
+#include <fcntl.h>
+#include <sys/file.h>
+#include <unistd.h>
 
 namespace {
 
@@ -40,6 +46,40 @@ constexpr float kRad2Deg = 57.29577951308232f;
 std::atomic<bool> g_stop{false};
 
 void onSignal(int) { g_stop.store(true, std::memory_order_release); }
+
+// Ensure we are the ONLY vsim_d producing on the shared /tmp/vsim_* FIFOs.
+// A stale daemon (orphaned by a force-killed/crashed GCS) would otherwise
+// keep writing /tmp/vsim_imu alongside us; the firmware then reads torn,
+// interleaved frames → NaN IMU → estimator degraded → can't arm. We take
+// an flock on a pidfile and, if a previous daemon holds it, terminate it
+// and take over. The lock fd is intentionally held open for our lifetime.
+void ensureSingleton() {
+    const char* kLock = "/tmp/vsim_d.lock";
+    int fd = ::open(kLock, O_CREAT | O_RDWR, 0644);
+    if (fd < 0) return;  // best-effort
+    for (int attempt = 0; attempt < 100; ++attempt) {
+        if (::flock(fd, LOCK_EX | LOCK_NB) == 0) {
+            ::ftruncate(fd, 0);
+            ::lseek(fd, 0, SEEK_SET);
+            char buf[32];
+            int n = std::snprintf(buf, sizeof(buf), "%d\n", (int)::getpid());
+            ssize_t w = ::write(fd, buf, (size_t)n);
+            (void)w;
+            return;  // hold fd (and the lock) for the process lifetime
+        }
+        // Held by another daemon: read its pid and end it, then retry.
+        char buf[32] = {0};
+        ::lseek(fd, 0, SEEK_SET);
+        ssize_t r = ::read(fd, buf, sizeof(buf) - 1);
+        (void)r;
+        const int pid = std::atoi(buf);
+        if (pid > 1 && pid != (int)::getpid()) {
+            ::kill(pid, attempt < 30 ? SIGTERM : SIGKILL);
+        }
+        ::usleep(30000);
+    }
+    std::fprintf(stderr, "vsim_d: warning — could not claim singleton lock\n");
+}
 
 // Pack one ImuSample into the 76-byte firmware-side layout. Mirrors
 // SimWorker's writeImuSample. Gyro converted from rad/s to deg/s.
@@ -68,6 +108,9 @@ int main(int /*argc*/, char** /*argv*/) {
     // Drop SIGPIPE: a closed peer would otherwise kill us mid-write.
     std::signal(SIGPIPE, SIG_IGN);
 
+    // Be the sole producer on the shared FIFOs (kills any stale daemon).
+    ensureSingleton();
+
     vsim::FifoIn  pwm_in (VSIM_FIFO_PWM);
     vsim::FifoOut imu_out(VSIM_FIFO_IMU);
     vsim::FifoOut pose_out(VSIM_FIFO_POSE);
@@ -81,6 +124,11 @@ int main(int /*argc*/, char** /*argv*/) {
                  kPhysicsHz, kImuHz, kPoseHz);
 
     vsim::SimController ctl;
+    // Persistent running config. SET_GEOMETRY and SET_WORLD each modify a
+    // disjoint set of fields on these, so they compose rather than clobber.
+    vsim::DroneParams drone;
+    vsim::MotorParams motor;
+
     // Initial pose: a few cm above ground, level. NED: z = -0.05.
     vsim::RigidBodyState s0;
     s0.pos_w = vsim::Vec3(0.0f, 0.0f, -0.05f);
@@ -101,7 +149,11 @@ int main(int /*argc*/, char** /*argv*/) {
         vsim_pwm_frame_t pwm;
         if (pwm_in.poll(VSIM_FRAME_PWM, &pwm, sizeof(pwm))) {
             for (int i = 0; i < 4; ++i) {
-                duty[i] = std::clamp(pwm.duty[i], 0.0f, 1.0f);
+                // NOTE: std::clamp(NaN, …) returns NaN, so a NaN motor
+                // command from a diverged firmware controller would poison
+                // the physics. Reject non-finite duty explicitly.
+                const float d = std::isfinite(pwm.duty[i]) ? pwm.duty[i] : 0.0f;
+                duty[i] = std::clamp(d, 0.0f, 1.0f);
             }
         }
 
@@ -137,25 +189,38 @@ int main(int /*argc*/, char** /*argv*/) {
                 case VSIM_CTL_SET_GEOMETRY: {
                     vsim_ctl_geometry_t g;
                     std::memcpy(&g, cmd.body, sizeof(g));
-                    // Mass + full inertia tensor (row-major into Mat3).
-                    vsim::DroneParams dp;  // defaults carry drag/ground terms
-                    dp.mass = g.mass;
-                    for (int k = 0; k < 9; ++k) dp.inertia.m[k] = g.inertia[k];
+                    // Mass + full inertia tensor (row-major into Mat3); leaves
+                    // drone's drag/ground/gravity (owned by SET_WORLD) intact.
+                    drone.mass = g.mass;
+                    for (int k = 0; k < 9; ++k) drone.inertia.m[k] = g.inertia[k];
                     // Per-rotor layout.
-                    vsim::MotorParams mp;
                     for (int i = 0; i < 4; ++i) {
-                        mp.pos_b[i]     = vsim::Vec3(g.motors[i].pos[0], g.motors[i].pos[1], g.motors[i].pos[2]);
-                        mp.axis_b[i]    = vsim::Vec3(g.motors[i].axis[0], g.motors[i].axis[1], g.motors[i].axis[2]);
-                        mp.spin[i]      = (g.motors[i].spin >= 0.0f) ? +1 : -1;
-                        mp.k_thrust[i]  = g.motors[i].k_thrust;
-                        mp.k_moment[i]  = g.motors[i].k_moment;
-                        mp.max_omega[i] = g.motors[i].max_omega;
+                        motor.pos_b[i]     = vsim::Vec3(g.motors[i].pos[0], g.motors[i].pos[1], g.motors[i].pos[2]);
+                        motor.axis_b[i]    = vsim::Vec3(g.motors[i].axis[0], g.motors[i].axis[1], g.motors[i].axis[2]);
+                        motor.spin[i]      = (g.motors[i].spin >= 0.0f) ? +1 : -1;
+                        motor.k_thrust[i]  = g.motors[i].k_thrust;
+                        motor.k_moment[i]  = g.motors[i].k_moment;
+                        motor.max_omega[i] = g.motors[i].max_omega;
                     }
-                    ctl.setDroneParams(dp);
-                    ctl.setMotorParams(mp);
+                    ctl.setDroneParams(drone);
+                    ctl.setMotorParams(motor);
                     std::fprintf(stderr,
                                  "vsim_d: geometry set (m=%.3f kg, Idiag=%.4g/%.4g/%.4g)\n",
-                                 dp.mass, dp.inertia.at(0,0), dp.inertia.at(1,1), dp.inertia.at(2,2));
+                                 drone.mass, drone.inertia.at(0,0), drone.inertia.at(1,1), drone.inertia.at(2,2));
+                    break;
+                }
+                case VSIM_CTL_SET_WORLD: {
+                    vsim_ctl_world_t w;
+                    std::memcpy(&w, cmd.body, sizeof(w));
+                    drone.gravity            = w.gravity;
+                    drone.ground_z           = w.ground_z;
+                    drone.ground_restitution = w.restitution;
+                    drone.linear_drag        = w.linear_drag;
+                    drone.angular_drag       = w.angular_drag;
+                    ctl.setDroneParams(drone);
+                    std::fprintf(stderr,
+                                 "vsim_d: world set (g=%.2f ground_z=%.2f rest=%.2f drag=%.3f/%.4f)\n",
+                                 w.gravity, w.ground_z, w.restitution, w.linear_drag, w.angular_drag);
                     break;
                 }
                 default:

@@ -1,5 +1,7 @@
 #include "SimRendererWidget.h"
 
+#include <QCursor>
+#include <QKeyEvent>
 #include <QMouseEvent>
 #include <QWheelEvent>
 #include <QtMath>
@@ -77,12 +79,24 @@ SimRendererWidget::SimRendererWidget(QWidget* parent)
     : QOpenGLWidget(parent) {
   setMouseTracking(false);
   setMinimumSize(400, 300);
+  setFocusPolicy(Qt::StrongFocus);   // needs key focus for G/R/X/Y/Z/Esc
+}
+
+void SimRendererWidget::setMotorsEditable(bool on) {
+  editable_ = on;
+  if (!on) {            // leaving edit mode: drop any selection / live tool
+    if (tool_ != Tool::None) commitTool(false);
+    selected_ = -1;
+  }
+  update();
 }
 
 SimRendererWidget::~SimRendererWidget() {
   // Need a current context to release GL resources cleanly.
   makeCurrent();
   for (Mesh* m : {&ground_, &axes_, &body_, &rotor_, &thrustLine_, &comMarker_,
+                  &gizmoArrow_, &gizmoRing_, &digitMesh_[0], &digitMesh_[1],
+                  &digitMesh_[2], &digitMesh_[3], &northArrow_, &glyphN_,
                   &droneMesh_}) {
     m->vbo.destroy();
     m->vao.destroy();
@@ -143,6 +157,9 @@ void SimRendererWidget::initializeGL() {
   buildRotorDisk();
   buildThrustLine();
   buildComMarker();
+  buildGizmo();
+  buildDigits();
+  buildNorth();
 }
 
 void SimRendererWidget::resizeGL(int w, int h) {
@@ -178,9 +195,7 @@ void SimRendererWidget::paintGL() {
 
   // Drone body: apply pos+orientation. Quaternion is normalized by the
   // sim after every step.
-  QMatrix4x4 model;
-  model.translate(snap_.pos_w);
-  model.rotate(snap_.att);
+  const QMatrix4x4 model = modelMatrix();
 
   if (hasMesh_) {
     drawLit(droneMesh_, view, model, QVector3D(0.80f, 0.81f, 0.85f));
@@ -202,7 +217,10 @@ void SimRendererWidget::paintGL() {
     const QVector3D base = (motorSpin_[i] >= 0) ? QVector3D(0.30f, 0.85f, 0.30f)
                                                 : QVector3D(0.85f, 0.30f, 0.30f);
     const float duty = snap_.motor_duty[i];
-    drawMesh(rotor_, view * mr, base * (0.4f + 0.6f * duty));
+    const QVector3D c = (editable_ && i == selected_)
+                            ? QVector3D(1.0f, 0.9f, 0.3f)  // selection highlight
+                            : base * (0.4f + 0.6f * duty);
+    drawMesh(rotor_, view * mr, c);
 
     // Thrust direction: unit +Z segment rotated onto the axis, shortened.
     QMatrix4x4 ml = model;
@@ -216,6 +234,15 @@ void SimRendererWidget::paintGL() {
   QMatrix4x4 mc = model;
   mc.translate(comOffset_);
   drawMesh(comMarker_, view * mc, QVector3D(0.95f, 0.35f, 0.95f));
+
+  // Motor gizmo (only when editing and a motor is selected).
+  if (editable_ && selected_ >= 0) drawGizmo(view);
+
+  // Motor numbers (1..4): only in Vehicle mode (editable_).
+  if (editable_) drawMotorLabels(view);
+
+  // Body +X / north arrow: shown in both Vehicle and World modes.
+  drawNorthIndicator(view);
 }
 
 void SimRendererWidget::drawMesh(const Mesh& m, const QMatrix4x4& mvp,
@@ -422,13 +449,211 @@ void SimRendererWidget::buildComMarker() {
   comMarker_.primitive = GL_LINES;
 }
 
+void SimRendererWidget::buildGizmo() {
+  // Unit +X arrow shaft (rotated per axis in drawGizmo).
+  {
+    float v[] = {0, 0, 0, 1, 0, 0};
+    gizmoArrow_.vao.create();
+    gizmoArrow_.vao.bind();
+    gizmoArrow_.vbo.create();
+    gizmoArrow_.vbo.bind();
+    gizmoArrow_.vbo.allocate(v, sizeof(v));
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), nullptr);
+    gizmoArrow_.vbo.release();
+    gizmoArrow_.vao.release();
+    gizmoArrow_.vertex_count = 2;
+    gizmoArrow_.primitive = GL_LINES;
+  }
+  // Unit circle in the XY plane (line loop), rotated per axis for rings.
+  {
+    std::vector<float> v;
+    const int seg = 48;
+    for (int i = 0; i < seg; ++i) {
+      float a = float(i) / seg * 2.0f * float(M_PI);
+      v.insert(v.end(), {std::cos(a), std::sin(a), 0.0f});
+    }
+    gizmoRing_.vao.create();
+    gizmoRing_.vao.bind();
+    gizmoRing_.vbo.create();
+    gizmoRing_.vbo.bind();
+    gizmoRing_.vbo.allocate(v.data(), int(v.size() * sizeof(float)));
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), nullptr);
+    gizmoRing_.vbo.release();
+    gizmoRing_.vao.release();
+    gizmoRing_.vertex_count = seg;
+    gizmoRing_.primitive = GL_LINE_LOOP;
+  }
+}
+
+void SimRendererWidget::buildDigits() {
+  // Each glyph is a set of 2D line segments (x0,y0,x1,y1,...) in a unit
+  // cell, expanded to (x,y,0) vertices and drawn billboarded as GL_LINES.
+  const std::vector<std::vector<float>> strokes = {
+      // "1"
+      {0, -0.5f, 0, 0.5f,  -0.18f, 0.32f, 0, 0.5f,  -0.2f, -0.5f, 0.2f, -0.5f},
+      // "2"
+      {-0.3f, 0.5f, 0.3f, 0.5f,  0.3f, 0.5f, 0.3f, 0.0f,  0.3f, 0.0f, -0.3f, 0.0f,
+       -0.3f, 0.0f, -0.3f, -0.5f,  -0.3f, -0.5f, 0.3f, -0.5f},
+      // "3"
+      {-0.3f, 0.5f, 0.3f, 0.5f,  0.3f, 0.5f, 0.3f, -0.5f,  -0.25f, 0.0f, 0.3f, 0.0f,
+       -0.3f, -0.5f, 0.3f, -0.5f},
+      // "4"
+      {-0.3f, 0.5f, -0.3f, 0.0f,  -0.3f, 0.0f, 0.3f, 0.0f,  0.3f, 0.5f, 0.3f, -0.5f},
+  };
+  for (int d = 0; d < 4; ++d) {
+    std::vector<float> v;
+    const auto& s = strokes[d];
+    for (size_t k = 0; k + 1 < s.size(); k += 2) {
+      v.insert(v.end(), {s[k], s[k + 1], 0.0f});
+    }
+    Mesh& m = digitMesh_[d];
+    m.vao.create();
+    m.vao.bind();
+    m.vbo.create();
+    m.vbo.bind();
+    m.vbo.allocate(v.data(), int(v.size() * sizeof(float)));
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), nullptr);
+    m.vbo.release();
+    m.vao.release();
+    m.vertex_count = int(v.size() / 3);
+    m.primitive = GL_LINES;
+  }
+}
+
+void SimRendererWidget::drawMotorLabels(const QMatrix4x4& view) {
+  QVector3D eye, tgt;
+  cameraEyeTarget(&eye, &tgt);
+  const QVector3D fwd = (tgt - eye).normalized();
+  const QVector3D worldUp(0, 0, -1);   // NED up
+  QVector3D right = QVector3D::crossProduct(fwd, worldUp);
+  if (right.lengthSquared() < 1e-6f) right = QVector3D(1, 0, 0);
+  right.normalize();
+  const QVector3D up = QVector3D::crossProduct(right, fwd).normalized();
+
+  const QMatrix4x4 model = modelMatrix();
+  const float s = 0.07f;   // glyph size [m]
+  glDisable(GL_DEPTH_TEST);
+  for (int i = 0; i < 4; ++i) {
+    const QVector3D pos = model.map(motorPos_[i]) + up * 0.12f;  // above marker
+    QMatrix4x4 m;
+    m.setColumn(0, QVector4D(right * s, 0));
+    m.setColumn(1, QVector4D(up * s, 0));
+    m.setColumn(2, QVector4D(-fwd * s, 0));
+    m.setColumn(3, QVector4D(pos, 1));
+    const QVector3D col = (editable_ && i == selected_)
+                              ? QVector3D(1.0f, 0.95f, 0.4f)   // selected
+                              : QVector3D(0.92f, 0.92f, 0.96f);
+    drawMesh(digitMesh_[i], view * m, col);
+  }
+  glEnable(GL_DEPTH_TEST);
+}
+
+void SimRendererWidget::buildNorth() {
+  // Arrow along body +X (north), in the body XY plane: shaft + two head
+  // segments. Drawn through the model matrix so it rotates with the body.
+  {
+    float v[] = {
+        0.0f, 0.0f, 0.0f,  0.35f, 0.0f, 0.0f,     // shaft
+        0.35f, 0.0f, 0.0f, 0.27f, 0.05f, 0.0f,    // head
+        0.35f, 0.0f, 0.0f, 0.27f, -0.05f, 0.0f,
+    };
+    northArrow_.vao.create();
+    northArrow_.vao.bind();
+    northArrow_.vbo.create();
+    northArrow_.vbo.bind();
+    northArrow_.vbo.allocate(v, sizeof(v));
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), nullptr);
+    northArrow_.vbo.release();
+    northArrow_.vao.release();
+    northArrow_.vertex_count = 6;
+    northArrow_.primitive = GL_LINES;
+  }
+  // "N" glyph (billboarded at the tip).
+  {
+    float v[] = {
+        -0.3f, -0.5f, 0.0f, -0.3f, 0.5f, 0.0f,    // left vertical
+        -0.3f, 0.5f, 0.0f,  0.3f, -0.5f, 0.0f,    // diagonal
+        0.3f, -0.5f, 0.0f,  0.3f, 0.5f, 0.0f,     // right vertical
+    };
+    glyphN_.vao.create();
+    glyphN_.vao.bind();
+    glyphN_.vbo.create();
+    glyphN_.vbo.bind();
+    glyphN_.vbo.allocate(v, sizeof(v));
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), nullptr);
+    glyphN_.vbo.release();
+    glyphN_.vao.release();
+    glyphN_.vertex_count = 6;
+    glyphN_.primitive = GL_LINES;
+  }
+}
+
+void SimRendererWidget::drawNorthIndicator(const QMatrix4x4& view) {
+  const QMatrix4x4 model = modelMatrix();
+  const QVector3D north(1.0f, 0.45f, 0.45f);   // matches +X axis colouring
+  glDisable(GL_DEPTH_TEST);
+
+  // Arrow points along body +X in 3D (not billboarded — it shows heading).
+  drawMesh(northArrow_, view * model, north);
+
+  // "N" at the tip, billboarded so it's always readable.
+  QVector3D eye, tgt;
+  cameraEyeTarget(&eye, &tgt);
+  const QVector3D fwd = (tgt - eye).normalized();
+  QVector3D right = QVector3D::crossProduct(fwd, QVector3D(0, 0, -1));
+  if (right.lengthSquared() < 1e-6f) right = QVector3D(1, 0, 0);
+  right.normalize();
+  const QVector3D up = QVector3D::crossProduct(right, fwd).normalized();
+  const float s = 0.055f;
+  const QVector3D pos = model.map(QVector3D(0.44f, 0.0f, 0.0f)) + up * 0.05f;
+  QMatrix4x4 m;
+  m.setColumn(0, QVector4D(right * s, 0));
+  m.setColumn(1, QVector4D(up * s, 0));
+  m.setColumn(2, QVector4D(-fwd * s, 0));
+  m.setColumn(3, QVector4D(pos, 1));
+  drawMesh(glyphN_, view * m, north);
+
+  glEnable(GL_DEPTH_TEST);
+}
+
 // ---------- camera controls ----------
 
 void SimRendererWidget::mousePressEvent(QMouseEvent* e) {
+  setFocus();
   last_mouse_ = e->pos();
+
+  // A live tool: left-click confirms the transform, right-click cancels.
+  if (editable_ && tool_ != Tool::None) {
+    if (e->button() == Qt::LeftButton)       commitTool(true);
+    else if (e->button() == Qt::RightButton) commitTool(false);
+    return;
+  }
+
+  // Otherwise left-click tries to select a motor; an empty click
+  // deselects and falls through to camera orbit.
+  if (editable_ && e->button() == Qt::LeftButton) {
+    int idx = -1;
+    if (pickMotor(e->pos(), &idx)) {
+      selected_ = idx;
+      emit motorSelected(idx);
+      update();
+      return;   // consumed — don't orbit
+    }
+    if (selected_ != -1) { selected_ = -1; update(); }
+  }
 }
 
 void SimRendererWidget::mouseMoveEvent(QMouseEvent* e) {
+  // While a tool is live the mouse drives it (no button held, Blender-style).
+  if (editable_ && tool_ != Tool::None) {
+    updateToolFromMouse(e->pos());
+    return;
+  }
   QPoint d = e->pos() - last_mouse_;
   last_mouse_ = e->pos();
   if (e->buttons() & Qt::LeftButton) {
@@ -439,6 +664,174 @@ void SimRendererWidget::mouseMoveEvent(QMouseEvent* e) {
     if (cam_pitch_ < -lim) cam_pitch_ = -lim;
     update();
   }
+}
+
+void SimRendererWidget::keyPressEvent(QKeyEvent* e) {
+  if (!editable_) { QOpenGLWidget::keyPressEvent(e); return; }
+  switch (e->key()) {
+    case Qt::Key_G: if (selected_ >= 0) beginTool(Tool::Move);   break;
+    case Qt::Key_R: if (selected_ >= 0) beginTool(Tool::Rotate); break;
+    case Qt::Key_X: if (tool_ != Tool::None) { axisLock_ = 0; updateToolFromMouse(last_mouse_); } break;
+    case Qt::Key_Y: if (tool_ != Tool::None) { axisLock_ = 1; updateToolFromMouse(last_mouse_); } break;
+    case Qt::Key_Z: if (tool_ != Tool::None) { axisLock_ = 2; updateToolFromMouse(last_mouse_); } break;
+    case Qt::Key_Escape:
+      if (tool_ != Tool::None) commitTool(false);
+      else if (selected_ != -1) { selected_ = -1; update(); }
+      break;
+    case Qt::Key_Return:
+    case Qt::Key_Enter:
+      if (tool_ != Tool::None) commitTool(true);
+      break;
+    default:
+      QOpenGLWidget::keyPressEvent(e);
+      return;
+  }
+}
+
+// ---------- gizmo editing ----------
+
+QMatrix4x4 SimRendererWidget::modelMatrix() const {
+  QMatrix4x4 m;
+  m.translate(snap_.pos_w);
+  m.rotate(snap_.att);
+  return m;
+}
+
+void SimRendererWidget::cameraEyeTarget(QVector3D* eye, QVector3D* target) const {
+  const QVector3D tgt = snap_.pos_w;
+  const QVector3D offset(
+      cam_radius_ * std::cos(cam_pitch_) * std::cos(cam_yaw_),
+      cam_radius_ * std::cos(cam_pitch_) * std::sin(cam_yaw_),
+      -cam_radius_ * std::sin(cam_pitch_));
+  if (target) *target = tgt;
+  if (eye)    *eye = tgt + offset;
+}
+
+void SimRendererWidget::rayThroughPixel(const QPoint& px, QVector3D* o,
+                                        QVector3D* d) const {
+  const float w = std::max(1, width()), h = std::max(1, height());
+  const float ndcx = 2.0f * px.x() / w - 1.0f;
+  const float ndcy = 1.0f - 2.0f * px.y() / h;
+  bool ok = false;
+  const QMatrix4x4 inv = (proj_ * cameraView()).inverted(&ok);
+  const QVector3D np = (inv * QVector4D(ndcx, ndcy, -1.0f, 1.0f)).toVector3DAffine();
+  const QVector3D fp = (inv * QVector4D(ndcx, ndcy,  1.0f, 1.0f)).toVector3DAffine();
+  if (o) *o = np;
+  if (d) *d = (fp - np).normalized();
+}
+
+bool SimRendererWidget::pickMotor(const QPoint& px, int* outIndex) const {
+  const QMatrix4x4 vp = proj_ * cameraView();
+  const QMatrix4x4 model = modelMatrix();
+  const float w = std::max(1, width()), h = std::max(1, height());
+  float best = 22.0f;   // pixel radius
+  int bestI = -1;
+  for (int i = 0; i < 4; ++i) {
+    const QVector3D wp = model.map(motorPos_[i]);
+    const QVector4D clip = vp * QVector4D(wp, 1.0f);
+    if (clip.w() <= 0.0f) continue;
+    const float sx = (clip.x() / clip.w() * 0.5f + 0.5f) * w;
+    const float sy = (1.0f - (clip.y() / clip.w() * 0.5f + 0.5f)) * h;
+    const float dpix = std::hypot(sx - px.x(), sy - px.y());
+    if (dpix < best) { best = dpix; bestI = i; }
+  }
+  if (bestI >= 0 && outIndex) *outIndex = bestI;
+  return bestI >= 0;
+}
+
+void SimRendererWidget::beginTool(Tool t) {
+  if (selected_ < 0) return;
+  tool_ = t;
+  axisLock_ = -1;
+  startPos_  = motorPos_[selected_];
+  startAxis_ = motorAxis_[selected_];
+  toolStartMouse_ = last_mouse_ = mapFromGlobal(QCursor::pos());
+  startWorld_ = modelMatrix().map(startPos_);
+  // Drag plane: through the motor, facing the camera.
+  QVector3D eye, tgt;
+  cameraEyeTarget(&eye, &tgt);
+  const QVector3D fwd = (tgt - eye).normalized();
+  QVector3D o, d;
+  rayThroughPixel(toolStartMouse_, &o, &d);
+  const float denom = QVector3D::dotProduct(d, fwd);
+  const float tt = (std::fabs(denom) > 1e-6f)
+                       ? QVector3D::dotProduct(startWorld_ - o, fwd) / denom
+                       : 0.0f;
+  planeHit0_ = o + d * tt;
+  setMouseTracking(true);
+  update();
+}
+
+void SimRendererWidget::updateToolFromMouse(const QPoint& px) {
+  if (selected_ < 0 || tool_ == Tool::None) return;
+  last_mouse_ = px;
+  const QMatrix4x4 model = modelMatrix();
+
+  if (tool_ == Tool::Move) {
+    QVector3D eye, tgt;
+    cameraEyeTarget(&eye, &tgt);
+    const QVector3D fwd = (tgt - eye).normalized();
+    QVector3D o, d;
+    rayThroughPixel(px, &o, &d);
+    const float denom = QVector3D::dotProduct(d, fwd);
+    const float tt = (std::fabs(denom) > 1e-6f)
+                         ? QVector3D::dotProduct(startWorld_ - o, fwd) / denom
+                         : 0.0f;
+    QVector3D delta = (o + d * tt) - planeHit0_;
+    if (axisLock_ >= 0) {
+      const QVector3D axisB(axisLock_ == 0 ? 1.f : 0.f, axisLock_ == 1 ? 1.f : 0.f,
+                            axisLock_ == 2 ? 1.f : 0.f);
+      const QVector3D axisW = model.mapVector(axisB).normalized();
+      delta = axisW * QVector3D::dotProduct(delta, axisW);
+    }
+    motorPos_[selected_] = model.inverted().map(startWorld_ + delta);
+  } else {  // Rotate the thrust axis about a body axis (default X).
+    const int k = (axisLock_ >= 0) ? axisLock_ : 0;
+    const QVector3D kk(k == 0 ? 1.f : 0.f, k == 1 ? 1.f : 0.f, k == 2 ? 1.f : 0.f);
+    const float ang = (px.x() - toolStartMouse_.x()) * 0.01f;  // rad
+    const QVector3D a = startAxis_;
+    const QVector3D r = a * std::cos(ang) +
+                        QVector3D::crossProduct(kk, a) * std::sin(ang) +
+                        kk * QVector3D::dotProduct(kk, a) * (1.0f - std::cos(ang));
+    motorAxis_[selected_] = r.normalized();
+  }
+  update();
+}
+
+void SimRendererWidget::commitTool(bool confirm) {
+  if (tool_ == Tool::None) return;
+  tool_ = Tool::None;
+  axisLock_ = -1;
+  setMouseTracking(false);
+  if (confirm && selected_ >= 0) {
+    emit motorEdited(selected_, motorPos_[selected_], motorAxis_[selected_]);
+  } else if (selected_ >= 0) {     // cancelled: restore the working copy
+    motorPos_[selected_]  = startPos_;
+    motorAxis_[selected_] = startAxis_;
+  }
+  update();
+}
+
+void SimRendererWidget::drawGizmo(const QMatrix4x4& view) {
+  if (selected_ < 0) return;
+  QMatrix4x4 base = modelMatrix();
+  base.translate(motorPos_[selected_]);
+  const float L = 0.18f;
+  const QVector3D cX(0.90f, 0.25f, 0.25f), cY(0.25f, 0.85f, 0.25f),
+      cZ(0.30f, 0.55f, 1.0f), hi(1.0f, 0.95f, 0.40f);
+
+  // Gizmo draws on top of the body for grabbability.
+  glDisable(GL_DEPTH_TEST);
+  if (tool_ == Tool::Rotate) {
+    { QMatrix4x4 m = base; m.scale(L); drawMesh(gizmoRing_, view * m, axisLock_ == 2 ? hi : cZ); }
+    { QMatrix4x4 m = base; m.rotate(90, 1, 0, 0); m.scale(L); drawMesh(gizmoRing_, view * m, axisLock_ == 1 ? hi : cY); }
+    { QMatrix4x4 m = base; m.rotate(90, 0, 1, 0); m.scale(L); drawMesh(gizmoRing_, view * m, axisLock_ == 0 ? hi : cX); }
+  } else {  // Move (or just-selected): three axis arrows.
+    { QMatrix4x4 m = base; m.scale(L); drawMesh(gizmoArrow_, view * m, axisLock_ == 0 ? hi : cX); }
+    { QMatrix4x4 m = base; m.rotate(90, 0, 0, 1); m.scale(L); drawMesh(gizmoArrow_, view * m, axisLock_ == 1 ? hi : cY); }
+    { QMatrix4x4 m = base; m.rotate(-90, 0, 1, 0); m.scale(L); drawMesh(gizmoArrow_, view * m, axisLock_ == 2 ? hi : cZ); }
+  }
+  glEnable(GL_DEPTH_TEST);
 }
 
 void SimRendererWidget::wheelEvent(QWheelEvent* e) {

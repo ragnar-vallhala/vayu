@@ -122,6 +122,27 @@ void SimWorker::sendGeometry(const GeometryConfig& g) {
     emit logLine("vsim_d: geometry pushed");
 }
 
+void SimWorker::sendWorld(const WorldConfig& w) {
+    if (ctl_fd_ < 0) return;
+    vsim_ctl_frame_t f{};
+    f.hdr.magic         = VSIM_MAGIC;
+    f.hdr.version       = VSIM_PROTO_VERSION;
+    f.hdr.type          = VSIM_FRAME_CTL;
+    f.hdr.payload_bytes = sizeof(f) - sizeof(vsim_hdr_t);
+    f.hdr.seq_no        = 0;
+    f.subtype           = VSIM_CTL_SET_WORLD;
+
+    vsim_ctl_world_t body{};
+    body.gravity      = w.gravity;
+    body.ground_z     = w.ground_z;
+    body.restitution  = w.restitution;
+    body.linear_drag  = w.linear_drag;
+    body.angular_drag = w.angular_drag;
+    std::memcpy(f.body, &body, sizeof(body));
+    ::write(ctl_fd_, &f, sizeof(f));
+    emit logLine("vsim_d: world pushed");
+}
+
 bool SimWorker::spawnDaemon() {
     const QString bin_q = resolveBinary(vsim_bin_);
     const QByteArray bin_b = bin_q.toLocal8Bit();

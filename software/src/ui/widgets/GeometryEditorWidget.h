@@ -48,6 +48,11 @@ class GeometryEditorWidget : public QWidget {
   const std::vector<QVector3D>& meshNormals() const { return meshNrm_; }
   bool hasMesh() const { return !meshPos_.empty(); }
 
+ public slots:
+  // Apply a gizmo edit from the 3D view. posComFrame is CoM-frame (as the
+  // renderer works in); converted back to the model-origin frame here.
+  void setMotorFromGizmo(int index, QVector3D posComFrame, QVector3D axis);
+
  signals:
   void previewUpdated();    // mesh / CoM / motors changed → refresh preview
   void geometryApplied();   // user committed → push to daemon + persist
@@ -56,6 +61,8 @@ class GeometryEditorWidget : public QWidget {
   void onBrowse();
   void onCompute();
   void onApply();
+  void onSaveFile();   // export the vehicle to a portable .json
+  void onLoadFile();   // import a vehicle .json
 
  private:
   void buildUi();
@@ -71,6 +78,8 @@ class GeometryEditorWidget : public QWidget {
   QLineEdit* meshEdit_ = nullptr;
   QDoubleSpinBox* scaleSpin_ = nullptr;
   QDoubleSpinBox* massSpin_ = nullptr;
+  QDoubleSpinBox* transX_ = nullptr; QDoubleSpinBox* transY_ = nullptr; QDoubleSpinBox* transZ_ = nullptr;
+  QDoubleSpinBox* rotX_ = nullptr;   QDoubleSpinBox* rotY_ = nullptr;   QDoubleSpinBox* rotZ_ = nullptr;
   QLabel* inertiaLbl_ = nullptr;
   QLabel* comLbl_ = nullptr;
   QLabel* statusLbl_ = nullptr;

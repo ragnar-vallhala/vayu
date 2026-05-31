@@ -35,6 +35,8 @@ struct MotorConfig {
 struct GeometryConfig {
   QString meshPath;
   float scale = 1.0f;            // meters per mesh unit
+  QVector3D translate{0, 0, 0};  // body-frame offset applied to the mesh [m]
+  QVector3D rotate{0, 0, 0};     // body-frame orientation, XYZ Euler [deg]
   float mass = 1.0f;             // kg
   // Inertia tensor about the CoM, body frame [kg*m^2], row-major.
   std::array<float, 9> inertia =
@@ -46,6 +48,17 @@ struct GeometryConfig {
       {{-0.13f, -0.20f, 0}, {0, 0, -1}, +1, 1.522e-5f, 2.44e-7f, 1200.0f},
       {{ 0.13f, -0.22f, 0}, {0, 0, -1}, -1, 1.522e-5f, 2.44e-7f, 1200.0f},
   }};
+};
+
+// Environment + aerodynamics edited in the World tab; pushed to vsim_d via
+// SimWorker::sendWorld -> VSIM_CTL_SET_WORLD. NED: +Z is down, so gravity
+// is positive and the ground plane sits at ground_z.
+struct WorldConfig {
+  float gravity = 9.81f;          // m/s^2
+  float ground_z = 0.0f;          // NED z of ground [m]
+  float restitution = 0.0f;       // bounce factor [0,1]
+  float linear_drag = 0.10f;      // N per (m/s)
+  float angular_drag = 0.005f;    // N*m per (rad/s)
 };
 
 }  // namespace vsim
