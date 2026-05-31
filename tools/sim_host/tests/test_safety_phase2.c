@@ -248,6 +248,65 @@ static void test_arm_preconditions(void) {
   CHECK(arm_preconditions_met(&rc) == true, "preconditions restored -> allowed");
 }
 
+/* ----------------------------------------------------------------------------
+ * CMD_ARM/CMD_DISARM software-arm latch (rc_arm_engaged) — lets a 4-channel
+ * stick (no physical arm channel: ch5 fills to 1500) arm from the GCS.
+ *   @verifies CTRL-ARM-001
+ * --------------------------------------------------------------------------*/
+static void test_software_arm_latch(void) {
+  printf("  test_software_arm_latch\n");
+
+  ibus_data_t rc;
+  memset(&rc, 0, sizeof rc);
+  rc.channels[2] = 1000;   /* throttle at minimum */
+  rc.channels[4] = 1500;   /* 4-ch HID: arm channel absent -> filled 1500 */
+
+  /* Predicate: latch clear + no switch -> not arm-engaged. */
+  g_sw_arm_request = 0;
+  CHECK(rc_arm_engaged(&rc) == false, "ch5==1500 + latch clear -> not engaged");
+
+  /* CMD_ARM sets the latch -> engaged even with ch5 at 1500. */
+  g_sw_arm_request = 1;
+  CHECK(rc_arm_engaged(&rc) == true, "software-arm latch -> engaged");
+
+  /* Physical switch still works independently of the latch. */
+  g_sw_arm_request = 0;
+  rc.channels[4] = 2000;
+  CHECK(rc_arm_engaged(&rc) == true, "ch5>1500 -> engaged (latch clear)");
+  rc.channels[4] = 1500;
+
+  /* End-to-end: with the latch set + preconditions met, the per-frame arm
+   * decision the RC task makes transitions STANDBY -> ARMED. */
+  force_state(SYSTEM_STATE_STANDBY);
+  rc_mark_frame_valid();
+  estimator_mark_sample(true);
+  g_sw_arm_request = 1;   /* CMD_ARM */
+  if (rc_arm_engaged(&rc) && system_state_get() == SYSTEM_STATE_STANDBY &&
+      arm_preconditions_met(&rc)) {
+    VAYU_DISCARD(system_state_set(SYSTEM_STATE_ARMED));
+  }
+  CHECK(system_state_get() == SYSTEM_STATE_ARMED,
+        "CMD_ARM latch + preconditions -> ARMED");
+
+  /* CMD_DISARM clears the latch -> next frame disarms to STANDBY. */
+  g_sw_arm_request = 0;   /* CMD_DISARM */
+  if (!rc_arm_engaged(&rc) && (system_state_get() == SYSTEM_STATE_ARMED ||
+                               system_state_get() == SYSTEM_STATE_FAILSAFE)) {
+    VAYU_DISCARD(system_state_set(SYSTEM_STATE_STANDBY));
+  }
+  CHECK(system_state_get() == SYSTEM_STATE_STANDBY,
+        "CMD_DISARM latch clear -> STANDBY");
+
+  /* High throttle blocks a latched arm just like the switch path. */
+  force_state(SYSTEM_STATE_STANDBY);
+  rc.channels[2] = 1500;   /* throttle up */
+  g_sw_arm_request = 1;
+  CHECK(rc_arm_engaged(&rc) == true && arm_preconditions_met(&rc) == false,
+        "latched arm + high throttle -> preconditions block ARMED");
+  g_sw_arm_request = 0;
+  rc.channels[2] = 1000;
+}
+
 int main(void) {
   printf("== Phase-2 safety SITL verification ==\n");
 
@@ -257,6 +316,7 @@ int main(void) {
   test_estimator_degraded();
   test_estimator_safety_failsafe();
   test_arm_preconditions();
+  test_software_arm_latch();
 
   printf("\n%d checks, %d failures\n", g_checks, g_fails);
   return g_fails == 0 ? 0 : 1;

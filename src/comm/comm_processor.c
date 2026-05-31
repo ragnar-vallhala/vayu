@@ -1,4 +1,5 @@
 #include "comm/comm_types.h"
+#include "comm/ibus.h"
 #include "comm/serializer.h"
 #include "control/control.h"
 #include "memory.h"
@@ -66,6 +67,17 @@ void comm_processor_task(void *args) {
             _calibration_task_handle = 0;
           }
           VAYU_DISCARD(system_state_set(SYSTEM_STATE_STANDBY));
+        } else if (cmd_id == CMD_ARM) {
+          /* GCS software-arm: set the latch. The RC task evaluates it (OR'd
+           * with the physical arm switch via rc_arm_engaged) against the arm
+           * preconditions on its next frame, so throttle/link/estimator gates
+           * still apply. Lets a 4-channel stick with no arm channel arm from
+           * the GCS. */
+          g_sw_arm_request = 1;
+        } else if (cmd_id == CMD_DISARM) {
+          /* Clear the latch; the RC task disarms to STANDBY on its next frame
+           * (mirrors releasing the arm switch). */
+          g_sw_arm_request = 0;
         } else if (cmd_id == CMD_SET_PID) {
           /* COMM-CMD-003: validate, apply to the live controller, persist. */
           VAYU_DISCARD(pid_config_apply_command(pkt.payload, pkt.length));

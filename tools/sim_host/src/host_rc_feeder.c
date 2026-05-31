@@ -141,7 +141,7 @@ static ssize_t read_line(int fd, char *buf, size_t bufsz, int timeout_ms) {
  * Same logic as src/comm/rc_task.c's parser-driven path. */
 static void apply_arm_logic(const ibus_data_t *rc) {
     sys_state_t cur = system_state_get();
-    if (rc->channels[4] > 1500) {
+    if (rc_arm_engaged(rc)) {
         if (cur == SYSTEM_STATE_STANDBY && rc->channels[2] < 1100) {
             VAYU_DISCARD(system_state_set(SYSTEM_STATE_ARMED));
         } else if (cur == SYSTEM_STATE_STANDBY && rc->channels[2] > 1100) {
