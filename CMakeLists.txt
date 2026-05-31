@@ -33,6 +33,18 @@ include_directories(
     extern/vaios/portable/cortex-m4
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
+
+# NavHAL Kconfig is owned by vayu (./navhal.config), NOT the vaios submodule,
+# so vaios stays pristine for clean vendor updates. Stage our copy into the
+# path vaios's CMake feeds to NavHAL's kconfig.py, before add_subdirectory
+# runs that step. The vaios working-tree file is gitignored-as-dirty via
+# .gitmodules (ignore = dirty), so this override never shows the submodule
+# as modified. Edit ./navhal.config to change the firmware driver set.
+configure_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/navhal.config
+    ${CMAKE_CURRENT_SOURCE_DIR}/extern/vaios/navhal.config
+    COPYONLY)
+
 add_subdirectory(extern/vaios)
 
 #-------------------------
