@@ -45,6 +45,14 @@ configure_file(
     ${CMAKE_CURRENT_SOURCE_DIR}/extern/vaios/navhal.config
     COPYONLY)
 
+# NavHAL's modular Kconfig (post-M7) uses relative `source "samples/Kconfig"`
+# directives, which kconfiglib resolves against $srctree. NavHAL's CMake runs
+# kconfig.py without setting it, so point srctree at the NavHAL source root
+# here (inherited by the nested execute_process). Avoids editing the vaios /
+# NavHAL submodules. Without this, configure fails: "'samples/Kconfig' not
+# found ... $srctree ... is unset".
+set(ENV{srctree} "${CMAKE_CURRENT_SOURCE_DIR}/extern/vaios/extern/NavHAL")
+
 add_subdirectory(extern/vaios)
 
 #-------------------------
