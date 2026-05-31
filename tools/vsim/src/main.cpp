@@ -30,6 +30,7 @@
 #include <thread>
 
 #include <fcntl.h>
+#include <string>
 #include <sys/file.h>
 #include <unistd.h>
 
@@ -47,6 +48,17 @@ std::atomic<bool> g_stop{false};
 
 void onSignal(int) { g_stop.store(true, std::memory_order_release); }
 
+// Per-instance FIFO isolation (roadmap sim-integration #1 / HANDOFF §5.1):
+// append $VSIM_FIFO_SUFFIX to every shared /tmp base path so each
+// Navigator+firmware+vsim_d triple owns private FIFOs (and a private
+// singleton lock) instead of colliding on the globals. Must match the
+// firmware shim (host_navhal / host_imu_feeder path_suffixed) and the suffix
+// SimWorker publishes in the environment. Unset/empty == legacy shared paths.
+std::string suffixed(const char* base) {
+    const char* s = std::getenv("VSIM_FIFO_SUFFIX");
+    return std::string(base) + ((s && *s) ? s : "");
+}
+
 // Ensure we are the ONLY vsim_d producing on the shared /tmp/vsim_* FIFOs.
 // A stale daemon (orphaned by a force-killed/crashed GCS) would otherwise
 // keep writing /tmp/vsim_imu alongside us; the firmware then reads torn,
@@ -54,8 +66,8 @@ void onSignal(int) { g_stop.store(true, std::memory_order_release); }
 // an flock on a pidfile and, if a previous daemon holds it, terminate it
 // and take over. The lock fd is intentionally held open for our lifetime.
 void ensureSingleton() {
-    const char* kLock = "/tmp/vsim_d.lock";
-    int fd = ::open(kLock, O_CREAT | O_RDWR, 0644);
+    const std::string lock = suffixed("/tmp/vsim_d.lock");
+    int fd = ::open(lock.c_str(), O_CREAT | O_RDWR, 0644);
     if (fd < 0) return;  // best-effort
     for (int attempt = 0; attempt < 100; ++attempt) {
         if (::flock(fd, LOCK_EX | LOCK_NB) == 0) {
@@ -111,10 +123,10 @@ int main(int /*argc*/, char** /*argv*/) {
     // Be the sole producer on the shared FIFOs (kills any stale daemon).
     ensureSingleton();
 
-    vsim::FifoIn  pwm_in (VSIM_FIFO_PWM);
-    vsim::FifoOut imu_out(VSIM_FIFO_IMU);
-    vsim::FifoOut pose_out(VSIM_FIFO_POSE);
-    vsim::FifoIn  ctl_in (VSIM_FIFO_CTL);
+    vsim::FifoIn  pwm_in (suffixed(VSIM_FIFO_PWM));
+    vsim::FifoOut imu_out(suffixed(VSIM_FIFO_IMU));
+    vsim::FifoOut pose_out(suffixed(VSIM_FIFO_POSE));
+    vsim::FifoIn  ctl_in (suffixed(VSIM_FIFO_CTL));
 
     if (!pwm_in.open() || !imu_out.open() || !pose_out.open() || !ctl_in.open()) {
         std::fprintf(stderr, "vsim_d: FIFO setup failed\n");

@@ -33,9 +33,9 @@ Status: ⬜ todo · 🟡 in progress · ✅ done · ⛔ blocked
 ## In progress / next
 | # | Item | Owner | Status | Notes |
 |---|------|-------|--------|-------|
-| 1 | **Per-instance FIFO paths** (`VSIM_FIFO_SUFFIX`) | fw shim ✅ / GCS ⬜ | 🟡 | HANDOFF §5.1. **fw side done**: `host_navhal` + `host_imu_feeder` append `$VSIM_FIFO_SUFFIX` to `/tmp/vsim_{pwm,imu}` and `/tmp/vayu_uart2_{pty,log}` (verified: unset = legacy paths; `=_pid42` → all suffixed). **GCS side pending** — see contract below. |
+| 1 | **Per-instance FIFO paths** (`VSIM_FIFO_SUFFIX`) | fw shim ✅ / vsim_d ✅ / GCS ✅ | ✅ | HANDOFF §5.1. **fw side**: `host_navhal` + `host_imu_feeder` append `$VSIM_FIFO_SUFFIX` to `/tmp/vsim_{pwm,imu}` + `/tmp/vayu_uart2_{pty,log}`. **vsim_d**: `suffixed()` now applies it to all four FIFOs + the singleton lock (`main.cpp`). **GCS**: `SimulatorWidget::startInAppSim` publishes `_nav<pid>` (respecting an externally-set value) before `vayu_sitl_start` + spawning `vsim_d`; `SimWorker` opens the suffixed pose/ctl. Verified: unset → base paths; `=_smoke` → all suffixed, base untouched. |
 | 2 | **RC timing vs COMM-RC-002** | firmware | ⬜ | HANDOFF §5.4 — `RcBridge` is 50 Hz (20 ms); confirm it never false-trips the 100 ms `rc_loss` / 1.0 s failsafe (incl. jitter). |
-| 3 | **Arm → fly bring-up** (single clean instance) | integration | ⛔→#1 | HANDOFF §5.2 — with valid IMU + software-arm + throttle, validate stable hover. |
+| 3 | **Arm → fly bring-up** (single clean instance) | integration | 🟡 (#1 unblocked) | HANDOFF §5.2 — with valid IMU + software-arm + throttle, validate stable hover. NB: in-app SITL telemetry/commands ride the `vsim_iface` UART2 callback, **not** a QSerialPort — the ARM button's `m_serial->write` path doesn't reach the in-process firmware (separate wiring gap to close before bring-up). |
 | 4 | **Control tuning vs airframe MoI/mass** | firmware (`src/control`) | ⬜ | HANDOFF §5.2 — if it tumbles when armed, retune rate/angle PIDs against the configured inertia. |
 | 5 | RC calibration wizard | GCS | ⬜ | HANDOFF §5.3 — auto-detect axes/direction; ends manual-mapping friction. |
 | 6 | Verify `MAX_ANGLE_CUTOFF` (45→70) provenance | firmware | ⬜ | Long-dangling uncommitted tuning of the angle failsafe; confirm intended before committing. |
@@ -57,19 +57,24 @@ STANDBY→ARMED follows. `CMD_DISARM` clears the latch → STANDBY. UI flow:
 design). The button label follows telemetry (ARMED/IN_AIR/FAILSAFE → "DISARM"),
 not the last click, so a failed arm doesn't lie about the state.
 
-## Contract: `VSIM_FIFO_SUFFIX` (per-instance isolation) — GCS side TODO
-The firmware shim appends `$VSIM_FIFO_SUFFIX` (default empty) to its base
-`/tmp` paths. For one Navigator+firmware+`vsim_d` triple to stay isolated,
-**`SimWorker` must**, before `vayu_sitl_start`:
-1. choose a unique suffix (e.g. `"_" + getpid()`),
-2. `setenv("VSIM_FIFO_SUFFIX", suffix, 1)` so the in-process firmware shim
-   picks it up, and
-3. launch `vsim_d` so it opens the **same** suffixed FIFOs
-   (`/tmp/vsim_pwm$SUFFIX`, `/tmp/vsim_imu$SUFFIX`, `/tmp/vsim_pose$SUFFIX`)
-   — via a `vsim_d` arg/env (daemon change, GCS scope).
+## Contract: `VSIM_FIFO_SUFFIX` (per-instance isolation) — DONE
+All three components now agree on the suffix, sourced from one env var
+(default empty == legacy shared paths):
+1. **GCS** — `SimulatorWidget::startInAppSim` publishes the suffix
+   (`_nav<pid>`, or an externally-set `VSIM_FIFO_SUFFIX`) **before**
+   `vayu_sitl_start` (the firmware shim caches paths on first use) and before
+   `SimWorker` spawns `vsim_d` (inherits it via `environ`).
+2. **firmware shim** — `host_navhal` / `host_imu_feeder` `path_suffixed()`
+   append it to `/tmp/vsim_{pwm,imu}` + `/tmp/vayu_uart2_{pty,log}`.
+3. **`vsim_d`** — `suffixed()` appends it to all four FIFOs
+   (`/tmp/vsim_{pwm,imu,pose,ctl}$SUFFIX`) **and** the singleton lock
+   (`/tmp/vsim_d.lock$SUFFIX`, so instances don't fight over one lock).
+4. **`SimWorker`** — opens the suffixed `pose`/`ctl` FIFOs.
 
-Until all three agree, keep to **one** Navigator (HANDOFF §5.1 mitigations
-— singleton + NaN guards — still apply).
+This was the root of frozen IMU + 0 Hz attitude: a firmware launched with a
+suffix waited on a FIFO `vsim_d` (base paths) never fed. With all three
+coordinated, multiple Navigators can now run isolated rather than colliding on
+the globals.
 
 ## Critical path
 #1 (clean IMU) → #3 (arm→fly) → #4 (tuning if divergent). #2 in parallel.
