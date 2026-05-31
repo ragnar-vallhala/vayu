@@ -167,28 +167,44 @@ bool SimWorker::spawnDaemon() {
                          .arg(bin_q, ::strerror(rc)));
         return false;
     }
-    daemon_pid_ = pid;
+    {
+        // Publish under the lock: a requestStop() racing with start-up must
+        // either see -1 (and the worker tears down right after spawn) or this
+        // pid (and kills it) — never miss it and leak the daemon.
+        std::lock_guard<std::mutex> lk(daemon_mtx_);
+        daemon_pid_ = pid;
+    }
     emit logLine(QString("vsim_d spawned pid=%1 (%2)").arg(pid).arg(bin_q));
     return true;
 }
 
 void SimWorker::killDaemon() {
-    if (daemon_pid_ <= 0) return;
-    ::kill(daemon_pid_, SIGTERM);
-    // Reap. waitpid is harmless if vsim_d already died.
+    // killDaemon() is called from BOTH the GUI thread (requestStop) and the
+    // worker thread (end of run() / the dtor). Atomically *claim* the pid
+    // under the lock — set daemon_pid_ = -1 before releasing — so exactly one
+    // caller runs the SIGTERM->reap->SIGKILL sequence and the other sees -1
+    // and returns. Without this the two raced: after one waitpid() reaped the
+    // pid, the loser could waitpid()-miss for 1.5 s and then SIGKILL a pid the
+    // OS had already recycled onto an unrelated process.
+    pid_t pid;
+    {
+        std::lock_guard<std::mutex> lk(daemon_mtx_);
+        pid = daemon_pid_;
+        daemon_pid_ = -1;
+    }
+    if (pid <= 0) return;
+
+    ::kill(pid, SIGTERM);
+    // Bounded wait: poll for up to ~1.5 s before SIGKILL. The lock is NOT held
+    // across the wait — only this caller owns `pid` now, so there's no race.
     int status = 0;
-    // Bounded wait: poll for up to ~1.5 s before SIGKILL.
     for (int i = 0; i < 30; ++i) {
-        pid_t r = ::waitpid(daemon_pid_, &status, WNOHANG);
-        if (r == daemon_pid_) {
-            daemon_pid_ = -1;
-            return;
-        }
+        pid_t r = ::waitpid(pid, &status, WNOHANG);
+        if (r == pid || (r < 0 && errno == ECHILD)) return;  // reaped / gone
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
-    ::kill(daemon_pid_, SIGKILL);
-    ::waitpid(daemon_pid_, &status, 0);
-    daemon_pid_ = -1;
+    ::kill(pid, SIGKILL);
+    ::waitpid(pid, &status, 0);
 }
 
 bool SimWorker::openFifos() {
