@@ -45,12 +45,26 @@
  * failure, not a runtime mystery. */
 #define EXPECTED_FRAME_BYTES VSIM_IMU_PAYLOAD_BYTES
 
+/* Per-instance IMU FIFO (roadmap sim-integration #1 / HANDOFF §5.1):
+ * append $VSIM_FIFO_SUFFIX to the shared base so colliding daemons can't
+ * cross-feed torn frames (-> NaN attitude). Must match host_navhal's
+ * scheme and the suffix SimWorker passes to vsim_d. */
+static const char *imu_fifo_path(void) {
+    static char p[128];
+    if (p[0] == '\0') {
+        const char *s = getenv("VSIM_FIFO_SUFFIX");
+        snprintf(p, sizeof p, "%s%s", VSIM_FIFO_IMU, (s && *s) ? s : "");
+    }
+    return p;
+}
+
 static void ensure_fifo(void) {
+    const char *path = imu_fifo_path();
     struct stat st;
-    if (stat(VSIM_FIFO_IMU, &st) != 0) {
-        if (mkfifo(VSIM_FIFO_IMU, 0666) != 0 && errno != EEXIST) {
+    if (stat(path, &st) != 0) {
+        if (mkfifo(path, 0666) != 0 && errno != EEXIST) {
             fprintf(stderr, "host_imu_feeder: mkfifo %s failed: %s\n",
-                    VSIM_FIFO_IMU, strerror(errno));
+                    path, strerror(errno));
         }
     }
 }
@@ -130,9 +144,9 @@ static void *imu_feeder_thread(void *arg) {
      * Navigator, samples arrive on /tmp/vsim_imu in the framed
      * protocol. */
     ensure_fifo();
-    fprintf(stderr, "host_imu_feeder: waiting for producer on %s\n",
-            VSIM_FIFO_IMU);
-    int fd = open(VSIM_FIFO_IMU, O_RDONLY);
+    const char *imu_path = imu_fifo_path();
+    fprintf(stderr, "host_imu_feeder: waiting for producer on %s\n", imu_path);
+    int fd = open(imu_path, O_RDONLY);
     if (fd < 0) {
         fprintf(stderr, "host_imu_feeder: open failed: %s\n", strerror(errno));
         return NULL;
@@ -145,7 +159,7 @@ static void *imu_feeder_thread(void *arg) {
             /* Producer disconnected -- reopen and keep going. */
             fprintf(stderr, "host_imu_feeder: producer closed, reopening\n");
             close(fd);
-            fd = open(VSIM_FIFO_IMU, O_RDONLY);
+            fd = open(imu_path, O_RDONLY);
             if (fd < 0) {
                 fprintf(stderr, "host_imu_feeder: reopen failed\n");
                 return NULL;
