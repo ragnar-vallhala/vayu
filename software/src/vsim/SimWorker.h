@@ -97,8 +97,11 @@ class SimWorker : public QThread {
 
   QString vsim_bin_;
 
-  // pid of the spawned vsim_d process; -1 if not running.
+  // pid of the spawned vsim_d process; -1 if not running. Guarded by
+  // daemon_mtx_ because killDaemon() runs from both the GUI thread
+  // (requestStop) and the worker thread (end of run() / dtor).
   int daemon_pid_ = -1;
+  std::mutex daemon_mtx_;
 
   int pose_fd_ = -1;
   int ctl_fd_  = -1;
