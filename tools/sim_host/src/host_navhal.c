@@ -38,6 +38,30 @@
 
 #define VAYU_UART2_LOG_PATH   "/tmp/vayu_uart2.log"
 #define VAYU_UART2_PTY_PATH   "/tmp/vayu_uart2_pty"  /* slave-path advertisement */
+
+/* Per-instance path isolation (roadmap sim-integration #1 / HANDOFF §5.1):
+ * append $VSIM_FIFO_SUFFIX to the shared /tmp base paths so each
+ * Navigator+firmware pair uses private FIFOs/pty instead of colliding on
+ * the globals (which produced torn IMU frames -> NaN attitude). SimWorker
+ * sets the same suffix and passes it to vsim_d. Unset/empty == legacy
+ * shared paths. Cached on first use; the benign first-call race writes the
+ * same value. */
+static const char *path_suffixed(const char *base, char *cache, size_t cap) {
+    if (cache[0] == '\0') {
+        const char *s = getenv("VSIM_FIFO_SUFFIX");
+        snprintf(cache, cap, "%s%s", base, (s && *s) ? s : "");
+    }
+    return cache;
+}
+static const char *pwm_fifo_path(void) {
+    static char p[128]; return path_suffixed(VSIM_FIFO_PWM, p, sizeof p);
+}
+static const char *uart2_advert_path(void) {
+    static char p[128]; return path_suffixed(VAYU_UART2_PTY_PATH, p, sizeof p);
+}
+static const char *uart2_log_path(void) {
+    static char p[128]; return path_suffixed(VAYU_UART2_LOG_PATH, p, sizeof p);
+}
 #define PWM_NUM_TIMER_CHANNELS 4
 
 /* The four ESCs all share TIM1; we identify the motor by channel 1..4. */
@@ -58,20 +82,21 @@ static float    pwm_latest[4];
 
 static void pwm_fifo_ensure_open(void) {
     if (pwm_fifo_fd >= 0 || pwm_fifo_open_failed) return;
+    const char *path = pwm_fifo_path();
     struct stat st;
-    if (stat(VSIM_FIFO_PWM, &st) != 0) {
+    if (stat(path, &st) != 0) {
         /* Best-effort create. mkfifo lives in libc on Linux. */
-        if (mkfifo(VSIM_FIFO_PWM, 0666) != 0) {
+        if (mkfifo(path, 0666) != 0) {
             /* If somebody else just created it, fall through. */
         }
     }
-    pwm_fifo_fd = open(VSIM_FIFO_PWM, O_RDWR | O_NONBLOCK);
+    pwm_fifo_fd = open(path, O_RDWR | O_NONBLOCK);
     if (pwm_fifo_fd < 0) {
-        fprintf(stderr, "host_navhal: open %s failed\n", VSIM_FIFO_PWM);
+        fprintf(stderr, "host_navhal: open %s failed\n", path);
         pwm_fifo_open_failed = 1;
     } else {
         fprintf(stderr, "host_navhal: PWM FIFO %s open (fd=%d)\n",
-                VSIM_FIFO_PWM, pwm_fifo_fd);
+                path, pwm_fifo_fd);
     }
 }
 
@@ -251,13 +276,13 @@ static void uart2_ensure_open(void) {
                 uart2_pty_master_fd = fd;
                 /* Advertise the slave path. The GCS user can either
                  * read /tmp/vayu_uart2_pty or look at stderr. */
-                FILE *adv = fopen(VAYU_UART2_PTY_PATH, "w");
+                FILE *adv = fopen(uart2_advert_path(), "w");
                 if (adv) { fprintf(adv, "%s\n", uart2_slave_path); fclose(adv); }
                 fprintf(stderr, "host_navhal: UART2 pty open, slave=%s\n",
                         uart2_slave_path);
                 fprintf(stderr, "host_navhal: connect the GCS to %s "
                                 "(or read %s)\n",
-                        uart2_slave_path, VAYU_UART2_PTY_PATH);
+                        uart2_slave_path, uart2_advert_path());
                 /* Start the RX reader so GCS->FC commands are delivered. */
                 if (!uart2_rx_started) {
                     pthread_t th;
@@ -279,14 +304,13 @@ static void uart2_ensure_open(void) {
         }
     }
     if (uart2_log_fd < 0) {
-        uart2_log_fd = open(VAYU_UART2_LOG_PATH,
-                            O_WRONLY | O_CREAT | O_TRUNC, 0666);
+        const char *logp = uart2_log_path();
+        uart2_log_fd = open(logp, O_WRONLY | O_CREAT | O_TRUNC, 0666);
         if (uart2_log_fd >= 0) {
-            fprintf(stderr, "host_navhal: UART2 raw log -> %s\n",
-                    VAYU_UART2_LOG_PATH);
+            fprintf(stderr, "host_navhal: UART2 raw log -> %s\n", logp);
         } else {
             fprintf(stderr, "host_navhal: open %s failed: %s\n",
-                    VAYU_UART2_LOG_PATH, strerror(errno));
+                    logp, strerror(errno));
         }
     }
     pthread_mutex_unlock(&uart2_mu);
