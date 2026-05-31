@@ -92,6 +92,19 @@ bool arm_preconditions_met(const ibus_data_t *rc) {
          !estimator_is_degraded();
 }
 
+/* GCS software-arm latch (CMD_ARM/CMD_DISARM). See ibus.h / rc_arm_engaged(). */
+volatile uint8_t g_sw_arm_request = 0;
+
+/**
+ * @brief Arm requested when the RC arm switch (ch5 > 1500) OR the GCS
+ *        software-arm latch is engaged. Lets a 4-channel stick (no physical
+ *        arm channel) arm via the GCS. Preconditions remain the caller's job.
+ * @implements CTRL-ARM-001
+ */
+bool rc_arm_engaged(const ibus_data_t *rc) {
+  return rc->channels[4] > 1500 || g_sw_arm_request != 0;
+}
+
 /**
  * @implements SYS-SAFE-002
  */

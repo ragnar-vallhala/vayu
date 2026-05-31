@@ -64,7 +64,7 @@ void rc_ibus_task(void *args) {
           ibus_raw_data.channels[i] = 1500;
         }
       }
-      if (ibus_raw_data.channels[4] > 1500) {
+      if (rc_arm_engaged(&ibus_raw_data)) {
         if (current_state == SYSTEM_STATE_STANDBY &&
             arm_preconditions_met(&ibus_raw_data)) {
           VAYU_DISCARD(system_state_set(SYSTEM_STATE_ARMED));
@@ -129,7 +129,7 @@ void rc_ibus_task(void *args) {
           ibus_raw_data.channels[i] = 1500;
         }
       }
-      if (ibus_raw_data.channels[4] > 1500) {
+      if (rc_arm_engaged(&ibus_raw_data)) {
         // Switch is UP (Armed position)
         if (current_state == SYSTEM_STATE_STANDBY &&
             arm_preconditions_met(&ibus_raw_data)) {
