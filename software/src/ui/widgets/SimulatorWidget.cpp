@@ -22,9 +22,12 @@
 #include <QSplitter>
 #include <QStackedWidget>
 #include <QUrl>
+#include <QByteArray>
 #include <QVBoxLayout>
 
 #include <cmath>
+
+#include <unistd.h>
 
 namespace {
 
@@ -465,6 +468,17 @@ bool SimulatorWidget::eventFilter(QObject* obj, QEvent* ev) {
 
 void SimulatorWidget::startInAppSim() {
   if (m_sim) return;
+
+  // Per-instance FIFO isolation (roadmap sim-integration #1): publish a
+  // suffix for this Navigator process in the environment BEFORE vayu_sitl_start
+  // (the firmware shim caches its FIFO/pty paths on first use) and before
+  // SimWorker spawns vsim_d (which inherits it via environ). All three then
+  // agree on /tmp/vsim_*<suffix>; without this the firmware can wait on a FIFO
+  // nobody feeds -> frozen IMU, 0 Hz attitude. Respect an externally-set value.
+  if (qEnvironmentVariableIsEmpty("VSIM_FIFO_SUFFIX")) {
+    qputenv("VSIM_FIFO_SUFFIX",
+            QByteArrayLiteral("_nav") + QByteArray::number(::getpid()));
+  }
 
   // Open a fresh per-run log file before the firmware starts emitting.
   openNewLogFile();
