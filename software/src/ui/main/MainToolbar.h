@@ -26,9 +26,12 @@ public:
   // ---- State updaters driven by MainWindow ---------------------------------
   void setConnected(bool on, const QString &portLabel = {});
 
-  // ARM stays disabled until FR-TX-02 lands; MainWindow flips this
-  // once the firmware-side packet is defined and the connection is up.
+  // Enabled by MainWindow once a connection is up (the firmware accepts
+  // CMD_ARM/CMD_DISARM, FR-TX-02).
   void setArmEnabled(bool on);
+
+  // Reflect the FC's armed state from telemetry: label flips ARM <-> DISARM.
+  void setArmState(bool armed);
 
   // ---- Combo accessors for QSettings round-trip (persistence) --------------
   // currentPort returns the bare device path (userData if present, edit

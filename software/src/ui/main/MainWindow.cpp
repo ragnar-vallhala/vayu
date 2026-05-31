@@ -13,6 +13,7 @@
 #include <QMenu>
 #include <QMenuBar>
 #include <QPushButton>
+#include <QStringList>
 #include <QSettings>
 #include <QShortcut>
 #include <QSplitter>
@@ -433,13 +434,38 @@ void MainWindow::onDisconnectRequested() {
 }
 
 void MainWindow::onArmClicked() {
-  // Intentional no-op until FR-TX-02 (Phase-0 item 0a) defines the
-  // ARM packet with the firmware. The button stays disabled in the
-  // toolbar, so this slot is only reachable via keyboard shortcut or
-  // a future state change. Log so the action is observable.
-  m_logPanel->appendLog(
-      "[GCS] ARM/DISARM not implemented — pending firmware packet "
-      "definition (FR-TX-02)");
+  if (!m_serial || !m_connected) {
+    m_logPanel->appendLog("[GCS] ARM/DISARM ignored — not connected");
+    return;
+  }
+
+  // Toggle on the last-known FC state (driven by telemetry in
+  // onStatusReceived): armed/failsafe -> CMD_DISARM, otherwise CMD_ARM.
+  // Both commands are idempotent on the firmware side, so a stale m_armed
+  // is harmless. The firmware checks the arm preconditions (throttle low,
+  // RC healthy, estimator OK) on its next RC frame.
+  const uint16_t cmd_id = m_armed ? 0x0003 /*CMD_DISARM*/ : 0x0002 /*CMD_ARM*/;
+
+  // NavLink command frame (matches CalibrationWidget): no args, so
+  // length = 2 (just the cmd_id). sync, type|ver, length, dev_id, ts,
+  // payload, crc32 over everything preceding the crc.
+  const uint32_t now = static_cast<uint32_t>(QDateTime::currentMSecsSinceEpoch());
+  const uint8_t dev_id = 42;
+  QByteArray pkt;
+  pkt.append(static_cast<char>(0x56));   // sync
+  pkt.append(static_cast<char>(0x31));   // packet type 3 (command), proto v1
+  pkt.append(static_cast<char>(2));      // payload length = 2 (cmd_id only)
+  pkt.append(static_cast<char>(dev_id));
+  pkt.append(reinterpret_cast<const char *>(&now), 4);
+  pkt.append(reinterpret_cast<const char *>(&cmd_id), 2);
+  const uint32_t crc = CRC32::calculate(
+      reinterpret_cast<const uint8_t *>(pkt.constData()),
+      static_cast<uint32_t>(pkt.size()));
+  pkt.append(reinterpret_cast<const char *>(&crc), 4);
+
+  m_serial->write(pkt);
+  m_logPanel->appendLog(m_armed ? "[GCS] Sent CMD_DISARM"
+                                : "[GCS] Sent CMD_ARM (lower throttle to arm)");
 }
 
 void MainWindow::onToggle3d(bool checked) {
@@ -474,6 +500,22 @@ void MainWindow::onLogReceived(const QString &msg) {
 }
 
 void MainWindow::onStatusReceived(const QString &msg) {
+  // Track the FC's armed state from genuine state-name status strings only
+  // (statusReceived also carries log / other strings). This drives the ARM
+  // button label so it reflects the vehicle, not the last click. ARMED /
+  // IN_AIR / FAILSAFE all show DISARM (so the operator can always recover).
+  static const QStringList kStateNames = {
+      "UNINITIALIZED", "INIT",     "STANDBY",    "PREARM",     "ARMED",
+      "IN_AIR",        "FAILSAFE", "TERMINATED", "CALIBRATING"};
+  if (kStateNames.contains(msg)) {
+    const bool armedish =
+        (msg == "ARMED" || msg == "IN_AIR" || msg == "FAILSAFE");
+    if (armedish != m_armed) {
+      m_armed = armedish;
+      if (m_toolbar) m_toolbar->setArmState(m_armed);
+    }
+  }
+
   if (m_statusLabel) {
     m_statusLabel->setText(msg.toUpper());
     QString style = "font-size: 18px; font-weight: bold; border-radius: 4px; "
@@ -543,6 +585,15 @@ void MainWindow::setConnected(bool on) {
 
   if (m_toolbar)   m_toolbar->setConnected(on, m_serial->currentPort());
   if (m_statusBar) m_statusBar->setConnectionStatus(on, m_serial->currentPort());
+
+  // ARM/DISARM is reachable whenever the link is up; the firmware enforces
+  // the arm preconditions (throttle, RC, estimator). On disconnect reset the
+  // cached arm state and the button label back to ARM.
+  if (m_toolbar) m_toolbar->setArmEnabled(on);
+  if (!on) {
+    m_armed = false;
+    if (m_toolbar) m_toolbar->setArmState(false);
+  }
 
   // System-state pill on the attitude page. Stays here because it's
   // tied to firmware status packets, not to the connection per se.

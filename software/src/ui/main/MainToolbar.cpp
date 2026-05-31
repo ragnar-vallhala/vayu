@@ -80,11 +80,11 @@ void MainToolbar::buildContent() {
 
   addSeparator();
 
-  // ARM / DISARM — disabled until FR-TX-02 lands (Phase-0 0a).
+  // ARM / DISARM — enabled by MainWindow once connected (FR-TX-02).
   m_armBtn = new ui::DangerButton(tr("ARM"), this);
   m_armBtn->setEnabled(false);
-  m_armBtn->setToolTip(tr("ARM / DISARM the airframe. Not yet implemented — "
-                          "tx packet pending firmware side (FR-TX-02)."));
+  m_armBtn->setToolTip(tr("ARM / DISARM the airframe (CMD_ARM / CMD_DISARM). "
+                          "Lower the throttle before arming."));
   connect(m_armBtn, &QPushButton::clicked, this, &MainToolbar::armClicked);
   addWidget(m_armBtn);
 
@@ -174,6 +174,10 @@ void MainToolbar::setConnected(bool on, const QString &portLabel) {
 
 void MainToolbar::setArmEnabled(bool on) {
   if (m_armBtn) m_armBtn->setEnabled(on);
+}
+
+void MainToolbar::setArmState(bool armed) {
+  if (m_armBtn) m_armBtn->setText(armed ? tr("DISARM") : tr("ARM"));
 }
 
 QString MainToolbar::currentPort() const {
