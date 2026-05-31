@@ -28,10 +28,15 @@ set(VENDOR stm32 CACHE STRING "Vendor")
 add_compile_definitions(VAIOS)
 set(NAVHAL ON)
 set(VAIOS_CONFIG_FILE "${CMAKE_CURRENT_SOURCE_DIR}/include/vaios_app_config.h")
+# NOTE: do NOT add ${CMAKE_CURRENT_SOURCE_DIR}/include here. This block is
+# inherited by add_subdirectory(extern/vaios) below, and vayu's include/sys/
+# types.h (our err_t enum) would shadow the toolchain's standard <sys/types.h>
+# when vaios's kernel/syscalls.c includes it — breaking newlib's <unistd.h>
+# (mode_t/pid_t/off_t undefined). vayu's own targets pick up include/ from the
+# include_directories() call after add_subdirectory(extern/vaios).
 include_directories(
     extern/vaios/include
     extern/vaios/portable/cortex-m4
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
 # NavHAL Kconfig is owned by vayu (./navhal.config), NOT the vaios submodule,
