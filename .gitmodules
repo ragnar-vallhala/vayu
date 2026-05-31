@@ -4,3 +4,7 @@
 [submodule "extern/vaios"]
 	path = extern/vaios
 	url = https://github.com/ragnar-vallhala/vaios.git
+	# vayu stages ./navhal.config over extern/vaios/navhal.config at configure
+	# time (root CMakeLists). Ignore the resulting working-tree change so the
+	# submodule isn't reported dirty; the committed vaios pointer is untouched.
+	ignore = dirty
