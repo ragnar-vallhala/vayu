@@ -11,7 +11,9 @@
 
 #include <cerrno>
 #include <csignal>
+#include <cstdlib>
 #include <cstring>
+#include <string>
 #include <fcntl.h>
 #include <spawn.h>
 #include <sys/stat.h>
@@ -51,6 +53,16 @@ QString resolveBinary(const QString& override_path) {
         }
     }
     return QStringLiteral("vsim_d");
+}
+
+// Per-instance FIFO isolation (roadmap sim-integration #1): append
+// $VSIM_FIFO_SUFFIX to the shared /tmp base path. SimulatorWidget publishes
+// the suffix in the environment before vayu_sitl_start + spawning vsim_d, so
+// the in-process firmware shim, the spawned daemon, and this reader all agree
+// on /tmp/vsim_*<suffix>. Unset/empty == legacy shared paths.
+std::string fifoSuffixed(const char* base) {
+    const char* s = ::getenv("VSIM_FIFO_SUFFIX");
+    return std::string(base) + ((s && *s) ? s : "");
 }
 
 }  // namespace
@@ -190,12 +202,14 @@ bool SimWorker::openFifos() {
         }
         return false;
     };
-    if (!wait_for(VSIM_FIFO_POSE) || !wait_for(VSIM_FIFO_CTL)) {
+    const std::string pose_path = fifoSuffixed(VSIM_FIFO_POSE);
+    const std::string ctl_path  = fifoSuffixed(VSIM_FIFO_CTL);
+    if (!wait_for(pose_path.c_str()) || !wait_for(ctl_path.c_str())) {
         emit logLine("vsim_d: timed out waiting for FIFOs");
         return false;
     }
-    pose_fd_ = ::open(VSIM_FIFO_POSE, O_RDONLY | O_NONBLOCK);
-    ctl_fd_  = ::open(VSIM_FIFO_CTL,  O_RDWR   | O_NONBLOCK);
+    pose_fd_ = ::open(pose_path.c_str(), O_RDONLY | O_NONBLOCK);
+    ctl_fd_  = ::open(ctl_path.c_str(),  O_RDWR   | O_NONBLOCK);
     if (pose_fd_ < 0 || ctl_fd_ < 0) {
         emit logLine(QString("vsim_d: FIFO open failed: %1").arg(::strerror(errno)));
         return false;
