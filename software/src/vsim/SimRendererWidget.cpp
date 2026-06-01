@@ -187,6 +187,17 @@ void SimRendererWidget::resizeGL(int w, int h) {
 }
 
 QMatrix4x4 SimRendererWidget::cameraView() const {
+  if (fpv_) {
+    // Onboard camera: sit just ahead of + above the CoM, look along body +X
+    // (forward), with the body's up (-Z) as the view up. Rides the airframe.
+    const QVector3D fwd = snap_.att.rotatedVector(QVector3D(1, 0, 0));
+    const QVector3D up  = snap_.att.rotatedVector(QVector3D(0, 0, -1));
+    const QVector3D eye =
+        snap_.pos_w + snap_.att.rotatedVector(QVector3D(0.12f, 0.0f, -0.03f));
+    QMatrix4x4 view;
+    view.lookAt(eye, eye + fwd, up);
+    return view;
+  }
   // Orbit around the drone's current world position. Convert
   // (radius, yaw, pitch) into a NED offset; remember NED up is -Z.
   const auto& tgt = snap_.pos_w;
@@ -237,14 +248,18 @@ void SimRendererWidget::paintGL() {
   }
 
   // Drone body: apply pos+orientation. Quaternion is normalized by the
-  // sim after every step.
+  // sim after every step. In FPV the camera is inside the airframe, so the
+  // body/markers are skipped — you're looking *out*.
   const QMatrix4x4 model = modelMatrix();
 
-  if (hasMesh_) {
-    drawLit(droneMesh_, view, model, QVector3D(0.80f, 0.81f, 0.85f));
-  } else {
-    drawMesh(body_, view * model, QVector3D(0.85f, 0.55f, 0.20f));
+  if (!fpv_) {
+    if (hasMesh_) {
+      drawLit(droneMesh_, view, model, QVector3D(0.80f, 0.81f, 0.85f));
+    } else {
+      drawMesh(body_, view * model, QVector3D(0.85f, 0.55f, 0.20f));
+    }
   }
+  if (!fpv_) {
 
   // Motor markers (disk colored by spin + activity) and a thrust-axis
   // line, at the editable body-frame positions/axes.
@@ -288,6 +303,7 @@ void SimRendererWidget::paintGL() {
 
   // Body +X / north arrow: shown in both Vehicle and World modes.
   drawNorthIndicator(view);
+  }  // end if (!fpv_)
 }
 
 void SimRendererWidget::drawMesh(const Mesh& m, const QMatrix4x4& mvp,

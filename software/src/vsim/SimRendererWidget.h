@@ -54,6 +54,11 @@ class SimRendererWidget : public QOpenGLWidget, protected QOpenGLFunctions {
   void setObstacleEditMode(bool on);
   void selectObstacle(int index);  // drive selection from the list
 
+  // Onboard FPV camera: ride the drone, looking forward along body +X (the
+  // body mesh is hidden so it doesn't fill the lens). Off = orbit camera.
+  void setFpv(bool on) { fpv_ = on; update(); }
+  bool fpv() const { return fpv_; }
+
   // Enable Blender-style motor gizmo editing (click-select, G move /
   // R rotate, X/Y/Z constrain). Only meaningful when the sim is stopped;
   // the SimulatorWidget toggles this on stop / off on start.
@@ -201,6 +206,7 @@ class SimRendererWidget : public QOpenGLWidget, protected QOpenGLFunctions {
   float cam_radius_ = 4.0f;
   float cam_yaw_    = 0.7f;   // around world -Z (NED up)
   float cam_pitch_  = -0.5f;  // tilt
+  bool  fpv_        = false;  // onboard FPV camera vs orbit
   QPoint last_mouse_;
 
   QMatrix4x4 proj_;
