@@ -500,7 +500,16 @@ void SimulatorWidget::startInAppSim() {
   // /tmp/vsim_pose; the iface is no longer used for PWM/IMU transport
   // (those went FIFO-only when we split the daemon out). The iface is
   // still alive for the UART2 telemetry callback above.
+  // (Re)attach the firmware -> GCS telemetry callback so IMU / attitude /
+  // heartbeat flow to the home-screen panels while running. It's detached on
+  // Stop (below) — the in-process firmware threads can't actually be stopped,
+  // so without this they'd keep streaming heartbeats and the LIVE blinker
+  // would keep blinking after Stop.
+  vsim_iface_set_uart2_callback(&m_iface, &uart2_to_widget_trampoline, this);
+
   m_sim = new vsim::SimWorker(this);
+  connect(m_sim, &vsim::SimWorker::stoppedCleanly, this,
+          &SimulatorWidget::onSimWorkerExited);
   connect(m_sim, &vsim::SimWorker::poseUpdated,
           m_renderer, &vsim::SimRendererWidget::setSnapshot);
   connect(m_sim, &vsim::SimWorker::poseUpdated,
@@ -543,6 +552,11 @@ void SimulatorWidget::startInAppSim() {
 
 void SimulatorWidget::stopInAppSim() {
   if (!m_sim) return;
+  // Detach the telemetry callback first: the firmware threads keep running
+  // (vayu_sitl is one-shot), so without this they'd keep streaming heartbeats
+  // and IMU to the home screen after Stop — the LIVE blinker would never stop.
+  // Dropping the callback makes the display go quiet, consistent with Stopped.
+  vsim_iface_set_uart2_callback(&m_iface, nullptr, nullptr);
   m_sim->requestStop();
   if (!m_sim->wait(2000)) {
     m_sim->terminate();
@@ -565,6 +579,16 @@ void SimulatorWidget::stopInAppSim() {
   // Note: we don't call vayu_sitl_stop() here on the Stop button.
   // The firmware threads stay alive but receive no fresh IMU samples
   // (SimWorker isn't pushing). Restarting the sim resumes the pipe.
+}
+
+void SimulatorWidget::onSimWorkerExited() {
+  // The worker emitted stoppedCleanly (spawn failure, startup-grace timeout,
+  // or the daemon died) without the user clicking Stop. If we haven't already
+  // torn down (explicit Stop nulls m_sim before the queued signal arrives),
+  // run the normal stop path so the buttons / status reflect the dead worker.
+  if (!m_sim) return;
+  appendLog("vsim", "[worker exited — resetting to Stopped]");
+  stopInAppSim();
 }
 
 // ----------------------------------------------------------------------------
