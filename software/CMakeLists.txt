@@ -103,6 +103,7 @@ set(GCS_SITL_SOURCES
     src/vsim/MeshLoader.cpp
     src/vsim/MassProperties.cpp
     src/vsim/RcBridge.cpp
+    src/audio/PropAudio.cpp
 )
 set(GCS_SITL_HEADERS
     src/ui/widgets/SimulatorWidget.h
@@ -150,6 +151,19 @@ target_link_libraries(Navigator PRIVATE
     Qt6::OpenGL
     Qt6::OpenGLWidgets
 )
+
+# Optional propeller audio via PulseAudio (PipeWire-pulse works too). When the
+# simple API isn't present we compile a silent stub, so this never blocks the
+# build.
+find_library(PULSE_LIB pulse)
+find_library(PULSE_SIMPLE_LIB pulse-simple)
+if(PULSE_LIB AND PULSE_SIMPLE_LIB)
+    target_compile_definitions(Navigator PRIVATE HAVE_PULSE_SIMPLE)
+    target_link_libraries(Navigator PRIVATE ${PULSE_LIB} ${PULSE_SIMPLE_LIB})
+    message(STATUS "Navigator: prop audio enabled (PulseAudio)")
+else()
+    message(STATUS "Navigator: prop audio = silent stub (libpulse-simple not found)")
+endif()
 
 # -------------------------------------------------------
 # vayu_sitl_core: the firmware-side SITL built as a static library.

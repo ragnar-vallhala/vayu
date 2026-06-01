@@ -35,6 +35,7 @@ constexpr const char* kRepoRootSettingKey = "simulator/repoRoot";
 constexpr const char* kLogDirSettingKey   = "simulator/logDir";
 constexpr const char* kGeomGroup          = "simulator/geometry";
 constexpr const char* kWorldGroup         = "simulator/world";
+constexpr const char* kAudioKey           = "simulator/propAudio";
 constexpr const char* kRcEnableKey        = "simulator/rcEnable";
 constexpr const char* kRcSourceKey        = "simulator/rcSource";   // 0=js 1=uart
 constexpr const char* kRcPathKey          = "simulator/rcPath";     // joystick dev
@@ -313,6 +314,20 @@ void SimulatorWidget::buildUi() {
     connect(fpv, &QCheckBox::toggled, this,
             [this](bool on) { if (m_renderer) m_renderer->setFpv(on); });
     runRow->addWidget(fpv);
+
+    auto* audio = new QCheckBox(tr("Prop audio"), simBody);
+    audio->setToolTip(tr("Propeller sound synthesized from motor rpm "
+                         "(pitch + loudness rise with throttle)."));
+    {
+      QSettings st;
+      audio->setChecked(st.value(kAudioKey, false).toBool());
+      m_propAudio.setEnabled(audio->isChecked());
+    }
+    connect(audio, &QCheckBox::toggled, this, [this](bool on) {
+      QSettings().setValue(kAudioKey, on);
+      m_propAudio.setEnabled(on);
+    });
+    runRow->addWidget(audio);
     sv->addLayout(runRow);
 
     m_simPoseLabel = new QLabel(tr("pose: -"), simBody);
@@ -646,6 +661,7 @@ void SimulatorWidget::startInAppSim() {
                     .arg(pitch, 0, 'f', 1)
                     .arg(yaw, 0, 'f', 1));
             updateHud(snap);
+            m_propAudio.setMotors(snap.motor_omega);
           });
   connect(m_sim, &vsim::SimWorker::logLine, this,
           [this](const QString& s) { appendLog("vsim", s); });
@@ -687,6 +703,7 @@ void SimulatorWidget::stopInAppSim() {
   }
   m_sim->deleteLater();
   m_sim = nullptr;
+  m_propAudio.setMotors({0.0f, 0.0f, 0.0f, 0.0f});  // silence once stopped
   m_simStartBtn->setEnabled(true);
   m_simStopBtn->setEnabled(false);
   if (m_simResetBtn) m_simResetBtn->setEnabled(false);
