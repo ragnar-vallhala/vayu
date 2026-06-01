@@ -223,8 +223,13 @@ void SimulatorWidget::buildUi() {
   // ===== Vehicle page: airframe geometry + motor editor =====
   {
     m_geomEditor = new GeometryEditorWidget();
-    connect(m_geomEditor, &GeometryEditorWidget::previewUpdated, this,
-            [this] { applyGeometryToRenderer(); });
+    // Persist on every config change (mesh load, edit, gizmo) — not just on
+    // Apply — so the last-selected vehicle is restored on the next launch via
+    // restoreGeometry() below.
+    connect(m_geomEditor, &GeometryEditorWidget::previewUpdated, this, [this] {
+      applyGeometryToRenderer();
+      persistGeometry(m_geomEditor->config());
+    });
     // Gizmo edits in the 3D view flow back into the editor (CoM frame).
     connect(m_renderer, &vsim::SimRendererWidget::motorEdited, m_geomEditor,
             &GeometryEditorWidget::setMotorFromGizmo);
