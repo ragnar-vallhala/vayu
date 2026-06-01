@@ -1,5 +1,6 @@
 #include "SimHudWidget.h"
 
+#include <QFontMetrics>
 #include <QPainter>
 #include <QPolygonF>
 #include <QtMath>
@@ -23,6 +24,21 @@ void SimHudWidget::setSnapshot(const vsim::SimSnapshot& s) {
   gs_ = std::hypot(s.vel_w.x(), s.vel_w.y());        // ground speed
   vs_ = -s.vel_w.z();                                // +up
   motor_ = s.motor_duty;
+  update();
+}
+
+void SimHudWidget::setStatus(const QString& s) {
+  status_ = s;
+  update();
+}
+
+void SimHudWidget::setImu(const float acc[3], const float gyr[3]) {
+  for (int i = 0; i < 3; ++i) {
+    accHist_[i].append(acc[i]);
+    if (accHist_[i].size() > kHistN) accHist_[i].removeFirst();
+    gyrHist_[i].append(gyr[i]);
+    if (gyrHist_[i].size() > kHistN) gyrHist_[i].removeFirst();
+  }
   update();
 }
 
@@ -213,5 +229,63 @@ void SimHudWidget::paintEvent(QPaintEvent*) {
       p.drawText(QRectF(mx - 4, by + 2, bw + 8, 14), Qt::AlignCenter,
                  QString("M%1").arg(i + 1));
     }
+  }
+
+  // ===== system status (top-left) =====
+  {
+    const QString st = status_.isEmpty() ? tr("—") : status_;
+    const bool danger =
+        st.contains("FAILSAFE") || st.contains("ARMED") || st.contains("IN_AIR");
+    const QColor scol = danger ? warn : hud;
+    const QString label = tr("STATE ") + st;
+    const QFontMetrics fm(font);
+    const QRectF sb(12, 12, fm.horizontalAdvance(label) + 16, 18);
+    p.fillRect(sb, box);
+    pen(scol, 1.3);
+    p.drawRect(sb);
+    p.drawText(sb, Qt::AlignCenter, label);
+  }
+
+  // ===== accel / gyro mini-plots (bottom-right) =====
+  {
+    auto plot = [&](const QRectF& r, const QString& title,
+                    const std::array<QVector<float>, 3>& hist, double minRange) {
+      p.fillRect(r, box);
+      pen(dim, 1.0);
+      p.drawRect(r);
+      // Auto-range to the largest |sample|, floored so a still vehicle still
+      // shows a readable trace.
+      double mx = minRange;
+      for (int i = 0; i < 3; ++i)
+        for (float v : hist[i]) mx = std::max(mx, (double)std::abs(v));
+      const double midY = r.y() + r.height() * 0.58;
+      const double plotH = r.height() * 0.38;
+      pen(dim, 0.8, Qt::DotLine);
+      p.drawLine(QPointF(r.x() + 3, midY), QPointF(r.right() - 3, midY));
+      const QColor axc[3] = {QColor(255, 95, 95), QColor(90, 255, 160),
+                             QColor(90, 180, 255)};
+      for (int i = 0; i < 3; ++i) {
+        const QVector<float>& h = hist[i];
+        if (h.size() < 2) continue;
+        QPolygonF poly;
+        for (int k = 0; k < h.size(); ++k) {
+          const double x = r.x() + 4 + (r.width() - 8) * (double)k / (kHistN - 1);
+          const double y =
+              midY - std::clamp((double)h[k] / mx, -1.0, 1.0) * plotH;
+          poly << QPointF(x, y);
+        }
+        pen(axc[i], 1.2);
+        p.drawPolyline(poly);
+      }
+      pen(hud, 1.0);
+      p.drawText(QRectF(r.x() + 4, r.y() + 1, r.width() - 8, 12), Qt::AlignLeft,
+                 title);
+      pen(dim, 1.0);
+      p.drawText(QRectF(r.x() + 4, r.y() + 1, r.width() - 8, 12), Qt::AlignRight,
+                 QString::fromUtf8("±%1").arg(mx, 0, 'f', mx < 10 ? 1 : 0));
+    };
+    const double pw = 210, ph = 46, px = W - pw - 14;
+    plot(QRectF(px, H - 118, pw, ph), tr("GYR °/s"), gyrHist_, 30.0);
+    plot(QRectF(px, H - 66, pw, ph), tr("ACC m/s²"), accHist_, 2.0);
   }
 }

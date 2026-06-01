@@ -76,6 +76,11 @@ class SimulatorWidget : public QWidget {
   // by name through the meta-object system.
   void onUartBytes(QByteArray bytes);
 
+  // Forward telemetry-decoded values (parsed in MainWindow) into the HUD
+  // overlay: the flight-state name and the latest IMU accel/gyro sample.
+  void hudSetStatus(const QString& s);
+  void hudSetImu(const float acc[3], const float gyr[3]);
+
  private:
   void buildUi();
   void appendLog(const QString& tag, const QString& text);

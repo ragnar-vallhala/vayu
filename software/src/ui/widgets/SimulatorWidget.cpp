@@ -489,6 +489,14 @@ void SimulatorWidget::updateHud(const vsim::SimSnapshot& s) {
   if (m_hud) m_hud->setSnapshot(s);
 }
 
+void SimulatorWidget::hudSetStatus(const QString& s) {
+  if (m_hud) m_hud->setStatus(s);
+}
+
+void SimulatorWidget::hudSetImu(const float acc[3], const float gyr[3]) {
+  if (m_hud) m_hud->setImu(acc, gyr);
+}
+
 void SimulatorWidget::pushRcMapping(int func) {
   if (func < 0 || func >= 5 || !m_rcAxisCombo[func]) return;
   const int axis = m_rcAxisCombo[func]->currentData().toInt();
