@@ -152,6 +152,7 @@ void SimRendererWidget::initializeGL() {
   ul_light_ = progLit_.uniformLocation("u_lightdir");
 
   buildGroundGrid();
+  buildObstacleMeshes();
   buildAxes();
   buildDroneBody();
   buildRotorDisk();
@@ -192,6 +193,29 @@ void SimRendererWidget::paintGL() {
   // Ground at z=0, world axes at origin.
   drawMesh(ground_, view, QVector3D(0.25f, 0.27f, 0.32f));
   drawMesh(axes_,   view, QVector3D(1, 1, 1));
+
+  // Static world obstacles (lit solids), each scaled/rotated/placed.
+  for (const vsim::Obstacle& o : obstacles_) {
+    QMatrix4x4 m;
+    m.translate(o.pos);
+    m.rotate(o.rotate.x(), 1, 0, 0);
+    m.rotate(o.rotate.y(), 0, 1, 0);
+    m.rotate(o.rotate.z(), 0, 0, 1);
+    const Mesh* mesh = &unitBox_;
+    QVector3D col(0.40f, 0.45f, 0.55f);
+    if (o.type == vsim::Obstacle::Sphere) {
+      mesh = &unitSphere_;
+      m.scale(o.size.x(), o.size.x(), o.size.x());   // radius = size.x
+      col = QVector3D(0.50f, 0.42f, 0.55f);
+    } else if (o.type == vsim::Obstacle::Cylinder) {
+      mesh = &unitCyl_;
+      m.scale(o.size.x(), o.size.x(), o.size.z());   // radius, height
+      col = QVector3D(0.42f, 0.52f, 0.46f);
+    } else {
+      m.scale(o.size.x(), o.size.y(), o.size.z());   // box full extents
+    }
+    drawLit(*mesh, view, m, col);
+  }
 
   // Drone body: apply pos+orientation. Quaternion is normalized by the
   // sim after every step.
@@ -305,6 +329,100 @@ void SimRendererWidget::uploadDroneMesh() {
 }
 
 // ---------- geometry generators ----------
+
+void SimRendererWidget::uploadLitMesh(Mesh& m,
+                                      const std::vector<float>& data) {
+  if (!m.vao.isCreated()) m.vao.create();
+  m.vao.bind();
+  if (!m.vbo.isCreated()) m.vbo.create();
+  m.vbo.bind();
+  m.vbo.allocate(data.data(), int(data.size() * sizeof(float)));
+  glEnableVertexAttribArray(0);
+  glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), nullptr);
+  glEnableVertexAttribArray(1);
+  glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float),
+                        reinterpret_cast<void*>(3 * sizeof(float)));
+  m.vbo.release();
+  m.vao.release();
+  m.vertex_count = int(data.size() / 6);
+  m.primitive = GL_TRIANGLES;
+}
+
+void SimRendererWidget::buildObstacleMeshes() {
+  auto tri = [](std::vector<float>& v, const QVector3D& a, const QVector3D& b,
+                const QVector3D& c) {
+    const QVector3D n = QVector3D::crossProduct(b - a, c - a).normalized();
+    for (const QVector3D& p : {a, b, c})
+      v.insert(v.end(), {p.x(), p.y(), p.z(), n.x(), n.y(), n.z()});
+  };
+
+  // --- unit box [-0.5,0.5]^3 (full-extent unit cube) ---
+  {
+    std::vector<float> v;
+    const float h = 0.5f;
+    const QVector3D c[8] = {
+        {-h, -h, -h}, {h, -h, -h}, {h, h, -h}, {-h, h, -h},
+        {-h, -h, h},  {h, -h, h},  {h, h, h},  {-h, h, h}};
+    const int f[6][4] = {{0, 1, 2, 3}, {5, 4, 7, 6}, {4, 0, 3, 7},
+                         {1, 5, 6, 2}, {4, 5, 1, 0}, {3, 2, 6, 7}};
+    for (auto& q : f) {
+      tri(v, c[q[0]], c[q[1]], c[q[2]]);
+      tri(v, c[q[0]], c[q[2]], c[q[3]]);
+    }
+    uploadLitMesh(unitBox_, v);
+  }
+
+  // --- unit sphere (radius 1, UV tessellation) ---
+  {
+    std::vector<float> v;
+    const int LA = 12, LO = 18;
+    auto sph = [](double la, double lo) {
+      return QVector3D(std::sin(la) * std::cos(lo), std::sin(la) * std::sin(lo),
+                       std::cos(la));
+    };
+    for (int i = 0; i < LA; ++i)
+      for (int j = 0; j < LO; ++j) {
+        const double la0 = M_PI * i / LA, la1 = M_PI * (i + 1) / LA;
+        const double lo0 = 2 * M_PI * j / LO, lo1 = 2 * M_PI * (j + 1) / LO;
+        const QVector3D a = sph(la0, lo0), b = sph(la1, lo0),
+                        c2 = sph(la1, lo1), d = sph(la0, lo1);
+        // normals == positions for a unit sphere.
+        for (const QVector3D& p : {a, b, c2})
+          v.insert(v.end(), {p.x(), p.y(), p.z(), p.x(), p.y(), p.z()});
+        for (const QVector3D& p : {a, c2, d})
+          v.insert(v.end(), {p.x(), p.y(), p.z(), p.x(), p.y(), p.z()});
+      }
+    uploadLitMesh(unitSphere_, v);
+  }
+
+  // --- unit cylinder (radius 1, height 1 in z, +caps) ---
+  {
+    std::vector<float> v;
+    const int N = 24;
+    const float zt = 0.5f, zb = -0.5f;
+    for (int j = 0; j < N; ++j) {
+      const double a0 = 2 * M_PI * j / N, a1 = 2 * M_PI * (j + 1) / N;
+      const QVector3D n0(std::cos(a0), std::sin(a0), 0),
+          n1(std::cos(a1), std::sin(a1), 0);
+      const QVector3D bt0(n0.x(), n0.y(), zt), bb0(n0.x(), n0.y(), zb),
+          bt1(n1.x(), n1.y(), zt), bb1(n1.x(), n1.y(), zb);
+      auto side = [&](const QVector3D& p, const QVector3D& n) {
+        v.insert(v.end(), {p.x(), p.y(), p.z(), n.x(), n.y(), n.z()});
+      };
+      side(bb0, n0); side(bb1, n1); side(bt1, n1);
+      side(bb0, n0); side(bt1, n1); side(bt0, n0);
+      // caps (fan from axis point)
+      tri(v, QVector3D(0, 0, zt), bt0, bt1);
+      tri(v, QVector3D(0, 0, zb), bb1, bb0);
+    }
+    uploadLitMesh(unitCyl_, v);
+  }
+}
+
+void SimRendererWidget::setObstacles(const QVector<vsim::Obstacle>& obs) {
+  obstacles_ = obs;
+  update();
+}
 
 void SimRendererWidget::buildGroundGrid() {
   std::vector<float> verts;

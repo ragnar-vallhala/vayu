@@ -44,6 +44,10 @@ class SimRendererWidget : public QOpenGLWidget, protected QOpenGLFunctions {
   // the modeled origin sits from the true CoM.
   void setComMarker(const QVector3D& com);
 
+  // Static world obstacles (boxes/spheres/cylinders) in the NED world frame.
+  // Stored + redrawn each frame; safe to call from the UI thread.
+  void setObstacles(const QVector<vsim::Obstacle>& obs);
+
   // Enable Blender-style motor gizmo editing (click-select, G move /
   // R rotate, X/Y/Z constrain). Only meaningful when the sim is stopped;
   // the SimulatorWidget toggles this on stop / off on start.
@@ -75,6 +79,7 @@ class SimRendererWidget : public QOpenGLWidget, protected QOpenGLFunctions {
   };
 
   void buildGroundGrid();
+  void buildObstacleMeshes();   // unit box / sphere / cylinder (pos+normal)
   void buildAxes();
   void buildDroneBody();
   void buildRotorDisk();
@@ -86,6 +91,8 @@ class SimRendererWidget : public QOpenGLWidget, protected QOpenGLFunctions {
   void buildNorth();        // body +X arrow + "N" glyph
   void drawNorthIndicator(const QMatrix4x4& view);
   void uploadDroneMesh();   // flushes pending_* into droneMesh_ (GL-current)
+  // Upload an interleaved [px,py,pz,nx,ny,nz] array into a lit-shader mesh.
+  void uploadLitMesh(Mesh& m, const std::vector<float>& interleaved);
 
   // ---- gizmo editing (Blender-style; active only when editable_) ----
   enum class Tool { None, Move, Rotate };
@@ -121,6 +128,10 @@ class SimRendererWidget : public QOpenGLWidget, protected QOpenGLFunctions {
   int ul_light_ = -1;
 
   Mesh ground_;
+  Mesh unitBox_;       // [-0.5,0.5]^3, pos+normal (lit) — scaled per obstacle
+  Mesh unitSphere_;    // radius-1 UV sphere, pos+normal
+  Mesh unitCyl_;       // radius-1, height-1 cylinder (+caps), pos+normal
+  QVector<vsim::Obstacle> obstacles_;
   Mesh axes_;
   Mesh body_;
   Mesh rotor_;

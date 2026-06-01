@@ -2,6 +2,7 @@
 
 #include <QQuaternion>
 #include <QString>
+#include <QVector>
 #include <QVector3D>
 
 #include <array>
@@ -53,12 +54,27 @@ struct GeometryConfig {
 // Environment + aerodynamics edited in the World tab; pushed to vsim_d via
 // SimWorker::sendWorld -> VSIM_CTL_SET_WORLD. NED: +Z is down, so gravity
 // is positive and the ground plane sits at ground_z.
+// A static world obstacle. Rendered GCS-side now; collision in vsim_d is a
+// later phase (restitution carried so the wire format won't change then).
+// All in the NED world frame the drone pose uses (z down → on-ground center
+// sits at z = -size.z/2). size: box = full extents; sphere = x is radius;
+// cylinder = x is radius, z is height.
+struct Obstacle {
+  enum Type { Box = 0, Sphere = 1, Cylinder = 2 };
+  int type = Box;
+  QVector3D pos{2.0f, 0.0f, -0.5f};
+  QVector3D size{1.0f, 1.0f, 1.0f};
+  QVector3D rotate{0.0f, 0.0f, 0.0f};  // Euler XYZ [deg]
+  float restitution = 0.3f;
+};
+
 struct WorldConfig {
   float gravity = 9.81f;          // m/s^2
   float ground_z = 0.0f;          // NED z of ground [m]
   float restitution = 0.0f;       // bounce factor [0,1]
   float linear_drag = 0.10f;      // N per (m/s)
   float angular_drag = 0.005f;    // N*m per (rad/s)
+  QVector<Obstacle> obstacles;    // static world shapes (visual; phase 1)
 };
 
 }  // namespace vsim
