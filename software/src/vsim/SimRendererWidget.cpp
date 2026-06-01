@@ -91,6 +91,23 @@ void SimRendererWidget::setMotorsEditable(bool on) {
   update();
 }
 
+void SimRendererWidget::setObstacleEditMode(bool on) {
+  obsMode_ = on;
+  if (!on) {
+    if (obsTool_ != Tool::None) commitObsTool(false);
+    selObs_ = -1;
+  }
+  update();
+}
+
+void SimRendererWidget::selectObstacle(int index) {
+  if (index < 0 || index >= obstacles_.size()) index = -1;
+  if (index == selObs_) return;
+  if (obsTool_ != Tool::None) commitObsTool(false);
+  selObs_ = index;
+  update();
+}
+
 SimRendererWidget::~SimRendererWidget() {
   // Need a current context to release GL resources cleanly.
   makeCurrent();
@@ -195,7 +212,8 @@ void SimRendererWidget::paintGL() {
   drawMesh(axes_,   view, QVector3D(1, 1, 1));
 
   // Static world obstacles (lit solids), each scaled/rotated/placed.
-  for (const vsim::Obstacle& o : obstacles_) {
+  for (int oi = 0; oi < obstacles_.size(); ++oi) {
+    const vsim::Obstacle& o = obstacles_[oi];
     QMatrix4x4 m;
     m.translate(o.pos);
     m.rotate(o.rotate.x(), 1, 0, 0);
@@ -214,6 +232,7 @@ void SimRendererWidget::paintGL() {
     } else {
       m.scale(o.size.x(), o.size.y(), o.size.z());   // box full extents
     }
+    if (obsMode_ && oi == selObs_) col = QVector3D(0.95f, 0.80f, 0.30f);  // selected
     drawLit(*mesh, view, m, col);
   }
 
@@ -261,6 +280,8 @@ void SimRendererWidget::paintGL() {
 
   // Motor gizmo (only when editing and a motor is selected).
   if (editable_ && selected_ >= 0) drawGizmo(view);
+  // Obstacle gizmo (World mode, an obstacle selected).
+  if (obsMode_ && selObs_ >= 0) drawObsGizmo(view);
 
   // Motor numbers (1..4): only in Vehicle mode (editable_).
   if (editable_) drawMotorLabels(view);
@@ -745,6 +766,26 @@ void SimRendererWidget::mousePressEvent(QMouseEvent* e) {
   setFocus();
   last_mouse_ = e->pos();
 
+  // Obstacle editing (World mode) takes precedence over camera orbit.
+  if (obsMode_) {
+    if (obsTool_ != Tool::None) {
+      if (e->button() == Qt::LeftButton)       commitObsTool(true);
+      else if (e->button() == Qt::RightButton) commitObsTool(false);
+      return;
+    }
+    if (e->button() == Qt::LeftButton) {
+      int idx = -1;
+      if (pickObstacle(e->pos(), &idx)) {
+        selObs_ = idx;
+        emit obstacleSelected(idx);
+        update();
+        return;  // consumed — don't orbit
+      }
+      if (selObs_ != -1) { selObs_ = -1; emit obstacleSelected(-1); update(); }
+    }
+    return;  // empty click: mouseMove (button held) orbits the camera
+  }
+
   // A live tool: left-click confirms the transform, right-click cancels.
   if (editable_ && tool_ != Tool::None) {
     if (e->button() == Qt::LeftButton)       commitTool(true);
@@ -768,6 +809,10 @@ void SimRendererWidget::mousePressEvent(QMouseEvent* e) {
 
 void SimRendererWidget::mouseMoveEvent(QMouseEvent* e) {
   // While a tool is live the mouse drives it (no button held, Blender-style).
+  if (obsMode_ && obsTool_ != Tool::None) {
+    updateObsToolFromMouse(e->pos());
+    return;
+  }
   if (editable_ && tool_ != Tool::None) {
     updateToolFromMouse(e->pos());
     return;
@@ -785,6 +830,26 @@ void SimRendererWidget::mouseMoveEvent(QMouseEvent* e) {
 }
 
 void SimRendererWidget::keyPressEvent(QKeyEvent* e) {
+  if (obsMode_) {
+    switch (e->key()) {
+      case Qt::Key_G: if (selObs_ >= 0) beginObsTool(Tool::Move);   break;
+      case Qt::Key_R: if (selObs_ >= 0) beginObsTool(Tool::Rotate); break;
+      case Qt::Key_S: if (selObs_ >= 0) beginObsTool(Tool::Scale);  break;
+      case Qt::Key_X: if (obsTool_ != Tool::None) { obsAxis_ = 0; updateObsToolFromMouse(last_mouse_); } break;
+      case Qt::Key_Y: if (obsTool_ != Tool::None) { obsAxis_ = 1; updateObsToolFromMouse(last_mouse_); } break;
+      case Qt::Key_Z: if (obsTool_ != Tool::None) { obsAxis_ = 2; updateObsToolFromMouse(last_mouse_); } break;
+      case Qt::Key_Escape:
+        if (obsTool_ != Tool::None) commitObsTool(false);
+        else if (selObs_ != -1) { selObs_ = -1; emit obstacleSelected(-1); update(); }
+        break;
+      case Qt::Key_Return:
+      case Qt::Key_Enter:
+        if (obsTool_ != Tool::None) commitObsTool(true);
+        break;
+      default: QOpenGLWidget::keyPressEvent(e); return;
+    }
+    return;
+  }
   if (!editable_) { QOpenGLWidget::keyPressEvent(e); return; }
   switch (e->key()) {
     case Qt::Key_G: if (selected_ >= 0) beginTool(Tool::Move);   break;
@@ -948,6 +1013,127 @@ void SimRendererWidget::drawGizmo(const QMatrix4x4& view) {
     { QMatrix4x4 m = base; m.scale(L); drawMesh(gizmoArrow_, view * m, axisLock_ == 0 ? hi : cX); }
     { QMatrix4x4 m = base; m.rotate(90, 0, 0, 1); m.scale(L); drawMesh(gizmoArrow_, view * m, axisLock_ == 1 ? hi : cY); }
     { QMatrix4x4 m = base; m.rotate(-90, 0, 1, 0); m.scale(L); drawMesh(gizmoArrow_, view * m, axisLock_ == 2 ? hi : cZ); }
+  }
+  glEnable(GL_DEPTH_TEST);
+}
+
+// ---------- obstacle gizmo editing ----------
+
+bool SimRendererWidget::pickObstacle(const QPoint& px, int* outIndex) const {
+  const QMatrix4x4 vp = proj_ * cameraView();
+  const float w = std::max(1, width()), h = std::max(1, height());
+  float best = 40.0f;   // pixel radius (obstacles are larger than motors)
+  int bestI = -1;
+  for (int i = 0; i < obstacles_.size(); ++i) {
+    const QVector4D clip = vp * QVector4D(obstacles_[i].pos, 1.0f);
+    if (clip.w() <= 0.0f) continue;
+    const float sx = (clip.x() / clip.w() * 0.5f + 0.5f) * w;
+    const float sy = (1.0f - (clip.y() / clip.w() * 0.5f + 0.5f)) * h;
+    const float dpix = std::hypot(sx - px.x(), sy - px.y());
+    if (dpix < best) { best = dpix; bestI = i; }
+  }
+  if (bestI >= 0 && outIndex) *outIndex = bestI;
+  return bestI >= 0;
+}
+
+void SimRendererWidget::beginObsTool(Tool t) {
+  if (selObs_ < 0 || selObs_ >= obstacles_.size()) return;
+  obsTool_ = t;
+  obsAxis_ = -1;
+  obsStartPos_  = obstacles_[selObs_].pos;
+  obsStartSize_ = obstacles_[selObs_].size;
+  obsStartRot_  = obstacles_[selObs_].rotate;
+  obsStartMouse_ = last_mouse_ = mapFromGlobal(QCursor::pos());
+  // Drag plane: through the obstacle, facing the camera (world frame).
+  QVector3D eye, tgt;
+  cameraEyeTarget(&eye, &tgt);
+  const QVector3D fwd = (tgt - eye).normalized();
+  QVector3D o, d;
+  rayThroughPixel(obsStartMouse_, &o, &d);
+  const float denom = QVector3D::dotProduct(d, fwd);
+  const float tt = (std::fabs(denom) > 1e-6f)
+                       ? QVector3D::dotProduct(obsStartPos_ - o, fwd) / denom
+                       : 0.0f;
+  obsPlaneHit0_ = o + d * tt;
+  setMouseTracking(true);
+  update();
+}
+
+void SimRendererWidget::updateObsToolFromMouse(const QPoint& px) {
+  if (selObs_ < 0 || obsTool_ == Tool::None) return;
+  last_mouse_ = px;
+  vsim::Obstacle& ob = obstacles_[selObs_];
+
+  if (obsTool_ == Tool::Move) {
+    QVector3D eye, tgt;
+    cameraEyeTarget(&eye, &tgt);
+    const QVector3D fwd = (tgt - eye).normalized();
+    QVector3D o, d;
+    rayThroughPixel(px, &o, &d);
+    const float denom = QVector3D::dotProduct(d, fwd);
+    const float tt = (std::fabs(denom) > 1e-6f)
+                         ? QVector3D::dotProduct(obsStartPos_ - o, fwd) / denom
+                         : 0.0f;
+    QVector3D delta = (o + d * tt) - obsPlaneHit0_;
+    if (obsAxis_ >= 0) {
+      QVector3D ax(obsAxis_ == 0 ? 1.f : 0.f, obsAxis_ == 1 ? 1.f : 0.f,
+                   obsAxis_ == 2 ? 1.f : 0.f);
+      delta = ax * QVector3D::dotProduct(delta, ax);
+    }
+    ob.pos = obsStartPos_ + delta;
+  } else if (obsTool_ == Tool::Rotate) {
+    const int k = (obsAxis_ >= 0) ? obsAxis_ : 2;  // default about Z
+    const float deg = (px.x() - obsStartMouse_.x()) * 0.5f;
+    ob.rotate = obsStartRot_;
+    ob.rotate[k] = obsStartRot_[k] + deg;
+  } else {  // Scale
+    const float f = std::clamp(1.0f + (px.x() - obsStartMouse_.x()) * 0.01f,
+                               0.05f, 20.0f);
+    if (obsAxis_ >= 0) {
+      ob.size = obsStartSize_;
+      ob.size[obsAxis_] = std::max(0.05f, obsStartSize_[obsAxis_] * f);
+    } else {
+      ob.size = obsStartSize_ * f;
+      for (int i = 0; i < 3; ++i) ob.size[i] = std::max(0.05f, ob.size[i]);
+    }
+  }
+  update();
+}
+
+void SimRendererWidget::commitObsTool(bool confirm) {
+  if (obsTool_ == Tool::None) return;
+  obsTool_ = Tool::None;
+  obsAxis_ = -1;
+  setMouseTracking(false);
+  if (selObs_ >= 0 && selObs_ < obstacles_.size()) {
+    if (confirm) {
+      const vsim::Obstacle& o = obstacles_[selObs_];
+      emit obstacleEdited(selObs_, o.pos, o.size, o.rotate);
+    } else {
+      obstacles_[selObs_].pos = obsStartPos_;
+      obstacles_[selObs_].size = obsStartSize_;
+      obstacles_[selObs_].rotate = obsStartRot_;
+    }
+  }
+  update();
+}
+
+void SimRendererWidget::drawObsGizmo(const QMatrix4x4& view) {
+  if (selObs_ < 0 || selObs_ >= obstacles_.size()) return;
+  QMatrix4x4 base;
+  base.translate(obstacles_[selObs_].pos);
+  const float L = 0.7f;
+  const QVector3D cX(0.90f, 0.25f, 0.25f), cY(0.25f, 0.85f, 0.25f),
+      cZ(0.30f, 0.55f, 1.0f), hi(1.0f, 0.95f, 0.40f);
+  glDisable(GL_DEPTH_TEST);
+  if (obsTool_ == Tool::Rotate) {
+    { QMatrix4x4 m = base; m.scale(L); drawMesh(gizmoRing_, view * m, obsAxis_ == 2 ? hi : cZ); }
+    { QMatrix4x4 m = base; m.rotate(90, 1, 0, 0); m.scale(L); drawMesh(gizmoRing_, view * m, obsAxis_ == 1 ? hi : cY); }
+    { QMatrix4x4 m = base; m.rotate(90, 0, 1, 0); m.scale(L); drawMesh(gizmoRing_, view * m, obsAxis_ == 0 ? hi : cX); }
+  } else {  // Move / Scale / just-selected: three axis arrows.
+    { QMatrix4x4 m = base; m.scale(L); drawMesh(gizmoArrow_, view * m, obsAxis_ == 0 ? hi : cX); }
+    { QMatrix4x4 m = base; m.rotate(90, 0, 0, 1); m.scale(L); drawMesh(gizmoArrow_, view * m, obsAxis_ == 1 ? hi : cY); }
+    { QMatrix4x4 m = base; m.rotate(-90, 0, 1, 0); m.scale(L); drawMesh(gizmoArrow_, view * m, obsAxis_ == 2 ? hi : cZ); }
   }
   glEnable(GL_DEPTH_TEST);
 }

@@ -21,9 +21,16 @@ class WorldEditorWidget : public QWidget {
   const vsim::WorldConfig& config() const { return cfg_; }
   void setConfig(const vsim::WorldConfig& c);
 
+  // Apply a 3D-gizmo edit of obstacle `index` (world pos/size/rotate).
+  void setObstacleFromGizmo(int index, QVector3D pos, QVector3D size,
+                            QVector3D rotate);
+  // Select an obstacle row (driven by a click in the 3D view).
+  void selectObstacleRow(int index);
+
  signals:
   void worldApplied();        // user committed env → push to daemon + persist
   void obstaclesChanged();    // obstacle list/edit changed → preview + persist
+  void obstacleSelectionChanged(int index);  // list selection → 3D highlight
 
  private slots:
   void onApply();

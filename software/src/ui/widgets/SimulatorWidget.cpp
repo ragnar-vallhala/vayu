@@ -267,6 +267,13 @@ void SimulatorWidget::buildUi() {
       if (m_renderer) m_renderer->setObstacles(m_worldEditor->config().obstacles);
       persistWorld(m_worldEditor->config());
     });
+    // 3D gizmo editing of obstacles <-> the editor list/form.
+    connect(m_renderer, &vsim::SimRendererWidget::obstacleEdited, m_worldEditor,
+            &WorldEditorWidget::setObstacleFromGizmo);
+    connect(m_renderer, &vsim::SimRendererWidget::obstacleSelected, m_worldEditor,
+            &WorldEditorWidget::selectObstacleRow);
+    connect(m_worldEditor, &WorldEditorWidget::obstacleSelectionChanged,
+            m_renderer, &vsim::SimRendererWidget::selectObstacle);
     pv->addWidget(m_worldEditor);
 
     auto* simSec = new CollapsibleSection(tr("Simulation"), page);
@@ -493,8 +500,12 @@ void SimulatorWidget::setMode(int mode) {
   m_rightStack->setCurrentIndex(mode);
   if (m_vehicleTab) m_vehicleTab->setChecked(mode == 0);
   if (m_worldTab)   m_worldTab->setChecked(mode == 1);
-  // Motor gizmos belong to Vehicle mode (and thus only when stopped).
-  if (m_renderer) m_renderer->setMotorsEditable(mode == 0);
+  // Motor gizmos belong to Vehicle mode; obstacle gizmos to World mode. Both
+  // only when stopped (a running sim owns the airframe + the live world).
+  if (m_renderer) {
+    m_renderer->setMotorsEditable(mode == 0 && !m_sim);
+    m_renderer->setObstacleEditMode(mode == 1 && !m_sim);
+  }
 }
 
 void SimulatorWidget::updateHud(const vsim::SimSnapshot& s) {
