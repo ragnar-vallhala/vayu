@@ -1,6 +1,7 @@
 #include "RcBridge.h"
 
 #include <fcntl.h>
+#include <termios.h>
 #include <unistd.h>
 
 #include <cerrno>
@@ -10,6 +11,7 @@
 #include <cstring>
 
 #include <algorithm>
+#include <string>
 
 namespace {
 
@@ -28,6 +30,54 @@ int axisToUs(int v, bool invert) {
   if (invert) v = -v;
   const int us = 1500 + (v * 500) / 32767;
   return std::clamp(us, 1000, 2000);
+}
+
+speed_t baudConst(int b) {
+  switch (b) {
+    case 9600:   return B9600;
+    case 19200:  return B19200;
+    case 38400:  return B38400;
+    case 57600:  return B57600;
+    case 115200: return B115200;
+    case 230400: return B230400;
+    case 460800: return B460800;
+    case 921600: return B921600;
+    default:     return B115200;
+  }
+}
+
+// Open a serial port in raw mode at `baud` for reading CSV RC frames.
+int openUart(const char* path, int baud) {
+  int fd = ::open(path, O_RDONLY | O_NOCTTY | O_NONBLOCK);
+  if (fd < 0) return -1;
+  struct termios tio;
+  if (::tcgetattr(fd, &tio) == 0) {
+    ::cfmakeraw(&tio);
+    const speed_t sp = baudConst(baud);
+    ::cfsetispeed(&tio, sp);
+    ::cfsetospeed(&tio, sp);
+    tio.c_cc[VMIN] = 0;
+    tio.c_cc[VTIME] = 0;
+    ::tcsetattr(fd, TCSANOW, &tio);
+  }
+  return fd;
+}
+
+// Parse a CSV line of microsecond channel values. Assigns the first up-to-5
+// fields to roll/pitch/throttle/yaw/arm (clamped 1000..2000); leaves any
+// missing trailing channels untouched so a short frame holds the last value.
+void parseCsvFrame(const std::string& line, int* roll, int* pitch, int* thr,
+                   int* yaw, int* arm) {
+  int* out[5] = {roll, pitch, thr, yaw, arm};
+  const char* p = line.c_str();
+  for (int i = 0; i < 5 && *p; ++i) {
+    char* end = nullptr;
+    const long v = std::strtol(p, &end, 10);
+    if (end == p) break;  // no number here
+    *out[i] = std::clamp((int)v, 1000, 2000);
+    p = end;
+    while (*p == ',' || *p == ' ' || *p == '\t') ++p;
+  }
 }
 
 }  // namespace
@@ -73,50 +123,123 @@ void RcBridge::requestStop() { stop_.store(true, std::memory_order_release); }
 void RcBridge::run() {
   stop_.store(false, std::memory_order_release);
 
-  const int js = ::open(js_path_.toLocal8Bit().constData(),
-                        O_RDONLY | O_NONBLOCK);
-  if (js < 0) {
-    emit logLine(QString("RC: cannot open %1 (%2) — sending neutral frames")
-                     .arg(js_path_, ::strerror(errno)));
-  } else {
-    emit logLine(QString("RC: reading %1 → %2").arg(js_path_, slave_path_));
-  }
-
   // Throttle idles low; everything else centered until the device reports.
   axis_.fill(0);
   axis_[2] = -32767;
   button_.fill(0);
 
+  int cur_src = -1;     // currently-open source (-1 = none yet)
+  int fd = -1;          // js or uart fd; the pty (master_fd_) is separate
+  std::string uline;    // UART CSV line accumulator
+  // Last UART-parsed channels, held between frames.
+  int u_roll = 1500, u_pitch = 1500, u_thr = 1000, u_yaw = 1500, u_arm = 1500;
+
+  auto close_src = [&]() { if (fd >= 0) { ::close(fd); fd = -1; } };
+
   while (!stop_.load(std::memory_order_acquire)) {
-    if (js >= 0) {
-      js_event e;
-      ssize_t r;
-      while ((r = ::read(js, &e, sizeof(e))) == (ssize_t)sizeof(e)) {
-        if ((e.type & kJsAxis) && e.number < axis_.size())
-          axis_[e.number] = e.value;
-        else if ((e.type & kJsButton) && e.number < button_.size())
-          button_[e.number] = e.value;
+    const int want = source_.load(std::memory_order_acquire);
+
+    // (Re)open the input device when the source changes. master_fd_ (the pty
+    // the firmware reads) stays put, so switching source is seamless.
+    if (want != cur_src) {
+      close_src();
+      uline.clear();
+      QString path;
+      int baud;
+      {
+        QMutexLocker lk(&cfg_mtx_);
+        path = (want == Uart) ? uart_path_ : js_path_;
+        baud = uart_baud_;
       }
+      if (want == Uart) {
+        fd = openUart(path.toLocal8Bit().constData(), baud);
+        if (fd < 0)
+          emit logLine(QString("RC: cannot open UART %1 (%2) — neutral frames")
+                           .arg(path, ::strerror(errno)));
+        else
+          emit logLine(
+              QString("RC: UART %1 @ %2 → %3").arg(path).arg(baud).arg(slave_path_));
+      } else {
+        fd = ::open(path.toLocal8Bit().constData(), O_RDONLY | O_NONBLOCK);
+        if (fd < 0)
+          emit logLine(QString("RC: cannot open %1 (%2) — neutral frames")
+                           .arg(path, ::strerror(errno)));
+        else
+          emit logLine(QString("RC: reading %1 → %2").arg(path, slave_path_));
+        axis_.fill(0);
+        axis_[2] = -32767;
+        button_.fill(0);
+      }
+      cur_src = want;
     }
 
     const bool en = enabled_.load(std::memory_order_acquire);
-    auto chan = [&](int f) {
-      const int src = mapAxis_[f].load(std::memory_order_relaxed);
-      const bool inv = mapInv_[f].load(std::memory_order_relaxed) != 0;
-      if (src >= kButtonBase) {           // button source: pressed → 2000
-        const int b = src - kButtonBase;
-        bool on = (b >= 0 && b < (int)button_.size()) ? button_[b] != 0 : false;
-        if (inv) on = !on;
-        return on ? 2000 : 1000;
+    int roll, pitch, thr, yaw, arm;
+
+    if (want == Uart) {
+      // Drain available bytes, split on newlines, parse the latest frame.
+      if (fd >= 0) {
+        char b[256];
+        ssize_t r;
+        while ((r = ::read(fd, b, sizeof(b))) > 0) {
+          for (ssize_t i = 0; i < r; ++i) {
+            const char c = b[i];
+            if (c == '\n' || c == '\r') {
+              if (!uline.empty()) {
+                parseCsvFrame(uline, &u_roll, &u_pitch, &u_thr, &u_yaw, &u_arm);
+                uline.clear();
+              }
+            } else if (uline.size() < 128) {
+              uline += c;
+            }
+          }
+        }
       }
-      const int raw = (src >= 0 && src < (int)axis_.size()) ? axis_[src] : 0;
-      return axisToUs(raw, inv);
-    };
-    const int roll = en ? chan(0) : 1500;
-    const int pitch = en ? chan(1) : 1500;
-    const int thr = en ? chan(2) : 1000;   // idle when disabled
-    const int yaw = en ? chan(3) : 1500;
-    int arm = en ? chan(4) : 1500;
+      roll  = en ? u_roll  : 1500;
+      pitch = en ? u_pitch : 1500;
+      thr   = en ? u_thr   : 1000;
+      yaw   = en ? u_yaw   : 1500;
+      arm   = en ? u_arm   : 1500;
+      emit axesUpdated({}, {});  // no per-axis breakdown for a CSV source
+    } else {
+      // Joystick: pump events, then map axes/buttons to channels.
+      if (fd >= 0) {
+        js_event e;
+        ssize_t r;
+        while ((r = ::read(fd, &e, sizeof(e))) == (ssize_t)sizeof(e)) {
+          if ((e.type & kJsAxis) && e.number < axis_.size())
+            axis_[e.number] = e.value;
+          else if ((e.type & kJsButton) && e.number < button_.size())
+            button_[e.number] = e.value;
+        }
+      }
+      auto chan = [&](int f) {
+        const int src = mapAxis_[f].load(std::memory_order_relaxed);
+        const bool inv = mapInv_[f].load(std::memory_order_relaxed) != 0;
+        if (src >= kButtonBase) {           // button source: pressed → 2000
+          const int b = src - kButtonBase;
+          bool on = (b >= 0 && b < (int)button_.size()) ? button_[b] != 0 : false;
+          if (inv) on = !on;
+          return on ? 2000 : 1000;
+        }
+        const int raw = (src >= 0 && src < (int)axis_.size()) ? axis_[src] : 0;
+        return axisToUs(raw, inv);
+      };
+      roll  = en ? chan(0) : 1500;
+      pitch = en ? chan(1) : 1500;
+      thr   = en ? chan(2) : 1000;   // idle when disabled
+      yaw   = en ? chan(3) : 1500;
+      arm   = en ? chan(4) : 1500;
+
+      QVector<int> au;
+      au.reserve(6);
+      for (int i = 0; i < 6; ++i) au.push_back(axisToUs(axis_[i], false));
+      QVector<int> bu;
+      bu.reserve(4);
+      for (int i = 0; i < 4; ++i) bu.push_back(button_[i] ? 1 : 0);
+      emit axesUpdated(au, bu);
+    }
+
     const int ov = armOverride_.load(std::memory_order_relaxed);
     if (ov >= 0) arm = ov ? 2000 : 1000;   // software arm override
 
@@ -130,19 +253,9 @@ void RcBridge::run() {
     }
     emit channelsUpdated(roll, pitch, thr, yaw, arm);
 
-    // Per-axis µs (first 6) + button states (first 4) so the UI can show
-    // which input each physical control is on.
-    QVector<int> au;
-    au.reserve(6);
-    for (int i = 0; i < 6; ++i) au.push_back(axisToUs(axis_[i], false));
-    QVector<int> bu;
-    bu.reserve(4);
-    for (int i = 0; i < 4; ++i) bu.push_back(button_[i] ? 1 : 0);
-    emit axesUpdated(au, bu);
-
     msleep(20);  // ~50 Hz
   }
 
-  if (js >= 0) ::close(js);
+  close_src();
   emit logLine(QStringLiteral("RC: stopped"));
 }

@@ -120,8 +120,10 @@ class SimulatorWidget : public QWidget {
   bool m_ifaceInit = false;
   bool m_sitlStarted = false;
   vsim::SimWorker* m_sim = nullptr;
-  RcBridge* m_rc = nullptr;        // USB RC transmitter → firmware RC feeder
+  RcBridge* m_rc = nullptr;        // RC transmitter → firmware RC feeder
   QCheckBox* m_rcEnable = nullptr;
+  QComboBox* m_rcSource = nullptr;          // USB joystick vs UART (CSV)
+  QComboBox* m_rcBaud = nullptr;            // UART baud (UART source only)
   QLineEdit* m_rcPath = nullptr;
   QLabel* m_rcReadout = nullptr;
   QLabel* m_rcAxesLabel = nullptr;          // live per-axis µs (identify)
@@ -129,6 +131,9 @@ class SimulatorWidget : public QWidget {
   QCheckBox* m_rcInvert[5] = {nullptr, nullptr, nullptr, nullptr, nullptr};
   QCheckBox* m_swArm = nullptr;             // software arm (no hardware switch)
   void pushRcMapping(int func);             // combo/invert → bridge + persist
+  // Apply the selected RC source (joystick vs UART CSV) to the bridge and the
+  // UI: swap the device field, enable/disable baud + axis mapping.
+  void applyRcSource();
   vsim::SimRendererWidget* m_renderer = nullptr;
   SimHudWidget* m_hud = nullptr;   // FPV telemetry overlay on the viewport
   GeometryEditorWidget* m_geomEditor = nullptr;
