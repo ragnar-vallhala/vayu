@@ -202,6 +202,14 @@ void WorldEditorWidget::buildObstacleSection(QVBoxLayout* root) {
   auto* body = new QWidget();
   auto* col = new QVBoxLayout(body);
 
+  auto* hint = new QLabel(
+      tr("Click a shape in the 3D view to select; G move · R rotate · S scale, "
+         "X/Y/Z to constrain, click to confirm / Esc to cancel."));
+  hint->setWordWrap(true);
+  hint->setStyleSheet(
+      QString("color:%1; font-size:11px;").arg(Theme::hex(Theme::kTextDim)));
+  col->addWidget(hint);
+
   obsList_ = new QListWidget();
   obsList_->setMaximumHeight(120);
   obsList_->setToolTip(tr("Static world shapes. Drone flies through them for "
@@ -285,7 +293,33 @@ void WorldEditorWidget::onRemoveObstacle() {
   emit obstaclesChanged();
 }
 
-void WorldEditorWidget::onObstacleSelected(int) { syncFormFromSelection(); }
+void WorldEditorWidget::onObstacleSelected(int row) {
+  syncFormFromSelection();
+  emit obstacleSelectionChanged(row);
+}
+
+void WorldEditorWidget::setObstacleFromGizmo(int index, QVector3D pos,
+                                             QVector3D size, QVector3D rotate) {
+  if (index < 0 || index >= cfg_.obstacles.size()) return;
+  vsim::Obstacle& o = cfg_.obstacles[index];
+  o.pos = pos;
+  o.size = size;
+  o.rotate = rotate;
+  if (obsList_ && obsList_->currentRow() != index)
+    obsList_->setCurrentRow(index);
+  syncFormFromSelection();
+  refreshObstacleList();
+  emit obstaclesChanged();
+}
+
+void WorldEditorWidget::selectObstacleRow(int index) {
+  if (!obsList_) return;
+  if (index >= 0 && index < cfg_.obstacles.size()) {
+    if (obsList_->currentRow() != index) obsList_->setCurrentRow(index);
+  } else {
+    obsList_->setCurrentRow(-1);
+  }
+}
 
 void WorldEditorWidget::onObstacleFieldChanged() {
   if (obsSyncing_) return;

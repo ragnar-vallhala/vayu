@@ -48,6 +48,12 @@ class SimRendererWidget : public QOpenGLWidget, protected QOpenGLFunctions {
   // Stored + redrawn each frame; safe to call from the UI thread.
   void setObstacles(const QVector<vsim::Obstacle>& obs);
 
+  // Enable Blender-style obstacle gizmo editing (click-select, G move /
+  // R rotate / S scale, X/Y/Z constrain) — World mode while the sim is
+  // stopped. Mutually exclusive with motor editing.
+  void setObstacleEditMode(bool on);
+  void selectObstacle(int index);  // drive selection from the list
+
   // Enable Blender-style motor gizmo editing (click-select, G move /
   // R rotate, X/Y/Z constrain). Only meaningful when the sim is stopped;
   // the SimulatorWidget toggles this on stop / off on start.
@@ -58,6 +64,10 @@ class SimRendererWidget : public QOpenGLWidget, protected QOpenGLFunctions {
   // setMotorLayout); axis is the unit thrust axis. index in [0,3].
   void motorEdited(int index, QVector3D posComFrame, QVector3D axis);
   void motorSelected(int index);
+  // Obstacle gizmo: new pos/size/rotate (world frame) on confirm; selection.
+  void obstacleEdited(int index, QVector3D pos, QVector3D size,
+                      QVector3D rotate);
+  void obstacleSelected(int index);
 
  protected:
   void initializeGL() override;
@@ -95,7 +105,7 @@ class SimRendererWidget : public QOpenGLWidget, protected QOpenGLFunctions {
   void uploadLitMesh(Mesh& m, const std::vector<float>& interleaved);
 
   // ---- gizmo editing (Blender-style; active only when editable_) ----
-  enum class Tool { None, Move, Rotate };
+  enum class Tool { None, Move, Rotate, Scale };
   QMatrix4x4 modelMatrix() const;                 // body -> world
   void cameraEyeTarget(QVector3D* eye, QVector3D* target) const;
   void rayThroughPixel(const QPoint& px, QVector3D* o, QVector3D* d) const;
@@ -104,6 +114,13 @@ class SimRendererWidget : public QOpenGLWidget, protected QOpenGLFunctions {
   void updateToolFromMouse(const QPoint& px);
   void commitTool(bool confirm);
   void drawGizmo(const QMatrix4x4& view);
+
+  // ---- obstacle gizmo editing (active only when obsMode_) ----
+  bool pickObstacle(const QPoint& px, int* outIndex) const;
+  void beginObsTool(Tool t);
+  void updateObsToolFromMouse(const QPoint& px);
+  void commitObsTool(bool confirm);
+  void drawObsGizmo(const QMatrix4x4& view);
 
   void drawMesh(const Mesh& m, const QMatrix4x4& model,
                 const QVector3D& color);
@@ -170,6 +187,15 @@ class SimRendererWidget : public QOpenGLWidget, protected QOpenGLFunctions {
   QVector3D startAxis_;         // unit thrust axis at tool start
   QVector3D startWorld_;        // world motor pos at tool start
   QVector3D planeHit0_;         // world drag-plane hit at tool start
+
+  // Obstacle gizmo edit state (World mode).
+  bool   obsMode_  = false;
+  int    selObs_   = -1;
+  Tool   obsTool_  = Tool::None;
+  int    obsAxis_  = -1;
+  QPoint obsStartMouse_;
+  QVector3D obsStartPos_, obsStartSize_, obsStartRot_;
+  QVector3D obsPlaneHit0_;
 
   // Camera state (orbit around drone).
   float cam_radius_ = 4.0f;
