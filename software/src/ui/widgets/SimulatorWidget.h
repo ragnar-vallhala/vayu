@@ -6,6 +6,7 @@
 #include "GeometryEditorWidget.h"
 #include "WorldEditorWidget.h"
 #include "SimHudWidget.h"
+#include "../../audio/PropAudio.h"
 
 extern "C" {
 #include "vsim_iface.h"
@@ -141,6 +142,7 @@ class SimulatorWidget : public QWidget {
   void applyRcSource();
   vsim::SimRendererWidget* m_renderer = nullptr;
   SimHudWidget* m_hud = nullptr;   // FPV telemetry overlay on the viewport
+  PropAudio m_propAudio;           // rpm-driven propeller sound
   GeometryEditorWidget* m_geomEditor = nullptr;
   WorldEditorWidget* m_worldEditor = nullptr;
   QStackedWidget* m_rightStack = nullptr;   // 0 = Vehicle, 1 = World
