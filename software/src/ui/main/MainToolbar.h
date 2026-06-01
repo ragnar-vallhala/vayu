@@ -26,6 +26,11 @@ public:
   // ---- State updaters driven by MainWindow ---------------------------------
   void setConnected(bool on, const QString &portLabel = {});
 
+  // Enable/disable the serial-connection controls (port, baud, refresh,
+  // Connect). MainWindow disables them while the in-app sim is live, since
+  // SITL telemetry rides the iface callback, not a serial port.
+  void setSerialControlsEnabled(bool enabled);
+
   // Enabled by MainWindow once a connection is up (the firmware accepts
   // CMD_ARM/CMD_DISARM, FR-TX-02).
   void setArmEnabled(bool on);
@@ -65,6 +70,7 @@ private:
 
   QComboBox   *m_portCombo  = nullptr;
   QComboBox   *m_baudCombo  = nullptr;
+  QPushButton *m_refreshBtn = nullptr;
   QPushButton *m_connectBtn = nullptr;
   QPushButton *m_armBtn     = nullptr;
   QLabel      *m_liveLabel  = nullptr;

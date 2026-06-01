@@ -211,6 +211,10 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
           [this](bool running) {
             m_simRunning = running;
             refreshConnectionPill();
+            // While the in-app sim feeds telemetry, lock out the serial
+            // connection controls (port / baud / refresh / Connect) so the
+            // user can't open a conflicting real link.
+            if (m_toolbar) m_toolbar->setSerialControlsEnabled(!running);
           });
 #endif
 
