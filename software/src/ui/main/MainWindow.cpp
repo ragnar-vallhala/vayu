@@ -517,7 +517,16 @@ void MainWindow::onStatusReceived(const QString &msg) {
   static const QStringList kStateNames = {
       "UNINITIALIZED", "INIT",     "STANDBY",    "PREARM",     "ARMED",
       "IN_AIR",        "FAILSAFE", "TERMINATED", "CALIBRATING"};
-  if (kStateNames.contains(msg)) {
+  // PACKET_TYPE_SYSTEM_STATUS is multiplexed across origins (SYS_STATE,
+  // HEALTH counters, control data, ...). Only the SYS_STATE origin decodes to
+  // a real state name; the binary HEALTH counters get stringified to
+  // non-printable bytes upstream, which would render in the pill as a tofu
+  // box. Ignore anything that isn't a recognised state name.
+  if (!kStateNames.contains(msg)) {
+    ++m_pktCount;
+    return;
+  }
+  {
     const bool armedish =
         (msg == "ARMED" || msg == "IN_AIR" || msg == "FAILSAFE");
     if (armedish != m_armed) {
