@@ -261,6 +261,12 @@ void SimulatorWidget::buildUi() {
       appendLog("world", tr("world applied (g=%1 m/s²)")
                              .arg(m_worldEditor->config().gravity));
     });
+    // Obstacles are visual (phase 1): live-update the 3D view + persist on any
+    // add/remove/edit, no Apply needed.
+    connect(m_worldEditor, &WorldEditorWidget::obstaclesChanged, this, [this] {
+      if (m_renderer) m_renderer->setObstacles(m_worldEditor->config().obstacles);
+      persistWorld(m_worldEditor->config());
+    });
     pv->addWidget(m_worldEditor);
 
     auto* simSec = new CollapsibleSection(tr("Simulation"), page);
@@ -475,6 +481,7 @@ void SimulatorWidget::buildUi() {
   // recomputes, firing previewUpdated -> applyGeometryToRenderer).
   m_geomEditor->setConfig(restoreGeometry());
   m_worldEditor->setConfig(restoreWorld());
+  if (m_renderer) m_renderer->setObstacles(m_worldEditor->config().obstacles);
 
   setMode(0);   // start in Vehicle (sim stopped)
 }
@@ -787,6 +794,17 @@ void SimulatorWidget::persistWorld(const vsim::WorldConfig& w) {
   s.setValue("restitution", w.restitution);
   s.setValue("linear_drag", w.linear_drag);
   s.setValue("angular_drag", w.angular_drag);
+  s.beginWriteArray("obstacles", w.obstacles.size());
+  for (int i = 0; i < w.obstacles.size(); ++i) {
+    const vsim::Obstacle& o = w.obstacles[i];
+    s.setArrayIndex(i);
+    s.setValue("type", o.type);
+    s.setValue("px", o.pos.x()); s.setValue("py", o.pos.y()); s.setValue("pz", o.pos.z());
+    s.setValue("sx", o.size.x()); s.setValue("sy", o.size.y()); s.setValue("sz", o.size.z());
+    s.setValue("rx", o.rotate.x()); s.setValue("ry", o.rotate.y()); s.setValue("rz", o.rotate.z());
+    s.setValue("rest", o.restitution);
+  }
+  s.endArray();
   s.endGroup();
 }
 
@@ -803,6 +821,19 @@ vsim::WorldConfig SimulatorWidget::restoreWorld() {
   w.restitution  = s.value("restitution", w.restitution).toFloat();
   w.linear_drag  = s.value("linear_drag", w.linear_drag).toFloat();
   w.angular_drag = s.value("angular_drag", w.angular_drag).toFloat();
+  const int n = s.beginReadArray("obstacles");
+  w.obstacles.clear();
+  for (int i = 0; i < n; ++i) {
+    s.setArrayIndex(i);
+    vsim::Obstacle o;
+    o.type = s.value("type", 0).toInt();
+    o.pos = QVector3D(s.value("px").toFloat(), s.value("py").toFloat(), s.value("pz").toFloat());
+    o.size = QVector3D(s.value("sx", 1.0).toFloat(), s.value("sy", 1.0).toFloat(), s.value("sz", 1.0).toFloat());
+    o.rotate = QVector3D(s.value("rx").toFloat(), s.value("ry").toFloat(), s.value("rz").toFloat());
+    o.restitution = s.value("rest", 0.3).toFloat();
+    w.obstacles.push_back(o);
+  }
+  s.endArray();
   s.endGroup();
   return w;
 }
