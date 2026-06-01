@@ -3,11 +3,19 @@
 #include "../../core/ui/Buttons.h"
 #include "CollapsibleSection.h"
 
+#include "../../core/Theme.h"
+
 #include <QAbstractSpinBox>
 #include <QDoubleSpinBox>
+#include <QFile>
+#include <QFileDialog>
+#include <QFileInfo>
 #include <QFormLayout>
 #include <QGridLayout>
 #include <QHBoxLayout>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QLabel>
 #include <QListWidget>
 #include <QVBoxLayout>
@@ -23,6 +31,57 @@ QDoubleSpinBox* spin(double lo, double hi, int decimals, double step,
   if (!suffix.isEmpty()) s->setSuffix(suffix);
   s->setButtonSymbols(QAbstractSpinBox::NoButtons);
   return s;
+}
+
+QJsonObject vec3ToJson(const QVector3D& v) {
+  return QJsonObject{{"x", v.x()}, {"y", v.y()}, {"z", v.z()}};
+}
+QVector3D vec3FromJson(const QJsonValue& v, const QVector3D& def) {
+  if (!v.isObject()) return def;
+  const QJsonObject o = v.toObject();
+  return QVector3D(o.value("x").toDouble(def.x()), o.value("y").toDouble(def.y()),
+                   o.value("z").toDouble(def.z()));
+}
+
+QJsonObject worldToJson(const vsim::WorldConfig& w) {
+  QJsonObject root;
+  root["format"] = "vayu-world";
+  root["version"] = 1;
+  root["gravity"] = w.gravity;
+  root["ground_z"] = w.ground_z;
+  root["restitution"] = w.restitution;
+  root["linear_drag"] = w.linear_drag;
+  root["angular_drag"] = w.angular_drag;
+  QJsonArray obs;
+  for (const vsim::Obstacle& o : w.obstacles) {
+    obs.append(QJsonObject{{"type", o.type},
+                           {"pos", vec3ToJson(o.pos)},
+                           {"size", vec3ToJson(o.size)},
+                           {"rotate", vec3ToJson(o.rotate)},
+                           {"restitution", o.restitution}});
+  }
+  root["obstacles"] = obs;
+  return root;
+}
+
+vsim::WorldConfig worldFromJson(const QJsonObject& root) {
+  vsim::WorldConfig w;  // defaults fill anything missing
+  w.gravity = root.value("gravity").toDouble(w.gravity);
+  w.ground_z = root.value("ground_z").toDouble(w.ground_z);
+  w.restitution = root.value("restitution").toDouble(w.restitution);
+  w.linear_drag = root.value("linear_drag").toDouble(w.linear_drag);
+  w.angular_drag = root.value("angular_drag").toDouble(w.angular_drag);
+  for (const QJsonValue& v : root.value("obstacles").toArray()) {
+    const QJsonObject o = v.toObject();
+    vsim::Obstacle ob;
+    ob.type = o.value("type").toInt(ob.type);
+    ob.pos = vec3FromJson(o.value("pos"), ob.pos);
+    ob.size = vec3FromJson(o.value("size"), ob.size);
+    ob.rotate = vec3FromJson(o.value("rotate"), ob.rotate);
+    ob.restitution = o.value("restitution").toDouble(ob.restitution);
+    w.obstacles.push_back(ob);
+  }
+  return w;
 }
 }  // namespace
 
@@ -64,21 +123,78 @@ void WorldEditorWidget::buildUi() {
     root->addWidget(sec);
   }
 
-  // -- Apply --
+  // -- Apply / Save / Load --
   {
     auto* row = new QHBoxLayout();
+    auto* save = new ui::GhostButton(tr("Save…"), this);
+    save->setToolTip(tr("Export the world (environment + obstacles) to a "
+                        "portable .vworld file."));
+    auto* load = new ui::GhostButton(tr("Load…"), this);
+    load->setToolTip(tr("Import a .vworld file."));
+    row->addWidget(save);
+    row->addWidget(load);
     row->addStretch();
     auto* apply = new ui::SuccessButton(tr("Apply to Sim"), this);
     apply->setToolTip(tr("Push environment + aerodynamics to the simulator."));
     row->addWidget(apply);
     root->addLayout(row);
     connect(apply, &QPushButton::clicked, this, &WorldEditorWidget::onApply);
+    connect(save, &QPushButton::clicked, this, &WorldEditorWidget::onSaveWorld);
+    connect(load, &QPushButton::clicked, this, &WorldEditorWidget::onLoadWorld);
+
+    fileStatus_ = new QLabel(this);
+    fileStatus_->setStyleSheet(
+        QString("color:%1; font-size:11px;").arg(Theme::hex(Theme::kTextMuted)));
+    root->addWidget(fileStatus_);
   }
 
   // -- Obstacles --
   buildObstacleSection(root);
 
   root->addStretch();
+}
+
+void WorldEditorWidget::onSaveWorld() {
+  syncUiToConfig();
+  QString path = QFileDialog::getSaveFileName(this, tr("Save world"), QString(),
+                                              tr("Vayu world (*.vworld)"));
+  if (path.isEmpty()) return;
+  if (!path.endsWith(".vworld", Qt::CaseInsensitive)) path += ".vworld";
+  QFile f(path);
+  if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+    if (fileStatus_) fileStatus_->setText(tr("Save failed: %1").arg(f.errorString()));
+    return;
+  }
+  f.write(QJsonDocument(worldToJson(cfg_)).toJson(QJsonDocument::Indented));
+  if (fileStatus_)
+    fileStatus_->setText(tr("Saved %1 (%2 obstacles)")
+                             .arg(QFileInfo(path).fileName())
+                             .arg(cfg_.obstacles.size()));
+}
+
+void WorldEditorWidget::onLoadWorld() {
+  const QString path = QFileDialog::getOpenFileName(
+      this, tr("Load world"), QString(), tr("Vayu world (*.vworld);;All files (*)"));
+  if (path.isEmpty()) return;
+  QFile f(path);
+  if (!f.open(QIODevice::ReadOnly)) {
+    if (fileStatus_) fileStatus_->setText(tr("Load failed: %1").arg(f.errorString()));
+    return;
+  }
+  QJsonParseError pe;
+  const QJsonDocument doc = QJsonDocument::fromJson(f.readAll(), &pe);
+  if (pe.error != QJsonParseError::NoError || !doc.isObject()) {
+    if (fileStatus_) fileStatus_->setText(tr("Load failed: invalid world JSON"));
+    return;
+  }
+  setConfig(worldFromJson(doc.object()));
+  if (fileStatus_)
+    fileStatus_->setText(tr("Loaded %1 (%2 obstacles)")
+                             .arg(QFileInfo(path).fileName())
+                             .arg(cfg_.obstacles.size()));
+  // Push to the daemon (env) + renderer/persistence (obstacles).
+  emit worldApplied();
+  emit obstaclesChanged();
 }
 
 void WorldEditorWidget::buildObstacleSection(QVBoxLayout* root) {

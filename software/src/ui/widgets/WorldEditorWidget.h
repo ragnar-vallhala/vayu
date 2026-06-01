@@ -31,6 +31,8 @@ class WorldEditorWidget : public QWidget {
   void onRemoveObstacle();
   void onObstacleSelected(int row);
   void onObstacleFieldChanged();
+  void onSaveWorld();   // export env + obstacles to a portable .vworld (JSON)
+  void onLoadWorld();   // import a .vworld
 
  private:
   void buildUi();
@@ -55,4 +57,5 @@ class WorldEditorWidget : public QWidget {
   QDoubleSpinBox* obsRot_[3] = {nullptr, nullptr, nullptr};
   QDoubleSpinBox* obsRest_ = nullptr;
   bool obsSyncing_ = false;        // guard form-sync from re-emitting
+  class QLabel* fileStatus_ = nullptr;  // save/load feedback
 };
