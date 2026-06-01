@@ -87,16 +87,25 @@ void PhysicsCore::step(const Vec3& force_b, const Vec3& torque_b, float dt) {
     sanitize();
 }
 
-// Push the drone CoM (a point inflated by a small radius) out of any
-// obstacle, then reflect the inbound normal velocity with the obstacle's
-// restitution and lightly damp the tangential slide. Approximate (single
-// contact point), but enough to fly around a "proper" world. NED world frame.
+// Resolve drone-vs-obstacle contact. The drone is modelled as a small
+// footprint (four arm points at +/-R, not just the CoM) so contacts off to
+// one side apply an off-CoM impulse — tau = r x J — and the airframe tips off
+// edges / catches a corner instead of sliding flat. Per contacting point we
+// apply a normal impulse (with the body's rotational inertia coupled in) plus
+// tangential friction, and lift the CoM out by the deepest penetration. NED.
 void PhysicsCore::resolveObstacles() {
-    constexpr float kDroneR = 0.12f;   // drone collision radius [m]
+    if (obstacles_.empty()) return;
+    constexpr float rc = 0.04f;   // contact radius per footprint point [m]
+    constexpr float R  = 0.13f;   // drone footprint half-reach [m]
+    const Vec3 fp[4] = {Vec3(R, R, 0), Vec3(-R, R, 0),
+                        Vec3(-R, -R, 0), Vec3(R, -R, 0)};
+    const float m = (params_.mass > 1e-3f) ? params_.mass : 1e-3f;
     auto dot = [](const Vec3& a, const Vec3& b) {
         return a.x() * b.x() + a.y() * b.y() + a.z() * b.z();
     };
-    auto len = [&](const Vec3& a) { return std::sqrt(dot(a, a)); };
+
+    Vec3 posCorr(0, 0, 0);
+    float maxPen = 0.0f;
 
     for (const SimObstacle& o : obstacles_) {
         // Rotation world<-local from Euler XYZ (deg): q = qx*qy*qz.
@@ -108,68 +117,90 @@ void PhysicsCore::resolveObstacles() {
         const Quat q = axisQ(o.rot_deg.x(), Vec3(1, 0, 0)) *
                        axisQ(o.rot_deg.y(), Vec3(0, 1, 0)) *
                        axisQ(o.rot_deg.z(), Vec3(0, 0, 1));
-        // Point in the obstacle's local frame.
-        const Vec3 lp = q.conjugated().rotatedVector(state_.pos_w - o.pos);
 
-        Vec3 pushL(0, 0, 0), nrmL(0, 0, 0);
-        bool hit = false;
-        if (o.type == 1) {  // sphere
-            const float rad = o.size.x() + kDroneR;
-            const float d = len(lp);
-            if (d < rad && d > 1e-5f) {
-                nrmL = lp / d;
-                pushL = nrmL * (rad - d);
-                hit = true;
-            }
-        } else if (o.type == 2) {  // cylinder (axis = local z)
-            const float rad = o.size.x() + kDroneR;
-            const float hh = o.size.z() * 0.5f + kDroneR;
-            const float rxy = std::sqrt(lp.x() * lp.x() + lp.y() * lp.y());
-            if (rxy < rad && std::fabs(lp.z()) < hh) {
-                const float penR = rad - rxy, penZ = hh - std::fabs(lp.z());
-                if (penR < penZ && rxy > 1e-5f) {
-                    nrmL = Vec3(lp.x() / rxy, lp.y() / rxy, 0);
-                    pushL = nrmL * penR;
-                } else {
-                    const float s = lp.z() >= 0 ? 1.0f : -1.0f;
-                    nrmL = Vec3(0, 0, s);
-                    pushL = Vec3(0, 0, penZ * s);
+        for (const Vec3& cpb : fp) {
+            const Vec3 Pw = state_.pos_w + state_.att.rotatedVector(cpb);
+            const Vec3 lp = q.conjugated().rotatedVector(Pw - o.pos);
+
+            Vec3 nL;
+            float pen = 0.0f;
+            bool hit = false;
+            if (o.type == 1) {  // sphere
+                const float rad = o.size.x() + rc;
+                const float d = std::sqrt(dot(lp, lp));
+                if (d < rad && d > 1e-5f) { nL = lp / d; pen = rad - d; hit = true; }
+            } else if (o.type == 2) {  // cylinder (axis = local z)
+                const float rad = o.size.x() + rc, hh = o.size.z() * 0.5f + rc;
+                const float rxy = std::sqrt(lp.x() * lp.x() + lp.y() * lp.y());
+                if (rxy < rad && std::fabs(lp.z()) < hh) {
+                    const float pr = rad - rxy, pz = hh - std::fabs(lp.z());
+                    if (pr < pz && rxy > 1e-5f) {
+                        nL = Vec3(lp.x() / rxy, lp.y() / rxy, 0); pen = pr;
+                    } else {
+                        nL = Vec3(0, 0, lp.z() >= 0 ? 1.f : -1.f); pen = pz;
+                    }
+                    hit = true;
                 }
-                hit = true;
-            }
-        } else {  // box: full extents inflated by the drone radius
-            const float hx = o.size.x() * 0.5f + kDroneR;
-            const float hy = o.size.y() * 0.5f + kDroneR;
-            const float hz = o.size.z() * 0.5f + kDroneR;
-            if (std::fabs(lp.x()) < hx && std::fabs(lp.y()) < hy &&
-                std::fabs(lp.z()) < hz) {
-                const float px = hx - std::fabs(lp.x());
-                const float py = hy - std::fabs(lp.y());
-                const float pz = hz - std::fabs(lp.z());
-                if (px <= py && px <= pz) {
-                    const float s = lp.x() >= 0 ? 1.0f : -1.0f;
-                    nrmL = Vec3(s, 0, 0); pushL = Vec3(px * s, 0, 0);
-                } else if (py <= pz) {
-                    const float s = lp.y() >= 0 ? 1.0f : -1.0f;
-                    nrmL = Vec3(0, s, 0); pushL = Vec3(0, py * s, 0);
-                } else {
-                    const float s = lp.z() >= 0 ? 1.0f : -1.0f;
-                    nrmL = Vec3(0, 0, s); pushL = Vec3(0, 0, pz * s);
+            } else {  // box
+                const float hx = o.size.x() * 0.5f + rc;
+                const float hy = o.size.y() * 0.5f + rc;
+                const float hz = o.size.z() * 0.5f + rc;
+                if (std::fabs(lp.x()) < hx && std::fabs(lp.y()) < hy &&
+                    std::fabs(lp.z()) < hz) {
+                    const float px = hx - std::fabs(lp.x());
+                    const float py = hy - std::fabs(lp.y());
+                    const float pz = hz - std::fabs(lp.z());
+                    if (px <= py && px <= pz)
+                        { nL = Vec3(lp.x() >= 0 ? 1.f : -1.f, 0, 0); pen = px; }
+                    else if (py <= pz)
+                        { nL = Vec3(0, lp.y() >= 0 ? 1.f : -1.f, 0); pen = py; }
+                    else
+                        { nL = Vec3(0, 0, lp.z() >= 0 ? 1.f : -1.f); pen = pz; }
+                    hit = true;
                 }
-                hit = true;
             }
-        }
-        if (!hit) continue;
-        const Vec3 pushW = q.rotatedVector(pushL);
-        const Vec3 nW = q.rotatedVector(nrmL);
-        state_.pos_w += pushW;
-        const float vn = dot(state_.vel_w, nW);
-        if (vn < 0.0f) {  // moving into the surface: reflect + damp
-            const Vec3 vnVec = nW * vn;
-            const Vec3 vt = state_.vel_w - vnVec;
-            state_.vel_w = vt * 0.98f - vnVec * o.restitution;
+            if (!hit) continue;
+
+            const Vec3 nW = q.rotatedVector(nL);
+            if (pen > maxPen) { maxPen = pen; posCorr = nW * pen; }
+
+            // Contact-point velocity = v_cm + omega x r (lever = att*cpb).
+            const Vec3 leverW = state_.att.rotatedVector(cpb);
+            const Vec3 omegaW = state_.att.rotatedVector(state_.omega_b);
+            const Vec3 vP = state_.vel_w + Vec3::crossProduct(omegaW, leverW);
+            const float vn = dot(vP, nW);
+            if (vn >= 0.0f) continue;  // separating: no impulse
+
+            // Effective mass along the normal incl. rotational inertia, in the
+            // body frame (where I_inv_ lives): k = 1/m + n·((I^-1 (r×n))×r).
+            const Vec3 nB = state_.att.conjugated().rotatedVector(nW);
+            const Vec3 rxn = Vec3::crossProduct(cpb, nB);
+            const Vec3 ir = I_inv_ * rxn;
+            float keff = 1.0f / m + dot(nB, Vec3::crossProduct(ir, cpb));
+            if (keff < 1e-6f) keff = 1e-6f;
+            // Split the impulse across the (up to 4) footprint points.
+            const float j = -(1.0f + o.restitution) * vn / keff * 0.25f;
+
+            const Vec3 Jw = nW * j;
+            state_.vel_w += Jw / m;
+            const Vec3 Jb = state_.att.conjugated().rotatedVector(Jw);
+            state_.omega_b += I_inv_ * Vec3::crossProduct(cpb, Jb);
+
+            // Coulomb-ish friction at the contact: opposes the tangential
+            // slide, capped so it can't reverse it; also feeds spin via r×F.
+            const Vec3 vt = vP - nW * vn;
+            const float vtl = std::sqrt(dot(vt, vt));
+            if (vtl > 1e-4f) {
+                float jt = -0.4f * std::fabs(j);
+                if (jt < -vtl * m * 0.25f) jt = -vtl * m * 0.25f;
+                const Vec3 Ft = (vt / vtl) * jt;
+                state_.vel_w += Ft / m;
+                const Vec3 Ftb = state_.att.conjugated().rotatedVector(Ft);
+                state_.omega_b += I_inv_ * Vec3::crossProduct(cpb, Ftb);
+            }
         }
     }
+    if (maxPen > 0.0f) state_.pos_w += posCorr;
 }
 
 // Reset on non-finite state, clamp runaway rates. A diverged controller
