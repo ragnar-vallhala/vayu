@@ -265,6 +265,7 @@ void SimulatorWidget::buildUi() {
     // add/remove/edit, no Apply needed.
     connect(m_worldEditor, &WorldEditorWidget::obstaclesChanged, this, [this] {
       if (m_renderer) m_renderer->setObstacles(m_worldEditor->config().obstacles);
+      if (m_sim) m_sim->sendObstacles(m_worldEditor->config().obstacles);
       persistWorld(m_worldEditor->config());
     });
     // 3D gizmo editing of obstacles <-> the editor list/form.
@@ -648,6 +649,7 @@ void SimulatorWidget::startInAppSim() {
     if (!m_sim) return;
     m_sim->sendGeometry(m_geomEditor->physicsConfig());
     m_sim->sendWorld(m_worldEditor->config());
+    m_sim->sendObstacles(m_worldEditor->config().obstacles);
   });
   m_sim->start(QThread::TimeCriticalPriority);
 

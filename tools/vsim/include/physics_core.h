@@ -6,6 +6,8 @@
 
 #include "vsim_types.h"
 
+#include <vector>
+
 namespace vsim {
 
 // RK4-integrated rigid body, with a hard ground clamp at
@@ -22,6 +24,9 @@ public:
     // Caches the inverse inertia tensor so the RK4 derive() (4x per
     // 1 kHz step) doesn't re-invert a 3x3 every call.
     void setParams(const DroneParams& p) { params_ = p; I_inv_ = params_.inertia.inverse(); }
+
+    // Static world obstacles the drone collides with (push-out + restitution).
+    void setObstacles(const std::vector<SimObstacle>& o) { obstacles_ = o; }
 
     // One RK4 step. force_b and torque_b are body-frame.
     void step(const Vec3& force_b, const Vec3& torque_b, float dt);
@@ -42,12 +47,14 @@ private:
     RigidBodyState advance(const RigidBodyState& s, const Deriv& k,
                            float dt) const;
     void           groundClamp();
+    void           resolveObstacles();   // push the CoM out of any obstacle
     // Reset on non-finite state and clamp runaway rates so a control
     // divergence can't permanently poison the sim with NaN/inf.
     void           sanitize();
 
     RigidBodyState state_;
     DroneParams    params_;
+    std::vector<SimObstacle> obstacles_;
     // Cached inverse of params_.inertia; kept in sync by setParams().
     // Default matches the default DroneParams inertia.
     Mat3           I_inv_ = DroneParams{}.inertia.inverse();

@@ -155,6 +155,33 @@ void SimWorker::sendWorld(const WorldConfig& w) {
     emit logLine("vsim_d: world pushed");
 }
 
+void SimWorker::sendObstacles(const QVector<Obstacle>& obs) {
+    if (ctl_fd_ < 0) return;
+    auto frame = [&](uint32_t subtype) {
+        vsim_ctl_frame_t f{};
+        f.hdr.magic         = VSIM_MAGIC;
+        f.hdr.version       = VSIM_PROTO_VERSION;
+        f.hdr.type          = VSIM_FRAME_CTL;
+        f.hdr.payload_bytes = sizeof(f) - sizeof(vsim_hdr_t);
+        f.subtype           = subtype;
+        return f;
+    };
+    // Clear, then append each shape.
+    { vsim_ctl_frame_t f = frame(VSIM_CTL_CLEAR_OBSTACLES); ::write(ctl_fd_, &f, sizeof(f)); }
+    for (const Obstacle& o : obs) {
+        vsim_ctl_frame_t f = frame(VSIM_CTL_ADD_OBSTACLE);
+        vsim_ctl_obstacle_t b{};
+        b.type = o.type;
+        b.pos[0] = o.pos.x();    b.pos[1] = o.pos.y();    b.pos[2] = o.pos.z();
+        b.size[0] = o.size.x();  b.size[1] = o.size.y();  b.size[2] = o.size.z();
+        b.rot_deg[0] = o.rotate.x(); b.rot_deg[1] = o.rotate.y(); b.rot_deg[2] = o.rotate.z();
+        b.restitution = o.restitution;
+        std::memcpy(f.body, &b, sizeof(b));
+        ::write(ctl_fd_, &f, sizeof(f));
+    }
+    emit logLine(QString("vsim_d: %1 obstacles pushed").arg(obs.size()));
+}
+
 bool SimWorker::spawnDaemon() {
     const QString bin_q = resolveBinary(vsim_bin_);
     const QByteArray bin_b = bin_q.toLocal8Bit();
