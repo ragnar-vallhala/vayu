@@ -148,6 +148,19 @@ QPushButton#GhostButton {
 QPushButton#GhostButton:hover   { background: #4F5662; }
 QPushButton#GhostButton:pressed { background: #353A45; }
 
+/* Disabled state for the coloured subclasses. The #Id selectors above
+ * outrank the generic `QPushButton:disabled` rule, so without these an
+ * enabled-looking green/red button would stay green/red when disabled.
+ * Repeat the muted look here so setEnabled(false) actually greys out. */
+QPushButton#PrimaryButton:disabled,
+QPushButton#SuccessButton:disabled,
+QPushButton#DangerButton:disabled,
+QPushButton#GhostButton:disabled {
+    background: #252525;
+    color: #4A4A4A;
+    border: 1px solid #2A2A2A;
+}
+
 /* Back / nav — same as Ghost, with a smaller footprint. */
 QPushButton#BackButton {
     background: #3E4452;
