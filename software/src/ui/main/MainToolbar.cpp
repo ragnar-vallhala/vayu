@@ -49,11 +49,11 @@ void MainToolbar::buildContent() {
          "(e.g. /dev/pts/3 for a SITL pty)."));
   addWidget(m_portCombo);
 
-  auto *refreshBtn = new ui::GhostButton("⟳", this);
-  refreshBtn->setToolTip(tr("Refresh port list"));
-  refreshBtn->setFixedWidth(32);
-  connect(refreshBtn, &QPushButton::clicked, this, &MainToolbar::refreshPorts);
-  addWidget(refreshBtn);
+  m_refreshBtn = new ui::GhostButton("⟳", this);
+  m_refreshBtn->setToolTip(tr("Refresh port list"));
+  m_refreshBtn->setFixedWidth(32);
+  connect(m_refreshBtn, &QPushButton::clicked, this, &MainToolbar::refreshPorts);
+  addWidget(m_refreshBtn);
 
   addSeparator();
 
@@ -170,6 +170,16 @@ void MainToolbar::setConnected(bool on, const QString &portLabel) {
     m_portCombo->setEnabled(true);
     m_baudCombo->setEnabled(true);
   }
+}
+
+void MainToolbar::setSerialControlsEnabled(bool enabled) {
+  if (m_refreshBtn) m_refreshBtn->setEnabled(enabled);
+  if (m_connectBtn) m_connectBtn->setEnabled(enabled);
+  // Port/baud stay locked whenever a serial link is up (setConnected), so
+  // only re-enable them here if we're enabling AND not connected.
+  const bool combos = enabled && !m_connected;
+  if (m_portCombo) m_portCombo->setEnabled(combos);
+  if (m_baudCombo) m_baudCombo->setEnabled(combos);
 }
 
 void MainToolbar::setArmEnabled(bool on) {
