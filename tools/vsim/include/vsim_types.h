@@ -78,6 +78,17 @@ struct ImuSample {
 // total ~44 uT.
 inline Vec3 magWorldNed() { return Vec3(38.0f, 0.0f, 22.0f); }
 
+// A static world obstacle the drone (a point + small radius) collides with.
+// NED world frame. type: 0 box (size = full extents), 1 sphere (size.x is
+// radius), 2 cylinder (size.x radius, size.z height; axis = local z).
+struct SimObstacle {
+    int   type = 0;
+    Vec3  pos;
+    Vec3  size{1.0f, 1.0f, 1.0f};
+    Vec3  rot_deg;
+    float restitution = 0.3f;
+};
+
 }  // namespace vsim
 
 #endif  // VSIM_TYPES_H

@@ -18,6 +18,7 @@ public:
     void setDroneParams (const DroneParams& p)  { phys_.setParams(p); }
     void setMotorParams (const MotorParams& p)  { motors_.setParams(p); }
     void setNoise       (const SensorNoise& n)  { sensors_.setNoise(n); }
+    void setObstacles   (const std::vector<SimObstacle>& o) { phys_.setObstacles(o); }
     void seedSensors    (uint64_t s)            { sensors_.seed(s); }
 
     void resetState(const RigidBodyState& s = {});
