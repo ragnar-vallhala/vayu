@@ -150,6 +150,8 @@ void SimWorker::sendWorld(const WorldConfig& w) {
     body.restitution  = w.restitution;
     body.linear_drag  = w.linear_drag;
     body.angular_drag = w.angular_drag;
+    body.ground_right_gain = w.ground_right_gain;
+    body.ground_right_damp = w.ground_right_damp;
     std::memcpy(f.body, &body, sizeof(body));
     ::write(ctl_fd_, &f, sizeof(f));
     emit logLine("vsim_d: world pushed");

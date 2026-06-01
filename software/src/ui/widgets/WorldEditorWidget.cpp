@@ -52,6 +52,8 @@ QJsonObject worldToJson(const vsim::WorldConfig& w) {
   root["restitution"] = w.restitution;
   root["linear_drag"] = w.linear_drag;
   root["angular_drag"] = w.angular_drag;
+  root["ground_right_gain"] = w.ground_right_gain;
+  root["ground_right_damp"] = w.ground_right_damp;
   QJsonArray obs;
   for (const vsim::Obstacle& o : w.obstacles) {
     obs.append(QJsonObject{{"type", o.type},
@@ -71,6 +73,8 @@ vsim::WorldConfig worldFromJson(const QJsonObject& root) {
   w.restitution = root.value("restitution").toDouble(w.restitution);
   w.linear_drag = root.value("linear_drag").toDouble(w.linear_drag);
   w.angular_drag = root.value("angular_drag").toDouble(w.angular_drag);
+  w.ground_right_gain = root.value("ground_right_gain").toDouble(w.ground_right_gain);
+  w.ground_right_damp = root.value("ground_right_damp").toDouble(w.ground_right_damp);
   for (const QJsonValue& v : root.value("obstacles").toArray()) {
     const QJsonObject o = v.toObject();
     vsim::Obstacle ob;
@@ -117,8 +121,16 @@ void WorldEditorWidget::buildUi() {
     auto* form = new QFormLayout(body);
     linDrag_ = spin(0.0, 5.0, 3, 0.01, cfg_.linear_drag, QStringLiteral(" N·s/m"));
     angDrag_ = spin(0.0, 1.0, 4, 0.001, cfg_.angular_drag, QStringLiteral(" N·m·s"));
+    rightGain_ = spin(0.0, 200.0, 1, 1.0, cfg_.ground_right_gain);
+    rightGain_->setToolTip(tr("How hard a tipped airframe topples to level on "
+                              "the ground (0 = stays as it lands)."));
+    rightDamp_ = spin(0.0, 50.0, 1, 0.5, cfg_.ground_right_damp);
+    rightDamp_->setToolTip(tr("Damping of the righting rotation (higher = "
+                              "settles flatter, less overshoot)."));
     form->addRow(tr("Linear drag:"), linDrag_);
     form->addRow(tr("Angular drag:"), angDrag_);
+    form->addRow(tr("Ground righting gain:"), rightGain_);
+    form->addRow(tr("Ground righting damp:"), rightDamp_);
     sec->setContentWidget(body);
     root->addWidget(sec);
   }
@@ -380,6 +392,8 @@ void WorldEditorWidget::syncConfigToUi() {
   rest_->setValue(cfg_.restitution);
   linDrag_->setValue(cfg_.linear_drag);
   angDrag_->setValue(cfg_.angular_drag);
+  rightGain_->setValue(cfg_.ground_right_gain);
+  rightDamp_->setValue(cfg_.ground_right_damp);
 }
 
 void WorldEditorWidget::syncUiToConfig() {
@@ -388,6 +402,8 @@ void WorldEditorWidget::syncUiToConfig() {
   cfg_.restitution = static_cast<float>(rest_->value());
   cfg_.linear_drag = static_cast<float>(linDrag_->value());
   cfg_.angular_drag = static_cast<float>(angDrag_->value());
+  cfg_.ground_right_gain = static_cast<float>(rightGain_->value());
+  cfg_.ground_right_damp = static_cast<float>(rightDamp_->value());
 }
 
 void WorldEditorWidget::onApply() {

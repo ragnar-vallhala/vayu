@@ -170,6 +170,8 @@ typedef struct {
     float restitution;
     float linear_drag;
     float angular_drag;
+    float ground_right_gain;  // tipped-airframe righting gain [rad/s^2]
+    float ground_right_damp;  // righting angular damping [1/s]
 } vsim_ctl_world_t;
 
 // Body for VSIM_CTL_ADD_OBSTACLE: one static world shape (NED world frame).
@@ -202,7 +204,7 @@ static_assert(sizeof(vsim_imu_frame_t)  == 16 + 76,  "vsim_imu_frame_t size");
 static_assert(sizeof(vsim_pose_frame_t) == 16 + 92,  "vsim_pose_frame_t size");
 static_assert(sizeof(vsim_ctl_frame_t)  == 16 + 264, "vsim_ctl_frame_t size");
 static_assert(sizeof(vsim_ctl_geometry_t) == 200,    "vsim_ctl_geometry_t size");
-static_assert(sizeof(vsim_ctl_world_t)   == 20,      "vsim_ctl_world_t size");
+static_assert(sizeof(vsim_ctl_world_t)   == 28,      "vsim_ctl_world_t size");
 #else
 _Static_assert(sizeof(vsim_hdr_t)        == 16, "vsim_hdr_t size");
 _Static_assert(sizeof(vsim_pwm_frame_t)  == 16 + 16,  "vsim_pwm_frame_t size");
@@ -210,7 +212,7 @@ _Static_assert(sizeof(vsim_imu_frame_t)  == 16 + 76,  "vsim_imu_frame_t size");
 _Static_assert(sizeof(vsim_pose_frame_t) == 16 + 92,  "vsim_pose_frame_t size");
 _Static_assert(sizeof(vsim_ctl_frame_t)  == 16 + 264, "vsim_ctl_frame_t size");
 _Static_assert(sizeof(vsim_ctl_geometry_t) == 200,    "vsim_ctl_geometry_t size");
-_Static_assert(sizeof(vsim_ctl_world_t)   == 20,      "vsim_ctl_world_t size");
+_Static_assert(sizeof(vsim_ctl_world_t)   == 28,      "vsim_ctl_world_t size");
 #endif
 
 #ifdef __cplusplus
