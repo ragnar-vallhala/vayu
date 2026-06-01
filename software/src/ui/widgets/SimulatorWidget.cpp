@@ -36,7 +36,10 @@ constexpr const char* kLogDirSettingKey   = "simulator/logDir";
 constexpr const char* kGeomGroup          = "simulator/geometry";
 constexpr const char* kWorldGroup         = "simulator/world";
 constexpr const char* kRcEnableKey        = "simulator/rcEnable";
-constexpr const char* kRcPathKey          = "simulator/rcPath";
+constexpr const char* kRcSourceKey        = "simulator/rcSource";   // 0=js 1=uart
+constexpr const char* kRcPathKey          = "simulator/rcPath";     // joystick dev
+constexpr const char* kRcUartPathKey      = "simulator/rcUartPath"; // serial dev
+constexpr const char* kRcBaudKey          = "simulator/rcBaud";
 constexpr const char* kRcMapAxisKey       = "simulator/rcMapAxis";   // + func
 constexpr const char* kRcMapInvKey        = "simulator/rcMapInv";    // + func
 
@@ -100,7 +103,7 @@ SimulatorWidget::SimulatorWidget(QWidget* parent) : QWidget(parent) {
   // exist beforehand. The bridge runs continuously and streams a neutral
   // frame until enabled; the checkbox toggles joystick influence live.
   m_rc = new RcBridge(this);
-  m_rc->setJoystickPath(m_rcPath->text());
+  applyRcSource();  // pushes source + device path + baud to the bridge
   m_rc->setEnabled(m_rcEnable->isChecked());
   QString rcErr;
   if (m_rc->openPty(&rcErr)) {
@@ -307,12 +310,49 @@ void SimulatorWidget::buildUi() {
         if (m_rc) m_rc->setEnabled(on);   // live, no restart
       });
       rcRow->addWidget(m_rcEnable);
-      m_rcPath = new QLineEdit(
-          st.value(kRcPathKey, "/dev/input/js0").toString(), simBody);
-      m_rcPath->setToolTip(tr("Joystick device (Linux js API)."));
-      connect(m_rcPath, &QLineEdit::editingFinished, this,
-              [this] { QSettings().setValue(kRcPathKey, m_rcPath->text()); });
+
+      // RC input source: a USB joystick (axes → channels) or a UART that
+      // streams CSV microsecond frames straight off a serial port.
+      m_rcSource = new QComboBox(simBody);
+      m_rcSource->addItem(tr("USB joystick"), RcBridge::Joystick);
+      m_rcSource->addItem(tr("UART (CSV)"), RcBridge::Uart);
+      m_rcSource->setCurrentIndex(
+          st.value(kRcSourceKey, RcBridge::Joystick).toInt() == RcBridge::Uart
+              ? 1
+              : 0);
+      m_rcSource->setToolTip(tr("RC input source. USB joystick maps axes to "
+                                "channels; UART reads CSV µs frames directly."));
+      connect(m_rcSource, QOverload<int>::of(&QComboBox::currentIndexChanged),
+              this, [this] { applyRcSource(); });
+      rcRow->addWidget(m_rcSource);
+
+      m_rcPath = new QLineEdit(simBody);  // text filled by applyRcSource()
+      connect(m_rcPath, &QLineEdit::editingFinished, this, [this] {
+        const bool uart = m_rcSource->currentData().toInt() == RcBridge::Uart;
+        QSettings().setValue(uart ? kRcUartPathKey : kRcPathKey,
+                             m_rcPath->text());
+        if (m_rc) {
+          if (uart) m_rc->setUartPath(m_rcPath->text());
+          else      m_rc->setJoystickPath(m_rcPath->text());
+        }
+      });
       rcRow->addWidget(m_rcPath, 1);
+
+      m_rcBaud = new QComboBox(simBody);
+      for (int b : {9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600})
+        m_rcBaud->addItem(QString::number(b), b);
+      {
+        const int idx = m_rcBaud->findData(st.value(kRcBaudKey, 115200).toInt());
+        m_rcBaud->setCurrentIndex(idx >= 0 ? idx : 4);
+      }
+      m_rcBaud->setToolTip(tr("UART baud (UART source only)."));
+      connect(m_rcBaud, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+              [this] {
+                const int b = m_rcBaud->currentData().toInt();
+                QSettings().setValue(kRcBaudKey, b);
+                if (m_rc) m_rc->setUartBaud(b);
+              });
+      rcRow->addWidget(m_rcBaud);
       sv->addLayout(rcRow);
 
       m_rcReadout = new QLabel(tr("RC: —"), simBody);
@@ -365,6 +405,10 @@ void SimulatorWidget::buildUi() {
         if (m_rc) m_rc->setArmOverride(on ? 1 : -1);
       });
       sv->addWidget(m_swArm);
+
+      // Now that the device field, baud, and mapping widgets exist, apply the
+      // saved source: fills the path field and enables/disables baud+mapping.
+      applyRcSource();
     }
 
     auto* repoRow = new QHBoxLayout();
@@ -453,6 +497,45 @@ void SimulatorWidget::pushRcMapping(int func) {
   QSettings s;
   s.setValue(QString(kRcMapAxisKey) + QString::number(func), axis);
   s.setValue(QString(kRcMapInvKey) + QString::number(func), inv);
+}
+
+void SimulatorWidget::applyRcSource() {
+  if (!m_rcSource) return;
+  const bool uart = m_rcSource->currentData().toInt() == RcBridge::Uart;
+  QSettings st;
+  st.setValue(kRcSourceKey, uart ? RcBridge::Uart : RcBridge::Joystick);
+
+  // Swap the device field to the saved path for the selected source.
+  if (m_rcPath) {
+    const QString path =
+        uart ? st.value(kRcUartPathKey, "/dev/ttyUSB0").toString()
+             : st.value(kRcPathKey, "/dev/input/js0").toString();
+    QSignalBlocker block(m_rcPath);
+    m_rcPath->setText(path);
+    m_rcPath->setToolTip(
+        uart ? tr("Serial device streaming CSV RC frames "
+                  "(roll,pitch,throttle,yaw,arm,…), µs per channel.")
+             : tr("Joystick device (Linux js API)."));
+  }
+  if (m_rcBaud) m_rcBaud->setEnabled(uart);
+
+  // Axis mapping only applies to a joystick; a CSV stream is already
+  // channelised, so grey the mapping out under UART.
+  for (int f = 0; f < 5; ++f) {
+    if (m_rcAxisCombo[f]) m_rcAxisCombo[f]->setEnabled(!uart);
+    if (m_rcInvert[f]) m_rcInvert[f]->setEnabled(!uart);
+  }
+
+  // Push to the bridge (no-op until it exists; the ctor calls this again).
+  if (m_rc) {
+    if (uart) {
+      if (m_rcPath) m_rc->setUartPath(m_rcPath->text());
+      if (m_rcBaud) m_rc->setUartBaud(m_rcBaud->currentData().toInt());
+    } else if (m_rcPath) {
+      m_rc->setJoystickPath(m_rcPath->text());
+    }
+    m_rc->setSource(uart ? RcBridge::Uart : RcBridge::Joystick);
+  }
 }
 
 bool SimulatorWidget::eventFilter(QObject* obj, QEvent* ev) {

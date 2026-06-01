@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QMutex>
 #include <QString>
 #include <QThread>
 #include <QVector>
@@ -27,7 +28,26 @@ class RcBridge : public QThread {
   explicit RcBridge(QObject* parent = nullptr);
   ~RcBridge() override;
 
-  void setJoystickPath(const QString& p) { js_path_ = p; }
+  // RC input source. Joystick: read a Linux js device and map axes/buttons
+  // to channels. Uart: read CSV microsecond frames straight off a serial
+  // port (same wire format the firmware expects) and forward them. The pty
+  // the firmware reads is unchanged either way, so the source can switch live.
+  enum Source { Joystick = 0, Uart = 1 };
+  void setSource(int s) { source_.store(s, std::memory_order_release); }
+
+  void setJoystickPath(const QString& p) {
+    QMutexLocker lk(&cfg_mtx_);
+    js_path_ = p;
+  }
+  // Serial device + baud for the Uart source (e.g. /dev/ttyUSB1 @ 115200).
+  void setUartPath(const QString& p) {
+    QMutexLocker lk(&cfg_mtx_);
+    uart_path_ = p;
+  }
+  void setUartBaud(int b) {
+    QMutexLocker lk(&cfg_mtx_);
+    uart_baud_ = b;
+  }
 
   // When disabled, the bridge streams a neutral/idle frame (throttle low,
   // everything else centered) instead of the joystick — so toggling RC on
@@ -65,7 +85,11 @@ class RcBridge : public QThread {
   void run() override;
 
  private:
+  QMutex cfg_mtx_;  // guards js_path_ / uart_path_ / uart_baud_ (live edits)
   QString js_path_ = QStringLiteral("/dev/input/js0");
+  QString uart_path_ = QStringLiteral("/dev/ttyUSB0");
+  int uart_baud_ = 115200;
+  std::atomic<int> source_{Joystick};
   QString slave_path_;
   int master_fd_ = -1;
   std::atomic<bool> stop_{false};
