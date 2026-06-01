@@ -74,7 +74,10 @@ struct WorldConfig {
   float restitution = 0.0f;       // bounce factor [0,1]
   float linear_drag = 0.10f;      // N per (m/s)
   float angular_drag = 0.005f;    // N*m per (rad/s)
-  QVector<Obstacle> obstacles;    // static world shapes (visual; phase 1)
+  // Ground-contact righting: how hard/fast a tipped airframe topples to level.
+  float ground_right_gain = 40.0f;  // rad/s² per sin(tilt)
+  float ground_right_damp = 6.0f;   // 1/s
+  QVector<Obstacle> obstacles;    // static world shapes
 };
 
 }  // namespace vsim

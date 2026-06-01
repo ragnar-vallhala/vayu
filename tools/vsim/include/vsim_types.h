@@ -33,6 +33,8 @@ struct DroneParams {
     float ground_z     = 0.0f;                              // NED z of ground
     float ground_restitution = 0.0f;                        // bounce factor
     float gravity      = kG;                                // m/s^2 (world, +Z down)
+    float ground_right_gain = 40.0f;   // tipped-airframe righting gain
+    float ground_right_damp = 6.0f;    // righting angular damping [1/s]
 };
 
 // M1=FR, M2=RR, M3=RL, M4=FL — matches firmware motor mixing. Positions

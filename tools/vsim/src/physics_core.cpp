@@ -232,8 +232,8 @@ void PhysicsCore::groundClamp(float dt) {
         if (tilt2 > 1e-6f) {
             // Body-frame angular accel: righting gain * tilt, minus damping.
             const Vec3 tiltB = state_.att.conjugated().rotatedVector(tiltW);
-            constexpr float kRight = 40.0f;   // rad/s^2 per unit sin(tilt)
-            constexpr float kDamp  = 6.0f;    // 1/s
+            const float kRight = params_.ground_right_gain;  // rad/s^2 per sin(tilt)
+            const float kDamp  = params_.ground_right_damp;  // 1/s
             state_.omega_b += (tiltB * kRight - state_.omega_b * kDamp) * dt;
         }
     }

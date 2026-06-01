@@ -231,6 +231,8 @@ int main(int /*argc*/, char** /*argv*/) {
                     drone.ground_restitution = w.restitution;
                     drone.linear_drag        = w.linear_drag;
                     drone.angular_drag       = w.angular_drag;
+                    drone.ground_right_gain  = w.ground_right_gain;
+                    drone.ground_right_damp  = w.ground_right_damp;
                     ctl.setDroneParams(drone);
                     std::fprintf(stderr,
                                  "vsim_d: world set (g=%.2f ground_z=%.2f rest=%.2f drag=%.3f/%.4f)\n",

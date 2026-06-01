@@ -807,6 +807,8 @@ void SimulatorWidget::persistWorld(const vsim::WorldConfig& w) {
   s.setValue("restitution", w.restitution);
   s.setValue("linear_drag", w.linear_drag);
   s.setValue("angular_drag", w.angular_drag);
+  s.setValue("ground_right_gain", w.ground_right_gain);
+  s.setValue("ground_right_damp", w.ground_right_damp);
   s.beginWriteArray("obstacles", w.obstacles.size());
   for (int i = 0; i < w.obstacles.size(); ++i) {
     const vsim::Obstacle& o = w.obstacles[i];
@@ -834,6 +836,8 @@ vsim::WorldConfig SimulatorWidget::restoreWorld() {
   w.restitution  = s.value("restitution", w.restitution).toFloat();
   w.linear_drag  = s.value("linear_drag", w.linear_drag).toFloat();
   w.angular_drag = s.value("angular_drag", w.angular_drag).toFloat();
+  w.ground_right_gain = s.value("ground_right_gain", w.ground_right_gain).toFloat();
+  w.ground_right_damp = s.value("ground_right_damp", w.ground_right_damp).toFloat();
   const int n = s.beginReadArray("obstacles");
   w.obstacles.clear();
   for (int i = 0; i < n; ++i) {
