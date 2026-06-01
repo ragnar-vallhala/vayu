@@ -79,6 +79,9 @@ private:
   void buildMenuBar();
   void installShortcuts();
   void setConnected(bool on);
+  // Refresh the bottom status-bar connection pill from m_connected /
+  // m_simRunning. Serial link wins; otherwise shows "Connected: SIM".
+  void refreshConnectionPill();
   void updateLiveBlinker();
   void saveUiState();
   void restoreUiState();
@@ -133,7 +136,8 @@ private:
   QElapsedTimer m_elapsed;
 
   // ---- State ----
-  bool m_connected = false;
+  bool m_connected = false;   // real serial link
+  bool m_simRunning = false;  // in-app SITL active
   bool m_armed = false;
   int m_pktCount = 0;
   ImuData m_latestImu;
