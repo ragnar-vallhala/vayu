@@ -82,7 +82,7 @@ void PhysicsCore::step(const Vec3& force_b, const Vec3& torque_b, float dt) {
     state_ = advance(state_, k, dt);
     state_.att.normalize();
 
-    groundClamp();
+    groundClamp(dt);
     resolveObstacles();
     sanitize();
 }
@@ -202,9 +202,10 @@ void PhysicsCore::sanitize() {
 
 // Hard floor at z == ground_z (NED, so larger z is lower). When the
 // body's CoM would dip below the ground, snap z to ground_z and zero
-// out any downward (positive-z) velocity. Attitude is left alone --
-// the contract is "simple landing clamp, no tipping".
-void PhysicsCore::groundClamp() {
+// out any downward (positive-z) velocity. Also topple a tipped airframe:
+// it can't balance on an edge, so gravity about the contact patch rotates
+// it toward level.
+void PhysicsCore::groundClamp(float dt) {
     if (state_.pos_w.z() > params_.ground_z) {
         state_.pos_w.setZ(params_.ground_z);
         if (state_.vel_w.z() > 0.0f) {
@@ -216,6 +217,25 @@ void PhysicsCore::groundClamp() {
         // the place to alter physics behavior. See analysis notes.
         state_.vel_w.setX(state_.vel_w.x() * 0.99f);
         state_.vel_w.setY(state_.vel_w.y() * 0.99f);
+
+        // Ground-contact righting: a resting airframe topples toward level
+        // (a quad can't balance on a tilted edge). worldUp = NED -Z; bodyUp
+        // is where the body's up axis points in world. The cross product is a
+        // world-frame axis that rotates bodyUp back onto worldUp; magnitude
+        // ~ sin(tilt). Drive omega toward that (damped) so a tipped drone
+        // tumbles flat instead of floating on its side.
+        const Vec3 worldUp(0.0f, 0.0f, -1.0f);
+        const Vec3 bodyUp = state_.att.rotatedVector(worldUp);
+        const Vec3 tiltW = Vec3::crossProduct(bodyUp, worldUp);  // body up -> up
+        const float tilt2 = tiltW.x() * tiltW.x() + tiltW.y() * tiltW.y() +
+                            tiltW.z() * tiltW.z();
+        if (tilt2 > 1e-6f) {
+            // Body-frame angular accel: righting gain * tilt, minus damping.
+            const Vec3 tiltB = state_.att.conjugated().rotatedVector(tiltW);
+            constexpr float kRight = 40.0f;   // rad/s^2 per unit sin(tilt)
+            constexpr float kDamp  = 6.0f;    // 1/s
+            state_.omega_b += (tiltB * kRight - state_.omega_b * kDamp) * dt;
+        }
     }
 }
 
