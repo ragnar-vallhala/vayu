@@ -56,6 +56,8 @@ class WorldEditorWidget : public QWidget {
   QDoubleSpinBox* rest_ = nullptr;
   QDoubleSpinBox* linDrag_ = nullptr;
   QDoubleSpinBox* angDrag_ = nullptr;
+  QDoubleSpinBox* rightGain_ = nullptr;  // ground-contact righting gain
+  QDoubleSpinBox* rightDamp_ = nullptr;  // righting damping
 
   // Obstacle editor.
   QListWidget* obsList_ = nullptr;
