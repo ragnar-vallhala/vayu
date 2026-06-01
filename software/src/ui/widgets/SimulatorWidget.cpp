@@ -548,6 +548,7 @@ void SimulatorWidget::startInAppSim() {
   setMode(1);
   // Show the telemetry HUD over the viewport.
   if (m_hud) { m_hud->setGeometry(m_renderer->rect()); m_hud->raise(); m_hud->show(); }
+  emit simRunningChanged(true);
 }
 
 void SimulatorWidget::stopInAppSim() {
@@ -579,6 +580,7 @@ void SimulatorWidget::stopInAppSim() {
   // Note: we don't call vayu_sitl_stop() here on the Stop button.
   // The firmware threads stay alive but receive no fresh IMU samples
   // (SimWorker isn't pushing). Restarting the sim resumes the pipe.
+  emit simRunningChanged(false);
 }
 
 void SimulatorWidget::onSimWorkerExited() {

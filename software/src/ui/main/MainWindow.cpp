@@ -206,6 +206,12 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   // which source is feeding it.
   connect(m_simulatorWidget, &SimulatorWidget::dataReceived,
           m_protocol, &DroneProtocol::processData);
+  // Reflect the in-app sim as "Connected: SIM" in the bottom status bar.
+  connect(m_simulatorWidget, &SimulatorWidget::simRunningChanged, this,
+          [this](bool running) {
+            m_simRunning = running;
+            refreshConnectionPill();
+          });
 #endif
 
   installShortcuts();
@@ -584,7 +590,7 @@ void MainWindow::setConnected(bool on) {
   if (m_calibrationWidget) m_calibrationWidget->setConnected(on);
 
   if (m_toolbar)   m_toolbar->setConnected(on, m_serial->currentPort());
-  if (m_statusBar) m_statusBar->setConnectionStatus(on, m_serial->currentPort());
+  refreshConnectionPill();
 
   // ARM/DISARM is reachable whenever the link is up; the firmware enforces
   // the arm preconditions (throttle, RC, estimator). On disconnect reset the
@@ -626,6 +632,18 @@ void MainWindow::setConnected(bool on) {
   } else {
     m_armed = false;
     m_syncTimer->stop();
+  }
+}
+
+void MainWindow::refreshConnectionPill() {
+  if (!m_statusBar) return;
+  // A real serial link wins; otherwise surface the in-app sim as SIM.
+  if (m_connected) {
+    m_statusBar->setConnectionStatus(true, m_serial->currentPort());
+  } else if (m_simRunning) {
+    m_statusBar->setConnectionStatus(true, QStringLiteral("SIM"));
+  } else {
+    m_statusBar->setConnectionStatus(false, QString());
   }
 }
 
