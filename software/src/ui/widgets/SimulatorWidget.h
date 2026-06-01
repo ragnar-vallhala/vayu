@@ -61,6 +61,10 @@ class SimulatorWidget : public QWidget {
    * existing telemetry panels light up without further plumbing. */
   void dataReceived(const QByteArray& bytes);
 
+  /* Emitted when the in-app sim starts (true) / stops (false), so the
+   * MainWindow can reflect "Connected: SIM" in the status bar. */
+  void simRunningChanged(bool running);
+
  protected:
   // Keeps the HUD overlay sized to the viewport (watches m_renderer resize).
   bool eventFilter(QObject* obj, QEvent* ev) override;
