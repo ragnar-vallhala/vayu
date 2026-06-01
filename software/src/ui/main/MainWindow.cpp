@@ -490,6 +490,7 @@ void MainWindow::onToggle3d(bool checked) {
 
 void MainWindow::onImuReceived(const ImuData &data) {
   m_latestImu = data;
+  if (m_simulatorWidget) m_simulatorWidget->hudSetImu(data.acc, data.gyr);
   ++m_pktCount;
 }
 
@@ -526,6 +527,7 @@ void MainWindow::onStatusReceived(const QString &msg) {
     ++m_pktCount;
     return;
   }
+  if (m_simulatorWidget) m_simulatorWidget->hudSetStatus(msg);
   {
     const bool armedish =
         (msg == "ARMED" || msg == "IN_AIR" || msg == "FAILSAFE");
