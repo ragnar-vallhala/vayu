@@ -307,6 +307,12 @@ void SimulatorWidget::buildUi() {
     runRow->addWidget(m_simStopBtn);
     runRow->addWidget(m_simResetBtn);
     runRow->addStretch();
+    auto* fpv = new QCheckBox(tr("FPV cam"), simBody);
+    fpv->setToolTip(tr("Onboard first-person camera that rides the drone "
+                       "(looks forward). Off = orbit camera."));
+    connect(fpv, &QCheckBox::toggled, this,
+            [this](bool on) { if (m_renderer) m_renderer->setFpv(on); });
+    runRow->addWidget(fpv);
     sv->addLayout(runRow);
 
     m_simPoseLabel = new QLabel(tr("pose: -"), simBody);
