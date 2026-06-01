@@ -113,6 +113,8 @@ enum {
     VSIM_CTL_PING         = 4,  // body: empty; daemon replies via stderr log
     VSIM_CTL_SET_GEOMETRY = 5,  // body: vsim_ctl_geometry_t (mass+inertia+motors)
     VSIM_CTL_SET_WORLD    = 6,  // body: vsim_ctl_world_t (gravity+ground+drag)
+    VSIM_CTL_CLEAR_OBSTACLES = 7,  // body: empty — drop all world obstacles
+    VSIM_CTL_ADD_OBSTACLE    = 8,  // body: vsim_ctl_obstacle_t — append one
 };
 
 typedef struct {
@@ -169,6 +171,21 @@ typedef struct {
     float linear_drag;
     float angular_drag;
 } vsim_ctl_world_t;
+
+// Body for VSIM_CTL_ADD_OBSTACLE: one static world shape (NED world frame).
+//   type        -- 0 box, 1 sphere, 2 cylinder
+//   pos         -- world center [m]
+//   size        -- box: full extents; sphere: x is radius; cylinder: x is
+//                  radius, z is height
+//   rot_deg     -- Euler XYZ [deg]
+//   restitution -- bounce factor [0,1] on collision
+typedef struct {
+    int32_t type;
+    float   pos[3];
+    float   size[3];
+    float   rot_deg[3];
+    float   restitution;
+} vsim_ctl_obstacle_t;
 
 // Canonical FIFO paths. Daemon and clients both default to these.
 #define VSIM_FIFO_PWM   "/tmp/vsim_pwm"

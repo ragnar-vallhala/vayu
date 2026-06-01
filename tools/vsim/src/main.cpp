@@ -33,6 +33,7 @@
 #include <string>
 #include <sys/file.h>
 #include <unistd.h>
+#include <vector>
 
 namespace {
 
@@ -140,6 +141,7 @@ int main(int /*argc*/, char** /*argv*/) {
     // disjoint set of fields on these, so they compose rather than clobber.
     vsim::DroneParams drone;
     vsim::MotorParams motor;
+    std::vector<vsim::SimObstacle> obstacles;
 
     // Initial pose: a few cm above ground, level. NED: z = -0.05.
     vsim::RigidBodyState s0;
@@ -233,6 +235,26 @@ int main(int /*argc*/, char** /*argv*/) {
                     std::fprintf(stderr,
                                  "vsim_d: world set (g=%.2f ground_z=%.2f rest=%.2f drag=%.3f/%.4f)\n",
                                  w.gravity, w.ground_z, w.restitution, w.linear_drag, w.angular_drag);
+                    break;
+                }
+                case VSIM_CTL_CLEAR_OBSTACLES: {
+                    obstacles.clear();
+                    ctl.setObstacles(obstacles);
+                    break;
+                }
+                case VSIM_CTL_ADD_OBSTACLE: {
+                    vsim_ctl_obstacle_t b;
+                    std::memcpy(&b, cmd.body, sizeof(b));
+                    vsim::SimObstacle ob;
+                    ob.type = b.type;
+                    ob.pos = vsim::Vec3(b.pos[0], b.pos[1], b.pos[2]);
+                    ob.size = vsim::Vec3(b.size[0], b.size[1], b.size[2]);
+                    ob.rot_deg = vsim::Vec3(b.rot_deg[0], b.rot_deg[1], b.rot_deg[2]);
+                    ob.restitution = b.restitution;
+                    obstacles.push_back(ob);
+                    ctl.setObstacles(obstacles);
+                    std::fprintf(stderr, "vsim_d: obstacle added (type=%d, total=%zu)\n",
+                                 ob.type, obstacles.size());
                     break;
                 }
                 default:

@@ -77,6 +77,10 @@ class SimWorker : public QThread {
   // Push environment + aerodynamics (VSIM_CTL_SET_WORLD).
   void sendWorld(const WorldConfig& w);
 
+  // Replace the daemon's obstacle set: a CLEAR frame then one ADD per shape
+  // (VSIM_CTL_CLEAR_OBSTACLES / VSIM_CTL_ADD_OBSTACLE).
+  void sendObstacles(const QVector<Obstacle>& obs);
+
  signals:
   void poseUpdated(SimSnapshot snap);
   void logLine(QString line);

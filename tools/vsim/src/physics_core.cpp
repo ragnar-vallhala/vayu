@@ -83,7 +83,93 @@ void PhysicsCore::step(const Vec3& force_b, const Vec3& torque_b, float dt) {
     state_.att.normalize();
 
     groundClamp();
+    resolveObstacles();
     sanitize();
+}
+
+// Push the drone CoM (a point inflated by a small radius) out of any
+// obstacle, then reflect the inbound normal velocity with the obstacle's
+// restitution and lightly damp the tangential slide. Approximate (single
+// contact point), but enough to fly around a "proper" world. NED world frame.
+void PhysicsCore::resolveObstacles() {
+    constexpr float kDroneR = 0.12f;   // drone collision radius [m]
+    auto dot = [](const Vec3& a, const Vec3& b) {
+        return a.x() * b.x() + a.y() * b.y() + a.z() * b.z();
+    };
+    auto len = [&](const Vec3& a) { return std::sqrt(dot(a, a)); };
+
+    for (const SimObstacle& o : obstacles_) {
+        // Rotation world<-local from Euler XYZ (deg): q = qx*qy*qz.
+        auto axisQ = [](float deg, const Vec3& ax) {
+            const float a = deg * float(M_PI) / 180.0f * 0.5f;
+            const float s = std::sin(a);
+            return Quat(std::cos(a), ax.x() * s, ax.y() * s, ax.z() * s);
+        };
+        const Quat q = axisQ(o.rot_deg.x(), Vec3(1, 0, 0)) *
+                       axisQ(o.rot_deg.y(), Vec3(0, 1, 0)) *
+                       axisQ(o.rot_deg.z(), Vec3(0, 0, 1));
+        // Point in the obstacle's local frame.
+        const Vec3 lp = q.conjugated().rotatedVector(state_.pos_w - o.pos);
+
+        Vec3 pushL(0, 0, 0), nrmL(0, 0, 0);
+        bool hit = false;
+        if (o.type == 1) {  // sphere
+            const float rad = o.size.x() + kDroneR;
+            const float d = len(lp);
+            if (d < rad && d > 1e-5f) {
+                nrmL = lp / d;
+                pushL = nrmL * (rad - d);
+                hit = true;
+            }
+        } else if (o.type == 2) {  // cylinder (axis = local z)
+            const float rad = o.size.x() + kDroneR;
+            const float hh = o.size.z() * 0.5f + kDroneR;
+            const float rxy = std::sqrt(lp.x() * lp.x() + lp.y() * lp.y());
+            if (rxy < rad && std::fabs(lp.z()) < hh) {
+                const float penR = rad - rxy, penZ = hh - std::fabs(lp.z());
+                if (penR < penZ && rxy > 1e-5f) {
+                    nrmL = Vec3(lp.x() / rxy, lp.y() / rxy, 0);
+                    pushL = nrmL * penR;
+                } else {
+                    const float s = lp.z() >= 0 ? 1.0f : -1.0f;
+                    nrmL = Vec3(0, 0, s);
+                    pushL = Vec3(0, 0, penZ * s);
+                }
+                hit = true;
+            }
+        } else {  // box: full extents inflated by the drone radius
+            const float hx = o.size.x() * 0.5f + kDroneR;
+            const float hy = o.size.y() * 0.5f + kDroneR;
+            const float hz = o.size.z() * 0.5f + kDroneR;
+            if (std::fabs(lp.x()) < hx && std::fabs(lp.y()) < hy &&
+                std::fabs(lp.z()) < hz) {
+                const float px = hx - std::fabs(lp.x());
+                const float py = hy - std::fabs(lp.y());
+                const float pz = hz - std::fabs(lp.z());
+                if (px <= py && px <= pz) {
+                    const float s = lp.x() >= 0 ? 1.0f : -1.0f;
+                    nrmL = Vec3(s, 0, 0); pushL = Vec3(px * s, 0, 0);
+                } else if (py <= pz) {
+                    const float s = lp.y() >= 0 ? 1.0f : -1.0f;
+                    nrmL = Vec3(0, s, 0); pushL = Vec3(0, py * s, 0);
+                } else {
+                    const float s = lp.z() >= 0 ? 1.0f : -1.0f;
+                    nrmL = Vec3(0, 0, s); pushL = Vec3(0, 0, pz * s);
+                }
+                hit = true;
+            }
+        }
+        if (!hit) continue;
+        const Vec3 pushW = q.rotatedVector(pushL);
+        const Vec3 nW = q.rotatedVector(nrmL);
+        state_.pos_w += pushW;
+        const float vn = dot(state_.vel_w, nW);
+        if (vn < 0.0f) {  // moving into the surface: reflect + damp
+            const Vec3 vnVec = nW * vn;
+            const Vec3 vt = state_.vel_w - vnVec;
+            state_.vel_w = vt * 0.98f - vnVec * o.restitution;
+        }
+    }
 }
 
 // Reset on non-finite state, clamp runaway rates. A diverged controller
