@@ -5,10 +5,10 @@ per-feature files each cover one discrete issue (root cause, fix, lesson).
 
 ## Rolling changelogs
 
-| File                       | Scope                                                              |
-| -------------------------- | ----------------------------------------------------------------- |
-| [firmware.md](firmware.md) | On-target flight-control firmware (`src/`, Cortex-M).             |
-| [gcs.md](gcs.md)           | Navigator GCS (`software/`) + the in-app simulator (`tools/vsim`).|
+| File                                                                                                   | Scope                                                              |
+| ------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------- |
+| [firmware-modular-refactor-and-safety-hardening.md](firmware-modular-refactor-and-safety-hardening.md) | On-target flight-control firmware (`src/`, Cortex-M).             |
+| [gcs-in-app-simulator-and-world-collision.md](gcs-in-app-simulator-and-world-collision.md)             | Navigator GCS (`software/`) + the in-app simulator (`tools/vsim`).|
 
 ## Per-feature deep dives
 
