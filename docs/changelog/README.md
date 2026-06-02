@@ -1,9 +1,16 @@
 # Vayu Changelog
 
-All significant bug fixes and improvements are documented here.
-Each file covers one discrete issue — root cause, fix, and lesson learned.
+Two rolling, component-scoped changelogs track the project as a whole; the older
+per-feature files each cover one discrete issue (root cause, fix, lesson).
 
-## Index
+## Rolling changelogs
+
+| File                       | Scope                                                              |
+| -------------------------- | ----------------------------------------------------------------- |
+| [firmware.md](firmware.md) | On-target flight-control firmware (`src/`, Cortex-M).             |
+| [gcs.md](gcs.md)           | Navigator GCS (`software/`) + the in-app simulator (`tools/vsim`).|
+
+## Per-feature deep dives
 
 | File                                                                                     | Summary                                                                                                  | Severity | Date       |
 | ---------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | -------- | ---------- |
