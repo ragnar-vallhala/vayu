@@ -76,5 +76,6 @@ class WorldEditorWidget : public QWidget {
   class QLabel* worldMeshLabel_ = nullptr;
   QDoubleSpinBox* worldScale_ = nullptr;
   QComboBox* worldUpAxis_ = nullptr;
+  QDoubleSpinBox* worldOffset_[3] = {nullptr, nullptr, nullptr};  // NED placement
   bool worldMeshSyncing_ = false;
 };
