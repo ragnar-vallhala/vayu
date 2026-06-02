@@ -2,6 +2,7 @@
 
 #include "../../vsim/VsimTypes.h"
 
+#include <QMatrix4x4>
 #include <QVector3D>
 #include <QWidget>
 
@@ -28,16 +29,37 @@ class GeometryEditorWidget : public QWidget {
   explicit GeometryEditorWidget(QWidget* parent = nullptr);
 
   const vsim::GeometryConfig& config() const { return cfg_; }
-  // The config expressed about the center of mass: motor arms shifted to
-  // be CoM-relative and com zeroed. This is what the daemon + renderer
-  // consume, so ALL dynamics (inertia, torque arms, the tracked point)
-  // are about the CoM. cfg_ itself stays in the user's model-origin frame
-  // for display/persistence; the mesh (meshPositions()) is already
+  // Body placement transform (translate + XYZ-Euler rotate, degrees) applied
+  // to the imported mesh in loadAndCompute(). The SAME transform must be
+  // applied to the motor layout so the motors stay rigidly attached to the
+  // airframe when it is moved/rotated.
+  QMatrix4x4 bodyXform() const {
+    QMatrix4x4 x;
+    x.translate(cfg_.translate);
+    x.rotate(cfg_.rotate.x(), 1, 0, 0);
+    x.rotate(cfg_.rotate.y(), 0, 1, 0);
+    x.rotate(cfg_.rotate.z(), 0, 0, 1);
+    return x;
+  }
+
+  // The config expressed about the center of mass: the motors are run through
+  // the body placement transform (so they move/rotate WITH the mesh) and then
+  // shifted to be CoM-relative, with com zeroed. This is what the daemon +
+  // renderer consume, so ALL dynamics (inertia, torque arms, the tracked
+  // point) and the drawn rotor markers are rigidly attached to the airframe
+  // about its CoM. cfg_ itself stays in the user's model-origin frame for
+  // display/persistence; the mesh (meshPositions()) is already transformed +
   // recentered on the CoM in loadAndCompute().
   vsim::GeometryConfig physicsConfig() const {
     vsim::GeometryConfig c = cfg_;
-    for (auto& m : c.motors) m.pos -= cfg_.com;
-    c.com = QVector3D(0, 0, 0);
+    const QMatrix4x4 x = bodyXform();
+    for (auto& m : c.motors) {
+      m.pos  = x.map(m.pos) - cfg_.com;            // placed, then CoM-relative
+      m.axis = x.mapVector(m.axis).normalized();   // rotate the thrust axis too
+    }
+    c.translate = QVector3D(0, 0, 0);
+    c.rotate    = QVector3D(0, 0, 0);
+    c.com       = QVector3D(0, 0, 0);
     return c;
   }
   // Load a persisted config: populates the form and, if the mesh path
