@@ -603,8 +603,12 @@ void SimulatorWidget::loadWorldMeshToRenderer() {
     return;
   }
   // Bake the source up-axis into NED (up = -Z): Z-up needs a 180° flip about
-  // X; Y-up a -90° rotation about X.
+  // X; Y-up a -90° rotation about X. Then a world-space placement offset (NED)
+  // so the user can move the world off the drone's spawn. Translate is applied
+  // last (M = T·R) so the offset is in final NED metres. The same baked mesh
+  // drives both the render and the collision BVH, so they stay in lockstep.
   QMatrix4x4 xform;
+  xform.translate(w.worldMeshOffset);
   if (w.worldUpAxis == 1) xform.rotate(-90.0f, 1, 0, 0);
   else                    xform.rotate(180.0f, 1, 0, 0);
   QString err;
@@ -1006,6 +1010,9 @@ void SimulatorWidget::persistWorld(const vsim::WorldConfig& w) {
   s.setValue("worldUpAxis", w.worldUpAxis);
   s.setValue("worldMeshRestitution", w.worldMeshRestitution);
   s.setValue("worldMeshDoubleSided", w.worldMeshDoubleSided);
+  s.setValue("worldMeshOffX", w.worldMeshOffset.x());
+  s.setValue("worldMeshOffY", w.worldMeshOffset.y());
+  s.setValue("worldMeshOffZ", w.worldMeshOffset.z());
   s.beginWriteArray("obstacles", w.obstacles.size());
   for (int i = 0; i < w.obstacles.size(); ++i) {
     const vsim::Obstacle& o = w.obstacles[i];
@@ -1040,6 +1047,10 @@ vsim::WorldConfig SimulatorWidget::restoreWorld() {
   w.worldUpAxis = s.value("worldUpAxis", w.worldUpAxis).toInt();
   w.worldMeshRestitution = s.value("worldMeshRestitution", w.worldMeshRestitution).toFloat();
   w.worldMeshDoubleSided = s.value("worldMeshDoubleSided", w.worldMeshDoubleSided).toBool();
+  w.worldMeshOffset = QVector3D(
+      s.value("worldMeshOffX", w.worldMeshOffset.x()).toFloat(),
+      s.value("worldMeshOffY", w.worldMeshOffset.y()).toFloat(),
+      s.value("worldMeshOffZ", w.worldMeshOffset.z()).toFloat());
   const int n = s.beginReadArray("obstacles");
   w.obstacles.clear();
   for (int i = 0; i < n; ++i) {

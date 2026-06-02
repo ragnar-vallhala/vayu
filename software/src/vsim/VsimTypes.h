@@ -85,6 +85,7 @@ struct WorldConfig {
   int       worldUpAxis = 0;      // 0 = Z-up (Blender), 1 = Y-up (glTF)
   float     worldMeshRestitution = 0.3f;
   bool      worldMeshDoubleSided = true;
+  QVector3D worldMeshOffset{0, 0, 0};  // NED world-space placement [m]
 };
 
 }  // namespace vsim
