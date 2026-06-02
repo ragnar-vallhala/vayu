@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QMatrix4x4>
 #include <QString>
 #include <QVector3D>
 #include <vector>
@@ -28,5 +29,12 @@ struct LoadedMesh {
 // returns {valid=false} and, if `error` is non-null, sets it to the
 // assimp diagnostic.
 LoadedMesh loadMesh(const QString& path, float scale, QString* error);
+
+// As above, but additionally applies `xform` to every vertex (and its
+// rotation to normals) after scaling — used to bake an importer's frame into
+// the sim's NED world frame (e.g. Blender Z-up / glTF Y-up -> NED). Pass an
+// identity matrix for no transform.
+LoadedMesh loadMesh(const QString& path, float scale, const QMatrix4x4& xform,
+                    QString* error);
 
 }  // namespace vsim

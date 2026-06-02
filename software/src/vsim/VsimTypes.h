@@ -78,6 +78,13 @@ struct WorldConfig {
   float ground_right_gain = 40.0f;  // rad/s² per sin(tilt)
   float ground_right_damp = 6.0f;   // 1/s
   QVector<Obstacle> obstacles;    // static world shapes
+
+  // Imported world mesh (rendered now; collidable in a later phase).
+  QString   worldMeshPath;        // empty = none
+  float     worldScale = 1.0f;    // mesh units -> metres
+  int       worldUpAxis = 0;      // 0 = Z-up (Blender), 1 = Y-up (glTF)
+  float     worldMeshRestitution = 0.3f;
+  bool      worldMeshDoubleSided = true;
 };
 
 }  // namespace vsim

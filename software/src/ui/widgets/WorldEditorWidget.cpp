@@ -6,6 +6,7 @@
 #include "../../core/Theme.h"
 
 #include <QAbstractSpinBox>
+#include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QFile>
 #include <QFileDialog>
@@ -54,6 +55,11 @@ QJsonObject worldToJson(const vsim::WorldConfig& w) {
   root["angular_drag"] = w.angular_drag;
   root["ground_right_gain"] = w.ground_right_gain;
   root["ground_right_damp"] = w.ground_right_damp;
+  root["world_mesh_path"] = w.worldMeshPath;
+  root["world_scale"] = w.worldScale;
+  root["world_up_axis"] = w.worldUpAxis;
+  root["world_mesh_restitution"] = w.worldMeshRestitution;
+  root["world_mesh_double_sided"] = w.worldMeshDoubleSided;
   QJsonArray obs;
   for (const vsim::Obstacle& o : w.obstacles) {
     obs.append(QJsonObject{{"type", o.type},
@@ -75,6 +81,11 @@ vsim::WorldConfig worldFromJson(const QJsonObject& root) {
   w.angular_drag = root.value("angular_drag").toDouble(w.angular_drag);
   w.ground_right_gain = root.value("ground_right_gain").toDouble(w.ground_right_gain);
   w.ground_right_damp = root.value("ground_right_damp").toDouble(w.ground_right_damp);
+  w.worldMeshPath = root.value("world_mesh_path").toString(w.worldMeshPath);
+  w.worldScale = root.value("world_scale").toDouble(w.worldScale);
+  w.worldUpAxis = root.value("world_up_axis").toInt(w.worldUpAxis);
+  w.worldMeshRestitution = root.value("world_mesh_restitution").toDouble(w.worldMeshRestitution);
+  w.worldMeshDoubleSided = root.value("world_mesh_double_sided").toBool(w.worldMeshDoubleSided);
   for (const QJsonValue& v : root.value("obstacles").toArray()) {
     const QJsonObject o = v.toObject();
     vsim::Obstacle ob;
@@ -160,10 +171,80 @@ void WorldEditorWidget::buildUi() {
     root->addWidget(fileStatus_);
   }
 
+  // -- World mesh --
+  buildWorldMeshSection(root);
+
   // -- Obstacles --
   buildObstacleSection(root);
 
   root->addStretch();
+}
+
+void WorldEditorWidget::buildWorldMeshSection(QVBoxLayout* root) {
+  auto* sec = new CollapsibleSection(tr("World mesh"), this);
+  auto* body = new QWidget();
+  auto* col = new QVBoxLayout(body);
+
+  worldMeshLabel_ = new QLabel(tr("(none)"), body);
+  worldMeshLabel_->setWordWrap(true);
+  worldMeshLabel_->setStyleSheet(
+      QString("color:%1; font-size:11px;").arg(Theme::hex(Theme::kTextMuted)));
+  col->addWidget(worldMeshLabel_);
+
+  {
+    auto* row = new QHBoxLayout();
+    auto* imp = new ui::GhostButton(tr("Import…"), body);
+    imp->setToolTip(tr("Import a world mesh (.glb/.gltf/.obj/.stl/.blend). "
+                       "Rendered now; collision is a later phase."));
+    auto* clr = new ui::DangerButton(tr("Clear"), body);
+    connect(imp, &QPushButton::clicked, this, &WorldEditorWidget::onImportWorldMesh);
+    connect(clr, &QPushButton::clicked, this, &WorldEditorWidget::onClearWorldMesh);
+    row->addWidget(imp);
+    row->addWidget(clr);
+    row->addStretch();
+    col->addLayout(row);
+  }
+  {
+    auto* form = new QFormLayout();
+    worldScale_ = spin(0.0001, 10000.0, 4, 0.1, cfg_.worldScale);
+    worldScale_->setToolTip(tr("Mesh units → metres."));
+    worldUpAxis_ = new QComboBox(body);
+    worldUpAxis_->addItem(tr("Z-up (Blender)"), 0);
+    worldUpAxis_->addItem(tr("Y-up (glTF)"), 1);
+    worldUpAxis_->setCurrentIndex(cfg_.worldUpAxis == 1 ? 1 : 0);
+    auto onEdit = [this] {
+      if (worldMeshSyncing_) return;
+      cfg_.worldScale = static_cast<float>(worldScale_->value());
+      cfg_.worldUpAxis = worldUpAxis_->currentData().toInt();
+      if (!cfg_.worldMeshPath.isEmpty()) emit worldMeshChanged();
+    };
+    connect(worldScale_, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+            [onEdit] { onEdit(); });
+    connect(worldUpAxis_, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+            [onEdit] { onEdit(); });
+    form->addRow(tr("Scale:"), worldScale_);
+    form->addRow(tr("Up axis:"), worldUpAxis_);
+    col->addLayout(form);
+  }
+
+  sec->setContentWidget(body);
+  root->addWidget(sec);
+}
+
+void WorldEditorWidget::onImportWorldMesh() {
+  const QString path = QFileDialog::getOpenFileName(
+      this, tr("Import world mesh"), QString(),
+      tr("Meshes (*.glb *.gltf *.obj *.stl *.ply *.blend);;All files (*)"));
+  if (path.isEmpty()) return;
+  cfg_.worldMeshPath = path;
+  if (worldMeshLabel_) worldMeshLabel_->setText(QFileInfo(path).fileName());
+  emit worldMeshChanged();
+}
+
+void WorldEditorWidget::onClearWorldMesh() {
+  cfg_.worldMeshPath.clear();
+  if (worldMeshLabel_) worldMeshLabel_->setText(tr("(none)"));
+  emit worldMeshChanged();
 }
 
 void WorldEditorWidget::onSaveWorld() {
@@ -416,4 +497,12 @@ void WorldEditorWidget::setConfig(const vsim::WorldConfig& c) {
   syncConfigToUi();
   refreshObstacleList();
   syncFormFromSelection();
+  worldMeshSyncing_ = true;
+  if (worldMeshLabel_)
+    worldMeshLabel_->setText(cfg_.worldMeshPath.isEmpty()
+                                 ? tr("(none)")
+                                 : QFileInfo(cfg_.worldMeshPath).fileName());
+  if (worldScale_) worldScale_->setValue(cfg_.worldScale);
+  if (worldUpAxis_) worldUpAxis_->setCurrentIndex(cfg_.worldUpAxis == 1 ? 1 : 0);
+  worldMeshSyncing_ = false;
 }

@@ -215,12 +215,17 @@ QMatrix4x4 SimRendererWidget::cameraView() const {
 void SimRendererWidget::paintGL() {
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
   if (meshDirty_) uploadDroneMesh();
+  if (worldMeshDirty_) uploadWorldMesh();
 
   QMatrix4x4 view = cameraView();
 
   // Ground at z=0, world axes at origin.
   drawMesh(ground_, view, QVector3D(0.25f, 0.27f, 0.32f));
   drawMesh(axes_,   view, QVector3D(1, 1, 1));
+
+  // Imported world mesh (lit solid, world frame).
+  if (hasWorldMesh_)
+    drawLit(worldMesh_, view, QMatrix4x4(), QVector3D(0.38f, 0.40f, 0.44f));
 
   // Static world obstacles (lit solids), each scaled/rotated/placed.
   for (int oi = 0; oi < obstacles_.size(); ++oi) {
@@ -365,6 +370,28 @@ void SimRendererWidget::uploadDroneMesh() {
   pendingNrm_.clear();
 }
 
+void SimRendererWidget::uploadWorldMesh() {
+  worldMeshDirty_ = false;
+  hasWorldMesh_ = !pendingWorldPos_.empty();
+  if (!hasWorldMesh_) {
+    worldMesh_.vertex_count = 0;
+    pendingWorldPos_.clear();
+    pendingWorldNrm_.clear();
+    return;
+  }
+  std::vector<float> data;
+  data.reserve(pendingWorldPos_.size() * 6);
+  for (size_t i = 0; i < pendingWorldPos_.size(); ++i) {
+    const QVector3D& p = pendingWorldPos_[i];
+    const QVector3D n = (i < pendingWorldNrm_.size()) ? pendingWorldNrm_[i]
+                                                      : QVector3D(0, 0, 1);
+    data.insert(data.end(), {p.x(), p.y(), p.z(), n.x(), n.y(), n.z()});
+  }
+  uploadLitMesh(worldMesh_, data);
+  pendingWorldPos_.clear();
+  pendingWorldNrm_.clear();
+}
+
 // ---------- geometry generators ----------
 
 void SimRendererWidget::uploadLitMesh(Mesh& m,
@@ -458,6 +485,14 @@ void SimRendererWidget::buildObstacleMeshes() {
 
 void SimRendererWidget::setObstacles(const QVector<vsim::Obstacle>& obs) {
   obstacles_ = obs;
+  update();
+}
+
+void SimRendererWidget::setWorldMesh(const std::vector<QVector3D>& positions,
+                                     const std::vector<QVector3D>& normals) {
+  pendingWorldPos_ = positions;
+  pendingWorldNrm_ = normals;
+  worldMeshDirty_ = true;   // uploaded in paintGL (needs GL context)
   update();
 }
 

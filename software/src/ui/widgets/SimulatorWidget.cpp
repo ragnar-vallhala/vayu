@@ -1,5 +1,6 @@
 #include "SimulatorWidget.h"
 
+#include "../../vsim/MeshLoader.h"
 #include "CollapsibleSection.h"
 #include "core/Theme.h"
 #include "core/ui/Buttons.h"
@@ -282,6 +283,11 @@ void SimulatorWidget::buildUi() {
             &WorldEditorWidget::selectObstacleRow);
     connect(m_worldEditor, &WorldEditorWidget::obstacleSelectionChanged,
             m_renderer, &vsim::SimRendererWidget::selectObstacle);
+    // Imported world mesh (visual): (re)load + render + persist on any change.
+    connect(m_worldEditor, &WorldEditorWidget::worldMeshChanged, this, [this] {
+      loadWorldMeshToRenderer();
+      persistWorld(m_worldEditor->config());
+    });
     pv->addWidget(m_worldEditor);
 
     auto* simSec = new CollapsibleSection(tr("Simulation"), page);
@@ -554,6 +560,7 @@ void SimulatorWidget::buildUi() {
   m_geomEditor->setConfig(restoreGeometry());
   m_worldEditor->setConfig(restoreWorld());
   if (m_renderer) m_renderer->setObstacles(m_worldEditor->config().obstacles);
+  loadWorldMeshToRenderer();
 
   setMode(0);   // start in Vehicle (sim stopped)
 }
@@ -575,6 +582,30 @@ void SimulatorWidget::setMode(int mode) {
 
 void SimulatorWidget::updateHud(const vsim::SimSnapshot& s) {
   if (m_hud) m_hud->setSnapshot(s);
+}
+
+void SimulatorWidget::loadWorldMeshToRenderer() {
+  if (!m_renderer || !m_worldEditor) return;
+  const vsim::WorldConfig& w = m_worldEditor->config();
+  if (w.worldMeshPath.isEmpty()) {
+    m_renderer->setWorldMesh({}, {});
+    return;
+  }
+  // Bake the source up-axis into NED (up = -Z): Z-up needs a 180° flip about
+  // X; Y-up a -90° rotation about X.
+  QMatrix4x4 xform;
+  if (w.worldUpAxis == 1) xform.rotate(-90.0f, 1, 0, 0);
+  else                    xform.rotate(180.0f, 1, 0, 0);
+  QString err;
+  const vsim::LoadedMesh m =
+      vsim::loadMesh(w.worldMeshPath, w.worldScale, xform, &err);
+  if (!m.valid) {
+    appendLog("world", tr("world mesh load failed: %1").arg(err));
+    m_renderer->setWorldMesh({}, {});
+    return;
+  }
+  m_renderer->setWorldMesh(m.positions, m.normals);
+  appendLog("world", tr("world mesh loaded: %1 tris").arg(m.triangleCount()));
 }
 
 void SimulatorWidget::pushRatesToSim() {
@@ -884,6 +915,11 @@ void SimulatorWidget::persistWorld(const vsim::WorldConfig& w) {
   s.setValue("angular_drag", w.angular_drag);
   s.setValue("ground_right_gain", w.ground_right_gain);
   s.setValue("ground_right_damp", w.ground_right_damp);
+  s.setValue("worldMeshPath", w.worldMeshPath);
+  s.setValue("worldScale", w.worldScale);
+  s.setValue("worldUpAxis", w.worldUpAxis);
+  s.setValue("worldMeshRestitution", w.worldMeshRestitution);
+  s.setValue("worldMeshDoubleSided", w.worldMeshDoubleSided);
   s.beginWriteArray("obstacles", w.obstacles.size());
   for (int i = 0; i < w.obstacles.size(); ++i) {
     const vsim::Obstacle& o = w.obstacles[i];
@@ -913,6 +949,11 @@ vsim::WorldConfig SimulatorWidget::restoreWorld() {
   w.angular_drag = s.value("angular_drag", w.angular_drag).toFloat();
   w.ground_right_gain = s.value("ground_right_gain", w.ground_right_gain).toFloat();
   w.ground_right_damp = s.value("ground_right_damp", w.ground_right_damp).toFloat();
+  w.worldMeshPath = s.value("worldMeshPath", w.worldMeshPath).toString();
+  w.worldScale = s.value("worldScale", w.worldScale).toFloat();
+  w.worldUpAxis = s.value("worldUpAxis", w.worldUpAxis).toInt();
+  w.worldMeshRestitution = s.value("worldMeshRestitution", w.worldMeshRestitution).toFloat();
+  w.worldMeshDoubleSided = s.value("worldMeshDoubleSided", w.worldMeshDoubleSided).toBool();
   const int n = s.beginReadArray("obstacles");
   w.obstacles.clear();
   for (int i = 0; i < n; ++i) {
