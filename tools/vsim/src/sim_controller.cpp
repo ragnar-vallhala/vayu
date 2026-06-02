@@ -8,7 +8,7 @@ void SimController::resetState(const RigidBodyState& s) {
     last_a_world_ = Vec3(0.0f, 0.0f, 0.0f);
 }
 
-ImuSample SimController::tick(const std::array<float, 4>& duty, float dt) {
+void SimController::stepOnce(const std::array<float, 4>& duty, float dt) {
     Vec3 F_b, T_b;
     motors_.update(duty, dt, &F_b, &T_b);
 
@@ -22,8 +22,15 @@ ImuSample SimController::tick(const std::array<float, 4>& duty, float dt) {
     if (dt > 0.0f) {
         last_a_world_ = (phys_.state().vel_w - vel_before) / dt;
     }
+}
 
+ImuSample SimController::sampleImu(float dt) {
     return sensors_.sample(phys_.state(), last_a_world_, phys_.params().gravity, dt);
+}
+
+ImuSample SimController::tick(const std::array<float, 4>& duty, float dt) {
+    stepOnce(duty, dt);
+    return sampleImu(dt);
 }
 
 }  // namespace vsim

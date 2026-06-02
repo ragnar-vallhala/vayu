@@ -149,13 +149,33 @@ int main(int /*argc*/, char** /*argv*/) {
     ctl.resetState(s0);
 
     std::array<float, 4> duty{0.0f, 0.0f, 0.0f, 0.0f};
-    uint64_t tick = 0;
+    uint64_t tick = 0;          // physics step count (pose-frame display)
+    uint64_t outer = 0;         // sample/pace iterations
     uint32_t imu_seq = 0, pose_seq = 0;
     bool paused = false;
 
+    // Runtime-tunable rates (VSIM_CTL_SET_RATES). imu_hz is the wall-clock pace
+    // AND the firmware loop rate (its inner loop runs once per IMU sample);
+    // physics_hz/imu_hz RK4 substeps run per sample so we can integrate fast
+    // (8-10 kHz) while pacing + sampling stay at a sane, jitter-free rate.
+    int imu_hz = kImuHz, physics_hz = kPhysicsHz, pose_hz = kPoseHz;
+    int substeps = 1, pose_div = 1;
+    float dt_sub = 1.0f / static_cast<float>(kPhysicsHz);
     using clock = std::chrono::steady_clock;
-    const auto dt_dur = std::chrono::microseconds(1000000 / kPhysicsHz);
-    const float dt = 1.0f / static_cast<float>(kPhysicsHz);
+    std::chrono::microseconds outer_dur{1000000 / kImuHz};
+    auto recompute_rates = [&] {
+        if (imu_hz < 1) imu_hz = 1;
+        if (physics_hz < imu_hz) physics_hz = imu_hz;
+        if (pose_hz < 1) pose_hz = 1;
+        substeps = physics_hz / imu_hz;
+        if (substeps < 1) substeps = 1;
+        physics_hz = imu_hz * substeps;                 // snap to exact multiple
+        dt_sub = 1.0f / static_cast<float>(physics_hz);
+        pose_div = imu_hz / pose_hz;
+        if (pose_div < 1) pose_div = 1;
+        outer_dur = std::chrono::microseconds(1000000 / imu_hz);
+    };
+    recompute_rates();
     auto next = clock::now();
 
     while (!g_stop.load(std::memory_order_acquire)) {
@@ -186,6 +206,7 @@ int main(int /*argc*/, char** /*argv*/) {
                     s.omega_b = vsim::Vec3(body.omega_b[0], body.omega_b[1], body.omega_b[2]);
                     ctl.resetState(s);
                     tick = 0;
+                    outer = 0;
                     std::fprintf(stderr, "vsim_d: reset\n");
                     break;
                 }
@@ -259,19 +280,34 @@ int main(int /*argc*/, char** /*argv*/) {
                                  ob.type, obstacles.size());
                     break;
                 }
+                case VSIM_CTL_SET_RATES: {
+                    vsim_ctl_rates_t r;
+                    std::memcpy(&r, cmd.body, sizeof(r));
+                    imu_hz     = static_cast<int>(r.imu_hz);
+                    physics_hz = static_cast<int>(r.physics_hz);
+                    pose_hz    = static_cast<int>(r.pose_hz);
+                    recompute_rates();
+                    next = clock::now();   // re-anchor the pace clock
+                    std::fprintf(stderr,
+                                 "vsim_d: rates imu=%d Hz, physics=%d Hz (%d substeps), pose=%d Hz\n",
+                                 imu_hz, physics_hz, substeps, pose_hz);
+                    break;
+                }
                 default:
                     break;
             }
         }
 
-        // 3) Advance physics.
+        // 3) Advance physics: `substeps` RK4 steps per sample, IMU sampled once.
         vsim::ImuSample s;
         if (!paused) {
-            s = ctl.tick(duty, dt);
+            for (int sub = 0; sub < substeps; ++sub) ctl.stepOnce(duty, dt_sub);
+            s = ctl.sampleImu(dt_sub);
+            tick += static_cast<uint64_t>(substeps);
         }
 
-        // 4) Emit IMU at kImuHz.
-        if (!paused && (tick % kImuDiv) == 0) {
+        // 4) Emit IMU once per sample (imu_hz == the firmware loop rate).
+        if (!paused) {
             vsim_imu_frame_t frame{};
             frame.hdr.magic         = VSIM_MAGIC;
             frame.hdr.version       = VSIM_PROTO_VERSION;
@@ -282,8 +318,8 @@ int main(int /*argc*/, char** /*argv*/) {
             imu_out.write(&frame, sizeof(frame));
         }
 
-        // 5) Emit pose at kPoseHz.
-        if ((tick % kPoseDiv) == 0) {
+        // 5) Emit pose at pose_hz (every pose_div samples).
+        if ((outer % pose_div) == 0) {
             const auto& st = ctl.state();
             const auto& wm = ctl.motorOmegas();
             vsim_pose_frame_t frame{};
@@ -308,8 +344,8 @@ int main(int /*argc*/, char** /*argv*/) {
             pose_out.write(&frame, sizeof(frame));
         }
 
-        ++tick;
-        next += dt_dur;
+        ++outer;
+        next += outer_dur;
         auto now = clock::now();
         if (next > now) {
             std::this_thread::sleep_until(next);

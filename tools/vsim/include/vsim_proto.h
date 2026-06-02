@@ -115,6 +115,7 @@ enum {
     VSIM_CTL_SET_WORLD    = 6,  // body: vsim_ctl_world_t (gravity+ground+drag)
     VSIM_CTL_CLEAR_OBSTACLES = 7,  // body: empty — drop all world obstacles
     VSIM_CTL_ADD_OBSTACLE    = 8,  // body: vsim_ctl_obstacle_t — append one
+    VSIM_CTL_SET_RATES       = 9,  // body: vsim_ctl_rates_t — loop/sample rates
 };
 
 typedef struct {
@@ -188,6 +189,19 @@ typedef struct {
     float   rot_deg[3];
     float   restitution;
 } vsim_ctl_obstacle_t;
+
+// Body for VSIM_CTL_SET_RATES: simulation loop rates [Hz].
+//   imu_hz     -- IMU emit + wall-clock pace rate; the firmware's inner loop
+//                 runs once per IMU sample, so this IS the firmware loop rate.
+//   physics_hz -- RK4 integration rate; the daemon runs physics_hz/imu_hz
+//                 substeps per IMU sample (>= imu_hz). Higher = finer
+//                 integration / less collision tunnelling, same sample rate.
+//   pose_hz    -- pose-frame (render) rate to the GCS.
+typedef struct {
+    uint32_t imu_hz;
+    uint32_t physics_hz;
+    uint32_t pose_hz;
+} vsim_ctl_rates_t;
 
 // Canonical FIFO paths. Daemon and clients both default to these.
 #define VSIM_FIFO_PWM   "/tmp/vsim_pwm"

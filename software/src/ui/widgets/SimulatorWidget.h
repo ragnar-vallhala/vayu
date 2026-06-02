@@ -88,6 +88,7 @@ class SimulatorWidget : public QWidget {
 
   void startInAppSim();
   void stopInAppSim();
+  void pushRatesToSim();   // read persisted rates → m_sim->sendRates
   // Invoked when the SimWorker exits on its own (spawn failure, startup-grace
   // timeout, daemon death) so the UI doesn't get stuck in the Running state.
   void onSimWorkerExited();
