@@ -323,12 +323,14 @@ void SimulatorWidget::buildUi() {
     runRow->addWidget(m_simStopBtn);
     runRow->addWidget(m_simResetBtn);
     runRow->addStretch();
-    auto* fpv = new QCheckBox(tr("FPV cam"), simBody);
-    fpv->setToolTip(tr("Onboard first-person camera that rides the drone "
-                       "(looks forward). Off = orbit camera."));
-    connect(fpv, &QCheckBox::toggled, this,
+    m_fpvCheck = new QCheckBox(tr("FPV cam"), simBody);
+    m_fpvCheck->setToolTip(tr("Onboard first-person camera that rides the drone "
+                              "(looks forward). Off = 3rd-person orbit. "
+                              "Available while the sim is running."));
+    m_fpvCheck->setEnabled(false);   // enabled on Start (locks to the drone)
+    connect(m_fpvCheck, &QCheckBox::toggled, this,
             [this](bool on) { if (m_renderer) m_renderer->setFpv(on); });
-    runRow->addWidget(fpv);
+    runRow->addWidget(m_fpvCheck);
 
     auto* audio = new QCheckBox(tr("Prop audio"), simBody);
     audio->setToolTip(tr("Propeller sound synthesized from motor rpm "
@@ -580,6 +582,11 @@ void SimulatorWidget::setMode(int mode) {
   if (m_renderer) {
     m_renderer->setMotorsEditable(mode == 0 && !m_sim);
     m_renderer->setObstacleEditMode(mode == 1 && !m_sim);
+    // Vehicle = just the airframe; World = the whole world.
+    m_renderer->setWorldVisible(mode == 1);
+    // Free-roam the world only while stopped; a running sim locks a 3rd-person
+    // (orbit) view on the drone, with the FPV toggle for onboard.
+    m_renderer->setFreeFly(mode == 1 && !m_sim);
   }
 }
 
@@ -830,6 +837,7 @@ void SimulatorWidget::startInAppSim() {
   m_simStartBtn->setEnabled(false);
   m_simStopBtn->setEnabled(true);
   if (m_simResetBtn) m_simResetBtn->setEnabled(true);
+  if (m_fpvCheck) m_fpvCheck->setEnabled(true);  // FPV usable now we ride the drone
   m_simStatusLabel->setText(tr("● Running"));
   m_simStatusLabel->setStyleSheet(
       QString("color: %1;").arg(Theme::hex(Theme::kOk)));
@@ -859,12 +867,21 @@ void SimulatorWidget::stopInAppSim() {
   m_simStartBtn->setEnabled(true);
   m_simStopBtn->setEnabled(false);
   if (m_simResetBtn) m_simResetBtn->setEnabled(false);
+  if (m_fpvCheck) {                       // FPV is drone-only; back to free-roam
+    QSignalBlocker block(m_fpvCheck);
+    m_fpvCheck->setChecked(false);
+    m_fpvCheck->setEnabled(false);
+  }
+  if (m_renderer) m_renderer->setFpv(false);
   m_simStatusLabel->setText(tr("● Stopped (firmware idle)"));
   m_simStatusLabel->setStyleSheet(
       QString("color: %1;").arg(Theme::hex(Theme::kTextMuted)));
   // Vehicle config is editable again; stay in World until the user
   // switches back (clicking the Vehicle tab re-enables motor gizmos).
   if (m_vehicleTab) m_vehicleTab->setEnabled(true);
+  // Re-apply the current mode now that m_sim is null: re-enables World-mode
+  // free-roam + obstacle gizmos (the running sim had locked the camera).
+  if (m_rightStack) setMode(m_rightStack->currentIndex());
   if (m_hud) m_hud->hide();
   // Close the per-run log file so its trailing bytes flush to disk.
   closeLogFile();
