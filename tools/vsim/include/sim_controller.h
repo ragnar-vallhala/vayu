@@ -26,6 +26,12 @@ public:
     // Advances by dt. Returns the IMU sample produced at this step.
     ImuSample tick(const std::array<float, 4>& duty, float dt);
 
+    // Substep-friendly split of tick(): advance the motors + rigid body by dt
+    // (no sensor read), then sample the IMU once after N substeps. Lets the
+    // daemon integrate physics faster than it samples/paces.
+    void      stepOnce(const std::array<float, 4>& duty, float dt);
+    ImuSample sampleImu(float dt);
+
     const RigidBodyState&        state()       const { return phys_.state(); }
     const std::array<float, 4>&  motorOmegas() const { return motors_.omegas(); }
 

@@ -36,6 +36,12 @@ constexpr const char* kLogDirSettingKey   = "simulator/logDir";
 constexpr const char* kGeomGroup          = "simulator/geometry";
 constexpr const char* kWorldGroup         = "simulator/world";
 constexpr const char* kAudioKey           = "simulator/propAudio";
+constexpr const char* kImuHzKey           = "simulator/imuHz";
+constexpr const char* kPhysHzKey          = "simulator/physicsHz";
+constexpr const char* kPoseHzKey          = "simulator/poseHz";
+// Defaults: IMU/firmware loop at 1 kHz (matches real hardware so PID tuning
+// transfers); physics == IMU (1 substep) until the user dials it up; 60 Hz render.
+constexpr int kDefImuHz = 1000, kDefPhysHz = 1000, kDefPoseHz = 60;
 constexpr const char* kRcEnableKey        = "simulator/rcEnable";
 constexpr const char* kRcSourceKey        = "simulator/rcSource";   // 0=js 1=uart
 constexpr const char* kRcPathKey          = "simulator/rcPath";     // joystick dev
@@ -330,6 +336,43 @@ void SimulatorWidget::buildUi() {
     runRow->addWidget(audio);
     sv->addLayout(runRow);
 
+    // -- Loop rates (IMU/firmware, physics substeps, render) --
+    {
+      QSettings st;
+      auto* rg = new QGridLayout();
+      rg->setHorizontalSpacing(6);
+      auto mkCombo = [&](const QList<int>& opts, int def, const char* key,
+                         const QString& tip) {
+        auto* c = new QComboBox(simBody);
+        for (int v : opts) c->addItem(QString::number(v) + " Hz", v);
+        const int cur = st.value(key, def).toInt();
+        int idx = c->findData(cur);
+        if (idx < 0) { c->addItem(QString::number(cur) + " Hz", cur); idx = c->count() - 1; }
+        c->setCurrentIndex(idx);
+        c->setToolTip(tip);
+        connect(c, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+                [this, c, key] {
+                  QSettings().setValue(key, c->currentData().toInt());
+                  pushRatesToSim();
+                });
+        return c;
+      };
+      auto* imuC = mkCombo({200, 500, 1000, 2000}, kDefImuHz, kImuHzKey,
+                           tr("IMU emit + firmware inner-loop rate. Match your "
+                              "real hardware (e.g. 1 kHz) so PID tuning transfers."));
+      auto* physC = mkCombo({1000, 2000, 4000, 8000, 10000}, kDefPhysHz, kPhysHzKey,
+                            tr("RK4 physics rate. Run as substeps per IMU sample "
+                               "(snapped to a multiple of the IMU rate): higher = "
+                               "finer integration / less collision tunnelling, same "
+                               "sample rate."));
+      auto* poseC = mkCombo({30, 60, 120}, kDefPoseHz, kPoseHzKey,
+                            tr("Pose / 3D-render update rate."));
+      rg->addWidget(new QLabel(tr("IMU/loop:")), 0, 0);   rg->addWidget(imuC, 0, 1);
+      rg->addWidget(new QLabel(tr("Physics:")), 0, 2);    rg->addWidget(physC, 0, 3);
+      rg->addWidget(new QLabel(tr("Render:")), 1, 0);     rg->addWidget(poseC, 1, 1);
+      sv->addLayout(rg);
+    }
+
     m_simPoseLabel = new QLabel(tr("pose: -"), simBody);
     m_simPoseLabel->setStyleSheet(
         QString("color: %1; font-family: monospace;")
@@ -534,6 +577,14 @@ void SimulatorWidget::updateHud(const vsim::SimSnapshot& s) {
   if (m_hud) m_hud->setSnapshot(s);
 }
 
+void SimulatorWidget::pushRatesToSim() {
+  if (!m_sim) return;
+  QSettings s;
+  m_sim->sendRates(s.value(kImuHzKey, kDefImuHz).toInt(),
+                   s.value(kPhysHzKey, kDefPhysHz).toInt(),
+                   s.value(kPoseHzKey, kDefPoseHz).toInt());
+}
+
 void SimulatorWidget::hudSetStatus(const QString& s) {
   if (m_hud) m_hud->setStatus(s);
 }
@@ -669,6 +720,7 @@ void SimulatorWidget::startInAppSim() {
   // so the sim flies the edited params from frame one.
   connect(m_sim, &vsim::SimWorker::online, this, [this] {
     if (!m_sim) return;
+    pushRatesToSim();   // apply configured loop rates before geometry/world
     m_sim->sendGeometry(m_geomEditor->physicsConfig());
     m_sim->sendWorld(m_worldEditor->config());
     m_sim->sendObstacles(m_worldEditor->config().obstacles);

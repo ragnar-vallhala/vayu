@@ -184,6 +184,24 @@ void SimWorker::sendObstacles(const QVector<Obstacle>& obs) {
     emit logLine(QString("vsim_d: %1 obstacles pushed").arg(obs.size()));
 }
 
+void SimWorker::sendRates(int imuHz, int physicsHz, int poseHz) {
+    if (ctl_fd_ < 0) return;
+    vsim_ctl_frame_t f{};
+    f.hdr.magic         = VSIM_MAGIC;
+    f.hdr.version       = VSIM_PROTO_VERSION;
+    f.hdr.type          = VSIM_FRAME_CTL;
+    f.hdr.payload_bytes = sizeof(f) - sizeof(vsim_hdr_t);
+    f.subtype           = VSIM_CTL_SET_RATES;
+    vsim_ctl_rates_t b{};
+    b.imu_hz     = static_cast<uint32_t>(imuHz);
+    b.physics_hz = static_cast<uint32_t>(physicsHz);
+    b.pose_hz    = static_cast<uint32_t>(poseHz);
+    std::memcpy(f.body, &b, sizeof(b));
+    ::write(ctl_fd_, &f, sizeof(f));
+    emit logLine(QString("vsim_d: rates imu=%1 physics=%2 pose=%3 Hz")
+                     .arg(imuHz).arg(physicsHz).arg(poseHz));
+}
+
 bool SimWorker::spawnDaemon() {
     const QString bin_q = resolveBinary(vsim_bin_);
     const QByteArray bin_b = bin_q.toLocal8Bit();
