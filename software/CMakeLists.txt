@@ -101,6 +101,7 @@ set(GCS_SITL_SOURCES
     src/vsim/SimWorker.cpp
     src/vsim/SimRendererWidget.cpp
     src/vsim/MeshLoader.cpp
+    src/vsim/WorldMeshBuilder.cpp
     src/vsim/MassProperties.cpp
     src/vsim/RcBridge.cpp
     src/audio/PropAudio.cpp
@@ -115,6 +116,7 @@ set(GCS_SITL_HEADERS
     src/vsim/SimWorker.h
     src/vsim/SimRendererWidget.h
     src/vsim/MeshLoader.h
+    src/vsim/WorldMeshBuilder.h
     src/vsim/MassProperties.h
     src/vsim/RcBridge.h
 )

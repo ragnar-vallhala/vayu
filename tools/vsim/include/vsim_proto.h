@@ -116,6 +116,8 @@ enum {
     VSIM_CTL_CLEAR_OBSTACLES = 7,  // body: empty — drop all world obstacles
     VSIM_CTL_ADD_OBSTACLE    = 8,  // body: vsim_ctl_obstacle_t — append one
     VSIM_CTL_SET_RATES       = 9,  // body: vsim_ctl_rates_t — loop/sample rates
+    VSIM_CTL_SET_WORLD_MESH  = 10, // body: vsim_ctl_world_mesh_t — mmap a BVH file
+    VSIM_CTL_CLEAR_WORLD_MESH= 11, // body: empty — drop the world mesh
 };
 
 typedef struct {
@@ -203,6 +205,20 @@ typedef struct {
     uint32_t pose_hz;
 } vsim_ctl_rates_t;
 
+// Body for VSIM_CTL_SET_WORLD_MESH: the world collision mesh is too big for the
+// 256 B ctl body, so the GCS writes a serialized BVH blob (trimesh_bvh.h) to a
+// file and sends just the path + counts. The daemon mmaps it read-only. Counts
+// are carried redundantly so the daemon can cross-check the blob header.
+typedef struct {
+    uint32_t vertex_count;
+    uint32_t triangle_count;
+    uint32_t node_count;
+    uint32_t flags;             // bit0: double-sided
+    float    restitution;       // global world-mesh bounce factor
+    uint32_t path_len;
+    char     path[216];         // NUL-terminated mmap-file path (suffixed)
+} vsim_ctl_world_mesh_t;
+
 // Canonical FIFO paths. Daemon and clients both default to these.
 #define VSIM_FIFO_PWM   "/tmp/vsim_pwm"
 #define VSIM_FIFO_IMU   "/tmp/vsim_imu"
@@ -219,6 +235,7 @@ static_assert(sizeof(vsim_pose_frame_t) == 16 + 92,  "vsim_pose_frame_t size");
 static_assert(sizeof(vsim_ctl_frame_t)  == 16 + 264, "vsim_ctl_frame_t size");
 static_assert(sizeof(vsim_ctl_geometry_t) == 200,    "vsim_ctl_geometry_t size");
 static_assert(sizeof(vsim_ctl_world_t)   == 28,      "vsim_ctl_world_t size");
+static_assert(sizeof(vsim_ctl_world_mesh_t) <= 256,  "vsim_ctl_world_mesh_t fits ctl body");
 #else
 _Static_assert(sizeof(vsim_hdr_t)        == 16, "vsim_hdr_t size");
 _Static_assert(sizeof(vsim_pwm_frame_t)  == 16 + 16,  "vsim_pwm_frame_t size");

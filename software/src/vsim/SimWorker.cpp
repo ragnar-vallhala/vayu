@@ -202,6 +202,43 @@ void SimWorker::sendRates(int imuHz, int physicsHz, int poseHz) {
                      .arg(imuHz).arg(physicsHz).arg(poseHz));
 }
 
+void SimWorker::sendWorldMesh(const QString& path, quint32 verts, quint32 tris,
+                              quint32 nodes, float restitution, bool doubleSided) {
+    if (ctl_fd_ < 0) return;
+    const QByteArray pb = path.toLocal8Bit();
+    vsim_ctl_world_mesh_t b{};
+    if (pb.size() >= int(sizeof(b.path))) {
+        emit logLine("vsim_d: world-mesh path too long");
+        return;
+    }
+    vsim_ctl_frame_t f{};
+    f.hdr.magic         = VSIM_MAGIC;
+    f.hdr.version       = VSIM_PROTO_VERSION;
+    f.hdr.type          = VSIM_FRAME_CTL;
+    f.hdr.payload_bytes = sizeof(f) - sizeof(vsim_hdr_t);
+    f.subtype           = VSIM_CTL_SET_WORLD_MESH;
+    b.vertex_count = verts; b.triangle_count = tris; b.node_count = nodes;
+    b.flags = doubleSided ? 1u : 0u;
+    b.restitution = restitution;
+    b.path_len = static_cast<uint32_t>(pb.size());
+    std::memcpy(b.path, pb.constData(), pb.size());
+    std::memcpy(f.body, &b, sizeof(b));
+    ::write(ctl_fd_, &f, sizeof(f));
+    emit logLine(QString("vsim_d: world mesh -> %1 (%2 tris)").arg(path).arg(tris));
+}
+
+void SimWorker::clearWorldMesh() {
+    if (ctl_fd_ < 0) return;
+    vsim_ctl_frame_t f{};
+    f.hdr.magic = VSIM_MAGIC;
+    f.hdr.version = VSIM_PROTO_VERSION;
+    f.hdr.type = VSIM_FRAME_CTL;
+    f.hdr.payload_bytes = sizeof(f) - sizeof(vsim_hdr_t);
+    f.subtype = VSIM_CTL_CLEAR_WORLD_MESH;
+    ::write(ctl_fd_, &f, sizeof(f));
+    emit logLine("vsim_d: world mesh cleared");
+}
+
 bool SimWorker::spawnDaemon() {
     const QString bin_q = resolveBinary(vsim_bin_);
     const QByteArray bin_b = bin_q.toLocal8Bit();
