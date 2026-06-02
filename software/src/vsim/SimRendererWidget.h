@@ -48,6 +48,11 @@ class SimRendererWidget : public QOpenGLWidget, protected QOpenGLFunctions {
   // Stored + redrawn each frame; safe to call from the UI thread.
   void setObstacles(const QVector<vsim::Obstacle>& obs);
 
+  // Imported static world mesh (triangle soup + normals, NED world frame).
+  // Deferred upload like the drone mesh; empty positions clears it.
+  void setWorldMesh(const std::vector<QVector3D>& positions,
+                    const std::vector<QVector3D>& normals);
+
   // Enable Blender-style obstacle gizmo editing (click-select, G move /
   // R rotate / S scale, X/Y/Z constrain) — World mode while the sim is
   // stopped. Mutually exclusive with motor editing.
@@ -106,6 +111,7 @@ class SimRendererWidget : public QOpenGLWidget, protected QOpenGLFunctions {
   void buildNorth();        // body +X arrow + "N" glyph
   void drawNorthIndicator(const QMatrix4x4& view);
   void uploadDroneMesh();   // flushes pending_* into droneMesh_ (GL-current)
+  void uploadWorldMesh();   // flushes pendingWorld_* into worldMesh_
   // Upload an interleaved [px,py,pz,nx,ny,nz] array into a lit-shader mesh.
   void uploadLitMesh(Mesh& m, const std::vector<float>& interleaved);
 
@@ -171,6 +177,13 @@ class SimRendererWidget : public QOpenGLWidget, protected QOpenGLFunctions {
   bool meshDirty_ = false;
   std::vector<QVector3D> pendingPos_;
   std::vector<QVector3D> pendingNrm_;
+
+  // Imported world mesh (pos+normal interleaved; same deferred-upload path).
+  Mesh worldMesh_;
+  bool hasWorldMesh_   = false;
+  bool worldMeshDirty_ = false;
+  std::vector<QVector3D> pendingWorldPos_;
+  std::vector<QVector3D> pendingWorldNrm_;
 
   // Editable motor layout (defaults mirror the firmware quad geometry).
   std::array<QVector3D, 4> motorPos_ = {

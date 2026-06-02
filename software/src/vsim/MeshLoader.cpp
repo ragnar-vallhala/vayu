@@ -9,6 +9,11 @@
 namespace vsim {
 
 LoadedMesh loadMesh(const QString& path, float scale, QString* error) {
+  return loadMesh(path, scale, QMatrix4x4(), error);
+}
+
+LoadedMesh loadMesh(const QString& path, float scale, const QMatrix4x4& xform,
+                    QString* error) {
   LoadedMesh out;
 
   Assimp::Importer importer;
@@ -39,12 +44,13 @@ LoadedMesh loadMesh(const QString& path, float scale, QString* error) {
       for (unsigned k = 0; k < 3; ++k) {
         const unsigned idx = face.mIndices[k];
         const aiVector3D& v = mesh->mVertices[idx];
-        const QVector3D p(v.x * scale, v.y * scale, v.z * scale);
+        const QVector3D p = xform.map(QVector3D(v.x, v.y, v.z) * scale);
         out.positions.push_back(p);
 
         if (mesh->HasNormals()) {
           const aiVector3D& n = mesh->mNormals[idx];
-          out.normals.emplace_back(n.x, n.y, n.z);
+          out.normals.push_back(
+              xform.mapVector(QVector3D(n.x, n.y, n.z)).normalized());
         } else {
           out.normals.emplace_back(0.0f, 0.0f, 1.0f);
         }
