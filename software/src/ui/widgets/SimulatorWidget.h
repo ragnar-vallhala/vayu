@@ -28,6 +28,8 @@ class QPushButton;
 class QCheckBox;
 class QComboBox;
 
+namespace vsim { struct LoadedMesh; }
+
 /**
  * SimulatorWidget - control + monitor page for the SITL.
  *
@@ -90,8 +92,12 @@ class SimulatorWidget : public QWidget {
   void stopInAppSim();
   void pushRatesToSim();   // read persisted rates → m_sim->sendRates
   // Load the configured world mesh (baking up-axis/scale into NED) and push
-  // it to the renderer; empty path clears it.
+  // it to the renderer; empty path clears it. When the sim is running, also
+  // builds the collision BVH and ships it to the daemon (sendWorldMeshToSim).
   void loadWorldMeshToRenderer();
+  // Build a serialized BVH from an already-loaded mesh, write it atomically to
+  // an mmap file, and point the daemon at it (VSIM_CTL_SET_WORLD_MESH).
+  void sendWorldMeshToSim(const vsim::LoadedMesh& m);
   // Invoked when the SimWorker exits on its own (spawn failure, startup-grace
   // timeout, daemon death) so the UI doesn't get stuck in the Running state.
   void onSimWorkerExited();

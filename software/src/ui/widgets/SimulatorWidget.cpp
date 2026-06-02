@@ -1,6 +1,7 @@
 #include "SimulatorWidget.h"
 
 #include "../../vsim/MeshLoader.h"
+#include "../../vsim/WorldMeshBuilder.h"
 #include "CollapsibleSection.h"
 #include "core/Theme.h"
 #include "core/ui/Buttons.h"
@@ -24,9 +25,11 @@
 #include <QStackedWidget>
 #include <QUrl>
 #include <QByteArray>
+#include <QFile>
 #include <QVBoxLayout>
 
 #include <cmath>
+#include <cstdio>   // ::rename (atomic blob publish)
 
 #include <unistd.h>
 
@@ -589,6 +592,7 @@ void SimulatorWidget::loadWorldMeshToRenderer() {
   const vsim::WorldConfig& w = m_worldEditor->config();
   if (w.worldMeshPath.isEmpty()) {
     m_renderer->setWorldMesh({}, {});
+    if (m_sim) m_sim->clearWorldMesh();
     return;
   }
   // Bake the source up-axis into NED (up = -Z): Z-up needs a 180° flip about
@@ -602,10 +606,74 @@ void SimulatorWidget::loadWorldMeshToRenderer() {
   if (!m.valid) {
     appendLog("world", tr("world mesh load failed: %1").arg(err));
     m_renderer->setWorldMesh({}, {});
+    if (m_sim) m_sim->clearWorldMesh();
     return;
   }
   m_renderer->setWorldMesh(m.positions, m.normals);
   appendLog("world", tr("world mesh loaded: %1 tris").arg(m.triangleCount()));
+
+  // Hand the same baked geometry to the physics daemon as a collision BVH.
+  // Render and collision therefore share one transform → they never disagree.
+  if (m_sim) sendWorldMeshToSim(m);
+}
+
+void SimulatorWidget::sendWorldMeshToSim(const vsim::LoadedMesh& m) {
+  if (!m_sim || !m.valid) return;
+  const vsim::WorldConfig& w = m_worldEditor->config();
+
+  // Flatten the QVector3D soup to the contiguous float[3*nverts] the BVH
+  // builder expects (NED world space; transform already baked into positions).
+  const uint32_t nverts = static_cast<uint32_t>(m.positions.size());
+  std::vector<float> verts;
+  verts.reserve(static_cast<size_t>(nverts) * 3);
+  for (const QVector3D& p : m.positions) {
+    verts.push_back(p.x());
+    verts.push_back(p.y());
+    verts.push_back(p.z());
+  }
+  uint32_t nodes = 0;
+  std::vector<uint8_t> blob =
+      vsim::buildWorldBvh(verts.data(), nverts, w.worldMeshDoubleSided, nodes);
+  if (blob.empty()) {
+    appendLog("world", tr("world mesh BVH build failed"));
+    return;
+  }
+
+  // Publish atomically: write a temp file then rename() over the target so the
+  // daemon never mmaps a half-written blob. Per-instance suffix keeps two
+  // Navigators isolated (matches SimWorker's fifoSuffixed()).
+  const QByteArray suffix = qgetenv("VSIM_FIFO_SUFFIX");
+  const QString path = QStringLiteral("/tmp/vsim_world") +
+                       QString::fromLocal8Bit(suffix) + QStringLiteral(".bin");
+  const QString tmp = path + QStringLiteral(".tmp");
+  {
+    QFile f(tmp);
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+      appendLog("world", tr("world mesh: cannot write %1").arg(tmp));
+      return;
+    }
+    const qint64 wrote =
+        f.write(reinterpret_cast<const char*>(blob.data()),
+                static_cast<qint64>(blob.size()));
+    f.close();
+    if (wrote != static_cast<qint64>(blob.size())) {
+      appendLog("world", tr("world mesh: short write to %1").arg(tmp));
+      QFile::remove(tmp);
+      return;
+    }
+  }
+  if (::rename(tmp.toLocal8Bit().constData(), path.toLocal8Bit().constData()) != 0) {
+    appendLog("world", tr("world mesh: rename to %1 failed").arg(path));
+    QFile::remove(tmp);
+    return;
+  }
+
+  const uint32_t ntris = nverts / 3;
+  m_sim->sendWorldMesh(path, nverts, ntris, nodes, w.worldMeshRestitution,
+                       w.worldMeshDoubleSided);
+  appendLog("world",
+            tr("world mesh → daemon: %1 tris, %2 nodes (%3 KiB)")
+                .arg(ntris).arg(nodes).arg(blob.size() / 1024));
 }
 
 void SimulatorWidget::pushRatesToSim() {
@@ -755,6 +823,7 @@ void SimulatorWidget::startInAppSim() {
     m_sim->sendGeometry(m_geomEditor->physicsConfig());
     m_sim->sendWorld(m_worldEditor->config());
     m_sim->sendObstacles(m_worldEditor->config().obstacles);
+    loadWorldMeshToRenderer();  // re-loads + ships the collision BVH now m_sim exists
   });
   m_sim->start(QThread::TimeCriticalPriority);
 
