@@ -304,8 +304,14 @@ void GeometryEditorWidget::setMotorFromGizmo(int i, QVector3D posComFrame,
                                              QVector3D axis) {
   if (i < 0 || i >= 4) return;
   auto& m = cfg_.motors[i];
-  m.pos = posComFrame + cfg_.com;   // CoM frame -> model-origin frame
-  m.axis = axis;
+  // The gizmo works in the rendered CoM/body frame; invert the body placement
+  // transform so the stored value is in the raw model-origin frame (the frame
+  // physicsConfig() re-applies bodyXform()+CoM to). render = x*raw - com.
+  bool ok = false;
+  const QMatrix4x4 xi = bodyXform().inverted(&ok);
+  const QVector3D placed = posComFrame + cfg_.com;   // CoM frame -> placed frame
+  m.pos  = ok ? xi.map(placed)              : placed;
+  m.axis = ok ? xi.mapVector(axis).normalized() : axis;
   // Reflect in the row's spinboxes (block in case anything is wired).
   auto& r = rows_[i];
   for (auto* s : {r.px, r.py, r.pz, r.ax, r.ay, r.az}) s->blockSignals(true);
@@ -335,13 +341,9 @@ bool GeometryEditorWidget::loadAndCompute(QString* err) {
   if (!mesh.valid) return false;
 
   // Body-frame placement: rotate (XYZ Euler, deg) then translate, on top
-  // of the scale already applied by the loader. Built once, applied to
-  // every vertex (point) and normal (direction).
-  QMatrix4x4 xform;
-  xform.translate(cfg_.translate);
-  xform.rotate(cfg_.rotate.x(), 1, 0, 0);
-  xform.rotate(cfg_.rotate.y(), 0, 1, 0);
-  xform.rotate(cfg_.rotate.z(), 0, 0, 1);
+  // of the scale already applied by the loader. The SAME transform is applied
+  // to the motor layout in physicsConfig() so motors stay attached to the body.
+  const QMatrix4x4 xform = bodyXform();
   meshPos_.resize(mesh.positions.size());
   meshNrm_.resize(mesh.normals.size());
   for (size_t i = 0; i < mesh.positions.size(); ++i)
