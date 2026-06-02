@@ -15,6 +15,7 @@
 
 #include "fifo_transport.h"
 #include "sim_controller.h"
+#include "trimesh_bvh.h"
 #include "vsim_proto.h"
 
 #include <algorithm>
@@ -32,6 +33,8 @@
 #include <fcntl.h>
 #include <string>
 #include <sys/file.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #include <vector>
 
@@ -142,6 +145,16 @@ int main(int /*argc*/, char** /*argv*/) {
     vsim::DroneParams drone;
     vsim::MotorParams motor;
     std::vector<vsim::SimObstacle> obstacles;
+
+    // World mesh: SET_WORLD_MESH names a serialized BVH file the GCS wrote; we
+    // mmap it read-only and hand SimController a non-owning trimesh::Bvh view,
+    // so the mapping must outlive every physics step. munmap on replace/exit.
+    void*  world_map      = nullptr;
+    size_t world_map_size = 0;
+    auto drop_world_mesh = [&] {
+        ctl.clearWorldMesh();
+        if (world_map) { ::munmap(world_map, world_map_size); world_map = nullptr; world_map_size = 0; }
+    };
 
     // Initial pose: a few cm above ground, level. NED: z = -0.05.
     vsim::RigidBodyState s0;
@@ -280,6 +293,53 @@ int main(int /*argc*/, char** /*argv*/) {
                                  ob.type, obstacles.size());
                     break;
                 }
+                case VSIM_CTL_SET_WORLD_MESH: {
+                    vsim_ctl_world_mesh_t m;
+                    std::memcpy(&m, cmd.body, sizeof(m));
+                    m.path[sizeof(m.path) - 1] = '\0';
+                    drop_world_mesh();   // release any previous mapping first
+                    int fd = ::open(m.path, O_RDONLY);
+                    if (fd < 0) {
+                        std::fprintf(stderr, "vsim_d: world mesh open(%s) failed\n", m.path);
+                        break;
+                    }
+                    struct stat st{};
+                    if (::fstat(fd, &st) != 0 || st.st_size <= 0) {
+                        std::fprintf(stderr, "vsim_d: world mesh fstat failed\n");
+                        ::close(fd);
+                        break;
+                    }
+                    void* base = ::mmap(nullptr, static_cast<size_t>(st.st_size),
+                                        PROT_READ, MAP_PRIVATE, fd, 0);
+                    ::close(fd);   // mapping survives the fd
+                    if (base == MAP_FAILED) {
+                        std::fprintf(stderr, "vsim_d: world mesh mmap failed\n");
+                        break;
+                    }
+                    vsim::trimesh::Bvh bvh = vsim::trimesh::Bvh::fromBytes(
+                        static_cast<const uint8_t*>(base), static_cast<size_t>(st.st_size));
+                    if (!bvh.valid() ||
+                        bvh.h->triangle_count != m.triangle_count ||
+                        bvh.h->vertex_count   != m.vertex_count) {
+                        std::fprintf(stderr,
+                            "vsim_d: world mesh invalid/mismatch (frame %u/%u tris/verts)\n",
+                            m.triangle_count, m.vertex_count);
+                        ::munmap(base, static_cast<size_t>(st.st_size));
+                        break;
+                    }
+                    world_map      = base;
+                    world_map_size = static_cast<size_t>(st.st_size);
+                    ctl.setWorldMesh(bvh, m.restitution);
+                    std::fprintf(stderr,
+                                 "vsim_d: world mesh mapped (%u tris, %u nodes, rest=%.2f) from %s\n",
+                                 bvh.h->triangle_count, bvh.h->node_count, m.restitution, m.path);
+                    break;
+                }
+                case VSIM_CTL_CLEAR_WORLD_MESH: {
+                    drop_world_mesh();
+                    std::fprintf(stderr, "vsim_d: world mesh cleared\n");
+                    break;
+                }
                 case VSIM_CTL_SET_RATES: {
                     vsim_ctl_rates_t r;
                     std::memcpy(&r, cmd.body, sizeof(r));
@@ -355,6 +415,7 @@ int main(int /*argc*/, char** /*argv*/) {
         }
     }
 
+    drop_world_mesh();
     std::fprintf(stderr, "vsim_d: stopping\n");
     return 0;
 }

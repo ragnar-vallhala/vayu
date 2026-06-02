@@ -85,6 +85,12 @@ class SimWorker : public QThread {
   // physicsHz/imuHz RK4 substeps run per sample; poseHz = render rate.
   void sendRates(int imuHz, int physicsHz, int poseHz);
 
+  // Point the daemon at a serialized BVH world-mesh file to mmap, or clear it
+  // (VSIM_CTL_SET_WORLD_MESH / VSIM_CTL_CLEAR_WORLD_MESH).
+  void sendWorldMesh(const QString& path, quint32 verts, quint32 tris,
+                     quint32 nodes, float restitution, bool doubleSided);
+  void clearWorldMesh();
+
  signals:
   void poseUpdated(SimSnapshot snap);
   void logLine(QString line);
