@@ -64,6 +64,17 @@ class SimRendererWidget : public QOpenGLWidget, protected QOpenGLFunctions {
   void setFpv(bool on) { fpv_ = on; update(); }
   bool fpv() const { return fpv_; }
 
+  // Free-fly camera: WASD/QE to move, left-drag to look, NOT locked to the
+  // drone. Used in World mode while the sim is stopped so you can roam the
+  // imported world. Off = the camera orbits/follows the drone (3rd person).
+  // Enabling seeds the free camera at the current orbit eye for a smooth swap.
+  void setFreeFly(bool on);
+  bool freeFly() const { return freeFly_; }
+
+  // Show the imported world mesh + obstacles. Off in Vehicle mode (just the
+  // airframe); on in World mode (the whole world).
+  void setWorldVisible(bool on);
+
   // Enable Blender-style motor gizmo editing (click-select, G move /
   // R rotate, X/Y/Z constrain). Only meaningful when the sim is stopped;
   // the SimulatorWidget toggles this on stop / off on start.
@@ -141,6 +152,8 @@ class SimRendererWidget : public QOpenGLWidget, protected QOpenGLFunctions {
                const QMatrix4x4& model, const QVector3D& color);
 
   QMatrix4x4 cameraView() const;
+  QVector3D  freeForward() const;        // free-cam look direction from yaw/pitch
+  bool       freeFlyMove(int key, bool fast);  // WASD/QE → move camPos_; true if used
 
   // Flat shader: vec3 position + uniform color + MVP (grid/axes/markers).
   QOpenGLShaderProgram prog_;
@@ -220,6 +233,9 @@ class SimRendererWidget : public QOpenGLWidget, protected QOpenGLFunctions {
   float cam_yaw_    = 0.7f;   // around world -Z (NED up)
   float cam_pitch_  = -0.5f;  // tilt
   bool  fpv_        = false;  // onboard FPV camera vs orbit
+  bool  freeFly_    = false;  // WASD free-roam camera (sim stopped, World mode)
+  bool  worldVisible_ = true; // draw world mesh + obstacles (World mode)
+  QVector3D camPos_{-4.0f, -4.0f, -3.0f};  // free-cam world position (NED)
   QPoint last_mouse_;
 
   QMatrix4x4 proj_;

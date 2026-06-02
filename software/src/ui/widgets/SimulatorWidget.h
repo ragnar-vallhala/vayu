@@ -161,6 +161,7 @@ class SimulatorWidget : public QWidget {
   QPushButton* m_simStartBtn = nullptr;
   QPushButton* m_simStopBtn = nullptr;
   QPushButton* m_simResetBtn = nullptr;
+  QCheckBox*   m_fpvCheck = nullptr;   // onboard FPV (only meaningful running)
   QLabel* m_simStatusLabel = nullptr;
   QLabel* m_simPoseLabel = nullptr;
 

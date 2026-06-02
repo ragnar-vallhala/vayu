@@ -186,7 +186,42 @@ void SimRendererWidget::resizeGL(int w, int h) {
   proj_.perspective(60.0f, float(w) / std::max(1, h), 0.05f, 200.0f);
 }
 
+QVector3D SimRendererWidget::freeForward() const {
+  // Same yaw/pitch convention as the orbit offset, but pointing FROM the
+  // camera (= -offset direction), so swapping orbit<->free keeps the view
+  // pointing the same way.
+  return QVector3D(-std::cos(cam_pitch_) * std::cos(cam_yaw_),
+                   -std::cos(cam_pitch_) * std::sin(cam_yaw_),
+                    std::sin(cam_pitch_))
+      .normalized();
+}
+
+void SimRendererWidget::setFreeFly(bool on) {
+  if (on && !freeFly_) {
+    // Seed the free camera at the current orbit eye for a seamless handoff.
+    const QVector3D offset(
+        cam_radius_ * std::cos(cam_pitch_) * std::cos(cam_yaw_),
+        cam_radius_ * std::cos(cam_pitch_) * std::sin(cam_yaw_),
+        -cam_radius_ * std::sin(cam_pitch_));
+    camPos_ = snap_.pos_w + offset;
+  }
+  freeFly_ = on;
+  update();
+}
+
+void SimRendererWidget::setWorldVisible(bool on) {
+  worldVisible_ = on;
+  update();
+}
+
 QMatrix4x4 SimRendererWidget::cameraView() const {
+  if (freeFly_ && !fpv_) {
+    // Free-roam: look along freeForward() from camPos_, not locked to drone.
+    const QVector3D fwd = freeForward();
+    QMatrix4x4 view;
+    view.lookAt(camPos_, camPos_ + fwd, QVector3D(0.0f, 0.0f, -1.0f));
+    return view;
+  }
   if (fpv_) {
     // Onboard camera: sit just ahead of + above the CoM, look along body +X
     // (forward), with the body's up (-Z) as the view up. Rides the airframe.
@@ -223,12 +258,14 @@ void SimRendererWidget::paintGL() {
   drawMesh(ground_, view, QVector3D(0.25f, 0.27f, 0.32f));
   drawMesh(axes_,   view, QVector3D(1, 1, 1));
 
+  // World geometry (imported mesh + obstacles) only in World mode; Vehicle
+  // mode shows just the airframe.
   // Imported world mesh (lit solid, world frame).
-  if (hasWorldMesh_)
+  if (worldVisible_ && hasWorldMesh_)
     drawLit(worldMesh_, view, QMatrix4x4(), QVector3D(0.38f, 0.40f, 0.44f));
 
   // Static world obstacles (lit solids), each scaled/rotated/placed.
-  for (int oi = 0; oi < obstacles_.size(); ++oi) {
+  for (int oi = 0; worldVisible_ && oi < obstacles_.size(); ++oi) {
     const vsim::Obstacle& o = obstacles_[oi];
     QMatrix4x4 m;
     m.translate(o.pos);
@@ -880,7 +917,57 @@ void SimRendererWidget::mouseMoveEvent(QMouseEvent* e) {
   }
 }
 
+bool SimRendererWidget::freeFlyMove(int key, bool fast) {
+  const float step = (fast ? 2.0f : 0.5f);
+  const QVector3D fwd = freeForward();
+  const QVector3D worldUp(0.0f, 0.0f, -1.0f);   // NED up
+  QVector3D right = QVector3D::crossProduct(fwd, worldUp);
+  if (right.lengthSquared() < 1e-9f) right = QVector3D(0, 1, 0);
+  right.normalize();
+  switch (key) {
+    case Qt::Key_W: camPos_ += fwd   * step; break;
+    case Qt::Key_S: camPos_ -= fwd   * step; break;
+    case Qt::Key_D: camPos_ += right * step; break;
+    case Qt::Key_A: camPos_ -= right * step; break;
+    case Qt::Key_E: camPos_ += worldUp * step; break;  // up
+    case Qt::Key_Q: camPos_ -= worldUp * step; break;  // down
+    default: return false;
+  }
+  update();
+  return true;
+}
+
 void SimRendererWidget::keyPressEvent(QKeyEvent* e) {
+  // Free-roam navigation (World mode, sim stopped). WASD/QE fly the camera;
+  // obstacle gizmo keys still work so you can edit while roaming: select an
+  // obstacle then G/R/S; with nothing selected every movement key flies.
+  if (freeFly_) {
+    if (obsMode_ && obsTool_ != Tool::None) {
+      switch (e->key()) {
+        case Qt::Key_X: obsAxis_ = 0; updateObsToolFromMouse(last_mouse_); break;
+        case Qt::Key_Y: obsAxis_ = 1; updateObsToolFromMouse(last_mouse_); break;
+        case Qt::Key_Z: obsAxis_ = 2; updateObsToolFromMouse(last_mouse_); break;
+        case Qt::Key_Escape: commitObsTool(false); break;
+        case Qt::Key_Return:
+        case Qt::Key_Enter:  commitObsTool(true);  break;
+        default: QOpenGLWidget::keyPressEvent(e); return;
+      }
+      return;
+    }
+    if (obsMode_ && selObs_ >= 0) {
+      switch (e->key()) {
+        case Qt::Key_G: beginObsTool(Tool::Move);   return;
+        case Qt::Key_R: beginObsTool(Tool::Rotate); return;
+        case Qt::Key_S: beginObsTool(Tool::Scale);  return;  // scale selected
+        case Qt::Key_Escape:
+          selObs_ = -1; emit obstacleSelected(-1); update(); return;
+        default: break;  // fall through to movement (W/A/D/Q/E)
+      }
+    }
+    if (freeFlyMove(e->key(), e->modifiers() & Qt::ShiftModifier)) return;
+    QOpenGLWidget::keyPressEvent(e);
+    return;
+  }
   if (obsMode_) {
     switch (e->key()) {
       case Qt::Key_G: if (selObs_ >= 0) beginObsTool(Tool::Move);   break;
@@ -1190,6 +1277,13 @@ void SimRendererWidget::drawObsGizmo(const QMatrix4x4& view) {
 }
 
 void SimRendererWidget::wheelEvent(QWheelEvent* e) {
+  if (freeFly_ && !fpv_) {
+    // Free-roam: scroll dollies the camera along its view direction.
+    const float d = (e->angleDelta().y() > 0) ? 1.0f : -1.0f;
+    camPos_ += freeForward() * d;
+    update();
+    return;
+  }
   const float k = (e->angleDelta().y() > 0) ? 0.9f : 1.1f;
   cam_radius_ *= k;
   if (cam_radius_ < 0.5f)  cam_radius_ = 0.5f;
