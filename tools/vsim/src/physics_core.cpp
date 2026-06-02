@@ -83,9 +83,62 @@ void PhysicsCore::step(const Vec3& force_b, const Vec3& torque_b, float dt) {
     state_.att.normalize();
 
     groundClamp(dt);
-    resolveObstacles();
+    // Resolve primitive obstacles AND the imported world mesh into one shared
+    // position correction (deepest penetration wins), applied once.
+    Vec3 posCorr(0, 0, 0);
+    float maxPen = 0.0f;
+    resolveObstacles(posCorr, maxPen);
+    resolveWorldMesh(posCorr, maxPen);
+    if (maxPen > 0.0f) state_.pos_w += posCorr;
     sanitize();
 }
+
+// Apply one contact: a normal impulse with rotational coupling (so an off-CoM
+// contact tips the body, tau = r x J) plus capped Coulomb friction, and grow
+// the shared position push-out by the deepest penetration. cpb is the contact
+// point in body frame; nW the world unit normal (points drone-outward).
+void PhysicsCore::applyContact(const Vec3& cpb, const Vec3& nW, float pen,
+                               float restitution, Vec3& posCorr, float& maxPen) {
+    const float m = (params_.mass > 1e-3f) ? params_.mass : 1e-3f;
+    auto dot = [](const Vec3& a, const Vec3& b) {
+        return a.x() * b.x() + a.y() * b.y() + a.z() * b.z();
+    };
+    if (pen > maxPen) { maxPen = pen; posCorr = nW * pen; }
+
+    const Vec3 leverW = state_.att.rotatedVector(cpb);
+    const Vec3 omegaW = state_.att.rotatedVector(state_.omega_b);
+    const Vec3 vP = state_.vel_w + Vec3::crossProduct(omegaW, leverW);
+    const float vn = dot(vP, nW);
+    if (vn >= 0.0f) return;  // separating
+
+    const Vec3 nB = state_.att.conjugated().rotatedVector(nW);
+    const Vec3 rxn = Vec3::crossProduct(cpb, nB);
+    const Vec3 ir = I_inv_ * rxn;
+    float keff = 1.0f / m + dot(nB, Vec3::crossProduct(ir, cpb));
+    if (keff < 1e-6f) keff = 1e-6f;
+    const float j = -(1.0f + restitution) * vn / keff * 0.25f;  // 4 footprint pts
+
+    const Vec3 Jw = nW * j;
+    state_.vel_w += Jw / m;
+    const Vec3 Jb = state_.att.conjugated().rotatedVector(Jw);
+    state_.omega_b += I_inv_ * Vec3::crossProduct(cpb, Jb);
+
+    const Vec3 vt = vP - nW * vn;
+    const float vtl = std::sqrt(dot(vt, vt));
+    if (vtl > 1e-4f) {
+        float jt = -0.4f * std::fabs(j);
+        if (jt < -vtl * m * 0.25f) jt = -vtl * m * 0.25f;
+        const Vec3 Ft = (vt / vtl) * jt;
+        state_.vel_w += Ft / m;
+        const Vec3 Ftb = state_.att.conjugated().rotatedVector(Ft);
+        state_.omega_b += I_inv_ * Vec3::crossProduct(cpb, Ftb);
+    }
+}
+
+// Drone footprint points (body frame). Shared by the primitive + mesh paths.
+static const Vec3 kFootprint[4] = {Vec3(0.13f, 0.13f, 0), Vec3(-0.13f, 0.13f, 0),
+                                   Vec3(-0.13f, -0.13f, 0), Vec3(0.13f, -0.13f, 0)};
+static constexpr float kContactR = 0.04f;   // contact radius per footprint point
 
 // Resolve drone-vs-obstacle contact. The drone is modelled as a small
 // footprint (four arm points at +/-R, not just the CoM) so contacts off to
@@ -93,19 +146,12 @@ void PhysicsCore::step(const Vec3& force_b, const Vec3& torque_b, float dt) {
 // edges / catches a corner instead of sliding flat. Per contacting point we
 // apply a normal impulse (with the body's rotational inertia coupled in) plus
 // tangential friction, and lift the CoM out by the deepest penetration. NED.
-void PhysicsCore::resolveObstacles() {
+void PhysicsCore::resolveObstacles(Vec3& posCorr, float& maxPen) {
     if (obstacles_.empty()) return;
-    constexpr float rc = 0.04f;   // contact radius per footprint point [m]
-    constexpr float R  = 0.13f;   // drone footprint half-reach [m]
-    const Vec3 fp[4] = {Vec3(R, R, 0), Vec3(-R, R, 0),
-                        Vec3(-R, -R, 0), Vec3(R, -R, 0)};
-    const float m = (params_.mass > 1e-3f) ? params_.mass : 1e-3f;
+    const float rc = kContactR;
     auto dot = [](const Vec3& a, const Vec3& b) {
         return a.x() * b.x() + a.y() * b.y() + a.z() * b.z();
     };
-
-    Vec3 posCorr(0, 0, 0);
-    float maxPen = 0.0f;
 
     for (const SimObstacle& o : obstacles_) {
         // Rotation world<-local from Euler XYZ (deg): q = qx*qy*qz.
@@ -118,7 +164,7 @@ void PhysicsCore::resolveObstacles() {
                        axisQ(o.rot_deg.y(), Vec3(0, 1, 0)) *
                        axisQ(o.rot_deg.z(), Vec3(0, 0, 1));
 
-        for (const Vec3& cpb : fp) {
+        for (const Vec3& cpb : kFootprint) {
             const Vec3 Pw = state_.pos_w + state_.att.rotatedVector(cpb);
             const Vec3 lp = q.conjugated().rotatedVector(Pw - o.pos);
 
@@ -160,47 +206,40 @@ void PhysicsCore::resolveObstacles() {
                 }
             }
             if (!hit) continue;
-
-            const Vec3 nW = q.rotatedVector(nL);
-            if (pen > maxPen) { maxPen = pen; posCorr = nW * pen; }
-
-            // Contact-point velocity = v_cm + omega x r (lever = att*cpb).
-            const Vec3 leverW = state_.att.rotatedVector(cpb);
-            const Vec3 omegaW = state_.att.rotatedVector(state_.omega_b);
-            const Vec3 vP = state_.vel_w + Vec3::crossProduct(omegaW, leverW);
-            const float vn = dot(vP, nW);
-            if (vn >= 0.0f) continue;  // separating: no impulse
-
-            // Effective mass along the normal incl. rotational inertia, in the
-            // body frame (where I_inv_ lives): k = 1/m + n·((I^-1 (r×n))×r).
-            const Vec3 nB = state_.att.conjugated().rotatedVector(nW);
-            const Vec3 rxn = Vec3::crossProduct(cpb, nB);
-            const Vec3 ir = I_inv_ * rxn;
-            float keff = 1.0f / m + dot(nB, Vec3::crossProduct(ir, cpb));
-            if (keff < 1e-6f) keff = 1e-6f;
-            // Split the impulse across the (up to 4) footprint points.
-            const float j = -(1.0f + o.restitution) * vn / keff * 0.25f;
-
-            const Vec3 Jw = nW * j;
-            state_.vel_w += Jw / m;
-            const Vec3 Jb = state_.att.conjugated().rotatedVector(Jw);
-            state_.omega_b += I_inv_ * Vec3::crossProduct(cpb, Jb);
-
-            // Coulomb-ish friction at the contact: opposes the tangential
-            // slide, capped so it can't reverse it; also feeds spin via r×F.
-            const Vec3 vt = vP - nW * vn;
-            const float vtl = std::sqrt(dot(vt, vt));
-            if (vtl > 1e-4f) {
-                float jt = -0.4f * std::fabs(j);
-                if (jt < -vtl * m * 0.25f) jt = -vtl * m * 0.25f;
-                const Vec3 Ft = (vt / vtl) * jt;
-                state_.vel_w += Ft / m;
-                const Vec3 Ftb = state_.att.conjugated().rotatedVector(Ft);
-                state_.omega_b += I_inv_ * Vec3::crossProduct(cpb, Ftb);
-            }
+            applyContact(cpb, q.rotatedVector(nL), pen, o.restitution, posCorr,
+                         maxPen);
         }
     }
-    if (maxPen > 0.0f) state_.pos_w += posCorr;
+}
+
+// Resolve the drone footprint against the imported world mesh: per footprint
+// point, BVH-query nearby triangles, take the deepest closest-point contact
+// (normal derived from the closest-point direction, so it works on either side
+// of a face — winding-independent), and feed it to applyContact.
+void PhysicsCore::resolveWorldMesh(Vec3& posCorr, float& maxPen) {
+    if (!has_world_mesh_) return;
+    uint32_t hits[256];
+    for (const Vec3& cpb : kFootprint) {
+        const Vec3 Pw = state_.pos_w + state_.att.rotatedVector(cpb);
+        const int nh = trimesh::querySphere(world_mesh_, Pw, kContactR, hits, 256);
+        float bestPen = 0.0f;
+        Vec3 bestN;
+        bool hit = false;
+        for (int k = 0; k < nh; ++k) {
+            Vec3 a, b, c;
+            world_mesh_.tri(hits[k], a, b, c);
+            const Vec3 cp = trimesh::closestPointOnTriangle(Pw, a, b, c);
+            const Vec3 d = Pw - cp;
+            const float dist = trimesh::length(d);
+            if (dist < kContactR && dist > 1e-6f) {
+                const float pen = kContactR - dist;
+                if (pen > bestPen) { bestPen = pen; bestN = d / dist; hit = true; }
+            }
+        }
+        if (hit)
+            applyContact(cpb, bestN, bestPen, world_mesh_restitution_, posCorr,
+                         maxPen);
+    }
 }
 
 // Reset on non-finite state, clamp runaway rates. A diverged controller
