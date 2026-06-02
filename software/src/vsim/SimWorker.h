@@ -81,6 +81,10 @@ class SimWorker : public QThread {
   // (VSIM_CTL_CLEAR_OBSTACLES / VSIM_CTL_ADD_OBSTACLE).
   void sendObstacles(const QVector<Obstacle>& obs);
 
+  // Set sim loop rates (VSIM_CTL_SET_RATES). imuHz = firmware loop rate;
+  // physicsHz/imuHz RK4 substeps run per sample; poseHz = render rate.
+  void sendRates(int imuHz, int physicsHz, int poseHz);
+
  signals:
   void poseUpdated(SimSnapshot snap);
   void logLine(QString line);
