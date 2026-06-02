@@ -31,9 +31,12 @@ class WorldEditorWidget : public QWidget {
   void worldApplied();        // user committed env → push to daemon + persist
   void obstaclesChanged();    // obstacle list/edit changed → preview + persist
   void obstacleSelectionChanged(int index);  // list selection → 3D highlight
+  void worldMeshChanged();    // imported mesh path/scale/up-axis changed
 
  private slots:
   void onApply();
+  void onImportWorldMesh();
+  void onClearWorldMesh();
   void onAddObstacle(int type);
   void onRemoveObstacle();
   void onObstacleSelected(int row);
@@ -43,6 +46,7 @@ class WorldEditorWidget : public QWidget {
 
  private:
   void buildUi();
+  void buildWorldMeshSection(QVBoxLayout* root);
   void buildObstacleSection(QVBoxLayout* root);
   void syncConfigToUi();
   void syncUiToConfig();
@@ -67,4 +71,10 @@ class WorldEditorWidget : public QWidget {
   QDoubleSpinBox* obsRest_ = nullptr;
   bool obsSyncing_ = false;        // guard form-sync from re-emitting
   class QLabel* fileStatus_ = nullptr;  // save/load feedback
+
+  // World-mesh import controls.
+  class QLabel* worldMeshLabel_ = nullptr;
+  QDoubleSpinBox* worldScale_ = nullptr;
+  QComboBox* worldUpAxis_ = nullptr;
+  bool worldMeshSyncing_ = false;
 };
