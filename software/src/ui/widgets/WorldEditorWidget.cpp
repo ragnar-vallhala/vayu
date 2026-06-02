@@ -60,6 +60,7 @@ QJsonObject worldToJson(const vsim::WorldConfig& w) {
   root["world_up_axis"] = w.worldUpAxis;
   root["world_mesh_restitution"] = w.worldMeshRestitution;
   root["world_mesh_double_sided"] = w.worldMeshDoubleSided;
+  root["world_mesh_offset"] = vec3ToJson(w.worldMeshOffset);
   QJsonArray obs;
   for (const vsim::Obstacle& o : w.obstacles) {
     obs.append(QJsonObject{{"type", o.type},
@@ -86,6 +87,7 @@ vsim::WorldConfig worldFromJson(const QJsonObject& root) {
   w.worldUpAxis = root.value("world_up_axis").toInt(w.worldUpAxis);
   w.worldMeshRestitution = root.value("world_mesh_restitution").toDouble(w.worldMeshRestitution);
   w.worldMeshDoubleSided = root.value("world_mesh_double_sided").toBool(w.worldMeshDoubleSided);
+  w.worldMeshOffset = vec3FromJson(root.value("world_mesh_offset"), w.worldMeshOffset);
   for (const QJsonValue& v : root.value("obstacles").toArray()) {
     const QJsonObject o = v.toObject();
     vsim::Obstacle ob;
@@ -216,6 +218,9 @@ void WorldEditorWidget::buildWorldMeshSection(QVBoxLayout* root) {
       if (worldMeshSyncing_) return;
       cfg_.worldScale = static_cast<float>(worldScale_->value());
       cfg_.worldUpAxis = worldUpAxis_->currentData().toInt();
+      cfg_.worldMeshOffset = QVector3D(worldOffset_[0]->value(),
+                                       worldOffset_[1]->value(),
+                                       worldOffset_[2]->value());
       if (!cfg_.worldMeshPath.isEmpty()) emit worldMeshChanged();
     };
     connect(worldScale_, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
@@ -224,6 +229,23 @@ void WorldEditorWidget::buildWorldMeshSection(QVBoxLayout* root) {
             [onEdit] { onEdit(); });
     form->addRow(tr("Scale:"), worldScale_);
     form->addRow(tr("Up axis:"), worldUpAxis_);
+
+    // World placement (NED metres): move the imported world so the drone's
+    // spawn (the origin) isn't trapped inside/under it. X=north, Y=east,
+    // Z=down — so a negative Z lifts the world above the spawn.
+    auto* offRow = new QHBoxLayout();
+    const char* lbl[3] = {"N", "E", "D"};
+    for (int i = 0; i < 3; ++i) {
+      worldOffset_[i] = spin(-10000.0, 10000.0, 2, 0.5, cfg_.worldMeshOffset[i],
+                             QStringLiteral(" m"));
+      worldOffset_[i]->setToolTip(tr("World placement offset (NED): N(orth)/"
+                                     "E(ast)/D(own). Negative D lifts it up."));
+      offRow->addWidget(new QLabel(tr(lbl[i]), body));
+      offRow->addWidget(worldOffset_[i]);
+      connect(worldOffset_[i], QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+              this, [onEdit] { onEdit(); });
+    }
+    form->addRow(tr("Offset:"), offRow);
     col->addLayout(form);
   }
 
@@ -504,5 +526,7 @@ void WorldEditorWidget::setConfig(const vsim::WorldConfig& c) {
                                  : QFileInfo(cfg_.worldMeshPath).fileName());
   if (worldScale_) worldScale_->setValue(cfg_.worldScale);
   if (worldUpAxis_) worldUpAxis_->setCurrentIndex(cfg_.worldUpAxis == 1 ? 1 : 0);
+  for (int i = 0; i < 3; ++i)
+    if (worldOffset_[i]) worldOffset_[i]->setValue(cfg_.worldMeshOffset[i]);
   worldMeshSyncing_ = false;
 }
