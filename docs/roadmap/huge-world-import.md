@@ -1,6 +1,22 @@
 # Plan: Import huge worlds (.blend/.glb/.obj) with rigid triangle-mesh collision
 
-Status: ⬜ proposed (design only — not yet implemented)
+Status: 🟢 implemented (P0–P3 landed + tested; P4 mostly satisfied, rest deferred)
+
+Progress:
+- ✅ **P0** `trimesh_bvh.h` + `trimesh_bvh_test` (12/12) — commit `444dbc0`.
+- ✅ **P1** visual import (MeshLoader baked transform, renderer worldMesh_, World tab
+  import UI, `.vworld`/QSettings persistence) — commit `786f342`.
+- ✅ **P3** collision: `applyContact()` refactor + `resolveWorldMesh()`, footprint-vs-mesh
+  impulse, winding-independent normals; `world_collision_test` (5/5) — commit `f6f8fd3`.
+- ✅ **P2** transport: `VSIM_CTL_SET/CLEAR_WORLD_MESH` + `vsim_ctl_world_mesh_t`, daemon
+  mmap+validate, `WorldMeshBuilder` (Qt-free BVH bridge — quarantines the `vsim::Vec3`
+  struct/QVector3D-alias clash), `SimWorker::sendWorldMesh`, write-tmp-then-rename publish,
+  re-push on `online()`; `world_mesh_transport_test` end-to-end vs real `vsim_d` (6/6) —
+  commit `c1373cd`.
+- 🟡 **P4** partially done: re-import/clear/exit all `munmap` (daemon `drop_world_mesh`,
+  fd closed post-mmap); render VBO + BVH bytes share one baked `LoadedMesh` so they can't
+  disagree. **Deferred** (no real >2 M-tri asset yet to justify the cost): swept-sphere CCD,
+  vertex welding, decimate-on-import, frustum cull, "show collision proxy" debug overlay.
 
 ## Context
 The simulator's "world" is today a handful of analytic primitives (box/sphere/cylinder) with
