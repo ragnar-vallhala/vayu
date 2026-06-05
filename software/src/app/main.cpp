@@ -1,6 +1,7 @@
 #include "Logger.h"
 #include "MainWindow.h"
 #include "Theme.h"
+#include "WheelGuard.h"
 #include <QApplication>
 #include <QSurfaceFormat>
 
@@ -16,6 +17,11 @@ int main(int argc, char *argv[]) {
   app.setApplicationName("Vayu GCS");
   app.setApplicationVersion("1.0.0");
   app.setOrganizationName("Vayu");
+
+  // Stop the mouse wheel from silently editing spin boxes / combos while the
+  // user is just scrolling a panel. Values change via the up/down buttons or
+  // typing instead. (Filter is owned by `app` and lives for the whole run.)
+  app.installEventFilter(new ui::WheelGuard(&app));
 
   // Apply the single source-of-truth dark theme + palette. Every
   // per-widget styling decision should reference Theme.h or the qss

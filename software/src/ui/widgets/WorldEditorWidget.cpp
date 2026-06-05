@@ -30,7 +30,7 @@ QDoubleSpinBox* spin(double lo, double hi, int decimals, double step,
   s->setSingleStep(step);
   s->setValue(val);
   if (!suffix.isEmpty()) s->setSuffix(suffix);
-  s->setButtonSymbols(QAbstractSpinBox::NoButtons);
+  s->setButtonSymbols(QAbstractSpinBox::UpDownArrows);
   return s;
 }
 
@@ -307,9 +307,12 @@ void WorldEditorWidget::onLoadWorld() {
     fileStatus_->setText(tr("Loaded %1 (%2 obstacles)")
                              .arg(QFileInfo(path).fileName())
                              .arg(cfg_.obstacles.size()));
-  // Push to the daemon (env) + renderer/persistence (obstacles).
+  // Push to the daemon (env) + renderer/persistence (obstacles) + reload the
+  // imported world mesh (a .vworld can carry world_mesh_path/scale/up-axis, so
+  // without this the mesh fields update but the geometry never (re)loads).
   emit worldApplied();
   emit obstaclesChanged();
+  emit worldMeshChanged();
 }
 
 void WorldEditorWidget::buildObstacleSection(QVBoxLayout* root) {
