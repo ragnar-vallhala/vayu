@@ -37,6 +37,11 @@ public:
     }
     void clearWorldMesh() { world_mesh_ = trimesh::Bvh{}; has_world_mesh_ = false; }
 
+    // Test-rig mode: pin translation to `pos` (zero linear velocity each step)
+    // and leave rotation free — a frictionless attitude gimbal for autotuning.
+    // off restores normal free-flight integration + ground/obstacle contact.
+    void setTestRig(bool on, const Vec3& pos) { test_rig_ = on; rig_pos_ = pos; }
+
     // One RK4 step. force_b and torque_b are body-frame.
     void step(const Vec3& force_b, const Vec3& torque_b, float dt);
 
@@ -70,6 +75,8 @@ private:
     trimesh::Bvh   world_mesh_;            // non-owning view (mmap'd in main.cpp)
     bool           has_world_mesh_ = false;
     float          world_mesh_restitution_ = 0.3f;
+    bool           test_rig_ = false;          // pin translation, free rotation
+    Vec3           rig_pos_{0.0f, 0.0f, 0.0f}; // held position when test_rig_
     // Cached inverse of params_.inertia; kept in sync by setParams().
     // Default matches the default DroneParams inertia.
     Mat3           I_inv_ = DroneParams{}.inertia.inverse();

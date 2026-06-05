@@ -230,6 +230,16 @@ int main(int /*argc*/, char** /*argv*/) {
                     std::fprintf(stderr, "vsim_d: %s\n", paused ? "paused" : "resumed");
                     break;
                 }
+                case VSIM_CTL_SET_TESTRIG: {
+                    vsim_ctl_testrig_t t;
+                    std::memcpy(&t, cmd.body, sizeof(t));
+                    ctl.setTestRig(t.enable != 0,
+                                   vsim::Vec3(t.pos[0], t.pos[1], t.pos[2]));
+                    std::fprintf(stderr, "vsim_d: test-rig %s @ (%.2f,%.2f,%.2f)\n",
+                                 t.enable ? "ON" : "off",
+                                 t.pos[0], t.pos[1], t.pos[2]);
+                    break;
+                }
                 case VSIM_CTL_PING:
                     std::fprintf(stderr, "vsim_d: ping ok, tick=%llu\n",
                                  static_cast<unsigned long long>(tick));

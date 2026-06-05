@@ -118,6 +118,7 @@ enum {
     VSIM_CTL_SET_RATES       = 9,  // body: vsim_ctl_rates_t — loop/sample rates
     VSIM_CTL_SET_WORLD_MESH  = 10, // body: vsim_ctl_world_mesh_t — mmap a BVH file
     VSIM_CTL_CLEAR_WORLD_MESH= 11, // body: empty — drop the world mesh
+    VSIM_CTL_SET_TESTRIG     = 12, // body: vsim_ctl_testrig_t — pin translation
 };
 
 typedef struct {
@@ -191,6 +192,16 @@ typedef struct {
     float   rot_deg[3];
     float   restitution;
 } vsim_ctl_obstacle_t;
+
+// Body for VSIM_CTL_SET_TESTRIG: a "tuning rig" that pins the body's
+// translation to `pos` (zeroing linear velocity every step) while leaving
+// rotation free. Turns the sim into a frictionless 3-DOF attitude gimbal so a
+// PID autotuner can excite clean roll/pitch/yaw step responses without the
+// craft drifting or needing altitude hold. enable=0 restores free flight.
+typedef struct {
+    int32_t enable;     // 0 = free flight, non-zero = pinned attitude rig
+    float   pos[3];     // NED world position to hold the body at [m]
+} vsim_ctl_testrig_t;
 
 // Body for VSIM_CTL_SET_RATES: simulation loop rates [Hz].
 //   imu_hz     -- IMU emit + wall-clock pace rate; the firmware's inner loop
