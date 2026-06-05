@@ -1,0 +1,1881 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Vayu GCS — Ground Control Station</title>
+<style>
+/* =====================================================================
+ * Vayu GCS — native desktop application mockup
+ * Palette mirrors software/src/core/Theme.h + resources/styles/dark.qss.
+ * Goal: read as a dense Qt/QWidget application, NOT a web dashboard —
+ * window chrome, menu bar, flat toolbar, docked panels with splitter
+ * handles, titled group frames, sunken status bar. No rounded cards,
+ * no gradients/shadows on content, minimal radius, tight spacing.
+ * ===================================================================== */
+:root {
+  --bg:          #1A1D27;
+  --surface:     #21252B;
+  --surface-alt: #2C313A;
+  --base:        #13141B;
+  --border:      #2A3347;
+  --border-strong:#3E4452;
+  --text:        #DCDFE4;
+  --text-muted:  #ABB2BF;
+  --text-dim:    #5C6370;
+  --accent:      #61AFEF;
+  --ok:          #98C379;
+  --warn:        #D19A66;
+  --danger:      #E06C75;
+  --roll:        #FF6B6B;
+  --pitch:       #4ECDC4;
+  --yaw:         #FFE66D;
+  font-family: "Segoe UI", "Noto Sans", "DejaVu Sans", system-ui, sans-serif;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body { background: #0d0e13; color: var(--text); font-size: 12px; overflow: hidden; -webkit-font-smoothing: antialiased; }
+.mono { font-family: "DejaVu Sans Mono", "Consolas", ui-monospace, monospace; }
+
+/* ===== Application window ===== */
+.window {
+  height: 100vh;
+  display: grid;
+  grid-template-rows: 30px 24px 38px 1fr 24px;
+  grid-template-areas: "titlebar" "menubar" "toolbar" "body" "statusbar";
+  background: var(--bg);
+  border: 1px solid #000;
+}
+
+/* ----- Title bar ----- */
+.titlebar {
+  grid-area: titlebar;
+  background: linear-gradient(#23272f, #1c2027);
+  border-bottom: 1px solid #000;
+  display: flex; align-items: center; gap: 8px;
+  padding: 0 10px;
+  -webkit-user-select: none; user-select: none;
+}
+.titlebar .ico { width: 14px; height: 14px; fill: var(--accent); }
+.titlebar .ttl { font-size: 12px; color: var(--text-muted); font-weight: 600; }
+.titlebar .wbtns { margin-left: auto; display: flex; gap: 8px; }
+.titlebar .wbtn { width: 12px; height: 12px; border-radius: 50%; }
+.wbtn.min { background: #d19a66; } .wbtn.max { background: #98c379; } .wbtn.close { background: #e06c75; }
+
+/* ----- Menu bar ----- */
+.menubar {
+  grid-area: menubar;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: stretch;
+}
+.menu { position: relative; padding: 0 11px; display: flex; align-items: center; color: var(--text-muted); cursor: default; }
+.menu:hover, .menu.open { background: var(--border); color: #fff; }
+.menu u { text-decoration: underline; }
+/* dropdown */
+.dropdown {
+  display: none; position: absolute; top: 100%; left: 0; min-width: 210px;
+  background: var(--surface); border: 1px solid var(--border-strong);
+  box-shadow: 0 8px 22px rgba(0,0,0,.55); z-index: 200; padding: 4px 0;
+}
+.menu.open .dropdown { display: block; }
+.mi { display: flex; align-items: center; gap: 9px; padding: 5px 14px 5px 10px; color: var(--text-muted); cursor: default; white-space: nowrap; font-weight: 400; }
+.mi:hover { background: var(--border-strong); color: #fff; }
+.mi .mi-ico { width: 15px; height: 15px; stroke: currentColor; fill: none; stroke-width: 1.7; flex: none; }
+.mi .sc { margin-left: auto; padding-left: 28px; color: var(--text-dim); font-size: 11px; }
+.mi[data-page]::before { content: ""; width: 11px; flex: none; color: var(--accent); font-size: 11px; }
+.mi[data-page].active::before { content: "●"; }
+.mi[data-page].active { color: #fff; }
+.msep { height: 1px; background: var(--border); margin: 4px 0; }
+
+/* ----- Toolbar ----- */
+.toolbar {
+  grid-area: toolbar;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 5px;
+  padding: 0 6px;
+}
+.tb-sep { width: 1px; align-self: stretch; margin: 6px 3px; background: var(--border); }
+.tb-lbl { color: var(--text-dim); font-size: 11px; padding: 0 2px; }
+.tb-btn {
+  height: 26px; display: inline-flex; align-items: center; gap: 5px;
+  padding: 0 8px; border: 1px solid transparent; background: transparent;
+  color: var(--text-muted); border-radius: 3px; cursor: pointer; font-size: 12px;
+}
+.tb-btn svg { width: 15px; height: 15px; stroke: currentColor; fill: none; stroke-width: 1.7; }
+.tb-btn:hover { background: var(--surface-alt); border-color: var(--border-strong); color: var(--text); }
+.tb-btn.icon-only { padding: 0 6px; }
+.tb-btn.success { background: #2d5a3d; border-color: #3a7050; color: #d6f0df; }
+.tb-btn.success:hover { background: #356a48; }
+.tb-btn.danger { background: #5a2d33; border-color: #783a42; color: #f0d6da; }
+.tb-btn.danger:hover { background: #6a343c; }
+.tb-btn.armtog { background: #5a2d33; border-color: #783a42; color: #f0d6da; font-weight: 700; }
+
+select, input.txt {
+  height: 24px; background: var(--surface); color: var(--text-muted);
+  border: 1px solid var(--border-strong); border-radius: 2px;
+  padding: 0 5px; font-size: 12px; outline: none;
+}
+select:focus, input.txt:focus { border-color: var(--accent); }
+
+.tb-live {
+  margin-left: 6px; display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11px; font-weight: 700; letter-spacing: .5px; color: var(--text-dim);
+  border: 1px solid var(--border); border-radius: 2px; padding: 3px 8px; background: var(--base);
+}
+.tb-live.on { color: var(--ok); border-color: #3a7050; }
+.tb-live .d { width: 7px; height: 7px; border-radius: 50%; background: var(--text-dim); }
+.tb-live.on .d { background: var(--ok); }
+
+/* ===== Body: nav rail + dock area ===== */
+.body { grid-area: body; display: grid; grid-template-columns: 1fr; overflow: hidden; }
+.nav-spacer { flex: 1; }
+
+/* Dock area */
+.dock { overflow: hidden; position: relative; background: var(--bg); }
+.page { display: none; height: 100%; }
+.page.active { display: block; }
+
+/* Splitter-style dock layout for the flight page */
+.dock-v { display: grid; grid-template-rows: 1fr 4px 190px; height: 100%; }
+.dock-h { display: grid; grid-template-columns: 360px 4px 1fr; }
+.split-h { background: var(--border); cursor: col-resize; }
+.split-v { background: var(--border); cursor: row-resize; }
+.split-h:hover, .split-v:hover { background: var(--accent); }
+
+/* Panel = titled docked frame (QGroupBox feel) */
+.panel { display: flex; flex-direction: column; background: var(--bg); overflow: hidden; min-height: 0; }
+.panel-title {
+  display: flex; align-items: center; gap: 6px;
+  height: 24px; padding: 0 8px; flex: none;
+  background: var(--surface); border-bottom: 1px solid var(--border);
+  color: var(--text-muted); font-size: 11px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: .4px;
+}
+.panel-title svg { width: 13px; height: 13px; stroke: currentColor; fill: none; stroke-width: 1.7; }
+.panel-title .tt { margin-left: auto; display: flex; gap: 2px; }
+.tbtn {
+  font-size: 10px; padding: 1px 7px; border: 1px solid var(--border-strong);
+  background: var(--surface-alt); color: var(--text-muted); border-radius: 2px;
+  cursor: pointer; text-transform: none; letter-spacing: 0;
+}
+.tbtn.on { background: #2a3a55; border-color: #3a5278; color: #cfe3ff; }
+.panel-body { padding: 8px; overflow: auto; flex: 1; min-height: 0; }
+
+/* Inner group frame (titled border like QGroupBox) */
+.gframe { border: 1px solid var(--border); border-radius: 3px; margin: 0 0 8px; position: relative; padding: 12px 8px 8px; }
+.gframe > .gtitle { position: absolute; top: -7px; left: 8px; background: var(--bg); padding: 0 5px; font-size: 11px; color: #7090C8; font-weight: 600; }
+
+/* ===== Attitude (fills the panel: rectangular ADI) ===== */
+#page-dash .panel-body { display: flex; flex-direction: column; }
+.state-bar {
+  text-align: center; font-weight: 700; font-size: 13px; letter-spacing: 2px;
+  padding: 4px; border: 1px solid #3a7050; color: var(--ok);
+  background: #1a2d23; border-radius: 2px; margin-bottom: 6px; flex: none;
+}
+/* Attitude Direction Indicator — grows to fill remaining height */
+.adi {
+  flex: 1; min-height: 80px; position: relative; overflow: hidden;
+  border: 1px solid var(--border-strong); border-radius: 3px; background: #000;
+}
+.adi-inner {
+  position: absolute; left: 50%; top: 50%; width: 320%; height: 320%;
+  transform: translate(-50%,-50%); will-change: transform;
+}
+.adi-sky { position: absolute; left: 0; right: 0; top: 0; height: 50%; background: linear-gradient(#5a8fc8, #3f6e9e); }
+.adi-ground { position: absolute; left: 0; right: 0; top: 50%; bottom: 0; background: linear-gradient(#7a5e3c, #5a4429); }
+.adi-line { position: absolute; left: 0; right: 0; top: 50%; height: 2px; background: #fff; transform: translateY(-1px); }
+/* pitch ladder */
+.pitch-mark { position: absolute; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; color: #fff; font-size: 10px; }
+.pitch-mark .bar { width: 46px; height: 1px; background: rgba(255,255,255,.85); }
+.pitch-mark .num { width: 16px; text-align: center; opacity: .85; }
+/* fixed aircraft reference */
+.adi-ref { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); display: flex; align-items: center; }
+.adi-ref .wing { width: 34px; height: 3px; background: var(--yaw); box-shadow: 0 0 3px rgba(0,0,0,.8); }
+.adi-ref .dot { width: 6px; height: 6px; background: var(--yaw); border-radius: 50%; margin: 0 5px; box-shadow: 0 0 3px rgba(0,0,0,.8); }
+/* roll scale + bank pointer at top */
+.roll-scale { position: absolute; left: 0; right: 0; top: 0; height: 26px; pointer-events: none; }
+.roll-scale .bank-ptr { position: absolute; left: 50%; top: 3px; transform: translateX(-50%); width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 9px solid var(--yaw); }
+.roll-scale svg { width: 100%; height: 100%; }
+/* heading tape at the bottom */
+.hdg-tape { flex: none; height: 26px; margin-top: 6px; position: relative; overflow: hidden; border: 1px solid var(--border-strong); border-radius: 3px; background: var(--base); }
+.hdg-tape .strip { position: absolute; top: 0; bottom: 0; display: flex; align-items: center; will-change: transform; font-size: 11px; color: var(--text-muted); }
+.hdg-tape .htick { width: 44px; text-align: center; flex: none; }
+.hdg-tape .hcur { position: absolute; left: 50%; top: 0; bottom: 0; width: 0; transform: translateX(-50%); border-left: 1px solid var(--yaw); }
+.hdg-tape .hcur::before { content: ""; position: absolute; left: 50%; top: 0; transform: translateX(-50%); border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 7px solid var(--yaw); }
+
+/* ===== 3D airframe view ===== */
+.adi3d {
+  flex: 1; min-height: 80px; position: relative; overflow: hidden;
+  border: 1px solid var(--border-strong); border-radius: 3px;
+  background: radial-gradient(circle at 50% 30%, #1c2533 0%, #0c0f16 75%);
+  perspective: 720px; display: grid; place-items: center;
+}
+.adi3d::after { /* ground shadow */
+  content: ""; position: absolute; left: 50%; top: 64%; width: 150px; height: 30px;
+  transform: translate(-50%,-50%); border-radius: 50%;
+  background: radial-gradient(ellipse, rgba(0,0,0,.55), transparent 70%);
+}
+.hidden { display: none !important; }
+.scene { transform-style: preserve-3d; width: 200px; height: 200px; position: relative; transform: rotateX(58deg); }
+.drone { position: absolute; inset: 0; transform-style: preserve-3d; will-change: transform; }
+.arm {
+  position: absolute; left: 50%; top: 50%; width: 158px; height: 8px;
+  margin: -4px 0 0 -79px; border-radius: 4px;
+  background: linear-gradient(#2c313a, #161a22); border: 1px solid #3e4452;
+}
+.arm.a1 { transform: rotateZ(45deg); } .arm.a2 { transform: rotateZ(-45deg); }
+.hub {
+  position: absolute; left: 50%; top: 50%; width: 48px; height: 40px;
+  margin: -20px 0 0 -24px; border-radius: 9px;
+  background: linear-gradient(#3a414e, #20252f); border: 1px solid #4a525f; transform: translateZ(3px);
+}
+.nose { /* heading marker on the hub front */
+  position: absolute; left: 50%; top: -9px; transform: translateX(-50%);
+  width: 0; height: 0; border-left: 7px solid transparent; border-right: 7px solid transparent; border-bottom: 11px solid var(--accent);
+}
+.unit { position: absolute; left: 50%; top: 50%; transform-style: preserve-3d; }
+.pod { position: absolute; left: -14px; top: -14px; width: 28px; height: 28px; border-radius: 50%;
+  background: radial-gradient(circle at 40% 35%, #424a57, #181b24); border: 2px solid #5a626f; }
+.unit.front .pod { border-color: var(--danger); box-shadow: 0 0 6px rgba(224,108,117,.5); }
+.unit.rear  .pod { border-color: var(--ok);     box-shadow: 0 0 6px rgba(152,195,121,.45); }
+.prop { position: absolute; left: -24px; top: -24px; width: 48px; height: 48px; transform: translateZ(11px); border-radius: 50%; }
+.blades { position: absolute; inset: 0; animation: spin .22s linear infinite; }
+.blades::before, .blades::after { content: ""; position: absolute; left: 50%; top: 50%; width: 48px; height: 5px;
+  margin: -2.5px 0 0 -24px; border-radius: 3px; background: rgba(190,205,225,.30); }
+.blades::after { transform: rotate(90deg); }
+@keyframes spin { to { transform: rotateZ(360deg); } }
+.view-hint { position: absolute; left: 8px; bottom: 6px; font-size: 10px; color: var(--text-dim); }
+
+.rpy { display: flex; justify-content: space-around; margin-top: 6px; flex: none; }
+.rpy .ax { text-align: center; flex: 1; }
+.rpy .ax .t { font-size: 10px; font-weight: 700; }
+.rpy .ax .v { font-size: 17px; font-weight: 700; margin: 1px 0; }
+.rpy .ax .s { font-size: 9px; color: var(--text-dim); }
+
+/* ===== IMU graphs ===== */
+.imu-wrap { display: flex; gap: 8px; height: 100%; min-height: 0; }
+.imu-col { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.imu-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; flex: 1; min-height: 0; }
+.status-key { flex: none; display: flex; flex-wrap: wrap; gap: 14px; font-size: 9px; color: var(--text-dim); padding: 0 2px; align-items: center; }
+.status-key .sk-cap { color: var(--text-muted); font-weight: 600; }
+.status-key i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; background: var(--c); margin-right: 4px; vertical-align: -1px; opacity: .6; }
+/* vertical device-temperature gauge */
+.temp-gauge { width: 116px; flex: none; display: flex; gap: 8px; }
+.vgauge { flex: 1; display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.tg-cap { text-align: center; font-size: 9px; color: var(--text-dim); font-weight: 700; letter-spacing: .4px; line-height: 1.2; }
+.tg-mid { flex: 1; display: flex; gap: 3px; min-height: 0; }
+.tg-ticks { display: flex; flex-direction: column; justify-content: space-between; font-size: 8px; color: var(--text-dim); text-align: right; padding: 1px 0; }
+.tg-track { flex: 1; position: relative; background: var(--base); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.tg-fill { position: absolute; left: 0; right: 0; bottom: 0; height: 40%;
+  background: linear-gradient(to top, #3a5f8f, #61AFEF 25%, #98C379 50%, #D19A66 75%, #E06C75); }
+.tg-fill.batt { background: linear-gradient(to top, #E06C75, #D19A66 35%, #98C379 62%); }
+.tg-mark { position: absolute; left: 0; right: 0; height: 1px; background: rgba(255,255,255,.08); }
+.tg-read { text-align: center; font-size: 11px; font-weight: 700; white-space: nowrap; }
+.graph { background: var(--base); border: 1px solid var(--border); border-radius: 2px; padding: 4px 6px; display: flex; flex-direction: column; }
+.graph .g-title { font-size: 10px; color: var(--text-muted); margin-bottom: 2px; display:flex; justify-content:space-between; align-items:center; }
+.graph .g-right { display: flex; align-items: center; gap: 8px; }
+.graph .unit { color: var(--text-dim); }
+.graph svg { width: 100%; flex: 1; display: block; min-height: 50px; }
+/* legend swatches */
+.legend { display: flex; gap: 7px; align-items: center; }
+.legend i { font-style: normal; font-size: 9px; font-weight: 700; color: var(--text-muted); display: inline-flex; align-items: center; gap: 3px; }
+.legend i::before { content: ""; width: 9px; height: 2px; border-radius: 1px; background: var(--c); }
+.legend i.leg-std::before { background: none; border-top: 1px dotted var(--text-muted); height: 0; }
+.legend i.leg-dot::before { background: none; border-top: 2px dotted var(--c); height: 0; }
+/* plot area + ticks/gridlines */
+.g-plot { position: relative; flex: 1; min-height: 46px; }
+.g-plot svg { position: absolute; inset: 0; width: 100%; height: 100%; flex: none; min-height: 0; }
+.g-status { position: absolute; inset: 0; opacity: .20; pointer-events: none; }  /* vehicle-state band */
+.g-grid { position: absolute; inset: 0; pointer-events: none; }
+.g-grid .gl { position: absolute; left: 0; right: 0; border-top: 1px dashed rgba(255,255,255,.07); }
+.g-grid .gv { position: absolute; left: -1px; transform: translateY(-50%); font-size: 8px; color: var(--text-muted); background: rgba(19,20,27,.85); padding: 0 2px; border-radius: 2px; }
+.g-grid .gvR { left: auto; right: -1px; color: var(--text-dim); }
+.g-grid .gx { position: absolute; top: 0; bottom: 0; border-left: 1px dashed rgba(255,255,255,.05); }
+/* x-axis time labels */
+.g-xaxis { flex: none; display: flex; justify-content: space-between; font-size: 8px; color: var(--text-dim); padding: 1px 2px 0; }
+
+/* ===== Control Loop dashboard ===== */
+.cl-grid { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 8px; height: 100%; min-height: 0; }
+.cl-sec { display: flex; flex-direction: column; min-height: 0; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); overflow: hidden; }
+.cl-head { display: flex; align-items: center; gap: 10px; padding: 5px 8px; border-bottom: 1px solid var(--border); flex: none; flex-wrap: wrap; }
+.cl-title { font-size: 11px; font-weight: 700; color: var(--accent); text-transform: uppercase; letter-spacing: .4px; }
+.cl-stats { margin-left: auto; display: flex; gap: 12px; flex-wrap: wrap; }
+.cl-stat { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.15; }
+.cl-stat .nm { display: flex; align-items: center; gap: 3px; font-size: 9px; color: var(--text-dim); }
+.cl-stat .nm i { width: 9px; height: 2px; background: var(--c); display: inline-block; }
+.cl-stat .nm i.dash { height: 0; background: none; border-top: 2px dashed var(--c); }
+.cl-stat b { font-size: 12px; font-weight: 700; }
+.cl-plot { position: relative; flex: 1; min-height: 42px; }
+.cl-plot svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+
+/* ===== Log ===== */
+.log-lines { font-size: 12px; line-height: 1.55; padding: 4px 8px; height: 100%; overflow: auto; background: var(--base); }
+.log-lines .t { color: var(--text-dim); }
+.log-lines .info { color: var(--text-muted); }
+.log-lines .ok { color: var(--ok); }
+.log-lines .warn { color: var(--warn); }
+.log-lines .err { color: var(--danger); }
+
+/* ===== Generic readout fields ===== */
+.fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px,1fr)); gap: 6px; }
+.field { display: flex; justify-content: space-between; align-items: center; background: var(--surface); border: 1px solid var(--border); border-radius: 2px; padding: 5px 8px; }
+.field .k { color: var(--text-dim); font-size: 11px; }
+.field .v { font-weight: 700; font-size: 13px; }
+
+/* ===== RC ===== */
+.rc-top { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+.stickbox, .modebox { flex: none; }
+.linkbox { flex: 1; min-width: 240px; }
+.gimbal-wrap { display: flex; gap: 14px; }
+.gimbal { position: relative; width: 134px; height: 134px; background: var(--base); border: 1px solid var(--border-strong); border-radius: 4px; }
+.gimbal .gx-h { position: absolute; left: 6px; right: 6px; top: 50%; border-top: 1px dashed rgba(255,255,255,.13); }
+.gimbal .gx-v { position: absolute; top: 6px; bottom: 6px; left: 50%; border-left: 1px dashed rgba(255,255,255,.13); }
+.gimbal .dot { position: absolute; width: 16px; height: 16px; border-radius: 50%; background: var(--accent); border: 2px solid #cfe3ff; transform: translate(-50%,-50%); box-shadow: 0 0 8px rgba(97,175,239,.6); }
+.stk-cap { text-align: center; font-size: 10px; color: var(--text-dim); margin-top: 5px; }
+.rssi-bar { height: 8px; margin-top: 10px; background: var(--base); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+.rssi-fill { height: 100%; background: linear-gradient(90deg, var(--danger), var(--warn) 55%, var(--ok)); }
+.sw-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 7px; }
+.sw-row:last-child { margin-bottom: 0; }
+.sw-lbl { font-size: 11px; color: var(--text-muted); }
+.sw2, .sw3 { display: flex; border: 1px solid var(--border-strong); border-radius: 3px; overflow: hidden; }
+.sw2 span, .sw3 span { font-size: 9px; padding: 3px 8px; color: var(--text-dim); border-right: 1px solid var(--border-strong); }
+.sw2 span:last-child, .sw3 span:last-child { border-right: 0; }
+.sw2 span.on, .sw3 span.on { background: #2a3a55; color: #cfe3ff; font-weight: 700; }
+.rc-channels { display: grid; grid-template-columns: 1fr 1fr; gap: 9px 28px; }
+.rc-row { display: flex; align-items: center; gap: 8px; }
+.rc-row .name { width: 150px; color: var(--text-muted); font-size: 12px; }
+.rc-bar { flex: 1; height: 16px; background: var(--base); border: 1px solid var(--border); border-radius: 2px; position: relative; overflow: hidden; }
+.rc-bar .fill { position: absolute; top: 0; bottom: 0; left: 0; background: #3a5f8f; }
+.rc-bar .mid { position: absolute; top: 0; bottom: 0; left: 50%; width: 1px; background: var(--border-strong); }
+.rc-row .pwm { width: 50px; text-align: right; }
+
+/* ===== Motors ===== */
+.motor-layout { display: grid; place-items: center; height: 100%; }
+.schematic { position: relative; width: 100%; max-width: 460px; aspect-ratio: 1 / 1; }
+.schematic svg { width: 100%; height: 100%; display: block; }
+.mprop { position: absolute; width: 54px; height: 54px; transform: translate(-50%,-50%); pointer-events: none; }
+.mblades { position: absolute; inset: 0; border-radius: 50%; opacity: .4; animation: spin .4s linear infinite;
+  background: conic-gradient(from 0deg, transparent 0deg, rgba(190,205,225,.30) 22deg, transparent 64deg, transparent 180deg, rgba(190,205,225,.30) 202deg, transparent 244deg); }
+.ml-top { position: absolute; transform: translate(-50%,-50%); font-size: 10px; font-weight: 700; white-space: nowrap; pointer-events: none; text-shadow: 0 1px 3px #000; }
+.ml-pct { position: absolute; transform: translate(-50%,-50%); font-size: 21px; font-weight: 800; pointer-events: none; text-shadow: 0 1px 4px #000, 0 0 7px #000; }
+/* per-motor stat cards */
+.mcard { display: flex; align-items: center; gap: 8px; padding: 6px 9px; background: var(--surface); border: 1px solid var(--border); border-radius: 3px; margin-bottom: 6px; }
+.mcard .mdot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.mcard .mname { font-weight: 700; }
+.mcard .mdir { color: var(--text-dim); font-size: 10px; }
+.mcard .mval { margin-left: auto; font-weight: 700; }
+.mcard .mstd { color: var(--text-dim); font-size: 10px; width: 66px; text-align: right; }
+
+/* ===== Settings ===== */
+.setting { display: flex; align-items: center; justify-content: space-between; padding: 8px 4px; border-bottom: 1px solid var(--border); }
+.setting:last-child { border: 0; }
+.setting .name { font-size: 12px; }
+.setting .desc { color: var(--text-dim); font-size: 11px; margin-top: 1px; }
+.spin { display: inline-flex; border: 1px solid var(--border-strong); border-radius: 2px; overflow: hidden; height: 24px; }
+.spin input { border: 0; width: 64px; text-align: right; background: var(--surface); height: 100%; }
+.spin .sb { width: 18px; display: grid; place-items: center; background: var(--surface-alt); color: var(--text-muted); border-left: 1px solid var(--border-strong); cursor: pointer; font-size: 9px; }
+.chk { width: 16px; height: 16px; border: 1px solid var(--border-strong); border-radius: 2px; background: var(--surface); display: grid; place-items: center; cursor: pointer; }
+.chk.on { background: #2a3a55; border-color: var(--accent); }
+.chk.on::after { content: "✓"; color: var(--accent); font-size: 12px; }
+
+/* ===== Tables ===== */
+table { width: 100%; border-collapse: collapse; font-size: 12px; }
+th { text-align: left; color: var(--text-dim); font-size: 11px; font-weight: 600; padding: 5px 8px; background: var(--surface); border-bottom: 1px solid var(--border); position: sticky; top: 0; }
+td { padding: 4px 8px; border-bottom: 1px solid var(--border); color: var(--text-muted); }
+tr:nth-child(even) td { background: rgba(255,255,255,.015); }
+tr:hover td { background: var(--surface-alt); }
+.tag { font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 2px; }
+.tag.rx { background: rgba(97,175,239,.15); color: var(--accent); }
+.tag.tx { background: rgba(209,154,102,.15); color: var(--warn); }
+/* ----- Packet Analyzer ----- */
+.freq-ribbon { display: flex; gap: 6px; flex-wrap: wrap; padding: 7px 10px; border-bottom: 1px solid var(--border); flex: none; }
+.freq-pill { display: inline-flex; align-items: center; gap: 6px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 3px 10px; font-size: 11px; color: var(--text-muted); }
+.freq-pill .fp-dot { width: 8px; height: 8px; border-radius: 50%; }
+.freq-pill .fp-hz { font-family: "DejaVu Sans Mono", monospace; font-weight: 700; color: var(--text); }
+.filter-bar { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--border); flex: none; flex-wrap: wrap; }
+.fb-lbl { font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: .5px; }
+.type-chips { display: flex; gap: 5px; flex-wrap: wrap; }
+.type-chips .tbtn { display: inline-flex; align-items: center; gap: 5px; }
+.type-chips .tbtn .tc-dot { width: 7px; height: 7px; border-radius: 50%; }
+.type-chips .tbtn:not(.on) { opacity: .45; }
+.pkt-table-wrap { overflow: auto; min-height: 0; }
+.pkt-table-wrap tr.sel td { background: #2a3a55 !important; }
+.pkt-table-wrap tr td { cursor: pointer; }
+/* decoder */
+.decoder-panel { overflow: auto; min-height: 0; background: var(--surface); }
+.dec-empty { color: var(--text-dim); text-align: center; padding: 40px 16px; font-style: italic; }
+.dec-h { font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: var(--accent); padding: 8px 10px 3px; font-weight: 700; }
+.dec-field { display: flex; justify-content: space-between; gap: 10px; padding: 3px 10px; border-bottom: 1px solid var(--border); font-size: 12px; }
+.dec-field .dk { color: var(--text-dim); }
+.dec-field .dv { font-family: "DejaVu Sans Mono", monospace; font-weight: 600; text-align: right; word-break: break-all; }
+.dec-field .dv .u { color: var(--text-dim); font-weight: 400; margin-left: 4px; }
+.dec-hex { font-family: "DejaVu Sans Mono", monospace; font-size: 11.5px; line-height: 1.8; padding: 8px 10px; word-break: break-all; }
+.dec-hex .hh { color: var(--accent); }        /* header bytes */
+.dec-hex .hp { color: var(--text-muted); }     /* payload bytes */
+.dec-hex .hc { color: var(--warn); }           /* crc bytes */
+.dec-legend { display: flex; gap: 12px; font-size: 9px; color: var(--text-dim); padding: 2px 10px 8px; }
+.dec-legend i { font-style: normal; }
+/* ----- Simulator FPV viewport ----- */
+.sim-view { position: relative; flex: 1; min-height: 220px; overflow: hidden; border: 1px solid var(--border-strong); border-radius: 3px; background: #0a0d14; }
+.sim-view > canvas { width: 100%; height: 100%; display: block; }
+/* picture-in-picture overlay boxes (down-cam, ADI) */
+.pip { position: absolute; z-index: 5; background: rgba(8,11,17,.82); border: 1px solid rgba(90,255,160,.5); border-radius: 3px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,.5); display: flex; flex-direction: column; resize: both; min-width: 96px; min-height: 72px; }
+.pip.hidden { display: none; }
+.pip .pip-h { font-size: 9px; font-weight: 700; color: rgb(90,255,160); padding: 2px 6px; letter-spacing: .5px; border-bottom: 1px solid rgba(90,255,160,.3); background: rgba(0,0,0,.4); cursor: move; user-select: none; flex: none; }
+.pip .pip-h::before { content: "⠿ "; opacity: .6; }
+.pip canvas { width: 100%; flex: 1; min-height: 0; display: block; }
+.pip::-webkit-resizer { background: rgba(90,255,160,.35); }
+.pip.downcam { top: 34px; right: 8px; width: 142px; height: 130px; }
+.pip.adi { top: 34px; left: 8px; width: 128px; height: 114px; }
+.fpv-horizon { position: absolute; inset: 0; overflow: hidden; }
+.fpv-inner { position: absolute; left: 50%; top: 50%; width: 320%; height: 320%; transform: translate(-50%,-50%); will-change: transform; }
+.fpv-sky { position: absolute; left: 0; right: 0; top: 0; height: 50%; background: linear-gradient(#4f86bf, #2f5d8c); }
+.fpv-ground { position: absolute; left: 0; right: 0; top: 50%; bottom: 0; background: linear-gradient(#6f5638, #4a3a26); background-image: linear-gradient(rgba(255,255,255,.05) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.05) 1px, transparent 1px); background-size: 36px 36px; }
+.fpv-line { position: absolute; left: 0; right: 0; top: 50%; height: 2px; background: #fff; transform: translateY(-1px); }
+.fpv-pm { position: absolute; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; color: #fff; font-size: 9px; text-shadow: 0 1px 2px #000; }
+.fpv-pm .bar { width: 40px; height: 1px; background: rgba(255,255,255,.8); }
+/* center reticle */
+.fpv-reticle { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); display: flex; align-items: center; z-index: 3; }
+.fpv-reticle .w { width: 24px; height: 2px; background: var(--yaw); box-shadow: 0 0 3px #000; }
+.fpv-reticle .d { width: 5px; height: 5px; border-radius: 50%; background: var(--yaw); margin: 0 4px; }
+/* vertical tapes */
+.vtape { position: absolute; top: 34px; bottom: 30px; width: 48px; background: rgba(8,11,17,.55); border: 1px solid rgba(255,255,255,.12); overflow: hidden; z-index: 3; }
+.vtape.left { left: 8px; } .vtape.right { right: 8px; }
+.vtape .vt-cap { position: absolute; top: 2px; left: 0; right: 0; text-align: center; font-size: 9px; color: var(--text-dim); z-index: 2; }
+.vtape .col { position: absolute; left: 0; right: 0; will-change: transform; }
+.vtape .vt-tick { height: 28px; display: flex; align-items: center; justify-content: center; font-size: 10px; color: rgba(255,255,255,.7); font-family: "DejaVu Sans Mono", monospace; }
+.vtape .vt-cur { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%); height: 20px; background: rgba(0,0,0,.75); border-top: 1px solid var(--yaw); border-bottom: 1px solid var(--yaw); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 11px; color: var(--yaw); font-family: "DejaVu Sans Mono", monospace; z-index: 2; }
+/* heading tape (top) */
+.fpv-hdg { position: absolute; top: 6px; left: 64px; right: 64px; height: 22px; background: rgba(8,11,17,.55); border: 1px solid rgba(255,255,255,.12); overflow: hidden; z-index: 3; }
+.fpv-hdg .strip { position: absolute; top: 0; bottom: 0; display: flex; align-items: center; will-change: transform; font-size: 11px; color: rgba(255,255,255,.75); font-family: "DejaVu Sans Mono", monospace; }
+.fpv-hdg .htick { width: 44px; text-align: center; flex: none; }
+.fpv-hdg .cur { position: absolute; left: 50%; top: 0; transform: translateX(-50%); border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 7px solid var(--yaw); }
+/* overlays */
+.fpv-status { position: absolute; top: 34px; left: 64px; z-index: 3; font-size: 11px; line-height: 1.5; text-shadow: 0 1px 2px #000; }
+.fpv-status .st { font-weight: 700; color: var(--ok); letter-spacing: 1px; }
+.fpv-status .dim { color: rgba(255,255,255,.7); font-family: "DejaVu Sans Mono", monospace; }
+.fpv-motors { position: absolute; bottom: 8px; left: 64px; display: flex; gap: 5px; align-items: flex-end; z-index: 3; }
+.fpv-motors .m { width: 8px; height: 44px; background: rgba(0,0,0,.5); border: 1px solid rgba(255,255,255,.2); position: relative; }
+.fpv-motors .m .f { position: absolute; left: 0; right: 0; bottom: 0; background: var(--ok); }
+.fpv-thr { position: absolute; bottom: 8px; right: 64px; z-index: 3; font-size: 11px; color: var(--yaw); font-family: "DejaVu Sans Mono", monospace; text-shadow: 0 1px 2px #000; }
+.sim-toolbar { display: flex; gap: 6px; align-items: center; margin-top: 8px; flex: none; flex-wrap: wrap; }
+/* config tabs + RC */
+.tabbar { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin: -8px -8px 8px; }
+.tabbar .tab { padding: 7px 14px; font-size: 11px; font-weight: 700; color: var(--text-dim); cursor: pointer; border-bottom: 2px solid transparent; }
+.tabbar .tab.on { color: var(--accent); border-bottom-color: var(--accent); }
+.tab-page { display: none; } .tab-page.on { display: block; }
+.rc-map { width: 100%; font-size: 11px; }
+.rc-map td { padding: 3px 4px; border-bottom: 1px solid var(--border); }
+.rc-map .axn { color: var(--text-muted); }
+.rc-bar-sm { height: 8px; background: var(--base); border: 1px solid var(--border); border-radius: 2px; position: relative; overflow: hidden; }
+.rc-bar-sm .f { position: absolute; top: 0; bottom: 0; left: 0; background: #3a5f8f; }
+/* editable motor grid */
+.motor-edit { width: 100%; border-collapse: collapse; font-size: 11px; }
+.motor-edit td { padding: 2px 2px; }
+.motor-edit .axn { color: var(--text-dim); font-size: 10px; text-align: center; }
+.motor-edit td:first-child { color: var(--text-muted); font-weight: 700; }
+.motor-edit input { width: 46px; height: 20px; background: var(--surface); color: var(--text); border: 1px solid var(--border-strong); border-radius: 2px; padding: 0 4px; font-size: 11px; font-family: "DejaVu Sans Mono", monospace; text-align: right; outline: none; }
+.motor-edit input:focus { border-color: var(--accent); }
+.motor-edit select { height: 20px; background: var(--surface); color: var(--text); border: 1px solid var(--border-strong); border-radius: 2px; font-size: 10px; outline: none; }
+.motor-edit select:focus { border-color: var(--accent); }
+
+/* ===== Status bar (sunken segments) ===== */
+.statusbar {
+  grid-area: statusbar; background: var(--bg); border-top: 1px solid var(--border);
+  display: flex; align-items: stretch; font-size: 11px; color: var(--text-muted);
+}
+.sb-seg { display: inline-flex; align-items: center; gap: 5px; padding: 0 10px; border-right: 1px solid var(--border); }
+.sb-seg .dot { width: 7px; height: 7px; border-radius: 50%; }
+.dot.green { background: var(--ok); } .dot.red { background: var(--danger); }
+.sb-grow { flex: 1; }
+.sb-right { color: var(--text-dim); padding: 0 10px; display: flex; align-items: center; }
+
+.placeholder { color: var(--text-dim); text-align: center; padding: 30px; }
+</style>
+</head>
+<body>
+<div class="window">
+
+  <!-- ===== Title bar ===== -->
+  <div class="titlebar">
+    <svg class="ico" viewBox="0 0 24 24"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+    <span class="ttl">Vayu GCS — Ground Control Station</span>
+    <div class="wbtns"><span class="wbtn min"></span><span class="wbtn max"></span><span class="wbtn close"></span></div>
+  </div>
+
+  <!-- ===== Menu bar ===== -->
+  <div class="menubar">
+    <div class="menu"><u>F</u>ile
+      <div class="dropdown">
+        <div class="mi" onclick="toggleConn()">Connect / Disconnect<span class="sc">Ctrl+K</span></div>
+        <div class="msep"></div>
+        <div class="mi">Load World…</div>
+        <div class="mi">Export Log…</div>
+        <div class="msep"></div>
+        <div class="mi">Exit<span class="sc">Ctrl+Q</span></div>
+      </div>
+    </div>
+    <div class="menu"><u>V</u>iew
+      <div class="dropdown">
+        <div class="mi active" data-page="dash" onclick="go('dash')"><svg class="mi-ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/></svg>Flight Dashboard<span class="sc">Ctrl+1</span></div>
+        <div class="mi" data-page="rc" onclick="go('rc')"><svg class="mi-ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M4 12h4M16 12h4M12 4v4M12 16v4"/></svg>RC Channels<span class="sc">Ctrl+2</span></div>
+        <div class="mi" data-page="motors" onclick="go('motors')"><svg class="mi-ico" viewBox="0 0 24 24"><circle cx="7" cy="7" r="3"/><circle cx="17" cy="7" r="3"/><circle cx="7" cy="17" r="3"/><circle cx="17" cy="17" r="3"/></svg>Motors<span class="sc">Ctrl+3</span></div>
+        <div class="mi" data-page="control" onclick="go('control')"><svg class="mi-ico" viewBox="0 0 24 24"><path d="M3 18l5-9 4 5 3-7 6 11"/></svg>Control Loop<span class="sc">Ctrl+4</span></div>
+        <div class="msep"></div>
+        <div class="mi" data-page="packets" onclick="go('packets')"><svg class="mi-ico" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg>Packet Analyzer<span class="sc">Ctrl+5</span></div>
+        <div class="mi" data-page="sim" onclick="go('sim')"><svg class="mi-ico" viewBox="0 0 24 24"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>Simulator<span class="sc">Ctrl+6</span></div>
+        <div class="msep"></div>
+        <div class="mi">Fullscreen<span class="sc">F11</span></div>
+      </div>
+    </div>
+    <div class="menu">F<u>l</u>ight
+      <div class="dropdown">
+        <div class="mi" onclick="toggleArm()"><svg class="mi-ico" viewBox="0 0 24 24"><path d="M12 2 3 6v6c0 5 3.5 8 9 10 5.5-2 9-5 9-10V6z"/></svg>Arm / Disarm<span class="sc">Ctrl+A</span></div>
+        <div class="msep"></div>
+        <div class="mi" data-page="calib" onclick="go('calib')">Run Calibration…</div>
+      </div>
+    </div>
+    <div class="menu"><u>T</u>ools
+      <div class="dropdown">
+        <div class="mi" data-page="calib" onclick="go('calib')"><svg class="mi-ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>Calibration<span class="sc">Ctrl+7</span></div>
+        <div class="mi" data-page="settings" onclick="go('settings')"><svg class="mi-ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>Settings<span class="sc">Ctrl+,</span></div>
+      </div>
+    </div>
+    <div class="menu"><u>W</u>indow
+      <div class="dropdown">
+        <div class="mi">Reset Layout</div>
+        <div class="mi">Toggle Log Panel</div>
+        <div class="mi">Toggle Telemetry Panels</div>
+      </div>
+    </div>
+    <div class="menu"><u>H</u>elp
+      <div class="dropdown">
+        <div class="mi">Documentation</div>
+        <div class="mi">Keyboard Shortcuts</div>
+        <div class="msep"></div>
+        <div class="mi">About Vayu GCS</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== Toolbar ===== -->
+  <div class="toolbar">
+    <span class="tb-lbl">Port</span>
+    <select><option>/dev/ttyUSB0</option><option>/dev/pts/3 (SITL UART2)</option><option>(custom…)</option></select>
+    <button class="tb-btn icon-only" title="Refresh ports"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg></button>
+    <span class="tb-lbl">Baud</span>
+    <select><option>115200</option><option>921600</option><option>57600</option></select>
+    <button class="tb-btn success" id="connBtn" onclick="toggleConn()"><svg viewBox="0 0 24 24"><path d="M9 12h6M12 9v6"/><circle cx="12" cy="12" r="9"/></svg><span>Connect</span></button>
+
+    <div class="tb-sep"></div>
+
+    <button class="tb-btn armtog" id="armBtn" onclick="toggleArm()"><svg viewBox="0 0 24 24"><path d="M12 2 3 6v6c0 5 3.5 8 9 10 5.5-2 9-5 9-10V6z"/></svg><span>ARM</span></button>
+
+    <div class="nav-spacer" style="flex:1"></div>
+    <div class="tb-live" id="liveInd"><span class="d"></span>LIVE</div>
+  </div>
+
+  <!-- ===== Body ===== -->
+  <div class="body">
+
+    <!-- Dock area -->
+    <div class="dock">
+
+      <!-- ===== Flight: docked splitter layout ===== -->
+      <section class="page active" id="page-dash">
+        <div class="dock-v">
+          <div class="dock-h">
+            <!-- Attitude panel -->
+            <div class="panel">
+              <div class="panel-title">
+                <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/></svg>Attitude
+                <div class="tt"><span class="tbtn on" id="btn2d" onclick="setAttView('2d')">2D</span><span class="tbtn" id="btn3d" onclick="setAttView('3d')">3D</span></div>
+              </div>
+              <div class="panel-body">
+                <div class="state-bar" id="statePill">STANDBY</div>
+                <div class="adi" id="adi">
+                  <div class="adi-inner" id="adiInner">
+                    <div class="adi-sky"></div>
+                    <div class="adi-ground"></div>
+                    <div class="adi-line"></div>
+                    <div id="pitchLadder"></div>
+                  </div>
+                  <div class="roll-scale"><div class="bank-ptr"></div>
+                    <svg viewBox="0 0 200 26" preserveAspectRatio="xMidYMid meet"><g id="rollArc"></g></svg>
+                  </div>
+                  <div class="adi-ref"><span class="wing"></span><span class="dot"></span><span class="wing"></span></div>
+                </div>
+                <div class="adi3d hidden" id="adi3d">
+                  <div class="scene">
+                    <div class="drone" id="drone">
+                      <div class="arm a1"></div><div class="arm a2"></div>
+                      <div class="unit front" style="transform:translate(-56px,-56px)"><div class="pod"></div><div class="prop"><div class="blades"></div></div></div>
+                      <div class="unit front" style="transform:translate(56px,-56px)"><div class="pod"></div><div class="prop"><div class="blades"></div></div></div>
+                      <div class="unit rear"  style="transform:translate(-56px,56px)"><div class="pod"></div><div class="prop"><div class="blades"></div></div></div>
+                      <div class="unit rear"  style="transform:translate(56px,56px)"><div class="pod"></div><div class="prop"><div class="blades"></div></div></div>
+                      <div class="hub"><div class="nose"></div></div>
+                    </div>
+                  </div>
+                  <div class="view-hint">Front · red arms &nbsp;|&nbsp; Rear · green</div>
+                </div>
+                <div class="hdg-tape"><div class="strip" id="hdgStrip"></div><div class="hcur"></div></div>
+                <div class="rpy">
+                  <div class="ax"><div class="t mono" style="color:var(--roll)">ROLL</div><div class="v mono" id="rollV" style="color:var(--roll)">0.00°</div><div class="s mono">σ 0.012</div></div>
+                  <div class="ax"><div class="t mono" style="color:var(--pitch)">PITCH</div><div class="v mono" id="pitchV" style="color:var(--pitch)">0.00°</div><div class="s mono">σ 0.009</div></div>
+                  <div class="ax"><div class="t mono" style="color:var(--yaw)">YAW</div><div class="v mono" id="yawV" style="color:var(--yaw)">0.00°</div><div class="s mono">σ 0.021</div></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="split-h"></div>
+
+            <!-- IMU panel -->
+            <div class="panel">
+              <div class="panel-title">
+                <svg viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>IMU Telemetry
+              </div>
+              <div class="panel-body">
+                <div class="imu-wrap">
+                <div class="imu-col">
+                <div class="imu-grid">
+                  <div class="graph" data-axes="X,Y,Z" data-min="-20" data-max="20" data-stdmax="8"><div class="g-title"><span>Accel</span><span class="g-right"><span class="legend"></span><span class="unit mono">m/s²</span></span></div><div class="g-plot"><div class="g-grid"></div><svg id="g1" viewBox="0 0 200 60" preserveAspectRatio="none"></svg></div></div>
+                  <div class="graph" data-axes="X,Y,Z" data-min="-5" data-max="5" data-stdmax="2"><div class="g-title"><span>Gyro</span><span class="g-right"><span class="legend"></span><span class="unit mono">rad/s</span></span></div><div class="g-plot"><div class="g-grid"></div><svg id="g2" viewBox="0 0 200 60" preserveAspectRatio="none"></svg></div></div>
+                  <div class="graph" data-axes="X,Y,Z" data-min="-60" data-max="60" data-stdmax="24"><div class="g-title"><span>Mag</span><span class="g-right"><span class="legend"></span><span class="unit mono">µT</span></span></div><div class="g-plot"><div class="g-grid"></div><svg id="g3" viewBox="0 0 200 60" preserveAspectRatio="none"></svg></div></div>
+                  <div class="graph" data-axes="ALT" data-min="0" data-max="30" data-stdmax="4"><div class="g-title"><span>Baro Altitude</span><span class="g-right"><span class="legend"></span><span class="unit mono">m</span></span></div><div class="g-plot"><div class="g-grid"></div><svg id="g4" viewBox="0 0 200 60" preserveAspectRatio="none"></svg></div></div>
+                </div>
+                <div class="status-key">
+                  <span class="sk-cap">Vehicle state:</span>
+                  <span><i style="--c:#61AFEF"></i>Init / Prearm</span>
+                  <span><i style="--c:#98C379"></i>Standby</span>
+                  <span><i style="--c:#E06C75"></i>Armed</span>
+                  <span><i style="--c:#E0822E"></i>Failsafe</span>
+                </div>
+                </div>
+                <div class="temp-gauge">
+                  <div class="vgauge">
+                    <div class="tg-cap">DEVICE<br>TEMP</div>
+                    <div class="tg-mid">
+                      <div class="tg-ticks"><span>80</span><span>60</span><span>40</span><span>20</span><span>0</span></div>
+                      <div class="tg-track">
+                        <div class="tg-mark" style="bottom:75%"></div>
+                        <div class="tg-mark" style="bottom:50%"></div>
+                        <div class="tg-mark" style="bottom:25%"></div>
+                        <div class="tg-fill" id="tempFill"></div>
+                      </div>
+                    </div>
+                    <div class="tg-read mono" id="tempRead">38.4°C</div>
+                  </div>
+                  <div class="vgauge">
+                    <div class="tg-cap">BATTERY</div>
+                    <div class="tg-mid">
+                      <div class="tg-ticks"><span>100</span><span>75</span><span>50</span><span>25</span><span>0</span></div>
+                      <div class="tg-track">
+                        <div class="tg-mark" style="bottom:75%"></div>
+                        <div class="tg-mark" style="bottom:50%"></div>
+                        <div class="tg-mark" style="bottom:25%"></div>
+                        <div class="tg-fill batt" id="battFill"></div>
+                      </div>
+                    </div>
+                    <div class="tg-read mono" id="battRead">78%</div>
+                  </div>
+                </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="split-v"></div>
+
+          <!-- Log panel -->
+          <div class="panel">
+            <div class="panel-title">
+              <svg viewBox="0 0 24 24"><path d="M4 4h16v16H4z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>System Log
+              <div class="tt"><span class="tbtn">Pause</span><span class="tbtn">Clear</span><span class="tbtn">Export</span></div>
+            </div>
+            <div class="log-lines mono" id="logLines" style="flex:1"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== RC ===== -->
+      <section class="page" id="page-rc">
+        <div class="panel" style="height:100%">
+          <div class="panel-title"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M4 12h4M16 12h4M12 4v4M12 16v4"/></svg>RC Channels
+            <div class="tt"><span class="tbtn on">CRSF · 50 Hz</span></div>
+          </div>
+          <div class="panel-body" style="display:flex; flex-direction:column;">
+            <div class="rc-top">
+              <div class="gframe stickbox"><span class="gtitle">Sticks</span>
+                <div class="gimbal-wrap">
+                  <div><div class="gimbal"><div class="gx-h"></div><div class="gx-v"></div><div class="dot" id="stickL" style="left:50%;top:80%"></div></div><div class="stk-cap">Throttle / Yaw</div></div>
+                  <div><div class="gimbal"><div class="gx-h"></div><div class="gx-v"></div><div class="dot" id="stickR" style="left:50%;top:50%"></div></div><div class="stk-cap">Pitch / Roll</div></div>
+                </div>
+              </div>
+              <div class="gframe linkbox"><span class="gtitle">Link Health</span>
+                <div class="fields" style="grid-template-columns:1fr 1fr;">
+                  <div class="field"><span class="k">RSSI</span><span class="v" id="rssiV" style="color:var(--ok)">−67 dBm</span></div>
+                  <div class="field"><span class="k">Link Quality</span><span class="v" style="color:var(--ok)">100%</span></div>
+                  <div class="field"><span class="k">Frame Rate</span><span class="v mono">50 Hz</span></div>
+                  <div class="field"><span class="k">Protocol</span><span class="v">CRSF</span></div>
+                  <div class="field"><span class="k">Channels</span><span class="v mono">8 / 16</span></div>
+                  <div class="field"><span class="k">Failsafe</span><span class="v" style="color:var(--ok)">No</span></div>
+                </div>
+                <div class="rssi-bar"><div class="rssi-fill" style="width:78%"></div></div>
+              </div>
+              <div class="gframe modebox"><span class="gtitle">Switches</span>
+                <div class="sw-row"><span class="sw-lbl">AUX1 · Mode</span><div class="sw3"><span>ANGLE</span><span class="on">HORIZON</span><span>ACRO</span></div></div>
+                <div class="sw-row"><span class="sw-lbl">AUX2 · Arm</span><div class="sw2"><span class="on">SAFE</span><span>ARM</span></div></div>
+                <div class="sw-row"><span class="sw-lbl">AUX3 · Beeper</span><div class="sw2"><span class="on">OFF</span><span>ON</span></div></div>
+                <div class="sw-row"><span class="sw-lbl">AUX4 · Turtle</span><div class="sw2"><span class="on">OFF</span><span>ON</span></div></div>
+              </div>
+            </div>
+            <div class="gframe"><span class="gtitle">Channels</span>
+              <div class="rc-channels" id="rcChannels"></div>
+            </div>
+            <div class="gframe" style="flex:1; display:flex; flex-direction:column; min-height:150px;"><span class="gtitle">Channel History — 10s</span>
+              <div class="graph" data-axes="CH1,CH2,CH3,CH4,CH5,CH6,CH7,CH8" data-colors="#61AFEF,#E06C75,#98C379,#D19A66,#C678DD,#56B6C2,#E5C07B,#ABB2BF" data-dottedfrom="4" data-min="1000" data-max="2000" data-unit="µs" data-noband style="flex:1; border:0; background:transparent; padding:2px 0 0;">
+                <div class="g-title"><span></span><span class="g-right"><span class="legend"></span><span class="unit mono">µs</span></span></div>
+                <div class="g-plot"><div class="g-grid"></div><svg id="gRcHist" viewBox="0 0 200 60" preserveAspectRatio="none"></svg></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== Motors ===== -->
+      <section class="page" id="page-motors">
+        <div class="dock-h" style="grid-template-columns:1fr 4px 340px; height:100%">
+          <div class="panel">
+            <div class="panel-title"><svg viewBox="0 0 24 24"><circle cx="7" cy="7" r="3"/><circle cx="17" cy="7" r="3"/><circle cx="7" cy="17" r="3"/><circle cx="17" cy="17" r="3"/></svg>Motor Layout — Quad X</div>
+            <div class="panel-body motor-layout">
+              <div class="schematic">
+                <svg viewBox="0 0 400 400">
+                  <line x1="70" y1="70" x2="330" y2="330" stroke="#3E4452" stroke-width="13" stroke-linecap="round"/>
+                  <line x1="330" y1="70" x2="70" y2="330" stroke="#3E4452" stroke-width="13" stroke-linecap="round"/>
+                  <rect x="165" y="150" width="70" height="100" rx="14" fill="#21252B" stroke="#61AFEF" stroke-width="2"/>
+                  <path d="M200 128 l11 18 h-22 z" fill="#E06C75"/>
+                  <g id="motorRings"></g>
+                </svg>
+                <div id="motorProps"></div>
+                <div id="motorLabels"></div>
+              </div>
+            </div>
+          </div>
+          <div class="split-h"></div>
+          <div class="panel">
+            <div class="panel-title"><svg viewBox="0 0 24 24"><path d="M3 18l5-9 4 5 3-7 6 11"/></svg>Motors &amp; Power</div>
+            <div class="panel-body" style="display:flex; flex-direction:column;">
+              <div class="gframe"><span class="gtitle">Per-Motor</span>
+                <div id="motorCards"></div>
+              </div>
+              <div class="gframe" style="flex:1; display:flex; flex-direction:column; min-height:155px;"><span class="gtitle">Motor Speeds — 10s</span>
+                <div class="graph" data-axes="M1,M2,M3,M4" data-colors="#E06C75,#98C379,#61AFEF,#D19A66" data-min="0" data-max="100" data-unit="%" data-noband style="flex:1; border:0; background:transparent; padding:2px 0 0;">
+                  <div class="g-title"><span></span><span class="g-right"><span class="legend"></span><span class="unit mono">%</span></span></div>
+                  <div class="g-plot"><div class="g-grid"></div><svg id="gmotor" viewBox="0 0 200 60" preserveAspectRatio="none"></svg></div>
+                </div>
+              </div>
+              <div class="gframe"><span class="gtitle">Power</span>
+                <div class="fields">
+                  <div class="field"><span class="k">Avg Throttle</span><span class="v" style="color:var(--accent)">42%</span></div>
+                  <div class="field"><span class="k">Max Spread</span><span class="v" style="color:var(--warn)">8%</span></div>
+                  <div class="field"><span class="k">Battery</span><span class="v" style="color:var(--ok)">11.8 V</span></div>
+                  <div class="field"><span class="k">Current</span><span class="v">7.2 A</span></div>
+                  <div class="field"><span class="k">ESC Temp</span><span class="v" style="color:var(--ok)">38°C</span></div>
+                  <div class="field"><span class="k">Used</span><span class="v">320 mAh</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== Control Loop ===== -->
+      <section class="page" id="page-control">
+        <div class="panel" style="height:100%">
+          <div class="panel-title"><svg viewBox="0 0 24 24"><path d="M3 18l5-9 4 5 3-7 6 11"/></svg>Control Loop Dashboard
+            <div class="tt" style="gap:8px; align-items:center;">
+              <span style="color:var(--text-dim); font-size:11px; text-transform:none; letter-spacing:0;">Gyro Scale</span>
+              <input class="txt" value="1.0" style="width:52px; height:20px;">
+              <span class="tbtn">Pause</span>
+              <span class="tbtn">Export CSV</span>
+            </div>
+          </div>
+          <div class="panel-body" style="padding:8px;">
+            <div class="cl-grid">
+              <div class="cl-sec" id="clsec-angle"></div>
+              <div class="cl-sec" id="clsec-rate"></div>
+              <div class="cl-sec" id="clsec-output"></div>
+              <div class="cl-sec" id="clsec-dt"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== Calibration ===== -->
+      <section class="page" id="page-calib">
+        <div class="panel" style="height:100%">
+          <div class="panel-title"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>Sensor Calibration</div>
+          <div class="panel-body">
+            <div class="gframe"><span class="gtitle">Status</span>
+              <div class="fields">
+                <div class="field"><span class="k">Accelerometer</span><span class="v" style="color:var(--ok)">✓ OK</span></div>
+                <div class="field"><span class="k">Gyroscope</span><span class="v" style="color:var(--ok)">✓ OK</span></div>
+                <div class="field"><span class="k">Magnetometer</span><span class="v" style="color:var(--warn)">Needs cal</span></div>
+                <div class="field"><span class="k">Level Horizon</span><span class="v" style="color:var(--text-dim)">Not run</span></div>
+              </div>
+            </div>
+            <div class="gframe"><span class="gtitle">Actions</span>
+              <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:2px;">
+                <button class="tb-btn" style="border-color:var(--border-strong)">Accel Cal</button>
+                <button class="tb-btn" style="border-color:var(--border-strong)">Gyro Cal</button>
+                <button class="tb-btn" style="border-color:var(--border-strong)">Mag Cal</button>
+                <button class="tb-btn" style="border-color:var(--border-strong)">Level Horizon</button>
+              </div>
+              <p style="color:var(--text-dim); margin-top:10px; line-height:1.6;">Place the airframe on a level surface and keep it still. Follow the orientation prompts during accel calibration; rotate through all axes for mag calibration.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== Packet Analyzer ===== -->
+      <section class="page" id="page-packets">
+        <div class="panel" style="height:100%">
+          <div class="panel-title"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg>Packet Analyzer
+            <div class="tt"><span class="tbtn">Pause</span><span class="tbtn">Clear</span><span class="tbtn">Export CSV</span></div>
+          </div>
+          <div class="panel-body" style="padding:0; display:flex; flex-direction:column;">
+            <!-- frequency ribbon -->
+            <div class="freq-ribbon" id="freqRibbon"></div>
+            <!-- filter bar -->
+            <div class="filter-bar">
+              <span class="fb-lbl">Dir</span>
+              <div class="sw3" id="dirFilter"><span class="on" data-dir="all">All</span><span data-dir="RX">RX</span><span data-dir="TX">TX</span></div>
+              <span class="fb-lbl" style="margin-left:6px;">Types</span>
+              <div class="type-chips" id="typeChips"></div>
+              <input class="txt" id="pktSearch" placeholder="filter type / hex…" style="margin-left:auto; width:200px;" oninput="applyPktFilter()">
+            </div>
+            <!-- table + decoder -->
+            <div class="dock-h" style="grid-template-columns:1fr 4px 360px; flex:1; min-height:0;">
+              <div class="pkt-table-wrap">
+                <table id="packetTable"><thead><tr><th>Time</th><th>Dir</th><th>Type</th><th>Dev</th><th>Len</th><th>CRC</th><th>Payload (hex)</th></tr></thead><tbody></tbody></table>
+              </div>
+              <div class="split-h"></div>
+              <div class="decoder-panel" id="decoder"><div class="dec-empty">Select a packet to decode its fields.</div></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== Simulator ===== -->
+      <section class="page" id="page-sim">
+        <div class="dock-h" style="grid-template-columns:1fr 4px 330px; height:100%">
+          <div class="panel">
+            <div class="panel-title"><svg viewBox="0 0 24 24"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>SITL Simulator — FPV
+              <div class="tt"><span class="tbtn on" id="simRunChip">● Running</span><span class="tbtn on" id="chipDown" onclick="togglePip('down')">Down Cam</span><span class="tbtn on" id="chipAdi" onclick="togglePip('adi')">Horizon</span></div>
+            </div>
+            <div class="panel-body" style="display:flex; flex-direction:column;">
+              <div class="sim-view">
+                <canvas id="fpvCanvas"></canvas>
+                <div class="pip adi" id="pipAdi"><div class="pip-h">HORIZON</div><canvas id="adiCanvas"></canvas></div>
+                <div class="pip downcam" id="pipDown"><div class="pip-h">DOWN CAM</div><canvas id="downCanvas"></canvas></div>
+              </div>
+              <div class="sim-toolbar">
+                <button class="tb-btn danger" onclick="setSimRun(false)">■ Stop</button>
+                <button class="tb-btn success" onclick="setSimRun(true)">▶ Start</button>
+                <button class="tb-btn" style="border-color:var(--border-strong)">↺ Reset Pose</button>
+                <span class="tb-sep"></span>
+                <span class="tb-lbl">Speed</span>
+                <select style="height:24px;"><option>1.0× real-time</option><option>0.5×</option><option>2.0×</option><option>Max</option></select>
+                <span style="margin-left:auto; color:var(--text-dim); font-size:11px;" class="mono" id="simPose">pos 0.0, 0.0, −12.4 m · vel 3.1 m/s</span>
+              </div>
+            </div>
+          </div>
+          <div class="split-h"></div>
+          <div class="panel">
+            <div class="panel-title"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>Configuration</div>
+            <div class="panel-body">
+              <div class="tabbar">
+                <div class="tab on" data-tab="vehicle" onclick="simTab('vehicle')">Vehicle</div>
+                <div class="tab" data-tab="world" onclick="simTab('world')">World</div>
+                <div class="tab" data-tab="autotune" onclick="simTab('autotune')">Autotune</div>
+              </div>
+              <!-- Vehicle tab -->
+              <div class="tab-page on" id="simtab-vehicle">
+                <div class="gframe"><span class="gtitle">Vehicle Config (.vveh)</span>
+                  <div class="setting"><div><div class="name">v.vveh</div><div class="desc">JSON vehicle configuration · format "vayu-vehicle"</div></div>
+                    <div style="display:flex; gap:6px;"><button class="tb-btn" style="border-color:var(--border-strong)">Load…</button><button class="tb-btn" style="border-color:var(--border-strong)">Save</button></div>
+                  </div>
+                </div>
+                <div class="gframe"><span class="gtitle">3D Model</span>
+                  <div class="setting"><div><div class="name">drone 0.98kg.stl</div><div class="desc">STL · OBJ · PLY · glTF — mass properties auto-computed from the mesh</div></div>
+                    <button class="tb-btn" style="border-color:var(--border-strong)">Load 3D Model…</button>
+                  </div>
+                </div>
+                <div class="gframe"><span class="gtitle">Mass &amp; Inertia</span>
+                  <div class="setting"><div class="name">Mass</div><div class="spin"><input class="txt" value="1.00"><div class="sb">▴▾</div></div></div>
+                  <div class="setting"><div class="name">Center of Mass (m)</div><span class="v mono" style="font-size:12px;">0.000, 0.000, 0.003</span></div>
+                  <div class="setting"><div><div class="name">Inertia tensor</div><div class="desc">3×3, computed from model at target mass</div></div><span class="v mono" style="font-size:11px; color:var(--ok)">✓ computed</span></div>
+                </div>
+                <div class="gframe"><span class="gtitle">Motors — Quad X (positions in m)</span>
+                  <table class="motor-edit">
+                    <tr><td class="axn"></td><td class="axn">x</td><td class="axn">y</td><td class="axn">z</td><td class="axn">spin</td></tr>
+                    <tr><td>M1</td><td><input value="0.095"></td><td><input value="0.091"></td><td><input value="0.000"></td><td><select><option>CW</option><option>CCW</option></select></td></tr>
+                    <tr><td>M2</td><td><input value="-0.089"></td><td><input value="0.091"></td><td><input value="0.000"></td><td><select><option selected>CCW</option><option>CW</option></select></td></tr>
+                    <tr><td>M3</td><td><input value="-0.089"></td><td><input value="-0.091"></td><td><input value="0.000"></td><td><select><option>CW</option><option>CCW</option></select></td></tr>
+                    <tr><td>M4</td><td><input value="0.095"></td><td><input value="-0.091"></td><td><input value="0.000"></td><td><select><option selected>CCW</option><option>CW</option></select></td></tr>
+                  </table>
+                </div>
+                <div class="gframe"><span class="gtitle">Motor Coefficients</span>
+                  <div class="setting"><div><div class="name">k_thrust</div><div class="desc">thrust per ω² (N·s²)</div></div><div class="spin"><input class="txt" value="1.522e-5"><div class="sb">▴▾</div></div></div>
+                  <div class="setting"><div><div class="name">k_moment</div><div class="desc">reaction torque per ω²</div></div><div class="spin"><input class="txt" value="2.44e-7"><div class="sb">▴▾</div></div></div>
+                  <div class="setting"><div><div class="name">max_omega</div><div class="desc">max rotor speed (rad/s)</div></div><div class="spin"><input class="txt" value="1200"><div class="sb">▴▾</div></div></div>
+                  <div class="setting"><div><div class="name">time constant τ</div><div class="desc">first-order spin-up lag (s)</div></div><div class="spin"><input class="txt" value="0.020"><div class="sb">▴▾</div></div></div>
+                  <div class="setting"><div><div class="name">Thrust axis</div><div class="desc">body-frame, per motor</div></div><span class="v mono" style="font-size:12px;">0, 0, −1</span></div>
+                </div>
+                <div class="gframe"><span class="gtitle">Sensor Models</span>
+                  <table class="motor-edit sensor-edit">
+                    <tr><td class="axn" style="text-align:left">Sensor</td><td class="axn">Rate&nbsp;Hz</td><td class="axn">Noise&nbsp;σ</td><td class="axn">Bias</td><td class="axn">on</td></tr>
+                    <tr><td>Accel</td><td><input value="1000"></td><td><input value="0.02"></td><td><input value="0.01"></td><td><div class="chk on" onclick="this.classList.toggle('on')"></div></td></tr>
+                    <tr><td>Gyro</td><td><input value="1000"></td><td><input value="0.005"></td><td><input value="0.002"></td><td><div class="chk on" onclick="this.classList.toggle('on')"></div></td></tr>
+                    <tr><td>Mag</td><td><input value="100"></td><td><input value="0.50"></td><td><input value="1.0"></td><td><div class="chk on" onclick="this.classList.toggle('on')"></div></td></tr>
+                    <tr><td>Baro</td><td><input value="50"></td><td><input value="0.10"></td><td><input value="0.0"></td><td><div class="chk on" onclick="this.classList.toggle('on')"></div></td></tr>
+                    <tr><td>GPS</td><td><input value="10"></td><td><input value="0.50"></td><td><input value="0.0"></td><td><div class="chk" onclick="this.classList.toggle('on')"></div></td></tr>
+                  </table>
+                  <div class="desc" style="margin-top:6px;">σ &amp; bias in each sensor's native units (m/s², rad/s, µT, m). Models added to the SITL sensor feed.</div>
+                </div>
+                <div class="gframe"><span class="gtitle">Fault Injection</span>
+                  <div class="setting"><div class="name">Kill motor</div><div style="display:flex; gap:4px;">
+                    <span class="tbtn" onclick="this.classList.toggle('on')">M1</span><span class="tbtn" onclick="this.classList.toggle('on')">M2</span><span class="tbtn" onclick="this.classList.toggle('on')">M3</span><span class="tbtn" onclick="this.classList.toggle('on')">M4</span>
+                  </div></div>
+                  <div class="setting"><div class="name">Sensor dropout</div><select><option>None</option><option>Accel</option><option>Gyro</option><option>Mag</option><option>Baro</option><option>GPS</option></select></div>
+                  <div class="setting"><div><div class="name">RC link loss</div><div class="desc">trigger failsafe</div></div><div class="switch" onclick="this.classList.toggle('on')"></div></div>
+                  <div class="setting"><div><div class="name">GPS glitch</div><div class="desc">position jump / drift</div></div><div class="switch" onclick="this.classList.toggle('on')"></div></div>
+                </div>
+                <div class="gframe"><span class="gtitle">RC Bridge</span>
+                  <div class="setting"><div class="name">Source</div><select><option>USB Joystick</option><option>UART (CSV)</option></select></div>
+                  <div class="setting"><div class="name">Software Arm</div><div class="switch on" onclick="this.classList.toggle('on')"></div></div>
+                  <table class="rc-map">
+                    <tr><td class="axn">Roll</td><td><div class="rc-bar-sm"><div class="f" id="rcm0"></div></div></td><td class="mono" id="rcv0">1500</td></tr>
+                    <tr><td class="axn">Pitch</td><td><div class="rc-bar-sm"><div class="f" id="rcm1"></div></div></td><td class="mono" id="rcv1">1500</td></tr>
+                    <tr><td class="axn">Throttle</td><td><div class="rc-bar-sm"><div class="f" id="rcm2"></div></div></td><td class="mono" id="rcv2">1100</td></tr>
+                    <tr><td class="axn">Yaw</td><td><div class="rc-bar-sm"><div class="f" id="rcm3"></div></div></td><td class="mono" id="rcv3">1500</td></tr>
+                  </table>
+                </div>
+              </div>
+              <!-- World tab -->
+              <div class="tab-page" id="simtab-world">
+                <div class="gframe"><span class="gtitle">World Config (.vworld)</span>
+                  <div class="setting"><div><div class="name">mountainside.vworld</div><div class="desc">JSON world configuration · format "vayu-world"</div></div>
+                    <div style="display:flex; gap:6px;"><button class="tb-btn" style="border-color:var(--border-strong)">Import…</button><button class="tb-btn" style="border-color:var(--border-strong)">Export…</button></div>
+                  </div>
+                </div>
+                <div class="gframe"><span class="gtitle">Environment</span>
+                  <div class="setting"><div class="name">Gravity</div><div class="spin"><input class="txt" value="9.81"><div class="sb">▴▾</div></div></div>
+                  <div class="setting"><div class="name">Ground Z</div><div class="spin"><input class="txt" value="0.0"><div class="sb">▴▾</div></div></div>
+                  <div class="setting"><div class="name">Restitution</div><div class="spin"><input class="txt" value="0.0"><div class="sb">▴▾</div></div></div>
+                  <div class="setting"><div class="name">Linear drag</div><div class="spin"><input class="txt" value="0.10"><div class="sb">▴▾</div></div></div>
+                  <div class="setting"><div class="name">Angular drag</div><div class="spin"><input class="txt" value="0.005"><div class="sb">▴▾</div></div></div>
+                </div>
+                <div class="gframe"><span class="gtitle">Terrain Mesh</span>
+                  <div class="setting"><div><div class="name">mountainside_1k.gltf</div><div class="desc">glTF · OBJ · STL · PLY — collision BVH ✓</div></div><button class="tb-btn" style="border-color:var(--border-strong)">Load 3D Model…</button></div>
+                  <div class="setting"><div class="name">Scale</div><div class="spin"><input class="txt" value="2.0"><div class="sb">▴▾</div></div></div>
+                  <div class="setting"><div class="name">Up axis</div><select><option>Y up</option><option>Z up</option></select></div>
+                  <div class="setting"><div class="name">Double-sided</div><div class="chk on" onclick="this.classList.toggle('on')"></div></div>
+                  <div class="setting"><div class="name">Mesh offset (m)</div><span class="v mono" style="font-size:12px;">12.0, 0.0, 0.0</span></div>
+                </div>
+              </div>
+              <!-- Autotune tab -->
+              <div class="tab-page" id="simtab-autotune">
+                <div class="gframe"><span class="gtitle">PID Autotune</span>
+                  <div class="desc" style="margin-bottom:8px;">Closed-loop gain search against the SITL. Step search optimises directly; chirp sweeps frequencies for plant system-ID, then designs gains.</div>
+                  <div class="setting"><div class="name">Method</div><select id="atMethod" onchange="atSetMethod(this.value)"><option value="step">Step search</option><option value="chirp">Chirp (sys-ID)</option></select></div>
+                  <div class="setting"><div><div class="name">Rig mode</div><div class="desc">test-rig = airframe constrained on a single-axis gimbal</div></div><select><option>Test-rig (constrained)</option><option>Free flight</option></select></div>
+                  <div style="display:flex; gap:6px; align-items:center; margin-top:6px;">
+                    <button class="tb-btn success" onclick="atStart()">▶ Start</button>
+                    <button class="tb-btn danger" onclick="atStop()">■ Stop</button>
+                    <span style="margin-left:auto; font-size:11px;" class="mono" id="atStatus">Idle</span>
+                  </div>
+                </div>
+                <div class="gframe" id="atStep"><span class="gtitle">Step Search Settings</span>
+                  <div class="setting"><div class="name">Axis</div><select><option>Roll</option><option>Pitch</option><option>Yaw</option><option>All</option></select></div>
+                  <div class="setting"><div><div class="name">Aggressiveness</div><div class="desc">0–1, higher = faster response</div></div><div class="spin"><input class="txt" value="0.50"><div class="sb">▴▾</div></div></div>
+                  <div class="setting"><div><div class="name">Damping target ζ</div><div class="desc">overshoot vs. settle time</div></div><div class="spin"><input class="txt" value="0.70"><div class="sb">▴▾</div></div></div>
+                  <div class="setting"><div class="name">Max iterations</div><div class="spin"><input class="txt" value="40"><div class="sb">▴▾</div></div></div>
+                  <div class="setting"><div class="name">Step amplitude (°)</div><div class="spin"><input class="txt" value="15"><div class="sb">▴▾</div></div></div>
+                </div>
+                <div class="gframe hidden" id="atChirp"><span class="gtitle">Chirp Settings</span>
+                  <div class="setting"><div class="name">Axis</div><select><option>Roll</option><option>Pitch</option><option>Yaw</option></select></div>
+                  <div class="setting"><div><div class="name">Start frequency</div><div class="desc">Hz</div></div><div class="spin"><input class="txt" value="0.5"><div class="sb">▴▾</div></div></div>
+                  <div class="setting"><div><div class="name">End frequency</div><div class="desc">Hz</div></div><div class="spin"><input class="txt" value="30"><div class="sb">▴▾</div></div></div>
+                  <div class="setting"><div><div class="name">Sweep duration</div><div class="desc">s</div></div><div class="spin"><input class="txt" value="20"><div class="sb">▴▾</div></div></div>
+                  <div class="setting"><div><div class="name">Excitation amplitude</div><div class="desc">°</div></div><div class="spin"><input class="txt" value="10"><div class="sb">▴▾</div></div></div>
+                </div>
+                <div class="gframe" style="display:flex; flex-direction:column; min-height:150px;"><span class="gtitle" id="atPlotTitle">Step Response — Roll</span>
+                  <div class="graph" data-axes="Setpoint,Measured" data-colors="#E5C07B,#98C379" data-min="-0.2" data-max="1.4" data-unit="" data-noband style="flex:1; border:0; background:transparent; padding:2px 0 0;">
+                    <div class="g-title"><span></span><span class="g-right"><span class="legend"></span></span></div>
+                    <div class="g-plot"><div class="g-grid"></div><svg id="gAuto" viewBox="0 0 200 60" preserveAspectRatio="none"></svg></div>
+                  </div>
+                </div>
+                <div class="gframe"><span class="gtitle">Proposed Gains</span>
+                  <table class="motor-edit">
+                    <tr><td class="axn">Axis</td><td class="axn">P</td><td class="axn">I</td><td class="axn">D</td></tr>
+                    <tr><td>Roll</td><td class="mono" id="ag-roll-0">4.50</td><td class="mono" id="ag-roll-1">0.080</td><td class="mono" id="ag-roll-2">0.120</td></tr>
+                    <tr><td>Pitch</td><td class="mono" id="ag-pitch-0">4.20</td><td class="mono" id="ag-pitch-1">0.075</td><td class="mono" id="ag-pitch-2">0.110</td></tr>
+                    <tr><td>Yaw</td><td class="mono" id="ag-yaw-0">3.00</td><td class="mono" id="ag-yaw-1">0.050</td><td class="mono" id="ag-yaw-2">0.000</td></tr>
+                  </table>
+                  <button class="tb-btn" style="margin-top:8px; border-color:var(--accent); color:var(--accent);">Apply Gains to Firmware</button>
+                </div>
+              </div>
+              <div class="gframe"><span class="gtitle">Telemetry</span>
+                <div class="fields" style="grid-template-columns:1fr 1fr;">
+                  <div class="field"><span class="k">Altitude</span><span class="v mono" id="simAlt">12.4 m</span></div>
+                  <div class="field"><span class="k">Speed</span><span class="v mono" id="simSpd">3.1 m/s</span></div>
+                  <div class="field"><span class="k">Vert Speed</span><span class="v mono" id="simVs">+0.4 m/s</span></div>
+                  <div class="field"><span class="k">Sim Time</span><span class="v mono" id="simClk">00:42</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== Settings ===== -->
+      <section class="page" id="page-settings">
+        <div class="panel" style="height:100%">
+          <div class="panel-title"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>Configuration</div>
+          <div class="panel-body">
+            <div class="gframe" style="max-width:640px;"><span class="gtitle">Telemetry</span>
+              <div class="setting"><div><div class="name">Time Sync Period</div><div class="desc">Heartbeat interval to sync the FC clock</div></div>
+                <div class="spin"><input class="txt" value="5000"><div class="sb">▴▾</div></div></div>
+              <div class="setting"><div><div class="name">Graph Window</div><div class="desc">Time span shown in IMU graphs (s)</div></div>
+                <div class="spin"><input class="txt" value="10"><div class="sb">▴▾</div></div></div>
+              <div class="setting"><div><div class="name">Graph Dropout Rate</div><div class="desc">Down-sampling factor for high-rate streams</div></div>
+                <div class="spin"><input class="txt" value="0.50"><div class="sb">▴▾</div></div></div>
+            </div>
+            <div class="gframe" style="max-width:640px;"><span class="gtitle">Connection</span>
+              <div class="setting"><div><div class="name">Auto Reconnect</div><div class="desc">Re-open the serial link after a drop</div></div>
+                <div class="chk on" onclick="this.classList.toggle('on')"></div></div>
+              <div class="setting"><div><div class="name">Theme</div><div class="desc">Application color scheme</div></div>
+                <select><option>Dark (Navigator)</option><option>Midnight</option><option>High Contrast</option></select></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </div>
+
+  <!-- ===== Status bar ===== -->
+  <div class="statusbar">
+    <div class="sb-seg" id="connSeg"><span class="dot red"></span>Disconnected</div>
+    <div class="sb-seg mono">Diff: <span style="color:var(--ok)">+4ms</span></div>
+    <div class="sb-seg mono">Packets: <span id="pktV">0</span></div>
+    <div class="sb-seg mono">Rate: 412 Hz</div>
+    <div class="sb-grow"></div>
+    <div class="sb-right">Vayu GCS · NavLink v1 · Ctrl+1‑8 navigate</div>
+  </div>
+</div>
+
+<script>
+/* Menu bar: open/close dropdowns */
+function closeMenus(){ document.querySelectorAll('.menu.open').forEach(m => m.classList.remove('open')); }
+document.querySelectorAll('.menu').forEach(m => {
+  m.addEventListener('click', e => {
+    if (e.target.closest('.mi')) return;          // item clicks handled separately
+    e.stopPropagation();
+    const wasOpen = m.classList.contains('open');
+    closeMenus();
+    if (!wasOpen && m.querySelector('.dropdown')) m.classList.add('open');
+  });
+  // hover-to-switch once a menu is already open (native menu-bar feel)
+  m.addEventListener('mouseenter', () => {
+    if (document.querySelector('.menu.open') && m.querySelector('.dropdown')) {
+      closeMenus(); m.classList.add('open');
+    }
+  });
+});
+document.addEventListener('click', closeMenus);
+
+/* Navigation — switch page + sync the active marker across menus */
+function go(page){
+  const el = document.getElementById('page-' + page);
+  if (!el) return;
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  el.classList.add('active');
+  document.querySelectorAll('.mi[data-page]').forEach(mi => mi.classList.toggle('active', mi.dataset.page === page));
+  try { localStorage.setItem('vayu.page', page); } catch(e) {}
+  closeMenus();
+}
+/* Restore the last-viewed page across refreshes (mirrors the Qt app's
+   restoreUiState last-page behaviour). Falls back to the home dashboard. */
+(function(){
+  let saved; try { saved = localStorage.getItem('vayu.page'); } catch(e) {}
+  go(saved && document.getElementById('page-' + saved) ? saved : 'dash');
+})();
+
+/* Connect / ARM */
+let connected = false, armed = false;
+function toggleConn() {
+  connected = !connected;
+  const b = document.getElementById('connBtn');
+  b.className = 'tb-btn ' + (connected ? 'danger' : 'success');
+  b.querySelector('span').textContent = connected ? 'Disconnect' : 'Connect';
+  document.getElementById('connSeg').innerHTML = connected
+    ? '<span class="dot green"></span>Connected: /dev/ttyUSB0' : '<span class="dot red"></span>Disconnected';
+  document.getElementById('liveInd').classList.toggle('on', connected);
+}
+function toggleArm() {
+  armed = !armed;
+  document.getElementById('armBtn').querySelector('span').textContent = armed ? 'DISARM' : 'ARM';
+  const p = document.getElementById('statePill');
+  p.textContent = armed ? 'ARMED' : 'STANDBY';
+  p.style.color = armed ? 'var(--danger)' : 'var(--ok)';
+  p.style.background = armed ? '#3a1a1a' : '#1a2d23';
+  p.style.borderColor = armed ? '#783a42' : '#3a7050';
+}
+
+/* Attitude — rectangular ADI */
+const PX_PER_DEG = 4;   // pitch ladder scale
+// build pitch ladder (±30° every 10°)
+(function(){
+  const pl = document.getElementById('pitchLadder');
+  for (let deg = -30; deg <= 30; deg += 10) {
+    if (deg === 0) continue;
+    const m = document.createElement('div');
+    m.className = 'pitch-mark';
+    // inner is 320% tall; its center is the horizon. position relative to that.
+    m.style.top = `calc(50% - ${deg * PX_PER_DEG}px)`;
+    m.style.transform = `translate(-50%,-50%)`;
+    const a = Math.abs(deg);
+    m.innerHTML = `<span class="num">${a}</span><span class="bar"></span><span class="num">${a}</span>`;
+    pl.appendChild(m);
+  }
+  // roll arc tick marks at 0,±10,±20,±30,±45,±60
+  const arc = document.getElementById('rollArc');
+  const cx = 100, cy = 90, r = 78;
+  [-60,-45,-30,-20,-10,0,10,20,30,45,60].forEach(d => {
+    const big = (d % 30 === 0);
+    const rad = (-90 + d) * Math.PI / 180;
+    const x1 = cx + Math.cos(rad)*r, y1 = cy + Math.sin(rad)*r;
+    const x2 = cx + Math.cos(rad)*(r - (big?9:5)), y2 = cy + Math.sin(rad)*(r - (big?9:5));
+    arc.innerHTML += `<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke="${d===0?'#FFE66D':'#cfd6e0'}" stroke-width="${big?1.6:1}"/>`;
+  });
+  // heading tape ticks every 30°
+  const strip = document.getElementById('hdgStrip');
+  const dirs = {0:'N',90:'E',180:'S',270:'W'};
+  for (let h = -180; h <= 540; h += 30) {
+    const v = ((h % 360) + 360) % 360;
+    const s = document.createElement('span');
+    s.className = 'htick';
+    s.textContent = dirs[v] || v;
+    s.dataset.h = h;
+    strip.appendChild(s);
+  }
+})();
+
+/* 2D / 3D attitude view toggle */
+function setAttView(mode){
+  const is3d = mode === '3d';
+  document.getElementById('adi').classList.toggle('hidden', is3d);
+  document.getElementById('adi3d').classList.toggle('hidden', !is3d);
+  document.getElementById('btn2d').classList.toggle('on', !is3d);
+  document.getElementById('btn3d').classList.toggle('on', is3d);
+}
+
+let t = 0;
+(function animate(){
+  t += 0.02;
+  const roll = Math.sin(t)*18, pitch = Math.cos(t*0.7)*9, yaw = (Math.sin(t*0.3)*40+180+360)%360;
+  document.getElementById('adiInner').style.transform =
+    `translate(-50%,-50%) rotate(${-roll}deg) translateY(${pitch*PX_PER_DEG}px)`;
+  document.getElementById('rollArc').setAttribute('transform', `rotate(${-roll} 100 90)`);
+  // 3D airframe: bank with roll/pitch, spin with yaw
+  document.getElementById('drone').style.transform =
+    `rotateZ(${yaw}deg) rotateY(${roll}deg) rotateX(${pitch}deg)`;
+  // heading tape: 44px per 30° tick → ~1.467px/deg; center current heading
+  const strip = document.getElementById('hdgStrip');
+  const w = strip.parentElement.clientWidth;
+  strip.style.transform = `translateX(${w/2 - ((yaw+180)/30)*44 - 22}px)`;
+  document.getElementById('rollV').textContent  = roll.toFixed(2)+'°';
+  document.getElementById('pitchV').textContent = pitch.toFixed(2)+'°';
+  document.getElementById('yawV').textContent   = yaw.toFixed(2)+'°';
+  // RC stick gimbals: right = pitch/roll (spring-centered), left = throttle/yaw
+  const sR = document.getElementById('stickR'), sL = document.getElementById('stickL');
+  if (sR){ sR.style.left = (50 + Math.sin(t*1.3)*36) + '%'; sR.style.top = (50 - Math.cos(t*0.9)*36) + '%'; }
+  if (sL){ sL.style.left = (50 + Math.sin(t*0.6)*30) + '%'; sL.style.top = (62 - Math.sin(t*0.45)*26) + '%'; }
+  requestAnimationFrame(animate);
+})();
+
+/* Sparklines */
+function spark(id, colors, phase, stdMax, dottedFrom){
+  const svg = document.getElementById(id); if(!svg) return;
+  const W=200,H=60,N=60; let html='';
+  // value traces (solid; indices >= dottedFrom drawn dotted)
+  colors.forEach((c,ci)=>{ let d='';
+    for(let i=0;i<N;i++){const x=i/(N-1)*W; const y=H/2+Math.sin(i*0.3+phase+ci*1.7)*(H/3)*Math.sin(i*0.05+ci);
+      d+=(i?'L':'M')+x.toFixed(1)+' '+y.toFixed(1)+' ';}
+    const dot = (dottedFrom != null && ci >= dottedFrom);
+    html+=`<path d="${d}" fill="none" stroke="${c}" stroke-width="${dot?1.1:1.4}" vector-effect="non-scaling-stroke"${dot?' stroke-linecap="round" stroke-dasharray="1 5"':''}/>`; });
+  // rolling std σ traces (dotted, right axis 0..stdMax mapped bottom→top)
+  if (stdMax){
+    colors.forEach((c,ci)=>{ let d='';
+      for(let i=0;i<N;i++){const x=i/(N-1)*W;
+        const sd = stdMax*(0.38 + 0.16*Math.sin(i*0.11+phase*0.4+ci*2.1));  // synthetic σ
+        const y = H - (sd/stdMax)*H;
+        d+=(i?'L':'M')+x.toFixed(1)+' '+y.toFixed(1)+' ';}
+      html+=`<path d="${d}" fill="none" stroke="${c}" stroke-width="1.1" vector-effect="non-scaling-stroke" stroke-linecap="round" stroke-dasharray="1 5" opacity=".55"/>`; });
+  }
+  svg.innerHTML=html;
+}
+/* Vehicle-state band: rolling window of status colours behind the traces */
+const STATUS_N = 60, TICK_MS = 120, WINDOW_S = STATUS_N * TICK_MS / 1000;
+const SCOL = { init:'#61AFEF', standby:'#98C379', armed:'#E06C75', failsafe:'#E0822E' };
+let statusHistory = [];
+for (let i = 0; i < STATUS_N; i++)              // seed a plausible timeline
+  statusHistory.push(i < 10 ? SCOL.init : i < 34 ? SCOL.standby : i < 50 ? SCOL.armed : SCOL.failsafe);
+function curStatusColor(){ return armed ? SCOL.armed : SCOL.standby; }
+function applyStatusBands(){
+  statusHistory.push(curStatusColor()); statusHistory.shift();
+  const stops = [];
+  for (let i = 0; i < STATUS_N; i++){
+    const a = (i / STATUS_N * 100).toFixed(2), b = ((i + 1) / STATUS_N * 100).toFixed(2);
+    stops.push(`${statusHistory[i]} ${a}%`, `${statusHistory[i]} ${b}%`);
+  }
+  const bg = `linear-gradient(to right, ${stops.join(',')})`;
+  document.querySelectorAll('.g-status').forEach(el => el.style.background = bg);
+}
+
+/* Build legends, axis units, Y-ticks, status band + X-axis time labels */
+(function(){
+  const axisColor = {X:'var(--roll)', Y:'var(--pitch)', Z:'var(--yaw)', ALT:'var(--accent)'};
+  document.querySelectorAll('.graph[data-axes]').forEach(g => {
+    const leg = g.querySelector('.legend'), grid = g.querySelector('.g-grid'), plot = g.querySelector('.g-plot');
+    const unit = g.querySelector('.unit') ? g.querySelector('.unit').textContent : '';
+    const cols = (g.dataset.colors || '').split(',').filter(Boolean);
+    const dottedFrom = g.dataset.dottedfrom != null ? +g.dataset.dottedfrom : Infinity;
+    if (leg) g.dataset.axes.split(',').forEach((a, idx) => {
+      const i = document.createElement('i');
+      i.style.setProperty('--c', cols[idx] || axisColor[a] || 'var(--accent)');
+      if (idx >= dottedFrom) i.classList.add('leg-dot');
+      i.textContent = a; leg.appendChild(i);
+    });
+    const stdMax = +g.dataset.stdmax || 0;
+    if (leg && stdMax) {            // dotted-line σ legend entry
+      const i = document.createElement('i'); i.className = 'leg-std';
+      i.style.setProperty('--c', 'var(--text-dim)'); i.textContent = 'σ'; leg.appendChild(i);
+    }
+    // status band — behind gridlines + trace (unless opted out)
+    if (plot && !g.hasAttribute('data-noband')) { const sb = document.createElement('div'); sb.className = 'g-status'; plot.insertBefore(sb, plot.firstChild); }
+    if (grid) {
+      const max = +g.dataset.max, min = +g.dataset.min;
+      for (let k = 0; k <= 4; k++) {
+        const top = k / 4 * 100;
+        const val = max - (max - min) * (k / 4);
+        const gl = document.createElement('div'); gl.className = 'gl'; gl.style.top = top + '%'; grid.appendChild(gl);
+        const gv = document.createElement('div'); gv.className = 'gv mono'; gv.style.top = top + '%';
+        const num = Number.isInteger(val) ? val : val.toFixed(1);
+        gv.textContent = k === 0 ? `${num} ${unit}` : num;   // unit on the top Y-tick
+        grid.appendChild(gv);
+      }
+      [25,50,75].forEach(p => { const gx = document.createElement('div'); gx.className = 'gx'; gx.style.left = p + '%'; grid.appendChild(gx); });
+      // right-hand σ axis (0 at bottom → stdMax at top)
+      if (stdMax) for (let k = 0; k <= 4; k++) {
+        const top = k / 4 * 100;
+        const sval = stdMax - stdMax * (k / 4);
+        const gvR = document.createElement('div'); gvR.className = 'gv gvR mono'; gvR.style.top = top + '%';
+        const snum = Number.isInteger(sval) ? sval : sval.toFixed(1);
+        gvR.textContent = k === 0 ? `σ ${snum}` : snum;
+        grid.appendChild(gvR);
+      }
+    }
+    // X-axis time scale (now on the right → past on the left)
+    const xax = document.createElement('div'); xax.className = 'g-xaxis mono';
+    xax.innerHTML = `<span>−${WINDOW_S.toFixed(1)}s</span><span>−${(WINDOW_S/2).toFixed(1)}s</span><span>0s</span>`;
+    g.appendChild(xax);
+  });
+})();
+
+let ph=0; const tri=['var(--roll)','var(--pitch)','var(--yaw)'];
+setInterval(()=>{
+  ph+=0.08;
+  spark('g1',tri,ph,8); spark('g2',tri,ph*1.3,2); spark('g3',tri,ph*0.7,24); spark('g4',['var(--accent)'],ph*0.5,4);
+  spark('gmotor', MCOLS, ph*0.6);
+  spark('gRcHist', ['#61AFEF','#E06C75','#98C379','#D19A66','#C678DD','#56B6C2','#E5C07B','#ABB2BF'], ph*0.5, 0, 4);
+  updateMotors();
+  clTick(ph);
+  if (simRunning) simTick(ph);
+  atUpdate(ph);
+  applyStatusBands();
+  const pk=document.getElementById('pktV'); pk.textContent=parseInt(pk.textContent)+7;
+  // device temperature gauge (oscillate ~38°C, scale 0–80°C)
+  const temp = 38 + Math.sin(ph*0.25)*4 + Math.sin(ph)*0.6;
+  const fill = document.getElementById('tempFill'), read = document.getElementById('tempRead');
+  if (fill){
+    fill.style.height = Math.max(0, Math.min(100, temp/80*100)) + '%';
+    const col = temp > 60 ? 'var(--danger)' : temp > 45 ? 'var(--warn)' : 'var(--ok)';
+    read.textContent = temp.toFixed(1)+'°C';
+    read.style.color = col;
+  }
+  // battery gauge (slow drain ~76%, scale 0–100%)
+  const batt = 76 + Math.sin(ph*0.08)*3;
+  const bf = document.getElementById('battFill'), br = document.getElementById('battRead');
+  if (bf){
+    bf.style.height = Math.max(0, Math.min(100, batt)) + '%';
+    const bcol = batt > 50 ? 'var(--ok)' : batt > 20 ? 'var(--warn)' : 'var(--danger)';
+    br.textContent = Math.round(batt)+'%';
+    br.style.color = bcol;
+  }
+}, 120);
+
+/* Log */
+const logSamples=[
+  ['[12:04:01] ','info','[GCS] Connected to /dev/ttyUSB0'],
+  ['[12:04:01] ','ok','[FC] STANDBY — estimator converged'],
+  ['[12:04:02] ','info','[GCS] Sync period updated to 5000 ms'],
+  ['[12:04:03] ','warn','[FC] Magnetometer needs calibration'],
+  ['[12:04:04] ','ok','[FC] Heartbeat from Device 42 · drift +4ms'],
+  ['[12:04:05] ','info','[GCS] Sent CMD_ARM (lower throttle to arm)'],
+  ['[12:04:06] ','err','[FC] FAILSAFE cleared — RC link restored'],
+];
+const logEl=document.getElementById('logLines');
+logSamples.forEach(([ts,cls,msg])=>{const d=document.createElement('div');
+  d.innerHTML=`<span class="t">${ts}</span><span class="${cls}">${msg}</span>`; logEl.appendChild(d);});
+
+/* RC */
+const rcDefs=[['Roll (Aileron)','stick'],['Pitch (Elevator)','stick'],['Throttle','thr'],['Yaw (Rudder)','stick'],
+              ['AUX1 — Mode','aux'],['AUX2 — Arm','aux'],['AUX3','aux'],['AUX4','aux']];
+const rcEl=document.getElementById('rcChannels');
+rcDefs.forEach(([n,type],i)=>{const v=1100+Math.round(Math.random()*800); const pct=(v-1000)/1000*100;
+  const col = type==='thr' ? '#7fae5a' : type==='aux' ? '#5c6f99' : '#3a5f8f';
+  rcEl.innerHTML+=`<div class="rc-row"><div class="name">CH${i+1} · ${n}</div><div class="rc-bar"><div class="fill" style="width:${pct}%;background:${col}"></div><div class="mid"></div></div><div class="pwm mono">${v}</div></div>`;});
+
+/* Motors — X-frame schematic with speed-arc rings, spinning props, cards + graph */
+const MOTORS = [
+  {n:1, x:315, y:85,  col:'#E06C75', dir:'CW'},
+  {n:2, x:315, y:315, col:'#98C379', dir:'CCW'},
+  {n:3, x:85,  y:315, col:'#61AFEF', dir:'CW'},
+  {n:4, x:85,  y:85,  col:'#D19A66', dir:'CCW'},
+];
+const MCOLS = MOTORS.map(m => m.col);
+const R = 40, C = 2 * Math.PI * R;
+(function buildMotors(){
+  const rings = document.getElementById('motorRings');
+  const props = document.getElementById('motorProps');
+  const labels = document.getElementById('motorLabels');
+  const cards = document.getElementById('motorCards');
+  MOTORS.forEach(m => {
+    rings.innerHTML +=
+      `<circle cx="${m.x}" cy="${m.y}" r="${R}" fill="#1A1D27" stroke="#3A4150" stroke-width="7"/>` +
+      `<circle id="arc${m.n}" cx="${m.x}" cy="${m.y}" r="${R}" fill="none" stroke="${m.col}" stroke-width="7" stroke-linecap="round" transform="rotate(-90 ${m.x} ${m.y})" stroke-dasharray="${C.toFixed(1)}" stroke-dashoffset="${C.toFixed(1)}"/>` +
+      `<circle cx="${m.x}" cy="${m.y}" r="11" fill="#2C313A" stroke="${m.col}" stroke-width="1.5"/>`;
+    const px = m.x/400*100, py = m.y/400*100;
+    props.innerHTML  += `<div class="mprop" id="mprop${m.n}" style="left:${px}%;top:${py}%"><div class="mblades"></div></div>`;
+    const lblMt = m.y < 200 ? -62 : 62;   // top motors → label above ring, bottom → below
+    labels.innerHTML += `<div class="ml-top" style="left:${px}%;top:${py}%;margin-top:${lblMt}px;color:${m.col}">M${m.n} · ${m.dir}</div>` +
+                        `<div class="ml-pct mono" id="mpct${m.n}" style="left:${px}%;top:${py}%;color:${m.col}">0%</div>`;
+    cards.innerHTML  += `<div class="mcard"><span class="mdot" style="background:${m.col}"></span><span class="mname" style="color:${m.col}">M${m.n}</span><span class="mdir">${m.dir}</span><span class="mval mono" id="mval${m.n}">0%</span><span class="mstd mono" id="mstd${m.n}">±σ 0.00</span></div>`;
+  });
+})();
+function updateMotors(){
+  MOTORS.forEach((m,i) => {
+    const frac = Math.max(0, Math.min(1, 0.42 + Math.sin(ph*0.6 + i*1.6)*0.16 + Math.sin(ph*2+i)*0.03));
+    const arc = document.getElementById('arc'+m.n);
+    if (arc) arc.setAttribute('stroke-dashoffset', (C*(1-frac)).toFixed(1));
+    const pct = Math.round(frac*100);
+    const pe = document.getElementById('mpct'+m.n); if (pe) pe.textContent = pct+'%';
+    const ve = document.getElementById('mval'+m.n); if (ve) ve.textContent = pct+'%';
+    const se = document.getElementById('mstd'+m.n); if (se) se.textContent = '±σ '+(Math.abs(Math.sin(ph+i))*0.6).toFixed(2);
+    const pr = document.getElementById('mprop'+m.n); if (pr){ const b = pr.firstChild; b.style.animationDuration = (0.7 - frac*0.5).toFixed(2)+'s'; }
+  });
+}
+
+/* ===== Control Loop dashboard ===== */
+// Each trace: name, colour, optional dash (setpoint), base/amp/speed/phase for
+// the synthetic waveform. Current traces lag their setpoint to show tracking.
+const CLSECS = [
+  { key:'angle', title:'Outer Loop — Angle SP & Current', unit:'°', dec:1, min:-30, max:30, traces:[
+    {nm:'R sp', c:'#D19A66', dash:1, amp:22, sp:0.6, ph:0.0},
+    {nm:'P sp', c:'#C678DD', dash:1, amp:14, sp:0.5, ph:1.2},
+    {nm:'Y sp', c:'#56B6C2', dash:1, amp:10, sp:0.3, ph:2.4},
+    {nm:'Roll', c:'#E06C75', amp:22, sp:0.6, ph:-0.35},
+    {nm:'Pitch',c:'#98C379', amp:14, sp:0.5, ph:0.85},
+    {nm:'Yaw',  c:'#61AFEF', amp:10, sp:0.3, ph:2.05},
+  ]},
+  { key:'rate', title:'Inner Loop — Rate SP & Gyro', unit:'°/s', dec:0, min:-250, max:250, traces:[
+    {nm:'R sp', c:'#D19A66', dash:1, amp:180, sp:0.9, ph:0.0},
+    {nm:'P sp', c:'#C678DD', dash:1, amp:120, sp:0.8, ph:1.0},
+    {nm:'Y sp', c:'#56B6C2', dash:1, amp:70,  sp:0.5, ph:2.0},
+    {nm:'Roll', c:'#BE5046', amp:180, sp:0.9, ph:-0.3},
+    {nm:'Pitch',c:'#7FB069', amp:120, sp:0.8, ph:0.75},
+    {nm:'Yaw',  c:'#4078BF', amp:70,  sp:0.5, ph:1.8},
+  ]},
+  { key:'output', title:'Controller Outputs', unit:'', dec:3, min:-1, max:1, traces:[
+    {nm:'Roll', c:'#E06C75', amp:0.5,  sp:0.9, ph:0},
+    {nm:'Pitch',c:'#98C379', amp:0.35, sp:0.8, ph:1},
+    {nm:'Yaw',  c:'#61AFEF', amp:0.2,  sp:0.5, ph:2},
+    {nm:'Thr',  c:'#E5C07B', base:0.42, amp:0.05, sp:0.3, ph:0},
+  ]},
+  { key:'dt', title:'Loop Time (dt)', unit:'ms', dec:3, min:0, max:3, std:1, traces:[
+    {nm:'Outer', c:'#98C379', base:1.0, amp:0.07, sp:1.3, ph:0},
+    {nm:'Inner', c:'#61AFEF', base:0.5, amp:0.05, sp:1.7, ph:1},
+  ]},
+];
+const clVal = (tr,i,ph) => (tr.base||0) + tr.amp*Math.sin(i*0.10 + ph*(tr.sp||1) + (tr.ph||0));
+(function buildCL(){
+  CLSECS.forEach(sec => {
+    const host = document.getElementById('clsec-'+sec.key); if(!host) return;
+    const stats = sec.traces.map((tr,idx) =>
+      `<span class="cl-stat"><span class="nm"><i class="${tr.dash?'dash':''}" style="--c:${tr.c}"></i>${tr.nm}</span><b id="clv-${sec.key}-${idx}" style="color:${tr.c}">0</b></span>`).join('');
+    host.innerHTML =
+      `<div class="cl-head"><span class="cl-title">${sec.title}</span><span class="cl-stats">${stats}</span></div>` +
+      `<div class="cl-plot"><div class="g-grid"></div><svg id="clsvg-${sec.key}" viewBox="0 0 200 60" preserveAspectRatio="none"></svg></div>`;
+    // y-ticks (5) with unit on top + faint vertical gridlines
+    const grid = host.querySelector('.g-grid');
+    for (let k=0;k<=4;k++){
+      const top=k/4*100, val=sec.max-(sec.max-sec.min)*(k/4);
+      grid.innerHTML += `<div class="gl" style="top:${top}%"></div>`;
+      const num = Number.isInteger(val)?val:val.toFixed(1);
+      grid.innerHTML += `<div class="gv mono" style="top:${top}%">${k===0?num+' '+sec.unit:num}</div>`;
+    }
+    [25,50,75].forEach(p => grid.innerHTML += `<div class="gx" style="left:${p}%"></div>`);
+  });
+})();
+function clTick(ph){
+  CLSECS.forEach(sec => {
+    const svg = document.getElementById('clsvg-'+sec.key); if(!svg) return;
+    const W=200,H=60,N=60; let html='';
+    sec.traces.forEach((tr,idx) => {
+      let d='';
+      for(let i=0;i<N;i++){ const x=i/(N-1)*W; const v=clVal(tr,i,ph);
+        const y=H-((v-sec.min)/(sec.max-sec.min))*H;
+        d+=(i?'L':'M')+x.toFixed(1)+' '+Math.max(-5,Math.min(65,y)).toFixed(1)+' '; }
+      html += `<path d="${d}" fill="none" stroke="${tr.c}" stroke-width="${tr.dash?1.2:1.4}" vector-effect="non-scaling-stroke"${tr.dash?' stroke-dasharray="6 4"':''}/>`;
+      const cur = clVal(tr,N-1,ph);
+      const b = document.getElementById(`clv-${sec.key}-${idx}`);
+      if (b){
+        if (sec.std){ const sd = Math.abs(tr.amp)*0.5; b.textContent = cur.toFixed(sec.dec)+' ±'+sd.toFixed(3); }
+        else b.textContent = cur.toFixed(sec.dec);
+      }
+    });
+    svg.innerHTML = html;
+  });
+}
+
+/* ===== Packet Analyzer ===== */
+const PKT_TYPES = [
+  {name:'HEARTBEAT',    col:'#98C379', hz:1},
+  {name:'IMU_DATA_FULL',col:'#61AFEF', hz:200},
+  {name:'ATTITUDE',     col:'#C678DD', hz:100},
+  {name:'SYSTEM_STATUS',col:'#E5C07B', hz:5},
+  {name:'RC_CHANNELS',  col:'#56B6C2', hz:50},
+  {name:'MOTOR_TELEMETRY',col:'#E06C75', hz:50},
+  {name:'LOG',          col:'#ABB2BF', hz:2},
+];
+const hex2 = n => ('0'+(n&255).toString(16)).slice(-2);
+const rnd = (a,b) => a + Math.random()*(b-a);
+const colOf = t => (PKT_TYPES.find(p=>p.name===t)||{}).col || 'var(--text-muted)';
+
+// Synthetic decoded payload per packet type
+function payloadFor(type){
+  switch(type){
+    case 'IMU_DATA_FULL': return [['acc.x',rnd(-2,2).toFixed(3),'m/s²'],['acc.y',rnd(-2,2).toFixed(3),'m/s²'],['acc.z',rnd(9,10).toFixed(3),'m/s²'],['gyr.x',rnd(-1,1).toFixed(4),'rad/s'],['gyr.y',rnd(-1,1).toFixed(4),'rad/s'],['gyr.z',rnd(-1,1).toFixed(4),'rad/s']];
+    case 'ATTITUDE': return [['roll',rnd(-30,30).toFixed(2),'°'],['pitch',rnd(-20,20).toFixed(2),'°'],['yaw',rnd(0,360).toFixed(2),'°']];
+    case 'SYSTEM_STATUS': return [['state','STANDBY (0x04)',''],['battery',rnd(11,12.6).toFixed(2),'V'],['cpu_load',Math.round(rnd(20,60))+'',' %']];
+    case 'RC_CHANNELS': return Array.from({length:8},(_,i)=>['ch'+(i+1),Math.round(rnd(1000,2000))+'','µs']);
+    case 'MOTOR_TELEMETRY': return Array.from({length:4},(_,i)=>['m'+(i+1),(rnd(0.3,0.6)).toFixed(3),'']);
+    case 'LOG': return [['level','INFO',''],['message','"estimator converged"','']];
+    case 'HEARTBEAT': return [['(no payload)','—','']];
+    default: return [['raw','…','']];
+  }
+}
+
+const PKTS = [];
+(function genPackets(){
+  for(let i=0;i<22;i++){
+    const t = PKT_TYPES[Math.floor(Math.random()*PKT_TYPES.length)];
+    const rx = t.name==='HEARTBEAT' ? Math.random()>0.5 : t.name==='LOG' ? Math.random()>0.5 : Math.random()>0.3;
+    const payload = payloadFor(t.name);
+    const plen = Math.max(0, payload.length*4 + Math.floor(rnd(0,6)));
+    const ts = (1700000000000 + i*137) >>> 0;
+    const bytes = [];
+    bytes.push('56','31',hex2(plen),'2a',hex2(ts),hex2(ts>>8),hex2(ts>>16),hex2(ts>>24));  // 8-byte header
+    for(let b=0;b<plen;b++) bytes.push(hex2(Math.floor(Math.random()*256)));                // payload
+    for(let b=0;b<4;b++) bytes.push(hex2(Math.floor(Math.random()*256)));                    // crc32
+    PKTS.push({ i, time:`12:04:${10+i}.${Math.floor(rnd(100,999))}`, dir: rx?'RX':'TX',
+                type:t.name, dev:42, len:plen, crc:'OK', ts, bytes, payload });
+  }
+})();
+
+// Frequency ribbon
+(function buildFreq(){
+  const fr = document.getElementById('freqRibbon');
+  fr.innerHTML = PKT_TYPES.map(t =>
+    `<span class="freq-pill"><span class="fp-dot" style="background:${t.col}"></span>${t.name.replace('_DATA_FULL','').replace('_TELEMETRY','').replace('_CHANNELS','')} <span class="fp-hz" id="fhz-${t.name}">${t.hz}</span> Hz</span>`).join('');
+})();
+
+// Type filter chips
+const enabledTypes = new Set(PKT_TYPES.map(t=>t.name));
+let dirFilterVal = 'all';
+(function buildChips(){
+  const tc = document.getElementById('typeChips');
+  tc.innerHTML = PKT_TYPES.map(t =>
+    `<span class="tbtn on" data-type="${t.name}"><span class="tc-dot" style="background:${t.col}"></span>${t.name.replace('_DATA_FULL','').replace('_TELEMETRY','').replace('_CHANNELS','')}</span>`).join('');
+  tc.querySelectorAll('.tbtn').forEach(ch => ch.onclick = () => {
+    const ty = ch.dataset.type;
+    if (enabledTypes.has(ty)) { enabledTypes.delete(ty); ch.classList.remove('on'); }
+    else { enabledTypes.add(ty); ch.classList.add('on'); }
+    applyPktFilter();
+  });
+  // direction segmented control
+  document.querySelectorAll('#dirFilter span').forEach(s => s.onclick = () => {
+    document.querySelectorAll('#dirFilter span').forEach(x=>x.classList.remove('on'));
+    s.classList.add('on'); dirFilterVal = s.dataset.dir; applyPktFilter();
+  });
+})();
+
+// Render table
+const ptbody = document.querySelector('#packetTable tbody');
+(function renderPkts(){
+  ptbody.innerHTML = PKTS.map(p =>
+    `<tr data-i="${p.i}" data-type="${p.type}" data-dir="${p.dir}">
+      <td class="mono">${p.time}</td>
+      <td><span class="tag ${p.dir==='RX'?'rx':'tx'}">${p.dir}</span></td>
+      <td style="color:${colOf(p.type)}">${p.type}</td>
+      <td class="mono">${p.dev}</td><td class="mono">${p.len}</td>
+      <td class="mono" style="color:var(--ok)">OK</td>
+      <td class="mono" style="color:var(--text-dim)">${p.bytes.slice(0,6).join(' ')}…</td>
+    </tr>`).join('');
+  ptbody.querySelectorAll('tr').forEach(tr => tr.onclick = () => {
+    ptbody.querySelectorAll('tr').forEach(x=>x.classList.remove('sel'));
+    tr.classList.add('sel');
+    showDecoder(PKTS[+tr.dataset.i]);
+  });
+})();
+
+function applyPktFilter(){
+  const q = (document.getElementById('pktSearch').value || '').toLowerCase();
+  ptbody.querySelectorAll('tr').forEach(tr => {
+    const p = PKTS[+tr.dataset.i];
+    const okType = enabledTypes.has(p.type);
+    const okDir  = dirFilterVal === 'all' || p.dir === dirFilterVal;
+    const okSearch = !q || p.type.toLowerCase().includes(q) || p.bytes.join(' ').includes(q);
+    tr.style.display = (okType && okDir && okSearch) ? '' : 'none';
+  });
+}
+
+function showDecoder(p){
+  const d = document.getElementById('decoder');
+  const field = (k,v,u) => `<div class="dec-field"><span class="dk">${k}</span><span class="dv">${v}${u?`<span class="u">${u}</span>`:''}</span></div>`;
+  const header =
+    field('sync','0x56','') + field('type',`0x${hex2(PKT_TYPES.indexOf(PKT_TYPES.find(t=>t.name===p.type)))} (${p.type})`,'') +
+    field('version','1','') + field('length',p.len,' B') + field('device_id',p.dev,'') + field('timestamp',p.ts>>>0,' ms');
+  const payload = p.payload.map(([k,v,u]) => field(k,v,u)).join('');
+  const crc = field('crc32','0x'+p.bytes.slice(-4).join('').toUpperCase(),'✓ OK');
+  // raw hex, colour-coded by region
+  const hh = p.bytes.slice(0,8).map(b=>`<span class="hh">${b}</span>`).join(' ');
+  const hp = p.bytes.slice(8,8+p.len).map(b=>`<span class="hp">${b}</span>`).join(' ');
+  const hc = p.bytes.slice(-4).map(b=>`<span class="hc">${b}</span>`).join(' ');
+  d.innerHTML =
+    `<div class="dec-h">Header</div>${header}` +
+    `<div class="dec-h">Payload — ${p.type}</div>${payload}` +
+    `<div class="dec-h">Footer</div>${crc}` +
+    `<div class="dec-h">Raw Bytes</div><div class="dec-hex">${hh} ${hp} ${hc}</div>` +
+    `<div class="dec-legend"><i style="color:var(--accent)">■ header</i><i style="color:var(--text-muted)">■ payload</i><i style="color:var(--warn)">■ crc</i></div>`;
+}
+
+/* ===== Simulator FPV ===== */
+function simTab(which){
+  document.querySelectorAll('#page-sim .tab').forEach(t=>t.classList.toggle('on', t.dataset.tab===which));
+  document.querySelectorAll('#page-sim .tab-page').forEach(p=>p.classList.toggle('on', p.id==='simtab-'+which));
+}
+let simRunning = true, showDown = true, showAdi = true;
+function togglePip(which){
+  if (which==='down'){ showDown=!showDown; document.getElementById('chipDown').classList.toggle('on',showDown); document.getElementById('pipDown').classList.toggle('hidden',!showDown); }
+  else { showAdi=!showAdi; document.getElementById('chipAdi').classList.toggle('on',showAdi); document.getElementById('pipAdi').classList.toggle('hidden',!showAdi); }
+}
+function setSimRun(on){
+  simRunning = on;
+  const chip = document.getElementById('simRunChip');
+  chip.textContent = on ? '● Running' : '● Stopped';
+  chip.classList.toggle('on', on);
+  chip.style.color = on ? '' : 'var(--text-dim)';
+}
+// HUD palette — matches SimHudWidget.cpp exactly
+const HUD = 'rgb(90,255,160)', DIM = 'rgba(90,255,160,0.43)', WARN = 'rgb(255,95,95)', HBOX = 'rgba(0,0,0,0.51)';
+const HIST_N = 128;
+const accHist = [[],[],[]], gyrHist = [[],[],[]];
+let simT = 0;
+
+// canvas line/text helpers
+function pen(x,col,w,dash){ x.strokeStyle=col; x.lineWidth=w; x.setLineDash(dash||[]); }
+function ln(x,x1,y1,x2,y2){ x.beginPath(); x.moveTo(x1,y1); x.lineTo(x2,y2); x.stroke(); }
+function txt(x,s,px,py,al,col){ x.fillStyle=col; x.textAlign=al||'left'; x.fillText(s,px,py); }
+
+function simTick(ph){
+  // synthetic vehicle state
+  const roll=Math.sin(ph*0.5)*16, pitch=Math.cos(ph*0.4)*7, yaw=(Math.sin(ph*0.2)*50+90+360)%360;
+  const alt=12.4+Math.sin(ph*0.3)*3, gs=3.1+Math.sin(ph*0.6)*1.2, vs=Math.cos(ph*0.3)*0.8;
+  const motor=[0,1,2,3].map(i=>0.42+Math.sin(ph*0.6+i*1.6)*0.14);
+  // push IMU history
+  const acc=[Math.sin(ph*1.1)*1.5, Math.cos(ph*0.9)*1.4, 9.8+Math.sin(ph*1.7)*0.4];
+  const gyr=[Math.sin(ph*1.3)*18, Math.cos(ph*1.1)*14, Math.sin(ph*0.7)*9];
+  for(let i=0;i<3;i++){ accHist[i].push(acc[i]); if(accHist[i].length>HIST_N)accHist[i].shift();
+                        gyrHist[i].push(gyr[i]); if(gyrHist[i].length>HIST_N)gyrHist[i].shift(); }
+  simT += 0.12;
+  drawHud({roll,pitch,yaw,alt,gs,vs,motor,status: armed?'ARMED':'STANDBY'});
+  if (showDown) drawDownCam(yaw);
+  if (showAdi)  drawAdi(roll,pitch);
+  // right-panel + toolbar readouts
+  const set=(id,t)=>{const e=document.getElementById(id); if(e) e.textContent=t;};
+  const mm=String(Math.floor(simT/60)).padStart(2,'0'), ss=String(Math.floor(simT%60)).padStart(2,'0');
+  set('simAlt',alt.toFixed(1)+' m'); set('simSpd',gs.toFixed(1)+' m/s');
+  set('simVs',(vs>=0?'+':'')+vs.toFixed(1)+' m/s'); set('simClk',`${mm}:${ss}`);
+  set('simPose',`pos 0.0, 0.0, −${alt.toFixed(1)} m · vel ${gs.toFixed(1)} m/s`);
+  // RC bridge bars
+  const rcv=[1500+Math.sin(ph*0.7)*300,1500+Math.cos(ph*0.6)*250,1100+(Math.sin(ph*0.3)*0.5+0.5)*500,1500+Math.sin(ph*0.4)*200];
+  rcv.forEach((v,i)=>{const f=document.getElementById('rcm'+i),t=document.getElementById('rcv'+i);
+    if(f)f.style.width=((v-1000)/1000*100)+'%'; if(t)t.textContent=Math.round(v);});
+}
+
+// Port of SimHudWidget::paintEvent — green FPV HUD over a synthetic world.
+function drawHud(s){
+  const cv=document.getElementById('fpvCanvas'); if(!cv) return;
+  const host=cv.parentElement, dpr=window.devicePixelRatio||1;
+  const W=host.clientWidth, H=host.clientHeight;
+  if(cv.width!==W*dpr||cv.height!==H*dpr){ cv.width=W*dpr; cv.height=H*dpr; }
+  const x=cv.getContext('2d'); x.setTransform(dpr,0,0,dpr,0,0);
+  x.clearRect(0,0,W,H);
+  x.font='bold 11px monospace'; x.textBaseline='middle';
+  const cx=W/2, cy=H/2, ppd=H/45;
+
+  // --- synthetic world (sky/ground) behind the HUD ---
+  x.save(); x.translate(cx,cy); x.rotate(-s.roll*Math.PI/180); x.translate(0,s.pitch*ppd);
+  x.fillStyle='#33597f'; x.fillRect(-W*2,-H*2,W*4,H*2);
+  x.fillStyle='#4a3a26'; x.fillRect(-W*2,0,W*4,H*2);
+  pen(x,'rgba(255,255,255,0.05)',1);
+  for(let k=1;k<=12;k++){ ln(x,-W*2,k*20,W*2,k*20); }
+  x.restore();
+
+  // ===== artificial horizon + pitch ladder (clipped to centre column) =====
+  x.save();
+  const sm=110; x.beginPath(); x.rect(sm,0,W-2*sm,H); x.clip();
+  x.translate(cx,cy); x.rotate(-s.roll*Math.PI/180); x.translate(0,s.pitch*ppd);
+  pen(x,HUD,2); const hl=W*0.5-115;
+  ln(x,-hl,0,-W*0.05,0); ln(x,W*0.05,0,hl,0);
+  for(let a=-90;a<=90;a+=10){ if(a===0)continue; const y=-a*ppd; if(Math.abs(y)>H*0.55)continue;
+    const half=(a%20===0)?W*0.10:W*0.06;
+    pen(x,DIM,1.3, a<0?[5,4]:[]); ln(x,-half,y,-W*0.03,y); ln(x,W*0.03,y,half,y); x.setLineDash([]);
+    pen(x,HUD,1); txt(x,String(a),-half-4,y,'right',HUD); txt(x,String(a),half+4,y,'left',HUD); }
+  x.restore();
+
+  // ===== center boresight =====
+  pen(x,HUD,2);
+  ln(x,cx-30,cy,cx-10,cy); ln(x,cx+10,cy,cx+30,cy); ln(x,cx,cy-8,cx,cy);
+  x.fillStyle=HUD; x.beginPath(); x.arc(cx,cy,2.5,0,7); x.fill();
+
+  // ===== roll arc + pointer =====
+  const R=Math.min(W,H)*0.34;
+  pen(x,DIM,1.4); x.beginPath();
+  for(let a=-60;a<=60;a+=2){ const r=a*Math.PI/180; const px=cx+R*Math.sin(r), py=cy-R*Math.cos(r); a===-60?x.moveTo(px,py):x.lineTo(px,py); } x.stroke();
+  pen(x,HUD,1.4);
+  [-60,-45,-30,-20,-10,0,10,20,30,45,60].forEach(a=>{ const r=a*Math.PI/180, ins=(a%30===0)?12:7;
+    ln(x,cx+R*Math.sin(r),cy-R*Math.cos(r),cx+(R-ins)*Math.sin(r),cy-(R-ins)*Math.cos(r)); });
+  { const rr=Math.max(-60,Math.min(60,s.roll))*Math.PI/180, sn=Math.sin(rr), cs=Math.cos(rr);
+    const tx=cx+R*sn, ty=cy-R*cs, dx=sn, dy=-cs, px=-dy, py=dx;
+    x.fillStyle=HUD; x.beginPath(); x.moveTo(tx,ty); x.lineTo(tx-dx*11+px*6,ty-dy*11+py*6); x.lineTo(tx-dx*11-px*6,ty-dy*11-py*6); x.closePath(); x.fill(); }
+
+  // ===== heading / compass tape (top) =====
+  { const hdg=((s.yaw%360)+360)%360, tapeW=W*0.5, hppd=tapeW/80, ty=16;
+    x.save(); x.beginPath(); x.rect(cx-tapeW/2,ty-4,tapeW,34); x.clip();
+    const base=Math.floor(hdg)-45;
+    for(let iv=base; iv<=base+90; iv++){ const h=((iv%360)+360)%360; if(h%5)continue;
+      const hx=cx+(iv-hdg)*hppd;
+      if(h%10===0){ pen(x,HUD,1.3); ln(x,hx,ty,hx,ty+9);
+        let lbl=h===0?'N':h===90?'E':h===180?'S':h===270?'W':(h%30===0?String(h):'');
+        if(lbl) txt(x,lbl,hx,ty+17,'center',HUD); }
+      else { pen(x,DIM,1.1); ln(x,hx,ty,hx,ty+5); } }
+    x.restore();
+    pen(x,HUD,1.4); x.fillStyle=HUD; x.beginPath(); x.moveTo(cx,ty+11); x.lineTo(cx-6,ty+2); x.lineTo(cx+6,ty+2); x.closePath(); x.fill();
+    const bw=48,bh=17; x.fillStyle=HBOX; x.fillRect(cx-24,ty-18,bw,bh); pen(x,HUD,1.4); x.strokeRect(cx-24,ty-18,bw,bh);
+    txt(x,Math.round(hdg)+'°',cx,ty-18+bh/2,'center',HUD); }
+
+  // ===== vertical tapes (speed left, altitude right) =====
+  function tape(tx,side,value,ppu,major,title,dec){
+    const top=H*0.20, bot=H*0.80, mid=(top+bot)/2;
+    x.save(); x.beginPath(); x.rect(tx-60,top-2,120,bot-top+4); x.clip();
+    pen(x,DIM,1.2); ln(x,tx,top,tx,bot);
+    const lo=Math.floor(value-(mid-top)/ppu)-1, hi=Math.ceil(value+(bot-mid)/ppu)+1;
+    for(let v=lo;v<=hi;v++){ const y=mid-(v-value)*ppu; if(y<top||y>bot)continue;
+      const maj=(v%major===0), len=maj?12:6; pen(x,maj?HUD:DIM,maj?1.3:1);
+      ln(x,tx,y,tx+side*len,y);
+      if(maj&&v>=0) txt(x,String(v),tx+side*16,y,side<0?'right':'left',HUD); }
+    x.restore();
+    const vbx=side<0?tx-56:tx+4; x.fillStyle=HBOX; x.fillRect(vbx,mid-10,52,20);
+    pen(x,HUD,1.4); x.strokeRect(vbx,mid-10,52,20);
+    txt(x,value.toFixed(dec),vbx+26,mid,'center',HUD);
+    x.fillStyle=HUD; x.beginPath(); x.moveTo(tx,mid); x.lineTo(tx+side*8,mid-6); x.lineTo(tx+side*8,mid+6); x.closePath(); x.fill();
+    txt(x,title,tx,top-11,'center',HUD);
+  }
+  tape(60,-1,s.gs,12,5,'SPD m/s',1);
+  tape(W-60,1,s.alt,14,5,'ALT m',1);
+  // vertical speed under the altitude box
+  txt(x,'VS '+s.vs.toFixed(1), W-6, H*0.80+14,'right', s.vs>=0?HUD:WARN);
+
+  // ===== per-motor throttle bars (bottom-left) =====
+  { const bw=11,gap=6,bh=64,bx=22,by=H-26;
+    for(let i=0;i<4;i++){ const mx=bx+i*(bw+gap); pen(x,DIM,1); x.strokeRect(mx,by-bh,bw,bh);
+      const f=Math.max(0,Math.min(1,s.motor[i])); x.fillStyle=f>0.92?WARN:HUD; x.fillRect(mx,by-bh*f,bw,bh*f);
+      txt(x,'M'+(i+1),mx+bw/2,by+8,'center',HUD); } }
+
+  // ===== system status (top-left) =====
+  { const st=s.status||'—'; const danger=/FAILSAFE|ARMED|IN_AIR/.test(st);
+    const scol=danger?WARN:HUD, label='STATE '+st; const w=x.measureText(label).width+16;
+    x.fillStyle=HBOX; x.fillRect(12,12,w,18); pen(x,scol,1.3); x.strokeRect(12,12,w,18);
+    txt(x,label,12+w/2,21,'center',scol); }
+
+  // ===== accel / gyro mini-plots (bottom-right) =====
+  function plot(rx,ry,rw,rh,title,hist,minRange){
+    x.fillStyle=HBOX; x.fillRect(rx,ry,rw,rh); pen(x,DIM,1); x.strokeRect(rx,ry,rw,rh);
+    let mx=minRange; for(let i=0;i<3;i++) for(const v of hist[i]) mx=Math.max(mx,Math.abs(v));
+    const midY=ry+rh*0.58, plotH=rh*0.38;
+    pen(x,DIM,0.8,[2,3]); ln(x,rx+3,midY,rx+rw-3,midY); x.setLineDash([]);
+    const axc=['rgb(255,95,95)','rgb(90,255,160)','rgb(90,180,255)'];
+    for(let i=0;i<3;i++){ const h=hist[i]; if(h.length<2)continue; pen(x,axc[i],1.2); x.beginPath();
+      for(let k=0;k<h.length;k++){ const px=rx+4+(rw-8)*k/(HIST_N-1), py=midY-Math.max(-1,Math.min(1,h[k]/mx))*plotH; k?x.lineTo(px,py):x.moveTo(px,py); } x.stroke(); }
+    txt(x,title,rx+4,ry+7,'left',HUD); txt(x,'±'+mx.toFixed(mx<10?1:0),rx+rw-4,ry+7,'right',DIM);
+  }
+  const pw=210,ph2=46,px=W-pw-14;
+  plot(px,H-118,pw,ph2,'GYR °/s',gyrHist,30);
+  plot(px,H-66,pw,ph2,'ACC m/s²',accHist,2);
+}
+
+// size a canvas to its CSS box (DPR-aware); returns 2d context + CSS size
+function ctx2d(id){
+  const cv=document.getElementById(id); if(!cv) return null;
+  const dpr=window.devicePixelRatio||1, w=cv.clientWidth, h=cv.clientHeight;
+  if(!w||!h) return null;
+  if(cv.width!==w*dpr||cv.height!==h*dpr){ cv.width=w*dpr; cv.height=h*dpr; }
+  const x=cv.getContext('2d'); x.setTransform(dpr,0,0,dpr,0,0);
+  return {x,w,h};
+}
+
+// Down-facing camera PiP: body-fixed top-down view — ground scrolls/rotates,
+// the quad silhouette stays centred.
+function drawDownCam(yawDeg){
+  const c=ctx2d('downCanvas'); if(!c) return; const {x,w,h}=c;
+  x.clearRect(0,0,w,h); x.fillStyle='#0c1018'; x.fillRect(0,0,w,h);
+  const cx=w/2, cy=h/2, yaw=yawDeg*Math.PI/180, off=(simT*16)%28;
+  x.save(); x.translate(cx,cy); x.rotate(-yaw);
+  x.strokeStyle='rgba(90,255,160,0.18)'; x.lineWidth=1; x.beginPath();
+  for(let gx=-2*w; gx<=2*w; gx+=28){ x.moveTo(gx,-2*h); x.lineTo(gx,2*h); }
+  for(let gy=-2*h+off; gy<=2*h; gy+=28){ x.moveTo(-2*w,gy); x.lineTo(2*w,gy); }
+  x.stroke();
+  // world-north marker
+  x.fillStyle='rgba(90,255,160,0.7)'; x.font='bold 9px monospace'; x.textAlign='center';
+  x.fillText('N', 0, -Math.min(w,h)*0.42);
+  x.restore();
+  // quad silhouette (fixed; front = top, red)
+  const arm=Math.min(w,h)*0.30;
+  x.strokeStyle='rgba(90,255,160,0.85)'; x.lineWidth=3; x.setLineDash([]);
+  ln(x,cx-arm,cy-arm,cx+arm,cy+arm); ln(x,cx-arm,cy+arm,cx+arm,cy-arm);
+  [[cx+arm,cy-arm,'#FF5F5F'],[cx-arm,cy-arm,'#FF5F5F'],[cx+arm,cy+arm,'#5AFFA0'],[cx-arm,cy+arm,'#5AFFA0']].forEach(m=>{
+    x.fillStyle='#11151c'; x.strokeStyle=m[2]; x.lineWidth=2; x.beginPath(); x.arc(m[0],m[1],6,0,7); x.fill(); x.stroke(); });
+  x.fillStyle='#5AFFA0'; x.beginPath(); x.arc(cx,cy,2.5,0,7); x.fill();
+}
+
+// Homepage-style artificial horizon PiP (blue sky / brown ground, yellow ref).
+function drawAdi(roll,pitch){
+  const c=ctx2d('adiCanvas'); if(!c) return; const {x,w,h}=c;
+  x.clearRect(0,0,w,h);
+  const cx=w/2, cy=h/2, ppd=h/30;
+  x.save(); x.beginPath(); x.rect(0,0,w,h); x.clip();
+  x.translate(cx,cy); x.rotate(-roll*Math.PI/180); x.translate(0,pitch*ppd);
+  x.fillStyle='#4a7ab5'; x.fillRect(-w*2,-h*2,w*4,h*2);
+  x.fillStyle='#6b5135'; x.fillRect(-w*2,0,w*4,h*2);
+  x.strokeStyle='#fff'; x.lineWidth=2; ln(x,-w*2,0,w*2,0);
+  x.font='8px monospace';
+  x.strokeStyle='rgba(255,255,255,0.85)'; x.lineWidth=1.2;
+  [-20,-10,10,20].forEach(a=>{ const y=-a*ppd, half=w*0.18; ln(x,-half,y,half,y);
+    x.fillStyle='#fff'; x.textAlign='right'; x.fillText(Math.abs(a),-half-3,y); });
+  x.restore();
+  // center reference + roll pointer (yellow)
+  x.strokeStyle='#FFE66D'; x.lineWidth=2.5; ln(x,cx-14,cy,cx-5,cy); ln(x,cx+5,cy,cx+14,cy);
+  x.fillStyle='#FFE66D'; x.beginPath(); x.arc(cx,cy,2.5,0,7); x.fill();
+  x.beginPath(); x.moveTo(cx,5); x.lineTo(cx-5,13); x.lineTo(cx+5,13); x.closePath(); x.fill();
+}
+
+/* ===== PID Autotune ===== */
+let atRunning=false, atIter=0, atDone=false, atMethod='step'; const AT_MAX=40;
+const AT_BASE={roll:[4.5,0.08,0.12], pitch:[4.2,0.075,0.11], yaw:[3.0,0.05,0.0]};
+const AT_TGT ={roll:[5.2,0.095,0.145], pitch:[4.9,0.088,0.132], yaw:[3.4,0.06,0.0]};
+function atStart(){ atRunning=true; atDone=false; atIter=0; }
+function atStop(){ atRunning=false; }
+function atSetMethod(m){
+  atMethod=m; const chirp=(m==='chirp');
+  document.getElementById('atStep').classList.toggle('hidden', chirp);
+  document.getElementById('atChirp').classList.toggle('hidden', !chirp);
+  document.getElementById('atPlotTitle').textContent = chirp ? 'Chirp Sweep — Roll' : 'Step Response — Roll';
+}
+function atUpdate(ph){
+  if(atRunning){ atIter=Math.min(AT_MAX, atIter+0.4); if(atIter>=AT_MAX){ atRunning=false; atDone=true; } }
+  const prog = atIter/AT_MAX;
+  const st=document.getElementById('atStatus');
+  if(st) st.textContent = atRunning ? `Running — iter ${Math.floor(atIter)}/${AT_MAX}`
+                        : atDone ? `Converged · cost ${(0.06*(1-prog)+0.012).toFixed(3)}` : 'Idle';
+  for(const ax of ['roll','pitch','yaw']) for(let j=0;j<3;j++){
+    const e=document.getElementById(`ag-${ax}-${j}`); if(!e) continue;
+    const v=AT_BASE[ax][j]+(AT_TGT[ax][j]-AT_BASE[ax][j])*prog;
+    e.textContent = j===0 ? v.toFixed(2) : v.toFixed(3);
+    e.style.color = atDone ? 'var(--ok)' : '';
+  }
+  const svg=document.getElementById('gAuto'); if(!svg) return;
+  const N=120,W=200,H=60;
+  const Y=v=>H-((v+0.2)/1.6)*H;
+  let sp='',me='';
+  if(atMethod==='chirp'){
+    // frequency sweep: setpoint constant amplitude, measured lags + attenuates at HF
+    for(let i=0;i<N;i++){ const x=i/(N-1)*W, t=i/(N-1);
+      const phase=i*(0.10+t*0.65)+ph;                 // increasing frequency
+      const spv=0.6+0.5*Math.sin(phase);
+      const mev=0.6+0.5*Math.sin(phase-t*1.6)*(1-t*0.55);  // phase lag + roll-off
+      sp+=(i?'L':'M')+x.toFixed(1)+' '+Y(spv).toFixed(1)+' ';
+      me+=(i?'L':'M')+x.toFixed(1)+' '+Y(mev).toFixed(1)+' '; }
+  } else {
+    // step response: overshoot damps as tuning converges
+    const t0=0.15*N, zeta=Math.min(0.95,0.18+prog*0.6), wn=0.9;
+    for(let i=0;i<N;i++){ const x=i/(N-1)*W; const spv=i>=t0?1:0; let mev=0;
+      if(i>=t0){ const tt=(i-t0)*0.18, wd=wn*Math.sqrt(1-zeta*zeta);
+        mev=1-Math.exp(-zeta*wn*tt)*(Math.cos(wd*tt)+(zeta/Math.sqrt(1-zeta*zeta))*Math.sin(wd*tt));
+        mev+=Math.sin(i*0.6+ph)*0.012*(1-prog); }
+      sp+=(i?'L':'M')+x.toFixed(1)+' '+Y(spv).toFixed(1)+' ';
+      me+=(i?'L':'M')+x.toFixed(1)+' '+Y(mev).toFixed(1)+' '; }
+  }
+  svg.innerHTML=`<path d="${sp}" fill="none" stroke="#E5C07B" stroke-width="1.3" vector-effect="non-scaling-stroke" stroke-dasharray="6 4"/>`+
+                `<path d="${me}" fill="none" stroke="#98C379" stroke-width="1.4" vector-effect="non-scaling-stroke"/>`;
+}
+
+// Drag the PiP boxes by their header, clamped within the viewport.
+function makeDraggable(pip){
+  const head = pip.querySelector('.pip-h'); if(!head) return;
+  head.addEventListener('mousedown', e => {
+    e.preventDefault();
+    const cont = pip.parentElement.getBoundingClientRect();
+    const box = pip.getBoundingClientRect();
+    const offX = e.clientX - box.left, offY = e.clientY - box.top;
+    pip.style.right = 'auto';
+    const mv = ev => {
+      let nx = ev.clientX - cont.left - offX, ny = ev.clientY - cont.top - offY;
+      nx = Math.max(0, Math.min(cont.width  - box.width,  nx));
+      ny = Math.max(0, Math.min(cont.height - box.height, ny));
+      pip.style.left = nx + 'px'; pip.style.top = ny + 'px';
+    };
+    const up = () => { document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up); };
+    document.addEventListener('mousemove', mv); document.addEventListener('mouseup', up);
+  });
+}
+['pipDown','pipAdi'].forEach(id => { const el = document.getElementById(id); if(el) makeDraggable(el); });
+</script>
+</body>
+</html>
