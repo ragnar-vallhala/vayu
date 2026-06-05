@@ -34,6 +34,7 @@ set(GCS_SOURCES
     src/comm/SerialManager.cpp
     src/protocol/DroneProtocol.cpp
     src/ui/widgets/AttitudeWidget.cpp
+    src/ui/widgets/HorizonHud.cpp
     src/ui/widgets/ImuPanel.cpp
     src/ui/widgets/LogPanel.cpp
     src/core/crc.cpp
@@ -70,6 +71,7 @@ set(GCS_HEADERS
     src/core/Notify.h
     src/core/Theme.h
     src/core/ui/Buttons.h
+    src/core/ui/WheelGuard.h
     src/ui/widgets/PacketAnalyzerWidget.h
     src/ui/main/SettingsWidget.h
     src/protocol/PacketDecoder.h

@@ -66,6 +66,11 @@ class RcBridge : public QThread {
   // v: -1 = use the mapped source; 0 = force disarmed; 1 = force armed.
   void setArmOverride(int v) { armOverride_.store(v, std::memory_order_relaxed); }
 
+  // Flight-mode toggle driving RC channel 6 (acro/rate mode in the firmware).
+  // on = acro (ch6 high), off = angle/stabilize. Safe from the GUI thread.
+  void setAcro(bool on) { acro_.store(on ? 1 : 0, std::memory_order_relaxed); }
+  bool acro() const { return acro_.load(std::memory_order_relaxed) != 0; }
+
   // Create the pty pair; slavePath() is then valid. Returns false (and
   // sets *err) on failure. Call before start() / before vayu_sitl_start.
   bool openPty(QString* err);
@@ -95,6 +100,7 @@ class RcBridge : public QThread {
   std::atomic<bool> stop_{false};
   std::atomic<bool> enabled_{true};
   std::atomic<int> armOverride_{-1};   // -1 use mapping, 0 disarm, 1 arm
+  std::atomic<int> acro_{0};           // 0 = angle mode (ch6 low), 1 = acro
   std::atomic<int> mapAxis_[5];   // func → source code (axis idx or 1000+btn)
   std::atomic<int> mapInv_[5];    // func → invert (0/1)
   std::array<int, 16> axis_{};    // raw -32767..32767
