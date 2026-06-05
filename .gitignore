@@ -8,3 +8,9 @@ logs
 venv
 __pycache__
 build_vsim/
+
+# sim world / vehicle assets + tuner run artifacts (not source)
+*.vveh
+*.vworld
+*.glb
+tools/autotune/*.json
