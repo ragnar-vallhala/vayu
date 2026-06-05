@@ -33,7 +33,7 @@ QDoubleSpinBox* spin(double lo, double hi, int decimals, double step,
   s->setSingleStep(step);
   s->setValue(val);
   if (!suffix.isEmpty()) s->setSuffix(suffix);
-  s->setButtonSymbols(QAbstractSpinBox::NoButtons);
+  s->setButtonSymbols(QAbstractSpinBox::UpDownArrows);
   return s;
 }
 
