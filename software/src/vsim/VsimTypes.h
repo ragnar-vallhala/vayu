@@ -6,6 +6,7 @@
 #include <QVector3D>
 
 #include <array>
+#include <cmath>
 
 // Navigator-side type aliases for SimSnapshot fields. The full physics
 // state structures (RigidBodyState, DroneParams, MotorParams,
@@ -17,6 +18,24 @@ namespace vsim {
 
 using Vec3 = QVector3D;
 using Quat = QQuaternion;
+
+// Aerospace Tait-Bryan (ZYX) roll/pitch/yaw [deg] from a body->world quaternion
+// in NED (X north, Y east, Z down). Qt's QQuaternion::getEulerAngles assumes a
+// Y-up frame and permutes the axes for an NED airframe — the (drifting) heading
+// leaks into "roll" — so use this for any attitude readout off a SimSnapshot.
+inline void quatToEulerNED(const Quat& q, float* rollDeg, float* pitchDeg,
+                           float* yawDeg) {
+  const double w = q.scalar(), x = q.x(), y = q.y(), z = q.z();
+  const double roll = std::atan2(2.0 * (w * x + y * z), 1.0 - 2.0 * (x * x + y * y));
+  double sinp = 2.0 * (w * y - z * x);
+  sinp = sinp > 1.0 ? 1.0 : (sinp < -1.0 ? -1.0 : sinp);
+  const double pitch = std::asin(sinp);
+  const double yaw = std::atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z));
+  constexpr double kRad2Deg = 57.29577951308232;
+  *rollDeg = static_cast<float>(roll * kRad2Deg);
+  *pitchDeg = static_cast<float>(pitch * kRad2Deg);
+  *yawDeg = static_cast<float>(yaw * kRad2Deg);
+}
 
 // Per-rotor configuration as edited in the GeometryEditorWidget. Mirrors
 // (a subset of) the daemon-side MotorParams; pushed to vsim_d via

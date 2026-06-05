@@ -15,11 +15,9 @@ SimHudWidget::SimHudWidget(QWidget* parent) : QWidget(parent) {
 }
 
 void SimHudWidget::setSnapshot(const vsim::SimSnapshot& s) {
-  float pitch, yaw, roll;
-  s.att.getEulerAngles(&pitch, &yaw, &roll);
-  roll_ = roll;
-  pitch_ = pitch;
-  yaw_ = yaw;
+  // NED aerospace extraction — Qt's getEulerAngles (Y-up) permutes the axes for
+  // an NED airframe, which rotated the ladder by the drifting heading.
+  vsim::quatToEulerNED(s.att, &roll_, &pitch_, &yaw_);
   alt_ = -s.pos_w.z();                              // NED z down → altitude up
   gs_ = std::hypot(s.vel_w.x(), s.vel_w.y());        // ground speed
   vs_ = -s.vel_w.z();                                // +up

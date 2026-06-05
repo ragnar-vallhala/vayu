@@ -6,6 +6,8 @@
 #include "GeometryEditorWidget.h"
 #include "WorldEditorWidget.h"
 #include "SimHudWidget.h"
+#include "HorizonHud.h"
+#include "TuneChart.h"
 #include "../../audio/PropAudio.h"
 
 extern "C" {
@@ -27,6 +29,9 @@ class QStackedWidget;
 class QPushButton;
 class QCheckBox;
 class QComboBox;
+class QSpinBox;
+class QPlainTextEdit;
+class QProcess;
 
 namespace vsim { struct LoadedMesh; }
 
@@ -152,12 +157,31 @@ class SimulatorWidget : public QWidget {
   void applyRcSource();
   vsim::SimRendererWidget* m_renderer = nullptr;
   SimHudWidget* m_hud = nullptr;   // FPV telemetry overlay on the viewport
+  HorizonHud* m_horizon = nullptr; // compact attitude indicator, top-right corner
   PropAudio m_propAudio;           // rpm-driven propeller sound
   GeometryEditorWidget* m_geomEditor = nullptr;
   WorldEditorWidget* m_worldEditor = nullptr;
   QStackedWidget* m_rightStack = nullptr;   // 0 = Vehicle, 1 = World
   QPushButton* m_vehicleTab = nullptr;
   QPushButton* m_worldTab = nullptr;
+  QPushButton* m_tuneTab = nullptr;
+
+  // ---- Autotune section (drives tools/autotune against the current vehicle) ----
+  QComboBox* m_tuneOptimizer = nullptr;
+  QSpinBox* m_tuneBudget = nullptr;
+  QCheckBox* m_tuneYaw = nullptr;
+  QCheckBox* m_tuneApply = nullptr;
+  QCheckBox* m_tunePlot = nullptr;
+  QPushButton* m_tuneStart = nullptr;
+  QPushButton* m_tuneStop = nullptr;
+  QPlainTextEdit* m_tuneLog = nullptr;
+  QLabel* m_tuneResult = nullptr;
+  TuneChart* m_tuneChart = nullptr;
+  QProcess* m_tuneProc = nullptr;
+  void buildAutotunePage(QWidget* page);
+  void startAutotune();
+  void stopAutotune();
+  QString exportVehicleGeometryJson();
   QPushButton* m_simStartBtn = nullptr;
   QPushButton* m_simStopBtn = nullptr;
   QPushButton* m_simResetBtn = nullptr;

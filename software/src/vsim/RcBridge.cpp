@@ -243,10 +243,12 @@ void RcBridge::run() {
     const int ov = armOverride_.load(std::memory_order_relaxed);
     if (ov >= 0) arm = ov ? 2000 : 1000;   // software arm override
 
-    // CSV frame: roll,pitch,throttle,yaw,arm,aux  (feeder fills 6..13 = 1500)
+    // CSV frame: roll,pitch,throttle,yaw,arm,ch6  (feeder fills 7..13 = 1500).
+    // ch6 carries the acro/angle flight-mode toggle (firmware: > 1500 = acro).
+    const int ch6 = acro_.load(std::memory_order_relaxed) ? 2000 : 1000;
     char buf[96];
     const int n = std::snprintf(buf, sizeof(buf), "%d,%d,%d,%d,%d,%d\n",
-                                roll, pitch, thr, yaw, arm, 1500);
+                                roll, pitch, thr, yaw, arm, ch6);
     if (master_fd_ >= 0 && n > 0) {
       const ssize_t w = ::write(master_fd_, buf, (size_t)n);
       (void)w;  // pty buffer full → drop frame; next one is along in 20 ms

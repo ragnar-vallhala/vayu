@@ -27,13 +27,40 @@
 #include <QByteArray>
 #include <QFile>
 #include <QVBoxLayout>
+#include <QProcess>
+#include <QSpinBox>
+#include <QPlainTextEdit>
+#include <QLabel>
+#include <QJsonObject>
+#include <QJsonArray>
+#include <QJsonDocument>
 
 #include <cmath>
 #include <cstdio>   // ::rename (atomic blob publish)
 
 #include <unistd.h>
 
+// In-process firmware (libvayu_sitl_core) mixer setter — keeps the firmware
+// roll/pitch/yaw->motor mix consistent with the vehicle geometry the sim uses.
+extern "C" void angle_rate_controller_set_motor_geometry(
+    const float pos_x[4], const float pos_y[4], const int spin[4]);
+
 namespace {
+
+// Push the vehicle's motor layout into the in-process firmware mixer so the
+// control mix matches the physics (stable for any quad layout, not just the
+// firmware's default numbering).
+void pushFirmwareMotorGeometry(const vsim::GeometryConfig& g) {
+  float x[4], y[4];
+  int spin[4];
+  for (int i = 0; i < 4; ++i) {
+    x[i] = g.motors[i].pos.x();
+    y[i] = g.motors[i].pos.y();
+    spin[i] = g.motors[i].spin;
+  }
+  angle_rate_controller_set_motor_geometry(x, y, spin);
+}
+
 
 constexpr const char* kRepoRootSettingKey = "simulator/repoRoot";
 constexpr const char* kLogDirSettingKey   = "simulator/logDir";
@@ -187,20 +214,24 @@ void SimulatorWidget::buildUi() {
 
     m_vehicleTab = new QPushButton(tr("Vehicle"), this);
     m_worldTab   = new QPushButton(tr("World"), this);
+    m_tuneTab    = new QPushButton(tr("Autotune"), this);
     auto* grp = new QButtonGroup(this);
     grp->setExclusive(true);
-    for (auto* b : {m_vehicleTab, m_worldTab}) {
+    for (auto* b : {m_vehicleTab, m_worldTab, m_tuneTab}) {
       b->setCheckable(true);
       b->setObjectName("ToggleButton");
       b->setCursor(Qt::PointingHandCursor);
     }
     m_vehicleTab->setToolTip(tr("Configure the airframe (locked while simulating)"));
     m_worldTab->setToolTip(tr("Design the world and run the simulation"));
+    m_tuneTab->setToolTip(tr("Auto-tune the PID gains for the current vehicle"));
     grp->addButton(m_vehicleTab, 0);
     grp->addButton(m_worldTab, 1);
+    grp->addButton(m_tuneTab, 2);
     m_vehicleTab->setChecked(true);
     header->addWidget(m_vehicleTab);
     header->addWidget(m_worldTab);
+    header->addWidget(m_tuneTab);
 
     header->addStretch();
     auto* backBtn = new ui::BackButton(this);
@@ -226,6 +257,15 @@ void SimulatorWidget::buildUi() {
   m_hud = new SimHudWidget(m_renderer);
   m_hud->setGeometry(m_renderer->rect());
   m_hud->hide();
+
+  // Compact artificial horizon pinned to the viewport's top-right corner — a
+  // persistent attitude reference (the full FPV HUD only shows while running).
+  // Sized/positioned by the eventFilter; fed from the sim snapshot in updateHud.
+  m_horizon = new HorizonHud(m_renderer);
+  m_horizon->setFixedSize(200, 138);
+  m_horizon->show();
+  m_horizon->raise();
+
   m_renderer->installEventFilter(this);
 
   m_rightStack = new QStackedWidget(splitter);
@@ -246,6 +286,7 @@ void SimulatorWidget::buildUi() {
             &GeometryEditorWidget::setMotorFromGizmo);
     connect(m_geomEditor, &GeometryEditorWidget::geometryApplied, this, [this] {
       applyGeometryToRenderer();
+      pushFirmwareMotorGeometry(m_geomEditor->physicsConfig());
       if (m_sim) m_sim->sendGeometry(m_geomEditor->physicsConfig());
       persistGeometry(m_geomEditor->config());
       appendLog("geom", tr("geometry applied (m=%1 kg)")
@@ -447,6 +488,21 @@ void SimulatorWidget::buildUi() {
                 if (m_rc) m_rc->setUartBaud(b);
               });
       rcRow->addWidget(m_rcBaud);
+
+      // Acro (rate) flight-mode toggle — drives RC channel 6. Off = angle/
+      // stabilize (bank-angle limited); on = acro (stick commands body rate,
+      // no angle limit, flips allowed).
+      auto* acroChk = new QCheckBox(tr("Acro (ch6)"), simBody);
+      acroChk->setToolTip(tr("Acro / rate mode: sticks command body rate "
+                             "directly, no bank-angle limit. Drives RC ch6."));
+      const bool acroOn = st.value(QStringLiteral("sim/rcAcro"), false).toBool();
+      acroChk->setChecked(acroOn);
+      if (m_rc) m_rc->setAcro(acroOn);
+      connect(acroChk, &QCheckBox::toggled, this, [this](bool on) {
+        QSettings().setValue(QStringLiteral("sim/rcAcro"), on);
+        if (m_rc) m_rc->setAcro(on);
+      });
+      rcRow->addWidget(acroChk);
       sv->addLayout(rcRow);
 
       m_rcReadout = new QLabel(tr("RC: —"), simBody);
@@ -557,6 +613,17 @@ void SimulatorWidget::buildUi() {
     m_rightStack->addWidget(scroll);   // index 1 = World
   }
 
+  // ===== Autotune page: PID gain search against the current vehicle =====
+  {
+    auto* page = new QWidget();
+    buildAutotunePage(page);
+    auto* scroll = new QScrollArea();
+    scroll->setWidgetResizable(true);
+    scroll->setWidget(page);
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_rightStack->addWidget(scroll);   // index 2 = Autotune
+  }
+
   splitter->setStretchFactor(0, 3);
   splitter->setStretchFactor(1, 2);
 
@@ -577,6 +644,7 @@ void SimulatorWidget::setMode(int mode) {
   m_rightStack->setCurrentIndex(mode);
   if (m_vehicleTab) m_vehicleTab->setChecked(mode == 0);
   if (m_worldTab)   m_worldTab->setChecked(mode == 1);
+  if (m_tuneTab)    m_tuneTab->setChecked(mode == 2);
   // Motor gizmos belong to Vehicle mode; obstacle gizmos to World mode. Both
   // only when stopped (a running sim owns the airframe + the live world).
   if (m_renderer) {
@@ -590,8 +658,198 @@ void SimulatorWidget::setMode(int mode) {
   }
 }
 
+void SimulatorWidget::buildAutotunePage(QWidget* page) {
+  auto* v = new QVBoxLayout(page);
+  v->setContentsMargins(10, 10, 10, 10);
+  v->setSpacing(8);
+
+  auto* title = new QLabel(tr("PID Autotune"), page);
+  title->setStyleSheet(QString("color:%1; font-size:15px; font-weight:bold;")
+                           .arg(Theme::hex(Theme::kAccent)));
+  v->addWidget(title);
+
+  auto* info = new QLabel(
+      tr("Searches the inner rate + outer angle gains for the CURRENT vehicle "
+         "geometry, in an isolated headless test-rig sim (tools/autotune). The "
+         "live sim keeps running; tuned gains persist to the shared store and "
+         "load on the next sim start."),
+      page);
+  info->setWordWrap(true);
+  info->setStyleSheet(QString("color:%1; font-size:11px;").arg(Theme::hex(Theme::kTextMuted)));
+  v->addWidget(info);
+
+  auto* form = new QGridLayout();
+  int r = 0;
+  form->addWidget(new QLabel(tr("Optimizer:"), page), r, 0);
+  m_tuneOptimizer = new QComboBox(page);
+  m_tuneOptimizer->addItems({"hybrid", "portfolio", "spsa", "nelder-mead",
+                             "coordinate", "fdgd", "random"});
+  m_tuneOptimizer->setToolTip(tr("hybrid/portfolio explore then refine (best); "
+                                 "spsa is fast; others for comparison."));
+  form->addWidget(m_tuneOptimizer, r++, 1);
+
+  form->addWidget(new QLabel(tr("Budget (rollouts):"), page), r, 0);
+  m_tuneBudget = new QSpinBox(page);
+  m_tuneBudget->setRange(5, 200);
+  m_tuneBudget->setValue(30);
+  m_tuneBudget->setToolTip(tr("More rollouts = better tune, slower (~6 s each)."));
+  form->addWidget(m_tuneBudget, r++, 1);
+
+  m_tuneYaw = new QCheckBox(tr("Tune yaw too"), page);
+  form->addWidget(m_tuneYaw, r++, 1);
+  m_tuneApply = new QCheckBox(tr("Apply + persist best gains on finish"), page);
+  m_tuneApply->setChecked(true);
+  form->addWidget(m_tuneApply, r++, 1);
+  m_tunePlot = new QCheckBox(tr("Live dashboard (attitude + cost window)"), page);
+  m_tunePlot->setChecked(true);
+  m_tunePlot->setToolTip(tr("Opens the autotuner's live plot: the drone's "
+                            "attitude response to each excitation + cost "
+                            "convergence, gains and per-axis traces."));
+  form->addWidget(m_tunePlot, r++, 1);
+  v->addLayout(form);
+
+  // Embedded convergence chart — cost per evaluation + best-so-far.
+  m_tuneChart = new TuneChart(page);
+  v->addWidget(m_tuneChart);
+
+  auto* btnRow = new QHBoxLayout();
+  m_tuneStart = new QPushButton(tr("Start Autotune"), page);
+  m_tuneStop = new QPushButton(tr("Stop"), page);
+  m_tuneStop->setEnabled(false);
+  connect(m_tuneStart, &QPushButton::clicked, this, [this] { startAutotune(); });
+  connect(m_tuneStop, &QPushButton::clicked, this, [this] { stopAutotune(); });
+  btnRow->addWidget(m_tuneStart);
+  btnRow->addWidget(m_tuneStop);
+  btnRow->addStretch();
+  v->addLayout(btnRow);
+
+  m_tuneResult = new QLabel(tr("—"), page);
+  m_tuneResult->setWordWrap(true);
+  m_tuneResult->setStyleSheet(QString("color:%1; font-family:monospace; font-size:11px;")
+                                  .arg(Theme::hex(Theme::kOk)));
+  v->addWidget(m_tuneResult);
+
+  m_tuneLog = new QPlainTextEdit(page);
+  m_tuneLog->setReadOnly(true);
+  m_tuneLog->setMaximumBlockCount(4000);
+  m_tuneLog->setStyleSheet("font-family:monospace; font-size:10px;");
+  v->addWidget(m_tuneLog, 1);
+}
+
+QString SimulatorWidget::exportVehicleGeometryJson() {
+  const vsim::GeometryConfig g = m_geomEditor->physicsConfig();
+  QJsonObject root;
+  root["mass"] = g.mass;
+  QJsonArray inertia;
+  for (int i = 0; i < 9; ++i) inertia.append(g.inertia[i]);
+  root["inertia"] = inertia;
+  QJsonArray motors;
+  for (const auto& m : g.motors) {
+    QJsonObject mo;
+    mo["pos"] = QJsonArray{m.pos.x(), m.pos.y(), m.pos.z()};
+    mo["axis"] = QJsonArray{m.axis.x(), m.axis.y(), m.axis.z()};
+    mo["spin"] = m.spin;
+    mo["k_thrust"] = m.k_thrust;
+    mo["k_moment"] = m.k_moment;
+    mo["max_omega"] = m.max_omega;
+    motors.append(mo);
+  }
+  root["motors"] = motors;
+  QDir().mkpath(m_logDir);
+  const QString path = QDir(m_logDir).absoluteFilePath("autotune_vehicle.json");
+  QFile f(path);
+  if (f.open(QIODevice::WriteOnly)) {
+    f.write(QJsonDocument(root).toJson(QJsonDocument::Compact));
+    f.close();
+  }
+  return path;
+}
+
+void SimulatorWidget::startAutotune() {
+  if (m_tuneProc || !m_geomEditor) return;
+  const QString root = defaultRepoRoot();
+  const QString script = root + "/tools/autotune/autotune.py";
+  if (!QFileInfo::exists(script)) {
+    m_tuneLog->appendPlainText(tr("[error] autotuner not found: %1").arg(script));
+    return;
+  }
+  const QString geomJson = exportVehicleGeometryJson();
+  const QString outJson = QDir(m_logDir).absoluteFilePath("autotune_gcs.json");
+
+  QStringList args;
+  args << script << "--geometry" << geomJson << "--optimizer"
+       << m_tuneOptimizer->currentText() << "--budget"
+       << QString::number(m_tuneBudget->value()) << "--repeats" << "2"
+       << "--out" << outJson << "--repo-root" << root;
+  if (m_tuneYaw->isChecked()) args << "--yaw";
+  if (m_tuneApply->isChecked()) args << "--apply";
+  if (m_tunePlot->isChecked()) args << "--plot";
+
+  m_tuneChart->reset();
+  m_tuneProc = new QProcess(this);
+  m_tuneProc->setProcessChannelMode(QProcess::MergedChannels);
+  m_tuneProc->setWorkingDirectory(root + "/tools/autotune");
+  connect(m_tuneProc, &QProcess::readyReadStandardOutput, this, [this] {
+    const QByteArray buf = m_tuneProc->readAllStandardOutput();
+    const QList<QByteArray> lines = buf.split('\n');
+    for (const QByteArray& raw : lines) {
+      const QString s = QString::fromUtf8(raw).trimmed();
+      if (s.startsWith("#EVAL")) {              // structured progress -> chart
+        const QStringList p = s.split(' ', Qt::SkipEmptyParts);
+        if (p.size() >= 4) {
+          const double cost = p[2].toDouble(), best = p[3].toDouble();
+          m_tuneChart->addPoint(cost, best);
+          m_tuneResult->setText(tr("eval %1   cost %2   best %3")
+                                    .arg(p[1]).arg(cost, 0, 'f', 2).arg(best, 0, 'f', 2));
+        }
+        continue;
+      }
+      if (s.isEmpty() || s.startsWith("host_main") || s.contains("alive @") ||
+          s.startsWith("QSocketNotifier") || s.startsWith("qt.qpa") ||
+          s.startsWith("vsim_d:") || s.startsWith("vayu_sitl:"))
+        continue;
+      m_tuneLog->appendPlainText(s);
+      if (s.startsWith("baseline cost")) {
+        m_tuneChart->setBaseline(s.section(':', 1).toDouble());
+      }
+      if (s.startsWith("ABORT")) {
+        m_tuneResult->setText(tr("⚠ unstable plant — see log (motor layout?)"));
+        m_tuneResult->setStyleSheet("color:#ff8c50; font-weight:bold; font-size:11px;");
+      } else if (s.startsWith("BEST:") || s.startsWith("gains:")) {
+        m_tuneResult->setText(s);
+      }
+    }
+  });
+  connect(m_tuneProc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+          this, [this](int code, QProcess::ExitStatus) {
+            m_tuneLog->appendPlainText(tr("[autotune finished, exit %1]").arg(code));
+            if (m_tuneApply && m_tuneApply->isChecked())
+              m_tuneLog->appendPlainText(
+                  tr("[best gains persisted — restart the sim to fly them]"));
+            if (m_tuneStart) m_tuneStart->setEnabled(true);
+            if (m_tuneStop) m_tuneStop->setEnabled(false);
+            m_tuneProc->deleteLater();
+            m_tuneProc = nullptr;
+          });
+  m_tuneLog->clear();
+  m_tuneResult->setText(tr("running…"));
+  m_tuneLog->appendPlainText(tr("[launching] python3 %1").arg(args.join(' ')));
+  m_tuneStart->setEnabled(false);
+  m_tuneStop->setEnabled(true);
+  m_tuneProc->start(QStringLiteral("python3"), args);
+}
+
+void SimulatorWidget::stopAutotune() {
+  if (m_tuneProc) m_tuneProc->kill();
+}
+
 void SimulatorWidget::updateHud(const vsim::SimSnapshot& s) {
   if (m_hud) m_hud->setSnapshot(s);
+  if (m_horizon) {
+    float roll, pitch, yaw;
+    vsim::quatToEulerNED(s.att, &roll, &pitch, &yaw);
+    m_horizon->setAttitude(roll, pitch, yaw);
+  }
 }
 
 void SimulatorWidget::loadWorldMeshToRenderer() {
@@ -620,7 +878,7 @@ void SimulatorWidget::loadWorldMeshToRenderer() {
     if (m_sim) m_sim->clearWorldMesh();
     return;
   }
-  m_renderer->setWorldMesh(m.positions, m.normals);
+  m_renderer->setWorldMesh(m.positions, m.normals, m.colors);
   appendLog("world", tr("world mesh loaded: %1 tris").arg(m.triangleCount()));
 
   // Hand the same baked geometry to the physics daemon as a collision BVH.
@@ -753,8 +1011,13 @@ void SimulatorWidget::applyRcSource() {
 }
 
 bool SimulatorWidget::eventFilter(QObject* obj, QEvent* ev) {
-  if (obj == m_renderer && ev->type() == QEvent::Resize && m_hud) {
-    m_hud->setGeometry(m_renderer->rect());
+  if (obj == m_renderer && ev->type() == QEvent::Resize) {
+    if (m_hud) m_hud->setGeometry(m_renderer->rect());
+    if (m_horizon) {                       // re-pin to the top-right corner
+      const int m = 12;
+      m_horizon->move(m_renderer->width() - m_horizon->width() - m, m);
+      m_horizon->raise();
+    }
   }
   return QWidget::eventFilter(obj, ev);
 }
@@ -812,7 +1075,7 @@ void SimulatorWidget::startInAppSim() {
   connect(m_sim, &vsim::SimWorker::poseUpdated,
           this, [this](vsim::SimSnapshot snap) {
             float pitch, yaw, roll;
-            snap.att.getEulerAngles(&pitch, &yaw, &roll);
+            vsim::quatToEulerNED(snap.att, &roll, &pitch, &yaw);
             m_simPoseLabel->setText(
                 QString("pos=(%1, %2, %3) m   rpy=(%4, %5, %6) deg")
                     .arg(snap.pos_w.x(), 0, 'f', 2)
@@ -831,6 +1094,7 @@ void SimulatorWidget::startInAppSim() {
   connect(m_sim, &vsim::SimWorker::online, this, [this] {
     if (!m_sim) return;
     pushRatesToSim();   // apply configured loop rates before geometry/world
+    pushFirmwareMotorGeometry(m_geomEditor->physicsConfig());
     m_sim->sendGeometry(m_geomEditor->physicsConfig());
     m_sim->sendWorld(m_worldEditor->config());
     m_sim->sendObstacles(m_worldEditor->config().obstacles);
@@ -850,6 +1114,7 @@ void SimulatorWidget::startInAppSim() {
   setMode(1);
   // Show the telemetry HUD over the viewport.
   if (m_hud) { m_hud->setGeometry(m_renderer->rect()); m_hud->raise(); m_hud->show(); }
+  if (m_horizon) m_horizon->raise();   // keep the corner horizon above the HUD
   emit simRunningChanged(true);
 }
 
