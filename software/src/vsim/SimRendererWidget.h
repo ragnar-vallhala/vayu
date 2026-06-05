@@ -49,9 +49,12 @@ class SimRendererWidget : public QOpenGLWidget, protected QOpenGLFunctions {
   void setObstacles(const QVector<vsim::Obstacle>& obs);
 
   // Imported static world mesh (triangle soup + normals, NED world frame).
-  // Deferred upload like the drone mesh; empty positions clears it.
+  // Deferred upload like the drone mesh; empty positions clears it. `colors`
+  // is optional per-vertex RGB (baked from the source materials) — pass {} to
+  // fall back to neutral grey.
   void setWorldMesh(const std::vector<QVector3D>& positions,
-                    const std::vector<QVector3D>& normals);
+                    const std::vector<QVector3D>& normals,
+                    const std::vector<QVector3D>& colors = {});
 
   // Enable Blender-style obstacle gizmo editing (click-select, G move /
   // R rotate / S scale, X/Y/Z constrain) — World mode while the sim is
@@ -125,6 +128,9 @@ class SimRendererWidget : public QOpenGLWidget, protected QOpenGLFunctions {
   void uploadWorldMesh();   // flushes pendingWorld_* into worldMesh_
   // Upload an interleaved [px,py,pz,nx,ny,nz] array into a lit-shader mesh.
   void uploadLitMesh(Mesh& m, const std::vector<float>& interleaved);
+  // As uploadLitMesh, but the array is [px,py,pz,nx,ny,nz,r,g,b] and vertex
+  // colors (attribute 2) are enabled — used for the colored world mesh.
+  void uploadColoredMesh(Mesh& m, const std::vector<float>& interleaved);
 
   // ---- gizmo editing (Blender-style; active only when editable_) ----
   enum class Tool { None, Move, Rotate, Scale };
@@ -168,6 +174,11 @@ class SimRendererWidget : public QOpenGLWidget, protected QOpenGLFunctions {
   int ul_color_ = -1;
   int ul_light_ = -1;
 
+  // Sky shader: attribute-less fullscreen triangle, view-ray gradient.
+  QOpenGLShaderProgram progSky_;
+  int us_invvp_ = -1;
+  QOpenGLVertexArrayObject skyVao_;
+
   Mesh ground_;
   Mesh unitBox_;       // [-0.5,0.5]^3, pos+normal (lit) — scaled per obstacle
   Mesh unitSphere_;    // radius-1 UV sphere, pos+normal
@@ -197,6 +208,7 @@ class SimRendererWidget : public QOpenGLWidget, protected QOpenGLFunctions {
   bool worldMeshDirty_ = false;
   std::vector<QVector3D> pendingWorldPos_;
   std::vector<QVector3D> pendingWorldNrm_;
+  std::vector<QVector3D> pendingWorldCol_;  // per-vertex RGB (may be empty)
 
   // Editable motor layout (defaults mirror the firmware quad geometry).
   std::array<QVector3D, 4> motorPos_ = {
@@ -231,7 +243,7 @@ class SimRendererWidget : public QOpenGLWidget, protected QOpenGLFunctions {
   // Camera state (orbit around drone).
   float cam_radius_ = 4.0f;
   float cam_yaw_    = 0.7f;   // around world -Z (NED up)
-  float cam_pitch_  = -0.5f;  // tilt
+  float cam_pitch_  = 0.5f;   // tilt; >0 = eye above ground looking down (NED)
   bool  fpv_        = false;  // onboard FPV camera vs orbit
   bool  freeFly_    = false;  // WASD free-roam camera (sim stopped, World mode)
   bool  worldVisible_ = true; // draw world mesh + obstacles (World mode)

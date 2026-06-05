@@ -17,6 +17,10 @@ struct LoadedMesh {
   // the file lacked them). Both already multiplied by `scale`.
   std::vector<QVector3D> positions;
   std::vector<QVector3D> normals;
+  // Matching per-vertex RGB in [0,1], baked from the source material's base
+  // color (glTF/OBJ), or the mesh's vertex colors, or a neutral grey when the
+  // file carries neither. Render-only — the collision BVH ignores it.
+  std::vector<QVector3D> colors;
   QVector3D bboxMin{0, 0, 0};
   QVector3D bboxMax{0, 0, 0};
   bool valid = false;

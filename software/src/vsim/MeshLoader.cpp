@@ -1,6 +1,7 @@
 #include "MeshLoader.h"
 
 #include <assimp/Importer.hpp>
+#include <assimp/material.h>
 #include <assimp/postprocess.h>
 #include <assimp/scene.h>
 
@@ -38,6 +39,20 @@ LoadedMesh loadMesh(const QString& path, float scale, const QMatrix4x4& xform,
     const aiMesh* mesh = scene->mMeshes[mi];
     if ((mesh->mPrimitiveTypes & aiPrimitiveType_TRIANGLE) == 0) continue;
 
+    // Resolve one flat RGB for this mesh from its material: prefer the PBR
+    // base color (glTF), fall back to legacy diffuse, then neutral grey.
+    // Per-vertex colors (mColors[0]) override this when the file has them.
+    QVector3D matColor(0.72f, 0.73f, 0.76f);
+    if (mesh->mMaterialIndex < scene->mNumMaterials) {
+      const aiMaterial* mat = scene->mMaterials[mesh->mMaterialIndex];
+      aiColor4D c;
+      if (mat->Get(AI_MATKEY_BASE_COLOR, c) == AI_SUCCESS ||
+          mat->Get(AI_MATKEY_COLOR_DIFFUSE, c) == AI_SUCCESS) {
+        matColor = QVector3D(c.r, c.g, c.b);
+      }
+    }
+    const bool hasVtxColor = mesh->HasVertexColors(0);
+
     for (unsigned fi = 0; fi < mesh->mNumFaces; ++fi) {
       const aiFace& face = mesh->mFaces[fi];
       if (face.mNumIndices != 3) continue;  // post-Triangulate: should be 3
@@ -53,6 +68,13 @@ LoadedMesh loadMesh(const QString& path, float scale, const QMatrix4x4& xform,
               xform.mapVector(QVector3D(n.x, n.y, n.z)).normalized());
         } else {
           out.normals.emplace_back(0.0f, 0.0f, 1.0f);
+        }
+
+        if (hasVtxColor) {
+          const aiColor4D& vc = mesh->mColors[0][idx];
+          out.colors.emplace_back(vc.r, vc.g, vc.b);
+        } else {
+          out.colors.push_back(matColor);
         }
 
         if (first) {

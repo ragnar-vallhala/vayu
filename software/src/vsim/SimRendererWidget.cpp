@@ -43,33 +43,79 @@ void main() {
 }
 )GLSL";
 
-// Lit program for the imported airframe mesh: world-space directional
-// Lambert + ambient so the solid reads as 3D rather than a flat blob.
+// Lit program for solids (imported airframe + world mesh, obstacles): a
+// world-space directional Lambert plus a sky/ground hemispheric ambient so
+// the solid reads as 3D. The surface color is u_color * a_color: meshes with
+// real per-vertex/material colors (the world mesh) feed a_color, while flat
+// solids leave attribute 2 disabled (generic white) and tint via u_color.
 const char* kLitVertexShader = R"GLSL(
 #version 330 core
 layout(location=0) in vec3 a_pos;
 layout(location=1) in vec3 a_normal;
+layout(location=2) in vec3 a_color;
 uniform mat4 u_mvp;
 uniform mat3 u_nmat;
 out vec3 v_normal;
+out vec3 v_color;
 void main() {
   gl_Position = u_mvp * vec4(a_pos, 1.0);
   v_normal = u_nmat * a_normal;
+  v_color = a_color;
 }
 )GLSL";
 
 const char* kLitFragmentShader = R"GLSL(
 #version 330 core
 in vec3 v_normal;
+in vec3 v_color;
 out vec4 o_color;
 uniform vec3 u_color;
 uniform vec3 u_lightdir;   // world-space direction toward the light
 void main() {
   vec3 n = normalize(v_normal);
   float ndl = max(dot(n, normalize(u_lightdir)), 0.0);
-  float ambient = 0.35;
-  float intensity = ambient + (1.0 - ambient) * ndl;
-  o_color = vec4(u_color * intensity, 1.0);
+  // Hemispheric ambient: NED up is -Z, so up-facing (n.z<0) catches sky light.
+  float hemi = 0.5 + 0.5 * (-n.z);                 // 0 down .. 1 up
+  vec3 ambient = mix(vec3(0.18, 0.19, 0.22),
+                     vec3(0.40, 0.43, 0.48), clamp(hemi, 0.0, 1.0));
+  vec3 base = u_color * v_color;
+  vec3 lit  = base * (ambient + vec3(0.85) * ndl);
+  o_color = vec4(lit, 1.0);
+}
+)GLSL";
+
+// Sky background: a fullscreen triangle (generated from gl_VertexID, no VBO)
+// whose color is a gradient along the per-pixel world view ray — blue zenith,
+// bright horizon, darker ground below — so it reads as a real sky dome and
+// tracks the camera as it orbits/tilts. Drawn first, depth test off.
+const char* kSkyVertexShader = R"GLSL(
+#version 330 core
+out vec2 v_ndc;
+void main() {
+  const vec2 verts[3] = vec2[3](vec2(-1.0, -1.0), vec2(3.0, -1.0), vec2(-1.0, 3.0));
+  v_ndc = verts[gl_VertexID];
+  gl_Position = vec4(v_ndc, 1.0, 1.0);   // far plane
+}
+)GLSL";
+
+const char* kSkyFragmentShader = R"GLSL(
+#version 330 core
+in vec2 v_ndc;
+out vec4 o_color;
+uniform mat4 u_invvp;   // inverse(proj * view)
+void main() {
+  // Unproject the near/far points of this pixel to get the world view ray.
+  vec4 wn = u_invvp * vec4(v_ndc, -1.0, 1.0);
+  vec4 wf = u_invvp * vec4(v_ndc,  1.0, 1.0);
+  vec3 dir = normalize(wf.xyz / wf.w - wn.xyz / wn.w);
+  float up = -dir.z;   // NED up is -Z
+  vec3 zenith  = vec3(0.16, 0.36, 0.66);
+  vec3 horizon = vec3(0.74, 0.82, 0.90);
+  vec3 ground  = vec3(0.16, 0.18, 0.22);
+  vec3 col = (up >= 0.0)
+      ? mix(horizon, zenith, pow(clamp(up, 0.0, 1.0), 0.45))
+      : mix(horizon, ground, clamp(-up * 2.5, 0.0, 1.0));
+  o_color = vec4(col, 1.0);
 }
 )GLSL";
 
@@ -118,6 +164,7 @@ SimRendererWidget::~SimRendererWidget() {
     m->vbo.destroy();
     m->vao.destroy();
   }
+  skyVao_.destroy();
   doneCurrent();
 }
 
@@ -167,6 +214,12 @@ void SimRendererWidget::initializeGL() {
   ul_nmat_  = progLit_.uniformLocation("u_nmat");
   ul_color_ = progLit_.uniformLocation("u_color");
   ul_light_ = progLit_.uniformLocation("u_lightdir");
+
+  progSky_.addShaderFromSourceCode(QOpenGLShader::Vertex,   kSkyVertexShader);
+  progSky_.addShaderFromSourceCode(QOpenGLShader::Fragment, kSkyFragmentShader);
+  progSky_.link();
+  us_invvp_ = progSky_.uniformLocation("u_invvp");
+  skyVao_.create();   // core profile needs a bound VAO even with no attributes
 
   buildGroundGrid();
   buildObstacleMeshes();
@@ -254,15 +307,30 @@ void SimRendererWidget::paintGL() {
 
   QMatrix4x4 view = cameraView();
 
-  // Ground at z=0, world axes at origin.
-  drawMesh(ground_, view, QVector3D(0.25f, 0.27f, 0.32f));
+  // Sky-dome background (gradient along the per-pixel view ray). Drawn first
+  // with depth test off so the scene paints over it.
+  glDisable(GL_DEPTH_TEST);
+  progSky_.bind();
+  progSky_.setUniformValue(us_invvp_, (proj_ * view).inverted());
+  skyVao_.bind();
+  glDrawArrays(GL_TRIANGLES, 0, 3);
+  skyVao_.release();
+  progSky_.release();
+  glEnable(GL_DEPTH_TEST);
+
+  // Reference ground grid at z=0 — skipped when an imported world mesh is
+  // shown, since that mesh carries its own ground plane (also at z=0) and the
+  // two coplanar surfaces would z-fight.
+  const bool showWorld = worldVisible_ && hasWorldMesh_;
+  if (!showWorld)
+    drawMesh(ground_, view, QVector3D(0.25f, 0.27f, 0.32f));
   drawMesh(axes_,   view, QVector3D(1, 1, 1));
 
   // World geometry (imported mesh + obstacles) only in World mode; Vehicle
   // mode shows just the airframe.
   // Imported world mesh (lit solid, world frame).
   if (worldVisible_ && hasWorldMesh_)
-    drawLit(worldMesh_, view, QMatrix4x4(), QVector3D(0.38f, 0.40f, 0.44f));
+    drawLit(worldMesh_, view, QMatrix4x4(), QVector3D(1.0f, 1.0f, 1.0f));
 
   // Static world obstacles (lit solids), each scaled/rotated/placed.
   for (int oi = 0; worldVisible_ && oi < obstacles_.size(); ++oi) {
@@ -369,6 +437,10 @@ void SimRendererWidget::drawLit(const Mesh& m, const QMatrix4x4& view,
   // Light mostly from above (NED up is -Z) with a slight side bias.
   progLit_.setUniformValue(ul_light_, QVector3D(0.3f, 0.2f, -1.0f));
   QOpenGLVertexArrayObject::Binder b(const_cast<QOpenGLVertexArrayObject*>(&m.vao));
+  // Flat solids leave attribute 2 disabled; feed white as the generic value so
+  // u_color*a_color == u_color. Meshes with a real color array (world mesh)
+  // enable attribute 2 and override this.
+  glVertexAttrib3f(2, 1.0f, 1.0f, 1.0f);
   glDrawArrays(GL_TRIANGLES, 0, m.vertex_count);
   progLit_.release();
 }
@@ -416,17 +488,24 @@ void SimRendererWidget::uploadWorldMesh() {
     pendingWorldNrm_.clear();
     return;
   }
+  // Interleave [px,py,pz, nx,ny,nz, r,g,b] per vertex so the world mesh keeps
+  // its baked material/vertex colors. Missing colors default to neutral grey.
   std::vector<float> data;
-  data.reserve(pendingWorldPos_.size() * 6);
+  data.reserve(pendingWorldPos_.size() * 9);
   for (size_t i = 0; i < pendingWorldPos_.size(); ++i) {
     const QVector3D& p = pendingWorldPos_[i];
     const QVector3D n = (i < pendingWorldNrm_.size()) ? pendingWorldNrm_[i]
                                                       : QVector3D(0, 0, 1);
-    data.insert(data.end(), {p.x(), p.y(), p.z(), n.x(), n.y(), n.z()});
+    const QVector3D c = (i < pendingWorldCol_.size())
+                            ? pendingWorldCol_[i]
+                            : QVector3D(0.72f, 0.73f, 0.76f);
+    data.insert(data.end(), {p.x(), p.y(), p.z(), n.x(), n.y(), n.z(),
+                             c.x(), c.y(), c.z()});
   }
-  uploadLitMesh(worldMesh_, data);
+  uploadColoredMesh(worldMesh_, data);
   pendingWorldPos_.clear();
   pendingWorldNrm_.clear();
+  pendingWorldCol_.clear();
 }
 
 // ---------- geometry generators ----------
@@ -446,6 +525,28 @@ void SimRendererWidget::uploadLitMesh(Mesh& m,
   m.vbo.release();
   m.vao.release();
   m.vertex_count = int(data.size() / 6);
+  m.primitive = GL_TRIANGLES;
+}
+
+void SimRendererWidget::uploadColoredMesh(Mesh& m,
+                                          const std::vector<float>& data) {
+  if (!m.vao.isCreated()) m.vao.create();
+  m.vao.bind();
+  if (!m.vbo.isCreated()) m.vbo.create();
+  m.vbo.bind();
+  m.vbo.allocate(data.data(), int(data.size() * sizeof(float)));
+  const int stride = 9 * sizeof(float);
+  glEnableVertexAttribArray(0);
+  glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, nullptr);
+  glEnableVertexAttribArray(1);
+  glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, stride,
+                        reinterpret_cast<void*>(3 * sizeof(float)));
+  glEnableVertexAttribArray(2);
+  glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, stride,
+                        reinterpret_cast<void*>(6 * sizeof(float)));
+  m.vbo.release();
+  m.vao.release();
+  m.vertex_count = int(data.size() / 9);
   m.primitive = GL_TRIANGLES;
 }
 
@@ -526,9 +627,11 @@ void SimRendererWidget::setObstacles(const QVector<vsim::Obstacle>& obs) {
 }
 
 void SimRendererWidget::setWorldMesh(const std::vector<QVector3D>& positions,
-                                     const std::vector<QVector3D>& normals) {
+                                     const std::vector<QVector3D>& normals,
+                                     const std::vector<QVector3D>& colors) {
   pendingWorldPos_ = positions;
   pendingWorldNrm_ = normals;
+  pendingWorldCol_ = colors;
   worldMeshDirty_ = true;   // uploaded in paintGL (needs GL context)
   update();
 }
