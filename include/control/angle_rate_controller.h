@@ -35,4 +35,26 @@ bool angle_rate_controller_set_gains(uint8_t axis, float kp, float ki,
 bool angle_rate_controller_get_gains(uint8_t axis, float *kp, float *ki,
                                      float *kd, float *kff);
 
+/**
+ * @brief Set the gyro low-pass time constant [s] for one axis (rc <= 0 = off).
+ * Input filter on the rate measurement, co-tuned with the gains.
+ */
+bool angle_rate_controller_set_gyro_lpf(uint8_t axis, float rc);
+
+/** @brief Read the live gyro LPF time constant [s] for one axis. */
+float angle_rate_controller_get_gyro_lpf(uint8_t axis);
+
+/**
+ * @brief Set the per-motor mix signs from the airframe geometry (motor body
+ * positions [m] + spin +1/-1), so roll/pitch/yaw->motor mixing matches the
+ * actual layout. Keeps the firmware mixer consistent with the sim/vehicle.
+ */
+void angle_rate_controller_set_motor_geometry(const float pos_x[4],
+                                              const float pos_y[4],
+                                              const int spin[4]);
+
+/** @brief Apply a CMD_SET_MOTOR_GEOMETRY payload (12 floats: x[4],y[4],spin[4]). */
+bool angle_rate_controller_apply_geometry_command(const uint8_t *payload,
+                                                  uint16_t len);
+
 #endif // VAYU_ANGLE_RATE_CONTROLLER_H
