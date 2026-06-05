@@ -53,6 +53,8 @@ typedef enum {
   CMD_ARM = 0x0002,    // GCS-initiated arm request (sets the software-arm latch)
   CMD_DISARM = 0x0003, // GCS-initiated disarm (clears the software-arm latch)
   CMD_SET_PID = 0x000A,
+  CMD_SET_GYRO_LPF = 0x000B, // rate-loop gyro low-pass time constant
+  CMD_SET_MOTOR_GEOMETRY = 0x000C, // per-motor x,y,spin -> mixer signs
 } packet_command_type_t;
 
 typedef struct __attribute__((packed)) {
