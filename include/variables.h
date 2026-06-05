@@ -142,15 +142,27 @@
 #define DEAFULT_PITCH_ANGLE_RATE_OUT_MIN -1.0f
 #define DEAFULT_PITCH_ANGLE_RATE_OUT_MAX 1.0f
 
-#define DEAFULT_YAW_ANGLE_RATE_KP 0.0f
-#define DEAFULT_YAW_ANGLE_RATE_KI 0.00f
-#define DEAFULT_YAW_ANGLE_RATE_KD 0.00f
+// Yaw enabled (was fully zeroed = disabled). Quad yaw authority comes from
+// rotor reaction torque (k_moment << k_thrust) so it's weaker than roll/pitch;
+// these mirror the roll/pitch seeds as a starting point — retune (e.g. via the
+// SITL autotuner) for the actual airframe. Output limits MUST be non-zero or
+// the PID clamps yaw to 0 regardless of gain.
+#ifdef VAYU_SIM
+#define DEAFULT_YAW_ANGLE_RATE_KP 0.005f
+#define DEAFULT_YAW_ANGLE_RATE_KI 0.001f
+#define DEAFULT_YAW_ANGLE_RATE_KD 0.0005f
 #define DEAFULT_YAW_ANGLE_RATE_KFF 0.0f
-#define DEAFULT_YAW_ANGLE_RATE_I_MAX 0.0f
-#define DEAFULT_YAW_ANGLE_RATE_D_MAX 0.0f
-#define DEAFULT_YAW_ANGLE_RATE_D_LPF_RC 0.0f
-#define DEAFULT_YAW_ANGLE_RATE_OUT_MIN 0.0f
-#define DEAFULT_YAW_ANGLE_RATE_OUT_MAX 0.0f
+#else
+#define DEAFULT_YAW_ANGLE_RATE_KP 0.08f
+#define DEAFULT_YAW_ANGLE_RATE_KI 0.04f
+#define DEAFULT_YAW_ANGLE_RATE_KD 0.0f
+#define DEAFULT_YAW_ANGLE_RATE_KFF 0.0f
+#endif
+#define DEAFULT_YAW_ANGLE_RATE_I_MAX 0.2f
+#define DEAFULT_YAW_ANGLE_RATE_D_MAX 0.25f
+#define DEAFULT_YAW_ANGLE_RATE_D_LPF_RC 0.3f
+#define DEAFULT_YAW_ANGLE_RATE_OUT_MIN -1.0f
+#define DEAFULT_YAW_ANGLE_RATE_OUT_MAX 1.0f
 
 // Angle controller
 #ifdef VAYU_SIM
@@ -169,11 +181,29 @@
 #define DEAFULT_PITCH_ANGLE_TARGET_MAX 100.0f
 #define DEAFULT_PITCH_ANGLE_OUT_MAX 100.0f
 
-#define DEAFULT_YAW_ANGLE_KP 0.0f
+// Yaw angle loop: stick commands an absolute heading hold. On sim builds the
+// mag-less Mahony yaw slowly drifts (see angle_controller.c) so heading hold is
+// approximate, but the loop is now live and tunable.
+#ifdef VAYU_SIM
+#define DEAFULT_YAW_ANGLE_KP 0.25f
+#else
+#define DEAFULT_YAW_ANGLE_KP 4.0f
+#endif
 #define DEAFULT_YAW_ANGLE_TARGET_MAX 100.0f
 #define DEAFULT_YAW_ANGLE_OUT_MAX 100.0f
 
 #define MAX_ANGLE_CUTOFF 70.0f
+
+/* Acro (rate) mode: a flight-mode toggle on RC channel ACRO_SWITCH_CH (0-based;
+ * 5 == channel 6). When the channel reads above ACRO_SWITCH_US the attitude
+ * loop is bypassed and the sticks command body rate directly (deg/s at full
+ * stick) — no bank-angle limit, and the MAX_ANGLE_CUTOFF failsafe is suppressed
+ * so the airframe can flip/roll continuously. */
+#define ACRO_SWITCH_CH 5
+#define ACRO_SWITCH_US 1500
+#define DEAFULT_ROLL_ACRO_RATE_MAX  200.0f /* deg/s at full stick */
+#define DEAFULT_PITCH_ACRO_RATE_MAX 200.0f
+#define DEAFULT_YAW_ACRO_RATE_MAX   200.0f
 
 typedef struct __attribute__((packed)) {
   float roll_angle_sp;
