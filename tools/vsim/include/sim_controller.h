@@ -21,6 +21,7 @@ public:
     void setObstacles   (const std::vector<SimObstacle>& o) { phys_.setObstacles(o); }
     void setWorldMesh   (const trimesh::Bvh& b, float rest) { phys_.setWorldMesh(b, rest); }
     void clearWorldMesh ()                                  { phys_.clearWorldMesh(); }
+    void setTestRig     (bool on, const Vec3& pos)          { phys_.setTestRig(on, pos); }
     void seedSensors    (uint64_t s)            { sensors_.seed(s); }
 
     void resetState(const RigidBodyState& s = {});
