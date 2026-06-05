@@ -82,6 +82,17 @@ void PhysicsCore::step(const Vec3& force_b, const Vec3& torque_b, float dt) {
     state_ = advance(state_, k, dt);
     state_.att.normalize();
 
+    // Test-rig: hold the body at a fixed point and kill linear motion, leaving
+    // only the rotational state evolving. Rotation is independent of pos/vel in
+    // derive(), so attitude dynamics are untouched — this just freezes the
+    // 3 translational DOF. Skip ground/obstacle contact (the body is clamped).
+    if (test_rig_) {
+        state_.pos_w = rig_pos_;
+        state_.vel_w = Vec3(0.0f, 0.0f, 0.0f);
+        sanitize();
+        return;
+    }
+
     groundClamp(dt);
     // Resolve primitive obstacles AND the imported world mesh into one shared
     // position correction (deepest penetration wins), applied once.
