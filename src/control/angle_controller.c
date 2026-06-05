@@ -141,6 +141,17 @@ static inline rc_data_t normalize_rc_data(ibus_data_t rc_data) {
     }
   }
 
+  // Clamp to the valid normalized range BEFORE any expo shaping. A missing or
+  // out-of-range RC reading — e.g. channel == 0 at startup, or a glitch frame —
+  // maps to (0-1500)/500 = -3, which the cubic expo blows up to -27 -> a
+  // -2700 deg angle command. Clamping caps every stick at its intended ±full
+  // throw (throttle 0..1), so a bad sample can't inject a runaway setpoint.
+  for (int i = 0; i < 4; i++) {
+    const float lo = (i == 2) ? 0.0f : -1.0f;
+    if (normalized_rc_data.channels[i] > 1.0f) normalized_rc_data.channels[i] = 1.0f;
+    if (normalized_rc_data.channels[i] < lo) normalized_rc_data.channels[i] = lo;
+  }
+
   switch (PID_RC2ANGLE_RATE_MODE) {
   case NORMALIZED_RC2ANGLE_RATE_LINEAR:
     break;
@@ -190,12 +201,20 @@ void angle_controller_task(void *arg) {
     target_angles[2] =
         normalized_rc_data.channels[3] * DEAFULT_YAW_ANGLE_TARGET_MAX;
 
+    /* Acro (rate) mode toggle on RC channel ACRO_SWITCH_CH (ch6, 0-based 5).
+     * High -> sticks command body rate directly, attitude loop bypassed. */
+    bool acro_mode = (ACRO_SWITCH_CH < IBUS_MAX_CHANNELS) &&
+                     (rc_data.channels[ACRO_SWITCH_CH] > ACRO_SWITCH_US);
+
     if (!attitude_queue_control_pop(&attitude)) {
       attitude = last_attitude;
     }
     last_attitude = attitude;
-    if (m_fabsf(attitude.roll) > MAX_ANGLE_CUTOFF ||
-        m_fabsf(attitude.pitch) > MAX_ANGLE_CUTOFF) {
+    /* Bank-angle failsafe applies in angle mode only. In acro the airframe is
+     * meant to exceed MAX_ANGLE_CUTOFF (flips/rolls), so it must not trip. */
+    if (!acro_mode &&
+        (m_fabsf(attitude.roll) > MAX_ANGLE_CUTOFF ||
+         m_fabsf(attitude.pitch) > MAX_ANGLE_CUTOFF)) {
       // Yaw is intentionally excluded from the failsafe condition:
       // a drone can rotate freely around its vertical axis without
       // being in danger, and on a sim build without working mag
@@ -211,9 +230,26 @@ void angle_controller_task(void *arg) {
     current_angles[0] = attitude.roll;
     current_angles[1] = attitude.pitch;
     current_angles[2] = attitude.yaw;
-    for (int i = 0; i < 3; i++) {
-      angle_controller_outputs.angle_rates[i] = v_pid_update(
-          &angle_controller.pid[i], target_angles[i], current_angles[i], 0, dt);
+    if (acro_mode) {
+      /* Stick -> body-rate setpoint [deg/s] directly (attitude PID bypassed).
+       * Pitch keeps the same sign convention as angle mode (forward = nose
+       * down = negative). */
+      angle_controller_outputs.angle_rates[0] =
+          normalized_rc_data.channels[0] * DEAFULT_ROLL_ACRO_RATE_MAX;
+      angle_controller_outputs.angle_rates[1] =
+          -normalized_rc_data.channels[1] * DEAFULT_PITCH_ACRO_RATE_MAX;
+      angle_controller_outputs.angle_rates[2] =
+          normalized_rc_data.channels[3] * DEAFULT_YAW_ACRO_RATE_MAX;
+    } else {
+      for (int i = 0; i < NUM_AXES; i++) {
+        angle_controller_outputs.angle_rates[i] = v_pid_update(
+            &angle_controller.pid[i], target_angles[i], current_angles[i], 0, dt);
+      }
+    }
+    /* Telemetry continuity: report the stick angle command vs measured angle in
+     * both modes (in acro it's informational only — the rate setpoint above is
+     * what actually drives the inner loop). */
+    for (int i = 0; i < NUM_AXES; i++) {
       angle_controller_outputs.angle_sp[i] = target_angles[i];
       angle_controller_outputs.angle_curr[i] = current_angles[i];
     }
