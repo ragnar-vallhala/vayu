@@ -6,6 +6,7 @@
 #include "control/pid_config.h"
 #include "control/control_buffer.h"
 #include "control/pid.h"
+#include "memory.h"   /* v_memcpy */
 #include "navhal.h"
 #include "sensor/sensor.h"
 #include "sys/state.h"
@@ -62,6 +63,64 @@ static AngleRateController angle_rate_controller = {
                 .initialized = false,
             }}};
 
+/* Per-axis first-order low-pass on the gyro (rate measurement) feeding the
+ * rate PID. rc is the filter time constant [s]; rc <= 0 disables (passthrough).
+ * Co-tuned with the gains: heavier filtering raises the gain ceiling before the
+ * loop hunts around the gyro deadband. Defaults off so flight behavior is
+ * unchanged until a tune sets it. */
+static float s_gyro_lpf_rc[NUM_AXES]    = {0.0f, 0.0f, 0.0f};
+static float s_gyro_lpf_state[NUM_AXES] = {0.0f, 0.0f, 0.0f};
+
+bool angle_rate_controller_set_gyro_lpf(uint8_t axis, float rc) {
+  if (axis >= NUM_AXES) {
+    return false;
+  }
+  s_gyro_lpf_rc[axis] = (rc > 0.0f) ? rc : 0.0f;
+  return true;
+}
+
+float angle_rate_controller_get_gyro_lpf(uint8_t axis) {
+  return (axis < NUM_AXES) ? s_gyro_lpf_rc[axis] : 0.0f;
+}
+
+/* Per-motor mix signs derived from the airframe geometry (position + spin), so
+ * the roll/pitch/yaw -> motor mixing matches whatever motor layout the sim
+ * physics / real airframe actually uses, instead of a hardcoded numbering.
+ *   out_i = throttle + roll*(-sign y_i) + pitch*(sign x_i) + yaw*(spin_i)
+ * Defaults reproduce the legacy X-quad mix exactly (FR=M1, RR=M2, RL=M3, FL=M4),
+ * so behavior is unchanged until a vehicle geometry is pushed. ONE geometry
+ * source (the GCS vehicle / loaded .vveh) drives both the sim physics and this
+ * mix, keeping firmware + sim consistent and stable for any quad layout. */
+static float s_mix_roll[4]  = {-1.f, -1.f, +1.f, +1.f};  /* -sign(y) */
+static float s_mix_pitch[4] = {+1.f, -1.f, -1.f, +1.f};  /*  sign(x) */
+static float s_mix_yaw[4]   = {+1.f, -1.f, +1.f, -1.f};  /*  spin    */
+
+void angle_rate_controller_set_motor_geometry(const float pos_x[4],
+                                              const float pos_y[4],
+                                              const int spin[4]) {
+  for (int i = 0; i < 4; i++) {
+    s_mix_roll[i]  = (pos_y[i] >= 0.0f) ? -1.0f : +1.0f;
+    s_mix_pitch[i] = (pos_x[i] >= 0.0f) ? +1.0f : -1.0f;
+    s_mix_yaw[i]   = (spin[i] >= 0)     ? +1.0f : -1.0f;
+  }
+}
+
+bool angle_rate_controller_apply_geometry_command(const uint8_t *payload,
+                                                  uint16_t len) {
+  /* payload: [cmd:2][argc:1][x0..x3, y0..y3, spin0..spin3] (12 floats). */
+  if (payload == NULL || len < 3) return false;
+  uint8_t argc = payload[2];
+  if (argc < 12 || len < (uint16_t)argc * 4u + 3u) return false;
+  float a[12];
+  for (int i = 0; i < 12; i++) v_memcpy(&a[i], &payload[3 + i * 4], 4);
+  const float x[4] = {a[0], a[1], a[2], a[3]};
+  const float y[4] = {a[4], a[5], a[6], a[7]};
+  const int spin[4] = {a[8] >= 0 ? 1 : -1, a[9] >= 0 ? 1 : -1,
+                       a[10] >= 0 ? 1 : -1, a[11] >= 0 ? 1 : -1};
+  angle_rate_controller_set_motor_geometry(x, y, spin);
+  return true;
+}
+
 static inline float get_dt(void) {
   static uint32_t last_time = 0;
   uint32_t current_time = hal_cycle_counter_get();
@@ -85,6 +144,11 @@ void angle_rate_controller_init(void) {
     float kp, ki, kd, kff;
     if (pid_config_get_rate((uint8_t)i, &kp, &ki, &kd, &kff)) {
       v_pid_set_gains(&angle_rate_controller.pid[i], kp, ki, kd, kff);
+    }
+    /* Restore any persisted gyro LPF time constant (co-tuned with the gains). */
+    float rc;
+    if (pid_config_get_gyro_lpf((uint8_t)i, &rc)) {
+      s_gyro_lpf_rc[i] = (rc > 0.0f) ? rc : 0.0f;
     }
   }
 }
@@ -166,6 +230,20 @@ void angle_rate_controller_task(void *arg) {
       }
     }
 
+    // Per-axis gyro low-pass (input filter on the rate measurement). Smooths
+    // the P path so higher gains don't limit-cycle around the deadband.
+    // rc <= 0 = passthrough. Co-tuned with the PID gains.
+    for (int i = 0; i < NUM_AXES; i++) {
+      float rc = s_gyro_lpf_rc[i];
+      if (rc > 1e-6f && dt > 0.0f) {
+        float alpha = dt / (dt + rc);
+        s_gyro_lpf_state[i] += alpha * (imu_data.converted.gyr[i] - s_gyro_lpf_state[i]);
+        imu_data.converted.gyr[i] = s_gyro_lpf_state[i];
+      } else {
+        s_gyro_lpf_state[i] = imu_data.converted.gyr[i];
+      }
+    }
+
     // Get rates from the angle controller
     if (angle_controller_get_outputs(&angle_controller_outputs)) {
       last_angle_controller_outputs = angle_controller_outputs;
@@ -183,8 +261,10 @@ void angle_rate_controller_task(void *arg) {
      * windup from the previous arm cycle into the new one. */
     sys_state_t state = system_state_get();
     if (state == SYSTEM_STATE_ARMED && prev_state != SYSTEM_STATE_ARMED) {
-      for (int i = 0; i < NUM_AXES; i++)
+      for (int i = 0; i < NUM_AXES; i++) {
         v_pid_reset(&angle_rate_controller.pid[i]);
+        s_gyro_lpf_state[i] = 0.0f;     /* clear the input filter too */
+      }
     }
     prev_state = state;
 
@@ -243,16 +323,16 @@ void angle_rate_controller_task(void *arg) {
                    (PID_FULL_AUTHORITY_THROTTLE - MIN_ARMED_THROTTLE);
       for (int i = 0; i < NUM_AXES; i++) outputs[i] *= ramp;
     }
-    // Your layout:
-    // Front Left  = M4
-    // Front Right = M1
-    // Rear Left   = M3
-    // Rear Right  = M2
-    // Motor               Throttle         Roll           Pitch          Yaw
-    motor_outputs.m1 = target_throttle - outputs[0] + outputs[1] + outputs[2];
-    motor_outputs.m2 = target_throttle - outputs[0] - outputs[1] - outputs[2];
-    motor_outputs.m3 = target_throttle + outputs[0] - outputs[1] + outputs[2];
-    motor_outputs.m4 = target_throttle + outputs[0] + outputs[1] - outputs[2];
+    // Geometry-derived X-quad mix: out_i = throttle + roll*(-sign y_i) +
+    // pitch*(sign x_i) + yaw*spin_i, with the per-motor signs set from the
+    // airframe geometry (angle_rate_controller_set_motor_geometry). Defaults
+    // match the legacy layout (FR=M1, RR=M2, RL=M3, FL=M4).
+    float* const mo[4] = {&motor_outputs.m1, &motor_outputs.m2,
+                          &motor_outputs.m3, &motor_outputs.m4};
+    for (int i = 0; i < 4; i++) {
+      *mo[i] = target_throttle + s_mix_roll[i] * outputs[0] +
+               s_mix_pitch[i] * outputs[1] + s_mix_yaw[i] * outputs[2];
+    }
 
     // Saturation handling: scale the PID differential (deviation from
     // target_throttle) so every motor fits in [0, 1] WITHOUT changing

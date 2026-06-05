@@ -20,7 +20,7 @@
 #include "vfs.h"
 #include <math.h>
 
-#define PID_CONFIG_MAGIC     0x50494431u /* 'P''I''D''1' */
+#define PID_CONFIG_MAGIC     0x50494432u /* 'P''I''D''2' (bumped: + gyro LPF) */
 #define PID_CONFIG_FILE_PATH "0:pid.bin"
 
 typedef struct {
@@ -31,6 +31,8 @@ typedef struct {
 typedef struct {
   uint32_t magic;
   pid_gains_t gains[PID_CTRL_COUNT][NUM_AXES];
+  float   gyro_lpf[NUM_AXES];        /* rate-loop gyro LPF time constant [s] */
+  uint8_t gyro_lpf_valid[NUM_AXES];
 } pid_store_t;
 
 /* Zero-init: magic 0, every slot valid == 0 → controllers keep defaults
@@ -78,6 +80,14 @@ bool pid_config_get_rate(uint8_t axis, float *kp, float *ki, float *kd,
 bool pid_config_get_angle(uint8_t axis, float *kp, float *ki, float *kd,
                           float *kff) {
   return get_slot(PID_CTRL_ANGLE, axis, kp, ki, kd, kff);
+}
+
+bool pid_config_get_gyro_lpf(uint8_t axis, float *rc) {
+  if (axis >= NUM_AXES || rc == NULL || !s_store.gyro_lpf_valid[axis]) {
+    return false;
+  }
+  *rc = s_store.gyro_lpf[axis];
+  return true;
 }
 
 /* ------------------------------------------------------------------ save */
@@ -153,5 +163,30 @@ vayu_status_t pid_config_apply_command(const uint8_t *payload,
 
   vayu_log("[PID] set ctrl=%d axis=%d Kp=%.4f Ki=%.4f Kd=%.4f", ctrl, axis,
            (double)kp, (double)ki, (double)kd);
+  return VAYU_OK;
+}
+
+vayu_status_t pid_config_apply_gyro_lpf_command(const uint8_t *payload,
+                                                uint16_t payload_len) {
+  if (payload == NULL || payload_len < 3) {
+    return VAYU_ERR_INVALID;
+  }
+  uint8_t argc = payload[2];
+  if (argc < GYRO_LPF_ARGC || payload_len < (uint16_t)argc * 4u + 3u) {
+    return VAYU_ERR_INVALID;
+  }
+  float faxis = arg_f(payload, 0);
+  float rc = arg_f(payload, 1);
+  int axis = (int)(faxis + 0.5f);
+  if (axis < 0 || axis >= NUM_AXES || !isfinite(rc) || rc < 0.0f) {
+    return VAYU_ERR_INVALID;
+  }
+  if (!angle_rate_controller_set_gyro_lpf((uint8_t)axis, rc)) {
+    return VAYU_ERR_INVALID;
+  }
+  s_store.gyro_lpf[axis] = rc;
+  s_store.gyro_lpf_valid[axis] = 1;
+  pid_config_save();
+  vayu_log("[PID] set gyro_lpf axis=%d rc=%.4f", axis, (double)rc);
   return VAYU_OK;
 }

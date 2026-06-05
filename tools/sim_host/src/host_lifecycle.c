@@ -164,6 +164,13 @@ int vayu_sitl_start(vsim_iface_t *iface) {
     system_state_init();
     VAYU_DISCARD(system_state_set(SYSTEM_STATE_STANDBY));
 
+    /* COMM-CMD-003: restore any persisted PID tune (0:pid.bin) before the
+     * controllers init from it — mirrors src/main.c on real hardware. The host
+     * VFS is now disk-backed, so a tune saved via CMD_SET_PID survives a
+     * restart. Must precede the controller tasks (they read the store at init). */
+    extern void pid_config_init(void);
+    pid_config_init();
+
     if (!passthrough_mode) {
         task_create(angle_controller_task,      NULL, 1024 * 8, 1);
         task_create(angle_rate_controller_task, NULL, 1024 * 8, 1);

@@ -81,6 +81,13 @@ void comm_processor_dispatch(const packet_t *pkt) {
     } else if (cmd_id == CMD_SET_PID) {
       /* COMM-CMD-003: validate, apply to the live controller, persist. */
       VAYU_DISCARD(pid_config_apply_command(pkt->payload, pkt->length));
+    } else if (cmd_id == CMD_SET_GYRO_LPF) {
+      /* Live rate-loop gyro LPF update (co-tuned with the gains). */
+      VAYU_DISCARD(pid_config_apply_gyro_lpf_command(pkt->payload, pkt->length));
+    } else if (cmd_id == CMD_SET_MOTOR_GEOMETRY) {
+      /* Set the mixer signs from the airframe motor layout (sim/vehicle). */
+      VAYU_DISCARD(
+          angle_rate_controller_apply_geometry_command(pkt->payload, pkt->length));
     }
   }
 }

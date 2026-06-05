@@ -1,21 +1,43 @@
 /**
  * @file tools/sim_host/src/host_vfs.c
- * @brief RAM-backed VFS shim for the host SITL build.
+ * @brief Disk-backed VFS shim for the host SITL build.
  *
  * The firmware persists tunables (IMU calibration, PID gains) to an SD
  * card through the vaios VFS. On the host there is no SD card, so this
- * shim keeps a small in-memory file table instead. It is enough for the
- * firmware to link and for tests to exercise a real save -> reload
- * round-trip within one process; files do not persist across runs.
+ * shim keeps a small in-memory file table that is mirrored to real files
+ * under a backing directory ($VAYU_VFS_DIR, default /tmp/vayu_vfs). Files
+ * are loaded from disk on open and flushed on write/close/sync, so a
+ * persisted tune (e.g. 0:pid.bin) survives across process restarts — the
+ * same save -> reboot -> reload contract the real SD card provides.
  */
 #define _GNU_SOURCE
 #include "vfs.h"
 
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 
 #define HOST_VFS_MAX_FILES   8
 #define HOST_VFS_MAX_HANDLES 8
 #define HOST_VFS_FILE_CAP    4096
+
+/* Resolve the on-disk backing path for a VFS path, e.g. "0:pid.bin" ->
+ * "/tmp/vayu_vfs/0_pid.bin". Non-alnum/._- chars are mapped to '_'. */
+static void backing_path(const char *vpath, char *out, size_t cap) {
+  const char *dir = getenv("VAYU_VFS_DIR");
+  if (dir == NULL || dir[0] == '\0') dir = "/tmp/vayu_vfs";
+  mkdir(dir, 0777);                 /* ignore EEXIST */
+  size_t n = 0;
+  n += (size_t)snprintf(out, cap, "%s/", dir);
+  for (const char *p = vpath; *p && n + 1 < cap; ++p) {
+    char c = *p;
+    int ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+             (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-';
+    out[n++] = ok ? c : '_';
+  }
+  out[n] = '\0';
+}
 
 typedef struct {
   char     path[64];
@@ -58,11 +80,40 @@ static int alloc_file(const char *path) {
   return -1;
 }
 
+/* Pull an existing backing file into a RAM slot. Returns the slot index, or
+ * -1 if there is no backing file / no free slot. */
+static int load_file(const char *path) {
+  char bp[256];
+  backing_path(path, bp, sizeof bp);
+  FILE *fp = fopen(bp, "rb");
+  if (fp == NULL) return -1;
+  int fidx = alloc_file(path);
+  if (fidx < 0) { fclose(fp); return -1; }
+  size_t n = fread(s_files[fidx].data, 1, HOST_VFS_FILE_CAP, fp);
+  fclose(fp);
+  s_files[fidx].size = n;
+  return fidx;
+}
+
+/* Mirror a RAM slot out to its backing file. */
+static void flush_file(int fidx) {
+  if (fidx < 0 || !s_files[fidx].used) return;
+  char bp[256];
+  backing_path(s_files[fidx].path, bp, sizeof bp);
+  FILE *fp = fopen(bp, "wb");
+  if (fp == NULL) return;
+  fwrite(s_files[fidx].data, 1, s_files[fidx].size, fp);
+  fclose(fp);
+}
+
 vfs_fd_t vfs_open(const char *path, int flags) {
   if (path == NULL) {
     return -1;
   }
   int fidx = find_file(path);
+  if (fidx < 0) {
+    fidx = load_file(path);          /* try the on-disk backing file first */
+  }
   if (fidx < 0) {
     if (!(flags & VFS_O_CREAT)) {
       return -1; /* mirror real VFS: missing file without CREAT fails */
@@ -99,6 +150,7 @@ int vfs_close(vfs_fd_t fd) {
   if (h == NULL) {
     return -1;
   }
+  flush_file(h->file_idx);          /* persist to the backing file */
   h->used = 0;
   return 0;
 }
@@ -130,6 +182,7 @@ int vfs_write(vfs_fd_t fd, const void *buf, size_t count) {
   if (h->cursor > f->size) {
     f->size = h->cursor;
   }
+  flush_file(h->file_idx);          /* keep the backing file in sync */
   return (int)count;
 }
 
@@ -156,6 +209,9 @@ int vfs_mkdir(const char *path) {
 }
 
 int vfs_unlink(const char *path) {
+  char bp[256];
+  backing_path(path, bp, sizeof bp);
+  remove(bp);                       /* drop the backing file too */
   int fidx = find_file(path);
   if (fidx < 0) {
     return -1;
@@ -165,7 +221,10 @@ int vfs_unlink(const char *path) {
 }
 
 int vfs_sync(vfs_fd_t fd) {
-  return handle_of(fd) ? 0 : -1;
+  host_vfs_handle_t *h = handle_of(fd);
+  if (h == NULL) return -1;
+  flush_file(h->file_idx);
+  return 0;
 }
 
 int vfs_preallocate(const char *path, uint32_t size) {
