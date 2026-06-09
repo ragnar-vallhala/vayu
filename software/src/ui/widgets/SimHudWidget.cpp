@@ -30,6 +30,11 @@ void SimHudWidget::setStatus(const QString& s) {
   update();
 }
 
+void SimHudWidget::setFlightMode(const QString& m) {
+  mode_ = m;
+  update();
+}
+
 void SimHudWidget::setImu(const float acc[3], const float gyr[3]) {
   for (int i = 0; i < 3; ++i) {
     accHist_[i].append(acc[i]);
@@ -242,6 +247,18 @@ void SimHudWidget::paintEvent(QPaintEvent*) {
     pen(scol, 1.3);
     p.drawRect(sb);
     p.drawText(sb, Qt::AlignCenter, label);
+
+    // Flight-mode pill just below the state pill (acro highlighted, since it
+    // drops the bank-angle limit).
+    if (!mode_.isEmpty()) {
+      const QString mlabel = tr("MODE ") + mode_;
+      const QColor mcol = mode_.contains("ACRO") ? warn : hud;
+      const QRectF mb(12, 12 + 18 + 4, fm.horizontalAdvance(mlabel) + 16, 18);
+      p.fillRect(mb, box);
+      pen(mcol, 1.3);
+      p.drawRect(mb);
+      p.drawText(mb, Qt::AlignCenter, mlabel);
+    }
   }
 
   // ===== accel / gyro mini-plots (bottom-right) =====

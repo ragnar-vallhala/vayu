@@ -102,6 +102,12 @@ DecodedPacket PacketDecoder::decode(const QByteArray &data) {
         result.payload =
             QString("INVALID SYSTEM_STATE LEN: %1").arg(result.length);
       }
+    } else if (result.length == 4 && raw[8] == 0x07) {
+      // SYSTEM_ORIGIN_FLIGHT_MODE: [origin] [pad] [mode:u8] [source:u8]
+      FlightModeStatus fm;
+      fm.mode = raw[10];
+      fm.source = raw[11];
+      result.payload = fm;
     } else if (result.length >= 2 && raw[8] == 0x05) {
       // SYSTEM_ORIGIN_CONTROL_DATA: [origin] [n] [18 floats]
       if (result.length == 74) {

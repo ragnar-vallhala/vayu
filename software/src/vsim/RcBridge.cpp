@@ -63,14 +63,15 @@ int openUart(const char* path, int baud) {
   return fd;
 }
 
-// Parse a CSV line of microsecond channel values. Assigns the first up-to-5
-// fields to roll/pitch/throttle/yaw/arm (clamped 1000..2000); leaves any
+// Parse a CSV line of microsecond channel values. Assigns the first up-to-6
+// fields to roll/pitch/throttle/yaw/arm/ch6 (clamped 1000..2000); leaves any
 // missing trailing channels untouched so a short frame holds the last value.
+// ch6 is the acro/angle flight-mode switch (firmware: > 1500 = acro).
 void parseCsvFrame(const std::string& line, int* roll, int* pitch, int* thr,
-                   int* yaw, int* arm) {
-  int* out[5] = {roll, pitch, thr, yaw, arm};
+                   int* yaw, int* arm, int* ch6) {
+  int* out[6] = {roll, pitch, thr, yaw, arm, ch6};
   const char* p = line.c_str();
-  for (int i = 0; i < 5 && *p; ++i) {
+  for (int i = 0; i < 6 && *p; ++i) {
     char* end = nullptr;
     const long v = std::strtol(p, &end, 10);
     if (end == p) break;  // no number here
@@ -133,6 +134,7 @@ void RcBridge::run() {
   std::string uline;    // UART CSV line accumulator
   // Last UART-parsed channels, held between frames.
   int u_roll = 1500, u_pitch = 1500, u_thr = 1000, u_yaw = 1500, u_arm = 1500;
+  int u_ch6 = 1000;   // transmitter's ch6 (acro switch); 1000 = stabilise default
 
   auto close_src = [&]() { if (fd >= 0) { ::close(fd); fd = -1; } };
 
@@ -186,7 +188,8 @@ void RcBridge::run() {
             const char c = b[i];
             if (c == '\n' || c == '\r') {
               if (!uline.empty()) {
-                parseCsvFrame(uline, &u_roll, &u_pitch, &u_thr, &u_yaw, &u_arm);
+                parseCsvFrame(uline, &u_roll, &u_pitch, &u_thr, &u_yaw, &u_arm,
+                              &u_ch6);
                 uline.clear();
               }
             } else if (uline.size() < 128) {
@@ -245,7 +248,11 @@ void RcBridge::run() {
 
     // CSV frame: roll,pitch,throttle,yaw,arm,ch6  (feeder fills 7..13 = 1500).
     // ch6 carries the acro/angle flight-mode toggle (firmware: > 1500 = acro).
-    const int ch6 = acro_.load(std::memory_order_relaxed) ? 2000 : 1000;
+    // In UART mode the transmitter's physical ch6 switch is authoritative (just
+    // like real RC); the Acro checkbox drives it only for the generated source.
+    const int ch6 = (want == Uart)
+                        ? (en ? u_ch6 : 1000)
+                        : (acro_.load(std::memory_order_relaxed) ? 2000 : 1000);
     char buf[96];
     const int n = std::snprintf(buf, sizeof(buf), "%d,%d,%d,%d,%d,%d\n",
                                 roll, pitch, thr, yaw, arm, ch6);
@@ -253,7 +260,7 @@ void RcBridge::run() {
       const ssize_t w = ::write(master_fd_, buf, (size_t)n);
       (void)w;  // pty buffer full → drop frame; next one is along in 20 ms
     }
-    emit channelsUpdated(roll, pitch, thr, yaw, arm);
+    emit channelsUpdated(roll, pitch, thr, yaw, arm, ch6);
 
     msleep(20);  // ~50 Hz
   }

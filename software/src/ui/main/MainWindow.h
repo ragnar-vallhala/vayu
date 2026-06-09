@@ -61,6 +61,7 @@ private slots:
   void onRcReceived(const RcData &data);
   void onLogReceived(const QString &msg);
   void onStatusReceived(const QString &msg);
+  void onFlightModeReceived(quint8 mode, quint8 source);
   void onMotorReceived(const MotorData &data);
 
   // Serial state
@@ -127,6 +128,7 @@ private:
 
   // ---- System-state pill on the attitude page (firmware state, not connection) ----
   QLabel *m_statusLabel = nullptr;
+  QLabel *m_flightModeLabel = nullptr;   // STABILISE / ACRO pill (+ RC/GCS source)
 
   // ---- Back-end ----
   SerialManager *m_serial = nullptr;
