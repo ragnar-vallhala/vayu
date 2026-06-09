@@ -7,7 +7,18 @@ namespace vsim {
 SensorModels::SensorModels()
     : rng_(0xC0FFEE), norm_(0.0f, 1.0f) {}
 
-void SensorModels::seed(uint64_t s) { rng_.seed(s); }
+void SensorModels::seed(uint64_t s) {
+    rng_.seed(s);
+    // normal_distribution caches the second Box-Muller value between calls;
+    // clear it so the stream is fully determined by the rng seed alone.
+    norm_.reset();
+    // Reset the random-walk bias accumulators too -- otherwise two resets
+    // with the same seed still diverge, starting from whatever bias the
+    // previous rollout drifted to. A reseed is a full sensor-state reset.
+    acc_bias_ = Vec3(0.0f, 0.0f, 0.0f);
+    gyr_bias_ = Vec3(0.0f, 0.0f, 0.0f);
+    mag_bias_ = Vec3(0.0f, 0.0f, 0.0f);
+}
 
 float SensorModels::randn(float std) {
     return norm_(rng_) * std;
