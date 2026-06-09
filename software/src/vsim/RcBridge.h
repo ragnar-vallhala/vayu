@@ -80,7 +80,7 @@ class RcBridge : public QThread {
 
  signals:
   // Latest output channel values (microseconds), for an on-screen readout.
-  void channelsUpdated(int roll, int pitch, int thr, int yaw, int arm);
+  void channelsUpdated(int roll, int pitch, int thr, int yaw, int arm, int ch6);
   // Per-axis µs + per-button states (0/1), to identify which input each
   // physical control is on.
   void axesUpdated(QVector<int> axisUs, QVector<int> buttons);
