@@ -5,7 +5,8 @@ one Evaluator so a global evaluation budget is enforced and the best point is
 tracked across methods. Pure stdlib (no numpy) to keep the harness portable.
 
 Provided: random_search, spsa, fdgd (finite-difference gradient descent),
-coordinate (pattern descent), nelder_mead, plus two meta-strategies:
+coordinate (pattern descent), nelder_mead, structured (manual-style sequential
+P->D->I->outer line search), plus two meta-strategies:
   hybrid    -- coarse random exploration then SPSA local refine
   portfolio -- split the budget across several optimizers, keep the best
 """
@@ -183,6 +184,55 @@ def nelder_mead(ev, x0, bounds, rng, init=0.15):
         pass
 
 
+def structured(ev, x0, bounds, rng):
+    """Manual-style structured sweep — tune ONE gain at a time, in the order a
+    human pilot would, each by a 1-D line search that lands on the cost knee.
+
+    Order (per the methodology doc, sec. 6): start the inner-loop gains near zero,
+    raise rate **P** until it tracks but starts to chatter, then **D** to damp,
+    then **I** for hold, and finally the **outer angle P**. Because the cost J
+    already penalises chatter past a dead-zone, the J-minimum of each sweep *is*
+    "raise it, then back off" — no separate heuristic needed.
+
+    This is the structured one-at-a-time sweep the doc found beat the black-box
+    search on a marginal plant. It assumes the standard param layout:
+      [rate_kp, rate_ki, rate_kd, angle_kp, gyro_lpf] then, with --yaw, the yaw
+      RATE set [yaw_rate_kp, yaw_rate_ki, yaw_rate_kd, yaw_gyro_lpf] (n == 9).
+    angle_kp is held at the seed during the rate sweep so the inner loop is
+    actually excited (a P-only outer still drives a rate setpoint), then tuned
+    last as the outer loop. The yaw rate loop is swept the same way after it."""
+    n = len(x0)
+    x = _clamp(list(x0), bounds)
+    # Tuning order by index: rate_kp -> rate_kd -> rate_ki -> angle_kp, then the
+    # yaw RATE set if present (yaw_rate kp -> kd -> ki). gyro_lpf (idx 4 / 8) is
+    # left at the seed.
+    order = [i for i in (0, 2, 1, 3) if i < n]
+    if n >= 9:                                 # --yaw appends the yaw rate set
+        order += [i for i in (5, 7, 6) if i < n]   # yaw_rate_kp -> kd -> ki
+    # Start the inner-loop gains low so the sweep climbs from near-zero, like a
+    # hand tune; leave angle_kp / gyro_lpf at the seed.
+    for idx in (0, 1, 2):
+        if idx < n:
+            x[idx] = bounds[idx][0]
+    if n >= 9:
+        for idx in (5, 6, 7):                  # yaw_rate kp/ki/kd start low
+            x[idx] = bounds[idx][0]
+    pts = max(4, ev.budget // (len(order) + 1))   # grid points per gain
+    try:
+        ev(list(x))                               # baseline of the zeroed start
+        for idx in order:
+            lo, hi = bounds[idx]
+            best_v, best_val = math.inf, x[idx]
+            for k in range(pts):
+                x[idx] = lo + (hi - lo) * k / (pts - 1)
+                v = ev(x)
+                if v < best_v:
+                    best_v, best_val = v, x[idx]
+            x[idx] = best_val                     # lock the knee, move to next gain
+    except BudgetExhausted:
+        pass
+
+
 def hybrid(ev, x0, bounds, rng, explore_frac=0.35):
     """Coarse random exploration to find a good basin, then SPSA local refine
     from the best point found. A simple but effective global+local mix."""
@@ -248,6 +298,7 @@ REGISTRY = {
     "fdgd": fdgd,
     "coordinate": coordinate,
     "nelder-mead": nelder_mead,
+    "structured": structured,
     "hybrid": hybrid,
     "portfolio": portfolio,
 }
