@@ -141,11 +141,13 @@ void m_complementary_filter(const float ax, const float ay, const float az,
   ori->pitch =
       alpha * (ori->pitch + gy * dt) + (1.0f - alpha) * acc_mag_ori.pitch;
 
-  // Yaw: Detect mag validity and fuse only if valid
+  // Yaw: fuse the mag if present, with a heavier mag weight than roll/pitch use
+  // (the mag is the only absolute heading reference; too little weight and the
+  // heading drifts on gyro bias and yaw-hold chases it).
   float norm_m = m_sqrt(mx * mx + my * my + mz * mz);
   if (norm_m > 1e-6f) {
-    // Fuse with mag-based yaw
-    ori->yaw = alpha * (ori->yaw + gz * dt) + (1.0f - alpha) * acc_mag_ori.yaw;
+    const float ya = SF_YAW_COMPLEMENTARY_ALPHA;
+    ori->yaw = ya * (ori->yaw + gz * dt) + (1.0f - ya) * acc_mag_ori.yaw;
   } else {
     // Gyro only integration for yaw
     ori->yaw = ori->yaw + gz * dt;
@@ -222,8 +224,8 @@ void m_mahony_filter(const float ax, const float ay, const float az,
   float dt = get_dt();
   float q0 = ori->q.w, q1 = ori->q.x, q2 = ori->q.y, q3 = ori->q.z;
   float norm;
-  float hx, hy, bx, bz;
-  float vx, vy, vz, wx, wy, wz;
+  float hx, hy;
+  float vx, vy, vz;
   float ex, ey, ez;
 
   // Auxiliary variables to avoid repeated fractional multiplications
@@ -246,17 +248,21 @@ void m_mahony_filter(const float ax, const float ay, const float az,
   float ayn = ay / norm;
   float azn = az / norm;
 
-  // Detect mag validity and Normalise magnetometer measurement
-  // TODO: Add mag validity check
+  // Tilt-compensated, YAW-ONLY mag fusion. The classic full-3D mag error term
+  // (m × b) couples the mag's noise/bias (and any field-convention error) into
+  // roll & pitch and diverges the estimate during a maneuver. Instead the mag
+  // is used purely as an absolute HEADING reference: rotate it into the world
+  // frame, take the horizontal heading error, and feed the correction back ONLY
+  // about the world-vertical (gravity) axis. Roll/pitch stay pinned by the
+  // accelerometer alone, so a noisy/late mag can never tip the airframe.
   int mag_valid = 0;
   float mxn = 0.0f, myn = 0.0f, mzn = 0.0f;
   norm = m_sqrt(mx * mx + my * my + mz * mz);
-  if (norm <= 1e-6f) {
-    mag_valid = 0;
-  } else {
+  if (norm > 1e-6f) {
     mxn = mx / norm;
     myn = my / norm;
     mzn = mz / norm;
+    mag_valid = 1;
   }
 
   // Estimated direction of gravity (ALWAYS computed)
@@ -264,32 +270,30 @@ void m_mahony_filter(const float ax, const float ay, const float az,
   vy = -2.0f * (q0q1 + q2q3);
   vz = -(q0q0 - q1q1 - q2q2 + q3q3);
 
-  // Compute error
+  // Tilt error from the accelerometer (cross of measured vs estimated gravity)
+  // — pins roll & pitch. Always applied.
+  ex = (ayn * vz - azn * vy);
+  ey = (azn * vx - axn * vz);
+  ez = (axn * vy - ayn * vx);
+
+  // Yaw error from the magnetometer, applied about the world vertical only.
   if (mag_valid) {
-    // Reference direction of Earth's magnetic field
+    // Rotate the unit mag into the world frame; (hx, hy) is its horizontal
+    // projection. With the field pointing magnetic north (declination 0) a
+    // correct heading gives hy = 0, so atan2(hy, hx) IS the heading error.
     hx = 2.0f * mxn * (0.5f - q2q2 - q3q3) + 2.0f * myn * (q1q2 - q0q3) +
          2.0f * mzn * (q1q3 + q0q2);
     hy = 2.0f * mxn * (q1q2 + q0q3) + 2.0f * myn * (0.5f - q1q1 - q3q3) +
          2.0f * mzn * (q2q3 - q0q1);
-    bx = m_sqrt(hx * hx + hy * hy);
-    bz = 2.0f * mxn * (q1q3 - q0q2) + 2.0f * myn * (q2q3 + q0q1) +
-         2.0f * mzn * (0.5f - q1q1 - q2q2);
-
-    // Estimated direction of magnetic field
-    wx = 2.0f * bx * (0.5f - q2q2 - q3q3) + 2.0f * bz * (q1q3 - q0q2);
-    wy = 2.0f * bx * (q1q2 - q0q3) + 2.0f * bz * (q0q1 + q2q3);
-    wz = 2.0f * bx * (q0q2 + q1q3) + 2.0f * bz * (0.5f - q1q1 - q2q2);
-
-    // Error is sum of cross product between estimated direction and measured
-    // direction of field vectors
-    ex = (ayn * vz - azn * vy) + (myn * wz - mzn * wy);
-    ey = (azn * vx - axn * vz) + (mzn * wx - mxn * wz);
-    ez = (axn * vy - ayn * vx) + (mxn * wy - myn * wx);
-  } else {
-    // IMU-only error (Accel only)
-    ex = (ayn * vz - azn * vy);
-    ey = (azn * vx - axn * vz);
-    ez = (axn * vy - ayn * vx);
+    const float heading_err = m_atan2(hy, hx);
+    // Feed the heading error back about the WORLD vertical only: v is the
+    // world-down direction expressed in the body frame (already unit length),
+    // so heading_err·v is a pure tilt-compensated yaw correction — it can never
+    // disturb the gravity-stabilised roll/pitch. Sign drives heading_err -> 0.
+    const float mw = SF_MAHONY_MAG_WEIGHT;
+    ex += mw * heading_err * vx;
+    ey += mw * heading_err * vy;
+    ez += mw * heading_err * vz;
   }
 
   // Compute and apply integral feedback if enabled

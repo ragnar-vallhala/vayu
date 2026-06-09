@@ -58,8 +58,19 @@
 
 // Sensor Fusion Parameters
 #define SF_COMPLEMENTARY_ALPHA 0.98f
+// Yaw fuses the MAGNETOMETER (not gravity), so it needs a heavier correction
+// than roll/pitch: at 0.98 the mag only nudges heading 2%/update, so gyro-bias
+// drift wins and the heading wanders (and yaw-hold chases it). A lower alpha
+// pulls harder toward the mag heading so it actually holds.
+#define SF_YAW_COMPLEMENTARY_ALPHA 0.92f
 #define SF_MAHONY_KP 3.0f
 #define SF_MAHONY_KI 0.0025f
+// Weight on the magnetometer error term in the Mahony update. The mag error
+// feeds all three axes, so at full strength (Kp=3.0) mag noise/bias leaks into
+// roll & pitch and can diverge the estimate during a maneuver. The mag's job is
+// only the heading (yaw) reference, so fuse it gently — strong enough to hold
+// heading, weak enough not to disturb the gravity-referenced tilt.
+#define SF_MAHONY_MAG_WEIGHT 0.30f
 #define SF_FILTER_USED SF_MAHONY
 #define RADIO_AVOID_BAND 10
 
@@ -96,46 +107,30 @@
 #else
 #define PID_FULL_AUTHORITY_THROTTLE 0.30f
 #endif
-// Gains - VAYU_SIM overrides ship the SITL build with gentler
-// gains because the X3 in Gazebo has lower inertia
-// (Ixx=0.025, Iyy=0.009) than the real vayu drone and the controller
-// otherwise applies too much corrective motor swing per degree of
-// attitude error, slamming motors into saturation on every transient.
-//
-// Iterated tuning from the SITL logs:
-//   1x firmware defaults -> drone flipped immediately on arm
-//   4x reduction          -> drone armed briefly, hit FAILSAFE in ~2 s
-//   16x reduction (here)  -> single mahony-attitude glitch can no
-//                            longer drive any motor to saturation
-//                            even on the X3's low-inertia airframe
-#ifdef VAYU_SIM
-#define DEAFULT_ROLL_ANGLE_RATE_KP 0.005f
-#define DEAFULT_ROLL_ANGLE_RATE_KI 0.001f
-#define DEAFULT_ROLL_ANGLE_RATE_KD 0.0005f
+// PID gain defaults — UNIFIED across the SITL and hardware builds. The old
+// `#ifdef VAYU_SIM` split dated to the Gazebo X3 era, when the sim flew a
+// different, lower-inertia airframe; the sim now flies the REAL geometry pushed
+// at runtime via VSIM_CTL_SET_GEOMETRY, so a build-divergent baseline only made
+// the SITL-tuned gains rest on a different fallback than hardware (a per-slot
+// footgun: any gain NOT in the persisted tune resolved 16x apart between
+// builds). These values are the flight-validated S500 autotune result. They are
+// only the FALLBACK: a persisted tune (0:pid.bin, loaded by pid_config_init()
+// before the controllers init) overrides any of them per slot — so the SAME
+// pid.bin now yields identical behaviour in sim and on the board.
+#define DEAFULT_ROLL_ANGLE_RATE_KP 0.0005f
+#define DEAFULT_ROLL_ANGLE_RATE_KI 0.00333f
+#define DEAFULT_ROLL_ANGLE_RATE_KD 0.0f
 #define DEAFULT_ROLL_ANGLE_RATE_KFF 0.0f
-#else
-#define DEAFULT_ROLL_ANGLE_RATE_KP 0.08f
-#define DEAFULT_ROLL_ANGLE_RATE_KI 0.04f
-#define DEAFULT_ROLL_ANGLE_RATE_KD 0.01f
-#define DEAFULT_ROLL_ANGLE_RATE_KFF 0.1f
-#endif
 #define DEAFULT_ROLL_ANGLE_RATE_I_MAX 0.2f
 #define DEAFULT_ROLL_ANGLE_RATE_D_MAX 0.25f
 #define DEAFULT_ROLL_ANGLE_RATE_D_LPF_RC 0.3f
 #define DEAFULT_ROLL_ANGLE_RATE_OUT_MIN -1.0f
 #define DEAFULT_ROLL_ANGLE_RATE_OUT_MAX 1.0f
 
-#ifdef VAYU_SIM
-#define DEAFULT_PITCH_ANGLE_RATE_KP 0.005f
-#define DEAFULT_PITCH_ANGLE_RATE_KI 0.001f
-#define DEAFULT_PITCH_ANGLE_RATE_KD 0.0005f
+#define DEAFULT_PITCH_ANGLE_RATE_KP 0.0005f
+#define DEAFULT_PITCH_ANGLE_RATE_KI 0.00333f
+#define DEAFULT_PITCH_ANGLE_RATE_KD 0.0f
 #define DEAFULT_PITCH_ANGLE_RATE_KFF 0.0f
-#else
-#define DEAFULT_PITCH_ANGLE_RATE_KP 0.08f
-#define DEAFULT_PITCH_ANGLE_RATE_KI 0.04f
-#define DEAFULT_PITCH_ANGLE_RATE_KD 0.01f
-#define DEAFULT_PITCH_ANGLE_RATE_KFF 0.1f
-#endif
 #define DEAFULT_PITCH_ANGLE_RATE_I_MAX 0.2f
 #define DEAFULT_PITCH_ANGLE_RATE_D_MAX 0.25f
 #define DEAFULT_PITCH_ANGLE_RATE_D_LPF_RC 0.3f
@@ -147,17 +142,10 @@
 // these mirror the roll/pitch seeds as a starting point — retune (e.g. via the
 // SITL autotuner) for the actual airframe. Output limits MUST be non-zero or
 // the PID clamps yaw to 0 regardless of gain.
-#ifdef VAYU_SIM
-#define DEAFULT_YAW_ANGLE_RATE_KP 0.005f
-#define DEAFULT_YAW_ANGLE_RATE_KI 0.001f
-#define DEAFULT_YAW_ANGLE_RATE_KD 0.0005f
-#define DEAFULT_YAW_ANGLE_RATE_KFF 0.0f
-#else
-#define DEAFULT_YAW_ANGLE_RATE_KP 0.08f
-#define DEAFULT_YAW_ANGLE_RATE_KI 0.04f
+#define DEAFULT_YAW_ANGLE_RATE_KP 0.018f
+#define DEAFULT_YAW_ANGLE_RATE_KI 0.0f
 #define DEAFULT_YAW_ANGLE_RATE_KD 0.0f
 #define DEAFULT_YAW_ANGLE_RATE_KFF 0.0f
-#endif
 #define DEAFULT_YAW_ANGLE_RATE_I_MAX 0.2f
 #define DEAFULT_YAW_ANGLE_RATE_D_MAX 0.25f
 #define DEAFULT_YAW_ANGLE_RATE_D_LPF_RC 0.3f
@@ -165,34 +153,33 @@
 #define DEAFULT_YAW_ANGLE_RATE_OUT_MAX 1.0f
 
 // Angle controller
-#ifdef VAYU_SIM
-#define DEAFULT_ROLL_ANGLE_KP 0.25f
-#else
 #define DEAFULT_ROLL_ANGLE_KP 4.0f
-#endif
 #define DEAFULT_ROLL_ANGLE_TARGET_MAX 100.0f
 #define DEAFULT_ROLL_ANGLE_OUT_MAX 100.0f
 
-#ifdef VAYU_SIM
-#define DEAFULT_PITCH_ANGLE_KP 0.25f
-#else
 #define DEAFULT_PITCH_ANGLE_KP 4.0f
-#endif
 #define DEAFULT_PITCH_ANGLE_TARGET_MAX 100.0f
 #define DEAFULT_PITCH_ANGLE_OUT_MAX 100.0f
 
-// Yaw angle loop: stick commands an absolute heading hold. On sim builds the
-// mag-less Mahony yaw slowly drifts (see angle_controller.c) so heading hold is
-// approximate, but the loop is now live and tunable.
-#ifdef VAYU_SIM
-#define DEAFULT_YAW_ANGLE_KP 0.25f
-#else
-#define DEAFULT_YAW_ANGLE_KP 4.0f
-#endif
+// Yaw angle loop: superseded. Yaw is RATE-controlled in both stabilise and
+// acro (a centered stick holds the current heading; see angle_controller.c),
+// and the Mahony estimate is now mag-fused, so this angle gain is unused.
+// Yaw angle gain is unused in flight (yaw is rate-controlled in both modes —
+// see angle_controller.c); kept only so the angle PID slot is well-defined.
+#define DEAFULT_YAW_ANGLE_KP 1.2f
 #define DEAFULT_YAW_ANGLE_TARGET_MAX 100.0f
 #define DEAFULT_YAW_ANGLE_OUT_MAX 100.0f
 
 #define MAX_ANGLE_CUTOFF 70.0f
+
+/* Outer (angle) loop pacing. The angle loop runs at inner_rate / OUTER_LOOP_DECIM
+ * by decimating attitude-sample wakeups (the attitude estimate is pushed once per
+ * inner/IMU sample). At the 1 kHz default inner rate that is 250 Hz — slower than
+ * the rate loop (proper cascade bandwidth separation) yet tied to it, so it tracks
+ * the configured IMU rate automatically. OUTER_LOOP_MAX_PERIOD_MS bounds the wait
+ * so the bank-angle failsafe keeps running if the estimator stalls. */
+#define OUTER_LOOP_DECIM 4
+#define OUTER_LOOP_MAX_PERIOD_MS 10
 
 /* Acro (rate) mode: a flight-mode toggle on RC channel ACRO_SWITCH_CH (0-based;
  * 5 == channel 6). When the channel reads above ACRO_SWITCH_US the attitude
