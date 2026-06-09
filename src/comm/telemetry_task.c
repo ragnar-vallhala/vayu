@@ -7,6 +7,7 @@
 #include "comm/serializer.h"
 #include "logger/logger.h"
 #include "control/control.h"
+#include "control/flight_mode.h"
 #include "est/est.h"
 #include "sensor/sensor.h"
 #include "sys/state.h"
@@ -85,6 +86,15 @@ void imu_telemetry_task(void *args) {
 
       send_packet(&g_telemetry_channel, PACKET_TYPE_SYSTEM_STATUS,
                   state_payload, 6);
+
+      /* Flight-mode status: [origin][pad][mode:u8][source:u8] so the GCS can
+       * reflect stabilise/acro and whether it's RC- or GCS-driven. */
+      uint8_t fm_payload[4];
+      fm_payload[0] = SYSTEM_ORIGIN_FLIGHT_MODE;
+      fm_payload[1] = 0x00; // reserved/padding
+      fm_payload[2] = (uint8_t)flight_mode_get();
+      fm_payload[3] = (uint8_t)flight_mode_get_source();
+      send_packet(&g_telemetry_channel, PACKET_TYPE_SYSTEM_STATUS, fm_payload, 4);
 
       /* Surface the health counters as a HEALTH status:
        *   [origin][pad][tx_overflow:4][imu_drop:4][log_wrap:4]

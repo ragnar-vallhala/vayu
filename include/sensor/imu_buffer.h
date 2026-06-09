@@ -53,6 +53,9 @@ bool attitude_queue_telemetry_peek(attitude_t *out_attitude);
 bool attitude_queue_control_push(const attitude_t *attitude);
 bool attitude_queue_control_pop(attitude_t *out_attitude);
 bool attitude_queue_control_peek(attitude_t *out_attitude);
+/* Block until the next attitude control sample is pushed (or timeout). Lets the
+ * outer/angle loop pace itself off the inner-loop sample rate. */
+bool attitude_queue_control_wait(uint32_t ticks_to_wait);
 
 bool imu_queue_calibration_telemetry_push(const imu_calibration_telemetry_t *sample);
 bool imu_queue_calibration_telemetry_pop(imu_calibration_telemetry_t *out_sample);

@@ -72,6 +72,7 @@ set(VAYU_SOURCES
     ${VAYU_ROOT}/src/control/angle_controller.c
     ${VAYU_ROOT}/src/control/angle_rate_controller.c
     ${VAYU_ROOT}/src/control/pid_config.c   # CMD_SET_PID apply + SD persistence
+    ${VAYU_ROOT}/src/control/flight_mode.c  # stabilise/acro arbitration (RC + GCS)
     ${VAYU_ROOT}/src/control/control_buffer.c
     ${VAYU_ROOT}/src/est/lpf.c
     ${VAYU_ROOT}/src/maths/maths_interface.c

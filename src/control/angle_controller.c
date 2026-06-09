@@ -1,6 +1,7 @@
 #include "control/angle_controller.h"
 #include "comm/comm.h"
 #include "control/angle_rate_controller.h"
+#include "control/flight_mode.h"
 #include "control/pid_config.h"
 #include "maths/maths_interface.h"
 #include "control/pid.h"
@@ -179,7 +180,21 @@ void angle_controller_task(void *arg) {
   static angle_controller_outputs_t angle_controller_outputs;
   static ibus_data_t rc_data;
   static ibus_data_t prev_rc_data;
+  static int outer_decim = 0;
   while (1) {
+    /* Pace off the inner loop: wake on each attitude sample (pushed at the
+     * IMU/inner rate) and process one in every OUTER_LOOP_DECIM, so the angle
+     * loop runs at inner_rate / OUTER_LOOP_DECIM. On a wait timeout (estimator
+     * stalled) we fall through and run anyway so the bank-angle failsafe and
+     * motor path keep updating; the attitude pop below then reuses the last
+     * sample. This replaces the old fixed v_delay(2) — the rate now tracks the
+     * configured IMU rate instead of being pinned at 500 Hz. */
+    bool fresh = attitude_queue_control_wait(MS_TO_TICKS(OUTER_LOOP_MAX_PERIOD_MS));
+    if (fresh && ++outer_decim < OUTER_LOOP_DECIM) {
+      continue;
+    }
+    outer_decim = 0;
+
     float dt = get_dt();
     if (rc_queue_control_pop(&rc_data)) {
       prev_rc_data = rc_data;
@@ -202,9 +217,12 @@ void angle_controller_task(void *arg) {
         normalized_rc_data.channels[3] * DEAFULT_YAW_ANGLE_TARGET_MAX;
 
     /* Acro (rate) mode toggle on RC channel ACRO_SWITCH_CH (ch6, 0-based 5).
-     * High -> sticks command body rate directly, attitude loop bypassed. */
-    bool acro_mode = (ACRO_SWITCH_CH < IBUS_MAX_CHANNELS) &&
-                     (rc_data.channels[ACRO_SWITCH_CH] > ACRO_SWITCH_US);
+     * High -> sticks command body rate directly, attitude loop bypassed. The
+     * RC request is arbitrated with any GCS CMD_SET_FLIGHT_MODE override (GCS
+     * wins while active); the resolved mode is published as telemetry. */
+    bool rc_acro = (ACRO_SWITCH_CH < IBUS_MAX_CHANNELS) &&
+                   (rc_data.channels[ACRO_SWITCH_CH] > ACRO_SWITCH_US);
+    bool acro_mode = flight_mode_resolve_acro(rc_acro);
 
     if (!attitude_queue_control_pop(&attitude)) {
       attitude = last_attitude;
@@ -241,10 +259,18 @@ void angle_controller_task(void *arg) {
       angle_controller_outputs.angle_rates[2] =
           normalized_rc_data.channels[3] * DEAFULT_YAW_ACRO_RATE_MAX;
     } else {
-      for (int i = 0; i < NUM_AXES; i++) {
+      /* Angle (stabilise) mode: roll & pitch are attitude-controlled (stick ->
+       * bank angle, self-levels when centered). YAW, however, is ALWAYS rate-
+       * controlled like acro — the stick commands a yaw RATE and a centered
+       * stick holds the current heading. A quad must never snap back to an
+       * absolute heading of 0, and the mag-less sim yaw estimate drifts anyway,
+       * so heading-hold-to-zero is both wrong and unstable. */
+      for (int i = 0; i < 2; i++) { /* roll, pitch */
         angle_controller_outputs.angle_rates[i] = v_pid_update(
             &angle_controller.pid[i], target_angles[i], current_angles[i], 0, dt);
       }
+      angle_controller_outputs.angle_rates[2] =
+          normalized_rc_data.channels[3] * DEAFULT_YAW_ACRO_RATE_MAX;
     }
     /* Telemetry continuity: report the stick angle command vs measured angle in
      * both modes (in acro it's informational only — the rate setpoint above is
@@ -256,6 +282,7 @@ void angle_controller_task(void *arg) {
     angle_controller_outputs.throttle = target_throttle;
     angle_controller_outputs.dt = dt;
     fifo_push(&angle_controller_outputs);
-    v_delay(2);
+    /* No v_delay here — the loop blocks on attitude_queue_control_wait() at the
+     * top and decimates, so its rate is tied to the inner/IMU rate. */
   }
 }
