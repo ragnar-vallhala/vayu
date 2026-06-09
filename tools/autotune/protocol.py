@@ -39,13 +39,27 @@ SYNC = 0x56
 PROTO_VER = 0x1
 PKT_SYSTEM_STATUS = 0x6
 ORIGIN_CONTROL_DATA = 0x05
+ORIGIN_SYS_STATE = 0x04          # SYSTEM_ORIGIN_SYS_STATE: [0x04][pad][state:f32]
+ORIGIN_FLIGHT_MODE = 0x07        # [0x07][pad][mode:u8][source:u8]
 PKT_COMMAND = 0x3
+
+# sys_state_t bit values (include/sys/state.h) — the autotuner watches for ARMED
+# to confirm an arm command actually took before exciting the doublet.
+SYSTEM_STATE_STANDBY = 0x4
+SYSTEM_STATE_ARMED = 0x10
+SYSTEM_STATE_FAILSAFE = 0x40
 
 CMD_ARM = 0x0002
 CMD_DISARM = 0x0003
 CMD_SET_PID = 0x000A
 CMD_SET_GYRO_LPF = 0x000B
 CMD_SET_MOTOR_GEOMETRY = 0x000C
+CMD_SET_FLIGHT_MODE = 0x000D
+
+# Flight-mode arg / telemetry values (firmware flight_mode_t).
+FLIGHT_MODE_ANGLE = 0
+FLIGHT_MODE_ACRO = 1
+FLIGHT_MODE_RELEASE = 2          # CMD arg only: hand control back to the RC switch
 
 # Index of each field inside the 18-float control-telemetry payload.
 CT = {
@@ -87,6 +101,11 @@ def set_gyro_lpf_command(axis: int, rc: float) -> bytes:
     return build_command(CMD_SET_GYRO_LPF, [float(axis), float(rc)])
 
 
+def set_flight_mode_command(mode: int) -> bytes:
+    """CMD_SET_FLIGHT_MODE: 0=stabilise/angle, 1=acro, 2=release to RC switch."""
+    return build_command(CMD_SET_FLIGHT_MODE, [float(mode)])
+
+
 def set_motor_geometry_command(motors) -> bytes:
     """CMD_SET_MOTOR_GEOMETRY: per-motor body x,y,spin -> firmware mixer signs.
     Args: x[4], y[4], spin[4] (12 floats), so the firmware mix matches the sim."""
@@ -107,7 +126,13 @@ class NavlinkDecoder:
         self._buf = bytearray()
 
     def feed(self, data: bytes):
-        """Append bytes and yield every control-telemetry frame found."""
+        """Append bytes and yield every decoded frame found.
+
+        Yields two kinds of dict:
+          - control-telemetry: the 18-float CT.* fields (ORIGIN_CONTROL_DATA).
+          - system-state:      {"sys_state": float} (ORIGIN_SYS_STATE) — used to
+            confirm ARMED before a rollout. Consumers branch on key presence.
+        """
         self._buf.extend(data)
         out = []
         while True:
@@ -136,6 +161,14 @@ class NavlinkDecoder:
                     and frame[8] == ORIGIN_CONTROL_DATA):
                 vals = struct.unpack_from("<18f", frame, 10)
                 out.append({k: vals[i] for k, i in CT.items()})
+            elif (ptype == PKT_SYSTEM_STATUS and length == 6
+                    and frame[8] == ORIGIN_SYS_STATE):
+                # [0x04][pad][state:f32] — state is a sys_state_t bit value.
+                out.append({"sys_state": struct.unpack_from("<f", frame, 10)[0]})
+            elif (ptype == PKT_SYSTEM_STATUS and length == 4
+                    and frame[8] == ORIGIN_FLIGHT_MODE):
+                # [0x07][pad][mode:u8][source:u8]
+                out.append({"flight_mode": frame[10], "flight_mode_src": frame[11]})
             del self._buf[:total]
         return out
 
@@ -147,6 +180,7 @@ VSIM_FRAME_POSE = 3
 VSIM_FRAME_CTL = 4
 VSIM_CTL_RESET = 1
 VSIM_CTL_SET_GEOMETRY = 5
+VSIM_CTL_SET_WORLD = 6
 VSIM_CTL_SET_RATES = 9
 VSIM_CTL_SET_TESTRIG = 12
 
@@ -161,13 +195,30 @@ def _ctl_frame(subtype: int, body: bytes) -> bytes:
     return hdr + struct.pack("<II", subtype, 0) + body
 
 
-def ctl_reset(pos=(0, 0, -0.05), quat=(1, 0, 0, 0), vel=(0, 0, 0), omega=(0, 0, 0)) -> bytes:
-    body = struct.pack("<3f4f3f3f", *pos, *quat, *vel, *omega)
+def ctl_reset(pos=(0, 0, -0.05), quat=(1, 0, 0, 0), vel=(0, 0, 0), omega=(0, 0, 0),
+              seed=0) -> bytes:
+    # Trailing u32 seed (vsim_ctl_reset_t.seed): non-zero => vsim_d re-seeds the
+    # sensor-noise RNG + zeroes biases for a reproducible rollout; 0 => legacy
+    # free-running noise.
+    body = struct.pack("<3f4f3f3f", *pos, *quat, *vel, *omega) + struct.pack("<I", int(seed) & 0xFFFFFFFF)
     return _ctl_frame(VSIM_CTL_RESET, body)
 
 
-def ctl_testrig(enable: bool, pos=(0, 0, -0.05)) -> bytes:
-    return _ctl_frame(VSIM_CTL_SET_TESTRIG, struct.pack("<i3f", 1 if enable else 0, *pos))
+def ctl_testrig(enable: bool, pos=(0, 0, -0.05), tether_k=0.0) -> bytes:
+    # tether_k>0 => soft rig (spring-damped pull-back, lets the body translate so
+    # the accel sees free-flight thrust-tilt); 0 => legacy hard pin.
+    return _ctl_frame(VSIM_CTL_SET_TESTRIG,
+                      struct.pack("<i3ff", 1 if enable else 0, *pos, float(tether_k)))
+
+
+def ctl_world(gravity=9.81, ground_z=0.0, restitution=0.3, linear_drag=0.10,
+              angular_drag=0.005, ground_right_gain=8.0, ground_right_damp=3.0) -> bytes:
+    """vsim_ctl_world_t: environment + aerodynamics. Lets the tuner fly the SAME
+    plant the GCS flies (esp. angular_drag — a no-rate_kd tune is only stable if
+    SOME damping exists, passive or active)."""
+    body = struct.pack("<7f", gravity, ground_z, restitution, linear_drag,
+                       angular_drag, ground_right_gain, ground_right_damp)
+    return _ctl_frame(VSIM_CTL_SET_WORLD, body)
 
 
 def ctl_rates(imu_hz: int, physics_hz: int, pose_hz: int) -> bytes:
