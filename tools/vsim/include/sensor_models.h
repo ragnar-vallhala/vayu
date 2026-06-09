@@ -9,13 +9,17 @@
 namespace vsim {
 
 struct SensorNoise {
-    float acc_noise_std    = 0.10f;
-    float acc_bias_walk    = 0.0005f;
-    float acc_bias_clip    = 0.20f;
+    // Defaults sized to a real BMX160 at a few-hundred-Hz bandwidth, not the
+    // earlier (much louder) synthetic values. accel ~0.03 m/s^2 RMS, gyro
+    // ~0.08 deg/s RMS (= 0.0014 rad/s); bias clips tightened so the resting
+    // mean doesn't wander further than a calibrated part would.
+    float acc_noise_std    = 0.03f;     // m/s^2 RMS (was 0.10)
+    float acc_bias_walk    = 0.0002f;
+    float acc_bias_clip    = 0.08f;
 
-    float gyr_noise_std    = 0.0087f;
-    float gyr_bias_walk    = 1e-5f;
-    float gyr_bias_clip    = 0.035f;
+    float gyr_noise_std    = 0.0014f;   // rad/s RMS ~= 0.08 deg/s (was 0.0087)
+    float gyr_bias_walk    = 5e-6f;
+    float gyr_bias_clip    = 0.012f;    // ~0.7 deg/s (was 0.035 ~= 2 deg/s)
 
     float mag_noise_std    = 0.3f;
     float mag_bias_walk    = 0.001f;

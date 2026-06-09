@@ -103,6 +103,52 @@ bool FifoIn::poll(uint16_t type, void* out_frame, size_t out_size) {
     return got;
 }
 
+bool FifoIn::pollNext(uint16_t type, void* out_frame, size_t out_size) {
+    if (fd_ < 0) return false;
+
+    // Drain everything available right now into buf_.
+    char chunk[1024];
+    while (true) {
+        ssize_t r = ::read(fd_, chunk, sizeof(chunk));
+        if (r <= 0) break;
+        buf_.append(chunk, static_cast<size_t>(r));
+    }
+
+    // Walk forward, returning the FIRST complete frame of the requested type
+    // and consuming the buffer up to and including it -- nothing is dropped.
+    size_t pos = 0;
+    while (pos + sizeof(vsim_hdr_t) <= buf_.size()) {
+        const vsim_hdr_t* hdr = reinterpret_cast<const vsim_hdr_t*>(buf_.data() + pos);
+        if (hdr->magic != VSIM_MAGIC) {
+            size_t nxt = findMagic(buf_, pos + 1);
+            if (nxt == std::string::npos) {
+                buf_.erase(0, buf_.size());
+                return false;
+            }
+            buf_.erase(0, nxt);
+            pos = 0;
+            continue;
+        }
+
+        const size_t frame_size = sizeof(vsim_hdr_t) + hdr->payload_bytes;
+        if (pos + frame_size > buf_.size()) {
+            // Frame not yet complete; consume any skipped prefix and wait.
+            if (pos > 0) buf_.erase(0, pos);
+            return false;
+        }
+        if (hdr->version == VSIM_PROTO_VERSION &&
+            hdr->type    == type &&
+            frame_size   == out_size) {
+            std::memcpy(out_frame, buf_.data() + pos, out_size);
+            buf_.erase(0, pos + frame_size);
+            return true;
+        }
+        pos += frame_size;  // skip a non-matching frame, keep scanning
+    }
+    if (pos > 0) buf_.erase(0, pos);
+    return false;
+}
+
 FifoOut::~FifoOut() {
     if (fd_ >= 0) ::close(fd_);
 }

@@ -37,16 +37,25 @@ public:
     }
     void clearWorldMesh() { world_mesh_ = trimesh::Bvh{}; has_world_mesh_ = false; }
 
-    // Test-rig mode: pin translation to `pos` (zero linear velocity each step)
-    // and leave rotation free — a frictionless attitude gimbal for autotuning.
+    // Test-rig mode: leave rotation free and hold translation near `pos` — a
+    // frictionless attitude gimbal for autotuning. tether_k == 0 hard-pins
+    // translation (zero linear velocity each step); tether_k > 0 instead pulls
+    // the body back with a critically-damped spring (stiffness [1/s^2]) so it
+    // can translate during a maneuver and the accel sees free-flight thrust-tilt.
     // off restores normal free-flight integration + ground/obstacle contact.
-    void setTestRig(bool on, const Vec3& pos) { test_rig_ = on; rig_pos_ = pos; }
+    void setTestRig(bool on, const Vec3& pos, float tether_k = 0.0f) {
+        test_rig_ = on; rig_pos_ = pos; tether_k_ = tether_k;
+    }
 
     // One RK4 step. force_b and torque_b are body-frame.
     void step(const Vec3& force_b, const Vec3& torque_b, float dt);
 
     const RigidBodyState& state()  const { return state_; }
     const DroneParams&    params() const { return params_; }
+    // True if the last step ended resting on the ground plane. Lets the IMU
+    // model report a clean gravity reaction instead of the per-step ground-
+    // clamp impulses the finite-difference accel would otherwise pick up.
+    bool grounded() const { return grounded_; }
 
 private:
     struct Deriv {
@@ -75,8 +84,10 @@ private:
     trimesh::Bvh   world_mesh_;            // non-owning view (mmap'd in main.cpp)
     bool           has_world_mesh_ = false;
     float          world_mesh_restitution_ = 0.3f;
-    bool           test_rig_ = false;          // pin translation, free rotation
+    bool           grounded_ = false;          // resting on the ground this step
+    bool           test_rig_ = false;          // hold translation, free rotation
     Vec3           rig_pos_{0.0f, 0.0f, 0.0f}; // held position when test_rig_
+    float          tether_k_ = 0.0f;           // >0: soft spring instead of hard pin
     // Cached inverse of params_.inertia; kept in sync by setParams().
     // Default matches the default DroneParams inertia.
     Mat3           I_inv_ = DroneParams{}.inertia.inverse();

@@ -134,11 +134,18 @@ typedef struct {
 } vsim_ctl_frame_t;
 
 // Body for VSIM_CTL_RESET: re-spawn at this pose.
+//   seed -- if non-zero, deterministically re-seed the sensor-noise RNG and
+//           zero the random-walk biases, so an identical reset reproduces an
+//           identical noise trajectory (autotuner repeatability). seed==0
+//           leaves the noise stream free-running (legacy GCS viewer behavior).
+//           Appended at the tail so older senders that zero-pad the ctl body
+//           (Python _ctl_frame, GCS `vsim_ctl_reset_t{}`) decode as seed==0.
 typedef struct {
     float pos_w[3];
     float quat_wxyz[4];
     float vel_w[3];
     float omega_b[3];
+    uint32_t seed;
 } vsim_ctl_reset_t;
 
 // Body for VSIM_CTL_SET_GEOMETRY: full mass properties + 4-motor layout,
@@ -201,6 +208,13 @@ typedef struct {
 typedef struct {
     int32_t enable;     // 0 = free flight, non-zero = pinned attitude rig
     float   pos[3];     // NED world position to hold the body at [m]
+    // tether_k > 0 => SOFT rig: instead of hard-pinning translation, pull the
+    // body back to `pos` with a critically-damped spring (stiffness tether_k
+    // [1/s^2]). The body can then translate during a maneuver, so the
+    // accelerometer sees the thrust-tilt corruption free flight has (a hard pin
+    // hides it, which makes the autotuner over-tune). 0 => legacy hard pin.
+    // Appended at the tail; zero-padding senders decode as 0 (hard pin).
+    float   tether_k;
 } vsim_ctl_testrig_t;
 
 // Body for VSIM_CTL_SET_RATES: simulation loop rates [Hz].
