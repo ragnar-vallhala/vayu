@@ -414,7 +414,8 @@ void GeometryEditorWidget::onSaveFile() {
     return;
   }
   f.write(QJsonDocument(configToJson(cfg_)).toJson(QJsonDocument::Indented));
-  statusLbl_->setText(tr("Saved vehicle to %1").arg(QFileInfo(path).fileName()));
+  loadedName_ = QFileInfo(path).fileName();
+  statusLbl_->setText(tr("Saved vehicle to %1").arg(loadedName_));
   statusLbl_->setStyleSheet(QString("color:%1;").arg(Theme::hex(Theme::kOk)));
 }
 
@@ -439,7 +440,8 @@ void GeometryEditorWidget::onLoadFile() {
   // setConfig syncs the form, re-loads the mesh + recomputes if its path
   // resolves (else keeps the stored inertia/CoM), and fires previewUpdated.
   setConfig(configFromJson(doc.object()));
-  statusLbl_->setText(tr("Loaded vehicle from %1").arg(QFileInfo(path).fileName()));
+  loadedName_ = QFileInfo(path).fileName();
+  statusLbl_->setText(tr("Loaded vehicle from %1").arg(loadedName_));
   statusLbl_->setStyleSheet(QString("color:%1;").arg(Theme::hex(Theme::kOk)));
 }
 

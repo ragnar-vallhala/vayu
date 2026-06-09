@@ -29,6 +29,9 @@ class GeometryEditorWidget : public QWidget {
   explicit GeometryEditorWidget(QWidget* parent = nullptr);
 
   const vsim::GeometryConfig& config() const { return cfg_; }
+  // File name of the last loaded/saved .vveh vehicle (empty if none), so the
+  // autotuner can show which vehicle it's tuning.
+  QString loadedVehicleName() const { return loadedName_; }
   // Body placement transform (translate + XYZ-Euler rotate, degrees) applied
   // to the imported mesh in loadAndCompute(). The SAME transform must be
   // applied to the motor layout so the motors stay rigidly attached to the
@@ -94,6 +97,7 @@ class GeometryEditorWidget : public QWidget {
   bool loadAndCompute(QString* err);  // load mesh + recompute inertia into cfg_
 
   vsim::GeometryConfig cfg_;
+  QString loadedName_;        // last loaded/saved .vveh file name (for display)
   std::vector<QVector3D> meshPos_;
   std::vector<QVector3D> meshNrm_;
 

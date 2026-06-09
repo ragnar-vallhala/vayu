@@ -61,6 +61,11 @@ class SimWorker : public QThread {
   // Snapshot getter for pull-style consumers.
   SimSnapshot snapshot() const;
 
+  // Attach-only mode: instead of spawning a daemon, read an EXISTING pose FIFO
+  // (e.g. the autotuner's own vsim_d) and emit poseUpdated, so the GCS renderer
+  // can mirror a sim it doesn't own. No ctl channel; sendX() are no-ops.
+  void startAttach(const QString& posePath);
+
   // Tell the worker to shut down (also called from destructor). Kills
   // the spawned vsim_d via SIGTERM.
   void requestStop();
@@ -68,6 +73,14 @@ class SimWorker : public QThread {
   // Send a CTL_RESET to vsim_d. With no args, re-spawns at level pose
   // slightly above ground (matches the daemon's own initial state).
   void sendReset();
+
+  // Test-rig mode (VSIM_CTL_SET_TESTRIG): pin translation, leave rotation free —
+  // a frictionless attitude gimbal. Pair with sendRigPose to pose the airframe.
+  void sendTestRig(bool on);
+
+  // Re-spawn at a specific orientation (NED roll/pitch/yaw in degrees). Used with
+  // the test rig to tilt the vehicle on the stand for inspection.
+  void sendRigPose(float rollDeg, float pitchDeg, float yawDeg);
 
   // Push mass properties + motor layout (VSIM_CTL_SET_GEOMETRY). The
   // mesh/scale/com fields of `g` stay GCS-side; only mass, the inertia
@@ -110,6 +123,8 @@ class SimWorker : public QThread {
   void emitFromFrame(const void* frame_bytes);
 
   QString vsim_bin_;
+  bool    attach_only_ = false;   // read an existing pose FIFO, don't spawn
+  QString attach_pose_path_;      // pose FIFO to attach to in attach-only mode
 
   // pid of the spawned vsim_d process; -1 if not running. Guarded by
   // daemon_mtx_ because killDaemon() runs from both the GUI thread

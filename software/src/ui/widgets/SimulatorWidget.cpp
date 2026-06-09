@@ -10,16 +10,22 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDateTime>
+#include <QDoubleSpinBox>
 #include <QDesktopServices>
+#include <QCoreApplication>
 #include <QDir>
+#include <QTimer>
 #include <QEvent>
 #include <QFileInfo>
 #include <QGridLayout>
 #include <QGroupBox>
+#include <QSlider>
 #include <QHBoxLayout>
 #include <QMetaObject>
 #include <QScrollArea>
 #include <QScrollBar>
+#include <QSerialPortInfo>
+#include <QLineEdit>
 #include <QSettings>
 #include <QSplitter>
 #include <QStackedWidget>
@@ -45,7 +51,15 @@
 extern "C" void angle_rate_controller_set_motor_geometry(
     const float pos_x[4], const float pos_y[4], const int spin[4]);
 
+// In-process firmware flight-mode control (mirrors the geometry forward-decl
+// above; the firmware include path isn't on the GCS). mode arg: 0=stabilise/
+// angle, 1=acro — matching flight_mode_t. Telemetry uses the same values, with
+// source 1 == GCS override.
+extern "C" void flight_mode_set_override(int mode);
+extern "C" void flight_mode_release(void);
+
 namespace {
+constexpr int kFmAngle = 0, kFmAcro = 1, kFmSrcGcs = 1;
 
 // Push the vehicle's motor layout into the in-process firmware mixer so the
 // control mix matches the physics (stable for any quad layout, not just the
@@ -61,6 +75,18 @@ void pushFirmwareMotorGeometry(const vsim::GeometryConfig& g) {
   angle_rate_controller_set_motor_geometry(x, y, spin);
 }
 
+// The roll-mix signs this geometry produces (for logging): -sign(y) per motor.
+// The firmware DEFAULT is {-1,-1,+1,+1}; a Y-mirrored airframe (e.g. an S500
+// with M1/M2 on -y) needs {+1,+1,-1,-1} — the exact inverse — so flying the
+// default mix on it inverts roll and topples. Surfacing this catches a mix that
+// didn't get pushed to the firmware before arming.
+QString rollMixString(const vsim::GeometryConfig& g) {
+  QString s;
+  for (int i = 0; i < 4; ++i)
+    s += (g.motors[i].pos.y() >= 0.0f ? "-" : "+");
+  return s;
+}
+
 
 constexpr const char* kRepoRootSettingKey = "simulator/repoRoot";
 constexpr const char* kLogDirSettingKey   = "simulator/logDir";
@@ -71,8 +97,9 @@ constexpr const char* kImuHzKey           = "simulator/imuHz";
 constexpr const char* kPhysHzKey          = "simulator/physicsHz";
 constexpr const char* kPoseHzKey          = "simulator/poseHz";
 // Defaults: IMU/firmware loop at 1 kHz (matches real hardware so PID tuning
-// transfers); physics == IMU (1 substep) until the user dials it up; 60 Hz render.
-constexpr int kDefImuHz = 1000, kDefPhysHz = 1000, kDefPoseHz = 60;
+// transfers); physics at 8 kHz (8 RK4 substeps/sample — finer integration, same
+// sample rate); 60 Hz render.
+constexpr int kDefImuHz = 1000, kDefPhysHz = 8000, kDefPoseHz = 60;
 constexpr const char* kRcEnableKey        = "simulator/rcEnable";
 constexpr const char* kRcSourceKey        = "simulator/rcSource";   // 0=js 1=uart
 constexpr const char* kRcPathKey          = "simulator/rcPath";     // joystick dev
@@ -88,7 +115,7 @@ constexpr const char* kRcFuncName[5] = {"Roll", "Pitch", "Throttle", "Yaw", "Arm
 QString defaultRepoRoot() {
   QByteArray env = qgetenv("VAYU_REPO");
   if (!env.isEmpty()) return QString::fromUtf8(env);
-  return QDir::homePath() + "/Documents/Drone/vayu";
+  return QDir::homePath() + "/Documents/Drone/stack/vayu";
 }
 
 QString defaultLogDir() {
@@ -149,10 +176,11 @@ SimulatorWidget::SimulatorWidget(QWidget* parent) : QWidget(parent) {
     connect(m_rc, &RcBridge::logLine, this,
             [this](const QString& s) { appendLog("rc", s); });
     connect(m_rc, &RcBridge::channelsUpdated, this,
-            [this](int r, int pi, int t, int y, int a) {
+            [this](int r, int pi, int t, int y, int a, int c6) {
               if (m_rcReadout)
-                m_rcReadout->setText(QString("RC: R%1 P%2 T%3 Y%4 A%5")
-                                         .arg(r).arg(pi).arg(t).arg(y).arg(a));
+                m_rcReadout->setText(QString("RC: R%1 P%2 T%3 Y%4 A%5 C6:%6%7")
+                                         .arg(r).arg(pi).arg(t).arg(y).arg(a).arg(c6)
+                                         .arg(c6 > 1500 ? " (ACRO)" : " (STAB)"));
             });
     connect(m_rc, &RcBridge::axesUpdated, this,
             [this](QVector<int> au, QVector<int> bu) {
@@ -461,16 +489,23 @@ void SimulatorWidget::buildUi() {
               this, [this] { applyRcSource(); });
       rcRow->addWidget(m_rcSource);
 
-      m_rcPath = new QLineEdit(simBody);  // text filled by applyRcSource()
-      connect(m_rcPath, &QLineEdit::editingFinished, this, [this] {
-        const bool uart = m_rcSource->currentData().toInt() == RcBridge::Uart;
-        QSettings().setValue(uart ? kRcUartPathKey : kRcPathKey,
-                             m_rcPath->text());
-        if (m_rc) {
-          if (uart) m_rc->setUartPath(m_rcPath->text());
-          else      m_rc->setJoystickPath(m_rcPath->text());
-        }
-      });
+      // Editable combo: type a device path, or drop down to pick an enumerated
+      // serial port. Items + current text filled by applyRcSource().
+      m_rcPath = new QComboBox(simBody);
+      m_rcPath->setEditable(true);
+      m_rcPath->setInsertPolicy(QComboBox::NoInsert);
+      m_rcPath->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+      // Each enumerated item shows the friendly description ("ttyUSB0 — FT232
+      // USB UART") but carries the bare /dev path in itemData. Picking one
+      // writes that path into the editable field — what the bridge opens.
+      connect(m_rcPath, QOverload<int>::of(&QComboBox::activated), this,
+              [this](int i) {
+                const QVariant d = m_rcPath->itemData(i);
+                if (d.isValid()) m_rcPath->setEditText(d.toString());
+                commitRcPath();
+              });
+      connect(m_rcPath->lineEdit(), &QLineEdit::editingFinished, this,
+              [this] { commitRcPath(); });
       rcRow->addWidget(m_rcPath, 1);
 
       m_rcBaud = new QComboBox(simBody);
@@ -489,21 +524,30 @@ void SimulatorWidget::buildUi() {
               });
       rcRow->addWidget(m_rcBaud);
 
-      // Acro (rate) flight-mode toggle — drives RC channel 6. Off = angle/
-      // stabilize (bank-angle limited); on = acro (stick commands body rate,
-      // no angle limit, flips allowed).
-      auto* acroChk = new QCheckBox(tr("Acro (ch6)"), simBody);
-      acroChk->setToolTip(tr("Acro / rate mode: sticks command body rate "
-                             "directly, no bank-angle limit. Drives RC ch6."));
+      // Acro (rate) flight-mode toggle. This IS the simulated RC ch6 switch: it
+      // drives RcBridge ch6, the firmware reads ch6 and resolves the mode (no GCS
+      // override, so the switch is authoritative — matching real RC). Off = angle
+      // / stabilize (bank-angle limited); on = acro (body-rate, flips allowed).
+      m_acroChk = new QCheckBox(tr("Acro (ch6)"), simBody);
+      m_acroChk->setToolTip(tr("Acro / rate mode on RC channel 6: sticks command "
+                               "body rate directly, no bank-angle limit. This is "
+                               "the ch6 switch — the firmware follows it."));
       const bool acroOn = st.value(QStringLiteral("sim/rcAcro"), false).toBool();
-      acroChk->setChecked(acroOn);
+      m_acroChk->setChecked(acroOn);
       if (m_rc) m_rc->setAcro(acroOn);
-      connect(acroChk, &QCheckBox::toggled, this, [this](bool on) {
+      flight_mode_release();   // ensure no stale GCS override blocks the switch
+      connect(m_acroChk, &QCheckBox::toggled, this, [this](bool on) {
         QSettings().setValue(QStringLiteral("sim/rcAcro"), on);
-        if (m_rc) m_rc->setAcro(on);
+        if (m_rc) m_rc->setAcro(on);   // toggles ch6 -> firmware switches mode
       });
-      rcRow->addWidget(acroChk);
+      rcRow->addWidget(m_acroChk);
       sv->addLayout(rcRow);
+
+      m_flightModeLabel = new QLabel(tr("mode: —"), simBody);
+      m_flightModeLabel->setStyleSheet(
+          QString("color: %1; font-family: monospace; font-size: 11px;")
+              .arg(Theme::hex(Theme::kTextMuted)));
+      sv->addWidget(m_flightModeLabel);
 
       m_rcReadout = new QLabel(tr("RC: —"), simBody);
       m_rcReadout->setStyleSheet(
@@ -682,10 +726,11 @@ void SimulatorWidget::buildAutotunePage(QWidget* page) {
   int r = 0;
   form->addWidget(new QLabel(tr("Optimizer:"), page), r, 0);
   m_tuneOptimizer = new QComboBox(page);
-  m_tuneOptimizer->addItems({"hybrid", "portfolio", "spsa", "nelder-mead",
-                             "coordinate", "fdgd", "random"});
+  m_tuneOptimizer->addItems({"hybrid", "portfolio", "structured", "spsa",
+                             "nelder-mead", "coordinate", "fdgd", "random"});
   m_tuneOptimizer->setToolTip(tr("hybrid/portfolio explore then refine (best); "
-                                 "spsa is fast; others for comparison."));
+                                 "structured = manual-style one-gain-at-a-time "
+                                 "sweep (P→D→I→outer); spsa is fast."));
   form->addWidget(m_tuneOptimizer, r++, 1);
 
   form->addWidget(new QLabel(tr("Budget (rollouts):"), page), r, 0);
@@ -695,8 +740,58 @@ void SimulatorWidget::buildAutotunePage(QWidget* page) {
   m_tuneBudget->setToolTip(tr("More rollouts = better tune, slower (~6 s each)."));
   form->addWidget(m_tuneBudget, r++, 1);
 
+  form->addWidget(new QLabel(tr("Excitation (µs):"), page), r, 0);
+  m_tuneStep = new QSpinBox(page);
+  m_tuneStep->setRange(1550, 1950);
+  m_tuneStep->setSingleStep(25);
+  m_tuneStep->setValue(1800);
+  m_tuneStep->setToolTip(tr("Doublet stick amplitude (1500=center, 2000=full; "
+                            "~21° at 1800). Lower it (e.g. 1650) to soften the "
+                            "excitation on twitchy airframes so a marginal seed "
+                            "doesn't flip."));
+  form->addWidget(m_tuneStep, r++, 1);
+
+  form->addWidget(new QLabel(tr("Repeats / eval:"), page), r, 0);
+  m_tuneRepeats = new QSpinBox(page);
+  m_tuneRepeats->setRange(1, 5);
+  m_tuneRepeats->setValue(2);
+  m_tuneRepeats->setToolTip(tr("Rollouts averaged per evaluation (--repeats). "
+                               "Higher = less noisy cost, proportionally slower."));
+  form->addWidget(m_tuneRepeats, r++, 1);
+
+  form->addWidget(new QLabel(tr("Rig tether:"), page), r, 0);
+  m_tuneTether = new QDoubleSpinBox(page);
+  m_tuneTether->setRange(0.0, 100.0);
+  m_tuneTether->setSingleStep(5.0);
+  m_tuneTether->setValue(30.0);
+  m_tuneTether->setToolTip(tr("Soft-rig spring stiffness [1/s²] (--rig-tether). The "
+                              "body translates during the doublet so the accel sees "
+                              "free-flight thrust-tilt (estimator-aware). 0 = legacy "
+                              "hard pin (no translation)."));
+  form->addWidget(m_tuneTether, r++, 1);
+
   m_tuneYaw = new QCheckBox(tr("Tune yaw too"), page);
+  m_tuneYaw->setToolTip(tr("Also tune the yaw RATE loop (--yaw): yaw_rate kp/ki/kd "
+                           "+ gyro LPF, excited by a yaw-rate doublet. Yaw is "
+                           "rate-controlled, so there is no yaw angle gain to tune."));
   form->addWidget(m_tuneYaw, r++, 1);
+  m_tuneCompare = new QCheckBox(tr("Compare all optimizers"), page);
+  m_tuneCompare->setToolTip(tr("Run every optimizer on equal budgets and keep the "
+                               "best (--compare). Much slower (N× the budget)."));
+  form->addWidget(m_tuneCompare, r++, 1);
+  m_tuneBuzz = new QCheckBox(tr("Throttle buzz check"), page);
+  m_tuneBuzz->setChecked(true);
+  m_tuneBuzz->setToolTip(tr("Penalize gains that limit-cycle at hover+ throttle "
+                            "(off = --no-buzz-check). The rig can't see this; the "
+                            "check sweeps throttle and scores rate-output chatter. "
+                            "Adds ~3 s per eval but stops a buzzy tune from winning."));
+  form->addWidget(m_tuneBuzz, r++, 1);
+  m_tuneValidate = new QCheckBox(tr("Free-flight validation"), page);
+  m_tuneValidate->setChecked(true);
+  m_tuneValidate->setToolTip(tr("After the search, lift off and step-recover each "
+                                "axis to confirm the winner flies (off = "
+                                "--no-validate)."));
+  form->addWidget(m_tuneValidate, r++, 1);
   m_tuneApply = new QCheckBox(tr("Apply + persist best gains on finish"), page);
   m_tuneApply->setChecked(true);
   form->addWidget(m_tuneApply, r++, 1);
@@ -706,7 +801,147 @@ void SimulatorWidget::buildAutotunePage(QWidget* page) {
                             "attitude response to each excitation + cost "
                             "convergence, gains and per-axis traces."));
   form->addWidget(m_tunePlot, r++, 1);
+  m_tuneVerbose = new QCheckBox(tr("Verbose log (print every eval)"), page);
+  m_tuneVerbose->setToolTip(tr("Print each evaluation's gains + cost to the log "
+                               "(--verbose)."));
+  form->addWidget(m_tuneVerbose, r++, 1);
   v->addLayout(form);
+
+  // --- Advanced: reproducibility seeds (rarely changed) -----------------
+  auto* advGroup = new QGroupBox(tr("Advanced (reproducibility)"), page);
+  auto* advForm = new QGridLayout(advGroup);
+  int ar = 0;
+  advForm->addWidget(new QLabel(tr("Optimizer seed:"), page), ar, 0);
+  m_tuneSeed = new QSpinBox(page);
+  m_tuneSeed->setRange(0, 1000000);
+  m_tuneSeed->setValue(1);
+  m_tuneSeed->setToolTip(tr("RNG seed for the optimizer's random choices "
+                            "(--seed). Same seed = same search trajectory."));
+  advForm->addWidget(m_tuneSeed, ar++, 1);
+  advForm->addWidget(new QLabel(tr("Sim noise seed:"), page), ar, 0);
+  m_tuneSimSeed = new QSpinBox(page);
+  m_tuneSimSeed->setRange(0, 2000000000);
+  m_tuneSimSeed->setValue(0xC0FFEE);   // DEFAULT_SIM_SEED in autotune.py
+  m_tuneSimSeed->setToolTip(tr("Base seed for the sensor-noise reset (--sim-seed); "
+                               "repeat i uses seed+i. Makes eval(x) reproducible. "
+                               "0 = free-running noise (legacy)."));
+  advForm->addWidget(m_tuneSimSeed, ar++, 1);
+  v->addWidget(advGroup);
+
+  // Persist every autotune option so a configured run is remembered next time
+  // the GCS starts (the controls otherwise reset to defaults each session).
+  {
+    QSettings st;
+    st.beginGroup(QStringLiteral("autotune"));
+    m_tuneOptimizer->setCurrentText(
+        st.value(QStringLiteral("optimizer"), m_tuneOptimizer->currentText()).toString());
+    m_tuneBudget->setValue(st.value(QStringLiteral("budget"), m_tuneBudget->value()).toInt());
+    m_tuneStep->setValue(st.value(QStringLiteral("stepUs"), m_tuneStep->value()).toInt());
+    m_tuneRepeats->setValue(st.value(QStringLiteral("repeats"), m_tuneRepeats->value()).toInt());
+    m_tuneTether->setValue(st.value(QStringLiteral("tether"), m_tuneTether->value()).toDouble());
+    m_tuneSeed->setValue(st.value(QStringLiteral("seed"), m_tuneSeed->value()).toInt());
+    m_tuneSimSeed->setValue(st.value(QStringLiteral("simSeed"), m_tuneSimSeed->value()).toInt());
+    m_tuneYaw->setChecked(st.value(QStringLiteral("yaw"), m_tuneYaw->isChecked()).toBool());
+    m_tuneCompare->setChecked(st.value(QStringLiteral("compare"), m_tuneCompare->isChecked()).toBool());
+    m_tuneBuzz->setChecked(st.value(QStringLiteral("buzz"), m_tuneBuzz->isChecked()).toBool());
+    m_tuneValidate->setChecked(st.value(QStringLiteral("validate"), m_tuneValidate->isChecked()).toBool());
+    m_tuneApply->setChecked(st.value(QStringLiteral("apply"), m_tuneApply->isChecked()).toBool());
+    m_tunePlot->setChecked(st.value(QStringLiteral("plot"), m_tunePlot->isChecked()).toBool());
+    m_tuneVerbose->setChecked(st.value(QStringLiteral("verbose"), m_tuneVerbose->isChecked()).toBool());
+    st.endGroup();
+  }
+  auto saveTune = [](const QString& key, const QVariant& val) {
+    QSettings s;
+    s.setValue(QStringLiteral("autotune/") + key, val);
+  };
+  connect(m_tuneOptimizer, &QComboBox::currentTextChanged, this,
+          [saveTune](const QString& t) { saveTune(QStringLiteral("optimizer"), t); });
+  connect(m_tuneBudget, QOverload<int>::of(&QSpinBox::valueChanged), this,
+          [saveTune](int v) { saveTune(QStringLiteral("budget"), v); });
+  connect(m_tuneStep, QOverload<int>::of(&QSpinBox::valueChanged), this,
+          [saveTune](int v) { saveTune(QStringLiteral("stepUs"), v); });
+  connect(m_tuneRepeats, QOverload<int>::of(&QSpinBox::valueChanged), this,
+          [saveTune](int v) { saveTune(QStringLiteral("repeats"), v); });
+  connect(m_tuneTether, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+          [saveTune](double v) { saveTune(QStringLiteral("tether"), v); });
+  connect(m_tuneSeed, QOverload<int>::of(&QSpinBox::valueChanged), this,
+          [saveTune](int v) { saveTune(QStringLiteral("seed"), v); });
+  connect(m_tuneSimSeed, QOverload<int>::of(&QSpinBox::valueChanged), this,
+          [saveTune](int v) { saveTune(QStringLiteral("simSeed"), v); });
+  connect(m_tuneYaw, &QCheckBox::toggled, this,
+          [saveTune](bool v) { saveTune(QStringLiteral("yaw"), v); });
+  connect(m_tuneCompare, &QCheckBox::toggled, this,
+          [saveTune](bool v) { saveTune(QStringLiteral("compare"), v); });
+  connect(m_tuneBuzz, &QCheckBox::toggled, this,
+          [saveTune](bool v) { saveTune(QStringLiteral("buzz"), v); });
+  connect(m_tuneValidate, &QCheckBox::toggled, this,
+          [saveTune](bool v) { saveTune(QStringLiteral("validate"), v); });
+  connect(m_tuneApply, &QCheckBox::toggled, this,
+          [saveTune](bool v) { saveTune(QStringLiteral("apply"), v); });
+  connect(m_tunePlot, &QCheckBox::toggled, this,
+          [saveTune](bool v) { saveTune(QStringLiteral("plot"), v); });
+  connect(m_tuneVerbose, &QCheckBox::toggled, this,
+          [saveTune](bool v) { saveTune(QStringLiteral("verbose"), v); });
+
+  // --- Test-rig pose: pin the airframe and tilt it on the stand ---------
+  auto* rigGroup = new QGroupBox(tr("Test-rig pose"), page);
+  auto* rigV = new QVBoxLayout(rigGroup);
+  m_rigEnable = new QCheckBox(tr("Rig mode (pin translation, free rotation)"), page);
+  m_rigEnable->setToolTip(tr("Pins the airframe so you can tilt it on a stand. "
+                             "Disarm first — armed, the controller fights the pose."));
+  rigV->addWidget(m_rigEnable);
+  auto* rigGrid = new QGridLayout();
+  auto mkSlider = [&](const QString& name, int row) {
+    auto* s = new QSlider(Qt::Horizontal, page);
+    s->setRange(-180, 180);
+    s->setValue(0);
+    s->setEnabled(false);
+    rigGrid->addWidget(new QLabel(name, page), row, 0);
+    rigGrid->addWidget(s, row, 1);
+    return s;
+  };
+  m_rigRoll = mkSlider(tr("Roll°"), 0);
+  m_rigPitch = mkSlider(tr("Pitch°"), 1);
+  m_rigYaw = mkSlider(tr("Yaw°"), 2);
+  rigV->addLayout(rigGrid);
+  m_rigReadout = new QLabel(tr("rig: off"), page);
+  m_rigReadout->setStyleSheet(
+      QString("color:%1; font-family:monospace; font-size:11px;")
+          .arg(Theme::hex(Theme::kTextMuted)));
+  rigV->addWidget(m_rigReadout);
+  v->addWidget(rigGroup);
+
+  connect(m_rigEnable, &QCheckBox::toggled, this, [this](bool on) {
+    if (m_rigRoll) m_rigRoll->setEnabled(on);
+    if (m_rigPitch) m_rigPitch->setEnabled(on);
+    if (m_rigYaw) m_rigYaw->setEnabled(on);
+    if (m_sim) m_sim->sendTestRig(on);
+    if (on) {
+      applyRigPose();
+    } else {
+      if (m_sim) m_sim->sendReset();           // back to level, free flight
+      if (m_rigReadout) m_rigReadout->setText(tr("rig: off"));
+    }
+  });
+  // Apply the pose ONCE per change, not on every intermediate drag value: each
+  // sendRigPose is a full CTL_RESET, so streaming them while dragging floods the
+  // daemon (vsim_d: reset spam), spikes the synthetic accel (gravity re-projected
+  // at each tilt), and pegs the CPU. While dragging we only preview the numbers;
+  // the reset fires on release (or immediately for a keyboard/click step).
+  auto previewRig = [this] {
+    if (m_rigReadout && m_rigRoll)
+      m_rigReadout->setText(
+          tr("rig: roll %1°  pitch %2°  yaw %3°  (release to apply)")
+              .arg(m_rigRoll->value()).arg(m_rigPitch->value()).arg(m_rigYaw->value()));
+  };
+  for (QSlider* s : {m_rigRoll, m_rigPitch, m_rigYaw}) {
+    connect(s, &QSlider::valueChanged, this, [this, s, previewRig] {
+      if (s->isSliderDown()) previewRig();   // mid-drag: preview only
+      else applyRigPose();                    // click / keyboard step: apply now
+    });
+    connect(s, &QSlider::sliderReleased, this, [this] { applyRigPose(); });
+  }
+  setRigControlsEnabled(m_sim != nullptr);   // disabled until the sim runs
 
   // Embedded convergence chart — cost per evaluation + best-so-far.
   m_tuneChart = new TuneChart(page);
@@ -765,6 +1000,26 @@ QString SimulatorWidget::exportVehicleGeometryJson() {
   return path;
 }
 
+QString SimulatorWidget::exportWorldJson() {
+  const vsim::WorldConfig w = m_worldEditor->config();
+  QJsonObject root;
+  root["gravity"] = w.gravity;
+  root["ground_z"] = w.ground_z;
+  root["restitution"] = w.restitution;
+  root["linear_drag"] = w.linear_drag;
+  root["angular_drag"] = w.angular_drag;          // the one that matters for damping
+  root["ground_right_gain"] = w.ground_right_gain;
+  root["ground_right_damp"] = w.ground_right_damp;
+  QDir().mkpath(m_logDir);
+  const QString path = QDir(m_logDir).absoluteFilePath("autotune_world.json");
+  QFile f(path);
+  if (f.open(QIODevice::WriteOnly)) {
+    f.write(QJsonDocument(root).toJson(QJsonDocument::Compact));
+    f.close();
+  }
+  return path;
+}
+
 void SimulatorWidget::startAutotune() {
   if (m_tuneProc || !m_geomEditor) return;
   const QString root = defaultRepoRoot();
@@ -774,16 +1029,37 @@ void SimulatorWidget::startAutotune() {
     return;
   }
   const QString geomJson = exportVehicleGeometryJson();
+  const QString worldJson = exportWorldJson();   // tune the SAME world (drag!)
   const QString outJson = QDir(m_logDir).absoluteFilePath("autotune_gcs.json");
 
+  // The tuner runs its own isolated SITL stack. Give it a known FIFO suffix so
+  // the GCS can attach its renderer to that sim and show the tuning live. Stop
+  // the interactive sim first (frees vsim_d/firmware) and lock Vehicle/World so
+  // the airframe can't change mid-search.
+  if (m_sim) stopInAppSim();
+  if (m_vehicleTab) m_vehicleTab->setEnabled(false);
+  if (m_worldTab) m_worldTab->setEnabled(false);
+  const QString tuneSuffix =
+      QStringLiteral("_attune%1").arg(QCoreApplication::applicationPid());
+
   QStringList args;
-  args << script << "--geometry" << geomJson << "--optimizer"
-       << m_tuneOptimizer->currentText() << "--budget"
-       << QString::number(m_tuneBudget->value()) << "--repeats" << "2"
+  args << script << "--geometry" << geomJson << "--world" << worldJson
+       << "--optimizer" << m_tuneOptimizer->currentText()
+       << "--budget" << QString::number(m_tuneBudget->value())
+       << "--repeats" << QString::number(m_tuneRepeats->value())
+       << "--step-us" << QString::number(m_tuneStep->value())
+       << "--rig-tether" << QString::number(m_tuneTether->value())
+       << "--seed" << QString::number(m_tuneSeed->value())
+       << "--sim-seed" << QString::number(m_tuneSimSeed->value())
+       << "--fifo-suffix" << tuneSuffix
        << "--out" << outJson << "--repo-root" << root;
   if (m_tuneYaw->isChecked()) args << "--yaw";
+  if (m_tuneCompare->isChecked()) args << "--compare";
   if (m_tuneApply->isChecked()) args << "--apply";
   if (m_tunePlot->isChecked()) args << "--plot";
+  if (m_tuneVerbose->isChecked()) args << "--verbose";
+  if (!m_tuneValidate->isChecked()) args << "--no-validate";
+  if (!m_tuneBuzz->isChecked()) args << "--no-buzz-check";
 
   m_tuneChart->reset();
   m_tuneProc = new QProcess(this);
@@ -828,19 +1104,65 @@ void SimulatorWidget::startAutotune() {
                   tr("[best gains persisted — restart the sim to fly them]"));
             if (m_tuneStart) m_tuneStart->setEnabled(true);
             if (m_tuneStop) m_tuneStop->setEnabled(false);
+            detachTuneSim();          // stop mirroring, unlock Vehicle/World
             m_tuneProc->deleteLater();
             m_tuneProc = nullptr;
           });
   m_tuneLog->clear();
   m_tuneResult->setText(tr("running…"));
+  // Confirm we're tuning the Vehicle-section geometry (physicsConfig), so it's
+  // obvious which airframe the search runs against.
+  {
+    const vsim::GeometryConfig g = m_geomEditor->physicsConfig();
+    const QString veh = m_geomEditor->loadedVehicleName();
+    m_tuneLog->appendPlainText(
+        tr("[geometry] Vehicle section%1: mass=%2 kg, inertia diag=[%3, %4, %5] kg·m²"
+           "  (exported to autotune_vehicle.json)")
+            .arg(veh.isEmpty() ? QString() : tr(" (%1)").arg(veh))
+            .arg(g.mass, 0, 'f', 3)
+            .arg(g.inertia[0], 0, 'g', 4)
+            .arg(g.inertia[4], 0, 'g', 4)
+            .arg(g.inertia[8], 0, 'g', 4));
+  }
   m_tuneLog->appendPlainText(tr("[launching] python3 %1").arg(args.join(' ')));
   m_tuneStart->setEnabled(false);
   m_tuneStop->setEnabled(true);
   m_tuneProc->start(QStringLiteral("python3"), args);
+  attachTuneSim(tuneSuffix);   // mirror the tuner's drone in the 3D view
 }
 
 void SimulatorWidget::stopAutotune() {
   if (m_tuneProc) m_tuneProc->kill();
+  // finished() handler runs detachTuneSim(); detach now too in case kill races.
+  detachTuneSim();
+}
+
+// Attach the renderer to the tuner's own SITL sim (pose FIFO at the agreed
+// suffix), so the 3D view shows the live excitation while the search runs.
+void SimulatorWidget::attachTuneSim(const QString& suffix) {
+  if (m_tuneSim) return;
+  const QString posePath = QStringLiteral("/tmp/vsim_pose%1").arg(suffix);
+  m_tuneSim = new vsim::SimWorker(this);
+  connect(m_tuneSim, &vsim::SimWorker::poseUpdated,
+          m_renderer, &vsim::SimRendererWidget::setSnapshot);
+  connect(m_tuneSim, &vsim::SimWorker::poseUpdated, this,
+          [this](vsim::SimSnapshot snap) { updateHud(snap); });
+  connect(m_tuneSim, &vsim::SimWorker::logLine, this,
+          [this](const QString& s) { appendLog("tune-sim", s); });
+  m_tuneSim->startAttach(posePath);
+  if (m_hud) { m_hud->setGeometry(m_renderer->rect()); m_hud->raise(); m_hud->show(); }
+  if (m_horizon) m_horizon->raise();
+}
+
+void SimulatorWidget::detachTuneSim() {
+  if (m_tuneSim) {
+    m_tuneSim->requestStop();
+    if (!m_tuneSim->wait(2000)) { m_tuneSim->terminate(); m_tuneSim->wait(1000); }
+    m_tuneSim->deleteLater();
+    m_tuneSim = nullptr;
+  }
+  if (m_vehicleTab) m_vehicleTab->setEnabled(true);
+  if (m_worldTab) m_worldTab->setEnabled(true);
 }
 
 void SimulatorWidget::updateHud(const vsim::SimSnapshot& s) {
@@ -957,6 +1279,59 @@ void SimulatorWidget::hudSetStatus(const QString& s) {
   if (m_hud) m_hud->setStatus(s);
 }
 
+void SimulatorWidget::setRigControlsEnabled(bool simRunning) {
+  // The rig poses the in-app sim (m_sim); with no sim running there's nothing
+  // to pose. Disable + uncheck and say so, rather than silently no-op.
+  if (m_rigEnable) {
+    m_rigEnable->setEnabled(simRunning);
+    if (!simRunning) {
+      QSignalBlocker block(m_rigEnable);
+      m_rigEnable->setChecked(false);
+    }
+  }
+  const bool slidersOn = simRunning && m_rigEnable && m_rigEnable->isChecked();
+  for (QSlider* s : {m_rigRoll, m_rigPitch, m_rigYaw})
+    if (s) s->setEnabled(slidersOn);
+  if (m_rigReadout)
+    m_rigReadout->setText(simRunning ? tr("rig: off")
+                                     : tr("rig: start the simulator to pose"));
+}
+
+void SimulatorWidget::applyRigPose() {
+  if (!m_rigEnable || !m_rigEnable->isChecked()) return;
+  const int r = m_rigRoll->value(), p = m_rigPitch->value(), y = m_rigYaw->value();
+  // Always reflect the slider values so dragging is visibly registering, even
+  // if the sim isn't connected — that tells us whether the issue is the sliders
+  // or the channel.
+  if (!m_sim) {
+    if (m_rigReadout)
+      m_rigReadout->setText(
+          tr("rig: r%1 p%2 y%3 — sim not running, start it first").arg(r).arg(p).arg(y));
+    return;
+  }
+  m_sim->sendRigPose(static_cast<float>(r), static_cast<float>(p),
+                     static_cast<float>(y));
+  if (m_rigReadout)
+    m_rigReadout->setText(
+        tr("rig: roll %1°  pitch %2°  yaw %3°  (sent)").arg(r).arg(p).arg(y));
+}
+
+void SimulatorWidget::setFlightModeStatus(quint8 mode, quint8 source) {
+  const bool acro = (mode == kFmAcro);
+  const bool gcs = (source == kFmSrcGcs);
+  if (m_acroChk && m_acroChk->isChecked() != acro) {
+    // Reflect firmware state without re-issuing the command (e.g. an RC switch
+    // flip while no override is active).
+    QSignalBlocker block(m_acroChk);
+    m_acroChk->setChecked(acro);
+  }
+  const QString modeStr = QString("%1 (%2)")
+                              .arg(acro ? tr("ACRO") : tr("STABILISE"),
+                                   gcs ? tr("GCS") : tr("RC"));
+  if (m_flightModeLabel) m_flightModeLabel->setText(tr("mode: ") + modeStr);
+  if (m_hud) m_hud->setFlightMode(modeStr);   // show it in the viewport HUD too
+}
+
 void SimulatorWidget::hudSetImu(const float acc[3], const float gyr[3]) {
   if (m_hud) m_hud->setImu(acc, gyr);
 }
@@ -983,7 +1358,19 @@ void SimulatorWidget::applyRcSource() {
         uart ? st.value(kRcUartPathKey, "/dev/ttyUSB0").toString()
              : st.value(kRcPathKey, "/dev/input/js0").toString();
     QSignalBlocker block(m_rcPath);
-    m_rcPath->setText(path);
+    m_rcPath->clear();
+    if (uart) {
+      // Enumerate serial ports so the user can pick instead of typing.
+      for (const QSerialPortInfo& info : QSerialPortInfo::availablePorts()) {
+        const QString desc = info.description();
+        m_rcPath->addItem(desc.isEmpty()
+                              ? info.portName()
+                              : QStringLiteral("%1 — %2").arg(info.portName(),
+                                                              desc),
+                          info.systemLocation());
+      }
+    }
+    m_rcPath->setEditText(path);
     m_rcPath->setToolTip(
         uart ? tr("Serial device streaming CSV RC frames "
                   "(roll,pitch,throttle,yaw,arm,…), µs per channel.")
@@ -1001,12 +1388,25 @@ void SimulatorWidget::applyRcSource() {
   // Push to the bridge (no-op until it exists; the ctor calls this again).
   if (m_rc) {
     if (uart) {
-      if (m_rcPath) m_rc->setUartPath(m_rcPath->text());
+      if (m_rcPath) m_rc->setUartPath(m_rcPath->currentText());
       if (m_rcBaud) m_rc->setUartBaud(m_rcBaud->currentData().toInt());
     } else if (m_rcPath) {
-      m_rc->setJoystickPath(m_rcPath->text());
+      m_rc->setJoystickPath(m_rcPath->currentText());
     }
     m_rc->setSource(uart ? RcBridge::Uart : RcBridge::Joystick);
+  }
+}
+
+// Persist the current device-field text for the active source and push it to
+// the bridge. Shared by the editable combo's pick + edit-finished signals.
+void SimulatorWidget::commitRcPath() {
+  if (!m_rcPath || !m_rcSource) return;
+  const bool uart = m_rcSource->currentData().toInt() == RcBridge::Uart;
+  const QString path = m_rcPath->currentText();
+  QSettings().setValue(uart ? kRcUartPathKey : kRcPathKey, path);
+  if (m_rc) {
+    if (uart) m_rc->setUartPath(path);
+    else      m_rc->setJoystickPath(path);
   }
 }
 
@@ -1076,14 +1476,17 @@ void SimulatorWidget::startInAppSim() {
           this, [this](vsim::SimSnapshot snap) {
             float pitch, yaw, roll;
             vsim::quatToEulerNED(snap.att, &roll, &pitch, &yaw);
+            // Fixed field widths so a leading '-' (or "-0.0") doesn't widen the
+            // string and resize the label every frame — that caused the flicker.
+            // Monospace + space-padding keeps each number a constant pixel width.
             m_simPoseLabel->setText(
                 QString("pos=(%1, %2, %3) m   rpy=(%4, %5, %6) deg")
-                    .arg(snap.pos_w.x(), 0, 'f', 2)
-                    .arg(snap.pos_w.y(), 0, 'f', 2)
-                    .arg(snap.pos_w.z(), 0, 'f', 2)
-                    .arg(roll, 0, 'f', 1)
-                    .arg(pitch, 0, 'f', 1)
-                    .arg(yaw, 0, 'f', 1));
+                    .arg(snap.pos_w.x(), 7, 'f', 2)
+                    .arg(snap.pos_w.y(), 7, 'f', 2)
+                    .arg(snap.pos_w.z(), 7, 'f', 2)
+                    .arg(roll, 6, 'f', 1)
+                    .arg(pitch, 6, 'f', 1)
+                    .arg(yaw, 6, 'f', 1));
             updateHud(snap);
             m_propAudio.setMotors(snap.motor_omega);
           });
@@ -1093,12 +1496,29 @@ void SimulatorWidget::startInAppSim() {
   // so the sim flies the edited params from frame one.
   connect(m_sim, &vsim::SimWorker::online, this, [this] {
     if (!m_sim) return;
+    const auto cfg = m_geomEditor->physicsConfig();
     pushRatesToSim();   // apply configured loop rates before geometry/world
-    pushFirmwareMotorGeometry(m_geomEditor->physicsConfig());
-    m_sim->sendGeometry(m_geomEditor->physicsConfig());
+    pushFirmwareMotorGeometry(cfg);   // firmware roll/pitch/yaw mix signs
+    m_sim->sendGeometry(cfg);          // vsim_d physics motor layout
     m_sim->sendWorld(m_worldEditor->config());
     m_sim->sendObstacles(m_worldEditor->config().obstacles);
     loadWorldMeshToRenderer();  // re-loads + ships the collision BVH now m_sim exists
+    appendLog("geom", tr("firmware roll-mix %1 (default -+ ; mismatch = inverted "
+                          "roll). pushed to firmware + vsim_d.")
+                          .arg(rollMixString(cfg)));
+    // Belt-and-suspenders: re-assert BOTH the firmware mix AND the vsim_d layout
+    // shortly after start. If a restart race left one side on its default while
+    // the other had the real (possibly Y-mirrored) geometry, roll inverts and
+    // the craft topples at lift-off; this guarantees they agree before arming.
+    QTimer::singleShot(800, this, [this] {
+      if (!m_sim) return;
+      const auto c = m_geomEditor->physicsConfig();
+      pushFirmwareMotorGeometry(c);
+      m_sim->sendGeometry(c);
+      pushRatesToSim();   // re-assert loop rates too: the daemon boots at its
+                          // compiled default, so a dropped/raced SET_RATES would
+                          // otherwise leave it there (e.g. physics stuck at 8k).
+    });
   });
   m_sim->start(QThread::TimeCriticalPriority);
 
@@ -1115,6 +1535,7 @@ void SimulatorWidget::startInAppSim() {
   // Show the telemetry HUD over the viewport.
   if (m_hud) { m_hud->setGeometry(m_renderer->rect()); m_hud->raise(); m_hud->show(); }
   if (m_horizon) m_horizon->raise();   // keep the corner horizon above the HUD
+  setRigControlsEnabled(true);         // rig pose is now available
   emit simRunningChanged(true);
 }
 
@@ -1152,6 +1573,7 @@ void SimulatorWidget::stopInAppSim() {
   // free-roam + obstacle gizmos (the running sim had locked the camera).
   if (m_rightStack) setMode(m_rightStack->currentIndex());
   if (m_hud) m_hud->hide();
+  setRigControlsEnabled(false);        // no sim to pose anymore
   // Close the per-run log file so its trailing bytes flush to disk.
   closeLogFile();
   // Note: we don't call vayu_sitl_stop() here on the Stop button.

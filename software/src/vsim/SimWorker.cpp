@@ -10,6 +10,7 @@
 #include <QProcessEnvironment>
 
 #include <cerrno>
+#include <cmath>
 #include <csignal>
 #include <cstdlib>
 #include <cstring>
@@ -101,6 +102,53 @@ void SimWorker::sendReset() {
     body.quat_wxyz[0]   = 1.0f;    // identity
     std::memcpy(f.body, &body, sizeof(body));
     ::write(ctl_fd_, &f, sizeof(f));
+}
+
+void SimWorker::sendTestRig(bool on) {
+    if (ctl_fd_ < 0) return;
+    vsim_ctl_frame_t f{};
+    f.hdr.magic         = VSIM_MAGIC;
+    f.hdr.version       = VSIM_PROTO_VERSION;
+    f.hdr.type          = VSIM_FRAME_CTL;
+    f.hdr.payload_bytes = sizeof(f) - sizeof(vsim_hdr_t);
+    f.subtype           = VSIM_CTL_SET_TESTRIG;
+    vsim_ctl_testrig_t body{};
+    body.enable = on ? 1 : 0;
+    body.pos[2] = -0.05f;
+    std::memcpy(f.body, &body, sizeof(body));
+    ::write(ctl_fd_, &f, sizeof(f));
+    emit logLine(QStringLiteral("vsim_d: test-rig %1").arg(on ? "ON" : "off"));
+}
+
+void SimWorker::sendRigPose(float rollDeg, float pitchDeg, float yawDeg) {
+    if (ctl_fd_ < 0) {
+        emit logLine(QStringLiteral("rig pose ignored — ctl channel closed "
+                                    "(is the sim running?)"));
+        return;
+    }
+    // NED ZYX (yaw-pitch-roll) Euler -> body->world quaternion: the exact
+    // inverse of quatToEulerNED() in VsimTypes.h.
+    const double h = 0.017453292519943295 * 0.5;  // deg -> half-radians
+    const double cr = std::cos(rollDeg * h),  sr = std::sin(rollDeg * h);
+    const double cp = std::cos(pitchDeg * h), sp = std::sin(pitchDeg * h);
+    const double cy = std::cos(yawDeg * h),   sy = std::sin(yawDeg * h);
+    vsim_ctl_frame_t f{};
+    f.hdr.magic         = VSIM_MAGIC;
+    f.hdr.version       = VSIM_PROTO_VERSION;
+    f.hdr.type          = VSIM_FRAME_CTL;
+    f.hdr.payload_bytes = sizeof(f) - sizeof(vsim_hdr_t);
+    f.subtype           = VSIM_CTL_RESET;
+    vsim_ctl_reset_t body{};
+    body.pos_w[2]     = -0.05f;
+    body.quat_wxyz[0] = static_cast<float>(cr * cp * cy + sr * sp * sy);
+    body.quat_wxyz[1] = static_cast<float>(sr * cp * cy - cr * sp * sy);
+    body.quat_wxyz[2] = static_cast<float>(cr * sp * cy + sr * cp * sy);
+    body.quat_wxyz[3] = static_cast<float>(cr * cp * sy - sr * sp * cy);
+    std::memcpy(f.body, &body, sizeof(body));
+    const ssize_t n = ::write(ctl_fd_, &f, sizeof(f));
+    emit logLine(QStringLiteral("rig pose sent: r=%1 p=%2 y=%3 (%4 B)")
+                     .arg(rollDeg, 0, 'f', 0).arg(pitchDeg, 0, 'f', 0)
+                     .arg(yawDeg, 0, 'f', 0).arg(static_cast<int>(n)));
 }
 
 void SimWorker::sendGeometry(const GeometryConfig& g) {
@@ -342,14 +390,41 @@ void SimWorker::emitFromFrame(const void* bytes) {
     emit poseUpdated(snap);
 }
 
+void SimWorker::startAttach(const QString& posePath) {
+    attach_only_ = true;
+    attach_pose_path_ = posePath;
+    start();
+}
+
 void SimWorker::run() {
     stop_flag_.store(false, std::memory_order_release);
 
-    if (!spawnDaemon())  { emit stoppedCleanly(); return; }
-    if (!openFifos())    { killDaemon(); emit stoppedCleanly(); return; }
+    if (attach_only_) {
+        // Don't own a daemon: just read the existing pose FIFO. Wait briefly for
+        // the file to appear (the tuner spawns its vsim_d a moment after launch).
+        const auto deadline =
+            std::chrono::steady_clock::now() + std::chrono::seconds(20);
+        const QByteArray p = attach_pose_path_.toLocal8Bit();
+        while (!stop_flag_.load(std::memory_order_acquire)) {
+            pose_fd_ = ::open(p.constData(), O_RDONLY | O_NONBLOCK);
+            if (pose_fd_ >= 0) break;
+            if (std::chrono::steady_clock::now() > deadline) {
+                emit logLine("attach: tuner pose FIFO never appeared");
+                emit stoppedCleanly();
+                return;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+        if (pose_fd_ < 0) { emit stoppedCleanly(); return; }
+        emit logLine("attached to tuner sim: " + attach_pose_path_);
+        emit online();
+    } else {
+        if (!spawnDaemon())  { emit stoppedCleanly(); return; }
+        if (!openFifos())    { killDaemon(); emit stoppedCleanly(); return; }
 
-    emit logLine("vsim_d: pose reader online");
-    emit online();
+        emit logLine("vsim_d: pose reader online");
+        emit online();
+    }
 
     // Magic-resync buffer. vsim_d writes complete frames per write(),
     // but if we connect mid-stream we may need to walk to the next
@@ -414,9 +489,14 @@ void SimWorker::run() {
         if (pos > 0)   buf.erase(0, pos);
     }
 
-    closeFifos();
-    killDaemon();
-    emit logLine("vsim_d: stopped");
+    if (attach_only_) {
+        if (pose_fd_ >= 0) { ::close(pose_fd_); pose_fd_ = -1; }
+        emit logLine("detached from tuner sim");
+    } else {
+        closeFifos();
+        killDaemon();
+        emit logLine("vsim_d: stopped");
+    }
     emit stoppedCleanly();
 }
 
