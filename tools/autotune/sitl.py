@@ -26,13 +26,15 @@ RC_NEUTRAL = [1500, 1500, 1000, 1500, 1000, 1000]
 
 
 class SitlStack:
-    def __init__(self, repo_root, suffix=None, rates=(400, 2000, 120), quiet=True,
-                 geometry=None):
+    def __init__(self, repo_root, suffix=None, rates=(1000, 8000, 120), quiet=True,
+                 geometry=None, world=None):
         self.root = os.path.abspath(repo_root)
         self.suffix = suffix or f"_at{os.getpid()}"
         self.rates = rates                      # (imu_hz, physics_hz, pose_hz)
         self.quiet = quiet
         self.geometry = geometry                # dict: mass/inertia/motors, or None
+        self.world = world                      # dict: gravity/drag/..., or None
+        self.tether_k = 0.0                     # >0: soft rig (estimator-aware)
         self.vsim_bin = os.path.join(self.root, "build_vsim", "vsim_d")
         self.sitl_bin = os.path.join(self.root, "build_sitl", "vayu_sitl")
         self.rc_path = f"/tmp/vayu_at_rc{self.suffix}"
@@ -48,7 +50,12 @@ class SitlStack:
         self._rc_lock = threading.Lock()
         self._dec = P.NavlinkDecoder()
         self._samples = collections.deque(maxlen=20000)
+        self._rc_log = collections.deque(maxlen=20000)   # (t, rc copy) excitation
         self._sample_lock = threading.Lock()
+        self._last_state = None             # latest sys_state_t from telemetry
+        self._last_state_t = 0.0            # monotonic time of that reading
+        self._last_mode = None              # latest effective flight mode (0/1)
+        self._last_mode_src = None          # 0=RC, 1=GCS
         self._stop = threading.Event()
         self._threads = []
 
@@ -78,6 +85,15 @@ class SitlStack:
         if self.geometry:                       # tune the actual airframe
             g = self.geometry
             self.send_ctl(P.ctl_geometry(g["mass"], g["inertia"], g["motors"]))
+        if self.world:                          # tune the actual environment (drag!)
+            w = self.world
+            self.send_ctl(P.ctl_world(
+                gravity=w.get("gravity", 9.81), ground_z=w.get("ground_z", 0.0),
+                restitution=w.get("restitution", 0.3),
+                linear_drag=w.get("linear_drag", 0.10),
+                angular_drag=w.get("angular_drag", 0.005),
+                ground_right_gain=w.get("ground_right_gain", 8.0),
+                ground_right_damp=w.get("ground_right_damp", 3.0)))
 
         # firmware host: opens RC FIFO, creates the UART2 pty, boots to STANDBY.
         self._procs.append(subprocess.Popen([self.sitl_bin], env=env, stderr=out, stdout=out))
@@ -85,7 +101,11 @@ class SitlStack:
         self._start_rc_writer()
         self._open_pty()
         self._start_pty_reader()
-        time.sleep(1.0)                          # let the loops spin up
+        # Gate on the firmware actually booting (telemetry flowing + a system
+        # state reported) instead of a blind sleep. A slow/loaded cold start
+        # used to leave the first wait_level() sample-starved, failing every
+        # arm attempt ("arm not confirmed") before the host was even ready.
+        self.wait_ready(timeout=8.0)
         if self.geometry:
             # Also set the FIRMWARE mixer from the same motor layout so the
             # control mix matches the physics (keeps the loop stable for any
@@ -114,26 +134,29 @@ class SitlStack:
     # -- vsim_d ctl ---------------------------------------------------------
     def send_ctl(self, frame: bytes):
         if self._ctl_fd >= 0:
-            try: os.write(self._ctl_fd, frame)
-            except OSError: pass
+            self._write_all(self._ctl_fd, frame)
 
-    def reset(self, pos=(0, 0, -0.05)):
-        self.send_ctl(P.ctl_reset(pos=pos))
+    def reset(self, pos=(0, 0, -0.05), seed=0):
+        # seed!=0 => deterministic sensor-noise reset in vsim_d (repeatable cost).
+        self.send_ctl(P.ctl_reset(pos=pos, seed=seed))
 
-    def set_testrig(self, on, pos=(0, 0, -0.05)):
-        self.send_ctl(P.ctl_testrig(on, pos=pos))
+    def set_testrig(self, on, pos=(0, 0, -0.05), tether_k=0.0):
+        self.send_ctl(P.ctl_testrig(on, pos=pos, tether_k=tether_k))
 
     # -- firmware command uplink (over the pty) -----------------------------
     def send_navlink(self, pkt: bytes):
         if self._pty_fd >= 0:
-            try: os.write(self._pty_fd, pkt)
-            except OSError: pass
+            self._write_all(self._pty_fd, pkt)
 
     def set_pid(self, controller, axis, kp, ki, kd, kff):
         self.send_navlink(P.set_pid_command(controller, axis, kp, ki, kd, kff))
 
     def set_gyro_lpf(self, axis, rc):
         self.send_navlink(P.set_gyro_lpf_command(axis, rc))
+
+    def set_flight_mode(self, mode):
+        """0=stabilise/angle, 1=acro, 2=release to RC switch."""
+        self.send_navlink(P.set_flight_mode_command(mode))
 
     # -- RC -----------------------------------------------------------------
     def set_rc(self, roll=None, pitch=None, thr=None, yaw=None, arm=None, ch6=None):
@@ -145,14 +168,41 @@ class SitlStack:
             if arm is not None: self._rc[4] = int(arm)
             if ch6 is not None: self._rc[5] = int(ch6)
 
-    def arm(self):
+    def wait_state(self, mask, timeout=2.0):
+        """Block until telemetry reports a system state matching `mask` (a
+        sys_state_t bit value), or timeout. Returns the matched state, or None.
+        Requires a *fresh* reading (after this call started) so a stale ARMED
+        from a prior rollout can't satisfy it."""
+        t0 = time.monotonic()
+        while time.monotonic() - t0 < timeout:
+            if self._last_state is not None and self._last_state_t >= t0:
+                if self._last_state & mask:
+                    return self._last_state
+            time.sleep(0.01)
+        return None
+
+    def arm(self, timeout=2.0):
+        """Arm and CONFIRM the firmware actually reached ARMED before returning.
+        Replaces a blind sleep that let silent arm failures produce phantom
+        no-response rollouts. Returns True iff ARMED was observed in telemetry.
+
+        First confirms STANDBY with the arm switch LOW: a prior divergent rollout
+        (common mid line-search in the `structured` optimizer, which probes
+        aggressive gains) can latch the firmware in FAILSAFE, and it only arms
+        from STANDBY. Dropping the switch + a clean STANDBY edge clears that, so
+        a good gain set after a bad probe doesn't get misrecorded as a failure."""
+        # Arm switch low first → clear any latched FAILSAFE, settle into STANDBY.
+        self.set_rc(roll=1500, pitch=1500, thr=1000, yaw=1500, arm=1000)
+        self.wait_state(P.SYSTEM_STATE_STANDBY, timeout=1.5)
         # Arm requires throttle < 1100 in STANDBY with the arm switch high.
         self.set_rc(roll=1500, pitch=1500, thr=1000, yaw=1500, arm=2000)
-        time.sleep(0.6)
+        return self.wait_state(P.SYSTEM_STATE_ARMED, timeout) is not None
 
     def disarm(self):
         self.set_rc(thr=1000, arm=1000)
-        time.sleep(0.3)
+        # Confirm we left ARMED so the next arm sees a clean STANDBY->ARMED edge
+        # (which is what hard-resets the firmware rate-PID integrators).
+        self.wait_state(P.SYSTEM_STATE_STANDBY, timeout=1.0)
 
     # -- telemetry ----------------------------------------------------------
     def clear_samples(self):
@@ -162,6 +212,51 @@ class SitlStack:
     def snapshot(self):
         with self._sample_lock:
             return list(self._samples)
+
+    def rc_snapshot(self):
+        """[(t, [roll,pitch,thr,yaw,arm,ch6]), ...] — the commanded RC, so the
+        plotter can show the excitation that drove a rollout."""
+        with self._sample_lock:
+            return list(self._rc_log)
+
+    def wait_level(self, deg=6.0, timeout=2.5):
+        """Wait until the estimator reports near-level (|roll|,|pitch| < deg).
+        After a divergent rollout the attitude estimator is 'degraded' and the
+        firmware refuses to arm (arm_preconditions_met); a reset levels the sim
+        but the estimator needs a moment to re-converge. Returns True if level."""
+        t0 = time.monotonic()
+        while time.monotonic() - t0 < timeout:
+            with self._sample_lock:
+                last = self._samples[-1][1] if self._samples else None
+            if last is not None:
+                if (abs(last["roll_angle_curr"]) < deg
+                        and abs(last["pitch_angle_curr"]) < deg):
+                    return True
+            time.sleep(0.02)
+        return False
+
+    def wait_ready(self, timeout=8.0):
+        """Block until the firmware host is up: telemetry samples are flowing
+        AND a system state has been reported (booted to STANDBY). Replaces the
+        old blind 1 s startup sleep so a slow or CPU-loaded cold start (e.g.
+        launched alongside the GCS) can't sample-starve the first arm. Returns
+        True if telemetry started; proceeds on a brief grace if state lags."""
+        t0 = time.monotonic()
+        first_sample_t = None
+        while time.monotonic() - t0 < timeout:
+            with self._sample_lock:
+                have_sample = bool(self._samples)
+            if have_sample:
+                if first_sample_t is None:
+                    first_sample_t = time.monotonic()
+                if self._last_state is not None:
+                    return True
+                # Telemetry is flowing; give the state field a short grace
+                # then proceed rather than block the whole timeout.
+                if time.monotonic() - first_sample_t > 1.0:
+                    return True
+            time.sleep(0.02)
+        return first_sample_t is not None
 
     def collect(self, duration, hover_thr=None):
         """Return [(t, ct_dict), ...] captured over `duration` seconds (t monotonic)."""
@@ -175,6 +270,26 @@ class SitlStack:
             return list(self._samples)
 
     # -- internals ----------------------------------------------------------
+    @staticmethod
+    def _write_all(fd, data):
+        """Write every byte, retrying on EAGAIN. A single os.write() on a
+        non-blocking fd can short-write or raise BlockingIOError when the pipe
+        buffer is full, silently truncating a SET_PID / ctl command and leaving
+        the eval running on stale gains. Loop until the whole frame is out."""
+        mv = memoryview(data)
+        deadline = time.monotonic() + 0.5
+        while mv:
+            try:
+                n = os.write(fd, mv)
+                mv = mv[n:]
+            except BlockingIOError:
+                if time.monotonic() > deadline:
+                    return False
+                time.sleep(0.001)
+            except OSError:
+                return False
+        return True
+
     @staticmethod
     def _make_raw(fd):
         try:
@@ -213,11 +328,12 @@ class SitlStack:
         def run():
             while not self._stop.is_set():
                 with self._rc_lock:
-                    line = ",".join(str(c) for c in self._rc) + "\n"
-                try:
-                    os.write(self._rc_master, line.encode())
-                except OSError:
-                    time.sleep(0.05); continue
+                    rc = list(self._rc)
+                    line = ",".join(str(c) for c in rc) + "\n"
+                if not self._write_all(self._rc_master, line.encode()):
+                    time.sleep(0.05); continue   # a torn RC line mis-parses
+                with self._sample_lock:          # log the commanded excitation
+                    self._rc_log.append((time.monotonic(), rc))
                 time.sleep(0.02)             # ~50 Hz
         self._spawn(run)
 
@@ -232,9 +348,18 @@ class SitlStack:
                     time.sleep(0.01); continue
                 if not data:
                     time.sleep(0.003); continue
+                now = time.monotonic()
                 for ct in self._dec.feed(data):
+                    if "sys_state" in ct:           # system-state, not a CT sample
+                        self._last_state = int(ct["sys_state"])
+                        self._last_state_t = now
+                        continue
+                    if "flight_mode" in ct:         # flight-mode status, not a CT sample
+                        self._last_mode = ct["flight_mode"]
+                        self._last_mode_src = ct["flight_mode_src"]
+                        continue
                     with self._sample_lock:
-                        self._samples.append((time.monotonic(), ct))
+                        self._samples.append((now, ct))
         self._spawn(run)
 
     def _spawn(self, fn):

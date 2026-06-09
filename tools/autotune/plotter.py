@@ -34,10 +34,14 @@ def run(monitor, interval_ms=200):
     fig.canvas.manager.set_window_title("Vayu PID Autotuner — live")
     gs = fig.add_gridspec(2, 3, hspace=0.32, wspace=0.22)
     ax_ang = fig.add_subplot(gs[0, 0])
+    ax_ang_rc = ax_ang.twinx()           # commanded RC (excitation) overlay
     ax_rate = fig.add_subplot(gs[0, 1])
     ax_out = fig.add_subplot(gs[0, 2])
     ax_cost = fig.add_subplot(gs[1, 0:2])
     ax_txt = fig.add_subplot(gs[1, 2]); ax_txt.axis("off")
+
+    # RC channel layout in the logged frame: roll, pitch, thr, yaw, arm, ch6.
+    RC_IDX = {"roll": 0, "pitch": 1, "yaw": 3}
 
     def on_close(_):
         monitor.stop.set()
@@ -48,10 +52,27 @@ def run(monitor, interval_ms=200):
         st = monitor.state()
         win = _recent(samples, WINDOW_S)
 
-        # --- angle tracking ---
+        # --- angle tracking (+ RC excitation overlay) ---
         ax_ang.clear()
-        ax_ang.set_title("attitude: setpoint (dashed) vs measured [deg]", fontsize=9)
+        ax_ang_rc.clear()
+        ax_ang.set_title("attitude: sp (dashed) vs meas [deg]  ·  RC excitation (dotted)",
+                         fontsize=8)
         ax_ang.set_ylabel("deg")
+        # Commanded RC sticks (the excitation that drives the doublet), aligned
+        # to the telemetry window so you can see exactly what was injected — and
+        # confirm the harness is actually exciting the axis.
+        if win:
+            t_end = samples[-1][0]
+            rc_win = [(t - t_end, rc) for t, rc in monitor.stack.rc_snapshot()
+                      if t >= t_end - WINDOW_S]
+            if rc_win:
+                rts = [t for t, _ in rc_win]
+                for a, idx in RC_IDX.items():
+                    ax_ang_rc.plot(rts, [rc[idx] for _, rc in rc_win], ":",
+                                   color=COLORS[a], lw=0.9, alpha=0.6)
+                ax_ang_rc.set_ylabel("RC µs", fontsize=7)
+                ax_ang_rc.set_ylim(950, 2050)
+                ax_ang_rc.tick_params(labelsize=6)
         if win:
             ts = [t for t, _ in win]
             for a in AXES:
