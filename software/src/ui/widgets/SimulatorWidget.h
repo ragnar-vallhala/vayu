@@ -28,6 +28,7 @@ class QGridLayout;
 class QStackedWidget;
 class QPushButton;
 class QCheckBox;
+class QSlider;
 class QComboBox;
 class QSpinBox;
 class QPlainTextEdit;
@@ -88,6 +89,10 @@ class SimulatorWidget : public QWidget {
   // overlay: the flight-state name and the latest IMU accel/gyro sample.
   void hudSetStatus(const QString& s);
   void hudSetImu(const float acc[3], const float gyr[3]);
+  // Reflect the firmware's reported flight mode (SYSTEM_ORIGIN_FLIGHT_MODE):
+  // syncs the Acro checkbox without re-issuing a command, and shows the source
+  // (RC switch vs GCS override).
+  void setFlightModeStatus(quint8 mode, quint8 source);
 
  private:
   void buildUi();
@@ -122,6 +127,12 @@ class SimulatorWidget : public QWidget {
   // Vehicle is locked while the sim is running.
   void setMode(int mode);
 
+  // Push the current rig sliders' orientation to the sim (test-rig pose).
+  void applyRigPose();
+  // Enable/disable the rig pose controls — they need a running in-app sim to
+  // pose against. Called when the sim starts/stops.
+  void setRigControlsEnabled(bool simRunning);
+
   // Refresh the viewport HUD overlay from a pose snapshot.
   void updateHud(const vsim::SimSnapshot& s);
 
@@ -145,9 +156,11 @@ class SimulatorWidget : public QWidget {
   QCheckBox* m_rcEnable = nullptr;
   QComboBox* m_rcSource = nullptr;          // USB joystick vs UART (CSV)
   QComboBox* m_rcBaud = nullptr;            // UART baud (UART source only)
-  QLineEdit* m_rcPath = nullptr;
+  QComboBox* m_rcPath = nullptr;            // editable: device path or picked port
   QLabel* m_rcReadout = nullptr;
   QLabel* m_rcAxesLabel = nullptr;          // live per-axis µs (identify)
+  QCheckBox* m_acroChk = nullptr;           // acro toggle; synced from telemetry
+  QLabel* m_flightModeLabel = nullptr;      // shows effective mode + source
   QComboBox* m_rcAxisCombo[5] = {nullptr, nullptr, nullptr, nullptr, nullptr};
   QCheckBox* m_rcInvert[5] = {nullptr, nullptr, nullptr, nullptr, nullptr};
   QCheckBox* m_swArm = nullptr;             // software arm (no hardware switch)
@@ -155,6 +168,7 @@ class SimulatorWidget : public QWidget {
   // Apply the selected RC source (joystick vs UART CSV) to the bridge and the
   // UI: swap the device field, enable/disable baud + axis mapping.
   void applyRcSource();
+  void commitRcPath();                      // device field → bridge + persist
   vsim::SimRendererWidget* m_renderer = nullptr;
   SimHudWidget* m_hud = nullptr;   // FPV telemetry overlay on the viewport
   HorizonHud* m_horizon = nullptr; // compact attitude indicator, top-right corner
@@ -169,19 +183,38 @@ class SimulatorWidget : public QWidget {
   // ---- Autotune section (drives tools/autotune against the current vehicle) ----
   QComboBox* m_tuneOptimizer = nullptr;
   QSpinBox* m_tuneBudget = nullptr;
+  QSpinBox* m_tuneStep = nullptr;        // excitation amplitude (doublet µs)
+  QSpinBox* m_tuneRepeats = nullptr;     // rollouts averaged per eval (--repeats)
+  QDoubleSpinBox* m_tuneTether = nullptr; // soft-rig stiffness (--rig-tether)
+  QSpinBox* m_tuneSeed = nullptr;        // optimizer RNG seed (--seed)
+  QSpinBox* m_tuneSimSeed = nullptr;     // sensor-noise base seed (--sim-seed)
   QCheckBox* m_tuneYaw = nullptr;
   QCheckBox* m_tuneApply = nullptr;
   QCheckBox* m_tunePlot = nullptr;
+  QCheckBox* m_tuneCompare = nullptr;    // run every optimizer (--compare)
+  QCheckBox* m_tuneValidate = nullptr;   // free-flight validation (--no-validate if off)
+  QCheckBox* m_tuneBuzz = nullptr;       // throttle buzz check (--no-buzz-check if off)
+  QCheckBox* m_tuneVerbose = nullptr;    // print every eval (--verbose)
   QPushButton* m_tuneStart = nullptr;
   QPushButton* m_tuneStop = nullptr;
   QPlainTextEdit* m_tuneLog = nullptr;
   QLabel* m_tuneResult = nullptr;
   TuneChart* m_tuneChart = nullptr;
+  // Test-rig pose controls: pin the airframe and tilt it on the stand.
+  QCheckBox* m_rigEnable = nullptr;
+  QSlider* m_rigRoll = nullptr;
+  QSlider* m_rigPitch = nullptr;
+  QSlider* m_rigYaw = nullptr;
+  QLabel* m_rigReadout = nullptr;
   QProcess* m_tuneProc = nullptr;
+  vsim::SimWorker* m_tuneSim = nullptr;   // attach-only: renders the tuner's sim
   void buildAutotunePage(QWidget* page);
+  void attachTuneSim(const QString& suffix);   // mirror the tuner's drone in 3D
+  void detachTuneSim();                         // stop mirroring, restore UI
   void startAutotune();
   void stopAutotune();
   QString exportVehicleGeometryJson();
+  QString exportWorldJson();   // env (gravity/drag) so the tuner flies the same plant
   QPushButton* m_simStartBtn = nullptr;
   QPushButton* m_simStopBtn = nullptr;
   QPushButton* m_simResetBtn = nullptr;
