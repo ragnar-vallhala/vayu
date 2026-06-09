@@ -29,6 +29,7 @@ typedef enum {
   SYSTEM_ORIGIN_SYS_STATE = 0x04,
   SYSTEM_ORIGIN_PID_ERROR = 0x05,
   SYSTEM_ORIGIN_PID_UPDATE = 0x06,
+  SYSTEM_ORIGIN_FLIGHT_MODE = 0x07, // [origin][pad][mode:u8][source:u8]
 } system_status_origin_t;
 
 /**
@@ -55,6 +56,7 @@ typedef enum {
   CMD_SET_PID = 0x000A,
   CMD_SET_GYRO_LPF = 0x000B, // rate-loop gyro low-pass time constant
   CMD_SET_MOTOR_GEOMETRY = 0x000C, // per-motor x,y,spin -> mixer signs
+  CMD_SET_FLIGHT_MODE = 0x000D, // arg0: 0=stabilise/angle, 1=acro, 2=release to RC
 } packet_command_type_t;
 
 typedef struct __attribute__((packed)) {

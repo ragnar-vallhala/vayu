@@ -2,6 +2,7 @@
 #include "comm/ibus.h"
 #include "comm/serializer.h"
 #include "control/control.h"
+#include "control/flight_mode.h"
 #include "memory.h"
 #include "sensor/sensor.h"
 #include "sys/state.h"
@@ -88,6 +89,9 @@ void comm_processor_dispatch(const packet_t *pkt) {
       /* Set the mixer signs from the airframe motor layout (sim/vehicle). */
       VAYU_DISCARD(
           angle_rate_controller_apply_geometry_command(pkt->payload, pkt->length));
+    } else if (cmd_id == CMD_SET_FLIGHT_MODE) {
+      /* GCS stabilise/acro override (arg 0=angle, 1=acro, 2=release to RC). */
+      VAYU_DISCARD(flight_mode_apply_command(pkt->payload, pkt->length));
     }
   }
 }
