@@ -22,6 +22,7 @@ class SimHudWidget : public QWidget {
   // Telemetry-fed (not in the sim pose): the firmware flight-state name and
   // the latest IMU sample. setImu pushes into rolling history for the plots.
   void setStatus(const QString& s);
+  void setFlightMode(const QString& m);   // "STABILISE (RC)" / "ACRO (GCS)"
   void setImu(const float acc[3], const float gyr[3]);
 
  protected:
@@ -35,6 +36,7 @@ class SimHudWidget : public QWidget {
   std::array<float, 4> motor_{0, 0, 0, 0}; // duty [0,1]
 
   QString status_;                         // flight-state name
+  QString mode_;                           // flight mode (STABILISE / ACRO)
   std::array<QVector<float>, 3> accHist_;  // m/s² X Y Z
   std::array<QVector<float>, 3> gyrHist_;  // deg/s X Y Z
 };

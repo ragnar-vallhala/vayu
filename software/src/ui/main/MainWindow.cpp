@@ -206,6 +206,12 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   // which source is feeding it.
   connect(m_simulatorWidget, &SimulatorWidget::dataReceived,
           m_protocol, &DroneProtocol::processData);
+  // Reflect the firmware's reported flight mode (stabilise/acro + RC/GCS source)
+  // back onto the simulator's Acro toggle.
+  connect(m_protocol, &DroneProtocol::flightModeReceived,
+          m_simulatorWidget, &SimulatorWidget::setFlightModeStatus);
+  connect(m_protocol, &DroneProtocol::flightModeReceived,
+          this, &MainWindow::onFlightModeReceived);
   // Reflect the in-app sim as "Connected: SIM" in the bottom status bar.
   connect(m_simulatorWidget, &SimulatorWidget::simRunningChanged, this,
           [this](bool running) {
@@ -321,6 +327,19 @@ void MainWindow::buildUi() {
                Theme::hex(Theme::kBg),
                Theme::hex(Theme::kBorder)));
   attLayout->addWidget(m_statusLabel);
+
+  // Flight-mode pill: STABILISE / ACRO + source (RC switch or GCS override),
+  // driven by SYSTEM_ORIGIN_FLIGHT_MODE telemetry just like the state pill above.
+  m_flightModeLabel = new QLabel("—", attGroup);
+  m_flightModeLabel->setAlignment(Qt::AlignCenter);
+  m_flightModeLabel->setStyleSheet(
+      QString("font-size: 13px; font-weight: bold; color: %1; "
+              "background: %2; border: 1px solid %3; "
+              "border-radius: 4px; padding: 3px; margin-bottom: 8px;")
+          .arg(Theme::hex(Theme::kTextDim),
+               Theme::hex(Theme::kBg),
+               Theme::hex(Theme::kBorder)));
+  attLayout->addWidget(m_flightModeLabel);
 
   // Numeric roll/pitch/yaw labels in a horizontal line
   auto *numHBox = new QHBoxLayout;
@@ -561,6 +580,22 @@ void MainWindow::onStatusReceived(const QString &msg) {
     }
     m_statusLabel->setStyleSheet(style);
   }
+  ++m_pktCount;
+}
+
+void MainWindow::onFlightModeReceived(quint8 mode, quint8 source) {
+  if (!m_flightModeLabel) return;
+  const bool acro = (mode == 1);
+  const bool gcs = (source == 1);
+  m_flightModeLabel->setText(
+      QString("%1  ·  %2").arg(acro ? "ACRO" : "STABILISE", gcs ? "GCS" : "RC"));
+  QString style = "font-size: 13px; font-weight: bold; border-radius: 4px; "
+                  "padding: 3px; margin-bottom: 8px;";
+  if (acro)  // rate mode: amber, no bank-angle limit
+    style += " color: #E5C07B; background: #2D2616; border: 1px solid #E5C07B;";
+  else       // stabilise: blue/calm
+    style += " color: #61AFEF; background: #1A2A3A; border: 1px solid #61AFEF;";
+  m_flightModeLabel->setStyleSheet(style);
   ++m_pktCount;
 }
 

@@ -92,3 +92,13 @@ struct ControlLoopData {
 
   uint64_t timestamp = 0;
 };
+
+// -----------------------------------------------------------
+// Flight Mode  – mirrors SYSTEM_ORIGIN_FLIGHT_MODE (0x07)
+//   mode:   0 = stabilise/angle, 1 = acro
+//   source: 0 = RC switch, 1 = GCS override
+// -----------------------------------------------------------
+struct FlightModeStatus {
+  uint8_t mode = 0;
+  uint8_t source = 0;
+};
