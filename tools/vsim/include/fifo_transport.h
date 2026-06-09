@@ -32,6 +32,13 @@ public:
     // no new frame is available.
     bool poll(uint16_t type, void* out_frame, size_t out_size);
 
+    // Lossless variant: return the OLDEST not-yet-consumed complete frame of
+    // the expected `type`, consuming up to and including it. Call in a loop
+    // to process every queued frame in order. Unlike poll() this drops
+    // nothing -- required for the ctl channel, where a startup burst of
+    // distinct commands (rates, geometry, world) must all be applied.
+    bool pollNext(uint16_t type, void* out_frame, size_t out_size);
+
     int fd() const { return fd_; }
 
 private:

@@ -21,7 +21,9 @@ public:
     void setObstacles   (const std::vector<SimObstacle>& o) { phys_.setObstacles(o); }
     void setWorldMesh   (const trimesh::Bvh& b, float rest) { phys_.setWorldMesh(b, rest); }
     void clearWorldMesh ()                                  { phys_.clearWorldMesh(); }
-    void setTestRig     (bool on, const Vec3& pos)          { phys_.setTestRig(on, pos); }
+    void setTestRig     (bool on, const Vec3& pos, float tether_k = 0.0f) {
+        phys_.setTestRig(on, pos, tether_k);
+    }
     void seedSensors    (uint64_t s)            { sensors_.seed(s); }
 
     void resetState(const RigidBodyState& s = {});
@@ -46,6 +48,10 @@ private:
     // Stashed last world acceleration so the accelerometer can subtract
     // gravity correctly. Specific force = a_world - g.
     Vec3 last_a_world_{0.0f, 0.0f, 0.0f};
+    // Seconds remaining to report a clean gravity reaction after the last ground
+    // contact. Bridges the brief airborne phases of the resting-contact bounce
+    // limit cycle so a parked airframe reads a steady -g, not impulse noise.
+    float ground_hold_s_ = 0.0f;
 };
 
 }  // namespace vsim

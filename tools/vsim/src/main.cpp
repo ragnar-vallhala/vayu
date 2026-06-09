@@ -40,11 +40,11 @@
 
 namespace {
 
-constexpr int kPhysicsHz = 1000;
-constexpr int kImuHz     = 200;
+constexpr int kPhysicsHz = 8000;
+constexpr int kImuHz     = 1000;
 constexpr int kPoseHz    = 60;
-constexpr int kImuDiv    = kPhysicsHz / kImuHz;     // 5
-constexpr int kPoseDiv   = kPhysicsHz / kPoseHz;    // ~16
+constexpr int kImuDiv    = kPhysicsHz / kImuHz;     // 8 substeps/sample
+constexpr int kPoseDiv   = kPhysicsHz / kPoseHz;    // ~133
 
 constexpr float kRad2Deg = 57.29577951308232f;
 
@@ -136,7 +136,9 @@ int main(int /*argc*/, char** /*argv*/) {
         std::fprintf(stderr, "vsim_d: FIFO setup failed\n");
         return 1;
     }
-    std::fprintf(stderr, "vsim_d: running at %d Hz physics, %d Hz IMU, %d Hz pose\n",
+    std::fprintf(stderr,
+                 "vsim_d: boot default %d Hz physics, %d Hz IMU, %d Hz pose "
+                 "(reconfigured live by SET_RATES — watch for 'vsim_d: rates ...')\n",
                  kPhysicsHz, kImuHz, kPoseHz);
 
     vsim::SimController ctl;
@@ -204,9 +206,11 @@ int main(int /*argc*/, char** /*argv*/) {
             }
         }
 
-        // 2) Drain control messages (reset / pause / ...).
+        // 2) Drain control messages (reset / pause / ...). Lossless: a startup
+        // burst (rates + geometry + world) must ALL apply, so process every
+        // queued frame, not just the latest (poll() would drop geometry).
         vsim_ctl_frame_t cmd;
-        if (ctl_in.poll(VSIM_FRAME_CTL, &cmd, sizeof(cmd))) {
+        while (ctl_in.pollNext(VSIM_FRAME_CTL, &cmd, sizeof(cmd))) {
             switch (cmd.subtype) {
                 case VSIM_CTL_RESET: {
                     vsim_ctl_reset_t body;
@@ -218,9 +222,14 @@ int main(int /*argc*/, char** /*argv*/) {
                     s.vel_w   = vsim::Vec3(body.vel_w[0],   body.vel_w[1],   body.vel_w[2]);
                     s.omega_b = vsim::Vec3(body.omega_b[0], body.omega_b[1], body.omega_b[2]);
                     ctl.resetState(s);
+                    // Deterministic sensor reset: a non-zero seed makes an
+                    // identical reset reproduce an identical noise trajectory,
+                    // so the autotuner's cost is repeatable for fixed gains.
+                    if (body.seed != 0) ctl.seedSensors(body.seed);
                     tick = 0;
                     outer = 0;
-                    std::fprintf(stderr, "vsim_d: reset\n");
+                    std::fprintf(stderr, "vsim_d: reset%s\n",
+                                 body.seed ? " (seeded)" : "");
                     break;
                 }
                 case VSIM_CTL_PAUSE: {
@@ -234,10 +243,12 @@ int main(int /*argc*/, char** /*argv*/) {
                     vsim_ctl_testrig_t t;
                     std::memcpy(&t, cmd.body, sizeof(t));
                     ctl.setTestRig(t.enable != 0,
-                                   vsim::Vec3(t.pos[0], t.pos[1], t.pos[2]));
-                    std::fprintf(stderr, "vsim_d: test-rig %s @ (%.2f,%.2f,%.2f)\n",
+                                   vsim::Vec3(t.pos[0], t.pos[1], t.pos[2]),
+                                   t.tether_k);
+                    std::fprintf(stderr,
+                                 "vsim_d: test-rig %s @ (%.2f,%.2f,%.2f) tether_k=%.1f\n",
                                  t.enable ? "ON" : "off",
-                                 t.pos[0], t.pos[1], t.pos[2]);
+                                 t.pos[0], t.pos[1], t.pos[2], t.tether_k);
                     break;
                 }
                 case VSIM_CTL_PING:

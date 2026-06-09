@@ -87,8 +87,20 @@ void PhysicsCore::step(const Vec3& force_b, const Vec3& torque_b, float dt) {
     // derive(), so attitude dynamics are untouched — this just freezes the
     // 3 translational DOF. Skip ground/obstacle contact (the body is clamped).
     if (test_rig_) {
-        state_.pos_w = rig_pos_;
-        state_.vel_w = Vec3(0.0f, 0.0f, 0.0f);
+        if (tether_k_ > 0.0f) {
+            // Soft rig: the RK4 above already moved the body under motor thrust +
+            // gravity + drag (so a tilted hover drifts sideways, exactly like free
+            // flight). Pull it back toward rig_pos with a critically-damped spring
+            // so it stays bounded but the accelerometer still sees the thrust-tilt
+            // proper acceleration. a = -k*dx - 2*sqrt(k)*v.
+            const float c = 2.0f * std::sqrt(tether_k_);
+            const Vec3 dx = state_.pos_w - rig_pos_;
+            state_.vel_w += (dx * (-tether_k_) - state_.vel_w * c) * dt;
+        } else {
+            state_.pos_w = rig_pos_;
+            state_.vel_w = Vec3(0.0f, 0.0f, 0.0f);
+        }
+        grounded_ = false;
         sanitize();
         return;
     }
@@ -287,7 +299,8 @@ void PhysicsCore::sanitize() {
 // it can't balance on an edge, so gravity about the contact patch rotates
 // it toward level.
 void PhysicsCore::groundClamp(float dt) {
-    if (state_.pos_w.z() > params_.ground_z) {
+    grounded_ = state_.pos_w.z() > params_.ground_z;
+    if (grounded_) {
         state_.pos_w.setZ(params_.ground_z);
         if (state_.vel_w.z() > 0.0f) {
             state_.vel_w.setZ(-state_.vel_w.z() * params_.ground_restitution);
