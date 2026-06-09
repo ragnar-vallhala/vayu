@@ -14,3 +14,6 @@ build_vsim/
 *.vworld
 *.glb
 tools/autotune/*.json
+
+# Autotuner --apply writes the canonical tune here (generated artifact)
+tuned_pid.json
