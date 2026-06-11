@@ -54,6 +54,17 @@ class RcBridge : public QThread {
   // the running sim takes effect live, without a restart.
   void setEnabled(bool on) { enabled_.store(on, std::memory_order_release); }
 
+  // Gate for the Uart source: the serial device is NOT opened until this is
+  // set true (a deliberate "Connect" from the UI). Keeps the sim from grabbing
+  // a tty the board telemetry may be using. No effect on the Joystick source
+  // (which never collides with the board port). Default off.
+  void setUartConnected(bool on) {
+    uartConnected_.store(on, std::memory_order_release);
+  }
+  bool uartConnected() const {
+    return uartConnected_.load(std::memory_order_acquire);
+  }
+
   // Map an output function to a joystick source (+ invert). func: 0=roll,
   // 1=pitch, 2=throttle, 3=yaw, 4=arm. `source` encodes the input:
   // 0..15 = axis index; 1000+b = button b (pressed→2000, released→1000).
@@ -99,6 +110,7 @@ class RcBridge : public QThread {
   int master_fd_ = -1;
   std::atomic<bool> stop_{false};
   std::atomic<bool> enabled_{true};
+  std::atomic<bool> uartConnected_{false};  // Uart source opened only when true
   std::atomic<int> armOverride_{-1};   // -1 use mapping, 0 disarm, 1 arm
   std::atomic<int> acro_{0};           // 0 = angle mode (ch6 low), 1 = acro
   std::atomic<int> mapAxis_[5];   // func → source code (axis idx or 1000+btn)
