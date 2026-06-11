@@ -1,13 +1,11 @@
 # Vayu firmware CI (R12.1). Runs on every push / PR.
 #
-# Two tiers of jobs:
-#   * Always-on gates that work on the committed tree:
+# Jobs:
+#   * Always-on gates on the committed tree:
 #       - build-target  : arm-none-eabi build, all modules under -Werror (R1.2)
 #       - trace-gate    : tools/trace.py --check, unknown-ID fails (R12.5)
 #       - cppcheck      : static analysis (report-only baseline, R12.3)
-#   * SITL-dependent jobs, guarded on the host test harness being present
-#     (it currently lives alongside the in-app vsim integration). They
-#     skip until tools/sim_host/tests/ is committed, then auto-activate:
+#   * SITL host-harness jobs (tools/sim_host/tests/ is committed):
 #       - sitl-tests    : host unit tests (R12.1)
 #       - sanitizers    : ASan + UBSan unit tests (R12.2)
 #       - coverage      : gcov/gcovr summary on CTRL/EST/COMM (R12.4)
@@ -65,8 +63,6 @@ jobs:
   sitl-tests:
     name: SITL unit tests
     runs-on: ubuntu-latest
-    # Activates once the host test harness lands (with the vsim integration).
-    if: ${{ hashFiles('tools/sim_host/tests/test_phase3_ctrl.c') != '' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -80,7 +76,6 @@ jobs:
   sanitizers:
     name: SITL ASan + UBSan (R12.2)
     runs-on: ubuntu-latest
-    if: ${{ hashFiles('tools/sim_host/tests/test_phase3_ctrl.c') != '' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -94,7 +89,6 @@ jobs:
   coverage:
     name: SITL coverage (R12.4)
     runs-on: ubuntu-latest
-    if: ${{ hashFiles('tools/sim_host/tests/test_phase3_ctrl.c') != '' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -111,7 +105,6 @@ jobs:
   clang-tidy:
     name: clang-tidy (.clang-tidy, baseline)
     runs-on: ubuntu-latest
-    if: ${{ hashFiles('tools/sim_host/tests/test_phase3_ctrl.c') != '' }}
     steps:
       - uses: actions/checkout@v4
         with:
