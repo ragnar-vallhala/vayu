@@ -129,7 +129,11 @@ void RcBridge::run() {
   axis_[2] = -32767;
   button_.fill(0);
 
-  int cur_src = -1;     // currently-open source (-1 = none yet)
+  // Effective source actually open: Joystick, Uart, or kSrcNone (no device →
+  // neutral frames). The Uart source resolves to kSrcNone until the UI calls
+  // setUartConnected(true), so the sim never opens the board's tty on its own.
+  constexpr int kSrcNone = -2;
+  int cur_src = -99;    // last effective source opened (force first (re)open)
   int fd = -1;          // js or uart fd; the pty (master_fd_) is separate
   std::string uline;    // UART CSV line accumulator
   // Last UART-parsed channels, held between frames.
@@ -139,10 +143,15 @@ void RcBridge::run() {
   auto close_src = [&]() { if (fd >= 0) { ::close(fd); fd = -1; } };
 
   while (!stop_.load(std::memory_order_acquire)) {
-    const int want = source_.load(std::memory_order_acquire);
+    const int sel = source_.load(std::memory_order_acquire);
+    // Gate the Uart source behind the explicit connect flag.
+    const int want =
+        (sel == Uart && !uartConnected_.load(std::memory_order_acquire))
+            ? kSrcNone
+            : sel;
 
-    // (Re)open the input device when the source changes. master_fd_ (the pty
-    // the firmware reads) stays put, so switching source is seamless.
+    // (Re)open the input device when the effective source changes. master_fd_
+    // (the pty the firmware reads) stays put, so switching source is seamless.
     if (want != cur_src) {
       close_src();
       uline.clear();
@@ -153,7 +162,13 @@ void RcBridge::run() {
         path = (want == Uart) ? uart_path_ : js_path_;
         baud = uart_baud_;
       }
-      if (want == Uart) {
+      if (want == kSrcNone) {
+        // No device claimed — stream neutral frames, hold the port free.
+        emit logLine(QStringLiteral("RC: UART disconnected — neutral frames"));
+        axis_.fill(0);
+        axis_[2] = -32767;
+        button_.fill(0);
+      } else if (want == Uart) {
         fd = openUart(path.toLocal8Bit().constData(), baud);
         if (fd < 0)
           emit logLine(QString("RC: cannot open UART %1 (%2) — neutral frames")

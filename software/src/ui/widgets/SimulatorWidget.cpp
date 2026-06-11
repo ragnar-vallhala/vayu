@@ -3,6 +3,7 @@
 #include "../../vsim/MeshLoader.h"
 #include "../../vsim/WorldMeshBuilder.h"
 #include "CollapsibleSection.h"
+#include "comm/PortArbiter.h"
 #include "core/Theme.h"
 #include "core/ui/Buttons.h"
 
@@ -201,6 +202,23 @@ SimulatorWidget::SimulatorWidget(QWidget* parent) : QWidget(parent) {
     delete m_rc;
     m_rc = nullptr;
   }
+
+  // RC UART starts disconnected; reflect that on the button and gate it to the
+  // UART source. (The bridge's uartConnected_ already defaults false, so it has
+  // not opened any tty.)
+  setRcUartConnected(false);
+  if (m_rcConnect && m_rcSource)
+    m_rcConnect->setEnabled(m_rcSource->currentData().toInt() == RcBridge::Uart);
+
+  // If another subsystem (board telemetry) claims the RC port, give it up.
+  connect(&PortArbiter::instance(), &PortArbiter::revoked, this,
+          [this](const QString&, QObject* owner) {
+            if (owner == this && m_rcUartConnected) {
+              appendLog("rc", tr("RC UART port taken by another connection — "
+                                  "disconnected."));
+              setRcUartConnected(false);
+            }
+          });
 }
 
 SimulatorWidget::~SimulatorWidget() {
@@ -523,6 +541,18 @@ void SimulatorWidget::buildUi() {
                 if (m_rc) m_rc->setUartBaud(b);
               });
       rcRow->addWidget(m_rcBaud);
+
+      // Explicit Connect for the UART source. The sim does NOT open the serial
+      // device until this is pressed, so it can't fight the board telemetry for
+      // the port. Disconnected by default; only meaningful for the UART source.
+      m_rcConnect = new QPushButton(tr("Connect"), simBody);
+      m_rcConnect->setObjectName("ToggleButton");
+      m_rcConnect->setCheckable(true);
+      m_rcConnect->setToolTip(tr("Connect/disconnect the RC UART device. The sim "
+                                 "only grabs the serial port while connected."));
+      connect(m_rcConnect, &QPushButton::clicked, this,
+              [this] { setRcUartConnected(!m_rcUartConnected); });
+      rcRow->addWidget(m_rcConnect);
 
       // Acro (rate) flight-mode toggle. This IS the simulated RC ch6 switch: it
       // drives RcBridge ch6, the firmware reads ch6 and resolves the mode (no GCS
@@ -1378,6 +1408,11 @@ void SimulatorWidget::applyRcSource() {
   }
   if (m_rcBaud) m_rcBaud->setEnabled(uart);
 
+  // The explicit Connect button only applies to the UART source. Switching to
+  // the joystick (or away from UART) drops any held serial port.
+  if (!uart && m_rcUartConnected) setRcUartConnected(false);
+  if (m_rcConnect) m_rcConnect->setEnabled(uart);
+
   // Axis mapping only applies to a joystick; a CSV stream is already
   // channelised, so grey the mapping out under UART.
   for (int f = 0; f < 5; ++f) {
@@ -1407,6 +1442,29 @@ void SimulatorWidget::commitRcPath() {
   if (m_rc) {
     if (uart) m_rc->setUartPath(path);
     else      m_rc->setJoystickPath(path);
+  }
+}
+
+void SimulatorWidget::setRcUartConnected(bool on) {
+  m_rcUartConnected = on;
+  const QString path = m_rcPath ? m_rcPath->currentText() : QString();
+  if (m_rc) {
+    if (on) {
+      // Claim the port first — this revokes it from the board telemetry (or any
+      // other holder), which disconnects in response, so only one owner ever
+      // has the tty open.
+      PortArbiter::instance().acquire(path, this);
+      m_rc->setUartPath(path);
+      m_rc->setUartConnected(true);
+    } else {
+      m_rc->setUartConnected(false);
+      PortArbiter::instance().release(path, this);
+    }
+  }
+  if (m_rcConnect) {
+    QSignalBlocker b(m_rcConnect);
+    m_rcConnect->setChecked(on);
+    m_rcConnect->setText(on ? tr("Disconnect") : tr("Connect"));
   }
 }
 

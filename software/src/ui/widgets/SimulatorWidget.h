@@ -157,6 +157,8 @@ class SimulatorWidget : public QWidget {
   QComboBox* m_rcSource = nullptr;          // USB joystick vs UART (CSV)
   QComboBox* m_rcBaud = nullptr;            // UART baud (UART source only)
   QComboBox* m_rcPath = nullptr;            // editable: device path or picked port
+  QPushButton* m_rcConnect = nullptr;       // explicit connect for the RC UART
+  bool m_rcUartConnected = false;           // is the RC UART device opened?
   QLabel* m_rcReadout = nullptr;
   QLabel* m_rcAxesLabel = nullptr;          // live per-axis µs (identify)
   QCheckBox* m_acroChk = nullptr;           // acro toggle; synced from telemetry
@@ -169,6 +171,9 @@ class SimulatorWidget : public QWidget {
   // UI: swap the device field, enable/disable baud + axis mapping.
   void applyRcSource();
   void commitRcPath();                      // device field → bridge + persist
+  // Open/close the RC UART device via the bridge, claiming/releasing the port
+  // through PortArbiter so the board telemetry and the sim never collide.
+  void setRcUartConnected(bool on);
   vsim::SimRendererWidget* m_renderer = nullptr;
   SimHudWidget* m_hud = nullptr;   // FPV telemetry overlay on the viewport
   HorizonHud* m_horizon = nullptr; // compact attitude indicator, top-right corner
