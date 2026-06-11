@@ -36,7 +36,7 @@ extern "C" {
 
 // Bump on any wire-incompatible change. Producer / consumer compare
 // versions on first frame and exit if mismatched.
-#define VSIM_PROTO_VERSION 1u
+#define VSIM_PROTO_VERSION 2u
 
 // Frame type tags. Each one is locked to a specific struct; the
 // receiver dispatches on type after validating magic + length.
@@ -67,7 +67,7 @@ typedef struct {
     float duty[4];
 } vsim_pwm_frame_t;
 
-// IMU body: 76-byte bmx160_all_converted_reading_t mirror. The exact
+// IMU body: 88-byte bmx160_all_converted_reading_t mirror. The exact
 // layout is fixed by the firmware's host_imu_feeder.c expectations:
 //   float acc[3];           // m/s^2 in body NED
 //   float gyr[3];           // deg/s in body NED  (NOT rad/s on the wire)
@@ -75,11 +75,13 @@ typedef struct {
 //   float acc_raw[3];       // mirror of acc (firmware ignores when via bridge)
 //   float gyr_raw[3];       // mirror of gyr
 //   float mag_compensated[3]; // mirror of mag
+//   float mag_fusion[3];    // calibrated + unit-normalized (estimator input)
 //   float temp;             // degC
-// = 19 floats = 76 bytes. We keep the type opaque here and let the
+// = 22 floats = 88 bytes. We keep the type opaque here and let the
 // firmware-side header own the field decomposition; what matters on the
-// wire is just the byte count.
-#define VSIM_IMU_PAYLOAD_BYTES 76
+// wire is just the byte count. (Was 19 floats / 76 B before bmx160's
+// mag_fusion[3] field was added — a wire break, hence the proto-version bump.)
+#define VSIM_IMU_PAYLOAD_BYTES 88
 
 typedef struct {
     vsim_hdr_t hdr;
@@ -255,7 +257,7 @@ typedef struct {
 #ifdef __cplusplus
 static_assert(sizeof(vsim_hdr_t)        == 16, "vsim_hdr_t size");
 static_assert(sizeof(vsim_pwm_frame_t)  == 16 + 16,  "vsim_pwm_frame_t size");
-static_assert(sizeof(vsim_imu_frame_t)  == 16 + 76,  "vsim_imu_frame_t size");
+static_assert(sizeof(vsim_imu_frame_t)  == 16 + 88,  "vsim_imu_frame_t size");
 static_assert(sizeof(vsim_pose_frame_t) == 16 + 92,  "vsim_pose_frame_t size");
 static_assert(sizeof(vsim_ctl_frame_t)  == 16 + 264, "vsim_ctl_frame_t size");
 static_assert(sizeof(vsim_ctl_geometry_t) == 200,    "vsim_ctl_geometry_t size");
@@ -264,7 +266,7 @@ static_assert(sizeof(vsim_ctl_world_mesh_t) <= 256,  "vsim_ctl_world_mesh_t fits
 #else
 _Static_assert(sizeof(vsim_hdr_t)        == 16, "vsim_hdr_t size");
 _Static_assert(sizeof(vsim_pwm_frame_t)  == 16 + 16,  "vsim_pwm_frame_t size");
-_Static_assert(sizeof(vsim_imu_frame_t)  == 16 + 76,  "vsim_imu_frame_t size");
+_Static_assert(sizeof(vsim_imu_frame_t)  == 16 + 88,  "vsim_imu_frame_t size");
 _Static_assert(sizeof(vsim_pose_frame_t) == 16 + 92,  "vsim_pose_frame_t size");
 _Static_assert(sizeof(vsim_ctl_frame_t)  == 16 + 264, "vsim_ctl_frame_t size");
 _Static_assert(sizeof(vsim_ctl_geometry_t) == 200,    "vsim_ctl_geometry_t size");
