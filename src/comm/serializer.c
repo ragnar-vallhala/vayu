@@ -74,8 +74,10 @@ err_t send_packet(channel_t *channel, packet_type_t packet_type, byte *payload,
 }
 
 void uart2_packet_recv_callback(void) {
-  // 1. Read the SINGLE available byte that triggered the interrupt
-  uint8_t b = (uint8_t)hal_uart_read_char(HAL_UART_2);
+  // 1. Read the SINGLE available byte that triggered the interrupt. Must match
+  // the telemetry channel's UART (USART6, PC6/PC7) — hal_uart_read_char()
+  // busy-waits on that peripheral's RXNE.
+  uint8_t b = (uint8_t)hal_uart_read_char(HAL_UART_6);
   // 2. Feed to non-blocking state machine
   if (deserializer_feed(&_uart_recv_state, b)) {
     // 3. Valid Packet Found! Find a free slot to store it

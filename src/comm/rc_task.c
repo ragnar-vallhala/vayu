@@ -36,10 +36,11 @@ void rc_ibus_task(void *args) {
   // Initialize iBus library
   ibus_init(&ibus_raw_data);
 
-  // Initialize UART6 DMA RX (115200 baud is standard for iBus)
+  // Initialize USART2 DMA RX (PA2/PA3 per Vayu PCB; 115200 baud for iBus).
+  // Telemetry owns USART6, so iBus moves to USART2.
   hal_uart_config_t ibus_uart_cfg = {.baudrate = 115200};
-  hal_uart_init(HAL_UART_6, &ibus_uart_cfg);
-  hal_uart_init_dma_rx(HAL_UART_6, ibus_dma_buf, IBUS_DMA_BUF_SIZE);
+  hal_uart_init(HAL_UART_2, &ibus_uart_cfg);
+  hal_uart_init_dma_rx(HAL_UART_2, ibus_dma_buf, IBUS_DMA_BUF_SIZE);
 
   /* Seed the watchdog clock so a cold-booted vehicle has the full
    * RC_LOSS_TIMEOUT_MS to receive the first frame before FAILSAFE. */
