@@ -89,7 +89,10 @@ static inline float vayu_dt_from_cycles(uint32_t now_cyc, uint32_t prev_cyc) {
 // only the heading (yaw) reference, so fuse it gently — strong enough to hold
 // heading, weak enough not to disturb the gravity-referenced tilt.
 #define SF_MAHONY_MAG_WEIGHT 0.30f
-#define SF_FILTER_USED SF_MAHONY
+/* Active attitude filter. One of: SF_COMPLEMENTARY, SF_MAHONY, SF_EKF
+ * (6-state attitude + gyro bias), SF_EKF_ACCEL_BIAS (9-state, also accel
+ * bias). EKF tunables live in include/est/ekf.h. */
+#define SF_FILTER_USED SF_EKF
 #define RADIO_AVOID_BAND 10
 
 // PID

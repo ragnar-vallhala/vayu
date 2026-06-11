@@ -105,6 +105,7 @@ set(VAYU_R12_CLEAN_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/actuator/motor.c
     # EST module (Phase 4)
     ${CMAKE_CURRENT_SOURCE_DIR}/src/est/sensor_fusion.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/est/ekf.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/est/lpf.c
     # SNS module (Phase 4)
     ${CMAKE_CURRENT_SOURCE_DIR}/src/sensor/bmx160.c
@@ -145,6 +146,19 @@ set_source_files_properties(${VAYU_R12_CLEAN_SOURCES}
 # Math backend options
 #-------------------------
 option(USE_STANDARD_MATH "Use standard math.h backend" ON)
+
+#-------------------------
+# EKF on-target self-test
+#-------------------------
+# Compiles src/est/ekf_selftest.c's branch-coverage scenarios into the firmware
+# and runs them at boot (src/main.c), logging each check + the total over the
+# telemetry UART. Off by default so production firmware carries none of it:
+#   cmake -B build_ekftest -DEKF_SELFTEST=ON && cmake --build build_ekftest
+option(EKF_SELFTEST "Run the EKF correctness self-test at boot (UART report)" OFF)
+if(EKF_SELFTEST)
+  add_compile_definitions(EKF_SELFTEST)
+  message(STATUS "EKF_SELFTEST enabled: self-test runs at boot")
+endif()
 
 #-------------------------
 # Simulation build

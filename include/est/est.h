@@ -81,6 +81,8 @@ void estimator_reset(void);
 typedef enum {
   SF_COMPLEMENTARY,
   SF_MAHONY,
+  SF_EKF,            /**< Error-state EKF: attitude + gyro bias (6-state). */
+  SF_EKF_ACCEL_BIAS, /**< As SF_EKF plus accelerometer bias (9-state). */
 } sensor_fusion_filter_t;
 
 void m_acc_mag(const float ax, const float ay, const float az, const float mx,
@@ -97,6 +99,34 @@ void m_mahony_filter(const float ax, const float ay, const float az,
                      const float gx, const float gy, const float gz,
                      const float mx, const float my, const float mz,
                      float dt, attitude_t *ori);
+
+/* ----------------------------------------------------------------------------
+ * Error-state EKF (MEKF) — see src/est/ekf.c, tunables in est/ekf.h.
+ * --------------------------------------------------------------------------*/
+
+/**
+ * @brief Initialise the EKF instance and its covariance.
+ * @param estimate_accel_bias  false ⇒ 6-state (attitude + gyro bias),
+ *                             true  ⇒ 9-state (also accel bias).
+ */
+void ekf_init(bool estimate_accel_bias);
+
+/** Re-seed the EKF (zero covariance growth, re-level on next sample),
+ *  preserving the configured state dimension. Called by estimator_reset(). */
+void ekf_reset(void);
+
+/** Current estimated gyro bias (rad/s, body axes). */
+void ekf_get_gyro_bias(float out[3]);
+
+/** Current estimated accelerometer bias (m/s^2, body axes); zero unless the
+ *  9-state (SF_EKF_ACCEL_BIAS) variant is active. */
+void ekf_get_accel_bias(float out[3]);
+
+/* Same I/O contract as m_mahony_filter(); `dt` is the inter-sample interval. */
+void m_ekf_filter(const float ax, const float ay, const float az,
+                  const float gx, const float gy, const float gz,
+                  const float mx, const float my, const float mz, float dt,
+                  attitude_t *ori);
 
 /* ----------------------------------------------------------------------------
  * First-order low-pass filter (support)
