@@ -58,17 +58,32 @@ void init_sensors(void) {
   }
 }
 
+/* Stack sizes right-sized from the perf high-water telemetry (peak bytes used,
+ * observed on-target) with a ~2.5x+ safety margin and a 1 KiB floor; control /
+ * actuator tasks kept more generous. Re-check via the Kernel Perf view after
+ * exercising worst-case paths (arm, calibrate, failsafe) before trusting the
+ * tightest values. Peaks at last measurement noted per line. */
 void init_tasks(void) {
-  task_create(comm_processor_task, NULL, 4096, 0);
-  bmx160_task_id = task_create(bmx160_initiate_read, NULL, 4096, 2);
-  task_create(rc_ibus_task, NULL, 4096, 0);
-  task_create(angle_controller_task, NULL, 1024 * 8,
-              1); // Higher priority for control
-  task_create(angle_rate_controller_task, NULL, 1024 * 8,
-              1);                             // Higher priority for control
-  task_create(motor_task, NULL, 1024 * 4, 1); // Higher priority for control
-  task_create(imu_telemetry_task, NULL, 1024 * 3, 0);
-  task_create(flush_task, NULL, 4096, 0);
+  task_create_named(comm_processor_task, NULL, 2048, 0,
+                    "comm_processor"); // peak ~748
+  bmx160_task_id =
+      task_create_named(bmx160_initiate_read, NULL, 1536, 2,
+                        "imu_read"); // peak ~404
+  // Attitude estimation (fusion), split out of the IMU driver. Consumes
+  // timestamped IMU samples, publishes timestamped attitude. Stack TBD via
+  // the perf high-water view.
+  task_create_named(attitude_task, NULL, 2048, 1, "attitude");
+  task_create_named(rc_ibus_task, NULL, 1024, 0, "rc_ibus"); // peak ~120
+  task_create_named(angle_controller_task, NULL, 2048, 1,
+                    "angle_ctl"); // peak ~396, control
+  task_create_named(angle_rate_controller_task, NULL, 2048, 1,
+                    "rate_ctl"); // peak ~484, control
+  task_create_named(motor_task, NULL, 1024, 1, "motor"); // peak ~252, actuator
+  task_create_named(imu_telemetry_task, NULL, 2048, 0,
+                    "imu_telemetry"); // peak ~748
+  task_create_named(flush_task, NULL, 1024, 0, "flush"); // peak ~124
+  task_create_named(perf_telemetry_task, NULL, 2048, 0,
+                    "perf_telemetry"); // peak ~796
   // task_create(test_task, NULL, 4096, 0);
 }
 void init_timer_callbacks(void) {
@@ -77,10 +92,16 @@ void init_timer_callbacks(void) {
     PANIC("Failed to register increment_high_freq_timer");
     return;
   };
+  // Pace the IMU accel/gyro reads to IMU_SAMPLE_FREQ_HZ (decouples the sensor
+  // rate from the I2C free-run speed; frees CPU above the control need).
+  if (timer_callback_register(bmx160_fast_tick_isr, IMU_FAST_PERIOD_US) != 0) {
+    PANIC("Failed to register bmx160_fast_tick_isr");
+    return;
+  };
 }
 void system_init_tasks(void) {
-  task_create(heartbeat_task, NULL, 2048, 0);
-  task_create(boot_task, NULL, 1024, 0);
+  task_create_named(heartbeat_task, NULL, 1024, 0, "heartbeat"); // peak ~124
+  task_create_named(boot_task, NULL, 1024, 0, "boot");
 }
 hal_i2c_config_t i2c_config = {
     .clock_speed = HAL_I2C_SPEED_FAST,

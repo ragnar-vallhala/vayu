@@ -14,5 +14,10 @@ void imu_telemetry_task(void *args);
 void rc_ibus_task(void *args);
 void motor_task(void *args);
 void calibration_task(void *args);
+/* Attitude estimation (fusion) — consumes timestamped IMU samples, publishes
+ * timestamped attitude. Split out of the IMU driver. */
+void attitude_task(void *args);
+/* Periodic kernel/observability reporter (FC -> GCS, PACKET_TYPE_PERF_STATS). */
+void perf_telemetry_task(void *args);
 
 #endif // !VAYU_TASKS_H

@@ -121,13 +121,6 @@ bool angle_rate_controller_apply_geometry_command(const uint8_t *payload,
   return true;
 }
 
-static inline float get_dt(void) {
-  static uint32_t last_time = 0;
-  uint32_t current_time = hal_cycle_counter_get();
-  float dt = (float)(current_time - last_time) / SYS_CLOCK_FREQ;
-  last_time = current_time;
-  return dt;
-}
 void angle_rate_controller_init(void) {
   for (int i = 0; i < NUM_AXES; i++) {
     v_pid_init(&angle_rate_controller.pid[i], angle_rate_controller.pid[i].Kp,
@@ -183,6 +176,8 @@ void angle_rate_controller_task(void *arg) {
   angle_rate_controller_init();
   static bmx160_all_reading_t imu_data = {0};
   static bmx160_all_reading_t prev_imu_data = {0};
+  /* Previous sample's acquisition cycle stamp; dt is the delta of these (the
+   * true inter-sample interval), not a DWT read at loop time. */
   static motor_outputs_t motor_outputs = {0};
   static angle_controller_outputs_t angle_controller_outputs;
   static angle_controller_outputs_t last_angle_controller_outputs;
@@ -197,31 +192,27 @@ void angle_rate_controller_task(void *arg) {
    * the drone leaves the ground. */
 #define RATE_PID_INTEGRATE_THROTTLE 0.3f
 
-  /* CTRL-RATE-101: worst-case rate-loop period. Under normal operation
-   * the loop wakes on IMU arrival (~sub-ms); this timeout only bounds
-   * the period if the IMU stalls, keeping the failsafe / motor path
-   * alive at >= 200 Hz. */
-#define RATE_LOOP_MAX_PERIOD_MS 5
-
   set_motor_ready(true);
+  /* Hard-pinned inner-loop rate (INNER_LOOP_FREQ_HZ): the loop runs on a
+   * drift-free periodic schedule (task_delay_until), not on IMU-sample arrival.
+   * The IMU produces faster than the control rate, so each tick we drain the
+   * OVERWRITE control ring to the freshest sample and integrate with a constant
+   * dt = INNER_LOOP_DT. If the IMU stalls the loop still ticks (failsafe / motor
+   * path stays alive) and reuses the last sample. */
+  uint32_t last_wake = v_get_ticks();
+  const float dt = INNER_LOOP_DT;
   while (1) {
-    /* CTRL-RATE-101: the rate loop is triggered by IMU-sample arrival,
-     * not by polling the clock. Block until the IMU task pushes a fresh
-     * control sample, with a timeout that bounds the worst-case loop
-     * period so the failsafe / motor-output path keeps running even if
-     * the IMU stalls (the pop below then falls back to prev_imu_data). */
-    imu_queue_control_wait(MS_TO_TICKS(RATE_LOOP_MAX_PERIOD_MS));
+    task_delay_until(&last_wake, INNER_LOOP_PERIOD_TICKS);
 
-    // Getting all the data
-
-    // Get IMU data
-    if (imu_queue_control_pop(&imu_data)) {
+    // Get the freshest IMU data (drain the ring; producer runs faster).
+    bool got_sample = false;
+    while (imu_queue_control_pop(&imu_data)) {
       prev_imu_data = imu_data;
-    } else {
-      imu_data = prev_imu_data;
+      got_sample = true;
     }
-
-    float dt = get_dt();
+    if (!got_sample) {
+      imu_data = prev_imu_data; // IMU stalled — hold last sample
+    }
 
     // Applying deadband to the gyro data
     for (int i = 0; i < NUM_AXES; i++) {

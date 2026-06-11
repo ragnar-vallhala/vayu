@@ -1,6 +1,7 @@
 #ifndef VAYU_IMU_BUFFER_H
 #define VAYU_IMU_BUFFER_H
 
+#include "comm/perf_packet.h"
 #include "sensor/bmx160.h"
 #include <stdbool.h>
 #include <stdint.h>
@@ -8,17 +9,11 @@
 #define IMU_BUFFER_SIZE 10
 
 void imu_buffer_init(void);
-void imu_buffer_push(const bmx160_all_reading_t *sample);
 
-/**
- * @brief Number of IMU samples discarded by the OVERWRITE ring because
- *        the consumer fell behind. Surfaced through telemetry.
- * @implements SNS-BUF-002
- */
-uint32_t imu_buffer_drop_count(void);
-bool imu_buffer_peek(bmx160_all_reading_t *out_sample);
-int imu_buffer_peek_all(bmx160_all_reading_t *out_samples, int max_count);
-int imu_buffer_count(void);
+/* Fill perf wire rows for this module's SPSC fifos (peak/capacity/drops).
+ * Returns the number of rows written (<= max). */
+int imu_buffer_perf_fifos(perf_fifo_row_t *rows, int max);
+
 bool imu_queue_telemetry_push(const bmx160_all_reading_t *sample);
 bool imu_queue_telemetry_pop(bmx160_all_reading_t *out_sample);
 bool imu_queue_telemetry_peek(bmx160_all_reading_t *out_sample);
@@ -45,6 +40,12 @@ bool imu_queue_control_peek(bmx160_all_reading_t *out_sample);
  * @implements CTRL-RATE-101
  */
 bool imu_queue_control_wait(uint32_t ticks_to_wait);
+
+/* IMU -> attitude task queue (estimator input). push from the IMU driver,
+ * pop/wait from the attitude task. */
+bool imu_queue_attitude_push(const bmx160_all_reading_t *sample);
+bool imu_queue_attitude_pop(bmx160_all_reading_t *out_sample);
+bool imu_queue_attitude_wait(uint32_t ticks_to_wait);
 
 bool attitude_queue_telemetry_push(const attitude_t *attitude);
 bool attitude_queue_telemetry_pop(attitude_t *out_attitude);

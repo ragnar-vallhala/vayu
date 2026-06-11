@@ -11,6 +11,24 @@
 // Clock Freq
 #define SYS_CLOCK_FREQ 84000000 // 84MHz
 
+/* Seconds between two DWT cycle-counter stamps (wrap-safe unsigned delta),
+ * clamped to a sane range. IMU samples and attitude estimates carry their
+ * acquisition cycle stamp (bmx160_all_converted_reading_t.timestamp,
+ * attitude_t.timestamp); the control loops and the fusion step derive dt from
+ * deltas of those instead of reading DWT at execution time, so dt is the true
+ * inter-sample interval, immune to scheduler jitter. Floor prevents a div-by-0
+ * in the PID derivative on a duplicate/first stamp; ceil bounds a wrap or stall.
+ */
+static inline float vayu_dt_from_cycles(uint32_t now_cyc, uint32_t prev_cyc) {
+  uint32_t d = now_cyc - prev_cyc; /* wrap-safe */
+  float dt = (float)d / (float)SYS_CLOCK_FREQ;
+  if (dt < 1e-4f)
+    dt = 1e-4f;
+  if (dt > 0.1f)
+    dt = 0.1f;
+  return dt;
+}
+
 // Physical Heartbeat LED
 #define _BLUE_LED_PIN GPIO_PB12
 #define _GREEN_LED_PIN GPIO_PB13
@@ -172,14 +190,41 @@
 
 #define MAX_ANGLE_CUTOFF 70.0f
 
-/* Outer (angle) loop pacing. The angle loop runs at inner_rate / OUTER_LOOP_DECIM
- * by decimating attitude-sample wakeups (the attitude estimate is pushed once per
- * inner/IMU sample). At the 1 kHz default inner rate that is 250 Hz — slower than
- * the rate loop (proper cascade bandwidth separation) yet tied to it, so it tracks
- * the configured IMU rate automatically. OUTER_LOOP_MAX_PERIOD_MS bounds the wait
- * so the bank-angle failsafe keeps running if the estimator stalls. */
-#define OUTER_LOOP_DECIM 4
-#define OUTER_LOOP_MAX_PERIOD_MS 10
+/* Control-loop rates. The inner (rate) loop is hard-pinned to INNER_LOOP_FREQ_HZ
+ * with a drift-free periodic wait (task_delay_until); the outer (angle) loop
+ * runs at inner / OUTER_LOOP_DECIM. Each loop reads the freshest IMU sample /
+ * attitude (the producers run at sensor rate and the OVERWRITE rings keep the
+ * latest) and integrates with a CONSTANT dt = 1/freq, so the PID sees a fixed
+ * timestep regardless of execution jitter or sensor-rate variation.
+ *
+ * NOTE: with the 1 ms SysTick the loop period is quantised to whole ms, so
+ * INNER_LOOP_FREQ_HZ is effectively capped at 1000 and should divide 1000
+ * (1000, 500, 250, ...). Override INNER_LOOP_FREQ_HZ before this header to
+ * retune. */
+#ifndef INNER_LOOP_FREQ_HZ
+#define INNER_LOOP_FREQ_HZ 1000 /* rate (inner) loop, Hz */
+#endif
+
+/* IMU acquisition rate. The accel/gyro (FAST) reads are paced to this off the
+ * HIGH_FREQ_TIMER (the 1 ms SysTick can't time sub-ms periods), decoupling the
+ * sensor rate from the I2C free-run speed (~2.8 kHz). Default oversamples the
+ * 1 kHz control loop 2x for gyro anti-aliasing / fusion fidelity while freeing
+ * the CPU the extra ~0.8 kHz of per-sample work was burning. Must be <= the
+ * I2C-bound ceiling (~2.8 kHz) and divide cleanly into 1e6 us. */
+#ifndef IMU_SAMPLE_FREQ_HZ
+#define IMU_SAMPLE_FREQ_HZ 2000
+#endif
+#define IMU_FAST_PERIOD_US (1000000u / IMU_SAMPLE_FREQ_HZ)
+#define OUTER_LOOP_DECIM 4 /* outer = inner / OUTER_LOOP_DECIM */
+#define OUTER_LOOP_FREQ_HZ (INNER_LOOP_FREQ_HZ / OUTER_LOOP_DECIM)
+
+/* Periods in SysTick ticks (1 tick = SYSTICK_PERIOD us = 1 ms by default). */
+#define INNER_LOOP_PERIOD_TICKS MS_TO_TICKS(1000 / INNER_LOOP_FREQ_HZ)
+#define OUTER_LOOP_PERIOD_TICKS (INNER_LOOP_PERIOD_TICKS * OUTER_LOOP_DECIM)
+
+/* Constant integration timesteps (seconds) derived from the pinned rates. */
+#define INNER_LOOP_DT (1.0f / (float)INNER_LOOP_FREQ_HZ)
+#define OUTER_LOOP_DT ((float)OUTER_LOOP_DECIM / (float)INNER_LOOP_FREQ_HZ)
 
 /* Acro (rate) mode: a flight-mode toggle on RC channel ACRO_SWITCH_CH (0-based;
  * 5 == channel 6). When the channel reads above ACRO_SWITCH_US the attitude

@@ -186,6 +186,8 @@ typedef struct {
   float mag_compensated[3]; // Compensated uT (pre offset/scale)
   float mag_fusion[3];      // Calibrated + unit-normalized; estimator input only
   float temp;
+  uint32_t timestamp;       // DWT cycle stamp at sample acquisition (for dt;
+                            // see vayu_dt_from_cycles in variables.h)
 } bmx160_all_converted_reading_t;
 
 typedef union {
@@ -201,6 +203,9 @@ uint16_t bmx160_get_chip_id(void);
 void wake_imu_read_task(void);
 void bmx160_initiate_read(void *args);
 void bmx160_dma_callback(void *args);
+/* HIGH_FREQ_TIMER callback that paces the accel/gyro reads to
+ * IMU_SAMPLE_FREQ_HZ. Register with timer_callback_register(..., IMU_FAST_PERIOD_US). */
+void bmx160_fast_tick_isr(void);
 
 
 // Temp APIs

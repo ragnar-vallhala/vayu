@@ -25,10 +25,12 @@
 
 #include "est/est.h"
 #include "sensor/sensor.h"
+#include "variables.h" /* vayu_dt_from_cycles, SYS_CLOCK_FREQ */
 
 #include <errno.h>
 #include <fcntl.h>
 #include <pthread.h>
+#include <stddef.h> /* offsetof */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -137,9 +139,13 @@ static int read_framed_imu(int fd, void *out_payload) {
 static void *imu_feeder_thread(void *arg) {
   (void)arg;
 
-  /* Compile-time guarantee that the on-wire layout matches our struct. */
-  _Static_assert(sizeof(bmx160_all_converted_reading_t) == EXPECTED_FRAME_BYTES,
-                 "bmx160_all_converted_reading_t must be 76 B on this build");
+  /* Compile-time guarantee that the on-wire layout matches our struct. The
+   * sim transmits the original 76-B converted reading (acc..temp); the
+   * `timestamp` field appended for the dt refactor is host-set after the read,
+   * so it must sit exactly at offset 76 (the wire fields stay byte-identical). */
+  _Static_assert(offsetof(bmx160_all_converted_reading_t, timestamp) ==
+                     EXPECTED_FRAME_BYTES,
+                 "wire fields of bmx160_all_converted_reading_t must be 76 B");
 
   bmx160_all_reading_t sample;
   attitude_t att = {
@@ -180,18 +186,30 @@ static void *imu_feeder_thread(void *arg) {
       break;
     }
 
+    /* Stamp the sample at "acquisition" (host shim derives the 84 MHz-virtual
+     * cycle counter from CLOCK_MONOTONIC). Mirrors the on-target driver: the
+     * control loops and fusion take dt from these stamps, not a counter read at
+     * run time. */
+    static uint32_t prev_cyc = 0;
+    static bool have_prev = false;
+    uint32_t now_cyc = hal_cycle_counter_get();
+    sample.converted.timestamp = now_cyc;
+
     /* The IMU sample feeds the angle_rate_controller directly. */
     imu_queue_control_push(&sample);
     imu_queue_telemetry_push(&sample);
 
     /* Mahony updates `att` in place (its quaternion is the filter state).
-     * dt is taken from hal_cycle_counter_get(), which our host shim
-     * derives from CLOCK_MONOTONIC. */
+     * dt is the inter-sample interval from the acquisition stamps. */
+    float dt = have_prev ? vayu_dt_from_cycles(now_cyc, prev_cyc) : 1e-3f;
+    prev_cyc = now_cyc;
+    have_prev = true;
     m_mahony_filter(sample.converted.acc[0], sample.converted.acc[1],
                     sample.converted.acc[2], sample.converted.gyr[0],
                     sample.converted.gyr[1], sample.converted.gyr[2],
                     sample.converted.mag[0], sample.converted.mag[1],
-                    sample.converted.mag[2], &att);
+                    sample.converted.mag[2], dt, &att);
+    att.timestamp = now_cyc; /* angle loop derives its dt from this */
 
     attitude_queue_control_push(&att);
     attitude_queue_telemetry_push(&att);

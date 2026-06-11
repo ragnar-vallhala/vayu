@@ -65,6 +65,21 @@ void task_delay(uint32_t ticks) {
     v_delay(ticks);
 }
 
+/* Drift-free periodic delay shim (cf. vaios task_delay_until). v_get_ticks() is
+ * ms on the host, so periods are in ms. Sleeps until the absolute deadline
+ * *last_wake + period; returns false without sleeping on overrun. */
+bool task_delay_until(uint32_t *last_wake, uint32_t period) {
+    if (last_wake == NULL || period == 0)
+        return false;
+    uint32_t wake = *last_wake + period;
+    *last_wake = wake;
+    int32_t remaining = (int32_t)(wake - v_get_ticks());
+    if (remaining <= 0)
+        return false;
+    v_delay((uint32_t)remaining);
+    return true;
+}
+
 /* ---- task creation: 1 task <-> 1 pthread ------------------------------ */
 typedef struct {
     void (*entry)(void *);
@@ -103,6 +118,30 @@ uint32_t task_create(void (*entry)(void *), void *arg, uint32_t stack_size,
     pthread_detach(th);
     pthread_attr_destroy(&attr);
     return next_task_id++;
+}
+
+uint32_t task_create_named(void (*entry)(void *), void *arg,
+                           uint32_t stack_size, uint32_t priority,
+                           const char *name) {
+    (void)name; /* host shim has no TCB to store the name in */
+    return task_create(entry, arg, stack_size, priority);
+}
+
+/* The host shim has no TCB registry, so naming is a no-op and lookups return
+ * "". Task names are a target-side diagnostic; SITL doesn't model them. */
+void task_set_name(uint32_t task_id, const char *name) {
+    (void)task_id;
+    (void)name;
+}
+
+const char *task_get_name(const struct Task_Control_Block *task) {
+    (void)task;
+    return "";
+}
+
+const char *task_get_name_by_id(uint32_t task_id) {
+    (void)task_id;
+    return "";
 }
 
 void task_exit(void) {

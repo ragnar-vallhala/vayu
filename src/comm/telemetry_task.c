@@ -103,7 +103,10 @@ void imu_telemetry_task(void *args) {
       health_payload[0] = SYSTEM_ORIGIN_HEALTH;
       health_payload[1] = 0x00; // reserved/padding
       uint32_t tx_overflow = channel_tx_overflow_count();
-      uint32_t imu_drop = imu_buffer_drop_count();
+      /* The legacy IMU averaging ring (and its drop counter) was removed; live
+       * per-ring drop/peak is now in the perf telemetry (Kernel Perf view).
+       * Field kept at 0 to preserve the HEALTH packet layout. */
+      uint32_t imu_drop = 0;
       uint32_t log_wrap = logger_wrap_count_total();
       v_memcpy(&health_payload[2], &tx_overflow, 4);
       v_memcpy(&health_payload[6], &imu_drop, 4);
