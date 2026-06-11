@@ -37,6 +37,8 @@ signals:
   void statusReceived(const QString &message);
   void calibrationUpdateReceived(const CalibrationUpdate &update);
   void heartbeatReceived(uint64_t timestamp, uint8_t deviceId);
+  void perfReceived(const PerfReport &report);
+  void taskNameReceived(int taskId, const QString &name);
   void timeSyncRequested();
   void unknownPacket(const QByteArray &raw);
   void packetReceived(const QByteArray &packet);

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <QString>
+#include <QVector>
 #include <cstdint>
 
 // -----------------------------------------------------------
@@ -101,4 +103,59 @@ struct ControlLoopData {
 struct FlightModeStatus {
   uint8_t mode = 0;
   uint8_t source = 0;
+};
+
+// -----------------------------------------------------------
+// Kernel / observability telemetry – mirrors the firmware
+// PACKET_TYPE_PERF_STATS wire format (comm/perf_packet.h). A report is
+// reassembled from GLOBAL + TASKS + FIFOS fragments before emission.
+// -----------------------------------------------------------
+struct PerfTaskRow {
+  uint8_t id = 0;
+  uint8_t priority = 0;
+  uint8_t state = 0; // 0 READY, 1 RUNNING, 2 BLOCKED, 3 DELAYED
+  uint16_t stackPeak = 0;
+  uint16_t stackSize = 0;
+  uint32_t cycles = 0;
+  uint32_t switches = 0;
+  uint32_t maxBurst = 0;
+  // Name is resolved on demand (PACKET_TYPE_PERF_TASKNAME) and cached in the
+  // widget, not carried in the perf report.
+};
+
+// Reply to a task-name request (PACKET_TYPE_PERF_TASKNAME, FC -> GCS).
+struct TaskNameInfo {
+  uint8_t id = 0;
+  QString name;
+};
+
+struct PerfFifoRow {
+  uint8_t id = 0; // perf_fifo_id_t
+  uint16_t peak = 0;
+  uint16_t capacity = 0;
+  uint16_t drops = 0;
+};
+
+struct PerfReport {
+  uint32_t seq = 0;
+  bool enabled = false;
+  uint32_t uptimeTicks = 0;
+  uint32_t schedSwitches = 0;
+  uint32_t cpuCyclesLo = 0;
+  uint32_t idleCyclesLo = 0;
+  uint32_t systickCount = 0;
+  uint32_t systickLastCyc = 0;
+  uint32_t systickMaxCyc = 0;
+  uint32_t systickPreemptions = 0;
+  uint32_t ipcTakes = 0;
+  uint32_t ipcBlocked = 0;
+  uint32_t ipcGives = 0;
+  uint32_t ipcTimeouts = 0;
+  uint32_t heapAllocs = 0;
+  uint32_t heapFrees = 0;
+  uint32_t heapOom = 0;
+  uint32_t heapPeakBytes = 0;
+  uint32_t heapTotalBytes = 0;
+  QVector<PerfTaskRow> tasks;
+  QVector<PerfFifoRow> fifos;
 };
