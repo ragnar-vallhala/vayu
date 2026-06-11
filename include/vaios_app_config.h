@@ -34,7 +34,12 @@
 // Memory
 #define MAIN_STACK_SIZE 10240 // 10KB
 
-#define HEAP_SIZE 0xC000 // 48KB
+// 56KB. vaios kernel/memory.c now includes the vaios_config.h aggregator
+// (which pulls in this app config ahead of the #ifndef-guarded kernel default),
+// so this value reaches the heap sizing directly — no -DHEAP_SIZE override
+// needed. Sized to fit the 96KB SRAM; the old 0x16000 kernel default overran it
+// once .bss grew past ~8KB (heap_start + 0x16000 > top of RAM) -> boot HardFault.
+#define HEAP_SIZE 0xE000
 
 #define STACK_ALIGN_SIZE 8
 
