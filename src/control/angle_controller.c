@@ -108,13 +108,6 @@ bool angle_controller_set_gains(uint8_t axis, float kp, float ki, float kd,
   return true;
 }
 
-static inline float get_dt(void) {
-  static uint32_t last_time = 0;
-  uint32_t current_time = hal_cycle_counter_get();
-  float dt = (float)(current_time - last_time) / SYS_CLOCK_FREQ;
-  last_time = current_time;
-  return dt;
-}
 typedef struct {
   // normal rc channels
   float channels[4];
@@ -180,22 +173,18 @@ void angle_controller_task(void *arg) {
   static angle_controller_outputs_t angle_controller_outputs;
   static ibus_data_t rc_data;
   static ibus_data_t prev_rc_data;
-  static int outer_decim = 0;
+  /* Hard-pinned outer-loop rate (OUTER_LOOP_FREQ_HZ = INNER_LOOP_FREQ_HZ /
+   * OUTER_LOOP_DECIM): drift-free periodic schedule, constant integration
+   * timestep. The estimator runs faster, so each tick we take the freshest
+   * attitude (drained below). */
+  uint32_t last_wake = v_get_ticks();
+  const float dt = OUTER_LOOP_DT;
   while (1) {
-    /* Pace off the inner loop: wake on each attitude sample (pushed at the
-     * IMU/inner rate) and process one in every OUTER_LOOP_DECIM, so the angle
-     * loop runs at inner_rate / OUTER_LOOP_DECIM. On a wait timeout (estimator
-     * stalled) we fall through and run anyway so the bank-angle failsafe and
-     * motor path keep updating; the attitude pop below then reuses the last
-     * sample. This replaces the old fixed v_delay(2) — the rate now tracks the
-     * configured IMU rate instead of being pinned at 500 Hz. */
-    bool fresh = attitude_queue_control_wait(MS_TO_TICKS(OUTER_LOOP_MAX_PERIOD_MS));
-    if (fresh && ++outer_decim < OUTER_LOOP_DECIM) {
-      continue;
-    }
-    outer_decim = 0;
+    /* Drift-free periodic wait. Ticks even if the estimator stalls so the
+     * bank-angle failsafe / motor path keep updating (the attitude drain below
+     * then reuses the last estimate). */
+    task_delay_until(&last_wake, OUTER_LOOP_PERIOD_TICKS);
 
-    float dt = get_dt();
     if (rc_queue_control_pop(&rc_data)) {
       prev_rc_data = rc_data;
     } else {
@@ -224,8 +213,14 @@ void angle_controller_task(void *arg) {
                    (rc_data.channels[ACRO_SWITCH_CH] > ACRO_SWITCH_US);
     bool acro_mode = flight_mode_resolve_acro(rc_acro);
 
-    if (!attitude_queue_control_pop(&attitude)) {
-      attitude = last_attitude;
+    /* Freshest attitude estimate (drain the OVERWRITE ring; the estimator runs
+     * faster than this loop). dt is the constant OUTER_LOOP_DT declared above. */
+    bool got_att = false;
+    while (attitude_queue_control_pop(&attitude)) {
+      got_att = true;
+    }
+    if (!got_att) {
+      attitude = last_attitude; // estimator stalled — hold last estimate
     }
     last_attitude = attitude;
     /* Bank-angle failsafe applies in angle mode only. In acro the airframe is

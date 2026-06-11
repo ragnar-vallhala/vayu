@@ -91,6 +91,7 @@ set(VAYU_SOURCES
     # UART2 in host_navhal pipes them to a pty (for live GCS attach) and
     # tees a raw copy to /tmp/vayu_uart2.log (for post-sim analysis).
     ${VAYU_ROOT}/src/comm/channel.c
+    ${VAYU_ROOT}/src/comm/perf_packet.c  # perf_fifo_fill_row (buffers link it)
     ${VAYU_ROOT}/src/comm/serializer.c
     ${VAYU_ROOT}/src/comm/deserializer.c
     ${VAYU_ROOT}/src/comm/comm_processor.c

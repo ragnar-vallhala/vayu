@@ -22,6 +22,18 @@ extern float fabsf(float x);
 
 #define FABS_F(x) ((x) < 0.0f ? -(x) : (x))
 #define SQRT_F(x) sqrtf(x)
+
+/* Gyro-bias "still" detector thresholds, pre-squared at compile time so the
+ * per-sample check compares squared magnitudes (no sqrt, no per-loop compute).
+ * Stillness = |acc| within ACC_STILL_TOL_G of 1g AND |gyro| < GYRO_STILL_DPS. */
+#define ACC_STILL_G 9.81f
+#define ACC_STILL_TOL_G 0.2f
+#define GYRO_STILL_DPS 0.2f
+#define ACC_STILL_LO_SQ                                                        \
+  ((ACC_STILL_G - ACC_STILL_TOL_G) * (ACC_STILL_G - ACC_STILL_TOL_G)) /* 9.61^2 */
+#define ACC_STILL_HI_SQ                                                        \
+  ((ACC_STILL_G + ACC_STILL_TOL_G) * (ACC_STILL_G + ACC_STILL_TOL_G)) /* 10.01^2 */
+#define GYRO_STILL_SQ (GYRO_STILL_DPS * GYRO_STILL_DPS)               /* 0.04 */
 static int in_init = 1;
 #define IS_FINITE(x) (isfinite(x))
 uint8_t tx_buf[2];
@@ -32,12 +44,28 @@ static int stable_count = 0;    // is platform stable
 
 // static MutexHandle_t bmx160_attitude_mutex; // Mutex for attitude data
 static SemaphoreHandle_t bmx160_ready_sema; // Semaphore for data ready
+/* Given at IMU_SAMPLE_FREQ_HZ by the HIGH_FREQ_TIMER (bmx160_fast_tick_isr);
+ * the read task waits on it before each FAST (accel/gyro) read to pace the IMU
+ * to a fixed rate instead of free-running at I2C speed. */
+static SemaphoreHandle_t bmx160_fast_tick_sema = NULL;
 
 static bmx160_config_t bmx160_cfg;
 // DMA storage buffers
 static uint8_t _bmx_dma_rx_buffer_double[32] __attribute__((aligned(4)));
-static attitude_t _bmx_orientation;
+/* Attitude/fusion state now lives in the attitude task (attitude_task.c);
+ * this driver only acquires, converts, timestamps and fans out samples. */
 static bmx160_all_reading_t _bmx_data;
+
+/* Set by the MAG DMA callback, consumed (and cleared) by bmx160_process_data:
+ * the magnetometer (BMM150) only refreshes ~1/13 of the FAST cadence, so the
+ * expensive compensation/normalization runs only when there's new mag data —
+ * the converted mag fields hold their last value otherwise (identical to
+ * recomputing from the unchanged bytes). */
+static volatile uint8_t _mag_fresh = 0;
+/* Set by the TEMP DMA callback; consumed (and cleared) by bmx160_process_data.
+ * Temperature shares the mag decimation (~1/13 of FAST), so the conversion runs
+ * only on a fresh TEMP read — converted.temp holds its last value otherwise. */
+static volatile uint8_t _temp_fresh = 0;
 
 // Split-rate state machine
 typedef enum {
@@ -214,11 +242,7 @@ hal_status_t bmx160_init(void) {
     return HAL_ERR_NOT_INITIALIZED;
   }
 
-  // Initialize orientation quaternion to identity
-  _bmx_orientation.q.w = 1.0f;
-  _bmx_orientation.q.x = 0.0f;
-  _bmx_orientation.q.y = 0.0f;
-  _bmx_orientation.q.z = 0.0f;
+  // Orientation quaternion is initialized by the attitude task.
 
   // Create semaphore for data ready
   if (bmx160_ready_sema == NULL) {
@@ -226,6 +250,11 @@ hal_status_t bmx160_init(void) {
   }
   if (bmx160_ready_sema == NULL) {
     return HAL_ERR_NOT_INITIALIZED;
+  }
+
+  // FAST-read pacing tick (given by bmx160_fast_tick_isr at IMU_SAMPLE_FREQ_HZ)
+  if (bmx160_fast_tick_sema == NULL) {
+    bmx160_fast_tick_sema = v_semaphore_create_binary();
   }
 
   in_init = 0; // Success! Disable blocking bypass
@@ -817,6 +846,14 @@ void bmx160_initiate_read(void *args) {
 
       switch (_next_op) {
       case IMU_OP_FAST:
+        /* Pace accel/gyro acquisition to IMU_SAMPLE_FREQ_HZ. Drain any tick
+         * that arrived while we were busy (e.g. during the previous DMA wait),
+         * then block for the NEXT fresh tick so a full period elapses — without
+         * the drain the pending tick would be consumed immediately and the read
+         * would free-run at I2C speed. CPU is free while blocked; the 2 ms cap
+         * keeps the chain alive if the tick source ever stalls. */
+        v_semaphore_take(bmx160_fast_tick_sema, 0); /* clear stale */
+        v_semaphore_take(bmx160_fast_tick_sema, MS_TO_TICKS(2));
         ret = i2c_manager_read_async(BMX160_I2C_ADDR, 0x0C, 12,
                                      bmx160_dma_callback_fast);
         break;
@@ -892,6 +929,7 @@ void bmx160_dma_callback_fast(void *args) {
 static void bmx160_dma_callback_mag(void *args) {
   if (args != NULL) {
     v_memcpy(&_bmx_dma_rx_buffer_double[0], args, 8);
+    _mag_fresh = 1; /* new mag data -> process_data will recompute the field */
   }
   isr_count++;
   _next_op = IMU_OP_TEMP;
@@ -906,6 +944,7 @@ static void bmx160_dma_callback_mag(void *args) {
 static void bmx160_dma_callback_temp(void *args) {
   if (args != NULL) {
     v_memcpy(&_bmx_dma_rx_buffer_double[28], args, 2);
+    _temp_fresh = 1; /* new temperature -> process_data will reconvert it */
   }
   isr_count++;
   _next_op = IMU_OP_FAST;
@@ -920,6 +959,19 @@ static void bmx160_dma_callback_temp(void *args) {
 // Keep the old callback for compatibility if needed, but it's now unused
 void bmx160_dma_callback(void *args) { bmx160_dma_callback_fast(args); }
 
+/* HIGH_FREQ_TIMER tick (registered at IMU_FAST_PERIOD_US): releases the read
+ * task to start one FAST (accel/gyro) read, pacing the IMU to
+ * IMU_SAMPLE_FREQ_HZ instead of free-running at I2C speed. Binary sema, so
+ * ticks that arrive while the task is mid-cycle coalesce (caps, never queues). */
+void bmx160_fast_tick_isr(void) {
+  if (bmx160_fast_tick_sema == NULL)
+    return;
+  int higher_priority_task_woken = 0;
+  v_semaphore_give_from_isr(bmx160_fast_tick_sema, &higher_priority_task_woken);
+  if (higher_priority_task_woken)
+    task_yield();
+}
+
 static uint32_t _last_read_time = 0;
 static uint32_t _read_count = 0;
 /*
@@ -927,7 +979,103 @@ static uint32_t _read_count = 0;
  * 84MHz So the effective frequency is around 4.2kHz Time taken is around 237
  * microseconds
  */
+/* BMM150 compensation + calibration + disturbance check + unit-normalization.
+ * Split out of bmx160_process_data so it can run only when fresh mag data
+ * arrived (see _mag_fresh). Writes the converted mag[] and mag_fusion[] fields
+ * and updates last_mag for the next disturbance comparison. */
+static void bmx160_process_mag(int16_t mx, int16_t my, int16_t mz,
+                               uint16_t rhall, uint8_t is_mag_invalid) {
+  // Align BMM150 axes to BMX160 body frame: [-Y, X, Z]
+  float mag_x = -bmm150_compensate_y(my, rhall);
+  float mag_y = -bmm150_compensate_x(mx, rhall);
+  float mag_z = -bmm150_compensate_z(mz, rhall);
+
+  // Store compensated but unscaled data for calibration
+  _bmx_data.converted.mag_compensated[0] = mag_x;
+  _bmx_data.converted.mag_compensated[1] = mag_y;
+  _bmx_data.converted.mag_compensated[2] = mag_z;
+
+  uint8_t mag_fusion_valid = 1;
+  if (!IS_FINITE(mag_x) || !IS_FINITE(mag_y) || !IS_FINITE(mag_z) ||
+      is_mag_invalid) {
+    mag_fusion_valid = 0;
+  }
+
+  // Calibrated magnetometer in microtesla. This is the value the getters and
+  // telemetry report — it is NOT normalized; fusion uses mag_fusion[] below.
+  _bmx_data.converted.mag[0] =
+      (mag_x - bmx160_calib.mag_offset[0]) * bmx160_calib.mag_scale[0];
+  _bmx_data.converted.mag[1] =
+      (mag_y - bmx160_calib.mag_offset[1]) * bmx160_calib.mag_scale[1];
+  _bmx_data.converted.mag[2] =
+      (mag_z - bmx160_calib.mag_offset[2]) * bmx160_calib.mag_scale[2];
+
+  // Magnitude and Disturbance Checks (on the calibrated uT vector)
+  if (mag_fusion_valid) {
+    float mag_norm =
+        SQRT_F(_bmx_data.converted.mag[0] * _bmx_data.converted.mag[0] +
+               _bmx_data.converted.mag[1] * _bmx_data.converted.mag[1] +
+               _bmx_data.converted.mag[2] * _bmx_data.converted.mag[2]);
+
+    // Check magnitude (20-80 uT expected for Earth's field)
+    if (mag_norm < 20.0f || mag_norm > 80.0f) {
+      mag_fusion_valid = 0;
+    }
+
+    // Disturbance detection (dot product with previous valid reading)
+    if (mag_fusion_valid &&
+        (fabsf(last_mag[0]) > 0.0f || fabsf(last_mag[1]) > 0.0f ||
+         fabsf(last_mag[2]) > 0.0f)) {
+      // Calculate dot product of current reading and last valid reading
+      float dot = _bmx_data.converted.mag[0] * last_mag[0] +
+                  _bmx_data.converted.mag[1] * last_mag[1] +
+                  _bmx_data.converted.mag[2] * last_mag[2];
+
+      // A dot product below 0.75 * norm^2 is a large directional jump
+      // (mag updates at ~20 Hz, so consecutive readings should be close).
+      float norm_curr_sq = mag_norm * mag_norm;
+      if (dot < 0.75f * norm_curr_sq) { // Significant directional jump
+        mag_fusion_valid = 0;
+      }
+    }
+  }
+
+  // Build the unit-normalized vector the estimator consumes, leaving the
+  // calibrated uT in converted.mag[] intact for the getters/telemetry.
+  if (mag_fusion_valid) {
+    float mag_norm =
+        SQRT_F(_bmx_data.converted.mag[0] * _bmx_data.converted.mag[0] +
+               _bmx_data.converted.mag[1] * _bmx_data.converted.mag[1] +
+               _bmx_data.converted.mag[2] * _bmx_data.converted.mag[2]);
+    if (mag_norm > 0.001f) {
+      _bmx_data.converted.mag_fusion[0] = _bmx_data.converted.mag[0] / mag_norm;
+      _bmx_data.converted.mag_fusion[1] = _bmx_data.converted.mag[1] / mag_norm;
+      _bmx_data.converted.mag_fusion[2] = _bmx_data.converted.mag[2] / mag_norm;
+
+      // Remember the calibrated uT vector (unnormalized) for the next dot
+      // product disturbance check.
+      last_mag[0] = _bmx_data.converted.mag[0];
+      last_mag[1] = _bmx_data.converted.mag[1];
+      last_mag[2] = _bmx_data.converted.mag[2];
+    } else {
+      mag_fusion_valid = 0;
+    }
+  }
+
+  if (!mag_fusion_valid) {
+    // Skip the magnetometer in fusion by passing a zero vector to the
+    // estimator. The calibrated uT in converted.mag[] is preserved.
+    _bmx_data.converted.mag_fusion[0] = 0.0f;
+    _bmx_data.converted.mag_fusion[1] = 0.0f;
+    _bmx_data.converted.mag_fusion[2] = 0.0f;
+  }
+}
+
 void bmx160_process_data(void) {
+  /* Stamp the sample at acquisition (DWT cycles). All downstream dt is derived
+   * from deltas of this stamp, not a DWT read at consume time — see
+   * vayu_dt_from_cycles(). */
+  uint32_t _sample_cyc = hal_cycle_counter_get();
   _read_count++;
   if (_read_count % 1000 == 0) {
     // vayu_log("IMU data processing frequency: %f Hz",
@@ -1015,18 +1163,20 @@ void bmx160_process_data(void) {
         lpf_apply(&gyr_lpf[i], _bmx_data.converted.gyr[i]);
   }
 
-  // Apply gyro bias estimator
-  float acc_mag =
-      SQRT_F(_bmx_data.converted.acc[0] * _bmx_data.converted.acc[0] +
-             _bmx_data.converted.acc[1] * _bmx_data.converted.acc[1] +
-             _bmx_data.converted.acc[2] * _bmx_data.converted.acc[2]);
-
-  float gyro_norm =
-      SQRT_F(_bmx_data.converted.gyr[0] * _bmx_data.converted.gyr[0] +
-             _bmx_data.converted.gyr[1] * _bmx_data.converted.gyr[1] +
-             _bmx_data.converted.gyr[2] * _bmx_data.converted.gyr[2]);
+  // Apply gyro bias estimator. Compare squared magnitudes against squared
+  // thresholds so the per-sample stillness check needs no sqrt: the magnitude
+  // band |acc_mag - 9.81| < 0.2 (i.e. acc_mag in (9.61, 10.01)) and
+  // gyro_norm < 0.2 are monotonic in the squared value, so this is exact.
+  // Thresholds are the compile-time GYRO_STILL_SQ / ACC_STILL_*_SQ constants.
+  float acc_sq = _bmx_data.converted.acc[0] * _bmx_data.converted.acc[0] +
+                 _bmx_data.converted.acc[1] * _bmx_data.converted.acc[1] +
+                 _bmx_data.converted.acc[2] * _bmx_data.converted.acc[2];
+  float gyro_sq = _bmx_data.converted.gyr[0] * _bmx_data.converted.gyr[0] +
+                  _bmx_data.converted.gyr[1] * _bmx_data.converted.gyr[1] +
+                  _bmx_data.converted.gyr[2] * _bmx_data.converted.gyr[2];
   if (system_state_get() != SYSTEM_STATE_CALIBRATING) {
-    if (FABS_F(acc_mag - 9.81f) < 0.2f && gyro_norm < 0.2f) {
+    if (acc_sq > ACC_STILL_LO_SQ && acc_sq < ACC_STILL_HI_SQ &&
+        gyro_sq < GYRO_STILL_SQ) {
       stable_count++;
     } else {
       stable_count = 0;
@@ -1046,97 +1196,21 @@ void bmx160_process_data(void) {
   for (int i = 0; i < 3; i++)
     _bmx_data.converted.gyr[i] -= bmx160_calib.gyr_offset[i];
 
-  // Align BMM150 axes to BMX160 body frame: [-Y, X, Z]
-
-  float mag_x = -bmm150_compensate_y(my, rhall);
-  float mag_y = -bmm150_compensate_x(mx, rhall);
-  float mag_z = -bmm150_compensate_z(mz, rhall);
-
-  // Store compensated but unscaled data for calibration
-  _bmx_data.converted.mag_compensated[0] = mag_x;
-  _bmx_data.converted.mag_compensated[1] = mag_y;
-  _bmx_data.converted.mag_compensated[2] = mag_z;
-
-  uint8_t mag_fusion_valid = 1;
-  if (!IS_FINITE(mag_x) || !IS_FINITE(mag_y) || !IS_FINITE(mag_z) ||
-      _is_mag_invalid) {
-    mag_fusion_valid = 0;
+  /* Magnetometer compensation + normalization is the most expensive part of
+   * the sample path (3x BMM150 compensation + 2 sqrt + disturbance dot/div),
+   * but the BMM150 only refreshes ~1/13 of the FAST cadence. Run it only when
+   * a MAG read just landed; otherwise the converted mag fields keep their last
+   * value — identical to recomputing from the unchanged bytes. */
+  if (_mag_fresh) {
+    bmx160_process_mag(mx, my, mz, rhall, _is_mag_invalid);
+    _mag_fresh = 0;
   }
-
-  // Calibrated magnetometer in microtesla. This is the value the getters and
-  // telemetry report — it is NOT normalized; fusion uses mag_fusion[] below.
-  _bmx_data.converted.mag[0] =
-      (mag_x - bmx160_calib.mag_offset[0]) * bmx160_calib.mag_scale[0];
-  _bmx_data.converted.mag[1] =
-      (mag_y - bmx160_calib.mag_offset[1]) * bmx160_calib.mag_scale[1];
-  _bmx_data.converted.mag[2] =
-      (mag_z - bmx160_calib.mag_offset[2]) * bmx160_calib.mag_scale[2];
-
-  // Magnitude and Disturbance Checks (on the calibrated uT vector)
-  if (mag_fusion_valid) {
-    float mag_norm =
-        SQRT_F(_bmx_data.converted.mag[0] * _bmx_data.converted.mag[0] +
-               _bmx_data.converted.mag[1] * _bmx_data.converted.mag[1] +
-               _bmx_data.converted.mag[2] * _bmx_data.converted.mag[2]);
-
-    // Check magnitude (20-80 uT expected for Earth's field)
-    if (mag_norm < 20.0f || mag_norm > 80.0f) {
-      mag_fusion_valid = 0;
-    }
-
-    // Disturbance detection (dot product with previous valid reading)
-    if (mag_fusion_valid &&
-        (fabsf(last_mag[0]) > 0.0f || fabsf(last_mag[1]) > 0.0f ||
-         fabsf(last_mag[2]) > 0.0f)) {
-      // Calculate dot product of current reading and last valid reading
-      float dot = _bmx_data.converted.mag[0] * last_mag[0] +
-                  _bmx_data.converted.mag[1] * last_mag[1] +
-                  _bmx_data.converted.mag[2] * last_mag[2];
-
-      // Threshold: if cos(theta) * mag_norm_curr * mag_norm_prev is too small
-      // relative to expected squared magnitude, it's a disturbance.
-      // Since mag_norm is around 50uT, squared is 2500.
-      // We'll use a threshold based on angle change.
-      // dot / (norm_curr * norm_prev) = cos(theta)
-      // For 1kHz (actually ~20Hz update), the change should be tiny.
-      // A dot product less than 0.9 * norm^2 is a massive jump.
-      float norm_curr_sq = mag_norm * mag_norm;
-      if (dot < 0.75f * norm_curr_sq) { // Significant directional jump
-        mag_fusion_valid = 0;
-      }
-    }
+  // Temperature drifts slowly and only refreshes on a TEMP read (~1/13 of the
+  // FAST cadence); convert only when fresh, else keep the last value.
+  if (_temp_fresh) {
+    bmx160_convert_raw_temp_to_celcius(raw_temp, &_bmx_data.converted.temp);
+    _temp_fresh = 0;
   }
-
-  // Build the unit-normalized vector the estimator consumes, leaving the
-  // calibrated uT in converted.mag[] intact for the getters/telemetry.
-  if (mag_fusion_valid) {
-    float mag_norm =
-        SQRT_F(_bmx_data.converted.mag[0] * _bmx_data.converted.mag[0] +
-               _bmx_data.converted.mag[1] * _bmx_data.converted.mag[1] +
-               _bmx_data.converted.mag[2] * _bmx_data.converted.mag[2]);
-    if (mag_norm > 0.001f) {
-      _bmx_data.converted.mag_fusion[0] = _bmx_data.converted.mag[0] / mag_norm;
-      _bmx_data.converted.mag_fusion[1] = _bmx_data.converted.mag[1] / mag_norm;
-      _bmx_data.converted.mag_fusion[2] = _bmx_data.converted.mag[2] / mag_norm;
-
-      // Remember the calibrated uT vector (unnormalized) for the next dot
-      // product disturbance check.
-      last_mag[0] = _bmx_data.converted.mag[0];
-      last_mag[1] = _bmx_data.converted.mag[1];
-      last_mag[2] = _bmx_data.converted.mag[2];
-    } else {
-      mag_fusion_valid = 0;
-    }
-  }
-
-  if (!mag_fusion_valid) {
-    // Skip the magnetometer in fusion by passing a zero vector to the
-    // estimator. The calibrated uT in converted.mag[] is preserved.
-    _bmx_data.converted.mag_fusion[0] = 0.0f;
-    _bmx_data.converted.mag_fusion[1] = 0.0f;
-    _bmx_data.converted.mag_fusion[2] = 0.0f;
-  }
-  bmx160_convert_raw_temp_to_celcius(raw_temp, &_bmx_data.converted.temp);
 
   // Apply LPF to accelerometer (gyro was already filtered before bias
   // correction)
@@ -1149,13 +1223,17 @@ void bmx160_process_data(void) {
         lpf_apply(&acc_lpf[i], _bmx_data.converted.acc[i]);
   }
 
-  // Push to ring buffer for 100Hz averaging (now with converted and filtered
-  // values)
-  imu_buffer_push(&_bmx_data);
+  // Tag the converted sample with its acquisition cycle stamp and fan it out.
+  _bmx_data.converted.timestamp = _sample_cyc;
+
+  // (Removed: imu_buffer_push to the legacy _imu_fifo "100 Hz averaging" ring —
+  // it had no consumers, so it just burned a memcpy/sample and overflowed,
+  // showing as bogus drops on imu.raw in the perf view.)
   imu_queue_telemetry_push(&_bmx_data);
   imu_queue_control_push(&_bmx_data);
 
-  // Sensor Fusion
+  // During calibration the sample goes to the calibration consumer; no
+  // attitude estimation runs.
   if (system_state_get() == SYSTEM_STATE_CALIBRATING) {
     imu_queue_calibration_push(&_bmx_data);
     return;
@@ -1164,32 +1242,13 @@ void bmx160_process_data(void) {
   /* EST-MAH-002: feed the sample's validity flag into the estimator
    * health tracker. _is_mag_invalid (rhall ∉ [50, 30000]) is the
    * validity surface available today; SNS-IMU-002 will eventually
-   * include I2C-read and over-saturation faults too. */
+   * include I2C-read and over-saturation faults too. Stays in the driver:
+   * it's a sample-acquisition concern. */
   estimator_mark_sample(!_is_mag_invalid);
 
-  if (SF_FILTER_USED == SF_MAHONY) {
-    m_mahony_filter(_bmx_data.converted.acc[0], _bmx_data.converted.acc[1],
-                    _bmx_data.converted.acc[2], _bmx_data.converted.gyr[0],
-                    _bmx_data.converted.gyr[1], _bmx_data.converted.gyr[2],
-                    _bmx_data.converted.mag_fusion[0],
-                    _bmx_data.converted.mag_fusion[1],
-                    _bmx_data.converted.mag_fusion[2], &_bmx_orientation);
-  } else {
-    m_complementary_filter(
-        _bmx_data.converted.acc[0], _bmx_data.converted.acc[1],
-        _bmx_data.converted.acc[2], _bmx_data.converted.gyr[0],
-        _bmx_data.converted.gyr[1], _bmx_data.converted.gyr[2],
-        _bmx_data.converted.mag_fusion[0], _bmx_data.converted.mag_fusion[1],
-        _bmx_data.converted.mag_fusion[2], &_bmx_orientation);
-  }
-  _bmx_orientation.degraded = estimator_is_degraded();
-  attitude_queue_telemetry_push(&_bmx_orientation);
-  attitude_queue_control_push(&_bmx_orientation);
-
-  /* SYS-SAFE-003: if degraded persists in a flight-relevant state,
-   * request FAILSAFE. Co-located with the estimator step so the
-   * latency to action is one IMU period. */
-  estimator_safety_step();
+  /* Attitude estimation runs in its own task now (attitude_task.c): hand off
+   * the timestamped sample and let it run fusion + the safety step. */
+  imu_queue_attitude_push(&_bmx_data);
 }
 
 static int wait_for_orientation(calib_update_type_t orient, float *accel_out) {

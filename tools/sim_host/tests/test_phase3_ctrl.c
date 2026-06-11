@@ -94,6 +94,7 @@ static void test_estimator_integral(void) {
     m_mahony_filter(0.5f, 0.0f, 9.81f,   /* tilted accel -> steady error */
                     0.0f, 0.0f, 0.0f,    /* gyro reports no rotation     */
                     0.0f, 0.0f, 0.0f,    /* mag invalid -> mag step skipped */
+                    1e-3f,               /* fixed dt for the stability soak */
                     &ori);
   }
   bool finite = isfinite(ori.q.w) && isfinite(ori.q.x) &&

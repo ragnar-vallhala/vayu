@@ -17,6 +17,8 @@ typedef enum {
   PACKET_TYPE_SYSTEM_STATUS = 0x6,       // FC -> GCS
   PACKET_TYPE_LOG = 0x7,                 // FC -> GCS
   PACKET_TYPE_MOTOR_TELEMETRY = 0x8,     // FC -> GCS
+  PACKET_TYPE_PERF_STATS = 0x9,          // FC -> GCS (kernel/observability)
+  PACKET_TYPE_PERF_TASKNAME = 0xA,       // GCS <-> FC (task id -> name, on demand)
 } packet_type_t;
 
 /**

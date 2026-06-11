@@ -72,16 +72,6 @@ void estimator_safety_step(void) {
   }
 }
 
-static inline float get_dt(void) {
-  static uint32_t last_dwt = 0; // used to calculate dt
-  uint32_t now = hal_cycle_counter_get();
-  // convert to s
-  float dt = ((float)(now - last_dwt)) / (float)SYS_CLOCK_FREQ;
-  if (dt < 1e-3f)
-    dt = 1e-3f;
-  last_dwt = now;
-  return dt;
-}
 void m_acc_mag(const float ax, const float ay, const float az, const float mx,
                const float my, const float mz, attitude_t *ori) {
   float ax_n = ax;
@@ -126,8 +116,7 @@ void m_acc_mag(const float ax, const float ay, const float az, const float mx,
 void m_complementary_filter(const float ax, const float ay, const float az,
                             const float gx, const float gy, const float gz,
                             const float mx, const float my, const float mz,
-                            attitude_t *ori) {
-  float dt = get_dt();
+                            float dt, attitude_t *ori) {
   // 1. Get accelerometer/magnetometer based orientation (noisy but stable)
   attitude_t acc_mag_ori;
   m_acc_mag(ax, ay, az, mx, my, mz, &acc_mag_ori);
@@ -220,8 +209,7 @@ void estimator_reset(void) {
 void m_mahony_filter(const float ax, const float ay, const float az,
                      const float gx, const float gy, const float gz,
                      const float mx, const float my, const float mz,
-                     attitude_t *ori) {
-  float dt = get_dt();
+                     float dt, attitude_t *ori) {
   float q0 = ori->q.w, q1 = ori->q.x, q2 = ori->q.y, q3 = ori->q.z;
   float norm;
   float hx, hy;

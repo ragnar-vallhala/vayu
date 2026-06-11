@@ -1,5 +1,6 @@
 #include "comm/comm_types.h"
 #include "comm/ibus.h"
+#include "comm/perf_packet.h"
 #include "comm/serializer.h"
 #include "control/control.h"
 #include "control/flight_mode.h"
@@ -42,6 +43,21 @@ void comm_processor_dispatch(const packet_t *pkt) {
   if (packet_type == PACKET_TYPE_HEARTBEAT) {
     set_timestamp(pkt->timestamp);
     set_device_id(pkt->device_id);
+  } else if (packet_type == PACKET_TYPE_PERF_TASKNAME && pkt->length >= 1) {
+    /* GCS asked for one task's name by id; reply [id][name\0]. Name is a
+     * borrowed flash pointer in the TCB, copied bounded + NUL-terminated. */
+    uint8_t id = pkt->payload[0];
+    const char *nm = task_get_name_by_id(id);
+    uint8_t buf[1 + PERF_TASKNAME_MAX];
+    buf[0] = id;
+    uint8_t n = 0;
+    while (n < PERF_TASKNAME_MAX - 1 && nm[n]) {
+      buf[1 + n] = (uint8_t)nm[n];
+      n++;
+    }
+    buf[1 + n] = '\0';
+    send_packet(&g_telemetry_channel, PACKET_TYPE_PERF_TASKNAME, buf,
+                (uint8_t)(2 + n));
   } else if (packet_type == PACKET_TYPE_COMMAND && pkt->length >= 2) {
     uint16_t cmd_id;
     v_memcpy(&cmd_id, pkt->payload, 2);

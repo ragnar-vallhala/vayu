@@ -13,6 +13,7 @@
 
 #include "maths/maths_interface.h"
 #include <stdbool.h>
+#include <stdint.h>
 
 /* ----------------------------------------------------------------------------
  * Attitude estimate
@@ -22,7 +23,10 @@ typedef struct {
   float pitch;
   float yaw;
   quaternion_t q;
-  bool degraded; /**< Set when estimator_is_degraded() — see EST-MAH-002. */
+  bool degraded;      /**< Set when estimator_is_degraded() — see EST-MAH-002. */
+  uint32_t timestamp; /**< DWT cycle stamp of the source IMU sample (acquisition
+                       *   time). Loops derive dt from deltas of this, not DWT
+                       *   read at loop time — see vayu_dt_from_cycles(). */
 } attitude_t;
 
 /* ----------------------------------------------------------------------------
@@ -82,15 +86,17 @@ typedef enum {
 void m_acc_mag(const float ax, const float ay, const float az, const float mx,
                const float my, const float mz, attitude_t *ori);
 
+/* `dt` is the integration interval in seconds, derived by the caller from the
+ * source IMU sample's acquisition timestamp (not read from DWT inside). */
 void m_complementary_filter(const float ax, const float ay, const float az,
                             const float gx, const float gy, const float gz,
                             const float mx, const float my, const float mz,
-                            attitude_t *ori);
+                            float dt, attitude_t *ori);
 
 void m_mahony_filter(const float ax, const float ay, const float az,
                      const float gx, const float gy, const float gz,
                      const float mx, const float my, const float mz,
-                     attitude_t *ori);
+                     float dt, attitude_t *ori);
 
 /* ----------------------------------------------------------------------------
  * First-order low-pass filter (support)
