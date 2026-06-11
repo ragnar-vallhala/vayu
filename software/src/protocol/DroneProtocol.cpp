@@ -92,6 +92,8 @@ void DroneProtocol::parseBuffer() {
       } else if (std::holds_alternative<FlightModeStatus>(decoded.payload)) {
         const auto &fm = std::get<FlightModeStatus>(decoded.payload);
         emit flightModeReceived(fm.mode, fm.source);
+      } else if (std::holds_alternative<EstPerfData>(decoded.payload)) {
+        emit estPerfReceived(std::get<EstPerfData>(decoded.payload));
       } else if (std::holds_alternative<PerfReport>(decoded.payload)) {
         emit perfReceived(std::get<PerfReport>(decoded.payload));
       } else if (std::holds_alternative<TaskNameInfo>(decoded.payload)) {

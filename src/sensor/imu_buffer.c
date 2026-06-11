@@ -20,6 +20,7 @@ static SemaphoreHandle_t _imu_attitude_sema = NULL;
 
 #define IMU_BUFFER_INTERNAL_CAPACITY (IMU_BUFFER_SIZE + 1)
 #define IMU_CALIBRATION_TELEMETRY_CAPACITY 2
+#define EST_PERF_TELEMETRY_CAPACITY 4
 static bmx160_all_reading_t _imu_telemetry_buffer[IMU_BUFFER_INTERNAL_CAPACITY];
 static bmx160_all_reading_t _imu_calibration_buffer[IMU_BUFFER_INTERNAL_CAPACITY];
 static bmx160_all_reading_t _imu_control_buffer[IMU_BUFFER_INTERNAL_CAPACITY];
@@ -35,6 +36,15 @@ static spsc_fifo_t _imu_attitude_queue;
 static spsc_fifo_t _attitude_telemetry_queue;
 static spsc_fifo_t _attitude_control_queue;
 static spsc_fifo_t _imu_calibration_telemetry_queue;
+/* Estimator cost-probe snapshots (attitude task -> telemetry task).
+ * Aligned to the element size: spsc_init() rounds a power-of-2-sized element
+ * up to its own alignment and, if the buffer isn't already aligned, consumes
+ * one slot (capacity-1). For a 16-byte element an unaligned 2-slot ring
+ * collapses to capacity 1 (zero usable) and silently holds nothing — so force
+ * 16-byte alignment and keep a little headroom. */
+static est_perf_telemetry_t _est_perf_buffer[EST_PERF_TELEMETRY_CAPACITY]
+    __attribute__((aligned(sizeof(est_perf_telemetry_t))));
+static spsc_fifo_t _est_perf_queue;
 
 void imu_buffer_init(void) {
   spsc_init(&_imu_telemetry_queue, _imu_telemetry_buffer,
@@ -64,6 +74,10 @@ void imu_buffer_init(void) {
   spsc_init(&_imu_calibration_telemetry_queue, _imu_calibration_telemetry_buffer,
             IMU_CALIBRATION_TELEMETRY_CAPACITY, sizeof(imu_calibration_telemetry_t));
   spsc_set_policy(&_imu_calibration_telemetry_queue, SPSC_POLICY_OVERWRITE);
+
+  spsc_init(&_est_perf_queue, _est_perf_buffer, EST_PERF_TELEMETRY_CAPACITY,
+            sizeof(est_perf_telemetry_t));
+  spsc_set_policy(&_est_perf_queue, SPSC_POLICY_OVERWRITE);
 
   /* CTRL-RATE-101: created empty so the first wait() blocks until the
    * first sample is pushed. */
@@ -181,6 +195,13 @@ bool attitude_queue_control_wait(uint32_t ticks_to_wait) {
     return false;
   }
   return v_semaphore_take(_attitude_control_sema, ticks_to_wait) == VA_PASS;
+}
+
+bool est_perf_queue_push(const est_perf_telemetry_t *perf) {
+  return spsc_write(&_est_perf_queue, perf, 1) == 1;
+}
+bool est_perf_queue_pop(est_perf_telemetry_t *out_perf) {
+  return spsc_read(&_est_perf_queue, out_perf, 1) == 1;
 }
 
 bool imu_queue_calibration_telemetry_push(const imu_calibration_telemetry_t *sample) {

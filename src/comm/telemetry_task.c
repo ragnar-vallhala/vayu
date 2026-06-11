@@ -32,6 +32,7 @@ void imu_telemetry_task(void *args) {
   static motor_outputs_t m_data;
   static control_telemetry_t c_data;
   static attitude_t att;
+  static est_perf_telemetry_t e_data;
   static imu_calibration_telemetry_t imu_calibration_telemetry;
 
   while (1) {
@@ -158,6 +159,16 @@ void imu_telemetry_task(void *args) {
       send_packet(&g_telemetry_channel, PACKET_TYPE_SYSTEM_STATUS,
                   imu_calibration_telemetry.buffer,
                   imu_calibration_telemetry.size);
+    }
+    /* Estimator cost probe (~1 Hz): peak/mean per-update cost + cadence, drained
+     * onto SYSTEM_ORIGIN_EST_PERF for the GCS control-loop page to plot. */
+    if (est_perf_queue_pop(&e_data)) {
+      uint8_t payload[2 + sizeof(est_perf_telemetry_t)];
+      payload[0] = SYSTEM_ORIGIN_EST_PERF;
+      payload[1] = 4; // 4 floats: peak_us, mean_us, decim, rate_hz
+      v_memcpy(&payload[2], &e_data, sizeof(est_perf_telemetry_t));
+      send_packet(&g_telemetry_channel, PACKET_TYPE_SYSTEM_STATUS, payload,
+                  sizeof(payload));
     }
     packet_counter++;
     v_delay(6); // ~166 Hz

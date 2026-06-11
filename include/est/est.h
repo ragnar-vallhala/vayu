@@ -30,6 +30,24 @@ typedef struct {
 } attitude_t;
 
 /* ----------------------------------------------------------------------------
+ * Estimator cost probe (attitude_task ATTITUDE_CYCLE_PROBE)
+ * --------------------------------------------------------------------------*/
+
+/**
+ * @brief One estimator-cost snapshot, published ~1 Hz to the GCS instead of a
+ *        text log. peak_us/mean_us are the per-update estimator (EKF/Mahony)
+ *        cost over the last ~1 s window; decim/rate_hz describe its effective
+ *        update cadence. All floats so the GCS decodes it like the other
+ *        SYSTEM_STATUS float payloads. Wire: SYSTEM_ORIGIN_EST_PERF.
+ */
+typedef struct __attribute__((packed)) {
+  float peak_us;
+  float mean_us;
+  float decim;
+  float rate_hz;
+} est_perf_telemetry_t;
+
+/* ----------------------------------------------------------------------------
  * Estimator health (EST-MAH-002 / SYS-SAFE-003)
  * --------------------------------------------------------------------------*/
 

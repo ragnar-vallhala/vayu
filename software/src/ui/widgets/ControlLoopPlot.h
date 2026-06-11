@@ -24,6 +24,7 @@ signals:
 private slots:
   void onControlLoopDataReceived(const ControlLoopData &data);
   void onImuReceived(const ImuData &data);
+  void onEstPerfReceived(const EstPerfData &data);
 
 private:
   DroneProtocol *m_protocol = nullptr;
@@ -32,6 +33,7 @@ private:
   RealTimeGraph *m_rateGraph;
   RealTimeGraph *m_outputGraph;
   RealTimeGraph *m_dtGraph;
+  RealTimeGraph *m_estLatGraph;
 
   // Angle labels
   QLabel *m_rollAngleSpVal;
@@ -58,6 +60,11 @@ private:
   QLabel *m_dtInnerVal;
   QLabel *m_dtOuterStdVal;
   QLabel *m_dtInnerStdVal;
+
+  // Estimator-cost labels
+  QLabel *m_estPeakVal;
+  QLabel *m_estMeanVal;
+  QLabel *m_estCadenceVal;
 
   QQueue<float> m_outerDtHistory;
   QQueue<float> m_innerDtHistory;

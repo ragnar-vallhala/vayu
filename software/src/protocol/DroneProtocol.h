@@ -32,6 +32,7 @@ signals:
   void rcReceived(const RcData &data);
   void motorReceived(const MotorData &data);
   void controlLoopDataReceived(const ControlLoopData &data);
+  void estPerfReceived(const EstPerfData &data);
   void flightModeReceived(quint8 mode, quint8 source);
   void logReceived(const QString &message);
   void statusReceived(const QString &message);

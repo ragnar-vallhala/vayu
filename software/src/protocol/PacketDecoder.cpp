@@ -108,6 +108,18 @@ DecodedPacket PacketDecoder::decode(const QByteArray &data) {
       fm.mode = raw[10];
       fm.source = raw[11];
       result.payload = fm;
+    } else if (result.length == 18 && raw[8] == 0x08) {
+      // SYSTEM_ORIGIN_EST_PERF: [origin] [n=4] [peak_us, mean_us, decim,
+      // rate_hz : f32]
+      float vals[4];
+      memcpy(vals, raw + 10, 16);
+      EstPerfData perf;
+      perf.peak_us = vals[0];
+      perf.mean_us = vals[1];
+      perf.decim = vals[2];
+      perf.rate_hz = vals[3];
+      perf.timestamp = result.timestamp;
+      result.payload = perf;
     } else if (result.length >= 2 && raw[8] == 0x05) {
       // SYSTEM_ORIGIN_CONTROL_DATA: [origin] [n] [18 floats]
       if (result.length == 74) {
