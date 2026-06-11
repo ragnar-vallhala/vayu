@@ -26,8 +26,20 @@ set(VENDOR stm32 CACHE STRING "Vendor")
 # External deps
 #-------------------------
 add_compile_definitions(VAIOS)
+# vaios defaults the VAIOS_MODULE_VFS option off (opt-in) since VFS couples the
+# build to NavHAL's FatFs/SDIO layer. vayu uses VFS (logger, pid_config, bmx160
+# calibration), so force the cache option ON before add_subdirectory(extern/vaios)
+# below — vaios derives the -DVAIOS_MODULE_VFS compile-def from this variable, so
+# this is the single source of truth (don't also -D it, or it redefines).
+set(VAIOS_MODULE_VFS ON CACHE BOOL "vayu needs the vaios VFS" FORCE)
 set(NAVHAL ON)
-set(VAIOS_CONFIG_FILE "${CMAKE_CURRENT_SOURCE_DIR}/include/vaios_app_config.h")
+# Must be a FORCE cache entry: vaios's own `set(VAIOS_CONFIG_FILE "" CACHE ...)`
+# would otherwise clobber a plain variable to empty (CMP0126 OLD), leaving
+# if(VAIOS_CONFIG_FILE) false so vaios never emits -DVAIOS_CONFIG_FILE — then
+# the aggregator can't find this app config and kernel TUs (e.g. memory.c) fall
+# back to the default HEAP_SIZE=0x16000, overrunning the 96KB SRAM at boot.
+set(VAIOS_CONFIG_FILE "${CMAKE_CURRENT_SOURCE_DIR}/include/vaios_app_config.h"
+    CACHE STRING "vaios config header for the vayu firmware" FORCE)
 # NOTE: do NOT add ${CMAKE_CURRENT_SOURCE_DIR}/include here. This block is
 # inherited by add_subdirectory(extern/vaios) below, and vayu's include/sys/
 # types.h (our err_t enum) would shadow the toolchain's standard <sys/types.h>
