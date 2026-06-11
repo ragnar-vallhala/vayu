@@ -363,6 +363,17 @@ static bmx160_err_type bmx160_set_mag_conf(void) {
     return ERR0;
   }
 
+  // 8b. CRITICAL: the chip-ID read above repointed MAG_IF_1 to 0x40. Restore
+  // the auto-read address to 0x42 (BMM150 DATA_X_LSB) before enabling auto
+  // mode, otherwise the burst read starts at the chip-ID register and every
+  // mag axis is shifted 2 bytes — mag X then reads the constant chip ID (0x32)
+  // and that axis is frozen for the life of the build (long-standing mag-axis
+  // bug). Step 6 set this, but the chip-ID check clobbered it.
+  tx_buf[0] = BMX160_MAG_IF_1_READ_ADDR;
+  tx_buf[1] = 0x42;
+  i2c_manager_write(BMX160_I2C_ADDR, tx_buf, 2);
+  v_delay(1);
+
   // 9. Enable Auto-mode (manual_en = 0, burst_read = 8 bytes)
   tx_buf[0] = BMX160_MAG_IF_0_CONF_ADDR;
   tx_buf[1] = 0x03;
@@ -1052,6 +1063,8 @@ void bmx160_process_data(void) {
     mag_fusion_valid = 0;
   }
 
+  // Calibrated magnetometer in microtesla. This is the value the getters and
+  // telemetry report — it is NOT normalized; fusion uses mag_fusion[] below.
   _bmx_data.converted.mag[0] =
       (mag_x - bmx160_calib.mag_offset[0]) * bmx160_calib.mag_scale[0];
   _bmx_data.converted.mag[1] =
@@ -1059,7 +1072,7 @@ void bmx160_process_data(void) {
   _bmx_data.converted.mag[2] =
       (mag_z - bmx160_calib.mag_offset[2]) * bmx160_calib.mag_scale[2];
 
-  // Magnitude and Disturbance Checks
+  // Magnitude and Disturbance Checks (on the calibrated uT vector)
   if (mag_fusion_valid) {
     float mag_norm =
         SQRT_F(_bmx_data.converted.mag[0] * _bmx_data.converted.mag[0] +
@@ -1094,32 +1107,34 @@ void bmx160_process_data(void) {
     }
   }
 
-  // Magnetometer Normalization for Fusion
+  // Build the unit-normalized vector the estimator consumes, leaving the
+  // calibrated uT in converted.mag[] intact for the getters/telemetry.
   if (mag_fusion_valid) {
     float mag_norm =
         SQRT_F(_bmx_data.converted.mag[0] * _bmx_data.converted.mag[0] +
                _bmx_data.converted.mag[1] * _bmx_data.converted.mag[1] +
                _bmx_data.converted.mag[2] * _bmx_data.converted.mag[2]);
     if (mag_norm > 0.001f) {
-      _bmx_data.converted.mag[0] /= mag_norm;
-      _bmx_data.converted.mag[1] /= mag_norm;
-      _bmx_data.converted.mag[2] /= mag_norm;
+      _bmx_data.converted.mag_fusion[0] = _bmx_data.converted.mag[0] / mag_norm;
+      _bmx_data.converted.mag_fusion[1] = _bmx_data.converted.mag[1] / mag_norm;
+      _bmx_data.converted.mag_fusion[2] = _bmx_data.converted.mag[2] / mag_norm;
 
-      // Update last_mag with the *calibrated* vector (unnormalized for next dot
-      // product)
-      last_mag[0] = _bmx_data.converted.mag[0] * mag_norm;
-      last_mag[1] = _bmx_data.converted.mag[1] * mag_norm;
-      last_mag[2] = _bmx_data.converted.mag[2] * mag_norm;
+      // Remember the calibrated uT vector (unnormalized) for the next dot
+      // product disturbance check.
+      last_mag[0] = _bmx_data.converted.mag[0];
+      last_mag[1] = _bmx_data.converted.mag[1];
+      last_mag[2] = _bmx_data.converted.mag[2];
     } else {
       mag_fusion_valid = 0;
     }
   }
 
   if (!mag_fusion_valid) {
-    // Skip magnetometer in fusion by passing zero vector to Mahony
-    _bmx_data.converted.mag[0] = 0.0f;
-    _bmx_data.converted.mag[1] = 0.0f;
-    _bmx_data.converted.mag[2] = 0.0f;
+    // Skip the magnetometer in fusion by passing a zero vector to the
+    // estimator. The calibrated uT in converted.mag[] is preserved.
+    _bmx_data.converted.mag_fusion[0] = 0.0f;
+    _bmx_data.converted.mag_fusion[1] = 0.0f;
+    _bmx_data.converted.mag_fusion[2] = 0.0f;
   }
   bmx160_convert_raw_temp_to_celcius(raw_temp, &_bmx_data.converted.temp);
 
@@ -1156,15 +1171,16 @@ void bmx160_process_data(void) {
     m_mahony_filter(_bmx_data.converted.acc[0], _bmx_data.converted.acc[1],
                     _bmx_data.converted.acc[2], _bmx_data.converted.gyr[0],
                     _bmx_data.converted.gyr[1], _bmx_data.converted.gyr[2],
-                    _bmx_data.converted.mag[0], _bmx_data.converted.mag[1],
-                    _bmx_data.converted.mag[2], &_bmx_orientation);
+                    _bmx_data.converted.mag_fusion[0],
+                    _bmx_data.converted.mag_fusion[1],
+                    _bmx_data.converted.mag_fusion[2], &_bmx_orientation);
   } else {
     m_complementary_filter(
         _bmx_data.converted.acc[0], _bmx_data.converted.acc[1],
         _bmx_data.converted.acc[2], _bmx_data.converted.gyr[0],
         _bmx_data.converted.gyr[1], _bmx_data.converted.gyr[2],
-        _bmx_data.converted.mag[0], _bmx_data.converted.mag[1],
-        _bmx_data.converted.mag[2], &_bmx_orientation);
+        _bmx_data.converted.mag_fusion[0], _bmx_data.converted.mag_fusion[1],
+        _bmx_data.converted.mag_fusion[2], &_bmx_orientation);
   }
   _bmx_orientation.degraded = estimator_is_degraded();
   attitude_queue_telemetry_push(&_bmx_orientation);

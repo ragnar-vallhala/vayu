@@ -42,9 +42,9 @@ void imu_telemetry_task(void *args) {
       current_floats[3] = (float)samples.converted.gyr[0];
       current_floats[4] = (float)samples.converted.gyr[1];
       current_floats[5] = (float)samples.converted.gyr[2];
-      current_floats[6] = (float)samples.converted.mag_compensated[0];
-      current_floats[7] = (float)samples.converted.mag_compensated[1];
-      current_floats[8] = (float)samples.converted.mag_compensated[2];
+      current_floats[6] = (float)samples.converted.mag[0];
+      current_floats[7] = (float)samples.converted.mag[1];
+      current_floats[8] = (float)samples.converted.mag[2];
       current_floats[9] = (float)samples.converted.temp;
     }
 
