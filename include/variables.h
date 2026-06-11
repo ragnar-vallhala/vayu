@@ -118,7 +118,7 @@
 // before the controllers init) overrides any of them per slot — so the SAME
 // pid.bin now yields identical behaviour in sim and on the board.
 #define DEAFULT_ROLL_ANGLE_RATE_KP 0.0005f
-#define DEAFULT_ROLL_ANGLE_RATE_KI 0.00333f
+#define DEAFULT_ROLL_ANGLE_RATE_KI 0.01f
 #define DEAFULT_ROLL_ANGLE_RATE_KD 0.0f
 #define DEAFULT_ROLL_ANGLE_RATE_KFF 0.0f
 #define DEAFULT_ROLL_ANGLE_RATE_I_MAX 0.2f
@@ -128,7 +128,7 @@
 #define DEAFULT_ROLL_ANGLE_RATE_OUT_MAX 1.0f
 
 #define DEAFULT_PITCH_ANGLE_RATE_KP 0.0005f
-#define DEAFULT_PITCH_ANGLE_RATE_KI 0.00333f
+#define DEAFULT_PITCH_ANGLE_RATE_KI 0.01f
 #define DEAFULT_PITCH_ANGLE_RATE_KD 0.0f
 #define DEAFULT_PITCH_ANGLE_RATE_KFF 0.0f
 #define DEAFULT_PITCH_ANGLE_RATE_I_MAX 0.2f
@@ -143,7 +143,7 @@
 // SITL autotuner) for the actual airframe. Output limits MUST be non-zero or
 // the PID clamps yaw to 0 regardless of gain.
 #define DEAFULT_YAW_ANGLE_RATE_KP 0.018f
-#define DEAFULT_YAW_ANGLE_RATE_KI 0.0f
+#define DEAFULT_YAW_ANGLE_RATE_KI 0.008f
 #define DEAFULT_YAW_ANGLE_RATE_KD 0.0f
 #define DEAFULT_YAW_ANGLE_RATE_KFF 0.0f
 #define DEAFULT_YAW_ANGLE_RATE_I_MAX 0.2f
