@@ -32,6 +32,7 @@ set(GCS_SOURCES
     src/ui/main/MainToolbar.cpp
     src/ui/main/MainWindow.cpp
     src/comm/SerialManager.cpp
+    src/comm/PortArbiter.cpp
     src/protocol/DroneProtocol.cpp
     src/ui/widgets/AttitudeWidget.cpp
     src/ui/widgets/HorizonHud.cpp
