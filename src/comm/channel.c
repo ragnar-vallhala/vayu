@@ -1,5 +1,6 @@
 #include "comm/channel.h"
 #include "navhal.h"
+#include "port.h" // ENTER_CRITICAL / EXIT_CRITICAL — serialise the ping-pong buffer
 #include "sys/types.h"
 #include "vaios.h"
 #include "variables.h"
@@ -126,12 +127,18 @@ err_t write_channel(channel_t channel, byte *data, uint16_t length) {
   if (channel.type == CHANNEL_TYPE_SERIAL) {
     serial_channel_handle_t *s_handle =
         (serial_channel_handle_t *)channel.handle;
+
+    // The active buffer index + length + the copy must be atomic against
+    // flush_channel's ping-pong swap, or flush can transmit a buffer this
+    // writer is still filling (split/overwritten packets -> CRC errors at the
+    // GCS). The copy is at most one packet (~264 B ≈ a few µs), so a short
+    // critical section is acceptable.
+    ENTER_CRITICAL();
     uint8_t idx = s_handle->active_idx;
 
-    // uint32_t state = hal_disable_global_interrupts();
     // Check if buffer has space; if not, drop data
     if (s_handle->buf_lens[idx] + length > 512) {
-      // hal_enable_global_interrupts(state);
+      EXIT_CRITICAL();
       _tx_overflow_count++; // COMM-CH-002
       return ERROR; // Buffer full, dropping data
     }
@@ -141,7 +148,7 @@ err_t write_channel(channel_t channel, byte *data, uint16_t length) {
       s_handle->buffers[idx][s_handle->buf_lens[idx] + i] = data[i];
     }
     s_handle->buf_lens[idx] += length;
-    // hal_enable_global_interrupts(state);
+    EXIT_CRITICAL();
 
     return NONE;
   }
@@ -163,10 +170,17 @@ err_t flush_channel(channel_t channel) {
       return ERROR;
     }
 
+    // Snapshot + ping-pong swap must be atomic against write_channel so it
+    // can't keep appending to the buffer we are about to transmit. After the
+    // swap, flush_idx is private to this flush (write_channel uses the new
+    // active_idx), so the actual transmit below runs outside the critical
+    // section.
+    ENTER_CRITICAL();
     uint8_t flush_idx = s_handle->active_idx;
     uint16_t flush_len = s_handle->buf_lens[flush_idx];
 
     if (flush_len == 0) {
+      EXIT_CRITICAL();
       return NONE;
     }
 
@@ -176,6 +190,7 @@ err_t flush_channel(channel_t channel) {
 
     // Mark busy
     s_handle->busy = 1;
+    EXIT_CRITICAL();
 
     // Trigger transmission
     if (s_handle->uart == HAL_UART_2) {
