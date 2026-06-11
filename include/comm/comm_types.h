@@ -32,6 +32,8 @@ typedef enum {
   SYSTEM_ORIGIN_PID_ERROR = 0x05,
   SYSTEM_ORIGIN_PID_UPDATE = 0x06,
   SYSTEM_ORIGIN_FLIGHT_MODE = 0x07, // [origin][pad][mode:u8][source:u8]
+  SYSTEM_ORIGIN_EST_PERF =
+      0x08, // [origin][n=4][peak_us,mean_us,decim,rate_hz : f32]
 } system_status_origin_t;
 
 /**

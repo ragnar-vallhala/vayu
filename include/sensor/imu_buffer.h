@@ -2,6 +2,7 @@
 #define VAYU_IMU_BUFFER_H
 
 #include "comm/perf_packet.h"
+#include "est/est.h"
 #include "sensor/bmx160.h"
 #include <stdbool.h>
 #include <stdint.h>
@@ -57,6 +58,12 @@ bool attitude_queue_control_peek(attitude_t *out_attitude);
 /* Block until the next attitude control sample is pushed (or timeout). Lets the
  * outer/angle loop pace itself off the inner-loop sample rate. */
 bool attitude_queue_control_wait(uint32_t ticks_to_wait);
+
+/* Estimator cost-probe telemetry (attitude task -> telemetry task). One push
+ * per probe window (~1 Hz) when ATTITUDE_CYCLE_PROBE is enabled; the telemetry
+ * task drains it onto the SYSTEM_ORIGIN_EST_PERF wire packet. */
+bool est_perf_queue_push(const est_perf_telemetry_t *perf);
+bool est_perf_queue_pop(est_perf_telemetry_t *out_perf);
 
 bool imu_queue_calibration_telemetry_push(const imu_calibration_telemetry_t *sample);
 bool imu_queue_calibration_telemetry_pop(imu_calibration_telemetry_t *out_sample);

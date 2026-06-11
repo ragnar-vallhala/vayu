@@ -68,6 +68,7 @@ ControlLoopPlot::ControlLoopPlot(QWidget *parent) : QWidget(parent) {
                            "roll_rate_curr", "pitch_rate_curr", "yaw_rate_curr"}},
           {m_outputGraph, {"roll_out", "pitch_out", "yaw_out", "throttle_out"}},
           {m_dtGraph,     {"outer_dt", "inner_dt"}},
+          {m_estLatGraph, {"est_peak_us", "est_mean_us"}},
         });
     if (!path.isEmpty()) Notify::ok(this, tr("Wrote %1").arg(path));
   });
@@ -237,6 +238,20 @@ ControlLoopPlot::ControlLoopPlot(QWidget *parent) : QWidget(parent) {
   m_dtGraph->setDynamicYAxis(true);
   botHSplitter->addWidget(dtSec);
 
+  // Estimator cost: per-update EKF/Mahony peak & mean (µs), from the firmware
+  // ATTITUDE_CYCLE_PROBE (SYSTEM_ORIGIN_EST_PERF, ~1 Hz).
+  QHBoxLayout *estStats;
+  auto *estSec =
+      createSection("EST LATENCY (us)", &estStats, &m_estLatGraph, 2);
+  createValueLabel(estStats, "PEAK us", "#E06C75", &m_estPeakVal);
+  createValueLabel(estStats, "MEAN us", "#98C379", &m_estMeanVal);
+  createValueLabel(estStats, "CADENCE", "#56B6C2", &m_estCadenceVal);
+  estStats->addStretch();
+  m_estLatGraph->setColor(0, QColor("#E06C75")); // peak
+  m_estLatGraph->setColor(1, QColor("#98C379")); // mean
+  m_estLatGraph->setDynamicYAxis(true);
+  botHSplitter->addWidget(estSec);
+
   vSplitter->addWidget(botHSplitter);
 
   // Background + text colour come from the global QSS (QMainWindow + QWidget).
@@ -250,6 +265,8 @@ void ControlLoopPlot::setProtocol(DroneProtocol *protocol) {
                &ControlLoopPlot::onControlLoopDataReceived);
     disconnect(m_protocol, &DroneProtocol::imuReceived, this,
                &ControlLoopPlot::onImuReceived);
+    disconnect(m_protocol, &DroneProtocol::estPerfReceived, this,
+               &ControlLoopPlot::onEstPerfReceived);
   }
   m_protocol = protocol;
   if (m_protocol) {
@@ -257,6 +274,8 @@ void ControlLoopPlot::setProtocol(DroneProtocol *protocol) {
             &ControlLoopPlot::onControlLoopDataReceived);
     connect(m_protocol, &DroneProtocol::imuReceived, this,
             &ControlLoopPlot::onImuReceived);
+    connect(m_protocol, &DroneProtocol::estPerfReceived, this,
+            &ControlLoopPlot::onEstPerfReceived);
   }
 }
 
@@ -338,6 +357,19 @@ void ControlLoopPlot::onControlLoopDataReceived(const ControlLoopData &data) {
       QString::number(static_cast<double>(data.yaw_output), 'f', 3));
   m_throttleOutVal->setText(
       QString::number(static_cast<double>(data.throttle_output), 'f', 3));
+}
+
+void ControlLoopPlot::onEstPerfReceived(const EstPerfData &data) {
+  m_estLatGraph->appendData(data.peak_us, 0);
+  m_estLatGraph->appendData(data.mean_us, 1);
+
+  m_estPeakVal->setText(
+      QString::number(static_cast<double>(data.peak_us), 'f', 1));
+  m_estMeanVal->setText(
+      QString::number(static_cast<double>(data.mean_us), 'f', 1));
+  m_estCadenceVal->setText(QString("decim %1 @ %2 Hz")
+                               .arg(static_cast<int>(data.decim))
+                               .arg(static_cast<int>(data.rate_hz)));
 }
 
 void ControlLoopPlot::onImuReceived(const ImuData &data) {

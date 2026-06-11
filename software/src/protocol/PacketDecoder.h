@@ -15,7 +15,7 @@ struct DecodedPacket {
   uint32_t timestamp;
   std::variant<std::monostate, ImuData, QString, AttitudeData, RcData,
                CalibrationUpdate, MotorData, ControlLoopData, FlightModeStatus,
-               PerfReport, TaskNameInfo>
+               EstPerfData, PerfReport, TaskNameInfo>
       payload;
   bool valid = false;
 };

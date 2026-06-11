@@ -96,6 +96,20 @@ struct ControlLoopData {
 };
 
 // -----------------------------------------------------------
+// Estimator cost probe – mirrors SYSTEM_ORIGIN_EST_PERF (0x08)
+//   Per-update estimator (EKF/Mahony) cost over the last ~1 s window.
+//   peak_us / mean_us are microseconds; decim / rate_hz describe the
+//   estimator's effective update cadence.
+// -----------------------------------------------------------
+struct EstPerfData {
+  float peak_us = 0.0f;
+  float mean_us = 0.0f;
+  float decim = 0.0f;
+  float rate_hz = 0.0f;
+  uint64_t timestamp = 0;
+};
+
+// -----------------------------------------------------------
 // Flight Mode  – mirrors SYSTEM_ORIGIN_FLIGHT_MODE (0x07)
 //   mode:   0 = stabilise/angle, 1 = acro
 //   source: 0 = RC switch, 1 = GCS override

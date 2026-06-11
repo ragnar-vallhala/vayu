@@ -20,7 +20,6 @@
  * loses nothing. Cheaper filters keep running on every sample (decim = 1).
  */
 #include "est/est.h"
-#include "logger/logger.h" /* vayu_log — estimator cost probe report */
 #include "sensor/bmx160.h"
 #include "sensor/imu_buffer.h"
 #include "vaios.h"
@@ -50,8 +49,9 @@
 #endif
 
 /* Cycle probe: report the real estimator cost (peak/mean µs over a ~1 s window)
- * via vayu_log so the per-update budget can be checked against the loop period
- * on-target. Set to 0 to compile it out. */
+ * as SYSTEM_ORIGIN_EST_PERF telemetry (plotted on the GCS control-loop page) so
+ * the per-update budget can be checked against the loop period on-target. Set
+ * to 0 to compile it out. */
 #ifndef ATTITUDE_CYCLE_PROBE
 #define ATTITUDE_CYCLE_PROBE 1
 #endif
@@ -137,10 +137,14 @@ void attitude_task(void *args) {
       probe_peak = dc;
     probe_acc += dc;
     if (++probe_cnt >= (uint32_t)ATTITUDE_EST_RATE_HZ) { /* ~1 s of updates */
-      vayu_log("[EST] update peak=%u us mean=%u us (decim %u, %u Hz)",
-               (unsigned)(probe_peak / cyc_per_us),
-               (unsigned)((probe_acc / probe_cnt) / cyc_per_us),
-               (unsigned)ATTITUDE_DECIM, (unsigned)ATTITUDE_EST_RATE_HZ);
+      est_perf_telemetry_t perf = {
+          .peak_us = (float)probe_peak / (float)cyc_per_us,
+          .mean_us =
+              ((float)probe_acc / (float)probe_cnt) / (float)cyc_per_us,
+          .decim = (float)ATTITUDE_DECIM,
+          .rate_hz = (float)ATTITUDE_EST_RATE_HZ,
+      };
+      est_perf_queue_push(&perf); /* drained by the telemetry task -> GCS */
       probe_peak = 0;
       probe_acc = 0;
       probe_cnt = 0;
