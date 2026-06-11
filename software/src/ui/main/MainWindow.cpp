@@ -2,6 +2,7 @@
 #include "../core/SettingsManager.h"
 #include "../core/Theme.h"
 #include "../core/crc.h"
+#include "comm/PortArbiter.h"
 
 #include <QAction>
 #include <QApplication>
@@ -33,6 +34,17 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   // Back-end objects
   m_serial = new SerialManager(this);
   m_protocol = new DroneProtocol(this);
+
+  // If another subsystem (the in-sim RC bridge) claims our serial port, drop
+  // the board connection so we never contend for the same tty.
+  connect(&PortArbiter::instance(), &PortArbiter::revoked, this,
+          [this](const QString &, QObject *owner) {
+            if (owner == this && m_serial && m_serial->isOpen()) {
+              m_logPanel->appendLog(
+                  "[GCS] Port taken by the simulator RC — disconnected.");
+              m_serial->close();
+            }
+          });
   m_uiTimer = new QTimer(this);
   m_syncTimer = new QTimer(this);
   m_elapsed.start();
@@ -453,13 +465,21 @@ void MainWindow::onConnectRequested(const QString &port, int baud) {
     m_logPanel->appendLog("[GCS] No port specified");
     return;
   }
+  // Claim the port: if the in-sim RC bridge holds it, this revokes it from the
+  // sim (which disconnects), so the two never fight over the same tty.
+  PortArbiter::instance().acquire(port, this);
   if (m_serial->open(port, baud)) {
     persistPortBaud();
+  } else {
+    PortArbiter::instance().release(port, this);
   }
 }
 
 void MainWindow::onDisconnectRequested() {
-  if (m_serial) m_serial->close();
+  if (m_serial) {
+    PortArbiter::instance().release(m_serial->currentPort(), this);
+    m_serial->close();
+  }
 }
 
 void MainWindow::onArmClicked() {
