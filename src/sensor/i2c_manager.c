@@ -63,7 +63,19 @@ void i2c_manager_unstick(void) {
 
 hal_status_t init_i2c_manager(hal_i2c_config_t *cfg) {
   i2c_config = *cfg;
-  _i2c_sema = v_mutex_create();
+
+  // NavHAL's I2C driver now enables DMA1 stream 0/5 at HAL_IRQ_PRIORITY_DEFAULT
+  // (a BASEPRI-maskable level), so the v_semaphore_give_from_isr in the DMA
+  // completion ISR can no longer preempt a kernel critical section. No app-side
+  // priority pin is needed.
+
+  // Create the bus mutex ONCE. init_i2c_manager is also a recovery entry point
+  // (bus-stuck / DMA-start-fail / IMU-stall paths re-call it), so allocating a
+  // new mutex here every time would leak the previous one — at the ~20 Hz IMU
+  // recovery cadence that drains the heap in seconds. Reuse the existing mutex.
+  if (_i2c_sema == NULL) {
+    _i2c_sema = v_mutex_create();
+  }
 
   ENTER_CRITICAL();
   _current_trans.state = I2C_TRANS_BLANK;
@@ -195,14 +207,22 @@ hal_status_t i2c_manager_read_async(uint8_t addr, uint8_t reg_addr,
 
 // Called from DMA IRQ handler (ISR context)
 void i2c_manager_callback(void) {
+  // Idempotent against duplicate/spurious DMA completion IRQs. Only the first
+  // call for a given transaction (state still BUSY) processes it; we clear the
+  // state to BLANK before invoking the user callback so any re-entry returns
+  // here. Without this guard a re-fired IRQ calls the bmx160 callback again,
+  // which unconditionally gives the IMU read semaphore and advances _next_op —
+  // a give_from_isr storm that races v_semaphore_take and orphans the reader
+  // task off every scheduler list (IMU stream freezes; rest of system runs).
+  if (_current_trans.state != I2C_TRANS_BUSY) {
+    return;
+  }
   void (*cb)(void *) = _current_trans.callback;
-  void *data = (_current_trans.state == I2C_TRANS_BUSY) ? _rx_data : NULL;
-
   _current_trans.state = I2C_TRANS_BLANK;
   i2c_manager_release_bus(); // Release bus BEFORE user callback to allow
                              // self-triggering
 
   if (cb) {
-    cb(data);
+    cb(_rx_data);
   }
 }
