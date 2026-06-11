@@ -320,16 +320,19 @@ BUF (buffering), CAL (online calibration), I2C (bus manager).
 
 ### 4.4 EST — State estimation
 
-**Scope.** Attitude estimator (`src/est/sensor_fusion.c`, Mahony
-filter per `docs/sensor_fusion/`), low-pass filters (`src/est/lpf.c`).
+**Scope.** Attitude estimator (`src/est/sensor_fusion.c`, Mahony +
+complementary filters per `docs/sensor_fusion/`; error-state EKF in
+`src/est/ekf.c`), shared linear-algebra/quaternion kernel
+(`include/maths/linalg.h`), low-pass filters (`src/est/lpf.c`).
 Position estimation is **out of scope** until a GPS / OF / range sensor
 arrives.
 
 **Reserved IDs.** `EST-*-001..099`, `EST-*-101..199`.
 
 **Sub-areas.** MAH (Mahony filter), COMP (complementary, present but
-unused), BIAS (gyro-bias online estimator — implemented in SNS, not
-here), COV (convergence / health monitor).
+unused), EKF (error-state/multiplicative EKF, 6- and 9-state), BIAS
+(gyro-bias online estimator — implemented in SNS, not here), COV
+(convergence / health monitor).
 
 #### 4.4.1 EST-HLR
 
@@ -337,8 +340,10 @@ here), COV (convergence / health monitor).
 |--------------|------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|------------------|------------------------------|
 | EST-MAH-001  | Attitude convergence               | The attitude estimator shall converge to within 5° of truth within 3 s of init with the vehicle stationary.                                                                                                                                                                                            | SYS-TIM-001      | Test (SITL)                  |
 | EST-MAH-002  | Fault-sample rejection             | The estimator shall reject any IMU sample whose validity flag is false (per SNS-IMU-002) and shall raise an `estimator_degraded` flag after 100 ms of continuous rejection.                                                                                                                            | SYS-SAFE-003     | Test (unit, fault injection) | ✅ `estimator_mark_sample()` / `estimator_is_degraded()`; bmx160 feeds sample validity + stamps `attitude.degraded` (Phase 2b). |
-| EST-MAH-003  | Filter selection                   | The implementation shall expose exactly one active fusion filter at runtime, selected by `SF_FILTER_USED` in `variables.h`. Currently set to `SF_MAHONY`; `SF_COMPLEMENTARY` is dead code unless selected.                                                                                              | (process)        | Inspection                   |
+| EST-MAH-003  | Filter selection                   | The implementation shall expose exactly one active fusion filter at runtime, selected by `SF_FILTER_USED` in `variables.h`. Currently set to `SF_EKF`; `SF_MAHONY` / `SF_COMPLEMENTARY` / `SF_EKF_ACCEL_BIAS` are dead code unless selected.                                                            | (process)        | Inspection                   |
 | EST-COV-001  | Estimator output queues            | Attitude estimates shall be posted to two SPSC queues every step: one for telemetry, one for the rate controller. Both have `OVERWRITE` policy.                                                                                                                                                        | (process)        | Inspection                   |
+| EST-EKF-001  | EKF attitude estimator             | The estimator shall offer an error-state (multiplicative) EKF attitude filter selectable via `SF_EKF`, estimating attitude and gyro bias and converging to within 5° of truth within 3 s of init with the vehicle stationary.                                                                          | EST-MAH-001      | Test (SITL)                  | ✅ `m_ekf_filter()` / `ekf_init()`; SITL `phase3_est_ekf` + on-target `-DEKF_SELFTEST` (Phase 5). |
+| EST-EKF-002  | Accel-bias variant                 | A 9-state variant (`SF_EKF_ACCEL_BIAS`) shall additionally estimate accelerometer bias; the bias is observable only under motion and converges in flight (static bias and tilt are unidentifiable).                                                                                                    | EST-EKF-001      | Test (SITL)                  |
 
 #### 4.4.2 EST-LLR
 
@@ -351,6 +356,12 @@ here), COV (convergence / health monitor).
 | EST-MAH-105   | Integral feedback bound        | The Mahony integral feedback term `(integralFBx, integralFBy, integralFBz)` shall be clamped per-axis (recommended ±0.5 rad/s) and re-initialised on estimator reset.                       | EST-MAH-001      | Test (unit) + Analysis        | ✅ clamped at ±0.5 rad/s; `estimator_reset()` zeroes the term (Phase 3 CTRL). |
 | EST-MAH-106   | Init quaternion                | At init the estimator shall set the quaternion to identity `(1, 0, 0, 0)` and zero the integral feedback state.                                                                            | EST-MAH-001      | Inspection                    |
 | EST-COMP-101  | Complementary parameters       | The complementary filter (unused at runtime) shall use α = 0.98 for gyro weighting; documented in code only as a fallback path.                                                            | EST-MAH-003      | Inspection                    |
+| EST-EKF-101   | Init / reset / state selection | `ekf_init(estimate_accel_bias)` shall build the covariance for a 6- or 9-state filter; `ekf_reset()` shall zero the bias and covariance state while preserving the configured dimension.   | EST-EKF-001      | Test (unit)                   |
+| EST-EKF-102   | Accelerometer tilt update      | The accel update shall correct roll/pitch via the gravity-direction residual (`H_θ = [u_b]×`), converging tilt to truth; the mag update corrects yaw only (about the world vertical).      | EST-EKF-001      | Test (unit)                   |
+| EST-EKF-103   | Gyro-bias observability        | A persistent gyro offset on a stationary vehicle shall be estimated into the gyro-bias state so the attitude stays steady (no drift).                                                      | EST-EKF-001      | Test (unit)                   |
+| EST-EKF-104   | Accel-bias update (9-state)    | In the 9-state variant the specific-force model (`h = g·u_b + b_a`) shall estimate accelerometer bias under motion, with attitude tracking truth.                                          | EST-EKF-002      | Test (unit)                   |
+| EST-EKF-105   | Measurement gating             | The accel update shall be skipped when `|‖a‖ − g| > EKF_ACC_GATE` or `‖a‖ ≈ 0`, and the mag yaw update skipped when `‖m‖ < 1e-6`, leaving the estimate finite and tilt accel-pinned.       | EST-EKF-001      | Test (unit)                   |
+| EST-EKF-106   | Covariance / quaternion health | The quaternion shall stay finite and unit-norm and the covariance finite/symmetric under a long run, via the Joseph-form covariance update.                                               | EST-EKF-001      | Test (unit, fuzz)             |
 
 ### 4.5 CTRL — Control loops
 

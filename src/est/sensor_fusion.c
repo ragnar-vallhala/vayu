@@ -204,6 +204,9 @@ void estimator_reset(void) {
   integralFBx = 0.0f;
   integralFBy = 0.0f;
   integralFBz = 0.0f;
+  /* Drop the EKF covariance/bias state too so a level-hold re-init re-levels
+   * whichever filter is active (no-op for the Mahony/complementary paths). */
+  ekf_reset();
 }
 
 void m_mahony_filter(const float ax, const float ay, const float az,

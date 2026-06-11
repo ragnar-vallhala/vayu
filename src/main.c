@@ -18,8 +18,26 @@
 #include "vayu_status.h"
 #include "vayu_tasks.h"
 
+#ifdef EKF_SELFTEST
+#include "est/ekf_selftest.h"
+#endif
+
 // Global state values
 uint32_t bmx160_task_id = 0;
+
+#ifdef EKF_SELFTEST
+/* On-target EKF self-test: run the shared branch-coverage scenarios and report
+ * each check + the total over the telemetry UART (via vayu_log). Built only
+ * with -DEKF_SELFTEST; see CMake option of the same name. */
+static void ekf_selftest_log_report(void *ctx, bool pass, const char *name) {
+  (void)ctx;
+  vayu_log("[EKF-SELFTEST] %s %s", pass ? "ok  " : "FAIL", name);
+}
+static void run_ekf_selftest(void) {
+  int fails = ekf_selftest_run(ekf_selftest_log_report, NULL);
+  vayu_log("[EKF-SELFTEST] total failures: %d", fails);
+}
+#endif
 
 void clock_setup(void) {
   hal_pll_config_t pll_cfg_hse = {
@@ -126,6 +144,9 @@ int main() {
 
   init_i2c_manager(&i2c_config);
   logger_init();
+#ifdef EKF_SELFTEST
+  run_ekf_selftest(); /* report over UART before the scheduler starts */
+#endif
   pid_config_init(); /* COMM-CMD-003: restore persisted PID tune from SD */
   system_state_init();
   init_sensors();

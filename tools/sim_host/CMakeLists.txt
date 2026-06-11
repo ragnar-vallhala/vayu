@@ -80,6 +80,7 @@ set(VAYU_SOURCES
     ${VAYU_ROOT}/src/sys/math_utils.c
     ${VAYU_ROOT}/src/sys/sys_utils.c
     ${VAYU_ROOT}/src/est/sensor_fusion.c
+    ${VAYU_ROOT}/src/est/ekf.c
     ${VAYU_ROOT}/src/sensor/imu_buffer.c
     ${VAYU_ROOT}/src/logger/logger.c    # wrap counters; telemetry reads them
     ${VAYU_ROOT}/src/logger/log_text.c  # vayu_log + queue (moved from utils.c)
@@ -165,6 +166,16 @@ add_test(NAME phase3_comm COMMAND test_phase3_comm)
 add_executable(test_phase3_slog tests/test_phase3_slog.c)
 target_link_libraries(test_phase3_slog PRIVATE vayu_sitl_core m)
 add_test(NAME phase3_slog COMMAND test_phase3_slog)
+
+# EKF estimator: thin adapter over the shared branch-coverage core in
+# src/est/ekf_selftest.c, which we compile here with -DEKF_SELFTEST (the same
+# core the firmware runs on target). ekf.c itself comes from vayu_sitl_core.
+add_executable(test_phase3_est_ekf
+    tests/test_phase3_est_ekf.c
+    ${VAYU_ROOT}/src/est/ekf_selftest.c)
+target_compile_definitions(test_phase3_est_ekf PRIVATE EKF_SELFTEST)
+target_link_libraries(test_phase3_est_ekf PRIVATE vayu_sitl_core m)
+add_test(NAME phase3_est_ekf COMMAND test_phase3_est_ekf)
 
 # Standalone: compiles assert.c with NDEBUG (release branch) and stubs its
 # deps locally — it must NOT link vayu_sitl_core, which carries the debug

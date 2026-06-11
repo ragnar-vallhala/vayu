@@ -5,12 +5,12 @@
 
 ## Summary
 
-- Total requirements: **133**
-- Active: **127** (of which 1 carry an inline 🟡 gap marker)
+- Total requirements: **141**
+- Active: **135** (of which 1 carry an inline 🟡 gap marker)
 - Dropped: **4**
 - Deferred: **2**
-- Active with implementer: **19 / 127**
-- Active with verifier (or verified-upstream): **14 / 127**
+- Active with implementer: **27 / 135**
+- Active with verifier (or verified-upstream): **22 / 135**
 
 ## Trace
 
@@ -64,6 +64,14 @@
 | `CTRL-RATE-103` | active | Rate PID gains (SITL) | — | — |
 | `EST-COMP-101` | active | Complementary parameters | — | — |
 | `EST-COV-001` | active | Estimator output queues | — | — |
+| `EST-EKF-001` | active | EKF attitude estimator | `src/est/ekf.c` | `tools/sim_host/tests/test_phase3_est_ekf.c` |
+| `EST-EKF-002` | active | Accel-bias variant | `src/est/ekf.c` | `tools/sim_host/tests/test_phase3_est_ekf.c` |
+| `EST-EKF-101` | active | Init / reset / state selection | `src/est/ekf.c` | `tools/sim_host/tests/test_phase3_est_ekf.c` |
+| `EST-EKF-102` | active | Accelerometer tilt update | `src/est/ekf.c` | `tools/sim_host/tests/test_phase3_est_ekf.c` |
+| `EST-EKF-103` | active | Gyro-bias observability | `src/est/ekf.c` | `tools/sim_host/tests/test_phase3_est_ekf.c` |
+| `EST-EKF-104` | active | Accel-bias update (9-state) | `src/est/ekf.c` | `tools/sim_host/tests/test_phase3_est_ekf.c` |
+| `EST-EKF-105` | active | Measurement gating | `src/est/ekf.c` | `tools/sim_host/tests/test_phase3_est_ekf.c` |
+| `EST-EKF-106` | active | Covariance / quaternion health | `src/est/ekf.c` | `tools/sim_host/tests/test_phase3_est_ekf.c` |
 | `EST-MAH-001` | active | Attitude convergence | — | — |
 | `EST-MAH-002` | active | Fault-sample rejection | `include/est/est.h`<br>`src/est/sensor_fusion.c` | `tools/sim_host/tests/test_safety_phase2.c` |
 | `EST-MAH-003` | active | Filter selection | — | — |
@@ -98,7 +106,7 @@
 | `SNS-BMX-105` | active | DMA + semaphore handshake | — | — |
 | `SNS-BMX-106` | active | Axis-frame remap | — | — |
 | `SNS-BUF-001` | active | IMU buffer SPSC ring | — | — |
-| `SNS-BUF-002` | active | Drop accounting | `include/sensor/imu_buffer.h`<br>`src/comm/telemetry_task.c`<br>`src/sensor/imu_buffer.c` | `tools/sim_host/tests/test_phase3_slog.c` |
+| `SNS-BUF-002` | active | Drop accounting | `src/comm/telemetry_task.c` | `tools/sim_host/tests/test_phase3_slog.c` |
 | `SNS-CAL-001` | active | Persistent calibration store | — | — |
 | `SNS-CAL-002` | active | Online gyro bias estimator | — | — |
 | `SNS-CAL-101` | active | Accel 6-point calibration | — | — |
