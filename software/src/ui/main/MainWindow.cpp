@@ -201,6 +201,19 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   connect(m_controlLoopWidget, &ControlLoopPlot::backToHomeRequested, this,
           &MainWindow::showHome);
 
+  // Build Kernel Observability (vaios perf telemetry)
+  m_perfWidget = new PerfWidget(this);
+  m_stackedWidget->addWidget(m_perfWidget);
+  connect(m_perfWidget, &PerfWidget::backToHomeRequested, this,
+          &MainWindow::showHome);
+  connect(m_protocol, &DroneProtocol::perfReceived, m_perfWidget,
+          &PerfWidget::updateReport);
+  // On-demand task-name resolution: widget asks, FC replies, widget caches.
+  connect(m_protocol, &DroneProtocol::taskNameReceived, m_perfWidget,
+          &PerfWidget::setTaskName);
+  connect(m_perfWidget, &PerfWidget::requestTaskName, this,
+          &MainWindow::sendTaskNameRequest);
+
 #ifdef NAVIGATOR_HAS_SITL
   // Build Simulator (in-app SITL: physics + sensors + firmware threads).
   // Only present when sim_host was found at configure time — see the
@@ -278,6 +291,31 @@ void MainWindow::showMotorStatus() {
 
 void MainWindow::showControlLoopPlot() {
   m_stackedWidget->setCurrentWidget(m_controlLoopWidget);
+}
+
+void MainWindow::showPerf() {
+  m_stackedWidget->setCurrentWidget(m_perfWidget);
+}
+
+void MainWindow::sendTaskNameRequest(int taskId) {
+  if (!m_serial || taskId < 0 || taskId > 255)
+    return;
+  // PERF_TASKNAME (0xA) request frame: payload = [task_id] (1 byte).
+  const uint32_t now =
+      static_cast<uint32_t>(QDateTime::currentMSecsSinceEpoch());
+  const uint8_t dev_id = 42;
+  QByteArray pkt;
+  pkt.append(static_cast<char>(0x56));            // sync
+  pkt.append(static_cast<char>((0xA << 4) | 0x1)); // type 0xA, proto v1
+  pkt.append(static_cast<char>(1));               // payload length
+  pkt.append(static_cast<char>(dev_id));
+  pkt.append(reinterpret_cast<const char *>(&now), 4);
+  pkt.append(static_cast<char>(taskId & 0xFF));
+  const uint32_t crc = CRC32::calculate(
+      reinterpret_cast<const uint8_t *>(pkt.constData()),
+      static_cast<uint32_t>(pkt.size()));
+  pkt.append(reinterpret_cast<const char *>(&crc), 4);
+  m_serial->write(pkt);
 }
 
 void MainWindow::showSimulator() {
@@ -445,6 +483,7 @@ void MainWindow::buildMenuBar() {
   windowMenu->addAction("&Motor Status", this, &MainWindow::showMotorStatus);
   windowMenu->addAction("&Control Loop", this,
                         &MainWindow::showControlLoopPlot);
+  windowMenu->addAction("&Kernel Perf", this, &MainWindow::showPerf);
 #ifdef NAVIGATOR_HAS_SITL
   windowMenu->addAction("Si&mulator", this, &MainWindow::showSimulator);
 #endif

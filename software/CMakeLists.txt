@@ -55,6 +55,7 @@ set(GCS_SOURCES
     src/ui/widgets/MotorStatusWidget.cpp
     src/ui/widgets/Drone3DWidget.cpp
     src/ui/widgets/ControlLoopPlot.cpp
+    src/ui/widgets/PerfWidget.cpp
 )
 
 set(GCS_HEADERS
@@ -85,6 +86,7 @@ set(GCS_HEADERS
     src/ui/widgets/MotorStatusWidget.h
     src/ui/widgets/Drone3DWidget.h
     src/ui/widgets/ControlLoopPlot.h
+    src/ui/widgets/PerfWidget.h
 )
 
 # SITL-only sources. These pull in vsim_iface.h from tools/sim_host and

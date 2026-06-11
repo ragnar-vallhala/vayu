@@ -9,6 +9,7 @@
 
 #include "../widgets/CalibrationWidget.h"
 #include "../widgets/ControlLoopPlot.h"
+#include "../widgets/PerfWidget.h"
 #include "AttitudeWidget.h"
 #include "Drone3DWidget.h" // Added
 #include "DroneProtocol.h"
@@ -47,6 +48,9 @@ private slots:
   void showCalibration();
   void showMotorStatus();
   void showControlLoopPlot();
+  void showPerf();
+  // Send a PERF_TASKNAME request for one task id (FC replies with the name).
+  void sendTaskNameRequest(int taskId);
   void showSimulator();
   // Toolbar wire-up. The toolbar emits intent signals; MainWindow owns
   // the serial open/close + persistence side-effects.
@@ -102,6 +106,7 @@ private:
   CalibrationWidget *m_calibrationWidget = nullptr;
   MotorStatusWidget *m_motorWidget = nullptr;
   ControlLoopPlot *m_controlLoopWidget = nullptr;
+  PerfWidget *m_perfWidget = nullptr;
 #ifdef NAVIGATOR_HAS_SITL
   SimulatorWidget *m_simulatorWidget = nullptr;
 #endif
