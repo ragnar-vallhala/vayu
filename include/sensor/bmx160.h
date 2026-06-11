@@ -180,10 +180,11 @@ typedef struct {
 typedef struct {
   float acc[3];             // Calibrated m/s^2
   float gyr[3];             // Calibrated dps
-  float mag[3];             // Calibrated uT (normalized for fusion)
+  float mag[3];             // Calibrated uT (offset/scale applied) — getter/telemetry
   float acc_raw[3];         // Raw m/s^2 (uncalibrated)
   float gyr_raw[3];         // Raw dps (uncalibrated)
-  float mag_compensated[3]; // Compensated uT (unbiased/unscaled)
+  float mag_compensated[3]; // Compensated uT (pre offset/scale)
+  float mag_fusion[3];      // Calibrated + unit-normalized; estimator input only
   float temp;
 } bmx160_all_converted_reading_t;
 
