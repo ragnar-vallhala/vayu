@@ -48,9 +48,9 @@ void init_sensors(void) {
   bmx160_init();
   rc_buffer_init();
 
-  // Initialize global telemetry
+  // Initialize global telemetry — USART6 (PC6 TX / PC7 RX) per Vayu PCB wiring.
   serial_args_t uart_args = {
-      .baud_rate = UART_BAUDRATE, .uart = HAL_UART_2, .timeout = 100};
+      .baud_rate = UART_BAUDRATE, .uart = HAL_UART_6, .timeout = 100};
 
   if (get_handler(CHANNEL_TYPE_SERIAL, &g_telemetry_channel, &uart_args,
                   uart2_packet_recv_callback) != NONE) {
