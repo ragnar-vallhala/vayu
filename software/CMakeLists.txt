@@ -48,7 +48,12 @@ set(GCS_SOURCES
     src/ui/widgets/PacketAnalyzerWidget.cpp
     src/ui/main/SettingsWidget.cpp
     src/protocol/PacketDecoder.cpp
+    src/protocol/PacketDissector.cpp
     src/ui/widgets/PacketDetailWidget.cpp
+    src/ui/widgets/HexView.cpp
+    src/ui/widgets/PacketLogModel.cpp
+    src/ui/widgets/PacketFilterExpr.cpp
+    src/ui/widgets/PacketFilterProxy.cpp
     src/ui/widgets/RealTimeGraph.cpp
     src/core/SettingsManager.cpp
     src/ui/widgets/FrequencyRibbon.cpp
@@ -81,7 +86,12 @@ set(GCS_HEADERS
     src/ui/widgets/PacketAnalyzerWidget.h
     src/ui/main/SettingsWidget.h
     src/protocol/PacketDecoder.h
+    src/protocol/PacketDissector.h
     src/ui/widgets/PacketDetailWidget.h
+    src/ui/widgets/HexView.h
+    src/ui/widgets/PacketLogModel.h
+    src/ui/widgets/PacketFilterExpr.h
+    src/ui/widgets/PacketFilterProxy.h
     src/ui/widgets/RealTimeGraph.h
     src/core/SettingsManager.h
     src/ui/widgets/FrequencyRibbon.h
