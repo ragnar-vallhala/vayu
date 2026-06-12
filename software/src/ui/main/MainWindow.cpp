@@ -33,6 +33,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
 
   // Back-end objects
   m_serial = new SerialManager(this);
+  m_udp = new UdpManager(this);
   m_protocol = new DroneProtocol(this);
 
   // If another subsystem (the in-sim RC bridge) claims our serial port, drop
@@ -55,6 +56,14 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   // Wire serial → protocol → UI
   connect(m_serial, &SerialManager::dataReceived, m_protocol,
           &DroneProtocol::processData);
+  // UDP source feeds the same parser (ESP8266 WiFi telemetry bridge).
+  connect(m_udp, &UdpManager::dataReceived, m_protocol,
+          &DroneProtocol::processData);
+  connect(m_udp, &UdpManager::connectionStateChanged, this,
+          &MainWindow::onConnectionStateChanged);
+  connect(m_udp, &UdpManager::errorOccurred, this, [this](const QString &m) {
+    m_logPanel->appendLog("[UDP] " + m);
+  });
 
   connect(m_protocol, &DroneProtocol::imuReceived, this,
           &MainWindow::onImuReceived);
@@ -108,6 +117,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   connect(m_protocol, &DroneProtocol::unknownPacket, m_analyzerWidget,
           &PacketAnalyzerWidget::logRxPacket);
   connect(m_serial, &SerialManager::dataSent, m_analyzerWidget,
+          &PacketAnalyzerWidget::logTxPacket);
+  connect(m_udp, &UdpManager::dataSent, m_analyzerWidget,
           &PacketAnalyzerWidget::logTxPacket);
   connect(m_analyzerWidget, &PacketAnalyzerWidget::backToHomeRequested, this,
           &MainWindow::showHome);
@@ -183,9 +194,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
           &MainWindow::showHome);
   connect(m_calibrationWidget, &CalibrationWidget::commandRequested,
           [this](const QByteArray &data) {
-            if (m_serial && m_connected) {
-              m_serial->write(data);
-            }
+            if (m_connected)
+              sendToFc(data);
           });
 
   // Build Motor Status
@@ -315,7 +325,7 @@ void MainWindow::sendTaskNameRequest(int taskId) {
       reinterpret_cast<const uint8_t *>(pkt.constData()),
       static_cast<uint32_t>(pkt.size()));
   pkt.append(reinterpret_cast<const char *>(&crc), 4);
-  m_serial->write(pkt);
+  sendToFc(pkt);
 }
 
 void MainWindow::showSimulator() {
@@ -504,6 +514,23 @@ void MainWindow::onConnectRequested(const QString &port, int baud) {
     m_logPanel->appendLog("[GCS] No port specified");
     return;
   }
+  // UDP transport: type "udp" or "udp:<port>" (default 14555) in the Port field
+  // to receive over WiFi from the ESP8266 telemetry bridge. Feeds the very same
+  // parser as serial, so every page works unchanged. Baud is ignored.
+  if (port.startsWith("udp", Qt::CaseInsensitive)) {
+    quint16 udpPort = 14555;
+    const int colon = port.indexOf(':');
+    if (colon >= 0) {
+      const quint16 p = port.mid(colon + 1).toUShort();
+      if (p)
+        udpPort = p;
+    }
+    if (m_udp->bind(udpPort)) {
+      m_logPanel->appendLog(QString("[UDP] listening on :%1").arg(udpPort));
+      persistPortBaud();
+    }
+    return;
+  }
   // Claim the port: if the in-sim RC bridge holds it, this revokes it from the
   // sim (which disconnects), so the two never fight over the same tty.
   PortArbiter::instance().acquire(port, this);
@@ -515,10 +542,22 @@ void MainWindow::onConnectRequested(const QString &port, int baud) {
 }
 
 void MainWindow::onDisconnectRequested() {
+  if (m_udp && m_udp->isOpen()) {
+    m_udp->close();
+  }
   if (m_serial) {
     PortArbiter::instance().release(m_serial->currentPort(), this);
     m_serial->close();
   }
+}
+
+void MainWindow::sendToFc(const QByteArray &pkt) {
+  // Route to the active transport: over UDP it goes to the ESP bridge, which
+  // writes it out to the FC's UART; over serial it's the wired path.
+  if (m_udp && m_udp->isOpen())
+    m_udp->write(pkt);
+  else if (m_serial && m_serial->isOpen())
+    sendToFc(pkt);
 }
 
 void MainWindow::onArmClicked() {
@@ -551,7 +590,7 @@ void MainWindow::onArmClicked() {
       static_cast<uint32_t>(pkt.size()));
   pkt.append(reinterpret_cast<const char *>(&crc), 4);
 
-  m_serial->write(pkt);
+  sendToFc(pkt);
   m_logPanel->appendLog(m_armed ? "[GCS] Sent CMD_DISARM"
                                 : "[GCS] Sent CMD_ARM (lower throttle to arm)");
 }
@@ -849,7 +888,7 @@ void MainWindow::onTimeSyncRequested() {
       CRC32::calculate(reinterpret_cast<const uint8_t *>(pkt.constData()), 8);
   pkt.append(reinterpret_cast<const char *>(&crc), 4);
 
-  m_serial->write(pkt);
+  sendToFc(pkt);
 }
 
 // ---------------------------------------------------------------------------

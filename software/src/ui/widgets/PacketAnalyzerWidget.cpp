@@ -1,6 +1,7 @@
 #include "PacketAnalyzerWidget.h"
 
 #include "FrequencyRibbon.h"
+#include "LinkStatsPanel.h"
 #include "PacketDetailWidget.h"
 #include "core/ui/Buttons.h"
 
@@ -110,6 +111,10 @@ PacketAnalyzerWidget::PacketAnalyzerWidget(QWidget *parent) : QWidget(parent) {
   splitter->setStretchFactor(1, 2);
   layout->addWidget(splitter);
 
+  // Link quality + up/down throughput + byte totals, pinned at the bottom.
+  m_linkStats = new LinkStatsPanel(this);
+  layout->addWidget(m_linkStats);
+
   m_masterLog.reserve(500);
 
   connect(m_btnBack, &QPushButton::clicked, this,
@@ -169,6 +174,8 @@ void PacketAnalyzerWidget::logRxPacket(const QByteArray &data) {
 }
 
 void PacketAnalyzerWidget::logTxPacket(const QByteArray &data) {
+  if (m_linkStats)
+    m_linkStats->addTxBytes(data.size()); // count even when the table is hidden
   addRow("TX", data);
 }
 
@@ -369,5 +376,8 @@ void PacketAnalyzerWidget::showEvent(QShowEvent *event) {
 void PacketAnalyzerWidget::setProtocol(DroneProtocol *protocol) {
   if (m_freqRibbon) {
     m_freqRibbon->setProtocol(protocol);
+  }
+  if (m_linkStats) {
+    m_linkStats->setProtocol(protocol);
   }
 }

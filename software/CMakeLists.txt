@@ -16,6 +16,7 @@ find_package(Qt6 REQUIRED COMPONENTS
     Core
     Widgets
     SerialPort
+    Network
     OpenGL
     OpenGLWidgets
 )
@@ -32,6 +33,7 @@ set(GCS_SOURCES
     src/ui/main/MainToolbar.cpp
     src/ui/main/MainWindow.cpp
     src/comm/SerialManager.cpp
+    src/comm/UdpManager.cpp
     src/comm/PortArbiter.cpp
     src/protocol/DroneProtocol.cpp
     src/ui/widgets/AttitudeWidget.cpp
@@ -50,6 +52,7 @@ set(GCS_SOURCES
     src/ui/widgets/RealTimeGraph.cpp
     src/core/SettingsManager.cpp
     src/ui/widgets/FrequencyRibbon.cpp
+    src/ui/widgets/LinkStatsPanel.cpp
     src/ui/widgets/RcChannelsWidget.cpp
     src/ui/widgets/CalibrationWidget.cpp
     src/ui/widgets/MotorStatusWidget.cpp
@@ -61,6 +64,7 @@ set(GCS_SOURCES
 set(GCS_HEADERS
     src/ui/main/MainWindow.h
     src/comm/SerialManager.h
+    src/comm/UdpManager.h
     src/protocol/DroneProtocol.h
     src/ui/widgets/AttitudeWidget.h
     src/ui/widgets/ImuPanel.h
@@ -81,6 +85,7 @@ set(GCS_HEADERS
     src/ui/widgets/RealTimeGraph.h
     src/core/SettingsManager.h
     src/ui/widgets/FrequencyRibbon.h
+    src/ui/widgets/LinkStatsPanel.h
     src/ui/widgets/RcChannelsWidget.h
     src/ui/widgets/CalibrationWidget.h
     src/ui/widgets/MotorStatusWidget.h
@@ -155,6 +160,7 @@ target_link_libraries(Navigator PRIVATE
     Qt6::Core
     Qt6::Widgets
     Qt6::SerialPort
+    Qt6::Network
     Qt6::OpenGL
     Qt6::OpenGLWidgets
 )

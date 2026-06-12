@@ -22,6 +22,10 @@ public:
   void setDropoutRate(double rate);
   void setColor(int index, const QColor &color);
   void setPenStyle(int index, Qt::PenStyle style);
+  // Pin the Y axis to a fixed [lo, hi] range. Disables the automatic min/max
+  // tracking (and dynamic-Y) so the scale stays put — e.g. 0..100 for a
+  // percentage. Pass it once after construction.
+  void setYRange(float lo, float hi);
   void appendData(float value, int index = 0);
   int numSeries() const { return static_cast<int>(m_seriesData.size()); }
   void clear();
@@ -62,6 +66,7 @@ private:
   int m_windowSeconds = 5;
   double m_dropoutRate = 0.0;
   bool m_dynamicYAxis = false;
+  bool m_fixedRange = false; // true once setYRange() pins m_min/m_max
   std::vector<QColor> m_colors;
   std::vector<Qt::PenStyle> m_penStyles;
 

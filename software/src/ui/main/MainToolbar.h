@@ -1,7 +1,10 @@
 #pragma once
 
+#include <QAction>
 #include <QComboBox>
 #include <QLabel>
+#include <QLineEdit>
+#include <QList>
 #include <QPushButton>
 #include <QToolBar>
 
@@ -57,6 +60,10 @@ public slots:
   // intent as a physical click on the Connect button.
   void onConnectClicked();
 
+private slots:
+  // Swap the visible inputs when the Serial/UDP selector changes.
+  void onTransportChanged();
+
 signals:
   // Intent-only — MainWindow decides what to do (open serial, log, etc.).
   void connectRequested(const QString &port, int baud);
@@ -68,12 +75,18 @@ signals:
 private:
   void buildContent();
 
+  QComboBox   *m_transportCombo = nullptr;  // Serial / UDP
   QComboBox   *m_portCombo  = nullptr;
   QComboBox   *m_baudCombo  = nullptr;
+  QLineEdit   *m_udpPortEdit = nullptr;
   QPushButton *m_refreshBtn = nullptr;
   QPushButton *m_connectBtn = nullptr;
   QPushButton *m_armBtn     = nullptr;
   QLabel      *m_liveLabel  = nullptr;
+
+  // Toolbar-action handles so we can show/hide each transport's inputs.
+  QList<QAction *> m_serialActions;
+  QList<QAction *> m_udpActions;
 
   bool m_connected = false;
 };

@@ -23,6 +23,7 @@
 #include "RollingStats.h"
 #include "SerialManager.h"
 #include "SettingsWidget.h"
+#include "UdpManager.h"
 #include "Types.h"
 
 #ifdef NAVIGATOR_HAS_SITL
@@ -92,6 +93,10 @@ private:
   void restoreUiState();
   void persistPortBaud();
 
+  // Send a command frame to the FC over whichever transport is connected
+  // (UDP bridge or serial). Used by every ARM/PID/calibrate/time-sync path.
+  void sendToFc(const QByteArray &pkt);
+
   // ---- Toolbar / status bar (extracted in Phase-1 1a) ----
   MainToolbar   *m_toolbar   = nullptr;
   MainStatusBar *m_statusBar = nullptr;
@@ -137,6 +142,7 @@ private:
 
   // ---- Back-end ----
   SerialManager *m_serial = nullptr;
+  UdpManager *m_udp = nullptr;
   DroneProtocol *m_protocol = nullptr;
   QTimer *m_uiTimer = nullptr;
   QTimer *m_syncTimer = nullptr;
