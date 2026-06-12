@@ -379,6 +379,11 @@ hal_status_t hal_uart_dma_rx_index(hal_uart_t uart, uint16_t *out_index) {
     return HAL_OK;
 }
 
+/* No real WFI on the host — no-op (the SITL idle task simply spins as it did
+ * before hal_cpu_idle existed; SITL timing is driven by its own tick, not the
+ * idle task). */
+void hal_cpu_idle(void) {}
+
 hal_status_t hal_uart_write_char(hal_uart_t uart, char c) {
     if (uart == HAL_UART_2) uart2_write_bytes(&c, 1);
     return HAL_OK;
