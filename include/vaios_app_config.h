@@ -52,7 +52,10 @@
 
 #define IDLE_TASK_PRIORITY 0
 
-#define IDLE_TASK_STACK_SIZE 2048
+/* Idle does only log-flush + dead-task GC + WFI; measured high-water ~100 B.
+ * 512 keeps ~5x margin and frees ~1.5 KB SRAM vs the old 2048. (This app
+ * override is what actually takes effect; the vaios default is also 512.) */
+#define IDLE_TASK_STACK_SIZE 512
 
 #define TASK_STACK_WATERMARK_ENABLE 1
 
