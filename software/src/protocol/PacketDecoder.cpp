@@ -210,6 +210,7 @@ bool PacketDecoder::decodePerf(const uint8_t *p, uint8_t length,
   if (length < 8)
     return false;
   uint8_t section = p[1];
+  uint8_t index = p[2];
   uint8_t count = p[3];
   uint32_t seq;
   memcpy(&seq, p + 4, 4);
@@ -253,6 +254,8 @@ bool PacketDecoder::decodePerf(const uint8_t *p, uint8_t length,
     m_perfAccum.fifos.reserve(body[2]);
     m_pendingTasks = body[1];
     m_pendingFifos = body[2];
+    m_seenTaskIdx = 0; // fresh report — forget which chunks we've applied
+    m_seenFifoIdx = 0;
     return false; // wait for the rows
   }
 
@@ -263,6 +266,11 @@ bool PacketDecoder::decodePerf(const uint8_t *p, uint8_t length,
     constexpr int kRow = 20;
     if (bodyLen < count * kRow)
       return false;
+    if (index < 32) { // drop a duplicate chunk so its rows aren't appended twice
+      if (m_seenTaskIdx & (1u << index))
+        return false;
+      m_seenTaskIdx |= (1u << index);
+    }
     for (int i = 0; i < count; i++) {
       const uint8_t *r = body + i * kRow;
       PerfTaskRow t;
@@ -279,6 +287,11 @@ bool PacketDecoder::decodePerf(const uint8_t *p, uint8_t length,
   } else if (section == 0x2) { // PERF_SECTION_FIFOS
     if (bodyLen < count * 8)
       return false;
+    if (index < 32) { // same duplicate-chunk guard as the task rows
+      if (m_seenFifoIdx & (1u << index))
+        return false;
+      m_seenFifoIdx |= (1u << index);
+    }
     for (int i = 0; i < count; i++) {
       const uint8_t *r = body + i * 8;
       PerfFifoRow f;

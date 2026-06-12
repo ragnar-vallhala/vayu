@@ -36,4 +36,9 @@ private:
   bool m_perfHaveGlobal = false;
   int m_pendingTasks = 0;
   int m_pendingFifos = 0;
+  // Fragment indices already applied to the current report, so a duplicate
+  // datagram (e.g. a WiFi retransmit over the UDP bridge) can't append a chunk
+  // of task/fifo rows twice and inflate the list.
+  uint32_t m_seenTaskIdx = 0;
+  uint32_t m_seenFifoIdx = 0;
 };
