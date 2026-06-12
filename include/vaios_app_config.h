@@ -17,7 +17,7 @@
 
 #define UART_LOGGING_ENABLE 1
 
-#define UART_BAUDRATE 921600
+#define UART_BAUDRATE 230400 // ~22.5 KiB/s — sized for the ESP8266 WiFi relay
 
 #define LOGGING_ENABLED 0
 
