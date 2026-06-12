@@ -59,6 +59,58 @@ bool rc_loss(void) {
   return (now - last) > RC_LOSS_DETECT_MS;
 }
 
+/* ----------------------------------------------------------------------------
+ * FlySky throttle-failsafe (SYS-SAFE-002 companion).
+ *
+ * FlySky receivers have no immediate link-loss flag; on loss the receiver snaps
+ * the throttle channel (ch3 = channels[2]) up to its configured failsafe preset
+ * (>1900 here). We treat a *sudden jump* to >RC_FAILSAFE_THROTTLE_RAW that is
+ * then *held* for RC_FAILSAFE_HOLD_FRAMES as failsafe:
+ *   - the jump (a one-frame rise no human stick can produce) rejects a
+ *     legitimate, continuous full-throttle push, and
+ *   - the hold rejects a single-frame glitch.
+ * Edge case: if the pilot is already near the preset when the link drops, the
+ * jump may be too small to see — the 1 s staleness watchdog is the backstop.
+ * Single-task state (RC task), no locks (R8.6).
+ * --------------------------------------------------------------------------*/
+static uint16_t s_prev_throttle = RC_THROTTLE_MIN_RAW;
+static uint8_t  s_throttle_high_frames = 0;
+static bool     s_throttle_failsafe = false;
+
+void rc_throttle_failsafe_reset(void) {
+  s_prev_throttle = RC_THROTTLE_MIN_RAW;
+  s_throttle_high_frames = 0;
+  s_throttle_failsafe = false;
+}
+
+bool rc_throttle_failsafe_step(uint16_t throttle_raw) {
+  bool high = throttle_raw > RC_FAILSAFE_THROTTLE_RAW;
+  bool jumped = high && throttle_raw > s_prev_throttle &&
+                (uint16_t)(throttle_raw - s_prev_throttle) >= RC_FAILSAFE_JUMP_DELTA;
+  s_prev_throttle = throttle_raw;
+
+  if (!high) {
+    /* Back in the normal throttle range — clear the latch. */
+    s_throttle_high_frames = 0;
+    s_throttle_failsafe = false;
+    return false;
+  }
+
+  /* High. Arm the confirmation window only on the jump edge, so a slow ramp
+   * into full throttle (high but never jumped) never arms it. Once armed,
+   * count consecutive high frames until the hold is confirmed. */
+  if (s_throttle_high_frames == 0 && !jumped) {
+    return false;
+  }
+  if (s_throttle_high_frames < RC_FAILSAFE_HOLD_FRAMES) {
+    s_throttle_high_frames++;
+  }
+  if (s_throttle_high_frames >= RC_FAILSAFE_HOLD_FRAMES) {
+    s_throttle_failsafe = true;
+  }
+  return s_throttle_failsafe;
+}
+
 /* States in which RC loss should drive a FAILSAFE transition. INIT and
  * CALIBRATING are excluded by design: the vehicle is on the bench and
  * the operator may legitimately have the transmitter off. */
