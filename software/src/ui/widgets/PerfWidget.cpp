@@ -403,7 +403,10 @@ void PerfWidget::updateReport(const PerfReport &r) {
   }
 
   // --- Overview cards ---
-  // CPU load = 1 - idle share, from idle-cycle deltas (wrap-safe).
+  // CPU load = 1 - idle share, from idle-cycle deltas (wrap-safe). DWT CYCCNT
+  // keeps running during WFI on this part, so the idle task's counted cycles
+  // include its WFI-sleep time — this ratio correctly reports idle whether the
+  // idle task busy-spins or sleeps.
   static uint32_t prevIdle = 0;
   double idlePct = 100.0;
   double load = -1.0;
