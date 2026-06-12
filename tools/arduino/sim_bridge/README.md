@@ -34,7 +34,7 @@ arduino-builder -compile \
   -tools /usr/share/arduino/hardware/tools -tools /usr/share/arduino-builder \
   -fqbn arduino:avr:nano:cpu=atmega328 \
   -build-path /tmp/sim_bridge_build \
-  tools/sim_bridge/sim_bridge.ino
+  tools/arduino/sim_bridge/sim_bridge.ino
 
 avrdude -patmega328p -carduino -P/dev/ttyUSB0 -b115200 -D \
   -Uflash:w:/tmp/sim_bridge_build/sim_bridge.ino.hex:i
