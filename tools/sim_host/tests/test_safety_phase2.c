@@ -307,6 +307,46 @@ static void test_software_arm_latch(void) {
   rc.channels[2] = 1000;
 }
 
+/* FlySky throttle-failsafe: jump-AND-held to >1900, with no false trip on a
+ * continuous ramp or a one-frame glitch, and clean recovery. */
+static void test_rc_throttle_failsafe(void) {
+  printf("  test_rc_throttle_failsafe\n");
+
+  /* A slow, continuous ramp into full throttle must NOT trip, even above the
+   * threshold — no single-frame jump ever arms the detector. */
+  rc_throttle_failsafe_reset();
+  bool tripped = false;
+  for (uint16_t t = 1500; t <= 2000; t = (uint16_t)(t + 40)) {
+    tripped |= rc_throttle_failsafe_step(t);
+  }
+  CHECK(!tripped, "slow ramp to full throttle does not trip failsafe");
+
+  /* A sudden jump to >1900 held for the confirmation window DOES trip. */
+  rc_throttle_failsafe_reset();
+  CHECK(!rc_throttle_failsafe_step(1500), "low throttle: no failsafe");
+  bool fs = rc_throttle_failsafe_step(1980); /* the snap */
+  for (unsigned i = 1; i < RC_FAILSAFE_HOLD_FRAMES; i++) {
+    fs = rc_throttle_failsafe_step(1980);
+  }
+  CHECK(fs, "sudden jump to >1900, held, trips failsafe");
+
+  /* A one-frame spike that drops back next frame must NOT latch. */
+  rc_throttle_failsafe_reset();
+  (void)rc_throttle_failsafe_step(1500);
+  (void)rc_throttle_failsafe_step(1980); /* jump */
+  CHECK(!rc_throttle_failsafe_step(1450),
+        "jump then immediate drop does not latch");
+
+  /* Once latched, returning to a normal throttle clears it. */
+  rc_throttle_failsafe_reset();
+  (void)rc_throttle_failsafe_step(1500);
+  for (unsigned i = 0; i <= RC_FAILSAFE_HOLD_FRAMES; i++) {
+    (void)rc_throttle_failsafe_step(1980);
+  }
+  CHECK(rc_throttle_failsafe_step(1980), "stays latched while held high");
+  CHECK(!rc_throttle_failsafe_step(1400), "clears once throttle returns normal");
+}
+
 int main(void) {
   printf("== Phase-2 safety SITL verification ==\n");
 
@@ -317,6 +357,7 @@ int main(void) {
   test_estimator_safety_failsafe();
   test_arm_preconditions();
   test_software_arm_latch();
+  test_rc_throttle_failsafe();
 
   printf("\n%d checks, %d failures\n", g_checks, g_fails);
   return g_fails == 0 ? 0 : 1;

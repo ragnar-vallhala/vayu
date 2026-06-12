@@ -360,6 +360,25 @@ hal_status_t hal_uart_init_dma_rx(hal_uart_t uart, uint8_t *buf, uint16_t len) {
     return HAL_OK;
 }
 
+/* SITL feeds RC via the sim_rc_enabled bypass, so the idle-driven DMA-RX path
+ * isn't exercised on host — these just satisfy the linker. The idle callback
+ * never fires (no real UART), and a write index of 0 means "nothing to drain". */
+hal_status_t hal_uart_attach_idle_callback(hal_uart_t uart, void (*cb)(void)) {
+    (void)uart; (void)cb;
+    return HAL_OK;
+}
+
+hal_status_t hal_uart_detach_idle_callback(hal_uart_t uart) {
+    (void)uart;
+    return HAL_OK;
+}
+
+hal_status_t hal_uart_dma_rx_index(hal_uart_t uart, uint16_t *out_index) {
+    (void)uart;
+    if (out_index) *out_index = 0;
+    return HAL_OK;
+}
+
 hal_status_t hal_uart_write_char(hal_uart_t uart, char c) {
     if (uart == HAL_UART_2) uart2_write_bytes(&c, 1);
     return HAL_OK;

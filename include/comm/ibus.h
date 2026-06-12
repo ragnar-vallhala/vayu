@@ -36,6 +36,17 @@ bool ibus_parse_byte(uint8_t byte, ibus_data_t *data);
  *  higher layers can react before the slower failsafe transition (COMM-RC-002). */
 #define RC_LOSS_DETECT_MS 100U
 
+/* FlySky throttle-failsafe tunables. FlySky receivers expose no immediate
+ * link-loss flag; on loss the receiver snaps the throttle channel (ch3 =
+ * channels[2]) up to its configured failsafe preset (>1900 on this airframe).
+ * rc_throttle_failsafe_step() trips on a sudden JUMP to >threshold that is then
+ * HELD — both conditions, so a continuous full-throttle push (no single-frame
+ * jump) and a one-frame glitch (not held) don't false-trip. Tune on hardware. */
+#define RC_FAILSAFE_THROTTLE_RAW 1900U /**< ch3 above this counts as "high". */
+#define RC_FAILSAFE_JUMP_DELTA 300U    /**< one-frame rise no human stick makes. */
+#define RC_FAILSAFE_HOLD_FRAMES 4U     /**< consecutive high frames to confirm. */
+#define RC_THROTTLE_MIN_RAW 1000U      /**< iBUS throttle minimum (0% throttle). */
+
 /**
  * @brief Mark "right now" as the most recent valid RC frame.
  *
@@ -66,6 +77,25 @@ bool rc_has_signal(void);
  * @implements COMM-RC-002
  */
 bool rc_loss(void);
+
+/**
+ * @brief Step the FlySky throttle-failsafe detector with this frame's raw ch3
+ *        (throttle, channels[2]).
+ *
+ * Returns true once a sudden jump to >RC_FAILSAFE_THROTTLE_RAW has been HELD
+ * for RC_FAILSAFE_HOLD_FRAMES consecutive frames (the latch stays set while
+ * throttle remains high and clears when it returns to the normal range). A
+ * slow ramp into full throttle (no single-frame jump) never trips it; the 1 s
+ * staleness watchdog (rc_watchdog_step) remains the guaranteed backstop.
+ *
+ * Single-caller (the RC task), lock-free.
+ *
+ * @implements SYS-SAFE-002
+ */
+bool rc_throttle_failsafe_step(uint16_t throttle_raw);
+
+/** @brief Reset the throttle-failsafe detector (boot / tests). */
+void rc_throttle_failsafe_reset(void);
 
 /**
  * @brief One RC-watchdog tick: if the link is lost in a flight-relevant
