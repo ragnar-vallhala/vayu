@@ -36,10 +36,24 @@ void MainToolbar::buildContent() {
 
   addSeparator();
 
-  // Port — editable so custom paths (e.g. /dev/pts/3 for SITL) work.
-  // Each item's userData carries the bare device path so callers never
-  // parse a decoration suffix back off.
-  addWidget(new QLabel(" Port: ", this));
+  // Transport selector — explicit Serial vs UDP (WiFi bridge) so the right
+  // inputs are shown for each, instead of overloading the Port field.
+  addWidget(new QLabel(" Link: ", this));
+  m_transportCombo = new QComboBox(this);
+  m_transportCombo->addItem("Serial");
+  m_transportCombo->addItem("UDP");
+  m_transportCombo->setToolTip(
+      tr("Telemetry transport: Serial (USB/UART) or UDP (the WiFi bridge)."));
+  connect(m_transportCombo, &QComboBox::currentIndexChanged, this,
+          &MainToolbar::onTransportChanged);
+  addWidget(m_transportCombo);
+
+  addSeparator();
+
+  // ---- Serial inputs (shown when Link = Serial) ----
+  // Port — editable so custom paths (e.g. /dev/pts/3 for SITL) work. Each
+  // item's userData carries the bare device path.
+  m_serialActions << addWidget(new QLabel(" Port: ", this));
   m_portCombo = new QComboBox(this);
   m_portCombo->setEditable(true);
   m_portCombo->setInsertPolicy(QComboBox::NoInsert);
@@ -47,33 +61,42 @@ void MainToolbar::buildContent() {
   m_portCombo->setToolTip(
       tr("Serial device path. Editable — type a custom path "
          "(e.g. /dev/pts/3 for a SITL pty)."));
-  addWidget(m_portCombo);
+  m_serialActions << addWidget(m_portCombo);
 
   m_refreshBtn = new ui::GhostButton("⟳", this);
   m_refreshBtn->setToolTip(tr("Refresh port list"));
   m_refreshBtn->setFixedWidth(32);
   connect(m_refreshBtn, &QPushButton::clicked, this, &MainToolbar::refreshPorts);
-  addWidget(m_refreshBtn);
+  m_serialActions << addWidget(m_refreshBtn);
 
-  addSeparator();
+  m_serialActions << addSeparator();
 
-  // Baud
-  addWidget(new QLabel(" Baud: ", this));
+  m_serialActions << addWidget(new QLabel(" Baud: ", this));
   m_baudCombo = new QComboBox(this);
   const QList<int> bauds = {9600,   19200,  38400,  57600,
                             115200, 230400, 460800, 921600};
   for (int b : bauds) m_baudCombo->addItem(QString::number(b), b);
   m_baudCombo->setCurrentIndex(4);  // 115200 default
   m_baudCombo->setToolTip(tr("Baud rate. Must match firmware UART config."));
-  addWidget(m_baudCombo);
+  m_serialActions << addWidget(m_baudCombo);
+
+  // ---- UDP inputs (shown when Link = UDP) ----
+  m_udpActions << addWidget(new QLabel(" UDP port: ", this));
+  m_udpPortEdit = new QLineEdit("14555", this);
+  m_udpPortEdit->setFixedWidth(70);
+  m_udpPortEdit->setToolTip(
+      tr("UDP port to listen on — matches the ESP8266 bridge (default 14555)."));
+  m_udpActions << addWidget(m_udpPortEdit);
 
   addSeparator();
+
+  onTransportChanged();  // set initial input visibility (Serial)
 
   // Connect / Disconnect — Success colour flips to Danger on connect
   // via repolish() in setConnected().
   m_connectBtn = new ui::SuccessButton(tr("Connect"), this);
-  m_connectBtn->setToolTip(tr("Open serial connection to the selected port "
-                              "(Ctrl+K)."));
+  m_connectBtn->setToolTip(
+      tr("Connect over the selected link (Serial port or UDP) — Ctrl+K."));
   connect(m_connectBtn, &QPushButton::clicked, this,
           &MainToolbar::onConnectClicked);
   addWidget(m_connectBtn);
@@ -147,9 +170,23 @@ void MainToolbar::onConnectClicked() {
     emit disconnectRequested();
     return;
   }
+  // UDP transport: hand MainWindow a "udp:<port>" string (it routes those to
+  // the UdpManager); baud is irrelevant.
+  if (m_transportCombo && m_transportCombo->currentIndex() == 1) {
+    QString p = m_udpPortEdit ? m_udpPortEdit->text().trimmed() : QString();
+    if (p.isEmpty()) p = "14555";
+    emit connectRequested("udp:" + p, 0);
+    return;
+  }
   QString port = currentPort();
   if (port.isEmpty() || port.startsWith('(')) return;
   emit connectRequested(port, currentBaud());
+}
+
+void MainToolbar::onTransportChanged() {
+  const bool udp = m_transportCombo && m_transportCombo->currentIndex() == 1;
+  for (QAction *a : m_serialActions) a->setVisible(!udp);
+  for (QAction *a : m_udpActions) a->setVisible(udp);
 }
 
 // ---------------------------------------------------------------------------
@@ -162,6 +199,8 @@ void MainToolbar::setConnected(bool on, const QString &portLabel) {
     repolish(m_connectBtn, "DangerButton");
     m_portCombo->setEnabled(false);
     m_baudCombo->setEnabled(false);
+    if (m_transportCombo) m_transportCombo->setEnabled(false);
+    if (m_udpPortEdit) m_udpPortEdit->setEnabled(false);
   } else {
     m_connectBtn->setText(tr("Connect"));
     repolish(m_connectBtn, "SuccessButton");
@@ -169,6 +208,8 @@ void MainToolbar::setConnected(bool on, const QString &portLabel) {
     m_armBtn->setEnabled(false);
     m_portCombo->setEnabled(true);
     m_baudCombo->setEnabled(true);
+    if (m_transportCombo) m_transportCombo->setEnabled(true);
+    if (m_udpPortEdit) m_udpPortEdit->setEnabled(true);
   }
 }
 
@@ -180,6 +221,8 @@ void MainToolbar::setSerialControlsEnabled(bool enabled) {
   const bool combos = enabled && !m_connected;
   if (m_portCombo) m_portCombo->setEnabled(combos);
   if (m_baudCombo) m_baudCombo->setEnabled(combos);
+  if (m_transportCombo) m_transportCombo->setEnabled(combos);
+  if (m_udpPortEdit) m_udpPortEdit->setEnabled(combos);
 }
 
 void MainToolbar::setArmEnabled(bool on) {

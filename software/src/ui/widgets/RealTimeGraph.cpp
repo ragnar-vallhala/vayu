@@ -45,6 +45,14 @@ void RealTimeGraph::setPenStyle(int index, Qt::PenStyle style) {
   }
 }
 
+void RealTimeGraph::setYRange(float lo, float hi) {
+  m_min = lo;
+  m_max = hi;
+  m_fixedRange = true;
+  m_dynamicYAxis = false;
+  update();
+}
+
 void RealTimeGraph::appendData(float value, int index) {
   if (index < 0 || index >= static_cast<int>(m_seriesData.size()))
     return;
@@ -60,17 +68,19 @@ void RealTimeGraph::appendData(float value, int index) {
   qint64 now = QDateTime::currentMSecsSinceEpoch();
   m_seriesData[index].push_back({now, value});
 
-  // Incremental update of min/max
-  if (m_seriesData[index].size() == 1 && m_min == -1.0f && m_max == 1.0f) {
-    m_min = value;
-    m_max = value;
-    if (std::abs(m_max - m_min) < 0.001f) {
-      m_min -= 0.1f;
-      m_max += 0.1f;
+  // Incremental update of min/max (skipped when the range is pinned).
+  if (!m_fixedRange) {
+    if (m_seriesData[index].size() == 1 && m_min == -1.0f && m_max == 1.0f) {
+      m_min = value;
+      m_max = value;
+      if (std::abs(m_max - m_min) < 0.001f) {
+        m_min -= 0.1f;
+        m_max += 0.1f;
+      }
+    } else {
+      m_min = std::min(m_min, value);
+      m_max = std::max(m_max, value);
     }
-  } else {
-    m_min = std::min(m_min, value);
-    m_max = std::max(m_max, value);
   }
 
   pruneData();
@@ -81,8 +91,10 @@ void RealTimeGraph::clear() {
   for (auto &series : m_seriesData) {
     series.clear();
   }
-  m_min = -1.0f;
-  m_max = 1.0f;
+  if (!m_fixedRange) {
+    m_min = -1.0f;
+    m_max = 1.0f;
+  }
   update();
 }
 
@@ -110,7 +122,8 @@ void RealTimeGraph::pruneData() {
   }
 
   // Only recalculate global min/max if the points we pruned were the min or max
-  if (minMaxPruned || (m_min == m_max && anyPopped)) {
+  // (never when the range is pinned via setYRange()).
+  if (!m_fixedRange && (minMaxPruned || (m_min == m_max && anyPopped))) {
     bool first = true;
     for (const auto &series : m_seriesData) {
       for (const auto &dp : series) {

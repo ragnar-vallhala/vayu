@@ -20,6 +20,7 @@ struct PacketEntry {
 
 class PacketDetailWidget;
 class FrequencyRibbon;
+class LinkStatsPanel;
 
 class PacketAnalyzerWidget : public QWidget {
   Q_OBJECT
@@ -53,6 +54,7 @@ private:
   void writeToStream(const QString &dir, const QByteArray &data);
 
   FrequencyRibbon *m_freqRibbon = nullptr;
+  LinkStatsPanel *m_linkStats = nullptr;
   QTableWidget *m_table;
   QPushButton *m_btnClear;
   QPushButton *m_btnSave;
