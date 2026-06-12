@@ -3,105 +3,144 @@
 #include "FrequencyRibbon.h"
 #include "LinkStatsPanel.h"
 #include "PacketDetailWidget.h"
+#include "PacketFilterProxy.h"
+#include "PacketLogModel.h"
 #include "core/ui/Buttons.h"
 
+#include <QComboBox>
+#include <QDateTime>
+#include <QEvent>
 #include <QFileDialog>
+#include <QHBoxLayout>
 #include <QHeaderView>
+#include <QLabel>
 #include <QMessageBox>
-#include <QScrollBar>
-#include <QShowEvent>
 #include <QSplitter>
 #include <QStyle>
-#include <QTextStream>
+#include <QVBoxLayout>
 
 PacketAnalyzerWidget::PacketAnalyzerWidget(QWidget *parent) : QWidget(parent) {
+  buildUi();
+}
+
+void PacketAnalyzerWidget::buildUi() {
   auto *layout = new QVBoxLayout(this);
-  layout->setContentsMargins(8, 0, 8, 8); // Top margin 0 for ribbon
+  layout->setContentsMargins(8, 0, 8, 8);
   layout->setSpacing(8);
 
   m_freqRibbon = new FrequencyRibbon(this);
   layout->addWidget(m_freqRibbon);
 
-  // Top control bar
+  // ---- Top control bar ----
   auto *topBar = new QHBoxLayout();
-
   m_btnBack = new ui::BackButton(this);
   m_btnBack->setText(tr("← Back to Home"));
-  m_btnBack->setToolTip(tr("Return to home"));
   topBar->addWidget(m_btnBack);
-
   topBar->addStretch();
-
-  m_chkAutoScroll = new QCheckBox("Auto-scroll", this);
+  m_chkAutoScroll = new QCheckBox(tr("Auto-scroll"), this);
   m_chkAutoScroll->setChecked(true);
-  m_chkAutoScroll->setToolTip(tr("Keep the table scrolled to the newest packet"));
   topBar->addWidget(m_chkAutoScroll);
-
-  m_btnClear = new ui::GhostButton(tr("Clear Logs"), this);
-  m_btnClear->setToolTip(tr("Drop all rows from the table (ring buffer reset)"));
+  m_btnClear = new ui::GhostButton(tr("Clear"), this);
   topBar->addWidget(m_btnClear);
-
-  // Streaming toggle. Object name flips Success<->Danger on each click
-  // via repolish() so the colour matches the action it'll perform.
   m_btnStream = new ui::SuccessButton(tr("Start Streaming"), this);
-  m_btnStream->setToolTip(tr("Tee captured packets to a CSV file"));
   topBar->addWidget(m_btnStream);
-
   m_btnSave = new ui::GhostButton(tr("Save Table…"), this);
-  m_btnSave->setToolTip(tr("Export the current table snapshot to CSV"));
   topBar->addWidget(m_btnSave);
-
   layout->addLayout(topBar);
 
-  // Filter Bar
+  // ---- Model / proxy / view ----
+  m_model = new PacketLogModel(this);
+  m_proxy = new PacketFilterProxy(this);
+  m_proxy->setSourceModel(m_model);
+
+  // ---- Filter bar: type chips + direction + device + search ----
   auto *filterBar = new QHBoxLayout();
   filterBar->setSpacing(6);
-  filterBar->addWidget(new QLabel(" <b>Filter Type:</b> ", this));
+  filterBar->addWidget(new QLabel(tr("<b>Filter:</b>"), this));
 
-  // Filter pills — checkable, accent-fill when active. Styled via the
-  // QPushButton#FilterPill selector in dark.qss.
-  auto addFilter = [&](const QString &label, int type) {
+  auto addChip = [&](const QString &label, int type) {
     auto *btn = new QPushButton(label, this);
     btn->setObjectName("FilterPill");
     btn->setCheckable(true);
-    btn->setChecked(false);
-    m_disabledTypes.insert(type);
-    btn->setProperty("packetType", type);
+    btn->setChecked(true);
     btn->setMinimumHeight(24);
-    btn->setToolTip(tr("Hide / show %1 packets").arg(label));
     connect(btn, &QPushButton::toggled, this,
-            &PacketAnalyzerWidget::onFilterToggled);
+            [this, type](bool on) { m_proxy->setTypeEnabled(type, on); });
     filterBar->addWidget(btn);
-    m_filterButtons[type] = btn;
+    m_typeChips[type] = btn;
   };
-
-  addFilter("Heartbeat", 0x0);
-  addFilter("IMU Full", 0x1);
-  addFilter("IMU Comp", 0x2);
-  addFilter("Attitude", 0x4);
-  addFilter("RC", 0x5);
-  addFilter("Status", 0x6);
-  addFilter("Log", 0x7);
-  addFilter("Motor", 0x8);
+  addChip("HB", 0x0);
+  addChip("IMU", 0x1);
+  addChip("IMUΔ", 0x2);
+  addChip("Cmd", 0x3);
+  addChip("Att", 0x4);
+  addChip("RC", 0x5);
+  addChip("Status", 0x6);
+  addChip("Log", 0x7);
+  addChip("Motor", 0x8);
+  addChip("Perf", 0x9);
+  addChip("Name", 0xA);
+  addChip("RAW", 0xFF);
 
   filterBar->addStretch();
+
+  auto *dirCombo = new QComboBox(this);
+  dirCombo->addItems({"All", "RX", "TX"});
+  dirCombo->setToolTip(tr("Direction"));
+  connect(dirCombo, &QComboBox::currentIndexChanged, this, [this](int i) {
+    m_proxy->setDirection(static_cast<PacketFilterProxy::Direction>(i));
+  });
+  filterBar->addWidget(dirCombo);
+
+  auto *devEdit = new QLineEdit(this);
+  devEdit->setPlaceholderText(tr("dev"));
+  devEdit->setFixedWidth(50);
+  devEdit->setToolTip(tr("Filter by device id (blank = any)"));
+  connect(devEdit, &QLineEdit::textChanged, this, [this](const QString &s) {
+    bool ok = false;
+    int d = s.trimmed().toInt(&ok);
+    m_proxy->setDeviceFilter(ok ? d : -1);
+  });
+  filterBar->addWidget(devEdit);
+
+  m_searchEdit = new QLineEdit(this);
+  m_searchEdit->setPlaceholderText(tr("search hex or text…"));
+  m_searchEdit->setFixedWidth(180);
+  connect(m_searchEdit, &QLineEdit::textChanged, this,
+          [this](const QString &s) { m_proxy->setSearch(s); });
+  filterBar->addWidget(m_searchEdit);
   layout->addLayout(filterBar);
 
-  // Table
-  m_table = new QTableWidget(0, 4, this);
-  m_table->setHorizontalHeaderLabels(
-      {"Timestamp", "Dir", "Size", "Data (Hex)"});
-  m_table->horizontalHeader()->setSectionResizeMode(
-      0, QHeaderView::ResizeToContents);
-  m_table->horizontalHeader()->setSectionResizeMode(
-      1, QHeaderView::ResizeToContents);
-  m_table->horizontalHeader()->setSectionResizeMode(
-      2, QHeaderView::ResizeToContents);
-  m_table->horizontalHeader()->setSectionResizeMode(3, QHeaderView::Stretch);
+  // ---- Expression bar ----
+  auto *exprBar = new QHBoxLayout();
+  exprBar->addWidget(new QLabel(tr("<b>Display filter:</b>"), this));
+  m_exprEdit = new QLineEdit(this);
+  m_exprEdit->setPlaceholderText(
+      tr("e.g.  type==attitude && dev==42 && size>50"));
+  m_exprEdit->setClearButtonEnabled(true);
+  connect(m_exprEdit, &QLineEdit::textChanged, this,
+          &PacketAnalyzerWidget::onExpressionEdited);
+  exprBar->addWidget(m_exprEdit);
+  layout->addLayout(exprBar);
+
+  // ---- Table ----
+  m_table = new QTableView(this);
+  m_table->setModel(m_proxy);
   m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
+  m_table->setSelectionMode(QAbstractItemView::SingleSelection);
   m_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
   m_table->setAlternatingRowColors(true);
-  // Table chrome (background, gridline, header) handled by global QSS.
+  m_table->setShowGrid(false);
+  m_table->verticalHeader()->setVisible(false);
+  m_table->verticalHeader()->setSectionResizeMode(QHeaderView::Fixed);
+  m_table->verticalHeader()->setDefaultSectionSize(20);
+  auto *hh = m_table->horizontalHeader();
+  hh->setSectionResizeMode(QHeaderView::Interactive);
+  // Columns are sized by weight to fill the full width (see resizeColumns()),
+  // re-applied on every resize via the event filter below.
+  hh->setStretchLastSection(false);
+  m_table->installEventFilter(this);
+
   m_detailView = new PacketDetailWidget(this);
 
   auto *splitter = new QSplitter(Qt::Vertical, this);
@@ -109,24 +148,21 @@ PacketAnalyzerWidget::PacketAnalyzerWidget(QWidget *parent) : QWidget(parent) {
   splitter->addWidget(m_detailView);
   splitter->setStretchFactor(0, 3);
   splitter->setStretchFactor(1, 2);
-  layout->addWidget(splitter);
+  layout->addWidget(splitter, 1);
 
-  // Link quality + up/down throughput + byte totals, pinned at the bottom.
   m_linkStats = new LinkStatsPanel(this);
   layout->addWidget(m_linkStats);
 
-  m_masterLog.reserve(500);
-
+  // ---- Connections ----
   connect(m_btnBack, &QPushButton::clicked, this,
-          &PacketAnalyzerWidget::onBackClicked);
+          &PacketAnalyzerWidget::backToHomeRequested);
   connect(m_btnClear, &QPushButton::clicked, this,
           &PacketAnalyzerWidget::onClearClicked);
   connect(m_btnSave, &QPushButton::clicked, this,
           &PacketAnalyzerWidget::onSaveClicked);
-  // Flip the streaming button's role (Success<->Danger) by changing
-  // objectName + re-polishing — no inline stylesheet text.
-  auto setStreamRole = [this](const char *roleName) {
-    m_btnStream->setObjectName(roleName);
+
+  auto setStreamRole = [this](const char *role) {
+    m_btnStream->setObjectName(role);
     m_btnStream->style()->unpolish(m_btnStream);
     m_btnStream->style()->polish(m_btnStream);
     m_btnStream->update();
@@ -138,18 +174,14 @@ PacketAnalyzerWidget::PacketAnalyzerWidget(QWidget *parent) : QWidget(parent) {
       m_btnStream->setText(tr("Start Streaming"));
       setStreamRole("SuccessButton");
     } else {
-      QString fileName =
-          QFileDialog::getSaveFileName(this, "Stream Packets to CSV", "",
-                                       "CSV Files (*.csv);;All "
-                                       "Files (*)");
-      if (fileName.isEmpty())
+      QString fn = QFileDialog::getSaveFileName(
+          this, tr("Stream Packets to CSV"), "", tr("CSV Files (*.csv)"));
+      if (fn.isEmpty())
         return;
-
-      m_streamFile.setFileName(fileName);
+      m_streamFile.setFileName(fn);
       if (m_streamFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
         m_streamOut.setDevice(&m_streamFile);
-        m_streamOut << "Timestamp,Direction,Size,"
-                       "Data\n";
+        m_streamOut << "Timestamp,Direction,Size,Hex\n";
         m_isStreaming = true;
         m_btnStream->setText(tr("Stop Streaming"));
         setStreamRole("DangerButton");
@@ -157,227 +189,124 @@ PacketAnalyzerWidget::PacketAnalyzerWidget(QWidget *parent) : QWidget(parent) {
     }
   });
 
-  connect(m_table, &QTableWidget::itemClicked, this,
-          &PacketAnalyzerWidget::onItemClicked);
-  connect(m_table, &QTableWidget::itemSelectionChanged, this, [this]() {
-    auto items = m_table->selectedItems();
-    if (items.isEmpty()) {
-      m_detailView->clear();
-    } else {
-      onItemClicked(items.first());
-    }
-  });
+  connect(m_table->selectionModel(), &QItemSelectionModel::currentRowChanged,
+          this, &PacketAnalyzerWidget::onSelectionChanged);
+
+  // Batched-insert auto-scroll: follow the tail only when enabled.
+  connect(m_proxy, &QAbstractItemModel::rowsInserted, this,
+          [this](const QModelIndex &, int, int) {
+            if (m_chkAutoScroll->isChecked())
+              m_table->scrollToBottom();
+          });
+}
+
+bool PacketAnalyzerWidget::eventFilter(QObject *obj, QEvent *e) {
+  if (obj == m_table && e->type() == QEvent::Resize)
+    resizeColumns();
+  return QWidget::eventFilter(obj, e);
+}
+
+void PacketAnalyzerWidget::resizeColumns() {
+  if (!m_table)
+    return;
+  const int w = m_table->viewport()->width();
+  if (w <= 0)
+    return;
+  // Relative weights — every column grows to fill the width in proportion.
+  static const double wt[PacketLogModel::ColCount] = {
+      /*No*/ 0.7, /*Time*/ 1.3, /*Dir*/ 0.5, /*Type*/ 1.9,
+      /*Dev*/ 0.6, /*Len*/ 0.6, /*Info*/ 3.0};
+  double sum = 0;
+  for (double x : wt)
+    sum += x;
+  int used = 0;
+  for (int c = 0; c < PacketLogModel::ColCount - 1; ++c) {
+    const int cw = int(w * wt[c] / sum);
+    m_table->setColumnWidth(c, cw);
+    used += cw;
+  }
+  m_table->setColumnWidth(PacketLogModel::ColCount - 1, qMax(80, w - used));
+}
+
+void PacketAnalyzerWidget::onExpressionEdited() {
+  const QString text = m_exprEdit->text();
+  const bool ok = m_proxy->setExpression(text);
+  m_exprEdit->setStyleSheet(
+      (ok || text.trimmed().isEmpty())
+          ? QString()
+          : "QLineEdit { border: 1px solid #E06C75; }");
+}
+
+void PacketAnalyzerWidget::onSelectionChanged() {
+  const QModelIndex cur = m_table->selectionModel()->currentIndex();
+  if (!cur.isValid()) {
+    m_detailView->clear();
+    return;
+  }
+  const QModelIndex src = m_proxy->mapToSource(cur);
+  const PacketEntry *e = m_model->entry(src.row());
+  if (e)
+    m_detailView->setData(e->raw);
 }
 
 void PacketAnalyzerWidget::logRxPacket(const QByteArray &data) {
-  addRow("RX", data);
+  if (m_isStreaming)
+    tee("RX", data);
+  m_model->enqueue(false, data);
 }
 
 void PacketAnalyzerWidget::logTxPacket(const QByteArray &data) {
-  if (m_linkStats)
-    m_linkStats->addTxBytes(data.size()); // count even when the table is hidden
-  addRow("TX", data);
+  if (m_isStreaming)
+    tee("TX", data);
+  m_model->enqueue(true, data);
 }
 
-void PacketAnalyzerWidget::addRow(const QString &dir, const QByteArray &data) {
-  if (data.isEmpty())
-    return;
-
-  // Store in master log
-  PacketEntry entry;
-  entry.timestamp = QDateTime::currentDateTime().toString("HH:mm:ss.zzz");
-  entry.direction = dir;
-  entry.data = data;
-  m_masterLog.append(entry);
-  if (m_masterLog.size() > 500) {
-    m_masterLog.removeFirst();
-  }
-
-  // Skip expensive table updates if the widget is hidden
-  if (!isVisible())
-    return;
-
-  // Filter check
-  int type = -1;
-  if (data.size() >= 2) {
-    type = (static_cast<uint8_t>(data[1]) >> 4) & 0x0F;
-  }
-
-  if (m_disabledTypes.contains(type) || type == -1) {
-    return;
-  }
-
-  int row = m_table->rowCount();
-  m_table->insertRow(row);
-
-  // Timestamp
-  auto *itemTs = new QTableWidgetItem(entry.timestamp);
-  m_table->setItem(row, 0, itemTs);
-
-  // Direction
-  auto *itemDir = new QTableWidgetItem(dir);
-  itemDir->setTextAlignment(Qt::AlignCenter);
-  if (dir == "RX") {
-    itemDir->setForeground(QBrush(QColor("#98C379"))); // Green
-  } else {
-    itemDir->setForeground(QBrush(QColor("#61AFEF"))); // Blue
-  }
-  m_table->setItem(row, 1, itemDir);
-
-  // Size
-  auto *itemSize = new QTableWidgetItem(QString::number(data.size()));
-  itemSize->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
-  m_table->setItem(row, 2, itemSize);
-
-  // Data (Hex)
-  QString hexStr = data.toHex(' ').toUpper();
-  auto *itemData = new QTableWidgetItem(hexStr);
-  itemData->setFont(QFont("Monospace", 10));
-  itemData->setData(Qt::UserRole, data); // Store raw data for decoder
-  m_table->setItem(row, 3, itemData);
-
-  m_packetCount++;
-
-  if (m_isStreaming) {
-    writeToStream(dir, data);
-  }
-
-  // Cap at 500 rows
-  while (m_table->rowCount() > 500) {
-    m_table->removeRow(0);
-  }
-
-  if (m_chkAutoScroll->isChecked()) {
-    m_table->scrollToBottom();
-  }
-}
-
-void PacketAnalyzerWidget::writeToStream(const QString &dir,
-                                         const QByteArray &data) {
+void PacketAnalyzerWidget::tee(const QString &dir, const QByteArray &data) {
   if (!m_isStreaming)
     return;
-  QString ts = QDateTime::currentDateTime().toString("HH:mm:ss.zzz");
-  m_streamOut << ts << "," << dir << "," << data.size() << ",\""
-              << data.toHex(' ').toUpper() << "\"\n";
-  // Flush occasionally or every time? At 100Hz every time might be slow, but
-  // safe.
+  m_streamOut << QDateTime::currentDateTime().toString("HH:mm:ss.zzz") << ","
+              << dir << "," << data.size() << ",\""
+              << QString::fromLatin1(data.toHex(' ').toUpper()) << "\"\n";
   m_streamOut.flush();
 }
 
 void PacketAnalyzerWidget::onClearClicked() {
-  m_masterLog.clear();
-  m_table->setRowCount(0);
-  m_packetCount = 0;
+  m_model->clearAll();
   m_detailView->clear();
 }
 
 void PacketAnalyzerWidget::onSaveClicked() {
-  QString fileName = QFileDialog::getSaveFileName(
-      this, "Save Packet Log", "",
-      "Log Files (*.log *.txt *.csv);;All Files (*)");
-  if (fileName.isEmpty())
+  QString fn = QFileDialog::getSaveFileName(this, tr("Save Packet Log"), "",
+                                            tr("CSV Files (*.csv);;All (*)"));
+  if (fn.isEmpty())
     return;
-
-  QFile file(fileName);
-  if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
-    QMessageBox::critical(this, "Error",
-                          "Failed to open file for writing:\n" +
-                              file.errorString());
+  QFile f(fn);
+  if (!f.open(QIODevice::WriteOnly | QIODevice::Text)) {
+    QMessageBox::critical(this, tr("Error"), f.errorString());
     return;
   }
-
-  QTextStream out(&file);
-  out << "Timestamp,Direction,Size,Data\n";
-
-  for (int r = 0; r < m_table->rowCount(); ++r) {
-    QString ts = m_table->item(r, 0)->text();
-    QString dir = m_table->item(r, 1)->text();
-    QString sz = m_table->item(r, 2)->text();
-    QString data = m_table->item(r, 3)->text();
-    out << ts << "," << dir << "," << sz << ",\"" << data << "\"\n";
+  QTextStream out(&f);
+  out << "No,Time,Dir,Type,Dev,Len,Info,Hex\n";
+  int written = 0;
+  for (int r = 0; r < m_proxy->rowCount(); ++r) {
+    const QModelIndex src = m_proxy->mapToSource(m_proxy->index(r, 0));
+    const PacketEntry *e = m_model->entry(src.row());
+    if (!e)
+      continue;
+    out << e->no << "," << e->time << "," << (e->tx ? "TX" : "RX") << ","
+        << e->typeName << "," << (e->type == 0xFF ? "" : QString::number(e->dev))
+        << "," << e->len << ",\"" << e->info << "\",\""
+        << QString::fromLatin1(e->raw.toHex(' ').toUpper()) << "\"\n";
+    ++written;
   }
-
-  file.close();
-  QMessageBox::information(this, "Success",
-                           "Saved " + QString::number(m_table->rowCount()) +
-                               " packets to file.");
-}
-
-void PacketAnalyzerWidget::onBackClicked() { emit backToHomeRequested(); }
-
-void PacketAnalyzerWidget::onItemClicked(QTableWidgetItem *item) {
-  if (!item)
-    return;
-  int row = item->row();
-  QTableWidgetItem *dataItem = m_table->item(row, 3);
-  if (!dataItem)
-    return;
-
-  QByteArray rawData = dataItem->data(Qt::UserRole).toByteArray();
-  m_detailView->setData(rawData);
-}
-
-void PacketAnalyzerWidget::onFilterToggled(bool checked) {
-  auto *btn = qobject_cast<QPushButton *>(sender());
-  if (!btn)
-    return;
-  int type = btn->property("packetType").toInt();
-  if (checked) {
-    m_disabledTypes.remove(type);
-  } else {
-    m_disabledTypes.insert(type);
-  }
-  reapplyFilters();
-}
-
-void PacketAnalyzerWidget::reapplyFilters() {
-  m_table->setRowCount(0);
-  // Iterating from 0 to size-1 as we now use append (0 is oldest)
-  for (int i = 0; i < m_masterLog.size(); ++i) {
-    const auto &entry = m_masterLog[i];
-    int type = -1;
-    if (entry.data.size() >= 2) {
-      type = (static_cast<uint8_t>(entry.data[1]) >> 4) & 0x0F;
-    }
-
-    if (!m_disabledTypes.contains(type) && type != -1) {
-      int row = m_table->rowCount();
-      m_table->insertRow(row);
-
-      m_table->setItem(row, 0, new QTableWidgetItem(entry.timestamp));
-
-      auto *itemDir = new QTableWidgetItem(entry.direction);
-      itemDir->setTextAlignment(Qt::AlignCenter);
-      itemDir->setForeground(
-          QBrush(QColor(entry.direction == "RX" ? "#98C379" : "#61AFEF")));
-      m_table->setItem(row, 1, itemDir);
-
-      auto *itemSize = new QTableWidgetItem(QString::number(entry.data.size()));
-      itemSize->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
-      m_table->setItem(row, 2, itemSize);
-
-      auto *itemData = new QTableWidgetItem(entry.data.toHex(' ').toUpper());
-      itemData->setFont(QFont("Monospace", 10));
-      itemData->setData(Qt::UserRole, entry.data);
-      m_table->setItem(row, 3, itemData);
-    }
-  }
-
-  if (m_chkAutoScroll->isChecked()) {
-    m_table->scrollToBottom();
-  }
-}
-
-void PacketAnalyzerWidget::showEvent(QShowEvent *event) {
-  QWidget::showEvent(event);
-  reapplyFilters();
+  f.close();
+  QMessageBox::information(this, tr("Saved"),
+                          tr("Wrote %1 packets.").arg(written));
 }
 
 void PacketAnalyzerWidget::setProtocol(DroneProtocol *protocol) {
-  if (m_freqRibbon) {
+  if (m_freqRibbon)
     m_freqRibbon->setProtocol(protocol);
-  }
-  if (m_linkStats) {
+  if (m_linkStats)
     m_linkStats->setProtocol(protocol);
-  }
 }

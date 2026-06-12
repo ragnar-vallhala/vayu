@@ -1,7 +1,15 @@
 #include "PacketDetailWidget.h"
+
 #include <QFontDatabase>
 #include <QHeaderView>
-#include <QLabel>
+#include <QScrollArea>
+#include <QSplitter>
+#include <QVBoxLayout>
+
+namespace {
+constexpr int kOffRole = Qt::UserRole;
+constexpr int kLenRole = Qt::UserRole + 1;
+}
 
 PacketDetailWidget::PacketDetailWidget(QWidget *parent) : QWidget(parent) {
   setupUi();
@@ -11,119 +19,74 @@ void PacketDetailWidget::setupUi() {
   auto *layout = new QVBoxLayout(this);
   layout->setContentsMargins(0, 0, 0, 0);
 
+  auto *split = new QSplitter(Qt::Horizontal, this);
+
   m_tree = new QTreeWidget(this);
   m_tree->setColumnCount(2);
   m_tree->setHeaderLabels({"Field", "Value"});
   m_tree->header()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
   m_tree->header()->setSectionResizeMode(1, QHeaderView::Stretch);
-  m_tree->setStyleSheet("QTreeWidget { background: #2A3347; border: 1px solid "
-                        "#3E4452; color: #ABB2BF; }"
-                        "QHeaderView::section { background: #3E4452; color: "
-                        "#E8F0FE; padding: 4px; }");
+  m_tree->setStyleSheet(
+      "QTreeWidget { background: #2A3347; border: 1px solid #3E4452; color: "
+      "#ABB2BF; } QHeaderView::section { background: #3E4452; color: #E8F0FE; "
+      "padding: 4px; }");
 
-  layout->addWidget(m_tree);
+  m_hex = new HexView(this);
+  auto *hexScroll = new QScrollArea(this);
+  hexScroll->setWidget(m_hex);
+  hexScroll->setWidgetResizable(true);
+  hexScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+  hexScroll->setStyleSheet("QScrollArea { border: 1px solid #3E4452; }");
+
+  split->addWidget(m_tree);
+  split->addWidget(hexScroll);
+  split->setStretchFactor(0, 3);
+  split->setStretchFactor(1, 2);
+  layout->addWidget(split);
+
+  // Field selection -> highlight its bytes in the hex pane.
+  connect(m_tree, &QTreeWidget::currentItemChanged, this,
+          [this](QTreeWidgetItem *item, QTreeWidgetItem *) {
+            if (!item) {
+              m_hex->setHighlight(-1, 0);
+              return;
+            }
+            const int off = item->data(0, kOffRole).toInt();
+            const int len = item->data(0, kLenRole).toInt();
+            m_hex->setHighlight(off, len);
+          });
+}
+
+void PacketDetailWidget::addFields(QTreeWidgetItem *parent,
+                                   const DissectField &f) {
+  auto *item = new QTreeWidgetItem(parent, {f.name, f.value});
+  item->setData(0, kOffRole, f.off);
+  item->setData(0, kLenRole, f.len);
+  for (const auto &c : f.children)
+    addFields(item, c);
 }
 
 void PacketDetailWidget::setData(const QByteArray &data) {
   m_tree->clear();
+  m_data = data;
+  m_hex->setData(data);
   if (data.isEmpty())
     return;
 
-  DecodedPacket pkt = m_decoder.decode(data);
-
-  // Header Info
-  auto *headerItem = new QTreeWidgetItem(m_tree, {"Header", ""});
-  headerItem->setExpanded(true);
-  new QTreeWidgetItem(headerItem, {"Sync", "0x56"});
-  new QTreeWidgetItem(headerItem,
-                      {"Protocol Version", QString::number(pkt.version)});
-  new QTreeWidgetItem(headerItem,
-                      {"Packet Type", PacketDecoder::typeToString(pkt.type)});
-  new QTreeWidgetItem(headerItem,
-                      {"Payload Length", QString::number(pkt.length)});
-  new QTreeWidgetItem(headerItem, {"Device ID", QString::number(pkt.deviceId)});
-  new QTreeWidgetItem(headerItem,
-                      {"Timestamp", QString("%1 ms").arg(pkt.timestamp)});
-
-  // Payload Info
-  auto *payloadItem = new QTreeWidgetItem(m_tree, {"Payload", ""});
-  payloadItem->setExpanded(true);
-
-  if (!pkt.valid) {
-    new QTreeWidgetItem(payloadItem,
-                        {"Error", "Checksum mismatch or malformed packet"});
-  } else {
-    std::visit(
-        [payloadItem](auto &&arg) {
-          using T = std::decay_t<decltype(arg)>;
-          if constexpr (std::is_same_v<T, ImuData>) {
-            new QTreeWidgetItem(
-                payloadItem,
-                {"Acc X", QString::number(arg.acc[0], 'f', 4) + " m/s²"});
-            new QTreeWidgetItem(
-                payloadItem,
-                {"Acc Y", QString::number(arg.acc[1], 'f', 4) + " m/s²"});
-            new QTreeWidgetItem(
-                payloadItem,
-                {"Acc Z", QString::number(arg.acc[2], 'f', 4) + " m/s²"});
-            new QTreeWidgetItem(
-                payloadItem,
-                {"Gyr X", QString::number(arg.gyr[0], 'f', 4) + " °/s"});
-            new QTreeWidgetItem(
-                payloadItem,
-                {"Gyr Y", QString::number(arg.gyr[1], 'f', 4) + " °/s"});
-            new QTreeWidgetItem(
-                payloadItem,
-                {"Gyr Z", QString::number(arg.gyr[2], 'f', 4) + " °/s"});
-            new QTreeWidgetItem(
-                payloadItem,
-                {"Mag X", QString::number(arg.mag[0], 'f', 4) + " µT"});
-            new QTreeWidgetItem(
-                payloadItem,
-                {"Mag Y", QString::number(arg.mag[1], 'f', 4) + " µT"});
-            new QTreeWidgetItem(
-                payloadItem,
-                {"Mag Z", QString::number(arg.mag[2], 'f', 4) + " µT"});
-            new QTreeWidgetItem(
-                payloadItem,
-                {"Temp", QString::number(arg.tempC, 'f', 2) + " °C"});
-          } else if constexpr (std::is_same_v<T, AttitudeData>) {
-            new QTreeWidgetItem(
-                payloadItem, {"Roll", QString::number(arg.roll, 'f', 2) + "°"});
-            new QTreeWidgetItem(
-                payloadItem,
-                {"Pitch", QString::number(arg.pitch, 'f', 2) + "°"});
-            new QTreeWidgetItem(
-                payloadItem, {"Yaw", QString::number(arg.yaw, 'f', 2) + "°"});
-          } else if constexpr (std::is_same_v<T, RcData>) {
-            for (int i = 0; i < 14; i++) {
-              new QTreeWidgetItem(payloadItem,
-                                  {QString("CH %1").arg(i + 1),
-                                   QString::number(arg.channels[i])});
-            }
-          } else if constexpr (std::is_same_v<T, MotorData>) {
-            for (int i = 0; i < 4; i++) {
-              new QTreeWidgetItem(
-                  payloadItem,
-                  {QString("Motor %1").arg(i + 1),
-                   QString::number(arg.speeds[i] * 100.0f, 'f', 1) + "%"});
-            }
-          } else if constexpr (std::is_same_v<T, QString>) {
-            new QTreeWidgetItem(payloadItem, {"Message", arg});
-          } else {
-            new QTreeWidgetItem(payloadItem,
-                                {"Data", "No decoder for this type"});
-          }
-        },
-        pkt.payload);
+  const DissectField root = PacketDissector::dissect(data);
+  // Render the root's children as top-level rows (Header / Payload / CRC).
+  for (const auto &c : root.children) {
+    auto *top = new QTreeWidgetItem(m_tree, {c.name, c.value});
+    top->setData(0, kOffRole, c.off);
+    top->setData(0, kLenRole, c.len);
+    for (const auto &cc : c.children)
+      addFields(top, cc);
+    top->setExpanded(true);
   }
-
-  // Raw Data
-  auto *rawItem = new QTreeWidgetItem(m_tree, {"Raw Data (Hex)", ""});
-  QString hex = data.toHex(' ').toUpper();
-  auto *hexLabel = new QTreeWidgetItem(rawItem, {hex});
-  hexLabel->setFont(0, QFontDatabase::systemFont(QFontDatabase::FixedFont));
-  hexLabel->setFirstColumnSpanned(true);
 }
 
-void PacketDetailWidget::clear() { m_tree->clear(); }
+void PacketDetailWidget::clear() {
+  m_tree->clear();
+  m_data.clear();
+  m_hex->setData({});
+}

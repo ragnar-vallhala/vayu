@@ -2,25 +2,20 @@
 
 #include <QByteArray>
 #include <QCheckBox>
-#include <QDateTime>
 #include <QFile>
-#include <QHBoxLayout>
-#include <QList>
+#include <QLineEdit>
+#include <QMap>
 #include <QPushButton>
-#include <QSet>
-#include <QTableWidget>
-#include <QVBoxLayout>
+#include <QTableView>
+#include <QTextStream>
 #include <QWidget>
 
-struct PacketEntry {
-  QString timestamp;
-  QString direction;
-  QByteArray data;
-};
-
-class PacketDetailWidget;
 class FrequencyRibbon;
 class LinkStatsPanel;
+class PacketDetailWidget;
+class PacketLogModel;
+class PacketFilterProxy;
+class DroneProtocol;
 
 class PacketAnalyzerWidget : public QWidget {
   Q_OBJECT
@@ -29,7 +24,7 @@ public:
   explicit PacketAnalyzerWidget(QWidget *parent = nullptr);
   ~PacketAnalyzerWidget() override = default;
 
-  void setProtocol(class DroneProtocol *protocol);
+  void setProtocol(DroneProtocol *protocol);
 
 public slots:
   void logRxPacket(const QByteArray &data);
@@ -38,40 +33,37 @@ public slots:
 signals:
   void backToHomeRequested();
 
+protected:
+  bool eventFilter(QObject *obj, QEvent *e) override;
+
 private slots:
   void onClearClicked();
   void onSaveClicked();
-  void onBackClicked();
-  void onItemClicked(class QTableWidgetItem *item);
-  void onFilterToggled(bool checked);
-  void reapplyFilters();
-
-protected:
-  void showEvent(QShowEvent *event) override;
+  void onSelectionChanged();
+  void onExpressionEdited();
 
 private:
-  void addRow(const QString &dir, const QByteArray &data);
-  void writeToStream(const QString &dir, const QByteArray &data);
+  void buildUi();
+  void resizeColumns();                                  // proportional fill
+  void tee(const QString &dir, const QByteArray &data); // stream-to-CSV
 
   FrequencyRibbon *m_freqRibbon = nullptr;
   LinkStatsPanel *m_linkStats = nullptr;
-  QTableWidget *m_table;
-  QPushButton *m_btnClear;
-  QPushButton *m_btnSave;
-  QPushButton *m_btnStream; // New button for toggle
-  QPushButton *m_btnBack;
-  QCheckBox *m_chkAutoScroll;
+  QTableView *m_table = nullptr;
+  PacketLogModel *m_model = nullptr;
+  PacketFilterProxy *m_proxy = nullptr;
+  PacketDetailWidget *m_detailView = nullptr;
 
-  // Track total packets for display
-  int m_packetCount = 0;
+  QPushButton *m_btnBack = nullptr;
+  QPushButton *m_btnClear = nullptr;
+  QPushButton *m_btnStream = nullptr;
+  QPushButton *m_btnSave = nullptr;
+  QCheckBox *m_chkAutoScroll = nullptr;
+  QLineEdit *m_searchEdit = nullptr;
+  QLineEdit *m_exprEdit = nullptr;
+  QMap<int, QPushButton *> m_typeChips;
 
-  // Streaming state
   bool m_isStreaming = false;
   QFile m_streamFile;
   QTextStream m_streamOut;
-
-  QVector<PacketEntry> m_masterLog;
-  PacketDetailWidget *m_detailView = nullptr;
-  QMap<int, QPushButton *> m_filterButtons;
-  QSet<int> m_disabledTypes;
 };
