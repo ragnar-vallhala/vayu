@@ -92,6 +92,21 @@ static inline void m_mat_identity(float *M, int n) {
     M[i * n + i] = 1.0f;
 }
 
+/** In-place symmetrize: M = (M + M^T) / 2  (n x n).
+ *
+ * A covariance must stay symmetric for the Kalman gain to behave, but the
+ * Joseph and Phi P Phi^T products accumulate float-rounding asymmetry on every
+ * step. Forcing symmetry after each update stops that drift from compounding
+ * (and keeps an asymmetric P from masquerading as a real attitude kick). */
+static inline void m_mat_symmetrize(float *M, int n) {
+  for (int i = 0; i < n; i++)
+    for (int j = i + 1; j < n; j++) {
+      float avg = 0.5f * (M[i * n + j] + M[j * n + i]);
+      M[i * n + j] = avg;
+      M[j * n + i] = avg;
+    }
+}
+
 /**
  * @brief 3x3 inverse via cofactors. Returns false (leaving @p inv untouched)
  *        if the matrix is numerically singular.
@@ -101,7 +116,18 @@ static inline bool m_mat3_inv(const float *m, float *inv) {
   float c01 = m[3] * m[8] - m[5] * m[6];
   float c02 = m[3] * m[7] - m[4] * m[6];
   float det = m[0] * c00 - m[1] * c01 + m[2] * c02;
-  if (m_fabsf(det) < 1e-20f)
+  /* Relative conditioning guard: an absolute floor (e.g. 1e-20) is meaningless
+   * across scales and never trips for a well-scaled matrix. Reference the
+   * largest magnitude element cubed (det's units) so a near-singular matrix is
+   * rejected before 1/det amplifies float32 noise into a huge, wrong inverse.
+   * eps ~ 1e-6 sits an order of magnitude above float32 machine epsilon. */
+  float scale = m_fabsf(m[0]);
+  for (int i = 1; i < 9; i++) {
+    float a = m_fabsf(m[i]);
+    if (a > scale)
+      scale = a;
+  }
+  if (m_fabsf(det) <= 1e-6f * scale * scale * scale)
     return false;
   float idet = 1.0f / det;
   inv[0] = c00 * idet;

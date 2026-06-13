@@ -140,7 +140,11 @@ static void ekf_correct(const float *H, int m, const float *y,
 
   static float Sinv[EKF_MMAX * EKF_MMAX];
   if (m == 1) {
-    if (m_fabsf(S[0]) < 1e-20f)
+    /* S = H P H^T + R, and H P H^T >= 0 for a positive-definite P, so a healthy
+     * innovation variance is always >= R. If it has collapsed below a fraction
+     * of R (or gone negative) P is no longer trustworthy: skip rather than
+     * divide by it. Relative to R, not an absolute 1e-20 that never trips. */
+    if (S[0] < 0.5f * Rdiag[0])
       return;
     Sinv[0] = 1.0f / S[0];
   } else {
@@ -180,6 +184,9 @@ static void ekf_correct(const float *H, int m, const float *y,
     }
   }
   m_mat_copy(E.P, Pnew, n * n);
+  /* Joseph form is symmetric in exact arithmetic; repair float32 asymmetry so
+   * it cannot compound through the bias-feedback loop into the predict step. */
+  m_mat_symmetrize(E.P, n);
 }
 
 /* --------------------------------------------------------------------------
@@ -234,6 +241,8 @@ static void ekf_predict(float gx, float gy, float gz, float dt) {
       Pnew[i * n + i] += qba;
 
   m_mat_copy(E.P, Pnew, n * n);
+  /* Phi P Phi^T is symmetric in exact arithmetic; repair float32 asymmetry. */
+  m_mat_symmetrize(E.P, n);
 }
 
 /* --------------------------------------------------------------------------
