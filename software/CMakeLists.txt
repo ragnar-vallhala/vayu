@@ -63,6 +63,7 @@ set(GCS_SOURCES
     src/core/SettingsManager.cpp
     src/replay/RecordSink.cpp
     src/replay/ReplaySource.cpp
+    src/autotune/Optimizer.cpp
     src/ui/widgets/FrequencyRibbon.cpp
     src/ui/widgets/LinkStatsPanel.cpp
     src/ui/widgets/RcChannelsWidget.cpp
@@ -117,6 +118,7 @@ set(GCS_HEADERS
     src/replay/RecordFormat.h
     src/replay/RecordSink.h
     src/replay/ReplaySource.h
+    src/autotune/Optimizer.h
     src/ui/widgets/FrequencyRibbon.h
     src/ui/widgets/LinkStatsPanel.h
     src/ui/widgets/RcChannelsWidget.h
@@ -189,6 +191,7 @@ target_include_directories(Navigator PRIVATE
     src/comm
     src/protocol
     src/replay
+    src/autotune
     src/ui/main
     src/ui/widgets
     src/vsim

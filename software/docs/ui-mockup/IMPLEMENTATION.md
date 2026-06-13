@@ -128,6 +128,38 @@ own branches in parallel — **do not let them block the UI critical path.**
 | Work | Branch | Gated on | FR / note |
 |---|---|---|---|
 | **In-GCS autotune (current/best)** — C++ optimizer over the `SimWorker` eval loop streaming `current` + `best` each evaluation; **propose-only**, never auto-apply (see **AT-1 / AT-2**). | `feat/gcs-autotune` | sim eval loop | `TuneChart` exists |
+
+#### C++ autotune engine — remove the GCS Python dependency
+
+**Goal (decided 2026-06-13):** the GCS must run the autotune algorithms
+**natively in C++** — no `python3` subprocess at runtime. `tools/autotune/*.py`
+stays, but only for **headless offline analysis**, never invoked by Navigator.
+This is the real form of the *In-GCS autotune* item and it subsumes AT-2 (a
+native engine emits current/best each eval directly to the UI) and re-points
+AT-1's proposal from a result JSON to in-process results.
+
+Port, in tractable testable steps:
+
+1. **`src/autotune/Optimizer`** — the derivative-free optimizers
+   (`optimizers.py`): `Evaluator` (budget + running-best + history + a
+   per-eval current/best callback for AT-2), an RNG, and `spsa` / `random` /
+   `fdgd` / `coordinate` / `nelder-mead` / `structured` / `hybrid` / `portfolio`.
+   Pure math, no Qt/sim — **unit-tested** against known cost bowls. *(first; no
+   deps)*
+2. **`src/autotune/Cost` + rollout** — port the excitation rollout + per-axis /
+   buzz cost from `autotune.py`, driving the in-process SITL (`SimWorker` +
+   `set_pid`/`set_gyro_lpf`) instead of the Python `sitl.py` stack.
+3. **`AutotuneEngine`** (QThread/worker) — owns the `Space`, runs an optimizer
+   over the cost, emits `evaluated(current, best, cost, bestCost)` and
+   `finished(bestX, names)`. `SimulatorWidget` drives this instead of
+   `QProcess(python3 …)`; the convergence chart + a **current-vs-best gains
+   table** (AT-2) bind to its signals; **Apply Gains to Firmware** (AT-1) sends
+   `best` via `CMD_SET_PID`.
+4. **Drop the Python launch** from `SimulatorWidget::startAutotune` and the
+   `--*` arg plumbing; keep the `.py` tools for offline use.
+
+Until the engine lands, AT-1 reads the Python result JSON (shipped); that path
+is replaced by `AutotuneEngine` results in step 3.
 | **Sensor fault / noise injection** | `feat/sim-sensor-noise` | `vsim_d` sensor model + `vsim_ctl` opcode | FR-SIM-04 |
 | **RC bridge into SITL** | `feat/sim-rc-bridge` | new `vsim_ctl` input path | matrix row |
 | **SITL FPV / camera render** | `feat/sim-fpv` | `SimRendererWidget` cam views | matrix row |
