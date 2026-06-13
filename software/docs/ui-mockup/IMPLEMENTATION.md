@@ -147,19 +147,23 @@ Port, in tractable testable steps:
 2. **✅ `src/autotune/Cost` + `Space`** — `axisCost` / `yawRateCost` / chatter
    (pure scoring, unit-tested) and the parameter `Space` (`_BASE [+_YAW]`
    bounds/seed, unit-tested). *(done — the pure half of the rollout)*
-3. **◐ `AutotuneEngine`** — QObject running an optimizer over an injected
-   rollout, streaming `evaluated(current, best, cost, bestCost, n)` and
-   `finished(bestX, names, bestCost)`; unit-tested with a synthetic rollout.
-   **Done: orchestration. Remaining: the real SITL rollout** — apply gains via
-   `CMD_SET_PID`, inject an excitation doublet, and capture the control-loop
-   telemetry window into `Cost::Sample`. This needs `SimWorker` hooks that
-   **don't exist yet** (a `set_pid` path to the in-process firmware, RC
-   injection, control-loop trace capture) and the live sim to verify — it is
-   the irreducibly sim-coupled piece.
-4. **Wire + drop Python** — `SimulatorWidget` runs `AutotuneEngine` in a worker
-   thread (replacing `QProcess(python3 …)` and the `--*` args); the convergence
-   chart + a **current-vs-best table** (AT-2) bind to its signals; **Apply Gains
-   to Firmware** (AT-1) sends `best`. Keep the `.py` tools for offline use.
+3. **✅ `AutotuneEngine` + `SitlStack` + `Rollout`** — engine orchestration
+   (unit-tested with a synthetic rollout) **plus the real SITL rollout**:
+   `SitlStack` (C++ port of `sitl.py`) spawns a separate `vsim_d` + `vayu_sitl`,
+   drives RC/commands/telemetry over PTYs + the ctl FIFO, and decodes telemetry
+   via `DroneProtocol`; `Rollout` applies gains, arms on the rig, excites, and
+   scores with `Cost`. **Live-verified** (`tst_sitl_stack`, run with the sim
+   binaries): the stack boots, arms from C++-driven RC, and a full seed-gain
+   rollout scores a finite cost. *(done)*
+4. **◐ Wire + drop Python** — `SimulatorWidget` runs `AutotuneEngine` (with a
+   `SitlStack` rollout) in a worker thread, replacing `QProcess(python3 …)` and
+   the `--*` args; the convergence chart + a **current-vs-best table** (AT-2)
+   bind to `evaluated()`; **Apply Gains to Firmware** (AT-1) sends `finished`'s
+   `best`. **Remaining**, and it needs one addition: `SitlStack` must accept the
+   **vehicle geometry + world** (ctl `SET_GEOMETRY`/`SET_WORLD` + navlink
+   `set_motor_geometry`) so the search tunes the *actual* airframe, as the
+   Python path does — otherwise it tunes the default quad. Best done with the
+   sim live.
 
 Until step 4 lands, AT-1 reads the Python result JSON (shipped); that path is
 replaced by `AutotuneEngine` results then.
