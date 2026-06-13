@@ -161,11 +161,13 @@ Port, in tractable testable steps:
    label bind to `evaluated()`/`finished()`; **Apply Gains to Firmware** (AT-1)
    sends `best`. `SitlStack` takes the vehicle **geometry + world** (ctl
    `SET_GEOMETRY`/`SET_WORLD`) so it tunes the actual airframe.
-   **Caveat:** the navlink `set_motor_geometry` (firmware mixer signs for
-   non-default motor layouts) is not yet sent — fine for the default quad
-   numbering; add it for custom layouts. A live current-vs-best *table* is also
-   a follow-on (the chart shows convergence today). The `.py` tools remain for
-   offline analysis.
+   Now also: per-eval **`repeats` averaging** (smooths the noisy SITL cost) and
+   the navlink **`set_motor_geometry`** (firmware mixer matches the airframe, so
+   raising gains no longer diverges), and the live **current-vs-best table**
+   (AT-2). The `.py` tools remain for offline analysis.
+   **Remaining follow-on:** the throttle-sweep **buzz penalty** (steers away
+   from gains that limit-cycle at hover+) — affects gain quality, not
+   convergence; needs the sim to verify.
 
 The GCS no longer depends on python3 for autotune.
 | **Sensor fault / noise injection** | `feat/sim-sensor-noise` | `vsim_d` sensor model + `vsim_ctl` opcode | FR-SIM-04 |
@@ -177,8 +179,9 @@ The GCS no longer depends on python3 for autotune.
 Normal additive line items against an existing widget — each its own short branch.
 Firmware-paired ones are gated and tracked but not on the UI critical path.
 
-- **Calibration wizard** (gated, fig-8) — step state machine + animation on
-  `CalibrationWidget`. `feat/calibration-wizard` · M.
+- **✅ Calibration wizard** (gated, fig-8) — `core/CalibrationWizard` step state
+  machine + a guided checklist (✓/▶/○) on `CalibrationWidget`, driven by the
+  firmware orientation prompts; mag mode shows the figure-8 step. Shipped.
 - **World config** (wind/mag/terrain/spawn) — `WorldEditorWidget` (+ FR-SIM-08 wind).
   `feat/world-config` · M.
 - **Telemetry stream-rate config** — `SettingsManager` + `DroneProtocol`
