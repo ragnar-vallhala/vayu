@@ -822,9 +822,8 @@ void SimulatorWidget::buildAutotunePage(QWidget* page) {
                                 "axis to confirm the winner flies (off = "
                                 "--no-validate)."));
   form->addWidget(m_tuneValidate, r++, 1);
-  m_tuneApply = new QCheckBox(tr("Apply + persist best gains on finish"), page);
-  m_tuneApply->setChecked(true);
-  form->addWidget(m_tuneApply, r++, 1);
+  // AT-1: no auto-apply. The search only proposes; committing to firmware is a
+  // separate explicit click (the Apply button below).
   m_tunePlot = new QCheckBox(tr("Live dashboard (attitude + cost window)"), page);
   m_tunePlot->setChecked(true);
   m_tunePlot->setToolTip(tr("Opens the autotuner's live plot: the drone's "
@@ -875,7 +874,6 @@ void SimulatorWidget::buildAutotunePage(QWidget* page) {
     m_tuneCompare->setChecked(st.value(QStringLiteral("compare"), m_tuneCompare->isChecked()).toBool());
     m_tuneBuzz->setChecked(st.value(QStringLiteral("buzz"), m_tuneBuzz->isChecked()).toBool());
     m_tuneValidate->setChecked(st.value(QStringLiteral("validate"), m_tuneValidate->isChecked()).toBool());
-    m_tuneApply->setChecked(st.value(QStringLiteral("apply"), m_tuneApply->isChecked()).toBool());
     m_tunePlot->setChecked(st.value(QStringLiteral("plot"), m_tunePlot->isChecked()).toBool());
     m_tuneVerbose->setChecked(st.value(QStringLiteral("verbose"), m_tuneVerbose->isChecked()).toBool());
     st.endGroup();
@@ -906,8 +904,6 @@ void SimulatorWidget::buildAutotunePage(QWidget* page) {
           [saveTune](bool v) { saveTune(QStringLiteral("buzz"), v); });
   connect(m_tuneValidate, &QCheckBox::toggled, this,
           [saveTune](bool v) { saveTune(QStringLiteral("validate"), v); });
-  connect(m_tuneApply, &QCheckBox::toggled, this,
-          [saveTune](bool v) { saveTune(QStringLiteral("apply"), v); });
   connect(m_tunePlot, &QCheckBox::toggled, this,
           [saveTune](bool v) { saveTune(QStringLiteral("plot"), v); });
   connect(m_tuneVerbose, &QCheckBox::toggled, this,
@@ -994,6 +990,22 @@ void SimulatorWidget::buildAutotunePage(QWidget* page) {
                                   .arg(Theme::hex(Theme::kOk)));
   v->addWidget(m_tuneResult);
 
+  // AT-1: Proposed Gains (the search's best) + an explicit Apply to firmware.
+  m_tuneProposed = new QLabel(tr("Proposed gains: —"), page);
+  m_tuneProposed->setWordWrap(true);
+  m_tuneProposed->setStyleSheet(
+      QStringLiteral("font-family:monospace; font-size:11px;"));
+  v->addWidget(m_tuneProposed);
+
+  m_tuneApplyBtn = new QPushButton(tr("Apply Gains to Firmware"), page);
+  m_tuneApplyBtn->setEnabled(false);  // enabled once a search proposes gains
+  m_tuneApplyBtn->setToolTip(
+      tr("Send the proposed (best) gains to the connected flight controller "
+         "via CMD_SET_PID. The autotuner never writes them on its own."));
+  connect(m_tuneApplyBtn, &QPushButton::clicked, this,
+          [this] { applyProposedGains(); });
+  v->addWidget(m_tuneApplyBtn);
+
   m_tuneLog = new QPlainTextEdit(page);
   m_tuneLog->setReadOnly(true);
   m_tuneLog->setMaximumBlockCount(4000);
@@ -1061,6 +1073,7 @@ void SimulatorWidget::startAutotune() {
   const QString geomJson = exportVehicleGeometryJson();
   const QString worldJson = exportWorldJson();   // tune the SAME world (drag!)
   const QString outJson = QDir(m_logDir).absoluteFilePath("autotune_gcs.json");
+  m_tuneOutJson = outJson;  // parsed for the proposal when the search finishes
 
   // The tuner runs its own isolated SITL stack. Give it a known FIFO suffix so
   // the GCS can attach its renderer to that sim and show the tuning live. Stop
@@ -1085,7 +1098,8 @@ void SimulatorWidget::startAutotune() {
        << "--out" << outJson << "--repo-root" << root;
   if (m_tuneYaw->isChecked()) args << "--yaw";
   if (m_tuneCompare->isChecked()) args << "--compare";
-  if (m_tuneApply->isChecked()) args << "--apply";
+  // AT-1: never pass --apply. The tuner only proposes (and persists its result
+  // JSON as a record); applying to firmware is the explicit Apply button.
   if (m_tunePlot->isChecked()) args << "--plot";
   if (m_tuneVerbose->isChecked()) args << "--verbose";
   if (!m_tuneValidate->isChecked()) args << "--no-validate";
@@ -1129,9 +1143,9 @@ void SimulatorWidget::startAutotune() {
   connect(m_tuneProc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
           this, [this](int code, QProcess::ExitStatus) {
             m_tuneLog->appendPlainText(tr("[autotune finished, exit %1]").arg(code));
-            if (m_tuneApply && m_tuneApply->isChecked())
-              m_tuneLog->appendPlainText(
-                  tr("[best gains persisted — restart the sim to fly them]"));
+            // AT-1: surface the best gains as a proposal; the operator applies
+            // them to firmware explicitly. Nothing was written automatically.
+            parseProposedGains();
             if (m_tuneStart) m_tuneStart->setEnabled(true);
             if (m_tuneStop) m_tuneStop->setEnabled(false);
             detachTuneSim();          // stop mirroring, unlock Vehicle/World
@@ -1165,6 +1179,54 @@ void SimulatorWidget::stopAutotune() {
   if (m_tuneProc) m_tuneProc->kill();
   // finished() handler runs detachTuneSim(); detach now too in case kill races.
   detachTuneSim();
+}
+
+void SimulatorWidget::parseProposedGains() {
+  // AT-1: read the search result (a record on disk) and surface its best gains
+  // as a *proposal*. Nothing is applied here — that's the explicit Apply click.
+  m_tuneParams.clear();
+  m_tuneBestX.clear();
+  m_tuneProposed->setText(tr("Proposed gains: —"));
+  m_tuneApplyBtn->setEnabled(false);
+
+  QFile f(m_tuneOutJson);
+  if (!f.open(QIODevice::ReadOnly)) return;
+  const QJsonDocument doc = QJsonDocument::fromJson(f.readAll());
+  f.close();
+  if (!doc.isObject()) return;
+  const QJsonObject root = doc.object();
+  for (const QJsonValue& n : root.value(QStringLiteral("params")).toArray())
+    m_tuneParams << n.toString();
+  const QJsonArray results = root.value(QStringLiteral("results")).toArray();
+  if (results.isEmpty()) return;
+  // The autotuner sorts results best-first.
+  for (const QJsonValue& x :
+       results.first().toObject().value(QStringLiteral("best_x")).toArray())
+    m_tuneBestX << x.toDouble();
+  if (m_tuneParams.isEmpty() || m_tuneBestX.isEmpty()) return;
+
+  QStringList parts;
+  for (int i = 0; i < m_tuneParams.size() && i < m_tuneBestX.size(); ++i)
+    parts << QStringLiteral("%1=%2").arg(m_tuneParams[i])
+                 .arg(m_tuneBestX[i], 0, 'g', 4);
+  m_tuneProposed->setText(tr("Proposed gains: %1").arg(parts.join(", ")));
+  m_tuneApplyBtn->setEnabled(
+      !autotuneGainsToCommands(m_tuneParams, m_tuneBestX).isEmpty());
+}
+
+void SimulatorWidget::applyProposedGains() {
+  const QVector<PidSetCmd> cmds =
+      autotuneGainsToCommands(m_tuneParams, m_tuneBestX);
+  if (cmds.isEmpty()) {
+    m_tuneLog->appendPlainText(tr("[apply] no proposed gains to apply"));
+    return;
+  }
+  // MainWindow turns these into CMD_SET_PID frames and sends them over the
+  // live link (and refuses if disconnected or in replay).
+  emit applyPidGainsRequested(cmds);
+  m_tuneLog->appendPlainText(
+      tr("[apply] requested firmware gain update — %1 PID slot(s)")
+          .arg(cmds.size()));
 }
 
 // Attach the renderer to the tuner's own SITL sim (pose FIFO at the agreed

@@ -8,6 +8,7 @@
 #include "SimHudWidget.h"
 #include "HorizonHud.h"
 #include "TuneChart.h"
+#include "AutotuneGains.h"
 #include "../../audio/PropAudio.h"
 
 extern "C" {
@@ -73,6 +74,11 @@ class SimulatorWidget : public QWidget {
   /* Emitted when the in-app sim starts (true) / stops (false), so the
    * MainWindow can reflect "Connected: SIM" in the status bar. */
   void simRunningChanged(bool running);
+
+  /* AT-1: the operator clicked "Apply Gains to Firmware". MainWindow turns
+   * each PidSetCmd into a CMD_SET_PID frame and sends it over the live link.
+   * The autotuner never writes to firmware on its own. */
+  void applyPidGainsRequested(const QVector<PidSetCmd>& cmds);
 
  protected:
   // Keeps the HUD overlay sized to the viewport (watches m_renderer resize).
@@ -194,7 +200,6 @@ class SimulatorWidget : public QWidget {
   QSpinBox* m_tuneSeed = nullptr;        // optimizer RNG seed (--seed)
   QSpinBox* m_tuneSimSeed = nullptr;     // sensor-noise base seed (--sim-seed)
   QCheckBox* m_tuneYaw = nullptr;
-  QCheckBox* m_tuneApply = nullptr;
   QCheckBox* m_tunePlot = nullptr;
   QCheckBox* m_tuneCompare = nullptr;    // run every optimizer (--compare)
   QCheckBox* m_tuneValidate = nullptr;   // free-flight validation (--no-validate if off)
@@ -205,6 +210,14 @@ class SimulatorWidget : public QWidget {
   QPlainTextEdit* m_tuneLog = nullptr;
   QLabel* m_tuneResult = nullptr;
   TuneChart* m_tuneChart = nullptr;
+  // AT-1: autotune proposes; applying to firmware is an explicit click.
+  QLabel* m_tuneProposed = nullptr;     // human-readable best gains
+  QPushButton* m_tuneApplyBtn = nullptr;  // "Apply Gains to Firmware"
+  QString m_tuneOutJson;                // --out path for the running search
+  QStringList m_tuneParams;             // param names from the result
+  QVector<double> m_tuneBestX;          // best gain vector (the proposal)
+  void parseProposedGains();            // read m_tuneOutJson into the above
+  void applyProposedGains();            // emit applyPidGainsRequested
   // Test-rig pose controls: pin the airframe and tilt it on the stand.
   QCheckBox* m_rigEnable = nullptr;
   QSlider* m_rigRoll = nullptr;
