@@ -14,6 +14,31 @@ design rationale; this file holds the **sequencing and the contract** for buildi
 
 ---
 
+## Status (2026-06-13)
+
+**Phases 1–3 are shipped and merged to `main`** — the entire GCS-UI roadmap.
+Each work item landed on its own branch with unit tests (`software/tests/`,
+QtTest + ctest); the FRs are marked ✅ in [`../requirements.md`](../requirements.md).
+
+- **Phase 1 (seams):** 1A command registry · 1B telemetry-source seam ·
+  1C record format + `RecordSink` · 1D `SessionMode` read-only gating.
+- **Phase 2 (additive):** 2A shortcuts editor + `ShortcutsManager` ·
+  2B command palette · 2C recent-views switcher · 2D `ReplaySource` ·
+  2E `ReplayBar` + Open Log (whole-GCS replay end-to-end).
+- **Phase 3 (small UI):** `AboutDialog` + Documentation entry.
+
+**Remaining — the independent additive track (firmware/sim-gated, NOT GCS-only).**
+Verified while scoping: the GCS protocol has **no `CMD_SET_PID`**, and the SITL
+autotuner "apply" persists gains to the vehicle JSON + sim-restart — there is no
+live-firmware gain-write path at all. So **AT-1/AT-2 are gated on firmware work**
+(a new wire command + firmware receiver) plus an autotuner protocol change to
+stream the current/best gain *vectors* (today it streams only cost/best scalars
+via `#EVAL`). These cannot be completed or verified GCS-side alone. Likewise
+sensor-noise (FR-SIM-04), the RC bridge, and SITL FPV depend on `vsim_d` /
+`vsim_ctl`. Track them as cross-cutting firmware/sim work, not UI line items.
+
+---
+
 ## How the gaps are sequenced
 
 The mockup's `Ctrl+D` analysis mode tags every element with a tier; the
