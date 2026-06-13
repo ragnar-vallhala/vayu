@@ -213,6 +213,7 @@ class SimulatorWidget : public QWidget {
   // AT-1: autotune proposes; applying to firmware is an explicit click.
   QLabel* m_tuneProposed = nullptr;     // human-readable best gains
   QPushButton* m_tuneApplyBtn = nullptr;  // "Apply Gains to Firmware"
+  class QTableWidget* m_tuneGainsTable = nullptr;  // AT-2: current vs best
   QString m_tuneOutJson;                // --out path for the running search
   QStringList m_tuneParams;             // param names from the result
   QVector<double> m_tuneBestX;          // best gain vector (the proposal)

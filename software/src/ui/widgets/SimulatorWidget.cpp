@@ -42,8 +42,11 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QThread>
+#include <QTableWidget>
+#include <QHeaderView>
 
 #include "AutotuneWorker.h"
+#include "Space.h"
 
 #include <cmath>
 #include <cstdio>   // ::rename (atomic blob publish)
@@ -1000,6 +1003,19 @@ void SimulatorWidget::buildAutotunePage(QWidget* page) {
       QStringLiteral("font-family:monospace; font-size:11px;"));
   v->addWidget(m_tuneProposed);
 
+  // AT-2: live current-vs-best gains. `current` jumps as the optimizer explores;
+  // `best` improves monotonically and locks in (turns green) on convergence.
+  m_tuneGainsTable = new QTableWidget(0, 3, page);
+  m_tuneGainsTable->setHorizontalHeaderLabels(
+      {tr("Gain"), tr("Current"), tr("Best")});
+  m_tuneGainsTable->verticalHeader()->setVisible(false);
+  m_tuneGainsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+  m_tuneGainsTable->setSelectionMode(QAbstractItemView::NoSelection);
+  m_tuneGainsTable->setFocusPolicy(Qt::NoFocus);
+  m_tuneGainsTable->horizontalHeader()->setStretchLastSection(true);
+  m_tuneGainsTable->setMaximumHeight(220);
+  v->addWidget(m_tuneGainsTable);
+
   m_tuneApplyBtn = new QPushButton(tr("Apply Gains to Firmware"), page);
   m_tuneApplyBtn->setEnabled(false);  // enabled once a search proposes gains
   m_tuneApplyBtn->setToolTip(
@@ -1152,6 +1168,18 @@ void SimulatorWidget::startAutotune() {
   p.rollout.seed = quint32(m_tuneSimSeed->value());
 
   m_tuneChart->reset();
+  // Seed the current-vs-best table with this run's param rows (AT-2).
+  {
+    const autotune::Space space(p.tuneYaw);
+    const auto names = space.names();
+    m_tuneGainsTable->setRowCount(int(names.size()));
+    for (int i = 0; i < int(names.size()); ++i) {
+      m_tuneGainsTable->setItem(
+          i, 0, new QTableWidgetItem(QString::fromStdString(names[i])));
+      m_tuneGainsTable->setItem(i, 1, new QTableWidgetItem("—"));
+      m_tuneGainsTable->setItem(i, 2, new QTableWidgetItem("—"));
+    }
+  }
   m_tuneResult->setText(tr("running…"));
   m_tuneStart->setEnabled(false);
   m_tuneStop->setEnabled(true);
@@ -1181,14 +1209,22 @@ void SimulatorWidget::stopAutotune() {
   if (m_tuneWorker) m_tuneWorker->cancel();  // unwinds the optimizer + stack
 }
 
-void SimulatorWidget::onTuneEvaluated(const QVector<double> & /*current*/,
-                                      const QVector<double> & /*best*/,
-                                      double cost, double bestCost, int n) {
+void SimulatorWidget::onTuneEvaluated(const QVector<double> &current,
+                                      const QVector<double> &best, double cost,
+                                      double bestCost, int n) {
   m_tuneChart->addPoint(cost, bestCost);
   m_tuneResult->setText(tr("eval %1   cost %2   best %3")
                             .arg(n)
                             .arg(cost, 0, 'f', 2)
                             .arg(bestCost, 0, 'f', 2));
+  // AT-2: current jumps around as the search explores; best settles.
+  const int rows = m_tuneGainsTable->rowCount();
+  for (int i = 0; i < rows; ++i) {
+    if (i < current.size())
+      m_tuneGainsTable->item(i, 1)->setText(QString::number(current[i], 'g', 4));
+    if (i < best.size())
+      m_tuneGainsTable->item(i, 2)->setText(QString::number(best[i], 'g', 4));
+  }
 }
 
 void SimulatorWidget::onTuneFinished(const QVector<double> &bestX,
@@ -1203,6 +1239,16 @@ void SimulatorWidget::onTuneFinished(const QVector<double> &bestX,
                               .arg(bestCost, 0, 'f', 2)
                               .arg(parts.join(", ")));
   m_tuneApplyBtn->setEnabled(!autotuneGainsToCommands(names, bestX).isEmpty());
+
+  // AT-2: best is final — lock the column in green and show it as current too.
+  const QColor ok(Theme::hex(Theme::kOk));
+  for (int i = 0; i < bestX.size() && i < m_tuneGainsTable->rowCount(); ++i) {
+    const QString v = QString::number(bestX[i], 'g', 4);
+    m_tuneGainsTable->item(i, 1)->setText(v);
+    QTableWidgetItem *b = m_tuneGainsTable->item(i, 2);
+    b->setText(v);
+    b->setForeground(ok);
+  }
 }
 
 void SimulatorWidget::onTuneDone() {
