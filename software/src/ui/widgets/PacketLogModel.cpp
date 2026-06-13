@@ -23,13 +23,31 @@ void PacketLogModel::enqueue(bool tx, const QByteArray &bytes) {
   e.raw = bytes;
   e.len = bytes.size();
   const auto *r = reinterpret_cast<const uint8_t *>(bytes.constData());
+  // Spaced-hex helper, truncated so a giant payload can't bloat a row.
+  auto hexSpaced = [](const QByteArray &b) {
+    constexpr int kMax = 24;  // bytes shown before eliding
+    QByteArray shown = b.left(kMax);
+    QString s = QString::fromLatin1(shown.toHex(' '));
+    if (b.size() > kMax) s += " …";
+    return s;
+  };
   if (bytes.size() >= 8 && r[0] == 0x56) {
     e.type = (r[1] >> 4) & 0x0F;
     e.dev = r[3];
     e.typeName = PacketDissector::typeName(e.type);
+    // NavLink frame: 8-byte header + payload + 4-byte trailing CRC32 (LE).
+    if (bytes.size() >= 12) {
+      const int n = bytes.size();
+      const quint32 crc = quint32(r[n - 4]) | (quint32(r[n - 3]) << 8) |
+                          (quint32(r[n - 2]) << 16) | (quint32(r[n - 1]) << 24);
+      e.crc = QString::asprintf("0x%08X", crc);
+      e.payloadHex = hexSpaced(bytes.mid(8, n - 12));
+    }
   } else {
     e.type = 0xFF;
     e.typeName = "RAW";
+    e.crc = "—";
+    e.payloadHex = hexSpaced(bytes);
   }
   e.info = PacketDissector::summary(bytes);
   m_pending.push_back(std::move(e));
@@ -97,13 +115,13 @@ QVariant PacketLogModel::data(const QModelIndex &index, int role) const {
 
   if (role == Qt::DisplayRole) {
     switch (index.column()) {
-    case ColNo: return e.no;
     case ColTime: return e.time;
     case ColDir: return e.tx ? "TX" : "RX";
     case ColType: return e.typeName;
     case ColDev: return e.type == 0xFF ? QString("—") : QString::number(e.dev);
     case ColLen: return e.len;
-    case ColInfo: return e.info;
+    case ColCrc: return e.crc;
+    case ColPayload: return e.payloadHex;
     }
   } else if (role == Qt::ForegroundRole) {
     if (e.type == 0xFF)
@@ -111,8 +129,7 @@ QVariant PacketLogModel::data(const QModelIndex &index, int role) const {
     if (index.column() == ColDir)
       return QBrush(QColor(e.tx ? "#61AFEF" : "#98C379"));
   } else if (role == Qt::TextAlignmentRole) {
-    if (index.column() == ColNo || index.column() == ColLen ||
-        index.column() == ColDev)
+    if (index.column() == ColLen || index.column() == ColDev)
       return int(Qt::AlignRight | Qt::AlignVCenter);
   }
   return {};
@@ -123,13 +140,13 @@ QVariant PacketLogModel::headerData(int section, Qt::Orientation o,
   if (o != Qt::Horizontal || role != Qt::DisplayRole)
     return {};
   switch (section) {
-  case ColNo: return "No.";
   case ColTime: return "Time";
   case ColDir: return "Dir";
   case ColType: return "Type";
   case ColDev: return "Dev";
   case ColLen: return "Len";
-  case ColInfo: return "Info";
+  case ColCrc: return "CRC";
+  case ColPayload: return "Payload (hex)";
   }
   return {};
 }

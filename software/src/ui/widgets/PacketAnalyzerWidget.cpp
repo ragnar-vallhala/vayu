@@ -7,6 +7,7 @@
 #include "PacketLogModel.h"
 #include "core/ui/Buttons.h"
 
+#include <QButtonGroup>
 #include <QComboBox>
 #include <QDateTime>
 #include <QEvent>
@@ -84,13 +85,24 @@ void PacketAnalyzerWidget::buildUi() {
 
   filterBar->addStretch();
 
-  auto *dirCombo = new QComboBox(this);
-  dirCombo->addItems({"All", "RX", "TX"});
-  dirCombo->setToolTip(tr("Direction"));
-  connect(dirCombo, &QComboBox::currentIndexChanged, this, [this](int i) {
+  // Direction: segmented All / RX / TX (mockup sw3) instead of a combo box.
+  filterBar->addWidget(new QLabel(tr("Dir"), this));
+  auto *dirGroup = new QButtonGroup(this);
+  dirGroup->setExclusive(true);
+  const char *dirLabels[] = {"All", "RX", "TX"};
+  for (int i = 0; i < 3; ++i) {
+    auto *b = new QPushButton(dirLabels[i], this);
+    b->setObjectName("FilterPill");
+    b->setCheckable(true);
+    b->setMinimumHeight(24);
+    b->setFixedWidth(40);
+    if (i == 0) b->setChecked(true);
+    dirGroup->addButton(b, i);
+    filterBar->addWidget(b);
+  }
+  connect(dirGroup, &QButtonGroup::idClicked, this, [this](int i) {
     m_proxy->setDirection(static_cast<PacketFilterProxy::Direction>(i));
   });
-  filterBar->addWidget(dirCombo);
 
   auto *devEdit = new QLineEdit(this);
   devEdit->setPlaceholderText(tr("dev"));
@@ -214,8 +226,8 @@ void PacketAnalyzerWidget::resizeColumns() {
     return;
   // Relative weights — every column grows to fill the width in proportion.
   static const double wt[PacketLogModel::ColCount] = {
-      /*No*/ 0.7, /*Time*/ 1.3, /*Dir*/ 0.5, /*Type*/ 1.9,
-      /*Dev*/ 0.6, /*Len*/ 0.6, /*Info*/ 3.0};
+      /*Time*/ 1.3, /*Dir*/ 0.5, /*Type*/ 1.7, /*Dev*/ 0.5,
+      /*Len*/ 0.5, /*CRC*/ 1.1, /*Payload*/ 3.2};
   double sum = 0;
   for (double x : wt)
     sum += x;
