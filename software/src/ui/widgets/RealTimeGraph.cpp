@@ -12,8 +12,40 @@ RealTimeGraph::RealTimeGraph(QWidget *parent, int numSeries) : QWidget(parent) {
   setAttribute(Qt::WA_OpaquePaintEvent);
   setMinimumHeight(40);
   m_seriesData.resize(numSeries);
+  m_sigmaData.resize(numSeries);
   m_colors.resize(numSeries, QColor("#61AFEF"));
   m_penStyles.resize(numSeries, Qt::SolidLine);
+}
+
+void RealTimeGraph::setStateBandEnabled(bool on) {
+  m_stateBand = on;
+  update();
+}
+
+void RealTimeGraph::pushState(const QColor &color) {
+  if (!m_stateBand)
+    return;
+  m_stateHist.push_back(color);
+  while (static_cast<int>(m_stateHist.size()) > kStateCells)
+    m_stateHist.pop_front();
+  update();
+}
+
+void RealTimeGraph::setSigmaAxis(bool on, float sigmaMax) {
+  m_sigmaAxis = on;
+  m_sigmaMax = sigmaMax > 1e-6f ? sigmaMax : 1.0f;
+  update();
+}
+
+void RealTimeGraph::appendSigma(float sigma, int index) {
+  if (index < 0 || index >= static_cast<int>(m_sigmaData.size()))
+    return;
+  m_sigmaData[index].push_back({QDateTime::currentMSecsSinceEpoch(), sigma});
+  const qint64 cutoff =
+      QDateTime::currentMSecsSinceEpoch() - m_windowSeconds * 1000;
+  while (!m_sigmaData[index].empty() &&
+         m_sigmaData[index].front().timestamp < cutoff)
+    m_sigmaData[index].pop_front();
 }
 
 void RealTimeGraph::setMode(Mode mode) {
@@ -91,6 +123,8 @@ void RealTimeGraph::clear() {
   for (auto &series : m_seriesData) {
     series.clear();
   }
+  for (auto &s : m_sigmaData) s.clear();
+  m_stateHist.clear();
   if (!m_fixedRange) {
     m_min = -1.0f;
     m_max = 1.0f;
@@ -154,6 +188,19 @@ void RealTimeGraph::paintEvent(QPaintEvent *event) {
 
   // Background
   painter.fillRect(rect(), QColor(33, 37, 43));
+
+  // Vehicle-state colour band behind the traces (mockup .g-status): oldest
+  // cell at the left, newest at the right. Tinted so traces stay readable.
+  if (m_stateBand && !m_stateHist.empty()) {
+    const double cw = double(width()) / kStateCells;
+    const int n = static_cast<int>(m_stateHist.size());
+    const int off = kStateCells - n;  // right-align the rolling window
+    for (int i = 0; i < n; ++i) {
+      QColor c = m_stateHist[i];
+      c.setAlpha(55);
+      painter.fillRect(QRectF((off + i) * cw, 0, cw + 1.0, height()), c);
+    }
+  }
 
   // Find if we have any data
   bool anyData = false;
@@ -248,6 +295,45 @@ void RealTimeGraph::paintEvent(QPaintEvent *event) {
       QPen pen(m_colors[i], 1.5, m_penStyles[i]);
       painter.setPen(pen);
       painter.drawPath(path);
+    }
+
+    // Rolling-σ traces on the right-hand axis [0, sigmaMax] (mockup dotted σ):
+    // dotted, reduced opacity, in each series' colour.
+    if (m_sigmaAxis) {
+      auto toYsig = [&](float s) {
+        return height() - (height() * (s / m_sigmaMax));
+      };
+      for (size_t i = 0; i < m_sigmaData.size(); ++i) {
+        if (m_sigmaData[i].empty())
+          continue;
+        QPainterPath sp;
+        bool first = true;
+        for (const auto &dp : m_sigmaData[i]) {
+          const float x = toX(dp.timestamp);
+          const float y = toYsig(dp.value);
+          if (first) { sp.moveTo(x, y); first = false; }
+          else sp.lineTo(x, y);
+        }
+        QColor sc = m_colors[i];
+        sc.setAlpha(140);
+        QPen spen(sc, 1.2, Qt::DotLine);
+        spen.setCapStyle(Qt::RoundCap);
+        painter.setPen(spen);
+        painter.drawPath(sp);
+      }
+      // Right-hand σ axis labels (σ at top, 0 at bottom).
+      QFont sf = painter.font();
+      sf.setPointSize(7);
+      painter.setFont(sf);
+      painter.setPen(QColor(92, 99, 112));
+      for (int k = 0; k <= 4; ++k) {
+        const float sval = m_sigmaMax - m_sigmaMax * (k / 4.0f);
+        const int yPos = static_cast<int>(k / 4.0 * height());
+        const QString lbl = (k == 0 ? "σ " : "") +
+                            QString::number(double(sval), 'f', 2);
+        painter.drawText(QRectF(width() - 42, yPos, 40, 12),
+                         Qt::AlignRight | Qt::AlignTop, lbl);
+      }
     }
 
     // Grid labels

@@ -31,6 +31,19 @@ public:
   void clear();
   void setDynamicYAxis(bool enabled);
 
+  // ---- Mockup-parity extensions --------------------------------------------
+  // Vehicle-state colour band painted behind the traces (mockup .g-status): a
+  // rolling window of status colours, oldest at the left. pushState() appends
+  // one cell (call it once per UI tick alongside appendData).
+  void setStateBandEnabled(bool on);
+  void pushState(const QColor &color);
+
+  // Rolling-σ traces on a right-hand axis [0, sigmaMax] (mockup dotted σ + gvR
+  // ticks). appendSigma() feeds the σ sample for a series; the trace is drawn
+  // dotted at reduced opacity in the series colour.
+  void setSigmaAxis(bool on, float sigmaMax);
+  void appendSigma(float sigma, int index = 0);
+
   // ---- CSV export (FR-LOG-04 / Phase-1 1d) ---------------------------------
   //
   // Writes the currently-buffered data to `out` as comma-separated
@@ -72,6 +85,16 @@ private:
 
   float m_min = -1.0f;
   float m_max = 1.0f;
+
+  // State band (mockup .g-status): rolling status colours, capped at kStateCells.
+  bool m_stateBand = false;
+  std::deque<QColor> m_stateHist;
+  static constexpr int kStateCells = 60;
+
+  // Rolling-σ right axis (mockup dotted σ traces + gvR ticks).
+  bool m_sigmaAxis = false;
+  float m_sigmaMax = 1.0f;
+  std::vector<std::deque<DataPoint>> m_sigmaData;
 
   void pruneData();
 };
