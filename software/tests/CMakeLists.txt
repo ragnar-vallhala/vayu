@@ -34,6 +34,12 @@ navigator_test(tst_autotune_gains
     tst_autotune_gains.cpp)
 target_include_directories(tst_autotune_gains PRIVATE ${SRC}/ui/widgets)
 
+# ---- C++ autotune optimizer port ------------------------------------------
+navigator_test(tst_optimizer
+    tst_optimizer.cpp
+    ${SRC}/autotune/Optimizer.cpp)
+target_include_directories(tst_optimizer PRIVATE ${SRC}/autotune)
+
 # ---- Phase 1A: command registry -------------------------------------------
 navigator_test(tst_command_registry
     tst_command_registry.cpp
