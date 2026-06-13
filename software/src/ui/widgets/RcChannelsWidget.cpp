@@ -144,7 +144,21 @@ RcChannelsWidget::RcChannelsWidget(QWidget *parent) : QWidget(parent) {
     m_labels.append(val);
   }
   mainLayout->addWidget(chans);
-  mainLayout->addStretch();
+
+  // ---- Channel History (8 traces, 10s; aux 4-7 dotted) ----
+  auto *hist = new QGroupBox(tr("Channel History"), this);
+  auto *hl = new QVBoxLayout(hist);
+  m_history = new RealTimeGraph(this, 8);
+  m_history->setWindowSeconds(10);
+  m_history->setYRange(1000, 2000);
+  m_history->setMinimumHeight(150);
+  for (int i = 0; i < 8; ++i) {
+    m_history->setColor(i, QColor(kChans[i].color));
+    if (i >= 4)
+      m_history->setPenStyle(i, Qt::DotLine);  // aux channels dotted
+  }
+  hl->addWidget(m_history);
+  mainLayout->addWidget(hist, 1);
 }
 
 void RcChannelsWidget::updateChannels(const RcData &data) {
@@ -169,5 +183,7 @@ void RcChannelsWidget::updateChannels(const RcData &data) {
       m_bars[i]->setValue(std::clamp(v, 1000, 2000));
       m_labels[i]->setText(QString::number(v));
     }
+    if (m_history)
+      m_history->appendData(v > 0 ? std::clamp(v, 1000, 2000) : 1000, i);
   }
 }
