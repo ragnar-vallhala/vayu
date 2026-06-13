@@ -10,6 +10,7 @@
 #include <QString>
 
 #include "Cost.h"  // autotune::Sample
+#include "vsim_proto.h"  // vsim_ctl_geometry_t / vsim_ctl_world_t
 
 class QProcess;
 
@@ -41,6 +42,13 @@ public:
     int physicsHz = 8000;
     int poseHz = 120;
     bool quiet = true;
+    // Tune the actual airframe/environment, not the default quad (pushed to
+    // vsim_d on start, mirroring the Python harness). Leave the flags false to
+    // use the daemon defaults.
+    bool hasGeometry = false;
+    vsim_ctl_geometry_t geometry{};
+    bool hasWorld = false;
+    vsim_ctl_world_t world{};
   };
 
   explicit SitlStack(Config cfg, QObject *parent = nullptr);
