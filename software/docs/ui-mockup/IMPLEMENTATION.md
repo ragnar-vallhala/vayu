@@ -140,26 +140,29 @@ AT-1's proposal from a result JSON to in-process results.
 
 Port, in tractable testable steps:
 
-1. **`src/autotune/Optimizer`** — the derivative-free optimizers
-   (`optimizers.py`): `Evaluator` (budget + running-best + history + a
-   per-eval current/best callback for AT-2), an RNG, and `spsa` / `random` /
-   `fdgd` / `coordinate` / `nelder-mead` / `structured` / `hybrid` / `portfolio`.
-   Pure math, no Qt/sim — **unit-tested** against known cost bowls. *(first; no
-   deps)*
-2. **`src/autotune/Cost` + rollout** — port the excitation rollout + per-axis /
-   buzz cost from `autotune.py`, driving the in-process SITL (`SimWorker` +
-   `set_pid`/`set_gyro_lpf`) instead of the Python `sitl.py` stack.
-3. **`AutotuneEngine`** (QThread/worker) — owns the `Space`, runs an optimizer
-   over the cost, emits `evaluated(current, best, cost, bestCost)` and
-   `finished(bestX, names)`. `SimulatorWidget` drives this instead of
-   `QProcess(python3 …)`; the convergence chart + a **current-vs-best gains
-   table** (AT-2) bind to its signals; **Apply Gains to Firmware** (AT-1) sends
-   `best` via `CMD_SET_PID`.
-4. **Drop the Python launch** from `SimulatorWidget::startAutotune` and the
-   `--*` arg plumbing; keep the `.py` tools for offline use.
+1. **✅ `src/autotune/Optimizer`** — the derivative-free optimizers
+   (`optimizers.py`): `Evaluator` (budget + running-best + history + a per-eval
+   current/best callback for AT-2), an RNG, and all 8 optimizers. Pure,
+   unit-tested. *(done)*
+2. **✅ `src/autotune/Cost` + `Space`** — `axisCost` / `yawRateCost` / chatter
+   (pure scoring, unit-tested) and the parameter `Space` (`_BASE [+_YAW]`
+   bounds/seed, unit-tested). *(done — the pure half of the rollout)*
+3. **◐ `AutotuneEngine`** — QObject running an optimizer over an injected
+   rollout, streaming `evaluated(current, best, cost, bestCost, n)` and
+   `finished(bestX, names, bestCost)`; unit-tested with a synthetic rollout.
+   **Done: orchestration. Remaining: the real SITL rollout** — apply gains via
+   `CMD_SET_PID`, inject an excitation doublet, and capture the control-loop
+   telemetry window into `Cost::Sample`. This needs `SimWorker` hooks that
+   **don't exist yet** (a `set_pid` path to the in-process firmware, RC
+   injection, control-loop trace capture) and the live sim to verify — it is
+   the irreducibly sim-coupled piece.
+4. **Wire + drop Python** — `SimulatorWidget` runs `AutotuneEngine` in a worker
+   thread (replacing `QProcess(python3 …)` and the `--*` args); the convergence
+   chart + a **current-vs-best table** (AT-2) bind to its signals; **Apply Gains
+   to Firmware** (AT-1) sends `best`. Keep the `.py` tools for offline use.
 
-Until the engine lands, AT-1 reads the Python result JSON (shipped); that path
-is replaced by `AutotuneEngine` results in step 3.
+Until step 4 lands, AT-1 reads the Python result JSON (shipped); that path is
+replaced by `AutotuneEngine` results then.
 | **Sensor fault / noise injection** | `feat/sim-sensor-noise` | `vsim_d` sensor model + `vsim_ctl` opcode | FR-SIM-04 |
 | **RC bridge into SITL** | `feat/sim-rc-bridge` | new `vsim_ctl` input path | matrix row |
 | **SITL FPV / camera render** | `feat/sim-fpv` | `SimRendererWidget` cam views | matrix row |
