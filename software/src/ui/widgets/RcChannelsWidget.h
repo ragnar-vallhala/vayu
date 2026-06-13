@@ -2,6 +2,7 @@
 
 #include "../../core/Types.h"
 #include "AuxSwitch.h"
+#include "RealTimeGraph.h"
 #include "StickGimbal.h"
 #include <QLabel>
 #include <QProgressBar>
@@ -30,4 +31,5 @@ private:
   AuxSwitch *m_aux[4] = {nullptr, nullptr, nullptr, nullptr};
   QVector<QProgressBar *> m_bars;  // 8 named channels
   QVector<QLabel *> m_labels;
+  RealTimeGraph *m_history = nullptr;  // 8-trace channel history (aux dotted)
 };
