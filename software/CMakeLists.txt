@@ -41,6 +41,7 @@ set(GCS_SOURCES
     src/ui/widgets/AttitudeWidget.cpp
     src/ui/widgets/HorizonHud.cpp
     src/ui/widgets/ImuPanel.cpp
+    src/ui/widgets/VGauge.cpp
     src/ui/widgets/LogPanel.cpp
     src/core/crc.cpp
     src/core/CommandRegistry.cpp

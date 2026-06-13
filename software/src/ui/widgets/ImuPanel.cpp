@@ -145,56 +145,98 @@ void ImuAxisGroup::setDropoutRate(double rate) {
 // --------------- ImuPanel ---------------------------------------------------
 
 ImuPanel::ImuPanel(QWidget *parent) : QGroupBox("IMU — BMX160", parent) {
-  auto *layout = new QVBoxLayout(this);
-  layout->setSpacing(6);
-  layout->setContentsMargins(6, 12, 6, 6);
+  // Mockup parity: the panel is a left column (acc/gyr/mag graphs + a vehicle-
+  // state legend + CSV export) beside a right-hand temp-gauge column carrying
+  // the device-temp and battery vertical gauges. Temperature is shown as a
+  // gauge here (not a time-series graph) to match the mockup.
+  auto *outer = new QHBoxLayout(this);
+  outer->setSpacing(8);
+  outer->setContentsMargins(6, 12, 6, 6);
+
+  auto *col = new QVBoxLayout();
+  col->setSpacing(6);
 
   m_acc = new ImuAxisGroup("Accelerometer (m/s²)", "m/s²", this);
   m_gyr = new ImuAxisGroup("Gyroscope (°/s)", "°/s", this);
   m_mag = new ImuAxisGroup("Magnetometer (µT)", "µT", this);
-  m_temp = new ImuAxisGroup("Temperature (°C)", "°C", this);
 
-  // Customizing temp graph to be a horizontal bar or just single line
-  // Let's keep it as a line for now to be consistent with 4 horizontal graphs
-  // But we can hide extra labels if we want.
+  col->addWidget(m_acc);
+  col->addWidget(m_gyr);
+  col->addWidget(m_mag);
 
-  layout->addWidget(m_acc);
-  layout->addWidget(m_gyr);
-  layout->addWidget(m_mag);
-  layout->addWidget(m_temp);
+  // Vehicle-state legend (mockup .status-key): maps the graph state-band
+  // colours to flight states.
+  auto *key = new QWidget(this);
+  auto *keyLayout = new QHBoxLayout(key);
+  keyLayout->setContentsMargins(2, 0, 2, 0);
+  keyLayout->setSpacing(10);
+  auto *keyCap = new QLabel(tr("Vehicle state:"), key);
+  keyCap->setStyleSheet("color: #8A92A6; font-size: 10px;");
+  keyLayout->addWidget(keyCap);
+  const struct {
+    const char *label;
+    const char *color;
+  } states[] = {{"Init / Prearm", "#61AFEF"},
+                {"Standby", "#98C379"},
+                {"Armed", "#E06C75"},
+                {"Failsafe", "#E0822E"}};
+  for (const auto &s : states) {
+    auto *swatch = new QLabel(key);
+    swatch->setFixedSize(10, 10);
+    swatch->setStyleSheet(QString("background:%1; border-radius:2px;").arg(s.color));
+    auto *txt = new QLabel(tr(s.label), key);
+    txt->setStyleSheet("color: #ABB2BF; font-size: 10px;");
+    keyLayout->addWidget(swatch);
+    keyLayout->addWidget(txt);
+  }
+  keyLayout->addStretch();
+  col->addWidget(key);
 
-  // Footer: CSV export button. Writes all four axis groups' current
+  // Footer: CSV export button. Writes the three axis groups' current
   // ring-buffer contents to one file with a shared timestamp axis.
   auto *footer = new QHBoxLayout();
   footer->addStretch();
   auto *exportBtn = new ui::GhostButton(tr("Export CSV"), this);
   exportBtn->setToolTip(
-      tr("Save the currently-buffered IMU traces (acc/gyr/mag/temp) "
-         "to a CSV file"));
+      tr("Save the currently-buffered IMU traces (acc/gyr/mag) to a CSV file"));
   connect(exportBtn, &QPushButton::clicked, this, [this] {
     const QString stamp =
         QDateTime::currentDateTime().toString("yyyyMMdd-HHmmss");
     const QString path = CsvExport::promptAndWriteCombined(
         this, QString("imu-%1.csv").arg(stamp),
         {
-          {m_acc->graph(),  {"acc_x", "acc_y", "acc_z"}},
-          {m_gyr->graph(),  {"gyr_x", "gyr_y", "gyr_z"}},
-          {m_mag->graph(),  {"mag_x", "mag_y", "mag_z"}},
-          {m_temp->graph(), {"temp_c"}},
+          {m_acc->graph(), {"acc_x", "acc_y", "acc_z"}},
+          {m_gyr->graph(), {"gyr_x", "gyr_y", "gyr_z"}},
+          {m_mag->graph(), {"mag_x", "mag_y", "mag_z"}},
         });
     if (!path.isEmpty()) {
       Notify::ok(this, tr("Wrote %1").arg(path));
     }
   });
   footer->addWidget(exportBtn);
-  layout->addLayout(footer);
+  col->addLayout(footer);
+
+  outer->addLayout(col, 1);
+
+  // Right-hand vertical gauges (mockup .temp-gauge column).
+  auto *gauges = new QHBoxLayout();
+  gauges->setSpacing(8);
+  m_tempGauge = new VGauge(tr("DEVICE\nTEMP"), 0, 80, "°C", VGauge::Temp, this);
+  m_battGauge = new VGauge(tr("BATTERY"), 0, 100, "%", VGauge::Battery, this);
+  m_battGauge->setValue(78);  // placeholder until battery telemetry exists
+  gauges->addWidget(m_tempGauge);
+  gauges->addWidget(m_battGauge);
+  auto *gaugeWrap = new QWidget(this);
+  gaugeWrap->setLayout(gauges);
+  gaugeWrap->setFixedWidth(116);
+  outer->addWidget(gaugeWrap);
 }
 
 void ImuPanel::updateImu(const ImuData &data) {
   m_acc->setValues(data.acc[0], data.acc[1], data.acc[2]);
   m_gyr->setValues(data.gyr[0], data.gyr[1], data.gyr[2]);
   m_mag->setValues(data.mag[0], data.mag[1], data.mag[2]);
-  m_temp->setValues(data.tempC, 0, 0); // Only X used for temp
+  m_tempGauge->setValue(data.tempC);
   // Advance the state band one cell per update (mockup .g-status cadence).
   m_acc->pushState(m_state);
   m_gyr->pushState(m_state);
@@ -205,16 +247,16 @@ void ImuPanel::setSensor(const QString &name) {
   setTitle(QString("IMU — %1").arg(name));
 }
 
+void ImuPanel::setBattery(double pct) { m_battGauge->setValue(pct); }
+
 void ImuPanel::setGraphWindow(int seconds) {
   m_acc->setWindowSeconds(seconds);
   m_gyr->setWindowSeconds(seconds);
   m_mag->setWindowSeconds(seconds);
-  m_temp->setWindowSeconds(seconds);
 }
 
 void ImuPanel::setGraphDropout(double rate) {
   m_acc->setDropoutRate(rate);
   m_gyr->setDropoutRate(rate);
   m_mag->setDropoutRate(rate);
-  m_temp->setDropoutRate(rate);
 }

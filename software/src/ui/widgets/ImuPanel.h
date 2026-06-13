@@ -3,6 +3,7 @@
 #include "RealTimeGraph.h"
 #include "RollingStats.h"
 #include "Types.h"
+#include "VGauge.h"
 #include <QColor>
 #include <QGroupBox>
 #include <QLabel>
@@ -47,6 +48,9 @@ public slots:
   void setSensor(const QString &name); // swap displayed sensor name
   void setGraphWindow(int seconds);
   void setGraphDropout(double rate);
+  // Battery level (0..100 %) for the right-hand gauge. No battery telemetry
+  // exists yet, so MainWindow leaves the placeholder default in place.
+  void setBattery(double pct);
   // Current vehicle-state colour for the graph state band (mockup .g-status):
   // advanced one cell per IMU update so the band scrolls with the traces.
   void setVehicleState(const QColor &c) { m_state = c; }
@@ -55,6 +59,7 @@ private:
   ImuAxisGroup *m_acc;
   ImuAxisGroup *m_gyr;
   ImuAxisGroup *m_mag;
-  ImuAxisGroup *m_temp;
+  VGauge *m_tempGauge;   // device temperature (from ImuData.tempC)
+  VGauge *m_battGauge;   // battery % (placeholder until telemetry exists)
   QColor m_state{0x98, 0xC3, 0x79};  // standby green by default
 };
