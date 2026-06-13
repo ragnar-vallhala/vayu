@@ -92,3 +92,9 @@ navigator_test(tst_replay_bar
     ${REPLAY}/ReplaySource.cpp
     ${REPLAY}/RecordSink.cpp)
 target_include_directories(tst_replay_bar PRIVATE ${REPLAY} ${SRC}/ui/widgets)
+
+# ---- Phase 3A/3B: about dialog + docs path --------------------------------
+navigator_test(tst_about_dialog
+    tst_about_dialog.cpp
+    ${SRC}/ui/widgets/AboutDialog.cpp)
+target_include_directories(tst_about_dialog PRIVATE ${SRC}/ui/widgets)
