@@ -21,7 +21,9 @@ struct PacketEntry {
   quint8 dev = 0;
   int len = 0;
   QString typeName;
-  QString info;        // one-line summary
+  QString info;        // one-line summary (kept for the display-filter expression)
+  QString crc;         // trailing CRC32 as "0x........" (frames only)
+  QString payloadHex;  // payload bytes as spaced hex (truncated for display)
   QByteArray raw;
 };
 
@@ -33,7 +35,10 @@ struct PacketEntry {
 class PacketLogModel : public QAbstractTableModel {
   Q_OBJECT
 public:
-  enum Column { ColNo, ColTime, ColDir, ColType, ColDev, ColLen, ColInfo, ColCount };
+  // Columns match the mockup: Time | Dir | Type | Dev | Len | CRC | Payload (hex).
+  enum Column {
+    ColTime, ColDir, ColType, ColDev, ColLen, ColCrc, ColPayload, ColCount
+  };
 
   explicit PacketLogModel(QObject *parent = nullptr);
 
