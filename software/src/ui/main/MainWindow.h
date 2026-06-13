@@ -93,6 +93,8 @@ private:
   void buildUi();
   void buildMenuBar();
   void installShortcuts();
+  // Window ▸ Reset Layout — restore the home splitters to defaults + show home.
+  void resetLayout();
   void setConnected(bool on);
   // Refresh the bottom status-bar connection pill from m_connected /
   // m_simRunning. Serial link wins; otherwise shows "Connected: SIM".
@@ -206,6 +208,9 @@ private:
   bool m_simRunning = false;  // in-app SITL active
   bool m_armed = false;
   int m_pktCount = 0;
+  // Packet-rate sampling for the status bar "Rate: N Hz" segment.
+  int m_pktAtLastRate = 0;
+  qint64 m_lastRateTime = 0;
   ImuData m_latestImu;
   AttitudeData m_latestAtt;
   qint64 m_lastHbTime = 0;

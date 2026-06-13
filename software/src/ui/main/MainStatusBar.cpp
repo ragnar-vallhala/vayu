@@ -16,9 +16,22 @@ MainStatusBar::MainStatusBar(QWidget *parent) : QStatusBar(parent) {
 
   m_pktStatus = new QLabel("  Packets: 0  ", this);
 
-  addPermanentWidget(m_connStatus);
-  addPermanentWidget(m_syncStatus);
-  addPermanentWidget(m_pktStatus);
+  m_rateStatus = new QLabel("  Rate: 0 Hz  ", this);
+  m_rateStatus->setStyleSheet(
+      QString("color: %1; font-family: Monospace;")
+          .arg(Theme::hex(Theme::kTextMuted)));
+
+  // Mockup parity: segments are left-aligned; a build/protocol/nav hint sits
+  // on the far right. addWidget() docks left, addPermanentWidget() docks right.
+  addWidget(m_connStatus);
+  addWidget(m_syncStatus);
+  addWidget(m_pktStatus);
+  addWidget(m_rateStatus);
+
+  m_infoLabel = new QLabel("Navigator · NavLink v1 · Ctrl+1‑8 navigate  ", this);
+  m_infoLabel->setStyleSheet(
+      QString("color: %1;").arg(Theme::hex(Theme::kTextDim)));
+  addPermanentWidget(m_infoLabel);
 }
 
 // ---------------------------------------------------------------------------
@@ -43,6 +56,10 @@ void MainStatusBar::setError(const QString &message) {
 
 void MainStatusBar::setPacketCount(int n) {
   m_pktStatus->setText(QString("  Packets: %1  ").arg(n));
+}
+
+void MainStatusBar::setPacketRate(double hz) {
+  m_rateStatus->setText(QString("  Rate: %1 Hz  ").arg(hz, 0, 'f', 0));
 }
 
 void MainStatusBar::showSyncDrift(qint32 driftMs) {
