@@ -224,7 +224,15 @@ class SimulatorWidget : public QWidget {
   QSlider* m_rigPitch = nullptr;
   QSlider* m_rigYaw = nullptr;
   QLabel* m_rigReadout = nullptr;
-  QProcess* m_tuneProc = nullptr;
+  // C++ autotune engine on a worker thread (replaces the python3 subprocess).
+  class QThread* m_tuneThread = nullptr;
+  class AutotuneWorker* m_tuneWorker = nullptr;
+  void onTuneEvaluated(const QVector<double>& current,
+                       const QVector<double>& best, double cost,
+                       double bestCost, int n);
+  void onTuneFinished(const QVector<double>& bestX, const QStringList& names,
+                      double bestCost);
+  void onTuneDone();
   vsim::SimWorker* m_tuneSim = nullptr;   // attach-only: renders the tuner's sim
   void buildAutotunePage(QWidget* page);
   void attachTuneSim(const QString& suffix);   // mirror the tuner's drone in 3D

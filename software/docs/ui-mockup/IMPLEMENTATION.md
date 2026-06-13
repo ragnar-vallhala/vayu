@@ -155,18 +155,19 @@ Port, in tractable testable steps:
    scores with `Cost`. **Live-verified** (`tst_sitl_stack`, run with the sim
    binaries): the stack boots, arms from C++-driven RC, and a full seed-gain
    rollout scores a finite cost. *(done)*
-4. **◐ Wire + drop Python** — `SimulatorWidget` runs `AutotuneEngine` (with a
-   `SitlStack` rollout) in a worker thread, replacing `QProcess(python3 …)` and
-   the `--*` args; the convergence chart + a **current-vs-best table** (AT-2)
-   bind to `evaluated()`; **Apply Gains to Firmware** (AT-1) sends `finished`'s
-   `best`. **Remaining**, and it needs one addition: `SitlStack` must accept the
-   **vehicle geometry + world** (ctl `SET_GEOMETRY`/`SET_WORLD` + navlink
-   `set_motor_geometry`) so the search tunes the *actual* airframe, as the
-   Python path does — otherwise it tunes the default quad. Best done with the
-   sim live.
+4. **✅ Wire + drop Python** — `SimulatorWidget` now runs `AutotuneEngine` via
+   `AutotuneWorker` (SitlStack rollout) on a worker thread; the `python3`
+   subprocess and `--*` args are gone. The convergence chart + proposed-gains
+   label bind to `evaluated()`/`finished()`; **Apply Gains to Firmware** (AT-1)
+   sends `best`. `SitlStack` takes the vehicle **geometry + world** (ctl
+   `SET_GEOMETRY`/`SET_WORLD`) so it tunes the actual airframe.
+   **Caveat:** the navlink `set_motor_geometry` (firmware mixer signs for
+   non-default motor layouts) is not yet sent — fine for the default quad
+   numbering; add it for custom layouts. A live current-vs-best *table* is also
+   a follow-on (the chart shows convergence today). The `.py` tools remain for
+   offline analysis.
 
-Until step 4 lands, AT-1 reads the Python result JSON (shipped); that path is
-replaced by `AutotuneEngine` results then.
+The GCS no longer depends on python3 for autotune.
 | **Sensor fault / noise injection** | `feat/sim-sensor-noise` | `vsim_d` sensor model + `vsim_ctl` opcode | FR-SIM-04 |
 | **RC bridge into SITL** | `feat/sim-rc-bridge` | new `vsim_ctl` input path | matrix row |
 | **SITL FPV / camera render** | `feat/sim-fpv` | `SimRendererWidget` cam views | matrix row |

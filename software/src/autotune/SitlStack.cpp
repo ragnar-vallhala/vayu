@@ -144,6 +144,26 @@ bool SitlStack::start(QString *err) {
   if (!openCtlFifo(err))
     return false;
   sendCtlRates();
+  if (m_cfg.hasGeometry) {
+    vsim_ctl_frame_t f{};
+    f.hdr.magic = VSIM_MAGIC;
+    f.hdr.version = VSIM_PROTO_VERSION;
+    f.hdr.type = VSIM_FRAME_CTL;
+    f.hdr.payload_bytes = sizeof(f) - sizeof(vsim_hdr_t);
+    f.subtype = VSIM_CTL_SET_GEOMETRY;
+    std::memcpy(f.body, &m_cfg.geometry, sizeof(m_cfg.geometry));
+    ::write(m_ctlFd, &f, sizeof(f));
+  }
+  if (m_cfg.hasWorld) {
+    vsim_ctl_frame_t f{};
+    f.hdr.magic = VSIM_MAGIC;
+    f.hdr.version = VSIM_PROTO_VERSION;
+    f.hdr.type = VSIM_FRAME_CTL;
+    f.hdr.payload_bytes = sizeof(f) - sizeof(vsim_hdr_t);
+    f.subtype = VSIM_CTL_SET_WORLD;
+    std::memcpy(f.body, &m_cfg.world, sizeof(m_cfg.world));
+    ::write(m_ctlFd, &f, sizeof(f));
+  }
 
   // firmware host: opens the RC PTY, creates its UART2 PTY, boots to STANDBY.
   m_sitl = spawn(m_cfg.sitlBin);

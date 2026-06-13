@@ -41,6 +41,9 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QThread>
+
+#include "AutotuneWorker.h"
 
 #include <cmath>
 #include <cstdio>   // ::rename (atomic blob publish)
@@ -1063,122 +1066,160 @@ QString SimulatorWidget::exportWorldJson() {
 }
 
 void SimulatorWidget::startAutotune() {
-  if (m_tuneProc || !m_geomEditor) return;
+  if (m_tuneThread || !m_geomEditor) return;
   const QString root = defaultRepoRoot();
-  const QString script = root + "/tools/autotune/autotune.py";
-  if (!QFileInfo::exists(script)) {
-    m_tuneLog->appendPlainText(tr("[error] autotuner not found: %1").arg(script));
+
+  // Locate the SITL binaries the C++ stack spawns (no python3). Prefer the
+  // tools/sim_host build dir; fall back to a repo-root build_sitl.
+  AutotuneWorker::Params p;
+  p.sitl.vsimBin = root + "/build_vsim/vsim_d";
+  for (const QString &cand : {root + "/tools/sim_host/build_sitl/vayu_sitl",
+                              root + "/build_sitl/vayu_sitl"}) {
+    if (QFileInfo::exists(cand)) {
+      p.sitl.sitlBin = cand;
+      break;
+    }
+  }
+  if (!QFileInfo::exists(p.sitl.vsimBin) || p.sitl.sitlBin.isEmpty() ||
+      !QFileInfo::exists(p.sitl.sitlBin)) {
+    m_tuneLog->appendPlainText(
+        tr("[error] SITL binaries not found (build vsim_d + vayu_sitl):\n  %1\n  %2")
+            .arg(p.sitl.vsimBin, p.sitl.sitlBin));
     return;
   }
-  const QString geomJson = exportVehicleGeometryJson();
-  const QString worldJson = exportWorldJson();   // tune the SAME world (drag!)
-  const QString outJson = QDir(m_logDir).absoluteFilePath("autotune_gcs.json");
-  m_tuneOutJson = outJson;  // parsed for the proposal when the search finishes
 
-  // The tuner runs its own isolated SITL stack. Give it a known FIFO suffix so
-  // the GCS can attach its renderer to that sim and show the tuning live. Stop
-  // the interactive sim first (frees vsim_d/firmware) and lock Vehicle/World so
+  // Stop the interactive sim (frees vsim_d/firmware) and lock Vehicle/World so
   // the airframe can't change mid-search.
   if (m_sim) stopInAppSim();
   if (m_vehicleTab) m_vehicleTab->setEnabled(false);
   if (m_worldTab) m_worldTab->setEnabled(false);
+
   const QString tuneSuffix =
       QStringLiteral("_attune%1").arg(QCoreApplication::applicationPid());
+  p.sitl.suffix = tuneSuffix;
 
-  QStringList args;
-  args << script << "--geometry" << geomJson << "--world" << worldJson
-       << "--optimizer" << m_tuneOptimizer->currentText()
-       << "--budget" << QString::number(m_tuneBudget->value())
-       << "--repeats" << QString::number(m_tuneRepeats->value())
-       << "--step-us" << QString::number(m_tuneStep->value())
-       << "--rig-tether" << QString::number(m_tuneTether->value())
-       << "--seed" << QString::number(m_tuneSeed->value())
-       << "--sim-seed" << QString::number(m_tuneSimSeed->value())
-       << "--fifo-suffix" << tuneSuffix
-       << "--out" << outJson << "--repo-root" << root;
-  if (m_tuneYaw->isChecked()) args << "--yaw";
-  if (m_tuneCompare->isChecked()) args << "--compare";
-  // AT-1: never pass --apply. The tuner only proposes (and persists its result
-  // JSON as a record); applying to firmware is the explicit Apply button.
-  if (m_tunePlot->isChecked()) args << "--plot";
-  if (m_tuneVerbose->isChecked()) args << "--verbose";
-  if (!m_tuneValidate->isChecked()) args << "--no-validate";
-  if (!m_tuneBuzz->isChecked()) args << "--no-buzz-check";
-
-  m_tuneChart->reset();
-  m_tuneProc = new QProcess(this);
-  m_tuneProc->setProcessChannelMode(QProcess::MergedChannels);
-  m_tuneProc->setWorkingDirectory(root + "/tools/autotune");
-  connect(m_tuneProc, &QProcess::readyReadStandardOutput, this, [this] {
-    const QByteArray buf = m_tuneProc->readAllStandardOutput();
-    const QList<QByteArray> lines = buf.split('\n');
-    for (const QByteArray& raw : lines) {
-      const QString s = QString::fromUtf8(raw).trimmed();
-      if (s.startsWith("#EVAL")) {              // structured progress -> chart
-        const QStringList p = s.split(' ', Qt::SkipEmptyParts);
-        if (p.size() >= 4) {
-          const double cost = p[2].toDouble(), best = p[3].toDouble();
-          m_tuneChart->addPoint(cost, best);
-          m_tuneResult->setText(tr("eval %1   cost %2   best %3")
-                                    .arg(p[1]).arg(cost, 0, 'f', 2).arg(best, 0, 'f', 2));
-        }
-        continue;
-      }
-      if (s.isEmpty() || s.startsWith("host_main") || s.contains("alive @") ||
-          s.startsWith("QSocketNotifier") || s.startsWith("qt.qpa") ||
-          s.startsWith("vsim_d:") || s.startsWith("vayu_sitl:"))
-        continue;
-      m_tuneLog->appendPlainText(s);
-      if (s.startsWith("baseline cost")) {
-        m_tuneChart->setBaseline(s.section(':', 1).toDouble());
-      }
-      if (s.startsWith("ABORT")) {
-        m_tuneResult->setText(tr("⚠ unstable plant — see log (motor layout?)"));
-        m_tuneResult->setStyleSheet("color:#ff8c50; font-weight:bold; font-size:11px;");
-      } else if (s.startsWith("BEST:") || s.startsWith("gains:")) {
-        m_tuneResult->setText(s);
-      }
-    }
-  });
-  connect(m_tuneProc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
-          this, [this](int code, QProcess::ExitStatus) {
-            m_tuneLog->appendPlainText(tr("[autotune finished, exit %1]").arg(code));
-            // AT-1: surface the best gains as a proposal; the operator applies
-            // them to firmware explicitly. Nothing was written automatically.
-            parseProposedGains();
-            if (m_tuneStart) m_tuneStart->setEnabled(true);
-            if (m_tuneStop) m_tuneStop->setEnabled(false);
-            detachTuneSim();          // stop mirroring, unlock Vehicle/World
-            m_tuneProc->deleteLater();
-            m_tuneProc = nullptr;
-          });
-  m_tuneLog->clear();
-  m_tuneResult->setText(tr("running…"));
-  // Confirm we're tuning the Vehicle-section geometry (physicsConfig), so it's
-  // obvious which airframe the search runs against.
+  // Tune the actual airframe + environment (mirrors the Python --geometry/
+  // --world). Build the vsim_ctl bodies from the editors.
   {
     const vsim::GeometryConfig g = m_geomEditor->physicsConfig();
-    const QString veh = m_geomEditor->loadedVehicleName();
+    vsim_ctl_geometry_t gb{};
+    gb.mass = g.mass;
+    for (int i = 0; i < 9; ++i) gb.inertia[i] = g.inertia[i];
+    for (int i = 0; i < 4; ++i) {
+      const auto &m = g.motors[i];
+      gb.motors[i].pos[0] = m.pos.x();
+      gb.motors[i].pos[1] = m.pos.y();
+      gb.motors[i].pos[2] = m.pos.z();
+      gb.motors[i].axis[0] = m.axis.x();
+      gb.motors[i].axis[1] = m.axis.y();
+      gb.motors[i].axis[2] = m.axis.z();
+      gb.motors[i].spin = float(m.spin);
+      gb.motors[i].k_thrust = m.k_thrust;
+      gb.motors[i].k_moment = m.k_moment;
+      gb.motors[i].max_omega = m.max_omega;
+    }
+    p.sitl.geometry = gb;
+    p.sitl.hasGeometry = true;
+
+    const vsim::WorldConfig w = m_worldEditor->config();
+    vsim_ctl_world_t wb{};
+    wb.gravity = w.gravity;
+    wb.ground_z = w.ground_z;
+    wb.restitution = w.restitution;
+    wb.linear_drag = w.linear_drag;
+    wb.angular_drag = w.angular_drag;
+    wb.ground_right_gain = w.ground_right_gain;
+    wb.ground_right_damp = w.ground_right_damp;
+    p.sitl.world = wb;
+    p.sitl.hasWorld = true;
+
+    m_tuneLog->clear();
     m_tuneLog->appendPlainText(
-        tr("[geometry] Vehicle section%1: mass=%2 kg, inertia diag=[%3, %4, %5] kg·m²"
-           "  (exported to autotune_vehicle.json)")
-            .arg(veh.isEmpty() ? QString() : tr(" (%1)").arg(veh))
+        tr("[geometry] mass=%1 kg, inertia diag=[%2, %3, %4] kg·m²")
             .arg(g.mass, 0, 'f', 3)
             .arg(g.inertia[0], 0, 'g', 4)
             .arg(g.inertia[4], 0, 'g', 4)
             .arg(g.inertia[8], 0, 'g', 4));
   }
-  m_tuneLog->appendPlainText(tr("[launching] python3 %1").arg(args.join(' ')));
+
+  p.tuneYaw = m_tuneYaw->isChecked();
+  p.optimizer = m_tuneOptimizer->currentText();
+  p.budget = m_tuneBudget->value();
+  p.optSeed = quint64(m_tuneSeed->value());
+  p.rollout.stepUs = m_tuneStep->value();
+  p.rollout.tetherK = m_tuneTether->value();
+  p.rollout.seed = quint32(m_tuneSimSeed->value());
+
+  m_tuneChart->reset();
+  m_tuneResult->setText(tr("running…"));
   m_tuneStart->setEnabled(false);
   m_tuneStop->setEnabled(true);
-  m_tuneProc->start(QStringLiteral("python3"), args);
-  attachTuneSim(tuneSuffix);   // mirror the tuner's drone in the 3D view
+
+  // Run the engine on a worker thread; its signals queue back to the GUI.
+  m_tuneThread = new QThread(this);
+  m_tuneWorker = new AutotuneWorker(p);
+  m_tuneWorker->moveToThread(m_tuneThread);
+  connect(m_tuneThread, &QThread::started, m_tuneWorker, &AutotuneWorker::run);
+  connect(m_tuneWorker, &AutotuneWorker::evaluated, this,
+          &SimulatorWidget::onTuneEvaluated);
+  connect(m_tuneWorker, &AutotuneWorker::finished, this,
+          &SimulatorWidget::onTuneFinished);
+  connect(m_tuneWorker, &AutotuneWorker::failed, this, [this](const QString &e) {
+    m_tuneLog->appendPlainText("[error] " + e);
+  });
+  connect(m_tuneWorker, &AutotuneWorker::log, this,
+          [this](const QString &l) { m_tuneLog->appendPlainText(l); });
+  connect(m_tuneWorker, &AutotuneWorker::done, this,
+          &SimulatorWidget::onTuneDone);
+
+  attachTuneSim(tuneSuffix);  // mirror the tuner's drone in the 3D view
+  m_tuneThread->start();
 }
 
 void SimulatorWidget::stopAutotune() {
-  if (m_tuneProc) m_tuneProc->kill();
-  // finished() handler runs detachTuneSim(); detach now too in case kill races.
-  detachTuneSim();
+  if (m_tuneWorker) m_tuneWorker->cancel();  // unwinds the optimizer + stack
+}
+
+void SimulatorWidget::onTuneEvaluated(const QVector<double> & /*current*/,
+                                      const QVector<double> & /*best*/,
+                                      double cost, double bestCost, int n) {
+  m_tuneChart->addPoint(cost, bestCost);
+  m_tuneResult->setText(tr("eval %1   cost %2   best %3")
+                            .arg(n)
+                            .arg(cost, 0, 'f', 2)
+                            .arg(bestCost, 0, 'f', 2));
+}
+
+void SimulatorWidget::onTuneFinished(const QVector<double> &bestX,
+                                     const QStringList &names, double bestCost) {
+  // AT-1: surface the best gains as a proposal; applying is the explicit click.
+  m_tuneParams = names;
+  m_tuneBestX = bestX;
+  QStringList parts;
+  for (int i = 0; i < names.size() && i < bestX.size(); ++i)
+    parts << QStringLiteral("%1=%2").arg(names[i]).arg(bestX[i], 0, 'g', 4);
+  m_tuneProposed->setText(tr("Proposed gains (cost %1): %2")
+                              .arg(bestCost, 0, 'f', 2)
+                              .arg(parts.join(", ")));
+  m_tuneApplyBtn->setEnabled(!autotuneGainsToCommands(names, bestX).isEmpty());
+}
+
+void SimulatorWidget::onTuneDone() {
+  if (m_tuneThread) {
+    m_tuneThread->quit();
+    m_tuneThread->wait(3000);
+    m_tuneThread->deleteLater();
+    m_tuneThread = nullptr;
+  }
+  // The worker's thread has fully stopped, so direct deletion is safe
+  // (deleteLater would never run — that thread's event loop is gone).
+  if (m_tuneWorker) {
+    delete m_tuneWorker;
+    m_tuneWorker = nullptr;
+  }
+  if (m_tuneStart) m_tuneStart->setEnabled(true);
+  if (m_tuneStop) m_tuneStop->setEnabled(false);
+  detachTuneSim();  // stop mirroring, unlock Vehicle/World
 }
 
 void SimulatorWidget::parseProposedGains() {
