@@ -2,6 +2,7 @@
 
 #include "../../core/SettingsManager.h"
 #include <QCheckBox>
+#include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QPushButton>
 #include <QSpinBox>
@@ -24,6 +25,7 @@ signals:
   void autoReconnectChanged(bool enabled);
   void recordOnConnectChanged(bool enabled);
   void recentViewsCountChanged(int count);
+  void themeChanged(int index);
 
 private:
   QSpinBox *m_syncPeriodSpin = nullptr;
@@ -32,4 +34,5 @@ private:
   QCheckBox *m_autoReconnectChk = nullptr;
   QCheckBox *m_recordOnConnectChk = nullptr;
   QSpinBox *m_recentViewsSpin = nullptr;
+  QComboBox *m_themeCombo = nullptr;
 };

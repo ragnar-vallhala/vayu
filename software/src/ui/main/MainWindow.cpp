@@ -191,6 +191,12 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
             m_viewHistory.setDepth(n);
             SettingsManager::save(m_settingsWidget->getSettings());
           });
+  connect(m_settingsWidget, &SettingsWidget::themeChanged, this,
+          [this](int) {
+            // Only the Dark (Navigator) palette is themed today; persist the
+            // choice so it survives restarts once more themes land.
+            SettingsManager::save(m_settingsWidget->getSettings());
+          });
 
   // Tee inbound bytes to the recorder (Phase-1 1C). Same source the parser
   // reads, so the recording is exactly the live stream.
