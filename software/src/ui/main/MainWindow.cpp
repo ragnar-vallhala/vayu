@@ -871,6 +871,18 @@ void MainWindow::onStatusReceived(const QString &msg) {
     }
   }
 
+  // Drive the dashboard graph state band (mockup .g-status SCOL).
+  if (m_imuPanel) {
+    QColor sc(0x61, 0xAF, 0xEF);  // init blue
+    if (msg == "FAILSAFE")
+      sc = QColor(0xE0, 0x82, 0x2E);  // orange
+    else if (msg == "ARMED" || msg == "IN_AIR")
+      sc = QColor(0xE0, 0x6C, 0x75);  // red
+    else if (msg == "STANDBY" || msg == "PREARM")
+      sc = QColor(0x98, 0xC3, 0x79);  // green
+    m_imuPanel->setVehicleState(sc);
+  }
+
   if (m_statusLabel) {
     m_statusLabel->setText(msg.toUpper());
     QString style = "font-size: 18px; font-weight: bold; border-radius: 4px; "

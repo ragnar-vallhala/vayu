@@ -3,6 +3,7 @@
 #include "RealTimeGraph.h"
 #include "RollingStats.h"
 #include "Types.h"
+#include <QColor>
 #include <QGroupBox>
 #include <QLabel>
 
@@ -20,6 +21,8 @@ public:
   void setValues(float x, float y, float z);
   void setWindowSeconds(int seconds);
   void setDropoutRate(double rate);
+  // Push one vehicle-state colour cell onto this group's graph band.
+  void pushState(const QColor &c) { m_graph->pushState(c); }
   // Exposed so panel-level CSV export can include this group's traces.
   RealTimeGraph *graph() const { return m_graph; }
 
@@ -28,6 +31,7 @@ private:
   QLabel *m_stdLabels[3];
   RollingStats m_stats[3];
   RealTimeGraph *m_graph;
+  float m_sigmaMax = 0.5f;  // right-axis σ scale, grown to fit (mockup stdMax)
 };
 
 // ---------------------------------------------------------------------------
@@ -43,10 +47,14 @@ public slots:
   void setSensor(const QString &name); // swap displayed sensor name
   void setGraphWindow(int seconds);
   void setGraphDropout(double rate);
+  // Current vehicle-state colour for the graph state band (mockup .g-status):
+  // advanced one cell per IMU update so the band scrolls with the traces.
+  void setVehicleState(const QColor &c) { m_state = c; }
 
 private:
   ImuAxisGroup *m_acc;
   ImuAxisGroup *m_gyr;
   ImuAxisGroup *m_mag;
   ImuAxisGroup *m_temp;
+  QColor m_state{0x98, 0xC3, 0x79};  // standby green by default
 };

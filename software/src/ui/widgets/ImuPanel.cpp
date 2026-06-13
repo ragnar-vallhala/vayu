@@ -101,6 +101,11 @@ ImuAxisGroup::ImuAxisGroup(const QString &title, const QString &unit,
     m_graph->setColor(0, QColor("#FFC66D")); // Temperature specific color
   }
   m_graph->setMinimumHeight(80);
+  // Mockup parity: rolling-σ traces on a right axis + vehicle-state band.
+  if (!isScalar) {
+    m_graph->setSigmaAxis(true, m_sigmaMax);
+    m_graph->setStateBandEnabled(true);
+  }
 
   layout->addWidget(m_graph, 1);
 }
@@ -119,6 +124,12 @@ void ImuAxisGroup::setValues(float x, float y, float z) {
 
     if (i < m_graph->numSeries()) {
       m_graph->appendData(vals[i], i);
+      // Plot σ on the right axis, growing the scale to fit (mockup stdMax).
+      m_graph->appendSigma(sd, i);
+      if (sd * 1.3f > m_sigmaMax) {
+        m_sigmaMax = sd * 1.3f;
+        m_graph->setSigmaAxis(true, m_sigmaMax);
+      }
     }
   }
 }
@@ -184,6 +195,10 @@ void ImuPanel::updateImu(const ImuData &data) {
   m_gyr->setValues(data.gyr[0], data.gyr[1], data.gyr[2]);
   m_mag->setValues(data.mag[0], data.mag[1], data.mag[2]);
   m_temp->setValues(data.tempC, 0, 0); // Only X used for temp
+  // Advance the state band one cell per update (mockup .g-status cadence).
+  m_acc->pushState(m_state);
+  m_gyr->pushState(m_state);
+  m_mag->pushState(m_state);
 }
 
 void ImuPanel::setSensor(const QString &name) {
