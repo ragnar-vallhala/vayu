@@ -41,6 +41,7 @@ set(GCS_SOURCES
     src/ui/widgets/ImuPanel.cpp
     src/ui/widgets/LogPanel.cpp
     src/core/crc.cpp
+    src/core/CommandRegistry.cpp
     src/core/CsvExport.cpp
     src/core/Logger.cpp
     src/core/Notify.cpp
@@ -76,6 +77,8 @@ set(GCS_HEADERS
     src/ui/widgets/LogPanel.h
     src/core/Types.h
     src/core/crc.h
+    src/core/Command.h
+    src/core/CommandRegistry.h
     src/core/RollingStats.h
     src/core/CsvExport.h
     src/core/Logger.h
@@ -225,3 +228,14 @@ endif()
 
 message(STATUS "Qt6 Navigator build configured")
 message(STATUS "Qt6 version: ${Qt6_VERSION}")
+
+# -------------------------------------------------------
+# Unit tests (QtTest + ctest). On by default; -DNAVIGATOR_BUILD_TESTS=OFF
+# to skip. Run with `ctest` from the build dir.
+# -------------------------------------------------------
+option(NAVIGATOR_BUILD_TESTS "Build Navigator unit tests" ON)
+if(NAVIGATOR_BUILD_TESTS)
+    enable_testing()
+    add_subdirectory(tests)
+    message(STATUS "Navigator: unit tests ON (ctest)")
+endif()
