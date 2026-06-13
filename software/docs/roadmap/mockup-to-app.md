@@ -50,13 +50,13 @@ They are the real subject of "implement all this":
 2. **Editable command/shortcut system + command palette + MRU view switcher** —
    🔴/🟡. Generalises the ad-hoc `QShortcut`s from Phase-0 `0l` into a central
    command registry with editable keybindings, a fuzzy palette, and a
-   Firefox-style `Ctrl+`` ` recent-views cycle.
+   Firefox-style `Ctrl+`` ` recent-views cycle. **FR-UX-19 / FR-UX-20 / FR-UX-21**.
    → [command-registry-and-shortcuts.md](command-registry-and-shortcuts.md)
 
 3. **Help surface — Documentation + About** — 🟢 easy.
    `AboutDialog` (static, version/build) + Documentation entry that opens the
    bundled docs via `QDesktopServices::openUrl`. Folded into the command-registry
-   doc (both hang off the menu/command layer). Propose **FR-UI-20**.
+   doc (both hang off the menu/command layer). **FR-UX-22 / FR-UX-23**.
 
 Everything else the mockup added this cycle is an *enhancement of an existing
 widget* and belongs as a line item against that widget's requirement — see the
