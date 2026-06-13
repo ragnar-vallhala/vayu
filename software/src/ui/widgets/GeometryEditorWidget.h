@@ -115,6 +115,7 @@ class GeometryEditorWidget : public QWidget {
     QDoubleSpinBox* ax = nullptr; QDoubleSpinBox* ay = nullptr; QDoubleSpinBox* az = nullptr;
     QComboBox* spin = nullptr;
     QDoubleSpinBox* kt = nullptr; QDoubleSpinBox* km = nullptr; QDoubleSpinBox* wmax = nullptr;
+    QDoubleSpinBox* tau = nullptr;
   };
   std::array<MotorRow, 4> rows_{};
 };

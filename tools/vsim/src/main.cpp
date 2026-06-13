@@ -270,6 +270,8 @@ int main(int /*argc*/, char** /*argv*/) {
                         motor.k_thrust[i]  = g.motors[i].k_thrust;
                         motor.k_moment[i]  = g.motors[i].k_moment;
                         motor.max_omega[i] = g.motors[i].max_omega;
+                        // tau <= 0 (e.g. a zero-padding older sender) keeps the default.
+                        motor.tau[i]       = (g.motors[i].tau > 1e-6f) ? g.motors[i].tau : 0.0125f;
                     }
                     ctl.setDroneParams(drone);
                     ctl.setMotorParams(motor);

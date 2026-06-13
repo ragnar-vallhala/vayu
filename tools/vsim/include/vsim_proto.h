@@ -166,6 +166,7 @@ typedef struct {
         float k_thrust;
         float k_moment;
         float max_omega;
+        float tau;        // first-order rotor spin-up time constant [s]; <=0 = daemon default
     } motors[4];
 } vsim_ctl_geometry_t;
 
@@ -260,7 +261,7 @@ static_assert(sizeof(vsim_pwm_frame_t)  == 16 + 16,  "vsim_pwm_frame_t size");
 static_assert(sizeof(vsim_imu_frame_t)  == 16 + 88,  "vsim_imu_frame_t size");
 static_assert(sizeof(vsim_pose_frame_t) == 16 + 92,  "vsim_pose_frame_t size");
 static_assert(sizeof(vsim_ctl_frame_t)  == 16 + 264, "vsim_ctl_frame_t size");
-static_assert(sizeof(vsim_ctl_geometry_t) == 200,    "vsim_ctl_geometry_t size");
+static_assert(sizeof(vsim_ctl_geometry_t) == 216,    "vsim_ctl_geometry_t size");
 static_assert(sizeof(vsim_ctl_world_t)   == 28,      "vsim_ctl_world_t size");
 static_assert(sizeof(vsim_ctl_world_mesh_t) <= 256,  "vsim_ctl_world_mesh_t fits ctl body");
 #else
@@ -269,7 +270,7 @@ _Static_assert(sizeof(vsim_pwm_frame_t)  == 16 + 16,  "vsim_pwm_frame_t size");
 _Static_assert(sizeof(vsim_imu_frame_t)  == 16 + 88,  "vsim_imu_frame_t size");
 _Static_assert(sizeof(vsim_pose_frame_t) == 16 + 92,  "vsim_pose_frame_t size");
 _Static_assert(sizeof(vsim_ctl_frame_t)  == 16 + 264, "vsim_ctl_frame_t size");
-_Static_assert(sizeof(vsim_ctl_geometry_t) == 200,    "vsim_ctl_geometry_t size");
+_Static_assert(sizeof(vsim_ctl_geometry_t) == 216,    "vsim_ctl_geometry_t size");
 _Static_assert(sizeof(vsim_ctl_world_t)   == 28,      "vsim_ctl_world_t size");
 #endif
 

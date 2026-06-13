@@ -64,9 +64,10 @@ struct MotorParams {
     // duty=1 commands this omega [rad/s], per rotor.
     std::array<float, 4> max_omega = {1200.0f, 1200.0f, 1200.0f, 1200.0f};
 
-    // First-order rotor spin-up filter time constants (asymmetric, shared).
-    float tau_up   = 0.0125f;
-    float tau_down = 0.025f;
+    // Per-rotor first-order spin-up time constant [s]. Spin-down uses 2x this
+    // (the old shared 0.0125/0.025 asymmetry), so one editable value per rotor
+    // maps to the mockup's per-motor "time constant τ".
+    std::array<float, 4> tau = {0.0125f, 0.0125f, 0.0125f, 0.0125f};
 };
 
 struct ImuSample {

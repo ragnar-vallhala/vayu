@@ -69,7 +69,8 @@ QJsonObject configToJson(const vsim::GeometryConfig& c) {
                               {"spin", m.spin},
                               {"k_thrust", m.k_thrust},
                               {"k_moment", m.k_moment},
-                              {"max_omega", m.max_omega}});
+                              {"max_omega", m.max_omega},
+                              {"tau", m.tau}});
   }
   root["motors"] = motors;
   return root;
@@ -96,6 +97,7 @@ vsim::GeometryConfig configFromJson(const QJsonObject& root) {
     mc.k_thrust = m.value("k_thrust").toDouble(mc.k_thrust);
     mc.k_moment = m.value("k_moment").toDouble(mc.k_moment);
     mc.max_omega = m.value("max_omega").toDouble(mc.max_omega);
+    mc.tau = m.value("tau").toDouble(mc.tau);
   }
   return c;
 }
@@ -233,6 +235,7 @@ void GeometryEditorWidget::buildUi() {
       r.kt = spin(0, 1, 8, 1e-6, 1.522e-5);
       r.km = spin(0, 1, 9, 1e-7, 2.44e-7);
       r.wmax = spin(0, 5000, 0, 50, 1200, QStringLiteral(" rad/s"));
+      r.tau = spin(0.001, 0.5, 4, 0.001, 0.0125, QStringLiteral(" s"));
 
       form->addRow(tr("Pos X"), r.px);
       form->addRow(tr("Pos Y"), r.py);
@@ -244,6 +247,7 @@ void GeometryEditorWidget::buildUi() {
       form->addRow(tr("k_thrust"), r.kt);
       form->addRow(tr("k_moment"), r.km);
       form->addRow(tr("max ω"), r.wmax);
+      form->addRow(tr("τ (spin-up)"), r.tau);
 
       sec->setContentWidget(body);
       root->addWidget(sec);
@@ -279,6 +283,7 @@ void GeometryEditorWidget::syncConfigToUi() {
     r.ax->setValue(m.axis.x()); r.ay->setValue(m.axis.y()); r.az->setValue(m.axis.z());
     r.spin->setCurrentIndex(m.spin >= 0 ? 0 : 1);
     r.kt->setValue(m.k_thrust); r.km->setValue(m.k_moment); r.wmax->setValue(m.max_omega);
+    r.tau->setValue(m.tau);
   }
 }
 
@@ -297,6 +302,7 @@ void GeometryEditorWidget::syncUiToConfig() {
     m.k_thrust = static_cast<float>(r.kt->value());
     m.k_moment = static_cast<float>(r.km->value());
     m.max_omega = static_cast<float>(r.wmax->value());
+    m.tau = static_cast<float>(r.tau->value());
   }
 }
 

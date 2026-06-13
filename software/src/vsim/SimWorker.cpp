@@ -176,6 +176,7 @@ void SimWorker::sendGeometry(const GeometryConfig& g) {
         body.motors[i].k_thrust  = m.k_thrust;
         body.motors[i].k_moment  = m.k_moment;
         body.motors[i].max_omega = m.max_omega;
+        body.motors[i].tau       = m.tau;
     }
     std::memcpy(f.body, &body, sizeof(body));  // 200 B into the 256 B body
     ::write(ctl_fd_, &f, sizeof(f));

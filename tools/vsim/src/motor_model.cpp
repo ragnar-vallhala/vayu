@@ -21,7 +21,9 @@ void MotorModel::update(const std::array<float, 4>& duty, float dt,
         // Note: the alpha formula is backward-Euler discretization, not
         // "exact" as the earlier comment claimed -- carrying behavior
         // forward verbatim, but the label is fixed.
-        float tau = (target > omega_[i]) ? params_.tau_up : params_.tau_down;
+        // Per-rotor spin-up constant; spin-down is 2x (legacy asymmetry).
+        const float tau_up = params_.tau[i];
+        float tau = (target > omega_[i]) ? tau_up : (tau_up * 2.0f);
         if (tau < 1e-6f) tau = 1e-6f;
         float alpha = dt / (tau + dt);
         omega_[i] += (target - omega_[i]) * alpha;

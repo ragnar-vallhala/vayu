@@ -1133,6 +1133,7 @@ void SimulatorWidget::startAutotune() {
       gb.motors[i].k_thrust = m.k_thrust;
       gb.motors[i].k_moment = m.k_moment;
       gb.motors[i].max_omega = m.max_omega;
+      gb.motors[i].tau = m.tau;
     }
     p.sitl.geometry = gb;
     p.sitl.hasGeometry = true;
