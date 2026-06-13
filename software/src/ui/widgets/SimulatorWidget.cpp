@@ -1145,6 +1145,7 @@ void SimulatorWidget::startAutotune() {
   p.tuneYaw = m_tuneYaw->isChecked();
   p.optimizer = m_tuneOptimizer->currentText();
   p.budget = m_tuneBudget->value();
+  p.repeats = m_tuneRepeats->value();  // rollouts averaged per eval (smooths noise)
   p.optSeed = quint64(m_tuneSeed->value());
   p.rollout.stepUs = m_tuneStep->value();
   p.rollout.tetherK = m_tuneTether->value();

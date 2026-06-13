@@ -26,6 +26,7 @@ public:
     bool tuneYaw = false;
     QString optimizer = "structured";
     int budget = 30;
+    int repeats = 5;  // rollouts averaged per eval (distinct noise seeds)
     quint64 optSeed = 1;
     autotune::RolloutParams rollout;
   };

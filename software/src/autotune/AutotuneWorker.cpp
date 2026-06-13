@@ -1,5 +1,7 @@
 #include "AutotuneWorker.h"
 
+#include <algorithm>
+
 #include "Optimizer.h"  // autotune::Vec
 #include "Space.h"
 
@@ -37,7 +39,23 @@ void AutotuneWorker::run() {
         x.reserve(xq.size());
         for (double v : xq)
           x.push_back(v);
-        return autotune::runRollout(stack, names, x, m_p.tuneYaw, m_p.rollout);
+        // Average `repeats` rollouts over distinct noise realizations
+        // (sim_seed + i), mirroring autotune.py: include divergences (kBig) in
+        // the mean, drop only harness failures (nullopt). This smooths the
+        // noisy SITL cost so the search isn't misled by one unlucky rollout.
+        double sum = 0.0;
+        int scored = 0;
+        for (int i = 0; i < std::max(1, m_p.repeats); ++i) {
+          autotune::RolloutParams rp = m_p.rollout;
+          rp.seed = m_p.rollout.seed + quint32(i);
+          if (auto c = autotune::runRollout(stack, names, x, m_p.tuneYaw, rp)) {
+            sum += *c;
+            ++scored;
+          }
+        }
+        if (scored == 0)
+          return std::nullopt;  // every attempt was a harness failure
+        return sum / scored;
       });
 
   // Re-emit the engine's signals (this worker lives in the worker thread, so
