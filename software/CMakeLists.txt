@@ -46,6 +46,7 @@ set(GCS_SOURCES
     src/core/CommandRegistry.cpp
     src/core/ShortcutsManager.cpp
     src/core/ViewHistory.cpp
+    src/core/CalibrationWizard.cpp
     src/core/CsvExport.cpp
     src/core/Logger.cpp
     src/core/Notify.cpp
@@ -102,6 +103,7 @@ set(GCS_HEADERS
     src/core/CommandRegistry.h
     src/core/ShortcutsManager.h
     src/core/ViewHistory.h
+    src/core/CalibrationWizard.h
     src/core/SessionMode.h
     src/core/RollingStats.h
     src/core/CsvExport.h

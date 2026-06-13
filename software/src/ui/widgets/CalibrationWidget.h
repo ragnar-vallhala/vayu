@@ -1,10 +1,12 @@
 #pragma once
 
 #include "../../protocol/DroneProtocol.h"
+#include "../core/CalibrationWizard.h"
 #include "../core/Types.h"
 #include <QButtonGroup>
 #include <QGroupBox>
 #include <QLabel>
+#include <QListWidget>
 #include <QMap>
 #include <QProgressBar>
 #include <QPushButton>
@@ -74,6 +76,12 @@ private:
 
   QMap<CalibUpdateType, QLabel *> m_axisMap;
   CalibUpdateType m_currentAxis = CalibUpdateType::Progress;
+
+  // Gated step wizard: the guided checklist driven by firmware instructions.
+  CalibrationWizard m_wizard;
+  QListWidget *m_stepList = nullptr;
+  CalibMode currentMode() const;
+  void refreshSteps();
 
   // Main Controls
   QPushButton *m_startBtn;

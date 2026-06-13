@@ -125,6 +125,12 @@ navigator_test(tst_view_history
     tst_view_history.cpp
     ${SRC}/core/ViewHistory.cpp)
 
+# ---- Calibration wizard step machine --------------------------------------
+navigator_test(tst_calibration_wizard
+    tst_calibration_wizard.cpp
+    ${SRC}/core/CalibrationWizard.cpp)
+target_include_directories(tst_calibration_wizard PRIVATE ${SRC}/core)
+
 # ---- Phase 2D: replay source (playback clock, crop, loop, seek) ------------
 navigator_test(tst_replay_source
     tst_replay_source.cpp

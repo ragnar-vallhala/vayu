@@ -130,6 +130,18 @@ CalibrationWidget::CalibrationWidget(QWidget *parent) : QWidget(parent) {
                Theme::hex(Theme::kOk)));
   instrVBox->addWidget(m_progressBar);
 
+  // Guided step checklist (FR: gated calibration wizard). Populated on Start
+  // from CalibrationWizard and updated as the firmware drives each orientation.
+  m_stepList = new QListWidget(this);
+  m_stepList->setFocusPolicy(Qt::NoFocus);
+  m_stepList->setSelectionMode(QAbstractItemView::NoSelection);
+  m_stepList->setStyleSheet(
+      QString("QListWidget { background: %1; border: 1px solid %2; "
+              "border-radius: 6px; } QListWidget::item { padding: 3px; }")
+          .arg(Theme::hex(Theme::kSurface),
+               Theme::hex(Theme::kBorderStrong)));
+  instrVBox->addWidget(m_stepList);
+
   mainLayout->addWidget(m_instructionGroup);
 
   // --- Footer Controls ---
@@ -252,6 +264,46 @@ void CalibrationWidget::onStartClicked() {
 
   int calType = m_fullCalibRadio->isChecked() ? 1 : 0;
   sendCalibrationCommand(m_selectedImuId, calType);
+
+  // Start the guided wizard for this mode and show the step checklist.
+  m_wizard.begin(currentMode());
+  refreshSteps();
+}
+
+CalibMode CalibrationWidget::currentMode() const {
+  const bool full = m_fullCalibRadio && m_fullCalibRadio->isChecked();
+  switch (m_selectedImuId) {
+    case 1:  // accelerometer
+      return full ? CalibMode::Accel6Axis : CalibMode::AccelBias;
+    case 3:  // magnetometer
+      return CalibMode::Mag;
+    case 2:  // gyroscope
+    default:
+      return CalibMode::Gyro;
+  }
+}
+
+void CalibrationWidget::refreshSteps() {
+  if (!m_stepList) return;
+  m_stepList->clear();
+  const QVector<CalibStep> &steps = m_wizard.steps();
+  for (int i = 0; i < steps.size(); ++i) {
+    QString mark;
+    if (m_wizard.isComplete() || i < m_wizard.doneCount())
+      mark = QStringLiteral("✓  ");  // ✓ done
+    else if (i == m_wizard.currentIndex())
+      mark = QStringLiteral("▶  ");  // ▶ current
+    else
+      mark = QStringLiteral("○  ");  // ○ pending
+    auto *it = new QListWidgetItem(mark + steps[i].label + " — " + steps[i].hint,
+                                   m_stepList);
+    if (i == m_wizard.currentIndex() && !m_wizard.isComplete()) {
+      QFont f = it->font();
+      f.setBold(true);
+      it->setFont(f);
+    }
+  }
+  m_progressBar->setValue(int(m_wizard.progress() * 100.0));
 }
 
 void CalibrationWidget::sendCalibrationCommand(int imu_id, int type) {
@@ -300,6 +352,10 @@ void CalibrationWidget::onProgressReceived(float pct) {
 void CalibrationWidget::onInstructionReceived(int type) {
   CalibUpdateType instruction = static_cast<CalibUpdateType>(type);
   m_currentAxis = instruction;
+
+  // Advance the guided wizard checklist to the prompted orientation.
+  m_wizard.onInstruction(instruction);
+  refreshSteps();
 
   // Highlight target axis with the warn accent.
   if (m_axisMap.contains(instruction)) {
@@ -391,6 +447,8 @@ void CalibrationWidget::onStatusReceived(const QString &msg) {
       m_sensorSelectArea->setEnabled(true);
       m_configGroup->setEnabled(true);
       m_progressBar->setValue(100);
+      m_wizard.markComplete();  // tick every step done
+      refreshSteps();
     }
   }
 }
