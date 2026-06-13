@@ -83,3 +83,12 @@ navigator_test(tst_replay_source
     ${REPLAY}/ReplaySource.cpp
     ${REPLAY}/RecordSink.cpp)
 target_include_directories(tst_replay_source PRIVATE ${REPLAY})
+
+# ---- Phase 2E: replay bar (transport GUI smoke) ---------------------------
+navigator_test(tst_replay_bar
+    tst_replay_bar.cpp
+    ${SRC}/comm/ITelemetrySource.h
+    ${SRC}/ui/widgets/ReplayBar.cpp
+    ${REPLAY}/ReplaySource.cpp
+    ${REPLAY}/RecordSink.cpp)
+target_include_directories(tst_replay_bar PRIVATE ${REPLAY} ${SRC}/ui/widgets)

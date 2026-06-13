@@ -37,6 +37,8 @@
 #include "SimulatorWidget.h"
 #endif
 
+class QToolBar;
+
 class MainWindow : public QMainWindow {
   Q_OBJECT
 
@@ -105,10 +107,15 @@ private:
   void stopRecording();
 
 public:
-  // Enter/leave whole-GCS replay (Phase-1 1D). Drives the read-only authority
-  // and the toolbar REPLAY pill; the ReplaySource swap arrives in Phase 2E.
+  // Enter/leave whole-GCS replay (Phase-1 1D / 2E). Drives the read-only
+  // authority and the toolbar REPLAY pill.
   void setSessionMode(SessionMode mode);
   SessionMode sessionMode() const { return m_session.mode(); }
+
+  // Open a recorded .bin and drive the whole GCS from it (Phase-2 2E); swaps
+  // the active telemetry source to a ReplaySource and goes read-only.
+  void enterReplay(const QString &path);
+  void exitReplay();
 
 private:
 
@@ -179,6 +186,11 @@ private:
   // a ReplaySource (Phase 2D) swaps in here without touching any widget.
   LiveSource *m_liveSource = nullptr;
   ITelemetrySource *m_source = nullptr;
+  // Whole-GCS replay (Phase-2 2E): the replay source + transport bar, active
+  // only while in SessionMode::Replay.
+  class ReplaySource *m_replaySource = nullptr;
+  class ReplayBar *m_replayBar = nullptr;
+  QToolBar *m_replayToolbar = nullptr;
   // Records the live stream to a .bin for later replay (Phase-1 1C).
   RecordSink m_recorder;
   bool m_recordOnConnect = false;
