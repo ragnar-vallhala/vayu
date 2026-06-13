@@ -6,8 +6,10 @@
 #include <QFile>
 #include <QLineEdit>
 #include <QList>
+#include <QSizePolicy>
 #include <QStringList>
 #include <QStyle>
+#include <QWidget>
 
 namespace {
 
@@ -29,12 +31,9 @@ MainToolbar::MainToolbar(QWidget *parent) : QToolBar(parent) {
 }
 
 void MainToolbar::buildContent() {
-  // Brand label
-  auto *title = new QLabel(" ✈  <b>Vayu GCS</b> ", this);
-  title->setObjectName("BrandLabel");
-  addWidget(title);
-
-  addSeparator();
+  // Mockup parity: the toolbar opens straight at the Link selector (no brand
+  // label) and carries no page-shortcut buttons — navigation lives in the
+  // View/Tools menus and Ctrl+1‑8.
 
   // Transport selector — explicit Serial vs UDP (WiFi bridge) so the right
   // inputs are shown for each, instead of overloading the Port field.
@@ -111,24 +110,10 @@ void MainToolbar::buildContent() {
   connect(m_armBtn, &QPushButton::clicked, this, &MainToolbar::armClicked);
   addWidget(m_armBtn);
 
-  addSeparator();
-
-  auto *rcBtn = new ui::GhostButton(tr("RC"), this);
-  rcBtn->setToolTip(tr("Open RC Channels Monitor"));
-  rcBtn->setFixedWidth(40);
-  connect(rcBtn, &QPushButton::clicked, this, &MainToolbar::showRcRequested);
-  addWidget(rcBtn);
-
-  addSeparator();
-
-  auto *calBtn = new ui::GhostButton(tr("CALIB"), this);
-  calBtn->setToolTip(tr("Open IMU Calibration"));
-  calBtn->setFixedWidth(60);
-  connect(calBtn, &QPushButton::clicked, this,
-          &MainToolbar::showCalibRequested);
-  addWidget(calBtn);
-
-  addSeparator();
+  // Push the LIVE pill to the far right, matching the mockup's nav-spacer.
+  auto *spacer = new QWidget(this);
+  spacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+  addWidget(spacer);
 
   // LIVE heartbeat blinker. Styling-by-objectName lives in dark.qss;
   // the heartbeat handler repaints the active-state stylesheet inline.

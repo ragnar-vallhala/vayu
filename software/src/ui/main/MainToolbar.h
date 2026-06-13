@@ -74,8 +74,6 @@ signals:
   void connectRequested(const QString &port, int baud);
   void disconnectRequested();
   void armClicked();
-  void showRcRequested();
-  void showCalibRequested();
 
 private:
   void buildContent();

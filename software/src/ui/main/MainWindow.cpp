@@ -229,10 +229,6 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   connect(m_toolbar, &MainToolbar::disconnectRequested, this,
           &MainWindow::onDisconnectRequested);
   connect(m_toolbar, &MainToolbar::armClicked, this, &MainWindow::onArmClicked);
-  connect(m_toolbar, &MainToolbar::showRcRequested, this,
-          &MainWindow::showRcMonitor);
-  connect(m_toolbar, &MainToolbar::showCalibRequested, this,
-          &MainWindow::showCalibration);
 
   m_toolbar->refreshPorts();  // populate port list on startup
   setConnected(false);
@@ -576,20 +572,20 @@ void MainWindow::buildUi() {
 void MainWindow::buildMenuBar() {
   QMenuBar *menu = menuBar();
 
-  // Every menu item is a registered command (FR-UX-19): the registry owns
-  // the QAction, the menu just hosts it. Adding the action to the menu also
-  // activates its shortcut, so these must NOT be added to the window again.
-  QMenu *fileMenu = menu->addMenu("&File");
-  fileMenu->addAction(m_cmds->add("view.home", "&Home Screen", "View",
-                                  QKeySequence("Ctrl+H"), CmdContext::Always,
-                                  [this] { showHome(); }));
-  fileMenu->addAction(m_cmds->add(
-      "view.packetAnalyzer", "&Packet Analyzer", "View",
-      QKeySequence("Ctrl+P"), CmdContext::Always,
-      [this] { showPacketAnalyzer(); }));
+  // Mockup parity: seven menus — File / View / Flight / Tools / Settings /
+  // Window / Help. Every item is a registered command (FR-UX-19): the registry
+  // owns the QAction and adding it to a menu also activates its shortcut, so a
+  // command is hosted in exactly one place (never re-added to the window).
 
+  // ---- File ----
+  QMenu *fileMenu = menu->addMenu("&File");
   fileMenu->addAction(m_cmds->add(
-      "replay.open", "&Open Log…", "Replay", QKeySequence("Ctrl+O"),
+      "link.toggle", "&Connect / Disconnect", "Link", QKeySequence("Ctrl+K"),
+      CmdContext::Always,
+      [this] { if (m_toolbar) m_toolbar->onConnectClicked(); }));
+  fileMenu->addSeparator();
+  fileMenu->addAction(m_cmds->add(
+      "replay.open", "&Open Flight Log…", "Replay", QKeySequence("Ctrl+O"),
       CmdContext::Always, [this] {
         const QString path = QFileDialog::getOpenFileName(
             this, tr("Open Telemetry Log"),
@@ -597,50 +593,99 @@ void MainWindow::buildMenuBar() {
             tr("Telemetry recordings (*.bin)"));
         if (!path.isEmpty()) enterReplay(path);
       }));
+  fileMenu->addAction(m_cmds->add("sim.loadWorld", "&Load World…", "Simulator",
+                                  QKeySequence(), CmdContext::Always,
+                                  [this] { showSimulator(); }));
+  fileMenu->addAction(m_cmds->add(
+      "log.export", "&Export Log…", "Log", QKeySequence(), CmdContext::Always,
+      [this] {
+        const QString dir = QDir::home().filePath("vayu-logs");
+        QDir().mkpath(dir);
+        QDesktopServices::openUrl(QUrl::fromLocalFile(dir));
+      }));
+  fileMenu->addSeparator();
+  fileMenu->addAction(m_cmds->add("app.exit", "E&xit", "Application",
+                                  QKeySequence(QKeySequence::Quit),
+                                  CmdContext::Always, [this] { close(); }));
 
+  // ---- View (page navigation, Ctrl+1‑8 per the mockup) ----
+  QMenu *viewMenu = menu->addMenu("&View");
+  viewMenu->addAction(m_cmds->add("nav.dashboard", "Flight &Dashboard", "View",
+                                  QKeySequence("Ctrl+1"), CmdContext::Always,
+                                  [this] { showHome(); }));
+  viewMenu->addAction(m_cmds->add("nav.rc", "&RC Channels", "View",
+                                  QKeySequence("Ctrl+2"), CmdContext::Always,
+                                  [this] { showRcMonitor(); }));
+  viewMenu->addAction(m_cmds->add("nav.motors", "&Motors", "View",
+                                  QKeySequence("Ctrl+3"), CmdContext::Always,
+                                  [this] { showMotorStatus(); }));
+  viewMenu->addAction(m_cmds->add("nav.control", "&Control Loop", "View",
+                                  QKeySequence("Ctrl+4"), CmdContext::Always,
+                                  [this] { showControlLoopPlot(); }));
+  viewMenu->addSeparator();
+  viewMenu->addAction(m_cmds->add("nav.packets", "&Packet Analyzer", "View",
+                                  QKeySequence("Ctrl+5"), CmdContext::Always,
+                                  [this] { showPacketAnalyzer(); }));
+#ifdef NAVIGATOR_HAS_SITL
+  viewMenu->addAction(m_cmds->add("nav.simulator", "Si&mulator", "View",
+                                  QKeySequence("Ctrl+6"), CmdContext::Always,
+                                  [this] { showSimulator(); }));
+#endif
+  viewMenu->addAction(m_cmds->add("nav.perf", "&Kernel Perf", "View",
+                                  QKeySequence("Ctrl+8"), CmdContext::Always,
+                                  [this] { showPerf(); }));
+  viewMenu->addSeparator();
+  viewMenu->addAction(m_cmds->add(
+      "window.fullscreen", "&Fullscreen", "Window", QKeySequence(Qt::Key_F11),
+      CmdContext::Always, [this] {
+        if (isFullScreen()) showNormal();
+        else showFullScreen();
+      }));
+
+  // ---- Flight ----
+  QMenu *flightMenu = menu->addMenu("F&light");
+  flightMenu->addAction(m_cmds->add("flight.arm", "&Arm / Disarm", "Flight",
+                                    QKeySequence("Ctrl+A"), CmdContext::Always,
+                                    [this] { onArmClicked(); }));
+  flightMenu->addSeparator();
+  flightMenu->addAction(m_cmds->add("flight.runCalib", "&Run Calibration…",
+                                    "Flight", QKeySequence(), CmdContext::Always,
+                                    [this] { showCalibration(); }));
+
+  // ---- Tools ----
+  QMenu *toolsMenu = menu->addMenu("&Tools");
+  toolsMenu->addAction(m_cmds->add("nav.calibration", "&Calibration", "View",
+                                   QKeySequence("Ctrl+7"), CmdContext::Always,
+                                   [this] { showCalibration(); }));
+
+  // ---- Settings (single entry; opens the Configuration page) ----
   QMenu *settingsMenu = menu->addMenu("&Settings");
-  settingsMenu->addAction(m_cmds->add("view.settings", "&Configuration",
-                                      "View", QKeySequence(),
-                                      CmdContext::Always,
+  settingsMenu->addAction(m_cmds->add("view.settings", "&Configuration", "View",
+                                      QKeySequence(), CmdContext::Always,
                                       [this] { showSettings(); }));
 
+  // ---- Window ----
   QMenu *windowMenu = menu->addMenu("&Window");
-  windowMenu->addAction(m_cmds->add("view.channels", "&Channels", "View",
-                                    QKeySequence(), CmdContext::Always,
-                                    [this] { showRcMonitor(); }));
-  windowMenu->addAction(m_cmds->add("view.calibration", "&Calibration", "View",
-                                    QKeySequence(), CmdContext::Always,
-                                    [this] { showCalibration(); }));
-  windowMenu->addAction(m_cmds->add("view.motorStatus", "&Motor Status",
-                                    "View", QKeySequence(), CmdContext::Always,
-                                    [this] { showMotorStatus(); }));
-  windowMenu->addAction(m_cmds->add("view.controlLoop", "&Control Loop",
-                                    "View", QKeySequence(), CmdContext::Always,
-                                    [this] { showControlLoopPlot(); }));
-  windowMenu->addAction(m_cmds->add("view.kernelPerf", "&Kernel Perf", "View",
-                                    QKeySequence(), CmdContext::Always,
-                                    [this] { showPerf(); }));
-#ifdef NAVIGATOR_HAS_SITL
-  windowMenu->addAction(m_cmds->add("view.simulator", "Si&mulator", "View",
-                                    QKeySequence(), CmdContext::Always,
-                                    [this] { showSimulator(); }));
-#endif
+  windowMenu->addAction(m_cmds->add("window.resetLayout", "&Reset Layout",
+                                    "Window", QKeySequence(), CmdContext::Always,
+                                    [this] { resetLayout(); }));
 
+  // ---- Help ----
   QMenu *helpMenu = menu->addMenu("&Help");
   helpMenu->addAction(m_cmds->add(
-      "help.shortcuts", "&Keyboard Shortcuts…", "Help",
-      QKeySequence("Ctrl+Alt+K"), CmdContext::Always, [this] {
-        ShortcutsEditorDialog dlg(m_cmds, m_shortcuts, this);
-        dlg.exec();
-      }));
-  helpMenu->addAction(m_cmds->add(
-      "help.docs", "&Documentation", "Help", QKeySequence(),
+      "help.docs", "&Documentation", "Help", QKeySequence(Qt::Key_F1),
       CmdContext::Always, [this] {
         const QString docs = AboutDialog::docsPath();
         if (docs.isEmpty())
           Notify::warn(this, tr("Bundled documentation not found"));
         else
           QDesktopServices::openUrl(QUrl::fromLocalFile(docs));
+      }));
+  helpMenu->addAction(m_cmds->add(
+      "help.shortcuts", "&Keyboard Shortcuts…", "Help",
+      QKeySequence("Ctrl+Alt+K"), CmdContext::Always, [this] {
+        ShortcutsEditorDialog dlg(m_cmds, m_shortcuts, this);
+        dlg.exec();
       }));
   helpMenu->addSeparator();
   helpMenu->addAction(m_cmds->add(
@@ -649,12 +694,22 @@ void MainWindow::buildMenuBar() {
         AboutDialog dlg(this);
         dlg.exec();
       }));
+}
 
-  fileMenu->addSeparator();
-
-  fileMenu->addAction(m_cmds->add("app.exit", "E&xit", "Application",
-                                  QKeySequence(QKeySequence::Quit),
-                                  CmdContext::Always, [this] { close(); }));
+void MainWindow::resetLayout() {
+  // Restore the dashboard splitters to their default proportions (attitude:imu
+  // = 1:2, panels:log = 3:1) and return to the dashboard. Mirrors the mockup's
+  // Window ▸ Reset Layout.
+  if (m_topSplitter) {
+    const int w = m_topSplitter->width();
+    m_topSplitter->setSizes({w / 3, w - w / 3});
+  }
+  if (m_vSplitter) {
+    const int h = m_vSplitter->height();
+    m_vSplitter->setSizes({3 * h / 4, h - 3 * h / 4});
+  }
+  showHome();
+  Notify::info(this, tr("Layout reset"));
 }
 
 // ---------------------------------------------------------------------------
@@ -1064,6 +1119,18 @@ void MainWindow::onUiTimer() {
   static int tick = 0;
   tick++;
 
+  // Inbound packet rate (Hz) for the status bar — sampled once a second from
+  // the running packet counter (mockup "Rate: N Hz").
+  const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+  if (m_lastRateTime == 0) m_lastRateTime = nowMs;
+  if (nowMs - m_lastRateTime >= 1000) {
+    const double hz =
+        (m_pktCount - m_pktAtLastRate) * 1000.0 / (nowMs - m_lastRateTime);
+    if (m_statusBar) m_statusBar->setPacketRate(hz);
+    m_pktAtLastRate = m_pktCount;
+    m_lastRateTime = nowMs;
+  }
+
   // Update IMU panel with latest cached data
   m_imuPanel->updateImu(m_latestImu);
 
@@ -1176,40 +1243,15 @@ constexpr const char *kBaudKey       = "comm/lastBaud";
 }  // namespace
 
 void MainWindow::installShortcuts() {
-  // Page navigation — Ctrl+1..8 map to QStackedWidget indices 0..7 in the
-  // order pages were added in the ctor. Registered as positional "Go to
-  // view N" commands so they show up in the (Phase-2) editor/palette like
-  // any other command. These have no menu host, so the QAction is added to
-  // the window to make its shortcut live. Bind sequentially; the count
-  // stays <= the number of pages.
-  const QStringList navKeys = {"Ctrl+1", "Ctrl+2", "Ctrl+3", "Ctrl+4",
-                               "Ctrl+5", "Ctrl+6", "Ctrl+7", "Ctrl+8"};
-  for (int i = 0; i < navKeys.size() && i < m_stackedWidget->count(); ++i) {
-    const int idx = i;
-    addAction(m_cmds->add(
-        QString("view.go%1").arg(i + 1), QString("Go to View %1").arg(i + 1),
-        "View", QKeySequence(navKeys[i]), CmdContext::Always,
-        [this, idx] { m_stackedWidget->setCurrentIndex(idx); }));
-  }
-
-  // Ctrl+K — toggle connection (same path as a click on the toolbar's
-  // Connect/Disconnect button).
-  addAction(m_cmds->add("link.toggle", "Connect / Disconnect", "Link",
-                        QKeySequence("Ctrl+K"), CmdContext::Always, [this] {
-                          if (m_toolbar) m_toolbar->onConnectClicked();
-                        }));
+  // Page navigation (Ctrl+1‑8), Connect (Ctrl+K), Arm (Ctrl+A), Calibration
+  // (Ctrl+7), Fullscreen (F11) and Documentation (F1) are hosted on the menu
+  // bar (buildMenuBar), which activates their shortcuts. Only menuless
+  // shortcut-commands are registered here and bound to the window directly.
 
   // Ctrl+L — clear the log panel.
   addAction(m_cmds->add("log.clear", "Clear Log", "Log",
                         QKeySequence("Ctrl+L"), CmdContext::Always, [this] {
                           if (m_logPanel) m_logPanel->clearLog();
-                        }));
-
-  // F11 — toggle fullscreen.
-  addAction(m_cmds->add("window.fullscreen", "Toggle Fullscreen", "Window",
-                        QKeySequence(Qt::Key_F11), CmdContext::Always, [this] {
-                          if (isFullScreen()) showNormal();
-                          else showFullScreen();
                         }));
 
   // Ctrl+Shift+P — fuzzy command palette over the registry (FR-UX-20).
