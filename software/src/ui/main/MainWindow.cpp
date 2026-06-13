@@ -2,6 +2,7 @@
 #include "../core/Notify.h"
 #include "../core/SettingsManager.h"
 #include "../ui/widgets/CommandPalette.h"
+#include "../ui/widgets/RecentViewsOverlay.h"
 #include "../ui/widgets/ShortcutsEditorDialog.h"
 #include "../core/Theme.h"
 #include "../core/crc.h"
@@ -176,6 +177,11 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
             else if (!on) stopRecording();
             SettingsManager::save(m_settingsWidget->getSettings());
           });
+  connect(m_settingsWidget, &SettingsWidget::recentViewsCountChanged, this,
+          [this](int n) {
+            m_viewHistory.setDepth(n);
+            SettingsManager::save(m_settingsWidget->getSettings());
+          });
 
   // Tee inbound bytes to the recorder (Phase-1 1C). Same source the parser
   // reads, so the recording is exactly the live stream.
@@ -196,6 +202,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     m_imuPanel->setGraphDropout(savedSettings.graphDropoutRate);
     m_serial->setAutoReconnect(savedSettings.autoReconnect);
     m_recordOnConnect = savedSettings.recordOnConnect;
+    m_viewHistory.setDepth(savedSettings.recentViewsCount);
   }
 
   buildMenuBar();
@@ -292,6 +299,17 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
             if (m_toolbar) m_toolbar->setSerialControlsEnabled(!running);
           });
 #endif
+
+  // Recent-views (MRU) switcher (Phase-2 2C / FR-UX-21). Record every page
+  // change centrally and build the index->label map the overlay displays.
+  buildViewTitles();
+  connect(m_stackedWidget, &QStackedWidget::currentChanged, this,
+          [this](int idx) {
+            if (idx >= 0) m_viewHistory.visit(idx);
+          });
+  m_recentOverlay = new RecentViewsOverlay(this);
+  connect(m_recentOverlay, &RecentViewsOverlay::activated, this,
+          [this](int idx) { m_stackedWidget->setCurrentIndex(idx); });
 
   installShortcuts();
 
@@ -1076,6 +1094,41 @@ void MainWindow::installShortcuts() {
                  QPoint(pal.width() / 2, pal.height() / 2));
         pal.exec();
       }));
+
+  // Ctrl+Tab — recent-views (MRU) switcher (FR-UX-21).
+  addAction(m_cmds->add("view.recent", "Recent Views", "View",
+                        QKeySequence("Ctrl+Tab"), CmdContext::Always,
+                        [this] { showRecentViews(); }));
+}
+
+void MainWindow::buildViewTitles() {
+  m_viewTitles.clear();
+  auto put = [this](QWidget *w, const QString &name) {
+    if (!w) return;
+    const int i = m_stackedWidget->indexOf(w);
+    if (i >= 0) m_viewTitles[i] = name;
+  };
+  put(m_homeWidget, tr("Home"));
+  put(m_analyzerWidget, tr("Packet Analyzer"));
+  put(m_rcWidget, tr("RC Channels"));
+  put(m_settingsWidget, tr("Settings"));
+  put(m_calibrationWidget, tr("Calibration"));
+  put(m_motorWidget, tr("Motor Status"));
+  put(m_controlLoopWidget, tr("Control Loop"));
+  put(m_perfWidget, tr("Kernel Perf"));
+#ifdef NAVIGATOR_HAS_SITL
+  put(m_simulatorWidget, tr("Simulator"));
+#endif
+}
+
+void MainWindow::showRecentViews() {
+  const QList<int> mru = m_viewHistory.mru();
+  if (mru.size() < 2) return;  // nothing to switch between yet
+  QList<QPair<int, QString>> items;
+  for (int idx : mru)
+    items.append({idx, m_viewTitles.value(idx, tr("View %1").arg(idx + 1))});
+  m_recentOverlay->setItems(items);
+  m_recentOverlay->startCycle(1);
 }
 
 void MainWindow::saveUiState() {

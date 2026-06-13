@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QElapsedTimer>
+#include <QHash>
 #include <QLabel>
 #include <QMainWindow>
 #include <QSplitter>
@@ -14,6 +15,7 @@
 #include "CommandRegistry.h"
 #include "ShortcutsManager.h"
 #include "SessionMode.h"
+#include "ViewHistory.h"
 #include "Drone3DWidget.h" // Added
 #include "DroneProtocol.h"
 #include "ImuPanel.h"
@@ -148,6 +150,12 @@ private:
   // Editable keyboard-shortcut overrides on top of the registry defaults
   // (Phase-2 2A / FR-UX-19); persisted across runs.
   ShortcutsManager *m_shortcuts = nullptr;
+  // Recent-views (MRU) switcher (Phase-2 2C / FR-UX-21).
+  ViewHistory m_viewHistory;
+  class RecentViewsOverlay *m_recentOverlay = nullptr;
+  QHash<int, QString> m_viewTitles;  // stacked index -> human label
+  void buildViewTitles();
+  void showRecentViews();
 
   // ---- Attitude numeric labels ----
   QLabel *m_rollLabel = nullptr;

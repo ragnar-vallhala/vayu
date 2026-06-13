@@ -23,6 +23,7 @@ signals:
   void graphDropoutChanged(double rate);
   void autoReconnectChanged(bool enabled);
   void recordOnConnectChanged(bool enabled);
+  void recentViewsCountChanged(int count);
 
 private:
   QSpinBox *m_syncPeriodSpin = nullptr;
@@ -30,4 +31,5 @@ private:
   QDoubleSpinBox *m_graphDropoutSpin = nullptr;
   QCheckBox *m_autoReconnectChk = nullptr;
   QCheckBox *m_recordOnConnectChk = nullptr;
+  QSpinBox *m_recentViewsSpin = nullptr;
 };

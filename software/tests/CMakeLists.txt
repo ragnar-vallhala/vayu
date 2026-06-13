@@ -70,3 +70,8 @@ navigator_test(tst_command_palette
     ${SRC}/ui/widgets/CommandPalette.cpp
     ${SRC}/core/CommandRegistry.cpp)
 target_include_directories(tst_command_palette PRIVATE ${SRC}/ui/widgets)
+
+# ---- Phase 2C: view history (MRU logic) -----------------------------------
+navigator_test(tst_view_history
+    tst_view_history.cpp
+    ${SRC}/core/ViewHistory.cpp)

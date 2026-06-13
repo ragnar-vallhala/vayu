@@ -91,6 +91,19 @@ SettingsWidget::SettingsWidget(QWidget *parent) : QWidget(parent) {
   dropoutRow->addStretch();
   graphLayout->addLayout(dropoutRow);
 
+  auto *recentRow = new QHBoxLayout();
+  recentRow->addWidget(new QLabel("Recent-views switcher depth:", this));
+  m_recentViewsSpin = new QSpinBox(this);
+  m_recentViewsSpin->setRange(2, 9);
+  m_recentViewsSpin->setValue(5);
+  m_recentViewsSpin->setToolTip(
+      "How many recently-viewed pages the Ctrl+Tab switcher cycles through.");
+  connect(m_recentViewsSpin, QOverload<int>::of(&QSpinBox::valueChanged), this,
+          &SettingsWidget::recentViewsCountChanged);
+  recentRow->addWidget(m_recentViewsSpin);
+  recentRow->addStretch();
+  graphLayout->addLayout(recentRow);
+
   layout->addWidget(graphGroup);
 
   layout->addStretch();
@@ -128,6 +141,12 @@ void SettingsWidget::setSettings(const GcsSettings &s) {
     m_recordOnConnectChk->setChecked(s.recordOnConnect);
     m_recordOnConnectChk->blockSignals(false);
   }
+
+  if (m_recentViewsSpin) {
+    m_recentViewsSpin->blockSignals(true);
+    m_recentViewsSpin->setValue(s.recentViewsCount);
+    m_recentViewsSpin->blockSignals(false);
+  }
 }
 
 GcsSettings SettingsWidget::getSettings() const {
@@ -138,5 +157,6 @@ GcsSettings SettingsWidget::getSettings() const {
   s.autoReconnect = m_autoReconnectChk && m_autoReconnectChk->isChecked();
   s.recordOnConnect =
       m_recordOnConnectChk && m_recordOnConnectChk->isChecked();
+  s.recentViewsCount = m_recentViewsSpin ? m_recentViewsSpin->value() : 5;
   return s;
 }
