@@ -63,3 +63,10 @@ navigator_test(tst_shortcuts_editor
     ${SRC}/core/CommandRegistry.cpp
     ${SRC}/core/Notify.cpp)
 target_include_directories(tst_shortcuts_editor PRIVATE ${SRC}/ui/widgets)
+
+# ---- Phase 2B: command palette (fuzzy matcher + popup smoke) ---------------
+navigator_test(tst_command_palette
+    tst_command_palette.cpp
+    ${SRC}/ui/widgets/CommandPalette.cpp
+    ${SRC}/core/CommandRegistry.cpp)
+target_include_directories(tst_command_palette PRIVATE ${SRC}/ui/widgets)
