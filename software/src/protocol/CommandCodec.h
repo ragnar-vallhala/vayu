@@ -18,6 +18,7 @@ namespace CommandCodec {
 // Command ids (mirror firmware include/comm/comm_types.h).
 inline constexpr quint16 kCmdSetPid = 0x000A;
 inline constexpr quint16 kCmdSetGyroLpf = 0x000B;
+inline constexpr quint16 kCmdSetMotorGeometry = 0x000C;
 inline constexpr quint16 kCmdSetFlightMode = 0x000D;
 
 // Generic command frame with float args.
@@ -36,5 +37,12 @@ QByteArray encodeSetGyroLpf(int axis, float rc, quint8 devId = 42,
 
 // CMD_SET_FLIGHT_MODE (0x000D): 0=stabilise/angle, 1=acro, 2=release to RC.
 QByteArray encodeSetFlightMode(int mode, quint8 devId = 42, quint32 tsMs = 0);
+
+// CMD_SET_MOTOR_GEOMETRY (0x000C): set the firmware mixer signs from the motor
+// layout so the control mix matches the airframe. argc = 12, ordered x[4], y[4],
+// spin[4] (motor body x/y [m] and spin +1 CCW / -1 CW), per motor 0..3.
+QByteArray encodeSetMotorGeometry(const float x[4], const float y[4],
+                                  const float spin[4], quint8 devId = 42,
+                                  quint32 tsMs = 0);
 
 }  // namespace CommandCodec

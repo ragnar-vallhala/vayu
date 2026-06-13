@@ -41,4 +41,14 @@ QByteArray encodeSetFlightMode(int mode, quint8 devId, quint32 tsMs) {
   return encodeCommand(kCmdSetFlightMode, {float(mode)}, devId, tsMs);
 }
 
+QByteArray encodeSetMotorGeometry(const float x[4], const float y[4],
+                                  const float spin[4], quint8 devId,
+                                  quint32 tsMs) {
+  QVector<float> args;
+  for (int i = 0; i < 4; ++i) args.append(x[i]);
+  for (int i = 0; i < 4; ++i) args.append(y[i]);
+  for (int i = 0; i < 4; ++i) args.append(spin[i]);
+  return encodeCommand(kCmdSetMotorGeometry, args, devId, tsMs);
+}
+
 }  // namespace CommandCodec
