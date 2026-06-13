@@ -46,6 +46,15 @@ navigator_test(tst_cost
     ${SRC}/autotune/Cost.cpp)
 target_include_directories(tst_cost PRIVATE ${SRC}/autotune)
 
+# ---- C++ autotune engine (Space + orchestration, synthetic rollout) -------
+navigator_test(tst_autotune_engine
+    tst_autotune_engine.cpp
+    ${SRC}/autotune/AutotuneEngine.cpp
+    ${SRC}/autotune/Space.cpp
+    ${SRC}/autotune/Optimizer.cpp
+    ${SRC}/autotune/Cost.cpp)
+target_include_directories(tst_autotune_engine PRIVATE ${SRC}/autotune)
+
 # ---- Phase 1A: command registry -------------------------------------------
 navigator_test(tst_command_registry
     tst_command_registry.cpp
