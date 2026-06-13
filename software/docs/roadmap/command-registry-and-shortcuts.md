@@ -1,9 +1,10 @@
 # Command registry, editable shortcuts, command palette & recent-views switcher
 
 Status: 🟡 planned — additive, with one cross-cutting refactor. Generalises the
-Phase-0 `0l` shortcuts. Propose **FR-UX-10** (command registry + editable
-shortcuts), **FR-UX-11** (command palette), **FR-UX-12** (recent-views switcher),
-**FR-UI-20** (About + Documentation). Effort: **M–L** (pure GCS, no firmware).
+Phase-0 `0l` shortcuts. Wired into [`../requirements.md`](../requirements.md) as
+**FR-UX-19** (command registry + editable shortcuts), **FR-UX-20** (command
+palette), **FR-UX-21** (recent-views switcher), **FR-UX-22** (About), **FR-UX-23**
+(Documentation); Phase-1 item `1g`. Effort: **M–L** (pure GCS, no firmware).
 
 ## Context
 
@@ -70,7 +71,7 @@ core/CommandRegistry  ──┬──▶ menus / toolbar (QAction)
 
 - **Help** — `ui/widgets/AboutDialog` (static: name, version, build, protocol,
   flight-stack components) and a Documentation command that opens the bundled
-  `docs/` via `QDesktopServices::openUrl`. Trivial (FR-UI-20).
+  `docs/` via `QDesktopServices::openUrl`. Trivial (FR-UX-22 / FR-UX-23).
 
 ## Work items
 
@@ -84,9 +85,10 @@ core/CommandRegistry  ──┬──▶ menus / toolbar (QAction)
 4. **`CommandPalette`** — fuzzy list over the registry.
 5. **`ViewHistory` + `RecentViewsOverlay`** — MRU tracking + the hold-to-cycle
    overlay; depth setting in `SettingsManager`.
-6. **`AboutDialog` + Documentation command** (FR-UI-20).
-7. **Docs/tests** — add FR-UX-10/11/12 + FR-UI-20 to `requirements.md`; unit-test
-   conflict resolution and MRU ordering (toggle = previous; cycle = N-deep).
+6. **`AboutDialog` + Documentation command** (FR-UX-22 / FR-UX-23).
+7. **Docs/tests** — FR-UX-19–23 + Phase-1 `1g` are in `requirements.md`;
+   unit-test conflict resolution and MRU ordering (toggle = previous; cycle =
+   N-deep).
 
 ## Decisions
 
