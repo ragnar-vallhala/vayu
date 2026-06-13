@@ -69,6 +69,7 @@ set(GCS_SOURCES
     src/ui/widgets/ControlLoopPlot.cpp
     src/ui/widgets/PerfWidget.cpp
     src/ui/widgets/ShortcutsEditorDialog.cpp
+    src/ui/widgets/CommandPalette.cpp
 )
 
 set(GCS_HEADERS
@@ -116,6 +117,7 @@ set(GCS_HEADERS
     src/ui/widgets/ControlLoopPlot.h
     src/ui/widgets/PerfWidget.h
     src/ui/widgets/ShortcutsEditorDialog.h
+    src/ui/widgets/CommandPalette.h
 )
 
 # SITL-only sources. These pull in vsim_iface.h from tools/sim_host and

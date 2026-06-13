@@ -1,6 +1,7 @@
 #include "MainWindow.h"
 #include "../core/Notify.h"
 #include "../core/SettingsManager.h"
+#include "../ui/widgets/CommandPalette.h"
 #include "../ui/widgets/ShortcutsEditorDialog.h"
 #include "../core/Theme.h"
 #include "../core/crc.h"
@@ -1065,6 +1066,16 @@ void MainWindow::installShortcuts() {
                           if (isFullScreen()) showNormal();
                           else showFullScreen();
                         }));
+
+  // Ctrl+Shift+P — fuzzy command palette over the registry (FR-UX-20).
+  addAction(m_cmds->add(
+      "command.palette", "Command Palette…", "View",
+      QKeySequence("Ctrl+Shift+P"), CmdContext::Always, [this] {
+        CommandPalette pal(m_cmds, this);
+        pal.move(geometry().center() -
+                 QPoint(pal.width() / 2, pal.height() / 2));
+        pal.exec();
+      }));
 }
 
 void MainWindow::saveUiState() {
