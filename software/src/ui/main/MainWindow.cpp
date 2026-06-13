@@ -8,6 +8,7 @@
 #include <QApplication>
 #include <QCloseEvent>
 #include <QDateTime>
+#include <QDir>
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -156,6 +157,23 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
             if (m_serial) m_serial->setAutoReconnect(on);
             SettingsManager::save(m_settingsWidget->getSettings());
           });
+  connect(m_settingsWidget, &SettingsWidget::recordOnConnectChanged, this,
+          [this](bool on) {
+            m_recordOnConnect = on;
+            // Apply immediately if a link is already up.
+            if (on && (m_connected || m_simRunning)) startRecording();
+            else if (!on) stopRecording();
+            SettingsManager::save(m_settingsWidget->getSettings());
+          });
+
+  // Tee inbound bytes to the recorder (Phase-1 1C). Same source the parser
+  // reads, so the recording is exactly the live stream.
+  connect(m_source, &ITelemetrySource::bytesReceived, this,
+          [this](const QByteArray &b) {
+            if (m_recorder.isOpen())
+              m_recorder.writeFrame(quint64(m_elapsed.nsecsElapsed() / 1000),
+                                    b);
+          });
 
   // Load and apply persistent settings
   GcsSettings savedSettings;
@@ -166,6 +184,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     m_imuPanel->setGraphWindow(savedSettings.graphWindowSec);
     m_imuPanel->setGraphDropout(savedSettings.graphDropoutRate);
     m_serial->setAutoReconnect(savedSettings.autoReconnect);
+    m_recordOnConnect = savedSettings.recordOnConnect;
   }
 
   buildMenuBar();
@@ -740,6 +759,38 @@ void MainWindow::onConnectionStateChanged(bool connected) {
       connected ? QString("[GCS] Connected to %1").arg(m_serial->currentPort())
                 : "[GCS] Disconnected";
   m_logPanel->appendLog(msg);
+
+  // Telemetry recording follows the link (Phase-1 1C).
+  if (connected) {
+    if (m_recordOnConnect) startRecording();
+  } else {
+    stopRecording();
+  }
+}
+
+void MainWindow::startRecording() {
+  if (m_recorder.isOpen()) return;  // already recording this session
+  QDir logDir(QDir::home().filePath("vayu-logs"));
+  if (!logDir.exists()) logDir.mkpath(".");
+  const QString stamp =
+      QDateTime::currentDateTime().toString("yyyyMMdd-hhmmss");
+  const QString path = logDir.filePath(QString("rec_%1.bin").arg(stamp));
+
+  // protocolVersion is a forward-compat field; no wire-version constant
+  // exists yet, so record 1 and let replay degrade gracefully.
+  if (m_recorder.open(path, /*protocolVersion=*/1,
+                      quint64(QDateTime::currentMSecsSinceEpoch()))) {
+    m_logPanel->appendLog("[GCS] Recording telemetry → " + path);
+  } else {
+    m_logPanel->appendLog("[GCS] Could not open recording file: " + path);
+  }
+}
+
+void MainWindow::stopRecording() {
+  if (!m_recorder.isOpen()) return;
+  const QString path = m_recorder.path();
+  m_recorder.close();
+  m_logPanel->appendLog("[GCS] Stopped recording → " + path);
 }
 
 void MainWindow::onSerialError(const QString &msg) {

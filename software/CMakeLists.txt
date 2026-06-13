@@ -58,6 +58,7 @@ set(GCS_SOURCES
     src/ui/widgets/PacketFilterProxy.cpp
     src/ui/widgets/RealTimeGraph.cpp
     src/core/SettingsManager.cpp
+    src/replay/RecordSink.cpp
     src/ui/widgets/FrequencyRibbon.cpp
     src/ui/widgets/LinkStatsPanel.cpp
     src/ui/widgets/RcChannelsWidget.cpp
@@ -100,6 +101,8 @@ set(GCS_HEADERS
     src/ui/widgets/PacketFilterProxy.h
     src/ui/widgets/RealTimeGraph.h
     src/core/SettingsManager.h
+    src/replay/RecordFormat.h
+    src/replay/RecordSink.h
     src/ui/widgets/FrequencyRibbon.h
     src/ui/widgets/LinkStatsPanel.h
     src/ui/widgets/RcChannelsWidget.h
@@ -166,6 +169,7 @@ target_include_directories(Navigator PRIVATE
     src/core/ui
     src/comm
     src/protocol
+    src/replay
     src/ui/main
     src/ui/widgets
     src/vsim

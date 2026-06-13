@@ -8,6 +8,7 @@
 find_package(Qt6 REQUIRED COMPONENTS Test Widgets Core Network)
 
 set(SRC ${CMAKE_SOURCE_DIR}/src)
+set(REPLAY ${SRC}/replay)
 
 # navigator_test(<name> <sources...>) — build + register one QtTest binary.
 function(navigator_test name)
@@ -36,3 +37,9 @@ navigator_test(tst_live_source
     ${SRC}/comm/LiveSource.cpp
     ${SRC}/comm/SerialManager.cpp
     ${SRC}/comm/UdpManager.cpp)
+
+# ---- Phase 1C: record format round-trip -----------------------------------
+navigator_test(tst_record_sink
+    tst_record_sink.cpp
+    ${REPLAY}/RecordSink.cpp)
+target_include_directories(tst_record_sink PRIVATE ${REPLAY})
