@@ -43,3 +43,8 @@ navigator_test(tst_record_sink
     tst_record_sink.cpp
     ${REPLAY}/RecordSink.cpp)
 target_include_directories(tst_record_sink PRIVATE ${REPLAY})
+
+# ---- Phase 1D: session mode / read-only authority -------------------------
+navigator_test(tst_session_state
+    tst_session_state.cpp
+    ${SRC}/core/SessionMode.h)

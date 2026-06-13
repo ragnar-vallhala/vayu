@@ -191,6 +191,20 @@ void MainToolbar::onTransportChanged() {
 
 // ---------------------------------------------------------------------------
 
+void MainToolbar::setReplayMode(bool on) {
+  // Read-only: no live link, no ARM while replaying.
+  setSerialControlsEnabled(!on);
+  if (on)
+    setArmEnabled(false);
+  if (m_liveLabel) {
+    m_liveLabel->setText(on ? tr(" REPLAY ") : tr(" LIVE "));
+    // Clear any heartbeat-fade styling so the static REPLAY pill reads clean;
+    // the live blinker is suppressed by MainWindow while replaying.
+    if (on)
+      m_liveLabel->setStyleSheet(QString());
+  }
+}
+
 void MainToolbar::setConnected(bool on, const QString &portLabel) {
   Q_UNUSED(portLabel);
   m_connected = on;

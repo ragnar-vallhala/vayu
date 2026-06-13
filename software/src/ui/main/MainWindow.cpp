@@ -1,4 +1,5 @@
 #include "MainWindow.h"
+#include "../core/Notify.h"
 #include "../core/SettingsManager.h"
 #include "../core/Theme.h"
 #include "../core/crc.h"
@@ -56,6 +57,14 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   // Command layer: built before the menu bar / shortcuts so both draw their
   // QActions from it (Phase-1 1g / FR-UX-19).
   m_cmds = new CommandRegistry(this);
+
+  // Session mode (Phase-1 1D): in replay the toolbar goes read-only and the
+  // LIVE pill flips to REPLAY. Dormant until a ReplaySource is attached (2E).
+  connect(&m_session, &SessionState::changed, this, [this](SessionMode m) {
+    const bool replay = (m == SessionMode::Replay);
+    if (m_toolbar) m_toolbar->setReplayMode(replay);
+    Notify::info(this, replay ? tr("Replay — read-only") : tr("Live"));
+  });
 
   // Wire inbound bytes → protocol → UI through the telemetry-source seam
   // (Phase-1 1B). The active source forwards serial + UDP (and, in replay,
@@ -549,6 +558,10 @@ void MainWindow::buildMenuBar() {
 // ---------------------------------------------------------------------------
 
 void MainWindow::onConnectRequested(const QString &port, int baud) {
+  if (m_session.isReplay()) {
+    Notify::warn(this, tr("Read-only in replay — exit replay to connect"));
+    return;
+  }
   if (port.isEmpty()) {
     m_logPanel->appendLog("[GCS] No port specified");
     return;
@@ -590,13 +603,28 @@ void MainWindow::onDisconnectRequested() {
   }
 }
 
+void MainWindow::setSessionMode(SessionMode mode) {
+  // Single entry point for entering/leaving replay. The source swap to a
+  // ReplaySource lands in Phase 2E; here this drives the read-only authority
+  // and the toolbar/pill via SessionState::changed.
+  m_session.setMode(mode);
+}
+
 void MainWindow::sendToFc(const QByteArray &pkt) {
+  // Read-only authority (Phase-1 1D): replay never transmits. This is the
+  // single tx choke point — ARM / PID / calibrate / time-sync all route here,
+  // so one guard makes the whole session read-only.
+  if (!m_session.txAllowed()) {
+    Notify::warn(this, tr("Read-only in replay"));
+    return;
+  }
+
   // Route to the active transport: over UDP it goes to the ESP bridge, which
   // writes it out to the FC's UART; over serial it's the wired path.
   if (m_udp && m_udp->isOpen())
     m_udp->write(pkt);
   else if (m_serial && m_serial->isOpen())
-    sendToFc(pkt);
+    m_serial->write(pkt);  // was a recursive sendToFc() call — infinite loop
 }
 
 void MainWindow::onArmClicked() {
@@ -907,6 +935,9 @@ void MainWindow::onUiTimer() {
 
 void MainWindow::updateLiveBlinker() {
   if (!m_toolbar) return;
+  // In replay the pill shows a static REPLAY; don't let the heartbeat fade
+  // fight it (Phase-1 1D).
+  if (m_session.isReplay()) return;
   QLabel *live = m_toolbar->liveLabel();
   if (!live) return;
 
