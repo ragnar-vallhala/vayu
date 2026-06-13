@@ -116,7 +116,7 @@ void ShortcutsEditorDialog::rebuild() {
     const int row = m_table->rowCount();
     m_table->insertRow(row);
 
-    auto *cmd = new QTableWidgetItem(c.title);
+    auto *cmd = new QTableWidgetItem(commandDisplayTitle(c.title));
     cmd->setData(kIdRole, c.id);
     m_table->setItem(row, COL_COMMAND, cmd);
     m_table->setItem(row, COL_CATEGORY, new QTableWidgetItem(c.category));

@@ -80,14 +80,15 @@ void CommandPalette::rebuild(const QString &query) {
   };
   QList<Row> rows;
   for (const Command &c : m_registry->all()) {
+    const QString title = commandDisplayTitle(c.title);  // no menu mnemonics
     int sTitle = 0, sCat = 0;
-    const bool mTitle = fuzzyMatch(query, c.title, sTitle);
+    const bool mTitle = fuzzyMatch(query, title, sTitle);
     const bool mCat = fuzzyMatch(query, c.category, sCat);
     if (!mTitle && !mCat)
       continue;
     const bool enabled = c.action ? c.action->isEnabled() : true;
-    rows.append({c.id, c.title, c.category, c.action ? c.action->shortcut()
-                                                     : QKeySequence(),
+    rows.append({c.id, title, c.category, c.action ? c.action->shortcut()
+                                                   : QKeySequence(),
                  enabled, std::max(mTitle ? sTitle : -1, mCat ? sCat : -1)});
   }
   // Best score first; stable tiebreak on title so the list doesn't jitter.

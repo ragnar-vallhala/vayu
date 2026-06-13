@@ -16,7 +16,18 @@ private slots:
   void triggerInvokesCallback();
   void defaultShortcutApplied();
   void unknownIdReturnsNull();
+  void displayTitleStripsMnemonics();
 };
+
+void TstCommandRegistry::displayTitleStripsMnemonics() {
+  QCOMPARE(commandDisplayTitle("&Home Screen"), QStringLiteral("Home Screen"));
+  QCOMPARE(commandDisplayTitle("Si&mulator"), QStringLiteral("Simulator"));
+  QCOMPARE(commandDisplayTitle("E&xit"), QStringLiteral("Exit"));
+  QCOMPARE(commandDisplayTitle("No mnemonic"), QStringLiteral("No mnemonic"));
+  // "&&" is a literal ampersand and must survive.
+  QCOMPARE(commandDisplayTitle("Search && Replace"),
+           QStringLiteral("Search & Replace"));
+}
 
 void TstCommandRegistry::registersAndLooksUpById() {
   CommandRegistry reg;
