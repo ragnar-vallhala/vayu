@@ -22,10 +22,12 @@ signals:
   void graphWindowChanged(int seconds);
   void graphDropoutChanged(double rate);
   void autoReconnectChanged(bool enabled);
+  void recordOnConnectChanged(bool enabled);
 
 private:
   QSpinBox *m_syncPeriodSpin = nullptr;
   QSpinBox *m_graphWindowSpin = nullptr;
   QDoubleSpinBox *m_graphDropoutSpin = nullptr;
   QCheckBox *m_autoReconnectChk = nullptr;
+  QCheckBox *m_recordOnConnectChk = nullptr;
 };

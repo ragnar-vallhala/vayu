@@ -9,19 +9,22 @@ struct GcsSettings {
   int graphWindowSec = 5;
   double graphDropoutRate = 0.0;
   bool autoReconnect = false;
+  bool recordOnConnect = false;  // tee telemetry to a .bin on connect (1C)
 
   // Versioned (de)serialisation — the leading version field lets us
-  // append fields without breaking existing settings files. v1 is the
-  // original three-field layout; v2 adds autoReconnect.
+  // append fields without breaking existing settings files. The trailing
+  // atEnd() sentinels make appended fields backward-compatible without a
+  // Version bump: autoReconnect, then recordOnConnect.
   friend QDataStream &operator<<(QDataStream &out, const GcsSettings &s) {
     out << s.syncPeriodMs << s.graphWindowSec << s.graphDropoutRate
-        << s.autoReconnect;
+        << s.autoReconnect << s.recordOnConnect;
     return out;
   }
 
   friend QDataStream &operator>>(QDataStream &in, GcsSettings &s) {
     in >> s.syncPeriodMs >> s.graphWindowSec >> s.graphDropoutRate;
     if (!in.atEnd()) in >> s.autoReconnect;
+    if (!in.atEnd()) in >> s.recordOnConnect;
     return in;
   }
 };

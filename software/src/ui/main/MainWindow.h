@@ -21,6 +21,7 @@
 #include "MainToolbar.h"
 #include "MotorStatusWidget.h"
 #include "PacketAnalyzerWidget.h"
+#include "RecordSink.h"
 #include "RcChannelsWidget.h"
 #include "RollingStats.h"
 #include "SerialManager.h"
@@ -94,6 +95,10 @@ private:
   void saveUiState();
   void restoreUiState();
   void persistPortBaud();
+  // Telemetry recording (Phase-1 1C): open a timestamped .bin and tee the
+  // live stream while connected; close it on disconnect.
+  void startRecording();
+  void stopRecording();
 
   // Send a command frame to the FC over whichever transport is connected
   // (UDP bridge or serial). Used by every ARM/PID/calibrate/time-sync path.
@@ -153,6 +158,9 @@ private:
   // a ReplaySource (Phase 2D) swaps in here without touching any widget.
   LiveSource *m_liveSource = nullptr;
   ITelemetrySource *m_source = nullptr;
+  // Records the live stream to a .bin for later replay (Phase-1 1C).
+  RecordSink m_recorder;
+  bool m_recordOnConnect = false;
   QTimer *m_uiTimer = nullptr;
   QTimer *m_syncTimer = nullptr;
   QElapsedTimer m_elapsed;

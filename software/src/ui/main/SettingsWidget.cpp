@@ -48,6 +48,15 @@ SettingsWidget::SettingsWidget(QWidget *parent) : QWidget(parent) {
           &SettingsWidget::autoReconnectChanged);
   commLayout->addWidget(m_autoReconnectChk);
 
+  m_recordOnConnectChk =
+      new QCheckBox("Record telemetry to a log on connect", this);
+  m_recordOnConnectChk->setToolTip(
+      "When set, every received telemetry frame is teed to a timestamped "
+      ".bin under ~/vayu-logs while connected, for later replay.");
+  connect(m_recordOnConnectChk, &QCheckBox::toggled, this,
+          &SettingsWidget::recordOnConnectChanged);
+  commLayout->addWidget(m_recordOnConnectChk);
+
   layout->addWidget(commGroup);
 
   // ---- Graph Settings Group ----
@@ -113,6 +122,12 @@ void SettingsWidget::setSettings(const GcsSettings &s) {
     m_autoReconnectChk->setChecked(s.autoReconnect);
     m_autoReconnectChk->blockSignals(false);
   }
+
+  if (m_recordOnConnectChk) {
+    m_recordOnConnectChk->blockSignals(true);
+    m_recordOnConnectChk->setChecked(s.recordOnConnect);
+    m_recordOnConnectChk->blockSignals(false);
+  }
 }
 
 GcsSettings SettingsWidget::getSettings() const {
@@ -121,5 +136,7 @@ GcsSettings SettingsWidget::getSettings() const {
   s.graphWindowSec = m_graphWindowSpin->value();
   s.graphDropoutRate = m_graphDropoutSpin->value();
   s.autoReconnect = m_autoReconnectChk && m_autoReconnectChk->isChecked();
+  s.recordOnConnect =
+      m_recordOnConnectChk && m_recordOnConnectChk->isChecked();
   return s;
 }
