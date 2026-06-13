@@ -1,5 +1,7 @@
 #include <QtTest>
 
+#include "Rollout.h"
+#include "Space.h"
 #include "SitlStack.h"
 
 // LIVE bring-up test for the C++ SitlStack (the no-Python autotune driver).
@@ -55,6 +57,17 @@ void TstSitlStack::bringUpAndArm() {
   stack.setPid(/*rate*/ 1, /*roll*/ 0, 0.007f, 0.002f, 0.0005f, 0.0f);
   QTest::qWait(300);
   QVERIFY(!stack.snapshot().empty());
+
+  // One full rollout with the seed gains: must score (finite, not divergence).
+  autotune::Space space(/*tuneYaw=*/false);
+  autotune::RolloutParams rp;
+  rp.seed = 0xC0FFEE;
+  const std::optional<double> cost = autotune::runRollout(
+      stack, space.names(), space.seed(), /*tuneYaw=*/false, rp);
+  qInfo() << "seed-gain rollout cost:"
+          << (cost ? QString::number(*cost) : QStringLiteral("nullopt"));
+  QVERIFY2(cost.has_value(), "rollout produced no scorable result");
+  QVERIFY2(*cost < autotune::kBig, "seed gains diverged on the rig");
 
   stack.disarm();
   stack.stop();

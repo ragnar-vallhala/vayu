@@ -59,6 +59,9 @@ target_include_directories(tst_autotune_engine PRIVATE ${SRC}/autotune)
 navigator_test(tst_sitl_stack
     tst_sitl_stack.cpp
     ${SRC}/autotune/SitlStack.cpp
+    ${SRC}/autotune/Rollout.cpp
+    ${SRC}/autotune/Cost.cpp
+    ${SRC}/autotune/Space.cpp
     ${SRC}/protocol/DroneProtocol.cpp
     ${SRC}/protocol/PacketDecoder.cpp
     ${SRC}/protocol/PacketDissector.cpp
