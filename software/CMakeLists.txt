@@ -83,6 +83,7 @@ set(GCS_HEADERS
     src/core/crc.h
     src/core/Command.h
     src/core/CommandRegistry.h
+    src/core/SessionMode.h
     src/core/RollingStats.h
     src/core/CsvExport.h
     src/core/Logger.h

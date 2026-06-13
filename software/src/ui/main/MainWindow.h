@@ -12,6 +12,7 @@
 #include "../widgets/PerfWidget.h"
 #include "AttitudeWidget.h"
 #include "CommandRegistry.h"
+#include "SessionMode.h"
 #include "Drone3DWidget.h" // Added
 #include "DroneProtocol.h"
 #include "ImuPanel.h"
@@ -100,6 +101,14 @@ private:
   void startRecording();
   void stopRecording();
 
+public:
+  // Enter/leave whole-GCS replay (Phase-1 1D). Drives the read-only authority
+  // and the toolbar REPLAY pill; the ReplaySource swap arrives in Phase 2E.
+  void setSessionMode(SessionMode mode);
+  SessionMode sessionMode() const { return m_session.mode(); }
+
+private:
+
   // Send a command frame to the FC over whichever transport is connected
   // (UDP bridge or serial). Used by every ARM/PID/calibrate/time-sync path.
   void sendToFc(const QByteArray &pkt);
@@ -161,6 +170,9 @@ private:
   // Records the live stream to a .bin for later replay (Phase-1 1C).
   RecordSink m_recorder;
   bool m_recordOnConnect = false;
+  // Read-only authority for replay (Phase-1 1D). Lives here so every tx site
+  // (all routed through sendToFc) checks one place.
+  SessionState m_session;
   QTimer *m_uiTimer = nullptr;
   QTimer *m_syncTimer = nullptr;
   QElapsedTimer m_elapsed;

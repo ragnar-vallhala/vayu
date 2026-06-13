@@ -41,6 +41,11 @@ public:
   // Reflect the FC's armed state from telemetry: label flips ARM <-> DISARM.
   void setArmState(bool armed);
 
+  // Enter/leave whole-GCS replay (Phase-1 1D): disables the serial controls
+  // and ARM (read-only), and flips the LIVE pill to REPLAY. MainWindow drives
+  // this from SessionState::changed.
+  void setReplayMode(bool on);
+
   // ---- Combo accessors for QSettings round-trip (persistence) --------------
   // currentPort returns the bare device path (userData if present, edit
   // text otherwise). currentBaud is the numeric value from userData.
