@@ -2,13 +2,16 @@
 #include "../core/Notify.h"
 #include "../core/SettingsManager.h"
 #include "../replay/ReplaySource.h"
+#include "../ui/widgets/AboutDialog.h"
 #include "../ui/widgets/CommandPalette.h"
 #include "../ui/widgets/RecentViewsOverlay.h"
 #include "../ui/widgets/ReplayBar.h"
 #include "../ui/widgets/ShortcutsEditorDialog.h"
 
+#include <QDesktopServices>
 #include <QFileDialog>
 #include <QToolBar>
+#include <QUrl>
 #include "../core/Theme.h"
 #include "../core/crc.h"
 #include "comm/PortArbiter.h"
@@ -604,6 +607,22 @@ void MainWindow::buildMenuBar() {
       "help.shortcuts", "&Keyboard Shortcuts…", "Help",
       QKeySequence("Ctrl+Alt+K"), CmdContext::Always, [this] {
         ShortcutsEditorDialog dlg(m_cmds, m_shortcuts, this);
+        dlg.exec();
+      }));
+  helpMenu->addAction(m_cmds->add(
+      "help.docs", "&Documentation", "Help", QKeySequence(),
+      CmdContext::Always, [this] {
+        const QString docs = AboutDialog::docsPath();
+        if (docs.isEmpty())
+          Notify::warn(this, tr("Bundled documentation not found"));
+        else
+          QDesktopServices::openUrl(QUrl::fromLocalFile(docs));
+      }));
+  helpMenu->addSeparator();
+  helpMenu->addAction(m_cmds->add(
+      "help.about", "&About Navigator", "Help", QKeySequence(),
+      CmdContext::Always, [this] {
+        AboutDialog dlg(this);
         dlg.exec();
       }));
 

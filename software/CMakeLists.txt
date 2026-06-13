@@ -74,6 +74,7 @@ set(GCS_SOURCES
     src/ui/widgets/CommandPalette.cpp
     src/ui/widgets/RecentViewsOverlay.cpp
     src/ui/widgets/ReplayBar.cpp
+    src/ui/widgets/AboutDialog.cpp
 )
 
 set(GCS_HEADERS
@@ -126,6 +127,7 @@ set(GCS_HEADERS
     src/ui/widgets/CommandPalette.h
     src/ui/widgets/RecentViewsOverlay.h
     src/ui/widgets/ReplayBar.h
+    src/ui/widgets/AboutDialog.h
 )
 
 # SITL-only sources. These pull in vsim_iface.h from tools/sim_host and
@@ -199,6 +201,10 @@ target_link_libraries(Navigator PRIVATE
     Qt6::OpenGL
     Qt6::OpenGLWidgets
 )
+
+# Surfaced in the About dialog (FR-UX-22).
+target_compile_definitions(Navigator PRIVATE
+    NAVIGATOR_VERSION="${PROJECT_VERSION}")
 
 # Optional propeller audio via PulseAudio (PipeWire-pulse works too). When the
 # simple API isn't present we compile a silent stub, so this never blocks the
