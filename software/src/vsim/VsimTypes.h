@@ -47,6 +47,7 @@ struct MotorConfig {
   float k_thrust = 1.522e-5f;    // thrust_N = k_thrust * omega^2
   float k_moment = 2.44e-7f;     // reaction torque magnitude
   float max_omega = 1200.0f;     // duty=1 omega [rad/s]
+  float tau = 0.0125f;           // first-order spin-up time constant [s]
 };
 
 // The full airframe geometry the editor produces: a mesh (GCS-side only,
