@@ -67,6 +67,7 @@ set(GCS_SOURCES
     src/autotune/Cost.cpp
     src/autotune/Space.cpp
     src/autotune/AutotuneEngine.cpp
+    src/autotune/SitlStack.cpp
     src/ui/widgets/FrequencyRibbon.cpp
     src/ui/widgets/LinkStatsPanel.cpp
     src/ui/widgets/RcChannelsWidget.cpp
@@ -125,6 +126,7 @@ set(GCS_HEADERS
     src/autotune/Cost.h
     src/autotune/Space.h
     src/autotune/AutotuneEngine.h
+    src/autotune/SitlStack.h
     src/ui/widgets/FrequencyRibbon.h
     src/ui/widgets/LinkStatsPanel.h
     src/ui/widgets/RcChannelsWidget.h

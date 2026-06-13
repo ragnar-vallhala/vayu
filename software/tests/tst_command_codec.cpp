@@ -14,6 +14,7 @@ private slots:
   void setPidFrameLayout();
   void crcCoversHeaderAndPayload();
   void argcAndArgsRoundTrip();
+  void gyroLpfAndFlightModeIds();
 };
 
 static float readF32(const QByteArray &b, int off) {
@@ -66,6 +67,19 @@ void TstCommandCodec::argcAndArgsRoundTrip() {
   QCOMPARE(readF32(f, 23), 0.25f);  // Ki
   QCOMPARE(readF32(f, 27), 0.125f); // Kd
   QCOMPARE(readF32(f, 31), 0.0625f);// Kff
+}
+
+void TstCommandCodec::gyroLpfAndFlightModeIds() {
+  const QByteArray g = CommandCodec::encodeSetGyroLpf(2, 0.004f);
+  QCOMPARE(readU16(g, 8), quint16(0x000B));  // CMD_SET_GYRO_LPF
+  QCOMPARE(quint8(g[10]), quint8(2));        // argc = 2 (axis, rc)
+  QCOMPARE(readF32(g, 11), 2.0f);            // axis
+  QCOMPARE(readF32(g, 15), 0.004f);          // rc
+
+  const QByteArray m = CommandCodec::encodeSetFlightMode(1);
+  QCOMPARE(readU16(m, 8), quint16(0x000D));  // CMD_SET_FLIGHT_MODE
+  QCOMPARE(quint8(m[10]), quint8(1));        // argc = 1
+  QCOMPARE(readF32(m, 11), 1.0f);            // mode = acro
 }
 
 QTEST_APPLESS_MAIN(TstCommandCodec)
