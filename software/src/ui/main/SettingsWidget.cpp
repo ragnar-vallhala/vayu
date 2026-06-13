@@ -3,6 +3,7 @@
 #include "core/Theme.h"
 #include "core/ui/Buttons.h"
 
+#include <QComboBox>
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -13,7 +14,7 @@ SettingsWidget::SettingsWidget(QWidget *parent) : QWidget(parent) {
   layout->setContentsMargins(20, 20, 20, 20);
   layout->setSpacing(20);
 
-  auto *headerLabel = new QLabel("<h2>Settings</h2>", this);
+  auto *headerLabel = new QLabel("<h2>Configuration</h2>", this);
   headerLabel->setStyleSheet(
       QString("color: %1;").arg(Theme::hex(Theme::kAccent)));
   layout->addWidget(headerLabel);
@@ -106,6 +107,26 @@ SettingsWidget::SettingsWidget(QWidget *parent) : QWidget(parent) {
 
   layout->addWidget(graphGroup);
 
+  // ---- Units & Display Group ----
+  auto *displayGroup = new QGroupBox("Units && Display", this);
+  auto *displayLayout = new QVBoxLayout(displayGroup);
+
+  auto *themeRow = new QHBoxLayout();
+  themeRow->addWidget(new QLabel("Theme:", this));
+  m_themeCombo = new QComboBox(this);
+  m_themeCombo->addItem("Dark (Navigator)");
+  m_themeCombo->addItem("Midnight");
+  m_themeCombo->addItem("High Contrast");
+  m_themeCombo->setToolTip(tr("Application colour scheme (mockup parity; only "
+                              "Dark is currently themed)."));
+  connect(m_themeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+          this, &SettingsWidget::themeChanged);
+  themeRow->addWidget(m_themeCombo);
+  themeRow->addStretch();
+  displayLayout->addLayout(themeRow);
+
+  layout->addWidget(displayGroup);
+
   layout->addStretch();
 
   // ---- Back Button ----
@@ -147,6 +168,12 @@ void SettingsWidget::setSettings(const GcsSettings &s) {
     m_recentViewsSpin->setValue(s.recentViewsCount);
     m_recentViewsSpin->blockSignals(false);
   }
+
+  if (m_themeCombo) {
+    m_themeCombo->blockSignals(true);
+    m_themeCombo->setCurrentIndex(s.theme);
+    m_themeCombo->blockSignals(false);
+  }
 }
 
 GcsSettings SettingsWidget::getSettings() const {
@@ -158,5 +185,6 @@ GcsSettings SettingsWidget::getSettings() const {
   s.recordOnConnect =
       m_recordOnConnectChk && m_recordOnConnectChk->isChecked();
   s.recentViewsCount = m_recentViewsSpin ? m_recentViewsSpin->value() : 5;
+  s.theme = m_themeCombo ? m_themeCombo->currentIndex() : 0;
   return s;
 }

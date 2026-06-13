@@ -11,14 +11,16 @@ struct GcsSettings {
   bool autoReconnect = false;
   bool recordOnConnect = false;  // tee telemetry to a .bin on connect (1C)
   int recentViewsCount = 5;      // MRU switcher depth (2C); clamped on apply
+  int theme = 0;                 // 0=Dark (Navigator), 1=Midnight, 2=High-Contrast
 
   // Versioned (de)serialisation — the leading version field lets us
   // append fields without breaking existing settings files. The trailing
   // atEnd() sentinels make appended fields backward-compatible without a
-  // Version bump: autoReconnect, recordOnConnect, then recentViewsCount.
+  // Version bump: autoReconnect, recordOnConnect, recentViewsCount, theme.
   friend QDataStream &operator<<(QDataStream &out, const GcsSettings &s) {
     out << s.syncPeriodMs << s.graphWindowSec << s.graphDropoutRate
-        << s.autoReconnect << s.recordOnConnect << s.recentViewsCount;
+        << s.autoReconnect << s.recordOnConnect << s.recentViewsCount
+        << s.theme;
     return out;
   }
 
@@ -27,6 +29,7 @@ struct GcsSettings {
     if (!in.atEnd()) in >> s.autoReconnect;
     if (!in.atEnd()) in >> s.recordOnConnect;
     if (!in.atEnd()) in >> s.recentViewsCount;
+    if (!in.atEnd()) in >> s.theme;
     return in;
   }
 };

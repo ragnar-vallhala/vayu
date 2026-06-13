@@ -28,6 +28,9 @@ private slots:
 
 private:
   DroneProtocol *m_protocol = nullptr;
+  // Pause freezes the plots (mockup header Pause); telemetry keeps arriving but
+  // the slots stop appending while paused.
+  bool m_paused = false;
 
   RealTimeGraph *m_angleGraph;
   RealTimeGraph *m_rateGraph;

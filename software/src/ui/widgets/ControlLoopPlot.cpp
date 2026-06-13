@@ -51,6 +51,17 @@ ControlLoopPlot::ControlLoopPlot(QWidget *parent) : QWidget(parent) {
   header->addWidget(scaleEdit);
   header->addSpacing(20);
 
+  // Pause — freeze the four plots without disturbing the live telemetry feed.
+  auto *pauseBtn = new ui::GhostButton(tr("Pause"), this);
+  pauseBtn->setCheckable(true);
+  pauseBtn->setToolTip(tr("Freeze the plots (telemetry keeps arriving)"));
+  connect(pauseBtn, &QPushButton::toggled, this, [this, pauseBtn](bool on) {
+    m_paused = on;
+    pauseBtn->setText(on ? tr("Resume") : tr("Pause"));
+  });
+  header->addWidget(pauseBtn);
+  header->addSpacing(8);
+
   // CSV export. Combines all four sub-graphs into one file along a
   // unified timestamp axis so they can be analysed together off-line.
   auto *exportBtn = new ui::GhostButton(tr("Export CSV"), this);
@@ -280,6 +291,7 @@ void ControlLoopPlot::setProtocol(DroneProtocol *protocol) {
 }
 
 void ControlLoopPlot::onControlLoopDataReceived(const ControlLoopData &data) {
+  if (m_paused) return;
   // Update DT
   m_dtOuterVal->setText(
       QString::number(static_cast<double>(data.outer_dt), 'f', 5));
@@ -360,6 +372,7 @@ void ControlLoopPlot::onControlLoopDataReceived(const ControlLoopData &data) {
 }
 
 void ControlLoopPlot::onEstPerfReceived(const EstPerfData &data) {
+  if (m_paused) return;
   m_estLatGraph->appendData(data.peak_us, 0);
   m_estLatGraph->appendData(data.mean_us, 1);
 
@@ -373,6 +386,7 @@ void ControlLoopPlot::onEstPerfReceived(const EstPerfData &data) {
 }
 
 void ControlLoopPlot::onImuReceived(const ImuData &data) {
+  if (m_paused) return;
   float rollRateCurr = data.gyr[0] * m_gyroScale;
   float pitchRateCurr = data.gyr[1] * m_gyroScale;
   float yawRateCurr = data.gyr[2] * m_gyroScale;
