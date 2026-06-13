@@ -151,7 +151,7 @@ GCS → drone is the weak side.
 | FR-UI-16  | Settings            | 🟡     | Sync period + graph window + dropout. Missing: theme, units, port profile |
 | FR-UI-17  | Parameter editor    | ❌     | Blocks on FR-TX-05                                        |
 | FR-UI-18  | Mission planner / map| ❌    | Blocks on FR-TX-06                                        |
-| FR-UI-19  | Log replay          | ❌     | Sim writes `.bin`; no offline player yet                  |
+| FR-UI-19  | Log replay          | ❌     | Session-wide **read-only** replay UI: a two-bar crop/loop scrubber (`ReplayBar`) driven by a global replay `SessionMode`. See FR-LOG-05 and [`roadmap/gcs-log-replay.md`](roadmap/gcs-log-replay.md). |
 
 ### 2.5 Connection layer
 
@@ -217,7 +217,7 @@ physics; it spawns/supervises `vsim_d` and decodes pose frames.
 | FR-LOG-02 | Raw UART byte capture per SITL run                         | ✅     |
 | FR-LOG-03 | Persistent text log of all rx/tx with timestamps           | ✅     | `core/Logger.{h,cpp}`; tees from `LogPanel::appendLog` to `AppDataLocation/logs/navigator-YYYY-MM-DD.log` with 5 MB / 10-file rotation. |
 | FR-LOG-04 | CSV export of IMU / attitude / control-loop traces         | ✅     | `core/CsvExport`; per-widget "Export CSV" buttons on ImuPanel, ControlLoopPlot, MotorStatusWidget. Shared timestamp axis across all series. |
-| FR-LOG-05 | Replay a logged `.bin` through `DroneProtocol`             | ❌     |
+| FR-LOG-05 | Replay a logged `.bin` through `DroneProtocol`             | ❌     | Widened to **whole-GCS** replay: every panel fed from the log via a `RecordSink` (record tee) + `ITelemetrySource` seam + `ReplaySource` (seekable playback clock). Pairs with FR-UI-19. Design: [`roadmap/gcs-log-replay.md`](roadmap/gcs-log-replay.md). |
 
 ### 2.9 UX / styling
 
@@ -247,6 +247,16 @@ functionality made usable.
 | FR-UX-16  | Replace inline hex colours with named tokens                                 | ❌     | `#61AFEF`, `#98C379`, `#E06C75`, `#ABB2BF` recur ~50× across the codebase. Define once in the theme (`color.accent`, `color.ok`, `color.warn`, `color.danger`, `color.muted`). |
 | FR-UX-17  | LIVE blinker / heartbeat indicator readable at a glance                      | 🟡     | The exp-fade on `m_liveLabel` works but the "Diff: ±N ms" pill next to it is hard to scan. Consider a single combined widget with a coloured dot + signed delta. |
 | FR-UX-18  | Disable controls that depend on connection while disconnected                | ✅     | CalibrationWidget gated via `setConnected()` (sensor cards + Start disabled, footer reads "NOT CONNECTED"). Motor / Control-loop pages stay viewable as display-only. |
+| FR-UX-19  | Command registry + editable keyboard shortcuts                               | ❌     | Central command set (`core/CommandRegistry`, one `QAction` per command); VS Code-style searchable rebind table with conflict detection + persisted overrides (`ShortcutsManager`, `ShortcutsEditorDialog`). Generalises the FR-UX-08 `QShortcut`s. Design: [`roadmap/command-registry-and-shortcuts.md`](roadmap/command-registry-and-shortcuts.md). |
+| FR-UX-20  | Command palette (`Ctrl+Shift+P`)                                             | ❌     | Fuzzy runner over `CommandRegistry`. Same roadmap doc. |
+| FR-UX-21  | Recent-views (MRU) switcher                                                  | ❌     | Firefox/VS Code-style hold-to-cycle over recently-viewed pages (`ViewHistory` + `RecentViewsOverlay`); configurable depth. IDE idiom, not a GCS convention — keep it behind the registry. Same roadmap doc. |
+| FR-UX-22  | About dialog                                                                 | ❌     | Static `AboutDialog` — name / version / build / protocol / flight-stack components. |
+| FR-UX-23  | Documentation entry                                                          | ❌     | Help ▸ Documentation opens the bundled `docs/` via `QDesktopServices::openUrl`. |
+
+> **Note.** Unlike FR-UX-01–18 (the Phase-0 cleanup batch — *existing*
+> functionality made usable), FR-UX-19–23 are genuinely **new** affordances: a
+> command layer + help surface that supersede the ad-hoc `0l` shortcuts. Their
+> design lives in [`roadmap/command-registry-and-shortcuts.md`](roadmap/command-registry-and-shortcuts.md).
 
 ---
 
@@ -316,6 +326,7 @@ surface and breaks `MainWindow.cpp` apart before it hits 1500 LOC.
 | 1d| CSV export of telemetry traces (FR-LOG-04). **✅ shipped.**        | `core/CsvExport.{h,cpp}`; ImuPanel/ControlLoopPlot/MotorStatusWidget |
 | 1e| Sim parameter editor: mass, inertia, k_thrust, max_omega, noise (FR-SIM-03, -04). **🟡 mostly shipped** — mesh-derived mass/inertia + per-motor position/axis/spin/k_thrust/k_moment/max_omega land via `GeometryEditorWidget` (FR-SIM-11). Sensor-noise editing (FR-SIM-04) still pending. | `GeometryEditorWidget`, `MeshLoader`, `MassProperties` |
 | 1f| CRC32 lookup table (perf nit; only if profile shows it).          | `core/crc.cpp`                       |
+| 1g| **Command layer** (FR-UX-19–23): command registry + editable shortcuts, palette, recent-views switcher, About/Docs. Pure GCS, no firmware; supersedes the `0l` `QShortcut`s. Design: [`roadmap/command-registry-and-shortcuts.md`](roadmap/command-registry-and-shortcuts.md). | new `core/CommandRegistry`, `ShortcutsManager`, `src/ui/widgets/` |
 
 Exit criteria for Phase 1:
 
@@ -342,7 +353,7 @@ direction lands.
 |---|-------------------------------------------------------------------|--------------------------------------|
 | 2a| Mode switching (FR-TX-07).                                        | Blocks on firmware mode plumbing.    |
 | 2b| Sim wind / external force injection (FR-SIM-08).                  | Test surface for control hardening.  |
-| 2c| Log replay (FR-LOG-05, FR-UI-19): play a `.bin` through `DroneProtocol` for offline analysis. | new `src/replay/`                    |
+| 2c| Log replay (FR-LOG-05, FR-UI-19): **whole-GCS** read-only replay — every panel fed from the log via an `ITelemetrySource` seam + `ReplaySource`, with a crop/loop scrubber. Design: [`roadmap/gcs-log-replay.md`](roadmap/gcs-log-replay.md). | new `src/replay/`, `ReplayBar` |
 | 2d| In-process firmware hot-reset (FR-SIM-07).                        | Requires `host_lifecycle.c` rework — non-trivial. |
 | 2e| Map / mission planner (FR-UI-18, FR-TX-06).                       | Defer until there's a real autonomy stack to talk to. |
 | 2f| Per-airframe profiles (FR-CFG-04).                                | Falls out of 1b + 1e.                |
