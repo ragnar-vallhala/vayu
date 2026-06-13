@@ -1,9 +1,14 @@
 #include "MainWindow.h"
 #include "../core/Notify.h"
 #include "../core/SettingsManager.h"
+#include "../replay/ReplaySource.h"
 #include "../ui/widgets/CommandPalette.h"
 #include "../ui/widgets/RecentViewsOverlay.h"
+#include "../ui/widgets/ReplayBar.h"
 #include "../ui/widgets/ShortcutsEditorDialog.h"
+
+#include <QFileDialog>
+#include <QToolBar>
 #include "../core/Theme.h"
 #include "../core/crc.h"
 #include "comm/PortArbiter.h"
@@ -311,6 +316,17 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   connect(m_recentOverlay, &RecentViewsOverlay::activated, this,
           [this](int idx) { m_stackedWidget->setCurrentIndex(idx); });
 
+  // Replay transport bar (Phase-2 2E), docked at the bottom, shown only in
+  // replay. Exit returns to the live session.
+  m_replayBar = new ReplayBar(this);
+  connect(m_replayBar, &ReplayBar::exitRequested, this,
+          &MainWindow::exitReplay);
+  m_replayToolbar = new QToolBar(tr("Replay"), this);
+  m_replayToolbar->setMovable(false);
+  m_replayToolbar->addWidget(m_replayBar);
+  addToolBar(Qt::BottomToolBarArea, m_replayToolbar);
+  m_replayToolbar->setVisible(false);
+
   installShortcuts();
 
   // Editable shortcut overrides on top of the registry defaults (Phase-2 2A).
@@ -545,6 +561,16 @@ void MainWindow::buildMenuBar() {
       QKeySequence("Ctrl+P"), CmdContext::Always,
       [this] { showPacketAnalyzer(); }));
 
+  fileMenu->addAction(m_cmds->add(
+      "replay.open", "&Open Log…", "Replay", QKeySequence("Ctrl+O"),
+      CmdContext::Always, [this] {
+        const QString path = QFileDialog::getOpenFileName(
+            this, tr("Open Telemetry Log"),
+            QDir::home().filePath("vayu-logs"),
+            tr("Telemetry recordings (*.bin)"));
+        if (!path.isEmpty()) enterReplay(path);
+      }));
+
   QMenu *settingsMenu = menu->addMenu("&Settings");
   settingsMenu->addAction(m_cmds->add("view.settings", "&Configuration",
                                       "View", QKeySequence(),
@@ -639,10 +665,56 @@ void MainWindow::onDisconnectRequested() {
 }
 
 void MainWindow::setSessionMode(SessionMode mode) {
-  // Single entry point for entering/leaving replay. The source swap to a
-  // ReplaySource lands in Phase 2E; here this drives the read-only authority
-  // and the toolbar/pill via SessionState::changed.
+  // Drives the read-only authority and the toolbar/pill via
+  // SessionState::changed. enterReplay/exitReplay handle the source swap.
   m_session.setMode(mode);
+}
+
+void MainWindow::enterReplay(const QString &path) {
+  if (m_session.isReplay()) exitReplay();  // re-open: drop the previous log
+
+  auto *rs = new ReplaySource(this);
+  if (!rs->open(path)) {
+    Notify::error(this, tr("Could not open recording: %1").arg(path));
+    rs->deleteLater();
+    return;
+  }
+
+  // A live recording must not capture replayed frames; stop it first.
+  stopRecording();
+
+  // Swap the parser's source: detach live, attach replay. The decode path and
+  // every widget are untouched (Phase-1 1B seam).
+  disconnect(m_liveSource, &ITelemetrySource::bytesReceived, m_protocol,
+             &DroneProtocol::processData);
+  connect(rs, &ITelemetrySource::bytesReceived, m_protocol,
+          &DroneProtocol::processData);
+  m_replaySource = rs;
+  m_source = rs;
+
+  m_replayBar->bind(rs);
+  m_replayToolbar->setVisible(true);
+  setSessionMode(SessionMode::Replay);  // read-only authority + REPLAY pill
+  m_logPanel->appendLog("[GCS] Replay: " + path);
+}
+
+void MainWindow::exitReplay() {
+  if (!m_replaySource) return;
+
+  m_replaySource->pause();
+  disconnect(m_replaySource, &ITelemetrySource::bytesReceived, m_protocol,
+             &DroneProtocol::processData);
+  connect(m_liveSource, &ITelemetrySource::bytesReceived, m_protocol,
+          &DroneProtocol::processData);
+  m_source = m_liveSource;
+
+  m_replayBar->bind(nullptr);
+  m_replayToolbar->setVisible(false);
+  m_replaySource->deleteLater();
+  m_replaySource = nullptr;
+
+  setSessionMode(SessionMode::Live);
+  m_logPanel->appendLog("[GCS] Exited replay — live");
 }
 
 void MainWindow::sendToFc(const QByteArray &pkt) {

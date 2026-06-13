@@ -73,6 +73,7 @@ set(GCS_SOURCES
     src/ui/widgets/ShortcutsEditorDialog.cpp
     src/ui/widgets/CommandPalette.cpp
     src/ui/widgets/RecentViewsOverlay.cpp
+    src/ui/widgets/ReplayBar.cpp
 )
 
 set(GCS_HEADERS
@@ -124,6 +125,7 @@ set(GCS_HEADERS
     src/ui/widgets/ShortcutsEditorDialog.h
     src/ui/widgets/CommandPalette.h
     src/ui/widgets/RecentViewsOverlay.h
+    src/ui/widgets/ReplayBar.h
 )
 
 # SITL-only sources. These pull in vsim_iface.h from tools/sim_host and
