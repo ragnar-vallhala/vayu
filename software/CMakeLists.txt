@@ -35,6 +35,7 @@ set(GCS_SOURCES
     src/comm/SerialManager.cpp
     src/comm/UdpManager.cpp
     src/comm/PortArbiter.cpp
+    src/comm/LiveSource.cpp
     src/protocol/DroneProtocol.cpp
     src/ui/widgets/AttitudeWidget.cpp
     src/ui/widgets/HorizonHud.cpp
@@ -71,6 +72,8 @@ set(GCS_HEADERS
     src/ui/main/MainWindow.h
     src/comm/SerialManager.h
     src/comm/UdpManager.h
+    src/comm/ITelemetrySource.h
+    src/comm/LiveSource.h
     src/protocol/DroneProtocol.h
     src/ui/widgets/AttitudeWidget.h
     src/ui/widgets/ImuPanel.h

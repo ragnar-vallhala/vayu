@@ -15,7 +15,7 @@ function(navigator_test name)
   target_include_directories(${name} PRIVATE
       ${SRC} ${SRC}/core ${SRC}/core/ui ${SRC}/comm ${SRC}/protocol)
   target_link_libraries(${name} PRIVATE
-      Qt6::Test Qt6::Widgets Qt6::Core Qt6::Network)
+      Qt6::Test Qt6::Widgets Qt6::Core Qt6::Network Qt6::SerialPort)
   add_test(NAME ${name} COMMAND ${name})
   set_tests_properties(${name} PROPERTIES
       ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
@@ -25,3 +25,14 @@ endfunction()
 navigator_test(tst_command_registry
     tst_command_registry.cpp
     ${SRC}/core/CommandRegistry.cpp)
+
+# ---- Phase 1B: telemetry-source seam --------------------------------------
+# ITelemetrySource is a header-only Q_OBJECT; list the headers so AUTOMOC
+# generates their meta-objects for this target too.
+navigator_test(tst_live_source
+    tst_live_source.cpp
+    ${SRC}/comm/ITelemetrySource.h
+    ${SRC}/comm/LiveSource.h
+    ${SRC}/comm/LiveSource.cpp
+    ${SRC}/comm/SerialManager.cpp
+    ${SRC}/comm/UdpManager.cpp)

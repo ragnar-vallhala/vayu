@@ -15,6 +15,7 @@
 #include "Drone3DWidget.h" // Added
 #include "DroneProtocol.h"
 #include "ImuPanel.h"
+#include "LiveSource.h"
 #include "LogPanel.h"
 #include "MainStatusBar.h"
 #include "MainToolbar.h"
@@ -147,6 +148,11 @@ private:
   SerialManager *m_serial = nullptr;
   UdpManager *m_udp = nullptr;
   DroneProtocol *m_protocol = nullptr;
+  // Telemetry-source seam (Phase-1 1B): inbound bytes reach the parser
+  // through the *active* ITelemetrySource. m_liveSource fans in serial+UDP;
+  // a ReplaySource (Phase 2D) swaps in here without touching any widget.
+  LiveSource *m_liveSource = nullptr;
+  ITelemetrySource *m_source = nullptr;
   QTimer *m_uiTimer = nullptr;
   QTimer *m_syncTimer = nullptr;
   QElapsedTimer m_elapsed;

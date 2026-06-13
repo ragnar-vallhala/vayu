@@ -56,11 +56,12 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   // QActions from it (Phase-1 1g / FR-UX-19).
   m_cmds = new CommandRegistry(this);
 
-  // Wire serial → protocol → UI
-  connect(m_serial, &SerialManager::dataReceived, m_protocol,
-          &DroneProtocol::processData);
-  // UDP source feeds the same parser (ESP8266 WiFi telemetry bridge).
-  connect(m_udp, &UdpManager::dataReceived, m_protocol,
+  // Wire inbound bytes → protocol → UI through the telemetry-source seam
+  // (Phase-1 1B). The active source forwards serial + UDP (and, in replay,
+  // a recorded .bin) so the decode path never sees the transport.
+  m_liveSource = new LiveSource(m_serial, m_udp, this);
+  m_source = m_liveSource;
+  connect(m_source, &ITelemetrySource::bytesReceived, m_protocol,
           &DroneProtocol::processData);
   connect(m_udp, &UdpManager::connectionStateChanged, this,
           &MainWindow::onConnectionStateChanged);
