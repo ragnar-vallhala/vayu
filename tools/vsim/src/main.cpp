@@ -169,6 +169,11 @@ int main(int /*argc*/, char** /*argv*/) {
     uint32_t imu_seq = 0, pose_seq = 0;
     bool paused = false;
 
+    // Fault injection (VSIM_CTL_SET_FAULTS): latched failures for failsafe tests.
+    std::array<bool, 4> motor_kill{false, false, false, false};
+    bool imu_dropout = false;
+    vsim::ImuSample imu_held{};  // last good sample, replayed while imu_dropout
+
     // Runtime-tunable rates (VSIM_CTL_SET_RATES). imu_hz is the wall-clock pace
     // AND the firmware loop rate (its inner loop runs once per IMU sample);
     // physics_hz/imu_hz RK4 substeps run per sample so we can integrate fast
@@ -376,10 +381,26 @@ int main(int /*argc*/, char** /*argv*/) {
                                  imu_hz, physics_hz, substeps, pose_hz);
                     break;
                 }
+                case VSIM_CTL_SET_FAULTS: {
+                    vsim_ctl_faults_t fl;
+                    std::memcpy(&fl, cmd.body, sizeof(fl));
+                    for (int i = 0; i < 4; ++i) motor_kill[i] = (fl.motor_kill[i] != 0);
+                    imu_dropout = (fl.imu_dropout != 0);
+                    std::fprintf(stderr,
+                                 "vsim_d: faults kill=%d%d%d%d imu_dropout=%d\n",
+                                 motor_kill[0], motor_kill[1], motor_kill[2],
+                                 motor_kill[3], imu_dropout);
+                    break;
+                }
                 default:
                     break;
             }
         }
+
+        // 2b) Apply motor-kill faults: a dead ESC produces no thrust regardless
+        // of the commanded duty (also reflected in the pose frame's duty).
+        for (int i = 0; i < 4; ++i)
+            if (motor_kill[i]) duty[i] = 0.0f;
 
         // 3) Advance physics: `substeps` RK4 steps per sample, IMU sampled once.
         vsim::ImuSample s;
@@ -387,6 +408,10 @@ int main(int /*argc*/, char** /*argv*/) {
             for (int sub = 0; sub < substeps; ++sub) ctl.stepOnce(duty, dt_sub);
             s = ctl.sampleImu(dt_sub);
             tick += static_cast<uint64_t>(substeps);
+            // IMU dropout: freeze on the last good sample (stuck sensor) so the
+            // frame keeps pacing the firmware but the reading no longer tracks.
+            if (imu_dropout) s = imu_held;
+            else imu_held = s;
         }
 
         // 4) Emit IMU once per sample (imu_hz == the firmware loop rate).

@@ -183,6 +183,25 @@ void SimWorker::sendGeometry(const GeometryConfig& g) {
     emit logLine("vsim_d: geometry pushed");
 }
 
+void SimWorker::sendFaults(const std::array<bool, 4>& motorKill,
+                           bool imuDropout) {
+    if (ctl_fd_ < 0) return;
+    vsim_ctl_frame_t f{};
+    f.hdr.magic         = VSIM_MAGIC;
+    f.hdr.version       = VSIM_PROTO_VERSION;
+    f.hdr.type          = VSIM_FRAME_CTL;
+    f.hdr.payload_bytes = sizeof(f) - sizeof(vsim_hdr_t);
+    f.hdr.seq_no        = 0;
+    f.subtype           = VSIM_CTL_SET_FAULTS;
+
+    vsim_ctl_faults_t body{};
+    for (int i = 0; i < 4; ++i) body.motor_kill[i] = motorKill[i] ? 1 : 0;
+    body.imu_dropout = imuDropout ? 1 : 0;
+    std::memcpy(f.body, &body, sizeof(body));
+    ::write(ctl_fd_, &f, sizeof(f));
+    emit logLine("vsim_d: faults pushed");
+}
+
 void SimWorker::sendWorld(const WorldConfig& w) {
     if (ctl_fd_ < 0) return;
     vsim_ctl_frame_t f{};

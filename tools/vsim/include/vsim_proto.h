@@ -121,7 +121,19 @@ enum {
     VSIM_CTL_SET_WORLD_MESH  = 10, // body: vsim_ctl_world_mesh_t — mmap a BVH file
     VSIM_CTL_CLEAR_WORLD_MESH= 11, // body: empty — drop the world mesh
     VSIM_CTL_SET_TESTRIG     = 12, // body: vsim_ctl_testrig_t — pin translation
+    VSIM_CTL_SET_FAULTS      = 13, // body: vsim_ctl_faults_t — injected failures
 };
+
+// Body for VSIM_CTL_SET_FAULTS: latched failure injection for testing the
+// firmware's failsafe paths. Latest-wins; clearing a flag restores normal.
+//   motor_kill[i] -- non-zero forces rotor i's applied duty to 0 (dead ESC).
+//   imu_dropout   -- non-zero freezes the IMU sample (stuck sensor): the frame
+//                    keeps emitting at the loop rate but holds the last reading,
+//                    so the estimator drifts the way a wedged sensor would.
+typedef struct {
+    int32_t motor_kill[4];
+    int32_t imu_dropout;
+} vsim_ctl_faults_t;
 
 typedef struct {
     vsim_hdr_t hdr;
