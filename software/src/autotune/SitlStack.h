@@ -68,6 +68,9 @@ public:
   bool arm(int timeoutMs = 2000);
   void disarm();
   bool waitState(const QString &name, int timeoutMs);
+  // Block until the latest telemetry shows |roll| and |pitch| < deg (the craft
+  // has re-levelled after a reset), or timeout. Returns true if levelled.
+  bool waitLevel(double deg = 6.0, int timeoutMs = 2500);
   QString lastState() const;
 
   // --- telemetry samples ---

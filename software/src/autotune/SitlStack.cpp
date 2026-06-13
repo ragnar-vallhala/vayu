@@ -7,6 +7,7 @@
 
 #include <cerrno>
 #include <chrono>
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
 
@@ -394,6 +395,26 @@ bool SitlStack::arm(int timeoutMs) {
 }
 
 void SitlStack::disarm() { setRc(-1, -1, 1000, -1, /*arm=*/1000); }
+
+bool SitlStack::waitLevel(double deg, int timeoutMs) {
+  QElapsedTimer t;
+  t.start();
+  while (t.elapsed() < timeoutMs) {
+    std::vector<autotune::Sample> s;
+    {
+      std::lock_guard<std::mutex> lk(m_sampMtx);
+      if (!m_samples.empty())
+        s.push_back(m_samples.back());
+    }
+    if (!s.empty()) {
+      const autotune::Sample &k = s.back();
+      if (std::abs(k.rollAngleCurr) < deg && std::abs(k.pitchAngleCurr) < deg)
+        return true;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  }
+  return false;
+}
 
 void SitlStack::clearSamples() {
   std::lock_guard<std::mutex> lk(m_sampMtx);
