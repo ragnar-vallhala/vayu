@@ -1,6 +1,7 @@
 #include "MainWindow.h"
 #include "../core/Notify.h"
 #include "../core/SettingsManager.h"
+#include "../ui/widgets/ShortcutsEditorDialog.h"
 #include "../core/Theme.h"
 #include "../core/crc.h"
 #include "comm/PortArbiter.h"
@@ -292,6 +293,13 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
 #endif
 
   installShortcuts();
+
+  // Editable shortcut overrides on top of the registry defaults (Phase-2 2A).
+  // Created after every command is registered, then load() applies any saved
+  // overrides to the shared QActions.
+  m_shortcuts = new ShortcutsManager(m_cmds, this);
+  m_shortcuts->load();
+
   // Restore window geometry, splitter sizes, last page, port/baud.
   // Must run after every widget the state references has been built.
   restoreUiState();
@@ -545,6 +553,14 @@ void MainWindow::buildMenuBar() {
                                     QKeySequence(), CmdContext::Always,
                                     [this] { showSimulator(); }));
 #endif
+
+  QMenu *helpMenu = menu->addMenu("&Help");
+  helpMenu->addAction(m_cmds->add(
+      "help.shortcuts", "&Keyboard Shortcuts…", "Help",
+      QKeySequence("Ctrl+Alt+K"), CmdContext::Always, [this] {
+        ShortcutsEditorDialog dlg(m_cmds, m_shortcuts, this);
+        dlg.exec();
+      }));
 
   fileMenu->addSeparator();
 

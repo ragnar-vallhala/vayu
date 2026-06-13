@@ -48,3 +48,18 @@ target_include_directories(tst_record_sink PRIVATE ${REPLAY})
 navigator_test(tst_session_state
     tst_session_state.cpp
     ${SRC}/core/SessionMode.h)
+
+# ---- Phase 2A: shortcuts manager (overrides + conflicts + persistence) -----
+navigator_test(tst_shortcuts_manager
+    tst_shortcuts_manager.cpp
+    ${SRC}/core/ShortcutsManager.cpp
+    ${SRC}/core/CommandRegistry.cpp)
+
+# ---- Phase 2A: shortcuts editor dialog (GUI smoke) ------------------------
+navigator_test(tst_shortcuts_editor
+    tst_shortcuts_editor.cpp
+    ${SRC}/ui/widgets/ShortcutsEditorDialog.cpp
+    ${SRC}/core/ShortcutsManager.cpp
+    ${SRC}/core/CommandRegistry.cpp
+    ${SRC}/core/Notify.cpp)
+target_include_directories(tst_shortcuts_editor PRIVATE ${SRC}/ui/widgets)
