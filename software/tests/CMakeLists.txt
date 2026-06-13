@@ -40,6 +40,12 @@ navigator_test(tst_optimizer
     ${SRC}/autotune/Optimizer.cpp)
 target_include_directories(tst_optimizer PRIVATE ${SRC}/autotune)
 
+# ---- C++ autotune cost functions ------------------------------------------
+navigator_test(tst_cost
+    tst_cost.cpp
+    ${SRC}/autotune/Cost.cpp)
+target_include_directories(tst_cost PRIVATE ${SRC}/autotune)
+
 # ---- Phase 1A: command registry -------------------------------------------
 navigator_test(tst_command_registry
     tst_command_registry.cpp
