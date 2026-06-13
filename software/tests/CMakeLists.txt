@@ -75,3 +75,11 @@ target_include_directories(tst_command_palette PRIVATE ${SRC}/ui/widgets)
 navigator_test(tst_view_history
     tst_view_history.cpp
     ${SRC}/core/ViewHistory.cpp)
+
+# ---- Phase 2D: replay source (playback clock, crop, loop, seek) ------------
+navigator_test(tst_replay_source
+    tst_replay_source.cpp
+    ${SRC}/comm/ITelemetrySource.h  # header-only Q_OBJECT base — needs AUTOMOC
+    ${REPLAY}/ReplaySource.cpp
+    ${REPLAY}/RecordSink.cpp)
+target_include_directories(tst_replay_source PRIVATE ${REPLAY})
