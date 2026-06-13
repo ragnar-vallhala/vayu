@@ -10,14 +10,15 @@ struct GcsSettings {
   double graphDropoutRate = 0.0;
   bool autoReconnect = false;
   bool recordOnConnect = false;  // tee telemetry to a .bin on connect (1C)
+  int recentViewsCount = 5;      // MRU switcher depth (2C); clamped on apply
 
   // Versioned (de)serialisation — the leading version field lets us
   // append fields without breaking existing settings files. The trailing
   // atEnd() sentinels make appended fields backward-compatible without a
-  // Version bump: autoReconnect, then recordOnConnect.
+  // Version bump: autoReconnect, recordOnConnect, then recentViewsCount.
   friend QDataStream &operator<<(QDataStream &out, const GcsSettings &s) {
     out << s.syncPeriodMs << s.graphWindowSec << s.graphDropoutRate
-        << s.autoReconnect << s.recordOnConnect;
+        << s.autoReconnect << s.recordOnConnect << s.recentViewsCount;
     return out;
   }
 
@@ -25,6 +26,7 @@ struct GcsSettings {
     in >> s.syncPeriodMs >> s.graphWindowSec >> s.graphDropoutRate;
     if (!in.atEnd()) in >> s.autoReconnect;
     if (!in.atEnd()) in >> s.recordOnConnect;
+    if (!in.atEnd()) in >> s.recentViewsCount;
     return in;
   }
 };
