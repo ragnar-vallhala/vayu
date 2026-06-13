@@ -80,6 +80,15 @@ void TstCommandCodec::gyroLpfAndFlightModeIds() {
   QCOMPARE(readU16(m, 8), quint16(0x000D));  // CMD_SET_FLIGHT_MODE
   QCOMPARE(quint8(m[10]), quint8(1));        // argc = 1
   QCOMPARE(readF32(m, 11), 1.0f);            // mode = acro
+
+  const float x[4] = {0.1f, -0.1f, -0.1f, 0.1f};
+  const float y[4] = {0.1f, 0.1f, -0.1f, -0.1f};
+  const float sp[4] = {1.f, -1.f, 1.f, -1.f};
+  const QByteArray g2 = CommandCodec::encodeSetMotorGeometry(x, y, sp);
+  QCOMPARE(readU16(g2, 8), quint16(0x000C));  // CMD_SET_MOTOR_GEOMETRY
+  QCOMPARE(quint8(g2[10]), quint8(12));       // argc = 12 (x[4],y[4],spin[4])
+  QCOMPARE(readF32(g2, 11), 0.1f);            // x0
+  QCOMPARE(readF32(g2, 11 + 8 * 4), 1.0f);    // spin0 (after x[4],y[4])
 }
 
 QTEST_APPLESS_MAIN(TstCommandCodec)

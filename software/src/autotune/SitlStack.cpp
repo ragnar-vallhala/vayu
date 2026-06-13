@@ -184,6 +184,19 @@ bool SitlStack::start(QString *err) {
   t.start();
   while (t.elapsed() < 8000) {
     if (!snapshot().empty() && !lastState().isEmpty()) {
+      // Match the firmware mixer to the airframe so the control mix agrees with
+      // the physics — without this, raising gains diverges on a non-default
+      // motor layout (mirrors sitl.py's post-boot set_motor_geometry).
+      if (m_cfg.hasGeometry) {
+        float x[4], y[4], sp[4];
+        for (int i = 0; i < 4; ++i) {
+          x[i] = m_cfg.geometry.motors[i].pos[0];
+          y[i] = m_cfg.geometry.motors[i].pos[1];
+          sp[i] = m_cfg.geometry.motors[i].spin;
+        }
+        writeNavlink(CommandCodec::encodeSetMotorGeometry(x, y, sp));
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+      }
       m_running = true;
       return true;
     }

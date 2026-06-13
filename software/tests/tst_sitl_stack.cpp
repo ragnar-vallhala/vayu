@@ -32,7 +32,9 @@ void TstSitlStack::bringUpAndArm() {
   SitlStack::Config cfg;
   cfg.vsimBin = vsim;
   cfg.sitlBin = sitl;
-  cfg.suffix = "_cpptest";
+  // Unique per process so a leftover daemon from a prior run can't hold the
+  // FIFO lock and starve this one (the GUI uses a pid-based suffix too).
+  cfg.suffix = QStringLiteral("_cpptest%1").arg(QCoreApplication::applicationPid());
   cfg.quiet = true;
 
   SitlStack stack(cfg);
