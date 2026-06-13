@@ -43,6 +43,7 @@ set(GCS_SOURCES
     src/ui/widgets/LogPanel.cpp
     src/core/crc.cpp
     src/core/CommandRegistry.cpp
+    src/core/ShortcutsManager.cpp
     src/core/CsvExport.cpp
     src/core/Logger.cpp
     src/core/Notify.cpp
@@ -67,6 +68,7 @@ set(GCS_SOURCES
     src/ui/widgets/Drone3DWidget.cpp
     src/ui/widgets/ControlLoopPlot.cpp
     src/ui/widgets/PerfWidget.cpp
+    src/ui/widgets/ShortcutsEditorDialog.cpp
 )
 
 set(GCS_HEADERS
@@ -83,6 +85,7 @@ set(GCS_HEADERS
     src/core/crc.h
     src/core/Command.h
     src/core/CommandRegistry.h
+    src/core/ShortcutsManager.h
     src/core/SessionMode.h
     src/core/RollingStats.h
     src/core/CsvExport.h
@@ -112,6 +115,7 @@ set(GCS_HEADERS
     src/ui/widgets/Drone3DWidget.h
     src/ui/widgets/ControlLoopPlot.h
     src/ui/widgets/PerfWidget.h
+    src/ui/widgets/ShortcutsEditorDialog.h
 )
 
 # SITL-only sources. These pull in vsim_iface.h from tools/sim_host and

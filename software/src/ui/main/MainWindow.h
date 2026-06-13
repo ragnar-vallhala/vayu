@@ -12,6 +12,7 @@
 #include "../widgets/PerfWidget.h"
 #include "AttitudeWidget.h"
 #include "CommandRegistry.h"
+#include "ShortcutsManager.h"
 #include "SessionMode.h"
 #include "Drone3DWidget.h" // Added
 #include "DroneProtocol.h"
@@ -144,6 +145,9 @@ private:
   // Single source of truth for every command; menus, the toolbar, and the
   // keyboard shortcuts all draw their QActions from here.
   CommandRegistry *m_cmds = nullptr;
+  // Editable keyboard-shortcut overrides on top of the registry defaults
+  // (Phase-2 2A / FR-UX-19); persisted across runs.
+  ShortcutsManager *m_shortcuts = nullptr;
 
   // ---- Attitude numeric labels ----
   QLabel *m_rollLabel = nullptr;
