@@ -11,6 +11,7 @@
 #include "../widgets/ControlLoopPlot.h"
 #include "../widgets/PerfWidget.h"
 #include "AttitudeWidget.h"
+#include "CommandRegistry.h"
 #include "Drone3DWidget.h" // Added
 #include "DroneProtocol.h"
 #include "ImuPanel.h"
@@ -124,8 +125,10 @@ private:
   QSplitter *m_topSplitter = nullptr;
   QSplitter *m_vSplitter = nullptr;
 
-  QAction *m_homeAction = nullptr;
-  QAction *m_analyzerAction = nullptr;
+  // ---- Command layer (Phase-1 1g / FR-UX-19) ----
+  // Single source of truth for every command; menus, the toolbar, and the
+  // keyboard shortcuts all draw their QActions from here.
+  CommandRegistry *m_cmds = nullptr;
 
   // ---- Attitude numeric labels ----
   QLabel *m_rollLabel = nullptr;
