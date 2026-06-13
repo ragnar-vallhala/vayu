@@ -22,6 +22,13 @@ function(navigator_test name)
       ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endfunction()
 
+# ---- CMD_SET_PID command codec (AT-1 foundation) --------------------------
+navigator_test(tst_command_codec
+    tst_command_codec.cpp
+    ${SRC}/protocol/CommandCodec.cpp
+    ${SRC}/core/crc.cpp)
+target_include_directories(tst_command_codec PRIVATE ${SRC}/protocol ${SRC}/core)
+
 # ---- Phase 1A: command registry -------------------------------------------
 navigator_test(tst_command_registry
     tst_command_registry.cpp

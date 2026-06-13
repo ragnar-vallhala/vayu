@@ -27,15 +27,16 @@ QtTest + ctest); the FRs are marked ✅ in [`../requirements.md`](../requirement
   2E `ReplayBar` + Open Log (whole-GCS replay end-to-end).
 - **Phase 3 (small UI):** `AboutDialog` + Documentation entry.
 
-**Remaining — the independent additive track (firmware/sim-gated, NOT GCS-only).**
-Verified while scoping: the GCS protocol has **no `CMD_SET_PID`**, and the SITL
-autotuner "apply" persists gains to the vehicle JSON + sim-restart — there is no
-live-firmware gain-write path at all. So **AT-1/AT-2 are gated on firmware work**
-(a new wire command + firmware receiver) plus an autotuner protocol change to
-stream the current/best gain *vectors* (today it streams only cost/best scalars
-via `#EVAL`). These cannot be completed or verified GCS-side alone. Likewise
-sensor-noise (FR-SIM-04), the RC bridge, and SITL FPV depend on `vsim_d` /
-`vsim_ctl`. Track them as cross-cutting firmware/sim work, not UI line items.
+**Remaining — autotune apply (AT-1/AT-2) + sim track.** The firmware already
+supports live PID updates: `CMD_SET_PID` (0x000A, `comm/comm_types.h`) is handled
+by `pid_config_apply_command` (apply to the live controller + persist). So AT-1
+is **GCS-side** — a command encoder (`protocol/CommandCodec`, done) plus the
+propose-not-apply UI: a Proposed Gains table and an explicit *Apply Gains to
+Firmware* button that emits `CMD_SET_PID` per (rate, axis), replacing the
+auto-apply checkbox. AT-2 needs the autotuner to stream the current/best gain
+*vectors* each eval (today `#EVAL` streams only cost/best scalars) so the GCS can
+show current-vs-best live. The deeper sim items — sensor-noise (FR-SIM-04), RC
+bridge, SITL FPV — depend on `vsim_d` / `vsim_ctl`.
 
 ---
 
