@@ -74,6 +74,8 @@ set(GCS_SOURCES
     src/ui/widgets/FrequencyRibbon.cpp
     src/ui/widgets/LinkStatsPanel.cpp
     src/ui/widgets/RcChannelsWidget.cpp
+    src/ui/widgets/StickGimbal.cpp
+    src/ui/widgets/AuxSwitch.cpp
     src/ui/widgets/CalibrationWidget.cpp
     src/ui/widgets/MotorStatusWidget.cpp
     src/ui/widgets/Drone3DWidget.cpp
@@ -136,6 +138,8 @@ set(GCS_HEADERS
     src/ui/widgets/FrequencyRibbon.h
     src/ui/widgets/LinkStatsPanel.h
     src/ui/widgets/RcChannelsWidget.h
+    src/ui/widgets/StickGimbal.h
+    src/ui/widgets/AuxSwitch.h
     src/ui/widgets/CalibrationWidget.h
     src/ui/widgets/MotorStatusWidget.h
     src/ui/widgets/Drone3DWidget.h
