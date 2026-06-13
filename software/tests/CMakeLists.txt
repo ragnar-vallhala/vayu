@@ -29,6 +29,11 @@ navigator_test(tst_command_codec
     ${SRC}/core/crc.cpp)
 target_include_directories(tst_command_codec PRIVATE ${SRC}/protocol ${SRC}/core)
 
+# ---- AT-1: autotune gains -> CMD_SET_PID mapping --------------------------
+navigator_test(tst_autotune_gains
+    tst_autotune_gains.cpp)
+target_include_directories(tst_autotune_gains PRIVATE ${SRC}/ui/widgets)
+
 # ---- Phase 1A: command registry -------------------------------------------
 navigator_test(tst_command_registry
     tst_command_registry.cpp

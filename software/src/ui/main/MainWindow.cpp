@@ -1,6 +1,7 @@
 #include "MainWindow.h"
 #include "../core/Notify.h"
 #include "../core/SettingsManager.h"
+#include "../protocol/CommandCodec.h"
 #include "../replay/ReplaySource.h"
 #include "../ui/widgets/AboutDialog.h"
 #include "../ui/widgets/CommandPalette.h"
@@ -290,6 +291,29 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   // which source is feeding it.
   connect(m_simulatorWidget, &SimulatorWidget::dataReceived,
           m_protocol, &DroneProtocol::processData);
+  // AT-1: the autotune tab proposes gains; applying to firmware is an explicit
+  // operator action. Turn the proposal into CMD_SET_PID frames and send them
+  // over the live link (sendToFc refuses in replay; we also require a link).
+  connect(m_simulatorWidget, &SimulatorWidget::applyPidGainsRequested, this,
+          [this](const QVector<PidSetCmd> &cmds) {
+            const bool linkUp =
+                m_connected || (m_udp && m_udp->isOpen());
+            if (!linkUp) {
+              m_logPanel->appendLog(
+                  "[GCS] Apply gains ignored — no flight controller link");
+              Notify::warn(this, tr("Not connected — can't apply gains"));
+              return;
+            }
+            const uint32_t now =
+                static_cast<uint32_t>(QDateTime::currentMSecsSinceEpoch());
+            for (const PidSetCmd &c : cmds)
+              sendToFc(CommandCodec::encodeSetPid(c.controller, c.axis, c.kp,
+                                                  c.ki, c.kd, c.kff, 42, now));
+            m_logPanel->appendLog(
+                QString("[GCS] Applied %1 PID slot(s) to firmware (CMD_SET_PID)")
+                    .arg(cmds.size()));
+            Notify::ok(this, tr("Applied gains to firmware"));
+          });
   // Reflect the firmware's reported flight mode (stabilise/acro + RC/GCS source)
   // back onto the simulator's Acro toggle.
   connect(m_protocol, &DroneProtocol::flightModeReceived,
