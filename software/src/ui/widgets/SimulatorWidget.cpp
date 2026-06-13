@@ -344,9 +344,19 @@ void SimulatorWidget::buildUi() {
       appendLog("geom", tr("geometry applied (m=%1 kg)")
                             .arg(m_geomEditor->config().mass));
     });
+    // Vehicle page = geometry editor + the Fault Injection panel (mockup
+    // groups them in the vehicle config column).
+    auto* vehWrap = new QWidget();
+    auto* vehV = new QVBoxLayout(vehWrap);
+    vehV->setContentsMargins(0, 0, 0, 0);
+    vehV->setSpacing(6);
+    vehV->addWidget(m_geomEditor);
+    vehV->addWidget(buildFaultPanel());
+    vehV->addStretch();
+
     auto* scroll = new QScrollArea();
     scroll->setWidgetResizable(true);
-    scroll->setWidget(m_geomEditor);
+    scroll->setWidget(vehWrap);
     scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     m_rightStack->addWidget(scroll);   // index 0 = Vehicle
   }
@@ -736,6 +746,55 @@ void SimulatorWidget::setMode(int mode) {
     // (orbit) view on the drone, with the FPV toggle for onboard.
     m_renderer->setFreeFly(mode == 1 && !m_sim);
   }
+}
+
+void SimulatorWidget::pushFaults() {
+  if (!m_sim) return;
+  m_sim->sendFaults({m_motorKill[0], m_motorKill[1], m_motorKill[2],
+                     m_motorKill[3]},
+                    m_imuDropout);
+}
+
+QWidget* SimulatorWidget::buildFaultPanel() {
+  // Mockup Vehicle ▸ Fault Injection: kill any rotor mid-flight, drop the RC
+  // feed (firmware failsafe), or a GPS glitch (no GPS model in SITL yet).
+  auto* grp = new QGroupBox(tr("Fault Injection"), this);
+  auto* v = new QVBoxLayout(grp);
+  v->setSpacing(6);
+
+  auto* killRow = new QHBoxLayout();
+  killRow->addWidget(new QLabel(tr("Kill motor:"), grp));
+  for (int i = 0; i < 4; ++i) {
+    m_killBtn[i] = new QPushButton(QString("M%1").arg(i + 1), grp);
+    m_killBtn[i]->setCheckable(true);
+    m_killBtn[i]->setFixedWidth(40);
+    m_killBtn[i]->setToolTip(tr("Cut rotor %1 (dead ESC) while flying").arg(i + 1));
+    connect(m_killBtn[i], &QPushButton::toggled, this, [this, i](bool on) {
+      m_motorKill[i] = on;
+      pushFaults();
+      appendLog("fault", on ? tr("motor %1 killed").arg(i + 1)
+                            : tr("motor %1 restored").arg(i + 1));
+    });
+    killRow->addWidget(m_killBtn[i]);
+  }
+  killRow->addStretch();
+  v->addLayout(killRow);
+
+  auto* rcLoss = new QCheckBox(tr("RC link loss (→ firmware failsafe)"), grp);
+  rcLoss->setToolTip(tr("Stop feeding RC so the firmware enters failsafe"));
+  connect(rcLoss, &QCheckBox::toggled, this, [this](bool on) {
+    // On: cut the RC feed. Off: restore whatever the RC-enable box says.
+    if (m_rc) m_rc->setEnabled(on ? false : (m_rcEnable && m_rcEnable->isChecked()));
+    appendLog("fault", on ? tr("RC link loss injected") : tr("RC link restored"));
+  });
+  v->addWidget(rcLoss);
+
+  auto* gps = new QCheckBox(tr("GPS glitch"), grp);
+  gps->setEnabled(false);  // no GPS model in the SITL yet
+  gps->setToolTip(tr("No GPS is simulated yet — placeholder for parity"));
+  v->addWidget(gps);
+
+  return grp;
 }
 
 void SimulatorWidget::buildAutotunePage(QWidget* page) {

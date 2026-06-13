@@ -104,6 +104,9 @@ class SimWorker : public QThread {
                      quint32 nodes, float restitution, bool doubleSided);
   void clearWorldMesh();
 
+  // Inject/clear failures (VSIM_CTL_SET_FAULTS): per-rotor kill + IMU dropout.
+  void sendFaults(const std::array<bool, 4>& motorKill, bool imuDropout);
+
  signals:
   void poseUpdated(SimSnapshot snap);
   void logLine(QString line);
