@@ -33,4 +33,12 @@ QByteArray encodeSetPid(int controller, int axis, float kp, float ki, float kd,
                        tsMs);
 }
 
+QByteArray encodeSetGyroLpf(int axis, float rc, quint8 devId, quint32 tsMs) {
+  return encodeCommand(kCmdSetGyroLpf, {float(axis), rc}, devId, tsMs);
+}
+
+QByteArray encodeSetFlightMode(int mode, quint8 devId, quint32 tsMs) {
+  return encodeCommand(kCmdSetFlightMode, {float(mode)}, devId, tsMs);
+}
+
 }  // namespace CommandCodec

@@ -55,6 +55,19 @@ navigator_test(tst_autotune_engine
     ${SRC}/autotune/Cost.cpp)
 target_include_directories(tst_autotune_engine PRIVATE ${SRC}/autotune)
 
+# ---- LIVE SITL stack bring-up (spawns the real sim; skips without binaries) -
+navigator_test(tst_sitl_stack
+    tst_sitl_stack.cpp
+    ${SRC}/autotune/SitlStack.cpp
+    ${SRC}/protocol/DroneProtocol.cpp
+    ${SRC}/protocol/PacketDecoder.cpp
+    ${SRC}/protocol/PacketDissector.cpp
+    ${SRC}/protocol/CommandCodec.cpp
+    ${SRC}/core/crc.cpp)
+target_include_directories(tst_sitl_stack PRIVATE
+    ${SRC}/autotune ${SRC}/protocol ${SRC}/core
+    ${CMAKE_SOURCE_DIR}/../tools/vsim/include)
+
 # ---- Phase 1A: command registry -------------------------------------------
 navigator_test(tst_command_registry
     tst_command_registry.cpp
