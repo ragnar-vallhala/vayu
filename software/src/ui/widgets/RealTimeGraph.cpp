@@ -25,8 +25,13 @@ void RealTimeGraph::setStateBandEnabled(bool on) {
 void RealTimeGraph::pushState(const QColor &color) {
   if (!m_stateBand)
     return;
-  m_stateHist.push_back(color);
-  while (static_cast<int>(m_stateHist.size()) > kStateCells)
+  const qint64 now = QDateTime::currentMSecsSinceEpoch();
+  m_stateHist.push_back({now, color});
+  // Drop cells older than the window, but keep the one active at window-start so
+  // the band still fills to the left edge (the cell whose successor is also out
+  // of the window is the redundant one to evict).
+  const qint64 cutoff = now - qint64(m_windowSeconds) * 1000;
+  while (m_stateHist.size() > 1 && m_stateHist[1].ts < cutoff)
     m_stateHist.pop_front();
   update();
 }
@@ -189,18 +194,14 @@ void RealTimeGraph::paintEvent(QPaintEvent *event) {
   // Background
   painter.fillRect(rect(), QColor(33, 37, 43));
 
-  // Vehicle-state colour band behind the traces (mockup .g-status): oldest
-  // cell at the left, newest at the right. Tinted so traces stay readable.
-  if (m_stateBand && !m_stateHist.empty()) {
-    const double cw = double(width()) / kStateCells;
-    const int n = static_cast<int>(m_stateHist.size());
-    const int off = kStateCells - n;  // right-align the rolling window
-    for (int i = 0; i < n; ++i) {
-      QColor c = m_stateHist[i];
-      c.setAlpha(55);
-      painter.fillRect(QRectF((off + i) * cw, 0, cw + 1.0, height()), c);
-    }
-  }
+  // Shared time→x mapping for the rolling window. The state band AND the traces
+  // both use this so they scroll in lockstep (was: band on a fixed 60-cell
+  // buffer, traces on time → they drifted apart).
+  const qint64 now = QDateTime::currentMSecsSinceEpoch();
+  const qint64 startTime = now - qint64(m_windowSeconds) * 1000;
+  auto toX = [&](qint64 ts) {
+    return width() * (ts - startTime) / (m_windowSeconds * 1000.0);
+  };
 
   // No data yet, or the newest sample has scrolled off the left of the rolling
   // window (the feed stopped) → the plot has nothing live to show. Mark it with
@@ -209,8 +210,7 @@ void RealTimeGraph::paintEvent(QPaintEvent *event) {
   for (const auto &series : m_seriesData)
     if (!series.empty())
       newestTs = std::max(newestTs, series.back().timestamp);
-  const qint64 nowMsNA = QDateTime::currentMSecsSinceEpoch();
-  const bool stale = newestTs < (nowMsNA - qint64(m_windowSeconds) * 1000);
+  const bool stale = newestTs < startTime;
   if (newestTs == std::numeric_limits<qint64>::min() || stale) {
     QFont f = painter.font();
     f.setBold(true);
@@ -219,6 +219,23 @@ void RealTimeGraph::paintEvent(QPaintEvent *event) {
     painter.setPen(QColor(0xE8, 0xF0, 0xFE, 40));  // faded watermark
     painter.drawText(rect(), Qt::AlignCenter, QStringLiteral("NA"));
     return;
+  }
+
+  // Vehicle-state colour band behind the traces (mockup .g-status). Each cell is
+  // painted from its own timestamp to the next on the SAME axis as the traces;
+  // the oldest cell is clamped to the left edge so there's no gap.
+  if (m_stateBand && !m_stateHist.empty()) {
+    const int n = static_cast<int>(m_stateHist.size());
+    for (int i = 0; i < n; ++i) {
+      const double x0 = (i == 0) ? 0.0 : toX(m_stateHist[i].ts);
+      const double x1 =
+          (i + 1 < n) ? toX(m_stateHist[i + 1].ts) : double(width());
+      if (x1 <= x0)
+        continue;
+      QColor c = m_stateHist[i].color;
+      c.setAlpha(55);
+      painter.fillRect(QRectF(x0, 0, x1 - x0 + 0.5, height()), c);
+    }
   }
 
   if (m_mode == Mode::LinePlot) {
@@ -256,13 +273,7 @@ void RealTimeGraph::paintEvent(QPaintEvent *event) {
     if (range < 1e-6f)
       range = 1e-6f;
 
-    qint64 now = QDateTime::currentMSecsSinceEpoch();
-    qint64 startTime = now - (m_windowSeconds * 1000);
-
-    auto toX = [&](qint64 ts) {
-      return width() * (ts - startTime) / (m_windowSeconds * 1000.0);
-    };
-
+    // now / startTime / toX are hoisted above (shared with the state band).
     auto toY = [&](float val) {
       return height() - (height() * (val - drawMin) / range);
     };
