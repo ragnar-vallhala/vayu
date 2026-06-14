@@ -6,6 +6,7 @@
 #include <QMainWindow>
 #include <QSplitter>
 #include <QStackedWidget>
+#include <QThread>
 #include <QTimer>
 
 #include "../widgets/CalibrationWidget.h"
@@ -17,21 +18,16 @@
 #include "SessionMode.h"
 #include "ViewHistory.h"
 #include "Drone3DWidget.h" // Added
-#include "DroneProtocol.h"
+#include "TelemetryEngine.h" // owns DroneProtocol + the VehicleState store
 #include "ImuPanel.h"
-#include "LiveSource.h"
+#include "ITelemetrySource.h"  // replay feeds the engine via bytesReceived
 #include "LogPanel.h"
 #include "MainStatusBar.h"
 #include "MainToolbar.h"
 #include "MotorStatusWidget.h"
 #include "PacketAnalyzerWidget.h"
-#include "RecordSink.h"
 #include "RcChannelsWidget.h"
-#include "RollingStats.h"
-#include "SerialManager.h"
 #include "SettingsWidget.h"
-#include "UdpManager.h"
-#include "Types.h"
 
 #ifdef NAVIGATOR_HAS_SITL
 #include "SimulatorWidget.h"
@@ -69,14 +65,10 @@ private slots:
   void onArmClicked();
   void onToggle3d(bool checked);
 
-  // Data callbacks
-  void onImuReceived(const ImuData &data);
-  void onAttitudeReceived(const AttitudeData &data);
-  void onRcReceived(const RcData &data);
+  // Data callbacks. Per-packet telemetry (imu/attitude/rc/motor/status/flight-
+  // mode) is consumed inside TelemetryEngine and pulled by the render clock via
+  // snapshot() — only the low-rate log feed is handled by a slot here.
   void onLogReceived(const QString &msg);
-  void onStatusReceived(const QString &msg);
-  void onFlightModeReceived(quint8 mode, quint8 source);
-  void onMotorReceived(const MotorData &data);
 
   // Serial state
   void onConnectionStateChanged(bool connected);
@@ -100,6 +92,11 @@ private:
   // m_simRunning. Serial link wins; otherwise shows "Connected: SIM".
   void refreshConnectionPill();
   void updateLiveBlinker();
+  // Apply the firmware system-state pill (attitude page + graph state band + sim
+  // HUD) and the flight-mode pill. Render-clock driven, called only when the
+  // snapshot's value changes (see onUiTimer edge-guards).
+  void applyVehicleStatePill(const QString &state);
+  void applyFlightModePill(quint8 mode, quint8 source);
   void saveUiState();
   void restoreUiState();
   void persistPortBaud();
@@ -173,28 +170,25 @@ private:
   QLabel *m_rollStd = nullptr;
   QLabel *m_pitchStd = nullptr;
   QLabel *m_yawStd = nullptr;
-  RollingStats m_attStats[3];
 
   // ---- System-state pill on the attitude page (firmware state, not connection) ----
   QLabel *m_statusLabel = nullptr;
   QLabel *m_flightModeLabel = nullptr;   // STABILISE / ACRO pill (+ RC/GCS source)
 
   // ---- Back-end ----
-  SerialManager *m_serial = nullptr;
-  UdpManager *m_udp = nullptr;
-  DroneProtocol *m_protocol = nullptr;
-  // Telemetry-source seam (Phase-1 1B): inbound bytes reach the parser
-  // through the *active* ITelemetrySource. m_liveSource fans in serial+UDP;
-  // a ReplaySource (Phase 2D) swaps in here without touching any widget.
-  LiveSource *m_liveSource = nullptr;
-  ITelemetrySource *m_source = nullptr;
+  // Single processing engine: owns the parser, the live transports (serial +
+  // UDP) and the recorder, and the canonical VehicleState the UI pulls at the
+  // render rate. Lives on m_worker (Phase B) so the socket is drained off the
+  // GUI thread — see docs/telemetry-engine-architecture.md. The GUI drives it
+  // via queued invokes and reads snapshot()/forwarded signals.
+  TelemetryEngine *m_engine = nullptr;
+  QThread *m_worker = nullptr;
   // Whole-GCS replay (Phase-2 2E): the replay source + transport bar, active
-  // only while in SessionMode::Replay.
+  // only while in SessionMode::Replay. Replay stays on the GUI thread and feeds
+  // the engine via a queued bytesReceived → feedBytes connection.
   class ReplaySource *m_replaySource = nullptr;
   class ReplayBar *m_replayBar = nullptr;
   QToolBar *m_replayToolbar = nullptr;
-  // Records the live stream to a .bin for later replay (Phase-1 1C).
-  RecordSink m_recorder;
   bool m_recordOnConnect = false;
   // Read-only authority for replay (Phase-1 1D). Lives here so every tx site
   // (all routed through sendToFc) checks one place.
@@ -204,20 +198,28 @@ private:
   QElapsedTimer m_elapsed;
 
   // ---- State ----
-  bool m_connected = false;   // real serial link
+  bool m_connected = false;   // any live link up (serial or UDP)
   bool m_simRunning = false;  // in-app SITL active
   bool m_armed = false;
-  int m_pktCount = 0;
-  // Packet-rate sampling for the status bar "Rate: N Hz" segment.
-  int m_pktAtLastRate = 0;
+  // Link caches (the transports live on the worker thread; the GUI must not read
+  // them directly). Updated from the engine's forwarded signals / at connect.
+  bool m_serialOpen = false;
+  bool m_udpOpen = false;
+  QString m_currentPort;      // label for the active link (serial port / UDP)
+  // Recording lives in the engine (worker thread); the GUI remembers the active
+  // path (non-empty = recording) for the start/stop guard + log lines.
+  QString m_recordingPath;
+  // Status-bar "Packets: N" is shown relative to the current connection; the
+  // engine's wire-packet counter is monotonic, so we subtract a baseline taken
+  // at connect. "Rate: N Hz" is a delta over a 1 s window.
+  quint64 m_pktBase = 0;
+  quint64 m_pktAtLastRate = 0;
   qint64 m_lastRateTime = 0;
-  ImuData m_latestImu;
-  AttitudeData m_latestAtt;
   qint64 m_lastHbTime = 0;
-  // Last-rx wall-clock (ms) for the IMU / attitude feeds. The dashboard shows
-  // "-" on the numeric readouts once these go stale, distinguishing absent
-  // telemetry from a genuine zero. 0 = never received.
-  qint64 m_lastImuMs = 0;
-  qint64 m_lastAttMs = 0;
+  // Edge-guards so the sparse pills only restyle on change — the render clock
+  // reads the snapshot at 30 Hz and must not rebuild stylesheets every tick.
+  QString m_lastPushedState;
+  int m_lastFlightMode = -1;
+  int m_lastFlightSrc = -1;
   static constexpr qint64 kTelemetryStaleMs = 1000;
 };
