@@ -44,6 +44,8 @@
 #include <QThread>
 #include <QTableWidget>
 #include <QHeaderView>
+#include <QPainter>
+#include <QPainterPath>
 
 #include "AutotuneWorker.h"
 #include "Space.h"
@@ -64,6 +66,63 @@ extern "C" void angle_rate_controller_set_motor_geometry(
 // source 1 == GCS override.
 extern "C" void flight_mode_set_override(int mode);
 extern "C" void flight_mode_release(void);
+
+// Live step/chirp response plot: the roll-axis setpoint (dashed) vs measured
+// (solid) angle from the latest autotune excitation window. No Q_OBJECT — it's
+// driven by setData() from a lambda, not signals/slots.
+class ResponsePlot : public QWidget {
+ public:
+  explicit ResponsePlot(QWidget* parent = nullptr) : QWidget(parent) {
+    setMinimumHeight(110);
+  }
+  void setData(const QVector<double>& sp, const QVector<double>& meas) {
+    sp_ = sp;
+    meas_ = meas;
+    update();
+  }
+
+ protected:
+  void paintEvent(QPaintEvent*) override {
+    QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing);
+    const QRectF r = rect().adjusted(2, 2, -2, -2);
+    p.fillRect(r, QColor(0x1A, 0x1D, 0x27));
+    p.setPen(QPen(QColor(0x3E, 0x44, 0x52), 1));
+    p.drawRect(r);
+    if (sp_.isEmpty() && meas_.isEmpty()) {
+      p.setPen(QColor(0x5C, 0x63, 0x70));
+      p.drawText(r, Qt::AlignCenter, tr("response — run autotune"));
+      return;
+    }
+    // Symmetric vertical scale around 0, fit to the data (deg).
+    double mx = 1.0;
+    for (double v : sp_) mx = std::max(mx, std::abs(v));
+    for (double v : meas_) mx = std::max(mx, std::abs(v));
+    mx *= 1.1;
+    const int n = std::max(sp_.size(), meas_.size());
+    auto toPt = [&](int i, double v) {
+      const double x = r.left() + r.width() * (n > 1 ? double(i) / (n - 1) : 0.5);
+      const double y = r.center().y() - (v / mx) * (r.height() / 2 - 4);
+      return QPointF(x, y);
+    };
+    // Zero line.
+    p.setPen(QPen(QColor(255, 255, 255, 24), 1));
+    p.drawLine(QPointF(r.left(), r.center().y()), QPointF(r.right(), r.center().y()));
+    auto poly = [&](const QVector<double>& d, QColor c, Qt::PenStyle st) {
+      if (d.size() < 2) return;
+      QPainterPath path;
+      path.moveTo(toPt(0, d[0]));
+      for (int i = 1; i < d.size(); ++i) path.lineTo(toPt(i, d[i]));
+      p.setPen(QPen(c, 1.5, st));
+      p.drawPath(path);
+    };
+    poly(sp_, QColor(0x8A, 0x92, 0xA6), Qt::DashLine);   // setpoint
+    poly(meas_, QColor(0xE0, 0x6C, 0x75), Qt::SolidLine);  // measured (roll)
+  }
+
+ private:
+  QVector<double> sp_, meas_;
+};
 
 namespace {
 constexpr int kFmAngle = 0, kFmAcro = 1, kFmSrcGcs = 1;
@@ -905,6 +964,41 @@ void SimulatorWidget::buildAutotunePage(QWidget* page) {
                             "doesn't flip."));
   form->addWidget(m_tuneStep, r++, 1);
 
+  // Excitation waveform: step doublet vs swept-sine chirp (conditional freq row).
+  form->addWidget(new QLabel(tr("Waveform:"), page), r, 0);
+  m_tuneExcitation = new QComboBox(page);
+  m_tuneExcitation->addItem(tr("Step (doublet)"));
+  m_tuneExcitation->addItem(tr("Chirp (freq sweep)"));
+  m_tuneExcitation->setToolTip(tr("Step = one doublet per axis; Chirp = swept "
+                                  "sine f0→f1 over the hold, probing a band."));
+  form->addWidget(m_tuneExcitation, r++, 1);
+
+  auto* chirpLbl = new QLabel(tr("Chirp f0–f1 (Hz):"), page);
+  form->addWidget(chirpLbl, r, 0);
+  m_chirpRow = new QWidget(page);
+  auto* chirpH = new QHBoxLayout(m_chirpRow);
+  chirpH->setContentsMargins(0, 0, 0, 0);
+  m_tuneChirpF0 = new QDoubleSpinBox(m_chirpRow);
+  m_tuneChirpF0->setRange(0.1, 50.0);
+  m_tuneChirpF0->setDecimals(1);
+  m_tuneChirpF0->setValue(1.0);
+  m_tuneChirpF1 = new QDoubleSpinBox(m_chirpRow);
+  m_tuneChirpF1->setRange(0.1, 50.0);
+  m_tuneChirpF1->setDecimals(1);
+  m_tuneChirpF1->setValue(12.0);
+  chirpH->addWidget(m_tuneChirpF0);
+  chirpH->addWidget(new QLabel(QStringLiteral("→"), m_chirpRow));
+  chirpH->addWidget(m_tuneChirpF1);
+  form->addWidget(m_chirpRow, r++, 1);
+  auto syncChirpVis = [this, chirpLbl] {
+    const bool chirp = m_tuneExcitation->currentIndex() == 1;
+    if (m_chirpRow) m_chirpRow->setVisible(chirp);
+    chirpLbl->setVisible(chirp);
+  };
+  connect(m_tuneExcitation, QOverload<int>::of(&QComboBox::currentIndexChanged),
+          this, [syncChirpVis](int) { syncChirpVis(); });
+  syncChirpVis();
+
   form->addWidget(new QLabel(tr("Repeats / eval:"), page), r, 0);
   m_tuneRepeats = new QSpinBox(page);
   m_tuneRepeats->setRange(1, 5);
@@ -1097,6 +1191,12 @@ void SimulatorWidget::buildAutotunePage(QWidget* page) {
   m_tuneChart = new TuneChart(page);
   v->addWidget(m_tuneChart);
 
+  // Live step/chirp response of the roll axis (setpoint vs measured), updated
+  // once per evaluation from the latest excitation window.
+  v->addWidget(new QLabel(tr("Roll response — setpoint (dashed) vs measured"), page));
+  m_tuneResponse = new ResponsePlot(page);
+  v->addWidget(m_tuneResponse);
+
   auto* btnRow = new QHBoxLayout();
   m_tuneStart = new QPushButton(tr("Start Autotune"), page);
   m_tuneStop = new QPushButton(tr("Stop"), page);
@@ -1285,6 +1385,11 @@ void SimulatorWidget::startAutotune() {
   p.rollout.stepUs = m_tuneStep->value();
   p.rollout.tetherK = m_tuneTether->value();
   p.rollout.seed = quint32(m_tuneSimSeed->value());
+  p.rollout.excite = (m_tuneExcitation->currentIndex() == 1)
+                         ? autotune::Excitation::Chirp
+                         : autotune::Excitation::Step;
+  p.rollout.chirpF0 = m_tuneChirpF0->value();
+  p.rollout.chirpF1 = m_tuneChirpF1->value();
 
   m_tuneChart->reset();
   // Seed the current-vs-best table with this run's param rows (AT-2).
@@ -1310,6 +1415,11 @@ void SimulatorWidget::startAutotune() {
   connect(m_tuneThread, &QThread::started, m_tuneWorker, &AutotuneWorker::run);
   connect(m_tuneWorker, &AutotuneWorker::evaluated, this,
           &SimulatorWidget::onTuneEvaluated);
+  connect(m_tuneWorker, &AutotuneWorker::responseWindow, this,
+          [this](const QVector<double> &sp, const QVector<double> &meas) {
+            if (m_tuneResponse)
+              static_cast<ResponsePlot *>(m_tuneResponse)->setData(sp, meas);
+          });
   connect(m_tuneWorker, &AutotuneWorker::finished, this,
           &SimulatorWidget::onTuneFinished);
   connect(m_tuneWorker, &AutotuneWorker::failed, this, [this](const QString &e) {

@@ -40,6 +40,9 @@ public slots:
 signals:
   void evaluated(QVector<double> current, QVector<double> best, double cost,
                  double bestCost, int n);
+  // Roll-axis excitation window of the latest eval (setpoint vs measured angle,
+  // deg) for the live response plot.
+  void responseWindow(QVector<double> sp, QVector<double> measured);
   void finished(QVector<double> bestX, QStringList names, double bestCost);
   void failed(QString err);
   void log(QString line);

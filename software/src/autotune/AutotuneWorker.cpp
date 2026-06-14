@@ -45,13 +45,29 @@ void AutotuneWorker::run() {
         // noisy SITL cost so the search isn't misled by one unlucky rollout.
         double sum = 0.0;
         int scored = 0;
-        for (int i = 0; i < std::max(1, m_p.repeats); ++i) {
+        const int reps = std::max(1, m_p.repeats);
+        std::vector<autotune::Sample> resp;  // last rollout's roll-axis window
+        for (int i = 0; i < reps; ++i) {
           autotune::RolloutParams rp = m_p.rollout;
           rp.seed = m_p.rollout.seed + quint32(i);
-          if (auto c = autotune::runRollout(stack, names, x, m_p.tuneYaw, rp)) {
+          // Capture the response window only on the final repeat (for the plot).
+          std::vector<autotune::Sample> *out = (i == reps - 1) ? &resp : nullptr;
+          if (auto c =
+                  autotune::runRollout(stack, names, x, m_p.tuneYaw, rp, out)) {
             sum += *c;
             ++scored;
           }
+        }
+        // Push the latest excitation window to the live response plot.
+        if (!resp.empty()) {
+          QVector<double> sp, meas;
+          sp.reserve(int(resp.size()));
+          meas.reserve(int(resp.size()));
+          for (const autotune::Sample &s : resp) {
+            sp.push_back(s.rollAngleSp);
+            meas.push_back(s.rollAngleCurr);
+          }
+          emit responseWindow(sp, meas);
         }
         if (scored == 0)
           return std::nullopt;  // every attempt was a harness failure
