@@ -92,8 +92,12 @@ class ResponsePlot : public QWidget {
     p.setPen(QPen(QColor(0x3E, 0x44, 0x52), 1));
     p.drawRect(r);
     if (sp_.isEmpty() && meas_.isEmpty()) {
-      p.setPen(QColor(0x5C, 0x63, 0x70));
-      p.drawText(r, Qt::AlignCenter, tr("response — run autotune"));
+      QFont f = p.font();
+      f.setBold(true);
+      f.setPixelSize(std::max(18, int(r.height() / 2)));
+      p.setFont(f);
+      p.setPen(QColor(0xE8, 0xF0, 0xFE, 40));  // faded watermark
+      p.drawText(r, Qt::AlignCenter, QStringLiteral("NA"));
       return;
     }
     // Symmetric vertical scale around 0, fit to the data (deg).

@@ -73,21 +73,22 @@ RcChannelsWidget::RcChannelsWidget(QWidget *parent) : QWidget(parent) {
   sl->addWidget(m_stickR);
   rcTop->addWidget(sticks);
 
-  // Link Health box (constants — no link telemetry source yet).
+  // Link Health box — no link-quality telemetry source yet, so every field
+  // reads "-" rather than a fabricated value (real RC data only drives the
+  // channel bars below).
   auto *link = new QGroupBox(tr("Link Health"), this);
   auto *lv = new QVBoxLayout(link);
   auto *grid = new QGridLayout();
-  const QString ok = Theme::hex(Theme::kOk);
-  grid->addWidget(field(tr("RSSI"), "−67 dBm", ok), 0, 0);
-  grid->addWidget(field(tr("Link Quality"), "100%", ok), 0, 1);
-  grid->addWidget(field(tr("Frame Rate"), "50 Hz"), 1, 0);
-  grid->addWidget(field(tr("Protocol"), "CRSF"), 1, 1);
-  grid->addWidget(field(tr("Channels"), "8 / 16"), 2, 0);
-  grid->addWidget(field(tr("Failsafe"), "No", ok), 2, 1);
+  grid->addWidget(field(tr("RSSI"), "-"), 0, 0);
+  grid->addWidget(field(tr("Link Quality"), "-"), 0, 1);
+  grid->addWidget(field(tr("Frame Rate"), "-"), 1, 0);
+  grid->addWidget(field(tr("Protocol"), "-"), 1, 1);
+  grid->addWidget(field(tr("Channels"), "-"), 2, 0);
+  grid->addWidget(field(tr("Failsafe"), "-"), 2, 1);
   lv->addLayout(grid);
   auto *rssi = new QProgressBar(link);
   rssi->setRange(0, 100);
-  rssi->setValue(78);
+  rssi->setValue(0);
   rssi->setTextVisible(false);
   rssi->setFixedHeight(8);
   rssi->setStyleSheet(

@@ -214,4 +214,10 @@ private:
   ImuData m_latestImu;
   AttitudeData m_latestAtt;
   qint64 m_lastHbTime = 0;
+  // Last-rx wall-clock (ms) for the IMU / attitude feeds. The dashboard shows
+  // "-" on the numeric readouts once these go stale, distinguishing absent
+  // telemetry from a genuine zero. 0 = never received.
+  qint64 m_lastImuMs = 0;
+  qint64 m_lastAttMs = 0;
+  static constexpr qint64 kTelemetryStaleMs = 1000;
 };

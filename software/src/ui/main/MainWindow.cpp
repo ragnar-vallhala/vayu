@@ -885,12 +885,14 @@ void MainWindow::onToggle3d(bool checked) {
 
 void MainWindow::onImuReceived(const ImuData &data) {
   m_latestImu = data;
+  m_lastImuMs = QDateTime::currentMSecsSinceEpoch();
   if (m_simulatorWidget) m_simulatorWidget->hudSetImu(data.acc, data.gyr);
   ++m_pktCount;
 }
 
 void MainWindow::onAttitudeReceived(const AttitudeData &data) {
   m_latestAtt = data;
+  m_lastAttMs = QDateTime::currentMSecsSinceEpoch();
   m_attStats[0].push(data.roll);
   m_attStats[1].push(data.pitch);
   m_attStats[2].push(data.yaw);
@@ -1137,8 +1139,11 @@ void MainWindow::onUiTimer() {
     m_lastRateTime = nowMs;
   }
 
-  // Update IMU panel with latest cached data
-  m_imuPanel->updateImu(m_latestImu);
+  // Update IMU panel with latest cached data. Mark it unavailable (numeric
+  // labels + temp gauge show "-") once the feed goes stale / was never seen.
+  const bool imuFresh =
+      m_lastImuMs != 0 && (nowMs - m_lastImuMs) < kTelemetryStaleMs;
+  m_imuPanel->updateImu(m_latestImu, imuFresh);
 
   // Throttled updates for numeric labels (update every 4 ticks = 5Hz)
   if (tick % 4 != 0) {
@@ -1156,13 +1161,21 @@ void MainWindow::onUiTimer() {
     return QString("± σ %1").arg(static_cast<double>(v), 6, 'f', 3);
   };
 
-  m_rollLabel->setText(fmtVal(m_latestAtt.roll));
-  m_pitchLabel->setText(fmtVal(m_latestAtt.pitch));
-  m_yawLabel->setText(fmtVal(m_latestAtt.yaw));
-
-  m_rollStd->setText(fmtStd(m_attStats[0].stdDev()));
-  m_pitchStd->setText(fmtStd(m_attStats[1].stdDev()));
-  m_yawStd->setText(fmtStd(m_attStats[2].stdDev()));
+  // Attitude readouts: "-" when no fresh attitude telemetry (never seen / stale
+  // / link down) so an absent feed is distinct from a real 0.00°.
+  const bool attFresh =
+      m_lastAttMs != 0 && (nowMs - m_lastAttMs) < kTelemetryStaleMs;
+  if (attFresh) {
+    m_rollLabel->setText(fmtVal(m_latestAtt.roll));
+    m_pitchLabel->setText(fmtVal(m_latestAtt.pitch));
+    m_yawLabel->setText(fmtVal(m_latestAtt.yaw));
+    m_rollStd->setText(fmtStd(m_attStats[0].stdDev()));
+    m_pitchStd->setText(fmtStd(m_attStats[1].stdDev()));
+    m_yawStd->setText(fmtStd(m_attStats[2].stdDev()));
+  } else {
+    for (QLabel *l : {m_rollLabel, m_pitchLabel, m_yawLabel}) l->setText("-");
+    for (QLabel *l : {m_rollStd, m_pitchStd, m_yawStd}) l->setText("± σ -");
+  }
 
   if (m_statusBar) m_statusBar->setPacketCount(m_pktCount);
   updateLiveBlinker();

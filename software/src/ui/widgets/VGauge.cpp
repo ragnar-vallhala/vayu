@@ -10,17 +10,25 @@ VGauge::VGauge(const QString &caption, double minVal, double maxVal,
     : QWidget(parent), m_caption(caption), m_unit(unit), m_min(minVal),
       m_max(maxVal), m_value(minVal), m_palette(pal) {
   setMinimumWidth(52);
-  setValue(minVal);
+  setUnavailable();  // start with no vehicle data → "-"
 }
 
 void VGauge::setValue(double v) {
   m_value = std::clamp(v, m_min, m_max);
+  m_hasData = true;
   if (!m_readoutPinned) {
     if (m_unit == "%")
       m_readout = QString("%1%").arg(m_value, 0, 'f', 0);
     else
       m_readout = QString("%1%2").arg(m_value, 0, 'f', 1).arg(m_unit);
   }
+  update();
+}
+
+void VGauge::setUnavailable() {
+  m_hasData = false;
+  m_readoutPinned = false;
+  m_readout = QStringLiteral("-");
   update();
 }
 
@@ -68,7 +76,7 @@ void VGauge::paintEvent(QPaintEvent *) {
   const double frac =
       (m_max > m_min) ? (m_value - m_min) / (m_max - m_min) : 0.0;
   const double fillH = frac * (track.height() - 2);
-  if (fillH > 0.5) {
+  if (m_hasData && fillH > 0.5) {
     const QRectF fill(track.left() + 1, track.bottom() - 1 - fillH,
                       track.width() - 2, fillH);
     QLinearGradient g(fill.bottomLeft(), fill.topLeft());

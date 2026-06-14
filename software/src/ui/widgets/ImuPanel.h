@@ -20,6 +20,9 @@ public:
                QWidget *parent = nullptr);
 
   void setValues(float x, float y, float z);
+  // Show "-" on the numeric labels (no live vehicle data). The graph paints its
+  // own NA watermark once the trace goes stale.
+  void setUnavailable();
   void setWindowSeconds(int seconds);
   void setDropoutRate(double rate);
   // Push one vehicle-state colour cell onto this group's graph band.
@@ -44,7 +47,9 @@ public:
   explicit ImuPanel(QWidget *parent = nullptr);
 
 public slots:
-  void updateImu(const ImuData &data);
+  // `available` = live IMU telemetry is fresh. When false the numeric labels +
+  // temp gauge show "-" so absent data is distinct from a real zero.
+  void updateImu(const ImuData &data, bool available = true);
   void setSensor(const QString &name); // swap displayed sensor name
   void setGraphWindow(int seconds);
   void setGraphDropout(double rate);

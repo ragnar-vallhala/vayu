@@ -41,8 +41,12 @@ class TuneChart : public QWidget {
     p.drawRect(plot);
 
     if (cost_.isEmpty()) {
-      p.setPen(txt);
-      p.drawText(rect(), Qt::AlignCenter, QStringLiteral("cost vs evaluation — waiting…"));
+      QFont nf = p.font();
+      nf.setBold(true);
+      nf.setPixelSize(std::max(18, H / 3));
+      p.setFont(nf);
+      p.setPen(QColor(0xE8, 0xF0, 0xFE, 40));  // faded watermark
+      p.drawText(rect(), Qt::AlignCenter, QStringLiteral("NA"));
       return;
     }
 
