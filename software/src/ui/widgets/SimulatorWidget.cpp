@@ -365,6 +365,30 @@ SimulatorWidget::~SimulatorWidget() {
     vsim_iface_set_uart2_callback(&m_iface, nullptr, nullptr);
   }
   stopInAppSim();
+
+  // Tear down the autotune machinery synchronously. Normally a tune is stopped
+  // via stopAutotune() -> cancel() -> queued done -> onTuneDone(), but at app
+  // exit the event loop is already gone, so that queued signal never arrives.
+  // m_tuneThread and m_tuneSim are both QThread-derived children of this widget;
+  // if left running they'd be "destroyed while still running" by ~QObject,
+  // which qFatal()s (the abort seen on exit) AND orphans m_tuneSim's vsim_d
+  // daemon (which keeps spinning, dragging the system). Join them here.
+  if (m_tuneWorker) m_tuneWorker->cancel();  // break the blocking engine.run()
+  if (m_tuneThread) {
+    m_tuneThread->quit();
+    if (!m_tuneThread->wait(3000)) {
+      m_tuneThread->terminate();
+      m_tuneThread->wait(1000);
+    }
+    delete m_tuneThread;       // joined: direct delete is safe (no event loop)
+    m_tuneThread = nullptr;
+  }
+  if (m_tuneWorker) {
+    delete m_tuneWorker;
+    m_tuneWorker = nullptr;
+  }
+  detachTuneSim();             // joins m_tuneSim -> ~SimWorker kills its vsim_d
+
   closeLogFile();    // belt-and-suspenders: stopInAppSim already does this
   // We do NOT call vayu_sitl_stop()'s teardown completely; the firmware
   // threads keep running until the process exits. See host_lifecycle.c.
