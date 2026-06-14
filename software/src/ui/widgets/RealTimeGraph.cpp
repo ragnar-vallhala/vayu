@@ -3,6 +3,7 @@
 #include <QPainter>
 #include <QPainterPath>
 #include <QTextStream>
+#include <QTimer>
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -15,6 +16,28 @@ RealTimeGraph::RealTimeGraph(QWidget *parent, int numSeries) : QWidget(parent) {
   m_sigmaData.resize(numSeries);
   m_colors.resize(numSeries, QColor("#61AFEF"));
   m_penStyles.resize(numSeries, Qt::SolidLine);
+
+  // Fixed-rate repaint pump (~30 Hz). Started on show, stopped on hide. Only
+  // repaints when new data has been buffered since the last paint, so an idle
+  // or hidden graph costs nothing.
+  m_repaintTimer = new QTimer(this);
+  m_repaintTimer->setInterval(33);
+  connect(m_repaintTimer, &QTimer::timeout, this, [this] {
+    if (m_dirty) {
+      m_dirty = false;
+      update();
+    }
+  });
+}
+
+void RealTimeGraph::showEvent(QShowEvent *event) {
+  QWidget::showEvent(event);
+  m_repaintTimer->start();
+}
+
+void RealTimeGraph::hideEvent(QHideEvent *event) {
+  QWidget::hideEvent(event);
+  m_repaintTimer->stop();
 }
 
 void RealTimeGraph::setStateBandEnabled(bool on) {
@@ -33,7 +56,7 @@ void RealTimeGraph::pushState(const QColor &color) {
   const qint64 cutoff = now - qint64(m_windowSeconds) * 1000;
   while (m_stateHist.size() > 1 && m_stateHist[1].ts < cutoff)
     m_stateHist.pop_front();
-  update();
+  markDirty();
 }
 
 void RealTimeGraph::setSigmaAxis(bool on, float sigmaMax) {
@@ -135,7 +158,7 @@ void RealTimeGraph::appendData(float value, int index) {
   }
 
   pruneData();
-  update();
+  markDirty();
 }
 
 void RealTimeGraph::clear() {

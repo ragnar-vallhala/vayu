@@ -1,0 +1,114 @@
+<mxfile host="Electron">
+  <diagram name="Telemetry Engine Architecture" id="telem-arch-1">
+    <mxGraphModel dx="1131" dy="678" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="826" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" parent="1" style="text;html=1;align=left;verticalAlign=middle;fontSize=16;fontStyle=1;" value="Telemetry Engine — single engine, 3 entry points, decoupled UI" vertex="1">
+          <mxGeometry height="30" width="800" x="40" y="20" as="geometry" />
+        </mxCell>
+        <mxCell id="workerBox" parent="1" style="rounded=1;whiteSpace=wrap;html=1;dashed=1;fillColor=#f8f8f8;strokeColor=#999999;verticalAlign=top;fontStyle=2;fontSize=12;align=right;spacingRight=10;spacingTop=6;" value="Worker thread" vertex="1">
+          <mxGeometry height="330" width="520" x="300" y="70" as="geometry" />
+        </mxCell>
+        <mxCell id="guiBox" parent="1" style="rounded=1;whiteSpace=wrap;html=1;dashed=1;fillColor=#f8f8f8;strokeColor=#999999;verticalAlign=top;fontStyle=2;fontSize=12;align=right;spacingRight=10;spacingTop=6;" value="GUI thread" vertex="1">
+          <mxGeometry height="240" width="800" x="300" y="450" as="geometry" />
+        </mxCell>
+        <mxCell id="engineBox" parent="1" style="rounded=1;whiteSpace=wrap;html=1;dashed=1;fillColor=#eef6ee;strokeColor=#82b366;verticalAlign=top;fontStyle=1;fontSize=12;align=left;spacingLeft=10;spacingTop=6;" value="TelemetryEngine" vertex="1">
+          <mxGeometry height="270" width="480" x="320" y="110" as="geometry" />
+        </mxCell>
+        <mxCell id="widgetsBox" parent="1" style="rounded=1;whiteSpace=wrap;html=1;dashed=1;fillColor=#f6f2fa;strokeColor=#9673a6;verticalAlign=top;fontStyle=2;fontSize=12;align=left;spacingLeft=10;spacingTop=6;" value="UI widgets" vertex="1">
+          <mxGeometry height="180" width="470" x="600" y="490" as="geometry" />
+        </mxCell>
+        <mxCell id="srcLabel" parent="1" style="text;html=1;align=left;verticalAlign=middle;fontSize=11;fontStyle=2;fontColor=#555555;" value="Entry points — exactly one active&#xa;(selected by SessionState)" vertex="1">
+          <mxGeometry height="34" width="230" x="30" y="74" as="geometry" />
+        </mxCell>
+        <mxCell id="live" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" value="LiveSource&#xa;(UDP + serial transports)" vertex="1">
+          <mxGeometry height="55" width="210" x="40" y="120" as="geometry" />
+        </mxCell>
+        <mxCell id="replay" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" value="ReplaySource&#xa;(recorded .bin)" vertex="1">
+          <mxGeometry height="55" width="210" x="40" y="200" as="geometry" />
+        </mxCell>
+        <mxCell id="sim" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" value="SimSource&#xa;(in-app vsim)" vertex="1">
+          <mxGeometry height="55" width="210" x="40" y="280" as="geometry" />
+        </mxCell>
+        <mxCell id="iface" parent="1" style="text;html=1;align=center;verticalAlign=middle;fontSize=10;fontStyle=2;fontColor=#6c8ebf;" value="all implement ITelemetrySource → bytesReceived()" vertex="1">
+          <mxGeometry height="20" width="250" x="20" y="340" as="geometry" />
+        </mxCell>
+        <mxCell id="parser" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;" value="DroneProtocol&#xa;parse / framing / CRC" vertex="1">
+          <mxGeometry height="55" width="420" x="350" y="150" as="geometry" />
+        </mxCell>
+        <mxCell id="store" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=12;" value="VehicleState store&#xa;latest attitude · imu · baro · rc · motors · status · link&#xa;mutex / double-buffered → snapshot()" vertex="1">
+          <mxGeometry height="80" width="420" x="350" y="250" as="geometry" />
+        </mxCell>
+        <mxCell id="clock" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;fontStyle=1;" value="RenderClock&#xa;30 / 60 Hz timer" vertex="1">
+          <mxGeometry height="70" width="180" x="330" y="560" as="geometry" />
+        </mxCell>
+        <mxCell id="wAtt" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;" value="Attitude 2D ADI / 3D airframe" vertex="1">
+          <mxGeometry height="36" width="210" x="620" y="520" as="geometry" />
+        </mxCell>
+        <mxCell id="wImu" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;" value="IMU panel + graphs + gauges" vertex="1">
+          <mxGeometry height="36" width="210" x="620" y="566" as="geometry" />
+        </mxCell>
+        <mxCell id="wRc" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;" value="RC / Motors / Control-Loop" vertex="1">
+          <mxGeometry height="36" width="210" x="620" y="612" as="geometry" />
+        </mxCell>
+        <mxCell id="wStatus" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;" value="Status bar / RPY labels / pills" vertex="1">
+          <mxGeometry height="36" width="205" x="845" y="520" as="geometry" />
+        </mxCell>
+        <mxCell id="wAnalyzer" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;" value="Packet Analyzer (batched model)" vertex="1">
+          <mxGeometry height="36" width="205" x="845" y="566" as="geometry" />
+        </mxCell>
+        <mxCell id="wLog" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;" value="Log panel" vertex="1">
+          <mxGeometry height="36" width="205" x="845" y="612" as="geometry" />
+        </mxCell>
+        <mxCell id="e1" edge="1" parent="1" source="live" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;fontSize=10;" target="parser" value="bytes (queued)">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" edge="1" parent="1" source="replay" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;" target="parser">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e3" edge="1" parent="1" source="sim" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;" target="parser">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="145" y="270" />
+              <mxPoint x="300" y="270" />
+              <mxPoint x="300" y="178" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e4" edge="1" parent="1" source="parser" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;fontSize=10;" target="store" value="update per packet&#xa;(no per-packet UI signal)">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e5" edge="1" parent="1" source="store" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;strokeWidth=2;strokeColor=#d79b00;fontSize=10;fontStyle=1;" target="clock" value="snapshot()&#xa;lock-free copy">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e6" edge="1" parent="1" source="clock" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;fontSize=10;" target="widgetsBox" value="push latest @ render rate">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e7" edge="1" parent="1" source="widgetsBox" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;dashed=1;fontSize=10;strokeColor=#6c8ebf;" target="engineBox" value="send() commands (queued)&#xa;ARM · SET_PID · time-sync">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e8" edge="1" parent="1" source="store" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;dashed=1;fontSize=10;entryX=1;entryY=0.5;entryDx=0;entryDy=0;exitX=1;exitY=0.5;exitDx=0;exitDy=0;" target="wAnalyzer" value="raw packets (batched)">
+          <mxGeometry relative="1" x="-0.3558" y="-10" as="geometry">
+            <mxPoint as="offset" />
+            <Array as="points">
+              <mxPoint x="1120" y="290" />
+              <mxPoint x="1120" y="584" />
+            </Array>
+            <mxPoint x="930" y="300" as="sourcePoint" />
+            <mxPoint x="1107.48" y="576" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e9" edge="1" parent="1" source="store" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;dashed=1;fontSize=10;" target="wLog" value="events: log / status (queued, sparse)">
+          <mxGeometry relative="1" x="-0.4103" y="20" as="geometry">
+            <mxPoint as="offset" />
+            <Array as="points">
+              <mxPoint x="1130" y="290" />
+              <mxPoint x="1130" y="630" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

@@ -127,7 +127,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
 
   // Periodic status refresh at 20 Hz for smoother fade
   connect(m_uiTimer, &QTimer::timeout, this, &MainWindow::onUiTimer);
-  m_uiTimer->start(50);
+  m_uiTimer->start(33);  // ~30 Hz UI render pump (decoupled from packet rate)
 
   connect(m_syncTimer, &QTimer::timeout, this,
           &MainWindow::onTimeSyncRequested);
@@ -914,14 +914,14 @@ void MainWindow::onImuReceived(const ImuData &data) {
 }
 
 void MainWindow::onAttitudeReceived(const AttitudeData &data) {
+  // Cache only — the attitude instruments (2D ADI + 3D airframe) are repainted
+  // at the fixed UI-timer rate from m_latestAtt, not once per packet. See
+  // docs/ui-rendering-decoupling.md.
   m_latestAtt = data;
   m_lastAttMs = QDateTime::currentMSecsSinceEpoch();
   m_attStats[0].push(data.roll);
   m_attStats[1].push(data.pitch);
   m_attStats[2].push(data.yaw);
-
-  m_attitude->setAttitude(data);
-  m_drone3d->setAttitude(data);
   ++m_pktCount;
 }
 
@@ -1168,7 +1168,17 @@ void MainWindow::onUiTimer() {
       m_lastImuMs != 0 && (nowMs - m_lastImuMs) < kTelemetryStaleMs;
   m_imuPanel->updateImu(m_latestImu, imuFresh);
 
-  // Throttled updates for numeric labels (update every 4 ticks = 5Hz)
+  // Attitude instruments (2D ADI + 3D airframe) render here at the timer rate
+  // from the cached sample, decoupled from the packet rate (was: repainted per
+  // attitude packet → GL-rate coupling). See docs/ui-rendering-decoupling.md.
+  const bool attFresh =
+      m_lastAttMs != 0 && (nowMs - m_lastAttMs) < kTelemetryStaleMs;
+  if (attFresh) {
+    m_attitude->setAttitude(m_latestAtt);
+    m_drone3d->setAttitude(m_latestAtt);
+  }
+
+  // Throttled updates for numeric labels (update every 4 ticks)
   if (tick % 4 != 0) {
     // Still update packet count and live blinker every tick for smoothness
     if (m_statusBar) m_statusBar->setPacketCount(m_pktCount);
@@ -1185,9 +1195,8 @@ void MainWindow::onUiTimer() {
   };
 
   // Attitude readouts: "-" when no fresh attitude telemetry (never seen / stale
-  // / link down) so an absent feed is distinct from a real 0.00°.
-  const bool attFresh =
-      m_lastAttMs != 0 && (nowMs - m_lastAttMs) < kTelemetryStaleMs;
+  // / link down) so an absent feed is distinct from a real 0.00°. (attFresh is
+  // computed once per tick above, shared with the instrument repaint.)
   if (attFresh) {
     m_rollLabel->setText(fmtVal(m_latestAtt.roll));
     m_pitchLabel->setText(fmtVal(m_latestAtt.pitch));

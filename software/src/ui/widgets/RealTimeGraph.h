@@ -8,6 +8,7 @@
 #include <vector>
 
 class QTextStream;
+class QTimer;
 
 class RealTimeGraph : public QWidget {
   Q_OBJECT
@@ -77,8 +78,18 @@ public:
 
 protected:
   void paintEvent(QPaintEvent *event) override;
+  void showEvent(QShowEvent *event) override;
+  void hideEvent(QHideEvent *event) override;
 
 private:
+  // Decouple repaints from the append rate: appendData()/pushState() only buffer
+  // and set m_dirty; an internal timer repaints at most ~30 Hz, and only while
+  // the graph is shown. Keeps per-packet callers from forcing a paint each
+  // sample (see docs/ui-rendering-decoupling.md).
+  void markDirty() { m_dirty = true; }
+  QTimer *m_repaintTimer = nullptr;
+  bool m_dirty = false;
+
   std::vector<std::deque<DataPoint>> m_seriesData;
   Mode m_mode = Mode::LinePlot;
   int m_windowSeconds = 5;
