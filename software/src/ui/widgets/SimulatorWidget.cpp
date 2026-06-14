@@ -351,6 +351,7 @@ void SimulatorWidget::buildUi() {
     vehV->setContentsMargins(0, 0, 0, 0);
     vehV->setSpacing(6);
     vehV->addWidget(m_geomEditor);
+    vehV->addWidget(buildSensorPanel());
     vehV->addWidget(buildFaultPanel());
     vehV->addStretch();
 
@@ -753,6 +754,64 @@ void SimulatorWidget::pushFaults() {
   m_sim->sendFaults({m_motorKill[0], m_motorKill[1], m_motorKill[2],
                      m_motorKill[3]},
                     m_imuDropout);
+}
+
+void SimulatorWidget::pushNoise() {
+  if (!m_sim) return;
+  auto& a = m_sensorRow[0];
+  auto& g = m_sensorRow[1];
+  auto& m = m_sensorRow[2];
+  m_sim->sendNoise(a.sigma->value(), a.clip->value(), a.en->isChecked(),
+                   g.sigma->value(), g.clip->value(), g.en->isChecked(),
+                   m.sigma->value(), m.clip->value(), m.en->isChecked());
+}
+
+QWidget* SimulatorWidget::buildSensorPanel() {
+  // Mockup Vehicle ▸ Sensor Models: per-sensor white-noise σ + bias clip, plus
+  // an enable toggle that doubles as a dropout fault. Defaults match the
+  // daemon's SensorNoise (BMX160-class).
+  auto* grp = new QGroupBox(tr("Sensor Models"), this);
+  auto* grid = new QGridLayout(grp);
+  grid->setHorizontalSpacing(10);
+  grid->setVerticalSpacing(4);
+  grid->addWidget(new QLabel(tr("Sensor"), grp), 0, 0);
+  grid->addWidget(new QLabel(tr("On"), grp), 0, 1);
+  grid->addWidget(new QLabel(tr("Noise σ"), grp), 0, 2);
+  grid->addWidget(new QLabel(tr("Bias clip"), grp), 0, 3);
+
+  struct Def { const char* name; double sigma; double clip; int dec; double step; };
+  const Def defs[3] = {
+      {"Accel (m/s²)", 0.03, 0.08, 4, 0.005},
+      {"Gyro (rad/s)", 0.0014, 0.012, 5, 0.0005},
+      {"Mag (µT)", 0.3, 5.0, 3, 0.1},
+  };
+  for (int i = 0; i < 3; ++i) {
+    auto& r = m_sensorRow[i];
+    grid->addWidget(new QLabel(tr(defs[i].name), grp), i + 1, 0);
+    r.en = new QCheckBox(grp);
+    r.en->setChecked(true);
+    r.en->setToolTip(tr("Off = drop this sensor's feed (dropout fault)"));
+    grid->addWidget(r.en, i + 1, 1, Qt::AlignCenter);
+    r.sigma = new QDoubleSpinBox(grp);
+    r.sigma->setRange(0.0, 100.0);
+    r.sigma->setDecimals(defs[i].dec);
+    r.sigma->setSingleStep(defs[i].step);
+    r.sigma->setValue(defs[i].sigma);
+    grid->addWidget(r.sigma, i + 1, 2);
+    r.clip = new QDoubleSpinBox(grp);
+    r.clip->setRange(0.0, 100.0);
+    r.clip->setDecimals(defs[i].dec);
+    r.clip->setSingleStep(defs[i].step);
+    r.clip->setValue(defs[i].clip);
+    grid->addWidget(r.clip, i + 1, 3);
+
+    connect(r.en, &QCheckBox::toggled, this, [this] { pushNoise(); });
+    connect(r.sigma, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+            [this] { pushNoise(); });
+    connect(r.clip, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+            [this] { pushNoise(); });
+  }
+  return grp;
 }
 
 QWidget* SimulatorWidget::buildFaultPanel() {
@@ -1770,6 +1829,8 @@ void SimulatorWidget::startInAppSim() {
     m_sim->sendGeometry(cfg);          // vsim_d physics motor layout
     m_sim->sendWorld(m_worldEditor->config());
     m_sim->sendObstacles(m_worldEditor->config().obstacles);
+    pushNoise();   // apply the configured sensor models (σ / enable)
+    pushFaults();  // re-assert any latched faults across the restart
     loadWorldMeshToRenderer();  // re-loads + ships the collision BVH now m_sim exists
     appendLog("geom", tr("firmware roll-mix %1 (default -+ ; mismatch = inverted "
                           "roll). pushed to firmware + vsim_d.")

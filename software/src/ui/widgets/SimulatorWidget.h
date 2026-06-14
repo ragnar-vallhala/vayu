@@ -198,6 +198,16 @@ class SimulatorWidget : public QWidget {
   QWidget* buildFaultPanel();         // kill-motor / RC-loss / GPS-glitch group
   void pushFaults();                  // current fault flags → SimWorker
 
+  // ---- Sensor models (mockup Vehicle ▸ Sensor Models) ----
+  struct SensorRow {
+    class QCheckBox* en = nullptr;
+    class QDoubleSpinBox* sigma = nullptr;
+    class QDoubleSpinBox* clip = nullptr;
+  };
+  SensorRow m_sensorRow[3];           // 0=accel, 1=gyro, 2=mag
+  QWidget* buildSensorPanel();        // per-sensor noise σ / bias-clip / enable
+  void pushNoise();                   // current sensor model → SimWorker
+
   // ---- Autotune section (drives tools/autotune against the current vehicle) ----
   QComboBox* m_tuneOptimizer = nullptr;
   QSpinBox* m_tuneBudget = nullptr;

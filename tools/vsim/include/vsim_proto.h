@@ -135,6 +135,21 @@ typedef struct {
     int32_t imu_dropout;
 } vsim_ctl_faults_t;
 
+// Body for VSIM_CTL_SET_NOISE: per-sensor synthetic-noise model + enable.
+// enable==0 drops that sensor's feed (the channel is zeroed in the sample),
+// which is also how the UI's sensor-enable toggle injects a dropout fault.
+typedef struct {
+    float   acc_sigma;      // accel white noise RMS [m/s^2]
+    float   acc_bias_clip;  // accel bias random-walk clip [m/s^2]
+    int32_t acc_enable;
+    float   gyr_sigma;      // gyro white noise RMS [rad/s]
+    float   gyr_bias_clip;  // gyro bias clip [rad/s]
+    int32_t gyr_enable;
+    float   mag_sigma;      // mag white noise RMS [uT]
+    float   mag_bias_clip;  // mag bias clip [uT]
+    int32_t mag_enable;
+} vsim_ctl_noise_t;
+
 typedef struct {
     vsim_hdr_t hdr;
     uint32_t subtype;        // one of VSIM_CTL_*
