@@ -86,10 +86,11 @@ private:
   float m_min = -1.0f;
   float m_max = 1.0f;
 
-  // State band (mockup .g-status): rolling status colours, capped at kStateCells.
+  // State band (mockup .g-status): timestamped status colours so the band
+  // scrolls on the SAME time axis as the traces (same toX mapping + window).
   bool m_stateBand = false;
-  std::deque<QColor> m_stateHist;
-  static constexpr int kStateCells = 60;
+  struct StateCell { qint64 ts; QColor color; };
+  std::deque<StateCell> m_stateHist;
 
   // Rolling-σ right axis (mockup dotted σ traces + gvR ticks).
   bool m_sigmaAxis = false;
