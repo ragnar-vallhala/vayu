@@ -46,19 +46,27 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   // Palette + stylesheet are applied in main() via Theme::apply() so
   // every dialog/secondary window picks them up; nothing to do here.
 
-  // Back-end objects
-  m_serial = new SerialManager(this);
-  m_udp = new UdpManager(this);
-  m_protocol = new DroneProtocol(this);
+  // Back-end engine (Phase B): owns the parser + the live transports (serial +
+  // UDP) + the recorder. It runs on a worker thread so the socket is drained the
+  // instant data arrives, regardless of GUI/GL load. Created without a parent so
+  // it can move to the worker; deleted when the worker finishes (a cross-thread
+  // ~QObject from MainWindow's dtor would crash).
+  m_engine = new TelemetryEngine();
+  m_worker = new QThread(this);
+  m_worker->setObjectName("telemetry");
+  m_engine->moveToThread(m_worker);
+  connect(m_worker, &QThread::finished, m_engine, &QObject::deleteLater);
+  m_worker->start();
 
   // If another subsystem (the in-sim RC bridge) claims our serial port, drop
   // the board connection so we never contend for the same tty.
   connect(&PortArbiter::instance(), &PortArbiter::revoked, this,
           [this](const QString &, QObject *owner) {
-            if (owner == this && m_serial && m_serial->isOpen()) {
+            if (owner == this && m_serialOpen) {
               m_logPanel->appendLog(
                   "[GCS] Port taken by the simulator RC — disconnected.");
-              m_serial->close();
+              QMetaObject::invokeMethod(m_engine, "closeLinks",
+                                        Qt::QueuedConnection);
             }
           });
   m_uiTimer = new QTimer(this);
@@ -80,44 +88,46 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     Notify::info(this, replay ? tr("Replay — read-only") : tr("Live"));
   });
 
-  // Wire inbound bytes → protocol → UI through the telemetry-source seam
-  // (Phase-1 1B). The active source forwards serial + UDP (and, in replay,
-  // a recorded .bin) so the decode path never sees the transport.
-  m_liveSource = new LiveSource(m_serial, m_udp, this);
-  m_source = m_liveSource;
-  connect(m_source, &ITelemetrySource::bytesReceived, m_protocol,
-          &DroneProtocol::processData);
-  connect(m_udp, &UdpManager::connectionStateChanged, this,
-          &MainWindow::onConnectionStateChanged);
-  connect(m_udp, &UdpManager::errorOccurred, this, [this](const QString &m) {
-    m_logPanel->appendLog("[UDP] " + m);
-  });
+  // Engine link signals — forwarded from the (worker-thread) transports, so
+  // these arrive auto-queued on the GUI thread. The live byte→parser path is
+  // entirely inside the engine now (serial+UDP drained on the worker).
+  connect(m_engine, &TelemetryEngine::connectionStateChanged, this,
+          [this](bool connected, bool isUdp) {
+            if (isUdp) m_udpOpen = connected;
+            else m_serialOpen = connected;
+            onConnectionStateChanged(m_serialOpen || m_udpOpen);
+          });
+  connect(m_engine, &TelemetryEngine::errorOccurred, this,
+          [this](const QString &m, bool isUdp) {
+            if (isUdp) m_logPanel->appendLog("[UDP] " + m);
+            else onSerialError(m);
+          });
+  // Async result of openSerial/bindUdp (open() can't return across the thread
+  // hop): persist the good setting; release the PortArbiter on serial failure.
+  connect(m_engine, &TelemetryEngine::linkOpened, this,
+          [this](bool ok, const QString &label, bool isUdp) {
+            if (ok) {
+              persistPortBaud();
+              if (isUdp) m_logPanel->appendLog("[UDP] listening on " + label);
+            } else if (!isUdp) {
+              PortArbiter::instance().release(label, this);
+            }
+          });
 
-  connect(m_protocol, &DroneProtocol::imuReceived, this,
-          &MainWindow::onImuReceived);
-  connect(m_protocol, &DroneProtocol::attitudeReceived, this,
-          &MainWindow::onAttitudeReceived);
-  connect(m_protocol, &DroneProtocol::logReceived, this,
+  // Low-rate / event-like protocol signals stay wired directly to the GUI (they
+  // are auto-queued across the thread boundary). Per-packet telemetry is consumed
+  // inside the engine and surfaced via snapshot() at the render rate — onUiTimer.
+  DroneProtocol *proto = m_engine->protocol();
+  connect(proto, &DroneProtocol::logReceived, this,
           &MainWindow::onLogReceived);
-  connect(m_protocol, &DroneProtocol::statusReceived, this,
-          &MainWindow::onStatusReceived);
-  connect(m_protocol, &DroneProtocol::unknownPacket, this,
+  connect(proto, &DroneProtocol::unknownPacket, this,
           [this](const QByteArray &raw) {
             onLogReceived(QString("[raw] ") + QString::fromLatin1(raw));
           });
-
-  connect(m_serial, &SerialManager::connectionStateChanged, this,
-          &MainWindow::onConnectionStateChanged);
-  connect(m_serial, &SerialManager::errorOccurred, this,
-          &MainWindow::onSerialError);
-  connect(m_protocol, &DroneProtocol::heartbeatReceived, this,
+  connect(proto, &DroneProtocol::heartbeatReceived, this,
           &MainWindow::onHeartbeatReceived);
-  connect(m_protocol, &DroneProtocol::timeSyncRequested, this,
+  connect(proto, &DroneProtocol::timeSyncRequested, this,
           &MainWindow::onTimeSyncRequested);
-  connect(m_protocol, &DroneProtocol::rcReceived, this,
-          &MainWindow::onRcReceived);
-  connect(m_protocol, &DroneProtocol::motorReceived, this,
-          &MainWindow::onMotorReceived);
 
   m_rcWidget = new RcChannelsWidget(this);
   m_stackedWidget->addWidget(m_rcWidget);
@@ -136,17 +146,17 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
 
   // Build Packet Analyzer
   m_analyzerWidget = new PacketAnalyzerWidget(this);
-  m_analyzerWidget->setProtocol(m_protocol);
+  m_analyzerWidget->setProtocol(m_engine->protocol());
   m_stackedWidget->addWidget(m_analyzerWidget);
 
   // Wire Protocol and Serial to Analyzer
-  connect(m_protocol, &DroneProtocol::packetReceived, m_analyzerWidget,
+  connect(m_engine->protocol(), &DroneProtocol::packetReceived, m_analyzerWidget,
           &PacketAnalyzerWidget::logRxPacket);
-  connect(m_protocol, &DroneProtocol::unknownPacket, m_analyzerWidget,
+  connect(m_engine->protocol(), &DroneProtocol::unknownPacket, m_analyzerWidget,
           &PacketAnalyzerWidget::logRxPacket);
-  connect(m_serial, &SerialManager::dataSent, m_analyzerWidget,
-          &PacketAnalyzerWidget::logTxPacket);
-  connect(m_udp, &UdpManager::dataSent, m_analyzerWidget,
+  // TX frames for the analyzer come from the engine (serial+UDP dataSent are
+  // forwarded as txPacket from the worker thread → auto-queued here).
+  connect(m_engine, &TelemetryEngine::txPacket, m_analyzerWidget,
           &PacketAnalyzerWidget::logTxPacket);
   connect(m_analyzerWidget, &PacketAnalyzerWidget::backToHomeRequested, this,
           &MainWindow::showHome);
@@ -177,7 +187,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
           });
   connect(m_settingsWidget, &SettingsWidget::autoReconnectChanged, this,
           [this](bool on) {
-            if (m_serial) m_serial->setAutoReconnect(on);
+            QMetaObject::invokeMethod(m_engine, "setAutoReconnect",
+                                      Qt::QueuedConnection, Q_ARG(bool, on));
             SettingsManager::save(m_settingsWidget->getSettings());
           });
   connect(m_settingsWidget, &SettingsWidget::recordOnConnectChanged, this,
@@ -200,14 +211,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
             SettingsManager::save(m_settingsWidget->getSettings());
           });
 
-  // Tee inbound bytes to the recorder (Phase-1 1C). Same source the parser
-  // reads, so the recording is exactly the live stream.
-  connect(m_source, &ITelemetrySource::bytesReceived, this,
-          [this](const QByteArray &b) {
-            if (m_recorder.isOpen())
-              m_recorder.writeFrame(quint64(m_elapsed.nsecsElapsed() / 1000),
-                                    b);
-          });
+  // The recorder now lives inside the engine and tees live bytes on the worker
+  // thread (Phase B), so no GUI-side byte tee is needed.
 
   // Load and apply persistent settings
   GcsSettings savedSettings;
@@ -217,7 +222,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     m_syncTimer->setInterval(savedSettings.syncPeriodMs);
     m_imuPanel->setGraphWindow(savedSettings.graphWindowSec);
     m_imuPanel->setGraphDropout(savedSettings.graphDropoutRate);
-    m_serial->setAutoReconnect(savedSettings.autoReconnect);
+    QMetaObject::invokeMethod(m_engine, "setAutoReconnect", Qt::QueuedConnection,
+                              Q_ARG(bool, savedSettings.autoReconnect));
     m_recordOnConnect = savedSettings.recordOnConnect;
     m_viewHistory.setDepth(savedSettings.recentViewsCount);
   }
@@ -242,7 +248,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   setConnected(false);
   // Build Calibration
   m_calibrationWidget = new CalibrationWidget(this);
-  m_calibrationWidget->setProtocol(m_protocol);
+  m_calibrationWidget->setProtocol(m_engine->protocol());
   m_stackedWidget->addWidget(m_calibrationWidget);
   connect(m_calibrationWidget, &CalibrationWidget::backToHomeRequested, this,
           &MainWindow::showHome);
@@ -260,7 +266,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
 
   // Build Control Loop Plot
   m_controlLoopWidget = new ControlLoopPlot(this);
-  m_controlLoopWidget->setProtocol(m_protocol);
+  m_controlLoopWidget->setProtocol(m_engine->protocol());
   m_stackedWidget->addWidget(m_controlLoopWidget);
   connect(m_controlLoopWidget, &ControlLoopPlot::backToHomeRequested, this,
           &MainWindow::showHome);
@@ -270,10 +276,10 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   m_stackedWidget->addWidget(m_perfWidget);
   connect(m_perfWidget, &PerfWidget::backToHomeRequested, this,
           &MainWindow::showHome);
-  connect(m_protocol, &DroneProtocol::perfReceived, m_perfWidget,
+  connect(m_engine->protocol(), &DroneProtocol::perfReceived, m_perfWidget,
           &PerfWidget::updateReport);
   // On-demand task-name resolution: widget asks, FC replies, widget caches.
-  connect(m_protocol, &DroneProtocol::taskNameReceived, m_perfWidget,
+  connect(m_engine->protocol(), &DroneProtocol::taskNameReceived, m_perfWidget,
           &PerfWidget::setTaskName);
   connect(m_perfWidget, &PerfWidget::requestTaskName, this,
           &MainWindow::sendTaskNameRequest);
@@ -294,14 +300,13 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   // matches SerialManager::dataReceived so the receiver doesn't care
   // which source is feeding it.
   connect(m_simulatorWidget, &SimulatorWidget::dataReceived,
-          m_protocol, &DroneProtocol::processData);
+          m_engine, &TelemetryEngine::feedBytes);
   // AT-1: the autotune tab proposes gains; applying to firmware is an explicit
   // operator action. Turn the proposal into CMD_SET_PID frames and send them
   // over the live link (sendToFc refuses in replay; we also require a link).
   connect(m_simulatorWidget, &SimulatorWidget::applyPidGainsRequested, this,
           [this](const QVector<PidSetCmd> &cmds) {
-            const bool linkUp =
-                m_connected || (m_udp && m_udp->isOpen());
+            const bool linkUp = m_connected;  // serial or UDP up
             if (!linkUp) {
               m_logPanel->appendLog(
                   "[GCS] Apply gains ignored — no flight controller link");
@@ -320,10 +325,9 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
           });
   // Reflect the firmware's reported flight mode (stabilise/acro + RC/GCS source)
   // back onto the simulator's Acro toggle.
-  connect(m_protocol, &DroneProtocol::flightModeReceived,
+  connect(m_engine->protocol(), &DroneProtocol::flightModeReceived,
           m_simulatorWidget, &SimulatorWidget::setFlightModeStatus);
-  connect(m_protocol, &DroneProtocol::flightModeReceived,
-          this, &MainWindow::onFlightModeReceived);
+  // The flight-mode pill itself is driven by the render clock from snapshot().
   // Reflect the in-app sim as "Connected: SIM" in the bottom status bar.
   connect(m_simulatorWidget, &SimulatorWidget::simRunningChanged, this,
           [this](bool running) {
@@ -376,6 +380,15 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
 
 void MainWindow::closeEvent(QCloseEvent *event) {
   saveUiState();
+
+  // Tear down the worker thread before the engine (and its transports/recorder)
+  // are destroyed. exitReplay first so the GUI-side ReplaySource stops feeding.
+  if (m_session.isReplay()) exitReplay();
+  if (m_worker) {
+    m_worker->quit();
+    m_worker->wait();
+  }
+
   QMainWindow::closeEvent(event);
 }
 
@@ -414,7 +427,7 @@ void MainWindow::showPerf() {
 }
 
 void MainWindow::sendTaskNameRequest(int taskId) {
-  if (!m_serial || taskId < 0 || taskId > 255)
+  if (taskId < 0 || taskId > 255)
     return;
   // PERF_TASKNAME (0xA) request frame: payload = [task_id] (1 byte).
   const uint32_t now =
@@ -754,6 +767,9 @@ void MainWindow::onConnectRequested(const QString &port, int baud) {
     m_logPanel->appendLog("[GCS] No port specified");
     return;
   }
+  // Transports live on the worker thread — open/bind via queued invokes. The
+  // outcome arrives async on engine.linkOpened / connectionStateChanged.
+  //
   // UDP transport: type "udp" or "udp:<port>" (default 14555) in the Port field
   // to receive over WiFi from the ESP8266 telemetry bridge. Feeds the very same
   // parser as serial, so every page works unchanged. Baud is ignored.
@@ -765,30 +781,27 @@ void MainWindow::onConnectRequested(const QString &port, int baud) {
       if (p)
         udpPort = p;
     }
-    if (m_udp->bind(udpPort)) {
-      m_logPanel->appendLog(QString("[UDP] listening on :%1").arg(udpPort));
-      persistPortBaud();
-    }
+    m_currentPort = QStringLiteral("udp:%1").arg(udpPort);
+    QMetaObject::invokeMethod(m_engine, "bindUdp", Qt::QueuedConnection,
+                              Q_ARG(int, int(udpPort)));
     return;
   }
   // Claim the port: if the in-sim RC bridge holds it, this revokes it from the
-  // sim (which disconnects), so the two never fight over the same tty.
+  // sim (which disconnects), so the two never fight over the same tty. The
+  // arbiter is a thread-safe singleton, so acquiring here on the GUI thread is
+  // fine; the actual open happens on the worker. linkOpened(false) releases it.
   PortArbiter::instance().acquire(port, this);
-  if (m_serial->open(port, baud)) {
-    persistPortBaud();
-  } else {
-    PortArbiter::instance().release(port, this);
-  }
+  m_currentPort = port;
+  QMetaObject::invokeMethod(m_engine, "openSerial", Qt::QueuedConnection,
+                            Q_ARG(QString, port), Q_ARG(int, baud));
 }
 
 void MainWindow::onDisconnectRequested() {
-  if (m_udp && m_udp->isOpen()) {
-    m_udp->close();
-  }
-  if (m_serial) {
-    PortArbiter::instance().release(m_serial->currentPort(), this);
-    m_serial->close();
-  }
+  // Release the serial port arbiter for whatever port we hold (no-op for UDP),
+  // then close both links on the worker thread.
+  if (m_serialOpen && !m_currentPort.isEmpty())
+    PortArbiter::instance().release(m_currentPort, this);
+  QMetaObject::invokeMethod(m_engine, "closeLinks", Qt::QueuedConnection);
 }
 
 void MainWindow::setSessionMode(SessionMode mode) {
@@ -810,14 +823,15 @@ void MainWindow::enterReplay(const QString &path) {
   // A live recording must not capture replayed frames; stop it first.
   stopRecording();
 
-  // Swap the parser's source: detach live, attach replay. The decode path and
-  // every widget are untouched (Phase-1 1B seam).
-  disconnect(m_liveSource, &ITelemetrySource::bytesReceived, m_protocol,
-             &DroneProtocol::processData);
-  connect(rs, &ITelemetrySource::bytesReceived, m_protocol,
-          &DroneProtocol::processData);
+  // Mute the engine's live feed and attach the replay source. ReplaySource stays
+  // on the GUI thread (its 50 Hz timer feeding the worker is cheap); its bytes
+  // reach the parser via a cross-thread (auto-queued) feedBytes connection. The
+  // decode path and every widget are untouched (Phase-1 1B seam).
+  QMetaObject::invokeMethod(m_engine, "setReplayMode", Qt::QueuedConnection,
+                            Q_ARG(bool, true));
+  connect(rs, &ITelemetrySource::bytesReceived, m_engine,
+          &TelemetryEngine::feedBytes);
   m_replaySource = rs;
-  m_source = rs;
 
   m_replayBar->bind(rs);
   m_replayToolbar->setVisible(true);
@@ -829,11 +843,11 @@ void MainWindow::exitReplay() {
   if (!m_replaySource) return;
 
   m_replaySource->pause();
-  disconnect(m_replaySource, &ITelemetrySource::bytesReceived, m_protocol,
-             &DroneProtocol::processData);
-  connect(m_liveSource, &ITelemetrySource::bytesReceived, m_protocol,
-          &DroneProtocol::processData);
-  m_source = m_liveSource;
+  disconnect(m_replaySource, &ITelemetrySource::bytesReceived, m_engine,
+             &TelemetryEngine::feedBytes);
+  // Unmute the engine's live feed.
+  QMetaObject::invokeMethod(m_engine, "setReplayMode", Qt::QueuedConnection,
+                            Q_ARG(bool, false));
 
   m_replayBar->bind(nullptr);
   m_replayToolbar->setVisible(false);
@@ -853,22 +867,20 @@ void MainWindow::sendToFc(const QByteArray &pkt) {
     return;
   }
 
-  // Route to the active transport: over UDP it goes to the ESP bridge, which
-  // writes it out to the FC's UART; over serial it's the wired path.
-  if (m_udp && m_udp->isOpen())
-    m_udp->write(pkt);
-  else if (m_serial && m_serial->isOpen())
-    m_serial->write(pkt);  // was a recursive sendToFc() call — infinite loop
+  // The transports live on the worker thread; route the write there. The engine
+  // picks the active transport (UDP-else-serial).
+  QMetaObject::invokeMethod(m_engine, "send", Qt::QueuedConnection,
+                            Q_ARG(QByteArray, pkt));
 }
 
 void MainWindow::onArmClicked() {
-  if (!m_serial || !m_connected) {
+  if (!m_connected) {
     m_logPanel->appendLog("[GCS] ARM/DISARM ignored — not connected");
     return;
   }
 
-  // Toggle on the last-known FC state (driven by telemetry in
-  // onStatusReceived): armed/failsafe -> CMD_DISARM, otherwise CMD_ARM.
+  // Toggle on the last-known FC state (m_armed is synced from the engine
+  // snapshot by the render clock): armed/failsafe -> CMD_DISARM, else CMD_ARM.
   // Both commands are idempotent on the firmware side, so a stale m_armed
   // is harmless. The firmware checks the arm preconditions (throttle low,
   // RC healthy, estimator OK) on its next RC frame.
@@ -906,56 +918,17 @@ void MainWindow::onToggle3d(bool checked) {
 // Data Slots
 // ---------------------------------------------------------------------------
 
-void MainWindow::onImuReceived(const ImuData &data) {
-  m_latestImu = data;
-  m_lastImuMs = QDateTime::currentMSecsSinceEpoch();
-  if (m_simulatorWidget) m_simulatorWidget->hudSetImu(data.acc, data.gyr);
-  ++m_pktCount;
-}
-
-void MainWindow::onAttitudeReceived(const AttitudeData &data) {
-  // Cache only — the attitude instruments (2D ADI + 3D airframe) are repainted
-  // at the fixed UI-timer rate from m_latestAtt, not once per packet. See
-  // docs/ui-rendering-decoupling.md.
-  m_latestAtt = data;
-  m_lastAttMs = QDateTime::currentMSecsSinceEpoch();
-  m_attStats[0].push(data.roll);
-  m_attStats[1].push(data.pitch);
-  m_attStats[2].push(data.yaw);
-  ++m_pktCount;
-}
-
 void MainWindow::onLogReceived(const QString &msg) {
+  // Log lines are sparse and stay event-wired; the wire-packet counter lives in
+  // the TelemetryEngine now (counted per packet, surfaced via snapshot()).
   m_logPanel->appendLog(msg);
-  ++m_pktCount;
 }
 
-void MainWindow::onStatusReceived(const QString &msg) {
-  // Track the FC's armed state from genuine state-name status strings only
-  // (statusReceived also carries log / other strings). This drives the ARM
-  // button label so it reflects the vehicle, not the last click. ARMED /
-  // IN_AIR / FAILSAFE all show DISARM (so the operator can always recover).
-  static const QStringList kStateNames = {
-      "UNINITIALIZED", "INIT",     "STANDBY",    "PREARM",     "ARMED",
-      "IN_AIR",        "FAILSAFE", "TERMINATED", "CALIBRATING"};
-  // PACKET_TYPE_SYSTEM_STATUS is multiplexed across origins (SYS_STATE,
-  // HEALTH counters, control data, ...). Only the SYS_STATE origin decodes to
-  // a real state name; the binary HEALTH counters get stringified to
-  // non-printable bytes upstream, which would render in the pill as a tofu
-  // box. Ignore anything that isn't a recognised state name.
-  if (!kStateNames.contains(msg)) {
-    ++m_pktCount;
-    return;
-  }
+// Firmware system-state pill (attitude page) + dashboard graph state band + sim
+// HUD. Render-clock driven: called from onUiTimer only when the snapshot's
+// vehicleState changes (the kStateNames filter already happened in the engine).
+void MainWindow::applyVehicleStatePill(const QString &msg) {
   if (m_simulatorWidget) m_simulatorWidget->hudSetStatus(msg);
-  {
-    const bool armedish =
-        (msg == "ARMED" || msg == "IN_AIR" || msg == "FAILSAFE");
-    if (armedish != m_armed) {
-      m_armed = armedish;
-      if (m_toolbar) m_toolbar->setArmState(m_armed);
-    }
-  }
 
   // Drive the dashboard graph state band (mockup .g-status SCOL).
   if (m_imuPanel) {
@@ -993,10 +966,11 @@ void MainWindow::onStatusReceived(const QString &msg) {
     }
     m_statusLabel->setStyleSheet(style);
   }
-  ++m_pktCount;
 }
 
-void MainWindow::onFlightModeReceived(quint8 mode, quint8 source) {
+// Flight-mode pill (STABILISE/ACRO + RC/GCS). Render-clock driven, called only
+// when the snapshot's mode/source changes.
+void MainWindow::applyFlightModePill(quint8 mode, quint8 source) {
   if (!m_flightModeLabel) return;
   const bool acro = (mode == 1);
   const bool gcs = (source == 1);
@@ -1009,20 +983,6 @@ void MainWindow::onFlightModeReceived(quint8 mode, quint8 source) {
   else       // stabilise: blue/calm
     style += " color: #61AFEF; background: #1A2A3A; border: 1px solid #61AFEF;";
   m_flightModeLabel->setStyleSheet(style);
-  ++m_pktCount;
-}
-
-void MainWindow::onRcReceived(const RcData &data) {
-  m_rcWidget->updateChannels(data);
-  ++m_pktCount;
-}
-
-void MainWindow::onMotorReceived(const MotorData &data) {
-  QVector<float> speeds;
-  for (int i = 0; i < 4; ++i)
-    speeds.append(data.speeds[i]);
-  m_motorWidget->setMotorSpeeds(speeds);
-  ++m_pktCount;
 }
 
 // ---------------------------------------------------------------------------
@@ -1032,7 +992,7 @@ void MainWindow::onMotorReceived(const MotorData &data) {
 void MainWindow::onConnectionStateChanged(bool connected) {
   setConnected(connected);
   const QString msg =
-      connected ? QString("[GCS] Connected to %1").arg(m_serial->currentPort())
+      connected ? QString("[GCS] Connected to %1").arg(m_currentPort)
                 : "[GCS] Disconnected";
   m_logPanel->appendLog(msg);
 
@@ -1045,28 +1005,27 @@ void MainWindow::onConnectionStateChanged(bool connected) {
 }
 
 void MainWindow::startRecording() {
-  if (m_recorder.isOpen()) return;  // already recording this session
+  if (!m_recordingPath.isEmpty()) return;  // already recording this session
   QDir logDir(QDir::home().filePath("vayu-logs"));
   if (!logDir.exists()) logDir.mkpath(".");
   const QString stamp =
       QDateTime::currentDateTime().toString("yyyyMMdd-hhmmss");
   const QString path = logDir.filePath(QString("rec_%1.bin").arg(stamp));
 
-  // protocolVersion is a forward-compat field; no wire-version constant
-  // exists yet, so record 1 and let replay degrade gracefully.
-  if (m_recorder.open(path, /*protocolVersion=*/1,
-                      quint64(QDateTime::currentMSecsSinceEpoch()))) {
-    m_logPanel->appendLog("[GCS] Recording telemetry → " + path);
-  } else {
-    m_logPanel->appendLog("[GCS] Could not open recording file: " + path);
-  }
+  // The recorder lives on the worker thread; open it there. protocolVersion is a
+  // forward-compat field; record 1 and let replay degrade gracefully.
+  QMetaObject::invokeMethod(
+      m_engine, "startRecording", Qt::QueuedConnection, Q_ARG(QString, path),
+      Q_ARG(qulonglong, qulonglong(QDateTime::currentMSecsSinceEpoch())));
+  m_recordingPath = path;
+  m_logPanel->appendLog("[GCS] Recording telemetry → " + path);
 }
 
 void MainWindow::stopRecording() {
-  if (!m_recorder.isOpen()) return;
-  const QString path = m_recorder.path();
-  m_recorder.close();
-  m_logPanel->appendLog("[GCS] Stopped recording → " + path);
+  if (m_recordingPath.isEmpty()) return;
+  QMetaObject::invokeMethod(m_engine, "stopRecording", Qt::QueuedConnection);
+  m_logPanel->appendLog("[GCS] Stopped recording → " + m_recordingPath);
+  m_recordingPath.clear();
 }
 
 void MainWindow::onSerialError(const QString &msg) {
@@ -1084,7 +1043,7 @@ void MainWindow::setConnected(bool on) {
   // left interactive so the last known data stays visible.
   if (m_calibrationWidget) m_calibrationWidget->setConnected(on);
 
-  if (m_toolbar)   m_toolbar->setConnected(on, m_serial->currentPort());
+  if (m_toolbar)   m_toolbar->setConnected(on, m_currentPort);
   refreshConnectionPill();
 
   // ARM/DISARM is reachable whenever the link is up; the firmware enforces
@@ -1121,7 +1080,14 @@ void MainWindow::setConnected(bool on) {
   }
 
   if (on) {
-    m_pktCount = 0;
+    // Re-baseline the status-bar packet count to this connection and reset the
+    // rate window + pill edge-guards so the next packets re-drive the pills.
+    m_pktBase = m_engine->snapshot().packetCount;
+    m_pktAtLastRate = m_pktBase;
+    m_lastRateTime = 0;
+    m_lastPushedState.clear();
+    m_lastFlightMode = -1;
+    m_lastFlightSrc = -1;
     m_syncTimer->start(5000);
     onTimeSyncRequested();
   } else {
@@ -1134,7 +1100,7 @@ void MainWindow::refreshConnectionPill() {
   if (!m_statusBar) return;
   // A real serial link wins; otherwise surface the in-app sim as SIM.
   if (m_connected) {
-    m_statusBar->setConnectionStatus(true, m_serial->currentPort());
+    m_statusBar->setConnectionStatus(true, m_currentPort);
   } else if (m_simRunning) {
     m_statusBar->setConnectionStatus(true, QStringLiteral("SIM"));
   } else {
@@ -1150,43 +1116,87 @@ void MainWindow::onUiTimer() {
   static int tick = 0;
   tick++;
 
-  // Inbound packet rate (Hz) for the status bar — sampled once a second from
-  // the running packet counter (mockup "Rate: N Hz").
+  // The render clock: pull one snapshot of the whole vehicle state and push it
+  // to every high-rate widget. No widget is driven at the packet rate anymore —
+  // per-packet updates happen inside the TelemetryEngine; the UI samples here at
+  // ~30 Hz. See docs/telemetry-engine-architecture.md (Phase A).
+  const VehicleState s = m_engine->snapshot();
   const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+
+  // Inbound packet rate (Hz) for the status bar — sampled once a second from the
+  // engine's monotonic wire-packet counter (mockup "Rate: N Hz").
   if (m_lastRateTime == 0) m_lastRateTime = nowMs;
   if (nowMs - m_lastRateTime >= 1000) {
     const double hz =
-        (m_pktCount - m_pktAtLastRate) * 1000.0 / (nowMs - m_lastRateTime);
+        (s.packetCount - m_pktAtLastRate) * 1000.0 / (nowMs - m_lastRateTime);
     if (m_statusBar) m_statusBar->setPacketRate(hz);
-    m_pktAtLastRate = m_pktCount;
+    m_pktAtLastRate = s.packetCount;
     m_lastRateTime = nowMs;
   }
+  const int pktShown = static_cast<int>(s.packetCount - m_pktBase);
 
-  // Update IMU panel with latest cached data. Mark it unavailable (numeric
-  // labels + temp gauge show "-") once the feed goes stale / was never seen.
+  // A telemetry feed is present when connected / running the in-app sim / in
+  // replay. The sparse pills (state, flight-mode, arm) only follow the snapshot
+  // while a feed is active; otherwise setConnected() owns them.
+  const bool feedActive = m_connected || m_simRunning || m_session.isReplay();
+
+  // IMU panel — mark unavailable (numeric labels + temp gauge show "-") once the
+  // feed goes stale / was never seen. Mirror the IMU onto the sim FPV HUD.
   const bool imuFresh =
-      m_lastImuMs != 0 && (nowMs - m_lastImuMs) < kTelemetryStaleMs;
-  m_imuPanel->updateImu(m_latestImu, imuFresh);
+      s.lastImuMs != 0 && (nowMs - s.lastImuMs) < kTelemetryStaleMs;
+  m_imuPanel->updateImu(s.imu, imuFresh);
+  if (m_simulatorWidget) m_simulatorWidget->hudSetImu(s.imu.acc, s.imu.gyr);
 
   // Attitude instruments (2D ADI + 3D airframe) render here at the timer rate
-  // from the cached sample, decoupled from the packet rate (was: repainted per
-  // attitude packet → GL-rate coupling). See docs/ui-rendering-decoupling.md.
+  // from the snapshot, decoupled from the packet rate.
   const bool attFresh =
-      m_lastAttMs != 0 && (nowMs - m_lastAttMs) < kTelemetryStaleMs;
+      s.lastAttMs != 0 && (nowMs - s.lastAttMs) < kTelemetryStaleMs;
   if (attFresh) {
-    m_attitude->setAttitude(m_latestAtt);
-    m_drone3d->setAttitude(m_latestAtt);
+    m_attitude->setAttitude(s.attitude);
+    m_drone3d->setAttitude(s.attitude);
+  }
+
+  // RC + motors: push the latest snapshot while the feed is live (the panels'
+  // history graphs buffer + repaint internally). Sampled at the render rate, not
+  // per packet.
+  const bool rcFresh =
+      s.lastRcMs != 0 && (nowMs - s.lastRcMs) < kTelemetryStaleMs;
+  if (rcFresh) m_rcWidget->updateChannels(s.rc);
+  const bool motorFresh =
+      s.lastMotorMs != 0 && (nowMs - s.lastMotorMs) < kTelemetryStaleMs;
+  if (motorFresh) {
+    QVector<float> speeds;
+    for (int i = 0; i < 4; ++i) speeds.append(s.motors.speeds[i]);
+    m_motorWidget->setMotorSpeeds(speeds);
+  }
+
+  // Sparse pills + arm state — edge-guarded so we only restyle on change.
+  if (feedActive) {
+    if (!s.vehicleState.isEmpty() && s.vehicleState != m_lastPushedState) {
+      m_lastPushedState = s.vehicleState;
+      applyVehicleStatePill(s.vehicleState);
+    }
+    if (s.armed != m_armed) {
+      m_armed = s.armed;
+      if (m_toolbar) m_toolbar->setArmState(m_armed);
+    }
+    if (s.flightMode != m_lastFlightMode ||
+        s.flightModeSource != m_lastFlightSrc) {
+      m_lastFlightMode = s.flightMode;
+      m_lastFlightSrc = s.flightModeSource;
+      applyFlightModePill(s.flightMode, s.flightModeSource);
+    }
   }
 
   // Throttled updates for numeric labels (update every 4 ticks)
   if (tick % 4 != 0) {
     // Still update packet count and live blinker every tick for smoothness
-    if (m_statusBar) m_statusBar->setPacketCount(m_pktCount);
+    if (m_statusBar) m_statusBar->setPacketCount(pktShown);
     updateLiveBlinker();
     return;
   }
 
-  // Update attitude numeric labels (stable 5Hz update)
+  // Update attitude numeric labels (stable ~7.5 Hz update)
   auto fmtVal = [](float v) {
     return QString("%1°").arg(static_cast<double>(v), 7, 'f', 2);
   };
@@ -1198,18 +1208,18 @@ void MainWindow::onUiTimer() {
   // / link down) so an absent feed is distinct from a real 0.00°. (attFresh is
   // computed once per tick above, shared with the instrument repaint.)
   if (attFresh) {
-    m_rollLabel->setText(fmtVal(m_latestAtt.roll));
-    m_pitchLabel->setText(fmtVal(m_latestAtt.pitch));
-    m_yawLabel->setText(fmtVal(m_latestAtt.yaw));
-    m_rollStd->setText(fmtStd(m_attStats[0].stdDev()));
-    m_pitchStd->setText(fmtStd(m_attStats[1].stdDev()));
-    m_yawStd->setText(fmtStd(m_attStats[2].stdDev()));
+    m_rollLabel->setText(fmtVal(s.attitude.roll));
+    m_pitchLabel->setText(fmtVal(s.attitude.pitch));
+    m_yawLabel->setText(fmtVal(s.attitude.yaw));
+    m_rollStd->setText(fmtStd(s.rollStd));
+    m_pitchStd->setText(fmtStd(s.pitchStd));
+    m_yawStd->setText(fmtStd(s.yawStd));
   } else {
     for (QLabel *l : {m_rollLabel, m_pitchLabel, m_yawLabel}) l->setText("-");
     for (QLabel *l : {m_rollStd, m_pitchStd, m_yawStd}) l->setText("± σ -");
   }
 
-  if (m_statusBar) m_statusBar->setPacketCount(m_pktCount);
+  if (m_statusBar) m_statusBar->setPacketCount(pktShown);
   updateLiveBlinker();
 }
 
@@ -1232,7 +1242,8 @@ void MainWindow::updateLiveBlinker() {
 }
 
 void MainWindow::onHeartbeatReceived(uint64_t timestamp, uint8_t deviceId) {
-  ++m_pktCount;
+  // The wire-packet counter lives in the TelemetryEngine now (heartbeat packets
+  // are counted there via packetReceived).
   m_lastHbTime = QDateTime::currentMSecsSinceEpoch();
 
   // Flash the LIVE label bright; the UI tick will fade it back.
