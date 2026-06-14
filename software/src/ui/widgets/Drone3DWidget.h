@@ -5,6 +5,12 @@
 #include <QOpenGLWidget>
 #include <QVector3D>
 
+class QTimer;
+
+// Stylised quad-copter attitude view, mirroring the UI mockup's #adi3d: an
+// X-frame seen from a tilted top-down angle — two crossed arms, four motor pods
+// (front red, rear green), an accent "nose" heading marker and spinning props,
+// over a soft ground shadow. Banks/pitches/yaws with the live attitude.
 class Drone3DWidget : public QOpenGLWidget {
   Q_OBJECT
 
@@ -15,19 +21,13 @@ public:
 
 protected:
   void paintEvent(QPaintEvent *event) override;
-  void resizeEvent(QResizeEvent *event) override;
+  void showEvent(QShowEvent *event) override;
+  void hideEvent(QHideEvent *event) override;
 
 private:
-  struct Face {
-    QVector3D points[4];
-    QColor color;
-  };
-
-  void drawCube(QPainter &p, const QMatrix4x4 &mvp, float w, float h, float d,
-                const QColor &color);
-  QPointF project(const QVector3D &v, const QMatrix4x4 &mvp);
-
   float m_roll = 0.0f;
   float m_pitch = 0.0f;
   float m_yaw = 0.0f;
+  float m_propPhase = 0.0f;  // degrees, advanced by the spin timer
+  QTimer *m_spinTimer = nullptr;
 };
