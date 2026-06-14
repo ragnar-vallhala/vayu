@@ -55,8 +55,12 @@ QMenu {
     color: #ABB2BF;
     border: 1px solid #3E4452;
 }
-QMenu::item             { padding: 4px 24px 4px 20px; }
+QMenu::item             { padding: 4px 24px 4px 30px; }
 QMenu::item:selected    { background: #3E4452; color: #FFFFFF; }
+/* Without an explicit ::icon rule the stylesheet style jams the action icon
+   against the left frame (the glyph nearly clips). Nudge it inward so it sits
+   centred in the gutter, with the item's left padding clearing the text. */
+QMenu::icon             { left: 8px; }
 
 QToolBar {
     background: #1A1D27;
