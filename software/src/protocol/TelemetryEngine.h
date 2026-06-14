@@ -60,6 +60,12 @@ public slots:
   void startRecording(const QString &path, qulonglong startWallClockMs);
   void stopRecording();
 
+  // Live, packet-type-filtered export to a replayable .bin. `typeMask` is a
+  // bitmask of packet types to keep (bit N => packet type N). Each matching
+  // wire packet is written verbatim, so the result replays like a recording.
+  void startExport(const QString &path, int typeMask);
+  void stopExport();
+
 signals:
   // Forwarded to the GUI (auto-queued — the engine lives on the worker thread).
   void connectionStateChanged(bool connected, bool isUdp);
@@ -69,6 +75,8 @@ signals:
   void linkOpened(bool ok, const QString &label, bool isUdp);
   // TX frames (serial + UDP dataSent) for the packet analyzer.
   void txPacket(const QByteArray &pkt);
+  // Live export started/stopped (path is empty when stopped) — drives the menu.
+  void exportStateChanged(bool active, const QString &path);
 
 private:
   // Live transport bytes: tee to the recorder, then (unless replaying) parse.
@@ -81,6 +89,11 @@ private:
   RecordSink m_recorder;
   QElapsedTimer m_elapsed;     // monotonic base for record-frame timestamps
   bool m_acceptLive = true;    // false while replaying (live feed muted)
+
+  // Live, packet-type-filtered export (separate from the full recorder).
+  RecordSink m_exporter;
+  bool m_exporting = false;
+  quint16 m_exportMask = 0;    // bit N set => keep packet type N
 
   mutable QMutex m_mutex;      // guards m_state (snapshot() ↔ updaters)
   VehicleState m_state;        // canonical store
