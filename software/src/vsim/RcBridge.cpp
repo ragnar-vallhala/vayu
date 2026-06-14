@@ -96,7 +96,14 @@ void RcBridge::setMapping(int func, int axis, bool invert) {
 
 RcBridge::~RcBridge() {
   requestStop();
-  if (isRunning()) wait(500);
+  // Must be fully stopped before ~QThread, else Qt qFatal()s with "QThread:
+  // Destroyed while thread is still running" (the SIGABRT seen on app exit if
+  // the run loop is mid-blocking-read). Force it down if it won't stop, same as
+  // the sim/autotune threads do.
+  if (isRunning() && !wait(500)) {
+    terminate();
+    wait(1000);
+  }
   if (master_fd_ >= 0) ::close(master_fd_);
 }
 
