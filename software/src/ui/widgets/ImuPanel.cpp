@@ -1,16 +1,11 @@
 #include "ImuPanel.h"
 
-#include "core/CsvExport.h"
-#include "core/Notify.h"
-#include "core/ui/Buttons.h"
 #include "core/ui/Icons.h"
 
 #include <QColor>
-#include <QDateTime>
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QLabel>
-#include <QPushButton>
 #include <QVBoxLayout>
 
 namespace {
@@ -39,7 +34,8 @@ ImuPanel::ImuPanel(QWidget *parent) : QWidget(parent) {
   root->setContentsMargins(6, 6, 6, 6);
   root->setSpacing(6);
 
-  // ---- Header: title + Export CSV (mockup IMU TELEMETRY · Export CSV) ----
+  // ---- Header: icon + title (Export CSV removed — whole-session capture is
+  // handled system-wide via Settings → record-on-connect) ----
   auto *headerRow = new QHBoxLayout();
   auto *icon = new QLabel(this);
   icon->setPixmap(ui::svgPixmap(ui::Icon::Imu, QColor(0x61, 0xAF, 0xEF), 16));
@@ -55,22 +51,6 @@ ImuPanel::ImuPanel(QWidget *parent) : QWidget(parent) {
       "color: #61AFEF; font-weight: bold; font-size: 13px;");
   headerRow->addWidget(m_header);
   headerRow->addStretch();
-  auto *exportBtn = new ui::GhostButton(tr("Export CSV"), this);
-  exportBtn->setToolTip(
-      tr("Save the currently-buffered IMU traces (acc/gyr/mag) to a CSV file"));
-  connect(exportBtn, &QPushButton::clicked, this, [this] {
-    const QString stamp =
-        QDateTime::currentDateTime().toString("yyyyMMdd-HHmmss");
-    const QString path = CsvExport::promptAndWriteCombined(
-        this, QString("imu-%1.csv").arg(stamp),
-        {
-          {m_accG, {"acc_x", "acc_y", "acc_z"}},
-          {m_gyrG, {"gyr_x", "gyr_y", "gyr_z"}},
-          {m_magG, {"mag_x", "mag_y", "mag_z"}},
-        });
-    if (!path.isEmpty()) Notify::ok(this, tr("Wrote %1").arg(path));
-  });
-  headerRow->addWidget(exportBtn);
   root->addLayout(headerRow);
 
   // ---- Body: 2×2 graph grid (left) + temp/battery gauges (right) ----

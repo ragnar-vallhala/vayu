@@ -9,7 +9,7 @@
 #include <QWidget>
 
 /**
- * Dashboard IMU telemetry panel (mockup parity): a header (title + Export CSV),
+ * Dashboard IMU telemetry panel (mockup parity): a header (icon + title),
  * a 2×2 grid of self-contained graphs — Accelerometer, Gyroscope, Magnetometer
  * and Baro Altitude — beside a right-hand column with the device-temp + battery
  * vertical gauges, with a vehicle-state legend under the grid. Each graph plots
