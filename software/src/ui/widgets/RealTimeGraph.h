@@ -22,6 +22,11 @@ public:
   void setDropoutRate(double rate);
   void setColor(int index, const QColor &color);
   void setPenStyle(int index, Qt::PenStyle style);
+  // In-graph chrome (mockup .graph): a bold title + unit shown top-left and a
+  // top-right legend of the per-series names. Drawn as dim overlays — the
+  // traces still fill the whole rect, no margins reserved.
+  void setTitle(const QString &title, const QString &unit = QString());
+  void setSeriesLabels(const QStringList &labels);
   // Pin the Y axis to a fixed [lo, hi] range. Disables the automatic min/max
   // tracking (and dynamic-Y) so the scale stays put — e.g. 0..100 for a
   // percentage. Pass it once after construction.
@@ -82,6 +87,9 @@ private:
   bool m_fixedRange = false; // true once setYRange() pins m_min/m_max
   std::vector<QColor> m_colors;
   std::vector<Qt::PenStyle> m_penStyles;
+  QString m_title;
+  QString m_unit;
+  QStringList m_seriesLabels;
 
   float m_min = -1.0f;
   float m_max = 1.0f;

@@ -58,6 +58,17 @@ void RealTimeGraph::setMode(Mode mode) {
   update();
 }
 
+void RealTimeGraph::setTitle(const QString &title, const QString &unit) {
+  m_title = title;
+  m_unit = unit;
+  update();
+}
+
+void RealTimeGraph::setSeriesLabels(const QStringList &labels) {
+  m_seriesLabels = labels;
+  update();
+}
+
 void RealTimeGraph::setWindowSeconds(int seconds) {
   m_windowSeconds = std::max(1, seconds);
   pruneData();
@@ -202,6 +213,17 @@ void RealTimeGraph::paintEvent(QPaintEvent *event) {
   auto toX = [&](qint64 ts) {
     return width() * (ts - startTime) / (m_windowSeconds * 1000.0);
   };
+
+  // Title (bold, accent) — drawn even on a dead/NA graph so each cell is still
+  // identifiable; the rest of the chrome only paints once there's live data.
+  if (!m_title.isEmpty()) {
+    QFont tf = painter.font();
+    tf.setPointSize(8);
+    tf.setBold(true);
+    painter.setFont(tf);
+    painter.setPen(QColor(0x61, 0xAF, 0xEF));
+    painter.drawText(4, 13, m_title);
+  }
 
   // No data yet, or the newest sample has scrolled off the left of the rolling
   // window (the feed stopped) → the plot has nothing live to show. Mark it with
@@ -355,20 +377,52 @@ void RealTimeGraph::paintEvent(QPaintEvent *event) {
       }
     }
 
-    // Grid labels
+    // ---- In-graph chrome (mockup .graph): y-ticks, title, unit, legend, time
+    // axis. All dim overlays; the traces fill the full rect underneath. ----
     QFont font = painter.font();
     font.setPointSize(7);
     painter.setFont(font);
-    painter.setPen(QColor(171, 178, 191, 150));
 
-    auto drawYLabel = [&](float val, int yPos) {
-      QString label = QString::number(static_cast<double>(val), 'f', 4);
-      painter.drawText(2, yPos, label);
+    auto fmt = [](float v) {
+      return QString::number(double(v), 'f',
+                             std::abs(v - std::round(v)) < 0.05f ? 0 : 2);
     };
 
-    drawYLabel(drawMax, 10);
-    drawYLabel(drawMin, height() - 2);
-    drawYLabel((drawMax + drawMin) / 2.0f, height() / 2 - 2);
+    // Y-axis tick labels (left edge). Shift the top one down when a title sits
+    // in the corner so they don't collide.
+    painter.setPen(QColor(171, 178, 191, 150));
+    const int yTop = m_title.isEmpty() ? 10 : 24;
+    painter.drawText(3, yTop, fmt(drawMax));
+    painter.drawText(3, height() / 2 + 3, fmt((drawMax + drawMin) / 2.0f));
+    painter.drawText(3, height() - 16, fmt(drawMin));
+    // (title is drawn earlier, above the NA check)
+
+    // Legend (top-right): coloured series names right-to-left, then a dotted σ.
+    {
+      QFontMetrics fm(font);
+      int lx = width() - 6;
+      if (m_sigmaAxis) {
+        painter.setPen(QColor(150, 150, 150));
+        lx -= fm.horizontalAdvance(QStringLiteral("σ")) + 7;
+        painter.drawText(lx, 12, QStringLiteral("σ"));
+      } else if (!m_unit.isEmpty()) {
+        painter.setPen(QColor(120, 128, 142));
+        lx -= fm.horizontalAdvance(m_unit) + 7;
+        painter.drawText(lx, 12, m_unit);
+      }
+      for (int i = m_seriesLabels.size() - 1; i >= 0; --i) {
+        painter.setPen(i < static_cast<int>(m_colors.size()) ? m_colors[i]
+                                                             : QColor(200, 200, 200));
+        lx -= fm.horizontalAdvance(m_seriesLabels[i]) + 7;
+        painter.drawText(lx, 12, m_seriesLabels[i]);
+      }
+    }
+
+    // Time axis (bottom): -Ns at the left, 0s at the right.
+    painter.setPen(QColor(120, 128, 142));
+    painter.drawText(3, height() - 3, QString("-%1s").arg(m_windowSeconds));
+    painter.drawText(QRectF(0, height() - 13, width() - 4, 11),
+                     Qt::AlignRight | Qt::AlignVCenter, QStringLiteral("0s"));
 
   } else {
     // Horizontal Bar mode (Waterfall) - Only supports first series for now
