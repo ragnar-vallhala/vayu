@@ -21,7 +21,7 @@ RealTimeGraph *makeAxisGraph(QWidget *parent, const QString &title,
   // tick labels follow the live range.
   g->setDynamicYAxis(true);
   g->setSigmaAxis(true, sigmaMax);  // grows to fit (RealTimeGraph::appendSigma)
-  g->setStateBandEnabled(true);
+  g->setStateBandEnabled(false);    // off by default (Settings can enable it)
   g->setTitle(title, unit);
   g->setSeriesLabels({"X", "Y", "Z"});
   g->setMinimumHeight(120);
@@ -70,7 +70,7 @@ ImuPanel::ImuPanel(QWidget *parent) : QWidget(parent) {
   m_baroG = new RealTimeGraph(this, 1);
   m_baroG->setColor(0, QColor("#61AFEF"));
   m_baroG->setDynamicYAxis(true);
-  m_baroG->setStateBandEnabled(true);
+  m_baroG->setStateBandEnabled(false);  // off by default (Settings can enable it)
   m_baroG->setTitle(tr("Baro Altitude"), QStringLiteral("m"));
   m_baroG->setSeriesLabels({"ALT"});
   m_baroG->setMinimumHeight(120);
@@ -164,4 +164,24 @@ void ImuPanel::setGraphWindow(int seconds) {
 void ImuPanel::setGraphDropout(double rate) {
   for (RealTimeGraph *g : {m_accG, m_gyrG, m_magG, m_baroG})
     g->setDropoutRate(rate);
+}
+
+void ImuPanel::setSigmaTraces(bool on) {
+  // Only the 3-axis graphs feed σ; baro has no σ overlay.
+  for (RealTimeGraph *g : {m_accG, m_gyrG, m_magG}) g->setSigmaEnabled(on);
+}
+
+void ImuPanel::setStateBand(bool on) {
+  for (RealTimeGraph *g : {m_accG, m_gyrG, m_magG, m_baroG})
+    g->setStateBandEnabled(on);
+}
+
+void ImuPanel::setTraceWidth(double w) {
+  for (RealTimeGraph *g : {m_accG, m_gyrG, m_magG, m_baroG})
+    g->setTraceWidth(w);
+}
+
+void ImuPanel::setAntialias(bool on) {
+  for (RealTimeGraph *g : {m_accG, m_gyrG, m_magG, m_baroG})
+    g->setAntialias(on);
 }

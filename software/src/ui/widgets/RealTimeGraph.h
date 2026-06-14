@@ -48,7 +48,15 @@ public:
   // ticks). appendSigma() feeds the σ sample for a series; the trace is drawn
   // dotted at reduced opacity in the series colour.
   void setSigmaAxis(bool on, float sigmaMax);
+  // Toggle the σ overlay on/off without disturbing the configured σ-axis max
+  // (used by the Settings "Rolling σ traces" switch).
+  void setSigmaEnabled(bool on);
   void appendSigma(float sigma, int index = 0);
+
+  // ---- Settings ▸ Plots & Graphs -------------------------------------------
+  // Pen width for the trace lines, and whether painting is antialiased.
+  void setTraceWidth(double w);
+  void setAntialias(bool on);
 
   // ---- CSV export (FR-LOG-04 / Phase-1 1d) ---------------------------------
   //
@@ -89,6 +97,13 @@ private:
   void markDirty() { m_dirty = true; }
   QTimer *m_repaintTimer = nullptr;
   bool m_dirty = false;
+  // Set by paintEvent when it draws the "NA" (no-data / scrolled-off) frame, so
+  // the repaint pump can stop animating once a dead trace has fully aged out.
+  bool m_lastPaintStale = false;
+  // Repaint-pump ticks since the last sample. The pump animates the residual
+  // scrolling out; once this exceeds one window's worth of ticks it flushes the
+  // buffers to "NA" (see the timer lambda). Reset on every new sample.
+  int m_idleTicks = 0;
 
   std::vector<std::deque<DataPoint>> m_seriesData;
   Mode m_mode = Mode::LinePlot;
@@ -104,6 +119,10 @@ private:
 
   float m_min = -1.0f;
   float m_max = 1.0f;
+
+  // Plots & Graphs appearance (Settings-driven; defaults match the mockup).
+  double m_traceWidth = 1.4;
+  bool m_antialias = false;
 
   // State band (mockup .g-status): timestamped status colours so the band
   // scrolls on the SAME time axis as the traces (same toX mapping + window).

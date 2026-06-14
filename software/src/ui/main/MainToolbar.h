@@ -53,6 +53,10 @@ public:
   int     currentBaud() const;
   void    setPort(const QString &path);
   void    setBaud(int baud);
+  // Select Serial (0) / UDP (1); swaps the visible inputs (mockup default).
+  void    setTransport(int index);
+  // Pre-fill the UDP bind-port field (used when UDP is the launch default).
+  void    setUdpPort(int port);
 
   // ---- LIVE blinker handle for heartbeat fade ------------------------------
   // The MainStatusBar / heartbeat handler repaints this label every

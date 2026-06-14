@@ -45,13 +45,13 @@ void TstReplayBar::playButtonTogglesSource() {
   ReplayBar bar;
   bar.bind(&src);
 
-  auto *play = button(&bar, "▶");
+  // Transport buttons are icon-only now; the play button carries a stable
+  // objectName for lookup. Clicking it toggles the source play state.
+  auto *play = bar.findChild<QPushButton *>("rpPlay");
   QVERIFY(play);
   play->click();
   QVERIFY(src.isPlaying());
-  // After starting, the button flips to the pause glyph.
-  QVERIFY(button(&bar, "⏸"));
-  button(&bar, "⏸")->click();
+  play->click();
   QVERIFY(!src.isPlaying());
 }
 
@@ -70,7 +70,7 @@ void TstReplayBar::unbindIsSafe() {
   ReplayBar bar;
   bar.bind(&src);
   bar.bind(nullptr);  // must not crash; controls become inert
-  auto *play = button(&bar, "▶");
+  auto *play = bar.findChild<QPushButton *>("rpPlay");
   QVERIFY(play);
   play->click();  // no bound source -> no effect, no crash
   QVERIFY(!src.isPlaying());

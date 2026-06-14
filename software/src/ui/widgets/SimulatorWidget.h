@@ -100,6 +100,10 @@ class SimulatorWidget : public QWidget {
   // (RC switch vs GCS override).
   void setFlightModeStatus(quint8 mode, quint8 source);
 
+  // Set the prop-audio default (Settings ▸ Alerts ▸ Sim prop audio). Drives the
+  // in-panel "Prop audio" checkbox, which in turn enables PropAudio.
+  void setPropAudioDefault(bool on);
+
  private:
   void buildUi();
   void appendLog(const QString& tag, const QString& text);
@@ -187,6 +191,7 @@ class SimulatorWidget : public QWidget {
   QWidget* m_horizonPip = nullptr; // draggable PipOverlay hosting m_horizon
   QWidget* m_downPip = nullptr;    // draggable PipOverlay hosting m_downRenderer
   PropAudio m_propAudio;           // rpm-driven propeller sound
+  QCheckBox* m_propAudioChk = nullptr;  // "Prop audio" toggle (default via Settings)
   GeometryEditorWidget* m_geomEditor = nullptr;
   WorldEditorWidget* m_worldEditor = nullptr;
   QStackedWidget* m_rightStack = nullptr;   // 0 = Vehicle, 1 = World

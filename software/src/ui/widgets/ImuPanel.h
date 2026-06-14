@@ -28,6 +28,11 @@ public slots:
   void setSensor(const QString &name);  // updates the header (e.g. "IMU — BMX160")
   void setGraphWindow(int seconds);
   void setGraphDropout(double rate);
+  // Settings ▸ Plots & Graphs appearance toggles, fanned out to every graph.
+  void setSigmaTraces(bool on);   // rolling-σ overlay (acc/gyr/mag)
+  void setStateBand(bool on);     // vehicle-state colour band
+  void setTraceWidth(double w);   // trace pen width
+  void setAntialias(bool on);     // antialiased trace painting
   // Battery level (0..100 %); no telemetry source yet so MainWindow leaves it.
   void setBattery(double pct);
   // Vehicle-state colour for the graphs' state band (advanced per IMU update).

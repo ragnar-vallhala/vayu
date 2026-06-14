@@ -52,7 +52,9 @@ set(GCS_SOURCES
     src/core/CsvExport.cpp
     src/core/Logger.cpp
     src/core/Notify.cpp
+    src/core/ToastOverlay.cpp
     src/core/Theme.cpp
+    src/core/Units.cpp
     src/ui/widgets/PacketAnalyzerWidget.cpp
     src/ui/main/SettingsWidget.cpp
     src/protocol/PacketDecoder.cpp
@@ -177,6 +179,7 @@ set(GCS_SITL_SOURCES
     src/vsim/MassProperties.cpp
     src/vsim/RcBridge.cpp
     src/audio/PropAudio.cpp
+    src/audio/ChimeAudio.cpp
 )
 set(GCS_SITL_HEADERS
     src/ui/widgets/SimulatorWidget.h

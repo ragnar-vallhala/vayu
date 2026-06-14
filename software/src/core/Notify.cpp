@@ -1,21 +1,23 @@
 #include "Notify.h"
 
 #include "Theme.h"
+#include "ToastOverlay.h"
 
 #include <QMainWindow>
-#include <QStatusBar>
 #include <QWidget>
 
 namespace Notify {
 
 namespace {
+// Global toast switch (Settings ▸ Alerts). Toasts are status-bar feedback, so
+// suppressing them is purely cosmetic — the log panel still records events.
+bool g_enabled = true;
 
-// Walk up the parent chain to find the QMainWindow that owns the
-// status bar. Returns nullptr if we never hit one — caller handles
-// silently in that case.
-QStatusBar* findStatusBar(QWidget* anchor) {
+// Walk up the parent chain to the QMainWindow that hosts the toast overlay.
+// Returns nullptr if we never hit one — caller handles silently in that case.
+QWidget* findHost(QWidget* anchor) {
   for (QWidget* w = anchor; w; w = w->parentWidget()) {
-    if (auto* mw = qobject_cast<QMainWindow*>(w)) return mw->statusBar();
+    if (auto* mw = qobject_cast<QMainWindow*>(w)) return mw;
   }
   return nullptr;
 }
@@ -52,31 +54,15 @@ const char* prefix(Kind k) {
 
 }  // namespace
 
+void setEnabled(bool on) { g_enabled = on; }
+
 void send(QWidget* anchor, Kind kind, const QString& text, int timeout_ms) {
-  QStatusBar* sb = findStatusBar(anchor);
-  if (!sb) return;
-
-  // Repaint the status bar with the kind's accent for the duration
-  // of the message. QStatusBar applies its own stylesheet over the
-  // global one for ::item style; we re-style just the message area
-  // through the background of the bar itself. messageChanged() will
-  // restore the default when the timeout expires.
-  sb->setStyleSheet(
-      QString("QStatusBar { background: %1; color: %2; }")
-          .arg(Theme::hex(Theme::kBg), color(kind).name(QColor::HexRgb).toUpper()));
-  sb->showMessage(QString(prefix(kind)) + text,
-                  timeout_ms > 0 ? timeout_ms : defaultTimeout(kind));
-
-  // Reset to default once the toast clears. Connect a single-shot
-  // lambda; Qt::SingleShotConnection ensures we don't pile up handlers.
-  QObject::connect(
-      sb, &QStatusBar::messageChanged, sb,
-      [sb](const QString& msg) {
-        if (msg.isEmpty()) {
-          sb->setStyleSheet(QString());
-        }
-      },
-      Qt::SingleShotConnection);
+  if (!g_enabled) return;
+  QWidget* host = findHost(anchor);
+  if (!host) return;
+  const int t = timeout_ms > 0 ? timeout_ms : defaultTimeout(kind);
+  ToastOverlay::forHost(host)->addToast(color(kind), QString(prefix(kind)), text,
+                                        t);
 }
 
 }  // namespace Notify

@@ -256,3 +256,13 @@ void MainToolbar::setBaud(int baud) {
   const int idx = m_baudCombo->findData(baud);
   if (idx >= 0) m_baudCombo->setCurrentIndex(idx);
 }
+
+void MainToolbar::setTransport(int index) {
+  if (m_transportCombo && index >= 0 && index < m_transportCombo->count())
+    m_transportCombo->setCurrentIndex(index);  // fires onTransportChanged
+}
+
+void MainToolbar::setUdpPort(int port) {
+  if (m_udpPortEdit && port > 0)
+    m_udpPortEdit->setText(QString::number(port));
+}

@@ -23,10 +23,35 @@ RealTimeGraph::RealTimeGraph(QWidget *parent, int numSeries) : QWidget(parent) {
   m_repaintTimer = new QTimer(this);
   m_repaintTimer->setInterval(33);
   connect(m_repaintTimer, &QTimer::timeout, this, [this] {
+    // New samples arrived this tick: paint them and reset the idle counter.
     if (m_dirty) {
       m_dirty = false;
+      m_idleTicks = 0;
       update();
+      return;
     }
+    // The stale "NA" frame is already on screen → nothing to animate; idle.
+    if (m_lastPaintStale)
+      return;
+    // Feed stopped but a trace is still buffered: each idle tick repaints so the
+    // line scrolls toward the left edge on the live time axis (washing the
+    // residual out of the window). Once the idle ticks exceed one window's worth
+    // — enough for the last sample to have fully scrolled off — flush the
+    // buffers so the graph is definitively "NA" and the memory is freed.
+    bool anyData = false;
+    for (const auto &s : m_seriesData)
+      if (!s.empty()) { anyData = true; break; }
+    if (!anyData)
+      return;
+    ++m_idleTicks;
+    const int washTicks =
+        m_windowSeconds * 1000 / m_repaintTimer->interval() + 2;  // +margin
+    if (m_idleTicks >= washTicks) {
+      for (auto &s : m_seriesData) s.clear();
+      for (auto &s : m_sigmaData) s.clear();
+      m_stateHist.clear();
+    }
+    update();
   });
 }
 
@@ -62,6 +87,21 @@ void RealTimeGraph::pushState(const QColor &color) {
 void RealTimeGraph::setSigmaAxis(bool on, float sigmaMax) {
   m_sigmaAxis = on;
   m_sigmaMax = sigmaMax > 1e-6f ? sigmaMax : 1.0f;
+  update();
+}
+
+void RealTimeGraph::setSigmaEnabled(bool on) {
+  m_sigmaAxis = on;
+  update();
+}
+
+void RealTimeGraph::setTraceWidth(double w) {
+  m_traceWidth = std::max(0.1, w);
+  update();
+}
+
+void RealTimeGraph::setAntialias(bool on) {
+  m_antialias = on;
   update();
 }
 
@@ -167,6 +207,8 @@ void RealTimeGraph::clear() {
   }
   for (auto &s : m_sigmaData) s.clear();
   m_stateHist.clear();
+  m_idleTicks = 0;
+  m_lastPaintStale = false;
   if (!m_fixedRange) {
     m_min = -1.0f;
     m_max = 1.0f;
@@ -226,7 +268,7 @@ void RealTimeGraph::pruneData() {
 void RealTimeGraph::paintEvent(QPaintEvent *event) {
   Q_UNUSED(event);
   QPainter painter(this);
-  painter.setRenderHint(QPainter::Antialiasing);
+  painter.setRenderHint(QPainter::Antialiasing, m_antialias);
 
   // Background
   painter.fillRect(rect(), QColor(33, 37, 43));
@@ -260,6 +302,7 @@ void RealTimeGraph::paintEvent(QPaintEvent *event) {
       newestTs = std::max(newestTs, series.back().timestamp);
   const bool stale = newestTs < startTime;
   if (newestTs == std::numeric_limits<qint64>::min() || stale) {
+    m_lastPaintStale = true;  // let the repaint pump idle until data resumes
     QFont f = painter.font();
     f.setBold(true);
     f.setPixelSize(std::max(18, height() / 3));
@@ -268,6 +311,7 @@ void RealTimeGraph::paintEvent(QPaintEvent *event) {
     painter.drawText(rect(), Qt::AlignCenter, QStringLiteral("NA"));
     return;
   }
+  m_lastPaintStale = false;  // live data on screen → keep animating
 
   // Vehicle-state colour band behind the traces (mockup .g-status). Each cell is
   // painted from its own timestamp to the next on the SAME axis as the traces;
@@ -359,7 +403,7 @@ void RealTimeGraph::paintEvent(QPaintEvent *event) {
       gradient.setColorAt(1, fillColor);
       painter.fillPath(fillPath, gradient);
 
-      QPen pen(m_colors[i], 1.5, m_penStyles[i]);
+      QPen pen(m_colors[i], m_traceWidth, m_penStyles[i]);
       painter.setPen(pen);
       painter.drawPath(path);
     }

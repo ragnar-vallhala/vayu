@@ -1,5 +1,7 @@
 #include "SimulatorWidget.h"
 
+#include "core/Units.h"
+
 #include "../../vsim/MeshLoader.h"
 #include "../../vsim/WorldMeshBuilder.h"
 #include "CollapsibleSection.h"
@@ -612,19 +614,19 @@ void SimulatorWidget::buildUi() {
     });
     runRow->addWidget(horizonChk);
 
-    auto* audio = new QCheckBox(tr("Prop audio"), simBody);
-    audio->setToolTip(tr("Propeller sound synthesized from motor rpm "
-                         "(pitch + loudness rise with throttle)."));
+    m_propAudioChk = new QCheckBox(tr("Prop audio"), simBody);
+    m_propAudioChk->setToolTip(tr("Propeller sound synthesized from motor rpm "
+                                  "(pitch + loudness rise with throttle)."));
     {
       QSettings st;
-      audio->setChecked(st.value(kAudioKey, false).toBool());
-      m_propAudio.setEnabled(audio->isChecked());
+      m_propAudioChk->setChecked(st.value(kAudioKey, false).toBool());
+      m_propAudio.setEnabled(m_propAudioChk->isChecked());
     }
-    connect(audio, &QCheckBox::toggled, this, [this](bool on) {
+    connect(m_propAudioChk, &QCheckBox::toggled, this, [this](bool on) {
       QSettings().setValue(kAudioKey, on);
       m_propAudio.setEnabled(on);
     });
-    runRow->addWidget(audio);
+    runRow->addWidget(m_propAudioChk);
     sv->addLayout(runRow);
 
     // -- Loop rates (IMU/firmware, physics substeps, render) --
@@ -1806,6 +1808,13 @@ void SimulatorWidget::hudSetStatus(const QString& s) {
   if (m_hud) m_hud->setStatus(s);
 }
 
+void SimulatorWidget::setPropAudioDefault(bool on) {
+  // Drive the checkbox (its toggled handler enables PropAudio + persists the
+  // per-sim key); no-op if it already matches so we don't thrash the device.
+  if (m_propAudioChk && m_propAudioChk->isChecked() != on)
+    m_propAudioChk->setChecked(on);
+}
+
 void SimulatorWidget::setRigControlsEnabled(bool simRunning) {
   // The rig poses the in-app sim (m_sim); with no sim running there's nothing
   // to pose. Disable + uncheck and say so, rather than silently no-op.
@@ -2042,14 +2051,19 @@ void SimulatorWidget::startInAppSim() {
             // Fixed field widths so a leading '-' (or "-0.0") doesn't widen the
             // string and resize the label every frame — that caused the flicker.
             // Monospace + space-padding keeps each number a constant pixel width.
+            // Position is a length (NED metres) → convert via the altitude/
+            // length unit; rpy via the angle unit. Decimals from Settings ▸
+            // Units & Display; field widths stay fixed to avoid label reflow.
+            const int dec = Units::decimals();
             m_simPoseLabel->setText(
-                QString("pos=(%1, %2, %3) m   rpy=(%4, %5, %6) deg")
-                    .arg(snap.pos_w.x(), 7, 'f', 2)
-                    .arg(snap.pos_w.y(), 7, 'f', 2)
-                    .arg(snap.pos_w.z(), 7, 'f', 2)
-                    .arg(roll, 6, 'f', 1)
-                    .arg(pitch, 6, 'f', 1)
-                    .arg(yaw, 6, 'f', 1));
+                QString("pos=(%1, %2, %3) %7   rpy=(%4, %5, %6)%8")
+                    .arg(Units::toAltitude(snap.pos_w.x()), 7, 'f', dec)
+                    .arg(Units::toAltitude(snap.pos_w.y()), 7, 'f', dec)
+                    .arg(Units::toAltitude(snap.pos_w.z()), 7, 'f', dec)
+                    .arg(Units::toAngle(roll), 6, 'f', dec)
+                    .arg(Units::toAngle(pitch), 6, 'f', dec)
+                    .arg(Units::toAngle(yaw), 6, 'f', dec)
+                    .arg(Units::altSuffix(), Units::angleSuffix()));
             updateHud(snap);
             m_propAudio.setMotors(snap.motor_omega);
           });

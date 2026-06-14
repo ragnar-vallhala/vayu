@@ -66,7 +66,7 @@ void SerialManager::tryReconnect() {
     // open() emitted errorOccurred for us. Schedule the next attempt
     // with exponential backoff capped at kMaxDelayMs.
     const int delay =
-        std::min(kInitialDelayMs * (1 << (m_retryCount - 1)), kMaxDelayMs);
+        std::min(m_initialDelayMs * (1 << (m_retryCount - 1)), kMaxDelayMs);
     m_retryTimer.start(delay);
   }
 }
@@ -114,6 +114,6 @@ void SerialManager::onErrorOccurred(QSerialPort::SerialPortError error) {
   // Schedule a reconnect if the user wants one and didn't ask for the
   // disconnect themselves.
   if (m_autoReconnect && !m_userClose && !m_lastPort.isEmpty()) {
-    if (!m_retryTimer.isActive()) m_retryTimer.start(kInitialDelayMs);
+    if (!m_retryTimer.isActive()) m_retryTimer.start(m_initialDelayMs);
   }
 }
