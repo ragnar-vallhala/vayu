@@ -1,6 +1,7 @@
 #include "Rollout.h"
 
 #include <chrono>
+#include <cmath>
 #include <thread>
 #include <unordered_map>
 
@@ -50,8 +51,39 @@ namespace {
 
 // One excitation attempt. Returns nullopt on arm-fail / starved telemetry
 // (retry), kBig on divergence, else the summed per-axis cost.
+// Fire the configured waveform on stick channel `ch` (0 roll / 1 pitch /
+// 3 yaw), then return to centre + settle. Step = doublet; Chirp = swept sine
+// f0→f1 over `hold`, sampled at 50 Hz.
+void exciteAxis(SitlStack &stack, int ch, const RolloutParams &p) {
+  auto setCh = [&](int us) {
+    if (ch == 0) stack.setRc(us);
+    else if (ch == 1) stack.setRc(-1, us);
+    else stack.setRc(-1, -1, -1, us);
+  };
+  if (p.excite == Excitation::Chirp) {
+    const double amp = double(p.stepUs) - 1500.0;  // peak deflection µs
+    const double T = (p.hold > 1e-3) ? p.hold : 1.0;
+    const double dt = 0.02;  // 50 Hz update
+    for (double t = 0.0; t < T; t += dt) {
+      // Linear chirp: instantaneous f ramps f0→f1; phase is its integral.
+      const double phase =
+          2.0 * M_PI * (p.chirpF0 * t + (p.chirpF1 - p.chirpF0) * t * t / (2.0 * T));
+      setCh(int(1500.0 + amp * std::sin(phase)));
+      sleepS(dt);
+    }
+    setCh(1500);
+    sleepS(p.ret);
+  } else {  // Step doublet
+    setCh(p.stepUs);
+    sleepS(p.hold);
+    setCh(1500);
+    sleepS(p.ret);
+  }
+}
+
 std::optional<double> exciteOnce(SitlStack &stack, bool tuneYaw,
-                                 const RolloutParams &p) {
+                                 const RolloutParams &p,
+                                 std::vector<Sample> *outResponse) {
   stack.reset(p.seed);
   stack.setTestRig(true, float(p.tetherK));
   stack.setRc(1500, 1500, /*thr*/ -1, 1500, /*arm*/ -1, /*ch6*/ 1000);
@@ -74,16 +106,11 @@ std::optional<double> exciteOnce(SitlStack &stack, bool tuneYaw,
   double cost = 0.0;
   for (int ch : axes) {
     stack.clearSamples();
-    if (ch == 0) stack.setRc(p.stepUs);
-    else if (ch == 1) stack.setRc(-1, p.stepUs);
-    else stack.setRc(-1, -1, -1, p.stepUs);
-    sleepS(p.hold);
-    if (ch == 0) stack.setRc(1500);
-    else if (ch == 1) stack.setRc(-1, 1500);
-    else stack.setRc(-1, -1, -1, 1500);
-    sleepS(p.ret);
+    exciteAxis(stack, ch, p);
 
     const std::vector<Sample> snap = stack.snapshot();
+    // Capture the roll-axis window for the live response plot.
+    if (outResponse && ch == 0) *outResponse = snap;
     std::optional<double> c =
         (ch == 3) ? yawRateCost(snap) : axisCost(snap, ch == 1 ? 1 : 0);
     if (!c.has_value()) {  // starved window -> the whole rollout retries
@@ -101,10 +128,11 @@ std::optional<double> exciteOnce(SitlStack &stack, bool tuneYaw,
 std::optional<double> runRollout(SitlStack &stack,
                                  const std::vector<std::string> &names,
                                  const Vec &x, bool tuneYaw,
-                                 const RolloutParams &p) {
+                                 const RolloutParams &p,
+                                 std::vector<Sample> *outResponse) {
   applyGains(stack, names, x, tuneYaw);
   for (int attempt = 0; attempt <= p.maxRetries; ++attempt) {
-    std::optional<double> c = exciteOnce(stack, tuneYaw, p);
+    std::optional<double> c = exciteOnce(stack, tuneYaw, p, outResponse);
     if (c.has_value())
       return c;
     // Harness hiccup (arm-fail / starved): recover and retry.

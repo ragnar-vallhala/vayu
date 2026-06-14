@@ -212,6 +212,11 @@ class SimulatorWidget : public QWidget {
   QComboBox* m_tuneOptimizer = nullptr;
   QSpinBox* m_tuneBudget = nullptr;
   QSpinBox* m_tuneStep = nullptr;        // excitation amplitude (doublet µs)
+  QComboBox* m_tuneExcitation = nullptr; // Step vs Chirp waveform
+  QDoubleSpinBox* m_tuneChirpF0 = nullptr;
+  QDoubleSpinBox* m_tuneChirpF1 = nullptr;
+  QWidget* m_chirpRow = nullptr;         // freq-range row, shown only for chirp
+  QWidget* m_tuneResponse = nullptr;     // live step/chirp response plot (ResponsePlot)
   QSpinBox* m_tuneRepeats = nullptr;     // rollouts averaged per eval (--repeats)
   QDoubleSpinBox* m_tuneTether = nullptr; // soft-rig stiffness (--rig-tether)
   QSpinBox* m_tuneSeed = nullptr;        // optimizer RNG seed (--seed)
