@@ -67,6 +67,12 @@ class SimRendererWidget : public QOpenGLWidget, protected QOpenGLFunctions {
   void setFpv(bool on) { fpv_ = on; update(); }
   bool fpv() const { return fpv_; }
 
+  // Bird's-eye "down-cam": sit a fixed height above the drone and look straight
+  // down (NED +Z), north up. Used by the Down-Cam PiP. Takes precedence over
+  // fpv/orbit while on.
+  void setDownCam(bool on) { downCam_ = on; update(); }
+  bool downCam() const { return downCam_; }
+
   // Free-fly camera: WASD/QE to move, left-drag to look, NOT locked to the
   // drone. Used in World mode while the sim is stopped so you can roam the
   // imported world. Off = the camera orbits/follows the drone (3rd person).
@@ -245,6 +251,8 @@ class SimRendererWidget : public QOpenGLWidget, protected QOpenGLFunctions {
   float cam_yaw_    = 0.7f;   // around world -Z (NED up)
   float cam_pitch_  = 0.5f;   // tilt; >0 = eye above ground looking down (NED)
   bool  fpv_        = false;  // onboard FPV camera vs orbit
+  bool  downCam_    = false;  // bird's-eye top-down camera (Down-Cam PiP)
+  float downCamHeight_ = 6.0f;  // metres above the drone for the down-cam
   bool  freeFly_    = false;  // WASD free-roam camera (sim stopped, World mode)
   bool  worldVisible_ = true; // draw world mesh + obstacles (World mode)
   QVector3D camPos_{-4.0f, -4.0f, -3.0f};  // free-cam world position (NED)
