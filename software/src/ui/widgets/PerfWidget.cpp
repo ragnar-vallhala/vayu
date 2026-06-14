@@ -180,16 +180,12 @@ PerfWidget::PerfWidget(QWidget *parent) : QWidget(parent) {
   m_enabledBadge = new QLabel("", this);
   m_seq = new QLabel("—", this);
   m_seq->setStyleSheet("color:#8b93a1;");
-  auto *back = new QPushButton("⟵ Home", this);
-  connect(back, &QPushButton::clicked, this, &PerfWidget::backToHomeRequested);
   header->addWidget(title);
   header->addSpacing(8);
   header->addWidget(m_enabledBadge);
   header->addStretch();
   header->addWidget(new QLabel("report", this));
   header->addWidget(m_seq);
-  header->addSpacing(8);
-  header->addWidget(back);
   root->addLayout(header);
 
   // --- Overview cards ------------------------------------------------------

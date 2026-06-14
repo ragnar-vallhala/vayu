@@ -34,9 +34,6 @@ void PacketAnalyzerWidget::buildUi() {
 
   // ---- Top control bar ----
   auto *topBar = new QHBoxLayout();
-  m_btnBack = new ui::BackButton(this);
-  m_btnBack->setText(tr("← Back to Home"));
-  topBar->addWidget(m_btnBack);
   topBar->addStretch();
   m_chkAutoScroll = new QCheckBox(tr("Auto-scroll"), this);
   m_chkAutoScroll->setChecked(true);
@@ -166,8 +163,6 @@ void PacketAnalyzerWidget::buildUi() {
   layout->addWidget(m_linkStats);
 
   // ---- Connections ----
-  connect(m_btnBack, &QPushButton::clicked, this,
-          &PacketAnalyzerWidget::backToHomeRequested);
   connect(m_btnClear, &QPushButton::clicked, this,
           &PacketAnalyzerWidget::onClearClicked);
   connect(m_btnSave, &QPushButton::clicked, this,

@@ -54,7 +54,6 @@ private:
   PacketFilterProxy *m_proxy = nullptr;
   PacketDetailWidget *m_detailView = nullptr;
 
-  QPushButton *m_btnBack = nullptr;
   QPushButton *m_btnClear = nullptr;
   QPushButton *m_btnStream = nullptr;
   QPushButton *m_btnSave = nullptr;

@@ -1,7 +1,6 @@
 #include "SettingsWidget.h"
 
 #include "core/Theme.h"
-#include "core/ui/Buttons.h"
 
 #include <QComboBox>
 #include <QGroupBox>
@@ -128,14 +127,6 @@ SettingsWidget::SettingsWidget(QWidget *parent) : QWidget(parent) {
   layout->addWidget(displayGroup);
 
   layout->addStretch();
-
-  // ---- Back Button ----
-  auto *backBtn = new ui::BackButton(this);
-  backBtn->setText(tr("Back to Home"));
-  backBtn->setFixedWidth(150);
-  connect(backBtn, &QPushButton::clicked, this,
-          &SettingsWidget::backToHomeRequested);
-  layout->addWidget(backBtn);
 }
 
 void SettingsWidget::setSettings(const GcsSettings &s) {
