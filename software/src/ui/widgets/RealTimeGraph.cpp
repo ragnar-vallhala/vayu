@@ -364,42 +364,65 @@ void RealTimeGraph::paintEvent(QPaintEvent *event) {
       painter.drawPath(path);
     }
 
-    // Rolling-σ traces on the right-hand axis [0, sigmaMax] (mockup dotted σ):
-    // dotted, reduced opacity, in each series' colour.
+    // Rolling-σ traces on an INDEPENDENT right-hand axis (mockup dotted σ):
+    // dotted, reduced opacity, in each series' colour. The σ axis autoscales to
+    // the σ data's own [min,max] each frame (not a fixed [0,σmax]) so the traces
+    // use the full panel height instead of clamping at the bottom when σ is small
+    // — the σ magnitudes are unrelated to the main trace scale.
     if (m_sigmaAxis) {
-      auto toYsig = [&](float s) {
-        return height() - (height() * (s / m_sigmaMax));
-      };
-      for (size_t i = 0; i < m_sigmaData.size(); ++i) {
-        if (m_sigmaData[i].empty())
-          continue;
-        QPainterPath sp;
-        bool first = true;
-        for (const auto &dp : m_sigmaData[i]) {
-          const float x = toX(dp.timestamp);
-          const float y = toYsig(dp.value);
-          if (first) { sp.moveTo(x, y); first = false; }
-          else sp.lineTo(x, y);
+      float sMin = std::numeric_limits<float>::max();
+      float sMax = -std::numeric_limits<float>::max();
+      for (const auto &s : m_sigmaData)
+        for (const auto &dp : s) {
+          sMin = std::min(sMin, dp.value);
+          sMax = std::max(sMax, dp.value);
         }
-        QColor sc = m_colors[i];
-        sc.setAlpha(140);
-        QPen spen(sc, 1.2, Qt::DotLine);
-        spen.setCapStyle(Qt::RoundCap);
-        painter.setPen(spen);
-        painter.drawPath(sp);
-      }
-      // Right-hand σ axis labels (σ at top, 0 at bottom).
-      QFont sf = painter.font();
-      sf.setPointSize(7);
-      painter.setFont(sf);
-      painter.setPen(QColor(92, 99, 112));
-      for (int k = 0; k <= 4; ++k) {
-        const float sval = m_sigmaMax - m_sigmaMax * (k / 4.0f);
-        const int yPos = static_cast<int>(k / 4.0 * height());
-        const QString lbl = (k == 0 ? "σ " : "") +
-                            QString::number(double(sval), 'f', 2);
-        painter.drawText(QRectF(width() - 42, yPos, 40, 12),
-                         Qt::AlignRight | Qt::AlignTop, lbl);
+      if (sMin <= sMax) {  // at least one σ sample in the window
+        float sr = sMax - sMin;
+        if (sr < 1e-6f) {           // flat trace: give it a sliver of range
+          sMin -= 1e-4f;
+          sMax += 1e-4f;
+        } else {                    // 10% padding top & bottom
+          sMin -= sr * 0.1f;
+          sMax += sr * 0.1f;
+        }
+        float srange = sMax - sMin;
+        if (srange < 1e-6f)
+          srange = 1e-6f;
+        auto toYsig = [&](float s) {
+          return height() - (height() * (s - sMin) / srange);
+        };
+        for (size_t i = 0; i < m_sigmaData.size(); ++i) {
+          if (m_sigmaData[i].empty())
+            continue;
+          QPainterPath sp;
+          bool first = true;
+          for (const auto &dp : m_sigmaData[i]) {
+            const float x = toX(dp.timestamp);
+            const float y = toYsig(dp.value);
+            if (first) { sp.moveTo(x, y); first = false; }
+            else sp.lineTo(x, y);
+          }
+          QColor sc = m_colors[i];
+          sc.setAlpha(140);
+          QPen spen(sc, 1.2, Qt::DotLine);
+          spen.setCapStyle(Qt::RoundCap);
+          painter.setPen(spen);
+          painter.drawPath(sp);
+        }
+        // Right-hand σ axis labels (σ max at top, min at bottom).
+        QFont sf = painter.font();
+        sf.setPointSize(7);
+        painter.setFont(sf);
+        painter.setPen(QColor(92, 99, 112));
+        for (int k = 0; k <= 4; ++k) {
+          const float sval = sMax - (sMax - sMin) * (k / 4.0f);
+          const int yPos = static_cast<int>(k / 4.0 * height());
+          const QString lbl = (k == 0 ? "σ " : "") +
+                              QString::number(double(sval), 'f', 2);
+          painter.drawText(QRectF(width() - 42, yPos, 40, 12),
+                           Qt::AlignRight | Qt::AlignTop, lbl);
+        }
       }
     }
 
