@@ -268,6 +268,15 @@ void SimRendererWidget::setWorldVisible(bool on) {
 }
 
 QMatrix4x4 SimRendererWidget::cameraView() const {
+  if (downCam_) {
+    // Bird's-eye: hover above the drone (NED -Z is up) and look straight down
+    // (+Z), with world +X (north) as the screen-up vector.
+    const QVector3D tgt = snap_.pos_w;
+    const QVector3D eye = tgt + QVector3D(0.0f, 0.0f, -downCamHeight_);
+    QMatrix4x4 view;
+    view.lookAt(eye, tgt, QVector3D(1.0f, 0.0f, 0.0f));
+    return view;
+  }
   if (freeFly_ && !fpv_) {
     // Free-roam: look along freeForward() from camPos_, not locked to drone.
     const QVector3D fwd = freeForward();

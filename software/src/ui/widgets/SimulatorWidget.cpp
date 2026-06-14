@@ -46,6 +46,8 @@
 #include <QHeaderView>
 #include <QPainter>
 #include <QPainterPath>
+#include <QFrame>
+#include <QMouseEvent>
 
 #include "AutotuneWorker.h"
 #include "Space.h"
@@ -122,6 +124,69 @@ class ResponsePlot : public QWidget {
 
  private:
   QVector<double> sp_, meas_;
+};
+
+// Draggable + resizable picture-in-picture frame floating over the FPV view
+// (mockup .pip). A title strip drags the frame; the bottom-right 16 px corner
+// resizes it. Both are clamped to the parent. Hosts any content widget.
+class PipOverlay : public QFrame {
+ public:
+  PipOverlay(const QString& title, QWidget* content, QWidget* parent)
+      : QFrame(parent), content_(content) {
+    setObjectName("PipOverlay");
+    setStyleSheet("#PipOverlay{background:#11141b;border:1px solid #3E4452;}");
+    auto* v = new QVBoxLayout(this);
+    v->setContentsMargins(1, 1, 1, 1);
+    v->setSpacing(0);
+    title_ = new QLabel(title, this);
+    title_->setStyleSheet("background:#21252B; color:#8A92A6; font-size:9px; "
+                          "font-weight:bold; letter-spacing:.5px; padding:2px 5px;");
+    title_->setCursor(Qt::SizeAllCursor);
+    title_->setFixedHeight(16);
+    v->addWidget(title_);
+    content_->setParent(this);
+    v->addWidget(content_, 1);
+    resize(220, 150);
+    setMouseTracking(true);
+  }
+
+ protected:
+  static constexpr int kGrip = 16;
+  bool inGrip(const QPoint& p) const {
+    return p.x() >= width() - kGrip && p.y() >= height() - kGrip;
+  }
+  void mousePressEvent(QMouseEvent* e) override {
+    start_ = e->globalPosition().toPoint();
+    startGeo_ = geometry();
+    if (inGrip(e->pos())) mode_ = Resize;
+    else if (e->pos().y() < title_->height()) mode_ = Move;
+    else mode_ = None;
+  }
+  void mouseMoveEvent(QMouseEvent* e) override {
+    setCursor(inGrip(e->pos()) ? Qt::SizeFDiagCursor : Qt::ArrowCursor);
+    if (mode_ == None || !parentWidget()) return;
+    const QPoint d = e->globalPosition().toPoint() - start_;
+    if (mode_ == Move) {
+      QPoint np = startGeo_.topLeft() + d;
+      np.setX(qBound(0, np.x(), parentWidget()->width() - width()));
+      np.setY(qBound(0, np.y(), parentWidget()->height() - height()));
+      move(np);
+    } else {  // Resize
+      int w = qMax(120, startGeo_.width() + d.x());
+      int h = qMax(90, startGeo_.height() + d.y());
+      w = qMin(w, parentWidget()->width() - x());
+      h = qMin(h, parentWidget()->height() - y());
+      resize(w, h);
+    }
+  }
+  void mouseReleaseEvent(QMouseEvent*) override { mode_ = None; }
+
+ private:
+  enum Mode { None, Move, Resize } mode_ = None;
+  QLabel* title_ = nullptr;
+  QWidget* content_ = nullptr;
+  QPoint start_;
+  QRect startGeo_;
 };
 
 namespace {
@@ -369,13 +434,25 @@ void SimulatorWidget::buildUi() {
   m_hud->setGeometry(m_renderer->rect());
   m_hud->hide();
 
-  // Compact artificial horizon pinned to the viewport's top-right corner — a
-  // persistent attitude reference (the full FPV HUD only shows while running).
-  // Sized/positioned by the eventFilter; fed from the sim snapshot in updateHud.
+  // Artificial horizon, now hosted in a draggable/resizable PiP (mockup
+  // .pip.adi). Fed from the sim snapshot in updateHud.
   m_horizon = new HorizonHud(m_renderer);
-  m_horizon->setFixedSize(200, 138);
-  m_horizon->show();
-  m_horizon->raise();
+  m_horizonPip = new PipOverlay(tr("HORIZON"), m_horizon, m_renderer);
+  m_horizonPip->resize(210, 150);
+  m_horizonPip->move(8, 8);
+  m_horizonPip->show();
+  m_horizonPip->raise();
+
+  // Down-cam PiP (mockup .pip.downcam): a second renderer looking straight down
+  // at the drone. Fed the same pose + drone mesh as the main view.
+  m_downRenderer = new vsim::SimRendererWidget();
+  m_downRenderer->setDownCam(true);
+  m_downRenderer->setWorldVisible(true);
+  m_downPip = new PipOverlay(tr("DOWN CAM"), m_downRenderer, m_renderer);
+  m_downPip->resize(210, 170);
+  m_downPip->move(8, 166);
+  m_downPip->show();
+  m_downPip->raise();
 
   m_renderer->installEventFilter(this);
 
@@ -494,6 +571,23 @@ void SimulatorWidget::buildUi() {
     connect(m_fpvCheck, &QCheckBox::toggled, this,
             [this](bool on) { if (m_renderer) m_renderer->setFpv(on); });
     runRow->addWidget(m_fpvCheck);
+
+    // PiP visibility toggles (mockup Down Cam / Horizon chips).
+    auto* downChk = new QCheckBox(tr("Down Cam"), simBody);
+    downChk->setChecked(true);
+    downChk->setToolTip(tr("Show the draggable bird's-eye down-camera PiP"));
+    connect(downChk, &QCheckBox::toggled, this, [this](bool on) {
+      if (m_downPip) m_downPip->setVisible(on);
+    });
+    runRow->addWidget(downChk);
+
+    auto* horizonChk = new QCheckBox(tr("Horizon"), simBody);
+    horizonChk->setChecked(true);
+    horizonChk->setToolTip(tr("Show the draggable artificial-horizon PiP"));
+    connect(horizonChk, &QCheckBox::toggled, this, [this](bool on) {
+      if (m_horizonPip) m_horizonPip->setVisible(on);
+    });
+    runRow->addWidget(horizonChk);
 
     auto* audio = new QCheckBox(tr("Prop audio"), simBody);
     audio->setToolTip(tr("Propeller sound synthesized from motor rpm "
@@ -1560,7 +1654,8 @@ void SimulatorWidget::attachTuneSim(const QString& suffix) {
           [this](const QString& s) { appendLog("tune-sim", s); });
   m_tuneSim->startAttach(posePath);
   if (m_hud) { m_hud->setGeometry(m_renderer->rect()); m_hud->raise(); m_hud->show(); }
-  if (m_horizon) m_horizon->raise();
+  if (m_horizonPip) m_horizonPip->raise();
+  if (m_downPip) m_downPip->raise();
 }
 
 void SimulatorWidget::detachTuneSim() {
@@ -1850,10 +1945,15 @@ void SimulatorWidget::setRcUartConnected(bool on) {
 bool SimulatorWidget::eventFilter(QObject* obj, QEvent* ev) {
   if (obj == m_renderer && ev->type() == QEvent::Resize) {
     if (m_hud) m_hud->setGeometry(m_renderer->rect());
-    if (m_horizon) {                       // re-pin to the top-right corner
-      const int m = 12;
-      m_horizon->move(m_renderer->width() - m_horizon->width() - m, m);
-      m_horizon->raise();
+    // The PiPs float at user-chosen positions; just keep them above the HUD and
+    // clamp them back inside if the viewport shrank past them.
+    for (QWidget* pip : {m_horizonPip, m_downPip}) {
+      if (!pip) continue;
+      QPoint p = pip->pos();
+      p.setX(qBound(0, p.x(), qMax(0, m_renderer->width() - pip->width())));
+      p.setY(qBound(0, p.y(), qMax(0, m_renderer->height() - pip->height())));
+      pip->move(p);
+      pip->raise();
     }
   }
   return QWidget::eventFilter(obj, ev);
@@ -1909,6 +2009,9 @@ void SimulatorWidget::startInAppSim() {
           &SimulatorWidget::onSimWorkerExited);
   connect(m_sim, &vsim::SimWorker::poseUpdated,
           m_renderer, &vsim::SimRendererWidget::setSnapshot);
+  if (m_downRenderer)
+    connect(m_sim, &vsim::SimWorker::poseUpdated,
+            m_downRenderer, &vsim::SimRendererWidget::setSnapshot);
   connect(m_sim, &vsim::SimWorker::poseUpdated,
           this, [this](vsim::SimSnapshot snap) {
             float pitch, yaw, roll;
@@ -1973,7 +2076,8 @@ void SimulatorWidget::startInAppSim() {
   setMode(1);
   // Show the telemetry HUD over the viewport.
   if (m_hud) { m_hud->setGeometry(m_renderer->rect()); m_hud->raise(); m_hud->show(); }
-  if (m_horizon) m_horizon->raise();   // keep the corner horizon above the HUD
+  if (m_horizonPip) m_horizonPip->raise();   // keep the PiPs above the HUD
+  if (m_downPip) m_downPip->raise();
   setRigControlsEnabled(true);         // rig pose is now available
   emit simRunningChanged(true);
 }
@@ -2053,6 +2157,14 @@ void SimulatorWidget::applyGeometryToRenderer() {
     spin[i] = cfg.motors[i].spin;
   }
   m_renderer->setMotorLayout(pos, axis, spin);
+
+  // Mirror the airframe into the down-cam PiP so its bird's-eye shows the drone.
+  if (m_downRenderer) {
+    if (m_geomEditor->hasMesh())
+      m_downRenderer->setDroneMesh(m_geomEditor->meshPositions(),
+                                   m_geomEditor->meshNormals());
+    m_downRenderer->setMotorLayout(pos, axis, spin);
+  }
 }
 
 void SimulatorWidget::persistGeometry(const vsim::GeometryConfig& g) {

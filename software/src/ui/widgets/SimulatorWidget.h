@@ -182,7 +182,10 @@ class SimulatorWidget : public QWidget {
   void setRcUartConnected(bool on);
   vsim::SimRendererWidget* m_renderer = nullptr;
   SimHudWidget* m_hud = nullptr;   // FPV telemetry overlay on the viewport
-  HorizonHud* m_horizon = nullptr; // compact attitude indicator, top-right corner
+  HorizonHud* m_horizon = nullptr; // compact attitude indicator (Horizon PiP)
+  vsim::SimRendererWidget* m_downRenderer = nullptr;  // Down-Cam PiP renderer
+  QWidget* m_horizonPip = nullptr; // draggable PipOverlay hosting m_horizon
+  QWidget* m_downPip = nullptr;    // draggable PipOverlay hosting m_downRenderer
   PropAudio m_propAudio;           // rpm-driven propeller sound
   GeometryEditorWidget* m_geomEditor = nullptr;
   WorldEditorWidget* m_worldEditor = nullptr;
