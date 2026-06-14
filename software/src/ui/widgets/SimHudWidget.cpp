@@ -1,5 +1,7 @@
 #include "SimHudWidget.h"
 
+#include "core/Units.h"
+
 #include <QFontMetrics>
 #include <QPainter>
 #include <QPolygonF>
@@ -211,13 +213,17 @@ void SimHudWidget::paintEvent(QPaintEvent*) {
     p.drawText(QRectF(x - 30, H * 0.20 - 18, 60, 14), Qt::AlignHCenter, title);
   };
 
-  tape(60.0, -1, gs_, 12.0, 5, tr("SPD m/s"), 1);             // left: ground speed
-  tape(W - 60.0, +1, alt_, 14.0, 5, tr("ALT m"), 1);          // right: altitude
+  // Units + precision come from Settings ▸ Units & Display (Units:: helper).
+  const int dec = Units::decimals();
+  tape(60.0, -1, Units::toSpeed(gs_), 12.0, 5,
+       tr("SPD ") + Units::speedSuffix(), dec);           // left: ground speed
+  tape(W - 60.0, +1, Units::toAltitude(alt_), 14.0, 5,
+       tr("ALT ") + Units::altSuffix(), dec);             // right: altitude
 
   // vertical speed under the altitude box
   pen(vs_ >= 0 ? hud : warn, 1.2);
   p.drawText(QRectF(W - 86, H * 0.80 + 6, 80, 16), Qt::AlignRight,
-             QString("VS %1").arg(vs_, 0, 'f', 1));
+             QString("VS %1").arg(Units::toSpeed(vs_), 0, 'f', dec));
 
   // ===== per-motor throttle bars (bottom-left) =====
   {

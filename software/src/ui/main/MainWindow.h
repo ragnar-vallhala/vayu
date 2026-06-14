@@ -11,6 +11,7 @@
 
 #include "../widgets/CalibrationWidget.h"
 #include "../widgets/ControlLoopPlot.h"
+#include "../../audio/ChimeAudio.h"
 #include "../widgets/PerfWidget.h"
 #include "AttitudeWidget.h"
 #include "CommandRegistry.h"
@@ -35,6 +36,7 @@
 
 class QToolBar;
 class QAction;
+class QMenu;
 
 class MainWindow : public QMainWindow {
   Q_OBJECT
@@ -109,6 +111,19 @@ private:
   // live stream while connected; close it on disconnect.
   void startRecording();
   void stopRecording();
+  // Recent-logs MRU (File ▸ Open Recent Log): persisted list of the last N
+  // .bin paths the user opened OR recorded. addRecentLog prepends + dedups +
+  // caps; rebuildRecentLogsMenu repopulates the submenu (prunes missing files).
+  void addRecentLog(const QString &path);
+  void rebuildRecentLogsMenu();
+  void openLastRecentLog();  // replay the most recent existing log
+  // Export Log is only meaningful with telemetry coming in; enabled when a live
+  // link or the sim is feeding, or while an export is already running (to stop).
+  void updateExportEnabled();
+  // Apply the staged Settings form to the running app (sync timer, graphs,
+  // reconnect, link-loss, record-on-connect, recent-views). persist=true also
+  // writes them to disk — called from the Settings Apply button.
+  void applyAllSettings(bool persist);
 
 public:
   // Enter/leave whole-GCS replay (Phase-1 1D / 2E). Drives the read-only
@@ -194,6 +209,7 @@ private:
   class ReplaySource *m_replaySource = nullptr;
   class ReplayBar *m_replayBar = nullptr;
   QToolBar *m_replayToolbar = nullptr;
+  QMenu *m_recentLogsMenu = nullptr;  // File ▸ Open Recent Log (rebuilt on show)
   bool m_recordOnConnect = false;
   // Read-only authority for replay (Phase-1 1D). Lives here so every tx site
   // (all routed through sendToFc) checks one place.
@@ -221,6 +237,24 @@ private:
   quint64 m_pktAtLastRate = 0;
   qint64 m_lastRateTime = 0;
   qint64 m_lastHbTime = 0;
+  // Link-loss watchdog: flag the pill disconnected after this many ms with no
+  // heartbeat on a live link (non-destructive; the transport stays open).
+  int m_linkLossTimeoutMs = 1500;
+  bool m_linkLost = false;
+  // Units & Display launch behaviour (set by applyAllSettings, read by
+  // restoreUiState). startupPage: 0 last-viewed, 1 dashboard, 2 simulator.
+  int m_startupPage = 0;
+  bool m_restoreLayout = true;
+  // Logging & Recording. m_logDir empty ⇒ the ~/vayu-logs default. Recordings
+  // and the on-disconnect session-log dump are written here.
+  QString m_logDir;
+  bool m_exportOnDisconnect = false;
+  // Alerts & Audio. Chimes for arm/disarm/failsafe; arm confirmation dialog.
+  ChimeAudio m_chime;
+  bool m_confirmBeforeArm = true;
+  // Resolve the effective log directory (settings override or the default),
+  // creating it if needed. Returns the absolute path.
+  QString resolveLogDir() const;
   // Edge-guards so the sparse pills only restyle on change — the render clock
   // reads the snapshot at 30 Hz and must not rebuild stylesheets every tick.
   QString m_lastPushedState;

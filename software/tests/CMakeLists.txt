@@ -110,7 +110,8 @@ navigator_test(tst_shortcuts_editor
     ${SRC}/ui/widgets/ShortcutsEditorDialog.cpp
     ${SRC}/core/ShortcutsManager.cpp
     ${SRC}/core/CommandRegistry.cpp
-    ${SRC}/core/Notify.cpp)
+    ${SRC}/core/Notify.cpp
+    ${SRC}/core/ToastOverlay.cpp)
 target_include_directories(tst_shortcuts_editor PRIVATE ${SRC}/ui/widgets)
 
 # ---- Phase 2B: command palette (fuzzy matcher + popup smoke) ---------------

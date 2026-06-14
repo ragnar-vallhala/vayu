@@ -14,6 +14,7 @@
 #include <QToolBar>
 #include <QUrl>
 #include "../core/Theme.h"
+#include "../core/Units.h"
 #include "../core/crc.h"
 #include "../core/ui/Icons.h"
 #include "comm/PortArbiter.h"
@@ -27,11 +28,13 @@
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QDir>
+#include <QFileInfo>
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QMenu>
 #include <QMenuBar>
+#include <QMessageBox>
 #include <QPushButton>
 #include <QStringList>
 #include <QSettings>
@@ -119,11 +122,15 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   connect(m_engine, &TelemetryEngine::exportStateChanged, this,
           [this](bool active, const QString &path) {
             m_exportActive = active;
+            updateExportEnabled();
             if (m_exportAction)
               m_exportAction->setText(active ? tr("Stop Log &Export")
                                              : tr("&Export Log…"));
             m_logPanel->appendLog(active ? "[GCS] Exporting telemetry → " + path
                                          : "[GCS] Export stopped");
+            // The engine has opened the file by now — an exported .bin is a
+            // replayable log, so add it to the recent list.
+            if (active) addRecentLog(path);
           });
 
   // Low-rate / event-like protocol signals stay wired directly to the GUI (they
@@ -178,66 +185,19 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   m_stackedWidget->addWidget(m_settingsWidget);
   connect(m_settingsWidget, &SettingsWidget::backToHomeRequested, this,
           &MainWindow::showHome);
-  connect(m_settingsWidget, &SettingsWidget::syncPeriodChanged, this,
-          [this](int ms) {
-            if (m_syncTimer) {
-              m_syncTimer->setInterval(ms);
-              m_logPanel->appendLog(
-                  QString("[GCS] Sync period updated to %1 ms").arg(ms));
-            }
-            SettingsManager::save(m_settingsWidget->getSettings());
-          });
-  connect(m_settingsWidget, &SettingsWidget::graphWindowChanged, this,
-          [this](int seconds) {
-            m_imuPanel->setGraphWindow(seconds);
-            SettingsManager::save(m_settingsWidget->getSettings());
-          });
-  connect(m_settingsWidget, &SettingsWidget::graphDropoutChanged, this,
-          [this](double rate) {
-            m_imuPanel->setGraphDropout(rate);
-            SettingsManager::save(m_settingsWidget->getSettings());
-          });
-  connect(m_settingsWidget, &SettingsWidget::autoReconnectChanged, this,
-          [this](bool on) {
-            QMetaObject::invokeMethod(m_engine, "setAutoReconnect",
-                                      Qt::QueuedConnection, Q_ARG(bool, on));
-            SettingsManager::save(m_settingsWidget->getSettings());
-          });
-  connect(m_settingsWidget, &SettingsWidget::recordOnConnectChanged, this,
-          [this](bool on) {
-            m_recordOnConnect = on;
-            // Apply immediately if a link is already up.
-            if (on && (m_connected || m_simRunning)) startRecording();
-            else if (!on) stopRecording();
-            SettingsManager::save(m_settingsWidget->getSettings());
-          });
-  connect(m_settingsWidget, &SettingsWidget::recentViewsCountChanged, this,
-          [this](int n) {
-            m_viewHistory.setDepth(n);
-            SettingsManager::save(m_settingsWidget->getSettings());
-          });
-  connect(m_settingsWidget, &SettingsWidget::themeChanged, this,
-          [this](int) {
-            // Only the Dark (Navigator) palette is themed today; persist the
-            // choice so it survives restarts once more themes land.
-            SettingsManager::save(m_settingsWidget->getSettings());
-          });
+  // Settings are edited in a staged form; Apply commits the whole set and
+  // persists once. applyAllSettings(true) does both.
+  connect(m_settingsWidget, &SettingsWidget::applyRequested, this,
+          [this] { applyAllSettings(true); });
 
   // The recorder now lives inside the engine and tees live bytes on the worker
   // thread (Phase B), so no GUI-side byte tee is needed.
 
-  // Load and apply persistent settings
+  // Load and apply persistent settings (apply without re-saving).
   GcsSettings savedSettings;
   if (SettingsManager::load(savedSettings)) {
     m_settingsWidget->setSettings(savedSettings);
-    // Trigger the actual logic changes
-    m_syncTimer->setInterval(savedSettings.syncPeriodMs);
-    m_imuPanel->setGraphWindow(savedSettings.graphWindowSec);
-    m_imuPanel->setGraphDropout(savedSettings.graphDropoutRate);
-    QMetaObject::invokeMethod(m_engine, "setAutoReconnect", Qt::QueuedConnection,
-                              Q_ARG(bool, savedSettings.autoReconnect));
-    m_recordOnConnect = savedSettings.recordOnConnect;
-    m_viewHistory.setDepth(savedSettings.recentViewsCount);
+    applyAllSettings(false);
   }
 
   buildMenuBar();
@@ -345,6 +305,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
           [this](bool running) {
             m_simRunning = running;
             refreshConnectionPill();
+            updateExportEnabled();
             // While the in-app sim feeds telemetry, lock out the serial
             // connection controls (port / baud / refresh / Connect) so the
             // user can't open a conflicting real link.
@@ -388,6 +349,27 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   // Restore window geometry, splitter sizes, last page, port/baud.
   // Must run after every widget the state references has been built.
   restoreUiState();
+
+  // restoreState() above can bring back the replay toolbar's visibility if the
+  // app was last closed mid-replay — but no ReplaySource exists at launch, so
+  // that would be an orphaned, undismissable bar. Replay is never active at
+  // startup; force it hidden.
+  if (m_replayToolbar) m_replayToolbar->setVisible(false);
+
+  // Apply the explicit Link & Connection launch defaults on top of the
+  // restored last-used port/baud (an explicit default wins; an empty default
+  // port means "Ask each time" → keep whatever restoreUiState picked).
+  if (m_toolbar) {
+    m_toolbar->setTransport(savedSettings.defaultTransport);
+    if (savedSettings.defaultTransport == 1) {  // UDP: defaultPort is a number
+      if (!savedSettings.defaultPort.isEmpty())
+        m_toolbar->setUdpPort(savedSettings.defaultPort.toInt());
+    } else {  // Serial: defaultPort is a device path; baud applies
+      if (!savedSettings.defaultPort.isEmpty())
+        m_toolbar->setPort(savedSettings.defaultPort);
+      m_toolbar->setBaud(savedSettings.defaultBaud);
+    }
+  }
 
   // If restoreUiState didn't put us on a page (first run), default to home.
   if (m_stackedWidget->currentWidget() == nullptr) showHome();
@@ -443,6 +425,11 @@ void MainWindow::showPerf() {
 
 void MainWindow::sendTaskNameRequest(int taskId) {
   if (taskId < 0 || taskId > 255)
+    return;
+  // Background request (the Perf page resolves task names on its own). Skip it
+  // silently when tx isn't allowed — e.g. replaying a recording, where it would
+  // otherwise spam "Read-only in replay" once per unknown task.
+  if (!m_session.txAllowed())
     return;
   // PERF_TASKNAME (0xA) request frame: payload = [task_id] (1 byte).
   const uint32_t now =
@@ -642,15 +629,25 @@ void MainWindow::buildMenuBar() {
             tr("Telemetry recordings (*.bin)"));
         if (!path.isEmpty()) enterReplay(path);
       }));
-  fileMenu->addAction(m_cmds->add("sim.loadWorld", "&Load World…", "Simulator",
-                                  QKeySequence(), CmdContext::Always,
-                                  [this] { showSimulator(); }));
+  // Open Recent Log — MRU of the last logs opened or recorded. Rebuilt every
+  // time it's shown so it reflects new recordings and prunes deleted files.
+  m_recentLogsMenu = fileMenu->addMenu(tr("Open &Recent Log"));
+  m_recentLogsMenu->setToolTipsVisible(true);  // show full path on hover
+  connect(m_recentLogsMenu, &QMenu::aboutToShow, this,
+          &MainWindow::rebuildRecentLogsMenu);
+  rebuildRecentLogsMenu();
+  // Jump straight to the most recent log (opened, recorded, or exported).
+  fileMenu->addAction(m_cmds->add(
+      "replay.openLast", "Open &Last Log", "Replay",
+      QKeySequence("Ctrl+Shift+O"), CmdContext::Always,
+      [this] { openLastRecentLog(); }));
   // Live, packet-type-filtered telemetry export (toggles start/stop). The action
   // text flips to "Stop Log Export" while running (engine.exportStateChanged).
   m_exportAction = m_cmds->add("log.export", "&Export Log…", "Log",
-                               QKeySequence(), CmdContext::Always,
+                               QKeySequence("Ctrl+E"), CmdContext::Always,
                                [this] { onExportLogToggle(); });
   fileMenu->addAction(m_exportAction);
+  updateExportEnabled();  // disabled until a source is feeding
   fileMenu->addSeparator();
   fileMenu->addAction(m_cmds->add("app.exit", "E&xit", "Application",
                                   QKeySequence(QKeySequence::Quit),
@@ -848,27 +845,32 @@ void MainWindow::enterReplay(const QString &path) {
   m_replaySource = rs;
 
   m_replayBar->bind(rs);
+  m_replayBar->setLogName(QFileInfo(path).fileName());
   m_replayToolbar->setVisible(true);
   setSessionMode(SessionMode::Replay);  // read-only authority + REPLAY pill
   m_logPanel->appendLog("[GCS] Replay: " + path);
+  addRecentLog(path);
 }
 
 void MainWindow::exitReplay() {
-  if (!m_replaySource) return;
+  // Tear down the live replay source if one is attached. This is guarded
+  // separately from the bar/session teardown below so an *orphaned* replay bar
+  // (e.g. restored visible by QMainWindow::restoreState with no source) can
+  // still be dismissed — otherwise the Exit button would no-op forever.
+  if (m_replaySource) {
+    m_replaySource->pause();
+    disconnect(m_replaySource, &ITelemetrySource::bytesReceived, m_engine,
+               &TelemetryEngine::feedBytes);
+    // Unmute the engine's live feed.
+    QMetaObject::invokeMethod(m_engine, "setReplayMode", Qt::QueuedConnection,
+                              Q_ARG(bool, false));
+    m_replayBar->bind(nullptr);
+    m_replaySource->deleteLater();
+    m_replaySource = nullptr;
+  }
 
-  m_replaySource->pause();
-  disconnect(m_replaySource, &ITelemetrySource::bytesReceived, m_engine,
-             &TelemetryEngine::feedBytes);
-  // Unmute the engine's live feed.
-  QMetaObject::invokeMethod(m_engine, "setReplayMode", Qt::QueuedConnection,
-                            Q_ARG(bool, false));
-
-  m_replayBar->bind(nullptr);
   m_replayToolbar->setVisible(false);
-  m_replaySource->deleteLater();
-  m_replaySource = nullptr;
-
-  setSessionMode(SessionMode::Live);
+  if (m_session.isReplay()) setSessionMode(SessionMode::Live);
   m_logPanel->appendLog("[GCS] Exited replay — live");
 }
 
@@ -936,21 +938,43 @@ void MainWindow::onExportLogToggle() {
     return;
   }
 
-  // Destination folder (user-chosen), then an auto-named .bin inside it.
-  const QString dir = QFileDialog::getExistingDirectory(
-      this, tr("Export folder"), QDir::home().filePath("vayu-logs"));
-  if (dir.isEmpty()) return;
+  // Destination file: a Save dialog pre-filled with the default name inside
+  // ~/vayu-logs, so the user can keep the auto name or rename/relocate it.
+  QDir logDir(QDir::home().filePath("vayu-logs"));
+  if (!logDir.exists()) logDir.mkpath(".");
   const QString stamp = QDateTime::currentDateTime().toString("yyyyMMdd-HHmmss");
-  const QString path = QDir(dir).filePath(QStringLiteral("export-%1.bin").arg(stamp));
+  const QString defaultPath =
+      logDir.filePath(QStringLiteral("export-%1.bin").arg(stamp));
+  QString path = QFileDialog::getSaveFileName(
+      this, tr("Export telemetry to"), defaultPath,
+      tr("Telemetry recordings (*.bin)"));
+  if (path.isEmpty()) return;
+  if (!path.endsWith(".bin", Qt::CaseInsensitive)) path += ".bin";
 
   QMetaObject::invokeMethod(m_engine, "startExport", Qt::QueuedConnection,
                             Q_ARG(QString, path), Q_ARG(int, mask));
+  // The recent-list entry is added when the engine confirms the file is open
+  // (exportStateChanged), avoiding a race with the menu's missing-file prune.
 }
 
 void MainWindow::onArmClicked() {
   if (!m_connected) {
     m_logPanel->appendLog("[GCS] ARM/DISARM ignored — not connected");
     return;
+  }
+
+  // Confirm before ARM (Settings ▸ Alerts & Audio). Gate arming only — disarm
+  // is always safe and should never be blocked behind a dialog.
+  if (m_confirmBeforeArm && !m_armed) {
+    const auto btn = QMessageBox::question(
+        this, tr("Confirm ARM"),
+        tr("Arm the airframe? The motors will spin up once the throttle is "
+           "raised."),
+        QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel);
+    if (btn != QMessageBox::Yes) {
+      m_logPanel->appendLog("[GCS] ARM cancelled");
+      return;
+    }
   }
 
   // Toggle on the last-known FC state (m_armed is synced from the engine
@@ -1075,13 +1099,108 @@ void MainWindow::onConnectionStateChanged(bool connected) {
     if (m_recordOnConnect) startRecording();
   } else {
     stopRecording();
+    // Export-on-disconnect: dump the System Log buffer to a .log under the log
+    // directory (Settings ▸ Logging & Recording).
+    if (m_exportOnDisconnect && m_logPanel) {
+      const QString stamp =
+          QDateTime::currentDateTime().toString("yyyyMMdd-hhmmss");
+      const QString path =
+          QDir(resolveLogDir()).filePath(QString("session_%1.log").arg(stamp));
+      if (m_logPanel->exportToFile(path))
+        m_logPanel->appendLog("[GCS] Session log exported → " + path);
+      else
+        m_logPanel->appendLog("[ERROR] Failed to export session log → " + path);
+    }
   }
+}
+
+void MainWindow::applyAllSettings(bool persist) {
+  const GcsSettings s = m_settingsWidget->getSettings();
+  if (m_syncTimer) m_syncTimer->setInterval(s.syncPeriodMs);
+  if (m_imuPanel) {
+    m_imuPanel->setGraphWindow(s.graphWindowSec);
+    m_imuPanel->setGraphDropout(s.graphDropoutRate);
+    m_imuPanel->setSigmaTraces(s.sigmaTraces);
+    m_imuPanel->setStateBand(s.stateBand);
+    m_imuPanel->setTraceWidth(s.traceWidth);
+    m_imuPanel->setAntialias(s.antialias);
+  }
+  QMetaObject::invokeMethod(m_engine, "setAutoReconnect", Qt::QueuedConnection,
+                            Q_ARG(bool, s.autoReconnect));
+  QMetaObject::invokeMethod(
+      m_engine, "setReconnectInterval", Qt::QueuedConnection,
+      Q_ARG(int, int(s.reconnectIntervalSec * 1000)));
+  m_linkLossTimeoutMs = s.linkLossTimeoutMs;
+  m_viewHistory.setDepth(s.recentViewsCount);
+
+  // Units & Display: the live readouts (attitude labels, Sim HUD tapes) pull
+  // these every render tick, so pushing them here takes effect next frame.
+  Units::setAngleUnit(s.angleUnit == 1 ? Units::AngleUnit::Radians
+                                       : Units::AngleUnit::Degrees);
+  Units::setAltUnit(s.altitudeUnit == 1 ? Units::AltUnit::Feet
+                                        : Units::AltUnit::Meters);
+  Units::setSpeedUnit(s.speedUnit == 2   ? Units::SpeedUnit::Mph
+                      : s.speedUnit == 1 ? Units::SpeedUnit::Kmh
+                                         : Units::SpeedUnit::Mps);
+  Units::setDecimals(s.decimals);
+  // Launch behaviour — consumed by restoreUiState() (which runs after the
+  // startup applyAllSettings(false), so these are set in time).
+  m_startupPage = s.startupPage;
+  m_restoreLayout = s.restoreLayout;
+
+  // Logging & Recording.
+  if (m_logPanel) {
+    m_logPanel->setTimestampMode(s.timestampMode);  // Local/UTC/Elapsed
+    m_logPanel->setMaxLines(s.maxLogLines);
+  }
+  m_logDir = s.logDirectory;
+  m_exportOnDisconnect = s.exportOnDisconnect;
+
+  // Alerts & Audio.
+  Notify::setEnabled(s.toastNotifications);
+  m_chime.setEnabled(s.audioAlerts);
+  m_confirmBeforeArm = s.confirmBeforeArm;
+#ifdef NAVIGATOR_HAS_SITL
+  if (m_simulatorWidget) m_simulatorWidget->setPropAudioDefault(s.simPropAudio);
+#endif
+
+  // Record-on-connect: start/stop now if the state actually changed and a feed
+  // is live (no-op at startup, where nothing is connected yet).
+  const bool wasRec = m_recordOnConnect;
+  m_recordOnConnect = s.recordOnConnect;
+  if (s.recordOnConnect && !wasRec && (m_connected || m_simRunning))
+    startRecording();
+  else if (!s.recordOnConnect && wasRec)
+    stopRecording();
+
+  // Theme is persisted only (Dark is the only themed palette today). The
+  // transport/port/baud launch defaults are applied to the toolbar at startup,
+  // not here, since they describe next-launch behaviour.
+  if (persist) {
+    SettingsManager::save(s);
+    if (m_logPanel) m_logPanel->appendLog("[GCS] Settings applied");
+  }
+}
+
+void MainWindow::updateExportEnabled() {
+  if (!m_exportAction) return;
+  // Enabled when telemetry is arriving (live link or in-app sim), or while an
+  // export is already running so the user can stop it.
+  m_exportAction->setEnabled(m_connected || m_simRunning || m_exportActive);
+}
+
+QString MainWindow::resolveLogDir() const {
+  // Settings override wins; otherwise the ~/vayu-logs default. Created on demand.
+  const QString path =
+      m_logDir.isEmpty() ? QDir::home().filePath("vayu-logs") : m_logDir;
+  QDir d(path);
+  if (!d.exists()) d.mkpath(".");
+  return path;
 }
 
 void MainWindow::startRecording() {
   if (!m_recordingPath.isEmpty()) return;  // already recording this session
-  QDir logDir(QDir::home().filePath("vayu-logs"));
-  if (!logDir.exists()) logDir.mkpath(".");
+  QDir logDir(resolveLogDir());
   const QString stamp =
       QDateTime::currentDateTime().toString("yyyyMMdd-hhmmss");
   const QString path = logDir.filePath(QString("rec_%1.bin").arg(stamp));
@@ -1093,6 +1212,9 @@ void MainWindow::startRecording() {
       Q_ARG(qulonglong, qulonglong(QDateTime::currentMSecsSinceEpoch())));
   m_recordingPath = path;
   m_logPanel->appendLog("[GCS] Recording telemetry → " + path);
+  // Surface the recording in the recent list immediately — it counts even if
+  // the user never opens it for replay, and survives a crash mid-recording.
+  addRecentLog(path);
 }
 
 void MainWindow::stopRecording() {
@@ -1110,6 +1232,8 @@ void MainWindow::onSerialError(const QString &msg) {
 
 void MainWindow::setConnected(bool on) {
   m_connected = on;
+  m_linkLost = false;  // reset the watchdog on any connect/disconnect edge
+  updateExportEnabled();
 
   // Page-level gating: any page whose actions only make sense with a
   // live serial link is told to disable its action surface here.
@@ -1247,12 +1371,23 @@ void MainWindow::onUiTimer() {
   // Sparse pills + arm state — edge-guarded so we only restyle on change.
   if (feedActive) {
     if (!s.vehicleState.isEmpty() && s.vehicleState != m_lastPushedState) {
+      const bool enteringFailsafe = s.vehicleState.contains("FAILSAFE") &&
+                                    !m_lastPushedState.contains("FAILSAFE");
       m_lastPushedState = s.vehicleState;
       applyVehicleStatePill(s.vehicleState);
+      if (enteringFailsafe) {
+        m_chime.play(ChimeAudio::Kind::Failsafe);
+        Notify::error(this, tr("FAILSAFE"));
+      }
     }
     if (s.armed != m_armed) {
       m_armed = s.armed;
       if (m_toolbar) m_toolbar->setArmState(m_armed);
+      m_chime.play(m_armed ? ChimeAudio::Kind::Arm : ChimeAudio::Kind::Disarm);
+      if (m_armed)
+        Notify::ok(this, tr("Armed"));
+      else
+        Notify::info(this, tr("Disarmed"));
     }
     if (s.flightMode != m_lastFlightMode ||
         s.flightModeSource != m_lastFlightSrc) {
@@ -1270,12 +1405,14 @@ void MainWindow::onUiTimer() {
     return;
   }
 
-  // Update attitude numeric labels (stable ~7.5 Hz update)
+  // Update attitude numeric labels (stable ~7.5 Hz update). Angle unit +
+  // precision come from Settings ▸ Units & Display via the Units:: helper.
   auto fmtVal = [](float v) {
-    return QString("%1°").arg(static_cast<double>(v), 7, 'f', 2);
+    return Units::angle(static_cast<double>(v), 7);
   };
   auto fmtStd = [](float v) {
-    return QString("± σ %1").arg(static_cast<double>(v), 6, 'f', 3);
+    return QString("± σ %1").arg(Units::toAngle(static_cast<double>(v)), 6, 'f',
+                                 Units::decimals() + 1);
   };
 
   // Attitude readouts: "-" when no fresh attitude telemetry (never seen / stale
@@ -1313,6 +1450,22 @@ void MainWindow::updateLiveBlinker() {
   const qint64 elapsed =
       QDateTime::currentMSecsSinceEpoch() - m_lastHbTime;
   MainStatusBar::fadeLive(live, elapsed);
+
+  // Link-loss watchdog (live links only; the sim/replay don't heartbeat the
+  // same way). On timeout, flag the connection pill disconnected — the
+  // transport stays open, so auto-reconnect still handles genuine drops.
+  const bool lost = m_connected && !m_simRunning &&
+                    elapsed > m_linkLossTimeoutMs;
+  if (lost != m_linkLost) {
+    m_linkLost = lost;
+    if (m_statusBar) {
+      if (lost)
+        m_statusBar->setError(
+            tr("Link lost — no heartbeat for %1 ms").arg(elapsed));
+      else
+        refreshConnectionPill();  // heartbeat resumed → restore the pill
+    }
+  }
 }
 
 void MainWindow::onHeartbeatReceived(uint64_t timestamp, uint8_t deviceId) {
@@ -1378,6 +1531,8 @@ constexpr const char *kVSplitKey     = "ui/vSplitter";
 constexpr const char *kPageKey       = "ui/lastPage";
 constexpr const char *kPortKey       = "comm/lastPort";
 constexpr const char *kBaudKey       = "comm/lastBaud";
+constexpr const char *kRecentLogsKey = "replay/recentLogs";
+constexpr int kMaxRecentLogs = 10;
 }  // namespace
 
 void MainWindow::installShortcuts() {
@@ -1450,22 +1605,34 @@ void MainWindow::saveUiState() {
 
 void MainWindow::restoreUiState() {
   QSettings s;
-  if (s.contains(kGeomKey))     restoreGeometry(s.value(kGeomKey).toByteArray());
-  if (s.contains(kWinStateKey)) restoreState(s.value(kWinStateKey).toByteArray());
-  if (m_topSplitter && s.contains(kTopSplitKey))
-    m_topSplitter->restoreState(s.value(kTopSplitKey).toByteArray());
-  if (m_vSplitter && s.contains(kVSplitKey))
-    m_vSplitter->restoreState(s.value(kVSplitKey).toByteArray());
+  // Window geometry + splitter sizes are gated by "Restore layout" (Settings ▸
+  // Units & Display). Off ⇒ open at the default size with default splitters.
+  if (m_restoreLayout) {
+    if (s.contains(kGeomKey))     restoreGeometry(s.value(kGeomKey).toByteArray());
+    if (s.contains(kWinStateKey)) restoreState(s.value(kWinStateKey).toByteArray());
+    if (m_topSplitter && s.contains(kTopSplitKey))
+      m_topSplitter->restoreState(s.value(kTopSplitKey).toByteArray());
+    if (m_vSplitter && s.contains(kVSplitKey))
+      m_vSplitter->restoreState(s.value(kVSplitKey).toByteArray());
+  }
 
-  // Restore last-used port / baud through the toolbar's typed accessors.
+  // Restore last-used port / baud through the toolbar's typed accessors (this is
+  // connection state, not layout, so it's kept regardless of "Restore layout").
   // setPort handles both "matches a known item" and "custom path" cases.
   if (m_toolbar) {
     m_toolbar->setPort(s.value(kPortKey).toString());
     m_toolbar->setBaud(s.value(kBaudKey).toInt());
   }
 
-  // Last page index. Default to home (0) on first run.
-  if (m_stackedWidget && s.contains(kPageKey)) {
+  // Startup page (Settings ▸ Units & Display): the dashboard/simulator choices
+  // win outright; "Last viewed" restores the saved page index.
+  if (m_startupPage == 1) {
+    showHome();
+#ifdef NAVIGATOR_HAS_SITL
+  } else if (m_startupPage == 2) {
+    showSimulator();
+#endif
+  } else if (m_stackedWidget && s.contains(kPageKey)) {
     const int idx = s.value(kPageKey).toInt();
     if (idx >= 0 && idx < m_stackedWidget->count())
       m_stackedWidget->setCurrentIndex(idx);
@@ -1477,4 +1644,68 @@ void MainWindow::persistPortBaud() {
   QSettings s;
   s.setValue(kPortKey, m_toolbar->currentPort());
   s.setValue(kBaudKey, m_toolbar->currentBaud());
+}
+
+void MainWindow::addRecentLog(const QString &path) {
+  if (path.isEmpty()) return;
+  const QString abs = QFileInfo(path).absoluteFilePath();
+  QSettings s;
+  QStringList logs = s.value(kRecentLogsKey).toStringList();
+  logs.removeAll(abs);              // dedup: move to front if already present
+  logs.prepend(abs);
+  while (logs.size() > kMaxRecentLogs) logs.removeLast();
+  s.setValue(kRecentLogsKey, logs);
+  rebuildRecentLogsMenu();
+}
+
+void MainWindow::rebuildRecentLogsMenu() {
+  if (!m_recentLogsMenu) return;
+  m_recentLogsMenu->clear();
+
+  QSettings s;
+  QStringList logs = s.value(kRecentLogsKey).toStringList();
+
+  // Prune entries whose files have since been deleted, but keep the currently
+  // recording file even though it may not exist on disk yet.
+  QStringList live;
+  for (const QString &p : logs)
+    if (p == m_recordingPath || QFileInfo::exists(p)) live.append(p);
+  if (live != logs) s.setValue(kRecentLogsKey, live);
+
+  if (live.isEmpty()) {
+    QAction *none = m_recentLogsMenu->addAction(tr("(no recent logs)"));
+    none->setEnabled(false);
+    return;
+  }
+
+  int n = 1;
+  for (const QString &path : live) {
+    // &1..&9, then plain — the leading digit is an Alt-accelerator.
+    const QString prefix = n <= 9 ? QString("&%1  ").arg(n) : QString();
+    QAction *a =
+        m_recentLogsMenu->addAction(prefix + QFileInfo(path).fileName());
+    a->setData(path);
+    a->setToolTip(path);
+    connect(a, &QAction::triggered, this, [this, path] { enterReplay(path); });
+    ++n;
+  }
+  m_recentLogsMenu->addSeparator();
+  QAction *clear = m_recentLogsMenu->addAction(tr("Clear Recent Logs"));
+  connect(clear, &QAction::triggered, this, [this] {
+    QSettings cs;
+    cs.remove(kRecentLogsKey);
+    rebuildRecentLogsMenu();
+  });
+}
+
+void MainWindow::openLastRecentLog() {
+  QSettings s;
+  const QStringList logs = s.value(kRecentLogsKey).toStringList();
+  for (const QString &path : logs) {
+    if (QFileInfo::exists(path)) {
+      enterReplay(path);
+      return;
+    }
+  }
+  Notify::warn(this, tr("No recent log to open"));
 }

@@ -30,6 +30,10 @@ enum class Kind {
   Error,  // red
 };
 
+// Global on/off (Settings ▸ Alerts ▸ Toast notifications). When disabled,
+// send() is a no-op. Defaults to enabled.
+void setEnabled(bool on);
+
 // Send a toast. timeout_ms=0 means default per-kind (3000 info/ok,
 // 5000 warn, 7000 error). Pass an explicit ms to override.
 void send(QWidget* anchor, Kind kind, const QString& text,

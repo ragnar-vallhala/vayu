@@ -181,6 +181,10 @@ void TelemetryEngine::setAutoReconnect(bool on) {
   m_serial->setAutoReconnect(on);
 }
 
+void TelemetryEngine::setReconnectInterval(int ms) {
+  m_serial->setReconnectIntervalMs(ms);
+}
+
 void TelemetryEngine::setReplayMode(bool on) { m_acceptLive = !on; }
 
 void TelemetryEngine::startRecording(const QString &path,

@@ -27,6 +27,10 @@ public:
   void setAutoReconnect(bool on) { m_autoReconnect = on; }
   bool autoReconnect() const     { return m_autoReconnect; }
 
+  // Base retry delay for auto-reconnect (the backoff doubles from here). Lets
+  // the Settings page tune the cadence; clamped to a sane floor.
+  void setReconnectIntervalMs(int ms) { m_initialDelayMs = qMax(100, ms); }
+
   // Static helpers
   static QStringList availablePorts();
 
@@ -54,6 +58,7 @@ private:
   qint32  m_lastBaud      = 0;
   int     m_retryCount    = 0;
   QTimer  m_retryTimer;
+  int     m_initialDelayMs = kInitialDelayMs;  // configurable base retry delay
 
   static constexpr int kInitialDelayMs = 1000;
   static constexpr int kMaxDelayMs     = 8000;

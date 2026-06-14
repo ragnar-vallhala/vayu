@@ -55,6 +55,7 @@ public slots:
   void closeLinks();
   void send(const QByteArray &pkt);            // routes UDP-else-serial
   void setAutoReconnect(bool on);
+  void setReconnectInterval(int ms);           // base auto-reconnect retry delay
   void setReplayMode(bool on);                 // mutes the live feed into parse
   // qulonglong = a built-in metatype name for the queued invoke.
   void startRecording(const QString &path, qulonglong startWallClockMs);
