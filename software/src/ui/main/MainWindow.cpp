@@ -15,6 +15,7 @@
 #include <QUrl>
 #include "../core/Theme.h"
 #include "../core/crc.h"
+#include "../core/ui/Icons.h"
 #include "comm/PortArbiter.h"
 
 #include <QAction>
@@ -629,31 +630,35 @@ void MainWindow::buildMenuBar() {
                                   CmdContext::Always, [this] { close(); }));
 
   // ---- View (page navigation, Ctrl+1‑8 per the mockup) ----
+  // Helper: register a command, give it the mockup's line-icon, and add it.
+  auto addNav = [&](QMenu *m, const QString &id, const QString &text,
+                    const QKeySequence &key, ui::Icon icon,
+                    std::function<void()> fn) {
+    QAction *a = m_cmds->add(id, text, "View", key, CmdContext::Always,
+                             std::move(fn));
+    a->setIcon(ui::svgIcon(icon));
+    m->addAction(a);
+    return a;
+  };
+
   QMenu *viewMenu = menu->addMenu("&View");
-  viewMenu->addAction(m_cmds->add("nav.dashboard", "Flight &Dashboard", "View",
-                                  QKeySequence("Ctrl+1"), CmdContext::Always,
-                                  [this] { showHome(); }));
-  viewMenu->addAction(m_cmds->add("nav.rc", "&RC Channels", "View",
-                                  QKeySequence("Ctrl+2"), CmdContext::Always,
-                                  [this] { showRcMonitor(); }));
-  viewMenu->addAction(m_cmds->add("nav.motors", "&Motors", "View",
-                                  QKeySequence("Ctrl+3"), CmdContext::Always,
-                                  [this] { showMotorStatus(); }));
-  viewMenu->addAction(m_cmds->add("nav.control", "&Control Loop", "View",
-                                  QKeySequence("Ctrl+4"), CmdContext::Always,
-                                  [this] { showControlLoopPlot(); }));
+  addNav(viewMenu, "nav.dashboard", "Flight &Dashboard", QKeySequence("Ctrl+1"),
+         ui::Icon::Dashboard, [this] { showHome(); });
+  addNav(viewMenu, "nav.rc", "&RC Channels", QKeySequence("Ctrl+2"),
+         ui::Icon::Rc, [this] { showRcMonitor(); });
+  addNav(viewMenu, "nav.motors", "&Motors", QKeySequence("Ctrl+3"),
+         ui::Icon::Motors, [this] { showMotorStatus(); });
+  addNav(viewMenu, "nav.control", "&Control Loop", QKeySequence("Ctrl+4"),
+         ui::Icon::Control, [this] { showControlLoopPlot(); });
   viewMenu->addSeparator();
-  viewMenu->addAction(m_cmds->add("nav.packets", "&Packet Analyzer", "View",
-                                  QKeySequence("Ctrl+5"), CmdContext::Always,
-                                  [this] { showPacketAnalyzer(); }));
+  addNav(viewMenu, "nav.packets", "&Packet Analyzer", QKeySequence("Ctrl+5"),
+         ui::Icon::Packets, [this] { showPacketAnalyzer(); });
 #ifdef NAVIGATOR_HAS_SITL
-  viewMenu->addAction(m_cmds->add("nav.simulator", "Si&mulator", "View",
-                                  QKeySequence("Ctrl+6"), CmdContext::Always,
-                                  [this] { showSimulator(); }));
+  addNav(viewMenu, "nav.simulator", "Si&mulator", QKeySequence("Ctrl+6"),
+         ui::Icon::Sim, [this] { showSimulator(); });
 #endif
-  viewMenu->addAction(m_cmds->add("nav.perf", "&Kernel Perf", "View",
-                                  QKeySequence("Ctrl+8"), CmdContext::Always,
-                                  [this] { showPerf(); }));
+  addNav(viewMenu, "nav.perf", "&Kernel Perf", QKeySequence("Ctrl+8"),
+         ui::Icon::Perf, [this] { showPerf(); });
   viewMenu->addSeparator();
   viewMenu->addAction(m_cmds->add(
       "window.fullscreen", "&Fullscreen", "Window", QKeySequence(Qt::Key_F11),
@@ -664,9 +669,14 @@ void MainWindow::buildMenuBar() {
 
   // ---- Flight ----
   QMenu *flightMenu = menu->addMenu("F&light");
-  flightMenu->addAction(m_cmds->add("flight.arm", "&Arm / Disarm", "Flight",
-                                    QKeySequence("Ctrl+A"), CmdContext::Always,
-                                    [this] { onArmClicked(); }));
+  {
+    QAction *arm =
+        m_cmds->add("flight.arm", "&Arm / Disarm", "Flight",
+                    QKeySequence("Ctrl+A"), CmdContext::Always,
+                    [this] { onArmClicked(); });
+    arm->setIcon(ui::svgIcon(ui::Icon::Arm));
+    flightMenu->addAction(arm);
+  }
   flightMenu->addSeparator();
   flightMenu->addAction(m_cmds->add("flight.runCalib", "&Run Calibration…",
                                     "Flight", QKeySequence(), CmdContext::Always,
@@ -674,9 +684,8 @@ void MainWindow::buildMenuBar() {
 
   // ---- Tools ----
   QMenu *toolsMenu = menu->addMenu("&Tools");
-  toolsMenu->addAction(m_cmds->add("nav.calibration", "&Calibration", "View",
-                                   QKeySequence("Ctrl+7"), CmdContext::Always,
-                                   [this] { showCalibration(); }));
+  addNav(toolsMenu, "nav.calibration", "&Calibration", QKeySequence("Ctrl+7"),
+         ui::Icon::Calib, [this] { showCalibration(); });
 
   // ---- Settings (single entry; opens the Configuration page) ----
   QMenu *settingsMenu = menu->addMenu("&Settings");

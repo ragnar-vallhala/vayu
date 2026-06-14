@@ -3,6 +3,7 @@
 #include "core/CsvExport.h"
 #include "core/Notify.h"
 #include "core/ui/Buttons.h"
+#include "core/ui/Icons.h"
 
 #include <QColor>
 #include <QDateTime>
@@ -40,6 +41,9 @@ ImuPanel::ImuPanel(QWidget *parent) : QWidget(parent) {
 
   // ---- Header: title + Export CSV (mockup IMU TELEMETRY · Export CSV) ----
   auto *headerRow = new QHBoxLayout();
+  auto *icon = new QLabel(this);
+  icon->setPixmap(ui::svgPixmap(ui::Icon::Imu, QColor(0x61, 0xAF, 0xEF), 16));
+  headerRow->addWidget(icon);
   // Sensor-agnostic by default; setSensor() appends the part name if telemetry
   // ever reports it (don't hardcode a specific IMU).
   m_header = new QLabel(tr("IMU Telemetry"), this);
