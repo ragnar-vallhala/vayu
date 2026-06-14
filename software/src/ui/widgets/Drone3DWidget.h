@@ -25,9 +25,15 @@ protected:
   void hideEvent(QHideEvent *event) override;
 
 private:
+  // Displayed angles are eased toward the latest target each frame (spin timer)
+  // so bursty / low-rate telemetry renders as smooth motion instead of snapping.
   float m_roll = 0.0f;
   float m_pitch = 0.0f;
   float m_yaw = 0.0f;
-  float m_propPhase = 0.0f;  // degrees, advanced by the spin timer
+  float m_targetRoll = 0.0f;
+  float m_targetPitch = 0.0f;
+  float m_targetYaw = 0.0f;
+  bool m_haveTarget = false;  // snap to the first sample, ease after that
+  float m_propPhase = 0.0f;   // degrees, advanced by the spin timer
   QTimer *m_spinTimer = nullptr;
 };

@@ -4,6 +4,8 @@
 #include <QOpenGLFunctions>
 #include <QOpenGLWidget>
 
+class QTimer;
+
 /**
  * An artificial horizon widget drawn with QPainter.
  *
@@ -27,6 +29,8 @@ protected:
   void initializeGL() override;
   void resizeGL(int w, int h) override;
   void paintGL() override;
+  void showEvent(QShowEvent *event) override;
+  void hideEvent(QHideEvent *event) override;
 
 private:
   // Banked-horizon ADI (mockup style): the sky/ground horizon tilts with roll
@@ -39,7 +43,14 @@ private:
   void drawAircraftRef(QPainter &p, const QRectF &adi);
   void drawHeadingTape(QPainter &p, const QRectF &tape);
 
+  // Displayed angles are eased toward the latest target each frame (m_smoothTimer)
+  // so bursty / low-rate telemetry renders as smooth motion instead of snapping.
   float m_roll = 0.0f;
   float m_pitch = 0.0f;
   float m_yaw = 0.0f;
+  float m_targetRoll = 0.0f;
+  float m_targetPitch = 0.0f;
+  float m_targetYaw = 0.0f;
+  bool m_haveTarget = false;     // snap to the first sample, ease after that
+  QTimer *m_smoothTimer = nullptr;
 };
