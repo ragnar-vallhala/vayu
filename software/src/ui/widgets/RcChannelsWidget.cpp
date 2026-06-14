@@ -110,7 +110,10 @@ RcChannelsWidget::RcChannelsWidget(QWidget *parent) : QWidget(parent) {
   swv->addStretch();
   rcTop->addWidget(sw);
 
-  mainLayout->addLayout(rcTop);
+  // Give the Sticks/Link/Switches row a share of the extra vertical space so
+  // the graph below stays under half the page (see hist stretch), without
+  // over-expanding and leaving the gimbals stranded in empty boxes.
+  mainLayout->addLayout(rcTop, 1);
 
   // ---- Channels (named bars, 2-col grid) ----
   auto *chans = new QGroupBox(tr("Channels"), this);
@@ -159,7 +162,9 @@ RcChannelsWidget::RcChannelsWidget(QWidget *parent) : QWidget(parent) {
       m_history->setPenStyle(i, Qt::DotLine);  // aux channels dotted
   }
   hl->addWidget(m_history);
-  mainLayout->addWidget(hist, 1);
+  // Stretch 2 vs the top row's 1 lands the history graph just under half the
+  // page (the fixed-height Channels group above tips the balance to the top).
+  mainLayout->addWidget(hist, 2);
 }
 
 void RcChannelsWidget::updateChannels(const RcData &data) {
