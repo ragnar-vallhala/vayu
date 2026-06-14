@@ -5,66 +5,44 @@
 #include "Types.h"
 #include "VGauge.h"
 #include <QColor>
-#include <QGroupBox>
 #include <QLabel>
+#include <QWidget>
 
 /**
- * Displays three axes of one IMU sensor channel (acc / gyr / mag)
- * in a labelled group box with large LCD-style numbers and real-time graphs.
+ * Dashboard IMU telemetry panel (mockup parity): a header (title + Export CSV),
+ * a 2×2 grid of self-contained graphs — Accelerometer, Gyroscope, Magnetometer
+ * and Baro Altitude — beside a right-hand column with the device-temp + battery
+ * vertical gauges, with a vehicle-state legend under the grid. Each graph plots
+ * its axes plus rolling-σ traces and the vehicle-state colour band.
  */
-class ImuAxisGroup : public QGroupBox {
-  Q_OBJECT
-
-public:
-  ImuAxisGroup(const QString &title, const QString &unit,
-               QWidget *parent = nullptr);
-
-  void setValues(float x, float y, float z);
-  // Show "-" on the numeric labels (no live vehicle data). The graph paints its
-  // own NA watermark once the trace goes stale.
-  void setUnavailable();
-  void setWindowSeconds(int seconds);
-  void setDropoutRate(double rate);
-  // Push one vehicle-state colour cell onto this group's graph band.
-  void pushState(const QColor &c) { m_graph->pushState(c); }
-  // Exposed so panel-level CSV export can include this group's traces.
-  RealTimeGraph *graph() const { return m_graph; }
-
-private:
-  QLabel *m_labels[3];
-  QLabel *m_stdLabels[3];
-  RollingStats m_stats[3];
-  RealTimeGraph *m_graph;
-  float m_sigmaMax = 0.5f;  // right-axis σ scale, grown to fit (mockup stdMax)
-};
-
-// ---------------------------------------------------------------------------
-
-class ImuPanel : public QGroupBox {
+class ImuPanel : public QWidget {
   Q_OBJECT
 
 public:
   explicit ImuPanel(QWidget *parent = nullptr);
 
 public slots:
-  // `available` = live IMU telemetry is fresh. When false the numeric labels +
-  // temp gauge show "-" so absent data is distinct from a real zero.
+  // `available` = live IMU telemetry is fresh. When false the temp gauge reads
+  // "-" and the graphs go NA on their own (no new samples).
   void updateImu(const ImuData &data, bool available = true);
-  void setSensor(const QString &name); // swap displayed sensor name
+  void setSensor(const QString &name);  // updates the header (e.g. "IMU — BMX160")
   void setGraphWindow(int seconds);
   void setGraphDropout(double rate);
-  // Battery level (0..100 %) for the right-hand gauge. No battery telemetry
-  // exists yet, so MainWindow leaves the placeholder default in place.
+  // Battery level (0..100 %); no telemetry source yet so MainWindow leaves it.
   void setBattery(double pct);
-  // Current vehicle-state colour for the graph state band (mockup .g-status):
-  // advanced one cell per IMU update so the band scrolls with the traces.
+  // Vehicle-state colour for the graphs' state band (advanced per IMU update).
   void setVehicleState(const QColor &c) { m_state = c; }
 
 private:
-  ImuAxisGroup *m_acc;
-  ImuAxisGroup *m_gyr;
-  ImuAxisGroup *m_mag;
-  VGauge *m_tempGauge;   // device temperature (from ImuData.tempC)
-  VGauge *m_battGauge;   // battery % (placeholder until telemetry exists)
+  QLabel *m_header = nullptr;
+  RealTimeGraph *m_accG = nullptr;
+  RealTimeGraph *m_gyrG = nullptr;
+  RealTimeGraph *m_magG = nullptr;
+  RealTimeGraph *m_baroG = nullptr;  // no baro telemetry yet → shows NA
+  RollingStats m_accStats[3];
+  RollingStats m_gyrStats[3];
+  RollingStats m_magStats[3];
+  VGauge *m_tempGauge = nullptr;
+  VGauge *m_battGauge = nullptr;
   QColor m_state{0x98, 0xC3, 0x79};  // standby green by default
 };
