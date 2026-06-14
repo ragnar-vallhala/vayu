@@ -5,10 +5,39 @@
 #include <QLinearGradient>
 #include <QPainter>
 #include <QPainterPath>
+#include <QTimer>
 #include <QtMath>
+
+namespace {
+// Ease `cur` toward `target` by fraction `a`, taking the shortest angular path
+// (so roll/yaw wrapping across ±180° doesn't spin the long way round). Returns
+// the new value normalised to (-180, 180]. Telemetry over WiFi arrives bursty /
+// low-rate; easing toward the latest sample each render frame turns the steps
+// into smooth motion. ~50% per ~33 ms frame ≈ a ~50 ms time constant.
+constexpr float kSmooth = 0.5f;
+float easeAngle(float cur, float target, float a) {
+  float d = target - cur;
+  while (d > 180.0f) d -= 360.0f;
+  while (d < -180.0f) d += 360.0f;
+  cur += d * a;
+  while (cur > 180.0f) cur -= 360.0f;
+  while (cur < -180.0f) cur += 360.0f;
+  return cur;
+}
+}  // namespace
 
 AttitudeWidget::AttitudeWidget(QWidget *parent) : QOpenGLWidget(parent) {
   setMinimumSize(260, 260);
+  // Smoothing/repaint clock: ease the displayed attitude toward the latest
+  // target and repaint at ~30 Hz, decoupled from the (bursty) packet rate.
+  m_smoothTimer = new QTimer(this);
+  m_smoothTimer->setInterval(33);  // ~30 fps
+  connect(m_smoothTimer, &QTimer::timeout, this, [this] {
+    m_roll = easeAngle(m_roll, m_targetRoll, kSmooth);
+    m_pitch = easeAngle(m_pitch, m_targetPitch, kSmooth);
+    m_yaw = easeAngle(m_yaw, m_targetYaw, kSmooth);
+    update();
+  });
 }
 
 void AttitudeWidget::setAttitude(const AttitudeData &att) {
@@ -16,10 +45,28 @@ void AttitudeWidget::setAttitude(const AttitudeData &att) {
 }
 
 void AttitudeWidget::setAttitude(float roll, float pitch, float yaw) {
-  m_roll = roll;
-  m_pitch = pitch;
-  m_yaw = yaw;
-  update();
+  // Set the target only; the smoothing timer eases the displayed angles toward
+  // it. Snap on the first sample so we don't sweep up from zero on connect.
+  m_targetRoll = roll;
+  m_targetPitch = pitch;
+  m_targetYaw = yaw;
+  if (!m_haveTarget) {
+    m_haveTarget = true;
+    m_roll = roll;
+    m_pitch = pitch;
+    m_yaw = yaw;
+    update();
+  }
+}
+
+void AttitudeWidget::showEvent(QShowEvent *event) {
+  QOpenGLWidget::showEvent(event);
+  m_smoothTimer->start();
+}
+
+void AttitudeWidget::hideEvent(QHideEvent *event) {
+  QOpenGLWidget::hideEvent(event);
+  m_smoothTimer->stop();  // don't burn CPU / GL while hidden
 }
 
 void AttitudeWidget::initializeGL() {

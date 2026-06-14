@@ -38,6 +38,21 @@ const QColor kAccent(0x61, 0xAF, 0xEF);  // --accent (nose)
 const QColor kPodFill(0x20, 0x24, 0x2e);
 const QColor kBlade(190, 205, 225, 95);
 
+// Ease `cur` toward `target` by fraction `a` along the shortest angular path, so
+// roll/yaw wrapping across ±180° doesn't spin the long way. Telemetry over WiFi
+// arrives bursty / low-rate; easing toward the latest sample each frame turns the
+// steps into smooth motion. ~50% per ~33 ms frame ≈ a ~50 ms time constant.
+constexpr float kSmooth = 0.5f;
+float easeAngle(float cur, float target, float a) {
+  float d = target - cur;
+  while (d > 180.0f) d -= 360.0f;
+  while (d < -180.0f) d += 360.0f;
+  cur += d * a;
+  while (cur > 180.0f) cur -= 360.0f;
+  while (cur < -180.0f) cur += 360.0f;
+  return cur;
+}
+
 }  // namespace
 
 Drone3DWidget::Drone3DWidget(QWidget *parent) : QOpenGLWidget(parent) {
@@ -47,6 +62,11 @@ Drone3DWidget::Drone3DWidget(QWidget *parent) : QOpenGLWidget(parent) {
   m_spinTimer->setInterval(33);  // ~30 fps
   connect(m_spinTimer, &QTimer::timeout, this, [this] {
     m_propPhase += 9.0f;
+    // Ease the displayed attitude toward the latest target so bursty / low-rate
+    // telemetry renders as smooth motion instead of stepping.
+    m_roll = easeAngle(m_roll, m_targetRoll, kSmooth);
+    m_pitch = easeAngle(m_pitch, m_targetPitch, kSmooth);
+    m_yaw = easeAngle(m_yaw, m_targetYaw, kSmooth);
     update();
   });
 }
@@ -56,12 +76,18 @@ void Drone3DWidget::setAttitude(const AttitudeData &att) {
 }
 
 void Drone3DWidget::setAttitude(float roll, float pitch, float yaw) {
-  // Cache only — the ~30 Hz spin timer already repaints while the view is shown,
-  // so the new attitude is picked up on the next frame without forcing an extra
-  // GL repaint per call. See docs/ui-rendering-decoupling.md.
-  m_roll = roll;
-  m_pitch = pitch;
-  m_yaw = yaw;
+  // Set the target only — the ~30 Hz spin timer eases the displayed attitude
+  // toward it and repaints. Snap on the first sample so the airframe doesn't
+  // sweep up from level on connect. See docs/ui-rendering-decoupling.md.
+  m_targetRoll = roll;
+  m_targetPitch = pitch;
+  m_targetYaw = yaw;
+  if (!m_haveTarget) {
+    m_haveTarget = true;
+    m_roll = roll;
+    m_pitch = pitch;
+    m_yaw = yaw;
+  }
 }
 
 void Drone3DWidget::showEvent(QShowEvent *event) {
