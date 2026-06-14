@@ -60,6 +60,16 @@ TelemetryEngine::TelemetryEngine(QObject *parent)
   connect(m_protocol, &DroneProtocol::packetReceived, this, bumpCount);
   connect(m_protocol, &DroneProtocol::unknownPacket, this, bumpCount);
 
+  // Live packet-type-filtered export: write each kept wire packet verbatim to a
+  // replayable .bin. Runs on the worker thread (same as the recorder).
+  connect(m_protocol, &DroneProtocol::packetReceived, this,
+          [this](const QByteArray &pkt) {
+            if (!m_exporting || pkt.size() < 2) return;
+            const int type = (static_cast<quint8>(pkt[1]) >> 4) & 0x0F;
+            if (m_exportMask & static_cast<quint16>(1u << type))
+              m_exporter.writeFrame(quint64(m_elapsed.nsecsElapsed() / 1000), pkt);
+          });
+
   // --- High-rate state signals: consumed here to update the store. These are
   // NEVER re-wired to the UI; the UI pulls snapshot() at the render rate. ---
   connect(m_protocol, &DroneProtocol::imuReceived, this,
@@ -181,4 +191,19 @@ void TelemetryEngine::startRecording(const QString &path,
 
 void TelemetryEngine::stopRecording() {
   if (m_recorder.isOpen()) m_recorder.close();
+}
+
+void TelemetryEngine::startExport(const QString &path, int typeMask) {
+  if (m_exporter.isOpen()) m_exporter.close();
+  m_exportMask = static_cast<quint16>(typeMask);
+  m_exporting = m_exporter.open(
+      path, /*protocolVersion=*/1,
+      quint64(QDateTime::currentMSecsSinceEpoch()));
+  emit exportStateChanged(m_exporting, m_exporting ? path : QString());
+}
+
+void TelemetryEngine::stopExport() {
+  if (m_exporter.isOpen()) m_exporter.close();
+  m_exporting = false;
+  emit exportStateChanged(false, QString());
 }

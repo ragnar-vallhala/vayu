@@ -34,6 +34,7 @@
 #endif
 
 class QToolBar;
+class QAction;
 
 class MainWindow : public QMainWindow {
   Q_OBJECT
@@ -80,6 +81,10 @@ private slots:
   // New data slots
   void onHeartbeatReceived(uint64_t timestamp, uint8_t deviceId);
   void onTimeSyncRequested();
+
+  // File ▸ Export Log…: toggles a live, packet-type-filtered .bin export. When
+  // idle, prompts for streams + a folder and starts; when active, stops.
+  void onExportLogToggle();
 
 private:
   void buildUi();
@@ -221,5 +226,9 @@ private:
   QString m_lastPushedState;
   int m_lastFlightMode = -1;
   int m_lastFlightSrc = -1;
+  // Live-export menu action + state (label toggles Export/Stop; engine owns the
+  // actual export on the worker thread).
+  QAction *m_exportAction = nullptr;
+  bool m_exportActive = false;
   static constexpr qint64 kTelemetryStaleMs = 1000;
 };

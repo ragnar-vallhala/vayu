@@ -21,8 +21,11 @@
 #include <QAction>
 #include <QApplication>
 #include <QButtonGroup>
+#include <QCheckBox>
 #include <QCloseEvent>
 #include <QDateTime>
+#include <QDialog>
+#include <QDialogButtonBox>
 #include <QDir>
 #include <QGroupBox>
 #include <QHBoxLayout>
@@ -55,7 +58,6 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   m_worker = new QThread(this);
   m_worker->setObjectName("telemetry");
   m_engine->moveToThread(m_worker);
-  connect(m_worker, &QThread::finished, m_engine, &QObject::deleteLater);
   m_worker->start();
 
   // If another subsystem (the in-sim RC bridge) claims our serial port, drop
@@ -112,6 +114,16 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
             } else if (!isUdp) {
               PortArbiter::instance().release(label, this);
             }
+          });
+  // Live-export state → flip the menu label + log (engine runs it on the worker).
+  connect(m_engine, &TelemetryEngine::exportStateChanged, this,
+          [this](bool active, const QString &path) {
+            m_exportActive = active;
+            if (m_exportAction)
+              m_exportAction->setText(active ? tr("Stop Log &Export")
+                                             : tr("&Export Log…"));
+            m_logPanel->appendLog(active ? "[GCS] Exporting telemetry → " + path
+                                         : "[GCS] Export stopped");
           });
 
   // Low-rate / event-like protocol signals stay wired directly to the GUI (they
@@ -357,6 +369,9 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   connect(m_replayBar, &ReplayBar::exitRequested, this,
           &MainWindow::exitReplay);
   m_replayToolbar = new QToolBar(tr("Replay"), this);
+  // QMainWindow::saveState() needs a stable objectName for every toolbar/dock,
+  // else it warns and can't restore this bar's position.
+  m_replayToolbar->setObjectName(QStringLiteral("ReplayToolbar"));
   m_replayToolbar->setMovable(false);
   m_replayToolbar->addWidget(m_replayBar);
   addToolBar(Qt::BottomToolBarArea, m_replayToolbar);
@@ -630,8 +645,12 @@ void MainWindow::buildMenuBar() {
   fileMenu->addAction(m_cmds->add("sim.loadWorld", "&Load World…", "Simulator",
                                   QKeySequence(), CmdContext::Always,
                                   [this] { showSimulator(); }));
-  // (No "Export Log…": it only opened the recordings folder — recordings are
-  // managed by the system-wide record option; "Open Flight Log…" above replays.)
+  // Live, packet-type-filtered telemetry export (toggles start/stop). The action
+  // text flips to "Stop Log Export" while running (engine.exportStateChanged).
+  m_exportAction = m_cmds->add("log.export", "&Export Log…", "Log",
+                               QKeySequence(), CmdContext::Always,
+                               [this] { onExportLogToggle(); });
+  fileMenu->addAction(m_exportAction);
   fileMenu->addSeparator();
   fileMenu->addAction(m_cmds->add("app.exit", "E&xit", "Application",
                                   QKeySequence(QKeySequence::Quit),
@@ -866,6 +885,66 @@ void MainWindow::sendToFc(const QByteArray &pkt) {
   // picks the active transport (UDP-else-serial).
   QMetaObject::invokeMethod(m_engine, "send", Qt::QueuedConnection,
                             Q_ARG(QByteArray, pkt));
+}
+
+void MainWindow::onExportLogToggle() {
+  // Already exporting → stop (the menu label is in the "Stop" state).
+  if (m_exportActive) {
+    QMetaObject::invokeMethod(m_engine, "stopExport", Qt::QueuedConnection);
+    return;
+  }
+
+  // Stream picker: each row is a packet-type group; ticking it keeps those
+  // packet types in the exported (replayable) .bin. Defaults to everything.
+  struct Stream { const char *label; int mask; };
+  static const Stream kStreams[] = {
+      {"IMU (accel / gyro / mag)",   (1 << 0x1) | (1 << 0x2)},
+      {"Attitude",                   (1 << 0x4)},
+      {"RC channels",                (1 << 0x5)},
+      {"Motors",                     (1 << 0x8)},
+      {"System status / control",    (1 << 0x6)},
+      {"Log messages",               (1 << 0x7)},
+      {"Heartbeat",                  (1 << 0x0)},
+      {"Perf / kernel stats",        (1 << 0x9) | (1 << 0xA)},
+  };
+
+  QDialog dlg(this);
+  dlg.setWindowTitle(tr("Export telemetry"));
+  auto *lay = new QVBoxLayout(&dlg);
+  lay->addWidget(
+      new QLabel(tr("Select the telemetry streams to export:"), &dlg));
+  QList<QCheckBox *> boxes;
+  for (const auto &s : kStreams) {
+    auto *cb = new QCheckBox(tr(s.label), &dlg);
+    cb->setChecked(true);
+    lay->addWidget(cb);
+    boxes.append(cb);
+  }
+  auto *bb = new QDialogButtonBox(
+      QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+  bb->button(QDialogButtonBox::Ok)->setText(tr("Start Export"));
+  lay->addWidget(bb);
+  connect(bb, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+  connect(bb, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+  if (dlg.exec() != QDialog::Accepted) return;
+
+  int mask = 0;
+  for (int i = 0; i < boxes.size(); ++i)
+    if (boxes[i]->isChecked()) mask |= kStreams[i].mask;
+  if (mask == 0) {
+    Notify::warn(this, tr("Select at least one stream to export"));
+    return;
+  }
+
+  // Destination folder (user-chosen), then an auto-named .bin inside it.
+  const QString dir = QFileDialog::getExistingDirectory(
+      this, tr("Export folder"), QDir::home().filePath("vayu-logs"));
+  if (dir.isEmpty()) return;
+  const QString stamp = QDateTime::currentDateTime().toString("yyyyMMdd-HHmmss");
+  const QString path = QDir(dir).filePath(QStringLiteral("export-%1.bin").arg(stamp));
+
+  QMetaObject::invokeMethod(m_engine, "startExport", Qt::QueuedConnection,
+                            Q_ARG(QString, path), Q_ARG(int, mask));
 }
 
 void MainWindow::onArmClicked() {
