@@ -1,7 +1,6 @@
 #include "RcChannelsWidget.h"
 
 #include "core/Theme.h"
-#include "core/ui/Buttons.h"
 
 #include <QGridLayout>
 #include <QGroupBox>
@@ -48,17 +47,6 @@ RcChannelsWidget::RcChannelsWidget(QWidget *parent) : QWidget(parent) {
   auto *mainLayout = new QVBoxLayout(this);
   mainLayout->setContentsMargins(16, 12, 16, 12);
   mainLayout->setSpacing(10);
-
-  // Back button.
-  auto *topRow = new QHBoxLayout();
-  auto *backBtn = new ui::BackButton(this);
-  backBtn->setText(tr(" ←  Back"));
-  backBtn->setFixedWidth(100);
-  connect(backBtn, &QPushButton::clicked, this,
-          &RcChannelsWidget::backToHomeRequested);
-  topRow->addWidget(backBtn);
-  topRow->addStretch();
-  mainLayout->addLayout(topRow);
 
   // ---- rc-top: Sticks | Link Health | Switches ----
   auto *rcTop = new QHBoxLayout();

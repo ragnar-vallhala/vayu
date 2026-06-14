@@ -190,13 +190,6 @@ MotorStatusWidget::MotorStatusWidget(QWidget *parent) : QWidget(parent) {
 
   // Header
   auto *header = new QHBoxLayout();
-  auto *backBtn = new ui::BackButton(this);
-  backBtn->setText(tr("← BACK TO HOME"));
-  backBtn->setFixedSize(140, 32);
-  backBtn->setToolTip(tr("Return to home"));
-  connect(backBtn, &QPushButton::clicked, this,
-          &MotorStatusWidget::backToHomeRequested);
-
   auto *title = new QLabel("MOTORS & POWER", this);
   title->setStyleSheet("color: #ABB2BF; font-weight: bold; font-size: 14px;");
 
@@ -211,7 +204,6 @@ MotorStatusWidget::MotorStatusWidget(QWidget *parent) : QWidget(parent) {
     if (!path.isEmpty()) Notify::ok(this, tr("Wrote %1").arg(path));
   });
 
-  header->addWidget(backBtn);
   header->addStretch();
   header->addWidget(title);
   header->addStretch();

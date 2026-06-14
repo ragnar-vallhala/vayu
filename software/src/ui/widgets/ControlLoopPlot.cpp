@@ -18,20 +18,11 @@ ControlLoopPlot::ControlLoopPlot(QWidget *parent) : QWidget(parent) {
   mainLayout->setContentsMargins(15, 15, 15, 15);
 
   auto *header = new QHBoxLayout();
-  auto *backBtn = new ui::BackButton(this);
-  backBtn->setText(tr("← BACK"));
-  backBtn->setFixedSize(80, 30);
-  backBtn->setToolTip(tr("Return to home"));
-  connect(backBtn, &QPushButton::clicked, this,
-          &ControlLoopPlot::backToHomeRequested);
-
   auto *title = new QLabel("CONTROL LOOP DASHBOARD", this);
   title->setStyleSheet(
       QString("font-size: 18px; font-weight: bold; color: %1;")
           .arg(Theme::hex(Theme::kAccent)));
 
-  header->addWidget(backBtn);
-  header->addSpacing(20);
   header->addWidget(title);
   header->addStretch();
 

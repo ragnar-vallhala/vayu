@@ -438,11 +438,6 @@ void SimulatorWidget::buildUi() {
     header->addWidget(m_tuneTab);
 
     header->addStretch();
-    auto* backBtn = new ui::BackButton(this);
-    backBtn->setToolTip(tr("Return to home"));
-    connect(backBtn, &QPushButton::clicked, this,
-            [this] { emit backToHomeRequested(); });
-    header->addWidget(backBtn);
     root->addLayout(header);
 
     connect(grp, &QButtonGroup::idClicked, this, [this](int id) { setMode(id); });
