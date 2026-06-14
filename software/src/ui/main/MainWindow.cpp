@@ -468,7 +468,10 @@ void MainWindow::buildUi() {
   for (auto *b : {btn2d, btn3d}) {
     b->setObjectName("ToggleButton");
     b->setCheckable(true);
-    b->setFixedSize(40, 22);
+    // Fixed height only; let the width follow the text + padding so the label
+    // is never clipped (was setFixedSize, which cropped "2D"/"3D").
+    b->setFixedHeight(22);
+    b->setMinimumWidth(38);
     b->setCursor(Qt::PointingHandCursor);
   }
   btn2d->setChecked(true);
@@ -542,7 +545,6 @@ void MainWindow::buildUi() {
                     "font-family: Monospace;")
                 .arg(colors[i]));
     (*lblPtrs[i])->setAlignment(Qt::AlignCenter);
-    (*lblPtrs[i])->setFixedWidth(100);
 
     QLabel **stdPtrs[] = {&m_rollStd, &m_pitchStd, &m_yawStd};
     *stdPtrs[i] = new QLabel("± σ 0.000", container);
@@ -550,12 +552,13 @@ void MainWindow::buildUi() {
         ->setStyleSheet(QString(
             "color: #888888; font-size: 10px; font-family: Monospace;"));
     (*stdPtrs[i])->setAlignment(Qt::AlignCenter);
-    (*stdPtrs[i])->setFixedWidth(100);
 
     vbox->addWidget(title);
     vbox->addWidget(*lblPtrs[i]);
     vbox->addWidget(*stdPtrs[i]);
-    numHBox->addWidget(container);
+    // Equal-stretch columns: each label is centred in its own third, so the
+    // three stay evenly spread + column-aligned as the panel is resized.
+    numHBox->addWidget(container, 1);
   }
   attLayout->addLayout(numHBox);
   topSplitter->addWidget(attGroup);
@@ -1224,9 +1227,11 @@ void MainWindow::onHeartbeatReceived(uint64_t timestamp, uint8_t deviceId) {
   const qint32 diff_ms = static_cast<qint32>(gcs_now_32 - drone_ts_32);
 
   if (m_statusBar) m_statusBar->showSyncDrift(diff_ms);
-  statusBar()->showMessage(QString("Heartbeat from Device %1").arg(deviceId),
-                           1000);
+  // NB: don't showMessage() here — a transient status-bar message hides the
+  // left-docked Conn/Diff/Packets/Rate segments. The LIVE pill + packet
+  // counter already signal the heartbeat.
 }
+
 
 void MainWindow::onTimeSyncRequested() {
   if (!m_connected)
