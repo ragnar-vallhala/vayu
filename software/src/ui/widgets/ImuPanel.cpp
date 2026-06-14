@@ -18,12 +18,13 @@ namespace {
 const char *const kAxisColors[3] = {"#FF6B6B", "#4ECDC4", "#FFE66D"};
 
 RealTimeGraph *makeAxisGraph(QWidget *parent, const QString &title,
-                             const QString &unit, float lo, float hi,
-                             float sigmaMax) {
+                             const QString &unit, float sigmaMax) {
   auto *g = new RealTimeGraph(parent, 3);
   for (int i = 0; i < 3; ++i) g->setColor(i, QColor(kAxisColors[i]));
-  g->setYRange(lo, hi);
-  g->setSigmaAxis(true, sigmaMax);
+  // Auto-scale the Y axis so the trace never saturates against fixed rails; the
+  // tick labels follow the live range.
+  g->setDynamicYAxis(true);
+  g->setSigmaAxis(true, sigmaMax);  // grows to fit (RealTimeGraph::appendSigma)
   g->setStateBandEnabled(true);
   g->setTitle(title, unit);
   g->setSeriesLabels({"X", "Y", "Z"});
@@ -39,7 +40,9 @@ ImuPanel::ImuPanel(QWidget *parent) : QWidget(parent) {
 
   // ---- Header: title + Export CSV (mockup IMU TELEMETRY · Export CSV) ----
   auto *headerRow = new QHBoxLayout();
-  m_header = new QLabel(tr("IMU — BMX160"), this);
+  // Sensor-agnostic by default; setSensor() appends the part name if telemetry
+  // ever reports it (don't hardcode a specific IMU).
+  m_header = new QLabel(tr("IMU Telemetry"), this);
   m_header->setStyleSheet(
       "color: #61AFEF; font-weight: bold; font-size: 13px;");
   headerRow->addWidget(m_header);
@@ -71,14 +74,14 @@ ImuPanel::ImuPanel(QWidget *parent) : QWidget(parent) {
 
   auto *grid = new QGridLayout();
   grid->setSpacing(8);
-  m_accG = makeAxisGraph(this, tr("Accel"), QStringLiteral("m/s²"), -20, 20, 8);
-  m_gyrG = makeAxisGraph(this, tr("Gyro"), QStringLiteral("°/s"), -5, 5, 2);
-  m_magG = makeAxisGraph(this, tr("Mag"), QStringLiteral("µT"), -60, 60, 24);
+  m_accG = makeAxisGraph(this, tr("Accel"), QStringLiteral("m/s²"), 8);
+  m_gyrG = makeAxisGraph(this, tr("Gyro"), QStringLiteral("°/s"), 2);
+  m_magG = makeAxisGraph(this, tr("Mag"), QStringLiteral("µT"), 24);
 
   // Baro Altitude: single trace, no telemetry source yet → paints NA.
   m_baroG = new RealTimeGraph(this, 1);
   m_baroG->setColor(0, QColor("#61AFEF"));
-  m_baroG->setYRange(0, 30);
+  m_baroG->setDynamicYAxis(true);
   m_baroG->setStateBandEnabled(true);
   m_baroG->setTitle(tr("Baro Altitude"), QStringLiteral("m"));
   m_baroG->setSeriesLabels({"ALT"});

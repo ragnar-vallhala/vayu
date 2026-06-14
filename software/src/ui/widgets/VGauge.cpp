@@ -71,15 +71,17 @@ void VGauge::paintEvent(QPaintEvent *) {
   p.setBrush(QColor(0x1A, 0x1D, 0x27));
   p.drawRoundedRect(track, 6, 6);
 
-  // Gradient fill, anchored to the fill region (bottom → top), clipped to the
-  // value fraction — matches the mockup's .tg-fill behaviour.
+  // Gradient anchored to the FULL track (bottom→top), so the colour at any
+  // height maps to that value — a 31 °C fill is blue/green, red only near the
+  // top of the range. The fill is clipped to the value fraction.
   const double frac =
       (m_max > m_min) ? (m_value - m_min) / (m_max - m_min) : 0.0;
   const double fillH = frac * (track.height() - 2);
   if (m_hasData && fillH > 0.5) {
     const QRectF fill(track.left() + 1, track.bottom() - 1 - fillH,
                       track.width() - 2, fillH);
-    QLinearGradient g(fill.bottomLeft(), fill.topLeft());
+    QLinearGradient g(QPointF(track.left(), track.bottom()),
+                      QPointF(track.left(), track.top()));
     if (m_palette == Battery) {
       g.setColorAt(0.0, QColor(0xE0, 0x6C, 0x75));
       g.setColorAt(0.35, QColor(0xD1, 0x9A, 0x66));

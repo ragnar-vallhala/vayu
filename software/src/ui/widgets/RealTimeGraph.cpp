@@ -46,6 +46,9 @@ void RealTimeGraph::appendSigma(float sigma, int index) {
   if (index < 0 || index >= static_cast<int>(m_sigmaData.size()))
     return;
   m_sigmaData[index].push_back({QDateTime::currentMSecsSinceEpoch(), sigma});
+  // Grow the σ-axis to keep the trace on-scale (never shrinks; mockup stdMax).
+  if (sigma > m_sigmaMax)
+    m_sigmaMax = sigma * 1.15f;
   const qint64 cutoff =
       QDateTime::currentMSecsSinceEpoch() - m_windowSeconds * 1000;
   while (!m_sigmaData[index].empty() &&
