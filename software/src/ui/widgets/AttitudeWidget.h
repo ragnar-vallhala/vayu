@@ -29,10 +29,15 @@ protected:
   void paintGL() override;
 
 private:
-  void drawHorizon(QPainter &p, int w, int h);
-  void drawBankIndicator(QPainter &p, int cx, int cy, int r);
-  void drawCrosshair(QPainter &p, int cx, int cy);
-  void drawCompass(QPainter &p, int w, int h);
+  // Banked-horizon ADI (mockup style): the sky/ground horizon tilts with roll
+  // and shifts with pitch inside `adi`; a roll-arc + bank pointer sit on top, a
+  // scrolling heading tape runs along the bottom strip, fixed wings in the
+  // centre. `adi` is the viewport rect above the tape.
+  void drawHorizon(QPainter &p, const QRectF &adi);
+  void drawPitchLadder(QPainter &p, const QRectF &adi);
+  void drawRollArc(QPainter &p, const QRectF &adi);
+  void drawAircraftRef(QPainter &p, const QRectF &adi);
+  void drawHeadingTape(QPainter &p, const QRectF &tape);
 
   float m_roll = 0.0f;
   float m_pitch = 0.0f;

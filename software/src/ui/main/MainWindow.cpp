@@ -19,6 +19,7 @@
 
 #include <QAction>
 #include <QApplication>
+#include <QButtonGroup>
 #include <QCloseEvent>
 #include <QDateTime>
 #include <QDir>
@@ -457,16 +458,43 @@ void MainWindow::buildUi() {
   auto *attGroup = new QGroupBox("Attitude", m_homeWidget);
   auto *attLayout = new QVBoxLayout(attGroup);
 
-  // Toggle button at the top right of the group
+  // Header: 2D / 3D segmented toggle at the top right (mockup .tt).
   auto *headerLayout = new QHBoxLayout();
   headerLayout->addStretch();
-  auto *toggleBtn = new QPushButton("3D VIEW", attGroup);
-  toggleBtn->setObjectName("ToggleButton");
-  toggleBtn->setCheckable(true);
-  toggleBtn->setFixedSize(70, 22);
-  toggleBtn->setToolTip(tr("Toggle between the 2D HUD and 3D airframe view"));
-  headerLayout->addWidget(toggleBtn);
+  auto *btn2d = new QPushButton("2D", attGroup);
+  auto *btn3d = new QPushButton("3D", attGroup);
+  auto *viewGroup = new QButtonGroup(this);
+  viewGroup->setExclusive(true);
+  for (auto *b : {btn2d, btn3d}) {
+    b->setObjectName("ToggleButton");
+    b->setCheckable(true);
+    b->setFixedSize(40, 22);
+    b->setCursor(Qt::PointingHandCursor);
+  }
+  btn2d->setChecked(true);
+  btn2d->setToolTip(tr("2D HUD"));
+  btn3d->setToolTip(tr("3D airframe view"));
+  viewGroup->addButton(btn2d, 0);
+  viewGroup->addButton(btn3d, 1);
+  connect(viewGroup, &QButtonGroup::idClicked, this,
+          [this](int id) { onToggle3d(id == 1); });
+  headerLayout->addWidget(btn2d);
+  headerLayout->addWidget(btn3d);
   attLayout->addLayout(headerLayout);
+
+  // Firmware system-state pill — ABOVE the ADI (mockup .state-bar). Shows
+  // ARMED / STANDBY / FAILSAFE as status packets arrive; starts muted so it
+  // doesn't compete with the status-bar connection pill (FR-UX-05).
+  m_statusLabel = new QLabel("—", attGroup);
+  m_statusLabel->setAlignment(Qt::AlignCenter);
+  m_statusLabel->setStyleSheet(
+      QString("font-size: 16px; font-weight: bold; color: %1; "
+              "background: %2; border: 1px solid %3; "
+              "border-radius: 4px; padding: 4px; margin-bottom: 6px;")
+          .arg(Theme::hex(Theme::kTextDim),
+               Theme::hex(Theme::kBg),
+               Theme::hex(Theme::kBorder)));
+  attLayout->addWidget(m_statusLabel);
 
   m_attStack = new QStackedWidget(attGroup);
   m_attitude = new AttitudeWidget(m_attStack);
@@ -474,23 +502,6 @@ void MainWindow::buildUi() {
   m_attStack->addWidget(m_attitude);
   m_attStack->addWidget(m_drone3d);
   attLayout->addWidget(m_attStack, 1);
-
-  connect(toggleBtn, &QPushButton::toggled, this, &MainWindow::onToggle3d);
-
-  // Firmware system-state pill. Shows ARMED / STANDBY / FAILSAFE /…
-  // as system-status packets arrive. Connection state lives in the
-  // status-bar pill; this label deliberately starts as a muted dash so
-  // it doesn't compete with that (FR-UX-05).
-  m_statusLabel = new QLabel("—", attGroup);
-  m_statusLabel->setAlignment(Qt::AlignCenter);
-  m_statusLabel->setStyleSheet(
-      QString("font-size: 18px; font-weight: bold; color: %1; "
-              "background: %2; border: 1px solid %3; "
-              "border-radius: 4px; padding: 4px; margin-bottom: 8px;")
-          .arg(Theme::hex(Theme::kTextDim),
-               Theme::hex(Theme::kBg),
-               Theme::hex(Theme::kBorder)));
-  attLayout->addWidget(m_statusLabel);
 
   // Flight-mode pill: STABILISE / ACRO + source (RC switch or GCS override),
   // driven by SYSTEM_ORIGIN_FLIGHT_MODE telemetry just like the state pill above.
