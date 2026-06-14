@@ -43,6 +43,10 @@ ImuPanel::ImuPanel(QWidget *parent) : QWidget(parent) {
   auto *headerRow = new QHBoxLayout();
   auto *icon = new QLabel(this);
   icon->setPixmap(ui::svgPixmap(ui::Icon::Imu, QColor(0x61, 0xAF, 0xEF), 16));
+  // Centre the pixmap inside the label. QLabel defaults to AlignLeft|AlignVCenter,
+  // so on HiDPI/fractional scaling — where the label box rounds a pixel wider than
+  // the 16px pixmap — the glyph would otherwise hug the left edge.
+  icon->setAlignment(Qt::AlignCenter);
   headerRow->addWidget(icon);
   // Sensor-agnostic by default; setSensor() appends the part name if telemetry
   // ever reports it (don't hardcode a specific IMU).
