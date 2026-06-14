@@ -107,6 +107,12 @@ class SimWorker : public QThread {
   // Inject/clear failures (VSIM_CTL_SET_FAULTS): per-rotor kill + IMU dropout.
   void sendFaults(const std::array<bool, 4>& motorKill, bool imuDropout);
 
+  // Push per-sensor noise model + enable (VSIM_CTL_SET_NOISE). enable=false
+  // drops that sensor's feed (channel zeroed).
+  void sendNoise(float accSigma, float accBiasClip, bool accEn,
+                 float gyrSigma, float gyrBiasClip, bool gyrEn,
+                 float magSigma, float magBiasClip, bool magEn);
+
  signals:
   void poseUpdated(SimSnapshot snap);
   void logLine(QString line);

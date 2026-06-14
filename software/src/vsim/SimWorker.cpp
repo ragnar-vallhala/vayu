@@ -202,6 +202,27 @@ void SimWorker::sendFaults(const std::array<bool, 4>& motorKill,
     emit logLine("vsim_d: faults pushed");
 }
 
+void SimWorker::sendNoise(float accSigma, float accBiasClip, bool accEn,
+                          float gyrSigma, float gyrBiasClip, bool gyrEn,
+                          float magSigma, float magBiasClip, bool magEn) {
+    if (ctl_fd_ < 0) return;
+    vsim_ctl_frame_t f{};
+    f.hdr.magic         = VSIM_MAGIC;
+    f.hdr.version       = VSIM_PROTO_VERSION;
+    f.hdr.type          = VSIM_FRAME_CTL;
+    f.hdr.payload_bytes = sizeof(f) - sizeof(vsim_hdr_t);
+    f.hdr.seq_no        = 0;
+    f.subtype           = VSIM_CTL_SET_NOISE;
+
+    vsim_ctl_noise_t body{};
+    body.acc_sigma = accSigma; body.acc_bias_clip = accBiasClip; body.acc_enable = accEn;
+    body.gyr_sigma = gyrSigma; body.gyr_bias_clip = gyrBiasClip; body.gyr_enable = gyrEn;
+    body.mag_sigma = magSigma; body.mag_bias_clip = magBiasClip; body.mag_enable = magEn;
+    std::memcpy(f.body, &body, sizeof(body));
+    ::write(ctl_fd_, &f, sizeof(f));
+    emit logLine("vsim_d: noise pushed");
+}
+
 void SimWorker::sendWorld(const WorldConfig& w) {
     if (ctl_fd_ < 0) return;
     vsim_ctl_frame_t f{};

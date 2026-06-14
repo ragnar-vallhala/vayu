@@ -174,6 +174,10 @@ int main(int /*argc*/, char** /*argv*/) {
     bool imu_dropout = false;
     vsim::ImuSample imu_held{};  // last good sample, replayed while imu_dropout
 
+    // Per-sensor enable (VSIM_CTL_SET_NOISE). enable==false zeroes that channel
+    // in the emitted sample — the "dropout" the sensor-enable toggle injects.
+    bool acc_enable = true, gyr_enable = true, mag_enable = true;
+
     // Runtime-tunable rates (VSIM_CTL_SET_RATES). imu_hz is the wall-clock pace
     // AND the firmware loop rate (its inner loop runs once per IMU sample);
     // physics_hz/imu_hz RK4 substeps run per sample so we can integrate fast
@@ -381,6 +385,26 @@ int main(int /*argc*/, char** /*argv*/) {
                                  imu_hz, physics_hz, substeps, pose_hz);
                     break;
                 }
+                case VSIM_CTL_SET_NOISE: {
+                    vsim_ctl_noise_t n;
+                    std::memcpy(&n, cmd.body, sizeof(n));
+                    vsim::SensorNoise sn;  // start from defaults, override σ/clip
+                    sn.acc_noise_std = n.acc_sigma;
+                    sn.acc_bias_clip = n.acc_bias_clip;
+                    sn.gyr_noise_std = n.gyr_sigma;
+                    sn.gyr_bias_clip = n.gyr_bias_clip;
+                    sn.mag_noise_std = n.mag_sigma;
+                    sn.mag_bias_clip = n.mag_bias_clip;
+                    ctl.setNoise(sn);
+                    acc_enable = (n.acc_enable != 0);
+                    gyr_enable = (n.gyr_enable != 0);
+                    mag_enable = (n.mag_enable != 0);
+                    std::fprintf(stderr,
+                                 "vsim_d: noise set (acc σ=%.4g en=%d, gyr σ=%.4g en=%d, mag σ=%.4g en=%d)\n",
+                                 sn.acc_noise_std, acc_enable, sn.gyr_noise_std,
+                                 gyr_enable, sn.mag_noise_std, mag_enable);
+                    break;
+                }
                 case VSIM_CTL_SET_FAULTS: {
                     vsim_ctl_faults_t fl;
                     std::memcpy(&fl, cmd.body, sizeof(fl));
@@ -412,6 +436,10 @@ int main(int /*argc*/, char** /*argv*/) {
             // frame keeps pacing the firmware but the reading no longer tracks.
             if (imu_dropout) s = imu_held;
             else imu_held = s;
+            // Per-sensor dropout: a disabled sensor reports zero on its channel.
+            if (!acc_enable) s.acc = vsim::Vec3(0.0f, 0.0f, 0.0f);
+            if (!gyr_enable) s.gyr = vsim::Vec3(0.0f, 0.0f, 0.0f);
+            if (!mag_enable) s.mag = vsim::Vec3(0.0f, 0.0f, 0.0f);
         }
 
         // 4) Emit IMU once per sample (imu_hz == the firmware loop rate).
