@@ -16,8 +16,6 @@ public slots:
   void clearLog();
   // Freeze/unfreeze the scrollback view (mockup Pause); disk logging continues.
   void setPaused(bool paused);
-  // Save the current scrollback to a text file (mockup Export).
-  void exportLog();
 
 private:
   QPlainTextEdit *m_text;
