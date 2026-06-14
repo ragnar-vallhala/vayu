@@ -1,15 +1,11 @@
 #include "LogPanel.h"
 
 #include "core/Logger.h"
-#include "core/Notify.h"
 #include "core/ui/Buttons.h"
 
 #include <QDateTime>
-#include <QFile>
-#include <QFileDialog>
 #include <QHBoxLayout>
 #include <QScrollBar>
-#include <QTextStream>
 #include <QVBoxLayout>
 
 LogPanel::LogPanel(QWidget *parent) : QGroupBox("Log", parent) {
@@ -37,16 +33,13 @@ LogPanel::LogPanel(QWidget *parent) : QGroupBox("Log", parent) {
   clearBtn->setToolTip(tr("Empty the scrollback (persistent log on disk is kept)"));
   connect(clearBtn, &QPushButton::clicked, this, &LogPanel::clearLog);
 
-  auto *exportBtn = new ui::GhostButton(tr("Export"), this);
-  exportBtn->setFixedWidth(70);
-  exportBtn->setToolTip(tr("Save the current scrollback to a text file"));
-  connect(exportBtn, &QPushButton::clicked, this, &LogPanel::exportLog);
+  // (No "Export" here: it opened a modal file dialog that could wedge the UI,
+  // and whole-session recording is handled system-wide via Settings → record.)
 
   bar->addWidget(m_autoScroll);
   bar->addStretch();
   bar->addWidget(m_pauseBtn);
   bar->addWidget(clearBtn);
-  bar->addWidget(exportBtn);
 
   root->addLayout(bar);
   root->addWidget(m_text);
@@ -82,20 +75,4 @@ void LogPanel::clearLog() {
 void LogPanel::setPaused(bool paused) {
   m_paused = paused;
   if (m_pauseBtn) m_pauseBtn->setText(paused ? tr("Resume") : tr("Pause"));
-}
-
-void LogPanel::exportLog() {
-  const QString stamp = QDateTime::currentDateTime().toString("yyyyMMdd-HHmmss");
-  const QString path = QFileDialog::getSaveFileName(
-      this, tr("Export Log"), QString("navigator-log-%1.txt").arg(stamp),
-      tr("Text files (*.txt)"));
-  if (path.isEmpty()) return;
-  QFile f(path);
-  if (!f.open(QIODevice::WriteOnly | QIODevice::Text)) {
-    Notify::error(this, tr("Could not write %1").arg(path));
-    return;
-  }
-  QTextStream(&f) << m_text->toPlainText();
-  f.close();
-  Notify::ok(this, tr("Wrote %1").arg(path));
 }
