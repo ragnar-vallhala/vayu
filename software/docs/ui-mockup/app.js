@@ -1704,6 +1704,7 @@ document.addEventListener('keydown', e => {
   const hasMod = e.ctrlKey || e.altKey || e.metaKey;
   const b = currentKeymap().find(k => k.keys && k.keys === str);
   if(!b) return;
+  if(b.id === 'view.fullscreen') return;                    // let the browser handle native F11 fullscreen
   if(inField && !hasMod && str !== 'Esc') return;           // don't steal plain typing
   if(b.guard && !b.guard()) return;                         // context gate (e.g. replay-only)
   e.preventDefault();
