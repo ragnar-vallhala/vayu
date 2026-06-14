@@ -202,16 +202,24 @@ void RealTimeGraph::paintEvent(QPaintEvent *event) {
     }
   }
 
-  // Find if we have any data
-  bool anyData = false;
-  for (const auto &series : m_seriesData) {
-    if (!series.empty()) {
-      anyData = true;
-      break;
-    }
-  }
-  if (!anyData)
+  // No data yet, or the newest sample has scrolled off the left of the rolling
+  // window (the feed stopped) → the plot has nothing live to show. Mark it with
+  // a large faded "NA" so a dead/stale trace is unmistakable, then stop.
+  qint64 newestTs = std::numeric_limits<qint64>::min();
+  for (const auto &series : m_seriesData)
+    if (!series.empty())
+      newestTs = std::max(newestTs, series.back().timestamp);
+  const qint64 nowMsNA = QDateTime::currentMSecsSinceEpoch();
+  const bool stale = newestTs < (nowMsNA - qint64(m_windowSeconds) * 1000);
+  if (newestTs == std::numeric_limits<qint64>::min() || stale) {
+    QFont f = painter.font();
+    f.setBold(true);
+    f.setPixelSize(std::max(18, height() / 3));
+    painter.setFont(f);
+    painter.setPen(QColor(0xE8, 0xF0, 0xFE, 40));  // faded watermark
+    painter.drawText(rect(), Qt::AlignCenter, QStringLiteral("NA"));
     return;
+  }
 
   if (m_mode == Mode::LinePlot) {
     // Grid lines

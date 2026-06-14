@@ -19,10 +19,13 @@ public:
   VGauge(const QString &caption, double minVal, double maxVal,
          const QString &unit, Palette pal, QWidget *parent = nullptr);
 
-  // Set the current value (clamped to [min,max]); refreshes the default
-  // readout text unless one was pinned with setReadoutText().
+  // Set the current value (clamped to [min,max]); marks the gauge as having
+  // live data and refreshes the readout.
   void setValue(double v);
-  // Override the readout label (e.g. "N/A" while a telemetry source is absent).
+  // Mark the gauge as having no vehicle data: empty track + "-" readout, so an
+  // absent telemetry source is distinct from a real zero.
+  void setUnavailable();
+  // Override the readout label (e.g. while a telemetry source is absent).
   void setReadoutText(const QString &text);
 
 protected:
@@ -37,4 +40,5 @@ private:
   Palette m_palette;
   QString m_readout;
   bool m_readoutPinned = false;
+  bool m_hasData = false;  // false → empty track + "-" readout (no vehicle data)
 };

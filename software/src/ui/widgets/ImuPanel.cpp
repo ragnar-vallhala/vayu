@@ -134,6 +134,14 @@ void ImuAxisGroup::setValues(float x, float y, float z) {
   }
 }
 
+void ImuAxisGroup::setUnavailable() {
+  for (int i = 0; i < 3; ++i) {
+    if (m_labels[i] && !m_labels[i]->isHidden()) m_labels[i]->setText("-");
+    if (m_stdLabels[i] && !m_stdLabels[i]->isHidden())
+      m_stdLabels[i]->setText("± σ -");
+  }
+}
+
 void ImuAxisGroup::setWindowSeconds(int seconds) {
   m_graph->setWindowSeconds(seconds);
 }
@@ -223,7 +231,8 @@ ImuPanel::ImuPanel(QWidget *parent) : QGroupBox("IMU — BMX160", parent) {
   gauges->setSpacing(8);
   m_tempGauge = new VGauge(tr("DEVICE\nTEMP"), 0, 80, "°C", VGauge::Temp, this);
   m_battGauge = new VGauge(tr("BATTERY"), 0, 100, "%", VGauge::Battery, this);
-  m_battGauge->setValue(78);  // placeholder until battery telemetry exists
+  // No battery telemetry source yet → the gauge reads "-" (set by VGauge's
+  // ctor). setBattery() will light it up once a SYSTEM_STATUS feed exists.
   gauges->addWidget(m_tempGauge);
   gauges->addWidget(m_battGauge);
   auto *gaugeWrap = new QWidget(this);
@@ -232,7 +241,16 @@ ImuPanel::ImuPanel(QWidget *parent) : QGroupBox("IMU — BMX160", parent) {
   outer->addWidget(gaugeWrap);
 }
 
-void ImuPanel::updateImu(const ImuData &data) {
+void ImuPanel::updateImu(const ImuData &data, bool available) {
+  if (!available) {
+    // No live telemetry: numeric labels + temp gauge read "-"; the graphs go
+    // NA on their own once their traces age out of the window.
+    m_acc->setUnavailable();
+    m_gyr->setUnavailable();
+    m_mag->setUnavailable();
+    m_tempGauge->setUnavailable();
+    return;
+  }
   m_acc->setValues(data.acc[0], data.acc[1], data.acc[2]);
   m_gyr->setValues(data.gyr[0], data.gyr[1], data.gyr[2]);
   m_mag->setValues(data.mag[0], data.mag[1], data.mag[2]);

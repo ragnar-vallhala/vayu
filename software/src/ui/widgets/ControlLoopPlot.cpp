@@ -132,7 +132,7 @@ ControlLoopPlot::ControlLoopPlot(QWidget *parent) : QWidget(parent) {
     auto *l = new QLabel(name, this);
     l->setStyleSheet(
         QString("color: %1; font-size: 11px; font-weight: bold;").arg(color));
-    *outLabel = new QLabel("0.000", this);
+    *outLabel = new QLabel("-", this);
     (*outLabel)->setStyleSheet(
         QString("color: %1; font-size: 18px; font-family: Monospace; "
                 "font-weight: bold;")

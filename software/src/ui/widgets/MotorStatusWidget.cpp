@@ -56,6 +56,7 @@ public:
 
   void setSpeeds(const QVector<float> &speeds) {
     m_speeds = speeds;
+    m_hasData = true;  // real motor telemetry has arrived
     update();
   }
 
@@ -133,14 +134,15 @@ private:
     p.setBrush(QColor(44, 49, 58));
     p.drawEllipse(QPointF(0, 0), 12, 12);
 
-    // Large centre % overlay.
+    // Large centre % overlay ("-" until real motor telemetry arrives).
     p.setPen(col);
     QFont pf = p.font();
     pf.setBold(true);
     pf.setPixelSize(15);
     p.setFont(pf);
     p.drawText(QRectF(-r, -10, 2 * r, 20), Qt::AlignCenter,
-               QString::number(static_cast<int>(frac * 100)));
+               m_hasData ? QString::number(static_cast<int>(frac * 100))
+                         : QStringLiteral("-"));
 
     // Floating M#·DIR label: above the ring for front motors, below for rear.
     const int lblY = (kMotors[idx].cornerY < 0) ? -(r + 16) : (r + 6);
@@ -156,6 +158,7 @@ private:
   }
 
   QVector<float> m_speeds;
+  bool m_hasData = false;           // false → centre reads "-" (no telemetry)
   float m_blade[4] = {0, 0, 0, 0};  // accumulated blade angle (deg) per motor
   QTimer *m_anim = nullptr;
 };
@@ -168,7 +171,7 @@ namespace {
 QLabel *addPowerField(QGridLayout *g, int row, const QString &key) {
   auto *k = new QLabel(key);
   k->setStyleSheet("color: #8A92A6; font-size: 11px; border: none;");
-  auto *v = new QLabel("—");
+  auto *v = new QLabel("-");
   v->setStyleSheet("color: #E8F0FE; font-family: 'Monospace'; "
                    "font-weight: bold; font-size: 12px; border: none;");
   v->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
@@ -273,14 +276,14 @@ MotorStatusWidget::MotorStatusWidget(QWidget *parent) : QWidget(parent) {
     auto *dirLabel = new QLabel(kMotors[i].cw ? "CW" : "CCW", card);
     dirLabel->setStyleSheet("color: #5C6370; font-size: 10px; border: none;");
 
-    m_valLabels[i] = new QLabel("0%", card);
+    m_valLabels[i] = new QLabel("-", card);
     m_valLabels[i]->setStyleSheet(
         "color: #E8F0FE; font-family: 'Monospace'; font-weight: bold; "
         "font-size: 16px; border: none;");
     m_valLabels[i]->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
     m_valLabels[i]->setFixedWidth(54);
 
-    m_stdLabels[i] = new QLabel("± σ 0.000", card);
+    m_stdLabels[i] = new QLabel("± σ -", card);
     m_stdLabels[i]->setStyleSheet("color: #5C6370; font-family: 'Monospace'; "
                                   "font-size: 11px; border: none;");
     m_stdLabels[i]->setFixedWidth(90);
@@ -315,11 +318,8 @@ MotorStatusWidget::MotorStatusWidget(QWidget *parent) : QWidget(parent) {
   m_current = addPowerField(powerGrid, 3, tr("Current"));
   m_escTemp = addPowerField(powerGrid, 4, tr("ESC Temp"));
   m_mahUsed = addPowerField(powerGrid, 5, tr("Used"));
-  // Placeholder power readouts (no battery/ESC telemetry yet).
-  m_battery->setText("11.8 V");
-  m_current->setText("7.2 A");
-  m_escTemp->setText("38 °C");
-  m_mahUsed->setText("320 mAh");
+  // Battery / current / ESC-temp / mAh have no telemetry source yet → they stay
+  // "-" (set by addPowerField) so absent data isn't mistaken for a real value.
   rightPanel->addWidget(powerBox);
 
   rightPanel->addStretch();
