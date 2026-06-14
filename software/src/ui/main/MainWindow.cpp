@@ -630,13 +630,8 @@ void MainWindow::buildMenuBar() {
   fileMenu->addAction(m_cmds->add("sim.loadWorld", "&Load World…", "Simulator",
                                   QKeySequence(), CmdContext::Always,
                                   [this] { showSimulator(); }));
-  fileMenu->addAction(m_cmds->add(
-      "log.export", "&Export Log…", "Log", QKeySequence(), CmdContext::Always,
-      [this] {
-        const QString dir = QDir::home().filePath("vayu-logs");
-        QDir().mkpath(dir);
-        QDesktopServices::openUrl(QUrl::fromLocalFile(dir));
-      }));
+  // (No "Export Log…": it only opened the recordings folder — recordings are
+  // managed by the system-wide record option; "Open Flight Log…" above replays.)
   fileMenu->addSeparator();
   fileMenu->addAction(m_cmds->add("app.exit", "E&xit", "Application",
                                   QKeySequence(QKeySequence::Quit),
