@@ -16,7 +16,9 @@
 #include "AttitudeWidget.h"
 #include "CommandRegistry.h"
 #include "ShortcutsManager.h"
-#include "SessionMode.h"
+#include "SourceController.h"
+#include "SimSource.h"
+#include <functional>
 #include "ViewHistory.h"
 #include "Drone3DWidget.h" // Added
 #include "TelemetryEngine.h" // owns DroneProtocol + the VehicleState store
@@ -129,17 +131,18 @@ private:
   void applyAllSettings(bool persist);
 
 public:
-  // Enter/leave whole-GCS replay (Phase-1 1D / 2E). Drives the read-only
-  // authority and the toolbar REPLAY pill.
-  void setSessionMode(SessionMode mode);
-  SessionMode sessionMode() const { return m_session.mode(); }
-
-  // Open a recorded .bin and drive the whole GCS from it (Phase-2 2E); swaps
-  // the active telemetry source to a ReplaySource and goes read-only.
+  // Open a recorded .bin and drive the whole GCS from it (Phase-2 2E); routes
+  // through the SourceController (Replay state) which swaps the active source.
   void enterReplay(const QString &path);
   void exitReplay();
 
 private:
+  // Source state machine plumbing (gcs-source-state-machine.md).
+  void buildSourceHooks();  // wire SourceController::Hooks to existing functions
+  void applyFeed(SourceState s);  // point the engine/parser at the state's source
+  // Run a deliberate FSM transition, suppressing re-entrant reconcile requests
+  // (e.g. a teardown that stops the sim, which fires simRunningChanged).
+  void runTransition(const std::function<void()> &body);
 
   // Send a command frame to the FC over whichever transport is connected
   // (UDP bridge or serial). Used by every ARM/PID/calibrate/time-sync path.
@@ -207,16 +210,19 @@ private:
   TelemetryEngine *m_engine = nullptr;
   QThread *m_worker = nullptr;
   // Whole-GCS replay (Phase-2 2E): the replay source + transport bar, active
-  // only while in SessionMode::Replay. Replay stays on the GUI thread and feeds
+  // only while in SourceState::Replay. Replay stays on the GUI thread and feeds
   // the engine via a queued bytesReceived → feedBytes connection.
   class ReplaySource *m_replaySource = nullptr;
   class ReplayBar *m_replayBar = nullptr;
   QToolBar *m_replayToolbar = nullptr;
   QMenu *m_recentLogsMenu = nullptr;  // File ▸ Open Recent Log (rebuilt on show)
   bool m_recordOnConnect = false;
-  // Read-only authority for replay (Phase-1 1D). Lives here so every tx site
-  // (all routed through sendToFc) checks one place.
-  SessionState m_session;
+  // Telemetry-source state machine (gcs-source-state-machine.md) — the single
+  // authority for the active source, tx-gating, the engine feed, and the pill.
+  SourceController m_source;
+  SimSource *m_simSource = nullptr;                   // in-app sim as a source
+  ITelemetrySource *m_activeFeedSource = nullptr;     // source wired to feedBytes
+  bool m_fsmBusy = false;                             // suppress reconcile re-entry
   QTimer *m_uiTimer = nullptr;
   QTimer *m_syncTimer = nullptr;
   QElapsedTimer m_elapsed;
@@ -229,8 +235,6 @@ private:
   qint32 m_syncCorrection = (-2147483647 - 1);  // INT32_MIN sentinel
 
   // ---- State ----
-  bool m_connected = false;   // any live link up (serial or UDP)
-  bool m_simRunning = false;  // in-app SITL active
   bool m_armed = false;
   // Link caches (the transports live on the worker thread; the GUI must not read
   // them directly). Updated from the engine's forwarded signals / at connect.

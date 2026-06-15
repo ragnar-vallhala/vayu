@@ -5,12 +5,12 @@
 
 // Abstract source of inbound telemetry bytes feeding DroneProtocol's parser.
 //
-// MainWindow connects the *active* source's bytesReceived() into
-// DroneProtocol::processData, so the entire decode -> typed-signal -> widget
-// chain is identical regardless of where the bytes came from. LiveSource wraps
-// the serial/UDP transports; ReplaySource (Phase 2D) replays a recorded .bin.
-// Keeping the swap at this seam — not in the widgets — is what makes
-// whole-GCS replay structural-but-contained (docs/roadmap/gcs-log-replay.md).
+// MainWindow connects the *active* source's bytesReceived() into the engine's
+// feedBytes(), so the entire decode -> typed-signal -> widget chain is identical
+// regardless of where the bytes came from. SimSource wraps the in-app sim;
+// ReplaySource replays a recorded .bin; the live serial/UDP feed is internal to
+// TelemetryEngine (toggled via setLiveFeed). The SourceController picks exactly
+// one at a time (docs/roadmap/gcs-source-state-machine.md).
 class ITelemetrySource : public QObject {
   Q_OBJECT
 

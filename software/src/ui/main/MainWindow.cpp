@@ -85,13 +85,20 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   // QActions from it (Phase-1 1g / FR-UX-19).
   m_cmds = new CommandRegistry(this);
 
-  // Session mode (Phase-1 1D): in replay the toolbar goes read-only and the
-  // LIVE pill flips to REPLAY. Dormant until a ReplaySource is attached (2E).
-  connect(&m_session, &SessionState::changed, this, [this](SessionMode m) {
-    const bool replay = (m == SessionMode::Replay);
-    if (m_toolbar) m_toolbar->setReplayMode(replay);
-    Notify::info(this, replay ? tr("Replay — read-only") : tr("Live"));
-  });
+  // Telemetry-source state machine (gcs-source-state-machine.md): the single
+  // authority for tx-gating, the engine feed, and the toolbar/pill. In Replay
+  // the toolbar goes read-only; the serial controls are usable only in Idle/Fc.
+  buildSourceHooks();
+  connect(&m_source, &SourceController::stateChanged, this,
+          [this](SourceState now, SourceState) {
+            if (m_toolbar) {
+              m_toolbar->setReplayMode(now == SourceState::Replay);
+              m_toolbar->setSerialControlsEnabled(now == SourceState::Idle ||
+                                                  now == SourceState::Fc);
+            }
+            refreshConnectionPill();
+            updateExportEnabled();
+          });
 
   // Engine link signals — forwarded from the (worker-thread) transports, so
   // these arrive auto-queued on the GUI thread. The live byte→parser path is
@@ -114,8 +121,10 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
             if (ok) {
               persistPortBaud();
               if (isUdp) m_logPanel->appendLog("[UDP] listening on " + label);
-            } else if (!isUdp) {
-              PortArbiter::instance().release(label, this);
+            } else {
+              // The optimistic Fc transition didn't actually open — demote to
+              // Idle (teardownFc releases the PortArbiter + closes the links).
+              runTransition([this] { m_source.forceIdle(); });
             }
           });
   // Live-export state → flip the menu label + log (engine runs it on the worker).
@@ -228,7 +237,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
           &MainWindow::showHome);
   connect(m_calibrationWidget, &CalibrationWidget::commandRequested,
           [this](const QByteArray &data) {
-            if (m_connected)
+            if (m_source.txAllowed())
               sendToFc(data);
           });
 
@@ -273,14 +282,18 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   // in-app sim with no further per-widget plumbing. The signature
   // matches SerialManager::dataReceived so the receiver doesn't care
   // which source is feeding it.
-  connect(m_simulatorWidget, &SimulatorWidget::dataReceived,
-          m_engine, &TelemetryEngine::feedBytes);
+  // Route the sim's UART2 byte stream through SimSource so the controller can
+  // attach/detach it as the Sim state is entered/left (applyFeed) — same seam as
+  // replay. The signature matches; SimSource just re-emits as an ITelemetrySource.
+  connect(m_simulatorWidget, &SimulatorWidget::dataReceived, m_simSource,
+          &SimSource::feed);
   // AT-1: the autotune tab proposes gains; applying to firmware is an explicit
   // operator action. Turn the proposal into CMD_SET_PID frames and send them
   // over the live link (sendToFc refuses in replay; we also require a link).
   connect(m_simulatorWidget, &SimulatorWidget::applyPidGainsRequested, this,
           [this](const QVector<PidSetCmd> &cmds) {
-            const bool linkUp = m_connected;  // serial or UDP up
+            // Applying tuned gains targets the real board — require a live FC link.
+            const bool linkUp = (m_source.state() == SourceState::Fc);
             if (!linkUp) {
               m_logPanel->appendLog(
                   "[GCS] Apply gains ignored — no flight controller link");
@@ -303,15 +316,33 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
           m_simulatorWidget, &SimulatorWidget::setFlightModeStatus);
   // The flight-mode pill itself is driven by the render clock from snapshot().
   // Reflect the in-app sim as "Connected: SIM" in the bottom status bar.
+  // The sim Start/Stop buttons drive the widget directly; reconcile the FSM to
+  // match (Sim when running, Idle when stopped). runTransition suppresses the
+  // re-entrant simRunningChanged that a teardown-driven stop would fire. The
+  // pill, export-enable, and serial-control lock follow from stateChanged.
+  // Reconcile the button-driven sim into the FSM. State-guarded so a stale
+  // "stopped" (e.g. fired by a teardown when we've already moved to another
+  // state) can't wrongly demote that state to Idle.
   connect(m_simulatorWidget, &SimulatorWidget::simRunningChanged, this,
           [this](bool running) {
-            m_simRunning = running;
-            refreshConnectionPill();
-            updateExportEnabled();
-            // While the in-app sim feeds telemetry, lock out the serial
-            // connection controls (port / baud / refresh / Connect) so the
-            // user can't open a conflicting real link.
-            if (m_toolbar) m_toolbar->setSerialControlsEnabled(!running);
+            if (running) {
+              if (m_source.state() != SourceState::Sim)
+                runTransition([this] { m_source.requestSim(); });
+            } else if (m_source.state() == SourceState::Sim) {
+              runTransition([this] { m_source.requestIdle(); });
+            }
+          });
+  // Autotune is its own source state: an isolated tuner run that doesn't feed
+  // the GCS engine (read-only, no pill feed). startAutotune already stopped the
+  // interactive sim (→ simRunningChanged(false) → Idle) before this fires.
+  connect(m_simulatorWidget, &SimulatorWidget::autotuneRunningChanged, this,
+          [this](bool running) {
+            if (running) {
+              if (m_source.state() != SourceState::Autotune)
+                runTransition([this] { m_source.requestAutotune(); });
+            } else if (m_source.state() == SourceState::Autotune) {
+              runTransition([this] { m_source.requestIdle(); });
+            }
           });
 #endif
 
@@ -381,8 +412,8 @@ void MainWindow::closeEvent(QCloseEvent *event) {
   saveUiState();
 
   // Tear down the worker thread before the engine (and its transports/recorder)
-  // are destroyed. exitReplay first so the GUI-side ReplaySource stops feeding.
-  if (m_session.isReplay()) exitReplay();
+  // are destroyed. forceIdle first so any GUI-side source (replay/sim) stops.
+  m_source.forceIdle();
   if (m_worker) {
     m_worker->quit();
     m_worker->wait();
@@ -431,7 +462,7 @@ void MainWindow::sendTaskNameRequest(int taskId) {
   // Background request (the Perf page resolves task names on its own). Skip it
   // silently when tx isn't allowed — e.g. replaying a recording, where it would
   // otherwise spam "Read-only in replay" once per unknown task.
-  if (!m_session.txAllowed())
+  if (!m_source.txAllowed())
     return;
   // PERF_TASKNAME (0xA) request frame: payload = [task_id] (1 byte).
   const uint32_t now =
@@ -773,123 +804,148 @@ void MainWindow::resetLayout() {
 // ---------------------------------------------------------------------------
 
 void MainWindow::onConnectRequested(const QString &port, int baud) {
-  if (m_session.isReplay()) {
-    Notify::warn(this, tr("Read-only in replay — exit replay to connect"));
-    return;
-  }
-  if (port.isEmpty()) {
-    m_logPanel->appendLog("[GCS] No port specified");
-    return;
-  }
-  // Transports live on the worker thread — open/bind via queued invokes. The
-  // outcome arrives async on engine.linkOpened / connectionStateChanged.
-  //
-  // UDP transport: type "udp" or "udp:<port>" (default 14555) in the Port field
-  // to receive over WiFi from the ESP8266 telemetry bridge. Feeds the very same
-  // parser as serial, so every page works unchanged. Baud is ignored.
-  if (port.startsWith("udp", Qt::CaseInsensitive)) {
-    quint16 udpPort = 14555;
-    const int colon = port.indexOf(':');
-    if (colon >= 0) {
-      const quint16 p = port.mid(colon + 1).toUShort();
-      if (p)
-        udpPort = p;
-    }
-    m_currentPort = QStringLiteral("udp:%1").arg(udpPort);
-    QMetaObject::invokeMethod(m_engine, "bindUdp", Qt::QueuedConnection,
-                              Q_ARG(int, int(udpPort)));
-    return;
-  }
-  // Claim the port: if the in-sim RC bridge holds it, this revokes it from the
-  // sim (which disconnects), so the two never fight over the same tty. The
-  // arbiter is a thread-safe singleton, so acquiring here on the GUI thread is
-  // fine; the actual open happens on the worker. linkOpened(false) releases it.
-  PortArbiter::instance().acquire(port, this);
-  m_currentPort = port;
-  QMetaObject::invokeMethod(m_engine, "openSerial", Qt::QueuedConnection,
-                            Q_ARG(QString, port), Q_ARG(int, baud));
+  // Route through the FSM: Fc setup (buildSourceHooks) tears down any other
+  // source and opens the link. Connecting from replay just transitions out.
+  runTransition([&] { m_source.requestFc(port, baud); });
 }
 
 void MainWindow::onDisconnectRequested() {
-  // Release the serial port arbiter for whatever port we hold (no-op for UDP),
-  // then close both links on the worker thread.
-  if (m_serialOpen && !m_currentPort.isEmpty())
-    PortArbiter::instance().release(m_currentPort, this);
-  QMetaObject::invokeMethod(m_engine, "closeLinks", Qt::QueuedConnection);
-}
-
-void MainWindow::setSessionMode(SessionMode mode) {
-  // Drives the read-only authority and the toolbar/pill via
-  // SessionState::changed. enterReplay/exitReplay handle the source swap.
-  m_session.setMode(mode);
+  runTransition([&] { m_source.requestIdle(); });
 }
 
 void MainWindow::enterReplay(const QString &path) {
-  if (m_session.isReplay()) exitReplay();  // re-open: drop the previous log
-
-  auto *rs = new ReplaySource(this);
-  if (!rs->open(path)) {
-    Notify::error(this, tr("Could not open recording: %1").arg(path));
-    rs->deleteLater();
-    return;
-  }
-
-  // A live recording must not capture replayed frames; stop it first.
-  stopRecording();
-
-  // Mute the engine's live feed and attach the replay source. ReplaySource stays
-  // on the GUI thread (its 50 Hz timer feeding the worker is cheap); its bytes
-  // reach the parser via a cross-thread (auto-queued) feedBytes connection. The
-  // decode path and every widget are untouched (Phase-1 1B seam).
-  QMetaObject::invokeMethod(m_engine, "setReplayMode", Qt::QueuedConnection,
-                            Q_ARG(bool, true));
-  connect(rs, &ITelemetrySource::bytesReceived, m_engine,
-          &TelemetryEngine::feedBytes);
-  m_replaySource = rs;
-
-  m_replayBar->bind(rs);
-  m_replayBar->setLogName(QFileInfo(path).fileName());
-  m_replayToolbar->setVisible(true);
-  setSessionMode(SessionMode::Replay);  // read-only authority + REPLAY pill
-  m_logPanel->appendLog("[GCS] Replay: " + path);
-  addRecentLog(path);
+  runTransition([&] { m_source.requestReplay(path); });
 }
 
 void MainWindow::exitReplay() {
-  // Tear down the live replay source if one is attached. This is guarded
-  // separately from the bar/session teardown below so an *orphaned* replay bar
-  // (e.g. restored visible by QMainWindow::restoreState with no source) can
-  // still be dismissed — otherwise the Exit button would no-op forever.
-  if (m_replaySource) {
-    m_replaySource->pause();
-    disconnect(m_replaySource, &ITelemetrySource::bytesReceived, m_engine,
-               &TelemetryEngine::feedBytes);
-    // Unmute the engine's live feed.
-    QMetaObject::invokeMethod(m_engine, "setReplayMode", Qt::QueuedConnection,
-                              Q_ARG(bool, false));
-    m_replayBar->bind(nullptr);
-    m_replaySource->deleteLater();
-    m_replaySource = nullptr;
-  }
-
-  m_replayToolbar->setVisible(false);
-  if (m_session.isReplay()) setSessionMode(SessionMode::Live);
-  m_logPanel->appendLog("[GCS] Exited replay — live");
+  runTransition([&] { m_source.requestIdle(); });
+  // Safety for an orphaned bar (restored visible with no source): the Replay
+  // teardown hook hides it, but requestIdle from a non-Replay state won't run it.
+  if (m_replayToolbar) m_replayToolbar->setVisible(false);
 }
 
 void MainWindow::sendToFc(const QByteArray &pkt) {
-  // Read-only authority (Phase-1 1D): replay never transmits. This is the
-  // single tx choke point — ARM / PID / calibrate / time-sync all route here,
-  // so one guard makes the whole session read-only.
-  if (!m_session.txAllowed()) {
-    Notify::warn(this, tr("Read-only in replay"));
+  // Single tx choke point — only Fc/Sim are commandable; Replay/Idle/Autotune
+  // are read-only, so one guard covers ARM / PID / calibrate / time-sync.
+  if (!m_source.txAllowed()) {
+    Notify::warn(this, tr("Read-only — not connected"));
     return;
   }
-
   // The transports live on the worker thread; route the write there. The engine
   // picks the active transport (UDP-else-serial).
   QMetaObject::invokeMethod(m_engine, "send", Qt::QueuedConnection,
                             Q_ARG(QByteArray, pkt));
+}
+
+void MainWindow::runTransition(const std::function<void()> &body) {
+  // A deliberate transition's teardown may stop the sim, which fires
+  // simRunningChanged → a reconcile request; suppress that re-entry.
+  if (m_fsmBusy) return;
+  m_fsmBusy = true;
+  body();
+  m_fsmBusy = false;
+}
+
+void MainWindow::applyFeed(SourceState s) {
+  // Point the parser at the new state's source: detach the previously-wired
+  // source, attach the new one (GUI-thread connect, like the old replay path),
+  // and enable the live transport feed only for Fc.
+  ITelemetrySource *want = nullptr;
+  if (s == SourceState::Replay) want = m_replaySource;
+  else if (s == SourceState::Sim) want = m_simSource;
+  if (want != m_activeFeedSource) {
+    if (m_activeFeedSource)
+      disconnect(m_activeFeedSource, &ITelemetrySource::bytesReceived, m_engine,
+                 &TelemetryEngine::feedBytes);
+    m_activeFeedSource = want;
+    if (m_activeFeedSource)
+      connect(m_activeFeedSource, &ITelemetrySource::bytesReceived, m_engine,
+              &TelemetryEngine::feedBytes);
+  }
+  QMetaObject::invokeMethod(m_engine, "setLiveFeed", Qt::QueuedConnection,
+                            Q_ARG(bool, s == SourceState::Fc));
+}
+
+void MainWindow::buildSourceHooks() {
+  m_simSource = new SimSource(this);
+
+  SourceController::Hooks h;
+
+  // ---- Fc (live serial / UDP). Open is async; setup returns optimistically and
+  //      engine.linkOpened(false) demotes back to Idle (see the ctor). ----
+  h.setupFc = [this](const QString &port, int baud) -> bool {
+    if (port.isEmpty()) {
+      m_logPanel->appendLog("[GCS] No port specified");
+      return false;
+    }
+    if (port.startsWith("udp", Qt::CaseInsensitive)) {
+      quint16 udpPort = 14555;  // "udp" / "udp:<port>" — ESP8266 WiFi bridge
+      const int colon = port.indexOf(':');
+      if (colon >= 0) {
+        const quint16 p = port.mid(colon + 1).toUShort();
+        if (p) udpPort = p;
+      }
+      m_currentPort = QStringLiteral("udp:%1").arg(udpPort);
+      QMetaObject::invokeMethod(m_engine, "bindUdp", Qt::QueuedConnection,
+                                Q_ARG(int, int(udpPort)));
+      return true;
+    }
+    // Claim the port (revokes the in-sim RC bridge if it holds the same tty).
+    PortArbiter::instance().acquire(port, this);
+    m_currentPort = port;
+    QMetaObject::invokeMethod(m_engine, "openSerial", Qt::QueuedConnection,
+                              Q_ARG(QString, port), Q_ARG(int, baud));
+    return true;
+  };
+  h.teardownFc = [this] {
+    if (!m_currentPort.isEmpty())
+      PortArbiter::instance().release(m_currentPort, this);
+    QMetaObject::invokeMethod(m_engine, "closeLinks", Qt::QueuedConnection);
+  };
+
+  // ---- Replay ----
+  h.setupReplay = [this](const QString &path) -> bool {
+    auto *rs = new ReplaySource(this);
+    if (!rs->open(path)) {
+      Notify::error(this, tr("Could not open recording: %1").arg(path));
+      rs->deleteLater();
+      return false;
+    }
+    stopRecording();  // a live recording must not capture replayed frames
+    m_replaySource = rs;
+    m_replayBar->bind(rs);
+    m_replayBar->setLogName(QFileInfo(path).fileName());
+    m_replayToolbar->setVisible(true);
+    m_logPanel->appendLog("[GCS] Replay: " + path);
+    addRecentLog(path);
+    return true;  // applyFeed(Replay) wires rs → feedBytes
+  };
+  h.teardownReplay = [this] {
+    if (m_replaySource) {
+      m_replaySource->pause();
+      m_replayBar->bind(nullptr);
+      m_replaySource->deleteLater();
+      m_replaySource = nullptr;
+    }
+    if (m_replayToolbar) m_replayToolbar->setVisible(false);
+    m_logPanel->appendLog("[GCS] Exited replay — live");
+  };
+
+  // Sim/Autotune are started by their buttons and reconciled into the FSM via
+  // sim/autotuneRunningChanged; the teardowns enforce strict single source —
+  // entering any other state stops the sim daemon / cancels the tuner. Both are
+  // idempotent; the re-entrant *RunningChanged they fire is suppressed by
+  // runTransition (m_fsmBusy) and the state-guarded reconcile handlers.
+#ifdef NAVIGATOR_HAS_SITL
+  h.teardownSim = [this] {
+    if (m_simulatorWidget) m_simulatorWidget->stopInAppSim();
+  };
+  h.teardownAutotune = [this] {
+    if (m_simulatorWidget) m_simulatorWidget->stopAutotune();
+  };
+#endif
+  h.applyFeed = [this](SourceState s) { applyFeed(s); };
+  m_source.setHooks(std::move(h));
 }
 
 void MainWindow::onExportLogToggle() {
@@ -961,7 +1017,7 @@ void MainWindow::onExportLogToggle() {
 }
 
 void MainWindow::onArmClicked() {
-  if (!m_connected) {
+  if (!m_source.txAllowed()) {
     m_logPanel->appendLog("[GCS] ARM/DISARM ignored — not connected");
     return;
   }
@@ -1177,7 +1233,7 @@ void MainWindow::applyAllSettings(bool persist) {
   // is live (no-op at startup, where nothing is connected yet).
   const bool wasRec = m_recordOnConnect;
   m_recordOnConnect = s.recordOnConnect;
-  if (s.recordOnConnect && !wasRec && (m_connected || m_simRunning))
+  if (s.recordOnConnect && !wasRec && m_source.txAllowed())
     startRecording();
   else if (!s.recordOnConnect && wasRec)
     stopRecording();
@@ -1195,7 +1251,7 @@ void MainWindow::updateExportEnabled() {
   if (!m_exportAction) return;
   // Enabled when telemetry is arriving (live link or in-app sim), or while an
   // export is already running so the user can stop it.
-  m_exportAction->setEnabled(m_connected || m_simRunning || m_exportActive);
+  m_exportAction->setEnabled(m_source.txAllowed() || m_exportActive);
 }
 
 QString MainWindow::resolveLogDir() const {
@@ -1240,7 +1296,8 @@ void MainWindow::onSerialError(const QString &msg) {
 }
 
 void MainWindow::setConnected(bool on) {
-  m_connected = on;
+  // `on` = the live transport is up/down (from connectionStateChanged). The FSM
+  // (m_source) owns the mode; this drives the transport-tied UI side effects.
   m_linkLost = false;  // reset the watchdog on any connect/disconnect edge
   updateExportEnabled();
 
@@ -1305,14 +1362,20 @@ void MainWindow::setConnected(bool on) {
 
 void MainWindow::refreshConnectionPill() {
   if (!m_statusBar) return;
-  // A real serial link wins; otherwise surface the in-app sim as SIM.
-  if (m_connected) {
+  // Driven by the FSM: a live Fc link (transport actually up) shows the port;
+  // Sim shows SIM; everything else (Idle/Autotune/Replay) shows disconnected
+  // (Replay is surfaced by the toolbar REPLAY pill instead).
+  const SourceState st = m_source.state();
+  if (st == SourceState::Fc && (m_serialOpen || m_udpOpen))
     m_statusBar->setConnectionStatus(true, m_currentPort);
-  } else if (m_simRunning) {
+  else if (st == SourceState::Sim)
     m_statusBar->setConnectionStatus(true, QStringLiteral("SIM"));
-  } else {
+  else if (st == SourceState::Autotune)
+    m_statusBar->setConnectionStatus(true, QStringLiteral("AUTOTUNE"));
+  else if (st == SourceState::Replay)
+    m_statusBar->setReplayStatus();
+  else
     m_statusBar->setConnectionStatus(false, QString());
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1345,7 +1408,7 @@ void MainWindow::onUiTimer() {
   // A telemetry feed is present when connected / running the in-app sim / in
   // replay. The sparse pills (state, flight-mode, arm) only follow the snapshot
   // while a feed is active; otherwise setConnected() owns them.
-  const bool feedActive = m_connected || m_simRunning || m_session.isReplay();
+  const bool feedActive = m_source.feedActive();
 
   // IMU panel — mark unavailable (numeric labels + temp gauge show "-") once the
   // feed goes stale / was never seen. Mirror the IMU onto the sim FPV HUD.
@@ -1447,7 +1510,7 @@ void MainWindow::updateLiveBlinker() {
   if (!m_toolbar) return;
   // In replay the pill shows a static REPLAY; don't let the heartbeat fade
   // fight it (Phase-1 1D).
-  if (m_session.isReplay()) return;
+  if (m_source.isReplay()) return;
   QLabel *live = m_toolbar->liveLabel();
   if (!live) return;
 
@@ -1463,7 +1526,7 @@ void MainWindow::updateLiveBlinker() {
   // Link-loss watchdog (live links only; the sim/replay don't heartbeat the
   // same way). On timeout, flag the connection pill disconnected — the
   // transport stays open, so auto-reconnect still handles genuine drops.
-  const bool lost = m_connected && !m_simRunning &&
+  const bool lost = m_source.state() == SourceState::Fc &&
                     elapsed > m_linkLossTimeoutMs;
   if (lost != m_linkLost) {
     m_linkLost = lost;
@@ -1488,7 +1551,7 @@ void MainWindow::onHeartbeatReceived(uint64_t timestamp, uint8_t deviceId) {
 }
 
 void MainWindow::onTimeSyncRequested() {
-  if (!m_connected)
+  if (m_source.state() != SourceState::Fc)
     return;
 
   const quint64 t1 = static_cast<quint64>(QDateTime::currentMSecsSinceEpoch());

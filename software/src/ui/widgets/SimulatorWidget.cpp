@@ -1551,6 +1551,7 @@ void SimulatorWidget::startAutotune() {
 
   attachTuneSim(tuneSuffix);  // mirror the tuner's drone in the 3D view
   m_tuneThread->start();
+  emit autotuneRunningChanged(true);  // drives the source FSM → Autotune state
 }
 
 void SimulatorWidget::stopAutotune() {
@@ -1615,6 +1616,7 @@ void SimulatorWidget::onTuneDone() {
   if (m_tuneStart) m_tuneStart->setEnabled(true);
   if (m_tuneStop) m_tuneStop->setEnabled(false);
   detachTuneSim();  // stop mirroring, unlock Vehicle/World
+  emit autotuneRunningChanged(false);  // source FSM → Idle
 }
 
 void SimulatorWidget::parseProposedGains() {

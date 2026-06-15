@@ -78,7 +78,9 @@ public:
   bool waitState(const QString &name, int timeoutMs);
   // Block until the latest telemetry shows |roll| and |pitch| < deg (the craft
   // has re-levelled after a reset), or timeout. Returns true if levelled.
-  bool waitLevel(double deg = 6.0, int timeoutMs = 2500);
+  // `cancel` (optional): bail early (return false) when it flips true.
+  bool waitLevel(double deg = 6.0, int timeoutMs = 2500,
+                 const std::atomic<bool> *cancel = nullptr);
   QString lastState() const;
 
   // --- telemetry samples ---

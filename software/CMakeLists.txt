@@ -35,7 +35,6 @@ set(GCS_SOURCES
     src/comm/SerialManager.cpp
     src/comm/UdpManager.cpp
     src/comm/PortArbiter.cpp
-    src/comm/LiveSource.cpp
     src/protocol/DroneProtocol.cpp
     src/protocol/TelemetryEngine.cpp
     src/protocol/CommandCodec.cpp
@@ -67,6 +66,7 @@ set(GCS_SOURCES
     src/ui/widgets/PacketFilterProxy.cpp
     src/ui/widgets/RealTimeGraph.cpp
     src/core/SettingsManager.cpp
+    src/core/SourceController.cpp
     src/replay/RecordSink.cpp
     src/replay/ReplaySource.cpp
     src/autotune/Optimizer.cpp
@@ -98,7 +98,7 @@ set(GCS_HEADERS
     src/comm/SerialManager.h
     src/comm/UdpManager.h
     src/comm/ITelemetrySource.h
-    src/comm/LiveSource.h
+    src/comm/SimSource.h
     src/protocol/DroneProtocol.h
     src/protocol/TelemetryEngine.h
     src/protocol/VehicleState.h
@@ -113,7 +113,8 @@ set(GCS_HEADERS
     src/core/ShortcutsManager.h
     src/core/ViewHistory.h
     src/core/CalibrationWizard.h
-    src/core/SessionMode.h
+    src/core/SourceController.h
+    src/core/SourceState.h
     src/core/RollingStats.h
     src/core/CsvExport.h
     src/core/Logger.h

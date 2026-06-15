@@ -185,7 +185,9 @@ void TelemetryEngine::setReconnectInterval(int ms) {
   m_serial->setReconnectIntervalMs(ms);
 }
 
-void TelemetryEngine::setReplayMode(bool on) { m_acceptLive = !on; }
+void TelemetryEngine::setReplayMode(bool on) { setLiveFeed(!on); }
+
+void TelemetryEngine::setLiveFeed(bool on) { m_acceptLive = on; }
 
 void TelemetryEngine::startRecording(const QString &path,
                                      qulonglong startWallClockMs) {
