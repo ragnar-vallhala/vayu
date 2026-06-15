@@ -1,0 +1,537 @@
+#!/usr/bin/env python3
+"""NavLink v2 code generator.
+
+Reads `dialect.json` (the single source of truth, spec §7) and emits, deterministically:
+  - C  : navlink_msgs.h / navlink_msgs.c   (firmware + GCS)
+  - Py : navlink_msgs.py                    (tools / autotuner)
+
+Each tree gets: enums, a packed wire struct + naturally-aligned struct per message,
+pack/unpack (one memcpy, spec §8.2), to_aligned/from_aligned converters, the
+CRC_EXTRA table (spec §4.3), and a msgid -> {name,size,crc_extra} dispatch table.
+
+Pure stdlib. Usage:
+    python3 generate.py [--dialect dialect.json] [--out generated] [--lang c|py|both]
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import sys
+
+# ── type model ──────────────────────────────────────────────────────────────
+# name -> (wire_bytes, c_wire_type, c_aligned_type, py_struct_char)
+# u24 is special (no C/struct primitive): 3 wire bytes, u32 aligned.
+TYPES = {
+    "u8":  (1, "uint8_t",  "uint8_t",  "B"),
+    "i8":  (1, "int8_t",   "int8_t",   "b"),
+    "u16": (2, "uint16_t", "uint16_t", "H"),
+    "i16": (2, "int16_t",  "int16_t",  "h"),
+    "u24": (3, None,       "uint32_t", None),
+    "u32": (4, "uint32_t", "uint32_t", "I"),
+    "i32": (4, "int32_t",  "int32_t",  "i"),
+    "u64": (8, "uint64_t", "uint64_t", "Q"),
+    "i64": (8, "int64_t",  "int64_t",  "q"),
+    "f32": (4, "float",    "float",    "f"),
+    "f64": (8, "double",   "double",   "d"),
+    "char":(1, "char",     "char",     "s"),
+}
+
+
+def field_len(f):
+    """Array length, or None for a scalar."""
+    return f.get("len")
+
+
+def field_bytes(f):
+    n = field_len(f) or 1
+    return TYPES[f["type"]][0] * n
+
+
+def ordered_fields(msg):
+    """Non-extension fields (ascending index) then extension fields (ascending index).
+
+    This is wire order (spec §5.2, §5.5)."""
+    fs = sorted(msg["fields"], key=lambda f: f["index"])
+    return [f for f in fs if not f.get("extension")] + [f for f in fs if f.get("extension")]
+
+
+def crc_fields(msg):
+    """Fields that participate in CRC_EXTRA: non-extension, ascending index (spec §4.3)."""
+    return sorted((f for f in msg["fields"] if not f.get("extension")),
+                  key=lambda f: f["index"])
+
+
+def wire_size(msg):
+    return sum(field_bytes(f) for f in ordered_fields(msg))
+
+
+def canonical_values(msg):
+    """Deterministic per-field test values, in wire order.
+
+    Shared by the C parity emitter (baked in as literals) and the Python tests,
+    so both sides exercise identical non-trivial values: signed negatives, arrays,
+    u24, char strings, floats. Values stay small (and exactly representable) so the
+    encoding is unambiguous across languages."""
+    out = []
+    for o, f in enumerate(ordered_fields(msg)):
+        t, ln = f["type"], field_len(f)
+        if t == "char":
+            out.append("".join(chr(65 + ((o + j) % 26)) for j in range(ln)))
+        elif t in ("f32", "f64"):
+            sgn = -1.0 if (o % 2) else 1.0
+            out.append(sgn * (o + 1) if ln is None
+                       else [sgn * ((o + 1) + j * 0.25) for j in range(ln)])
+        else:
+            signed = t in ("i8", "i16", "i32", "i64")
+
+            def iv(j, _o=o, _s=signed):
+                m = (_o * 7 + j * 3 + 1) % 100
+                return -m if (_s and _o % 2) else m
+
+            out.append(iv(0) if ln is None else [iv(j) for j in range(ln)])
+    return out
+
+
+def c_literal(ftype, v):
+    if ftype == "f32":
+        return repr(float(v)) + "f"
+    if ftype == "f64":
+        return repr(float(v))
+    return str(int(v))
+
+
+# ── CRC ──────────────────────────────────────────────────────────────────────
+def crc_accumulate(b, crc):
+    t = b ^ (crc & 0xFF)
+    t = (t ^ (t << 4)) & 0xFF
+    return ((crc >> 8) ^ (t << 8) ^ (t << 3) ^ (t >> 4)) & 0xFFFF
+
+
+def crc16(data, crc=0xFFFF):
+    for b in data:
+        crc = crc_accumulate(b, crc)
+    return crc
+
+
+def crc_extra(msg):
+    """1-byte per-message layout signature (spec §4.3)."""
+    crc = 0xFFFF
+    for ch in msg["name"].encode("ascii"):
+        crc = crc_accumulate(ch, crc)
+    crc = crc_accumulate(0x20, crc)
+    for f in crc_fields(msg):
+        for ch in f["type"].encode("ascii"):   # wire_type_name == declared type (spec §4.3, §5.4)
+            crc = crc_accumulate(ch, crc)
+        crc = crc_accumulate(0x20, crc)
+        for ch in f["name"].encode("ascii"):
+            crc = crc_accumulate(ch, crc)
+        crc = crc_accumulate(0x20, crc)
+        ln = field_len(f)
+        if ln is not None:
+            crc = crc_accumulate(ln & 0xFF, crc)
+    return ((crc & 0xFF) ^ (crc >> 8)) & 0xFF
+
+
+# ── validation (light; the JSON Schema is the full check) ────────────────────
+def validate(d):
+    errs = []
+    seen_ids, seen_names = {}, {}
+    for m in d["messages"]:
+        mid, name = m["msgid"], m["name"]
+        if mid in seen_ids:
+            errs.append(f"duplicate msgid {mid}: {name} vs {seen_ids[mid]}")
+        seen_ids[mid] = name
+        if name in seen_names:
+            errs.append(f"duplicate message name {name}")
+        seen_names[name] = True
+        if not (0 <= mid <= 0x7FFFFF):
+            errs.append(f"{name}: msgid {mid} outside core half 0x000000-0x7FFFFF (spec §9)")
+        # contiguous, unique indices across non-extension fields
+        nonext = [f["index"] for f in m["fields"] if not f.get("extension")]
+        if sorted(nonext) != list(range(len(nonext))):
+            errs.append(f"{name}: non-extension indices not contiguous from 0: {sorted(nonext)}")
+        fnames = [f["name"] for f in m["fields"]]
+        if len(fnames) != len(set(fnames)):
+            errs.append(f"{name}: duplicate field name")
+        for f in m["fields"]:
+            if f["type"] not in TYPES:
+                errs.append(f"{name}.{f['name']}: unknown type {f['type']}")
+            if f.get("enum") and f["enum"] not in d.get("enums", {}):
+                errs.append(f"{name}.{f['name']}: unknown enum {f['enum']}")
+        if all(f["type"] in TYPES for f in m["fields"]):   # size needs known types
+            size = wire_size(m)
+            if size > 255:
+                errs.append(f"{name}: wire size {size} > 255 (single-frame limit, spec §3.6)")
+    return errs
+
+
+# ── naming helpers ────────────────────────────────────────────────────────────
+def c_msg_prefix(name):
+    return "navlink_" + name.lower()
+
+
+def pascal(name):
+    return "".join(p.capitalize() for p in name.split("_"))
+
+
+# ── C generation ──────────────────────────────────────────────────────────────
+def c_member(f, aligned):
+    t = f["type"]
+    ln = field_len(f)
+    if t == "u24":
+        ctype = "uint32_t" if aligned else "uint8_t"
+        if aligned:
+            return f"    uint32_t {f['name']};"
+        return f"    uint8_t  {f['name']}[3];"
+    ctype = TYPES[t][2] if aligned else TYPES[t][1]
+    if ln is not None:
+        return f"    {ctype} {f['name']}[{ln}];"
+    return f"    {ctype} {f['name']};"
+
+
+def gen_c_header(d):
+    L = []
+    p = L.append
+    p("/* GENERATED by navlink/generate.py — DO NOT EDIT. Source: dialect.json */")
+    p("#ifndef NAVLINK_MSGS_H")
+    p("#define NAVLINK_MSGS_H")
+    p("#include <stdint.h>")
+    p("#include <stddef.h>")
+    p("#include <string.h>")
+    p("")
+    p('#ifdef __cplusplus')
+    p('extern "C" {')
+    p('#endif')
+    p("")
+    # enums — typedef suffix `_e` keeps them out of the message struct namespace
+    # (a `flight_mode` enum and a `FLIGHT_MODE` message would otherwise collide).
+    for ename, e in d.get("enums", {}).items():
+        p(f"/* {e.get('doc','')} */".strip())
+        p(f"typedef enum {{")
+        for ent in e["entries"]:
+            p(f"    NAVLINK_{ename.upper()}_{ent['name']} = {ent['value']},")
+        p(f"}} navlink_{ename}_e;")
+        p("")
+    # per-message
+    for m in d["messages"]:
+        pre = c_msg_prefix(m["name"])
+        p(f"/* ===== {m['name']} (msgid {m['msgid']}) ===== */")
+        if m.get("doc"):
+            p(f"/* {m['doc']} */")
+        p(f"#define NAVLINK_MSGID_{m['name']} {m['msgid']}u")
+        p(f"#define NAVLINK_CRC_EXTRA_{m['name']} {crc_extra(m)}u")
+        p(f"#define NAVLINK_WIRE_SIZE_{m['name']} {wire_size(m)}u")
+        # wire struct (packed)
+        p("typedef struct __attribute__((packed)) {")
+        for f in ordered_fields(m):
+            p(c_member(f, aligned=False))
+        p(f"}} {pre}_wire_t;")
+        # aligned struct
+        p("typedef struct {")
+        for f in ordered_fields(m):
+            p(c_member(f, aligned=True))
+        p(f"}} {pre}_t;")
+        # prototypes
+        p(f"size_t {pre}_pack(uint8_t *buf, const {pre}_wire_t *w);")
+        p(f"void   {pre}_unpack({pre}_wire_t *w, const uint8_t *buf, size_t len);")
+        p(f"void   {pre}_to_aligned({pre}_t *a, const {pre}_wire_t *w);")
+        p(f"void   {pre}_from_aligned({pre}_wire_t *w, const {pre}_t *a);")
+        p("")
+    # dispatch table
+    p("typedef struct {")
+    p("    uint32_t msgid;")
+    p("    uint16_t wire_size;")
+    p("    uint8_t  crc_extra;")
+    p("    const char *name;")
+    p("} navlink_msg_info_t;")
+    p(f"#define NAVLINK_MSG_COUNT {len(d['messages'])}u")
+    p("extern const navlink_msg_info_t navlink_msg_table[NAVLINK_MSG_COUNT]; /* sorted by msgid */")
+    p("const navlink_msg_info_t *navlink_msg_info(uint32_t msgid);")
+    p("")
+    p("/* CRC-16/MCRF4XX accumulator (spec §4.1). */")
+    p("static inline void navlink_crc_accumulate(uint8_t b, uint16_t *crc) {")
+    p("    uint8_t t = b ^ (uint8_t)(*crc & 0xFF);")
+    p("    t ^= (uint8_t)(t << 4);")
+    p("    *crc = (*crc >> 8) ^ ((uint16_t)t << 8) ^ ((uint16_t)t << 3) ^ ((uint16_t)t >> 4);")
+    p("}")
+    p("")
+    p('#ifdef __cplusplus')
+    p('}')
+    p('#endif')
+    p("#endif /* NAVLINK_MSGS_H */")
+    return "\n".join(L) + "\n"
+
+
+def gen_c_source(d):
+    L = []
+    p = L.append
+    p("/* GENERATED by navlink/generate.py — DO NOT EDIT. Source: dialect.json */")
+    p('#include "navlink_msgs.h"')
+    p("")
+    for m in d["messages"]:
+        pre = c_msg_prefix(m["name"])
+        p(f"size_t {pre}_pack(uint8_t *buf, const {pre}_wire_t *w) {{")
+        p(f"    memcpy(buf, w, sizeof *w);")
+        p(f"    return sizeof *w;")
+        p("}")
+        p(f"void {pre}_unpack({pre}_wire_t *w, const uint8_t *buf, size_t len) {{")
+        p(f"    memset(w, 0, sizeof *w);")
+        p(f"    memcpy(w, buf, len <= sizeof *w ? len : sizeof *w);")
+        p("}")
+        p(f"void {pre}_to_aligned({pre}_t *a, const {pre}_wire_t *w) {{")
+        for f in ordered_fields(m):
+            nm, t, ln = f["name"], f["type"], field_len(f)
+            if t == "u24":
+                p(f"    a->{nm} = (uint32_t)w->{nm}[0] | ((uint32_t)w->{nm}[1] << 8) | ((uint32_t)w->{nm}[2] << 16);")
+            elif ln is not None:
+                p(f"    memcpy(a->{nm}, w->{nm}, sizeof a->{nm});")
+            else:
+                p(f"    a->{nm} = w->{nm};")
+        p("}")
+        p(f"void {pre}_from_aligned({pre}_wire_t *w, const {pre}_t *a) {{")
+        for f in ordered_fields(m):
+            nm, t, ln = f["name"], f["type"], field_len(f)
+            if t == "u24":
+                p(f"    w->{nm}[0] = (uint8_t)(a->{nm} & 0xFF);")
+                p(f"    w->{nm}[1] = (uint8_t)((a->{nm} >> 8) & 0xFF);")
+                p(f"    w->{nm}[2] = (uint8_t)((a->{nm} >> 16) & 0xFF);")
+            elif ln is not None:
+                p(f"    memcpy(w->{nm}, a->{nm}, sizeof w->{nm});")
+            else:
+                p(f"    w->{nm} = a->{nm};")
+        p("}")
+        p("")
+    # dispatch table, sorted by msgid
+    p("const navlink_msg_info_t navlink_msg_table[NAVLINK_MSG_COUNT] = {")
+    for m in sorted(d["messages"], key=lambda m: m["msgid"]):
+        p(f'    {{ {m["msgid"]}u, {wire_size(m)}u, {crc_extra(m)}u, "{m["name"]}" }},')
+    p("};")
+    p("")
+    p("const navlink_msg_info_t *navlink_msg_info(uint32_t msgid) {")
+    p("    size_t lo = 0, hi = NAVLINK_MSG_COUNT;")
+    p("    while (lo < hi) {")
+    p("        size_t mid = (lo + hi) / 2;")
+    p("        if (navlink_msg_table[mid].msgid == msgid) return &navlink_msg_table[mid];")
+    p("        if (navlink_msg_table[mid].msgid < msgid) lo = mid + 1; else hi = mid;")
+    p("    }")
+    p("    return NULL;")
+    p("}")
+    return "\n".join(L) + "\n"
+
+
+def gen_c_parity(d):
+    """Emit navlink_emit_parity(): fills each message with canonical_values() and
+    prints `BYTES <NAME> <hex>`. The literals come from the same Python function
+    the tests use, so C↔Python byte parity covers every message."""
+    L = []
+    p = L.append
+    p("/* GENERATED by navlink/generate.py — DO NOT EDIT. Cross-language parity emitter. */")
+    p('#include "navlink_msgs.h"')
+    p("#include <stdio.h>")
+    p("#include <string.h>")
+    p("void navlink_emit_parity(void);")
+    p("static void emit(const char *name, const uint8_t *b, size_t n) {")
+    p('    printf("BYTES %s ", name);')
+    p('    for (size_t i = 0; i < n; i++) printf("%02x", b[i]);')
+    p('    printf("\\n");')
+    p("}")
+    p("void navlink_emit_parity(void) {")
+    p("    uint8_t buf[512];")
+    for m in d["messages"]:
+        pre = c_msg_prefix(m["name"])
+        p("    {")
+        p(f"        {pre}_t a; memset(&a, 0, sizeof a);")
+        for f, v in zip(ordered_fields(m), canonical_values(m)):
+            nm, t, ln = f["name"], f["type"], field_len(f)
+            if t == "char":
+                for j, ch in enumerate(v):
+                    p(f"        a.{nm}[{j}] = '{ch}';")
+            elif ln is not None:
+                for j, el in enumerate(v):
+                    p(f"        a.{nm}[{j}] = {c_literal(t, el)};")
+            else:
+                p(f"        a.{nm} = {c_literal(t, v)};")
+        p(f"        {pre}_wire_t w; {pre}_from_aligned(&w, &a);")
+        p(f"        emit(\"{m['name']}\", buf, {pre}_pack(buf, &w));")
+        p("    }")
+    p("}")
+    return "\n".join(L) + "\n"
+
+
+# ── Python generation ──────────────────────────────────────────────────────────
+PY_PREAMBLE = '''\
+# GENERATED by navlink/generate.py — DO NOT EDIT. Source: dialect.json
+"""NavLink v2 message codecs (generated)."""
+from __future__ import annotations
+import struct
+from dataclasses import dataclass, field
+from enum import IntEnum
+
+_SCALAR = {
+    "u8": "B", "i8": "b", "u16": "H", "i16": "h", "u32": "I", "i32": "i",
+    "u64": "Q", "i64": "q", "f32": "f", "f64": "d",
+}
+
+
+def crc_accumulate(b: int, crc: int) -> int:
+    t = b ^ (crc & 0xFF)
+    t = (t ^ (t << 4)) & 0xFF
+    return ((crc >> 8) ^ (t << 8) ^ (t << 3) ^ (t >> 4)) & 0xFFFF
+
+
+def crc16(data: bytes, crc: int = 0xFFFF) -> int:
+    for b in data:
+        crc = crc_accumulate(b, crc)
+    return crc
+
+
+def _pack_field(ftype, flen, val):
+    if ftype == "u24":
+        return int(val).to_bytes(3, "little")
+    if ftype == "char":
+        b = val.encode() if isinstance(val, str) else bytes(val)
+        return b[:flen].ljust(flen, b"\\x00")
+    sc = _SCALAR[ftype]
+    if flen is None:
+        return struct.pack("<" + sc, val)
+    return b"".join(struct.pack("<" + sc, v) for v in val)
+
+
+def _unpack_field(ftype, flen, buf, off):
+    if ftype == "u24":
+        return int.from_bytes(buf[off:off + 3], "little"), off + 3
+    if ftype == "char":
+        raw = buf[off:off + flen]
+        return raw.split(b"\\x00", 1)[0].decode("utf-8", "replace"), off + flen
+    sc = _SCALAR[ftype]
+    sz = struct.calcsize(sc)
+    if flen is None:
+        return struct.unpack_from("<" + sc, buf, off)[0], off + sz
+    vals = list(struct.unpack_from("<" + sc * flen, buf, off))
+    return vals, off + sz * flen
+'''
+
+
+def py_default(f):
+    t, ln = f["type"], field_len(f)
+    if t == "char":
+        return '""'
+    if ln is not None:
+        zero = "0.0" if t in ("f32", "f64") else "0"
+        return f"field(default_factory=lambda: [{', '.join([zero]*ln)}])"
+    return "0.0" if t in ("f32", "f64") else "0"
+
+
+def gen_py(d):
+    L = []
+    p = L.append
+    p(PY_PREAMBLE)
+    p("")
+    # An enum whose PascalCase matches a message name is suffixed "Enum" so the
+    # message dataclass (primary API) keeps the clean name.
+    msg_pascal = {pascal(m["name"]) for m in d["messages"]}
+    for ename, e in d.get("enums", {}).items():
+        cls = pascal(ename)
+        if cls in msg_pascal:
+            cls += "Enum"
+        p(f"class {cls}(IntEnum):")
+        if e.get("doc"):
+            p(f'    """{e["doc"]}"""')
+        for ent in e["entries"]:
+            p(f"    {ent['name']} = {ent['value']}")
+        p("")
+    p("")
+    for m in d["messages"]:
+        of = ordered_fields(m)
+        p("@dataclass")
+        p(f"class {pascal(m['name'])}:")
+        if m.get("doc"):
+            p(f'    """{m["doc"]}"""')
+        p(f"    MSGID = {m['msgid']}")
+        p(f"    CRC_EXTRA = {crc_extra(m)}")
+        p(f"    WIRE_SIZE = {wire_size(m)}")
+        # field tuples (name, type, len) in wire order
+        ftuples = ", ".join(f'("{f["name"]}", "{f["type"]}", {field_len(f)})' for f in of)
+        p(f"    _FIELDS = [{ftuples}]")
+        for f in of:
+            p(f"    {f['name']}: object = {py_default(f)}")
+        p("")
+        p("    def pack(self) -> bytes:")
+        p("        out = b''")
+        p("        for nm, ft, ln in self._FIELDS:")
+        p("            out += _pack_field(ft, ln, getattr(self, nm))")
+        p("        return out")
+        p("")
+        p("    @classmethod")
+        p("    def unpack(cls, buf: bytes):")
+        p("        obj = cls(); off = 0")
+        p("        buf = bytes(buf).ljust(cls.WIRE_SIZE, b'\\x00')")
+        p("        for nm, ft, ln in cls._FIELDS:")
+        p("            val, off = _unpack_field(ft, ln, buf, off)")
+        p("            setattr(obj, nm, val)")
+        p("        return obj")
+        p("")
+    # registries
+    p("MSGID_TO_CLASS = {")
+    for m in d["messages"]:
+        p(f"    {m['msgid']}: {pascal(m['name'])},")
+    p("}")
+    p("CRC_EXTRA = {")
+    for m in d["messages"]:
+        p(f"    {m['msgid']}: {crc_extra(m)},")
+    p("}")
+    return "\n".join(L) + "\n"
+
+
+# ── driver ──────────────────────────────────────────────────────────────────
+def main():
+    ap = argparse.ArgumentParser(description="NavLink v2 code generator")
+    here = os.path.dirname(os.path.abspath(__file__))
+    ap.add_argument("--dialect", default=os.path.join(here, "dialect.json"))
+    ap.add_argument("--out", default=os.path.join(here, "generated"))
+    ap.add_argument("--lang", choices=["c", "py", "both"], default="both")
+    args = ap.parse_args()
+
+    with open(args.dialect) as fh:
+        d = json.load(fh)
+
+    errs = validate(d)
+    if errs:
+        print("dialect validation failed:", file=sys.stderr)
+        for e in errs:
+            print("  -", e, file=sys.stderr)
+        sys.exit(1)
+
+    # self-check (spec §16.1)
+    assert crc16(b"123456789") == 0x6F91, "CRC-16/MCRF4XX self-check failed"
+
+    os.makedirs(args.out, exist_ok=True)
+    written = []
+    if args.lang in ("c", "both"):
+        cdir = os.path.join(args.out, "c")
+        os.makedirs(cdir, exist_ok=True)
+        with open(os.path.join(cdir, "navlink_msgs.h"), "w") as fh:
+            fh.write(gen_c_header(d))
+        with open(os.path.join(cdir, "navlink_msgs.c"), "w") as fh:
+            fh.write(gen_c_source(d))
+        with open(os.path.join(cdir, "navlink_parity.c"), "w") as fh:
+            fh.write(gen_c_parity(d))
+        written += [os.path.join(cdir, "navlink_msgs.h"), os.path.join(cdir, "navlink_msgs.c"),
+                    os.path.join(cdir, "navlink_parity.c")]
+    if args.lang in ("py", "both"):
+        pdir = os.path.join(args.out, "python")
+        os.makedirs(pdir, exist_ok=True)
+        with open(os.path.join(pdir, "navlink_msgs.py"), "w") as fh:
+            fh.write(gen_py(d))
+        written += [os.path.join(pdir, "navlink_msgs.py")]
+
+    print(f"navlink: {len(d['messages'])} messages, {len(d.get('enums', {}))} enums")
+    print("CRC-16 self-check 0x{:04X} (expect 0x6F91) OK".format(crc16(b"123456789")))
+    for w in written:
+        print("  wrote", os.path.relpath(w, here))
+
+
+if __name__ == "__main__":
+    main()
