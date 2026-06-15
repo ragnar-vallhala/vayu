@@ -45,4 +45,18 @@ QByteArray encodeSetMotorGeometry(const float x[4], const float y[4],
                                   const float spin[4], quint8 devId = 42,
                                   quint32 tsMs = 0);
 
+// CMD_ARM (0x0002) / CMD_DISARM (0x0003): no args. The payload is the 2-byte
+// cmd_id only (len=2, NO argc byte) — matches the firmware arm-latch path.
+QByteArray encodeArm(quint8 devId = 42, quint32 tsMs = 0);
+QByteArray encodeDisarm(quint8 devId = 42, quint32 tsMs = 0);
+
+// PACKET_TYPE_TIME_SYNC (0xB) REQUEST: 8B header + 32B time_sync_payload_t
+// { role=REQUEST, seq, pad[2], t1_gcs_tx, t2=0, t3=0, commandedOffsetMs }.
+// commandedOffsetMs = INT32_MIN means "no correction this round".
+QByteArray encodeTimeSyncRequest(quint8 seq, quint64 t1, qint32 commandedOffsetMs,
+                                 quint8 devId = 42);
+
+// PACKET_TYPE_PERF_TASKNAME (0xA) request: payload = [taskId] (1 byte).
+QByteArray encodeTaskNameRequest(int taskId, quint8 devId = 42, quint32 tsMs = 0);
+
 }  // namespace CommandCodec

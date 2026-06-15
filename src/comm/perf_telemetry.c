@@ -11,6 +11,12 @@
  * Everything here degrades to zeros when VAIOS_MODULE_PERF is off (the vaios
  * perf API ships no-op inlines), so the GCS still gets a valid, if empty,
  * report and the task costs only its periodic wakeup.
+ *
+ * NOTE: this is the one telemetry producer that still calls send_packet()
+ * directly rather than going through the navlink_tx.c TX seam — PERF is
+ * inherently multi-frame (fragmented by section/seq) with no codec dependency,
+ * so it's the documented exception. It joins the seam when PERF itself migrates
+ * to NavLink v2. See include/comm/navlink_tx.h.
  */
 
 #include "comm/perf_telemetry.h"

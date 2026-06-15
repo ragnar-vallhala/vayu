@@ -15,7 +15,6 @@
 #include <QUrl>
 #include "../core/Theme.h"
 #include "../core/Units.h"
-#include "../core/crc.h"
 #include "../core/ui/Icons.h"
 #include "comm/PortArbiter.h"
 
@@ -464,22 +463,7 @@ void MainWindow::sendTaskNameRequest(int taskId) {
   // otherwise spam "Read-only in replay" once per unknown task.
   if (!m_source.txAllowed())
     return;
-  // PERF_TASKNAME (0xA) request frame: payload = [task_id] (1 byte).
-  const uint32_t now =
-      static_cast<uint32_t>(QDateTime::currentMSecsSinceEpoch());
-  const uint8_t dev_id = 42;
-  QByteArray pkt;
-  pkt.append(static_cast<char>(0x56));            // sync
-  pkt.append(static_cast<char>((0xA << 4) | 0x1)); // type 0xA, proto v1
-  pkt.append(static_cast<char>(1));               // payload length
-  pkt.append(static_cast<char>(dev_id));
-  pkt.append(reinterpret_cast<const char *>(&now), 4);
-  pkt.append(static_cast<char>(taskId & 0xFF));
-  const uint32_t crc = CRC32::calculate(
-      reinterpret_cast<const uint8_t *>(pkt.constData()),
-      static_cast<uint32_t>(pkt.size()));
-  pkt.append(reinterpret_cast<const char *>(&crc), 4);
-  sendToFc(pkt);
+  sendToFc(CommandCodec::encodeTaskNameRequest(taskId));
 }
 
 void MainWindow::showSimulator() {
@@ -1040,27 +1024,8 @@ void MainWindow::onArmClicked() {
   // snapshot by the render clock): armed/failsafe -> CMD_DISARM, else CMD_ARM.
   // Both commands are idempotent on the firmware side, so a stale m_armed
   // is harmless. The firmware checks the arm preconditions (throttle low,
-  // RC healthy, estimator OK) on its next RC frame.
-  const uint16_t cmd_id = m_armed ? 0x0003 /*CMD_DISARM*/ : 0x0002 /*CMD_ARM*/;
-
-  // NavLink command frame (matches CalibrationWidget): no args, so
-  // length = 2 (just the cmd_id). sync, type|ver, length, dev_id, ts,
-  // payload, crc32 over everything preceding the crc.
-  const uint32_t now = static_cast<uint32_t>(QDateTime::currentMSecsSinceEpoch());
-  const uint8_t dev_id = 42;
-  QByteArray pkt;
-  pkt.append(static_cast<char>(0x56));   // sync
-  pkt.append(static_cast<char>(0x31));   // packet type 3 (command), proto v1
-  pkt.append(static_cast<char>(2));      // payload length = 2 (cmd_id only)
-  pkt.append(static_cast<char>(dev_id));
-  pkt.append(reinterpret_cast<const char *>(&now), 4);
-  pkt.append(reinterpret_cast<const char *>(&cmd_id), 2);
-  const uint32_t crc = CRC32::calculate(
-      reinterpret_cast<const uint8_t *>(pkt.constData()),
-      static_cast<uint32_t>(pkt.size()));
-  pkt.append(reinterpret_cast<const char *>(&crc), 4);
-
-  sendToFc(pkt);
+  // RC healthy, estimator OK) on its next RC frame. Framing lives in CommandCodec.
+  sendToFc(m_armed ? CommandCodec::encodeDisarm() : CommandCodec::encodeArm());
   m_logPanel->appendLog(m_armed ? "[GCS] Sent CMD_DISARM"
                                 : "[GCS] Sent CMD_ARM (lower throttle to arm)");
 }
@@ -1555,35 +1520,9 @@ void MainWindow::onTimeSyncRequested() {
     return;
 
   const quint64 t1 = static_cast<quint64>(QDateTime::currentMSecsSinceEpoch());
-  const quint8 id = 42;
-
-  // PACKET_TYPE_TIME_SYNC (0xB) REQUEST: header(8) + payload(32) + CRC(4).
-  // Payload = time_sync_payload_t { role, seq, pad[2], t1, t2, t3, cmd_off }.
-  QByteArray pkt;
-  pkt.append(static_cast<char>(0x56));          // sync
-  pkt.append(static_cast<char>(0xB1));          // type 0xB | proto v1
-  pkt.append(static_cast<char>(32));            // payload length
-  pkt.append(static_cast<char>(id));            // dev_id
-  const quint32 hdrTs = static_cast<quint32>(t1);
-  pkt.append(reinterpret_cast<const char *>(&hdrTs), 4); // header timestamp
-
-  pkt.append(static_cast<char>(0x00));          // role = REQUEST
-  pkt.append(static_cast<char>(m_syncSeq++));   // seq
-  pkt.append(static_cast<char>(0x00));          // pad
-  pkt.append(static_cast<char>(0x00));          // pad
-  pkt.append(reinterpret_cast<const char *>(&t1), 8); // t1_gcs_tx
-  const quint64 zero = 0;
-  pkt.append(reinterpret_cast<const char *>(&zero), 8); // t2 (FC fills)
-  pkt.append(reinterpret_cast<const char *>(&zero), 8); // t3 (FC fills)
   // Push the clock correction only once converged; INT32_MIN means "no command".
   const qint32 cmd = m_tsEst.synced() ? m_syncCorrection : (-2147483647 - 1);
-  pkt.append(reinterpret_cast<const char *>(&cmd), 4); // commanded_offset_ms
-
-  uint32_t crc = CRC32::calculate(
-      reinterpret_cast<const uint8_t *>(pkt.constData()), 8 + 32);
-  pkt.append(reinterpret_cast<const char *>(&crc), 4);
-
-  sendToFc(pkt);
+  sendToFc(CommandCodec::encodeTimeSyncRequest(m_syncSeq++, t1, cmd));
 }
 
 void MainWindow::onTimeSyncResponse(quint8 seq, quint64 t1, quint64 t2,

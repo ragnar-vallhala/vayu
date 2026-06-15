@@ -1,5 +1,6 @@
 #include "comm/comm_types.h"
 #include "comm/ibus.h"
+#include "comm/navlink_tx.h"
 #include "comm/perf_packet.h"
 #include "comm/serializer.h"
 #include "control/control.h"
@@ -69,24 +70,12 @@ void comm_processor_dispatch(const packet_t *pkt) {
       out.t2_fc_rx = (uint64_t)get_timestamp_unix();
       out.commanded_offset_ms = INT32_MIN;
       out.t3_fc_tx = (uint64_t)get_timestamp_unix();
-      send_packet(&g_telemetry_channel, PACKET_TYPE_TIME_SYNC, (uint8_t *)&out,
-                  (uint8_t)sizeof(out));
+      navlink_tx_time_sync_response(&out);
     }
   } else if (packet_type == PACKET_TYPE_PERF_TASKNAME && pkt->length >= 1) {
-    /* GCS asked for one task's name by id; reply [id][name\0]. Name is a
-     * borrowed flash pointer in the TCB, copied bounded + NUL-terminated. */
+    /* GCS asked for one task's name by id; reply [id][name\0]. */
     uint8_t id = pkt->payload[0];
-    const char *nm = task_get_name_by_id(id);
-    uint8_t buf[1 + PERF_TASKNAME_MAX];
-    buf[0] = id;
-    uint8_t n = 0;
-    while (n < PERF_TASKNAME_MAX - 1 && nm[n]) {
-      buf[1 + n] = (uint8_t)nm[n];
-      n++;
-    }
-    buf[1 + n] = '\0';
-    send_packet(&g_telemetry_channel, PACKET_TYPE_PERF_TASKNAME, buf,
-                (uint8_t)(2 + n));
+    navlink_tx_perf_taskname(id, task_get_name_by_id(id));
   } else if (packet_type == PACKET_TYPE_COMMAND && pkt->length >= 2) {
     uint16_t cmd_id;
     v_memcpy(&cmd_id, pkt->payload, 2);
