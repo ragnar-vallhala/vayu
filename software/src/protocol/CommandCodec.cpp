@@ -2,6 +2,10 @@
 
 #include "crc.h"
 
+extern "C" {
+#include "navlink_msgs.h"  // NavLink v2 generated codec
+}
+
 namespace CommandCodec {
 
 QByteArray encodeCommand(quint16 cmdId, const QVector<float> &args,
@@ -28,9 +32,25 @@ QByteArray encodeCommand(quint16 cmdId, const QVector<float> &args,
 
 QByteArray encodeSetPid(int controller, int axis, float kp, float ki, float kd,
                         float kff, quint8 devId, quint32 tsMs) {
-  return encodeCommand(kCmdSetPid,
-                       {float(controller), float(axis), kp, ki, kd, kff}, devId,
-                       tsMs);
+  // NavLink v2 (navlink/INTEGRATION.md, Phase 3): emit a typed CMD_SET_PID frame
+  // instead of the v1 generic COMMAND. The FC correlates the COMMAND_ACK by
+  // req_seq. (v2 frames carry no header timestamp; tsMs is unused.)
+  Q_UNUSED(tsMs);
+  static uint8_t s_seq = 0;
+  navlink_cmd_set_pid_t m{};
+  m.target_sys = devId;     // address the FC (v1 used device id 42)
+  m.target_comp = 1;
+  m.req_seq = s_seq;
+  m.controller = static_cast<uint8_t>(controller);
+  m.axis = static_cast<uint8_t>(axis);
+  m.kp = kp;
+  m.ki = ki;
+  m.kd = kd;
+  m.kff = kff;
+  uint8_t buf[NAVLINK_MAX_FRAME];
+  size_t n = navlink_cmd_set_pid_encode(buf, &m, s_seq++, /*sysid (GCS)*/ 0xFF,
+                                        /*compid*/ 1);
+  return QByteArray(reinterpret_cast<const char *>(buf), static_cast<int>(n));
 }
 
 QByteArray encodeSetGyroLpf(int axis, float rc, quint8 devId, quint32 tsMs) {

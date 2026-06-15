@@ -12,6 +12,34 @@ static packet_t _rx_uart_pkt_buf[INCOMING_PACKET_BUFFER];
 static uint32_t _rx_uart_pkt_drop = 0;
 static deserializer_t _uart_recv_state;
 
+/* Lock-free SPSC ring mirroring every RX byte for the NavLink v2 parser (drained
+ * in task context by comm_processor_task). Producer: the RX ISR. Consumer: the
+ * comm task. Size is a power of two so the mask wraps cheaply. */
+#define RX_RAW_RING_SZ 512u
+static volatile uint8_t _rx_raw_buf[RX_RAW_RING_SZ];
+static volatile uint16_t _rx_raw_head; /* producer (ISR) */
+static volatile uint16_t _rx_raw_tail; /* consumer (task) */
+
+static inline void rx_raw_push(uint8_t b) {
+  uint16_t h = _rx_raw_head;
+  uint16_t nh = (uint16_t)((h + 1u) & (RX_RAW_RING_SZ - 1u));
+  if (nh != _rx_raw_tail) { /* drop on full (consumer fell behind) */
+    _rx_raw_buf[h] = b;
+    _rx_raw_head = nh;
+  }
+}
+
+uint16_t comm_rx_raw_drain(uint8_t *out, uint16_t max) {
+  uint16_t n = 0;
+  uint16_t t = _rx_raw_tail;
+  while (n < max && t != _rx_raw_head) {
+    out[n++] = _rx_raw_buf[t];
+    t = (uint16_t)((t + 1u) & (RX_RAW_RING_SZ - 1u));
+  }
+  _rx_raw_tail = t;
+  return n;
+}
+
 static uint8_t _initialized = 0;
 static void init_serializer(void) { deserializer_init(&_uart_recv_state); }
 
@@ -78,6 +106,10 @@ void uart2_packet_recv_callback(void) {
   // the telemetry channel's UART (USART6, PC6/PC7) — hal_uart_read_char()
   // busy-waits on that peripheral's RXNE.
   uint8_t b = (uint8_t)hal_uart_read_char(HAL_UART_6);
+  // Mirror the byte to the NavLink v2 raw ring (drained in task context by
+  // comm_processor_task). The v1 deserializer below is unchanged; v1 and v2
+  // frames coexist on the stream (navlink/INTEGRATION.md, Phase 3).
+  rx_raw_push(b);
   // 2. Feed to non-blocking state machine
   if (deserializer_feed(&_uart_recv_state, b)) {
     // 3. Valid Packet Found! Find a free slot to store it
