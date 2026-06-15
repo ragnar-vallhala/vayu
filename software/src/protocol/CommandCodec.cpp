@@ -71,4 +71,68 @@ QByteArray encodeSetMotorGeometry(const float x[4], const float y[4],
   return encodeCommand(kCmdSetMotorGeometry, args, devId, tsMs);
 }
 
+// CMD_ARM/CMD_DISARM use a bare 2-byte (cmd_id only, NO argc) payload — distinct
+// from encodeCommand's [cmd_id][argc][args] layout, so they get a dedicated path.
+static QByteArray encodeBareCommand(quint16 cmdId, quint8 devId, quint32 tsMs) {
+  QByteArray pkt;
+  pkt.append(static_cast<char>(0x56));                  // sync
+  pkt.append(static_cast<char>(0x31));                  // type 3 (command), v1
+  pkt.append(static_cast<char>(2));                     // length = 2 (cmd_id only)
+  pkt.append(static_cast<char>(devId));
+  pkt.append(reinterpret_cast<const char *>(&tsMs), 4); // header ts (FC-ignored)
+  pkt.append(reinterpret_cast<const char *>(&cmdId), 2);
+  const uint32_t crc = CRC32::calculate(
+      reinterpret_cast<const uint8_t *>(pkt.constData()),
+      static_cast<uint32_t>(pkt.size()));
+  pkt.append(reinterpret_cast<const char *>(&crc), 4);
+  return pkt;
+}
+
+QByteArray encodeArm(quint8 devId, quint32 tsMs) {
+  return encodeBareCommand(0x0002, devId, tsMs);
+}
+
+QByteArray encodeDisarm(quint8 devId, quint32 tsMs) {
+  return encodeBareCommand(0x0003, devId, tsMs);
+}
+
+QByteArray encodeTimeSyncRequest(quint8 seq, quint64 t1, qint32 commandedOffsetMs,
+                                 quint8 devId) {
+  QByteArray pkt;
+  pkt.append(static_cast<char>(0x56));          // sync
+  pkt.append(static_cast<char>(0xB1));          // type 0xB | proto v1
+  pkt.append(static_cast<char>(32));            // payload length
+  pkt.append(static_cast<char>(devId));         // dev_id
+  const quint32 hdrTs = static_cast<quint32>(t1);
+  pkt.append(reinterpret_cast<const char *>(&hdrTs), 4);  // header ts
+  pkt.append(static_cast<char>(0x00));          // role = REQUEST
+  pkt.append(static_cast<char>(seq));           // seq
+  pkt.append(static_cast<char>(0x00));          // pad
+  pkt.append(static_cast<char>(0x00));          // pad
+  pkt.append(reinterpret_cast<const char *>(&t1), 8);     // t1_gcs_tx
+  const quint64 zero = 0;
+  pkt.append(reinterpret_cast<const char *>(&zero), 8);   // t2 (FC fills)
+  pkt.append(reinterpret_cast<const char *>(&zero), 8);   // t3 (FC fills)
+  pkt.append(reinterpret_cast<const char *>(&commandedOffsetMs), 4);
+  const uint32_t crc = CRC32::calculate(
+      reinterpret_cast<const uint8_t *>(pkt.constData()), 8 + 32);
+  pkt.append(reinterpret_cast<const char *>(&crc), 4);
+  return pkt;
+}
+
+QByteArray encodeTaskNameRequest(int taskId, quint8 devId, quint32 tsMs) {
+  QByteArray pkt;
+  pkt.append(static_cast<char>(0x56));              // sync
+  pkt.append(static_cast<char>((0xA << 4) | 0x1));  // type 0xA, proto v1
+  pkt.append(static_cast<char>(1));                 // payload length
+  pkt.append(static_cast<char>(devId));
+  pkt.append(reinterpret_cast<const char *>(&tsMs), 4);
+  pkt.append(static_cast<char>(taskId & 0xFF));
+  const uint32_t crc = CRC32::calculate(
+      reinterpret_cast<const uint8_t *>(pkt.constData()),
+      static_cast<uint32_t>(pkt.size()));
+  pkt.append(reinterpret_cast<const char *>(&crc), 4);
+  return pkt;
+}
+
 }  // namespace CommandCodec

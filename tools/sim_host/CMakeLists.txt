@@ -97,6 +97,7 @@ set(VAYU_SOURCES
     ${VAYU_ROOT}/src/comm/deserializer.c
     ${VAYU_ROOT}/src/comm/comm_processor.c
     ${VAYU_ROOT}/src/comm/navlink_router.c  # v2 RX handler table (uplink)
+    ${VAYU_ROOT}/src/comm/navlink_tx.c      # TX seam (telemetry/cmd-resp framing)
     ${VAYU_ROOT}/src/comm/telemetry_task.c
 )
 
