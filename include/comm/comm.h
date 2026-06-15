@@ -14,7 +14,6 @@
 
 #include "comm/channel.h"
 #include "comm/comm_types.h"
-#include "comm/deserializer.h"
 #include "comm/ibus.h"
 #include "comm/rc_buffer.h"
 #include "comm/serializer.h"

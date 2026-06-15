@@ -1,6 +1,5 @@
 #pragma once
 
-#include "protocol/PacketDecoder.h"
 #include <QByteArray>
 #include <QDialog>
 #include <QTreeWidget>

@@ -67,6 +67,14 @@ def wire_size(msg):
     return sum(field_bytes(f) for f in ordered_fields(msg))
 
 
+# Command range (spec §9): msgid 0x002000-0x002FFF. Per spec §12.1 the receiver
+# MUST answer a command with COMMAND_ACK, so messages in this range require an
+# ack by default. Any message may override that with an explicit "ack" boolean.
+def requires_ack(msg):
+    default = 0x2000 <= msg["msgid"] <= 0x2FFF
+    return bool(msg.get("ack", default))
+
+
 def canonical_values(msg):
     """Deterministic per-field test values, in wire order.
 
@@ -155,6 +163,12 @@ def validate(d):
         fnames = [f["name"] for f in m["fields"]]
         if len(fnames) != len(set(fnames)):
             errs.append(f"{name}: duplicate field name")
+        # ack-requiring messages carry the command header: the dispatch reads
+        # req_seq to correlate the COMMAND_ACK it auto-emits (spec §12.1).
+        if requires_ack(m):
+            rq = next((f for f in m["fields"] if f["name"] == "req_seq"), None)
+            if rq is None or rq["type"] != "u8":
+                errs.append(f"{name}: requires ack but has no req_seq:u8 field (spec §12.1)")
         for f in m["fields"]:
             if f["type"] not in TYPES:
                 errs.append(f"{name}.{f['name']}: unknown type {f['type']}")
@@ -223,6 +237,7 @@ def gen_c_header(d):
         p(f"#define NAVLINK_MSGID_{m['name']} {m['msgid']}u")
         p(f"#define NAVLINK_CRC_EXTRA_{m['name']} {crc_extra(m)}u")
         p(f"#define NAVLINK_WIRE_SIZE_{m['name']} {wire_size(m)}u")
+        p(f"#define NAVLINK_ACK_{m['name']} {1 if requires_ack(m) else 0}u  /* receiver owes COMMAND_ACK */")
         # wire struct (packed)
         p("typedef struct __attribute__((packed)) {")
         for f in ordered_fields(m):
@@ -244,6 +259,7 @@ def gen_c_header(d):
     p("    uint32_t msgid;")
     p("    uint16_t wire_size;")
     p("    uint8_t  crc_extra;")
+    p("    uint8_t  requires_ack; /* receiver owes a COMMAND_ACK (spec §12.1) */")
     p("    const char *name;")
     p("} navlink_msg_info_t;")
     p(f"#define NAVLINK_MSG_COUNT {len(d['messages'])}u")
@@ -308,7 +324,7 @@ def gen_c_source(d):
     # dispatch table, sorted by msgid
     p("const navlink_msg_info_t navlink_msg_table[NAVLINK_MSG_COUNT] = {")
     for m in sorted(d["messages"], key=lambda m: m["msgid"]):
-        p(f'    {{ {m["msgid"]}u, {wire_size(m)}u, {crc_extra(m)}u, "{m["name"]}" }},')
+        p(f'    {{ {m["msgid"]}u, {wire_size(m)}u, {crc_extra(m)}u, {1 if requires_ack(m) else 0}u, "{m["name"]}" }},')
     p("};")
     p("")
     p("const navlink_msg_info_t *navlink_msg_info(uint32_t msgid) {")
@@ -345,12 +361,43 @@ def gen_c_frame_decls(d):
         pre = c_msg_prefix(m["name"])
         p(f"size_t {pre}_encode(uint8_t *out, const {pre}_t *msg, uint8_t seq, uint8_t sysid, uint8_t compid);")
     p("")
-    p("/* Populate the slots you care about; the parser fires one per decoded message. */")
+    p("/* Result a command handler returns; the dispatch packs it into the")
+    p(" * COMMAND_ACK it emits on the handler's behalf (spec §12.1). Set `deferred`")
+    p(" * (via navlink_ack_deferred()) to suppress the auto-send and emit the ack")
+    p(" * yourself later — once async work finishes — with navlink_command_ack_send(). */")
+    p("typedef struct { uint8_t result; uint8_t progress; int32_t result_param2; uint8_t deferred; } navlink_ack_t;")
+    p("/* Immediate ack with `result` (dispatch sends it). */")
+    p("static inline navlink_ack_t navlink_ack_result(uint8_t result) {")
+    p("    navlink_ack_t a; a.result = result; a.progress = 0; a.result_param2 = 0; a.deferred = 0; return a; }")
+    p("/* Defer: the handler owns the ack and must navlink_command_ack_send() it later. */")
+    p("static inline navlink_ack_t navlink_ack_deferred(void) {")
+    p("    navlink_ack_t a; a.result = 0; a.progress = 0; a.result_param2 = 0; a.deferred = 1; return a; }")
+    p("")
+    p("/* Populate the slots you care about; the parser fires one per decoded message.")
+    p(" * Messages that require an ack (NAVLINK_ACK_<NAME>==1) hand their handler a")
+    p(" * navlink_ack_t RESULT and the dispatch auto-sends the COMMAND_ACK via `send`")
+    p(" * — a consumer chooses the result but cannot skip the ack. Set `send` (and")
+    p(" * sysid/compid) whenever any ack-requiring handler is wired. */")
     p("typedef struct navlink_handlers {")
     p("    void *ctx;")
+    p("    void (*send)(void *ctx, const uint8_t *frame, uint16_t len); /* emits COMMAND_ACK */")
+    p("    uint8_t sysid, compid;  /* identity stamped on emitted ACKs */")
+    p("    /* Optional policy gate consulted before EVERY ack-requiring (command)")
+    p("     * handler. Return navlink_ack_result(NAVLINK_COMMAND_RESULT_ACCEPTED) to let")
+    p("     * the command reach its handler; return any other result to REJECT it")
+    p("     * WITHOUT running the handler — that result becomes the COMMAND_ACK. This is")
+    p("     * the single enforcement point for \"an unsynchronised FC MUST reject")
+    p("     * commands\" (spec §10.5/§12.1): the rule lives here, not copied into each")
+    p("     * handler, so a newly-added command is gated automatically. NULL = allow all. */")
+    p("    navlink_ack_t (*command_gate)(void *ctx, uint32_t command);")
     for m in d["messages"]:
         pre = c_msg_prefix(m["name"])
-        p(f"    void (*on_{m['name'].lower()})(void *ctx, const navlink_frame_hdr_t *hdr, const {pre}_t *msg);")
+        if requires_ack(m):
+            p(f"    navlink_ack_t (*on_{m['name'].lower()})(void *ctx, const navlink_frame_hdr_t *hdr, const {pre}_t *msg); /* MUST return its COMMAND_ACK result */")
+        else:
+            p(f"    void (*on_{m['name'].lower()})(void *ctx, const navlink_frame_hdr_t *hdr, const {pre}_t *msg);")
+    p("    /* Fallback for any decoded message whose specific on_<msg> slot is NULL. */")
+    p("    void (*on_default)(void *ctx, const navlink_frame_hdr_t *hdr, uint32_t msgid, const uint8_t *payload, size_t len);")
     p("    void (*on_unknown)(void *ctx, uint32_t msgid, const uint8_t *payload, size_t len);")
     p("    void (*on_crc_error)(void *ctx, uint32_t msgid);")
     p("} navlink_handlers_t;")
@@ -359,6 +406,10 @@ def gen_c_frame_decls(d):
     p("void navlink_parser_init(navlink_parser_t *p);")
     p("/* Feed received bytes; fires a handler for each complete, CRC-valid frame. */")
     p("void navlink_parser_push(navlink_parser_t *p, const navlink_handlers_t *h, const uint8_t *data, size_t n);")
+    p("/* Build + send a COMMAND_ACK via h->send. The dispatch calls this automatically")
+    p(" * for ack-requiring messages unless the handler returned navlink_ack_deferred();")
+    p(" * a deferred handler calls it itself once the result is known. */")
+    p("void navlink_command_ack_send(const navlink_handlers_t *h, uint32_t command, uint8_t req_seq, navlink_ack_t a);")
     return "\n".join(L)
 
 
@@ -392,17 +443,59 @@ def gen_c_frame_defs(d):
         p(f"    return navlink_frame(out, NAVLINK_MSGID_{m['name']}, pay, n, seq, sysid, compid);")
         p("}")
     p("")
+    p("/* Build the COMMAND_ACK an ack-requiring message owes and hand it to")
+    p(" * h->send. The dispatch calls this for every such message (unless the")
+    p(" * handler deferred), so a consumer cannot silently drop the ack — it only")
+    p(" * supplies the result (or, with no handler, the dispatch reports UNSUPPORTED). */")
+    p("void navlink_command_ack_send(const navlink_handlers_t *h, uint32_t command,")
+    p("                              uint8_t req_seq, navlink_ack_t a) {")
+    p("    if (!h->send) return;")
+    p("    navlink_command_ack_t m;")
+    p("    m.command = command; m.req_seq = req_seq;")
+    p("    m.result = a.result; m.progress = a.progress; m.result_param2 = a.result_param2;")
+    p("    uint8_t frame[NAVLINK_MAX_FRAME];")
+    p("    size_t n = navlink_command_ack_encode(frame, &m, req_seq, h->sysid, h->compid);")
+    p("    h->send(h->ctx, frame, (uint16_t)n);")
+    p("}")
+    p("")
     p("static void navlink_dispatch(const navlink_frame_hdr_t *hdr, const uint8_t *pay, size_t len,")
     p("                             const navlink_handlers_t *h) {")
     p("    switch (hdr->msgid) {")
     for m in d["messages"]:
         pre, nm = c_msg_prefix(m["name"]), m["name"].lower()
-        p(f"    case NAVLINK_MSGID_{m['name']}:")
-        p(f"        if (h->on_{nm}) {{")
-        p(f"            {pre}_wire_t w; {pre}_unpack(&w, pay, len);")
-        p(f"            {pre}_t a; {pre}_to_aligned(&a, &w); h->on_{nm}(h->ctx, hdr, &a);")
-        p("        }")
-        p("        break;")
+        if requires_ack(m):
+            # Always unpack (need req_seq), call the handler for its result, and
+            # auto-emit the COMMAND_ACK. UNSUPPORTED when no handler is wired.
+            p(f"    case NAVLINK_MSGID_{m['name']}: {{")
+            p(f"        {pre}_wire_t w; {pre}_unpack(&w, pay, len);")
+            p(f"        {pre}_t a; {pre}_to_aligned(&a, &w);")
+            p("        navlink_ack_t _ack = {0, 0, 0, 0};")
+            p("        uint8_t _gated = 0;")
+            p("        /* §10.5/§12.1 gate: a rejecting command_gate blocks the handler entirely. */")
+            p("        if (h->command_gate) {")
+            p(f"            _ack = h->command_gate(h->ctx, NAVLINK_MSGID_{m['name']});")
+            p("            _gated = (uint8_t)(_ack.result != NAVLINK_COMMAND_RESULT_ACCEPTED);")
+            p("        }")
+            p("        if (!_gated) {")
+            p(f"            if (h->on_{nm}) {{ _ack = h->on_{nm}(h->ctx, hdr, &a); }}")
+            p("            else {")
+            p("                _ack.result = NAVLINK_COMMAND_RESULT_UNSUPPORTED; _ack.progress = 0; _ack.result_param2 = 0; _ack.deferred = 0;")
+            p(f"                if (h->on_default) h->on_default(h->ctx, hdr, NAVLINK_MSGID_{m['name']}, pay, len);")
+            p("            }")
+            p("        }")
+            p("        /* deferred handlers own the ack and send it later themselves */")
+            p(f"        if (!_ack.deferred) navlink_command_ack_send(h, NAVLINK_MSGID_{m['name']}, a.req_seq, _ack);")
+            p("        break;")
+            p("    }")
+        else:
+            p(f"    case NAVLINK_MSGID_{m['name']}:")
+            p(f"        if (h->on_{nm}) {{")
+            p(f"            {pre}_wire_t w; {pre}_unpack(&w, pay, len);")
+            p(f"            {pre}_t a; {pre}_to_aligned(&a, &w); h->on_{nm}(h->ctx, hdr, &a);")
+            p("        } else if (h->on_default) {")
+            p(f"            h->on_default(h->ctx, hdr, NAVLINK_MSGID_{m['name']}, pay, len);")
+            p("        }")
+            p("        break;")
     p("    default: break;")
     p("    }")
     p("}")
@@ -584,6 +677,7 @@ def gen_py(d):
         p(f"    MSGID = {m['msgid']}")
         p(f"    CRC_EXTRA = {crc_extra(m)}")
         p(f"    WIRE_SIZE = {wire_size(m)}")
+        p(f"    REQUIRES_ACK = {requires_ack(m)}")
         # field tuples (name, type, len) in wire order
         ftuples = ", ".join(f'("{f["name"]}", "{f["type"]}", {field_len(f)})' for f in of)
         p(f"    _FIELDS = [{ftuples}]")
@@ -651,6 +745,7 @@ def gen_py_frame(d):
     p('    """Populate the callbacks you care about; the Parser fires on_<message>(frame, msg)."""')
     for m in d["messages"]:
         p(f"    on_{m['name'].lower()}: object = None")
+    p("    on_default: object = None      # on_default(frame, msg) — decoded msg w/o a specific handler")
     p("    on_unknown: object = None      # on_unknown(frame)")
     p("    on_crc_error: object = None    # on_crc_error(frame)")
     p("")
@@ -703,8 +798,11 @@ def gen_py_frame(d):
     p("                self.h.on_crc_error(frame)")
     p("            return")
     p("        cb = getattr(self.h, MSGID_TO_HANDLER[msgid], None)")
+    p("        msg = MSGID_TO_CLASS[msgid].unpack(pay)")
     p("        if cb:")
-    p("            cb(frame, MSGID_TO_CLASS[msgid].unpack(pay))")
+    p("            cb(frame, msg)")
+    p("        elif self.h.on_default:")
+    p("            self.h.on_default(frame, msg)")
     return "\n".join(L)
 
 

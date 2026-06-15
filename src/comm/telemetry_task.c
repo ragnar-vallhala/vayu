@@ -3,8 +3,8 @@
 #include "comm/channel.h"
 #include "comm/comm_types.h"
 #include "comm/ibus.h"
+#include "comm/navlink_tx.h"
 #include "comm/rc_buffer.h"
-#include "comm/serializer.h"
 #include "logger/logger.h"
 #include "control/control.h"
 #include "control/flight_mode.h"
@@ -20,6 +20,7 @@
 #include "vfs.h"
 #include <stdint.h>
 
+/* Owned here; the TX seam (navlink_tx.c) and RX router both extern it. */
 channel_t g_telemetry_channel = {0};
 
 void imu_telemetry_task(void *args) {
@@ -69,69 +70,36 @@ void imu_telemetry_task(void *args) {
     bool send_motor = (packet_counter % 8 == 0);       // 18 Hz
     bool send_pid_err = (packet_counter % 8 == 0);     // 18 Hz
     bool send_log = (packet_counter % 10 == 0);        // 15 Hz
+    /* Gather domain data + hand it to the TX seam; this task is codec-blind
+     * (all framing lives in navlink_tx.c). */
     if (send_log) {
-      /* LOG-TXT-002: drain the text-log queue to the LOG channel.
-       * @implements LOG-TXT-002 */
+      /* LOG-TXT-002: drain the text-log queue to the LOG channel. */
       static char log_buf[VAYU_LOG_QUEUE_SIZE];
       uint8_t len = (uint8_t)mpmc_pop_bulk(&vayu_log_queue, log_buf, sizeof(log_buf));
       if (len > 0) {
-        send_packet(&g_telemetry_channel, PACKET_TYPE_LOG, (uint8_t *)log_buf,
-                    len);
+        navlink_tx_log(log_buf, len);
       }
     }
-    if (send_heartbeat) {
-      /* @implements COMM-TEL-002 */
-      send_packet(&g_telemetry_channel, PACKET_TYPE_HEARTBEAT, NULL, 0);
-    }
+    (void)send_heartbeat; /* heartbeat now rides the send_status gate below */
     if (send_status) {
-      uint8_t state_payload[6];
-      state_payload[0] = 0x04; // SYSTEM_ORIGIN_SYS_STATE
-      state_payload[1] = 0x00; // Reserved/Padding
-      float current_state = (float)system_state_get();
-      v_memcpy(&state_payload[2], &current_state, 4);
-
-      send_packet(&g_telemetry_channel, PACKET_TYPE_SYSTEM_STATUS,
-                  state_payload, 6);
-
-      /* Flight-mode status: [origin][pad][mode:u8][source:u8] so the GCS can
-       * reflect stabilise/acro and whether it's RC- or GCS-driven. */
-      uint8_t fm_payload[4];
-      fm_payload[0] = SYSTEM_ORIGIN_FLIGHT_MODE;
-      fm_payload[1] = 0x00; // reserved/padding
-      fm_payload[2] = (uint8_t)flight_mode_get();
-      fm_payload[3] = (uint8_t)flight_mode_get_source();
-      send_packet(&g_telemetry_channel, PACKET_TYPE_SYSTEM_STATUS, fm_payload, 4);
-
-      /* Surface the health counters as a HEALTH status:
-       *   [origin][pad][tx_overflow:4][imu_drop:4][log_wrap:4]
-       * @implements COMM-CH-002, SNS-BUF-002, LOG-SD-002 */
-      uint8_t health_payload[14];
-      health_payload[0] = SYSTEM_ORIGIN_HEALTH;
-      health_payload[1] = 0x00; // reserved/padding
-      uint32_t tx_overflow = channel_tx_overflow_count();
-      /* The legacy IMU averaging ring (and its drop counter) was removed; live
-       * per-ring drop/peak is now in the perf telemetry (Kernel Perf view).
-       * Field kept at 0 to preserve the HEALTH packet layout. */
-      uint32_t imu_drop = 0;
-      uint32_t log_wrap = logger_wrap_count_total();
-      v_memcpy(&health_payload[2], &tx_overflow, 4);
-      v_memcpy(&health_payload[6], &imu_drop, 4);
-      v_memcpy(&health_payload[10], &log_wrap, 4);
-      send_packet(&g_telemetry_channel, PACKET_TYPE_SYSTEM_STATUS,
-                  health_payload, 14);
+      /* v2 HEARTBEAT carries nav_state (folds in the former SYS_STATE origin);
+       * emitted at the status cadence so the vehicle-state pill stays responsive
+       * while still satisfying COMM-TEL-002 (>= 1 Hz). @implements COMM-TEL-002 */
+      navlink_tx_heartbeat();
+      /* stabilise/acro + RC/GCS source so the GCS can reflect the mode. */
+      navlink_tx_flight_mode((uint8_t)flight_mode_get(),
+                             (uint8_t)flight_mode_get_source());
+      /* Health counters (COMM-CH-002, SNS-BUF-002, LOG-SD-002). The legacy IMU
+       * averaging ring was removed; imu_drop stays 0 to preserve the layout. */
+      navlink_tx_health(channel_tx_overflow_count(), 0u,
+                        logger_wrap_count_total());
     }
     if (send_pid_err && control_telemetry_queue_pop(&c_data)) {
-      uint8_t payload[74];
-      payload[0] = SYSTEM_ORIGIN_PID_ERROR;
-      payload[1] = 18; // Number of elements (18 floats)
-      v_memcpy(&payload[2], &c_data, sizeof(control_telemetry_t));
-      // 2 bytes header + 18 * 4 bytes = 74 bytes
-      send_packet(&g_telemetry_channel, PACKET_TYPE_SYSTEM_STATUS, payload, 74);
+      navlink_tx_pid_error(&c_data);
     }
 
     if (send_full) {
-      send_packet(&g_telemetry_channel, PACKET_TYPE_IMU_DATA_FULL,
-                  (uint8_t *)current_floats, 40);
+      navlink_tx_imu_full(current_floats);
       v_memcpy(previous_floats, current_floats, sizeof(current_floats));
       first_packet = false;
     } else if (send_comp && !first_packet) {
@@ -140,40 +108,28 @@ void imu_telemetry_task(void *args) {
         delta_payload[i] =
             float32_to_float16(current_floats[i] - previous_floats[i]);
       }
-      send_packet(&g_telemetry_channel, PACKET_TYPE_IMU_DATA_COMPRESSED,
-                  (uint8_t *)delta_payload, 20);
+      navlink_tx_imu_compressed(delta_payload);
       v_memcpy(previous_floats, current_floats, sizeof(current_floats));
     }
 
     if (send_att && attitude_queue_telemetry_pop(&att)) {
-      float att_vals[3] = {att.roll, att.pitch, att.yaw};
-      send_packet(&g_telemetry_channel, PACKET_TYPE_ATTITUDE,
-                  (uint8_t *)att_vals, 12);
+      navlink_tx_attitude(&att);
     }
 
     if (send_rc && rc_queue_telemetry_pop(&rc_data)) {
-      send_packet(&g_telemetry_channel, PACKET_TYPE_RC_CHANNELS,
-                  (uint8_t *)rc_data.channels, sizeof(rc_data.channels));
+      navlink_tx_rc_channels(&rc_data);
     }
 
     if (send_motor && motor_telemetry_queue_pop(&m_data)) {
-      send_packet(&g_telemetry_channel, PACKET_TYPE_MOTOR_TELEMETRY,
-                  (uint8_t *)&m_data, sizeof(m_data));
+      navlink_tx_motor(&m_data);
     }
     if (imu_queue_calibration_telemetry_pop(&imu_calibration_telemetry)) {
-      send_packet(&g_telemetry_channel, PACKET_TYPE_SYSTEM_STATUS,
-                  imu_calibration_telemetry.buffer,
-                  imu_calibration_telemetry.size);
+      navlink_tx_calibration(imu_calibration_telemetry.buffer,
+                             imu_calibration_telemetry.size);
     }
-    /* Estimator cost probe (~1 Hz): peak/mean per-update cost + cadence, drained
-     * onto SYSTEM_ORIGIN_EST_PERF for the GCS control-loop page to plot. */
+    /* Estimator cost probe (~1 Hz): peak/mean per-update cost + cadence. */
     if (est_perf_queue_pop(&e_data)) {
-      uint8_t payload[2 + sizeof(est_perf_telemetry_t)];
-      payload[0] = SYSTEM_ORIGIN_EST_PERF;
-      payload[1] = 4; // 4 floats: peak_us, mean_us, decim, rate_hz
-      v_memcpy(&payload[2], &e_data, sizeof(est_perf_telemetry_t));
-      send_packet(&g_telemetry_channel, PACKET_TYPE_SYSTEM_STATUS, payload,
-                  sizeof(payload));
+      navlink_tx_est_perf(&e_data);
     }
     packet_counter++;
     v_delay(6); // ~166 Hz
