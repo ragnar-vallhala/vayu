@@ -141,11 +141,15 @@ void loop() {
     }
     if (accLen - i < 8)
       break; // need the full 8-byte header to read length
-    if ((acc[i + 1] & 0x0F) != 0x01) { // bad protocol version -> false sync
+    // Accept v1 (typever low nibble == 1) AND NavLink v2 (byte1 == 0x02). Both
+    // carry payload_len at [i+2] and exactly 12 B of framing overhead (v1: 8 hdr
+    // + 4 CRC32; v2: 10 hdr + 2 CRC16), so `total` below is identical for both —
+    // we only must not reject a v2 frame as a false sync. (INTEGRATION.md)
+    if ((acc[i + 1] & 0x0F) != 0x01 && acc[i + 1] != 0x02) { // false sync
       i++;
       continue;
     }
-    int total = 8 + acc[i + 2] + 4; // header + payload + crc32
+    int total = 8 + acc[i + 2] + 4; // header + payload + crc (v1 8+4 == v2 10+2)
     if (accLen - i < total)
       break; // rest of this frame hasn't arrived yet
     if (outLen + total > MAX_UDP)
