@@ -23,6 +23,14 @@ static volatile double _offset_applied = 0.0;
 static volatile int32_t _offset_target = 0;
 static uint64_t _last_discipline_ticks = 0;
 
+/* §10.5 security gate: the FC starts UNSYNCHRONISED and stays so until the GCS
+ * has disciplined its clock at least once via the time-sync handshake. Commands
+ * are rejected until then (navlink_router's command_gate consults this). Set
+ * inside time_sync_set_offset — the one point where the clock is actually
+ * aligned to GCS time — so a completed-but-uncorrected round trip doesn't count. */
+static volatile uint8_t _clock_synced = 0;
+uint8_t time_sync_is_synced(void) { return _clock_synced; }
+
 /* Max slew (ms per second). Kept far below the 1000 ms/s tick rate so
  * get_timestamp_unix() is strictly increasing (1.0 + slew/1000 > 0). */
 #define TIME_SYNC_MAX_SLEW_MS_PER_S 50.0
@@ -50,6 +58,7 @@ uint32_t get_timestamp_unix(void) {
  * slew. Either way the new applied offset converges to GCS time and a
  * disciplined clock reports correction ~= 0 (windup-free). */
 void time_sync_set_offset(int32_t correction_ms) {
+  _clock_synced = 1; /* GCS has disciplined our clock — FC is now synchronised (§10.5) */
   if (correction_ms > TIME_SYNC_STEP_MS || correction_ms < -TIME_SYNC_STEP_MS) {
     _offset_applied += (double)correction_ms;   /* step */
     _offset_target = (int32_t)_offset_applied;  /* park the slew target */

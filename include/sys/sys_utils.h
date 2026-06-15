@@ -27,6 +27,11 @@ void time_sync_set_offset(int32_t offset_ms);
  * low-rate task (the telemetry loop); dt is derived from the HF tick counter. */
 void time_sync_discipline_tick(void);
 
+/* §10.5 security gate: 1 once the GCS has disciplined our clock at least once
+ * (a time-sync correction was applied), else 0. An unsynchronised FC MUST reject
+ * every command (navlink_router's command_gate enforces this). */
+uint8_t time_sync_is_synced(void);
+
 /* Device identity (set from the GCS heartbeat). */
 uint8_t get_device_id(void);
 void set_device_id(uint8_t device_id);
