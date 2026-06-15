@@ -982,6 +982,12 @@ Field-level detail is in the dialect (§7); this is the index.
 | 1030 | `CONTROL_TRACE` | 18×f32 PID/loop trace |
 | 1031 | `VIBRATION` | vib_x/y/z, clip counts |
 | 1032 | `SCALED_PRESSURE` | abs/diff pressure, temp |
+| 1033 | `EST_PERF` | est_peak_us, est_mean_us, decimation, rate_hz — estimator loop timing (§14.8) |
+| 1034 | `PERF_GLOBAL` | seq, scheduler/ISR/IPC/heap snapshot — one per report (§14.8) |
+| 1035 | `PERF_TASK` | seq, per-task: id, prio, state, stack hwm/size, cycles, switches, burst (§14.8) |
+| 1036 | `PERF_FIFO` | seq, per-fifo: id, peak, capacity, drops (§14.8) |
+| 1037 | `PERF_TASKNAME_REQUEST` | target_sys, target_comp, task_id — GCS→FC (§14.8) |
+| 1038 | `PERF_TASKNAME` | task_id, name[32] — FC→GCS reply (§14.8) |
 
 ### 14.3 Navigation / position (2048–3071)
 
@@ -1029,7 +1035,172 @@ Each opens with `{ target_sys, target_comp, req_seq }`; acked by `COMMAND_ACK`.
 | 12288–12299 | `PARAM_*` | §12.2 |
 | 12300–12311 | `MISSION_*` | §12.3 |
 | 12312–12319 | `FILE_TRANSFER` | §12.4 |
-| 12320–12329 | calibration progress/instructions | — |
+| 12320 | `CALIBRATION_STATUS` | step, progress, mag-axis coverage — IMU calibration progress/instruction (§14.8) |
+| 12321–12329 | calibration (reserved) | future per-sensor cal commands/status |
+
+### 14.8 Firmware observability & calibration (Vayu additions)
+
+The catalog §14.1–§14.7 was drawn for the conventional flight-telemetry set
+(GPS, battery, ESC, mission, params). It did **not** cover the messages the live
+Vayu firmware actually emits for its RTOS/kernel observability subsystem (vaios
+`PERF`), the estimator-loop timing, or the IMU calibration wizard — yet those are
+fully wired today (firmware `src/comm/perf_telemetry.c`, `telemetry_task.c`; GCS
+kernel-stats / task-list / FIFO-monitor / calibration-wizard widgets). They map
+to no existing catalog entry, so they are first-class v2 messages defined here.
+They migrate from the v1 carriers: `PACKET_TYPE_PERF_STATS` (0x9),
+`PACKET_TYPE_PERF_TASKNAME` (0xA), and the `SYSTEM_STATUS` origins `EST_PERF`
+(0x08) and `CALIBRATION` (0x01).
+
+**Report structure (no struct-array type).** v1 packed many task/fifo rows into
+one fragmented `PERF_STATS` packet behind a `[schema|section|index|count|seq]`
+fragment header. v2 fields are scalars and `char` only (§5.1) — there is **no
+array-of-struct type** — so the chunked rows become **one message per row**:
+`PERF_GLOBAL` carries the once-per-report snapshot (including `total_tasks` /
+`total_fifos`), and each `PERF_TASK` / `PERF_FIFO` carries a single row. All
+three share a `seq` field (the v1 fragment-header `seq`, now a payload field);
+the GCS opens a report on a new `seq`/`PERF_GLOBAL` and collects rows until it has
+`total_tasks` + `total_fifos` of them. This replaces application-level
+fragmentation with ordinary dispatcher-routed messages (§8.3) and needs neither
+`IFLAG_FRAGMENTED` (§12.4.1, reserved) nor a fragment header.
+
+#### `EST_PERF` (1033) — estimator loop timing
+
+Distinct from `ESTIMATOR_STATUS` (2053), which reports *filter health* (flags,
+innovation ratios); this reports the estimator task's *timing/observability*.
+
+```json
+{
+  "msgid": 1033, "name": "EST_PERF", "replaces": "0x6/0x08",
+  "doc": "Estimator loop timing. v1: SYSTEM_STATUS origin EST_PERF.",
+  "fields": [
+    { "index": 0, "name": "peak_us",    "type": "f32", "unit": "us" },
+    { "index": 1, "name": "mean_us",    "type": "f32", "unit": "us" },
+    { "index": 2, "name": "decimation", "type": "f32" },
+    { "index": 3, "name": "rate_hz",    "type": "f32", "unit": "Hz" }
+  ]
+}
+```
+
+#### `PERF_GLOBAL` (1034) — kernel snapshot, one per report
+
+```json
+{
+  "msgid": 1034, "name": "PERF_GLOBAL", "replaces": "0x9 (GLOBAL)",
+  "doc": "vaios PERF scheduler/ISR/IPC/heap snapshot. One per report; PERF_TASK/PERF_FIFO share `seq`.",
+  "fields": [
+    { "index": 0,  "name": "seq",                 "type": "u32", "doc": "report id shared by all fragments" },
+    { "index": 1,  "name": "flags",               "type": "u8",  "doc": "bit0 = PERF compiled-in & live" },
+    { "index": 2,  "name": "total_tasks",         "type": "u8" },
+    { "index": 3,  "name": "total_fifos",         "type": "u8" },
+    { "index": 4,  "name": "_pad",                "type": "u8" },
+    { "index": 5,  "name": "uptime_ticks",        "type": "u32" },
+    { "index": 6,  "name": "sched_switches",      "type": "u32" },
+    { "index": 7,  "name": "cpu_cycles_lo",       "type": "u32", "doc": "low 32 bits of 64-bit cycle counter" },
+    { "index": 8,  "name": "idle_cycles_lo",      "type": "u32" },
+    { "index": 9,  "name": "systick_count",       "type": "u32" },
+    { "index": 10, "name": "systick_last_cyc",    "type": "u32" },
+    { "index": 11, "name": "systick_max_cyc",     "type": "u32" },
+    { "index": 12, "name": "systick_preemptions", "type": "u32" },
+    { "index": 13, "name": "ipc_takes",           "type": "u32" },
+    { "index": 14, "name": "ipc_takes_blocked",   "type": "u32" },
+    { "index": 15, "name": "ipc_gives",           "type": "u32" },
+    { "index": 16, "name": "ipc_timeouts",        "type": "u32" },
+    { "index": 17, "name": "heap_allocs",         "type": "u32" },
+    { "index": 18, "name": "heap_frees",          "type": "u32" },
+    { "index": 19, "name": "heap_oom",            "type": "u32" },
+    { "index": 20, "name": "heap_peak_bytes",     "type": "u32" },
+    { "index": 21, "name": "heap_total_bytes",    "type": "u32" }
+  ]
+}
+```
+
+#### `PERF_TASK` (1035) — one task's runtime stats
+
+```json
+{
+  "msgid": 1035, "name": "PERF_TASK", "replaces": "0x9 (TASKS row)",
+  "doc": "One task row; `seq` ties it to a PERF_GLOBAL report. Collect total_tasks of these per seq.",
+  "fields": [
+    { "index": 0, "name": "seq",           "type": "u32" },
+    { "index": 1, "name": "task_id",       "type": "u8" },
+    { "index": 2, "name": "priority",      "type": "u8" },
+    { "index": 3, "name": "state",         "type": "u8", "doc": "Task_Status" },
+    { "index": 4, "name": "_pad",          "type": "u8" },
+    { "index": 5, "name": "stack_peak",    "type": "u16", "unit": "B", "doc": "high-water bytes" },
+    { "index": 6, "name": "stack_size",    "type": "u16", "unit": "B" },
+    { "index": 7, "name": "cycles_lo",     "type": "u32", "doc": "low 32 bits of total cycles" },
+    { "index": 8, "name": "switches_in",   "type": "u32" },
+    { "index": 9, "name": "max_burst_cyc", "type": "u32" }
+  ]
+}
+```
+
+#### `PERF_FIFO` (1036) — one FIFO's fill stats
+
+```json
+{
+  "msgid": 1036, "name": "PERF_FIFO", "replaces": "0x9 (FIFOS row)",
+  "doc": "One SPSC FIFO row; collect total_fifos per seq. fifo_id is the stable perf_fifo_id enum.",
+  "fields": [
+    { "index": 0, "name": "seq",      "type": "u32" },
+    { "index": 1, "name": "fifo_id",  "type": "u8",  "enum": "perf_fifo_id" },
+    { "index": 2, "name": "_pad",     "type": "u8" },
+    { "index": 3, "name": "peak",     "type": "u16", "doc": "high-water fill (elements)" },
+    { "index": 4, "name": "capacity", "type": "u16", "doc": "usable capacity (elements)" },
+    { "index": 5, "name": "drops",    "type": "u16", "doc": "items lost, saturating at 0xFFFF" }
+  ]
+}
+```
+
+#### `PERF_TASKNAME_REQUEST` (1037) / `PERF_TASKNAME` (1038) — id↔name resolution
+
+Task names are static, so they are not streamed every report; the GCS resolves
+`task_id → name` on demand and caches it (v1: `PACKET_TYPE_PERF_TASKNAME`
+request/reply, disambiguated by direction — now two msgids).
+
+```json
+{
+  "msgid": 1037, "name": "PERF_TASKNAME_REQUEST",
+  "doc": "GCS → FC: resolve one task id to its name.",
+  "fields": [
+    { "index": 0, "name": "target_sys",  "type": "u8" },
+    { "index": 1, "name": "target_comp", "type": "u8" },
+    { "index": 2, "name": "task_id",     "type": "u8" }
+  ]
+},
+{
+  "msgid": 1038, "name": "PERF_TASKNAME",
+  "doc": "FC → GCS reply. name is NUL-padded char[32] (PERF_TASKNAME_MAX).",
+  "fields": [
+    { "index": 0, "name": "task_id", "type": "u8" },
+    { "index": 1, "name": "name",    "type": "char", "len": 32 }
+  ]
+}
+```
+
+#### `CALIBRATION_STATUS` (12320) — IMU calibration progress/instruction
+
+v1 sent a variable byte buffer under `SYSTEM_STATUS` origin `CALIBRATION`; v2
+makes it typed. `step` carries either a progress update or an operator
+instruction ("place nose-up", …); `coverage` is populated only for the mag
+axis-coverage step.
+
+```json
+{
+  "msgid": 12320, "name": "CALIBRATION_STATUS", "replaces": "0x6/0x01",
+  "doc": "IMU calibration progress + operator instruction. Drives the GCS calibration wizard.",
+  "fields": [
+    { "index": 0, "name": "step",     "type": "u8",  "enum": "calib_step" },
+    { "index": 1, "name": "progress", "type": "u8",  "doc": "0..100 percent, for the PROGRESS step" },
+    { "index": 2, "name": "coverage", "type": "f32", "len": 3,
+      "doc": "mag axis coverage x/y/z for MAG_AXIS_COVERAGE; 0 otherwise" }
+  ]
+}
+```
+
+These additions occupy free ids inside the already-reserved Sensors/state
+(1024–2047, §14.2) and Services calibration (12320–12329, §14.7) blocks; no
+msgid-space (§9) change is required. The matching enums are in §17.
 
 ---
 
@@ -1119,6 +1290,20 @@ enum { PT_U8=1, PT_I8=2, PT_U16=3, PT_I16=4, PT_U32=5, PT_I32=6,
 
 /* security modes (CAPABILITIES.sec_modes bitmask) */
 enum { SEC_NONE = 0x01, SEC_SIGN = 0x02, SEC_ENCRYPT = 0x04 };
+
+/* PERF_GLOBAL.flags (§14.8) */
+enum { PERF_FLAG_ENABLED = 0x01 };   /* PERF module compiled in & live */
+
+/* PERF_FIFO.fifo_id — stable ids so rows label regardless of send order (§14.8) */
+enum { PF_IMU_RAW = 0,            /* reserved: legacy ring, no longer emitted */
+       PF_IMU_TELEMETRY = 1,  PF_IMU_CONTROL = 2,     PF_IMU_CALIB = 3,
+       PF_IMU_CALIB_TELEM = 4, PF_ATTITUDE_TELEMETRY = 5, PF_ATTITUDE_CONTROL = 6,
+       PF_RC_TELEMETRY = 7,    PF_RC_CONTROL = 8,      PF_TELEMETRY = 9 };
+
+/* CALIBRATION_STATUS.step (§14.8) */
+enum { CAL_PROGRESS = 0, CAL_NOSE_UP = 1, CAL_NOSE_DOWN = 2, CAL_RIGHT_DOWN = 3,
+       CAL_LEFT_DOWN = 4, CAL_UPRIGHT = 5, CAL_UPSIDE_DOWN = 6, CAL_FREE_ROT = 7,
+       CAL_MAG_AXIS_COVERAGE = 8 };
 ```
 
 *End of specification.*
