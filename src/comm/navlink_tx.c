@@ -1,7 +1,5 @@
 #include "comm/navlink_tx.h"
 #include "comm/channel.h"     /* write_channel, channel_t */
-#include "comm/serializer.h"  /* send_packet */
-#include "comm/perf_packet.h" /* PERF_TASKNAME_MAX */
 #include "sys/state.h"        /* system_state_get, sys_state_t */
 #include "sys/sys_utils.h"    /* get_device_id */
 #include "utils.h"            /* v_memcpy, v_get_ticks */
@@ -17,7 +15,29 @@ extern channel_t g_telemetry_channel; /* defined in telemetry_task.c */
 /* --- periodic telemetry --------------------------------------------------- */
 
 void navlink_tx_log(const char *buf, uint8_t len) {
-  send_packet(&g_telemetry_channel, PACKET_TYPE_LOG, (uint8_t *)buf, len);
+  /* v2 STATUSTEXT (msgid 4); replaces v1 PACKET_TYPE_LOG. The v1 payload is a
+   * bulk drain of newline-delimited log lines; emit one STATUSTEXT per line.
+   * Each NavLink text field holds up to 50 chars; a longer line spills into the
+   * next frame. The GCS renders one log line per STATUSTEXT. */
+  static uint8_t seq = 0;
+  uint8_t i = 0;
+  while (i < len) {
+    navlink_statustext_t msg = {0};
+    msg.severity = 6; /* NAVLINK_SEVERITY_INFO */
+    uint8_t j = 0;
+    while (i < len && buf[i] != '\n' && j < 50) {
+      msg.text[j++] = buf[i++];
+    }
+    if (i < len && buf[i] == '\n') {
+      i++; /* consume the line delimiter */
+    }
+    if (j == 0) {
+      continue; /* skip empty lines */
+    }
+    uint8_t frame[NAVLINK_MAX_FRAME];
+    size_t n = navlink_statustext_encode(frame, &msg, seq++, get_device_id(), 1);
+    write_channel(g_telemetry_channel, frame, (uint16_t)n);
+  }
 }
 
 void navlink_tx_heartbeat(void) {
@@ -182,26 +202,120 @@ void navlink_tx_motor(const motor_outputs_t *m) {
 }
 
 void navlink_tx_calibration(const uint8_t *buf, uint8_t len) {
-  send_packet(&g_telemetry_channel, PACKET_TYPE_SYSTEM_STATUS, (uint8_t *)buf,
-              len);
+  /* v2 CALIBRATION_STATUS (msgid 12320); replaces v1 SYSTEM_STATUS origin 0x01.
+   * v1 buffer layout: [0]=origin [1]=nargs [2]=step [3..]=float payload. For
+   * the MAG_AXIS_COVERAGE step (8, len>=15) the payload is coverage x/y/z (3
+   * f32); otherwise [3..6] is a progress float (0..100 for the PROGRESS step,
+   * 0 for the orientation-instruction steps). */
+  static uint8_t seq = 0;
+  if (len < 3) {
+    return;
+  }
+  navlink_calibration_status_t msg = {0};
+  msg.step = buf[2];
+  if (msg.step == 8 /* MAG_AXIS_COVERAGE */ && len >= 15) {
+    v_memcpy(&msg.coverage[0], &buf[3], 4);
+    v_memcpy(&msg.coverage[1], &buf[7], 4);
+    v_memcpy(&msg.coverage[2], &buf[11], 4);
+  } else if (len >= 7) {
+    float p;
+    v_memcpy(&p, &buf[3], 4);
+    msg.progress = (uint8_t)p;
+  }
+  uint8_t frame[NAVLINK_MAX_FRAME];
+  size_t n =
+      navlink_calibration_status_encode(frame, &msg, seq++, get_device_id(), 1);
+  write_channel(g_telemetry_channel, frame, (uint16_t)n);
+}
+
+/* --- PERF (one v2 message per row; seq ties a report together) ------------- */
+
+void navlink_tx_perf_global(const perf_global_body_t *g, uint32_t seq) {
+  static uint8_t s = 0;
+  navlink_perf_global_t m = {0};
+  m.seq = seq;
+  m.flags = g->flags;
+  m.total_tasks = g->total_tasks;
+  m.total_fifos = g->total_fifos;
+  m.uptime_ticks = g->uptime_ticks;
+  m.sched_switches = g->sched_switches;
+  m.cpu_cycles_lo = g->cpu_cycles_lo;
+  m.idle_cycles_lo = g->idle_cycles_lo;
+  m.systick_count = g->systick_count;
+  m.systick_last_cyc = g->systick_last_cyc;
+  m.systick_max_cyc = g->systick_max_cyc;
+  m.systick_preemptions = g->systick_preemptions;
+  m.ipc_takes = g->ipc_takes;
+  m.ipc_takes_blocked = g->ipc_takes_blocked;
+  m.ipc_gives = g->ipc_gives;
+  m.ipc_timeouts = g->ipc_timeouts;
+  m.heap_allocs = g->heap_allocs;
+  m.heap_frees = g->heap_frees;
+  m.heap_oom = g->heap_oom;
+  m.heap_peak_bytes = g->heap_peak_bytes;
+  m.heap_total_bytes = g->heap_total_bytes;
+  uint8_t frame[NAVLINK_MAX_FRAME];
+  size_t n = navlink_perf_global_encode(frame, &m, s++, get_device_id(), 1);
+  write_channel(g_telemetry_channel, frame, (uint16_t)n);
+}
+
+void navlink_tx_perf_task(const perf_task_row_t *row, uint32_t seq) {
+  static uint8_t s = 0;
+  navlink_perf_task_t m = {0};
+  m.seq = seq;
+  m.task_id = row->task_id;
+  m.priority = row->priority;
+  m.state = row->state;
+  m.stack_peak = row->stack_peak;
+  m.stack_size = row->stack_size;
+  m.cycles_lo = row->cycles_lo;
+  m.switches_in = row->switches_in;
+  m.max_burst_cyc = row->max_burst_cyc;
+  uint8_t frame[NAVLINK_MAX_FRAME];
+  size_t n = navlink_perf_task_encode(frame, &m, s++, get_device_id(), 1);
+  write_channel(g_telemetry_channel, frame, (uint16_t)n);
+}
+
+void navlink_tx_perf_fifo(const perf_fifo_row_t *row, uint32_t seq) {
+  static uint8_t s = 0;
+  navlink_perf_fifo_t m = {0};
+  m.seq = seq;
+  m.fifo_id = row->fifo_id;
+  m.peak = row->peak;
+  m.capacity = row->capacity;
+  m.drops = row->drops;
+  uint8_t frame[NAVLINK_MAX_FRAME];
+  size_t n = navlink_perf_fifo_encode(frame, &m, s++, get_device_id(), 1);
+  write_channel(g_telemetry_channel, frame, (uint16_t)n);
 }
 
 /* --- command responses ---------------------------------------------------- */
 
 void navlink_tx_time_sync_response(const time_sync_payload_t *out) {
-  send_packet(&g_telemetry_channel, PACKET_TYPE_TIME_SYNC, (uint8_t *)out,
-              (uint8_t)sizeof(*out));
+  /* v2 TIME_SYNC (msgid 10); the payload is byte-identical to time_sync_payload_t
+   * (dialect note), so copy field-by-field into the aligned struct. */
+  static uint8_t seq = 0;
+  navlink_time_sync_t m = {0};
+  m.role = out->role;
+  m.seq = out->seq;
+  m.t1_gcs_tx = out->t1_gcs_tx;
+  m.t2_fc_rx = out->t2_fc_rx;
+  m.t3_fc_tx = out->t3_fc_tx;
+  m.commanded_offset_ms = out->commanded_offset_ms;
+  uint8_t frame[NAVLINK_MAX_FRAME];
+  size_t n = navlink_time_sync_encode(frame, &m, seq++, get_device_id(), 1);
+  write_channel(g_telemetry_channel, frame, (uint16_t)n);
 }
 
 void navlink_tx_perf_taskname(uint8_t id, const char *name) {
-  uint8_t buf[1 + PERF_TASKNAME_MAX];
-  buf[0] = id;
-  uint8_t n = 0;
-  while (n < PERF_TASKNAME_MAX - 1 && name[n]) {
-    buf[1 + n] = (uint8_t)name[n];
-    n++;
+  /* v2 PERF_TASKNAME (msgid 1038); name is a NUL-padded char[32]. */
+  static uint8_t seq = 0;
+  navlink_perf_taskname_t m = {0};
+  m.task_id = id;
+  for (uint8_t k = 0; k < sizeof(m.name) - 1 && name[k]; k++) {
+    m.name[k] = name[k];
   }
-  buf[1 + n] = '\0';
-  send_packet(&g_telemetry_channel, PACKET_TYPE_PERF_TASKNAME, buf,
-              (uint8_t)(2 + n));
+  uint8_t frame[NAVLINK_MAX_FRAME];
+  size_t n = navlink_perf_taskname_encode(frame, &m, seq++, get_device_id(), 1);
+  write_channel(g_telemetry_channel, frame, (uint16_t)n);
 }

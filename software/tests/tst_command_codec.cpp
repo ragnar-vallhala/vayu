@@ -24,17 +24,6 @@ private slots:
   void gyroLpfAndFlightModeIds();
 };
 
-static float readF32(const QByteArray &b, int off) {
-  float f;
-  std::memcpy(&f, b.constData() + off, 4);
-  return f;
-}
-static quint16 readU16(const QByteArray &b, int off) {
-  quint16 v;
-  std::memcpy(&v, b.constData() + off, 2);
-  return v;
-}
-
 namespace {
 navlink_cmd_set_pid_t g_pid;
 bool g_pidGot;
@@ -99,26 +88,73 @@ void TstCommandCodec::setPidGainsRoundTrip() {
   QCOMPARE(m.kff, 0.0625f);
 }
 
-void TstCommandCodec::gyroLpfAndFlightModeIds() {
-  const QByteArray g = CommandCodec::encodeSetGyroLpf(2, 0.004f);
-  QCOMPARE(readU16(g, 8), quint16(0x000B));  // CMD_SET_GYRO_LPF
-  QCOMPARE(quint8(g[10]), quint8(2));        // argc = 2 (axis, rc)
-  QCOMPARE(readF32(g, 11), 2.0f);            // axis
-  QCOMPARE(readF32(g, 15), 0.004f);          // rc
+// Generic: assert the frame's msgid (u24 LE at [7..9]) and that it decodes
+// (CRC-valid) through the parser.
+static bool decodesAs(const QByteArray &f, quint32 wantMsgid,
+                      const navlink_handlers_t &h) {
+  const quint32 msgid = quint8(f[7]) | (quint32(quint8(f[8])) << 8) |
+                        (quint32(quint8(f[9])) << 16);
+  if (msgid != wantMsgid)
+    return false;
+  navlink_parser_t p;
+  navlink_parser_init(&p);
+  navlink_parser_push(&p, &h, reinterpret_cast<const uint8_t *>(f.constData()),
+                      size_t(f.size()));
+  return true;
+}
 
-  const QByteArray m = CommandCodec::encodeSetFlightMode(1);
-  QCOMPARE(readU16(m, 8), quint16(0x000D));  // CMD_SET_FLIGHT_MODE
-  QCOMPARE(quint8(m[10]), quint8(1));        // argc = 1
-  QCOMPARE(readF32(m, 11), 1.0f);            // mode = acro
+namespace {
+navlink_cmd_set_gyro_lpf_t g_lpf;
+bool g_lpfGot;
+void onLpf(void *, const navlink_frame_hdr_t *,
+           const navlink_cmd_set_gyro_lpf_t *m) {
+  g_lpf = *m;
+  g_lpfGot = true;
+}
+navlink_cmd_set_flight_mode_t g_fm;
+bool g_fmGot;
+void onFm(void *, const navlink_frame_hdr_t *,
+          const navlink_cmd_set_flight_mode_t *m) {
+  g_fm = *m;
+  g_fmGot = true;
+}
+navlink_cmd_set_motor_geometry_t g_geo;
+bool g_geoGot;
+void onGeo(void *, const navlink_frame_hdr_t *,
+           const navlink_cmd_set_motor_geometry_t *m) {
+  g_geo = *m;
+  g_geoGot = true;
+}
+}  // namespace
+
+void TstCommandCodec::gyroLpfAndFlightModeIds() {
+  navlink_handlers_t h{};
+  g_lpfGot = g_fmGot = g_geoGot = false;
+  h.on_cmd_set_gyro_lpf = onLpf;
+  h.on_cmd_set_flight_mode = onFm;
+  h.on_cmd_set_motor_geometry = onGeo;
+
+  QVERIFY(decodesAs(CommandCodec::encodeSetGyroLpf(2, 0.004f),
+                    NAVLINK_MSGID_CMD_SET_GYRO_LPF, h));
+  QVERIFY(g_lpfGot);
+  QCOMPARE(quint8(g_lpf.axis), quint8(2));
+  QCOMPARE(g_lpf.rc, 0.004f);
+
+  QVERIFY(decodesAs(CommandCodec::encodeSetFlightMode(1),
+                    NAVLINK_MSGID_CMD_SET_FLIGHT_MODE, h));
+  QVERIFY(g_fmGot);
+  QCOMPARE(quint8(g_fm.mode), quint8(1));    // acro
+  QCOMPARE(quint8(g_fm.source), quint8(1));  // GCS
 
   const float x[4] = {0.1f, -0.1f, -0.1f, 0.1f};
   const float y[4] = {0.1f, 0.1f, -0.1f, -0.1f};
   const float sp[4] = {1.f, -1.f, 1.f, -1.f};
-  const QByteArray g2 = CommandCodec::encodeSetMotorGeometry(x, y, sp);
-  QCOMPARE(readU16(g2, 8), quint16(0x000C));  // CMD_SET_MOTOR_GEOMETRY
-  QCOMPARE(quint8(g2[10]), quint8(12));       // argc = 12 (x[4],y[4],spin[4])
-  QCOMPARE(readF32(g2, 11), 0.1f);            // x0
-  QCOMPARE(readF32(g2, 11 + 8 * 4), 1.0f);    // spin0 (after x[4],y[4])
+  QVERIFY(decodesAs(CommandCodec::encodeSetMotorGeometry(x, y, sp),
+                    NAVLINK_MSGID_CMD_SET_MOTOR_GEOMETRY, h));
+  QVERIFY(g_geoGot);
+  QCOMPARE(g_geo.pos_x[0], 0.1f);
+  QCOMPARE(int(g_geo.spin[0]), 1);
+  QCOMPARE(int(g_geo.spin[1]), -1);
 }
 
 QTEST_APPLESS_MAIN(TstCommandCodec)

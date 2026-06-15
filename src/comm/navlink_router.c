@@ -8,6 +8,7 @@
 #include "utils.h"            /* v_get_ticks, v_memcpy */
 #include "variables.h"        /* _BLUE_LED_PIN */
 #include "vayu_status.h"
+#include "vayu_tasks.h"       /* comm_processor_dispatch */
 #include "navlink_msgs.h"     /* the generated codec — included ONLY here */
 #include <stdint.h>
 
@@ -95,6 +96,108 @@ static void on_cmd_set_pid(void *ctx, const navlink_frame_hdr_t *hdr,
   write_channel(g_telemetry_channel, frame, (uint16_t)n);
 }
 
+/* The remaining commands reuse the tested apply engine: rebuild the internal v1
+ * packet_t the command would have arrived as, and hand it to
+ * comm_processor_dispatch(). The v1 *wire* is gone — packet_t is just the
+ * in-memory apply representation — and TIME_SYNC / PERF_TASKNAME replies go back
+ * out as v2 through navlink_tx. */
+static void dispatch_v1(uint8_t packet_type, const uint8_t *payload,
+                        uint8_t length) {
+  packet_t pkt = {0};
+  pkt.sync = 0x56;
+  pkt.protocol_packet_type = (uint8_t)((packet_type << 4) | 0x1);
+  pkt.length = length;
+  pkt.device_id = get_device_id();
+  if (length > 0) {
+    v_memcpy(pkt.payload, payload, length);
+  }
+  comm_processor_dispatch(&pkt);
+}
+
+/* Rebuild a [cmd_id:2][argc:1][argc x f32] COMMAND payload and dispatch it. */
+static void dispatch_command(uint16_t cmd_id, const float *args, uint8_t argc) {
+  uint8_t p[3 + 12 * 4];
+  v_memcpy(&p[0], &cmd_id, 2);
+  p[2] = argc;
+  if (argc > 0) {
+    v_memcpy(&p[3], args, (unsigned)argc * 4u);
+  }
+  dispatch_v1(PACKET_TYPE_COMMAND, p, (uint8_t)(3u + (unsigned)argc * 4u));
+}
+
+static void on_cmd_arm(void *ctx, const navlink_frame_hdr_t *hdr,
+                       const navlink_cmd_arm_t *m) {
+  (void)ctx; (void)hdr; (void)m;
+  uint8_t p[2] = {(uint8_t)CMD_ARM, 0x00}; /* bare cmd_id, no argc (len 2) */
+  dispatch_v1(PACKET_TYPE_COMMAND, p, 2);
+}
+
+static void on_cmd_disarm(void *ctx, const navlink_frame_hdr_t *hdr,
+                          const navlink_cmd_disarm_t *m) {
+  (void)ctx; (void)hdr; (void)m;
+  uint8_t p[2] = {(uint8_t)CMD_DISARM, 0x00};
+  dispatch_v1(PACKET_TYPE_COMMAND, p, 2);
+}
+
+static void on_cmd_calibrate_imu(void *ctx, const navlink_frame_hdr_t *hdr,
+                                 const navlink_cmd_calibrate_imu_t *m) {
+  (void)ctx; (void)hdr;
+  if (m->which == 0xFFu) { /* sentinel: cancel calibration (v1 cmd 0x0009) */
+    uint8_t p[2] = {0x09, 0x00};
+    dispatch_v1(PACKET_TYPE_COMMAND, p, 2);
+    return;
+  }
+  /* Single IMU: imu_id 0; `which` selects the routine (the v1 `type` arg). */
+  float args[2] = {0.0f, (float)m->which};
+  dispatch_command((uint16_t)CMD_CALIBRATE_IMU, args, 2);
+}
+
+static void on_cmd_set_gyro_lpf(void *ctx, const navlink_frame_hdr_t *hdr,
+                                const navlink_cmd_set_gyro_lpf_t *m) {
+  (void)ctx; (void)hdr;
+  float args[2] = {(float)m->axis, m->rc};
+  dispatch_command((uint16_t)CMD_SET_GYRO_LPF, args, 2);
+}
+
+static void on_cmd_set_motor_geometry(void *ctx, const navlink_frame_hdr_t *hdr,
+                                      const navlink_cmd_set_motor_geometry_t *m) {
+  (void)ctx; (void)hdr;
+  float args[12];
+  for (int i = 0; i < 4; i++) {
+    args[i] = m->pos_x[i];
+    args[4 + i] = m->pos_y[i];
+    args[8 + i] = (float)m->spin[i];
+  }
+  dispatch_command((uint16_t)CMD_SET_MOTOR_GEOMETRY, args, 12);
+}
+
+static void on_cmd_set_flight_mode(void *ctx, const navlink_frame_hdr_t *hdr,
+                                   const navlink_cmd_set_flight_mode_t *m) {
+  (void)ctx; (void)hdr;
+  float args[1] = {(float)m->mode}; /* v1 carried mode only; source implied GCS */
+  dispatch_command((uint16_t)CMD_SET_FLIGHT_MODE, args, 1);
+}
+
+static void on_time_sync(void *ctx, const navlink_frame_hdr_t *hdr,
+                         const navlink_time_sync_t *m) {
+  (void)ctx; (void)hdr;
+  time_sync_payload_t in = {0};
+  in.role = m->role;
+  in.seq = m->seq;
+  in.t1_gcs_tx = m->t1_gcs_tx;
+  in.t2_fc_rx = m->t2_fc_rx;
+  in.t3_fc_tx = m->t3_fc_tx;
+  in.commanded_offset_ms = m->commanded_offset_ms;
+  dispatch_v1(PACKET_TYPE_TIME_SYNC, (const uint8_t *)&in, (uint8_t)sizeof(in));
+}
+
+static void on_perf_taskname_request(void *ctx, const navlink_frame_hdr_t *hdr,
+                                     const navlink_perf_taskname_request_t *m) {
+  (void)ctx; (void)hdr;
+  uint8_t p[1] = {m->task_id};
+  dispatch_v1(PACKET_TYPE_PERF_TASKNAME, p, 1);
+}
+
 /* -------------------------------------------------------------------------- */
 /* The one handler table + parser.                                            */
 /* -------------------------------------------------------------------------- */
@@ -104,8 +207,16 @@ static navlink_handlers_t s_handlers;
 void navlink_router_init(void) {
   navlink_parser_init(&s_parser);
   s_handlers = (navlink_handlers_t){0};
-  s_handlers.on_default = on_default;         /* every unhandled leaf -> blink */
-  s_handlers.on_cmd_set_pid = on_cmd_set_pid; /* override: real handler */
+  s_handlers.on_default = on_default; /* every unhandled leaf -> blink */
+  s_handlers.on_cmd_set_pid = on_cmd_set_pid;
+  s_handlers.on_cmd_arm = on_cmd_arm;
+  s_handlers.on_cmd_disarm = on_cmd_disarm;
+  s_handlers.on_cmd_calibrate_imu = on_cmd_calibrate_imu;
+  s_handlers.on_cmd_set_gyro_lpf = on_cmd_set_gyro_lpf;
+  s_handlers.on_cmd_set_motor_geometry = on_cmd_set_motor_geometry;
+  s_handlers.on_cmd_set_flight_mode = on_cmd_set_flight_mode;
+  s_handlers.on_time_sync = on_time_sync;
+  s_handlers.on_perf_taskname_request = on_perf_taskname_request;
 }
 
 void navlink_router_poll(void) {

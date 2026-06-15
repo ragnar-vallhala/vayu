@@ -1,46 +1,32 @@
 #include "CommandCodec.h"
 
-#include "crc.h"
-
 extern "C" {
 #include "navlink_msgs.h"  // NavLink v2 generated codec
 }
 
+// Every command is now a typed NavLink v2 frame. Each encoder mirrors the
+// firmware's navlink_router.c handler: target_sys addresses the FC (the former
+// v1 device id), target_comp = 1, a rolling req_seq correlates the COMMAND_ACK.
+// The generated *_encode() builds the whole frame (10-byte header + truncated
+// payload + CRC-16). tsMs is vestigial (v2 frames carry no header timestamp).
 namespace CommandCodec {
-
-QByteArray encodeCommand(quint16 cmdId, const QVector<float> &args,
-                         quint8 devId, quint32 tsMs) {
-  QByteArray payload;
-  payload.append(reinterpret_cast<const char *>(&cmdId), 2);  // cmd_id (LE)
-  payload.append(static_cast<char>(args.size() & 0xFF));      // argc
-  for (float a : args)
-    payload.append(reinterpret_cast<const char *>(&a), 4);    // arg (LE f32)
-
-  QByteArray pkt;
-  pkt.append(static_cast<char>(0x56));                          // sync
-  pkt.append(static_cast<char>(0x31));                          // type 3 | v1
-  pkt.append(static_cast<char>(payload.size() & 0xFF));         // length
-  pkt.append(static_cast<char>(devId));                         // device id
-  pkt.append(reinterpret_cast<const char *>(&tsMs), 4);         // timestamp
-  pkt.append(payload);
-  const uint32_t crc = CRC32::calculate(
-      reinterpret_cast<const uint8_t *>(pkt.constData()),
-      static_cast<uint32_t>(pkt.size()));
-  pkt.append(reinterpret_cast<const char *>(&crc), 4);
-  return pkt;
+namespace {
+uint8_t nextSeq() {
+  static uint8_t s = 0;
+  return s++;
 }
+QByteArray frame(const uint8_t *buf, size_t n) {
+  return QByteArray(reinterpret_cast<const char *>(buf), static_cast<int>(n));
+}
+}  // namespace
 
 QByteArray encodeSetPid(int controller, int axis, float kp, float ki, float kd,
                         float kff, quint8 devId, quint32 tsMs) {
-  // NavLink v2 (navlink/INTEGRATION.md, Phase 3): emit a typed CMD_SET_PID frame
-  // instead of the v1 generic COMMAND. The FC correlates the COMMAND_ACK by
-  // req_seq. (v2 frames carry no header timestamp; tsMs is unused.)
   Q_UNUSED(tsMs);
-  static uint8_t s_seq = 0;
   navlink_cmd_set_pid_t m{};
-  m.target_sys = devId;     // address the FC (v1 used device id 42)
+  m.target_sys = devId;
   m.target_comp = 1;
-  m.req_seq = s_seq;
+  m.req_seq = nextSeq();
   m.controller = static_cast<uint8_t>(controller);
   m.axis = static_cast<uint8_t>(axis);
   m.kp = kp;
@@ -48,91 +34,116 @@ QByteArray encodeSetPid(int controller, int axis, float kp, float ki, float kd,
   m.kd = kd;
   m.kff = kff;
   uint8_t buf[NAVLINK_MAX_FRAME];
-  size_t n = navlink_cmd_set_pid_encode(buf, &m, s_seq++, /*sysid (GCS)*/ 0xFF,
-                                        /*compid*/ 1);
-  return QByteArray(reinterpret_cast<const char *>(buf), static_cast<int>(n));
+  size_t n = navlink_cmd_set_pid_encode(buf, &m, m.req_seq, 0xFF, 1);
+  return frame(buf, n);
 }
 
 QByteArray encodeSetGyroLpf(int axis, float rc, quint8 devId, quint32 tsMs) {
-  return encodeCommand(kCmdSetGyroLpf, {float(axis), rc}, devId, tsMs);
+  Q_UNUSED(tsMs);
+  navlink_cmd_set_gyro_lpf_t m{};
+  m.target_sys = devId;
+  m.target_comp = 1;
+  m.req_seq = nextSeq();
+  m.axis = static_cast<uint8_t>(axis);
+  m.rc = rc;
+  uint8_t buf[NAVLINK_MAX_FRAME];
+  size_t n = navlink_cmd_set_gyro_lpf_encode(buf, &m, m.req_seq, 0xFF, 1);
+  return frame(buf, n);
 }
 
 QByteArray encodeSetFlightMode(int mode, quint8 devId, quint32 tsMs) {
-  return encodeCommand(kCmdSetFlightMode, {float(mode)}, devId, tsMs);
+  Q_UNUSED(tsMs);
+  navlink_cmd_set_flight_mode_t m{};
+  m.target_sys = devId;
+  m.target_comp = 1;
+  m.req_seq = nextSeq();
+  m.mode = static_cast<uint8_t>(mode);
+  m.source = 1;  // mode_source GCS
+  uint8_t buf[NAVLINK_MAX_FRAME];
+  size_t n = navlink_cmd_set_flight_mode_encode(buf, &m, m.req_seq, 0xFF, 1);
+  return frame(buf, n);
 }
 
 QByteArray encodeSetMotorGeometry(const float x[4], const float y[4],
                                   const float spin[4], quint8 devId,
                                   quint32 tsMs) {
-  QVector<float> args;
-  for (int i = 0; i < 4; ++i) args.append(x[i]);
-  for (int i = 0; i < 4; ++i) args.append(y[i]);
-  for (int i = 0; i < 4; ++i) args.append(spin[i]);
-  return encodeCommand(kCmdSetMotorGeometry, args, devId, tsMs);
-}
-
-// CMD_ARM/CMD_DISARM use a bare 2-byte (cmd_id only, NO argc) payload — distinct
-// from encodeCommand's [cmd_id][argc][args] layout, so they get a dedicated path.
-static QByteArray encodeBareCommand(quint16 cmdId, quint8 devId, quint32 tsMs) {
-  QByteArray pkt;
-  pkt.append(static_cast<char>(0x56));                  // sync
-  pkt.append(static_cast<char>(0x31));                  // type 3 (command), v1
-  pkt.append(static_cast<char>(2));                     // length = 2 (cmd_id only)
-  pkt.append(static_cast<char>(devId));
-  pkt.append(reinterpret_cast<const char *>(&tsMs), 4); // header ts (FC-ignored)
-  pkt.append(reinterpret_cast<const char *>(&cmdId), 2);
-  const uint32_t crc = CRC32::calculate(
-      reinterpret_cast<const uint8_t *>(pkt.constData()),
-      static_cast<uint32_t>(pkt.size()));
-  pkt.append(reinterpret_cast<const char *>(&crc), 4);
-  return pkt;
+  Q_UNUSED(tsMs);
+  navlink_cmd_set_motor_geometry_t m{};
+  m.target_sys = devId;
+  m.target_comp = 1;
+  m.req_seq = nextSeq();
+  m.layout = 0;
+  for (int i = 0; i < 4; ++i) {
+    m.pos_x[i] = x[i];
+    m.pos_y[i] = y[i];
+    m.spin[i] = static_cast<int8_t>(spin[i]);
+  }
+  uint8_t buf[NAVLINK_MAX_FRAME];
+  size_t n = navlink_cmd_set_motor_geometry_encode(buf, &m, m.req_seq, 0xFF, 1);
+  return frame(buf, n);
 }
 
 QByteArray encodeArm(quint8 devId, quint32 tsMs) {
-  return encodeBareCommand(0x0002, devId, tsMs);
+  Q_UNUSED(tsMs);
+  navlink_cmd_arm_t m{};
+  m.target_sys = devId;
+  m.target_comp = 1;
+  m.req_seq = nextSeq();
+  m.force = 0;
+  uint8_t buf[NAVLINK_MAX_FRAME];
+  size_t n = navlink_cmd_arm_encode(buf, &m, m.req_seq, 0xFF, 1);
+  return frame(buf, n);
 }
 
 QByteArray encodeDisarm(quint8 devId, quint32 tsMs) {
-  return encodeBareCommand(0x0003, devId, tsMs);
+  Q_UNUSED(tsMs);
+  navlink_cmd_disarm_t m{};
+  m.target_sys = devId;
+  m.target_comp = 1;
+  m.req_seq = nextSeq();
+  m.force = 0;
+  uint8_t buf[NAVLINK_MAX_FRAME];
+  size_t n = navlink_cmd_disarm_encode(buf, &m, m.req_seq, 0xFF, 1);
+  return frame(buf, n);
+}
+
+QByteArray encodeCalibrate(quint8 which, quint8 devId) {
+  // which selects the calibration routine; 0xFF cancels. Single IMU (id 0), so
+  // the firmware ignores imu_id. Cancel maps to the firmware's stop path.
+  navlink_cmd_calibrate_imu_t m{};
+  m.target_sys = devId;
+  m.target_comp = 1;
+  m.req_seq = nextSeq();
+  m.which = which;
+  uint8_t buf[NAVLINK_MAX_FRAME];
+  size_t n = navlink_cmd_calibrate_imu_encode(buf, &m, m.req_seq, 0xFF, 1);
+  return frame(buf, n);
 }
 
 QByteArray encodeTimeSyncRequest(quint8 seq, quint64 t1, qint32 commandedOffsetMs,
                                  quint8 devId) {
-  QByteArray pkt;
-  pkt.append(static_cast<char>(0x56));          // sync
-  pkt.append(static_cast<char>(0xB1));          // type 0xB | proto v1
-  pkt.append(static_cast<char>(32));            // payload length
-  pkt.append(static_cast<char>(devId));         // dev_id
-  const quint32 hdrTs = static_cast<quint32>(t1);
-  pkt.append(reinterpret_cast<const char *>(&hdrTs), 4);  // header ts
-  pkt.append(static_cast<char>(0x00));          // role = REQUEST
-  pkt.append(static_cast<char>(seq));           // seq
-  pkt.append(static_cast<char>(0x00));          // pad
-  pkt.append(static_cast<char>(0x00));          // pad
-  pkt.append(reinterpret_cast<const char *>(&t1), 8);     // t1_gcs_tx
-  const quint64 zero = 0;
-  pkt.append(reinterpret_cast<const char *>(&zero), 8);   // t2 (FC fills)
-  pkt.append(reinterpret_cast<const char *>(&zero), 8);   // t3 (FC fills)
-  pkt.append(reinterpret_cast<const char *>(&commandedOffsetMs), 4);
-  const uint32_t crc = CRC32::calculate(
-      reinterpret_cast<const uint8_t *>(pkt.constData()), 8 + 32);
-  pkt.append(reinterpret_cast<const char *>(&crc), 4);
-  return pkt;
+  Q_UNUSED(devId);
+  navlink_time_sync_t m{};
+  m.role = 0;  // REQUEST
+  m.seq = seq;
+  m.t1_gcs_tx = t1;
+  m.t2_fc_rx = 0;
+  m.t3_fc_tx = 0;
+  m.commanded_offset_ms = commandedOffsetMs;
+  uint8_t buf[NAVLINK_MAX_FRAME];
+  size_t n = navlink_time_sync_encode(buf, &m, seq, 0xFF, 1);
+  return frame(buf, n);
 }
 
 QByteArray encodeTaskNameRequest(int taskId, quint8 devId, quint32 tsMs) {
-  QByteArray pkt;
-  pkt.append(static_cast<char>(0x56));              // sync
-  pkt.append(static_cast<char>((0xA << 4) | 0x1));  // type 0xA, proto v1
-  pkt.append(static_cast<char>(1));                 // payload length
-  pkt.append(static_cast<char>(devId));
-  pkt.append(reinterpret_cast<const char *>(&tsMs), 4);
-  pkt.append(static_cast<char>(taskId & 0xFF));
-  const uint32_t crc = CRC32::calculate(
-      reinterpret_cast<const uint8_t *>(pkt.constData()),
-      static_cast<uint32_t>(pkt.size()));
-  pkt.append(reinterpret_cast<const char *>(&crc), 4);
-  return pkt;
+  Q_UNUSED(tsMs);
+  navlink_perf_taskname_request_t m{};
+  m.target_sys = devId;
+  m.target_comp = 1;
+  m.task_id = static_cast<uint8_t>(taskId);
+  uint8_t buf[NAVLINK_MAX_FRAME];
+  size_t n = navlink_perf_taskname_request_encode(buf, &m, nextSeq(), 0xFF, 1);
+  return frame(buf, n);
 }
 
 }  // namespace CommandCodec

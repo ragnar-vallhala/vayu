@@ -1,6 +1,6 @@
 #include "CalibrationWidget.h"
 
-#include "../core/crc.h"
+#include "../protocol/CommandCodec.h"
 #include "core/Theme.h"
 #include "core/ui/Buttons.h"
 
@@ -307,31 +307,10 @@ void CalibrationWidget::refreshSteps() {
 }
 
 void CalibrationWidget::sendCalibrationCommand(int imu_id, int type) {
-  uint32_t now = static_cast<uint32_t>(QDateTime::currentMSecsSinceEpoch());
-  uint8_t dev_id = 42;
-
-  QByteArray pkt;
-  pkt.append(static_cast<char>(0x56)); // sync
-  pkt.append(static_cast<char>(0x31)); // type 3 (command), ver 1
-  pkt.append(
-      static_cast<char>(11)); // length 11 (cmd_id[2] + argc[1] + args[2*4])
-  pkt.append(static_cast<char>(dev_id));
-  pkt.append(reinterpret_cast<const char *>(&now), 4);
-
-  uint16_t cmd_id = 0x0001; // CMD_CALIBRATE_IMU
-  pkt.append(reinterpret_cast<const char *>(&cmd_id), 2);
-  pkt.append(static_cast<char>(0x02)); // argc = 2
-
-  float f_imu = static_cast<float>(imu_id);
-  float f_type = static_cast<float>(type);
-  pkt.append(reinterpret_cast<const char *>(&f_imu), 4);
-  pkt.append(reinterpret_cast<const char *>(&f_type), 4);
-
-  uint32_t crc = CRC32::calculate(
-      reinterpret_cast<const uint8_t *>(pkt.constData()), pkt.size());
-  pkt.append(reinterpret_cast<const char *>(&crc), 4);
-
-  emit commandRequested(pkt);
+  // NavLink v2 CMD_CALIBRATE_IMU carries the routine selector only (single IMU,
+  // so imu_id is implied 0 on the firmware side).
+  Q_UNUSED(imu_id);
+  emit commandRequested(CommandCodec::encodeCalibrate(static_cast<quint8>(type)));
 }
 
 void CalibrationWidget::onProgressReceived(float pct) {
@@ -407,21 +386,8 @@ void CalibrationWidget::onCancelClicked() {
   if (!m_protocol)
     return;
 
-  // Send empty CMD_CALIBRATE_IMU to cancel
-  uint32_t now = static_cast<uint32_t>(QDateTime::currentMSecsSinceEpoch());
-  QByteArray pkt;
-  pkt.append(static_cast<char>(0x56));
-  pkt.append(static_cast<char>(0x31));
-  pkt.append(static_cast<char>(3)); // cmd_id[2] + argc[1]
-  pkt.append(static_cast<char>(42));
-  pkt.append(reinterpret_cast<const char *>(&now), 4);
-  uint16_t cmd_id = 0x0001;
-  pkt.append(reinterpret_cast<const char *>(&cmd_id), 2);
-  pkt.append(static_cast<char>(0x00)); // argc = 0
-  uint32_t crc = CRC32::calculate(
-      reinterpret_cast<const uint8_t *>(pkt.constData()), pkt.size());
-  pkt.append(reinterpret_cast<const char *>(&crc), 4);
-  emit commandRequested(pkt);
+  // Cancel: NavLink v2 CMD_CALIBRATE_IMU with the 0xFF sentinel (stop routine).
+  emit commandRequested(CommandCodec::encodeCalibrate(0xFF));
   m_startBtn->setEnabled(true);
   m_cancelBtn->setVisible(false);
   m_sensorSelectArea->setEnabled(true);
