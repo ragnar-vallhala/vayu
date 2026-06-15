@@ -1,48 +1,45 @@
 #pragma once
 
 #include <QByteArray>
-#include <QVector>
 #include <QtGlobal>
 
-// Builds NavLink command frames (GCS -> FC, packet type 3) — the outbound twin
-// of DroneProtocol's rx parser. Pure + static so frame construction is shared
-// and unit-testable instead of hand-rolled at each call site.
-//
-// Frame: [0x56 sync][type|ver = 0x31][len:u8][dev_id:u8][ts:u32 LE]
-//        [payload][crc32:u32 LE]
-// where payload = [cmd_id:u16 LE][argc:u8][arg:f32 LE]... and crc32 covers
-// every byte up to (not including) the crc. Mirrors the inline frames in
-// MainWindow and the firmware's comm_processor / pid_config schema.
+// Builds NavLink v2 command frames (GCS -> FC). Every command is a typed v2
+// message (10-byte header + truncated payload + CRC-16) built by the generated
+// codec; the firmware decodes them in navlink_router.c and correlates the
+// COMMAND_ACK by req_seq. `devId` becomes target_sys; `tsMs` is vestigial (v2
+// frames carry no header timestamp) and kept only for call-site compatibility.
 namespace CommandCodec {
 
-// Command ids (mirror firmware include/comm/comm_types.h).
-inline constexpr quint16 kCmdSetPid = 0x000A;
-inline constexpr quint16 kCmdSetGyroLpf = 0x000B;
-inline constexpr quint16 kCmdSetMotorGeometry = 0x000C;
-inline constexpr quint16 kCmdSetFlightMode = 0x000D;
-
-// Generic command frame with float args.
-QByteArray encodeCommand(quint16 cmdId, const QVector<float> &args,
-                         quint8 devId = 42, quint32 tsMs = 0);
-
-// CMD_SET_PID for one (controller, axis): controller 0=angle / 1=rate,
-// axis 0=roll / 1=pitch / 2=yaw. argc = 6 (controller, axis, Kp, Ki, Kd, Kff).
+// CMD_SET_PID: controller 0=angle / 1=rate, axis 0=roll / 1=pitch / 2=yaw.
 QByteArray encodeSetPid(int controller, int axis, float kp, float ki, float kd,
                         float kff, quint8 devId = 42, quint32 tsMs = 0);
 
-// CMD_SET_GYRO_LPF (0x000B): rate-loop gyro low-pass for one axis. argc = 2
-// (axis, rc[s]; rc<=0 disables).
+// CMD_SET_GYRO_LPF: rate-loop gyro low-pass time constant for one axis
+// (rc seconds; <= 0 disables).
 QByteArray encodeSetGyroLpf(int axis, float rc, quint8 devId = 42,
                             quint32 tsMs = 0);
 
-// CMD_SET_FLIGHT_MODE (0x000D): 0=stabilise/angle, 1=acro, 2=release to RC.
+// CMD_SET_FLIGHT_MODE: 0=angle, 1=acro, 2=release to RC (source = GCS).
 QByteArray encodeSetFlightMode(int mode, quint8 devId = 42, quint32 tsMs = 0);
 
-// CMD_SET_MOTOR_GEOMETRY (0x000C): set the firmware mixer signs from the motor
-// layout so the control mix matches the airframe. argc = 12, ordered x[4], y[4],
-// spin[4] (motor body x/y [m] and spin +1 CCW / -1 CW), per motor 0..3.
+// CMD_SET_MOTOR_GEOMETRY: per-motor body x/y [m] and spin (+1 CCW / -1 CW).
 QByteArray encodeSetMotorGeometry(const float x[4], const float y[4],
                                   const float spin[4], quint8 devId = 42,
                                   quint32 tsMs = 0);
+
+// CMD_ARM / CMD_DISARM: set/clear the software-arm latch (force = 0).
+QByteArray encodeArm(quint8 devId = 42, quint32 tsMs = 0);
+QByteArray encodeDisarm(quint8 devId = 42, quint32 tsMs = 0);
+
+// CMD_CALIBRATE_IMU: `which` selects the routine; 0xFF cancels.
+QByteArray encodeCalibrate(quint8 which, quint8 devId = 42);
+
+// TIME_SYNC REQUEST: role=REQUEST, t1_gcs_tx stamped by the caller.
+// commandedOffsetMs = INT32_MIN means "no correction this round".
+QByteArray encodeTimeSyncRequest(quint8 seq, quint64 t1, qint32 commandedOffsetMs,
+                                 quint8 devId = 42);
+
+// PERF_TASKNAME_REQUEST: resolve one task id to its name.
+QByteArray encodeTaskNameRequest(int taskId, quint8 devId = 42, quint32 tsMs = 0);
 
 }  // namespace CommandCodec

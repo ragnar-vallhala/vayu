@@ -4,6 +4,32 @@ project(Navigator VERSION 1.0.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# NavLink v2 generated codec compiles as C (extern "C" header), so enable the C
+# language for this Qt project (navlink/INTEGRATION.md, Phase 0).
+enable_language(C)
+
+#-------------------------
+# NavLink v2 generated codec (single source of truth: navlink/dialect.json)
+#-------------------------
+# Generate the C codec at configure time into the build tree and compile it into
+# Navigator (the same .c the firmware builds; the header is extern "C"). Nothing
+# generated is committed; regenerated every configure so it can never drift.
+set(NAVLINK_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../navlink)
+set(NAVLINK_GEN ${CMAKE_CURRENT_BINARY_DIR}/navlink_gen)
+execute_process(COMMAND ${CMAKE_COMMAND} -E make_directory ${NAVLINK_GEN})
+execute_process(
+  COMMAND python3 ${NAVLINK_DIR}/generate.py --lang c --out ${NAVLINK_GEN}
+  RESULT_VARIABLE NAVLINK_GEN_RC)
+if(NOT NAVLINK_GEN_RC EQUAL 0)
+  message(FATAL_ERROR "navlink codegen failed (rc=${NAVLINK_GEN_RC})")
+endif()
+# One shared static lib so Navigator and the host SITL core (which compiles the
+# firmware comm sources, incl. the v2-emitting telemetry_task.c) each link the
+# codec exactly once. Defined before add_subdirectory(tools/sim_host) so that
+# subdir can link it too.
+add_library(navlink_codec STATIC ${NAVLINK_GEN}/c/navlink_msgs.c)
+target_include_directories(navlink_codec SYSTEM PUBLIC ${NAVLINK_GEN}/c)
+
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
@@ -36,6 +62,7 @@ set(GCS_SOURCES
     src/comm/UdpManager.cpp
     src/comm/PortArbiter.cpp
     src/protocol/DroneProtocol.cpp
+    src/protocol/NavlinkRouter.cpp
     src/protocol/TelemetryEngine.cpp
     src/protocol/CommandCodec.cpp
     src/ui/widgets/AttitudeWidget.cpp
@@ -56,7 +83,6 @@ set(GCS_SOURCES
     src/core/Units.cpp
     src/ui/widgets/PacketAnalyzerWidget.cpp
     src/ui/main/SettingsWidget.cpp
-    src/protocol/PacketDecoder.cpp
     src/protocol/PacketDissector.cpp
     src/protocol/TimeSyncEstimator.cpp
     src/ui/widgets/PacketDetailWidget.cpp
@@ -124,7 +150,6 @@ set(GCS_HEADERS
     src/core/ui/WheelGuard.h
     src/ui/widgets/PacketAnalyzerWidget.h
     src/ui/main/SettingsWidget.h
-    src/protocol/PacketDecoder.h
     src/protocol/PacketDissector.h
     src/protocol/TimeSyncEstimator.h
     src/ui/widgets/PacketDetailWidget.h
@@ -233,6 +258,7 @@ target_link_libraries(Navigator PRIVATE
     Qt6::Network
     Qt6::OpenGL
     Qt6::OpenGLWidgets
+    navlink_codec   # NavLink v2 generated codec (PUBLIC include comes with it)
 )
 
 # Surfaced in the About dialog (FR-UX-22).

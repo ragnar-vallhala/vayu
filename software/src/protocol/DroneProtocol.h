@@ -1,6 +1,6 @@
 #pragma once
 
-#include "PacketDecoder.h"
+#include "NavlinkRouter.h"
 #include "Types.h"
 #include <QByteArray>
 #include <QObject>
@@ -25,10 +25,9 @@ public:
 
 public slots:
   void processData(const QByteArray &data);
-  // Advanced setting: when false, packets that fail CRC are accepted anyway
-  // (for debugging a flaky link). Defaults to enforcing CRC. Lives on the
-  // worker thread; drive it via a queued invoke.
-  void setCrcCheck(bool on) { m_checkCrc = on; }
+  // Retained for the Advanced ▸ CRC toggle, but now a no-op: the NavLink v2
+  // parser always verifies CRC-16 and there is no bypass.
+  void setCrcCheck(bool) {}
 
 signals:
   void imuReceived(const ImuData &data);
@@ -48,13 +47,20 @@ signals:
                         quint64 t4);
   void perfReceived(const PerfReport &report);
   void taskNameReceived(int taskId, const QString &name);
+  // FC's COMMAND_ACK for a sent command, correlated by (command msgid, reqSeq).
+  void commandAckReceived(quint32 command, quint8 reqSeq, quint8 result);
   void timeSyncRequested();
   void unknownPacket(const QByteArray &raw);
   void packetReceived(const QByteArray &packet);
 
 private:
   QByteArray m_buffer;
-  PacketDecoder m_decoder;
-  bool m_checkCrc = true;  // Advanced ▸ CRC checking
   void parseBuffer();
+
+  // NavLink v2 receive path (navlink/INTEGRATION.md). parseBuffer() demuxes v2
+  // frames (byte1 == 0x02) off the shared byte stream and hands them to the
+  // router, which decodes + dispatches. Its hooks (set in our ctor) re-emit the
+  // existing Qt signals, so TelemetryEngine / VehicleState / the UI are
+  // unchanged. The generated codec lives only inside NavlinkRouter.
+  NavlinkRouter m_v2Router;
 };
