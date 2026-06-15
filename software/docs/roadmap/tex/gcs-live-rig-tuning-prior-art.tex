@@ -1,0 +1,573 @@
+% Options for packages loaded elsewhere
+\PassOptionsToPackage{unicode}{hyperref}
+\PassOptionsToPackage{hyphens}{url}
+\PassOptionsToPackage{dvipsnames,svgnames,x11names}{xcolor}
+%
+\documentclass[
+  11pt,
+]{article}
+\usepackage{amsmath,amssymb}
+\usepackage{iftex}
+\ifPDFTeX
+  \usepackage[T1]{fontenc}
+  \usepackage[utf8]{inputenc}
+  \usepackage{textcomp} % provide euro and other symbols
+\else % if luatex or xetex
+  \usepackage{unicode-math} % this also loads fontspec
+  \defaultfontfeatures{Scale=MatchLowercase}
+  \defaultfontfeatures[\rmfamily]{Ligatures=TeX,Scale=1}
+\fi
+\usepackage{lmodern}
+\ifPDFTeX\else
+  % xetex/luatex font selection
+\fi
+% Use upquote if available, for straight quotes in verbatim environments
+\IfFileExists{upquote.sty}{\usepackage{upquote}}{}
+\IfFileExists{microtype.sty}{% use microtype if available
+  \usepackage[]{microtype}
+  \UseMicrotypeSet[protrusion]{basicmath} % disable protrusion for tt fonts
+}{}
+\makeatletter
+\@ifundefined{KOMAClassName}{% if non-KOMA class
+  \IfFileExists{parskip.sty}{%
+    \usepackage{parskip}
+  }{% else
+    \setlength{\parindent}{0pt}
+    \setlength{\parskip}{6pt plus 2pt minus 1pt}}
+}{% if KOMA class
+  \KOMAoptions{parskip=half}}
+\makeatother
+\usepackage{xcolor}
+\usepackage[margin=18mm]{geometry}
+\usepackage{longtable,booktabs,array}
+\usepackage{calc} % for calculating minipage widths
+% Correct order of tables after \paragraph or \subparagraph
+\usepackage{etoolbox}
+\makeatletter
+\patchcmd\longtable{\par}{\if@noskipsec\mbox{}\fi\par}{}{}
+\makeatother
+% Allow footnotes in longtable head/foot
+\IfFileExists{footnotehyper.sty}{\usepackage{footnotehyper}}{\usepackage{footnote}}
+\makesavenoteenv{longtable}
+\setlength{\emergencystretch}{3em} % prevent overfull lines
+\providecommand{\tightlist}{%
+  \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+\setcounter{secnumdepth}{-\maxdimen} % remove section numbering
+% Shared preamble for the pandoc-generated roadmap PDFs (pdflatex).
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{amssymb}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{xcolor}
+
+% Map the non-ASCII glyphs the markdown uses so pdflatex doesn't choke.
+\usepackage{newunicodechar}
+\newunicodechar{→}{$\rightarrow$}
+\newunicodechar{←}{$\leftarrow$}
+\newunicodechar{↔}{$\leftrightarrow$}
+\newunicodechar{⇒}{$\Rightarrow$}
+\newunicodechar{±}{$\pm$}
+\newunicodechar{≈}{$\approx$}
+\newunicodechar{≥}{$\geq$}
+\newunicodechar{≤}{$\leq$}
+\newunicodechar{×}{$\times$}
+\newunicodechar{÷}{$\div$}
+\newunicodechar{·}{$\cdot$}
+\newunicodechar{…}{\dots}
+\newunicodechar{²}{\textsuperscript{2}}
+\newunicodechar{³}{\textsuperscript{3}}
+\newunicodechar{°}{\textdegree}
+\newunicodechar{µ}{$\mu$}
+\newunicodechar{σ}{$\sigma$}
+\newunicodechar{ε}{$\varepsilon$}
+\newunicodechar{θ}{$\theta$}
+\newunicodechar{τ}{$\tau$}
+\newunicodechar{γ}{$\gamma$}
+\newunicodechar{ω}{$\omega$}
+\newunicodechar{ζ}{$\zeta$}
+\newunicodechar{Σ}{$\Sigma$}
+\newunicodechar{√}{$\surd$}
+\newunicodechar{✓}{\checkmark}
+\newunicodechar{•}{\textbullet}
+\newunicodechar{≠}{$\neq$}
+\newunicodechar{∞}{$\infty$}
+\newunicodechar{ }{~}
+% status emoji + checks -> short text (pdflatex has no emoji glyphs)
+\newunicodechar{🔬}{{[study]}}
+\newunicodechar{🔴}{{[planned]}}
+\newunicodechar{🟡}{{[planned]}}
+\newunicodechar{🟢}{{[easy]}}
+\newunicodechar{🗺}{{[map]}}
+\newunicodechar{✅}{{[done]}}
+\newunicodechar{⚠}{{[!]}}
+\newunicodechar{️}{}   % U+FE0F variation selector
+\newunicodechar{🤖}{}
+\ifLuaTeX
+  \usepackage{selnolig}  % disable illegal ligatures
+\fi
+\IfFileExists{bookmark.sty}{\usepackage{bookmark}}{\usepackage{hyperref}}
+\IfFileExists{xurl.sty}{\usepackage{xurl}}{} % add URL line breaks if available
+\urlstyle{same}
+\hypersetup{
+  colorlinks=true,
+  linkcolor={blue},
+  filecolor={Maroon},
+  citecolor={Blue},
+  urlcolor={blue},
+  pdfcreator={LaTeX via pandoc}}
+
+\author{}
+\date{}
+
+\begin{document}
+
+\hypertarget{prior-art-mechanism-reference-automated-multirotor-control-tuning}{%
+\section{Prior-art mechanism reference: automated multirotor control
+tuning}\label{prior-art-mechanism-reference-automated-multirotor-control-tuning}}
+
+Companion to \url{gcs-live-rig-tuning.md}. A builder\textquotesingle s
+teardown of every comparable system found in the
+\href{gcs-live-rig-tuning.md\#feasibility-verdict}{deep-research
+survey}: how each one is \textbf{set up}, the \textbf{algorithm}, the
+\textbf{safety system}, how it checks \textbf{correctness}, its
+\textbf{communication}, and the \textbf{control mechanics} (where and
+how it excites the plant). Written so an engineer can lift the right
+pieces into their own tuner.
+
+\begin{quote}
+This file is the \textbf{at-a-glance} view. For the \textbf{from-core}
+treatment of each system --- control-theory background, block diagrams,
+algorithm flowcharts, protocol sequences and signal sketches --- see
+\url{gcs-live-rig-tuning-prior-art-deep.md}.
+\end{quote}
+
+\begin{quote}
+\textbf{Confidence / currency.} Architecture-level facts (where the
+optimizer runs, excitation type, in-flight vs offline, openness) are
+from primary docs/papers and were adversarially verified (see the
+study). Lower-level algorithm details (model order, RLS, exact cost
+terms) are established but \textbf{version-specific} --- PX4/ArduPilot
+track their \texttt{main} branch; verify against the current source
+before copying constants. Items marked \emph{(general)} are well-known
+mechanism, not separately source-verified here.
+\end{quote}
+
+\hypertarget{at-a-glance}{%
+\subsection{At a glance}\label{at-a-glance}}
+
+\begin{longtable}[]{@{}lllll@{}}
+\toprule\noalign{}
+System & Optimizer runs & Excitation & Where & Open? \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+ArduCopter AUTOTUNE & \textbf{onboard FC} (iterative twitch search) &
+rate step "twitch", axis-by-axis & \textbf{in free flight} & GPLv3 \\
+ArduCopter SystemID & \textbf{offline} (model fit + PID opt) & frequency
+chirp on a mixer axis & in free flight (log), fit offline & GPLv3 \\
+PX4 \texttt{mc\_autotune} & \textbf{onboard FC} (sys-ID + gain calc) &
+per-axis rate/torque disturbance (doublet) & in free flight
+(alt-stabilized) & BSD-3 \\
+PX4 manual/step guide & \textbf{human} & stick step input & in free
+flight & BSD-3 (docs) \\
+CIFER + CONDUIT/Simulink (academic) & \textbf{offline desktop} &
+frequency sweeps (pilot/autopilot) & in free flight (log), fit offline &
+proprietary tools, published method \\
+MathWorks Closed-Loop PID Autotuner & \textbf{in the block} (online
+FRF→gains) & sinusoidal perturbation at PID \textbf{output} & sim,
+deployable to HW; free flight & proprietary \\
+Safe Bayesian Opt (Berkenkamp et al.) & \textbf{offline/host optimizer}
+picks candidates, evaluates on HW & controller run per candidate
+(closed-loop trial) & in free flight & published method \\
+Thrust stands (RCbenchmark/Tyto) & n/a (characterization) & motor/prop
+sweep on a stand & \textbf{on a bench} (component, not closed-loop PID)
+& proprietary HW + scripting \\
+\end{longtable}
+
+\textbf{None} runs a \textbf{live GCS optimizer with the FC as a
+per-pass cost-reporting executor}, and \textbf{none} tunes on a
+\textbf{mechanically-constrained rig} --- those two are ours (see the
+study\textquotesingle s novelty section).
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\hypertarget{1-arducopter-autotune-onboard-in-flight-twitch-search}{%
+\subsection{1. ArduCopter AUTOTUNE (onboard, in-flight, twitch
+search)}\label{1-arducopter-autotune-onboard-in-flight-twitch-search}}
+
+Source: \url{https://ardupilot.org/copter/docs/autotune.html}
+
+\begin{itemize}
+\tightlist
+\item
+  \textbf{Setup.} Tune one axis-set per flight; needs calm conditions
+  and open space (the craft repeatedly twitches and drifts). Operator
+  flies to a safe altitude in AltHold/Loiter, flips an RC aux switch (or
+  mode) to AUTOTUNE, and \textbf{holds position while keeping a hand on
+  the sticks}. An aggressiveness parameter (\texttt{AUTOTUNE\_AGGR},
+  \textasciitilde0.05--0.10) trades responsiveness vs overshoot;
+  \texttt{AUTOTUNE\_AXES} selects roll/pitch/yaw.
+\item
+  \textbf{Control mechanics.} Injects a \textbf{rate "twitch"} (a brief
+  commanded angular- rate step) directly into the rate controller of the
+  axis under test, then watches the gyro response. \emph{(general)}
+  Excitation is generated \textbf{onboard}.
+\item
+  \textbf{Algorithm.} Per-axis iterative search, not a model fit: ramp
+  \textbf{rate-D} up until the response just starts to
+  oscillate/bounce-back, back off; ramp \textbf{rate-P} up to a target
+  response; set \textbf{angle-P} from the achieved bandwidth; apply a
+  safety margin scaled by \texttt{AUTOTUNE\_AGGR}. Converges
+  axis-by-axis over many twitches. \emph{(general)}
+\item
+  \textbf{Safety.} Original gains are kept; \textbf{moving the sticks
+  hands control back} to the pilot instantly; disarming or leaving the
+  mode \textbf{restores the pre-tune gains} unless the operator
+  explicitly saves them (land + low-throttle save, or switch).
+  Self-aborts on excessive attitude error. \emph{(general)}
+\item
+  \textbf{Correctness.} Convergence is per-axis to a target
+  rate-response shape; the proof is the \textbf{post-tune test flight}
+  (the pilot flies and decides to save). No model/coherence metric.
+\item
+  \textbf{Communication.} Self-contained on the FC; the GCS (Mission
+  Planner/QGC) only sets params (MAVLink \texttt{PARAM\_SET}) and arms
+  the mode. Results are the updated PID params, saved to the FC.
+\item
+  \textbf{Takeaway for us.} The \emph{twitch + bounded per-axis search}
+  is the spiritual ancestor of our doublet rollout --- but the search
+  lives on the FC. We move that search to the GCS. Their
+  \textbf{stick-override abort} maps onto our operator gesture.
+\end{itemize}
+
+\hypertarget{2-arducopter-systemid-chirp-excitation--offline-modelpid-fit}{%
+\subsection{2. ArduCopter SystemID (chirp excitation + offline model/PID
+fit)}\label{2-arducopter-systemid-chirp-excitation--offline-modelpid-fit}}
+
+Sources:
+\url{https://ardupilot.org/copter/docs/systemid-model-development.html},
+\url{https://ardupilot.org/copter/docs/common-systemid-mode-operation.html}
+
+\begin{itemize}
+\tightlist
+\item
+  \textbf{Setup.} A dedicated \texttt{SystemID} flight mode. The
+  operator hovers and triggers a sweep; logs are pulled afterward for
+  desktop analysis. Params pick the axis and magnitude.
+\item
+  \textbf{Control mechanics.} Injects a \textbf{frequency-sweep (chirp)}
+  by \emph{superimposing the waveform on the mixer inputs} via
+  \texttt{SID\_AXIS} (10 = roll, 11 = pitch, 12 = yaw) --- "direct input
+  to the regarded system." The chirp is generated onboard
+  (\texttt{chirp\_input.init()/update()},
+  \texttt{actuator\_roll\_sysid()} in \texttt{mode\_systemid.cpp}).
+\item
+  \textbf{Algorithm.} Two clean stages: (1) \textbf{offline}
+  frequency-domain fit --- plant transfer-function parameters are
+  optimized to best match the collected flight- data frequency
+  responses; (2) the identified model is then used to \textbf{optimize
+  the PID} in a separate step. Identification is decoupled from gain
+  tuning.
+\item
+  \textbf{Safety.} Short bounded sweeps in a stable hover; pilot retains
+  override.
+\item
+  \textbf{Correctness.} Goodness-of-fit of the transfer function to the
+  measured FRF; then verify the optimized PID in flight.
+\item
+  \textbf{Communication.} Onboard logging (dataflash) → offline tools on
+  a PC; gains uploaded back as params.
+\item
+  \textbf{Takeaway for us.} Confirms \textbf{FC-side chirp at the
+  mixer/setpoint level} is a proven excitation injection point ---
+  exactly our "override the axis setpoint." The clean
+  \textbf{ID-then-tune} split is an alternative to our direct cost
+  search; we chose direct cost (no model), but their injection mechanics
+  transfer directly.
+\end{itemize}
+
+\hypertarget{3-px4-mc_autotune-fully-onboard-sys-id--gain-calc-in-flight}{%
+\subsection{\texorpdfstring{3. PX4 \texttt{mc\_autotune} (fully onboard
+sys-ID + gain calc,
+in-flight)}{3. PX4 mc\_autotune (fully onboard sys-ID + gain calc, in-flight)}}\label{3-px4-mc_autotune-fully-onboard-sys-id--gain-calc-in-flight}}
+
+Sources: \url{https://docs.px4.io/main/en/config/autotune_mc},
+\url{https://docs.px4.io/main/en/msg_docs/AutotuneAttitudeControlStatus}
+
+\begin{itemize}
+\tightlist
+\item
+  \textbf{Setup.} Vehicle must be \textbf{flying in an
+  altitude-stabilized mode} (not a bench). Operator triggers autotune
+  from QGroundControl; it runs hands-off.
+\item
+  \textbf{Control mechanics.} The flight stack \textbf{applies a small
+  disturbance to each axis} (a normalized torque/rate setpoint
+  perturbation; effectively a doublet), recording the filtered input
+  \texttt{u\_filt} (normalized torque setpoint) and output
+  \texttt{y\_filt} (angular velocity).
+\item
+  \textbf{Algorithm.} \textbf{Onboard system identification}: fit a
+  discrete-time SISO model (a low-order 2-pole/2-zero ARX, via recursive
+  least squares \emph{(general/version- specific)}) --- the
+  \texttt{AutotuneAttitudeControlStatus} uORB message carries
+  \texttt{coeff} (model coefficients), \texttt{coeff\_var} (variance),
+  and a \textbf{fitness}. From the identified model it computes the
+  gains directly: \texttt{kc,\ ki,\ kd,\ kff,\ att\_p}. Processes axes
+  \textbf{sequentially roll → pitch → yaw}.
+\item
+  \textbf{Safety.} \textbf{Reverts unstable gains in real time onboard};
+  requires the altitude-stabilized envelope; operator can abort by
+  switching mode. The disturbance amplitude is deliberately small.
+\item
+  \textbf{Correctness.} The onboard \textbf{fitness} + coefficient
+  \textbf{variance} gate acceptance; final check is a verification
+  flight.
+\item
+  \textbf{Communication.} Triggered over \textbf{MAVLink} from QGC;
+  status streamed via the uORB→MAVLink bridge; resulting params written
+  to the FC.
+\item
+  \textbf{Takeaway for us.} The strongest precedent for \textbf{FC-side
+  excitation + onboard scoring} --- PX4 already computes a fitness on
+  the FC, which is our "FC computes cost." The difference: PX4
+  \emph{also} computes the gains onboard from a model; we keep the
+  \textbf{iterative gain choice on the GCS} and skip the model (direct
+  cost).
+\end{itemize}
+
+\hypertarget{4-px4-manual--step-input-tuning-guide-human-in-the-loop-baseline}{%
+\subsection{4. PX4 manual / step-input tuning guide (human-in-the-loop
+baseline)}\label{4-px4-manual--step-input-tuning-guide-human-in-the-loop-baseline}}
+
+Source:
+\url{https://docs.px4.io/main/en/config_mc/pid_tuning_guide_multicopter}
+
+\begin{itemize}
+\tightlist
+\item
+  \textbf{Setup / mechanics / algorithm.} No optimizer. Hover,
+  \textbf{give a fast step input via the stick} ("push roll to one side,
+  then let it snap back"), watch for oscillation/overshoot, \textbf{land
+  before changing a parameter}, repeat.
+\item
+  \textbf{Safety.} The land-between-changes rule is the safety system;
+  slow throttle ramps to check for oscillation first.
+\item
+  \textbf{Takeaway.} This is the manual loop our autotuner automates;
+  the \textbf{step doublet} is the same excitation, and "land between
+  changes" is what our \textbf{operator-gated,
+  re-stabilize-between-rollouts} protocol replaces with a rig.
+\end{itemize}
+
+\hypertarget{5-cifer--conduit--simulink-academic-offline-frequency-domain}{%
+\subsection{5. CIFER + CONDUIT / Simulink (academic offline
+frequency-domain)}\label{5-cifer--conduit--simulink-academic-offline-frequency-domain}}
+
+Sources:
+\url{https://www.academia.edu/54509862/Frequency_Response_System_Identification_and_Flight_Controller_Tuning_for_Quadcopter_UAV},
+\url{https://arxiv.org/pdf/1508.04886},
+\url{https://www.sjsu.edu/researchfoundation/docs/AHS_2015_Wei.pdf},
+\url{https://arxiv.org/pdf/0804.3881}
+
+\begin{itemize}
+\tightlist
+\item
+  \textbf{Setup.} Instrument the craft, fly \textbf{frequency sweeps in
+  hover}, axis by axis. Sweeps are input by a \textbf{human pilot via
+  RC}, or (better) \textbf{generated by the autopilot} --- a human
+  "cannot accurately cover the whole frequency needed," so an
+  onboard-generated sweep yields higher-quality data (Adiprawita et
+  al.).
+\item
+  \textbf{Control mechanics.} Frequency-sweep excitation per axis,
+  logged.
+\item
+  \textbf{Algorithm.} \textbf{CIFER} (Comprehensive Identification from
+  FREquency Response) does multi-window FFT → frequency response → fits
+  SISO transfer functions in the \textbf{frequency domain} (offline).
+  Then PID gains are \textbf{optimized offline} against
+  handling-qualities specs with \textbf{CONDUIT} or \textbf{MATLAB
+  Simulink Design Optimization}. Gains are uploaded to the Pixhawk
+  (overwritten via QGC).
+\item
+  \textbf{Safety.} Conventional piloted flight with a safety pilot; the
+  heavy lifting is offline, so nothing risky happens autonomously on the
+  vehicle.
+\item
+  \textbf{Correctness.} The \textbf{coherence function} validates each
+  frequency point of the FRF (data quality), and the model fit cost +
+  the CONDUIT spec margins gauge the result; verified by flight test.
+\item
+  \textbf{Communication.} Onboard log → desktop tools → params back via
+  QGC/MAVLink. Pure \textbf{upload-conduit} GCS role.
+\item
+  \textbf{Takeaway for us.} The rigorous end of the field.
+  \textbf{Coherence} is a correctness idea worth stealing --- a
+  per-window data-quality gate before trusting a cost. But
+  it\textquotesingle s offline and model-based; we trade model fidelity
+  for closed-loop directness.
+\end{itemize}
+
+\hypertarget{6-mathworks-closed-loop-pid-autotuner}{%
+\subsection{6. MathWorks Closed-Loop PID
+Autotuner}\label{6-mathworks-closed-loop-pid-autotuner}}
+
+Sources:
+\url{https://www.mathworks.com/help/slcontrol/ug/pid-controller-tuning-for-a-uav-quadcopter.html},
+\url{https://www.mathworks.com/help/slcontrol/ug/closedlooppidautotuner.html},
+\url{https://www.mathworks.com/help/uav/ug/pid-autotuning-for-uav-quadcopter.html}
+
+\begin{itemize}
+\tightlist
+\item
+  \textbf{Setup.} A Simulink block in the control loop; primarily
+  demonstrated in simulation, but \textbf{deployable to real hardware}
+  via generated C/C++ ("use the Closed-Loop PID Autotuner on hardware to
+  perform the same process").
+\item
+  \textbf{Control mechanics.} Injects \textbf{sinusoidal perturbation
+  signals at the OUTPUT of each existing PID controller} (8 loops in the
+  quad example) --- i.e. it perturbs the actuator command, not the
+  setpoint.
+\item
+  \textbf{Algorithm.} Estimates the plant \textbf{frequency response in
+  closed loop, in real time}, from the perturbation experiment, then
+  computes PID gains from the FRF. Self-contained (the optimizer is in
+  the block, not external).
+\item
+  \textbf{Safety.} Runs the experiment around the operating point with
+  bounded perturbations; closed-loop so the existing controller keeps
+  the craft stable during the experiment.
+\item
+  \textbf{Correctness.} FRF-based; the block reports estimated margins.
+\item
+  \textbf{Takeaway for us.} The "\textbf{perturb at the controller
+  output, identify in closed loop}" trick is an alternative excitation
+  injection point (actuator vs setpoint) and avoids needing clean
+  setpoint authority --- worth noting if setpoint override proves
+  awkward on the FC.
+\end{itemize}
+
+\hypertarget{7-safe-bayesian-optimization-on-hardware-berkenkamp-et-al}{%
+\subsection{7. Safe Bayesian Optimization on hardware (Berkenkamp et
+al.)}\label{7-safe-bayesian-optimization-on-hardware-berkenkamp-et-al}}
+
+Source: \url{https://las.inf.ethz.ch/files/berkenkamp16safe.pdf}
+
+\begin{itemize}
+\tightlist
+\item
+  \textbf{Why it matters most to us.} This is the \textbf{closest
+  architectural cousin}: an \textbf{external optimizer proposes
+  candidate controller parameters, each is evaluated by a real
+  closed-loop trial on the quadrotor, a scalar performance is measured,
+  and the optimizer picks the next candidate} --- exactly our
+  GCS-as-optimizer / evaluate-a-pass loop, minus the rig.
+\item
+  \textbf{Algorithm.} \textbf{Safe Bayesian Optimization (SafeOpt)}: a
+  Gaussian-process model of performance-vs-parameters with a
+  \textbf{safety constraint}, so the search only tries parameter sets
+  predicted to stay above a safety threshold --- it never knowingly
+  evaluates a destabilizing gain. Sample-efficient (few trials).
+\item
+  \textbf{Safety / correctness.} The safety constraint is the headline
+  feature: it bounds exploration to a "safe set," directly addressing
+  our "the search probes unstable gains by design" risk.
+\item
+  \textbf{Takeaway for us.} If our existing SITL optimizer struggles
+  with real noise (the study\textquotesingle s deferred "optimizer
+  selection" question), \textbf{SafeOpt-style Bayesian optimization is
+  the strongest candidate} --- sample-efficient (few real rollouts) and
+  safety-constrained (won\textquotesingle t probe known-bad gains).
+  Strongly consider for the live phase even though we keep the rig as
+  the hard safety net.
+\end{itemize}
+
+\hypertarget{8-adjacent-not-closed-loop-pid-tuners-but-useful-inputs}{%
+\subsection{8. Adjacent (not closed-loop PID tuners, but useful
+inputs)}\label{8-adjacent-not-closed-loop-pid-tuners-but-useful-inputs}}
+
+\begin{itemize}
+\tightlist
+\item
+  \textbf{Thrust stands --- RCbenchmark / Tyto Robotics}
+  (\url{https://www.tytorobotics.com/pages/rcbenchmark-software},
+  \url{https://www.tytorobotics.com/blogs/software-troubleshooting/automatic-control-pid}):
+  bench rigs that \textbf{characterize a single motor+prop} (thrust,
+  torque, current, efficiency, and a PID for the
+  \emph{stand\textquotesingle s own} control). \textbf{Not} closed-loop
+  airframe PID tuning. Use them to \textbf{feed real motor/prop
+  constants into the SITL model}, improving sim-then-hardware transfer
+  --- not to tune the FC.
+\item
+  \textbf{Data-driven parameter ID + RL} (Eschmann/Albani/Loianno 2024,
+  \url{https://arxiv.org/pdf/2404.07837}): identifies
+  inertia/thrust/motor-delay from \textasciitilde73 s of \textbf{free
+  flight}, then trains an RL policy. Confirms free-flight data
+  collection dominates; a pointer for a future model-based or learned
+  controller, not classical PID.
+\item
+  \textbf{Betaflight}: no built-in closed-loop PID autotuner
+  \emph{(general, not source-verified here)} --- relies on presets,
+  filters, and manual tuning. The research found no confirmed Betaflight
+  autotune claim.
+\end{itemize}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\hypertarget{synthesis--what-to-borrow-mapped-to-our-subsystems}{%
+\subsection{Synthesis --- what to borrow, mapped to our
+subsystems}\label{synthesis--what-to-borrow-mapped-to-our-subsystems}}
+
+\begin{longtable}[]{@{}ll@{}}
+\toprule\noalign{}
+Our subsystem & Best precedent to copy \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+FC-side excitation injection point & ArduCopter SystemID (chirp on the
+mixer/setpoint axis); MathWorks (perturb at PID output) as a fallback \\
+Excitation waveform & PX4 doublet + ArduPilot/CIFER chirp --- support
+both (we already do) \\
+Onboard cost/score & PX4 onboard \textbf{fitness} + coefficient
+variance \\
+Data-quality gate & CIFER \textbf{coherence} per window → reject bad
+rollouts before scoring \\
+Optimizer (if SITL one underperforms) & \textbf{SafeOpt / Bayesian
+optimization} (sample-efficient + safety-constrained) \\
+Abort / handback & ArduPilot AUTOTUNE \textbf{stick-override} → our
+operator gesture \\
+Keep-old-gains-until-saved & ArduPilot AUTOTUNE / PX4 revert → our
+"never persist intermediates; explicit Apply" \\
+Sim-then-hardware & Standard across PX4/ArduPilot; feed real motor
+constants from a thrust stand \\
+\end{longtable}
+
+The two things \textbf{no precedent gives us} --- a \textbf{live GCS
+optimizer with the FC as a per-pass executor}, and a
+\textbf{constrained-rig closed-loop rollout} --- are where the design
+work is genuinely original, and where the study\textquotesingle s open
+risks (rig-induced dynamics bias, reliable command/result over NavLink
+v2) have no off-the-shelf answer to copy.
+
+\hypertarget{changelog}{%
+\subsection{Changelog}\label{changelog}}
+
+\begin{longtable}[]{@{}lll@{}}
+\toprule\noalign{}
+Date & Author & Description \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+15/06/2026 & ragnar-vallhala & Initial prior-art mechanism reference \\
+\end{longtable}
+
+\end{document}

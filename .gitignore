@@ -21,3 +21,14 @@ tuned_pid.json
 
 # GCS settings store (generated at runtime, machine-local)
 vayu_settings.dat
+
+# Generated roadmap doc PDFs + LaTeX build artifacts (.tex sources are tracked)
+software/docs/roadmap/pdf/
+software/docs/roadmap/tex/*.pdf
+software/docs/roadmap/tex/*.aux
+software/docs/roadmap/tex/*.log
+software/docs/roadmap/tex/*.out
+software/docs/roadmap/tex/*.toc
+software/docs/roadmap/tex/*.fls
+software/docs/roadmap/tex/*.fdb_latexmk
+software/docs/roadmap/tex/*.synctex.gz
