@@ -33,6 +33,14 @@ public:
   // (frame sysid) drive link liveness. The owner maps nav_state -> state name.
   std::function<void(uint8_t navState, uint64_t timestamp, uint8_t deviceId)>
       onHeartbeat;
+  std::function<void(const QString &line)> onLog;          // STATUSTEXT
+  std::function<void(const CalibrationUpdate &)> onCalibration;
+  std::function<void(const PerfReport &)> onPerf;          // reassembled report
+  std::function<void(int taskId, const QString &name)> onTaskName;
+  // TIME_SYNC RESPONSE: the four NTP stamps (t4 captured here, on receipt).
+  std::function<void(uint8_t seq, uint64_t t1, uint64_t t2, uint64_t t3,
+                     uint64_t t4)>
+      onTimeSync;
   // SYSTEM_HEALTH: decoded but has no GCS consumer today (parity with v1, which
   // never surfaced it). A hook is provided for when one is added.
   std::function<void(uint32_t txOverflow, uint32_t imuDrop, uint32_t logWrap,
@@ -46,6 +54,14 @@ public:
   // PacketDecoder did). Public so the file-scope thunks can reach it.
   ImuData lastImu;
   bool hasLastImu = false;
+
+  // PERF reassembly: PERF_GLOBAL opens a report (carrying the expected task/fifo
+  // counts), then PERF_TASK/PERF_FIFO rows (sharing its seq) fill it; onPerf
+  // fires once both row sets have arrived. Public for the file-scope thunks.
+  PerfReport perfAccum;
+  bool perfHaveGlobal = false;
+  int perfPendingTasks = 0;
+  int perfPendingFifos = 0;
 
 private:
   struct Impl;

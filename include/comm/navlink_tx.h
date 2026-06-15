@@ -7,18 +7,13 @@
  * navlink_router.c are the only TUs that include the generated codec or call
  * send_packet()/write_channel(). Telemetry producers (telemetry_task.c,
  * comm_processor.c) hand domain data to the navlink_tx_* publishers below and
- * stay codec-blind — so migrating a message v1->v2 is a one-line change *here*,
- * invisible to the producers. Migration is in progress: the dashboard telemetry
- * set (ATTITUDE, IMU full/compressed, RC, MOTOR, FLIGHT_MODE, SYSTEM_HEALTH,
- * EST_PERF, CONTROL_TRACE) now emits NavLink v2; the rest (heartbeat,
- * system-state, log, calibration, time-sync, perf-taskname) is still v1
- * (wrapped send_packet) pending its own migration. See navlink/INTEGRATION.md.
- *
- * EXCEPTION: perf_telemetry.c keeps its own fragmented PERF_STATS framing (it
- * carries no codec dependency); it joins this seam when PERF itself migrates. */
+ * stay codec-blind. The firmware now emits NavLink v2 exclusively — every
+ * telemetry and command-response message goes out as a typed v2 frame; the v1
+ * wire path is retired. See navlink/INTEGRATION.md. */
 
 #include "comm/comm_types.h"    /* time_sync_payload_t, PACKET_TYPE_*, origins */
 #include "comm/ibus.h"          /* ibus_data_t */
+#include "comm/perf_packet.h"   /* perf_global_body_t, perf_task_row_t, perf_fifo_row_t */
 #include "actuator/actuator.h"  /* motor_outputs_t */
 #include "est/est.h"            /* attitude_t, est_perf_telemetry_t */
 #include "variables.h"          /* control_telemetry_t */
@@ -39,7 +34,14 @@ void navlink_tx_attitude(const attitude_t *att_deg);          /* v2 ATTITUDE_EUL
 void navlink_tx_rc_channels(const ibus_data_t *rc);           /* v2 RC_CHANNELS */
 void navlink_tx_motor(const motor_outputs_t *m);              /* v2 MOTOR_TELEMETRY */
 void navlink_tx_calibration(const uint8_t *buf,
-                            uint8_t len);                     /* SYSTEM_STATUS (calib blob) */
+                            uint8_t len);                     /* v2 CALIBRATION_STATUS */
+
+/* PERF report (msgid 1034/1035/1036). The v1 fragmented PERF_STATS becomes one
+ * v2 message per row; `seq` ties a report's GLOBAL/TASK/FIFO messages together.
+ * perf_telemetry.c gathers the firmware structs and hands them here. */
+void navlink_tx_perf_global(const perf_global_body_t *g, uint32_t seq);
+void navlink_tx_perf_task(const perf_task_row_t *row, uint32_t seq);
+void navlink_tx_perf_fifo(const perf_fifo_row_t *row, uint32_t seq);
 
 /* --- command responses (moved out of comm_processor.c) -------------------- */
 void navlink_tx_time_sync_response(const time_sync_payload_t *out);

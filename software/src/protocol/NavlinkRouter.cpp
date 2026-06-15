@@ -1,6 +1,7 @@
 #include "NavlinkRouter.h"
 
 #include "core/MathUtils.h"  // float16_to_float32 (IMU delta reconstruction)
+#include <QDateTime>          // t4 capture for TIME_SYNC
 #include <QtGlobal>
 
 extern "C" {
@@ -141,6 +142,125 @@ void thunkSystemHealth(void *ctx, const navlink_frame_hdr_t *,
     r->onSystemHealth(m->tx_overflow, m->imu_drop, m->log_wrap, m->cpu_load);
 }
 
+void thunkStatustext(void *ctx, const navlink_frame_hdr_t *,
+                     const navlink_statustext_t *m) {
+  auto *r = static_cast<NavlinkRouter *>(ctx);
+  if (!r->onLog)
+    return;
+  size_t n = 0;
+  while (n < sizeof(m->text) && m->text[n] != '\0')
+    n++;
+  r->onLog(QString::fromLatin1(m->text, static_cast<int>(n)));
+}
+
+void thunkCalibration(void *ctx, const navlink_frame_hdr_t *,
+                      const navlink_calibration_status_t *m) {
+  auto *r = static_cast<NavlinkRouter *>(ctx);
+  if (!r->onCalibration)
+    return;
+  CalibrationUpdate u;
+  u.type = static_cast<CalibUpdateType>(m->step);
+  u.data = static_cast<float>(m->progress);
+  u.values[0] = m->coverage[0];
+  u.values[1] = m->coverage[1];
+  u.values[2] = m->coverage[2];
+  r->onCalibration(u);
+}
+
+void thunkPerfGlobal(void *ctx, const navlink_frame_hdr_t *,
+                     const navlink_perf_global_t *m) {
+  auto *r = static_cast<NavlinkRouter *>(ctx);
+  PerfReport &a = r->perfAccum;
+  a = PerfReport{};  // fresh report
+  a.seq = m->seq;
+  a.enabled = (m->flags & 0x01) != 0;
+  a.uptimeTicks = m->uptime_ticks;
+  a.schedSwitches = m->sched_switches;
+  a.cpuCyclesLo = m->cpu_cycles_lo;
+  a.idleCyclesLo = m->idle_cycles_lo;
+  a.systickCount = m->systick_count;
+  a.systickLastCyc = m->systick_last_cyc;
+  a.systickMaxCyc = m->systick_max_cyc;
+  a.systickPreemptions = m->systick_preemptions;
+  a.ipcTakes = m->ipc_takes;
+  a.ipcBlocked = m->ipc_takes_blocked;
+  a.ipcGives = m->ipc_gives;
+  a.ipcTimeouts = m->ipc_timeouts;
+  a.heapAllocs = m->heap_allocs;
+  a.heapFrees = m->heap_frees;
+  a.heapOom = m->heap_oom;
+  a.heapPeakBytes = m->heap_peak_bytes;
+  a.heapTotalBytes = m->heap_total_bytes;
+  r->perfPendingTasks = m->total_tasks;
+  r->perfPendingFifos = m->total_fifos;
+  r->perfHaveGlobal = true;
+}
+
+// Emit the report once both row sets for the open GLOBAL have arrived.
+void perfMaybeComplete(NavlinkRouter *r) {
+  if (!r->perfHaveGlobal)
+    return;
+  if (r->perfAccum.tasks.size() >= r->perfPendingTasks &&
+      r->perfAccum.fifos.size() >= r->perfPendingFifos) {
+    r->perfHaveGlobal = false;
+    if (r->onPerf)
+      r->onPerf(r->perfAccum);
+  }
+}
+
+void thunkPerfTask(void *ctx, const navlink_frame_hdr_t *,
+                   const navlink_perf_task_t *m) {
+  auto *r = static_cast<NavlinkRouter *>(ctx);
+  if (!r->perfHaveGlobal || m->seq != r->perfAccum.seq)
+    return;  // stray row without its GLOBAL
+  PerfTaskRow t;
+  t.id = m->task_id;
+  t.priority = m->priority;
+  t.state = m->state;
+  t.stackPeak = m->stack_peak;
+  t.stackSize = m->stack_size;
+  t.cycles = m->cycles_lo;
+  t.switches = m->switches_in;
+  t.maxBurst = m->max_burst_cyc;
+  r->perfAccum.tasks.push_back(t);
+  perfMaybeComplete(r);
+}
+
+void thunkPerfFifo(void *ctx, const navlink_frame_hdr_t *,
+                   const navlink_perf_fifo_t *m) {
+  auto *r = static_cast<NavlinkRouter *>(ctx);
+  if (!r->perfHaveGlobal || m->seq != r->perfAccum.seq)
+    return;
+  PerfFifoRow f;
+  f.id = m->fifo_id;
+  f.peak = m->peak;
+  f.capacity = m->capacity;
+  f.drops = m->drops;
+  r->perfAccum.fifos.push_back(f);
+  perfMaybeComplete(r);
+}
+
+void thunkPerfTaskname(void *ctx, const navlink_frame_hdr_t *,
+                       const navlink_perf_taskname_t *m) {
+  auto *r = static_cast<NavlinkRouter *>(ctx);
+  if (!r->onTaskName)
+    return;
+  size_t n = 0;
+  while (n < sizeof(m->name) && m->name[n] != '\0')
+    n++;
+  r->onTaskName(m->task_id, QString::fromLatin1(m->name, static_cast<int>(n)));
+}
+
+void thunkTimeSync(void *ctx, const navlink_frame_hdr_t *,
+                   const navlink_time_sync_t *m) {
+  auto *r = static_cast<NavlinkRouter *>(ctx);
+  if (m->role != 1 /* RESPONSE */ || !r->onTimeSync)
+    return;
+  const quint64 t4 =
+      static_cast<quint64>(QDateTime::currentMSecsSinceEpoch());
+  r->onTimeSync(m->seq, m->t1_gcs_tx, m->t2_fc_rx, m->t3_fc_tx, t4);
+}
+
 void thunkDefault(void *ctx, const navlink_frame_hdr_t *, uint32_t msgid,
                   const uint8_t *, size_t len) {
   auto *r = static_cast<NavlinkRouter *>(ctx);
@@ -169,6 +289,13 @@ NavlinkRouter::NavlinkRouter() : d_(new Impl) {
   d_->handlers.on_flight_mode = thunkFlightMode;
   d_->handlers.on_heartbeat = thunkHeartbeat;
   d_->handlers.on_system_health = thunkSystemHealth;
+  d_->handlers.on_statustext = thunkStatustext;
+  d_->handlers.on_calibration_status = thunkCalibration;
+  d_->handlers.on_perf_global = thunkPerfGlobal;
+  d_->handlers.on_perf_task = thunkPerfTask;
+  d_->handlers.on_perf_fifo = thunkPerfFifo;
+  d_->handlers.on_perf_taskname = thunkPerfTaskname;
+  d_->handlers.on_time_sync = thunkTimeSync;
   // Sensible default so an unhandled leaf is never silent, even if the owner
   // didn't override onDefault.
   onDefault = [](uint32_t msgid, int len) {

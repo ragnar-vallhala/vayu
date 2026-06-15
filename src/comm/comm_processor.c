@@ -134,20 +134,17 @@ void comm_processor_task(void *args) {
   (void)args;
   packet_t pkt;
 
-  /* NavLink v2 uplink (GCS -> FC) is owned entirely by navlink_router.c: the RX
-   * ISR mirrors every byte into a raw ring (serializer.c) which navlink_router_
-   * poll() drains through the generated parser + handler table in task context.
-   * v1 frames in the stream are ignored by the v2 parser and still handled by
-   * comm_processor_dispatch() below (navlink/INTEGRATION.md, Phase 3). */
+  /* Pure NavLink v2 uplink (GCS -> FC): the RX ISR mirrors every byte into a raw
+   * ring (serializer.c) which navlink_router_poll() drains through the generated
+   * parser + handler table in task context. The v1 wire path is retired — the
+   * legacy deserializer / get_next_rx_packet() is no longer drained.
+   * comm_processor_dispatch() remains as the in-memory command apply engine that
+   * navlink_router.c reuses. */
+  (void)pkt;
   navlink_router_init();
 
   while (1) {
     navlink_router_poll();
-
-    if (get_next_rx_packet(&pkt) == NONE) {
-      comm_processor_dispatch(&pkt);
-    } else {
-      v_delay(4); // Wait for more packets
-    }
+    v_delay(4);
   }
 }
