@@ -69,13 +69,16 @@ def main():
     by_id = {m["msgid"]: m for m in dialect["messages"]}
 
     c_table = {}   # msgid -> (crc_extra, wire_size)
-    c_bytes = {}   # name -> hex
+    c_bytes = {}   # name -> payload hex
+    c_frames = {}  # name -> full-frame hex
     for ln in c_lines:
         parts = ln.split()
         if parts[0] == "TABLE":
             c_table[int(parts[1])] = (int(parts[2]), int(parts[3]))
         elif parts[0] == "BYTES":
             c_bytes[parts[1]] = parts[2]
+        elif parts[0] == "FRAME":
+            c_frames[parts[1]] = parts[2]
 
     # 4a. table parity for every message
     mismatches = 0
@@ -106,6 +109,21 @@ def main():
     if byte_mismatch == 0:
         print(f"  byte parity OK for {len(nl.MSGID_TO_CLASS)} messages (canonical values)")
     ok &= byte_mismatch == 0
+
+    # 4c. full-frame parity (encoder): C navlink_*_encode vs Python nl.encode, seq=7
+    frame_mismatch = 0
+    for msgid, cls in nl.MSGID_TO_CLASS.items():
+        obj = cls()
+        for (name, _, _), v in zip(cls._FIELDS, generate.canonical_values(by_id[msgid])):
+            setattr(obj, name, v)
+        py_hex = nl.encode(obj, seq=7, sysid=1, compid=1).hex()
+        nm = by_id[msgid]["name"]
+        if py_hex != c_frames.get(nm):
+            print(f"  FRAME MISMATCH {nm}:\n    C ={c_frames.get(nm)}\n    Py={py_hex}")
+            frame_mismatch += 1
+    if frame_mismatch == 0:
+        print(f"  frame parity OK for {len(nl.MSGID_TO_CLASS)} messages (encoder)")
+    ok &= frame_mismatch == 0
 
     os.path.exists(exe) and os.remove(exe)
 

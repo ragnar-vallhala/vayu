@@ -20,25 +20,28 @@ Generator & dialect: [`README.md`](README.md). Link emulator: [`sim/README.md`](
             ▼
   ┌───────────────────────┐
   │  generated codec       │  msgid + CRC_EXTRA, wire/aligned structs,
-  │  (DO NOT EDIT)         │  pack/unpack, to_aligned/from_aligned, info table
+  │  + framing             │  pack/unpack, converters, info table, per-message
+  │  (DO NOT EDIT)         │  encoder, incremental parser + handler table
   └───────────────────────┘
             ▲                                ← ABI boundary (this doc)
   ┌───────────────────────┐
-  │  your transport layer  │  framing (sync+header+CRC), seq, dispatch, UART/UDP,
-  │  (you write, per tree) │  time-sync, security — NONE of this is generated
+  │  your glue             │  UART/UDP I/O, seq policy, handler bodies,
+  │  (you write, per tree) │  time-sync, security
   └───────────────────────┘
 ```
 
 **What is generated** (and ABI-stable): per message — the `msgid`, the
 `CRC_EXTRA` layout signature, a packed **wire struct**, a naturally-aligned
-**application struct**, `pack`/`unpack`/`to_aligned`/`from_aligned`, and a
-`msgid → {size, crc_extra, name}` lookup table.
+**application struct**, `pack`/`unpack`/`to_aligned`/`from_aligned`, the
+`msgid → {size, crc_extra, name}` lookup, a per-message **encoder**
+(`navlink_<msg>_encode`) that builds a full frame, and an incremental **parser**
+that resyncs, validates the CRC, and dispatches to a user-supplied **handler
+table** (`navlink_handlers_t`).
 
-**What is *not* generated** (you provide it once per tree): the **frame** around
-a payload (sync byte, 10-byte header, CRC-16 trailer, truncation), the byte-stream
-**resync/parser**, the **dispatch** from `msgid` to your handler, and the
-optional time-sync / security layers (spec §10–§11). `sim/frame.py` is a working
-Python reference for the frame layer; the spec §3–§4 is normative.
+**What you still write** (once per tree): the byte **transport** (UART / UDP
+read+write), the `seq` counter policy, the **handler bodies** themselves, and the
+optional time-sync / security layers (spec §10–§11). The wire format, CRC,
+framing and dispatch are no longer hand-rolled per tree — that's the whole point.
 
 ---
 
@@ -93,7 +96,31 @@ extern const navlink_msg_info_t navlink_msg_table[NAVLINK_MSG_COUNT]; /* sorted 
 static inline void navlink_crc_accumulate(uint8_t b, uint16_t *crc);  /* CRC-16/MCRF4XX, spec §4.1 */
 ```
 
-The header is `extern "C"`-guarded, so the GCS compiles the same `.c` as C++.
+Framing (one set, all messages):
+
+```c
+size_t navlink_foo_encode(uint8_t *out, const navlink_foo_t *msg,        /* aligned struct → full frame */
+                          uint8_t seq, uint8_t sysid, uint8_t compid);
+size_t navlink_frame(uint8_t *out, uint32_t msgid, const uint8_t *payload, size_t len,
+                     uint8_t seq, uint8_t sysid, uint8_t compid);        /* low-level: pre-packed payload */
+
+typedef struct { uint32_t msgid; uint8_t seq, sysid, compid, incompat_flags; } navlink_frame_hdr_t;
+typedef struct navlink_handlers {                /* populate the slots you want */
+    void *ctx;
+    void (*on_foo)(void *ctx, const navlink_frame_hdr_t *hdr, const navlink_foo_t *msg);
+    /* ...one per message... */
+    void (*on_unknown)(void *ctx, uint32_t msgid, const uint8_t *payload, size_t len);
+    void (*on_crc_error)(void *ctx, uint32_t msgid);
+} navlink_handlers_t;
+
+typedef struct { /* opaque */ } navlink_parser_t;
+void navlink_parser_init(navlink_parser_t *p);
+void navlink_parser_push(navlink_parser_t *p, const navlink_handlers_t *h,
+                         const uint8_t *data, size_t n);   /* feed RX bytes; fires handlers */
+```
+
+`NAVLINK_MAX_FRAME` (267) bounds an encode buffer. The header is `extern "C"`-guarded,
+so the GCS compiles the same `.c` as C++.
 
 ### Python (`generated/python/navlink_msgs.py`)
 
@@ -106,13 +133,17 @@ nl.AttitudeEuler.MSGID, nl.AttitudeEuler.CRC_EXTRA, nl.AttitudeEuler.WIRE_SIZE
 nl.MSGID_TO_CLASS[1026]             # -> AttitudeEuler
 nl.CRC_EXTRA[1026]                  # -> crc_extra byte
 nl.crc16(b)                         # CRC-16/MCRF4XX
+
+frame = nl.encode(m, seq=0, sysid=1, compid=1)            # message -> full frame bytes
+parser = nl.Parser(nl.Handlers(on_attitude_euler=lambda f, msg: print(f.seq, msg.roll)))
+parser.push(frame)                                        # feed RX bytes; handlers fire
 ```
 
 ---
 
-## 4. The frame you must build (spec §3–§4)
+## 4. The frame (generated — spec §3–§4)
 
-The codec moves *payloads*. A frame wraps a payload:
+The frame the generated encoder/parser produce and consume:
 
 ```
  off size field
@@ -128,41 +159,17 @@ The codec moves *payloads*. A frame wraps a payload:
 10+N  2   CRC-16/MCRF4XX over header[1..9] ‖ payload, then CRC_EXTRA accumulated last
 ```
 
-Minimal C encoder/parser (illustrative — adapt to your UART/UDP):
+You no longer hand-write this: `navlink_<msg>_encode()` builds it, and
+`navlink_parser_push()` resyncs on `0x56`, checks the version, validates the CRC
+against the per-message `CRC_EXTRA`, and dispatches (unknown msgid ⇒ `on_unknown`,
+bad CRC ⇒ `on_crc_error`, framing preserved via `payload_len`). The test harness
+encodes in C and Python and asserts the frames are byte-identical, and pins the
+spec §16 conformance vectors.
 
-```c
-#include "navlink_msgs.h"
-
-static uint16_t frame_crc(const uint8_t *hdr9, const uint8_t *pay, uint8_t n, uint8_t crc_extra) {
-    uint16_t crc = 0xFFFF;
-    for (int i = 0; i < 9;  i++) navlink_crc_accumulate(hdr9[i], &crc);   /* header bytes 1..9 */
-    for (int i = 0; i < n;  i++) navlink_crc_accumulate(pay[i],  &crc);
-    navlink_crc_accumulate(crc_extra, &crc);                              /* seed last (§4.2) */
-    return crc;
-}
-
-size_t navlink_frame(uint8_t *out, uint32_t msgid, const uint8_t *pay, size_t paylen,
-                     uint8_t seq, uint8_t sysid, uint8_t compid) {
-    while (paylen && pay[paylen - 1] == 0) paylen--;          /* trailing-zero truncation §5.6 */
-    const navlink_msg_info_t *mi = navlink_msg_info(msgid);
-    out[0]=0x56; out[1]=0x02; out[2]=(uint8_t)paylen; out[3]=0; out[4]=seq;
-    out[5]=sysid; out[6]=compid; out[7]=msgid; out[8]=msgid>>8; out[9]=msgid>>16;
-    memcpy(out + 10, pay, paylen);
-    uint16_t crc = frame_crc(out + 1, pay, (uint8_t)paylen, mi->crc_extra);
-    out[10 + paylen] = crc & 0xFF; out[11 + paylen] = crc >> 8;
-    return 12 + paylen;
-}
-```
-
-A receiver: scan for `0x56`, check `version==0x02`, read `payload_len`, look up
-`navlink_msg_info(msgid)` (unknown ⇒ drop, framing preserved via `payload_len`),
-recompute the CRC with `mi->crc_extra`, compare, then `unpack`. `sim/frame.py`
-shows the same in Python and the test harness pins the conformance vectors
-(spec §16).
-
-> v1/v2 coexistence: demux on byte 1 — `(b1 & 0x0F)==1` ⇒ legacy v1, `b1==0x02`
-> ⇒ v2 (spec §3.4). `IFLAG_SIGNED/ENCRYPTED/CRC32/FRAGMENTED` and time-sync are
-> spec features layered on top of this frame; not provided by the codec.
+> v1/v2 coexistence: a peer that still speaks legacy v1 must demux on byte 1 —
+> `(b1 & 0x0F)==1` ⇒ v1, `b1==0x02` ⇒ v2 (spec §3.4); the generated v2 parser
+> ignores non-v2 frames. `IFLAG_SIGNED/ENCRYPTED/CRC32/FRAGMENTED` and time-sync
+> are spec features layered on top; not provided by the codec.
 
 ---
 
@@ -178,35 +185,37 @@ add_custom_command(
   DEPENDS ${CMAKE_SOURCE_DIR}/navlink/dialect.json)
 ```
 
-**RX path** (parser → dispatch → handler):
+**RX path** — write a handler per command you accept, register them once, and
+feed UART bytes to the generated parser:
 
 ```c
-void on_frame(uint32_t msgid, const uint8_t *pay, size_t len) {
-    switch (msgid) {
-    case NAVLINK_MSGID_CMD_SET_PID: {
-        navlink_cmd_set_pid_wire_t w; navlink_cmd_set_pid_unpack(&w, pay, len);
-        navlink_cmd_set_pid_t c;      navlink_cmd_set_pid_to_aligned(&c, &w);
-        apply_pid(c.axis, c.kp, c.ki, c.kd, c.kff);     /* aligned struct: do real math here */
-        send_command_ack(NAVLINK_MSGID_CMD_SET_PID, c.req_seq, NAVLINK_COMMAND_RESULT_ACCEPTED);
-        break;
-    }
-    /* ... other commands ... */
-    default: break;                                     /* unknown id already CRC-validated away */
-    }
+static void on_cmd_set_pid(void *ctx, const navlink_frame_hdr_t *hdr,
+                           const navlink_cmd_set_pid_t *c) {
+    apply_pid(c->axis, c->kp, c->ki, c->kd, c->kff);     /* aligned struct: real math here */
+    send_command_ack(NAVLINK_MSGID_CMD_SET_PID, c->req_seq, NAVLINK_COMMAND_RESULT_ACCEPTED);
+}
+
+static const navlink_handlers_t HANDLERS = {
+    .on_cmd_set_pid = on_cmd_set_pid,
+    /* .on_cmd_arm = ..., .on_time_reference = ..., etc.  Unset slots are simply ignored. */
+};
+
+static navlink_parser_t g_parser;
+void comm_init(void) { navlink_parser_init(&g_parser); }
+
+void comm_rx_bytes(const uint8_t *buf, size_t n) {       /* call from your UART RX ISR/task */
+    navlink_parser_push(&g_parser, &HANDLERS, buf, n);   /* resync + CRC check + fire on_* */
 }
 ```
 
-**TX path** (emit telemetry from a task):
+**TX path** (emit telemetry from a task) — one call builds the whole frame:
 
 ```c
 void emit_attitude(float roll, float pitch, float yaw) {
     navlink_attitude_euler_t a = { .roll = roll, .pitch = pitch, .yaw = yaw };
-    navlink_attitude_euler_wire_t w; navlink_attitude_euler_from_aligned(&w, &a);
-    static uint8_t buf[NAVLINK_WIRE_SIZE_ATTITUDE_EULER]; /* or a shared TX scratch buffer */
-    size_t n = navlink_attitude_euler_pack(buf, &w);
-    uint8_t frame[12 + sizeof buf];
-    size_t fn = navlink_frame(frame, NAVLINK_MSGID_ATTITUDE_EULER, buf, n, tx_seq++, FC_SYSID, FC_COMPID);
-    uart_write(frame, fn);
+    uint8_t frame[NAVLINK_MAX_FRAME];
+    size_t n = navlink_attitude_euler_encode(frame, &a, tx_seq++, FC_SYSID, FC_COMPID);
+    uart_write(frame, n);
 }
 ```
 
@@ -225,9 +234,10 @@ void emit_attitude(float roll, float pitch, float yaw) {
   reject secured/command frames (spec §10.5) — that's policy in *your* dispatch,
   not the codec.
 
-The generated `navlink_msg_table` (sorted, binary-searchable via
-`navlink_msg_info`) gives you `wire_size`/`crc_extra` for a generic parser
-without a giant switch; the `switch` above is just the handler fan-out.
+The parser + handler table replace the hand-written `if/else` on packet type and
+the nested `if/else` on command id. `navlink_msg_table` /
+`navlink_msg_info()` are still there if you need generic, msgid-driven tooling
+(logging, relays) outside the handler model.
 
 ---
 
@@ -242,34 +252,33 @@ extern "C" {
 #include "navlink_msgs.h"
 }
 
-void Link::onFrame(uint32_t msgid, const uint8_t *pay, size_t len) {
-    switch (msgid) {
-    case NAVLINK_MSGID_ATTITUDE_EULER: {
-        navlink_attitude_euler_wire_t w; navlink_attitude_euler_unpack(&w, pay, len);
-        navlink_attitude_euler_t a;      navlink_attitude_euler_to_aligned(&a, &w);
-        vehicle.setAttitude(a.roll, a.pitch, a.yaw);          // feed the UI model
-        break;
-    }
-    case NAVLINK_MSGID_COMMAND_ACK: {
-        navlink_command_ack_wire_t w; navlink_command_ack_unpack(&w, pay, len);
-        navlink_command_ack_t k;      navlink_command_ack_to_aligned(&k, &w);
-        ackPending(k.command, k.req_seq, k.result);           // correlate to the sent command
-        break;
-    }
-    default: break;
-    }
+// Handler thunks: ctx is the Link*, so members are reachable.
+static void onAttitude(void *ctx, const navlink_frame_hdr_t *, const navlink_attitude_euler_t *a) {
+    static_cast<Link *>(ctx)->vehicle.setAttitude(a->roll, a->pitch, a->yaw);
+}
+static void onAck(void *ctx, const navlink_frame_hdr_t *, const navlink_command_ack_t *k) {
+    static_cast<Link *>(ctx)->ackPending(k->command, k->req_seq, k->result);
+}
+
+Link::Link() {
+    navlink_parser_init(&parser_);
+    handlers_ = {};                 // zero all slots, then set the ones we handle
+    handlers_.ctx = this;           // (member assignment avoids C++ designated-init ordering)
+    handlers_.on_attitude_euler = onAttitude;
+    handlers_.on_command_ack = onAck;
+}
+
+void Link::onBytes(const uint8_t *buf, size_t n) {            // from serial/UDP read
+    navlink_parser_push(&parser_, &handlers_, buf, n);
 }
 
 void Link::sendSetPid(uint8_t axis, float kp, float ki, float kd) {
     navlink_cmd_set_pid_t c = { .target_sys = FC_SYSID, .target_comp = FC_COMPID,
                                 .req_seq = nextReqSeq(), .controller = 0, .axis = axis,
                                 .kp = kp, .ki = ki, .kd = kd, .kff = 0.f };
-    navlink_cmd_set_pid_wire_t w; navlink_cmd_set_pid_from_aligned(&w, &c);
-    uint8_t pay[NAVLINK_WIRE_SIZE_CMD_SET_PID], frame[12 + sizeof pay];
-    size_t n  = navlink_cmd_set_pid_pack(pay, &w);
-    size_t fn = navlink_frame(frame, NAVLINK_MSGID_CMD_SET_PID, pay, n,
-                              txSeq_++, GCS_SYSID, GCS_COMPID);
-    transport_.write(frame, fn);                              // serial or UDP
+    uint8_t frame[NAVLINK_MAX_FRAME];
+    size_t n = navlink_cmd_set_pid_encode(frame, &c, txSeq_++, GCS_SYSID, GCS_COMPID);
+    transport_.write(frame, n);                              // serial or UDP
 }
 ```
 
@@ -284,12 +293,16 @@ PINGs measure RTT. The GCS owns link bookkeeping (seq-gap loss, RTT, throughput)
 
 ```python
 import navlink_msgs as nl
-cmd   = nl.CmdArm(target_sys=1, target_comp=1, req_seq=7, force=0)
-frame = build_frame(nl.CmdArm.MSGID, cmd.pack(), nl.CmdArm.CRC_EXTRA)   # see sim/frame.py
+
+frame = nl.encode(nl.CmdArm(target_sys=1, target_comp=1, req_seq=7, force=0))   # -> bytes
+sock.send(frame)
+
+parser = nl.Parser(nl.Handlers(on_command_ack=lambda f, m: print("ack", m.command, m.result)))
+parser.push(sock.recv(4096))                                # fires handlers per frame
 ```
 
-The autotuner and analysis tools import the same module; `MSGID_TO_CLASS` lets a
-generic logger decode any captured frame.
+The autotuner and analysis tools import the same module; for ad-hoc decoding
+`MSGID_TO_CLASS` lets a generic logger turn any payload into a typed object.
 
 ---
 
