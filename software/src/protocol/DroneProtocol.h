@@ -47,6 +47,8 @@ signals:
                         quint64 t4);
   void perfReceived(const PerfReport &report);
   void taskNameReceived(int taskId, const QString &name);
+  // FC's COMMAND_ACK for a sent command, correlated by (command msgid, reqSeq).
+  void commandAckReceived(quint32 command, quint8 reqSeq, quint8 result);
   void timeSyncRequested();
   void unknownPacket(const QByteArray &raw);
   void packetReceived(const QByteArray &packet);

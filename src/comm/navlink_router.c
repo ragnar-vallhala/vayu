@@ -3,6 +3,8 @@
 #include "comm/comm_types.h"
 #include "comm/serializer.h"  /* comm_rx_raw_drain */
 #include "control/pid_config.h"
+#include "control/flight_mode.h"           /* flight_mode_apply_command */
+#include "control/angle_rate_controller.h" /* geometry apply */
 #include "navhal.h"           /* hal_gpio_write, HAL_GPIO_HIGH/LOW */
 #include "sys/sys_utils.h"    /* get_device_id */
 #include "utils.h"            /* v_get_ticks, v_memcpy */
@@ -70,37 +72,34 @@ static void on_default(void *ctx, const navlink_frame_hdr_t *hdr, uint32_t msgid
 /* Real handlers (registered below; the rest of the comm layer never sees the */
 /* codec types).                                                              */
 /* -------------------------------------------------------------------------- */
-static void on_cmd_set_pid(void *ctx, const navlink_frame_hdr_t *hdr,
-                           const navlink_cmd_set_pid_t *m) {
-  (void)ctx;
-  (void)hdr;
-  /* Reuse the tested v1 apply path: rebuild [cmd_id:2][argc:1][6 x f32]. */
-  uint8_t payload[3 + 6 * 4];
-  uint16_t cmd_id = (uint16_t)CMD_SET_PID;
-  v_memcpy(&payload[0], &cmd_id, 2);
-  payload[2] = 6;
-  float args[6] = {(float)m->controller, (float)m->axis,
-                   m->kp, m->ki, m->kd, m->kff};
-  v_memcpy(&payload[3], args, sizeof(args));
-  vayu_status_t st = pid_config_apply_command(payload, sizeof(payload));
+/* Command handlers return their COMMAND_ACK result; the generated dispatch
+ * builds and sends the ack (spec §12.1, enforced by codegen), so a handler can
+ * never silently drop it — it only reports accepted/rejected. */
+static navlink_ack_t mk_ack(uint8_t result) {
+  navlink_ack_t a;
+  a.result = result;
+  a.progress = 0;
+  a.result_param2 = 0;
+  return a;
+}
+#define ACK_OK ((uint8_t)NAVLINK_COMMAND_RESULT_ACCEPTED)
+#define ACK_BAD ((uint8_t)NAVLINK_COMMAND_RESULT_FAILED)
 
-  navlink_command_ack_t ack = {0};
-  ack.command = NAVLINK_MSGID_CMD_SET_PID;
-  ack.req_seq = m->req_seq;
-  ack.result = (st == VAYU_OK) ? (uint8_t)NAVLINK_COMMAND_RESULT_ACCEPTED
-                               : (uint8_t)NAVLINK_COMMAND_RESULT_FAILED;
-  static uint8_t s_ack_seq = 0;
-  uint8_t frame[NAVLINK_MAX_FRAME];
-  size_t n = navlink_command_ack_encode(frame, &ack, s_ack_seq++,
-                                        get_device_id(), 1);
-  write_channel(g_telemetry_channel, frame, (uint16_t)n);
+/* Rebuild a v1 [cmd_id:2][argc:1][argc x f32] apply payload from typed args. */
+static uint8_t build_cmd(uint8_t *p, uint16_t cmd_id, const float *args,
+                         uint8_t argc) {
+  v_memcpy(&p[0], &cmd_id, 2);
+  p[2] = argc;
+  if (argc > 0) {
+    v_memcpy(&p[3], args, (unsigned)argc * 4u);
+  }
+  return (uint8_t)(3u + (unsigned)argc * 4u);
 }
 
-/* The remaining commands reuse the tested apply engine: rebuild the internal v1
- * packet_t the command would have arrived as, and hand it to
- * comm_processor_dispatch(). The v1 *wire* is gone — packet_t is just the
- * in-memory apply representation — and TIME_SYNC / PERF_TASKNAME replies go back
- * out as v2 through navlink_tx. */
+/* The side-effect-only commands (arm/disarm/calibrate) reuse the tested apply
+ * engine via the internal packet_t; the v1 *wire* is gone (packet_t is just the
+ * in-memory apply representation). TIME_SYNC / PERF_TASKNAME replies (non-ack)
+ * also route here and go back out as v2 through navlink_tx. */
 static void dispatch_v1(uint8_t packet_type, const uint8_t *payload,
                         uint8_t length) {
   packet_t pkt = {0};
@@ -114,68 +113,84 @@ static void dispatch_v1(uint8_t packet_type, const uint8_t *payload,
   comm_processor_dispatch(&pkt);
 }
 
-/* Rebuild a [cmd_id:2][argc:1][argc x f32] COMMAND payload and dispatch it. */
-static void dispatch_command(uint16_t cmd_id, const float *args, uint8_t argc) {
-  uint8_t p[3 + 12 * 4];
-  v_memcpy(&p[0], &cmd_id, 2);
-  p[2] = argc;
-  if (argc > 0) {
-    v_memcpy(&p[3], args, (unsigned)argc * 4u);
-  }
-  dispatch_v1(PACKET_TYPE_COMMAND, p, (uint8_t)(3u + (unsigned)argc * 4u));
+static navlink_ack_t on_cmd_set_pid(void *ctx, const navlink_frame_hdr_t *hdr,
+                                    const navlink_cmd_set_pid_t *m) {
+  (void)ctx; (void)hdr;
+  uint8_t p[3 + 6 * 4];
+  float args[6] = {(float)m->controller, (float)m->axis,
+                   m->kp, m->ki, m->kd, m->kff};
+  uint8_t len = build_cmd(p, (uint16_t)CMD_SET_PID, args, 6);
+  return mk_ack(pid_config_apply_command(p, len) == VAYU_OK ? ACK_OK : ACK_BAD);
 }
 
-static void on_cmd_arm(void *ctx, const navlink_frame_hdr_t *hdr,
-                       const navlink_cmd_arm_t *m) {
+static navlink_ack_t on_cmd_arm(void *ctx, const navlink_frame_hdr_t *hdr,
+                                const navlink_cmd_arm_t *m) {
   (void)ctx; (void)hdr; (void)m;
   uint8_t p[2] = {(uint8_t)CMD_ARM, 0x00}; /* bare cmd_id, no argc (len 2) */
   dispatch_v1(PACKET_TYPE_COMMAND, p, 2);
+  return mk_ack(ACK_OK); /* latch set; arm gates still apply on the next RC frame */
 }
 
-static void on_cmd_disarm(void *ctx, const navlink_frame_hdr_t *hdr,
-                          const navlink_cmd_disarm_t *m) {
+static navlink_ack_t on_cmd_disarm(void *ctx, const navlink_frame_hdr_t *hdr,
+                                   const navlink_cmd_disarm_t *m) {
   (void)ctx; (void)hdr; (void)m;
   uint8_t p[2] = {(uint8_t)CMD_DISARM, 0x00};
   dispatch_v1(PACKET_TYPE_COMMAND, p, 2);
+  return mk_ack(ACK_OK);
 }
 
-static void on_cmd_calibrate_imu(void *ctx, const navlink_frame_hdr_t *hdr,
-                                 const navlink_cmd_calibrate_imu_t *m) {
+static navlink_ack_t on_cmd_calibrate_imu(void *ctx,
+                                          const navlink_frame_hdr_t *hdr,
+                                          const navlink_cmd_calibrate_imu_t *m) {
   (void)ctx; (void)hdr;
   if (m->which == 0xFFu) { /* sentinel: cancel calibration (v1 cmd 0x0009) */
     uint8_t p[2] = {0x09, 0x00};
     dispatch_v1(PACKET_TYPE_COMMAND, p, 2);
-    return;
+    return mk_ack(ACK_OK);
   }
   /* Single IMU: imu_id 0; `which` selects the routine (the v1 `type` arg). */
+  uint8_t p[3 + 2 * 4];
   float args[2] = {0.0f, (float)m->which};
-  dispatch_command((uint16_t)CMD_CALIBRATE_IMU, args, 2);
+  uint8_t len = build_cmd(p, (uint16_t)CMD_CALIBRATE_IMU, args, 2);
+  dispatch_v1(PACKET_TYPE_COMMAND, p, len);
+  return mk_ack(ACK_OK);
 }
 
-static void on_cmd_set_gyro_lpf(void *ctx, const navlink_frame_hdr_t *hdr,
-                                const navlink_cmd_set_gyro_lpf_t *m) {
+static navlink_ack_t
+on_cmd_set_gyro_lpf(void *ctx, const navlink_frame_hdr_t *hdr,
+                    const navlink_cmd_set_gyro_lpf_t *m) {
   (void)ctx; (void)hdr;
+  uint8_t p[3 + 2 * 4];
   float args[2] = {(float)m->axis, m->rc};
-  dispatch_command((uint16_t)CMD_SET_GYRO_LPF, args, 2);
+  uint8_t len = build_cmd(p, (uint16_t)CMD_SET_GYRO_LPF, args, 2);
+  return mk_ack(pid_config_apply_gyro_lpf_command(p, len) == VAYU_OK ? ACK_OK
+                                                                     : ACK_BAD);
 }
 
-static void on_cmd_set_motor_geometry(void *ctx, const navlink_frame_hdr_t *hdr,
-                                      const navlink_cmd_set_motor_geometry_t *m) {
+static navlink_ack_t
+on_cmd_set_motor_geometry(void *ctx, const navlink_frame_hdr_t *hdr,
+                          const navlink_cmd_set_motor_geometry_t *m) {
   (void)ctx; (void)hdr;
+  uint8_t p[3 + 12 * 4];
   float args[12];
   for (int i = 0; i < 4; i++) {
     args[i] = m->pos_x[i];
     args[4 + i] = m->pos_y[i];
     args[8 + i] = (float)m->spin[i];
   }
-  dispatch_command((uint16_t)CMD_SET_MOTOR_GEOMETRY, args, 12);
+  uint8_t len = build_cmd(p, (uint16_t)CMD_SET_MOTOR_GEOMETRY, args, 12);
+  return mk_ack(angle_rate_controller_apply_geometry_command(p, len) ? ACK_OK
+                                                                     : ACK_BAD);
 }
 
-static void on_cmd_set_flight_mode(void *ctx, const navlink_frame_hdr_t *hdr,
-                                   const navlink_cmd_set_flight_mode_t *m) {
+static navlink_ack_t
+on_cmd_set_flight_mode(void *ctx, const navlink_frame_hdr_t *hdr,
+                       const navlink_cmd_set_flight_mode_t *m) {
   (void)ctx; (void)hdr;
+  uint8_t p[3 + 1 * 4];
   float args[1] = {(float)m->mode}; /* v1 carried mode only; source implied GCS */
-  dispatch_command((uint16_t)CMD_SET_FLIGHT_MODE, args, 1);
+  uint8_t len = build_cmd(p, (uint16_t)CMD_SET_FLIGHT_MODE, args, 1);
+  return mk_ack(flight_mode_apply_command(p, len) ? ACK_OK : ACK_BAD);
 }
 
 static void on_time_sync(void *ctx, const navlink_frame_hdr_t *hdr,
@@ -204,9 +219,19 @@ static void on_perf_taskname_request(void *ctx, const navlink_frame_hdr_t *hdr,
 static navlink_parser_t s_parser;
 static navlink_handlers_t s_handlers;
 
+/* Transport the dispatch uses to emit the COMMAND_ACK it builds for every
+ * ack-requiring command (codegen-enforced). */
+static void router_send(void *ctx, const uint8_t *frame, uint16_t len) {
+  (void)ctx;
+  write_channel(g_telemetry_channel, (uint8_t *)frame, len);
+}
+
 void navlink_router_init(void) {
   navlink_parser_init(&s_parser);
   s_handlers = (navlink_handlers_t){0};
+  s_handlers.send = router_send; /* required: commands auto-ack via this */
+  s_handlers.sysid = get_device_id();
+  s_handlers.compid = 1;
   s_handlers.on_default = on_default; /* every unhandled leaf -> blink */
   s_handlers.on_cmd_set_pid = on_cmd_set_pid;
   s_handlers.on_cmd_arm = on_cmd_arm;

@@ -41,6 +41,9 @@ public:
   std::function<void(uint8_t seq, uint64_t t1, uint64_t t2, uint64_t t3,
                      uint64_t t4)>
       onTimeSync;
+  // COMMAND_ACK: the FC's response to a command, correlated by (command,reqSeq).
+  std::function<void(uint32_t command, uint8_t reqSeq, uint8_t result)>
+      onCommandAck;
   // SYSTEM_HEALTH: decoded but has no GCS consumer today (parity with v1, which
   // never surfaced it). A hook is provided for when one is added.
   std::function<void(uint32_t txOverflow, uint32_t imuDrop, uint32_t logWrap,
