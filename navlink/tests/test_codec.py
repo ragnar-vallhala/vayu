@@ -179,8 +179,12 @@ class TestValueRoundTrip(unittest.TestCase):
 
 class TestTypeExtremes(unittest.TestCase):
     def test_u64_extremes(self):
-        t = nl.TimeReference(epoch_unix_s=0xDEADBEEF, gcs_send_us=0xFFFFFFFFFFFFFFFF)
-        self.assertEqual(nl.TimeReference.unpack(t.pack()).gcs_send_us, 0xFFFFFFFFFFFFFFFF)
+        t = nl.TimeSync(role=1, seq=9, t1_gcs_tx=0xFFFFFFFFFFFFFFFF,
+                        t3_fc_tx=0x0102030405060708, commanded_offset_ms=-2147483648)
+        u = nl.TimeSync.unpack(t.pack())
+        self.assertEqual(u.t1_gcs_tx, 0xFFFFFFFFFFFFFFFF)
+        self.assertEqual(u.t3_fc_tx, 0x0102030405060708)
+        self.assertEqual(u.commanded_offset_ms, -2147483648)
 
     def test_signed_negative_array(self):
         g = nl.CmdSetMotorGeometry(spin=[1, -1, 1, -1])

@@ -322,19 +322,34 @@ tampered.
 
 ### 6.1 Wall-clock field `[s:20 | ms:12]`
 
-The standard wall-clock timestamp is a 32-bit little-endian word:
+The standard wall-clock timestamp is a 32-bit little-endian word carried **in the
+payload** of messages that need it (there is no clock in the header, §3.2):
 
 ```
-bits 31..12 : seconds  (20 bits) — integer offset from synced epoch T0 (§10)
+bits 31..12 : seconds  (20 bits) — integer offset from the synced epoch T0
 bits 11..0  : ms        (12 bits) — sub-second milliseconds, 0..999
 ```
 
-- 20-bit seconds ⇒ range 2²⁰ s ≈ **291 h**, far exceeding the 5 h resync
-  interval (§10.4), so it never rolls within a session.
+- **T0** is the reference epoch the FC's clock is disciplined to, established and
+  maintained by `TIME_SYNC` (§10). T0 is **not transmitted as an epoch value**:
+  the GCS measures the FC↔GCS clock relationship from the round-trip stamps and
+  steers the FC with `commanded_offset_ms` so the FC's "now" tracks the GCS
+  wall-clock. The GCS picks T0 (it folds it into the offset it commands) and so
+  can reconstruct absolute time from the reported `now − T0`. The FC never
+  invents wall-clock time on its own (§10.1).
+- T0 is fixed once at the **startup** sync; periodic resyncs (§10.4) apply small
+  drift corrections, **not** a T0 reset, so timestamps stay continuous. 20-bit
+  seconds ⇒ range 2²⁰ s ≈ **291 h**, which dwarfs any flight, so the field never
+  rolls within a session.
 - 12-bit ms holds 0–999; the 2 spare high bits of the ms sub-field are reserved.
   Bit 11 is the **`TIME_STALE`** flag: the sender MUST set it before its first
   successful sync and after any clock discontinuity, and a receiver MUST treat a
   stamp with `TIME_STALE` set as unsynchronised.
+
+> Supersedes v1's per-frame `u32` millisecond timestamp in the header: v2 takes
+> time out of the header (§3.2) and into this compact payload field — and
+> `sample_time_us` (§6.2) for high-rate alignment — stamped only on messages that
+> need it. The v1 in-header stamp is phased out as peers migrate (§3.4 demux).
 
 ### 6.2 High-rate sample time
 
@@ -744,18 +759,37 @@ establishes the reference epoch **T0** and the FC reports `now − T0` in the
 compensates for link latency (one-way delay at 115200 baud ≈ 1.4 ms ≈ the 1 ms
 LSB, so it cannot be ignored).
 
-### 10.2 Messages
+### 10.2 Message
+
+A single role-discriminated message carries the whole exchange (msgid 10,
+32 bytes, little-endian). All stamps are **milliseconds**.
 
 ```
-TIME_REFERENCE      { epoch_unix_s: u32, gcs_send_us: u64 }     # GCS → FC
-TIME_REFERENCE_ACK  { gcs_send_us: u64, fc_recv_us: u64, fc_send_us: u64 }  # FC → GCS
+TIME_SYNC {
+  role:                u8    # time_sync_role: 0 = REQUEST (GCS→FC), 1 = RESPONSE (FC→GCS)
+  seq:                 u8    # request sequence, echoed in the response
+  _pad:                u8[2] # reserved, zero
+  t1_gcs_tx:           u64   # GCS send   (wall-clock ms)
+  t2_fc_rx:            u64   # FC receive (FC ms)
+  t3_fc_tx:            u64   # FC send    (FC ms)
+  commanded_offset_ms: i32   # GCS→FC clock correction; INT32_MIN = none
+}
 ```
+
+> One message, not a pair: the `role` byte distinguishes the GCS's `REQUEST`
+> from the FC's `RESPONSE`, so the catalog has a single entry. The fourth
+> timestamp `t4` is the GCS's own receive time, captured locally on receipt — it
+> is never put on the wire.
 
 ### 10.3 Algorithm
 
-Four timestamps are recorded: `t1` = GCS send (`gcs_send_us`), `t2` = FC receive
-(`fc_recv_us`), `t3` = FC send of ack (`fc_send_us`), `t4` = GCS receive of ack.
-The GCS computes (NTP-style):
+1. The GCS sends `TIME_SYNC{ role=REQUEST, seq, t1_gcs_tx = now }`, optionally
+   with `commanded_offset_ms` set to the correction it wants the FC to apply
+   (`INT32_MIN` = no command this round).
+2. The FC records `t2_fc_rx` on receipt, applies `commanded_offset_ms` to its
+   clock when it is not `INT32_MIN`, then replies
+   `TIME_SYNC{ role=RESPONSE, seq, t1_gcs_tx echoed, t2_fc_rx, t3_fc_tx = now }`.
+3. The GCS captures `t4` on receipt and computes (NTP-style):
 
 ```
 rtt    = (t4 − t1) − (t3 − t2)
@@ -763,13 +797,16 @@ delay  = rtt / 2
 offset = ((t2 − t1) + (t3 − t4)) / 2
 ```
 
-The GCS then sends a second `TIME_REFERENCE` whose `epoch_unix_s` is corrected by
-`delay`; the FC latches its local tick counter to it and thereafter emits
-`now − T0`.
+The GCS filters `offset`/`delay` over a short window and feeds the result back as
+the next request's `commanded_offset_ms`; the FC disciplines its clock to it and
+thereafter reports `now − T0` (§6.1). Correcting by the filtered offset (which
+already removes one-way `delay`) keeps the synced error inside the 1 ms LSB
+rather than ~1.4 ms off.
 
 > **Note (asymmetry).** `delay = rtt/2` assumes symmetric up/down latency — true
 > for a USB/UART bench link, approximate on an asymmetric telemetry radio. The
-> `offset` term and the periodic/emergency resyncs (§10.4) bound the residual.
+> filtered `offset` term and the periodic/emergency resyncs (§10.4) bound the
+> residual.
 
 ### 10.4 Schedule
 
@@ -777,10 +814,11 @@ The GCS then sends a second `TIME_REFERENCE` whose `epoch_unix_s` is corrected b
 2. **Periodic** — every **5 h** of continuous operation (bounds crystal drift;
    a few-ppm TCXO drifts a handful of ms over 5 h, inside the 1 ms LSB).
 3. **Emergency** — the GCS compares incoming FC stamps to its own clock and
-   pushes an out-of-schedule `TIME_REFERENCE` if the error exceeds threshold.
+   pushes an out-of-schedule `TIME_SYNC` if the error exceeds threshold.
 
-Because each resync re-establishes T0 near zero, the 20-bit seconds field never
-approaches its 291 h ceiling.
+T0 is fixed at the startup sync and the resyncs only trim accumulated drift (they
+do not reset T0), so the 20-bit seconds field stays continuous; its ≈291 h span
+dwarfs any flight, so it never rolls within a session (§6.1).
 
 ### 10.5 Security gate (normative)
 
@@ -966,8 +1004,7 @@ Field-level detail is in the dialect (§7); this is the index.
 | 5 | `COMMAND_ACK` | command:u24, req_seq, result, progress, result_param2 |
 | 8 | `PING` | seq, target |
 | 9 | `CAPABILITIES` | protocol_version, incompat_supported, msgid_ranges, sec_modes, key_id |
-| 10 | `TIME_REFERENCE` | epoch_unix_s, gcs_send_us |
-| 11 | `TIME_REFERENCE_ACK` | gcs_send_us, fc_recv_us, fc_send_us |
+| 10 | `TIME_SYNC` | role, seq, t1_gcs_tx, t2_fc_rx, t3_fc_tx, commanded_offset_ms (one role-discriminated round-trip message, §10) |
 
 ### 14.2 Sensors / state (1024–2047)
 
@@ -1290,6 +1327,9 @@ enum { PT_U8=1, PT_I8=2, PT_U16=3, PT_I16=4, PT_U32=5, PT_I32=6,
 
 /* security modes (CAPABILITIES.sec_modes bitmask) */
 enum { SEC_NONE = 0x01, SEC_SIGN = 0x02, SEC_ENCRYPT = 0x04 };
+
+/* TIME_SYNC.role (§10) */
+enum { TIME_SYNC_REQUEST = 0, TIME_SYNC_RESPONSE = 1 };
 
 /* PERF_GLOBAL.flags (§14.8) */
 enum { PERF_FLAG_ENABLED = 0x01 };   /* PERF module compiled in & live */

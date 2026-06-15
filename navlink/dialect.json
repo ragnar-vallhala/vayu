@@ -14,6 +14,13 @@
         { "name": "IN_PROGRESS",          "value": 5 }
       ]
     },
+    "time_sync_role": {
+      "doc": "TIME_SYNC.role (spec §10).",
+      "entries": [
+        { "name": "REQUEST",  "value": 0 },
+        { "name": "RESPONSE", "value": 1 }
+      ]
+    },
     "param_type": {
       "doc": "PARAM_VALUE.type / PARAM_SET.type (spec §17).",
       "entries": [
@@ -189,20 +196,16 @@
       ]
     },
     {
-      "msgid": 10, "name": "TIME_REFERENCE",
-      "doc": "GCS → FC: establish reference epoch T0 (spec §10).",
+      "msgid": 10, "name": "TIME_SYNC",
+      "doc": "NTP-style FC<->GCS clock sync (spec §10). The GCS sends role=REQUEST stamping t1_gcs_tx; the FC replies role=RESPONSE echoing t1 and adding t2_fc_rx (its receive time) and t3_fc_tx (its send time). The GCS captures t4 locally on receipt and computes offset=((t2-t1)+(t3-t4))/2, delay=(t4-t1)-(t3-t2). commanded_offset_ms carries the GCS's filtered correction back to the FC (INT32_MIN = none). Byte-identical to the firmware time_sync_payload_t; all stamps are milliseconds (32 B).",
       "fields": [
-        { "index": 0, "name": "epoch_unix_s", "type": "u32" },
-        { "index": 1, "name": "gcs_send_us",  "type": "u64", "unit": "us" }
-      ]
-    },
-    {
-      "msgid": 11, "name": "TIME_REFERENCE_ACK",
-      "doc": "FC → GCS: NTP-style four-timestamp reply (spec §10.3).",
-      "fields": [
-        { "index": 0, "name": "gcs_send_us", "type": "u64", "unit": "us" },
-        { "index": 1, "name": "fc_recv_us",  "type": "u64", "unit": "us" },
-        { "index": 2, "name": "fc_send_us",  "type": "u64", "unit": "us" }
+        { "index": 0, "name": "role",                "type": "u8",  "enum": "time_sync_role" },
+        { "index": 1, "name": "seq",                 "type": "u8",  "doc": "request sequence, echoed in the response" },
+        { "index": 2, "name": "_pad",                "type": "u8",  "len": 2, "doc": "reserved, zero" },
+        { "index": 3, "name": "t1_gcs_tx",           "type": "u64", "unit": "ms", "doc": "GCS send (wall-clock ms)" },
+        { "index": 4, "name": "t2_fc_rx",            "type": "u64", "unit": "ms", "doc": "FC receive (FC ms)" },
+        { "index": 5, "name": "t3_fc_tx",            "type": "u64", "unit": "ms", "doc": "FC send (FC ms)" },
+        { "index": 6, "name": "commanded_offset_ms", "type": "i32", "doc": "GCS->FC correction; INT32_MIN = none" }
       ]
     },
 

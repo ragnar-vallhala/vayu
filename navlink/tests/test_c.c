@@ -66,13 +66,16 @@ int main(void) {
         navlink_cmd_set_motor_geometry_t g2; navlink_cmd_set_motor_geometry_to_aligned(&g2, &w);
         assert(g2.spin[1] == -1 && g2.spin[3] == -1);
     }
-    /* u64 extreme round-trip. */
+    /* u64 extreme + i32 sentinel round-trip. */
     {
-        navlink_time_reference_t t = { .epoch_unix_s = 0xDEADBEEF,
-                                       .gcs_send_us = 0xFFFFFFFFFFFFFFFFull };
-        navlink_time_reference_wire_t w; navlink_time_reference_from_aligned(&w, &t);
-        navlink_time_reference_t t2; navlink_time_reference_to_aligned(&t2, &w);
-        assert(t2.gcs_send_us == 0xFFFFFFFFFFFFFFFFull && t2.epoch_unix_s == 0xDEADBEEF);
+        navlink_time_sync_t t = { .role = 1, .seq = 9,
+                                  .t1_gcs_tx = 0xFFFFFFFFFFFFFFFFull,
+                                  .t3_fc_tx = 0x0102030405060708ull,
+                                  .commanded_offset_ms = INT32_MIN };
+        navlink_time_sync_wire_t w; navlink_time_sync_from_aligned(&w, &t);
+        navlink_time_sync_t t2; navlink_time_sync_to_aligned(&t2, &w);
+        assert(t2.t1_gcs_tx == 0xFFFFFFFFFFFFFFFFull && t2.t3_fc_tx == 0x0102030405060708ull
+               && t2.commanded_offset_ms == INT32_MIN && t2.role == 1 && t2.seq == 9);
     }
 
     /* Emit parity table (msgid crc_extra wire_size). */
