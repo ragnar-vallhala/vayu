@@ -47,13 +47,14 @@ void AutotuneWorker::run() {
         int scored = 0;
         const int reps = std::max(1, m_p.repeats);
         std::vector<autotune::Sample> resp;  // last rollout's roll-axis window
-        for (int i = 0; i < reps; ++i) {
+        for (int i = 0; i < reps && !m_cancel.load(); ++i) {
           autotune::RolloutParams rp = m_p.rollout;
           rp.seed = m_p.rollout.seed + quint32(i);
           // Capture the response window only on the final repeat (for the plot).
           std::vector<autotune::Sample> *out = (i == reps - 1) ? &resp : nullptr;
-          if (auto c =
-                  autotune::runRollout(stack, names, x, m_p.tuneYaw, rp, out)) {
+          // &m_cancel makes the rollout abort within ~10 ms of Stop.
+          if (auto c = autotune::runRollout(stack, names, x, m_p.tuneYaw, rp, out,
+                                            &m_cancel)) {
             sum += *c;
             ++scored;
           }

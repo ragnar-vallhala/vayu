@@ -48,6 +48,12 @@ void MainStatusBar::setConnectionStatus(bool connected, const QString &portLabel
   }
 }
 
+void MainStatusBar::setReplayStatus() {
+  m_connStatus->setText("  ● Replay  ");
+  m_connStatus->setStyleSheet(
+      QString("color: %1; font-weight: bold;").arg(Theme::hex(Theme::kAccent)));
+}
+
 void MainStatusBar::setError(const QString &message) {
   m_connStatus->setText(QString("  ● Error: %1  ").arg(message));
   m_connStatus->setStyleSheet(

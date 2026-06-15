@@ -1,5 +1,6 @@
 #include "Rollout.h"
 
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <thread>
@@ -13,6 +14,22 @@ namespace {
 void sleepS(double s) {
   std::this_thread::sleep_for(
       std::chrono::milliseconds(qint64(s * 1000.0 + 0.5)));
+}
+
+// True once the autotune Stop has been requested.
+bool cancelled(const std::atomic<bool> *cancel) {
+  return cancel && cancel->load(std::memory_order_relaxed);
+}
+
+// Cancel-aware sleep: wakes within ~10 ms of a Stop instead of blocking the full
+// excitation/settle window, so autotune Stop is effectively instant.
+void sleepSC(double s, const std::atomic<bool> *cancel) {
+  qint64 remain = qint64(s * 1000.0 + 0.5);
+  while (remain > 0 && !cancelled(cancel)) {
+    const qint64 chunk = remain < 10 ? remain : 10;
+    std::this_thread::sleep_for(std::chrono::milliseconds(chunk));
+    remain -= chunk;
+  }
 }
 }  // namespace
 
@@ -54,7 +71,8 @@ namespace {
 // Fire the configured waveform on stick channel `ch` (0 roll / 1 pitch /
 // 3 yaw), then return to centre + settle. Step = doublet; Chirp = swept sine
 // f0→f1 over `hold`, sampled at 50 Hz.
-void exciteAxis(SitlStack &stack, int ch, const RolloutParams &p) {
+void exciteAxis(SitlStack &stack, int ch, const RolloutParams &p,
+                const std::atomic<bool> *cancel) {
   auto setCh = [&](int us) {
     if (ch == 0) stack.setRc(us);
     else if (ch == 1) stack.setRc(-1, us);
@@ -64,35 +82,36 @@ void exciteAxis(SitlStack &stack, int ch, const RolloutParams &p) {
     const double amp = double(p.stepUs) - 1500.0;  // peak deflection µs
     const double T = (p.hold > 1e-3) ? p.hold : 1.0;
     const double dt = 0.02;  // 50 Hz update
-    for (double t = 0.0; t < T; t += dt) {
+    for (double t = 0.0; t < T && !cancelled(cancel); t += dt) {
       // Linear chirp: instantaneous f ramps f0→f1; phase is its integral.
       const double phase =
           2.0 * M_PI * (p.chirpF0 * t + (p.chirpF1 - p.chirpF0) * t * t / (2.0 * T));
       setCh(int(1500.0 + amp * std::sin(phase)));
-      sleepS(dt);
+      sleepSC(dt, cancel);
     }
     setCh(1500);
-    sleepS(p.ret);
+    sleepSC(p.ret, cancel);
   } else {  // Step doublet
     setCh(p.stepUs);
-    sleepS(p.hold);
+    sleepSC(p.hold, cancel);
     setCh(1500);
-    sleepS(p.ret);
+    sleepSC(p.ret, cancel);
   }
 }
 
 std::optional<double> exciteOnce(SitlStack &stack, bool tuneYaw,
                                  const RolloutParams &p,
-                                 std::vector<Sample> *outResponse) {
+                                 std::vector<Sample> *outResponse,
+                                 const std::atomic<bool> *cancel) {
   stack.reset(p.seed);
   stack.setTestRig(true, float(p.tetherK));
   stack.setRc(1500, 1500, /*thr*/ -1, 1500, /*arm*/ -1, /*ch6*/ 1000);
   stack.clearSamples();
-  stack.waitLevel();
-  if (!stack.arm())
-    return std::nullopt;  // arm not confirmed -> retry
+  stack.waitLevel(6.0, 2500, cancel);
+  if (cancelled(cancel) || !stack.arm())
+    return std::nullopt;  // cancelled, or arm not confirmed -> retry
   stack.setRc(-1, -1, /*thr*/ p.hover);
-  sleepS(p.settle);
+  sleepSC(p.settle, cancel);
 
   struct Axis {
     int rc;  // RC channel index for setRc
@@ -105,8 +124,12 @@ std::optional<double> exciteOnce(SitlStack &stack, bool tuneYaw,
 
   double cost = 0.0;
   for (int ch : axes) {
+    if (cancelled(cancel)) {
+      stack.disarm();
+      return std::nullopt;
+    }
     stack.clearSamples();
-    exciteAxis(stack, ch, p);
+    exciteAxis(stack, ch, p, cancel);
 
     const std::vector<Sample> snap = stack.snapshot();
     // Capture the roll-axis window for the live response plot.
@@ -129,18 +152,22 @@ std::optional<double> runRollout(SitlStack &stack,
                                  const std::vector<std::string> &names,
                                  const Vec &x, bool tuneYaw,
                                  const RolloutParams &p,
-                                 std::vector<Sample> *outResponse) {
+                                 std::vector<Sample> *outResponse,
+                                 const std::atomic<bool> *cancel) {
   applyGains(stack, names, x, tuneYaw);
-  for (int attempt = 0; attempt <= p.maxRetries; ++attempt) {
-    std::optional<double> c = exciteOnce(stack, tuneYaw, p, outResponse);
+  for (int attempt = 0; attempt <= p.maxRetries && !cancelled(cancel);
+       ++attempt) {
+    std::optional<double> c = exciteOnce(stack, tuneYaw, p, outResponse, cancel);
     if (c.has_value())
       return c;
+    if (cancelled(cancel))
+      break;
     // Harness hiccup (arm-fail / starved): recover and retry.
     stack.disarm();
     stack.reset(p.seed);
     stack.clearSamples();
-    stack.waitLevel(6.0, 3000);
-    sleepS(0.2);
+    stack.waitLevel(6.0, 3000, cancel);
+    sleepSC(0.2, cancel);
   }
   return std::nullopt;  // no scorable rollout -> engine treats as divergence
 }

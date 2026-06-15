@@ -429,10 +429,13 @@ bool SitlStack::arm(int timeoutMs) {
 
 void SitlStack::disarm() { setRc(-1, -1, 1000, -1, /*arm=*/1000); }
 
-bool SitlStack::waitLevel(double deg, int timeoutMs) {
+bool SitlStack::waitLevel(double deg, int timeoutMs,
+                          const std::atomic<bool> *cancel) {
   QElapsedTimer t;
   t.start();
   while (t.elapsed() < timeoutMs) {
+    if (cancel && cancel->load(std::memory_order_relaxed))
+      return false;
     std::vector<autotune::Sample> s;
     {
       std::lock_guard<std::mutex> lk(m_sampMtx);

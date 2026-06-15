@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <cstdint>  // int32_t before <stdlib.h> (glibc quirk)
 #include <optional>
 #include <string>
@@ -43,10 +44,13 @@ void applyGains(SitlStack &stack, const std::vector<std::string> &names,
 // Apply gains then run one scored excitation (with internal retries). When
 // outResponse is non-null it receives the roll-axis excitation window (for the
 // live response plot).
+// `cancel` (optional): when it flips true the rollout aborts within ~10 ms and
+// returns nullopt, so autotune Stop is effectively instant.
 std::optional<double> runRollout(SitlStack &stack,
                                  const std::vector<std::string> &names,
                                  const Vec &x, bool tuneYaw,
                                  const RolloutParams &p,
-                                 std::vector<Sample> *outResponse = nullptr);
+                                 std::vector<Sample> *outResponse = nullptr,
+                                 const std::atomic<bool> *cancel = nullptr);
 
 }  // namespace autotune

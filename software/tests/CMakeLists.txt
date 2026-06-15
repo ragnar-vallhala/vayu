@@ -82,27 +82,17 @@ navigator_test(tst_command_registry
     tst_command_registry.cpp
     ${SRC}/core/CommandRegistry.cpp)
 
-# ---- Phase 1B: telemetry-source seam --------------------------------------
-# ITelemetrySource is a header-only Q_OBJECT; list the headers so AUTOMOC
-# generates their meta-objects for this target too.
-navigator_test(tst_live_source
-    tst_live_source.cpp
-    ${SRC}/comm/ITelemetrySource.h
-    ${SRC}/comm/LiveSource.h
-    ${SRC}/comm/LiveSource.cpp
-    ${SRC}/comm/SerialManager.cpp
-    ${SRC}/comm/UdpManager.cpp)
-
 # ---- Phase 1C: record format round-trip -----------------------------------
 navigator_test(tst_record_sink
     tst_record_sink.cpp
     ${REPLAY}/RecordSink.cpp)
 target_include_directories(tst_record_sink PRIVATE ${REPLAY})
 
-# ---- Phase 1D: session mode / read-only authority -------------------------
-navigator_test(tst_session_state
-    tst_session_state.cpp
-    ${SRC}/core/SessionMode.h)
+# ---- Phase C: telemetry-source state machine (full transition matrix) ------
+navigator_test(tst_source_controller
+    tst_source_controller.cpp
+    ${SRC}/core/SourceController.cpp)
+target_include_directories(tst_source_controller PRIVATE ${SRC}/core)
 
 # ---- Phase 2A: shortcuts manager (overrides + conflicts + persistence) -----
 navigator_test(tst_shortcuts_manager

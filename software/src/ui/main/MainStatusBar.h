@@ -18,6 +18,9 @@ public:
   explicit MainStatusBar(QWidget *parent = nullptr);
 
   void setConnectionStatus(bool connected, const QString &portLabel);
+  // Read-only replay: a distinct (non-green, non-red) pill so it's clearly not a
+  // live link. gcs-source-state-machine.md
+  void setReplayStatus();
   void setError(const QString &message);
   void setPacketCount(int n);
   // Inbound packet rate (Hz), sampled ~1 Hz by MainWindow. Mockup "Rate: N Hz".

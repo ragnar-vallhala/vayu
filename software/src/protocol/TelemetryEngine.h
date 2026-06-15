@@ -56,7 +56,12 @@ public slots:
   void send(const QByteArray &pkt);            // routes UDP-else-serial
   void setAutoReconnect(bool on);
   void setReconnectInterval(int ms);           // base auto-reconnect retry delay
-  void setReplayMode(bool on);                 // mutes the live feed into parse
+  void setReplayMode(bool on);                 // compat shim: setLiveFeed(!on)
+  // Source-state-machine seam (gcs-source-state-machine.md): enable/disable the
+  // owned live transports' feed into the parser (true for Fc, false for
+  // Idle/Sim/Autotune/Replay). The non-live sources (Replay/Sim) are connected
+  // to feedBytes() by MainWindow on the GUI thread.
+  void setLiveFeed(bool on);
   // qulonglong = a built-in metatype name for the queued invoke.
   void startRecording(const QString &path, qulonglong startWallClockMs);
   void stopRecording();
@@ -89,7 +94,7 @@ private:
 
   RecordSink m_recorder;
   QElapsedTimer m_elapsed;     // monotonic base for record-frame timestamps
-  bool m_acceptLive = true;    // false while replaying (live feed muted)
+  bool m_acceptLive = true;    // false while a non-live source feeds (Sim/Replay)
 
   // Live, packet-type-filtered export (separate from the full recorder).
   RecordSink m_exporter;

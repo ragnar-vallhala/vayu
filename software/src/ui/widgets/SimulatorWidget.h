@@ -75,6 +75,12 @@ class SimulatorWidget : public QWidget {
    * MainWindow can reflect "Connected: SIM" in the status bar. */
   void simRunningChanged(bool running);
 
+  /* Emitted when an autotune run starts (true) / finishes or is cancelled
+   * (false). The tuner runs an isolated SITL and does NOT feed the GCS engine,
+   * so MainWindow drives the source FSM into its own Autotune state (read-only,
+   * no feed). gcs-source-state-machine.md */
+  void autotuneRunningChanged(bool running);
+
   /* AT-1: the operator clicked "Apply Gains to Firmware". MainWindow turns
    * each PidSetCmd into a CMD_SET_PID frame and sends it over the live link.
    * The autotuner never writes to firmware on its own. */
@@ -104,12 +110,18 @@ class SimulatorWidget : public QWidget {
   // in-panel "Prop audio" checkbox, which in turn enables PropAudio.
   void setPropAudioDefault(bool on);
 
+ public:
+  // Stop the sim / autotune. Public so the source state machine's teardown can
+  // enforce strict single source (gcs-source-state-machine.md). Both are
+  // idempotent; stopAutotune requests cancel (completes via onTuneDone).
+  void stopInAppSim();
+  void stopAutotune();
+
  private:
   void buildUi();
   void appendLog(const QString& tag, const QString& text);
 
   void startInAppSim();
-  void stopInAppSim();
   void pushRatesToSim();   // read persisted rates → m_sim->sendRates
   // Load the configured world mesh (baking up-axis/scale into NED) and push
   // it to the renderer; empty path clears it. When the sim is running, also
@@ -269,7 +281,6 @@ class SimulatorWidget : public QWidget {
   void attachTuneSim(const QString& suffix);   // mirror the tuner's drone in 3D
   void detachTuneSim();                         // stop mirroring, restore UI
   void startAutotune();
-  void stopAutotune();
   QString exportVehicleGeometryJson();
   QString exportWorldJson();   // env (gravity/drag) so the tuner flies the same plant
   QPushButton* m_simStartBtn = nullptr;
