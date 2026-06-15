@@ -317,3 +317,8 @@ void PacketAnalyzerWidget::setProtocol(DroneProtocol *protocol) {
   if (m_linkStats)
     m_linkStats->setProtocol(protocol);
 }
+
+void PacketAnalyzerWidget::setPacketCapacity(int rows) {
+  if (m_model)
+    m_model->setCapacity(rows);
+}

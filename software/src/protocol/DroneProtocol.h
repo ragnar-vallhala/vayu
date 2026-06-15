@@ -25,6 +25,10 @@ public:
 
 public slots:
   void processData(const QByteArray &data);
+  // Advanced setting: when false, packets that fail CRC are accepted anyway
+  // (for debugging a flaky link). Defaults to enforcing CRC. Lives on the
+  // worker thread; drive it via a queued invoke.
+  void setCrcCheck(bool on) { m_checkCrc = on; }
 
 signals:
   void imuReceived(const ImuData &data);
@@ -47,5 +51,6 @@ signals:
 private:
   QByteArray m_buffer;
   PacketDecoder m_decoder;
+  bool m_checkCrc = true;  // Advanced ▸ CRC checking
   void parseBuffer();
 };

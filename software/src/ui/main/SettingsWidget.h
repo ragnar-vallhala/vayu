@@ -31,6 +31,10 @@ private:
   void markDirty(QLabel *label);        // yellow the row + enable Apply
   void clearDirty();                    // reset after Apply / programmatic load
   void updateTransportDependent();      // UDP ⇒ numeric port + locked baud
+  // Advanced ▸ Settings file / Reset — immediate actions (not staged).
+  void importSettings();
+  void exportSettings();
+  void resetToDefaults();
 
   QSpinBox *m_syncPeriodSpin = nullptr;
   QSpinBox *m_graphWindowSpin = nullptr;
@@ -52,6 +56,9 @@ private:
   QCheckBox *m_audioAlertsChk = nullptr;
   QCheckBox *m_confirmArmChk = nullptr;
   QCheckBox *m_simPropAudioChk = nullptr;
+  // Advanced.
+  QSpinBox *m_packetBufferSpin = nullptr;
+  QCheckBox *m_crcCheckChk = nullptr;
   QSpinBox *m_recentViewsSpin = nullptr;
   QComboBox *m_themeCombo = nullptr;
   // Units & Display.

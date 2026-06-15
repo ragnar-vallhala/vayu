@@ -608,10 +608,11 @@ void MainWindow::buildUi() {
 void MainWindow::buildMenuBar() {
   QMenuBar *menu = menuBar();
 
-  // Mockup parity: seven menus — File / View / Flight / Tools / Settings /
-  // Window / Help. Every item is a registered command (FR-UX-19): the registry
-  // owns the QAction and adding it to a menu also activates its shortcut, so a
-  // command is hosted in exactly one place (never re-added to the window).
+  // Mockup parity: File / View / Flight / Tools / Window / Help menus, plus a
+  // bare "Settings" menu-bar action that opens the page directly. Every item is
+  // a registered command (FR-UX-19): the registry owns the QAction and adding it
+  // to a menu also activates its shortcut, so a command is hosted in exactly one
+  // place (never re-added to the window).
 
   // ---- File ----
   QMenu *fileMenu = menu->addMenu("&File");
@@ -711,11 +712,11 @@ void MainWindow::buildMenuBar() {
   addNav(toolsMenu, "nav.calibration", "&Calibration", QKeySequence("Ctrl+7"),
          ui::Icon::Calib, [this] { showCalibration(); });
 
-  // ---- Settings (single entry; opens the Configuration page) ----
-  QMenu *settingsMenu = menu->addMenu("&Settings");
-  settingsMenu->addAction(m_cmds->add("view.settings", "&Configuration", "View",
-                                      QKeySequence(), CmdContext::Always,
-                                      [this] { showSettings(); }));
+  // ---- Settings (a bare menu-bar action — clicking it opens the page
+  // directly, no submenu) ----
+  menu->addAction(m_cmds->add("view.settings", "&Settings", "View",
+                              QKeySequence(), CmdContext::Always,
+                              [this] { showSettings(); }));
 
   // ---- Window ----
   QMenu *windowMenu = menu->addMenu("&Window");
@@ -1163,6 +1164,12 @@ void MainWindow::applyAllSettings(bool persist) {
 #ifdef NAVIGATOR_HAS_SITL
   if (m_simulatorWidget) m_simulatorWidget->setPropAudioDefault(s.simPropAudio);
 #endif
+
+  // Advanced.
+  if (m_analyzerWidget) m_analyzerWidget->setPacketCapacity(s.packetBufferRows);
+  if (m_engine && m_engine->protocol())
+    QMetaObject::invokeMethod(m_engine->protocol(), "setCrcCheck",
+                              Qt::QueuedConnection, Q_ARG(bool, s.crcCheck));
 
   // Record-on-connect: start/stop now if the state actually changed and a feed
   // is live (no-op at startup, where nothing is connected yet).

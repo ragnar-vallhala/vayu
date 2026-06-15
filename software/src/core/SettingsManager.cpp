@@ -2,8 +2,8 @@
 
 const QString SettingsManager::FileName = "vayu_settings.dat";
 
-bool SettingsManager::save(const GcsSettings &s) {
-  QFile file(FileName);
+bool SettingsManager::saveToPath(const QString &path, const GcsSettings &s) {
+  QFile file(path);
   if (!file.open(QIODevice::WriteOnly)) {
     return false;
   }
@@ -16,8 +16,8 @@ bool SettingsManager::save(const GcsSettings &s) {
   return true;
 }
 
-bool SettingsManager::load(GcsSettings &s) {
-  QFile file(FileName);
+bool SettingsManager::loadFromPath(const QString &path, GcsSettings &s) {
+  QFile file(path);
   if (!file.exists() || !file.open(QIODevice::ReadOnly)) {
     return false;
   }
@@ -35,3 +35,7 @@ bool SettingsManager::load(GcsSettings &s) {
   in >> s;
   return true;
 }
+
+bool SettingsManager::save(const GcsSettings &s) { return saveToPath(FileName, s); }
+
+bool SettingsManager::load(GcsSettings &s) { return loadFromPath(FileName, s); }

@@ -18,3 +18,6 @@ tools/autotune/*.json
 
 # Autotuner --apply writes the canonical tune here (generated artifact)
 tuned_pid.json
+
+# GCS settings store (generated at runtime, machine-local)
+vayu_settings.dat

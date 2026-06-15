@@ -63,8 +63,9 @@ void DroneProtocol::parseBuffer() {
     uint32_t received_crc;
     memcpy(&received_crc, m_buffer.constData() + 8 + payload_length, 4);
 
-    if (computed_crc != received_crc) {
-      // CRC mismatch, discard false sync byte
+    if (m_checkCrc && computed_crc != received_crc) {
+      // CRC mismatch, discard false sync byte (unless CRC checking is off, the
+      // Advanced debug toggle, in which case we accept the frame as-is).
       emit unknownPacket(m_buffer.left(1));
       m_buffer.remove(0, 1);
       continue;

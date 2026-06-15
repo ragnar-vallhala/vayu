@@ -1,5 +1,6 @@
 #include "SettingsWidget.h"
 
+#include "core/Notify.h"
 #include "core/Theme.h"
 #include "core/ui/Icons.h"
 
@@ -11,6 +12,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QMessageBox>
 #include <QPainter>
 #include <QPushButton>
 #include <QScrollArea>
@@ -641,25 +643,53 @@ SettingsWidget::SettingsWidget(QWidget *parent) : QWidget(parent) {
     finishPane("Alerts & Audio", ui::Icon::Alerts, v);
   }
 
-  // ---- Advanced (all placeholder) ----
+  // ---- Advanced ----
   {
     auto *v = newPane("Advanced");
-    v->addWidget(soonRow("Packet buffer", "rows kept in the Packet Analyzer",
-                         spin(100, 100000, 2000)));
+
+    m_packetBufferSpin = spin(100, 100000, 5000);
+    {
+      auto rr = makeRow("Packet buffer", "rows kept in the Packet Analyzer",
+                        m_packetBufferSpin);
+      v->addWidget(rr.w);
+      track(m_packetBufferSpin, rr.name);
+    }
+
+    // Perf poll rate stays coming-soon: kernel-perf is pushed by the firmware
+    // (broadcast), not polled, so there's no rate for the GCS to set yet.
     v->addWidget(soonRow("Perf poll rate", "kernel-perf refresh (Hz)",
                          spin(1, 60, 5)));
-    v->addWidget(soonRow("CRC checking", "drop packets that fail CRC",
-                         check(true)));
 
-    auto *ie = new QWidget;
-    auto *ieh = new QHBoxLayout(ie);
-    ieh->setContentsMargins(0, 0, 0, 0);
-    ieh->addWidget(new QPushButton("Import…"));
-    ieh->addWidget(new QPushButton("Export…"));
-    v->addWidget(soonRow("Settings file", "import / export the config", ie));
+    m_crcCheckChk = check(true);
+    {
+      auto rr = makeRow("CRC checking", "drop packets that fail CRC",
+                        m_crcCheckChk);
+      v->addWidget(rr.w);
+      track(m_crcCheckChk, rr.name);
+    }
 
-    auto *reset = new QPushButton("Reset…");
-    v->addWidget(soonRow("Reset to defaults", "restore all settings", reset));
+    // Settings file import/export — immediate actions (not part of Apply).
+    {
+      auto *ie = new QWidget;
+      auto *ieh = new QHBoxLayout(ie);
+      ieh->setContentsMargins(0, 0, 0, 0);
+      auto *importBtn = new QPushButton(tr("Import…"));
+      auto *exportBtn = new QPushButton(tr("Export…"));
+      ieh->addWidget(importBtn);
+      ieh->addWidget(exportBtn);
+      v->addWidget(makeRow("Settings file", "import / export the config", ie).w);
+      connect(importBtn, &QPushButton::clicked, this,
+              &SettingsWidget::importSettings);
+      connect(exportBtn, &QPushButton::clicked, this,
+              &SettingsWidget::exportSettings);
+    }
+
+    {
+      auto *reset = new QPushButton(tr("Reset…"));
+      v->addWidget(makeRow("Reset to defaults", "restore all settings", reset).w);
+      connect(reset, &QPushButton::clicked, this,
+              &SettingsWidget::resetToDefaults);
+    }
     finishPane("Advanced", ui::Icon::Advanced, v);
   }
 
@@ -704,6 +734,43 @@ void SettingsWidget::clearDirty() {
   m_dirtyLabels.clear();
   if (m_applyBtn) m_applyBtn->setEnabled(false);
   if (m_dirtyHint) m_dirtyHint->setVisible(false);
+}
+
+void SettingsWidget::exportSettings() {
+  const QString path = QFileDialog::getSaveFileName(
+      this, tr("Export settings"), QStringLiteral("vayu_settings.dat"),
+      tr("Vayu settings (*.dat);;All files (*)"));
+  if (path.isEmpty()) return;
+  if (SettingsManager::saveToPath(path, getSettings()))
+    Notify::ok(this, tr("Exported settings → %1").arg(path));
+  else
+    Notify::error(this, tr("Failed to export settings"));
+}
+
+void SettingsWidget::importSettings() {
+  const QString path = QFileDialog::getOpenFileName(
+      this, tr("Import settings"), QString(),
+      tr("Vayu settings (*.dat);;All files (*)"));
+  if (path.isEmpty()) return;
+  GcsSettings s;
+  if (!SettingsManager::loadFromPath(path, s)) {
+    Notify::error(this, tr("Not a valid Vayu settings file"));
+    return;
+  }
+  setSettings(s);         // populate the form (clears dirty)
+  emit applyRequested();  // apply + persist to the default store via MainWindow
+  Notify::ok(this, tr("Imported settings from %1").arg(path));
+}
+
+void SettingsWidget::resetToDefaults() {
+  if (QMessageBox::question(
+          this, tr("Reset to defaults"),
+          tr("Restore all settings to their defaults? This applies and saves "
+             "immediately.")) != QMessageBox::Yes)
+    return;
+  setSettings(GcsSettings{});  // default-constructed = the defaults
+  emit applyRequested();
+  Notify::ok(this, tr("Settings reset to defaults"));
 }
 
 void SettingsWidget::updateTransportDependent() {
@@ -752,6 +819,10 @@ void SettingsWidget::setSettings(const GcsSettings &s) {
   m_confirmArmChk->setChecked(s.confirmBeforeArm);
   const QSignalBlocker bSpa(m_simPropAudioChk);
   m_simPropAudioChk->setChecked(s.simPropAudio);
+  const QSignalBlocker bPkt(m_packetBufferSpin);
+  m_packetBufferSpin->setValue(s.packetBufferRows);
+  const QSignalBlocker bCrc(m_crcCheckChk);
+  m_crcCheckChk->setChecked(s.crcCheck);
   const QSignalBlocker bMru(m_recentViewsSpin);
   m_recentViewsSpin->setValue(s.recentViewsCount);
   const QSignalBlocker bTheme(m_themeCombo);
@@ -828,6 +899,8 @@ GcsSettings SettingsWidget::getSettings() const {
   s.audioAlerts = !m_audioAlertsChk || m_audioAlertsChk->isChecked();
   s.confirmBeforeArm = !m_confirmArmChk || m_confirmArmChk->isChecked();
   s.simPropAudio = m_simPropAudioChk && m_simPropAudioChk->isChecked();
+  s.packetBufferRows = m_packetBufferSpin ? m_packetBufferSpin->value() : 5000;
+  s.crcCheck = !m_crcCheckChk || m_crcCheckChk->isChecked();
   s.recentViewsCount = m_recentViewsSpin ? m_recentViewsSpin->value() : 5;
   s.theme = m_themeCombo ? m_themeCombo->currentIndex() : 0;
   s.unitSystem = m_unitSystemCombo ? m_unitSystemCombo->currentIndex() : 0;
