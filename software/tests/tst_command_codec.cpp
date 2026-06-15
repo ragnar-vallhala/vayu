@@ -27,10 +27,12 @@ private slots:
 namespace {
 navlink_cmd_set_pid_t g_pid;
 bool g_pidGot;
-void onPid(void *, const navlink_frame_hdr_t *,
-           const navlink_cmd_set_pid_t *m) {
+// Command handlers now return their COMMAND_ACK result (codegen enforces the ack).
+navlink_ack_t onPid(void *, const navlink_frame_hdr_t *,
+                    const navlink_cmd_set_pid_t *m) {
   g_pid = *m;
   g_pidGot = true;
+  return navlink_ack_t{};
 }
 // Push a whole v2 frame through the parser; returns true (and fills out) only if
 // it decoded a CRC-valid CMD_SET_PID.
@@ -106,24 +108,27 @@ static bool decodesAs(const QByteArray &f, quint32 wantMsgid,
 namespace {
 navlink_cmd_set_gyro_lpf_t g_lpf;
 bool g_lpfGot;
-void onLpf(void *, const navlink_frame_hdr_t *,
-           const navlink_cmd_set_gyro_lpf_t *m) {
+navlink_ack_t onLpf(void *, const navlink_frame_hdr_t *,
+                    const navlink_cmd_set_gyro_lpf_t *m) {
   g_lpf = *m;
   g_lpfGot = true;
+  return navlink_ack_t{};
 }
 navlink_cmd_set_flight_mode_t g_fm;
 bool g_fmGot;
-void onFm(void *, const navlink_frame_hdr_t *,
-          const navlink_cmd_set_flight_mode_t *m) {
+navlink_ack_t onFm(void *, const navlink_frame_hdr_t *,
+                   const navlink_cmd_set_flight_mode_t *m) {
   g_fm = *m;
   g_fmGot = true;
+  return navlink_ack_t{};
 }
 navlink_cmd_set_motor_geometry_t g_geo;
 bool g_geoGot;
-void onGeo(void *, const navlink_frame_hdr_t *,
-           const navlink_cmd_set_motor_geometry_t *m) {
+navlink_ack_t onGeo(void *, const navlink_frame_hdr_t *,
+                    const navlink_cmd_set_motor_geometry_t *m) {
   g_geo = *m;
   g_geoGot = true;
+  return navlink_ack_t{};
 }
 }  // namespace
 

@@ -43,6 +43,19 @@ DroneProtocol::DroneProtocol(QObject *parent) : QObject(parent) {
                                  uint64_t t3, uint64_t t4) {
     emit timeSyncResponse(seq, t1, t2, t3, t4);
   };
+  m_v2Router.onCommandAck = [this](uint32_t command, uint8_t reqSeq,
+                                   uint8_t result) {
+    static const char *const kRes[] = {"ACCEPTED",    "TEMP_REJECTED",
+                                       "DENIED",      "UNSUPPORTED",
+                                       "FAILED",      "IN_PROGRESS"};
+    const QString res =
+        result < 6 ? QString::fromLatin1(kRes[result]) : QString::number(result);
+    emit commandAckReceived(command, reqSeq, result);
+    emit logReceived(QStringLiteral("[ack] cmd %1 #%2 → %3")
+                         .arg(command)
+                         .arg(reqSeq)
+                         .arg(res));
+  };
   // onSystemHealth intentionally left unset: no GCS consumer (parity with v1).
   m_v2Router.onDefault = [this](uint32_t msgid, int len) {
     emit logReceived(

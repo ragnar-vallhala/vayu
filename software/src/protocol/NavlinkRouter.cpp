@@ -261,6 +261,13 @@ void thunkTimeSync(void *ctx, const navlink_frame_hdr_t *,
   r->onTimeSync(m->seq, m->t1_gcs_tx, m->t2_fc_rx, m->t3_fc_tx, t4);
 }
 
+void thunkCommandAck(void *ctx, const navlink_frame_hdr_t *,
+                     const navlink_command_ack_t *m) {
+  auto *r = static_cast<NavlinkRouter *>(ctx);
+  if (r->onCommandAck)
+    r->onCommandAck(m->command, m->req_seq, m->result);
+}
+
 void thunkDefault(void *ctx, const navlink_frame_hdr_t *, uint32_t msgid,
                   const uint8_t *, size_t len) {
   auto *r = static_cast<NavlinkRouter *>(ctx);
@@ -296,6 +303,7 @@ NavlinkRouter::NavlinkRouter() : d_(new Impl) {
   d_->handlers.on_perf_fifo = thunkPerfFifo;
   d_->handlers.on_perf_taskname = thunkPerfTaskname;
   d_->handlers.on_time_sync = thunkTimeSync;
+  d_->handlers.on_command_ack = thunkCommandAck;
   // Sensible default so an unhandled leaf is never silent, even if the owner
   // didn't override onDefault.
   onDefault = [](uint32_t msgid, int len) {
