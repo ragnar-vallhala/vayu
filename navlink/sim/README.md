@@ -92,5 +92,5 @@ Explicit flags override the preset.
 | `sim.py` | orchestrator: presets, spawns the two processes, prints the combined report |
 | `endpoint.py` | one endpoint (`--role fc` / `--role gcs`): models + stats |
 | `link.py` | egress impairment model (delay/loss/dup/reorder/corrupt/rate) |
-| `frame.py` | NavLink v2 frame encode/decode (sync+header+CRC), reuses the generated codec |
+| `frame.py` | per-datagram encode/decode used by the sim. The generated codec now ships its own framing (`navlink_msgs.encode` / `Parser`); this local helper predates it and additionally classifies each datagram (ok / crc / unknown / non-frame) for the link stats, which the callback-style `Parser` doesn't expose. |
 | `common.py` | locates / generates and imports the codec |

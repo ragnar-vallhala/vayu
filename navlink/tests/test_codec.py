@@ -292,6 +292,62 @@ class TestFraming(unittest.TestCase):
         self.assertFalse(ok)
 
 
+class TestFrameCodec(unittest.TestCase):
+    """The generated encoder + incremental Parser (frame layer)."""
+
+    def test_encode_parse_all_messages(self):
+        for msgid, cls in nl.MSGID_TO_CLASS.items():
+            with self.subTest(msg=cls.__name__):
+                obj = build_canonical(cls, BY_ID[msgid])
+                got = []
+                h = nl.Handlers(**{nl.MSGID_TO_HANDLER[msgid]: lambda f, m: got.append((f, m))})
+                p = nl.Parser(h)
+                p.push(nl.encode(obj, seq=msgid & 0xFF, sysid=1, compid=2))
+                self.assertEqual(len(got), 1)
+                frame, msg = got[0]
+                self.assertEqual(frame.msgid, msgid)
+                self.assertEqual(frame.seq, msgid & 0xFF)
+                self.assertEqual(frame.compid, 2)
+                self.assertEqual(msg.pack(), obj.pack())   # decoded == original
+
+    def test_parser_handles_split_and_back_to_back(self):
+        a = nl.encode(nl.AttitudeEuler(roll=0.5), seq=1)
+        b = nl.encode(nl.Heartbeat(type=2), seq=2)
+        stream = a + b
+        got = []
+        h = nl.Handlers(on_attitude_euler=lambda f, m: got.append("att"),
+                        on_heartbeat=lambda f, m: got.append("hb"))
+        p = nl.Parser(h)
+        for i in range(0, len(stream), 3):                 # feed in 3-byte chunks
+            p.push(stream[i:i + 3])
+        self.assertEqual(got, ["att", "hb"])
+
+    def test_parser_crc_error_and_resync(self):
+        bad = bytearray(nl.encode(nl.AttitudeEuler(roll=1.0)))
+        bad[11] ^= 0xFF
+        good = nl.encode(nl.Heartbeat(type=1))
+        errs, hbs = [], []
+        h = nl.Handlers(on_crc_error=lambda f: errs.append(f.msgid),
+                        on_heartbeat=lambda f, m: hbs.append(m.type))
+        p = nl.Parser(h)
+        p.push(bytes(bad) + good)                          # bad frame, then a valid one
+        self.assertEqual(errs, [1026])
+        self.assertEqual(hbs, [1])                          # resynced and decoded the next frame
+
+    def test_unknown_msgid(self):
+        frame = nl.encode(nl.Heartbeat(type=1))
+        frame = bytearray(frame)
+        frame[7] = 0x99                                     # mangle msgid to an unknown one
+        # recompute CRC so it's a *valid* frame with an unknown id (exercises on_unknown)
+        unknown = []
+        p = nl.Parser(nl.Handlers(on_unknown=lambda f: unknown.append(f.msgid)))
+        # rebuild with a real unknown msgid via raw framing
+        raw = bytes([0x56, 0x02, 0, 0, 0, 1, 1, 0x77, 0x77, 0x77])
+        crc = nl.crc16(raw[1:])                             # no CRC_EXTRA known; parser only needs to skip
+        p.push(raw + bytes([crc & 0xFF, crc >> 8]))
+        self.assertEqual(unknown, [0x777777])
+
+
 class TestDialectValidation(unittest.TestCase):
     def test_clean_dialect_passes(self):
         self.assertEqual(generate.validate(DIALECT), [])

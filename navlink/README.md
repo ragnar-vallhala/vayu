@@ -4,7 +4,9 @@ The single source of truth for the Vayu link protocol (NavLink v2). The dialect
 JSON defines every message; the generator emits matching codecs for firmware (C),
 the GCS (C/C++), and tools (Python), so the three trees can never drift.
 
-See `../docs/analysis/navlink-v2-spec.md` for the normative protocol spec.
+See `../docs/analysis/navlink-v2-spec.md` for the normative protocol spec, and
+[`ABI.md`](ABI.md) for how the FC firmware and the GCS (Navigator) actually use
+the generated code (encoder, parser, handler tables).
 
 ## Files
 
@@ -13,8 +15,11 @@ See `../docs/analysis/navlink-v2-spec.md` for the normative protocol spec.
 | `dialect.json` | the message catalog — **edit this** to add/change messages (spec §7) |
 | `dialect.schema.json` | JSON Schema the dialect must validate against (spec §7.4) |
 | `generate.py` | the generator (stdlib only, no deps) |
-| `generated/c/navlink_msgs.{h,c}` | generated C codec (firmware + GCS) |
-| `generated/python/navlink_msgs.py` | generated Python codec (tools / autotuner) |
+| `ABI.md` | integration/ABI guide for FC firmware + GCS |
+| `generated/c/navlink_msgs.{h,c}` | generated C codec + framing (firmware + GCS) |
+| `generated/python/navlink_msgs.py` | generated Python codec + framing (tools / autotuner) |
+| `tests/` | generator self-tests + C↔Python parity (`run_tests.py`) |
+| `sim/` | two-process link simulator + interactive console (`live.py`) |
 
 ## Generate
 
@@ -37,6 +42,12 @@ field indices, ≤255-byte payloads) and self-checks the CRC (`crc16("123456789"
 - `to_aligned` / `from_aligned` converters
 - the `CRC_EXTRA` table and a `msgid → {name, size, crc_extra}` lookup
   (C: binary search; Python: dicts)
+- a per-message **encoder** that builds a full frame (header + payload + CRC):
+  C `navlink_<msg>_encode()` / Python `encode(msg)`
+- an incremental **parser** + **handler table** that resyncs, validates the CRC,
+  and fires one callback per decoded message — C `navlink_parser_push()` with a
+  `navlink_handlers_t` struct of function pointers; Python `Parser` with a
+  `Handlers` object. This is the framing layer, so callers don't hand-write it.
 
 ## Test
 
@@ -47,21 +58,22 @@ python3 tests/test_codec.py     # Python unit tests only (no C compiler needed)
 
 The runner (1) regenerates from `dialect.json`, (2) runs the Python unit tests,
 (3) compiles + runs the C codec (`-Werror`), and (4) asserts C and Python agree
-on `CRC_EXTRA` + wire size **and packed bytes for every message**. The byte
-parity uses one deterministic per-field value scheme (`generate.canonical_values`)
-shared by the Python tests and the generated C parity emitter
-(`navlink_parity.c`), so both sides exercise the same non-trivial values —
-signed negatives, `u64`, arrays, `u24`, `char[]`, floats.
+on `CRC_EXTRA` + wire size, **packed payload bytes, and the full encoded frame**
+for every message. The parity uses one deterministic per-field value scheme
+(`generate.canonical_values`) shared by the Python tests and the generated C
+parity emitter (`navlink_parity.c`), so both sides exercise the same non-trivial
+values — signed negatives, `u64`, arrays, `u24`, `char[]`, floats.
 
 Coverage maps onto the spec §16 conformance vectors: CRC-16 self-check (§16.1),
 the `ATTITUDE_EULER` CRC_EXTRA golden value recomputed independently from the
 §4.3 input string (§16.2), unsecured frame round-trip + trailing-zero truncation
 (§16.3 / §5.6), version demux (§16.5), plus per-message value **and** frame
 round-trips, type extremes, oversize/short/empty unpacks, extension-field CRC
-stability, registry consistency, and negative dialect-validation cases
-(dup msgid/name, non-contiguous indices, unknown type/enum, vendor range, >255 B).
-36 Python tests + C asserts + all-message cross-language parity. Needs `cc`/`gcc`
-(override with `CC=...`).
+stability, registry consistency, the generated encoder + parser (encode→parse
+round-trips, split/back-to-back feed, CRC-error resync, unknown msgid), and
+negative dialect-validation cases (dup msgid/name, non-contiguous indices,
+unknown type/enum, vendor range, >255 B). 40 Python tests + C asserts +
+all-message payload **and** frame parity. Needs `cc`/`gcc` (override with `CC=...`).
 
 ## Simulate a real link
 
