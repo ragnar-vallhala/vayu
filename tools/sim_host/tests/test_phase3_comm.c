@@ -9,11 +9,11 @@
  *   @verifies COMM-CMD-002  command payload length / argc validation
  *   @verifies COMM-CMD-003  CMD_SET_PID apply + SD persistence
  *
- * The GCS software-arm path is exercised end-to-end at the wire level: the
- * exact CMD_ARM / CMD_DISARM frame the Navigator emits (MainWindow::
- * onArmClicked) is run through deserializer_feed() and comm_processor_
- * dispatch(), confirming it sets/clears g_sw_arm_request and that a bad-CRC
- * frame is dropped.
+ * The GCS software-arm path is exercised through the command apply engine: a
+ * CMD_ARM / CMD_DISARM packet_t (as navlink_router.c reconstructs it from the
+ * decoded v2 frame) is run through comm_processor_dispatch(), confirming it
+ * sets/clears g_sw_arm_request. (The v1 wire deserializer is retired; v2 frame
+ * decode + CRC is covered by the codec tests and live hardware validation.)
  *
  * The CMD_SET_PID path is exercised end-to-end: a built payload is run
  * through pid_config_apply_command(), which performs the COMM-CMD-002
@@ -33,7 +33,6 @@
 #include <string.h>
 
 #include "comm/comm.h"
-#include "comm/deserializer.h"
 #include "comm/ibus.h"
 #include "control/control.h"
 #include "sys/sys_utils.h"
@@ -74,80 +73,34 @@ static bool feq(float a, float b) {
   return d < 1e-6f;
 }
 
-/* Build a no-arg NavLink command frame byte-for-byte as the Navigator GCS
- * does in MainWindow::onArmClicked: sync, protocol|type, length=2 (cmd_id
- * only), dev_id, 4-byte timestamp, 2-byte cmd_id, then a CRC32 over the
- * header+payload (everything preceding the CRC). Returns the frame length. */
-static uint16_t build_command_frame(uint8_t *out, uint16_t cmd_id) {
-  out[0] = SYNC_BYTE;                  /* 0x56 */
-  out[1] = (PACKET_TYPE_COMMAND << 4); /* type 3 in high nibble, proto v0 */
-  out[2] = 2;                          /* payload length = cmd_id only */
-  out[3] = 42;                         /* dev_id */
-  uint32_t ts = 0x12345678u;
-  memcpy(&out[4], &ts, 4);
-  memcpy(&out[8], &cmd_id, 2);
-  /* CRC over header (8) + payload (2); same span the deserializer checks. */
-  uint32_t crc = utils_try_compute_crc32(out, NAVLINK_HEADER_SIZE + 2);
-  memcpy(&out[10], &crc, 4);
-  return (uint16_t)(NAVLINK_HEADER_SIZE + 2 + NAVLINK_CRC_SIZE); /* 14 */
-}
-
-/* Feed a whole frame through the deserializer; return 1 iff it yields one
- * valid packet, copied into *pkt. */
-static int feed_frame(deserializer_t *d, const uint8_t *frame, uint16_t n,
-                      packet_t *pkt) {
-  int got = 0;
-  for (uint16_t i = 0; i < n; i++) {
-    if (deserializer_feed(d, frame[i]) == 1) {
-      *pkt = d->packet;
-      got = 1;
-    }
-  }
-  return got;
+/* Build the internal command packet_t that navlink_router.c reconstructs from a
+ * decoded v2 CMD_ARM / CMD_DISARM frame: a bare 2-byte cmd_id payload. */
+static void make_command_packet(packet_t *pkt, uint16_t cmd_id) {
+  memset(pkt, 0, sizeof(*pkt));
+  pkt->sync = SYNC_BYTE;
+  pkt->protocol_packet_type = (uint8_t)((PACKET_TYPE_COMMAND << 4) | 0x1);
+  pkt->length = 2; /* cmd_id only */
+  pkt->device_id = 42;
+  memcpy(pkt->payload, &cmd_id, 2);
 }
 
 /* ----------------------------------------------------------------------------
- * GCS software-arm wire path — the exact CMD_ARM / CMD_DISARM frame the
- * Navigator emits is deserialized and dispatched, flipping g_sw_arm_request.
- * This links MainWindow::onArmClicked -> deserializer -> comm_processor.
+ * GCS software-arm apply path — the CMD_ARM / CMD_DISARM packet the v2 router
+ * hands to comm_processor_dispatch() flips g_sw_arm_request.
  * --------------------------------------------------------------------------*/
 static void test_arm_command_wire(void) {
   printf("  test_arm_command_wire (GCS software-arm link)\n");
 
-  deserializer_t d;
-  deserializer_init(&d);
   packet_t pkt;
-  uint8_t frame[64];
 
-  /* CMD_ARM: a clean disarmed start, then the GCS arm frame sets the latch. */
   g_sw_arm_request = 0;
-  uint16_t n = build_command_frame(frame, (uint16_t)CMD_ARM);
-  CHECK(feed_frame(&d, frame, n, &pkt) == 1, "CMD_ARM frame deserializes");
-  CHECK(((pkt.protocol_packet_type >> 4) & 0x0F) == PACKET_TYPE_COMMAND,
-        "decoded packet type is COMMAND");
-  CHECK(pkt.length == 2, "decoded payload length is 2 (cmd_id only)");
-  uint16_t decoded_cmd = 0;
-  memcpy(&decoded_cmd, pkt.payload, 2);
-  CHECK(decoded_cmd == (uint16_t)CMD_ARM, "decoded cmd_id is CMD_ARM (0x0002)");
+  make_command_packet(&pkt, (uint16_t)CMD_ARM);
   comm_processor_dispatch(&pkt);
   CHECK(g_sw_arm_request == 1, "CMD_ARM dispatch sets the software-arm latch");
 
-  /* CMD_DISARM clears it again. */
-  n = build_command_frame(frame, (uint16_t)CMD_DISARM);
-  CHECK(feed_frame(&d, frame, n, &pkt) == 1, "CMD_DISARM frame deserializes");
-  decoded_cmd = 0;
-  memcpy(&decoded_cmd, pkt.payload, 2);
-  CHECK(decoded_cmd == (uint16_t)CMD_DISARM,
-        "decoded cmd_id is CMD_DISARM (0x0003)");
+  make_command_packet(&pkt, (uint16_t)CMD_DISARM);
   comm_processor_dispatch(&pkt);
   CHECK(g_sw_arm_request == 0, "CMD_DISARM dispatch clears the latch");
-
-  /* A corrupted CRC must be rejected outright (no packet, latch untouched). */
-  g_sw_arm_request = 0;
-  n = build_command_frame(frame, (uint16_t)CMD_ARM);
-  frame[n - 1] ^= 0xFF; /* clobber the top CRC byte */
-  CHECK(feed_frame(&d, frame, n, &pkt) == 0, "bad-CRC frame is dropped");
-  CHECK(g_sw_arm_request == 0, "dropped frame leaves the latch clear");
 }
 
 /* ----------------------------------------------------------------------------

@@ -72,7 +72,6 @@ navigator_test(tst_sitl_stack
     ${SRC}/autotune/Cost.cpp
     ${SRC}/autotune/Space.cpp
     ${SRC}/protocol/DroneProtocol.cpp
-    ${SRC}/protocol/PacketDecoder.cpp
     ${SRC}/protocol/PacketDissector.cpp
     ${SRC}/protocol/CommandCodec.cpp
     ${SRC}/protocol/NavlinkRouter.cpp  # DroneProtocol owns a NavlinkRouter (v2 RX)

@@ -20,9 +20,8 @@
 #include <stdint.h>
 
 /* --- periodic telemetry (FC -> GCS) --------------------------------------- */
-void navlink_tx_log(const char *buf, uint8_t len);
-void navlink_tx_heartbeat(void);
-void navlink_tx_system_state(int sys_state);                  /* v1 SYSTEM_STATUS 0x04 */
+void navlink_tx_log(const char *buf, uint8_t len);            /* v2 STATUSTEXT */
+void navlink_tx_heartbeat(void);                              /* v2 HEARTBEAT (+nav_state) */
 void navlink_tx_flight_mode(uint8_t mode, uint8_t source);    /* v2 FLIGHT_MODE */
 void navlink_tx_health(uint32_t tx_overflow, uint32_t imu_drop,
                        uint32_t log_wrap);                    /* v2 SYSTEM_HEALTH */

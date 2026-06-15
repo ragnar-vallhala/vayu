@@ -83,7 +83,6 @@ set(GCS_SOURCES
     src/core/Units.cpp
     src/ui/widgets/PacketAnalyzerWidget.cpp
     src/ui/main/SettingsWidget.cpp
-    src/protocol/PacketDecoder.cpp
     src/protocol/PacketDissector.cpp
     src/protocol/TimeSyncEstimator.cpp
     src/ui/widgets/PacketDetailWidget.cpp
@@ -151,7 +150,6 @@ set(GCS_HEADERS
     src/core/ui/WheelGuard.h
     src/ui/widgets/PacketAnalyzerWidget.h
     src/ui/main/SettingsWidget.h
-    src/protocol/PacketDecoder.h
     src/protocol/PacketDissector.h
     src/protocol/TimeSyncEstimator.h
     src/ui/widgets/PacketDetailWidget.h
