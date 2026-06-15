@@ -2,8 +2,9 @@
 #include "comm/channel.h"     /* write_channel, channel_t */
 #include "comm/serializer.h"  /* send_packet */
 #include "comm/perf_packet.h" /* PERF_TASKNAME_MAX */
+#include "sys/state.h"        /* system_state_get, sys_state_t */
 #include "sys/sys_utils.h"    /* get_device_id */
-#include "utils.h"            /* v_memcpy */
+#include "utils.h"            /* v_memcpy, v_get_ticks */
 #include "navlink_msgs.h"     /* generated codec — included ONLY here + navlink_router.c */
 #include <stdint.h>
 
@@ -20,16 +21,30 @@ void navlink_tx_log(const char *buf, uint8_t len) {
 }
 
 void navlink_tx_heartbeat(void) {
-  send_packet(&g_telemetry_channel, PACKET_TYPE_HEARTBEAT, NULL, 0);
+  /* v2 HEARTBEAT (msgid 0); replaces the v1 empty heartbeat AND folds in the
+   * former SYSTEM_STATUS SYS_STATE origin. The firmware flight-state machine is
+   * a one-hot bitmask (sys/state.h: 0x1..0x100); the v2 nav_state enum is its
+   * sequential index, so the set-bit position (ctz) maps one to the other. */
+  static uint8_t seq = 0;
+  navlink_heartbeat_t msg = {0};
+  msg.type = 0;          /* vehicle type — unused by the GCS today */
+  msg.autopilot = 0;
+  msg.base_mode = 0;
+  msg.system_status = 0;
+  sys_state_t st = system_state_get();
+  msg.nav_state = (uint8_t)(st ? __builtin_ctz((unsigned)st) : 0);
+  msg.capabilities = 0;
+  msg.timestamp = (uint32_t)v_get_ticks();
+  uint8_t frame[NAVLINK_MAX_FRAME];
+  size_t n = navlink_heartbeat_encode(frame, &msg, seq++, get_device_id(), 1);
+  write_channel(g_telemetry_channel, frame, (uint16_t)n);
 }
 
 void navlink_tx_system_state(int sys_state) {
-  uint8_t payload[6];
-  payload[0] = 0x04; /* SYSTEM_ORIGIN_SYS_STATE */
-  payload[1] = 0x00; /* reserved/padding */
-  float current_state = (float)sys_state;
-  v_memcpy(&payload[2], &current_state, 4);
-  send_packet(&g_telemetry_channel, PACKET_TYPE_SYSTEM_STATUS, payload, 6);
+  /* DEPRECATED: vehicle state now rides in v2 HEARTBEAT.nav_state (see
+   * navlink_tx_heartbeat). Retained as a no-op shim so any stray caller keeps
+   * linking; the telemetry task no longer calls it. */
+  (void)sys_state;
 }
 
 void navlink_tx_flight_mode(uint8_t mode, uint8_t source) {
