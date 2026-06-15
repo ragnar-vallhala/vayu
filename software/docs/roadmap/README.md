@@ -16,6 +16,7 @@ the roadmap entry stays as the design rationale.
 | [gcs-live-rig-tuning.md](gcs-live-rig-tuning.md) | Reuse the autotuner to tune a real drone in a rig over the live link | 🔬 study |
 | [gcs-live-rig-tuning-prior-art.md](gcs-live-rig-tuning-prior-art.md) | Engineer's teardown of comparable autotune systems (PX4/ArduPilot/CIFER/MathWorks/SafeOpt) | 🔬 study |
 | [gcs-live-rig-tuning-prior-art-deep.md](gcs-live-rig-tuning-prior-art-deep.md) | From-core deep dive per system: control-theory background, block/flow/sequence diagrams, signal sketches | 🔬 study |
+| [gcs-sim-mockup-parity-gaps.md](gcs-sim-mockup-parity-gaps.md) | Simulator features in the UI mockup not yet implemented (wind/atmosphere, sensor error models, GPS, power) | 🗺️ gap analysis |
 | [sim-geometry-moi-motor-editor.md](sim-geometry-moi-motor-editor.md) | Mesh geometry import, computed moment-of-inertia, motor-mapping editor | ✅ shipped (FR-SIM-11) |
 
 The mockup itself (`../ui-mockup/`) carries a `Ctrl+D` **analysis mode** that tags
