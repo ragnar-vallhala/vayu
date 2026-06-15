@@ -197,7 +197,7 @@ static void on_cmd_set_pid(void *ctx, const navlink_frame_hdr_t *hdr,
 
 static const navlink_handlers_t HANDLERS = {
     .on_cmd_set_pid = on_cmd_set_pid,
-    /* .on_cmd_arm = ..., .on_time_reference = ..., etc.  Unset slots are simply ignored. */
+    /* .on_cmd_arm = ..., .on_time_sync = ..., etc.  Unset slots are simply ignored. */
 };
 
 static navlink_parser_t g_parser;

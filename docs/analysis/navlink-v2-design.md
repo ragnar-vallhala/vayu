@@ -669,13 +669,15 @@ service — the FC never invents its own wall-clock:
 The sync is a **GCS-initiated round trip** that compensates for link latency —
 necessary, not optional, because one-way delay at 115200 baud is ≈1.4 ms for a
 small frame, *comparable to the 1 ms LSB*: a one-way push would bake that delay
-straight into the epoch. The exchange records four NTP-style timestamps:
+straight into the epoch. One role-discriminated message carries the round trip
+and records four NTP-style timestamps (all in **ms**):
 
-- `TIME_REFERENCE { epoch_unix_s:u32, gcs_send_us:u64 }` — **GCS→FC**, stamped
-  with the GCS send time **t1** (`gcs_send_us`).
-- `TIME_REFERENCE_ACK { gcs_send_us, fc_recv_us, fc_send_us }` — **FC→GCS**,
-  echoing t1 and adding the FC receive time **t2** (`fc_recv_us`) and FC send
-  time **t3** (`fc_send_us`). The GCS notes its own receive time **t4**.
+- `TIME_SYNC { role, seq, _pad[2], t1_gcs_tx:u64, t2_fc_rx:u64, t3_fc_tx:u64,
+  commanded_offset_ms:i32 }` — `role=REQUEST` is **GCS→FC**, stamped with the GCS
+  send time **t1** (`t1_gcs_tx`); `role=RESPONSE` is **FC→GCS**, echoing t1 and
+  adding the FC receive time **t2** (`t2_fc_rx`) and FC send time **t3**
+  (`t3_fc_tx`). The GCS notes its own receive time **t4** locally — it never
+  goes on the wire.
 
 From the four stamps the GCS computes, exactly as NTP does:
 
@@ -685,22 +687,23 @@ delay  = rtt / 2                         // one-way link latency
 offset = ((t2 − t1) + (t3 − t4)) / 2     // FC-clock vs GCS-clock skew
 ```
 
-The GCS then pushes the **latency-corrected** T0 (a second `TIME_REFERENCE`
-carrying `epoch_unix_s` adjusted by `delay`), and the FC latches its local tick
-counter to it and thereafter emits `now − T0`. Subtracting `delay` is what keeps
-the synced error inside the 1 ms LSB rather than ~1.4 ms off.
+The GCS filters the result and feeds it back as the next request's
+`commanded_offset_ms` (`INT32_MIN` = no command); the FC applies it on receipt,
+disciplining its clock, and thereafter emits `now − T0`. Correcting by the
+filtered offset (which already nets out one-way `delay`) keeps the synced error
+inside the 1 ms LSB rather than ~1.4 ms off.
 
 **Sync schedule:**
 
 1. **Startup sync** — at link establishment, before any FC stamp is trusted.
-   Until the first `TIME_REFERENCE` lands, the FC flags its time fields
+   Until the first `TIME_SYNC` lands, the FC flags its time fields
    `TIME_STALE` (§7.1).
 2. **Periodic resync** — every **5 h** of continuous operation, to bound
    accumulated crystal drift. A few-ppm TCXO drifts only a handful of ms over
    5 h, keeping the error inside the 1 ms LSB between resyncs.
 3. **Emergency resync** — the GCS continuously compares incoming FC stamps to
    its own clock; if the estimated error crosses a configured threshold it
-   pushes an out-of-schedule `TIME_REFERENCE` immediately.
+   pushes an out-of-schedule `TIME_SYNC` immediately.
 
 **Time is the security gate.** On contact with a GCS the FC runs the startup
 sync **first**. Until it succeeds — and whenever the FC's clock and the GCS
@@ -710,9 +713,10 @@ frame** (§8.5). A secured link therefore cannot even begin before time agrees,
 which is exactly what lets the synced wall-clock serve as the anti-replay anchor
 (no persisted counter, reboot-safe).
 
-Because every resync re-establishes T0 near zero, the 20-bit seconds field is
-never close to its 291 h ceiling — the schedule and the field size are
-deliberately matched.
+T0 is fixed at the startup sync; the periodic/emergency resyncs only steer the FC
+clock with small `commanded_offset_ms` corrections (they do not reset T0), so the
+20-bit seconds field stays continuous and its ≈291 h span — which dwarfs any
+flight — is never close to its ceiling.
 
 ---
 
@@ -893,8 +897,7 @@ authoritative ascending allocation.)
 | 7  | *(reserved)*          | —    | — |
 | 8  | `PING`                | —    | seq, target — RTT/link probe |
 | 9  | `CAPABILITIES`        | —    | protocol_version, incompat_supported (bitmask), msgid_ranges, sec_modes (none/sign/encrypt), key_id — exchanged once at connect; replaces a per-frame `compat_flags` byte (see §5, §8.5) |
-| 10 | `TIME_REFERENCE`      | —    | epoch_unix_s, gcs_send_us — GCS→FC, sets the sync epoch T0 (§8.6) |
-| 11 | `TIME_REFERENCE_ACK`  | —    | gcs_send_us, fc_recv_us, fc_send_us — round-trip stamps for RTT/latency-compensated T0 (§8.6) |
+| 10 | `TIME_SYNC`           | 0xB  | role, seq, t1_gcs_tx, t2_fc_rx, t3_fc_tx, commanded_offset_ms — one role-discriminated round-trip message; sets/disciplines the sync epoch T0 (§8.6) |
 
 ### 10.2 Sensors / state (1024–2047) — port + extend
 | msgid | message            | replaces | key fields |
