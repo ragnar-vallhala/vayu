@@ -67,6 +67,14 @@ def wire_size(msg):
     return sum(field_bytes(f) for f in ordered_fields(msg))
 
 
+# Command range (spec §9): msgid 0x002000-0x002FFF. Per spec §12.1 the receiver
+# MUST answer a command with COMMAND_ACK, so messages in this range require an
+# ack by default. Any message may override that with an explicit "ack" boolean.
+def requires_ack(msg):
+    default = 0x2000 <= msg["msgid"] <= 0x2FFF
+    return bool(msg.get("ack", default))
+
+
 def canonical_values(msg):
     """Deterministic per-field test values, in wire order.
 
@@ -223,6 +231,7 @@ def gen_c_header(d):
         p(f"#define NAVLINK_MSGID_{m['name']} {m['msgid']}u")
         p(f"#define NAVLINK_CRC_EXTRA_{m['name']} {crc_extra(m)}u")
         p(f"#define NAVLINK_WIRE_SIZE_{m['name']} {wire_size(m)}u")
+        p(f"#define NAVLINK_ACK_{m['name']} {1 if requires_ack(m) else 0}u  /* receiver owes COMMAND_ACK */")
         # wire struct (packed)
         p("typedef struct __attribute__((packed)) {")
         for f in ordered_fields(m):
@@ -244,6 +253,7 @@ def gen_c_header(d):
     p("    uint32_t msgid;")
     p("    uint16_t wire_size;")
     p("    uint8_t  crc_extra;")
+    p("    uint8_t  requires_ack; /* receiver owes a COMMAND_ACK (spec §12.1) */")
     p("    const char *name;")
     p("} navlink_msg_info_t;")
     p(f"#define NAVLINK_MSG_COUNT {len(d['messages'])}u")
@@ -308,7 +318,7 @@ def gen_c_source(d):
     # dispatch table, sorted by msgid
     p("const navlink_msg_info_t navlink_msg_table[NAVLINK_MSG_COUNT] = {")
     for m in sorted(d["messages"], key=lambda m: m["msgid"]):
-        p(f'    {{ {m["msgid"]}u, {wire_size(m)}u, {crc_extra(m)}u, "{m["name"]}" }},')
+        p(f'    {{ {m["msgid"]}u, {wire_size(m)}u, {crc_extra(m)}u, {1 if requires_ack(m) else 0}u, "{m["name"]}" }},')
     p("};")
     p("")
     p("const navlink_msg_info_t *navlink_msg_info(uint32_t msgid) {")
@@ -588,6 +598,7 @@ def gen_py(d):
         p(f"    MSGID = {m['msgid']}")
         p(f"    CRC_EXTRA = {crc_extra(m)}")
         p(f"    WIRE_SIZE = {wire_size(m)}")
+        p(f"    REQUIRES_ACK = {requires_ack(m)}")
         # field tuples (name, type, len) in wire order
         ftuples = ", ".join(f'("{f["name"]}", "{f["type"]}", {field_len(f)})' for f in of)
         p(f"    _FIELDS = [{ftuples}]")

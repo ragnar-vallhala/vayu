@@ -934,6 +934,13 @@ answers with `COMMAND_ACK { command:u24, req_seq:u8, result, progress,
 result_param2 }`, correlated by `(command msgid, req_seq)`. An FC that is
 unsynchronised (§10.5) MUST reject commands.
 
+Whether a message owes a `COMMAND_ACK` is **declared in the dialect**: it defaults
+to `true` for the command range and `false` elsewhere, and any message may set an
+explicit `"ack"` boolean to override. Codegen surfaces it as
+`NAVLINK_ACK_<NAME>`, `navlink_msg_info_t.requires_ack`, and (Python)
+`<Msg>.REQUIRES_ACK`, so senders/receivers consult one source of truth instead of
+hard-coding the rule.
+
 ### 12.2 Parameter service
 
 - `PARAM_VALUE { param_id:char[16], index:u16, count:u16, generation:u32,
