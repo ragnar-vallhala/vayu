@@ -23,8 +23,25 @@ public:
 
   // Per-leaf hooks — set by the owning GCS module (default: unset -> onDefault).
   std::function<void(const AttitudeData &)> onAttitude;
+  std::function<void(const ImuData &)> onImu;
+  std::function<void(const RcData &)> onRc;
+  std::function<void(const MotorData &)> onMotor;
+  std::function<void(const ControlLoopData &)> onControlLoop;
+  std::function<void(const EstPerfData &)> onEstPerf;
+  std::function<void(uint8_t mode, uint8_t source)> onFlightMode;
+  // SYSTEM_HEALTH: decoded but has no GCS consumer today (parity with v1, which
+  // never surfaced it). A hook is provided for when one is added.
+  std::function<void(uint32_t txOverflow, uint32_t imuDrop, uint32_t logWrap,
+                     uint8_t cpuLoad)>
+      onSystemHealth;
   // Fallback for every decoded leaf without a specific hook above.
   std::function<void(uint32_t msgid, int payloadLen)> onDefault;
+
+  // IMU delta state: IMU_COMPRESSED carries half-float deltas vs the last
+  // IMU_RAW, so the router reconstructs the absolute sample (as v1's
+  // PacketDecoder did). Public so the file-scope thunks can reach it.
+  ImuData lastImu;
+  bool hasLastImu = false;
 
 private:
   struct Impl;

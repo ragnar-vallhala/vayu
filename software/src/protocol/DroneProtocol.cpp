@@ -12,6 +12,19 @@ DroneProtocol::DroneProtocol(QObject *parent) : QObject(parent) {
   m_v2Router.onAttitude = [this](const AttitudeData &a) {
     emit attitudeReceived(a);
   };
+  m_v2Router.onImu = [this](const ImuData &d) { emit imuReceived(d); };
+  m_v2Router.onRc = [this](const RcData &d) { emit rcReceived(d); };
+  m_v2Router.onMotor = [this](const MotorData &d) { emit motorReceived(d); };
+  m_v2Router.onControlLoop = [this](const ControlLoopData &d) {
+    emit controlLoopDataReceived(d);
+  };
+  m_v2Router.onEstPerf = [this](const EstPerfData &d) {
+    emit estPerfReceived(d);
+  };
+  m_v2Router.onFlightMode = [this](uint8_t mode, uint8_t source) {
+    emit flightModeReceived(mode, source);
+  };
+  // onSystemHealth intentionally left unset: no GCS consumer (parity with v1).
   m_v2Router.onDefault = [this](uint32_t msgid, int len) {
     emit logReceived(
         QStringLiteral("[navlink] v2 msgid %1 (%2 B)").arg(msgid).arg(len));

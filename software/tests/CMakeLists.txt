@@ -34,6 +34,9 @@ navigator_test(tst_command_codec
     ${SRC}/protocol/CommandCodec.cpp
     ${SRC}/core/crc.cpp)
 target_include_directories(tst_command_codec PRIVATE ${SRC}/protocol ${SRC}/core)
+# CommandCodec emits NavLink v2 (CMD_SET_PID); link the generated codec (its
+# PUBLIC SYSTEM include carries navlink_msgs.h).
+target_link_libraries(tst_command_codec PRIVATE navlink_codec)
 
 # ---- AT-1: autotune gains -> CMD_SET_PID mapping --------------------------
 navigator_test(tst_autotune_gains
@@ -72,10 +75,13 @@ navigator_test(tst_sitl_stack
     ${SRC}/protocol/PacketDecoder.cpp
     ${SRC}/protocol/PacketDissector.cpp
     ${SRC}/protocol/CommandCodec.cpp
+    ${SRC}/protocol/NavlinkRouter.cpp  # DroneProtocol owns a NavlinkRouter (v2 RX)
     ${SRC}/core/crc.cpp)
 target_include_directories(tst_sitl_stack PRIVATE
     ${SRC}/autotune ${SRC}/protocol ${SRC}/core
     ${CMAKE_SOURCE_DIR}/../tools/vsim/include)
+# DroneProtocol + CommandCodec pull in the NavLink v2 codec (RX router / TX).
+target_link_libraries(tst_sitl_stack PRIVATE navlink_codec)
 
 # ---- Phase 1A: command registry -------------------------------------------
 navigator_test(tst_command_registry
