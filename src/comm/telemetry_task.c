@@ -11,6 +11,7 @@
 #include "est/est.h"
 #include "sensor/sensor.h"
 #include "sys/state.h"
+#include "sys/sys_utils.h"
 #include "utils.h"
 #include "sys/math_utils.h"
 #include "vaios.h"
@@ -36,6 +37,10 @@ void imu_telemetry_task(void *args) {
   static imu_calibration_telemetry_t imu_calibration_telemetry;
 
   while (1) {
+    /* Slew the disciplined clock toward the GCS-commanded offset (~166 Hz,
+     * independent of how often a sync arrives). docs/telemetry/time_sync.md */
+    time_sync_discipline_tick();
+
     if (imu_queue_telemetry_pop(&samples)) {
       current_floats[0] = (float)samples.converted.acc[0];
       current_floats[1] = (float)samples.converted.acc[1];

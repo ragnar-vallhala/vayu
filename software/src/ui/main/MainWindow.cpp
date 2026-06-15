@@ -145,6 +145,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
           });
   connect(proto, &DroneProtocol::heartbeatReceived, this,
           &MainWindow::onHeartbeatReceived);
+  connect(proto, &DroneProtocol::timeSyncResponse, this,
+          &MainWindow::onTimeSyncResponse);
   connect(proto, &DroneProtocol::timeSyncRequested, this,
           &MainWindow::onTimeSyncRequested);
 
@@ -1476,48 +1478,81 @@ void MainWindow::updateLiveBlinker() {
 }
 
 void MainWindow::onHeartbeatReceived(uint64_t timestamp, uint8_t deviceId) {
-  // The wire-packet counter lives in the TelemetryEngine now (heartbeat packets
-  // are counted there via packetReceived).
+  Q_UNUSED(timestamp);
+  Q_UNUSED(deviceId);
+  // Heartbeat is liveness-only now; clock alignment moved to the time-sync
+  // handshake (onTimeSyncResponse). The wire-packet counter lives in the engine.
   m_lastHbTime = QDateTime::currentMSecsSinceEpoch();
-
   // Flash the LIVE label bright; the UI tick will fade it back.
   if (m_toolbar) MainStatusBar::flashLive(m_toolbar->liveLabel());
-
-  // Drone timestamp is 32-bit ms; signed subtraction yields the
-  // shortest modular distance (handles wrap-around).
-  const uint32_t gcs_now_32  = static_cast<uint32_t>(m_lastHbTime);
-  const uint32_t drone_ts_32 = static_cast<uint32_t>(timestamp);
-  const qint32 diff_ms = static_cast<qint32>(gcs_now_32 - drone_ts_32);
-
-  if (m_statusBar) m_statusBar->showSyncDrift(diff_ms);
-  // NB: don't showMessage() here — a transient status-bar message hides the
-  // left-docked Conn/Diff/Packets/Rate segments. The LIVE pill + packet
-  // counter already signal the heartbeat.
 }
-
 
 void MainWindow::onTimeSyncRequested() {
   if (!m_connected)
     return;
 
-  uint32_t now = static_cast<uint32_t>(QDateTime::currentMSecsSinceEpoch());
-  uint8_t id = 42;
+  const quint64 t1 = static_cast<quint64>(QDateTime::currentMSecsSinceEpoch());
+  const quint8 id = 42;
 
-  // Binary PACKET_TYPE_HEARTBEAT
-  // Header (8b) + Payload (0b) + CRC (4b) = 12 bytes
+  // PACKET_TYPE_TIME_SYNC (0xB) REQUEST: header(8) + payload(32) + CRC(4).
+  // Payload = time_sync_payload_t { role, seq, pad[2], t1, t2, t3, cmd_off }.
   QByteArray pkt;
-  pkt.append(static_cast<char>(0x56)); // sync
-  pkt.append(static_cast<char>(0x01)); // type 0 (heartbeat), ver 1
-  pkt.append(static_cast<char>(0x00)); // length 0
-  pkt.append(static_cast<char>(id));   // dev_id
+  pkt.append(static_cast<char>(0x56));          // sync
+  pkt.append(static_cast<char>(0xB1));          // type 0xB | proto v1
+  pkt.append(static_cast<char>(32));            // payload length
+  pkt.append(static_cast<char>(id));            // dev_id
+  const quint32 hdrTs = static_cast<quint32>(t1);
+  pkt.append(reinterpret_cast<const char *>(&hdrTs), 4); // header timestamp
 
-  pkt.append(reinterpret_cast<const char *>(&now), 4);
+  pkt.append(static_cast<char>(0x00));          // role = REQUEST
+  pkt.append(static_cast<char>(m_syncSeq++));   // seq
+  pkt.append(static_cast<char>(0x00));          // pad
+  pkt.append(static_cast<char>(0x00));          // pad
+  pkt.append(reinterpret_cast<const char *>(&t1), 8); // t1_gcs_tx
+  const quint64 zero = 0;
+  pkt.append(reinterpret_cast<const char *>(&zero), 8); // t2 (FC fills)
+  pkt.append(reinterpret_cast<const char *>(&zero), 8); // t3 (FC fills)
+  // Push the clock correction only once converged; INT32_MIN means "no command".
+  const qint32 cmd = m_tsEst.synced() ? m_syncCorrection : (-2147483647 - 1);
+  pkt.append(reinterpret_cast<const char *>(&cmd), 4); // commanded_offset_ms
 
-  uint32_t crc =
-      CRC32::calculate(reinterpret_cast<const uint8_t *>(pkt.constData()), 8);
+  uint32_t crc = CRC32::calculate(
+      reinterpret_cast<const uint8_t *>(pkt.constData()), 8 + 32);
   pkt.append(reinterpret_cast<const char *>(&crc), 4);
 
   sendToFc(pkt);
+}
+
+void MainWindow::onTimeSyncResponse(quint8 seq, quint64 t1, quint64 t2,
+                                    quint64 t3, quint64 t4) {
+  Q_UNUSED(seq);
+  m_lastHbTime = QDateTime::currentMSecsSinceEpoch();  // counts as liveness
+  if (m_toolbar) MainStatusBar::flashLive(m_toolbar->liveLabel());
+
+  TimeSyncEstimator::Sample s;
+  s.t1 = static_cast<qint64>(t1);
+  s.t2 = static_cast<qint64>(t2);
+  s.t3 = static_cast<qint64>(t3);
+  s.t4 = static_cast<qint64>(t4);
+  if (!m_tsEst.addSample(s))
+    return;  // implausible round-trip — keep the last good reading
+
+  // The FC clock is 32-bit ms (low bits of epoch), so we work in modular u32:
+  // the per-sample NTP offset's low 32 bits are the residual clock error. (The
+  // estimator's regression offsetMs() is for the absolute fcToGcs timeline and
+  // is corrupted by the cold-start step, so it must NOT drive the correction.)
+  const qint64 off = ((s.t2 - s.t1) + (s.t3 - s.t4)) / 2;  // per-sample FC - GCS
+  const qint32 residual = static_cast<qint32>(static_cast<quint32>(off));
+  // Deadband + lock: only command the FC while out of sync (|resid| >= epsilon).
+  // Once inside epsilon we are "locked" — hold (send no command) so measurement
+  // jitter doesn't perturb the disciplined clock. Being locked, not just having
+  // N samples, is what "synced" means.
+  constexpr qint32 kSyncEpsilonMs = 50;  // in-sync deadband / lock threshold
+  const bool locked = qAbs(residual) < kSyncEpsilonMs;
+  m_syncCorrection = locked ? (-2147483647 - 1)  // INT32_MIN = no command
+                            : static_cast<qint32>(static_cast<quint32>(-off));
+
+  if (m_statusBar && m_tsEst.synced()) m_statusBar->showSyncDrift(residual);
 }
 
 // ---------------------------------------------------------------------------

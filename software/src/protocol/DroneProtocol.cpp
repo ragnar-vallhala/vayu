@@ -1,5 +1,6 @@
 #include "DroneProtocol.h"
 #include "../core/crc.h"
+#include <QDateTime>
 #include <QStringList>
 #include <cstdint>
 #include <cstring>
@@ -73,6 +74,27 @@ void DroneProtocol::parseBuffer() {
 
     // 5. Valid packet! Parse contents.
     emit packetReceived(m_buffer.left(total_packet_size));
+
+    // Time-sync RESPONSE (0xB): a fixed binary payload the decoder doesn't
+    // model. Capture t4 here (worker thread, closest to receipt) and hand the
+    // four timestamps to the estimator. (docs/telemetry/time_sync.md)
+    if (packet_type == 0x0B) {
+      if (payload_length >= 32) {
+        const char *p = m_buffer.constData() + 8;  // payload base
+        if (static_cast<quint8>(p[0]) == 0x01) {   // role == RESPONSE
+          const quint8 seq = static_cast<quint8>(p[1]);
+          quint64 t1, t2, t3;
+          memcpy(&t1, p + 4, 8);
+          memcpy(&t2, p + 12, 8);
+          memcpy(&t3, p + 20, 8);
+          const quint64 t4 =
+              static_cast<quint64>(QDateTime::currentMSecsSinceEpoch());
+          emit timeSyncResponse(seq, t1, t2, t3, t4);
+        }
+      }
+      m_buffer.remove(0, total_packet_size);
+      continue;
+    }
 
     DecodedPacket decoded = m_decoder.decode(m_buffer.left(total_packet_size));
     if (decoded.valid) {

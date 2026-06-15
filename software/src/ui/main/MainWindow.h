@@ -20,6 +20,7 @@
 #include "ViewHistory.h"
 #include "Drone3DWidget.h" // Added
 #include "TelemetryEngine.h" // owns DroneProtocol + the VehicleState store
+#include "TimeSyncEstimator.h" // NTP clock-sync filter for the time-sync handshake
 #include "ImuPanel.h"
 #include "ITelemetrySource.h"  // replay feeds the engine via bytesReceived
 #include "LogPanel.h"
@@ -83,6 +84,8 @@ private slots:
   // New data slots
   void onHeartbeatReceived(uint64_t timestamp, uint8_t deviceId);
   void onTimeSyncRequested();
+  void onTimeSyncResponse(quint8 seq, quint64 t1, quint64 t2, quint64 t3,
+                          quint64 t4);
 
   // File ▸ Export Log…: toggles a live, packet-type-filtered .bin export. When
   // idle, prompts for streams + a folder and starts; when active, stops.
@@ -217,6 +220,13 @@ private:
   QTimer *m_uiTimer = nullptr;
   QTimer *m_syncTimer = nullptr;
   QElapsedTimer m_elapsed;
+
+  // Time-sync handshake (docs/telemetry/time_sync.md). The estimator filters the
+  // NTP samples; m_syncCorrection is the modular int32 clock correction pushed
+  // to the FC on the next request (INT32_MIN = "no command", before synced).
+  TimeSyncEstimator m_tsEst;
+  quint8 m_syncSeq = 0;
+  qint32 m_syncCorrection = (-2147483647 - 1);  // INT32_MIN sentinel
 
   // ---- State ----
   bool m_connected = false;   // any live link up (serial or UDP)

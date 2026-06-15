@@ -17,6 +17,16 @@ void increment_high_freq_timer(void);
 uint32_t get_timestamp_unix(void);
 void set_timestamp(uint32_t timestamp);
 
+/* Time-sync clock discipline (docs/telemetry/time_sync.md). The GCS computes a
+ * filtered FC->GCS correction and pushes it here; the offset is slewed (not
+ * jammed) so get_timestamp_unix() stays monotonic — the slew rate is clamped
+ * well below the 1 ms/ms tick rate, so the unix clock can never run backward.
+ * The first-ever correction steps directly (cold-start bootstrap). */
+void time_sync_set_offset(int32_t offset_ms);
+/* Slew the applied offset toward the commanded target. Call periodically from a
+ * low-rate task (the telemetry loop); dt is derived from the HF tick counter. */
+void time_sync_discipline_tick(void);
+
 /* Device identity (set from the GCS heartbeat). */
 uint8_t get_device_id(void);
 void set_device_id(uint8_t device_id);

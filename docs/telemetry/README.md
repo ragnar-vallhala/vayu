@@ -21,3 +21,9 @@ The Vayu protocol uses a framed binary format (defined in [Data Frame](data_fram
 | Document               | Packet Type | Description                                          |
 | :--------------------- | :---------- | :--------------------------------------------------- |
 | [Commands](command.md) | `0x03`      | Remote control actions (Arm, Calibrate, PID tuning). |
+
+### Bidirectional Packets (GCS <-> Firmware)
+
+| Document                  | Packet Type | Description                                                      |
+| :------------------------ | :---------- | :-------------------------------------------------------------- |
+| [Time Sync](time_sync.md) | `0x0B`      | NTP-style clock-sync handshake (proposed; replaces heartbeat jam). |
