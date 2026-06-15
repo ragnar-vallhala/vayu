@@ -18,7 +18,12 @@
 #include "vaios_app_config.h"
 #include "variables.h"
 #include "vfs.h"
+#include "navlink_msgs.h"
 #include <stdint.h>
+
+/* deg -> rad: att_t angles are degrees (est/sensor_fusion.c to_degrees()), but
+ * NavLink v2 ATTITUDE_EULER carries radians (navlink/dialect.json, spec §14). */
+#define ATT_DEG2RAD 0.017453292519943295f
 
 channel_t g_telemetry_channel = {0};
 
@@ -146,9 +151,20 @@ void imu_telemetry_task(void *args) {
     }
 
     if (send_att && attitude_queue_telemetry_pop(&att)) {
-      float att_vals[3] = {att.roll, att.pitch, att.yaw};
-      send_packet(&g_telemetry_channel, PACKET_TYPE_ATTITUDE,
-                  (uint8_t *)att_vals, 12);
+      /* NavLink v2 (navlink/INTEGRATION.md, Phase 2): emit ATTITUDE_EULER in
+       * place of the v1 PACKET_TYPE_ATTITUDE. Convert degrees->radians; the
+       * estimator exposes no body rates here yet, so rollspeed/pitchspeed/
+       * yawspeed stay 0 (trailing-zero truncation drops them, spec §5.6). The
+       * generated encoder builds the whole frame (header+payload+CRC-16). */
+      static uint8_t s_att_tx_seq = 0;
+      navlink_attitude_euler_t a = {0};
+      a.roll = att.roll * ATT_DEG2RAD;
+      a.pitch = att.pitch * ATT_DEG2RAD;
+      a.yaw = att.yaw * ATT_DEG2RAD;
+      uint8_t frame[NAVLINK_MAX_FRAME];
+      size_t n = navlink_attitude_euler_encode(frame, &a, s_att_tx_seq++,
+                                               get_device_id(), 1);
+      write_channel(g_telemetry_channel, frame, (uint16_t)n);
     }
 
     if (send_rc && rc_queue_telemetry_pop(&rc_data)) {

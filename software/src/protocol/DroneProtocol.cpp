@@ -6,7 +6,26 @@
 #include <cstring>
 #include <variant>
 
-DroneProtocol::DroneProtocol(QObject *parent) : QObject(parent) {}
+DroneProtocol::DroneProtocol(QObject *parent) : QObject(parent) {
+  navlink_parser_init(&m_v2Parser);
+  m_v2Handlers = {};                              // zero every slot
+  m_v2Handlers.ctx = this;                        // member assignment: C++ has
+  m_v2Handlers.on_attitude_euler = &DroneProtocol::onV2AttitudeEuler; // no
+                                                  // out-of-order designated init
+}
+
+void DroneProtocol::onV2AttitudeEuler(void *ctx, const navlink_frame_hdr_t *,
+                                      const navlink_attitude_euler_t *msg) {
+  auto *self = static_cast<DroneProtocol *>(ctx);
+  // v2 ATTITUDE_EULER is radians; AttitudeData is degrees (core/Types.h). Convert
+  // so the signal / VehicleState / UI contract is unchanged (INTEGRATION.md §3).
+  constexpr float kRad2Deg = 57.29577951308232f;
+  AttitudeData att;
+  att.roll = msg->roll * kRad2Deg;
+  att.pitch = msg->pitch * kRad2Deg;
+  att.yaw = msg->yaw * kRad2Deg;
+  emit self->attitudeReceived(att);
+}
 
 void DroneProtocol::processData(const QByteArray &data) {
   m_buffer.append(data);
@@ -41,6 +60,27 @@ void DroneProtocol::parseBuffer() {
     uint8_t type_byte = m_buffer[1];
     uint8_t protocol_version = type_byte & 0x0F;
     uint8_t packet_type = (type_byte >> 4) & 0x0F;
+
+    // NavLink v2 frames share the 0x56 sync but byte 1 == 0x02 (vs v1's low
+    // nibble == 1), so they demux cleanly (INTEGRATION.md §2). Consume the whole
+    // v2 frame and hand it to the generated parser (CRC + typed dispatch) so the
+    // v1 scanner below never nibbles at it byte-by-byte.
+    if (type_byte == NAVLINK_VERSION) {
+      if (m_buffer.size() < NAVLINK_HEADER_LEN)
+        break;  // wait for the full 10-byte v2 header (payload_len at [2])
+      int v2_total =
+          NAVLINK_HEADER_LEN + static_cast<uint8_t>(m_buffer[2]) + 2; // + CRC-16
+      if (m_buffer.size() < v2_total)
+        break;  // wait for the rest of the frame
+      const QByteArray frame = m_buffer.left(v2_total);
+      emit packetReceived(frame);
+      navlink_parser_push(
+          &m_v2Parser, &m_v2Handlers,
+          reinterpret_cast<const uint8_t *>(frame.constData()),
+          static_cast<size_t>(v2_total));
+      m_buffer.remove(0, v2_total);
+      continue;
+    }
 
     if (protocol_version != 0x1) {
       // Invalid protocol version, discard the false sync byte and continue

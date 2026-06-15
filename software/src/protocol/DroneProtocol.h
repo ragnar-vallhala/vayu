@@ -6,6 +6,12 @@
 #include <QObject>
 #include <QString>
 
+// NavLink v2 generated codec (single source of truth: navlink/dialect.json).
+// The header is extern "C"; the same .c compiles into the firmware and here.
+extern "C" {
+#include "navlink_msgs.h"
+}
+
 /**
  * Parses newline-terminated ASCII telemetry packets emitted by the Vayu
  * firmware over UART.
@@ -57,4 +63,14 @@ private:
   PacketDecoder m_decoder;
   bool m_checkCrc = true;  // Advanced ▸ CRC checking
   void parseBuffer();
+
+  // NavLink v2 receive path (navlink/INTEGRATION.md, Phase 1/2). v2 frames ride
+  // the same byte stream (sync 0x56, byte1 == 0x02); parseBuffer() demuxes them
+  // to this generated incremental parser, which validates the CRC and fires a
+  // typed handler per message. Handler thunks emit the existing Qt signals so
+  // TelemetryEngine / VehicleState / the UI are unchanged.
+  navlink_parser_t m_v2Parser;
+  navlink_handlers_t m_v2Handlers;
+  static void onV2AttitudeEuler(void *ctx, const navlink_frame_hdr_t *hdr,
+                                const navlink_attitude_euler_t *msg);
 };

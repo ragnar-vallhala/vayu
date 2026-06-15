@@ -130,8 +130,27 @@ target_include_directories(vayu_sitl_core PUBLIC
     ${NAVHAL_ROOT}/include/port/cortex-m4
 )
 
+# NavLink v2 codec: the firmware comm sources (telemetry_task.c) now emit v2
+# frames, so the host SITL core needs the generated codec too. Reuse the parent
+# build's navlink_codec target when present (the Navigator build defines it);
+# otherwise generate + build our own so standalone SITL configs still work.
+if(NOT TARGET navlink_codec)
+  if(NOT DEFINED NAVLINK_GEN)
+    set(NAVLINK_GEN ${CMAKE_CURRENT_BINARY_DIR}/navlink_gen)
+    execute_process(COMMAND ${CMAKE_COMMAND} -E make_directory ${NAVLINK_GEN})
+    execute_process(
+      COMMAND python3 ${VAYU_ROOT}/navlink/generate.py --lang c --out ${NAVLINK_GEN}
+      RESULT_VARIABLE NAVLINK_GEN_RC)
+    if(NOT NAVLINK_GEN_RC EQUAL 0)
+      message(FATAL_ERROR "navlink codegen failed (rc=${NAVLINK_GEN_RC})")
+    endif()
+  endif()
+  add_library(navlink_codec STATIC ${NAVLINK_GEN}/c/navlink_msgs.c)
+  target_include_directories(navlink_codec SYSTEM PUBLIC ${NAVLINK_GEN}/c)
+endif()
+
 find_package(Threads REQUIRED)
-target_link_libraries(vayu_sitl_core PUBLIC Threads::Threads m rt)
+target_link_libraries(vayu_sitl_core PUBLIC Threads::Threads m rt navlink_codec)
 
 add_executable(vayu_sitl ${HOST_MAIN_SOURCES})
 # main() is also in the library, so the executable picks the library's
