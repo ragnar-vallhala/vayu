@@ -15,8 +15,7 @@
 #include "vayu_status.h"
 #include "vayu_tasks.h"
 #include "vayu_tasks.h"
-#include "control/pid_config.h"
-#include "navlink_msgs.h"
+#include "comm/navlink_router.h"
 #include <stdbool.h>
 #include <stdint.h>
 static uint32_t _calibration_task_handle = 0;
@@ -142,64 +141,19 @@ void comm_processor_dispatch(const packet_t *pkt) {
   }
 }
 
-/* ---- NavLink v2 uplink (GCS -> FC) ------------------------------------------
- * Phase 3 of the v2 migration (navlink/INTEGRATION.md). v2 command frames ride
- * the same telemetry UART as v1 (sync 0x56, byte1 == 0x02); the RX ISR mirrors
- * every byte into a raw ring (serializer.c) which we drain here, in task
- * context, through the generated parser. v1 frames in the stream are ignored by
- * the v2 parser and still handled by comm_processor_dispatch(); v2 frames are
- * dispatched to the handlers below. First migrated command: CMD_SET_PID. */
-static navlink_parser_t g_v2_parser;
-static navlink_handlers_t g_v2_handlers;
-
-static void v2_on_cmd_set_pid(void *ctx, const navlink_frame_hdr_t *hdr,
-                              const navlink_cmd_set_pid_t *m) {
-  (void)ctx;
-  (void)hdr;
-  /* Reuse the tested v1 apply path: rebuild the v1 command payload
-   *   [cmd_id:2][argc:1][controller, axis, kp, ki, kd, kff : f32 x6]
-   * and call pid_config_apply_command (COMM-CMD-003). */
-  uint8_t payload[3 + 6 * 4];
-  uint16_t cmd_id = (uint16_t)CMD_SET_PID;
-  v_memcpy(&payload[0], &cmd_id, 2);
-  payload[2] = 6; /* argc */
-  float args[6] = {(float)m->controller, (float)m->axis,
-                   m->kp, m->ki, m->kd, m->kff};
-  v_memcpy(&payload[3], args, sizeof(args));
-  vayu_status_t st = pid_config_apply_command(payload, sizeof(payload));
-
-  /* Reply with a v2 COMMAND_ACK — the observable for live validation. */
-  navlink_command_ack_t ack = {0};
-  ack.command = NAVLINK_MSGID_CMD_SET_PID;
-  ack.req_seq = m->req_seq;
-  ack.result = (st == VAYU_OK) ? (uint8_t)NAVLINK_COMMAND_RESULT_ACCEPTED
-                               : (uint8_t)NAVLINK_COMMAND_RESULT_FAILED;
-  static uint8_t s_ack_seq = 0;
-  uint8_t frame[NAVLINK_MAX_FRAME];
-  size_t n = navlink_command_ack_encode(frame, &ack, s_ack_seq++,
-                                        get_device_id(), 1);
-  write_channel(g_telemetry_channel, frame, (uint16_t)n);
-}
-
-static void comm_v2_init(void) {
-  navlink_parser_init(&g_v2_parser);
-  g_v2_handlers = (navlink_handlers_t){0};
-  g_v2_handlers.on_cmd_set_pid = v2_on_cmd_set_pid;
-}
-
 void comm_processor_task(void *args) {
   (void)args;
   packet_t pkt;
-  static uint8_t v2_rx[256];
 
-  comm_v2_init();
+  /* NavLink v2 uplink (GCS -> FC) is owned entirely by navlink_router.c: the RX
+   * ISR mirrors every byte into a raw ring (serializer.c) which navlink_router_
+   * poll() drains through the generated parser + handler table in task context.
+   * v1 frames in the stream are ignored by the v2 parser and still handled by
+   * comm_processor_dispatch() below (navlink/INTEGRATION.md, Phase 3). */
+  navlink_router_init();
 
   while (1) {
-    /* Drain raw RX bytes through the v2 parser before the v1 queue. */
-    uint16_t got = comm_rx_raw_drain(v2_rx, (uint16_t)sizeof(v2_rx));
-    if (got > 0) {
-      navlink_parser_push(&g_v2_parser, &g_v2_handlers, v2_rx, got);
-    }
+    navlink_router_poll();
 
     if (get_next_rx_packet(&pkt) == NONE) {
       comm_processor_dispatch(&pkt);

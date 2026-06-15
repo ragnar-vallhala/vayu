@@ -351,6 +351,8 @@ def gen_c_frame_decls(d):
     for m in d["messages"]:
         pre = c_msg_prefix(m["name"])
         p(f"    void (*on_{m['name'].lower()})(void *ctx, const navlink_frame_hdr_t *hdr, const {pre}_t *msg);")
+    p("    /* Fallback for any decoded message whose specific on_<msg> slot is NULL. */")
+    p("    void (*on_default)(void *ctx, const navlink_frame_hdr_t *hdr, uint32_t msgid, const uint8_t *payload, size_t len);")
     p("    void (*on_unknown)(void *ctx, uint32_t msgid, const uint8_t *payload, size_t len);")
     p("    void (*on_crc_error)(void *ctx, uint32_t msgid);")
     p("} navlink_handlers_t;")
@@ -401,6 +403,8 @@ def gen_c_frame_defs(d):
         p(f"        if (h->on_{nm}) {{")
         p(f"            {pre}_wire_t w; {pre}_unpack(&w, pay, len);")
         p(f"            {pre}_t a; {pre}_to_aligned(&a, &w); h->on_{nm}(h->ctx, hdr, &a);")
+        p("        } else if (h->on_default) {")
+        p(f"            h->on_default(h->ctx, hdr, NAVLINK_MSGID_{m['name']}, pay, len);")
         p("        }")
         p("        break;")
     p("    default: break;")
@@ -651,6 +655,7 @@ def gen_py_frame(d):
     p('    """Populate the callbacks you care about; the Parser fires on_<message>(frame, msg)."""')
     for m in d["messages"]:
         p(f"    on_{m['name'].lower()}: object = None")
+    p("    on_default: object = None      # on_default(frame, msg) — decoded msg w/o a specific handler")
     p("    on_unknown: object = None      # on_unknown(frame)")
     p("    on_crc_error: object = None    # on_crc_error(frame)")
     p("")
@@ -703,8 +708,11 @@ def gen_py_frame(d):
     p("                self.h.on_crc_error(frame)")
     p("            return")
     p("        cb = getattr(self.h, MSGID_TO_HANDLER[msgid], None)")
+    p("        msg = MSGID_TO_CLASS[msgid].unpack(pay)")
     p("        if cb:")
-    p("            cb(frame, MSGID_TO_CLASS[msgid].unpack(pay))")
+    p("            cb(frame, msg)")
+    p("        elif self.h.on_default:")
+    p("            self.h.on_default(frame, msg)")
     return "\n".join(L)
 
 

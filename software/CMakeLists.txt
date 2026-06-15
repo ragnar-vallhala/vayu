@@ -62,6 +62,7 @@ set(GCS_SOURCES
     src/comm/UdpManager.cpp
     src/comm/PortArbiter.cpp
     src/protocol/DroneProtocol.cpp
+    src/protocol/NavlinkRouter.cpp
     src/protocol/TelemetryEngine.cpp
     src/protocol/CommandCodec.cpp
     src/ui/widgets/AttitudeWidget.cpp
