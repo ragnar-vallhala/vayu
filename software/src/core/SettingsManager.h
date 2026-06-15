@@ -50,6 +50,11 @@ struct GcsSettings {
   bool confirmBeforeArm = true;    // require a confirm dialog before ARM
   bool simPropAudio = false;       // default state of the sim's prop-audio
 
+  // Advanced (mockup parity, wired 2026-06-15). Perf poll rate stays
+  // coming-soon — kernel-perf is pushed by the firmware, not polled.
+  int packetBufferRows = 5000;     // Packet Analyzer ring-buffer cap
+  bool crcCheck = true;            // drop packets that fail CRC
+
   // Versioned (de)serialisation — the leading version field lets us
   // append fields without breaking existing settings files. The trailing
   // atEnd() sentinels make appended fields backward-compatible without a
@@ -65,7 +70,7 @@ struct GcsSettings {
         << s.traceWidth << s.antialias << s.logDirectory
         << s.timestampMode << s.maxLogLines << s.exportOnDisconnect
         << s.toastNotifications << s.audioAlerts << s.confirmBeforeArm
-        << s.simPropAudio;
+        << s.simPropAudio << s.packetBufferRows << s.crcCheck;
     return out;
   }
 
@@ -99,6 +104,8 @@ struct GcsSettings {
     if (!in.atEnd()) in >> s.audioAlerts;
     if (!in.atEnd()) in >> s.confirmBeforeArm;
     if (!in.atEnd()) in >> s.simPropAudio;
+    if (!in.atEnd()) in >> s.packetBufferRows;
+    if (!in.atEnd()) in >> s.crcCheck;
     return in;
   }
 };
@@ -107,6 +114,10 @@ class SettingsManager {
 public:
   static bool save(const GcsSettings &s);
   static bool load(GcsSettings &s);
+  // Import/export the config to an arbitrary path (Advanced ▸ Settings file).
+  // Same on-disk format (magic + version + struct) as the default store.
+  static bool saveToPath(const QString &path, const GcsSettings &s);
+  static bool loadFromPath(const QString &path, GcsSettings &s);
 
 private:
   static const quint32 Magic = 0x56415955; // "VAYU"

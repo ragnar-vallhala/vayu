@@ -25,6 +25,8 @@ public:
   ~PacketAnalyzerWidget() override = default;
 
   void setProtocol(DroneProtocol *protocol);
+  // Advanced ▸ Packet buffer: cap on rows kept in the analyzer's ring buffer.
+  void setPacketCapacity(int rows);
 
 public slots:
   void logRxPacket(const QByteArray &data);
