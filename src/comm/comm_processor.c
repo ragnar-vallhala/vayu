@@ -41,8 +41,36 @@ void comm_processor_dispatch(const packet_t *pkt) {
   uint8_t packet_type = (pkt->protocol_packet_type >> 4) & 0x0F;
 
   if (packet_type == PACKET_TYPE_HEARTBEAT) {
-    set_timestamp(pkt->timestamp);
+    /* Heartbeat is now liveness + device-id only; clock alignment moved to the
+     * time-sync handshake below (no more one-shot offset jam). */
     set_device_id(pkt->device_id);
+  } else if (packet_type == PACKET_TYPE_TIME_SYNC &&
+             pkt->length >= sizeof(time_sync_payload_t)) {
+    /* NTP-style sync (docs/telemetry/time_sync.md). Capture the receive time
+     * first, reply echoing t1 with t2 (rx) and t3 (tx), and apply any
+     * GCS-commanded clock correction via the slewed discipline. */
+    time_sync_payload_t in;
+    v_memcpy(&in, pkt->payload, sizeof(in));
+    if (in.role == TIME_SYNC_REQUEST) {
+      /* Apply the correction FIRST, then stamp t2/t3 from the corrected clock,
+       * so this exchange's response already reflects the command. The GCS then
+       * measures the *post-correction* residual and won't re-send a correction
+       * it has already applied — without this the loop double-applies and
+       * oscillates. t2/t3 are taken back-to-back so they're consistent (no
+       * step landing between them). */
+      if (in.commanded_offset_ms != INT32_MIN) {
+        time_sync_set_offset(in.commanded_offset_ms);
+      }
+      time_sync_payload_t out = {0};
+      out.role = TIME_SYNC_RESPONSE;
+      out.seq = in.seq;
+      out.t1_gcs_tx = in.t1_gcs_tx;
+      out.t2_fc_rx = (uint64_t)get_timestamp_unix();
+      out.commanded_offset_ms = INT32_MIN;
+      out.t3_fc_tx = (uint64_t)get_timestamp_unix();
+      send_packet(&g_telemetry_channel, PACKET_TYPE_TIME_SYNC, (uint8_t *)&out,
+                  (uint8_t)sizeof(out));
+    }
   } else if (packet_type == PACKET_TYPE_PERF_TASKNAME && pkt->length >= 1) {
     /* GCS asked for one task's name by id; reply [id][name\0]. Name is a
      * borrowed flash pointer in the TCB, copied bounded + NUL-terminated. */

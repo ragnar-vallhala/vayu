@@ -42,6 +42,10 @@ signals:
   void statusReceived(const QString &message);
   void calibrationUpdateReceived(const CalibrationUpdate &update);
   void heartbeatReceived(uint64_t timestamp, uint8_t deviceId);
+  // Time-sync RESPONSE (0xB): the four NTP timestamps (t4 captured on receipt,
+  // on the worker thread). MainWindow feeds these to TimeSyncEstimator.
+  void timeSyncResponse(quint8 seq, quint64 t1, quint64 t2, quint64 t3,
+                        quint64 t4);
   void perfReceived(const PerfReport &report);
   void taskNameReceived(int taskId, const QString &name);
   void timeSyncRequested();

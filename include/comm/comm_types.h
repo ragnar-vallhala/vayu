@@ -19,7 +19,37 @@ typedef enum {
   PACKET_TYPE_MOTOR_TELEMETRY = 0x8,     // FC -> GCS
   PACKET_TYPE_PERF_STATS = 0x9,          // FC -> GCS (kernel/observability)
   PACKET_TYPE_PERF_TASKNAME = 0xA,       // GCS <-> FC (task id -> name, on demand)
+  PACKET_TYPE_TIME_SYNC = 0xB,           // GCS <-> FC (NTP-style clock sync)
 } packet_type_t;
+
+/**
+ * @brief Roles for PACKET_TYPE_TIME_SYNC (docs/telemetry/time_sync.md)
+ */
+typedef enum {
+  TIME_SYNC_REQUEST = 0x00,  // GCS -> FC
+  TIME_SYNC_RESPONSE = 0x01, // FC -> GCS
+} time_sync_role_t;
+
+/**
+ * @brief PACKET_TYPE_TIME_SYNC payload (little-endian, 32 bytes).
+ *
+ * NTP four-timestamp handshake. The GCS sends a REQUEST stamping t1; the FC
+ * replies with a RESPONSE echoing t1 and adding t2 (its receive time) and t3
+ * (its send time). The GCS captures t4 on receipt and computes
+ *   offset = ((t2-t1)+(t3-t4))/2,  delay = (t4-t1)-(t3-t2).
+ * FC stamps are its get_timestamp_unix() ms widened to 64-bit; GCS stamps are
+ * wall-clock ms. commanded_offset_ms carries the GCS's filtered correction back
+ * to the FC (applied via time_sync_set_offset); INT32_MIN means "no command".
+ */
+typedef struct __attribute__((packed)) {
+  uint8_t role;                // time_sync_role_t
+  uint8_t seq;                 // request sequence, echoed in the response
+  uint8_t _pad[2];             // reserved, zero
+  uint64_t t1_gcs_tx;          // GCS send    (wall-clock ms)
+  uint64_t t2_fc_rx;           // FC receive  (FC ms)
+  uint64_t t3_fc_tx;           // FC send     (FC ms)
+  int32_t commanded_offset_ms; // GCS->FC correction; INT32_MIN = none
+} time_sync_payload_t;
 
 /**
  * @brief Origins for PACKET_TYPE_SYSTEM_STATUS (FC -> GCS)
