@@ -5,6 +5,7 @@
 #include "control/pid_config.h"
 #include "control/flight_mode.h"           /* flight_mode_apply_command */
 #include "control/angle_rate_controller.h" /* geometry apply */
+#include "sys/state.h"                      /* system_state_get, SYSTEM_STATE_* */
 #include "navhal.h"           /* hal_gpio_write, HAL_GPIO_HIGH/LOW */
 #include "sys/sys_utils.h"    /* get_device_id */
 #include "utils.h"            /* v_get_ticks, v_memcpy */
@@ -74,16 +75,19 @@ static void on_default(void *ctx, const navlink_frame_hdr_t *hdr, uint32_t msgid
 /* -------------------------------------------------------------------------- */
 /* Command handlers return their COMMAND_ACK result; the generated dispatch
  * builds and sends the ack (spec §12.1, enforced by codegen), so a handler can
- * never silently drop it — it only reports accepted/rejected. */
-static navlink_ack_t mk_ack(uint8_t result) {
-  navlink_ack_t a;
-  a.result = result;
-  a.progress = 0;
-  a.result_param2 = 0;
-  return a;
-}
+ * never silently drop it — it only reports the result, or defers (returns
+ * navlink_ack_deferred()) to send the ack itself once async work resolves. */
 #define ACK_OK ((uint8_t)NAVLINK_COMMAND_RESULT_ACCEPTED)
 #define ACK_BAD ((uint8_t)NAVLINK_COMMAND_RESULT_FAILED)
+#define ACK_BUSY ((uint8_t)NAVLINK_COMMAND_RESULT_TEMPORARILY_REJECTED)
+
+/* CMD_ARM defers its ack: setting the latch doesn't arm — the RC task evaluates
+ * the arm gates on its next frame — so the ack is resolved in navlink_router_poll
+ * from the flight-state machine (ARMED => ACCEPTED, else timeout => REJECTED). */
+static uint8_t s_arm_ack_pending;
+static uint8_t s_arm_ack_req_seq;
+static uint32_t s_arm_ack_deadline;
+#define ARM_ACK_TIMEOUT_MS 800u
 
 /* Rebuild a v1 [cmd_id:2][argc:1][argc x f32] apply payload from typed args. */
 static uint8_t build_cmd(uint8_t *p, uint16_t cmd_id, const float *args,
@@ -120,15 +124,21 @@ static navlink_ack_t on_cmd_set_pid(void *ctx, const navlink_frame_hdr_t *hdr,
   float args[6] = {(float)m->controller, (float)m->axis,
                    m->kp, m->ki, m->kd, m->kff};
   uint8_t len = build_cmd(p, (uint16_t)CMD_SET_PID, args, 6);
-  return mk_ack(pid_config_apply_command(p, len) == VAYU_OK ? ACK_OK : ACK_BAD);
+  return navlink_ack_result(pid_config_apply_command(p, len) == VAYU_OK ? ACK_OK : ACK_BAD);
 }
 
 static navlink_ack_t on_cmd_arm(void *ctx, const navlink_frame_hdr_t *hdr,
                                 const navlink_cmd_arm_t *m) {
-  (void)ctx; (void)hdr; (void)m;
+  (void)ctx; (void)hdr;
   uint8_t p[2] = {(uint8_t)CMD_ARM, 0x00}; /* bare cmd_id, no argc (len 2) */
-  dispatch_v1(PACKET_TYPE_COMMAND, p, 2);
-  return mk_ack(ACK_OK); /* latch set; arm gates still apply on the next RC frame */
+  dispatch_v1(PACKET_TYPE_COMMAND, p, 2);  /* set the latch */
+  /* Defer: arming only takes effect (or is gated out) when the RC task next
+   * evaluates the latch. navlink_router_poll resolves the ack from the
+   * flight-state machine, so the GCS hears the truthful outcome, not "received". */
+  s_arm_ack_pending = 1;
+  s_arm_ack_req_seq = m->req_seq;
+  s_arm_ack_deadline = v_get_ticks() + ARM_ACK_TIMEOUT_MS;
+  return navlink_ack_deferred();
 }
 
 static navlink_ack_t on_cmd_disarm(void *ctx, const navlink_frame_hdr_t *hdr,
@@ -136,7 +146,7 @@ static navlink_ack_t on_cmd_disarm(void *ctx, const navlink_frame_hdr_t *hdr,
   (void)ctx; (void)hdr; (void)m;
   uint8_t p[2] = {(uint8_t)CMD_DISARM, 0x00};
   dispatch_v1(PACKET_TYPE_COMMAND, p, 2);
-  return mk_ack(ACK_OK);
+  return navlink_ack_result(ACK_OK);
 }
 
 static navlink_ack_t on_cmd_calibrate_imu(void *ctx,
@@ -146,14 +156,19 @@ static navlink_ack_t on_cmd_calibrate_imu(void *ctx,
   if (m->which == 0xFFu) { /* sentinel: cancel calibration (v1 cmd 0x0009) */
     uint8_t p[2] = {0x09, 0x00};
     dispatch_v1(PACKET_TYPE_COMMAND, p, 2);
-    return mk_ack(ACK_OK);
+    return navlink_ack_result(ACK_OK);
+  }
+  /* Truthful start: reject if a calibration is already running, else kick it
+   * off. (Progress/completion stream separately via CALIBRATION_STATUS.) */
+  if (system_state_get() == SYSTEM_STATE_CALIBRATING) {
+    return navlink_ack_result(ACK_BUSY);
   }
   /* Single IMU: imu_id 0; `which` selects the routine (the v1 `type` arg). */
   uint8_t p[3 + 2 * 4];
   float args[2] = {0.0f, (float)m->which};
   uint8_t len = build_cmd(p, (uint16_t)CMD_CALIBRATE_IMU, args, 2);
   dispatch_v1(PACKET_TYPE_COMMAND, p, len);
-  return mk_ack(ACK_OK);
+  return navlink_ack_result(ACK_OK);
 }
 
 static navlink_ack_t
@@ -163,7 +178,7 @@ on_cmd_set_gyro_lpf(void *ctx, const navlink_frame_hdr_t *hdr,
   uint8_t p[3 + 2 * 4];
   float args[2] = {(float)m->axis, m->rc};
   uint8_t len = build_cmd(p, (uint16_t)CMD_SET_GYRO_LPF, args, 2);
-  return mk_ack(pid_config_apply_gyro_lpf_command(p, len) == VAYU_OK ? ACK_OK
+  return navlink_ack_result(pid_config_apply_gyro_lpf_command(p, len) == VAYU_OK ? ACK_OK
                                                                      : ACK_BAD);
 }
 
@@ -179,7 +194,7 @@ on_cmd_set_motor_geometry(void *ctx, const navlink_frame_hdr_t *hdr,
     args[8 + i] = (float)m->spin[i];
   }
   uint8_t len = build_cmd(p, (uint16_t)CMD_SET_MOTOR_GEOMETRY, args, 12);
-  return mk_ack(angle_rate_controller_apply_geometry_command(p, len) ? ACK_OK
+  return navlink_ack_result(angle_rate_controller_apply_geometry_command(p, len) ? ACK_OK
                                                                      : ACK_BAD);
 }
 
@@ -190,7 +205,7 @@ on_cmd_set_flight_mode(void *ctx, const navlink_frame_hdr_t *hdr,
   uint8_t p[3 + 1 * 4];
   float args[1] = {(float)m->mode}; /* v1 carried mode only; source implied GCS */
   uint8_t len = build_cmd(p, (uint16_t)CMD_SET_FLIGHT_MODE, args, 1);
-  return mk_ack(flight_mode_apply_command(p, len) ? ACK_OK : ACK_BAD);
+  return navlink_ack_result(flight_mode_apply_command(p, len) ? ACK_OK : ACK_BAD);
 }
 
 static void on_time_sync(void *ctx, const navlink_frame_hdr_t *hdr,
@@ -244,11 +259,29 @@ void navlink_router_init(void) {
   s_handlers.on_perf_taskname_request = on_perf_taskname_request;
 }
 
+/* Resolve a deferred CMD_ARM ack from the flight-state machine: ACCEPTED once it
+ * actually armed, TEMPORARILY_REJECTED if the gates kept it from arming in time. */
+static void arm_ack_service(void) {
+  if (!s_arm_ack_pending) {
+    return;
+  }
+  if (system_state_get() == SYSTEM_STATE_ARMED) {
+    navlink_command_ack_send(&s_handlers, NAVLINK_MSGID_CMD_ARM, s_arm_ack_req_seq,
+                             navlink_ack_result(ACK_OK));
+    s_arm_ack_pending = 0;
+  } else if ((int32_t)(v_get_ticks() - s_arm_ack_deadline) >= 0) {
+    navlink_command_ack_send(&s_handlers, NAVLINK_MSGID_CMD_ARM, s_arm_ack_req_seq,
+                             navlink_ack_result(ACK_BUSY));
+    s_arm_ack_pending = 0;
+  }
+}
+
 void navlink_router_poll(void) {
   uint8_t buf[256];
   uint16_t n = comm_rx_raw_drain(buf, (uint16_t)sizeof(buf));
   if (n > 0) {
     navlink_parser_push(&s_parser, &s_handlers, buf, n);
   }
+  arm_ack_service();
   blink_service();
 }
