@@ -60,13 +60,6 @@ void navlink_tx_heartbeat(void) {
   write_channel(g_telemetry_channel, frame, (uint16_t)n);
 }
 
-void navlink_tx_system_state(int sys_state) {
-  /* DEPRECATED: vehicle state now rides in v2 HEARTBEAT.nav_state (see
-   * navlink_tx_heartbeat). Retained as a no-op shim so any stray caller keeps
-   * linking; the telemetry task no longer calls it. */
-  (void)sys_state;
-}
-
 void navlink_tx_flight_mode(uint8_t mode, uint8_t source) {
   /* v2 FLIGHT_MODE (msgid 3); replaces v1 SYSTEM_STATUS origin FLIGHT_MODE. */
   static uint8_t seq = 0;

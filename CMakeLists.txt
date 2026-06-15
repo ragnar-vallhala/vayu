@@ -142,7 +142,6 @@ set(VAYU_R12_CLEAN_SOURCES
     # COMM module (Phase 4)
     ${CMAKE_CURRENT_SOURCE_DIR}/src/comm/channel.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/comm/serializer.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/comm/deserializer.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/comm/comm_processor.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/comm/telemetry_task.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/comm/ibus.c
