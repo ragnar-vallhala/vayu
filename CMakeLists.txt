@@ -76,8 +76,30 @@ add_subdirectory(extern/vaios)
 # Project sources
 #-------------------------
 set(CMAKE_C_STANDARD 11)
+
+#-------------------------
+# NavLink v2 generated codec (single source of truth: navlink/dialect.json)
+#-------------------------
+# Phase 0 of the v2 migration (navlink/INTEGRATION.md): generate the C codec at
+# configure time into the build tree and compile it into the firmware. Nothing
+# generated is committed; it is regenerated on every configure so it can never
+# drift from the dialect. Marked SYSTEM so the generated header never trips a
+# comm module's -Wconversion/-Werror build (the .c builds under the baseline
+# -Wall, not the strict set).
+set(NAVLINK_DIR ${CMAKE_CURRENT_SOURCE_DIR}/navlink)
+set(NAVLINK_GEN ${CMAKE_CURRENT_BINARY_DIR}/navlink_gen)
+execute_process(COMMAND ${CMAKE_COMMAND} -E make_directory ${NAVLINK_GEN})
+execute_process(
+  COMMAND python3 ${NAVLINK_DIR}/generate.py --lang c --out ${NAVLINK_GEN}
+  RESULT_VARIABLE NAVLINK_GEN_RC)
+if(NOT NAVLINK_GEN_RC EQUAL 0)
+  message(FATAL_ERROR "navlink codegen failed (rc=${NAVLINK_GEN_RC})")
+endif()
+include_directories(SYSTEM ${NAVLINK_GEN}/c)
+set(NAVLINK_SOURCES ${NAVLINK_GEN}/c/navlink_msgs.c)
+
 FILE(GLOB_RECURSE VAYU_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/*.c)
-add_executable(main ${STARTUP_FILE} ${VAYU_SOURCES})
+add_executable(main ${STARTUP_FILE} ${VAYU_SOURCES} ${NAVLINK_SOURCES})
 target_compile_options(main PRIVATE ${BASE_C_FLAGS})
 set_target_properties(main PROPERTIES COMPILE_FLAGS "${BASE_C_FLAGS}")
 
