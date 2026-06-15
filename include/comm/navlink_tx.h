@@ -8,9 +8,11 @@
  * send_packet()/write_channel(). Telemetry producers (telemetry_task.c,
  * comm_processor.c) hand domain data to the navlink_tx_* publishers below and
  * stay codec-blind — so migrating a message v1->v2 is a one-line change *here*,
- * invisible to the producers. Wire bytes are currently unchanged: ATTITUDE is
- * NavLink v2, everything else is v1 (wrapped send_packet). See
- * navlink/INTEGRATION.md.
+ * invisible to the producers. Migration is in progress: the dashboard telemetry
+ * set (ATTITUDE, IMU full/compressed, RC, MOTOR, FLIGHT_MODE, SYSTEM_HEALTH,
+ * EST_PERF, CONTROL_TRACE) now emits NavLink v2; the rest (heartbeat,
+ * system-state, log, calibration, time-sync, perf-taskname) is still v1
+ * (wrapped send_packet) pending its own migration. See navlink/INTEGRATION.md.
  *
  * EXCEPTION: perf_telemetry.c keeps its own fragmented PERF_STATS framing (it
  * carries no codec dependency); it joins this seam when PERF itself migrates. */
@@ -25,17 +27,17 @@
 /* --- periodic telemetry (FC -> GCS) --------------------------------------- */
 void navlink_tx_log(const char *buf, uint8_t len);
 void navlink_tx_heartbeat(void);
-void navlink_tx_system_state(int sys_state);                  /* SYSTEM_STATUS 0x04 */
-void navlink_tx_flight_mode(uint8_t mode, uint8_t source);    /* SYSTEM_STATUS 0x07 */
+void navlink_tx_system_state(int sys_state);                  /* v1 SYSTEM_STATUS 0x04 */
+void navlink_tx_flight_mode(uint8_t mode, uint8_t source);    /* v2 FLIGHT_MODE */
 void navlink_tx_health(uint32_t tx_overflow, uint32_t imu_drop,
-                       uint32_t log_wrap);                    /* SYSTEM_STATUS 0x02 */
-void navlink_tx_pid_error(const control_telemetry_t *c);      /* SYSTEM_STATUS 0x05 */
-void navlink_tx_est_perf(const est_perf_telemetry_t *e);      /* SYSTEM_STATUS 0x08 */
-void navlink_tx_imu_full(const float floats10[10]);           /* IMU_DATA_FULL */
-void navlink_tx_imu_compressed(const uint16_t delta_f16[10]); /* IMU_DATA_COMPRESSED */
+                       uint32_t log_wrap);                    /* v2 SYSTEM_HEALTH */
+void navlink_tx_pid_error(const control_telemetry_t *c);      /* v2 CONTROL_TRACE */
+void navlink_tx_est_perf(const est_perf_telemetry_t *e);      /* v2 EST_PERF */
+void navlink_tx_imu_full(const float floats10[10]);           /* v2 IMU_RAW */
+void navlink_tx_imu_compressed(const uint16_t delta_f16[10]); /* v2 IMU_COMPRESSED */
 void navlink_tx_attitude(const attitude_t *att_deg);          /* v2 ATTITUDE_EULER */
-void navlink_tx_rc_channels(const ibus_data_t *rc);           /* RC_CHANNELS */
-void navlink_tx_motor(const motor_outputs_t *m);              /* MOTOR_TELEMETRY */
+void navlink_tx_rc_channels(const ibus_data_t *rc);           /* v2 RC_CHANNELS */
+void navlink_tx_motor(const motor_outputs_t *m);              /* v2 MOTOR_TELEMETRY */
 void navlink_tx_calibration(const uint8_t *buf,
                             uint8_t len);                     /* SYSTEM_STATUS (calib blob) */
 
