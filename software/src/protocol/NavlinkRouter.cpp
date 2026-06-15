@@ -127,6 +127,13 @@ void thunkFlightMode(void *ctx, const navlink_frame_hdr_t *,
     r->onFlightMode(m->mode, m->source);
 }
 
+void thunkHeartbeat(void *ctx, const navlink_frame_hdr_t *hdr,
+                    const navlink_heartbeat_t *m) {
+  auto *r = static_cast<NavlinkRouter *>(ctx);
+  if (r->onHeartbeat)
+    r->onHeartbeat(m->nav_state, m->timestamp, hdr->sysid);
+}
+
 void thunkSystemHealth(void *ctx, const navlink_frame_hdr_t *,
                        const navlink_system_health_t *m) {
   auto *r = static_cast<NavlinkRouter *>(ctx);
@@ -160,6 +167,7 @@ NavlinkRouter::NavlinkRouter() : d_(new Impl) {
   d_->handlers.on_control_trace = thunkControlTrace;
   d_->handlers.on_est_perf = thunkEstPerf;
   d_->handlers.on_flight_mode = thunkFlightMode;
+  d_->handlers.on_heartbeat = thunkHeartbeat;
   d_->handlers.on_system_health = thunkSystemHealth;
   // Sensible default so an unhandled leaf is never silent, even if the owner
   // didn't override onDefault.

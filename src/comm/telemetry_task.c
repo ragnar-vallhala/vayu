@@ -80,12 +80,12 @@ void imu_telemetry_task(void *args) {
         navlink_tx_log(log_buf, len);
       }
     }
-    if (send_heartbeat) {
-      /* @implements COMM-TEL-002 */
-      navlink_tx_heartbeat();
-    }
+    (void)send_heartbeat; /* heartbeat now rides the send_status gate below */
     if (send_status) {
-      navlink_tx_system_state((int)system_state_get());
+      /* v2 HEARTBEAT carries nav_state (folds in the former SYS_STATE origin);
+       * emitted at the status cadence so the vehicle-state pill stays responsive
+       * while still satisfying COMM-TEL-002 (>= 1 Hz). @implements COMM-TEL-002 */
+      navlink_tx_heartbeat();
       /* stabilise/acro + RC/GCS source so the GCS can reflect the mode. */
       navlink_tx_flight_mode((uint8_t)flight_mode_get(),
                              (uint8_t)flight_mode_get_source());

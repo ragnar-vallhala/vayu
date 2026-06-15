@@ -24,6 +24,17 @@ DroneProtocol::DroneProtocol(QObject *parent) : QObject(parent) {
   m_v2Router.onFlightMode = [this](uint8_t mode, uint8_t source) {
     emit flightModeReceived(mode, source);
   };
+  m_v2Router.onHeartbeat = [this](uint8_t navState, uint64_t ts, uint8_t dev) {
+    // nav_state enum index -> the state name TelemetryEngine matches on (same
+    // order as the firmware's one-hot sys_state, folded into HEARTBEAT).
+    static const char *const kStateNames[] = {
+        "UNINITIALIZED", "INIT",     "STANDBY",    "PREARM",
+        "ARMED",         "IN_AIR",   "FAILSAFE",   "TERMINATED",
+        "CALIBRATING"};
+    if (navState < 9)
+      emit statusReceived(QString::fromLatin1(kStateNames[navState]));
+    emit heartbeatReceived(ts, dev);
+  };
   // onSystemHealth intentionally left unset: no GCS consumer (parity with v1).
   m_v2Router.onDefault = [this](uint32_t msgid, int len) {
     emit logReceived(

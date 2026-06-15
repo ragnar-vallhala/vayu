@@ -29,6 +29,10 @@ public:
   std::function<void(const ControlLoopData &)> onControlLoop;
   std::function<void(const EstPerfData &)> onEstPerf;
   std::function<void(uint8_t mode, uint8_t source)> onFlightMode;
+  // HEARTBEAT: nav_state is the flight-state enum index; timestamp + device id
+  // (frame sysid) drive link liveness. The owner maps nav_state -> state name.
+  std::function<void(uint8_t navState, uint64_t timestamp, uint8_t deviceId)>
+      onHeartbeat;
   // SYSTEM_HEALTH: decoded but has no GCS consumer today (parity with v1, which
   // never surfaced it). A hook is provided for when one is added.
   std::function<void(uint32_t txOverflow, uint32_t imuDrop, uint32_t logWrap,
