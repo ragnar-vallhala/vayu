@@ -932,7 +932,13 @@ shared header `{ target_sys:u8, target_comp:u8, req_seq:u8 }` followed by typed
 parameters (no float box, no `COMMAND_LONG`/`COMMAND_INT` split). The receiver
 answers with `COMMAND_ACK { command:u24, req_seq:u8, result, progress,
 result_param2 }`, correlated by `(command msgid, req_seq)`. An FC that is
-unsynchronised (§10.5) MUST reject commands.
+unsynchronised (§10.5) MUST reject commands. Codegen enforces this in one place:
+the generated dispatch consults an optional `command_gate(ctx, command)` before
+**every** ack-requiring handler — a non-`ACCEPTED` result blocks the handler and
+becomes the `COMMAND_ACK`, so the rule cannot be forgotten when a command is
+added. The FC wires the gate to its clock state (`time_sync_is_synced()`),
+returning `TEMPORARILY_REJECTED` until the startup sync succeeds. (Skew-triggered
+de-sync, the other half of §10.5, lands with the §11 security layer.)
 
 Whether a message owes a `COMMAND_ACK` is **declared in the dialect**: it defaults
 to `true` for the command range and `false` elsewhere, and any message may set an

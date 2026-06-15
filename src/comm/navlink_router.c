@@ -241,12 +241,25 @@ static void router_send(void *ctx, const uint8_t *frame, uint16_t len) {
   write_channel(g_telemetry_channel, (uint8_t *)frame, len);
 }
 
+/* §10.5 security gate: an unsynchronised FC MUST reject every command. The
+ * dispatch consults this before EVERY command handler (codegen-enforced), so the
+ * rule holds for current and future commands without per-handler checks. Until
+ * the GCS has disciplined our clock (time-sync handshake, §10), commands are
+ * TEMPORARILY_REJECTED — a soft "retry after sync", not a hard failure — so the
+ * GCS re-issues once synced rather than surfacing a permanent error. */
+static navlink_ack_t router_command_gate(void *ctx, uint32_t command) {
+  (void)ctx;
+  (void)command;
+  return navlink_ack_result(time_sync_is_synced() ? ACK_OK : ACK_BUSY);
+}
+
 void navlink_router_init(void) {
   navlink_parser_init(&s_parser);
   s_handlers = (navlink_handlers_t){0};
   s_handlers.send = router_send; /* required: commands auto-ack via this */
   s_handlers.sysid = get_device_id();
   s_handlers.compid = 1;
+  s_handlers.command_gate = router_command_gate; /* §10.5: reject until synced */
   s_handlers.on_default = on_default; /* every unhandled leaf -> blink */
   s_handlers.on_cmd_set_pid = on_cmd_set_pid;
   s_handlers.on_cmd_arm = on_cmd_arm;
