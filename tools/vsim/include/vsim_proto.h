@@ -134,6 +134,7 @@ enum {
     VSIM_CTL_CLEAR_WORLD_MESH= 11, // body: empty — drop the world mesh
     VSIM_CTL_SET_TESTRIG     = 12, // body: vsim_ctl_testrig_t — pin translation
     VSIM_CTL_SET_FAULTS      = 13, // body: vsim_ctl_faults_t — injected failures
+    VSIM_CTL_SET_WIND        = 14, // body: vsim_ctl_wind_t — world wind field
 };
 
 // Body for VSIM_CTL_SET_FAULTS: latched failure injection for testing the
@@ -161,6 +162,20 @@ typedef struct {
     float   mag_bias_clip;  // mag bias clip [uT]
     int32_t mag_enable;
 } vsim_ctl_noise_t;
+
+// Body for VSIM_CTL_SET_WIND: a world-frame wind field the airframe feels as
+// relative-velocity drag (docs/sim-fidelity/01-wind-turbulence.md). Sum of a
+// steady component, a deterministic 1-cos-style gust, and a Dryden first-order
+// band-limited turbulence filter. enable==0 is a fast bypass (no wind, no RNG
+// draw) so the default sim behaviour is byte-identical to "no wind sent".
+typedef struct {
+    float   steady[3];     // v_steady NED [m/s]   (windN, windE, windD)
+    float   gust_amp;      // peak gust [m/s]      (windGust)
+    float   gust_period;   // gust period [s], <=0 disables the gust
+    float   turb_sigma;    // turbulence RMS [m/s] (windTurb)
+    float   turb_tau;      // correlation time [s] (<=0 -> default 1.0)
+    int32_t enable;        // 0 = no wind at all (fast bypass)
+} vsim_ctl_wind_t;         // 32 B
 
 typedef struct {
     vsim_hdr_t hdr;
@@ -302,6 +317,7 @@ static_assert(sizeof(vsim_pose_frame_t) == 16 + 128, "vsim_pose_frame_t size");
 static_assert(sizeof(vsim_ctl_frame_t)  == 16 + 264, "vsim_ctl_frame_t size");
 static_assert(sizeof(vsim_ctl_geometry_t) == 216,    "vsim_ctl_geometry_t size");
 static_assert(sizeof(vsim_ctl_world_t)   == 28,      "vsim_ctl_world_t size");
+static_assert(sizeof(vsim_ctl_wind_t)    == 32,      "vsim_ctl_wind_t size");
 static_assert(sizeof(vsim_ctl_world_mesh_t) <= 256,  "vsim_ctl_world_mesh_t fits ctl body");
 #else
 _Static_assert(sizeof(vsim_hdr_t)        == 16, "vsim_hdr_t size");

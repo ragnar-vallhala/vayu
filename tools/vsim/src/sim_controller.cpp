@@ -15,12 +15,17 @@ static constexpr float kGroundHoldS = 0.3f;
 void SimController::resetState(const RigidBodyState& s) {
     phys_.reset(s);
     motors_.reset();
+    wind_.reset();
     last_a_world_ = Vec3(0.0f, 0.0f, 0.0f);
 }
 
 void SimController::stepOnce(const std::array<float, 4>& duty, float dt) {
     Vec3 F_b, T_b;
     motors_.update(duty, dt, &F_b, &T_b);
+
+    // Advance the wind field and hand the physics integrator this step's
+    // air-relative wind (still air -> zero -> original drag behaviour).
+    phys_.setWind(wind_.step(dt));
 
     Vec3 vel_before = phys_.state().vel_w;
     phys_.step(F_b, T_b, dt);

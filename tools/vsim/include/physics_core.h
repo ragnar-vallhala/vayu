@@ -47,6 +47,12 @@ public:
         test_rig_ = on; rig_pos_ = pos; tether_k_ = tether_k;
     }
 
+    // World-frame wind velocity [m/s] NED. Drag acts on the air-relative
+    // velocity v_rel = vel_w - wind, so a hovering craft in steady wind is
+    // pushed (drag no longer zeroes at zero ground speed). Default zero =
+    // still air = original behaviour. Set once per step by the controller.
+    void setWind(const Vec3& wind_w) { wind_w_ = wind_w; }
+
     // One RK4 step. force_b and torque_b are body-frame.
     void step(const Vec3& force_b, const Vec3& torque_b, float dt);
 
@@ -88,6 +94,7 @@ private:
     bool           test_rig_ = false;          // hold translation, free rotation
     Vec3           rig_pos_{0.0f, 0.0f, 0.0f}; // held position when test_rig_
     float          tether_k_ = 0.0f;           // >0: soft spring instead of hard pin
+    Vec3           wind_w_{0.0f, 0.0f, 0.0f};   // world-frame wind [m/s]; 0 = still air
     // Cached inverse of params_.inertia; kept in sync by setParams().
     // Default matches the default DroneParams inertia.
     Mat3           I_inv_ = DroneParams{}.inertia.inverse();
