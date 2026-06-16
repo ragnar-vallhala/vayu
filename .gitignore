@@ -9,6 +9,10 @@ logs
 venv
 __pycache__
 build_vsim/
+# Docker (tools/docker) out-of-tree build dirs
+build-docker/
+build_sitl-docker/
+software/build-docker/
 
 # sim world / vehicle assets + tuner run artifacts (not source)
 *.vveh
