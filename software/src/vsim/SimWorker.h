@@ -27,6 +27,14 @@ struct SimSnapshot {
   std::array<float, 4> motor_omega = {0, 0, 0, 0};
   std::array<float, 4> motor_duty  = {0, 0, 0, 0};
   uint64_t tick_count = 0;
+  // sim-fidelity telemetry (pose proto v3); zero until each phase populates it.
+  Vec3  wind_w  = {0, 0, 0};  // instantaneous world wind [m/s] NED (Phase 1)
+  float airspeed     = 0.0f;  // ‖v_rel‖ [m/s]                    (Phase 2)
+  float ge_factor    = 1.0f;  // ground-effect multiplier         (Phase 2)
+  float batt_voltage = 0.0f;  // [V]                              (Phase 5)
+  float batt_current = 0.0f;  // [A]                              (Phase 5)
+  float batt_mah_used= 0.0f;  // [mAh]                            (Phase 5)
+  float batt_soc     = 0.0f;  // [0,1]                            (Phase 5)
 };
 
 // SimWorker -- vsim_d process supervisor + pose reader.

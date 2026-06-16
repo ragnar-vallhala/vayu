@@ -424,6 +424,13 @@ void SimWorker::emitFromFrame(const void* bytes) {
         snap.motor_duty[i]  = frame->motor_duty[i];
     }
     snap.tick_count = (static_cast<uint64_t>(frame->tick_hi) << 32) | frame->tick_lo;
+    snap.wind_w   = Vec3(frame->wind_w[0], frame->wind_w[1], frame->wind_w[2]);
+    snap.airspeed     = frame->airspeed;
+    snap.ge_factor    = frame->ge_factor;
+    snap.batt_voltage = frame->batt_voltage;
+    snap.batt_current = frame->batt_current;
+    snap.batt_mah_used= frame->batt_mah_used;
+    snap.batt_soc     = frame->batt_soc;
     {
         std::lock_guard<std::mutex> lk(snap_mtx_);
         last_snap_ = snap;

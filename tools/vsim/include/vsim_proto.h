@@ -36,7 +36,9 @@ extern "C" {
 
 // Bump on any wire-incompatible change. Producer / consumer compare
 // versions on first frame and exit if mismatched.
-#define VSIM_PROTO_VERSION 2u
+//   v3: pose frame extended with environment + battery telemetry
+//       (wind_w, airspeed, ge_factor, batt_*) for the sim-fidelity features.
+#define VSIM_PROTO_VERSION 3u
 
 // Frame type tags. Each one is locked to a specific struct; the
 // receiver dispatches on type after validating magic + length.
@@ -104,6 +106,16 @@ typedef struct {
     float omega_b[3];        // body angular velocity [rad/s]
     float motor_omega[4];    // per-rotor [rad/s], M1..M4
     float motor_duty[4];     // last commanded duty [0,1]
+    // ---- sim-fidelity telemetry (proto v3) -------------------------------
+    // Reserved here so the wire breaks once; each block is populated by its
+    // own phase and reads zero until then (see docs/sim-fidelity/00-phasing.md).
+    float wind_w[3];         // instantaneous world-frame wind [m/s] NED (Phase 1)
+    float airspeed;          // air-relative speed ‖v_rel‖ [m/s]      (Phase 2)
+    float ge_factor;         // live ground-effect thrust multiplier  (Phase 2)
+    float batt_voltage;      // terminal voltage [V]                  (Phase 5)
+    float batt_current;      // pack current [A]                      (Phase 5)
+    float batt_mah_used;     // consumed charge [mAh]                 (Phase 5)
+    float batt_soc;          // state of charge [0,1]                 (Phase 5)
 } vsim_pose_frame_t;
 
 // Ctl message types. Body interpretation varies; readers should
@@ -286,7 +298,7 @@ typedef struct {
 static_assert(sizeof(vsim_hdr_t)        == 16, "vsim_hdr_t size");
 static_assert(sizeof(vsim_pwm_frame_t)  == 16 + 16,  "vsim_pwm_frame_t size");
 static_assert(sizeof(vsim_imu_frame_t)  == 16 + 88,  "vsim_imu_frame_t size");
-static_assert(sizeof(vsim_pose_frame_t) == 16 + 92,  "vsim_pose_frame_t size");
+static_assert(sizeof(vsim_pose_frame_t) == 16 + 128, "vsim_pose_frame_t size");
 static_assert(sizeof(vsim_ctl_frame_t)  == 16 + 264, "vsim_ctl_frame_t size");
 static_assert(sizeof(vsim_ctl_geometry_t) == 216,    "vsim_ctl_geometry_t size");
 static_assert(sizeof(vsim_ctl_world_t)   == 28,      "vsim_ctl_world_t size");
@@ -295,7 +307,7 @@ static_assert(sizeof(vsim_ctl_world_mesh_t) <= 256,  "vsim_ctl_world_mesh_t fits
 _Static_assert(sizeof(vsim_hdr_t)        == 16, "vsim_hdr_t size");
 _Static_assert(sizeof(vsim_pwm_frame_t)  == 16 + 16,  "vsim_pwm_frame_t size");
 _Static_assert(sizeof(vsim_imu_frame_t)  == 16 + 88,  "vsim_imu_frame_t size");
-_Static_assert(sizeof(vsim_pose_frame_t) == 16 + 92,  "vsim_pose_frame_t size");
+_Static_assert(sizeof(vsim_pose_frame_t) == 16 + 128, "vsim_pose_frame_t size");
 _Static_assert(sizeof(vsim_ctl_frame_t)  == 16 + 264, "vsim_ctl_frame_t size");
 _Static_assert(sizeof(vsim_ctl_geometry_t) == 216,    "vsim_ctl_geometry_t size");
 _Static_assert(sizeof(vsim_ctl_world_t)   == 28,      "vsim_ctl_world_t size");
