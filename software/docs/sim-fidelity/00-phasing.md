@@ -54,7 +54,10 @@ README's `1→2→5→3→4`:
 
 ---
 
-## Phase 0 — shared foundation (no user-visible behaviour)
+> **Progress (branch `sim-fidelity`):** Phase 0 ✅ (38f64a5) · Phase 1 ✅
+> (9afb721 daemon, 422c16d GCS). Phases 2–5 pending.
+
+## Phase 0 — shared foundation (no user-visible behaviour) ✅
 
 A single ABI bump + plumbing so later phases just fill fields in.
 
@@ -93,9 +96,14 @@ is a contained daemon↔GCS change, not a cross-stack break.
 
 ---
 
-## Phase 1 — Wind & turbulence  ([01](01-wind-turbulence.md))
+## Phase 1 — Wind & turbulence  ([01](01-wind-turbulence.md)) ✅
 
-The headline physics change; everything else reuses its `v_rel`.
+The headline physics change; everything else reuses its `v_rel`. Shipped:
+header-only `WindModel` (own salted RNG), `v_rel` drag, `SET_WIND` opcode,
+`wind_w` populated on the pose frame, a World-tab "Wind & Turbulence" group with
+a dirty-tracked Apply button + live wind readout, and `wind_model_test` (8/8).
+Live mini-graphs (`gWindSpd`/`gWindDir`) and a HUD wind-vane glyph are the one
+deferred nicety — the numeric readout covers the demo.
 
 - **Proto:** `SET_WIND = 14`, `vsim_ctl_wind_t`.
 - **Daemon:** `WindState` on the controller (config + `v_turb[3]` filter state +
