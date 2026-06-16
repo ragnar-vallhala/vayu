@@ -537,6 +537,17 @@ void SimulatorWidget::buildUi() {
       appendLog("world", tr("world applied (g=%1 m/s²)")
                              .arg(m_worldEditor->config().gravity));
     });
+    // Wind & turbulence: its own staged Apply → push + persist.
+    connect(m_worldEditor, &WorldEditorWidget::windApplied, this, [this] {
+      const vsim::WindConfig w = m_worldEditor->windConfig();
+      if (m_sim) m_sim->sendWind(w);
+      persistWind(w);
+      appendLog("world", w.enabled
+                             ? tr("wind applied (steady %1/%2/%3 m/s, turb σ=%4)")
+                                   .arg(w.steady.x()).arg(w.steady.y())
+                                   .arg(w.steady.z()).arg(w.turbSigma)
+                             : tr("wind disabled"));
+    });
     // Obstacles are visual (phase 1): live-update the 3D view + persist on any
     // add/remove/edit, no Apply needed.
     connect(m_worldEditor, &WorldEditorWidget::obstaclesChanged, this, [this] {
@@ -900,6 +911,7 @@ void SimulatorWidget::buildUi() {
   // recomputes, firing previewUpdated -> applyGeometryToRenderer).
   m_geomEditor->setConfig(restoreGeometry());
   m_worldEditor->setConfig(restoreWorld());
+  m_worldEditor->setWindConfig(restoreWind());
   if (m_renderer) m_renderer->setObstacles(m_worldEditor->config().obstacles);
   loadWorldMeshToRenderer();
 
@@ -1703,6 +1715,14 @@ void SimulatorWidget::updateHud(const vsim::SimSnapshot& s) {
     vsim::quatToEulerNED(s.att, &roll, &pitch, &yaw);
     m_horizon->setAttitude(roll, pitch, yaw);
   }
+  // Live wind readout (horizontal speed + compass heading the wind blows TOWARD).
+  if (m_worldEditor) {
+    const float wN = s.wind_w.x(), wE = s.wind_w.y();
+    const float spd = std::sqrt(wN * wN + wE * wE);
+    float dir = std::atan2(wE, wN) * 180.0f / 3.14159265358979323846f;
+    if (dir < 0.0f) dir += 360.0f;
+    m_worldEditor->setWindReadout(spd, dir);
+  }
 }
 
 void SimulatorWidget::loadWorldMeshToRenderer() {
@@ -2081,6 +2101,7 @@ void SimulatorWidget::startInAppSim() {
     m_sim->sendGeometry(cfg);          // vsim_d physics motor layout
     m_sim->sendWorld(m_worldEditor->config());
     m_sim->sendObstacles(m_worldEditor->config().obstacles);
+    m_sim->sendWind(m_worldEditor->windConfig());   // restore wind across restart
     pushNoise();   // apply the configured sensor models (σ / enable)
     pushFaults();  // re-assert any latched faults across the restart
     loadWorldMeshToRenderer();  // re-loads + ships the collision BVH now m_sim exists
@@ -2341,6 +2362,36 @@ vsim::WorldConfig SimulatorWidget::restoreWorld() {
     w.obstacles.push_back(o);
   }
   s.endArray();
+  s.endGroup();
+  return w;
+}
+
+void SimulatorWidget::persistWind(const vsim::WindConfig& w) {
+  QSettings s;
+  s.beginGroup(kWorldGroup);
+  s.setValue("windN", w.steady.x());
+  s.setValue("windE", w.steady.y());
+  s.setValue("windD", w.steady.z());
+  s.setValue("windGustAmp", w.gustAmp);
+  s.setValue("windGustPeriod", w.gustPeriod);
+  s.setValue("windTurbSigma", w.turbSigma);
+  s.setValue("windTurbTau", w.turbTau);
+  s.setValue("windEnabled", w.enabled);
+  s.endGroup();
+}
+
+vsim::WindConfig SimulatorWidget::restoreWind() {
+  vsim::WindConfig w;   // defaults (disabled, zero) if nothing saved
+  QSettings s;
+  s.beginGroup(kWorldGroup);
+  w.steady = QVector3D(s.value("windN", w.steady.x()).toFloat(),
+                       s.value("windE", w.steady.y()).toFloat(),
+                       s.value("windD", w.steady.z()).toFloat());
+  w.gustAmp    = s.value("windGustAmp", w.gustAmp).toFloat();
+  w.gustPeriod = s.value("windGustPeriod", w.gustPeriod).toFloat();
+  w.turbSigma  = s.value("windTurbSigma", w.turbSigma).toFloat();
+  w.turbTau    = s.value("windTurbTau", w.turbTau).toFloat();
+  w.enabled    = s.value("windEnabled", w.enabled).toBool();
   s.endGroup();
   return w;
 }

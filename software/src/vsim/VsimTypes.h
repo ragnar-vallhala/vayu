@@ -108,4 +108,15 @@ struct WorldConfig {
   QVector3D worldMeshOffset{0, 0, 0};  // NED world-space placement [m]
 };
 
+// World-frame wind field (VSIM_CTL_SET_WIND): steady + gust + turbulence.
+// enabled=false is a fast bypass on the daemon (no wind, no RNG draw).
+struct WindConfig {
+  QVector3D steady{0, 0, 0};   // NED [m/s]  (windN, windE, windD)
+  float gustAmp    = 0.0f;     // peak gust [m/s]
+  float gustPeriod = 0.0f;     // [s], <=0 disables the gust
+  float turbSigma  = 0.0f;     // turbulence RMS [m/s]
+  float turbTau    = 1.0f;     // correlation time [s]
+  bool  enabled    = false;
+};
+
 }  // namespace vsim

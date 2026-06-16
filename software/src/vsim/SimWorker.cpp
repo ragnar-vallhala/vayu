@@ -223,6 +223,30 @@ void SimWorker::sendNoise(float accSigma, float accBiasClip, bool accEn,
     emit logLine("vsim_d: noise pushed");
 }
 
+void SimWorker::sendWind(const WindConfig& w) {
+    if (ctl_fd_ < 0) return;
+    vsim_ctl_frame_t f{};
+    f.hdr.magic         = VSIM_MAGIC;
+    f.hdr.version       = VSIM_PROTO_VERSION;
+    f.hdr.type          = VSIM_FRAME_CTL;
+    f.hdr.payload_bytes = sizeof(f) - sizeof(vsim_hdr_t);
+    f.hdr.seq_no        = 0;
+    f.subtype           = VSIM_CTL_SET_WIND;
+
+    vsim_ctl_wind_t body{};
+    body.steady[0]   = w.steady.x();
+    body.steady[1]   = w.steady.y();
+    body.steady[2]   = w.steady.z();
+    body.gust_amp    = w.gustAmp;
+    body.gust_period = w.gustPeriod;
+    body.turb_sigma  = w.turbSigma;
+    body.turb_tau    = w.turbTau;
+    body.enable      = w.enabled ? 1 : 0;
+    std::memcpy(f.body, &body, sizeof(body));
+    ::write(ctl_fd_, &f, sizeof(f));
+    emit logLine("vsim_d: wind pushed");
+}
+
 void SimWorker::sendWorld(const WorldConfig& w) {
     if (ctl_fd_ < 0) return;
     vsim_ctl_frame_t f{};
