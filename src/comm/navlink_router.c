@@ -218,6 +218,7 @@ static void on_time_sync(void *ctx, const navlink_frame_hdr_t *hdr,
   in.t2_fc_rx = m->t2_fc_rx;
   in.t3_fc_tx = m->t3_fc_tx;
   in.commanded_offset_ms = m->commanded_offset_ms;
+  in.commanded_offset_hi_ms = m->commanded_offset_hi_ms;
   dispatch_v1(PACKET_TYPE_TIME_SYNC, (const uint8_t *)&in, (uint8_t)sizeof(in));
 }
 

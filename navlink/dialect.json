@@ -17,8 +17,9 @@
     "time_sync_role": {
       "doc": "TIME_SYNC.role (spec §10).",
       "entries": [
-        { "name": "REQUEST",  "value": 0 },
-        { "name": "RESPONSE", "value": 1 }
+        { "name": "REQUEST",      "value": 0 },
+        { "name": "RESPONSE",     "value": 1 },
+        { "name": "REQUEST_WIDE", "value": 2 }
       ]
     },
     "param_type": {
@@ -197,15 +198,16 @@
     },
     {
       "msgid": 10, "name": "TIME_SYNC",
-      "doc": "NTP-style FC<->GCS clock sync (spec §10). The GCS sends role=REQUEST stamping t1_gcs_tx; the FC replies role=RESPONSE echoing t1 and adding t2_fc_rx (its receive time) and t3_fc_tx (its send time). The GCS captures t4 locally on receipt and computes offset=((t2-t1)+(t3-t4))/2, delay=(t4-t1)-(t3-t2). commanded_offset_ms carries the GCS's filtered correction back to the FC (INT32_MIN = none). Byte-identical to the firmware time_sync_payload_t; all stamps are milliseconds (32 B).",
+      "doc": "NTP-style FC<->GCS clock sync (spec §10). The GCS sends role=REQUEST stamping t1_gcs_tx; the FC replies role=RESPONSE echoing t1 and adding t2_fc_rx (its receive time) and t3_fc_tx (its send time). The GCS captures t4 locally on receipt and computes offset=((t2-t1)+(t3-t4))/2, delay=(t4-t1)-(t3-t2). commanded_offset_ms carries the GCS's filtered correction back to the FC (INT32_MIN = none). For deviations beyond int32 ms (~24.8 days, e.g. a cold-start FC uptime clock vs GCS epoch) the GCS sends role=REQUEST_WIDE with the full 64-bit correction split across commanded_offset_ms (low word) and commanded_offset_hi_ms (high word); the high word trailing-zero-truncates away on the normal int32 path so it costs nothing there. Byte-identical to the firmware time_sync_payload_t; all stamps are milliseconds.",
       "fields": [
-        { "index": 0, "name": "role",                "type": "u8",  "enum": "time_sync_role" },
-        { "index": 1, "name": "seq",                 "type": "u8",  "doc": "request sequence, echoed in the response" },
-        { "index": 2, "name": "_pad",                "type": "u8",  "len": 2, "doc": "reserved, zero" },
-        { "index": 3, "name": "t1_gcs_tx",           "type": "u64", "unit": "ms", "doc": "GCS send (wall-clock ms)" },
-        { "index": 4, "name": "t2_fc_rx",            "type": "u64", "unit": "ms", "doc": "FC receive (FC ms)" },
-        { "index": 5, "name": "t3_fc_tx",            "type": "u64", "unit": "ms", "doc": "FC send (FC ms)" },
-        { "index": 6, "name": "commanded_offset_ms", "type": "i32", "doc": "GCS->FC correction; INT32_MIN = none" }
+        { "index": 0, "name": "role",                   "type": "u8",  "enum": "time_sync_role" },
+        { "index": 1, "name": "seq",                    "type": "u8",  "doc": "request sequence, echoed in the response" },
+        { "index": 2, "name": "_pad",                   "type": "u8",  "len": 2, "doc": "reserved, zero" },
+        { "index": 3, "name": "t1_gcs_tx",              "type": "u64", "unit": "ms", "doc": "GCS send (wall-clock ms)" },
+        { "index": 4, "name": "t2_fc_rx",               "type": "u64", "unit": "ms", "doc": "FC receive (FC ms)" },
+        { "index": 5, "name": "t3_fc_tx",               "type": "u64", "unit": "ms", "doc": "FC send (FC ms)" },
+        { "index": 6, "name": "commanded_offset_ms",    "type": "i32", "doc": "GCS->FC correction (low 32 bits if REQUEST_WIDE); INT32_MIN = none" },
+        { "index": 7, "name": "commanded_offset_hi_ms", "type": "i32", "doc": "high 32 bits of the 64-bit correction; only meaningful when role=REQUEST_WIDE, else 0 (truncated off the wire)" }
       ]
     },
 

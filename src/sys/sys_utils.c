@@ -20,7 +20,7 @@ static uint8_t _device_id = 0;
  * _offset_applied is slewed toward it each discipline tick so the unix clock
  * changes smoothly. double (not float) so the offset is exact to the ms. */
 static volatile double _offset_applied = 0.0;
-static volatile int32_t _offset_target = 0;
+static volatile int64_t _offset_target = 0;
 static uint64_t _last_discipline_ticks = 0;
 
 /* §10.5 security gate: the FC starts UNSYNCHRONISED and stays so until the GCS
@@ -44,27 +44,32 @@ uint8_t time_sync_is_synced(void) { return _clock_synced; }
 
 uint64_t get_timestamp(void) { return _time_stamp_high_freq; }
 
-/* Raw monotonic ms from the HF tick counter (no offset). */
-static uint32_t timestamp_raw_ms(void) {
-  return (uint32_t)(_time_stamp_high_freq / (HIGH_FREQ_TIMER_FREQ / 1000));
+/* Raw monotonic ms from the HF tick counter (no offset). 64-bit so it does not
+ * wrap at the uint32 ~49.7-day boundary and can carry full epoch ms. */
+static uint64_t timestamp_raw_ms(void) {
+  return _time_stamp_high_freq / (HIGH_FREQ_TIMER_FREQ / 1000);
 }
 
-uint32_t get_timestamp_unix(void) {
-  return timestamp_raw_ms() + (uint32_t)(int32_t)_offset_applied;
+uint64_t get_timestamp_unix(void) {
+  return (uint64_t)((int64_t)timestamp_raw_ms() + (int64_t)_offset_applied);
 }
 
 /* Apply a GCS clock correction — the measured FC-GCS error to remove. Large
  * errors step immediately (cold start / resync / post-reboot); small residuals
  * slew. Either way the new applied offset converges to GCS time and a
  * disciplined clock reports correction ~= 0 (windup-free). */
-void time_sync_set_offset(int32_t correction_ms) {
+void time_sync_set_offset64(int64_t correction_ms) {
   _clock_synced = 1; /* GCS has disciplined our clock — FC is now synchronised (§10.5) */
   if (correction_ms > TIME_SYNC_STEP_MS || correction_ms < -TIME_SYNC_STEP_MS) {
     _offset_applied += (double)correction_ms;   /* step */
-    _offset_target = (int32_t)_offset_applied;  /* park the slew target */
+    _offset_target = (int64_t)_offset_applied;  /* park the slew target */
   } else {
-    _offset_target = (int32_t)_offset_applied + correction_ms; /* slew */
+    _offset_target = (int64_t)_offset_applied + correction_ms; /* slew */
   }
+}
+
+void time_sync_set_offset(int32_t correction_ms) {
+  time_sync_set_offset64((int64_t)correction_ms);
 }
 
 void time_sync_discipline_tick(void) {
@@ -89,8 +94,8 @@ void time_sync_discipline_tick(void) {
 
 /* Legacy one-shot setter kept as a thin wrapper (absolute jam). The heartbeat
  * path no longer calls this; the time-sync handshake drives discipline instead. */
-void set_timestamp(uint32_t timestamp) {
-  _offset_target = (int32_t)(timestamp - timestamp_raw_ms());
+void set_timestamp(uint64_t timestamp) {
+  _offset_target = (int64_t)timestamp - (int64_t)timestamp_raw_ms();
   _offset_applied = (double)_offset_target;
 }
 

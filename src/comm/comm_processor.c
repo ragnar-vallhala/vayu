@@ -53,14 +53,20 @@ void comm_processor_dispatch(const packet_t *pkt) {
      * GCS-commanded clock correction via the slewed discipline. */
     time_sync_payload_t in;
     v_memcpy(&in, pkt->payload, sizeof(in));
-    if (in.role == TIME_SYNC_REQUEST) {
+    if (in.role == TIME_SYNC_REQUEST || in.role == TIME_SYNC_REQUEST_WIDE) {
       /* Apply the correction FIRST, then stamp t2/t3 from the corrected clock,
        * so this exchange's response already reflects the command. The GCS then
        * measures the *post-correction* residual and won't re-send a correction
        * it has already applied — without this the loop double-applies and
        * oscillates. t2/t3 are taken back-to-back so they're consistent (no
        * step landing between them). */
-      if (in.commanded_offset_ms != INT32_MIN) {
+      if (in.role == TIME_SYNC_REQUEST_WIDE) {
+        /* Full 64-bit correction split across (hi, lo) — used when the FC<->GCS
+         * deviation exceeds int32 ms (e.g. uptime clock vs GCS epoch). */
+        int64_t corr = ((int64_t)in.commanded_offset_hi_ms << 32) |
+                       (int64_t)(uint32_t)in.commanded_offset_ms;
+        time_sync_set_offset64(corr);
+      } else if (in.commanded_offset_ms != INT32_MIN) {
         time_sync_set_offset(in.commanded_offset_ms);
       }
       time_sync_payload_t out = {0};

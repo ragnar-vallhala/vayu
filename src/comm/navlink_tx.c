@@ -295,6 +295,7 @@ void navlink_tx_time_sync_response(const time_sync_payload_t *out) {
   m.t2_fc_rx = out->t2_fc_rx;
   m.t3_fc_tx = out->t3_fc_tx;
   m.commanded_offset_ms = out->commanded_offset_ms;
+  m.commanded_offset_hi_ms = out->commanded_offset_hi_ms;
   uint8_t frame[NAVLINK_MAX_FRAME];
   size_t n = navlink_time_sync_encode(frame, &m, seq++, get_device_id(), 1);
   write_channel(g_telemetry_channel, frame, (uint16_t)n);
