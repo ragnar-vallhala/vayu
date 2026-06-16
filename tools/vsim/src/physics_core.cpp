@@ -27,7 +27,9 @@ PhysicsCore::Deriv PhysicsCore::derive(const RigidBodyState& s,
 
     Vec3 F_world = s.att.rotatedVector(force_b);
     Vec3 a = F_world / params_.mass;
-    a -= s.vel_w * (params_.linear_drag / params_.mass);
+    // Drag acts on the air-relative velocity: still air (wind_w_=0) reduces to
+    // the original -drag*vel_w; in steady wind a hovering craft is pushed.
+    a -= (s.vel_w - wind_w_) * (params_.linear_drag / params_.mass);
     a += Vec3(0.0f, 0.0f, params_.gravity);   // gravity is +Z in NED
     d.d_vel = a;
 

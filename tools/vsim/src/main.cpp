@@ -234,7 +234,7 @@ int main(int /*argc*/, char** /*argv*/) {
                     // Deterministic sensor reset: a non-zero seed makes an
                     // identical reset reproduce an identical noise trajectory,
                     // so the autotuner's cost is repeatable for fixed gains.
-                    if (body.seed != 0) ctl.seedSensors(body.seed);
+                    if (body.seed != 0) { ctl.seedSensors(body.seed); ctl.seedWind(body.seed); }
                     tick = 0;
                     outer = 0;
                     std::fprintf(stderr, "vsim_d: reset%s\n",
@@ -416,6 +416,24 @@ int main(int /*argc*/, char** /*argv*/) {
                                  motor_kill[3], imu_dropout);
                     break;
                 }
+                case VSIM_CTL_SET_WIND: {
+                    vsim_ctl_wind_t w;
+                    std::memcpy(&w, cmd.body, sizeof(w));
+                    vsim::WindConfig wc;
+                    wc.steady      = vsim::Vec3(w.steady[0], w.steady[1], w.steady[2]);
+                    wc.gust_amp    = w.gust_amp;
+                    wc.gust_period = w.gust_period;
+                    wc.turb_sigma  = w.turb_sigma;
+                    wc.turb_tau    = w.turb_tau;
+                    wc.enable      = (w.enable != 0);
+                    ctl.setWind(wc);
+                    std::fprintf(stderr,
+                                 "vsim_d: wind %s steady=(%.1f,%.1f,%.1f) gust=%.1f/%.1fs turb=%.2f\n",
+                                 wc.enable ? "ON" : "off",
+                                 w.steady[0], w.steady[1], w.steady[2],
+                                 w.gust_amp, w.gust_period, w.turb_sigma);
+                    break;
+                }
                 default:
                     break;
             }
@@ -477,6 +495,8 @@ int main(int /*argc*/, char** /*argv*/) {
                 frame.motor_omega[i] = wm[i];
                 frame.motor_duty[i]  = duty[i];
             }
+            const vsim::Vec3& vw = ctl.windWorld();   // sim-fidelity telemetry (Phase 1)
+            frame.wind_w[0] = vw.x(); frame.wind_w[1] = vw.y(); frame.wind_w[2] = vw.z();
             pose_out.write(&frame, sizeof(frame));
         }
 

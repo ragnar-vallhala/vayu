@@ -8,6 +8,7 @@
 #include "physics_core.h"
 #include "sensor_models.h"
 #include "vsim_types.h"
+#include "wind_model.h"
 
 namespace vsim {
 
@@ -25,6 +26,10 @@ public:
         phys_.setTestRig(on, pos, tether_k);
     }
     void seedSensors    (uint64_t s)            { sensors_.seed(s); }
+    void setWind        (const WindConfig& w)   { wind_.setConfig(w); }
+    void seedWind       (uint64_t s)            { wind_.seed(s); }
+    // Last instantaneous world wind [m/s] NED, for the pose-frame telemetry.
+    const Vec3& windWorld() const               { return wind_.world(); }
 
     void resetState(const RigidBodyState& s = {});
 
@@ -44,6 +49,7 @@ private:
     PhysicsCore  phys_;
     MotorModel   motors_;
     SensorModels sensors_;
+    WindModel    wind_;
 
     // Stashed last world acceleration so the accelerometer can subtract
     // gravity correctly. Specific force = a_world - g.
