@@ -9,8 +9,12 @@ Each tree gets: enums, a packed wire struct + naturally-aligned struct per messa
 pack/unpack (one memcpy, spec §8.2), to_aligned/from_aligned converters, the
 CRC_EXTRA table (spec §4.3), and a msgid -> {name,size,crc_extra} dispatch table.
 
+Also emits (opt-in):
+  - HTML: navlink_tree.html — a self-contained, pan/zoom, fold/expand node tree
+          of commands / messages / enums (no external assets; open in a browser).
+
 Pure stdlib. Usage:
-    python3 generate.py [--dialect dialect.json] [--out generated] [--lang c|py|both]
+    python3 generate.py [--dialect dialect.json] [--out generated] [--lang c|py|html|both|all]
 """
 from __future__ import annotations
 
@@ -806,13 +810,257 @@ def gen_py_frame(d):
     return "\n".join(L)
 
 
+# ── HTML (interactive tree) ──────────────────────────────────────────────────
+HTML_TEMPLATE = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>__TITLE__ — NavLink dialect</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#141a22; --line:#2b3440; --edge:#3a4654;
+    --txt:#c9d4e0; --dim:#7c8da0;
+    --root:#22d3ee; --group:#f5b342; --command:#ff6b5e; --message:#5aa7ff;
+    --field:#9aa7b6; --fieldenum:#c08bff; --enum:#4ade80; --entry:#6fae8a;
+    --match:#ffd54a;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);
+    font:13px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;overflow:hidden}
+  header{position:fixed;top:0;left:0;right:0;height:48px;z-index:10;display:flex;
+    align-items:center;gap:14px;padding:0 16px;background:rgba(13,17,23,.92);
+    border-bottom:1px solid var(--line);backdrop-filter:blur(6px)}
+  header h1{font-size:14px;margin:0;font-weight:600;letter-spacing:.3px}
+  header h1 span{color:var(--root)}
+  .spacer{flex:1}
+  button{background:var(--panel);color:var(--txt);border:1px solid var(--line);
+    border-radius:6px;padding:5px 10px;cursor:pointer;font:inherit;font-size:12px}
+  button:hover{border-color:var(--root);color:#fff}
+  #search{background:var(--panel);color:var(--txt);border:1px solid var(--line);
+    border-radius:6px;padding:5px 10px;font:inherit;width:200px}
+  #search:focus{outline:none;border-color:var(--root)}
+  #viewport{position:fixed;inset:48px 0 0 0;overflow:hidden;cursor:grab}
+  #viewport.grab{cursor:grabbing}
+  #world{position:absolute;top:0;left:0;transform-origin:0 0;will-change:transform}
+  #edges{position:absolute;top:0;left:0;overflow:visible;pointer-events:none}
+  .edge{fill:none;stroke:var(--edge);stroke-width:1.5}
+  .node{position:absolute;width:264px;height:26px;display:flex;align-items:center;
+    gap:6px;padding:0 9px;background:var(--panel);border:1px solid var(--line);
+    border-left-width:3px;border-radius:6px;cursor:pointer;white-space:nowrap;
+    overflow:hidden;user-select:none}
+  .node:hover{background:#1b2330;border-color:var(--root)}
+  .node .tog{color:var(--dim);width:10px;flex:none;font-size:11px}
+  .node .lbl{font-weight:600;overflow:hidden;text-overflow:ellipsis}
+  .node .cnt{color:var(--dim);font-weight:400;font-size:11px}
+  .node .meta{color:var(--dim);font-size:11px;margin-left:auto;flex:none;
+    overflow:hidden;text-overflow:ellipsis;max-width:130px}
+  .node.match{border-color:var(--match);box-shadow:0 0 0 1px var(--match)}
+  .k-root{border-left-color:var(--root)} .k-root .lbl{color:var(--root)}
+  .k-group{border-left-color:var(--group)} .k-group .lbl{color:var(--group)}
+  .k-command{border-left-color:var(--command)} .k-command .lbl{color:var(--command)}
+  .k-message{border-left-color:var(--message)} .k-message .lbl{color:var(--message)}
+  .k-field{border-left-color:var(--field)} .k-field .lbl{color:var(--field);font-weight:500}
+  .k-field-enum{border-left-color:var(--fieldenum)} .k-field-enum .lbl{color:var(--fieldenum);font-weight:500}
+  .k-enum{border-left-color:var(--enum)} .k-enum .lbl{color:var(--enum)}
+  .k-entry{border-left-color:var(--entry)} .k-entry .lbl{color:var(--entry);font-weight:400}
+  #legend{position:fixed;right:14px;bottom:14px;z-index:10;background:rgba(20,26,34,.9);
+    border:1px solid var(--line);border-radius:8px;padding:8px 11px;font-size:11px;color:var(--dim)}
+  #legend b{display:block;color:var(--txt);margin-bottom:4px;font-size:11px}
+  #legend i{font-style:normal;display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px;vertical-align:middle}
+  #hint{position:fixed;left:14px;bottom:14px;z-index:10;color:var(--dim);font-size:11px}
+</style>
+</head>
+<body>
+<header>
+  <h1><span>&#9670;</span> __TITLE__</h1>
+  <input id="search" placeholder="search messages / fields / enums&hellip;"/>
+  <div class="spacer"></div>
+  <button id="bExpand">Expand all</button>
+  <button id="bCollapse">Collapse</button>
+  <button id="bFit">Fit</button>
+  <button id="bReset">Reset view</button>
+</header>
+<div id="viewport"><div id="world"><svg id="edges"></svg><div id="layer"></div></div></div>
+<div id="legend"><b>Node types</b>
+  <i style="background:var(--command)"></i>command
+  <i style="background:var(--message)"></i>message
+  <i style="background:var(--field)"></i>field
+  <i style="background:var(--fieldenum)"></i>enum&nbsp;field
+  <i style="background:var(--enum)"></i>enum
+</div>
+<div id="hint">drag to pan &middot; scroll to zoom &middot; click a node to fold/expand</div>
+<script id="data" type="application/json">__DATA__</script>
+<script>
+(function(){
+  var ROOT = JSON.parse(document.getElementById('data').textContent);
+  var viewport=document.getElementById('viewport'), world=document.getElementById('world'),
+      edges=document.getElementById('edges'), layer=document.getElementById('layer');
+  var NODE_W=264, NODE_H=26, COLX=300, ROWY=30, PAD=80, MAP={}, uid=0;
+
+  function isLeafGroup(k){ return k==='command'||k==='message'||k==='enum'||k==='field-enum'; }
+  function init(n,depth,parent){
+    n._id='n'+(uid++); n._depth=depth; n._parent=parent||null; MAP[n._id]=n;
+    var k=n.children||[];
+    n._collapsed = isLeafGroup(n.kind) && k.length>0;   // start with the message/enum list
+    for(var i=0;i<k.length;i++) init(k[i],depth+1,n);
+  }
+  init(ROOT,0,null);
+
+  function vis(n){ return n._collapsed?[]:(n.children||[]); }
+  function esc(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+  function layout(){
+    var row=0;
+    (function place(n){
+      var k=vis(n); n._x=n._depth*COLX;
+      if(!k.length){ n._cy=row*ROWY; row++; }
+      else { for(var i=0;i<k.length;i++) place(k[i]); n._cy=(k[0]._cy+k[k.length-1]._cy)/2; }
+    })(ROOT);
+  }
+  function nodes(){ var out=[]; (function w(n){ out.push(n); var k=vis(n); for(var i=0;i<k.length;i++) w(k[i]); })(ROOT); return out; }
+
+  var matchSet=new Set();
+  function render(){
+    layout();
+    var ns=nodes(), maxX=0,maxY=0,i,j;
+    for(i=0;i<ns.length;i++){ maxX=Math.max(maxX,ns[i]._x+NODE_W); maxY=Math.max(maxY,ns[i]._cy+NODE_H); }
+    world.style.width=(maxX+PAD)+'px'; world.style.height=(maxY+PAD)+'px';
+    edges.setAttribute('width',maxX+PAD); edges.setAttribute('height',maxY+PAD);
+    var paths='';
+    for(i=0;i<ns.length;i++){ var n=ns[i], k=vis(n);
+      for(j=0;j<k.length;j++){ var c=k[j],
+        x1=n._x+NODE_W, y1=n._cy+NODE_H/2, x2=c._x, y2=c._cy+NODE_H/2, dx=(x2-x1)/2;
+        paths+='<path class="edge" d="M'+x1+' '+y1+' C'+(x1+dx)+' '+y1+','+(x2-dx)+' '+y2+','+x2+' '+y2+'"/>';
+      }
+    }
+    edges.innerHTML=paths;
+    var html='';
+    for(i=0;i<ns.length;i++){ var m=ns[i], kids=(m.children||[]).length;
+      var tog=kids?(m._collapsed?'&#9656;':'&#9662;'):'&bull;';
+      var cnt=(kids&&m._collapsed)?' <span class="cnt">'+kids+'</span>':'';
+      var meta=m.meta?'<span class="meta">'+esc(m.meta)+'</span>':'';
+      html+='<div class="node k-'+m.kind+(matchSet.has(m)?' match':'')+'" data-id="'+m._id+'" style="left:'+m._x+'px;top:'+m._cy+'px" title="'+esc(m.doc||'')+'">'
+          + '<span class="tog">'+tog+'</span><span class="lbl">'+esc(m.name)+cnt+'</span>'+meta+'</div>';
+    }
+    layer.innerHTML=html;
+  }
+
+  // pan / zoom
+  var tx=30,ty=20,scale=1,drag=false,sx=0,sy=0;
+  function tf(){ world.style.transform='translate('+tx+'px,'+ty+'px) scale('+scale+')'; }
+  viewport.addEventListener('mousedown',function(e){ if(e.target.closest('.node'))return;
+    drag=true; sx=e.clientX-tx; sy=e.clientY-ty; viewport.classList.add('grab'); });
+  window.addEventListener('mousemove',function(e){ if(!drag)return; tx=e.clientX-sx; ty=e.clientY-sy; tf(); });
+  window.addEventListener('mouseup',function(){ drag=false; viewport.classList.remove('grab'); });
+  viewport.addEventListener('wheel',function(e){ e.preventDefault();
+    var r=viewport.getBoundingClientRect(), mx=e.clientX-r.left, my=e.clientY-r.top,
+        f=e.deltaY<0?1.12:1/1.12, ns=Math.min(2.5,Math.max(0.15,scale*f));
+    tx=mx-(mx-tx)*(ns/scale); ty=my-(my-ty)*(ns/scale); scale=ns; tf(); },{passive:false});
+
+  layer.addEventListener('click',function(e){ var el=e.target.closest('.node'); if(!el)return;
+    var n=MAP[el.dataset.id]; if(n.children&&n.children.length){ n._collapsed=!n._collapsed; render(); } });
+
+  function setAll(coll){ (function w(n){ if(n.children&&n.children.length) n._collapsed=coll;
+    var k=n.children||[]; for(var i=0;i<k.length;i++) w(k[i]); })(ROOT); }
+  function collapseDefault(){ (function w(n){ if(n.children&&n.children.length) n._collapsed=isLeafGroup(n.kind);
+    var k=n.children||[]; for(var i=0;i<k.length;i++) w(k[i]); })(ROOT); }
+  function fit(){ layout(); var mx=0,my=0,ns=nodes(),i;
+    for(i=0;i<ns.length;i++){ mx=Math.max(mx,ns[i]._x+NODE_W); my=Math.max(my,ns[i]._cy+NODE_H); }
+    var r=viewport.getBoundingClientRect();
+    scale=Math.max(0.15,Math.min(1,Math.min((r.width-40)/(mx+40),(r.height-40)/(my+40))));
+    tx=20; ty=20; tf(); }
+
+  document.getElementById('bExpand').onclick=function(){ setAll(false); render(); fit(); };
+  document.getElementById('bCollapse').onclick=function(){ collapseDefault(); render(); fit(); };
+  document.getElementById('bFit').onclick=function(){ fit(); };
+  document.getElementById('bReset').onclick=function(){ tx=30;ty=20;scale=1;tf(); };
+
+  var sbox=document.getElementById('search');
+  sbox.addEventListener('input',function(){
+    var q=sbox.value.trim().toLowerCase(); matchSet=new Set();
+    if(q){ Object.keys(MAP).forEach(function(id){ var n=MAP[id];
+      var hay=((n.name||'')+' '+(n.meta||'')+' '+(n.doc||'')).toLowerCase();
+      if(hay.indexOf(q)>=0){ matchSet.add(n); for(var p=n._parent;p;p=p._parent) p._collapsed=false; }
+    }); }
+    render();
+  });
+
+  render(); fit();
+})();
+</script>
+</body>
+</html>
+"""
+
+
+def gen_html(d):
+    """A self-contained, pan/zoom, fold/expand node tree of the dialect.
+
+    Root -> {Commands, Telemetry & Other, Enums} -> messages/enums -> fields/entries
+    (enum-typed fields expand to their enum values). No external assets; open the
+    file directly in a browser."""
+    enums = d.get("enums", {})
+
+    def entry_nodes(ename):
+        e = enums.get(ename)
+        return [{"name": "{} = {}".format(x["name"], x["value"]), "kind": "entry"}
+                for x in e["entries"]] if e else []
+
+    def field_node(f):
+        ln = field_len(f)
+        typ = "{}[{}]".format(f["type"], ln) if ln else f["type"]
+        meta = ["#{}".format(f["index"])]
+        if f.get("unit"):
+            meta.append(f["unit"])
+        if f.get("enum"):
+            meta.append("enum " + f["enum"])
+        if f.get("extension"):
+            meta.append("ext")
+        return {"name": "{} : {}".format(f["name"], typ),
+                "kind": "field-enum" if f.get("enum") else "field",
+                "meta": " · ".join(meta), "doc": f.get("doc", ""),
+                "children": entry_nodes(f["enum"]) if f.get("enum") else []}
+
+    def msg_node(m):
+        is_cmd = 0x2000 <= m["msgid"] <= 0x2FFF
+        meta = "0x{:04X} · {}B · crc {}".format(m["msgid"], wire_size(m), crc_extra(m))
+        if requires_ack(m):
+            meta += " · ACK"
+        return {"name": m["name"], "kind": "command" if is_cmd else "message",
+                "meta": meta, "doc": m.get("doc", ""),
+                "children": [field_node(f) for f in ordered_fields(m)]}
+
+    ms = sorted(d["messages"], key=lambda m: m["msgid"])
+    cmds = [msg_node(m) for m in ms if 0x2000 <= m["msgid"] <= 0x2FFF]
+    other = [msg_node(m) for m in ms if not (0x2000 <= m["msgid"] <= 0x2FFF)]
+    enodes = [{"name": en, "kind": "enum", "meta": "{} values".format(len(e["entries"])),
+               "doc": e.get("doc", ""),
+               "children": [{"name": "{} = {}".format(x["name"], x["value"]), "kind": "entry"}
+                            for x in e["entries"]]}
+              for en, e in enums.items()]
+    title = "{} v{}".format(d.get("dialect", "navlink"), d.get("version", "?"))
+    root = {"name": title, "kind": "root",
+            "meta": "{} messages · {} enums".format(len(d["messages"]), len(enums)),
+            "children": [
+                {"name": "Commands", "kind": "group",
+                 "meta": "{} · 0x2000–0x2FFF".format(len(cmds)), "children": cmds},
+                {"name": "Telemetry & Other", "kind": "group",
+                 "meta": str(len(other)), "children": other},
+                {"name": "Enums", "kind": "group", "meta": str(len(enodes)), "children": enodes},
+            ]}
+    data = json.dumps(root, ensure_ascii=False).replace("</", "<\\/")
+    return HTML_TEMPLATE.replace("__TITLE__", title).replace("__DATA__", data)
+
+
 # ── driver ──────────────────────────────────────────────────────────────────
 def main():
     ap = argparse.ArgumentParser(description="NavLink v2 code generator")
     here = os.path.dirname(os.path.abspath(__file__))
     ap.add_argument("--dialect", default=os.path.join(here, "dialect.json"))
     ap.add_argument("--out", default=os.path.join(here, "generated"))
-    ap.add_argument("--lang", choices=["c", "py", "both"], default="both")
+    ap.add_argument("--lang", choices=["c", "py", "html", "both", "all"], default="both",
+                    help="c/py code, html interactive tree, both=c+py, all=c+py+html")
     args = ap.parse_args()
 
     with open(args.dialect) as fh:
@@ -830,7 +1078,7 @@ def main():
 
     os.makedirs(args.out, exist_ok=True)
     written = []
-    if args.lang in ("c", "both"):
+    if args.lang in ("c", "both", "all"):
         cdir = os.path.join(args.out, "c")
         os.makedirs(cdir, exist_ok=True)
         with open(os.path.join(cdir, "navlink_msgs.h"), "w") as fh:
@@ -841,12 +1089,19 @@ def main():
             fh.write(gen_c_parity(d))
         written += [os.path.join(cdir, "navlink_msgs.h"), os.path.join(cdir, "navlink_msgs.c"),
                     os.path.join(cdir, "navlink_parity.c")]
-    if args.lang in ("py", "both"):
+    if args.lang in ("py", "both", "all"):
         pdir = os.path.join(args.out, "python")
         os.makedirs(pdir, exist_ok=True)
         with open(os.path.join(pdir, "navlink_msgs.py"), "w") as fh:
             fh.write(gen_py(d))
         written += [os.path.join(pdir, "navlink_msgs.py")]
+    if args.lang in ("html", "all"):
+        hdir = os.path.join(args.out, "html")
+        os.makedirs(hdir, exist_ok=True)
+        hp = os.path.join(hdir, "navlink_tree.html")
+        with open(hp, "w", encoding="utf-8") as fh:
+            fh.write(gen_html(d))
+        written += [hp]
 
     print(f"navlink: {len(d['messages'])} messages, {len(d.get('enums', {}))} enums")
     print("CRC-16 self-check 0x{:04X} (expect 0x6F91) OK".format(crc16(b"123456789")))
