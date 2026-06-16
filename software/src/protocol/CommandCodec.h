@@ -39,6 +39,12 @@ QByteArray encodeCalibrate(quint8 which, quint8 devId = 42);
 QByteArray encodeTimeSyncRequest(quint8 seq, quint64 t1, qint32 commandedOffsetMs,
                                  quint8 devId = 42);
 
+// TIME_SYNC REQUEST_WIDE: full 64-bit correction split across the lo/hi words,
+// for deviations beyond int32 ms (e.g. FC uptime clock vs GCS epoch on cold
+// start). The hi word truncates off the wire on the normal int32 path.
+QByteArray encodeTimeSyncRequestWide(quint8 seq, quint64 t1,
+                                     qint64 commandedOffsetMs, quint8 devId = 42);
+
 // PERF_TASKNAME_REQUEST: resolve one task id to its name.
 QByteArray encodeTaskNameRequest(int taskId, quint8 devId = 42, quint32 tsMs = 0);
 

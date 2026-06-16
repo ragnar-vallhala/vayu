@@ -14,8 +14,10 @@
 /* High-frequency monotonic timer (ticks bumped by the HF timer ISR). */
 uint64_t get_timestamp(void);
 void increment_high_freq_timer(void);
-uint32_t get_timestamp_unix(void);
-void set_timestamp(uint32_t timestamp);
+/* Disciplined wall-clock in ms. 64-bit so it can hold full GCS epoch ms after a
+ * wide time-sync correction (a 32-bit ms clock can't represent epoch). */
+uint64_t get_timestamp_unix(void);
+void set_timestamp(uint64_t timestamp);
 
 /* Time-sync clock discipline (docs/telemetry/time_sync.md). The GCS computes a
  * filtered FC->GCS correction and pushes it here; the offset is slewed (not
@@ -23,6 +25,11 @@ void set_timestamp(uint32_t timestamp);
  * well below the 1 ms/ms tick rate, so the unix clock can never run backward.
  * The first-ever correction steps directly (cold-start bootstrap). */
 void time_sync_set_offset(int32_t offset_ms);
+/* Wide correction (§10): apply a full 64-bit FC->GCS offset, used by the
+ * REQUEST_WIDE path when the deviation exceeds int32 ms (~24.8 days) — e.g. a
+ * cold-start FC uptime clock vs GCS epoch. Steps immediately (it is always a
+ * large jump), then ongoing int32 residuals discipline via time_sync_set_offset. */
+void time_sync_set_offset64(int64_t offset_ms);
 /* Slew the applied offset toward the commanded target. Call periodically from a
  * low-rate task (the telemetry loop); dt is derived from the HF tick counter. */
 void time_sync_discipline_tick(void);

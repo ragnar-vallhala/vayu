@@ -1140,7 +1140,10 @@ void MainWindow::onConnectionStateChanged(bool connected) {
 
 void MainWindow::applyAllSettings(bool persist) {
   const GcsSettings s = m_settingsWidget->getSettings();
-  if (m_syncTimer) m_syncTimer->setInterval(s.syncPeriodMs);
+  // Remember the steady-state period; only apply it live once locked, otherwise
+  // keep the fast acquisition cadence (see onTimeSyncResponse).
+  m_syncPeriodMs = s.syncPeriodMs;
+  if (m_syncTimer && m_syncLocked) m_syncTimer->setInterval(m_syncPeriodMs);
   if (m_imuPanel) {
     m_imuPanel->setGraphWindow(s.graphWindowSec);
     m_imuPanel->setGraphDropout(s.graphDropoutRate);
@@ -1317,7 +1320,11 @@ void MainWindow::setConnected(bool on) {
     m_lastPushedState.clear();
     m_lastFlightMode = -1;
     m_lastFlightSrc = -1;
-    m_syncTimer->start(5000);
+    // Start in fast acquisition mode; onTimeSyncResponse relaxes to the
+    // configured period once the clock locks.
+    m_syncLocked = false;
+    m_syncWide = false;
+    m_syncTimer->start(kSyncFastMs);
     onTimeSyncRequested();
   } else {
     m_armed = false;
@@ -1520,9 +1527,18 @@ void MainWindow::onTimeSyncRequested() {
     return;
 
   const quint64 t1 = static_cast<quint64>(QDateTime::currentMSecsSinceEpoch());
-  // Push the clock correction only once converged; INT32_MIN means "no command".
-  const qint32 cmd = m_tsEst.synced() ? m_syncCorrection : (-2147483647 - 1);
-  sendToFc(CommandCodec::encodeTimeSyncRequest(m_syncSeq++, t1, cmd));
+  // A deviation beyond int32 ms (e.g. the FC's uptime clock vs GCS epoch on cold
+  // start) goes via the REQUEST_WIDE two-word path. It is jammed on the FIRST
+  // valid sample (no synced() gate): a multi-decade offset is unambiguous, so
+  // waiting for the filter just delays the first correction by several
+  // round-trips. Small residuals still wait for synced() to filter jitter.
+  if (m_syncWide) {
+    sendToFc(CommandCodec::encodeTimeSyncRequestWide(m_syncSeq++, t1,
+                                                     m_syncWideOffset));
+  } else {
+    const qint32 cmd = m_tsEst.synced() ? m_syncCorrection : (-2147483647 - 1);
+    sendToFc(CommandCodec::encodeTimeSyncRequest(m_syncSeq++, t1, cmd));
+  }
 }
 
 void MainWindow::onTimeSyncResponse(quint8 seq, quint64 t1, quint64 t2,
@@ -1539,22 +1555,41 @@ void MainWindow::onTimeSyncResponse(quint8 seq, quint64 t1, quint64 t2,
   if (!m_tsEst.addSample(s))
     return;  // implausible round-trip — keep the last good reading
 
-  // The FC clock is 32-bit ms (low bits of epoch), so we work in modular u32:
-  // the per-sample NTP offset's low 32 bits are the residual clock error. (The
-  // estimator's regression offsetMs() is for the absolute fcToGcs timeline and
-  // is corrupted by the cold-start step, so it must NOT drive the correction.)
+  // The FC now keeps a full 64-bit ms clock, so we discipline against the full
+  // offset (no modular-u32 games). The correction to apply is -offset; if it
+  // fits int32 we use the usual field, otherwise the REQUEST_WIDE two-word path
+  // (cold start: FC uptime clock vs GCS epoch is ~decades, far beyond int32).
   const qint64 off = ((s.t2 - s.t1) + (s.t3 - s.t4)) / 2;  // per-sample FC - GCS
-  const qint32 residual = static_cast<qint32>(static_cast<quint32>(off));
-  // Deadband + lock: only command the FC while out of sync (|resid| >= epsilon).
-  // Once inside epsilon we are "locked" — hold (send no command) so measurement
-  // jitter doesn't perturb the disciplined clock. Being locked, not just having
-  // N samples, is what "synced" means.
-  constexpr qint32 kSyncEpsilonMs = 50;  // in-sync deadband / lock threshold
-  const bool locked = qAbs(residual) < kSyncEpsilonMs;
-  m_syncCorrection = locked ? (-2147483647 - 1)  // INT32_MIN = no command
-                            : static_cast<qint32>(static_cast<quint32>(-off));
+  const qint64 corr = -off;                                // apply to the FC
+  constexpr qint64 kSyncEpsilonMs = 50;  // in-sync deadband / lock threshold
+  const bool locked = qAbs(corr) < kSyncEpsilonMs;
+  constexpr qint64 kI32Min = -2147483647 - 1, kI32Max = 2147483647;
+  if (locked) {
+    m_syncWide = false;
+    m_syncCorrection = static_cast<qint32>(kI32Min);  // no command
+  } else if (corr > kI32Min && corr <= kI32Max) {      // fits int32 (avoid sentinel)
+    m_syncWide = false;
+    m_syncCorrection = static_cast<qint32>(corr);
+  } else {
+    m_syncWide = true;
+    m_syncWideOffset = corr;
+  }
 
-  if (m_statusBar && m_tsEst.synced()) m_statusBar->showSyncDrift(residual);
+  // Poll fast while acquiring; relax to the configured period only once the
+  // clock is both locked (inside the deadband) AND synced (enough samples that
+  // the drift display is live). Until then keep the fast cadence so the first
+  // correction and the first drift readout land within a second or two, not
+  // after several steady-period round-trips. Touch the timer only on change.
+  const bool relax = locked && m_tsEst.synced();
+  if (m_syncLocked != relax) {
+    m_syncLocked = relax;
+    if (m_syncTimer)
+      m_syncTimer->setInterval(relax ? m_syncPeriodMs : kSyncFastMs);
+  }
+
+  if (m_statusBar && m_tsEst.synced())
+    m_statusBar->showSyncDrift(
+        static_cast<qint32>(qBound<qint64>(kI32Min, off, kI32Max)));
 }
 
 // ---------------------------------------------------------------------------

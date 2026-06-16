@@ -233,6 +233,16 @@ private:
   TimeSyncEstimator m_tsEst;
   quint8 m_syncSeq = 0;
   qint32 m_syncCorrection = (-2147483647 - 1);  // INT32_MIN sentinel
+  // When the full correction exceeds int32 ms (cold-start FC uptime vs epoch),
+  // send it via the REQUEST_WIDE two-word path instead of the int32 field.
+  bool m_syncWide = false;
+  qint64 m_syncWideOffset = 0;
+  // Acquisition vs steady-state cadence: poll fast until the clock is locked,
+  // then fall back to the configured period so the first correction lands in a
+  // second or two instead of after several 5 s round-trips.
+  bool m_syncLocked = false;
+  int m_syncPeriodMs = 5000;            // steady-state period (from settings)
+  static constexpr int kSyncFastMs = 400;  // acquisition period until locked
 
   // ---- State ----
   bool m_armed = false;

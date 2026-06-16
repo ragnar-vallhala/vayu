@@ -26,8 +26,9 @@ typedef enum {
  * @brief Roles for PACKET_TYPE_TIME_SYNC (docs/telemetry/time_sync.md)
  */
 typedef enum {
-  TIME_SYNC_REQUEST = 0x00,  // GCS -> FC
-  TIME_SYNC_RESPONSE = 0x01, // FC -> GCS
+  TIME_SYNC_REQUEST = 0x00,      // GCS -> FC
+  TIME_SYNC_RESPONSE = 0x01,     // FC -> GCS
+  TIME_SYNC_REQUEST_WIDE = 0x02, // GCS -> FC, full 64-bit correction (large dev)
 } time_sync_role_t;
 
 /**
@@ -42,13 +43,14 @@ typedef enum {
  * to the FC (applied via time_sync_set_offset); INT32_MIN means "no command".
  */
 typedef struct __attribute__((packed)) {
-  uint8_t role;                // time_sync_role_t
-  uint8_t seq;                 // request sequence, echoed in the response
-  uint8_t _pad[2];             // reserved, zero
-  uint64_t t1_gcs_tx;          // GCS send    (wall-clock ms)
-  uint64_t t2_fc_rx;           // FC receive  (FC ms)
-  uint64_t t3_fc_tx;           // FC send     (FC ms)
-  int32_t commanded_offset_ms; // GCS->FC correction; INT32_MIN = none
+  uint8_t role;                   // time_sync_role_t
+  uint8_t seq;                    // request sequence, echoed in the response
+  uint8_t _pad[2];                // reserved, zero
+  uint64_t t1_gcs_tx;             // GCS send    (wall-clock ms)
+  uint64_t t2_fc_rx;              // FC receive  (FC ms)
+  uint64_t t3_fc_tx;              // FC send     (FC ms)
+  int32_t commanded_offset_ms;    // GCS->FC correction (low word if WIDE); INT32_MIN = none
+  int32_t commanded_offset_hi_ms; // high 32 bits when role==REQUEST_WIDE, else 0
 } time_sync_payload_t;
 
 /**

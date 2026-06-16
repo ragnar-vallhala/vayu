@@ -135,6 +135,25 @@ QByteArray encodeTimeSyncRequest(quint8 seq, quint64 t1, qint32 commandedOffsetM
   return frame(buf, n);
 }
 
+QByteArray encodeTimeSyncRequestWide(quint8 seq, quint64 t1,
+                                     qint64 commandedOffsetMs, quint8 devId) {
+  Q_UNUSED(devId);
+  navlink_time_sync_t m{};
+  m.role = 2;  // REQUEST_WIDE
+  m.seq = seq;
+  m.t1_gcs_tx = t1;
+  m.t2_fc_rx = 0;
+  m.t3_fc_tx = 0;
+  // 64-bit correction split low/high; the FC reconstructs (hi<<32)|lo.
+  m.commanded_offset_ms = static_cast<qint32>(static_cast<quint32>(
+      static_cast<quint64>(commandedOffsetMs) & 0xFFFFFFFFu));
+  m.commanded_offset_hi_ms =
+      static_cast<qint32>(static_cast<quint64>(commandedOffsetMs) >> 32);
+  uint8_t buf[NAVLINK_MAX_FRAME];
+  size_t n = navlink_time_sync_encode(buf, &m, seq, 0xFF, 1);
+  return frame(buf, n);
+}
+
 QByteArray encodeTaskNameRequest(int taskId, quint8 devId, quint32 tsMs) {
   Q_UNUSED(tsMs);
   navlink_perf_taskname_request_t m{};
