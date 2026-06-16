@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vayu — logo samples</title>
+<style>
+  body { margin:0; font:15px/1.4 system-ui, sans-serif; background:#0a0d14; color:#e6edf3; }
+  header { padding:28px 32px 8px; }
+  h1 { margin:0; font-size:20px; }
+  h2 { margin:32px 32px 4px; font-size:14px; text-transform:uppercase; letter-spacing:.12em; color:#8b98a9; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(170px,1fr)); gap:18px; padding:14px 32px; }
+  .card { background:#11151f; border:1px solid #1d2433; border-radius:14px; padding:14px; text-align:center; }
+  .card img { width:130px; height:130px; }
+  .card .name { margin-top:8px; font-size:12px; color:#8b98a9; }
+</style>
+</head>
+<body>
+<header><h1>Vayu stack — logo samples</h1></header>
+
+<h2>Vayu</h2>
+<div class="grid" id="vayu"></div>
+<h2>NavLink <small style="font-weight:400;color:#5d6b7e">— generic concepts</small></h2>
+<div class="grid" id="navlink"></div>
+<h2>NavLink <small style="font-weight:400;color:#5d6b7e">— protocol concepts (frame / ack / sync / FC↔GCS)</small></h2>
+<div class="grid" id="navlink-link"></div>
+<h2>Navigator <small style="font-weight:400;color:#5d6b7e">— mission-planner concepts</small></h2>
+<div class="grid" id="navigator"></div>
+<h2>Navigator <small style="font-weight:400;color:#5d6b7e">— GCS concepts (live C2 / telemetry / link)</small></h2>
+<div class="grid" id="navigator-gcs"></div>
+
+<script>
+// [gridId, folder, filePrefix, [variants]]
+const sets = [
+  ["vayu", "vayu", "vayu", ["1-windswirl","2-quad","3-monogram","4-feather","5-prop"]],
+  ["navlink", "navlink", "navlink", ["1-nodes","2-signal","3-chain","4-monogram","5-packet"]],
+  ["navlink-link", "navlink", "navlink-link", ["1-frame","2-ack","3-bitstream","4-bridge","5-sync"]],
+  ["navigator", "navigator", "navigator", ["1-compass","2-pin","3-monogram","4-waypoint","5-route"]],
+  ["navigator-gcs", "navigator", "navigator-gcs", ["1-horizon","2-groundlink","3-track","4-telemetry","5-station"]],
+];
+for (const [gridId, folder, prefix, items] of sets) {
+  const grid = document.getElementById(gridId);
+  for (const it of items) {
+    const file = `${folder}/${prefix}-${it}.svg`;
+    grid.insertAdjacentHTML("beforeend",
+      `<div class="card"><img src="${file}" alt="${it}"><div class="name">${it}</div></div>`);
+  }
+}
+</script>
+</body>
+</html>

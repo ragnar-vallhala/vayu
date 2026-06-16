@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" width="240" height="240">
+  <defs>
+    <linearGradient id="lkcmd" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#5b86e5"/><stop offset="1" stop-color="#36d1dc"/>
+    </linearGradient>
+  </defs>
+  <circle cx="120" cy="120" r="112" fill="#06182a"/>
+  <!-- endpoints -->
+  <circle cx="60" cy="120" r="14" fill="#36d1dc"/>
+  <circle cx="180" cy="120" r="14" fill="#43e97b"/>
+  <!-- command, down the link -->
+  <g stroke="url(#lkcmd)" stroke-width="9" stroke-linecap="round" fill="none">
+    <line x1="74" y1="98" x2="158" y2="98"/>
+  </g>
+  <polygon points="180,98 158,87 158,109" fill="#36d1dc"/>
+  <rect x="92" y="80" width="14" height="14" rx="3" fill="#9fd2ff"/>
+  <!-- ACK, back up -->
+  <g stroke="#43e97b" stroke-width="9" stroke-linecap="round" fill="none">
+    <line x1="166" y1="142" x2="82" y2="142"/>
+  </g>
+  <polygon points="60,142 82,131 82,153" fill="#43e97b"/>
+  <!-- check mark on the ack -->
+  <path d="M126 142 l8 8 14 -16" fill="none" stroke="#06182a" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

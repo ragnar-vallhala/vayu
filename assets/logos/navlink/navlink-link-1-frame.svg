@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" width="240" height="240">
+  <defs>
+    <clipPath id="lf"><rect x="40" y="98" width="160" height="44" rx="12"/></clipPath>
+  </defs>
+  <rect x="8" y="8" width="224" height="224" rx="48" fill="#0a1626"/>
+  <!-- wire frame: sync | id | payload | crc -->
+  <g clip-path="url(#lf)">
+    <rect x="40" y="98" width="30" height="44" fill="#36d1dc"/>
+    <rect x="70" y="98" width="30" height="44" fill="#4a8fe0"/>
+    <rect x="100" y="98" width="68" height="44" fill="#1b3357"/>
+    <rect x="168" y="98" width="32" height="44" fill="#5b86e5"/>
+    <!-- payload bits -->
+    <g fill="#9fd2ff">
+      <rect x="110" y="112" width="8" height="16" rx="2"/>
+      <rect x="124" y="112" width="8" height="16" rx="2"/>
+      <rect x="138" y="112" width="8" height="16" rx="2"/>
+      <rect x="152" y="112" width="8" height="16" rx="2"/>
+    </g>
+    <g stroke="#0a1626" stroke-width="3">
+      <line x1="70" y1="98" x2="70" y2="142"/>
+      <line x1="100" y1="98" x2="100" y2="142"/>
+      <line x1="168" y1="98" x2="168" y2="142"/>
+    </g>
+  </g>
+  <rect x="40" y="98" width="160" height="44" rx="12" fill="none" stroke="#36d1dc" stroke-width="4"/>
+  <!-- wire tails -->
+  <line x1="22" y1="120" x2="40" y2="120" stroke="#2b3a52" stroke-width="6" stroke-linecap="round"/>
+  <line x1="200" y1="120" x2="218" y2="120" stroke="#2b3a52" stroke-width="6" stroke-linecap="round"/>
+</svg>

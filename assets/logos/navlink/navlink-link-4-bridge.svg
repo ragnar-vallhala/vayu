@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" width="240" height="240">
+  <defs>
+    <linearGradient id="lbr" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#43e97b"/><stop offset="1" stop-color="#38f9d7"/>
+    </linearGradient>
+  </defs>
+  <circle cx="120" cy="120" r="112" fill="#06231f"/>
+  <!-- ground node (GCS) -->
+  <rect x="36" y="100" width="40" height="40" rx="8" fill="none" stroke="url(#lbr)" stroke-width="8"/>
+  <line x1="56" y1="100" x2="56" y2="84" stroke="url(#lbr)" stroke-width="6" stroke-linecap="round"/>
+  <circle cx="56" cy="80" r="5" fill="#43e97b"/>
+  <!-- air node (FC / quad) -->
+  <g stroke="url(#lbr)" stroke-width="7" fill="none" stroke-linecap="round">
+    <line x1="170" y1="104" x2="194" y2="104"/>
+    <line x1="182" y1="96" x2="182" y2="112"/>
+  </g>
+  <circle cx="182" cy="104" r="6" fill="#38f9d7"/>
+  <!-- data spine, bidirectional -->
+  <line x1="84" y1="120" x2="156" y2="120" stroke="url(#lbr)" stroke-width="10" stroke-linecap="round"/>
+  <polygon points="156,120 140,111 140,129" fill="#38f9d7"/>
+  <polygon points="84,120 100,111 100,129" fill="#43e97b"/>
+  <!-- packets riding the spine -->
+  <g fill="#06231f">
+    <rect x="112" y="115" width="10" height="10" rx="2"/>
+  </g>
+</svg>
