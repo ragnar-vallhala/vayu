@@ -1,0 +1,24 @@
+# Reproducible build environment for the Vayu stack (firmware / SITL / GCS).
+# The image holds only toolchains; this repo is bind-mounted at /workspace so
+# host edits build immediately. Drive it with tools/docker/build.sh, or invoke
+# directly, e.g.:
+#   docker compose run --rm vayu cmake -B build-docker
+#   docker compose run --rm vayu cmake --build build-docker -j
+#
+# Outputs go to *-docker build dirs so they never clash with host-native CMake
+# caches (different compilers/paths).
+services:
+  vayu:
+    build:
+      context: tools/docker          # tiny context: just the Dockerfile
+      dockerfile: Dockerfile
+      args:
+        USER_UID: "${USER_UID:-1000}"
+        USER_GID: "${USER_GID:-1000}"
+    image: vayu-build:latest
+    volumes:
+      - .:/workspace
+    working_dir: /workspace
+    # Keep the container around for an interactive shell when run with `bash`.
+    tty: true
+    stdin_open: true
