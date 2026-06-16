@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" width="240" height="240">
+  <defs>
+    <linearGradient id="lsy" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#8e9eff"/><stop offset="0.5" stop-color="#36d1dc"/><stop offset="1" stop-color="#8e9eff"/>
+    </linearGradient>
+  </defs>
+  <circle cx="120" cy="120" r="112" fill="#0a0f24"/>
+  <circle cx="120" cy="120" r="84" fill="none" stroke="#1a2342" stroke-width="6"/>
+  <!-- link heartbeat / sync pulse -->
+  <path d="M52 120 H92 L104 120 L114 86 L128 154 L140 120 L150 120 H188"
+        fill="none" stroke="url(#lsy)" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- sync lock dot at the spike -->
+  <circle cx="121" cy="120" r="7" fill="#36d1dc"/>
+  <!-- sync ticks -->
+  <g stroke="#36d1dc" stroke-width="5" stroke-linecap="round">
+    <line x1="120" y1="40" x2="120" y2="54"/>
+    <line x1="120" y1="186" x2="120" y2="200"/>
+  </g>
+</svg>
