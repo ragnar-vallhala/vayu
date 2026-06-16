@@ -4,9 +4,11 @@
 
 #include <QWidget>
 
+class QCheckBox;
 class QComboBox;
 class QDoubleSpinBox;
 class QListWidget;
+class QPushButton;
 class QVBoxLayout;
 
 // WorldEditorWidget — the "World" tab's environment + aerodynamics, plus a
@@ -21,6 +23,12 @@ class WorldEditorWidget : public QWidget {
   const vsim::WorldConfig& config() const { return cfg_; }
   void setConfig(const vsim::WorldConfig& c);
 
+  // Wind & turbulence (its own staged Apply button, mockup World tab).
+  const vsim::WindConfig& windConfig() const { return wind_; }
+  void setWindConfig(const vsim::WindConfig& w);
+  // Live wind readout fed from the pose stream (instantaneous speed + heading).
+  void setWindReadout(float speedMs, float dirDeg);
+
   // Apply a 3D-gizmo edit of obstacle `index` (world pos/size/rotate).
   void setObstacleFromGizmo(int index, QVector3D pos, QVector3D size,
                             QVector3D rotate);
@@ -29,12 +37,14 @@ class WorldEditorWidget : public QWidget {
 
  signals:
   void worldApplied();        // user committed env → push to daemon + persist
+  void windApplied();         // user committed wind → push to daemon + persist
   void obstaclesChanged();    // obstacle list/edit changed → preview + persist
   void obstacleSelectionChanged(int index);  // list selection → 3D highlight
   void worldMeshChanged();    // imported mesh path/scale/up-axis changed
 
  private slots:
   void onApply();
+  void onApplyWind();
   void onImportWorldMesh();
   void onClearWorldMesh();
   void onAddObstacle(int type);
@@ -46,10 +56,13 @@ class WorldEditorWidget : public QWidget {
 
  private:
   void buildUi();
+  void buildWindSection(QVBoxLayout* root);
   void buildWorldMeshSection(QVBoxLayout* root);
   void buildObstacleSection(QVBoxLayout* root);
   void syncConfigToUi();
   void syncUiToConfig();
+  void syncWindToUi();             // wind_ -> spinboxes/checkbox
+  void syncUiToWind();             // spinboxes/checkbox -> wind_
   void refreshObstacleList();      // list labels from cfg_.obstacles
   void syncFormFromSelection();    // selected obstacle → form fields
 
@@ -62,6 +75,19 @@ class WorldEditorWidget : public QWidget {
   QDoubleSpinBox* angDrag_ = nullptr;
   QDoubleSpinBox* rightGain_ = nullptr;  // ground-contact righting gain
   QDoubleSpinBox* rightDamp_ = nullptr;  // righting damping
+
+  // Wind & turbulence.
+  vsim::WindConfig wind_;
+  QDoubleSpinBox* windN_ = nullptr;
+  QDoubleSpinBox* windE_ = nullptr;
+  QDoubleSpinBox* windD_ = nullptr;
+  QDoubleSpinBox* gustAmp_ = nullptr;
+  QDoubleSpinBox* gustPeriod_ = nullptr;
+  QDoubleSpinBox* turbSigma_ = nullptr;
+  QCheckBox* windEnable_ = nullptr;
+  QPushButton* windApplyBtn_ = nullptr;   // enabled only when dirty
+  class QLabel* windReadout_ = nullptr;   // live speed/dir from the pose stream
+  bool windSyncing_ = false;              // guard sync from marking dirty
 
   // Obstacle editor.
   QListWidget* obsList_ = nullptr;

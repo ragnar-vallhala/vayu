@@ -144,6 +144,8 @@ class SimulatorWidget : public QWidget {
   vsim::GeometryConfig restoreGeometry();
   void persistWorld(const vsim::WorldConfig& w);
   vsim::WorldConfig restoreWorld();
+  void persistWind(const vsim::WindConfig& w);
+  vsim::WindConfig restoreWind();
 
   // Switch the right-hand properties panel: 0 = Vehicle, 1 = World.
   // Vehicle is locked while the sim is running.

@@ -121,6 +121,9 @@ class SimWorker : public QThread {
                  float gyrSigma, float gyrBiasClip, bool gyrEn,
                  float magSigma, float magBiasClip, bool magEn);
 
+  // Push the world wind field (VSIM_CTL_SET_WIND): steady + gust + turbulence.
+  void sendWind(const WindConfig& w);
+
  signals:
   void poseUpdated(SimSnapshot snap);
   void logLine(QString line);

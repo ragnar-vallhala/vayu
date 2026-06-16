@@ -6,6 +6,7 @@
 #include "../../core/Theme.h"
 
 #include <QAbstractSpinBox>
+#include <QCheckBox>
 #include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QFile>
@@ -105,6 +106,7 @@ vsim::WorldConfig worldFromJson(const QJsonObject& root) {
 WorldEditorWidget::WorldEditorWidget(QWidget* parent) : QWidget(parent) {
   buildUi();
   syncConfigToUi();
+  syncWindToUi();
 }
 
 void WorldEditorWidget::buildUi() {
@@ -148,6 +150,9 @@ void WorldEditorWidget::buildUi() {
     root->addWidget(sec);
   }
 
+  // -- Wind & turbulence (its own staged Apply, mockup World tab) --
+  buildWindSection(root);
+
   // -- Apply / Save / Load --
   {
     auto* row = new QHBoxLayout();
@@ -180,6 +185,102 @@ void WorldEditorWidget::buildUi() {
   buildObstacleSection(root);
 
   root->addStretch();
+}
+
+void WorldEditorWidget::buildWindSection(QVBoxLayout* root) {
+  auto* sec = new CollapsibleSection(tr("Wind & Turbulence"), this);
+  auto* body = new QWidget();
+  auto* col = new QVBoxLayout(body);
+
+  auto* form = new QFormLayout();
+  windEnable_  = new QCheckBox(tr("Enable wind"), body);
+  windN_       = spin(-50.0, 50.0, 2, 0.5, wind_.steady.x(), QStringLiteral(" m/s"));
+  windE_       = spin(-50.0, 50.0, 2, 0.5, wind_.steady.y(), QStringLiteral(" m/s"));
+  windD_       = spin(-50.0, 50.0, 2, 0.5, wind_.steady.z(), QStringLiteral(" m/s"));
+  gustAmp_     = spin(0.0, 50.0, 2, 0.5, wind_.gustAmp, QStringLiteral(" m/s"));
+  gustPeriod_  = spin(0.0, 120.0, 1, 0.5, wind_.gustPeriod, QStringLiteral(" s"));
+  turbSigma_   = spin(0.0, 20.0, 2, 0.1, wind_.turbSigma, QStringLiteral(" m/s"));
+  gustPeriod_->setToolTip(tr("Gust period; 0 disables the gust."));
+  turbSigma_->setToolTip(tr("Dryden turbulence RMS intensity; 0 = smooth wind."));
+
+  form->addRow(windEnable_);
+  form->addRow(tr("Steady N:"), windN_);
+  form->addRow(tr("Steady E:"), windE_);
+  form->addRow(tr("Steady D:"), windD_);
+  form->addRow(tr("Gust amplitude:"), gustAmp_);
+  form->addRow(tr("Gust period:"), gustPeriod_);
+  form->addRow(tr("Turbulence σ:"), turbSigma_);
+  col->addLayout(form);
+
+  windReadout_ = new QLabel(tr("wind: —"), body);
+  windReadout_->setStyleSheet(
+      QString("color:%1; font-size:11px;").arg(Theme::hex(Theme::kTextMuted)));
+  col->addWidget(windReadout_);
+
+  {
+    auto* row = new QHBoxLayout();
+    row->addStretch();
+    windApplyBtn_ = new ui::SuccessButton(tr("Apply to Sim"), body);
+    windApplyBtn_->setToolTip(tr("Push the wind field to the simulator."));
+    windApplyBtn_->setEnabled(false);   // enabled when a value changes (dirty)
+    row->addWidget(windApplyBtn_);
+    col->addLayout(row);
+    connect(windApplyBtn_, &QPushButton::clicked, this,
+            &WorldEditorWidget::onApplyWind);
+  }
+
+  // Dirty tracking: any edit re-enables Apply (staged-apply UX, D2).
+  auto markDirty = [this] {
+    if (!windSyncing_ && windApplyBtn_) windApplyBtn_->setEnabled(true);
+  };
+  for (QDoubleSpinBox* s : {windN_, windE_, windD_, gustAmp_, gustPeriod_, turbSigma_})
+    connect(s, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+            [markDirty](double) { markDirty(); });
+  connect(windEnable_, &QCheckBox::toggled, this,
+          [markDirty](bool) { markDirty(); });
+
+  sec->setContentWidget(body);
+  root->addWidget(sec);
+}
+
+void WorldEditorWidget::syncWindToUi() {
+  windSyncing_ = true;
+  if (windN_)       windN_->setValue(wind_.steady.x());
+  if (windE_)       windE_->setValue(wind_.steady.y());
+  if (windD_)       windD_->setValue(wind_.steady.z());
+  if (gustAmp_)     gustAmp_->setValue(wind_.gustAmp);
+  if (gustPeriod_)  gustPeriod_->setValue(wind_.gustPeriod);
+  if (turbSigma_)   turbSigma_->setValue(wind_.turbSigma);
+  if (windEnable_)  windEnable_->setChecked(wind_.enabled);
+  windSyncing_ = false;
+  if (windApplyBtn_) windApplyBtn_->setEnabled(false);  // freshly synced = clean
+}
+
+void WorldEditorWidget::syncUiToWind() {
+  wind_.steady = QVector3D(static_cast<float>(windN_->value()),
+                           static_cast<float>(windE_->value()),
+                           static_cast<float>(windD_->value()));
+  wind_.gustAmp    = static_cast<float>(gustAmp_->value());
+  wind_.gustPeriod = static_cast<float>(gustPeriod_->value());
+  wind_.turbSigma  = static_cast<float>(turbSigma_->value());
+  wind_.enabled    = windEnable_->isChecked();
+}
+
+void WorldEditorWidget::onApplyWind() {
+  syncUiToWind();
+  if (windApplyBtn_) windApplyBtn_->setEnabled(false);   // clean until next edit
+  emit windApplied();
+}
+
+void WorldEditorWidget::setWindConfig(const vsim::WindConfig& w) {
+  wind_ = w;
+  syncWindToUi();
+}
+
+void WorldEditorWidget::setWindReadout(float speedMs, float dirDeg) {
+  if (!windReadout_) return;
+  windReadout_->setText(
+      tr("wind: %1 m/s @ %2°").arg(speedMs, 0, 'f', 1).arg(dirDeg, 0, 'f', 0));
 }
 
 void WorldEditorWidget::buildWorldMeshSection(QVBoxLayout* root) {
