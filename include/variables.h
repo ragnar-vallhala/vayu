@@ -271,6 +271,12 @@ typedef struct __attribute__((packed)) {
   1000 // 1 seconds, waits after recording before saving the calibration
 #define CALIBRATION_SAMPLE_COUNT                                               \
   500 // Number of samples to take for calibration
+#define ACCEL_SCALE_MIN_SPAN                                                   \
+  5.0f // m/s^2; reject a degenerate accel pose span (avoids divide-by-~0 scale)
+#define ACCEL_CROSS_AXIS_THR                                                   \
+  2.0f // m/s^2; max allowed reading on the two non-target axes during a pose
+#define MAG_FIT_MIN_SAMPLES                                                    \
+  400 // minimum valid samples required to attempt the mag ellipsoid fit
 
 // Global telemetry channel and mutex
 #include "comm/channel.h"

@@ -252,9 +252,27 @@ typedef struct {
   float acc_offset[3];
   float acc_scale[3];
   float gyr_offset[3];
-  float mag_offset[3];
-  float mag_scale[3];
+  float mag_offset[3];   // hard-iron bias (uT)
+  float mag_soft_iron[9]; // row-major 3x3 soft-iron matrix, identity default
 } bmx160_calibration_t;
+
+/* On-disk calibration file (0:cal.bin) layout: a small header for
+ * forward-compatibility followed by a raw bmx160_calibration_t payload. A
+ * mismatched magic/version/size (e.g. a pre-v2 headerless file) is rejected on
+ * load and the compiled-in identity defaults are kept. */
+#define CALIB_FILE_MAGIC 0x4C414356u /* 'VCAL' */
+#define CALIB_FILE_VERSION 2u
+
+typedef struct {
+  uint32_t magic;
+  uint16_t version;
+  uint16_t payload_size; // == sizeof(bmx160_calibration_t)
+} calib_file_header_t;
+
+/* Cooperative cancel: CMD_CANCEL_CALIBRATION sets a flag the running
+ * calibration task polls at each loop boundary so it can tear down cleanly
+ * (restore STANDBY, free args) instead of being killed mid-run. */
+void bmx160_calib_request_cancel(void);
 
 typedef struct {
   float imu_id;

@@ -158,14 +158,21 @@ static navlink_ack_t on_cmd_calibrate_imu(void *ctx,
     dispatch_v1(PACKET_TYPE_COMMAND, p, 2);
     return navlink_ack_result(ACK_OK);
   }
-  /* Truthful start: reject if a calibration is already running, else kick it
-   * off. (Progress/completion stream separately via CALIBRATION_STATUS.) */
-  if (system_state_get() == SYSTEM_STATE_CALIBRATING) {
+  /* Truthful start: calibration can only be entered from STANDBY or FAILSAFE
+   * (see sys/state.c). Reject (temporarily) from anywhere else — ARMED/IN_AIR
+   * or already CALIBRATING — instead of ACCEPTing a command that can't run.
+   * (Progress/completion stream separately via CALIBRATION_STATUS.) */
+  sys_state_t st = system_state_get();
+  if (st != SYSTEM_STATE_STANDBY && st != SYSTEM_STATE_FAILSAFE) {
     return navlink_ack_result(ACK_BUSY);
   }
-  /* Single IMU: imu_id 0; `which` selects the routine (the v1 `type` arg). */
+  /* `which` packs the sensor selector and mode into one byte: high nibble =
+   * imu_id (1=accel, 2=gyro, 3=mag), low nibble = type (0=bias, 1=full). Unpack
+   * both for the v1 dispatch, which keys calibration_task on (imu_id, type). */
+  uint8_t imu = (uint8_t)((m->which >> 4) & 0x0Fu);
+  uint8_t typ = (uint8_t)(m->which & 0x0Fu);
   uint8_t p[3 + 2 * 4];
-  float args[2] = {0.0f, (float)m->which};
+  float args[2] = {(float)imu, (float)typ};
   uint8_t len = build_cmd(p, (uint16_t)CMD_CALIBRATE_IMU, args, 2);
   dispatch_v1(PACKET_TYPE_COMMAND, p, len);
   return navlink_ack_result(ACK_OK);

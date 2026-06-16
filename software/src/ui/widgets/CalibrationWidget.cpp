@@ -236,9 +236,11 @@ void CalibrationWidget::onSensorSelected(int id) {
     m_fullCalibRadio->setEnabled(false);
     m_biasOnlyRadio->setChecked(true);
   } else if (id == 3) {
-    m_biasOnlyRadio->setText(
-        "Quick Calibration"); // Offset + Scale depending on what you implement
-    m_fullCalibRadio->setText("Advanced Calibration"); // Ellipsoid fit
+    // Mag has a single routine (hard + soft iron ellipsoid fit); the firmware
+    // ignores the mode arg, so don't offer a misleading second option.
+    m_biasOnlyRadio->setText("Hard + Soft Iron (Ellipsoid)");
+    m_biasOnlyRadio->setChecked(true);
+    m_fullCalibRadio->setEnabled(false);
     m_axisStatusArea->setVisible(false);
   }
 }
@@ -307,10 +309,11 @@ void CalibrationWidget::refreshSteps() {
 }
 
 void CalibrationWidget::sendCalibrationCommand(int imu_id, int type) {
-  // NavLink v2 CMD_CALIBRATE_IMU carries the routine selector only (single IMU,
-  // so imu_id is implied 0 on the firmware side).
-  Q_UNUSED(imu_id);
-  emit commandRequested(CommandCodec::encodeCalibrate(static_cast<quint8>(type)));
+  // NavLink v2 CMD_CALIBRATE_IMU carries a single `which` byte. Pack the sensor
+  // selector in the high nibble (1=accel, 2=gyro, 3=mag) and the mode in the
+  // low nibble (0=bias, 1=full); the firmware router unpacks both.
+  quint8 which = static_cast<quint8>(((imu_id & 0x0F) << 4) | (type & 0x0F));
+  emit commandRequested(CommandCodec::encodeCalibrate(which));
 }
 
 void CalibrationWidget::onProgressReceived(float pct) {

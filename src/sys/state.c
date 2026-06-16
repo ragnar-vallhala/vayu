@@ -33,6 +33,11 @@ static const sys_state_t k_allowed_transitions[][2] = {
     {SYSTEM_STATE_STANDBY,       SYSTEM_STATE_PREARM},
     {SYSTEM_STATE_STANDBY,       SYSTEM_STATE_ARMED},
     {SYSTEM_STATE_STANDBY,       SYSTEM_STATE_CALIBRATING},
+    /* Bench calibration: the FC sits in FAILSAFE whenever there is no RC link
+     * (rc_watchdog_step), which is the normal state for a GCS-driven ground
+     * calibration. Allow it from there; the task returns to STANDBY on
+     * completion (and the watchdog may re-enter FAILSAFE, harmlessly). */
+    {SYSTEM_STATE_FAILSAFE,      SYSTEM_STATE_CALIBRATING},
     {SYSTEM_STATE_PREARM,        SYSTEM_STATE_ARMED},
     {SYSTEM_STATE_PREARM,        SYSTEM_STATE_STANDBY},
     {SYSTEM_STATE_ARMED,         SYSTEM_STATE_IN_AIR},
