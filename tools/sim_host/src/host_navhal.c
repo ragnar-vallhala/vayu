@@ -466,6 +466,10 @@ uint32_t hal_crc_compute(const uint8_t *data, uint32_t length) {
  * can reference it. */
 void calibration_task(void *args) { (void)args; }
 
+/* Cancel hook (hardware definition is in src/sensor/bmx160.c). No-op here
+ * since the host SITL has no calibration flow. */
+void bmx160_calib_request_cancel(void) {}
+
 /* ---- Timer HAL: stubs (heartbeat uses it via task delays, not real timers) */
 hal_status_t hal_timer_init_freq(hal_timer_t t, uint32_t freq_hz) {
     (void)t; (void)freq_hz; return HAL_OK;

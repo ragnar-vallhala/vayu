@@ -88,11 +88,19 @@ static void bmx160_dma_callback_temp(void *args);
 
 static float acc_scale = 0.0f;
 static float gyr_scale = 0.0f;
-static bmx160_calibration_t bmx160_calib = {.acc_offset = {0.0f, 0.0f, 0.0f},
-                                            .acc_scale = {1.0f, 1.0f, 1.0f},
-                                            .gyr_offset = {0.0f, 0.0f, 0.0f},
-                                            .mag_offset = {0.0f, 0.0f, 0.0f},
-                                            .mag_scale = {1.0f, 1.0f, 1.0f}};
+static bmx160_calibration_t bmx160_calib = {
+    .acc_offset = {0.0f, 0.0f, 0.0f},
+    .acc_scale = {1.0f, 1.0f, 1.0f},
+    .gyr_offset = {0.0f, 0.0f, 0.0f},
+    .mag_offset = {0.0f, 0.0f, 0.0f},
+    .mag_soft_iron = {1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f}};
+
+/* Set by bmx160_calib_request_cancel() (CMD_CANCEL_CALIBRATION), polled and
+ * cleared by calibration_task. volatile: written from the comm task, read from
+ * the calibration task. */
+static volatile int _calib_cancel = 0;
+
+void bmx160_calib_request_cancel(void) { _calib_cancel = 1; }
 
 // LPFs for sensors
 static lpf_t acc_lpf[3];
@@ -159,13 +167,26 @@ hal_status_t bmx160_init(void) {
   // Create I2C bus semaphore early. Ensure it starts "given"
   in_init = 1; // Explicitly set it here as well
 
-  // Read calibration from sd card
+  // Read calibration from sd card. Validate the versioned header before
+  // applying the payload; on any mismatch (e.g. a pre-v2 headerless file) keep
+  // the compiled-in identity defaults rather than loading garbage.
   vfs_fd_t file = vfs_open(CALIBRATION_FILE_PATH, VFS_O_RDONLY);
   if (file < 0) {
     vayu_log("[CALIB] Failed to open calibration file.");
   } else {
-    vfs_read(file, &bmx160_calib, sizeof(bmx160_calibration_t));
+    calib_file_header_t hdr;
+    bmx160_calibration_t loaded;
+    int hn = vfs_read(file, &hdr, sizeof(hdr));
+    int pn = vfs_read(file, &loaded, sizeof(loaded));
     vfs_close(file);
+    if (hn == (int)sizeof(hdr) && pn == (int)sizeof(loaded) &&
+        hdr.magic == CALIB_FILE_MAGIC && hdr.version == CALIB_FILE_VERSION &&
+        hdr.payload_size == (uint16_t)sizeof(bmx160_calibration_t)) {
+      bmx160_calib = loaded;
+      vayu_log("[CALIB] Calibration loaded (v%u).", (unsigned)hdr.version);
+    } else {
+      vayu_log("[CALIB] Calibration file invalid/old; using identity defaults.");
+    }
   }
   // Create attitude mutex
   // if (bmx160_attitude_mutex == NULL) {
@@ -1003,12 +1024,14 @@ static void bmx160_process_mag(int16_t mx, int16_t my, int16_t mz,
 
   // Calibrated magnetometer in microtesla. This is the value the getters and
   // telemetry report — it is NOT normalized; fusion uses mag_fusion[] below.
-  _bmx_data.converted.mag[0] =
-      (mag_x - bmx160_calib.mag_offset[0]) * bmx160_calib.mag_scale[0];
-  _bmx_data.converted.mag[1] =
-      (mag_y - bmx160_calib.mag_offset[1]) * bmx160_calib.mag_scale[1];
-  _bmx_data.converted.mag[2] =
-      (mag_z - bmx160_calib.mag_offset[2]) * bmx160_calib.mag_scale[2];
+  // Full hard-iron (offset) + soft-iron (3x3) correction: v = M * (m - bias).
+  float md0 = mag_x - bmx160_calib.mag_offset[0];
+  float md1 = mag_y - bmx160_calib.mag_offset[1];
+  float md2 = mag_z - bmx160_calib.mag_offset[2];
+  const float *Msi = bmx160_calib.mag_soft_iron;
+  _bmx_data.converted.mag[0] = Msi[0] * md0 + Msi[1] * md1 + Msi[2] * md2;
+  _bmx_data.converted.mag[1] = Msi[3] * md0 + Msi[4] * md1 + Msi[5] * md2;
+  _bmx_data.converted.mag[2] = Msi[6] * md0 + Msi[7] * md1 + Msi[8] * md2;
 
   // Magnitude and Disturbance Checks (on the calibrated uT vector)
   if (mag_fusion_valid) {
@@ -1251,8 +1274,209 @@ void bmx160_process_data(void) {
   imu_queue_attitude_push(&_bmx_data);
 }
 
+/* ===================== Magnetometer ellipsoid fit ======================== *
+ * Small fixed-size float linear algebra (no heap, stack-only) used to recover
+ * the hard-iron offset and full 3x3 soft-iron matrix from samples gathered
+ * during the free-rotation spin. See mag_fit_ellipsoid().                     */
+
+/* Positive cube root via range reduction (cbrt(8x)=2 cbrt(x)) + Newton.
+ * Uses only multiply/compare so it is independent of libm extras. */
+static float cbrt_pos(float x) {
+  if (x <= 0.0f)
+    return 0.0f;
+  float f = 1.0f;
+  while (x > 1.0f) {
+    x *= 0.125f;
+    f *= 2.0f;
+  }
+  while (x < 0.125f) {
+    x *= 8.0f;
+    f *= 0.5f;
+  }
+  float y = 0.75f; // x now in [0.125, 1], cube root in [0.5, 1]
+  for (int i = 0; i < 10; i++)
+    y = (2.0f * y + x / (y * y)) / 3.0f;
+  return y * f;
+}
+
+/* Solve A x = b for a 9x9 system via Gauss-Jordan with partial pivoting.
+ * A (row-major) and b are destroyed. Returns 0 on success, -1 if singular. */
+static int solve9x9(float A[81], float b[9], float x[9]) {
+  const int n = 9;
+  for (int col = 0; col < n; col++) {
+    int prow = col;
+    float best = FABS_F(A[col * n + col]);
+    for (int r = col + 1; r < n; r++) {
+      float v = FABS_F(A[r * n + col]);
+      if (v > best) {
+        best = v;
+        prow = r;
+      }
+    }
+    if (best < 1e-12f)
+      return -1;
+    if (prow != col) {
+      for (int c = 0; c < n; c++) {
+        float tmp = A[col * n + c];
+        A[col * n + c] = A[prow * n + c];
+        A[prow * n + c] = tmp;
+      }
+      float tb = b[col];
+      b[col] = b[prow];
+      b[prow] = tb;
+    }
+    float invd = 1.0f / A[col * n + col];
+    for (int c = 0; c < n; c++)
+      A[col * n + c] *= invd;
+    b[col] *= invd;
+    for (int r = 0; r < n; r++) {
+      if (r == col)
+        continue;
+      float fct = A[r * n + col];
+      for (int c = 0; c < n; c++)
+        A[r * n + c] -= fct * A[col * n + c];
+      b[r] -= fct * b[col];
+    }
+  }
+  for (int i = 0; i < n; i++)
+    x[i] = b[i];
+  return 0;
+}
+
+/* Symmetric 3x3 eigen-decomposition via cyclic Jacobi rotations.
+ * Eigenvalues -> w[3]; eigenvectors as columns of V (row-major 3x3). */
+static void jacobi_eig3(const float Ain[9], float w[3], float V[9]) {
+  float a[9];
+  for (int i = 0; i < 9; i++)
+    a[i] = Ain[i];
+  V[0] = 1; V[1] = 0; V[2] = 0;
+  V[3] = 0; V[4] = 1; V[5] = 0;
+  V[6] = 0; V[7] = 0; V[8] = 1;
+  const int pq[3][2] = {{0, 1}, {0, 2}, {1, 2}};
+  for (int sweep = 0; sweep < 50; sweep++) {
+    if (FABS_F(a[1]) + FABS_F(a[2]) + FABS_F(a[5]) < 1e-12f)
+      break;
+    for (int k = 0; k < 3; k++) {
+      int p = pq[k][0], q = pq[k][1];
+      float apq = a[p * 3 + q];
+      if (FABS_F(apq) < 1e-15f)
+        continue;
+      float phi = 0.5f * (a[q * 3 + q] - a[p * 3 + p]) / apq;
+      float tt = (phi >= 0.0f ? 1.0f : -1.0f) /
+                 (FABS_F(phi) + SQRT_F(phi * phi + 1.0f));
+      float c = 1.0f / SQRT_F(tt * tt + 1.0f);
+      float s = tt * c;
+      for (int i = 0; i < 3; i++) { // A <- A J (columns p,q)
+        float aip = a[i * 3 + p], aiq = a[i * 3 + q];
+        a[i * 3 + p] = c * aip - s * aiq;
+        a[i * 3 + q] = s * aip + c * aiq;
+      }
+      for (int i = 0; i < 3; i++) { // A <- J^T A (rows p,q)
+        float api = a[p * 3 + i], aqi = a[q * 3 + i];
+        a[p * 3 + i] = c * api - s * aqi;
+        a[q * 3 + i] = s * api + c * aqi;
+      }
+      for (int i = 0; i < 3; i++) { // V <- V J
+        float vip = V[i * 3 + p], viq = V[i * 3 + q];
+        V[i * 3 + p] = c * vip - s * viq;
+        V[i * 3 + q] = s * vip + c * viq;
+      }
+    }
+  }
+  w[0] = a[0];
+  w[1] = a[4];
+  w[2] = a[8];
+}
+
+/* Inverse of a 3x3 (row-major). Returns 0 on success, -1 if singular. */
+static int inv3x3(const float m[9], float out[9]) {
+  float c00 = m[4] * m[8] - m[5] * m[7];
+  float c01 = m[5] * m[6] - m[3] * m[8];
+  float c02 = m[3] * m[7] - m[4] * m[6];
+  float det = m[0] * c00 + m[1] * c01 + m[2] * c02;
+  if (FABS_F(det) < 1e-20f)
+    return -1;
+  float invdet = 1.0f / det;
+  out[0] = c00 * invdet;
+  out[1] = (m[2] * m[7] - m[1] * m[8]) * invdet;
+  out[2] = (m[1] * m[5] - m[2] * m[4]) * invdet;
+  out[3] = c01 * invdet;
+  out[4] = (m[0] * m[8] - m[2] * m[6]) * invdet;
+  out[5] = (m[2] * m[3] - m[0] * m[5]) * invdet;
+  out[6] = c02 * invdet;
+  out[7] = (m[1] * m[6] - m[0] * m[7]) * invdet;
+  out[8] = (m[0] * m[4] - m[1] * m[3]) * invdet;
+  return 0;
+}
+
+/* Fit an ellipsoid to the accumulated normal equations S p = t (each sample
+ * contributed row r = [x^2,y^2,z^2,2yz,2xz,2xy,2x,2y,2z], target 1), then
+ * recover the hard-iron offset and a volume-preserving 3x3 soft-iron matrix:
+ *   model:  x^T Q x + 2 u^T x = 1
+ *   center: c = -Q^-1 u                              (hard iron)
+ *   soft:   M = detQ^(-1/6) * Q^(1/2)                (maps ellipsoid -> sphere
+ *           of radius = geometric-mean semi-axis, so corrected |field| stays
+ *           in the physical uT range)
+ * Returns 0 on success; -1 if the system is singular or Q is not
+ * positive-definite (degenerate / planar rotation). */
+static int mag_fit_ellipsoid(float S[81], float t[9], float offset[3],
+                             float soft[9]) {
+  float p[9];
+  if (solve9x9(S, t, p) != 0)
+    return -1;
+
+  float Q[9] = {p[0], p[5], p[4], p[5], p[1], p[3], p[4], p[3], p[2]};
+  float u[3] = {p[6], p[7], p[8]};
+
+  float Qinv[9];
+  if (inv3x3(Q, Qinv) != 0)
+    return -1;
+  offset[0] = -(Qinv[0] * u[0] + Qinv[1] * u[1] + Qinv[2] * u[2]);
+  offset[1] = -(Qinv[3] * u[0] + Qinv[4] * u[1] + Qinv[5] * u[2]);
+  offset[2] = -(Qinv[6] * u[0] + Qinv[7] * u[1] + Qinv[8] * u[2]);
+
+  float w[3], V[9];
+  jacobi_eig3(Q, w, V);
+  if (w[0] <= 0.0f || w[1] <= 0.0f || w[2] <= 0.0f)
+    return -1; // not an ellipsoid (hyperboloid / planar data)
+
+  float sq[3] = {SQRT_F(w[0]), SQRT_F(w[1]), SQRT_F(w[2])};
+  float detQ = w[0] * w[1] * w[2];
+  float scale = 1.0f / cbrt_pos(SQRT_F(detQ)); // detQ^(-1/6)
+  for (int i = 0; i < 3; i++) {
+    for (int j = 0; j < 3; j++) {
+      float acc = 0.0f; // (V diag(sqrt(w)) V^T)_{ij}
+      for (int k = 0; k < 3; k++)
+        acc += V[i * 3 + k] * sq[k] * V[j * 3 + k];
+      soft[i * 3 + j] = scale * acc;
+    }
+  }
+  return 0;
+}
+
+/* Map a 6-point orientation to (target axis index, expected sign of g on that
+ * axis). The firmware uses a gravity-down convention: the axis pointing up
+ * reads ≈ -9.81, so the "UP" poses have sign -1. Returns 0 on an unknown
+ * orientation. */
+static int orient_axis_sign(calib_update_type_t orient, int *axis, float *sign) {
+  switch (orient) {
+  case CALIB_UPDATE_UPRIGHT:    *axis = 2; *sign = -1.0f; return 1;
+  case CALIB_UPDATE_UPSIDE_DOWN:*axis = 2; *sign = +1.0f; return 1;
+  case CALIB_UPDATE_NOSE_UP:    *axis = 0; *sign = -1.0f; return 1;
+  case CALIB_UPDATE_NOSE_DOWN:  *axis = 0; *sign = +1.0f; return 1;
+  case CALIB_UPDATE_RIGHT_DOWN: *axis = 1; *sign = -1.0f; return 1;
+  case CALIB_UPDATE_LEFT_DOWN:  *axis = 1; *sign = +1.0f; return 1;
+  default:                      return 0;
+  }
+}
+
+/* Collect CALIBRATION_SAMPLE_COUNT stationary accel samples in the requested
+ * orientation, averaging into accel_out (m/s^2). A sample is accepted only when
+ * the target axis is within `thr` of ±g AND the two other axes are near zero
+ * (< ACCEL_CROSS_AXIS_THR) — this rejects tilted poses that would otherwise
+ * leak cross-axis gravity into the offsets. Returns 1 on success, -1 if a
+ * cancel was requested mid-collection. */
 static int wait_for_orientation(calib_update_type_t orient, float *accel_out) {
-  // Remove all send packets from here
   vayu_log("[CALIB] Waiting for orientation: %d", orient);
 
   // Send instruction to GCS
@@ -1268,61 +1492,40 @@ static int wait_for_orientation(calib_update_type_t orient, float *accel_out) {
 
   v_delay(CALIBRATION_WAIT_USER_TIME_PRE_CALIBRATION);
 
-  const int target_samples = CALIBRATION_SAMPLE_COUNT;
+  int t_axis = 2;
+  float t_sign = -1.0f;
+  if (!orient_axis_sign(orient, &t_axis, &t_sign)) {
+    accel_out[0] = accel_out[1] = accel_out[2] = 0.0f;
+    return 1;
+  }
+  const int o_a = (t_axis + 1) % 3; // the two non-target axes
+  const int o_b = (t_axis + 2) % 3;
 
+  const int target_samples = CALIBRATION_SAMPLE_COUNT;
   float sum[3] = {0.0f, 0.0f, 0.0f};
   int count = 0;
 
-  const float g = -9.81f;
-  const float thr = 1.0f;
+  const float g = 9.81f;
+  const float thr = 0.5f; // target-axis tolerance around ±g
 
   while (count < target_samples) {
-    float raw[3];
+    if (_calib_cancel)
+      return -1;
 
-    // Use DMA data from _bmx_data.converted.acc_raw
     bmx160_all_reading_t sample;
-    if (imu_queue_calibration_pop(&sample)) {
-      raw[0] = sample.converted.acc_raw[0];
-      raw[1] = sample.converted.acc_raw[1];
-      raw[2] = sample.converted.acc_raw[2];
-    } else {
+    if (!imu_queue_calibration_pop(&sample)) {
+      v_delay(2);
       continue;
     }
+    float raw[3] = {sample.converted.acc_raw[0], sample.converted.acc_raw[1],
+                    sample.converted.acc_raw[2]};
 
-    int match = 0;
-    // TODO: Check if this is correct
-    switch (orient) {
-    case CALIB_UPDATE_UPRIGHT:
-      match = (raw[2] < g + thr);
-      break;
-
-    case CALIB_UPDATE_UPSIDE_DOWN:
-      match = (raw[2] > -g - thr);
-      break;
-
-    case CALIB_UPDATE_NOSE_UP:
-      match = (raw[0] < g + thr);
-      break;
-
-    case CALIB_UPDATE_NOSE_DOWN:
-      match = (raw[0] > -g - thr);
-      break;
-
-    case CALIB_UPDATE_RIGHT_DOWN:
-      match = (raw[1] < g + thr);
-      break;
-
-    case CALIB_UPDATE_LEFT_DOWN:
-      match = (raw[1] > -g - thr);
-      break;
-
-    default:
-      match = 0;
-      break;
-    }
+    // Target axis near ±g, and the other two axes near 0 (level pose).
+    int match = (FABS_F(raw[t_axis] - t_sign * g) < thr) &&
+                (FABS_F(raw[o_a]) < ACCEL_CROSS_AXIS_THR) &&
+                (FABS_F(raw[o_b]) < ACCEL_CROSS_AXIS_THR);
 
     if (match) {
-      // Accumulate
       sum[0] += raw[0];
       sum[1] += raw[1];
       sum[2] += raw[2];
@@ -1336,47 +1539,58 @@ static int wait_for_orientation(calib_update_type_t orient, float *accel_out) {
         imu_calibration_telemetry.size = 7;
         imu_queue_calibration_telemetry_push(&imu_calibration_telemetry);
       }
-
     } else {
-      // Reset if orientation disturbed
+      // Reset if orientation disturbed — require a contiguous still window.
       count = 0;
-      sum[0] = 0.0f;
-      sum[1] = 0.0f;
-      sum[2] = 0.0f;
+      sum[0] = sum[1] = sum[2] = 0.0f;
     }
     v_delay(20);
   }
 
-  // Compute average
   float inv = 1.0f / (float)target_samples;
-
   accel_out[0] = sum[0] * inv;
   accel_out[1] = sum[1] * inv;
   accel_out[2] = sum[2] * inv;
 
   vayu_log("[CALIB] Orientation %d done: %.3f %.3f %.3f", orient, accel_out[0],
            accel_out[1], accel_out[2]);
-
   return 1;
+}
+
+/* Push a calibration telemetry packet [origin][nargs=1][code][float]. */
+static void calib_telemetry(uint8_t code, float value) {
+  imu_calibration_telemetry_t t;
+  t.buffer[0] = SYSTEM_ORIGIN_CALIBRATION;
+  t.buffer[1] = 0x01;
+  t.buffer[2] = code;
+  v_memcpy(&t.buffer[3], &value, 4);
+  t.size = 7;
+  imu_queue_calibration_telemetry_push(&t);
 }
 
 void calibration_task(void *args) {
   calibration_args_t *cal_args = (calibration_args_t *)args;
-  /* args is NULL only when the command dispatcher's malloc failed; the
-   * task dereferences cal_args->type throughout, so bail safely instead
-   * of crashing (was a latent null-deref — cppcheck nullPointerRedundantCheck). */
+  /* args is NULL only when the command dispatcher's malloc failed; bail via the
+   * shared cleanup epilogue instead of dereferencing cal_args. */
   if (cal_args == NULL) {
     vayu_log("[CALIB] no calibration args; aborting");
-    VAYU_DISCARD(system_state_set(SYSTEM_STATE_STANDBY));
-    task_exit();
-    return;
+    goto done;
   }
   float imu_id = cal_args->imu_id;
 
-  VAYU_DISCARD(system_state_set(SYSTEM_STATE_CALIBRATING));
+  _calib_cancel = 0; // clear any stale cancel from a previous run
+  /* Must actually enter CALIBRATING — otherwise bmx160_process_data never
+   * diverts samples to the calibration queue and wait_for_orientation would
+   * spin forever. Bail cleanly if the state machine rejects the transition
+   * (e.g. we're in FAILSAFE/ARMED, not STANDBY). */
+  if (system_state_set(SYSTEM_STATE_CALIBRATING) != VAYU_OK) {
+    vayu_log("[CALIB] cannot enter CALIBRATING from current state; aborting");
+    goto done;
+  }
   v_delay(500);
   vayu_log("[CALIB] IMU ID: %.1f, Type: %.1f", imu_id, cal_args->type);
-  if ((int)imu_id == 1) { // ACCEL
+
+  if ((int)imu_id == 1) { // ACCEL (6-point)
     calib_update_type_t orients[] = {
         CALIB_UPDATE_UPRIGHT,    CALIB_UPDATE_UPSIDE_DOWN,
         CALIB_UPDATE_NOSE_UP,    CALIB_UPDATE_NOSE_DOWN,
@@ -1384,220 +1598,189 @@ void calibration_task(void *args) {
     float averages[6][3];
 
     for (int i = 0; i < 6; i++) {
-      wait_for_orientation(orients[i], averages[i]);
+      if (wait_for_orientation(orients[i], averages[i]) < 0) {
+        vayu_log("[CALIB] Accel calibration cancelled.");
+        goto done;
+      }
       vayu_log("[CALIB] Pose %d recorded.", i);
-      v_delay(
-          CALIBRATION_WAIT_USER_TIME_PRE_CALIBRATION); // Wait for user to move
+      v_delay(CALIBRATION_WAIT_USER_TIME_PRE_CALIBRATION); // user moves the board
     }
 
-    // Calibration calculation
-    if ((int)cal_args->type == 1) { // FULL CALIBRATION (Bias + Scale)
-      vayu_log("[CALIB] Calculating Full Accel Calibration...");
+    // Offset = midpoint of the +g and -g poses on each axis (symmetric, so it
+    // is correct regardless of sign). The pose index that reads +9.81 ("pos")
+    // and the one that reads -9.81 ("neg"), per axis:
+    //   X: NOSE_DOWN(3)=+g, NOSE_UP(2)=-g
+    //   Y: LEFT_DOWN(5)=+g, RIGHT_DOWN(4)=-g
+    //   Z: UPSIDE_DOWN(1)=+g, UPRIGHT(0)=-g
+    const struct {
+      int pos, neg, axis;
+    } AX[3] = {{3, 2, 0}, {5, 4, 1}, {1, 0, 2}};
 
-      // X-axis: Nose Up (2) and Nose Down (3)
-      float max_x = averages[2][0];
-      float min_x = averages[3][0];
-      bmx160_calib.acc_offset[0] = (max_x + min_x) / 2.0f;
-      bmx160_calib.acc_scale[0] = (2.0f * 9.80665f) / (max_x - min_x);
-
-      // Y-axis: Right Down (4) and Left Down (5)
-      float max_y = averages[4][1];
-      float min_y = averages[5][1];
-      bmx160_calib.acc_offset[1] = (max_y + min_y) / 2.0f;
-      bmx160_calib.acc_scale[1] = (2.0f * 9.80665f) / (max_y - min_y);
-
-      // Z-axis: Upright (0) and Upside Down (1)
-      float max_z = averages[0][2];
-      float min_z = averages[1][2];
-      bmx160_calib.acc_offset[2] = (max_z + min_z) / 2.0f;
-      bmx160_calib.acc_scale[2] = (2.0f * 9.80665f) / (max_z - min_z);
-
-      vayu_log("[CALIB] Accel Bias: %.3f, %.3f, %.3f",
-               bmx160_calib.acc_offset[0], bmx160_calib.acc_offset[1],
-               bmx160_calib.acc_offset[2]);
+    int full = ((int)cal_args->type == 1);
+    vayu_log(full ? "[CALIB] Full Accel Calibration (bias + scale)..."
+                  : "[CALIB] Bias-Only Accel Calibration...");
+    for (int k = 0; k < 3; k++) {
+      float pos = averages[AX[k].pos][AX[k].axis]; // ≈ +9.81
+      float neg = averages[AX[k].neg][AX[k].axis]; // ≈ -9.81
+      bmx160_calib.acc_offset[AX[k].axis] = (pos + neg) * 0.5f;
+      if (full) {
+        // Scale = 2g / span, span = (+g pose) - (-g pose) ≈ +19.62. Guard
+        // against a degenerate span (a pose that was not actually held).
+        float span = pos - neg;
+        if (FABS_F(span) >= ACCEL_SCALE_MIN_SPAN) {
+          bmx160_calib.acc_scale[AX[k].axis] = (2.0f * 9.80665f) / span;
+        } else {
+          bmx160_calib.acc_scale[AX[k].axis] = 1.0f;
+          vayu_log("[CALIB] Accel axis %d span too small (%.2f); scale=1.0",
+                   AX[k].axis, span);
+        }
+      }
+    }
+    vayu_log("[CALIB] Accel Bias: %.3f, %.3f, %.3f", bmx160_calib.acc_offset[0],
+             bmx160_calib.acc_offset[1], bmx160_calib.acc_offset[2]);
+    if (full)
       vayu_log("[CALIB] Accel Scale: %.3f, %.3f, %.3f",
                bmx160_calib.acc_scale[0], bmx160_calib.acc_scale[1],
                bmx160_calib.acc_scale[2]);
-    } else { // BIAS ONLY
-      vayu_log("[CALIB] Calculating Bias-Only Accel Calibration...");
-      bmx160_calib.acc_offset[0] = (averages[2][0] + averages[3][0]) / 2.0f;
-      bmx160_calib.acc_offset[1] = (averages[4][1] + averages[5][1]) / 2.0f;
-      bmx160_calib.acc_offset[2] = (averages[0][2] + averages[1][2]) / 2.0f;
 
-      // Keep scales as they are (default 1.0)
-      vayu_log("[CALIB] Accel biases: %.3f, %.3f, %.3f",
-               bmx160_calib.acc_offset[0], bmx160_calib.acc_offset[1],
-               bmx160_calib.acc_offset[2]);
+  } else if ((int)imu_id == 2) { // GYRO (bias-only; gyro bias is
+                                 // orientation-independent, so no 6-point pass)
+    vayu_log("[CALIB] Collecting Gyro data (Bias-Only)...");
+    float avg[3];
+    if (wait_for_orientation(CALIB_UPDATE_UPRIGHT, avg) < 0) {
+      vayu_log("[CALIB] Gyro calibration cancelled.");
+      goto done;
     }
 
-  } else if ((int)imu_id == 2) {    // GYRO
-    if ((int)cal_args->type == 1) { // FULL CALIBRATION (6-point Bias Check)
-      vayu_log("[CALIB] Starting Full Gyro Calibration (6-point bias)...");
-      calib_update_type_t orients[] = {
-          CALIB_UPDATE_UPRIGHT,    CALIB_UPDATE_UPSIDE_DOWN,
-          CALIB_UPDATE_NOSE_UP,    CALIB_UPDATE_NOSE_DOWN,
-          CALIB_UPDATE_RIGHT_DOWN, CALIB_UPDATE_LEFT_DOWN};
-
-      float gsum[3] = {0, 0, 0};
-      float avg_buf[3];
-
-      for (int i = 0; i < 6; i++) {
-        wait_for_orientation(orients[i], avg_buf);
-        vayu_log("[CALIB] Gyro orientation %d recorded.", i);
-
-        // Collect 200 samples for bias in this orientation
-        for (int s = 0; s < 200; s++) {
-          gsum[0] += _bmx_data.converted.gyr_raw[0];
-          gsum[1] += _bmx_data.converted.gyr_raw[1];
-          gsum[2] += _bmx_data.converted.gyr_raw[2];
-          v_delay(5);
-        }
-        v_delay(500);
+    float gsum[3] = {0, 0, 0};
+    bmx160_all_reading_t sample;
+    int n = 0;
+    while (n < 500) {
+      if (_calib_cancel) {
+        vayu_log("[CALIB] Gyro calibration cancelled.");
+        goto done;
       }
-
-      // Average across all 6 orientations (1200 samples total)
-      bmx160_calib.gyr_offset[0] = gsum[0] / 1200.0f;
-      bmx160_calib.gyr_offset[1] = gsum[1] / 1200.0f;
-      bmx160_calib.gyr_offset[2] = gsum[2] / 1200.0f;
-
-      vayu_log("[CALIB] Gyro Final Bias: %.3f, %.3f, %.3f",
-               bmx160_calib.gyr_offset[0], bmx160_calib.gyr_offset[1],
-               bmx160_calib.gyr_offset[2]);
-
-    } else { // BIAS ONLY (Stationary Upright)
-      vayu_log("[CALIB] Collecting Gyro data (Bias-Only)...");
-      float avg[3];
-      wait_for_orientation(CALIB_UPDATE_UPRIGHT, avg);
-
-      float gsum[3] = {0, 0, 0};
-      bmx160_all_reading_t sample;
-      for (int i = 0; i < 500; i++) {
-        imu_queue_calibration_pop(&sample);
-        gsum[0] += sample.converted.gyr_raw[0];
-        gsum[1] += sample.converted.gyr_raw[1];
-        gsum[2] += sample.converted.gyr_raw[2];
-        v_delay(1);
+      if (!imu_queue_calibration_pop(&sample)) {
+        v_delay(2);
+        continue;
       }
-      bmx160_calib.gyr_offset[0] = gsum[0] / 500.0f;
-      bmx160_calib.gyr_offset[1] = gsum[1] / 500.0f;
-      bmx160_calib.gyr_offset[2] = gsum[2] / 500.0f;
+      gsum[0] += sample.converted.gyr_raw[0];
+      gsum[1] += sample.converted.gyr_raw[1];
+      gsum[2] += sample.converted.gyr_raw[2];
+      n++;
     }
-  } else if ((int)imu_id == 3) { // MAGNETOMETER
-    vayu_log(
-        "[CALIB] Starting Magnetometer Quick Calibration (Free-Rotation)...");
+    bmx160_calib.gyr_offset[0] = gsum[0] / 500.0f;
+    bmx160_calib.gyr_offset[1] = gsum[1] / 500.0f;
+    bmx160_calib.gyr_offset[2] = gsum[2] / 500.0f;
+    vayu_log("[CALIB] Gyro Bias: %.4f, %.4f, %.4f", bmx160_calib.gyr_offset[0],
+             bmx160_calib.gyr_offset[1], bmx160_calib.gyr_offset[2]);
 
-    // Prompt user to rotate
-    imu_calibration_telemetry_t imu_calibration_telemetry;
-    imu_calibration_telemetry.buffer[0] = SYSTEM_ORIGIN_CALIBRATION;
-    imu_calibration_telemetry.buffer[1] = 0x01; // nArgs
-    imu_calibration_telemetry.buffer[2] = CALIB_UPDATE_FREE_ROT;
-    float zero = 0.0f;
-    v_memcpy(&imu_calibration_telemetry.buffer[3], &zero, 4);
-    imu_calibration_telemetry.size = 7;
-    imu_queue_calibration_telemetry_push(&imu_calibration_telemetry);
+  } else if ((int)imu_id == 3) { // MAGNETOMETER (ellipsoid: hard + soft iron)
+    vayu_log("[CALIB] Starting Magnetometer Calibration (Free-Rotation)...");
+    calib_telemetry(CALIB_UPDATE_FREE_ROT, 0.0f);
+    v_delay(1000); // give the user time to see the prompt
 
-    v_delay(1000); // Give user time to see it
+    // Online least-squares ellipsoid fit: accumulate the 9x9 normal equations
+    // S p = t over the spin. Samples are scaled by MAG_FIT_NORM so the matrix
+    // entries (which span x^4 .. x) stay well-conditioned in float32.
+    const float MAG_FIT_NORM = 50.0f; // nominal Earth field (uT)
+    float S[81] = {0};
+    float t9[9] = {0};
+    int nvalid = 0;
 
-    float mag_max[3] = {-10000.0f, -10000.0f, -10000.0f};
-    float mag_min[3] = {10000.0f, 10000.0f, 10000.0f};
-
-    const int calibration_time_ms = 20000; // 20 seconds
-    const int loop_delay_ms = 20;
-    const int iterations = calibration_time_ms / loop_delay_ms;
-
+    const int iterations = 20000 / 20; // 20 s at 20 ms/tick
     for (int i = 0; i < iterations; i++) {
-      // Use DMA data from _bmx_data.converted.mag_compensated
-      if (_bmx_data.raw.rhall >= 50 && _bmx_data.raw.rhall <= 30000) {
-        float mx_c = _bmx_data.converted.mag_compensated[0];
-        float my_c = _bmx_data.converted.mag_compensated[1];
-        float mz_c = _bmx_data.converted.mag_compensated[2];
-
-        if (IS_FINITE(mx_c) && IS_FINITE(my_c) && IS_FINITE(mz_c)) {
-          // Alignment is already handled in process_data: [-Y, X, Z]
-          float cur_mag[3] = {mx_c, my_c, mz_c};
-
-          for (int axis = 0; axis < 3; axis++) {
-            if (cur_mag[axis] > mag_max[axis])
-              mag_max[axis] = cur_mag[axis];
-            if (cur_mag[axis] < mag_min[axis])
-              mag_min[axis] = cur_mag[axis];
+      if (_calib_cancel) {
+        vayu_log("[CALIB] Mag calibration cancelled.");
+        goto done;
+      }
+      // One recent sample per tick (the SPSC queue is OVERWRITE, so this reads
+      // near the head); ~1000 samples spread over the spin.
+      bmx160_all_reading_t sample;
+      if (imu_queue_calibration_pop(&sample) &&
+          sample.raw.rhall >= 50 && sample.raw.rhall <= 30000) {
+        float mx = sample.converted.mag_compensated[0];
+        float my = sample.converted.mag_compensated[1];
+        float mz = sample.converted.mag_compensated[2];
+        if (IS_FINITE(mx) && IS_FINITE(my) && IS_FINITE(mz)) {
+          float x = mx / MAG_FIT_NORM, y = my / MAG_FIT_NORM,
+                z = mz / MAG_FIT_NORM;
+          float r[9] = {x * x,     y * y, z * z, 2 * y * z, 2 * x * z,
+                        2 * x * y, 2 * x, 2 * y, 2 * z};
+          for (int a = 0; a < 9; a++) {
+            t9[a] += r[a];
+            for (int b = 0; b < 9; b++)
+              S[a * 9 + b] += r[a] * r[b];
           }
+          nvalid++;
         }
       }
 
-      // Progress update every 5%
-      if (i % (iterations / 20) == 0) {
-        imu_calibration_telemetry.buffer[2] = CALIB_UPDATE_PROGRESS;
-        float progress = (100.0f * (float)i) / (float)iterations;
-        v_memcpy(&imu_calibration_telemetry.buffer[3], &progress, 4);
-        imu_calibration_telemetry.size = 7;
-        imu_queue_calibration_telemetry_push(&imu_calibration_telemetry);
-      }
-
-      v_delay(loop_delay_ms);
+      if (i % (iterations / 20) == 0)
+        calib_telemetry(CALIB_UPDATE_PROGRESS,
+                        (100.0f * (float)i) / (float)iterations);
+      v_delay(20);
     }
 
-    vayu_log("[CALIB] Mag Bounds: X[%.1f, %.1f], Y[%.1f, %.1f], Z[%.1f, %.1f]",
-             mag_min[0], mag_max[0], mag_min[1], mag_max[1], mag_min[2],
-             mag_max[2]);
-
-    // Calculate Hard Iron (Bias)
-    for (int i = 0; i < 3; i++) {
-      bmx160_calib.mag_offset[i] = (mag_max[i] + mag_min[i]) * 0.5f;
+    vayu_log("[CALIB] Mag samples: %d", nvalid);
+    if (nvalid < MAG_FIT_MIN_SAMPLES) {
+      vayu_log("[CALIB] Too few mag samples (%d < %d); keeping old calibration.",
+               nvalid, MAG_FIT_MIN_SAMPLES);
+      goto done;
     }
 
-    // Calculate per-axis scale
-    float scale[3];
-    float avg_scale = 0.0f;
-    for (int i = 0; i < 3; i++) {
-      scale[i] = (mag_max[i] - mag_min[i]) * 0.5f;
-      avg_scale += scale[i];
+    float offset[3], soft[9];
+    if (mag_fit_ellipsoid(S, t9, offset, soft) != 0) {
+      vayu_log("[CALIB] Mag ellipsoid fit failed; keeping old calibration.");
+      goto done;
     }
-    avg_scale /= 3.0f;
+    // Commit only on success. Hard iron scales back to uT; soft iron is
+    // scale-invariant so it is used as-is.
+    for (int i = 0; i < 3; i++)
+      bmx160_calib.mag_offset[i] = offset[i] * MAG_FIT_NORM;
+    for (int i = 0; i < 9; i++)
+      bmx160_calib.mag_soft_iron[i] = soft[i];
 
-    for (int i = 0; i < 3; i++) {
-      if (scale[i] > 0.001f) {
-        bmx160_calib.mag_scale[i] = avg_scale / scale[i];
-      } else {
-        bmx160_calib.mag_scale[i] = 1.0f;
-      }
-    }
-
-    vayu_log("[CALIB] Mag Bias: %.3f, %.3f, %.3f", bmx160_calib.mag_offset[0],
+    vayu_log("[CALIB] Mag Bias: %.2f, %.2f, %.2f", bmx160_calib.mag_offset[0],
              bmx160_calib.mag_offset[1], bmx160_calib.mag_offset[2]);
-    vayu_log("[CALIB] Mag Scale: %.3f, %.3f, %.3f", bmx160_calib.mag_scale[0],
-             bmx160_calib.mag_scale[1], bmx160_calib.mag_scale[2]);
+    vayu_log("[CALIB] Mag SoftIron diag: %.3f, %.3f, %.3f",
+             bmx160_calib.mag_soft_iron[0], bmx160_calib.mag_soft_iron[4],
+             bmx160_calib.mag_soft_iron[8]);
+  } else {
+    vayu_log("[CALIB] Unknown IMU ID %d; nothing to do.", (int)imu_id);
+    goto done;
   }
 
-  vayu_log("[BMX] Calibration Done. Biases applied.");
+  vayu_log("[BMX] Calibration Done. Persisting.");
   v_delay(10);
+  calib_telemetry(CALIB_UPDATE_PROGRESS, 100.0f);
 
-  // Send Final Success Packet
-  imu_calibration_telemetry_t imu_calibration_telemetry;
-  imu_calibration_telemetry.buffer[0] = SYSTEM_ORIGIN_CALIBRATION;
-  imu_calibration_telemetry.buffer[1] = 0x01;
-  imu_calibration_telemetry.buffer[2] = CALIB_UPDATE_PROGRESS;
-  float final_p = 100.0f;
-  v_memcpy(&imu_calibration_telemetry.buffer[3], &final_p, 4);
-  imu_calibration_telemetry.size = 7;
-  imu_queue_calibration_telemetry_push(&imu_calibration_telemetry);
-
+  // Persist with a versioned header so a future format change (or an old
+  // headerless file) is detected on load rather than misread.
   i2c_error_count = 0;
-  vfs_fd_t file =
-      vfs_open(CALIBRATION_FILE_PATH, VFS_O_WRONLY | VFS_O_CREAT | VFS_O_TRUNC);
-  if (file < 0) {
-    vayu_log("[CALIB] Failed to open calibration file.");
-    return;
+  {
+    vfs_fd_t file = vfs_open(CALIBRATION_FILE_PATH,
+                             VFS_O_WRONLY | VFS_O_CREAT | VFS_O_TRUNC);
+    if (file < 0) {
+      vayu_log("[CALIB] Failed to open calibration file.");
+      goto done; // cleanup still runs — no longer wedges the FC
+    }
+    calib_file_header_t hdr = {CALIB_FILE_MAGIC, CALIB_FILE_VERSION,
+                               (uint16_t)sizeof(bmx160_calibration_t)};
+    vfs_write(file, &hdr, sizeof(hdr));
+    int res = vfs_write(file, &bmx160_calib, sizeof(bmx160_calibration_t));
+    vayu_log("[CALIB] Calibration file written. Result: %d", res);
+    vfs_close(file);
   }
-  int res = vfs_write(file, &bmx160_calib, sizeof(bmx160_calibration_t));
-  vayu_log("[CALIB] Calibration file written. Result: %d", res);
-  vfs_close(file);
-  // bmx160_init();
-  // v_delay(50);
-  // wake_imu_read_task();
-  // v_delay(10);
-  VAYU_DISCARD(system_state_set(SYSTEM_STATE_STANDBY));
 
+done:
+  /* Single exit path for every outcome — success, cancel, fit failure, save
+   * failure, NULL args. Always restores STANDBY (so IMU samples resume flowing
+   * to the estimator), clears the cancel flag, and frees the heap args. Fixes
+   * the prior leak/wedge where a save failure returned early. The comm task
+   * owns the task handle and clears it on cancel. */
+  VAYU_DISCARD(system_state_set(SYSTEM_STATE_STANDBY));
+  _calib_cancel = 0;
   if (cal_args)
     v_free(cal_args);
   task_exit();

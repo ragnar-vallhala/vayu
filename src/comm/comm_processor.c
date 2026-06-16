@@ -100,14 +100,19 @@ void comm_processor_dispatch(const packet_t *pkt) {
           v_memcpy(&cal_args->type, &pkt->payload[7], 4);
         }
         _calibration_task_handle =
-            task_create(calibration_task, cal_args, 4096, 0);
+            task_create(calibration_task, cal_args, 8192, 0);
       }
     } else if (cmd_id == 0x0009) { // CMD_CANCEL_CALIBRATION
+      /* Cooperative cancel: raise the flag the calibration task polls at each
+       * loop boundary so it tears down cleanly (restores STANDBY, frees args)
+       * instead of being killed mid-run. The task restores state itself. */
       if (_calibration_task_handle != 0) {
-        task_exit_request(_calibration_task_handle);
+        bmx160_calib_request_cancel();
         _calibration_task_handle = 0;
+      } else {
+        // No task running; restore state directly in case it was left stuck.
+        VAYU_DISCARD(system_state_set(SYSTEM_STATE_STANDBY));
       }
-      VAYU_DISCARD(system_state_set(SYSTEM_STATE_STANDBY));
     } else if (cmd_id == CMD_ARM) {
       /* GCS software-arm: set the latch. The RC task evaluates it (OR'd
        * with the physical arm switch via rc_arm_engaged) against the arm
