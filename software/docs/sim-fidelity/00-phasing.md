@@ -79,9 +79,15 @@ is a contained daemon↔GCS change, not a cross-stack break.
 - **Daemon** (`main.cpp`): zero-init the new fields when building each pose frame.
 - **GCS** (`SimWorker`): extend `SimSnapshot` (`SimWorker.h:22`) + `emitFromFrame()`
   (`SimWorker.cpp:414`) to decode them.
-- **RNG contract:** confirm/expose a single seeded RNG accessor on the controller
-  (the one `SET_NOISE`/reset seeds). Phases 1 and 3 both draw from it so a seed
-  reproduces a run for tuner A/B comparison.
+- **RNG contract (confirmed):** the master seed enters via `vsim_ctl_reset_t.seed`
+  → `SimController::seedSensors()` → `SensorModels::seed()` (private `std::mt19937_64`,
+  `sensor_models.h:54`). Phases 1 and 3 need determinism too, but must **not** share
+  that one RNG *instance* — adding wind/sensor-err draws to it would shift the
+  existing accel/gyro/mag noise sequence and break autotune-repeatability baselines.
+  Instead each phase owns an **independent** `mt19937_64` seeded deterministically
+  from the same master seed (e.g. `seed ^ salt`). Phase 1 introduces master-seed
+  storage on the controller when it has the first consumer — nothing to add in
+  Phase 0 beyond this note.
 - **Exit gate:** sim builds, runs, renders identically; new snapshot fields read 0;
   `world_mesh_transport_test` updated and green.
 
