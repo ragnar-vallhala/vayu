@@ -487,6 +487,11 @@ uint32_t hal_clock_get_ahbclk(void)   { return 84000000u; }
 uint32_t hal_clock_get_apb1clk(void)  { return 42000000u; }
 uint32_t hal_clock_get_apb2clk(void)  { return 84000000u; }
 
+/* 84 MHz virtual cycle counter -> 84 cycles/usec (matches hal_cycle_counter_get
+ * below). attitude_task scales its dt by this; needed now that the real
+ * firmware estimator runs in SITL. */
+uint32_t hal_cycle_counter_cycles_per_us(void) { return 84u; }
+
 hal_status_t hal_clock_init(const hal_clock_config_t *cfg,
                             const hal_pll_config_t *pll) {
     (void)cfg; (void)pll; return HAL_OK;

@@ -81,6 +81,7 @@ set(VAYU_SOURCES
     ${VAYU_ROOT}/src/sys/sys_utils.c
     ${VAYU_ROOT}/src/est/sensor_fusion.c
     ${VAYU_ROOT}/src/est/ekf.c
+    ${VAYU_ROOT}/src/est/attitude_task.c   # the REAL firmware estimator task (now run in SITL)
     ${VAYU_ROOT}/src/sensor/imu_buffer.c
     ${VAYU_ROOT}/src/logger/logger.c    # wrap counters; telemetry reads them
     ${VAYU_ROOT}/src/logger/log_text.c  # vayu_log + queue (moved from utils.c)

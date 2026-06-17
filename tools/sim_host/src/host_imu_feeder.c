@@ -41,6 +41,14 @@
 #include "task.h"  /* v_delay */
 #include "utils.h" /* v_get_ticks */
 
+/* vsim emits IMU at this rate (tools/vsim/src/main.cpp kImuHz). Each sample
+ * therefore represents 1/SITL_IMU_FEED_HZ of SIM time — used to stamp a fixed
+ * sensor cadence so the firmware estimator's dt is correct regardless of how
+ * the host/FIFO is scheduled in wall-clock. Must track vsim's emit rate. */
+#ifndef SITL_IMU_FEED_HZ
+#define SITL_IMU_FEED_HZ 1000
+#endif
+
 /* IMU payload (within the framed protocol) is the firmware's converted
  * reading struct -- 76 B little-endian. The static_assert below couples
  * the wire layout to the firmware's struct so any drift is a build
@@ -148,8 +156,6 @@ static void *imu_feeder_thread(void *arg) {
                  "wire fields of bmx160_all_converted_reading_t must be 76 B");
 
   bmx160_all_reading_t sample;
-  attitude_t att = {
-      .roll = 0, .pitch = 0, .yaw = 0, .q = {1.0f, 0.0f, 0.0f, 0.0f}};
 
   uint32_t frames = 0;
   uint32_t last_log_t = 0;
@@ -186,33 +192,21 @@ static void *imu_feeder_thread(void *arg) {
       break;
     }
 
-    /* Stamp the sample at "acquisition" (host shim derives the 84 MHz-virtual
-     * cycle counter from CLOCK_MONOTONIC). Mirrors the on-target driver: the
-     * control loops and fusion take dt from these stamps, not a counter read at
-     * run time. */
-    static uint32_t prev_cyc = 0;
-    static bool have_prev = false;
-    uint32_t now_cyc = hal_cycle_counter_get();
-    sample.converted.timestamp = now_cyc;
+    /* Stamp each sample with a FIXED sim-time increment, modelling a real IMU's
+     * constant ODR. The firmware derives dt from these stamps; the old code used
+     * wall-clock, which jitters dt and COLLAPSES it when the vsim FIFO bursts
+     * (the sim isn't perfectly real-time paced) — that under-integrated the
+     * gyro ~10x in the estimator. SITL_IMU_FEED_HZ must match vsim's emit rate. */
+    static uint32_t s_imu_cyc = 0;
+    s_imu_cyc += (uint32_t)(SYS_CLOCK_FREQ / SITL_IMU_FEED_HZ);
+    sample.converted.timestamp = s_imu_cyc;
 
-    /* The IMU sample feeds the angle_rate_controller directly. */
+    /* Inject RAW IMU ONLY — exactly what a real sensor provides. The firmware's
+     * own attitude_task/EKF does the estimation (the previous host-side mahony
+     * here BYPASSED the estimator SITL exists to test — a fidelity violation). */
     imu_queue_control_push(&sample);
     imu_queue_telemetry_push(&sample);
-
-    /* Mahony updates `att` in place (its quaternion is the filter state).
-     * dt is the inter-sample interval from the acquisition stamps. */
-    float dt = have_prev ? vayu_dt_from_cycles(now_cyc, prev_cyc) : 1e-3f;
-    prev_cyc = now_cyc;
-    have_prev = true;
-    m_mahony_filter(sample.converted.acc[0], sample.converted.acc[1],
-                    sample.converted.acc[2], sample.converted.gyr[0],
-                    sample.converted.gyr[1], sample.converted.gyr[2],
-                    sample.converted.mag[0], sample.converted.mag[1],
-                    sample.converted.mag[2], dt, &att);
-    att.timestamp = now_cyc; /* angle loop derives its dt from this */
-
-    attitude_queue_control_push(&att);
-    attitude_queue_telemetry_push(&att);
+    imu_queue_attitude_push(&sample);
 
     frames++;
     uint32_t now = v_get_ticks();
