@@ -28,6 +28,7 @@ Example:
 import argparse
 import math
 import os
+import socket
 import struct
 import subprocess
 import sys
@@ -202,7 +203,17 @@ class SitlLab:
         if wind or turb:
             os.write(self.ctl_fd, _wind(wind or (0, 0, 0), turb, True))
 
-        # 2) RC pty + real firmware host
+        # 2) RC pty + real firmware host.
+        # In attach mode the FC advert path (where vayu_sitl writes its UART2
+        # slave) is the SAME file the GCS bridge later advertises itself at.
+        # A stale advert from a previous run points at a now-deleted /dev/pts/N,
+        # so delete it FIRST and only accept the path vayu_sitl writes THIS run
+        # — otherwise we open a dead pty and never drain the FC's UART2 (the FC's
+        # blocking pty write then backs up and all telemetry stalls).
+        try:
+            os.unlink(self.uart_advert)
+        except OSError:
+            pass
         self.rc_master, rc_slave = os.openpty()
         self.env["VAYU_UART_RC_PATH"] = os.ttyname(rc_slave)
         _errto = (open("/tmp/sitl.err", "w") if os.environ.get("SITL_LAB_DEBUG")
@@ -210,10 +221,19 @@ class SitlLab:
         self.sitl = subprocess.Popen([sitl_bin], env=self.env, stderr=_errto)
         threading.Thread(target=self._rc_thread, daemon=True).start()
 
-        # 3) FC telemetry: wait for the advertised UART2 pty slave path
-        self._await(lambda: os.path.exists(self.uart_advert), "UART2 advert")
-        with open(self.uart_advert) as f:
-            self.uart_path = f.read().strip()
+        # 3) FC telemetry: wait for the (fresh) advertised UART2 pty slave path,
+        # and require the path it names to actually exist before opening it.
+        def _fc_pty_ready():
+            try:
+                with open(self.uart_advert) as f:
+                    p = f.read().strip()
+            except OSError:
+                return False
+            if p and os.path.exists(p):
+                self.uart_path = p
+                return True
+            return False
+        self._await(_fc_pty_ready, "UART2 advert")
         self.uart_fd = os.open(self.uart_path, os.O_RDWR | os.O_NONBLOCK)
 
         # 4) Optional GCS tap: a second pty the Navigator can connect to. The
@@ -321,14 +341,21 @@ class SitlLab:
     # -- read FC telemetry (NavLink over UART2) ------------------------------
     def _telem_thread(self):
         buf = bytearray()
+        self._telem_bytes = 0
         while not self._stop.is_set():
             try:
                 data = os.read(self.uart_fd, 65536)
             except (BlockingIOError, OSError):
                 data = b""
             if data:
+                self._telem_bytes += len(data)
                 buf += data
-                self._parse_frames(buf)
+                # A malformed frame must never kill this thread: if it dies, the
+                # FC's blocking UART2 write backs up and ALL telemetry stalls.
+                try:
+                    self._parse_frames(buf)
+                except Exception:                 # noqa: BLE001
+                    del buf[:]
                 if self.gcs_master is not None:        # queue raw bytes → GCS
                     with self._gcs_out_lock:
                         self._gcs_out += data
@@ -507,6 +534,292 @@ class SitlLab:
         return rows
 
 
+DEFAULT_GAINS = dict(kp_z=0.05, ki_z=0.02, kd_z=0.05, hover=0.36,
+                     kp_h=0.06, kd_h=0.55, tilt=0.30, vmax=3.0)
+
+
+class Pilot:
+    """Continuous outer-loop guidance that runs for the LIFE of a session (not
+    one blocking flight). Once airborne it never stops commanding: it always
+    station-keeps at its current target, so the craft hovers under control
+    between commands and the GCS keeps showing a live, stable aircraft. Flight
+    commands (takeoff/goto/land) just mutate the shared target; the 50 Hz loop
+    picks them up. This is what makes 'attach the GCS once, fly many runs' work
+    — nothing is torn down between flights."""
+
+    def __init__(self, lab, alt=-5.0, gains=None, reach=2.0):
+        self.lab = lab
+        gp = dict(DEFAULT_GAINS)
+        if gains:
+            gp.update(gains)
+        self.gp = gp
+        self.reach = reach
+        self.alt = alt
+        self.wps = [(0.0, 0.0)]
+        self.wp = 0
+        self.iz = 0.0
+        self.armed = False
+        self.active = False              # guidance engaged (hovering/flying)
+        self.last = {}
+        self._lock = threading.Lock()
+        threading.Thread(target=self._loop, daemon=True).start()
+
+    # -- commands (thread-safe; mutate the shared target) --------------------
+    def arm_takeoff(self, alt=None):
+        if alt is not None:
+            self.alt = alt
+        self.lab.reset_pose((0, 0, -0.05))
+        time.sleep(0.3)
+        self.lab.set_rc(swa=1000, thr=1000)          # ensure disarmed → STANDBY
+        time.sleep(0.3)
+        self.lab.set_rc(swa=2000, thr=1000)          # arm gesture (low throttle)
+        time.sleep(0.4)
+        with self._lock:
+            self.wps = [(0.0, 0.0)]
+            self.wp = 0
+            self.iz = 0.0
+            self.armed = True
+            self.active = True                        # loop now flies it up + holds
+
+    def goto(self, wps, alt=None):
+        with self._lock:
+            if alt is not None:
+                self.alt = alt
+            self.wps = [tuple(map(float, p)) for p in wps] or [(0.0, 0.0)]
+            self.wp = 0
+
+    def reached_last(self):
+        with self._lock:
+            if not self.last:
+                return False
+            tx, ty = self.wps[-1]
+            dx, dy = tx - self.last.get("x", 0), ty - self.last.get("y", 0)
+            return self.wp >= len(self.wps) - 1 and (dx * dx + dy * dy) < self.reach * self.reach
+
+    def land(self):
+        """Descend to the ground at the current spot, then disarm."""
+        with self._lock:
+            self.alt = -0.15                          # sink toward ground
+        for _ in range(120):                          # ~2.4 s descent
+            with self._lock:
+                z = self.last.get("z", 0.0)
+            if z > -0.3:
+                break
+            time.sleep(0.02)
+        with self._lock:
+            self.active = False
+            self.armed = False
+        self.lab.set_rc(swa=1000, thr=1000)           # disarm
+        time.sleep(0.3)
+
+    # -- 50 Hz guidance loop -------------------------------------------------
+    def _loop(self):
+        dt = 0.02
+        nt = time.time()
+        while not self.lab._stop.is_set():
+            if self.active:
+                tr = self.lab.truth()
+                if tr:
+                    self._step(tr, dt)
+            nt += dt
+            s = nt - time.time()
+            if s > 0:
+                time.sleep(s)
+            else:
+                nt = time.time()
+
+    def _step(self, tr, dt):
+        gp = self.gp
+        x, y, z = tr["pos"]
+        vN, vE, vD = tr["vel"]
+        roll, pitch, yaw = quat_to_euler(*tr["quat"])
+        with self._lock:
+            alt = self.alt
+            # advance waypoint if within reach
+            tx, ty = self.wps[self.wp]
+            eN, eE = tx - x, ty - y
+            if (eN * eN + eE * eE) < self.reach * self.reach \
+                    and self.wp < len(self.wps) - 1:
+                self.wp += 1
+                tx, ty = self.wps[self.wp]
+                eN, eE = tx - x, ty - y
+            # altitude hold (NED z down-positive; alt<0 is up)
+            ez = z - alt
+            self.iz = max(-0.3, min(0.3, self.iz + ez * dt))
+            thr = gp["hover"] + gp["kp_z"] * ez + gp["ki_z"] * self.iz \
+                - gp["kd_z"] * (-vD)
+            thr = max(0.0, min(1.0, thr))
+            # position → speed-capped velocity → damped tilt
+            vdes_n = max(-gp["vmax"], min(gp["vmax"], 0.6 * eN))
+            vdes_e = max(-gp["vmax"], min(gp["vmax"], 0.6 * eE))
+            des_pitch = max(-gp["tilt"], min(gp["tilt"], gp["kd_h"] * (vdes_n - vN)))
+            des_roll = max(-gp["tilt"], min(gp["tilt"], gp["kd_h"] * (vdes_e - vE)))
+            self.last = dict(x=x, y=y, z=z, vN=vN, vE=vE, vD=vD,
+                             roll=roll, pitch=pitch, yaw=yaw, wp=self.wp, thr=thr)
+        self.lab.stick(roll=des_roll, pitch=des_pitch, thr=thr, yaw=0.0)
+        self.lab.set_rc(swa=2000)                     # keep armed each tick
+
+
+SOCK_PATH = "/tmp/sitl_lab.sock"
+
+
+def _parse_course(s):
+    return [tuple(float(v) for v in p.split(",")) for p in s.split(";") if p]
+
+
+def serve(args):
+    """Persistent session: boot physics + the real FC + the GCS bridge ONCE,
+    keep the craft under continuous guidance, and accept flight commands over a
+    Unix socket. Attach the GCS a single time (pose 'Attach Ext' + 'SITL UART2');
+    every `do` command then flies against that same live session."""
+    conf = args.conf or os.path.expanduser("~/.config/Vayu/Vayu GCS.conf")
+    lab = SitlLab(attach=True, gcs=True, conf=conf,
+                  wind=tuple(args.wind), turb=args.turb)
+    pilot = Pilot(lab, alt=args.alt)
+    print(f"vsim_d on DEFAULT /tmp/vsim_* (pose=/tmp/vsim_pose)")
+    print(f"  ▶ In Navigator (ONCE): click 'Attach Ext' to render, and "
+          f"Connect → 'SITL UART2' for telemetry.")
+    print(f"    (telemetry bridge pty: {lab.gcs_path})")
+    print(f"  control socket: {SOCK_PATH}")
+    if args.gcs_wait > 0:
+        print(f"  waiting {args.gcs_wait:.0f}s for you to attach + connect…")
+        time.sleep(args.gcs_wait)
+
+    if os.path.exists(SOCK_PATH):
+        os.unlink(SOCK_PATH)
+    srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    srv.bind(SOCK_PATH)
+    srv.listen(8)
+    cmd_lock = threading.Lock()
+    print("  session ready — send commands with: sitl_lab.py do '<cmd>'")
+
+    def status():
+        hb = lab.telem.get("Heartbeat")
+        nav = getattr(hb, "nav_state", -1) if hb else -1
+        L = pilot.last
+        tc = ",".join(f"{k}×{v}" for k, v in sorted(lab.telem_counts.items()))
+        return (f"nav={nav} armed={pilot.armed} active={pilot.active} "
+                f"pos=({L.get('x',0):+.2f},{L.get('y',0):+.2f}) "
+                f"alt={-L.get('z',0):+.2f}m vD={L.get('vD',0):+.2f} "
+                f"att=(r{L.get('roll',0):+.0f},p{L.get('pitch',0):+.0f},"
+                f"y{L.get('yaw',0):+.0f}) wp={L.get('wp',0)}/{len(pilot.wps)-1} "
+                f"thr={L.get('thr',0):.2f} | telem[{tc}]")
+
+    def dispatch(line):
+        parts = line.split()
+        if not parts:
+            return "ok " + status()
+        cmd, rest = parts[0], parts[1:]
+        if cmd in ("status", "st"):
+            return "ok " + status()
+        if cmd == "takeoff":
+            alt = float(rest[0]) if rest else None
+            with cmd_lock:
+                pilot.arm_takeoff(alt=alt)
+            return "ok takeoff; " + status()
+        if cmd in ("goto", "fly"):
+            # fly <course> [alt] [timeout]; goto = same but non-blocking
+            course = _parse_course(rest[0]) if rest else [(0.0, 0.0)]
+            alt = float(rest[1]) if len(rest) > 1 else None
+            timeout = float(rest[2]) if len(rest) > 2 else 30.0
+            with cmd_lock:
+                if not pilot.armed:
+                    pilot.arm_takeoff(alt=alt)
+                pilot.goto(course, alt=alt)
+            if cmd == "goto":
+                return "ok goto set; " + status()
+            t0 = time.time()                          # fly = block until reached
+            while time.time() - t0 < timeout:
+                if pilot.reached_last():
+                    return f"ok reached in {time.time()-t0:.1f}s; " + status()
+                time.sleep(0.1)
+            return f"ok timeout {timeout:.0f}s; " + status()
+        if cmd == "wait":
+            time.sleep(float(rest[0]) if rest else 1.0)
+            return "ok " + status()
+        if cmd == "alt":
+            with pilot._lock:
+                pilot.alt = float(rest[0])
+            return "ok " + status()
+        if cmd == "land":
+            with cmd_lock:
+                pilot.land()
+            return "ok landed; " + status()
+        if cmd == "rc":                               # raw stick: r p t y (disables guidance)
+            with pilot._lock:
+                pilot.active = False
+            r, p, t, yv = (float(rest[i]) if i < len(rest) else 0.0 for i in range(4))
+            lab.stick(roll=r, pitch=p, thr=t, yaw=yv)
+            lab.set_rc(swa=2000)
+            return "ok rc; " + status()
+        if cmd in ("quit", "stop", "shutdown"):
+            return "BYE"
+        return f"err unknown command: {cmd}"
+
+    def handle(conn):
+        try:
+            data = b""
+            while b"\n" not in data:
+                chunk = conn.recv(4096)
+                if not chunk:
+                    break
+                data += chunk
+            line = data.decode(errors="replace").strip()
+            resp = dispatch(line)
+            conn.sendall((resp + "\n").encode())
+            if resp == "BYE":
+                lab._stop.set()
+        except Exception as e:                        # noqa: BLE001
+            try:
+                conn.sendall(f"err {e}\n".encode())
+            except OSError:
+                pass
+        finally:
+            conn.close()
+
+    try:
+        while not lab._stop.is_set():
+            srv.settimeout(0.5)
+            try:
+                conn, _ = srv.accept()
+            except socket.timeout:
+                continue
+            threading.Thread(target=handle, args=(conn,), daemon=True).start()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        srv.close()
+        try:
+            os.unlink(SOCK_PATH)
+        except OSError:
+            pass
+        lab.close()
+        print("session closed")
+    return 0
+
+
+def client(args):
+    """Send one command to a running `serve` session and print the reply."""
+    cmd = " ".join(args.do)
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        s.connect(SOCK_PATH)
+    except (FileNotFoundError, ConnectionRefusedError):
+        print(f"err: no session at {SOCK_PATH} — start one with: "
+              f"sitl_lab.py --serve", file=sys.stderr)
+        return 1
+    s.sendall((cmd + "\n").encode())
+    buf = b""
+    while b"\n" not in buf:
+        chunk = s.recv(4096)
+        if not chunk:
+            break
+        buf += chunk
+    s.close()
+    print(buf.decode(errors="replace").strip())
+    return 0
+
+
 def demo(args):
     """Arm the real FC on a rig, command a roll-angle step, record the actual
     controller's tracking response (ground truth) + FC telemetry to CSV."""
@@ -620,6 +933,17 @@ if __name__ == "__main__":
                          "monitor/record live (auto-advertised)")
     ap.add_argument("--gcs-wait", type=float, default=0.0,
                     help="seconds to pause after setup so you can connect the GCS")
+    ap.add_argument("--serve", action="store_true",
+                    help="persistent session: boot physics+FC+GCS-bridge ONCE, "
+                         "keep the craft under continuous guidance, accept "
+                         "flight commands over a socket (attach the GCS just once)")
+    ap.add_argument("--do", nargs=argparse.REMAINDER,
+                    help="send one command to a running --serve session, e.g. "
+                         "--do fly 8,0\\;8,8\\;0,8\\;0,0 -5 40 (see commands below)")
     args = ap.parse_args()
+    if args.do is not None:
+        sys.exit(client(args))
+    if args.serve:
+        sys.exit(serve(args))
     sys.exit(flight(args) if args.attach else demo(args))
 
