@@ -178,8 +178,11 @@ class SitlLab:
         self.ctl_fd = os.open(self.paths["ctl"], os.O_RDWR | os.O_NONBLOCK)
         self.pose_fd = os.open(self.paths["pose"], os.O_RDWR | os.O_NONBLOCK)
 
-        # configure plant before the FC boots
-        os.write(self.ctl_fd, _reset())
+        # configure plant before the FC boots. Spawn airborne in attach/flight
+        # mode: taking off from the ground spikes the mahony attitude past the
+        # 70° bank-angle cutoff (ground-contact accel transient) → FAILSAFE.
+        # Starting in the air avoids that until a real estimator/IMU fix lands.
+        os.write(self.ctl_fd, _reset(pos=(0, 0, -2.0) if attach else (0, 0, -0.05)))
         # Match the GCS's selected vehicle + world (vveh/vworld) if given.
         g, w = _read_gcs_conf(conf) if conf else ({}, {})
         if g:
@@ -199,8 +202,9 @@ class SitlLab:
         # 2) RC pty + real firmware host
         self.rc_master, rc_slave = os.openpty()
         self.env["VAYU_UART_RC_PATH"] = os.ttyname(rc_slave)
-        self.sitl = subprocess.Popen([sitl_bin], env=self.env,
-                                     stderr=subprocess.DEVNULL)
+        _errto = (open("/tmp/sitl.err", "w") if os.environ.get("SITL_LAB_DEBUG")
+                  else subprocess.DEVNULL)
+        self.sitl = subprocess.Popen([sitl_bin], env=self.env, stderr=_errto)
         threading.Thread(target=self._rc_thread, daemon=True).start()
 
         # 3) FC telemetry: wait for the advertised UART2 pty slave path
@@ -419,6 +423,22 @@ class SitlLab:
             pos += HDR.size + plen
         return self._truth
 
+    def reset_pose(self, pos):
+        """Re-spawn the airframe at pos (NED) with zero velocity."""
+        os.write(self.ctl_fd, _reset(pos=tuple(pos)))
+
+    def takeoff(self, spawn_alt=-15.0, hover=0.45):
+        """Airborne takeoff that dodges the ground-contact estimator spike:
+        re-spawn high, cycle disarm→arm fast (FAILSAFE→STANDBY→ARMED), then
+        immediately apply hover throttle to arrest the brief fall."""
+        self.reset_pose((0, 0, spawn_alt))
+        time.sleep(0.3)
+        self.set_rc(swa=1000, thr=1000)   # disarm → drop any FAILSAFE to STANDBY
+        time.sleep(0.3)
+        self.set_rc(swa=2000, thr=1000)   # arm gesture (low throttle) → ARMED
+        time.sleep(0.3)
+        self.stick(thr=hover); self.set_rc(swa=2000)   # catch the fall
+
     def fly_course(self, waypoints, alt=-3.0, secs=60.0, csv=None, reach=2.0,
                    gains=None):
         """Outer guidance: hold altitude + chase waypoints, feeding the FC's
@@ -429,7 +449,7 @@ class SitlLab:
                   kp_h=0.10, kd_h=0.30, tilt=0.45)
         if gains:
             gp.update(gains)
-        self.arm(settle=1.5)
+        self.takeoff(spawn_alt=min(alt - 8.0, -12.0), hover=gp["hover"])
         rows, wp = [], 0
         iz = 0.0
         csvf = open(csv, "w") if csv else None
