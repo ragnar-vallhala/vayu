@@ -325,8 +325,27 @@ void PhysicsCore::groundClamp(float dt) {
         const Vec3 tiltW = Vec3::crossProduct(bodyUp, worldUp);  // body up -> up
         const float tilt2 = tiltW.x() * tiltW.x() + tiltW.y() * tiltW.y() +
                             tiltW.z() * tiltW.z();
-        if (tilt2 > 1e-6f) {
-            // Body-frame angular accel: righting gain * tilt, minus damping.
+        // A drone RESTING upright on flat ground can't rotate — its landing
+        // gear + the ground normal forces hold it level until thrust lifts it
+        // off (grounded_ goes false the moment it climbs). The soft righting
+        // below is far too weak for that: motor spin-up torque accumulates into
+        // a ground tumble (true attitude runs to >150° while z stays pinned),
+        // the estimator partially tracks it and trips the bank-angle FAILSAFE.
+        // So while upright-on-ground, hard-hold level (keep heading): zero the
+        // roll/pitch body rates and re-level the attitude. Beyond ~30° tilt the
+        // craft has tipped/crashed — fall through to the soft topple so it
+        // tumbles flat rather than snapping.
+        if (tilt2 < 0.25f) {  // sin(tilt) < 0.5  → within ~30° of level
+            // Heading (yaw) from the current quaternion; rebuild a level quat.
+            const float w = state_.att.scalar(), x = state_.att.x(),
+                        y = state_.att.y(), z = state_.att.z();
+            const float yaw = std::atan2(2.0f * (w * z + x * y),
+                                         1.0f - 2.0f * (y * y + z * z));
+            state_.att = Quat(std::cos(yaw * 0.5f), 0.0f, 0.0f, std::sin(yaw * 0.5f));
+            state_.att.normalize();
+            state_.omega_b = Vec3(0.0f, 0.0f, 0.0f);  // ground holds it still
+        } else if (tilt2 > 1e-6f) {
+            // Tipped/crashed: soft topple toward level (original behaviour).
             const Vec3 tiltB = state_.att.conjugated().rotatedVector(tiltW);
             const float kRight = params_.ground_right_gain;  // rad/s^2 per sin(tilt)
             const float kDamp  = params_.ground_right_damp;  // 1/s

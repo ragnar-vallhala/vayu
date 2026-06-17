@@ -120,7 +120,11 @@ def _geometry_frame(g):
     for i in range(4):
         p = "m%d_" % i
         body += struct.pack("<3f", f(p + "px"), f(p + "py"), f(p + "pz"))
-        body += struct.pack("<3f", f(p + "ax"), f(p + "ay"), f(p + "az", 1.0))
+        # Thrust axis: vsim lift is body -Z (F = axis*thrust, motor_model.cpp).
+        # The GCS conf stores az in a frame where +1 is "up", which is -Z in
+        # vsim's NED — pushing it verbatim thrusts DOWNWARD and jams the craft
+        # into the ground. A standard quad's rotors all lift up, so force -Z.
+        body += struct.pack("<3f", 0.0, 0.0, -1.0)
         body += struct.pack("<5f", f(p + "spin", 1.0), f(p + "kt", 1.522e-5),
                             f(p + "km", 2.44e-7), f(p + "wmax", 1200.0),
                             f(p + "tau", 0.0125))
@@ -178,11 +182,10 @@ class SitlLab:
         self.ctl_fd = os.open(self.paths["ctl"], os.O_RDWR | os.O_NONBLOCK)
         self.pose_fd = os.open(self.paths["pose"], os.O_RDWR | os.O_NONBLOCK)
 
-        # configure plant before the FC boots. Spawn airborne in attach/flight
-        # mode: taking off from the ground spikes the mahony attitude past the
-        # 70° bank-angle cutoff (ground-contact accel transient) → FAILSAFE.
-        # Starting in the air avoids that until a real estimator/IMU fix lands.
-        os.write(self.ctl_fd, _reset(pos=(0, 0, -2.0) if attach else (0, 0, -0.05)))
+        # configure plant before the FC boots (spawn just above ground; the
+        # ground-clamp fix in physics_core holds the airframe level while
+        # resting so it now takes off upright instead of tumbling).
+        os.write(self.ctl_fd, _reset(pos=(0, 0, -0.05)))
         # Match the GCS's selected vehicle + world (vveh/vworld) if given.
         g, w = _read_gcs_conf(conf) if conf else ({}, {})
         if g:
@@ -427,17 +430,20 @@ class SitlLab:
         """Re-spawn the airframe at pos (NED) with zero velocity."""
         os.write(self.ctl_fd, _reset(pos=tuple(pos)))
 
-    def takeoff(self, spawn_alt=-15.0, hover=0.45):
-        """Airborne takeoff that dodges the ground-contact estimator spike:
-        re-spawn high, cycle disarm→arm fast (FAILSAFE→STANDBY→ARMED), then
-        immediately apply hover throttle to arrest the brief fall."""
-        self.reset_pose((0, 0, spawn_alt))
+    def takeoff(self, hover=0.5, climb=0.7):
+        """Clean ground takeoff (the physics ground-clamp now holds the airframe
+        level while resting, so it lifts off upright instead of tumbling):
+        spawn on the ground, arm at low throttle, then ramp to a climb and
+        settle at hover."""
+        self.reset_pose((0, 0, -0.05))
         time.sleep(0.3)
-        self.set_rc(swa=1000, thr=1000)   # disarm → drop any FAILSAFE to STANDBY
+        self.set_rc(swa=1000, thr=1000)            # ensure disarmed → STANDBY
         time.sleep(0.3)
-        self.set_rc(swa=2000, thr=1000)   # arm gesture (low throttle) → ARMED
-        time.sleep(0.3)
-        self.stick(thr=hover); self.set_rc(swa=2000)   # catch the fall
+        self.set_rc(swa=2000, thr=1000)            # arm gesture (low throttle)
+        time.sleep(0.4)
+        self.stick(thr=climb); self.set_rc(swa=2000)  # break ground
+        time.sleep(0.6)
+        self.stick(thr=hover); self.set_rc(swa=2000)  # settle to ~hover
 
     def fly_course(self, waypoints, alt=-3.0, secs=60.0, csv=None, reach=2.0,
                    gains=None):
