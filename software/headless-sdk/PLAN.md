@@ -88,15 +88,18 @@ software/headless-sdk/
     server.py                 # session daemon (socket, command dispatch)
     client.py                 # client lib used by the CLI
     cli.py                    # `vayu-headless` argparse entrypoint
-  cpp/worldmesh/              # (moved) BVH builder, or kept in tools/ and referenced
-  tests/                      # pytest headless-flight suite
+  cpp/worldmesh/              # BVH builder (pulled in from tools/sim_host/worldmesh)
+  tests/
+    unit/                     # pure-logic tests (config, framing, autopilot math)
+    integration/              # real boot-fly-land flights against vsim_d + vayu_sitl
   examples/                   # roll-step sysID, ring course, tuning sweep
 ```
 
 Lives in `software/` (per request) because it shares code with the GCS
 (NavLink codec, `vsim_proto`, the mesh builder). The firmware **binaries** it
 drives (`vsim_d`, `vayu_sitl`) stay in `tools/` and are resolved by path/env;
-the SDK never rebuilds them.
+the SDK never rebuilds them. The native **worldmesh** helper is pulled in under
+`cpp/worldmesh/` (decision #2) so the SDK owns it end-to-end.
 
 ## 5. Public API sketch (the contract to lock)
 
@@ -139,28 +142,44 @@ Document every command + response shape once, in `README.md`.
 
 ## 7. Phased migration (behaviour-preserving)
 
+Every phase lands **with its tests** (decision #4): unit tests for new pure
+logic, integration tests for anything that boots the stack. The `sitl_lab.py`
+shim stays until the suite is green across several real runs, then it is
+hard-cut (decision #3).
+
 - **Phase 0 — Skeleton + pin behaviour.** Create the package and `pyproject.toml`;
-  add a pytest that boots a session, takes off, flies a box, lands, asserts
-  `nav==ARMED`/altitude held (a golden of *current* behaviour). No logic moved
-  yet. *DoD:* `pip install -e` works; the golden test passes against today's
+  add an **integration golden** that boots a session, takes off, flies a box,
+  lands, asserts `nav==ARMED`/altitude held — capturing *current* behaviour. No
+  logic moved yet. *DoD:* `pip install -e` works; golden passes against today's
   code path (imported from the script).
-- **Phase 1 — Carve out modules.** Move `SitlLab` → `session.py` + `transport/*`
-  + `bridges.py` + `world.py`, `Pilot` → `autopilot.py`, verbatim (no behaviour
-  change). Re-run the Phase 0 golden each step. *DoD:* `sitl_lab.py` becomes a
-  thin shim importing the package; golden still green.
+- **Phase 1 — Carve out modules + pull in worldmesh.** Move `SitlLab` →
+  `session.py` + `transport/*` + `bridges.py` + `world.py`, `Pilot` →
+  `autopilot.py`, verbatim; move the C++ builder to `cpp/worldmesh/`. Add **unit
+  tests** for the extracted framing/parse helpers as they move. Re-run the
+  golden each step. *DoD:* `sitl_lab.py` is a thin shim importing the package;
+  golden + new unit tests green.
 - **Phase 2 — Config + paths + CLI.** `config.py` (GCS conf/env/args precedence),
   `paths.py` (binary + suffix isolation), `cli.py` (`vayu-headless serve|do|run`).
-  *DoD:* no hard-coded `/home/...`/`/tmp/...` literals outside `paths.py`.
+  **Unit tests** for config precedence + path/suffix resolution. *DoD:* no
+  hard-coded `/home/...`/`/tmp/...` literals outside `paths.py`.
 - **Phase 3 — Versioned session protocol.** JSON command schema in `server.py`/
-  `client.py`; document it. Keep text CLI ergonomics. *DoD:* protocol doc +
-  round-trip test.
+  `client.py`; document it; keep text CLI ergonomics. **Unit** round-trip tests +
+  an **integration** test exercising the socket commands. *DoD:* protocol doc +
+  tests green.
 - **Phase 4 — Pluggable autopilot + missions.** `Autopilot` interface; ship the
-  current cascade guidance as the default; allow a custom controller / scripted
-  mission (Python). *DoD:* a `examples/` mission runs end-to-end.
-- **Phase 5 — Single-source wire defs, docs, CI.** Generate `transport/vsim.py`
-  constants/structs from `vsim_proto.h` (or assert-match in a test) so they
-  can't drift; finalise `README.md`; wire the flight suite into CI. *DoD:* CI
-  job runs a headless flight and asserts; drift test guards the wire layer.
+  current cascade guidance as default; allow a custom controller / scripted
+  mission (Python). **Unit** tests for the guidance math (stick mapping, caps),
+  **integration** test for an `examples/` mission end-to-end. *DoD:* a mission
+  runs end-to-end with assertions.
+- **Phase 5 — Single-source wire defs + docs.** Generate `transport/vsim.py`
+  constants/structs from `vsim_proto.h` (or assert-match in a **drift test**) so
+  they can't diverge; finalise `README.md`. *DoD:* drift test guards the wire
+  layer; docs complete.
+- **Phase 6 — Validate + hard-cut.** Run the full suite across several real
+  flights (course, sysID, GCS-attached) to confirm zero regression, **then
+  remove** `tools/sim_host/sitl_lab.py`. CI wiring is a later, separate task
+  (decision #5) — the suite is already locally runnable. *DoD:* shim gone;
+  everything reachable via package API + CLI.
 
 ## 8. Shared-code strategy (avoid duplication / drift)
 
@@ -188,24 +207,31 @@ Document every command + response shape once, in `README.md`.
 - **Two consumers of one FIFO** (pose) — the publisher pattern is load-bearing;
   encode it in `bridges.py` with a comment + test.
 
-## 10. Open decisions (flag before Phase 1)
+## 10. Decisions (LOCKED 2026-06-18)
 
-1. **Package name / CLI name** — `vayu_headless` + `vayu-headless` (proposed) vs
-   keep `sitl_lab`.
-2. **Worldmesh C++ location** — move under `headless-sdk/cpp/` vs stay in
-   `tools/` and reference.
-3. **Back-comp** — keep `tools/sim_host/sitl_lab.py` as a thin shim
-   indefinitely, or hard-cut once the CLI lands.
-4. **CI scope** — smoke flight only, or the full sysID/course/tuning suite.
+1. **Package / CLI name** — `vayu_headless` package, `vayu-headless` CLI. ✅
+2. **Worldmesh C++** — **pulled into the SDK** at
+   `software/headless-sdk/cpp/worldmesh/` (the canonical home; `tools/sim_host/
+   worldmesh/` is removed/redirected). The SDK owns its native helper. ✅
+3. **Back-comp** — keep `tools/sim_host/sitl_lab.py` as a thin shim **until we
+   have thoroughly validated no regression** (golden + integration suite green
+   across a few real runs), **then hard-cut** it. ✅
+4. **Tests** — grow **both unit and integration tests as the code builds up**
+   (every phase lands with its tests; not deferred). ✅
+5. **CI** — wiring the suite into CI is **deferred / added later**; the suite
+   must be runnable locally from Phase 0 regardless. ✅
 
 ## 11. Definition of done (whole effort)
 
 - `pip install -e software/headless-sdk` → `import vayu_headless` and
   `vayu-headless serve|do|run` both work.
 - Everything today's script does is reachable through the package API + CLI.
-- A CI job boots a headless session, flies a scripted course, and asserts
-  on telemetry/ground truth.
+- Unit + integration suite (locally runnable) covers the wire layers, config,
+  guidance math, and a real boot-fly-land flight; green across several runs.
 - Wire layer is single-sourced or drift-guarded; protocol + API documented in
   `README.md`.
-- `sitl_lab.py` is either a thin shim or removed (per decision #3).
+- `tools/sim_host/sitl_lab.py` is **removed** (hard-cut) after the no-regression
+  validation; the worldmesh C++ lives under `cpp/worldmesh/`.
+- CI wiring is explicitly **out of scope** here (a later task), but nothing
+  blocks it.
 ```
