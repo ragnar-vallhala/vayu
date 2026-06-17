@@ -33,6 +33,7 @@ import subprocess
 import sys
 import threading
 import time
+import tty
 
 # --- locate + import the generated NavLink codec ----------------------------
 _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -96,8 +97,15 @@ def quat_to_euler(w, x, y, z):
 class SitlLab:
     """Spawns vsim_d + vayu_sitl, streams RC, reads truth + FC telemetry."""
 
-    def __init__(self, rig=False, wind=None, turb=0.0, rc_hz=50):
+    # Default advert file the Navigator toolbar reads to auto-offer a SITL pty.
+    GCS_ADVERT = "/tmp/vayu_uart2_pty"
+
+    def __init__(self, rig=False, wind=None, turb=0.0, rc_hz=50, gcs=False):
         self.suffix = f"_lab{os.getpid()}"
+        self.gcs = gcs
+        self.gcs_master = None
+        self.gcs_path = None
+        self._advertised = False
         self.env = dict(os.environ, VSIM_FIFO_SUFFIX=self.suffix)
         self.paths = {n: f"/tmp/vsim_{n}{self.suffix}" for n in
                       ("pwm", "imu", "pose", "ctl")}
@@ -146,6 +154,36 @@ class SitlLab:
         with open(self.uart_advert) as f:
             self.uart_path = f.read().strip()
         self.uart_fd = os.open(self.uart_path, os.O_RDWR | os.O_NONBLOCK)
+
+        # 4) Optional GCS tap: a second pty the Navigator can connect to. The
+        # harness stays the SOLE reader of the FC pty (so its own decode keeps
+        # working) and transparently forwards bytes both ways, so the operator
+        # can monitor/record live in the GCS while the harness drives + checks.
+        if self.gcs:
+            self.gcs_master, gcs_slave = os.openpty()
+            self.gcs_path = os.ttyname(gcs_slave)
+            # RAW line discipline: binary NavLink telemetry must pass through
+            # untouched (no NL/CR translation, no echo) — exactly what the FC's
+            # own UART2 pty does via cfmakeraw. Cooked mode corrupts framing.
+            tty.setraw(self.gcs_master)
+            os.close(gcs_slave)                       # GCS reopens it by path
+            os.set_blocking(self.gcs_master, False)
+            # Outbound buffer for FC→GCS: a non-blocking pty master takes
+            # partial writes, so a dedicated drainer preserves the remainder
+            # (truncating mid-frame would corrupt framing — that's what dropped
+            # all but the low-rate streams in the first cut).
+            self._gcs_out = bytearray()
+            self._gcs_out_lock = threading.Lock()
+            # Advertise so the Navigator toolbar auto-offers it (SITL UART2).
+            try:
+                with open(self.GCS_ADVERT, "w") as f:
+                    f.write(self.gcs_path + "\n")
+                self._advertised = True
+            except OSError:
+                pass
+            threading.Thread(target=self._gcs_rx_thread, daemon=True).start()
+            threading.Thread(target=self._gcs_tx_thread, daemon=True).start()
+
         threading.Thread(target=self._telem_thread, daemon=True).start()
 
     # -- lifecycle -----------------------------------------------------------
@@ -159,6 +197,15 @@ class SitlLab:
 
     def close(self):
         self._stop.set()
+        # Remove our advert only if it still points at us (don't clobber a real
+        # vayu_sitl's advert written after ours).
+        if self._advertised:
+            try:
+                with open(self.GCS_ADVERT) as f:
+                    if f.read().strip() == self.gcs_path:
+                        os.unlink(self.GCS_ADVERT)
+            except OSError:
+                pass
         for p in (getattr(self, "sitl", None), getattr(self, "vsim", None)):
             if p:
                 p.terminate()
@@ -221,8 +268,49 @@ class SitlLab:
             if data:
                 buf += data
                 self._parse_frames(buf)
+                if self.gcs_master is not None:        # queue raw bytes → GCS
+                    with self._gcs_out_lock:
+                        self._gcs_out += data
+                        # Cap if the GCS stalls/isn't attached: drop oldest so we
+                        # bound memory (costs one resync on the GCS, not silence).
+                        if len(self._gcs_out) > (1 << 18):
+                            del self._gcs_out[:len(self._gcs_out) - (1 << 17)]
             else:
                 time.sleep(0.002)
+
+    def _gcs_tx_thread(self):
+        """Drain the FC→GCS buffer, honouring partial non-blocking writes so a
+        frame is never truncated mid-stream (preserve the remainder, retry)."""
+        while not self._stop.is_set():
+            with self._gcs_out_lock:
+                chunk = bytes(self._gcs_out)
+            if not chunk:
+                time.sleep(0.003)
+                continue
+            try:
+                n = os.write(self.gcs_master, chunk)
+            except (BlockingIOError, OSError):
+                n = 0                                   # buffer full / GCS absent
+            if n:
+                with self._gcs_out_lock:
+                    del self._gcs_out[:n]
+            if n < len(chunk):
+                time.sleep(0.003)                       # let the GCS drain
+
+    def _gcs_rx_thread(self):
+        """Forward GCS→FC bytes (heartbeats, time-sync, commands) to the FC pty."""
+        while not self._stop.is_set():
+            try:
+                data = os.read(self.gcs_master, 65536)
+            except (BlockingIOError, OSError):
+                data = b""
+            if data:
+                try:
+                    os.write(self.uart_fd, data)
+                except OSError:
+                    pass
+            else:
+                time.sleep(0.004)
 
     def _parse_frames(self, buf):
         i = 0
@@ -281,9 +369,18 @@ class SitlLab:
 def demo(args):
     """Arm the real FC on a rig, command a roll-angle step, record the actual
     controller's tracking response (ground truth) + FC telemetry to CSV."""
-    with SitlLab(rig=True, wind=tuple(args.wind), turb=args.turb) as lab:
+    with SitlLab(rig=True, wind=tuple(args.wind), turb=args.turb,
+                 gcs=args.gcs) as lab:
         print(f"suffix={lab.suffix}  rc={lab.env['VAYU_UART_RC_PATH']}  "
               f"uart2={lab.uart_path}")
+        if args.gcs:
+            print(f"\n  ▶ MONITOR IN GCS: in Navigator, Connect → port "
+                  f"'{lab.gcs_path}' (auto-listed as 'SITL UART2') @ 115200.")
+            print(f"    Live telemetry is bridged there while this run drives + "
+                  f"records.\n")
+            if args.gcs_wait > 0:
+                print(f"  waiting {args.gcs_wait:.0f}s for you to connect the GCS…")
+                time.sleep(args.gcs_wait)
         lab.arm(settle=1.5)
         lab.stick(thr=0.5)                     # mid throttle, level
         rows = []
@@ -333,5 +430,10 @@ if __name__ == "__main__":
                     metavar=("N", "E", "D"))
     ap.add_argument("--turb", type=float, default=0.0)
     ap.add_argument("--csv", type=str, default="")
+    ap.add_argument("--gcs", action="store_true",
+                    help="bridge FC telemetry to a pty the Navigator GCS can "
+                         "monitor/record live (auto-advertised)")
+    ap.add_argument("--gcs-wait", type=float, default=0.0,
+                    help="seconds to pause after setup so you can connect the GCS")
     sys.exit(demo(ap.parse_args()))
 
