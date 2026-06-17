@@ -452,10 +452,10 @@ class SitlLab:
         loop in sim). waypoints = [(N,E), ...] in metres; alt is NED z (<0=up).
         Returns the recorded trajectory rows."""
         gp = dict(kp_z=0.05, ki_z=0.02, kd_z=0.05, hover=0.36,
-                  kp_h=0.10, kd_h=0.30, tilt=0.45)
+                  kp_h=0.06, kd_h=0.55, tilt=0.30, vmax=3.0)
         if gains:
             gp.update(gains)
-        self.takeoff(spawn_alt=min(alt - 8.0, -12.0), hover=gp["hover"])
+        self.takeoff(hover=gp["hover"])
         rows, wp = [], 0
         iz = 0.0
         csvf = open(csv, "w") if csv else None
@@ -481,12 +481,16 @@ class SitlLab:
                 eN, eE = tx - x, ty - y
                 if (eN * eN + eE * eE) < reach * reach and wp < len(waypoints) - 1:
                     wp += 1
-                # yaw≈0 ⇒ +N via pitch stick, +E via roll stick (signs verified
-                # headless against the FC's stick→angle→motion convention).
+                # Cascade: position error → speed-capped desired velocity →
+                # damped tilt. The velocity cap + damping stop the orbiting that
+                # a raw position-P term produced. yaw≈0 ⇒ +N via pitch, +E via
+                # roll (signs verified headless vs the FC's stick→motion map).
+                vdes_n = max(-gp["vmax"], min(gp["vmax"], 0.6 * eN))
+                vdes_e = max(-gp["vmax"], min(gp["vmax"], 0.6 * eE))
                 des_pitch = max(-gp["tilt"], min(gp["tilt"],
-                                gp["kp_h"] * eN - gp["kd_h"] * vN))
+                                gp["kd_h"] * (vdes_n - vN)))
                 des_roll = max(-gp["tilt"], min(gp["tilt"],
-                               gp["kp_h"] * eE - gp["kd_h"] * vE))
+                               gp["kd_h"] * (vdes_e - vE)))
                 self.stick(roll=des_roll, pitch=des_pitch, thr=thr, yaw=0.0)
                 t = time.time() - t0
                 rows.append((t, x, y, z, vN, vE, vD, roll, pitch, yaw, wp, thr))
