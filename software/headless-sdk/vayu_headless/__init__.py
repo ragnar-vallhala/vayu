@@ -10,4 +10,11 @@ is carved out of tools/sim_host/sitl_lab.py in Phase 1 and re-exported here.
 
 __version__ = "0.0.1"
 
-__all__ = ["__version__"]
+from .session import SitlSession, SitlLab    # noqa: E402
+from .autopilot import Pilot, DEFAULT_GAINS  # noqa: E402
+
+__all__ = [
+    "__version__",
+    "SitlSession", "SitlLab",   # SitlLab is a back-compat alias of SitlSession
+    "Pilot", "DEFAULT_GAINS",
+]
