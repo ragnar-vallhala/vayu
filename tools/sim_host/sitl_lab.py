@@ -87,6 +87,52 @@ def _wind(steady=(0, 0, 0), turb=0.0, enable=True):
                 steady[2], 0.0, 0.0, turb, 1.0, 1 if enable else 0))
 
 
+CTL_SET_WORLD_MESH = 10
+
+
+def _world_mesh(path, nverts, ntris, nodes, restitution, double_sided):
+    """vsim_ctl_world_mesh_t: counts + flags + restitution + the BVH file path
+    the daemon mmaps. Counts must match the blob header (daemon cross-checks)."""
+    pb = path.encode()[:215]
+    body = struct.pack("<IIIIfI", nverts, ntris, nodes,
+                       1 if double_sided else 0, float(restitution), len(pb))
+    body += pb + b"\x00" * (216 - len(pb))
+    return _ctl(CTL_SET_WORLD_MESH, body)
+
+
+def _build_world_mesh(w, out_path):
+    """Build the world collision BVH from the GCS's selected world mesh using
+    the GCS's OWN loader/builder (tools/sim_host/worldmesh/vsim_worldmesh), so
+    the headless craft collides with exactly the geometry Navigator renders.
+    Returns (out_path, nverts, ntris, nodes, restitution, double_sided) or None."""
+    mesh = w.get("worldMeshPath", "")
+    if not mesh or not os.path.exists(mesh):
+        return None
+    tool = os.environ.get("VSIM_WORLDMESH_BIN",
+                          os.path.join(_ROOT, "tools", "sim_host", "worldmesh",
+                                       "build", "vsim_worldmesh"))
+    if not os.path.exists(tool):
+        print(f"  [world-mesh] builder not built ({tool}); obstacles will NOT "
+              f"be solid. Build it: cmake -B <dir> tools/sim_host/worldmesh")
+        return None
+    scale = w.get("worldScale", "1")
+    up = "1" if str(w.get("worldUpAxis", "0")) in ("1", "Y", "y") else "0"
+    ox, oy, oz = (w.get("worldMeshOffX", "0"), w.get("worldMeshOffY", "0"),
+                  w.get("worldMeshOffZ", "0"))
+    dbl = "1" if str(w.get("worldMeshDoubleSided", "true")).lower() in \
+        ("1", "true") else "0"
+    rest = float(w.get("worldMeshRestitution", "0.3"))
+    try:
+        out = subprocess.check_output(
+            [tool, mesh, scale, up, ox, oy, oz, dbl, out_path],
+            stderr=subprocess.STDOUT).decode().strip()
+        nverts, ntris, nodes, _bytes = (int(x) for x in out.split())
+    except (subprocess.CalledProcessError, ValueError) as e:
+        print(f"  [world-mesh] build failed: {e}")
+        return None
+    return (out_path, nverts, ntris, nodes, rest, dbl == "1")
+
+
 CTL_SET_GEOMETRY = 5
 
 
@@ -187,8 +233,9 @@ class SitlLab:
                 raise FileNotFoundError(f"missing binary: {b}")
 
         # 1) physics daemon
-        self.vsim = subprocess.Popen([vsim_bin], env=self.env,
-                                     stderr=subprocess.DEVNULL)
+        _vsim_err = (open("/tmp/vsim_d.err", "w")
+                     if os.environ.get("SITL_LAB_DEBUG") else subprocess.DEVNULL)
+        self.vsim = subprocess.Popen([vsim_bin], env=self.env, stderr=_vsim_err)
         self._await(lambda: all(os.path.exists(p) for p in self.paths.values()),
                     "vsim_d FIFOs")
         self.ctl_fd = os.open(self.paths["ctl"], os.O_RDWR | os.O_NONBLOCK)
@@ -209,6 +256,16 @@ class SitlLab:
                 lin_drag=float(w.get("linear_drag", 0.10))))
         else:
             os.write(self.ctl_fd, _world())
+        # Push the world COLLISION mesh (rings/obstacles) the same way the GCS
+        # does, so the headless craft physically collides with it instead of
+        # flying through. Built from the GCS's selected world mesh via the
+        # GCS's own loader/BVH builder (render + collision stay in lockstep).
+        self.world_mesh_bin = f"/tmp/vsim_world{self.suffix}.bin"
+        wm = _build_world_mesh(w, self.world_mesh_bin) if w else None
+        if wm:
+            os.write(self.ctl_fd, _world_mesh(*wm))
+            print(f"  [world-mesh] {wm[2]} tris, {wm[3]} nodes → vsim_d "
+                  f"(rest={wm[4]}, 2-sided={wm[5]})")
         if rig:
             os.write(self.ctl_fd, _testrig(True))
         if wind or turb:
@@ -334,6 +391,12 @@ class SitlLab:
         if self._pose_advertised:                # remove our GCS pose fan-out FIFO
             try:
                 os.unlink(self.GCS_POSE)
+            except OSError:
+                pass
+        wmb = getattr(self, "world_mesh_bin", None)   # remove the BVH blob (vsim_d gone)
+        if wmb:
+            try:
+                os.unlink(wmb)
             except OSError:
                 pass
 
