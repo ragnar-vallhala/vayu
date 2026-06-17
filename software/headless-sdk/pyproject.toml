@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vayu_headless"
+version = "0.0.1"
+description = "Headless SDK for driving the real Vayu flight-controller logic in SITL"
+requires-python = ">=3.9"
+dependencies = []
+
+[project.optional-dependencies]
+test = ["pytest>=7"]
+
+[project.scripts]
+vayu-headless = "vayu_headless.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["vayu_headless*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "integration: boots real vsim_d + vayu_sitl and flies (slow; needs binaries)",
+]
