@@ -18,9 +18,10 @@ The Vayu protocol uses a framed binary format (defined in [Data Frame](data_fram
 
 ### Control Packets (GCS -> Firmware)
 
-| Document               | Packet Type | Description                                          |
-| :--------------------- | :---------- | :--------------------------------------------------- |
-| [Commands](command.md) | `0x03`      | Remote control actions (Arm, Calibrate, PID tuning). |
+| Document                          | Packet Type | Description                                              |
+| :-------------------------------- | :---------- | :------------------------------------------------------ |
+| [Commands](command.md)            | `0x03`      | Remote control actions (Arm, Calibrate, PID tuning).    |
+| [Stream Rates](stream_rates.md)   | `0x2007`    | Per-stream telemetry enable + request rate (proposed).  |
 
 ### Bidirectional Packets (GCS <-> Firmware)
 
