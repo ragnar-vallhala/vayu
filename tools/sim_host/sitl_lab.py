@@ -286,7 +286,10 @@ class SitlLab:
                     os.unlink(self.GCS_POSE)
                 os.mkfifo(self.GCS_POSE)
                 self.gcs_pose_fd = os.open(self.GCS_POSE, os.O_RDWR | os.O_NONBLOCK)
+                self._pose_out = bytearray()
+                self._pose_out_lock = threading.Lock()
                 self._pose_advertised = True
+                threading.Thread(target=self._pose_tx_thread, daemon=True).start()
             except OSError:
                 self.gcs_pose_fd = None
 
@@ -460,11 +463,14 @@ class SitlLab:
 
     # -- read physics ground truth (vsim_d pose) + fan out to the GCS --------
     def _pose_thread(self):
-        """Sole reader of vsim_d's (private) pose FIFO: parse the latest frame
-        into the cached ground truth AND relay every byte verbatim to the
-        GCS-facing fan-out FIFO so 'Attach Ext' renders the same pose."""
-        pbuf = bytearray()        # frame-parse buffer (ground truth)
-        obuf = bytearray()        # outbound relay buffer (to the GCS)
+        """CRITICAL PATH: the SOLE reader of vsim_d's (private) pose FIFO.
+        Parses the latest frame into the cached ground truth and QUEUES raw
+        bytes for the GCS relay — it NEVER writes to the GCS FIFO itself. The
+        relay is a separate thread (_pose_tx_thread) precisely so a slow,
+        detaching or reconnecting GCS reader can't stall this drain: if it did,
+        vsim_d's blocking pose write would back up and FREEZE the physics step
+        (observed: attaching then detaching 'Attach Ext' wedged the whole sim)."""
+        pbuf = bytearray()
         while not self._stop.is_set():
             try:
                 data = os.read(self.pose_fd, 65536)
@@ -474,18 +480,32 @@ class SitlLab:
                 pbuf += data
                 self._parse_pose(pbuf)
                 if self.gcs_pose_fd is not None:
-                    obuf += data
-                    if len(obuf) > (1 << 18):        # bound if GCS detached
-                        del obuf[:len(obuf) - (1 << 17)]
-            if self.gcs_pose_fd is not None and obuf:
-                try:
-                    n = os.write(self.gcs_pose_fd, bytes(obuf))
-                except (BlockingIOError, OSError):
-                    n = 0                            # FIFO full / GCS not reading
-                if n:
-                    del obuf[:n]
-            if not data:
+                    with self._pose_out_lock:
+                        self._pose_out += data
+                        if len(self._pose_out) > (1 << 18):   # bound if GCS gone
+                            del self._pose_out[:len(self._pose_out) - (1 << 17)]
+            else:
                 time.sleep(0.002)
+
+    def _pose_tx_thread(self):
+        """Best-effort relay of queued pose frames to the GCS fan-out FIFO.
+        Partial-write-safe; backs off (never spins) when the GCS is detached so
+        a full FIFO can't peg a core — and crucially never touches _pose_thread."""
+        while not self._stop.is_set():
+            with self._pose_out_lock:
+                chunk = bytes(self._pose_out)
+            if not chunk:
+                time.sleep(0.005)
+                continue
+            try:
+                n = os.write(self.gcs_pose_fd, chunk)
+            except (BlockingIOError, OSError):
+                n = 0
+            if n:
+                with self._pose_out_lock:
+                    del self._pose_out[:n]
+            if n < len(chunk):
+                time.sleep(0.01)               # GCS slow/detached — back off
 
     def _parse_pose(self, buf):
         pos = 0
