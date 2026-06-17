@@ -10,14 +10,19 @@
 > - ✅ **Phase 1a** — `transport/{vsim,navlink,rc}`, `config`, `world`, `_repo`
 >   carved out + unit-tested; worldmesh C++ moved to `cpp/worldmesh/`; script
 >   re-pointed to the package.
-> - ✅ **Phase 1b** — `SitlSession` (`session.py`) + `Pilot` (`autopilot.py`)
->   moved; public API live (`from vayu_headless import SitlSession, Pilot`);
->   `sitl_lab.py` reduced to a 308-line CLI shim. **Suite: 22 green** (unit +
->   golden-via-shim + native-API flight).
-> - ⏭ **Next: Phase 2** — `config`/`paths` resolution + `cli.py`
->   (`vayu-headless serve|do|run`).
-> Run tests: `cd software/headless-sdk && ./.venv/bin/python -m pytest tests -q`
-> (integration boots vsim_d + vayu_sitl; skips if binaries unbuilt).
+> - ✅ **Phase 1b** — `SitlSession`/`Pilot` moved; public API live.
+> - ✅ **Phase 2** — `paths.py` (no more hard-coded literals) + `cli.py`
+>   (`vayu-headless serve|do|run`) + `server.py`/`client.py`.
+> - ✅ **Phase 3** — versioned command protocol (text + JSON) over the socket.
+> - ✅ **Phase 4** — pure `guidance_outputs()` + `examples/box_mission.py`.
+> - ✅ **Phase 5** — wire-drift guard (Python vs `vsim_proto.h`) + `README.md`.
+> - ✅ **Phase 6** — hard-cut: `sitl_lab.py` is now a thin deprecation forwarder
+>   to the CLI (no logic); worldmesh under `cpp/worldmesh/`.
+>
+> **DONE. Suite: 51 tests, 85% coverage** (45 unit + 6 integration flights).
+> Run: `cd software/headless-sdk && ./.venv/bin/python -m pytest tests -q`
+> (`--cov=vayu_headless` for coverage; integration boots vsim_d + vayu_sitl and
+> skips if binaries unbuilt).
 
 ---
 

@@ -13,6 +13,7 @@ import threading
 import time
 import tty
 
+from . import paths as _paths
 from .transport import vsim as _vsim
 from .transport import navlink as _navlink
 from .transport import rc as _rc
@@ -35,11 +36,9 @@ _build_world_mesh = _world_mod.build_world_mesh
 class SitlLab:
     """Spawns vsim_d + vayu_sitl, streams RC, reads truth + FC telemetry."""
 
-    # Default advert file the Navigator toolbar reads to auto-offer a SITL pty.
-    GCS_ADVERT = "/tmp/vayu_uart2_pty"
-
-    # Default pose FIFO the GCS "Attach Ext" reads (SimWorker startAttach).
-    GCS_POSE = "/tmp/vsim_pose"
+    # GCS-facing singletons (resolved in paths.py).
+    GCS_ADVERT = _paths.GCS_ADVERT      # Navigator auto-offers this as "SITL UART2"
+    GCS_POSE = _paths.GCS_POSE          # GCS "Attach Ext" reads this
 
     def __init__(self, rig=False, wind=None, turb=0.0, rc_hz=50, gcs=False,
                  attach=False, conf=None):
@@ -59,9 +58,8 @@ class SitlLab:
         self._pose_advertised = False
         self._advertised = False
         self.env = dict(os.environ, VSIM_FIFO_SUFFIX=self.suffix)
-        self.paths = {n: f"/tmp/vsim_{n}{self.suffix}" for n in
-                      ("pwm", "imu", "pose", "ctl")}
-        self.uart_advert = f"/tmp/vayu_uart2_pty{self.suffix}"
+        self.paths = _paths.fifo_paths(self.suffix)
+        self.uart_advert = _paths.uart_advert(self.suffix)
         self._stop = threading.Event()
         # RC frame: roll,pitch,throttle,yaw,SwA(arm),aux  (us; centres 1500)
         self._rc = [1500, 1500, 1000, 1500, 1000, 1500]
@@ -71,9 +69,8 @@ class SitlLab:
         self.telem_counts = {}
         self._truth = None
 
-        vsim_bin = os.environ.get("VSIM_BIN_PATH", "tools/vsim/build/vsim_d")
-        sitl_bin = os.environ.get("VAYU_SITL_BIN",
-                                  "tools/sim_host/build_sitl/vayu_sitl")
+        vsim_bin = _paths.vsim_bin()
+        sitl_bin = _paths.sitl_bin()
         for b in (vsim_bin, sitl_bin):
             if not os.path.exists(b):
                 raise FileNotFoundError(f"missing binary: {b}")
@@ -106,7 +103,7 @@ class SitlLab:
         # does, so the headless craft physically collides with it instead of
         # flying through. Built from the GCS's selected world mesh via the
         # GCS's own loader/BVH builder (render + collision stay in lockstep).
-        self.world_mesh_bin = f"/tmp/vsim_world{self.suffix}.bin"
+        self.world_mesh_bin = _paths.world_mesh_bin(self.suffix)
         wm = _build_world_mesh(w, self.world_mesh_bin) if w else None
         if wm:
             os.write(self.ctl_fd, _world_mesh(*wm))
@@ -408,84 +405,9 @@ class SitlLab:
         """Re-spawn the airframe at pos (NED) with zero velocity."""
         os.write(self.ctl_fd, _reset(pos=tuple(pos)))
 
-    def takeoff(self, hover=0.5, climb=0.7):
-        """Clean ground takeoff (the physics ground-clamp now holds the airframe
-        level while resting, so it lifts off upright instead of tumbling):
-        spawn on the ground, arm at low throttle, then ramp to a climb and
-        settle at hover."""
-        self.reset_pose((0, 0, -0.05))
-        time.sleep(0.3)
-        self.set_rc(swa=1000, thr=1000)            # ensure disarmed → STANDBY
-        time.sleep(0.3)
-        self.set_rc(swa=2000, thr=1000)            # arm gesture (low throttle)
-        time.sleep(0.4)
-        self.stick(thr=climb); self.set_rc(swa=2000)  # break ground
-        time.sleep(0.6)
-        self.stick(thr=hover); self.set_rc(swa=2000)  # settle to ~hover
-
-    def fly_course(self, waypoints, alt=-3.0, secs=60.0, csv=None, reach=2.0,
-                   gains=None):
-        """Outer guidance: hold altitude + chase waypoints, feeding the FC's
-        RC attitude setpoints from GROUND-TRUTH pose (the FC has no position
-        loop in sim). waypoints = [(N,E), ...] in metres; alt is NED z (<0=up).
-        Returns the recorded trajectory rows."""
-        gp = dict(kp_z=0.05, ki_z=0.02, kd_z=0.05, hover=0.36,
-                  kp_h=0.06, kd_h=0.55, tilt=0.30, vmax=3.0)
-        if gains:
-            gp.update(gains)
-        self.takeoff(hover=gp["hover"])
-        rows, wp = [], 0
-        iz = 0.0
-        csvf = open(csv, "w") if csv else None
-        if csvf:
-            csvf.write("t,x,y,z,vN,vE,vD,roll,pitch,yaw,wp,thr\n")
-        t0 = time.time()
-        next_t = t0
-        dt = 0.02
-        while time.time() - t0 < secs:
-            tr = self.truth()
-            if tr:
-                x, y, z = tr["pos"]
-                vN, vE, vD = tr["vel"]
-                roll, pitch, yaw = quat_to_euler(*tr["quat"])
-                # Altitude: NED z is down-positive; target alt<0 (up). ez>0 ⇒
-                # below target ⇒ climb ⇒ more throttle. -vD is climb rate.
-                ez = z - alt
-                iz = max(-0.3, min(0.3, iz + ez * dt))
-                thr = gp["hover"] + gp["kp_z"] * ez + gp["ki_z"] * iz \
-                    - gp["kd_z"] * (-vD)
-                thr = max(0.0, min(1.0, thr))
-                tx, ty = waypoints[wp]
-                eN, eE = tx - x, ty - y
-                if (eN * eN + eE * eE) < reach * reach and wp < len(waypoints) - 1:
-                    wp += 1
-                # Cascade: position error → speed-capped desired velocity →
-                # damped tilt. The velocity cap + damping stop the orbiting that
-                # a raw position-P term produced. yaw≈0 ⇒ +N via pitch, +E via
-                # roll (signs verified headless vs the FC's stick→motion map).
-                vdes_n = max(-gp["vmax"], min(gp["vmax"], 0.6 * eN))
-                vdes_e = max(-gp["vmax"], min(gp["vmax"], 0.6 * eE))
-                des_pitch = max(-gp["tilt"], min(gp["tilt"],
-                                gp["kd_h"] * (vdes_n - vN)))
-                des_roll = max(-gp["tilt"], min(gp["tilt"],
-                               gp["kd_h"] * (vdes_e - vE)))
-                self.stick(roll=des_roll, pitch=des_pitch, thr=thr, yaw=0.0)
-                t = time.time() - t0
-                rows.append((t, x, y, z, vN, vE, vD, roll, pitch, yaw, wp, thr))
-                if csvf:
-                    csvf.write("%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,"
-                               "%.2f,%.2f,%.2f,%d,%.3f\n"
-                               % (t, x, y, z, vN, vE, vD, roll, pitch, yaw, wp, thr))
-            next_t += dt
-            s = next_t - time.time()
-            if s > 0:
-                time.sleep(s)
-        if csvf:
-            csvf.close()
-        return rows
-
-
-
+    # NOTE: the legacy takeoff()/fly_course() helpers were removed — the
+    # continuous outer-loop guidance now lives in vayu_headless.autopilot.Pilot
+    # (takeoff/goto/land), which all callers use.
 
 # Canonical name; SitlLab kept as a back-compat alias.
 SitlSession = SitlLab
