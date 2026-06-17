@@ -4,7 +4,7 @@
 // Four named-pipe channels under /tmp, one direction each:
 //
 //   /tmp/vsim_pwm   firmware -> vsim_d   pwm_frame_t   ~1 kHz, latest-wins
-//   /tmp/vsim_imu   vsim_d   -> firmware imu_frame_t   ~200 Hz, latest-wins
+//   /tmp/vsim_imu   vsim_d   -> firmware imu_frame_t   ~1 kHz, latest-wins
 //   /tmp/vsim_pose  vsim_d   -> viewer   pose_frame_t  ~60 Hz, latest-wins
 //   /tmp/vsim_ctl   viewer   -> vsim_d   ctl_msg_t     async, one-shot
 //
@@ -98,7 +98,7 @@ typedef struct {
 // ((uint64_t)tick_hi << 32) | tick_lo on the consumer side.
 typedef struct {
     vsim_hdr_t hdr;
-    uint32_t tick_lo;        // low  32 bits of physics tick (1 kHz)
+    uint32_t tick_lo;        // low  32 bits of physics tick (8 kHz)
     uint32_t tick_hi;        // high 32 bits
     float pos_w[3];          // NED position [m]
     float quat_wxyz[4];      // body->world quaternion, w first

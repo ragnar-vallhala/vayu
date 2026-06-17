@@ -236,7 +236,7 @@ struct Bvh {
 
 // Collect triangle indices in leaves whose AABB overlaps sphere(c, r). Writes
 // up to `cap` indices into `out`; returns the count (clamped to cap). Fixed
-// traversal stack, no allocation — safe in the 1 kHz loop.
+// traversal stack, no allocation — safe in the 8 kHz loop.
 inline int querySphere(const Bvh& b, const Vec3& c, float r, uint32_t* out,
                        int cap) {
     if (!b.valid() || cap <= 0) return 0;
