@@ -6,8 +6,8 @@
 // Wire protocol: tools/vsim/include/vsim_proto.h.
 //
 // One thread, three rates:
-//   1 kHz : physics tick + drain pwm FIFO + drain ctl FIFO
-//   200 Hz: emit IMU frame on the imu FIFO
+//   8 kHz : physics tick + drain pwm FIFO + drain ctl FIFO
+//   1 kHz : emit IMU frame on the imu FIFO
 //   60 Hz : emit pose frame on the pose FIFO
 //
 // Real-time pacing via clock_nanosleep. Falls back to "best effort"

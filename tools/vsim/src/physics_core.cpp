@@ -307,12 +307,16 @@ void PhysicsCore::groundClamp(float dt) {
         if (state_.vel_w.z() > 0.0f) {
             state_.vel_w.setZ(-state_.vel_w.z() * params_.ground_restitution);
         }
-        // Light tangential friction. Note: still per-tick, not per-second --
-        // the original software/src/vsim/PhysicsCore.cpp had the same bug.
-        // Carrying it across unchanged for now; the daemon refactor isn't
-        // the place to alter physics behavior. See analysis notes.
-        state_.vel_w.setX(state_.vel_w.x() * 0.99f);
-        state_.vel_w.setY(state_.vel_w.y() * 0.99f);
+        // Light tangential friction, frame-rate-independent: decay lateral
+        // velocity at a fixed per-second rate so the damping is identical
+        // whatever the substep size. (The legacy in-process sim scaled by a
+        // flat 0.99 per tick, which made friction stronger the finer the
+        // tick; kFrictionDecayPerSec reproduces that 0.99/ms behavior at
+        // dt -> 1 ms but no longer depends on the rate.)
+        constexpr float kFrictionDecayPerSec = 10.0536f;  // -ln(0.99) * 1000
+        const float fric = std::exp(-kFrictionDecayPerSec * dt);
+        state_.vel_w.setX(state_.vel_w.x() * fric);
+        state_.vel_w.setY(state_.vel_w.y() * fric);
 
         // Ground-contact righting: a resting airframe topples toward level
         // (a quad can't balance on a tilted edge). worldUp = NED -Z; bodyUp

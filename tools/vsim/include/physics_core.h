@@ -23,7 +23,7 @@ public:
 
     void reset(const RigidBodyState& initial = {});
     // Caches the inverse inertia tensor so the RK4 derive() (4x per
-    // 1 kHz step) doesn't re-invert a 3x3 every call.
+    // 8 kHz step) doesn't re-invert a 3x3 every call.
     void setParams(const DroneParams& p) { params_ = p; I_inv_ = params_.inertia.inverse(); }
 
     // Static world obstacles the drone collides with (push-out + restitution).
