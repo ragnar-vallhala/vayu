@@ -113,6 +113,46 @@ next thing to trace. NOTE: a 2nd discrepancy also remains — firmware
 `IMU_SAMPLE_FREQ_HZ=2000` vs vsim's 1000 Hz emit (`SITL_IMU_FEED_HZ` matches the
 actual 1000 Hz for now; reconcile via `SET_RATES` or a config).
 
+## UPDATE (2026-06-18, pt 3): instrumented Tests 1 + 4 — dt exonerated, accel/tilt ambiguity confirmed
+
+Added a SITL-only diagnostic (`attitude_task.c`, guarded by `VAYU_SITL`) that logs,
+per estimator step, the predict INPUT (`step_dt`, `|gyro|`) and the accumulating
+state (EKF gyro bias / Mahony integral). NB: that shim was reverted out of the FC
+code afterwards — re-add it per `docs/deferred/01-attitude-estimate-underread.md`
+to reproduce. One rig run + one free-flight figure-8:
+
+- **Test 1 (dt/scale) — RULED OUT.** `step_dt = 0.0075–0.008 s` with `decim=8`
+  (≈8 samples × 1 ms), exactly the window it should span. The gyro the filter
+  integrates matches truth. So the ~12× is NOT a dt or input-scale bug.
+- **Rig = healthy.** On the tuning rig (translation pinned) the estimate tracks
+  truth: peak **est pitch −6.39°** vs **true −6.3°**; EKF pitch-bias sits flat at
+  ~0.06°/s. Same predict code, correct result → predict integration is sound.
+- **Free flight = broken, and Test 4 shows why.** In the figure-8 the body rate
+  `|g|` hits 8–13°/s but the **estimate stays pinned at ±1–2°**, while the EKF
+  gyro bias **winds up to ±1.5°/s and sign-flips with each lemniscate lobe**
+  (25× the rig's 0.06°/s). That oscillation is the fingerprint of the **accel
+  update fighting the gyro**: the thrust-aligned specific force (`|a|≈g`, passes
+  the magnitude gate) reads "level," so every step the accel correction yanks
+  attitude back down and dumps the residual into the bias state.
+- **Synthesis.** The under-read is the **accel/tilt ambiguity in powered
+  translational flight** (§D pt 2), not dt and not pure bias-windup — the bias
+  windup is a *symptom* of the same corrupted accel update. Rig (no translation)
+  has clean gravity → no corruption → correct. This is consistent across both
+  estimators because both fuse the same thrust-aligned accel.
+- **Test 4(a) reset gap — confirmed structurally.** `estimator_reset()` (which
+  zeroes EKF bias/covariance + Mahony integral) is called ONLY in tests; the
+  STANDBY→ARMED hard reset (`angle_rate_controller.c:254`) resets only the rate
+  PID + gyro LPF, never the estimator. So a wound-up bias persists across arms.
+
+**Hardware-cheap fixes implied (no extra per-cycle loop work):**
+1. Gate/down-weight the accel update on *dynamics*, not just `|a|≈g` — e.g. skip
+   when `|ω|` (or throttle/known-thrust) says the craft is maneuvering, since the
+   magnitude gate can't see thrust-aligned force. A comparison, not compute.
+2. Reset the estimator on arm (call `estimator_reset()` on STANDBY→ARMED) and
+   bound the EKF gyro-bias state (the Mahony Ki already clamps at ±0.5 rad/s).
+3. Proper long-term: velocity/model-aided specific-force prediction (thrust+drag
+   model, or GPS/optic-flow velocity) to resolve the ambiguity — larger change.
+
 ## Bottom line / next actions
 
 1. Land Bug 1 + Bug 2 — small, correct, improve every session.
@@ -244,3 +284,25 @@ value, and the EKF-in-isolation (self-test 14/14):
    latest-sample gyro) in a unit test and watch a pure-rotation ramp.
    Add the missing regression test: a constant-rate gyro ramp must integrate to
    the matching angle through the full `attitude_task` path (not just `ekf.c`).
+4. **Initial seeding + post-arm reset of accumulating states** — the strongest
+   candidate for a *constant* scale error, and the only one that explains the
+   under-read appearing in BOTH filters AND surviving the accel-disabled test.
+   The EKF estimates a gyro bias `E.bg` (`ekf.c:46`); predict integrates the
+   bias-corrected rate `w = to_radians(g) - bg` (`ekf.c:200`), and every
+   accel/mag correction injects into `bg` via `ekf_inject` (`ekf.c:107-114`).
+   On a multirotor the thrust-aligned accel reads ~level, so the filter can
+   explain a real sustained tilt-rate as gyro BIAS and wind `bg` up until
+   `w ≈ 0` → under-integration. The Mahony path has the identical failure mode
+   through its integral term (`SF_MAHONY_KI 0.0025`) — which is why both filters
+   under-read by the same factor. Two things to verify:
+   (a) **Seeding** — `ekf_init` zeros `bg/ba` and sets `P` (`ekf.c:58-80`), but
+       it runs ONCE at task start (`attitude_task.c:84`), not on arm. The static
+       `E`/Mahony integrator therefore carries any bias learned in a prior flight
+       (or during the pre-arm leveling transient) straight into the next arm —
+       so pure-gyro predict can under-integrate from t=0 even with accel off.
+       Add an `ekf_reset()`/integrator-zero on the disarm→arm transition.
+    (b) **Windup bound** — there is no anti-windup / rate clamp on `bg` (or the
+       Mahony Ki integral); a thrust-aligned accel can drive it arbitrarily.
+       Instrument `bg` (and Mahony `integralFB`) across a maneuver: if it ramps
+       toward the true body rate, this is the root cause. Fix is cycle-free on
+       the F4 — a reset on arm + a bound on the bias state, no extra loop work.
