@@ -76,6 +76,43 @@ worse than the guidance alone would.
 - Recommendation: tune/validate the outer loop in a **collision-free world**
   first (isolate guidance from collision response), then re-introduce the mesh.
 
+## UPDATE (2026-06-18, pt 2): the real root cause is a SITL fidelity violation
+
+Driving the maneuvers through a live GCS-attached session and logging the full
+chain (commanded stick → RC received → FC angle setpoint/measured → est vs TRUE
+attitude → position) overturned the guidance theory entirely:
+
+- True pitch swung ±17° during a dash while the **estimated** pitch read ±1–2°.
+  The gyro RATE was correct (`ControlTrace` rate == truth), but the integrated
+  ANGLE came out ~1/12. Accel was exonerated (hard-disabling it changed nothing).
+- Root cause: **in SITL the firmware's attitude estimator never ran.**
+  `host_imu_feeder.c` computed attitude with its OWN `m_mahony_filter` and pushed
+  it into the attitude queue; `host_lifecycle.c` started the control tasks but
+  not `attitude_task`. So SITL validated a host-side shim, not the shipped EKF —
+  a fidelity violation that defeats the point of the harness.
+
+**Fix applied (this commit):**
+- `host_imu_feeder.c`: removed the host mahony + attitude pushes; it now injects
+  RAW IMU only (`imu_queue_attitude_push`), and stamps a FIXED sensor cadence
+  (`SITL_IMU_FEED_HZ`, sim-time) instead of wall-clock — wall-clock jittered/
+  collapsed the estimator's dt when the vsim FIFO bursts.
+- `host_lifecycle.c`: starts the real `attitude_task` (EKF/Mahony per
+  `SF_FILTER_USED`), fed raw IMU exactly as on hardware.
+- `host_navhal.c`: added `hal_cycle_counter_cycles_per_us()` (84) the task needs.
+- `tools/sim_host/CMakeLists.txt`: added `src/est/attitude_task.c` to the SITL core.
+- Audit: the host mahony was the ONLY firmware-bypassing compute in the shims.
+
+**STILL OPEN (exposed, not yet fixed):** with the real EKF now running, the
+estimate STILL under-reads ~12× during dynamic flight. Ruled out: accel
+(disabled → no change), dt (fixed-cadence, verified 1 ms), gyro units (vsim
+rad/s→deg/s at main.cpp:105, EKF `to_radians` back — consistent), gyro value
+(`ControlTrace` rate matches truth), and the EKF in isolation (self-test 14/14).
+So the under-integration is a subtler estimator-path issue in SITL (candidates:
+the `attitude_task` decimation/`dt_sum` feeding, or the queue/sample path) — the
+next thing to trace. NOTE: a 2nd discrepancy also remains — firmware
+`IMU_SAMPLE_FREQ_HZ=2000` vs vsim's 1000 Hz emit (`SITL_IMU_FEED_HZ` matches the
+actual 1000 Hz for now; reconcile via `SET_RATES` or a config).
+
 ## Bottom line / next actions
 
 1. Land Bug 1 + Bug 2 — small, correct, improve every session.

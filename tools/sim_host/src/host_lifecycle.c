@@ -172,6 +172,11 @@ int vayu_sitl_start(vsim_iface_t *iface) {
     pid_config_init();
 
     if (!passthrough_mode) {
+        /* The firmware's REAL attitude estimator (EKF/Mahony per SF_FILTER_USED).
+         * Previously SITL omitted this and the host IMU feeder ran a stand-in
+         * mahony — which meant SITL never exercised the shipped estimator. It
+         * now runs here, fed raw IMU via imu_queue_attitude, exactly as on HW. */
+        task_create(attitude_task,              NULL, 1024 * 8, 1);
         task_create(angle_controller_task,      NULL, 1024 * 8, 1);
         task_create(angle_rate_controller_task, NULL, 1024 * 8, 1);
     } else {
