@@ -1,9 +1,23 @@
 # Headless SDK — standardisation plan
 
-> Status: **PLAN ONLY** (no implementation yet). This document is the agreed
-> blueprint for turning the ad-hoc `tools/sim_host/sitl_lab.py` harness into a
+> Blueprint for turning the ad-hoc `tools/sim_host/sitl_lab.py` harness into a
 > first-class, reusable SDK for driving the **real** flight-controller logic
 > headlessly. Companion to `docs/sim-fidelity/00-phasing.md`.
+>
+> **Progress**
+> - ✅ **Phase 0** — package skeleton (`pyproject`, editable install,
+>   `vayu-headless` stub) + integration GOLDEN pinning current behaviour.
+> - ✅ **Phase 1a** — `transport/{vsim,navlink,rc}`, `config`, `world`, `_repo`
+>   carved out + unit-tested; worldmesh C++ moved to `cpp/worldmesh/`; script
+>   re-pointed to the package.
+> - ✅ **Phase 1b** — `SitlSession` (`session.py`) + `Pilot` (`autopilot.py`)
+>   moved; public API live (`from vayu_headless import SitlSession, Pilot`);
+>   `sitl_lab.py` reduced to a 308-line CLI shim. **Suite: 22 green** (unit +
+>   golden-via-shim + native-API flight).
+> - ⏭ **Next: Phase 2** — `config`/`paths` resolution + `cli.py`
+>   (`vayu-headless serve|do|run`).
+> Run tests: `cd software/headless-sdk && ./.venv/bin/python -m pytest tests -q`
+> (integration boots vsim_d + vayu_sitl; skips if binaries unbuilt).
 
 ---
 
