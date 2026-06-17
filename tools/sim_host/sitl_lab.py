@@ -36,154 +36,29 @@ import threading
 import time
 import tty
 
-# --- locate + import the generated NavLink codec ----------------------------
 _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.insert(0, os.path.join(_ROOT, "navlink", "sim"))
-sys.path.insert(0, os.path.join(_ROOT, "navlink", "generated", "python"))
-import frame as nlframe          # noqa: E402  navlink/sim/frame.py
-import navlink_msgs as nlmsg     # noqa: E402  generated codec
 
-# msgid -> message class (for decoding telemetry payloads).
-MSG_BY_ID = {c.MSGID: c for c in vars(nlmsg).values()
-             if isinstance(c, type) and hasattr(c, "MSGID") and hasattr(c, "unpack")}
+# --- import the carved-out SDK (single source of truth for wire/config) -----
+# Phase 1 shim: the pure helpers now live in the vayu_headless package
+# (software/headless-sdk). Add it to sys.path so this script still runs
+# standalone (system python, no install) and when the package is installed.
+sys.path.insert(0, os.path.join(_ROOT, "software", "headless-sdk"))
+from vayu_headless.transport import vsim as _vsim          # noqa: E402
+from vayu_headless.transport import navlink as _navlink    # noqa: E402
+from vayu_headless import config as _config                # noqa: E402
+from vayu_headless import world as _world_mod              # noqa: E402
 
-# --- vsim_d wire bits (subset of tools/vsim/tests/sim_drive.py) -------------
-MAGIC, VERSION = 0x4D495356, 3
-FRAME_POSE = 3
-CTL_RESET, CTL_SET_WORLD, CTL_SET_TESTRIG, CTL_SET_WIND = 1, 6, 12, 14
-HDR = struct.Struct("<IHHII")
-POSE = struct.Struct("<II3f4f3f3f4f4f3fffffff")   # v3 body, 128 B
-assert HDR.size == 16 and POSE.size == 128
-
-
-def _vhdr(typ, plen, seq=0):
-    return HDR.pack(MAGIC, VERSION, typ, plen, seq)
-
-
-def _ctl(subtype, body):
-    body = body[:256].ljust(256, b"\x00")
-    payload = struct.pack("<II", subtype, 0) + body
-    return _vhdr(4, len(payload)) + payload
-
-
-def _reset(pos=(0, 0, -0.05), seed=1):
-    return _ctl(CTL_RESET, struct.pack("<3f4f3f3fI", *pos, 1, 0, 0, 0,
-                                       0, 0, 0, 0, 0, 0, seed))
-
-
-def _world(gravity=9.81, ground_z=50.0, lin_drag=0.10):
-    # ground_z far below so a rig/airborne craft never clamps unexpectedly.
-    return _ctl(CTL_SET_WORLD, struct.pack("<7f", gravity, ground_z, 0.0,
-                                           lin_drag, 0.005, 40.0, 6.0))
-
-
-def _testrig(enable, pos=(0, 0, -1.0), tether_k=0.0):
-    return _ctl(CTL_SET_TESTRIG, struct.pack("<i3ff", 1 if enable else 0,
-                                             pos[0], pos[1], pos[2], tether_k))
-
-
-def _wind(steady=(0, 0, 0), turb=0.0, enable=True):
-    return _ctl(CTL_SET_WIND, struct.pack("<3f4fi", steady[0], steady[1],
-                steady[2], 0.0, 0.0, turb, 1.0, 1 if enable else 0))
-
-
-CTL_SET_WORLD_MESH = 10
-
-
-def _world_mesh(path, nverts, ntris, nodes, restitution, double_sided):
-    """vsim_ctl_world_mesh_t: counts + flags + restitution + the BVH file path
-    the daemon mmaps. Counts must match the blob header (daemon cross-checks)."""
-    pb = path.encode()[:215]
-    body = struct.pack("<IIIIfI", nverts, ntris, nodes,
-                       1 if double_sided else 0, float(restitution), len(pb))
-    body += pb + b"\x00" * (216 - len(pb))
-    return _ctl(CTL_SET_WORLD_MESH, body)
-
-
-def _build_world_mesh(w, out_path):
-    """Build the world collision BVH from the GCS's selected world mesh using
-    the GCS's OWN loader/builder (tools/sim_host/worldmesh/vsim_worldmesh), so
-    the headless craft collides with exactly the geometry Navigator renders.
-    Returns (out_path, nverts, ntris, nodes, restitution, double_sided) or None."""
-    mesh = w.get("worldMeshPath", "")
-    if not mesh or not os.path.exists(mesh):
-        return None
-    tool = os.environ.get("VSIM_WORLDMESH_BIN",
-                          os.path.join(_ROOT, "tools", "sim_host", "worldmesh",
-                                       "build", "vsim_worldmesh"))
-    if not os.path.exists(tool):
-        print(f"  [world-mesh] builder not built ({tool}); obstacles will NOT "
-              f"be solid. Build it: cmake -B <dir> tools/sim_host/worldmesh")
-        return None
-    scale = w.get("worldScale", "1")
-    up = "1" if str(w.get("worldUpAxis", "0")) in ("1", "Y", "y") else "0"
-    ox, oy, oz = (w.get("worldMeshOffX", "0"), w.get("worldMeshOffY", "0"),
-                  w.get("worldMeshOffZ", "0"))
-    dbl = "1" if str(w.get("worldMeshDoubleSided", "true")).lower() in \
-        ("1", "true") else "0"
-    rest = float(w.get("worldMeshRestitution", "0.3"))
-    try:
-        out = subprocess.check_output(
-            [tool, mesh, scale, up, ox, oy, oz, dbl, out_path],
-            stderr=subprocess.STDOUT).decode().strip()
-        nverts, ntris, nodes, _bytes = (int(x) for x in out.split())
-    except (subprocess.CalledProcessError, ValueError) as e:
-        print(f"  [world-mesh] build failed: {e}")
-        return None
-    return (out_path, nverts, ntris, nodes, rest, dbl == "1")
-
-
-CTL_SET_GEOMETRY = 5
-
-
-def _read_gcs_conf(path):
-    """Parse the [simulator] geometry\\* and world\\* keys from the GCS's
-    QSettings .conf so the headless run flies the SAME vveh/vworld."""
-    g, w = {}, {}
-    sect = None
-    try:
-        for ln in open(path):
-            ln = ln.strip()
-            if ln.startswith("[") and ln.endswith("]"):
-                sect = ln[1:-1]
-                continue
-            if sect != "simulator" or "=" not in ln:
-                continue
-            k, v = ln.split("=", 1)
-            if k.startswith("geometry\\"):
-                g[k[len("geometry\\"):]] = v
-            elif k.startswith("world\\"):
-                w[k[len("world\\"):]] = v
-    except OSError:
-        pass
-    return g, w
-
-
-def _geometry_frame(g):
-    """Pack vsim_ctl_geometry_t from the parsed geometry dict (54 floats)."""
-    f = lambda k, d=0.0: float(g.get(k, d))
-    body = struct.pack("<f", f("mass", 1.0))
-    body += struct.pack("<9f", *[f("I%d" % i) for i in range(9)])
-    for i in range(4):
-        p = "m%d_" % i
-        body += struct.pack("<3f", f(p + "px"), f(p + "py"), f(p + "pz"))
-        # Thrust axis: vsim lift is body -Z (F = axis*thrust, motor_model.cpp).
-        # The GCS conf stores az in a frame where +1 is "up", which is -Z in
-        # vsim's NED — pushing it verbatim thrusts DOWNWARD and jams the craft
-        # into the ground. A standard quad's rotors all lift up, so force -Z.
-        body += struct.pack("<3f", 0.0, 0.0, -1.0)
-        body += struct.pack("<5f", f(p + "spin", 1.0), f(p + "kt", 1.522e-5),
-                            f(p + "km", 2.44e-7), f(p + "wmax", 1200.0),
-                            f(p + "tau", 0.0125))
-    return _ctl(CTL_SET_GEOMETRY, body)
-
-
-def quat_to_euler(w, x, y, z):
-    roll = math.atan2(2 * (w * x + y * z), 1 - 2 * (x * x + y * y))
-    s = max(-1.0, min(1.0, 2 * (w * y - z * x)))
-    pitch = math.asin(s)
-    yaw = math.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z))
-    return [math.degrees(v) for v in (roll, pitch, yaw)]
+# Back-compat aliases for the names the classes below still reference.
+nlframe = _navlink.nlframe
+MSG_BY_ID = _navlink.MSG_BY_ID
+MAGIC, VERSION, FRAME_POSE = _vsim.MAGIC, _vsim.VERSION, _vsim.FRAME_POSE
+HDR, POSE = _vsim.HDR, _vsim.POSE
+quat_to_euler = _vsim.quat_to_euler
+_vhdr, _ctl = _vsim.vhdr, _vsim.ctl
+_reset, _world = _vsim.reset, _vsim.world
+_testrig, _wind, _world_mesh = _vsim.testrig, _vsim.wind, _vsim.world_mesh
+_read_gcs_conf, _geometry_frame = _config.read_gcs_conf, _config.geometry_frame
+_build_world_mesh = _world_mod.build_world_mesh
 
 
 class SitlLab:
@@ -501,28 +376,7 @@ class SitlLab:
                 time.sleep(0.004)
 
     def _parse_frames(self, buf):
-        i = 0
-        while i < len(buf):
-            if buf[i] != nlframe.SYNC:
-                i += 1
-                continue
-            if i + nlframe.HDR_LEN + 2 > len(buf):
-                break
-            plen = buf[i + 2]
-            total = nlframe.HDR_LEN + plen + 2
-            if i + total > len(buf):
-                break
-            d = nlframe.decode(bytes(buf[i:i + total]))
-            if d.ok:
-                cls = MSG_BY_ID.get(d.msgid)
-                if cls:
-                    name = cls.__name__
-                    self.telem[name] = cls.unpack(d.payload)
-                    self.telem_counts[name] = self.telem_counts.get(name, 0) + 1
-                i += total
-            else:
-                i += 1                # resync on the next SYNC byte
-        del buf[:i]
+        _navlink.parse_frames(buf, self.telem, self.telem_counts)
 
     # -- read physics ground truth (vsim_d pose) + fan out to the GCS --------
     def _pose_thread(self):
@@ -571,23 +425,9 @@ class SitlLab:
                 time.sleep(0.01)               # GCS slow/detached — back off
 
     def _parse_pose(self, buf):
-        pos = 0
-        while pos + HDR.size <= len(buf):
-            magic, ver, t, plen, seq = HDR.unpack_from(buf, pos)
-            if magic != MAGIC:
-                pos += 1
-                continue
-            if pos + HDR.size + plen > len(buf):
-                break
-            if t == FRAME_POSE and plen >= POSE.size:
-                p = POSE.unpack_from(buf, pos + HDR.size)
-                self._truth = {
-                    "pos": p[2:5], "quat": p[5:9], "vel": p[9:12],
-                    "omega": p[12:15], "motor_omega": p[15:19],
-                    "wind": p[23:26],
-                }
-            pos += HDR.size + plen
-        del buf[:pos]
+        t = _vsim.parse_pose(buf)
+        if t is not None:
+            self._truth = t
 
     def truth(self):
         """Latest ground-truth pose (updated by _pose_thread)."""
