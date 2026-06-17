@@ -60,6 +60,25 @@ Commands: `takeoff [alt]`, `goto <course> [alt]` (non-blocking), `fly <course>
 [alt] [timeout]` (blocks until reached), `alt <z>`, `wait <s>`, `rc r p t y`,
 `land`, `status`, `quit`. A course is `"N,E;N,E;..."`.
 
+## Examples
+
+All under `examples/`, all flying the GCS's loaded vehicle + world (they read
+the `.conf`). System-ID maneuvers run on a tuning rig (translation pinned,
+attitude free) and log TRUE attitude/rate ground truth to CSV:
+
+```bash
+python examples/step_response.py --axis roll  --amp 0.4 --csv step.csv
+python examples/chirp.py         --axis roll  --f0 0.2 --f1 4 --secs 20 --csv chirp.csv
+python examples/doublet.py       --axis pitch --amp 0.4 --width 0.4 --csv doublet.csv
+python examples/figure8.py       --size 8 --alt -5 --laps 2 --csv fig8.csv
+python examples/figure8.py       --size 10 --gcs --gcs-wait 20    # watch in Navigator
+python examples/box_mission.py   --side 8 --alt -5
+```
+
+`step`/`chirp`/`doublet` are for fitting the angle/rate response (slower chirp
+laps / longer figure-8 `--lap-secs` track more tightly given the still-untuned
+outer loop). `figure8`/`box_mission` are free-flight trajectories.
+
 ## Tests
 
 ```bash
