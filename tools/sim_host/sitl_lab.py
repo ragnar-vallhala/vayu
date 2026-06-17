@@ -708,10 +708,17 @@ class Pilot:
     def arm_takeoff(self, alt=None):
         if alt is not None:
             self.alt = alt
-        self.lab.reset_pose((0, 0, -0.05))
+        # Disarm and STOP guidance BEFORE respawning. If we reset_pose while the
+        # craft is still flying (and the Pilot is still commanding sticks), the
+        # teleport to the ground leaves the estimator with the old in-air
+        # attitude/velocity; the FC then sees a huge error and trips the
+        # bank-angle FAILSAFE, wedging it on the ground. Settle level first.
+        with self._lock:
+            self.active = False
+        self.lab.set_rc(swa=1000, thr=1000)          # disarm → STANDBY
         time.sleep(0.3)
-        self.lab.set_rc(swa=1000, thr=1000)          # ensure disarmed → STANDBY
-        time.sleep(0.3)
+        self.lab.reset_pose((0, 0, -0.05))           # respawn level on the ground
+        time.sleep(0.8)                              # let the estimator settle level
         self.lab.set_rc(swa=2000, thr=1000)          # arm gesture (low throttle)
         time.sleep(0.4)
         with self._lock:
