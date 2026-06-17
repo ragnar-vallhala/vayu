@@ -5,8 +5,10 @@ estimator → angle/rate cascade → mixer → arming → telemetry that runs on
 FC — with no hardware and no human on the sticks. It only stubs the sensors and
 RC; vsim_d handles the physics and actuation response.
 
-See `PLAN.md` for the design/roadmap. Background: the firmware-in-the-loop
-topology and quirks live in the project memory `sitl-test-harness`.
+See `PLAN.md` for the design/roadmap and `docs/FINDINGS.md` for the live-demo
+results + known gaps (outer-loop guidance tracking, two small server bugs).
+Background: the firmware-in-the-loop topology and quirks live in the project
+memory `sitl-test-harness`.
 
 ## Install
 
