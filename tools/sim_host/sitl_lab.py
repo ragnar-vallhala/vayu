@@ -86,6 +86,47 @@ def _wind(steady=(0, 0, 0), turb=0.0, enable=True):
                 steady[2], 0.0, 0.0, turb, 1.0, 1 if enable else 0))
 
 
+CTL_SET_GEOMETRY = 5
+
+
+def _read_gcs_conf(path):
+    """Parse the [simulator] geometry\\* and world\\* keys from the GCS's
+    QSettings .conf so the headless run flies the SAME vveh/vworld."""
+    g, w = {}, {}
+    sect = None
+    try:
+        for ln in open(path):
+            ln = ln.strip()
+            if ln.startswith("[") and ln.endswith("]"):
+                sect = ln[1:-1]
+                continue
+            if sect != "simulator" or "=" not in ln:
+                continue
+            k, v = ln.split("=", 1)
+            if k.startswith("geometry\\"):
+                g[k[len("geometry\\"):]] = v
+            elif k.startswith("world\\"):
+                w[k[len("world\\"):]] = v
+    except OSError:
+        pass
+    return g, w
+
+
+def _geometry_frame(g):
+    """Pack vsim_ctl_geometry_t from the parsed geometry dict (54 floats)."""
+    f = lambda k, d=0.0: float(g.get(k, d))
+    body = struct.pack("<f", f("mass", 1.0))
+    body += struct.pack("<9f", *[f("I%d" % i) for i in range(9)])
+    for i in range(4):
+        p = "m%d_" % i
+        body += struct.pack("<3f", f(p + "px"), f(p + "py"), f(p + "pz"))
+        body += struct.pack("<3f", f(p + "ax"), f(p + "ay"), f(p + "az", 1.0))
+        body += struct.pack("<5f", f(p + "spin", 1.0), f(p + "kt", 1.522e-5),
+                            f(p + "km", 2.44e-7), f(p + "wmax", 1200.0),
+                            f(p + "tau", 0.0125))
+    return _ctl(CTL_SET_GEOMETRY, body)
+
+
 def quat_to_euler(w, x, y, z):
     roll = math.atan2(2 * (w * x + y * z), 1 - 2 * (x * x + y * y))
     s = max(-1.0, min(1.0, 2 * (w * y - z * x)))
@@ -100,8 +141,11 @@ class SitlLab:
     # Default advert file the Navigator toolbar reads to auto-offer a SITL pty.
     GCS_ADVERT = "/tmp/vayu_uart2_pty"
 
-    def __init__(self, rig=False, wind=None, turb=0.0, rc_hz=50, gcs=False):
-        self.suffix = f"_lab{os.getpid()}"
+    def __init__(self, rig=False, wind=None, turb=0.0, rc_hz=50, gcs=False,
+                 attach=False, conf=None):
+        # attach=True → run on the DEFAULT /tmp/vsim_* paths so the GCS's
+        # "Attach Ext" can read /tmp/vsim_pose and render this run.
+        self.suffix = "" if attach else f"_lab{os.getpid()}"
         self.gcs = gcs
         self.gcs_master = None
         self.gcs_path = None
@@ -136,7 +180,17 @@ class SitlLab:
 
         # configure plant before the FC boots
         os.write(self.ctl_fd, _reset())
-        os.write(self.ctl_fd, _world())
+        # Match the GCS's selected vehicle + world (vveh/vworld) if given.
+        g, w = _read_gcs_conf(conf) if conf else ({}, {})
+        if g:
+            os.write(self.ctl_fd, _geometry_frame(g))
+        if w:
+            os.write(self.ctl_fd, _world(
+                gravity=float(w.get("gravity", 9.81)),
+                ground_z=float(w.get("ground_z", 0.0)),
+                lin_drag=float(w.get("linear_drag", 0.10))))
+        else:
+            os.write(self.ctl_fd, _world())
         if rig:
             os.write(self.ctl_fd, _testrig(True))
         if wind or turb:
@@ -365,6 +419,63 @@ class SitlLab:
             pos += HDR.size + plen
         return self._truth
 
+    def fly_course(self, waypoints, alt=-3.0, secs=60.0, csv=None, reach=2.0,
+                   gains=None):
+        """Outer guidance: hold altitude + chase waypoints, feeding the FC's
+        RC attitude setpoints from GROUND-TRUTH pose (the FC has no position
+        loop in sim). waypoints = [(N,E), ...] in metres; alt is NED z (<0=up).
+        Returns the recorded trajectory rows."""
+        gp = dict(kp_z=0.05, ki_z=0.02, kd_z=0.05, hover=0.36,
+                  kp_h=0.10, kd_h=0.30, tilt=0.45)
+        if gains:
+            gp.update(gains)
+        self.arm(settle=1.5)
+        rows, wp = [], 0
+        iz = 0.0
+        csvf = open(csv, "w") if csv else None
+        if csvf:
+            csvf.write("t,x,y,z,vN,vE,vD,roll,pitch,yaw,wp,thr\n")
+        t0 = time.time()
+        next_t = t0
+        dt = 0.02
+        while time.time() - t0 < secs:
+            tr = self.truth()
+            if tr:
+                x, y, z = tr["pos"]
+                vN, vE, vD = tr["vel"]
+                roll, pitch, yaw = quat_to_euler(*tr["quat"])
+                # Altitude: NED z is down-positive; target alt<0 (up). ez>0 ⇒
+                # below target ⇒ climb ⇒ more throttle. -vD is climb rate.
+                ez = z - alt
+                iz = max(-0.3, min(0.3, iz + ez * dt))
+                thr = gp["hover"] + gp["kp_z"] * ez + gp["ki_z"] * iz \
+                    - gp["kd_z"] * (-vD)
+                thr = max(0.0, min(1.0, thr))
+                tx, ty = waypoints[wp]
+                eN, eE = tx - x, ty - y
+                if (eN * eN + eE * eE) < reach * reach and wp < len(waypoints) - 1:
+                    wp += 1
+                # yaw≈0 ⇒ +N via pitch stick, +E via roll stick (signs verified
+                # headless against the FC's stick→angle→motion convention).
+                des_pitch = max(-gp["tilt"], min(gp["tilt"],
+                                gp["kp_h"] * eN - gp["kd_h"] * vN))
+                des_roll = max(-gp["tilt"], min(gp["tilt"],
+                               gp["kp_h"] * eE - gp["kd_h"] * vE))
+                self.stick(roll=des_roll, pitch=des_pitch, thr=thr, yaw=0.0)
+                t = time.time() - t0
+                rows.append((t, x, y, z, vN, vE, vD, roll, pitch, yaw, wp, thr))
+                if csvf:
+                    csvf.write("%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,"
+                               "%.2f,%.2f,%.2f,%d,%.3f\n"
+                               % (t, x, y, z, vN, vE, vD, roll, pitch, yaw, wp, thr))
+            next_t += dt
+            s = next_t - time.time()
+            if s > 0:
+                time.sleep(s)
+        if csvf:
+            csvf.close()
+        return rows
+
 
 def demo(args):
     """Arm the real FC on a rig, command a roll-angle step, record the actual
@@ -423,8 +534,52 @@ def demo(args):
     return 0
 
 
+def flight(args):
+    """Attach-mode flight: run on default FIFOs so the GCS 'Attach Ext' renders
+    it; fly a waypoint course under harness guidance for `secs`."""
+    conf = args.conf or os.path.expanduser("~/.config/Vayu/Vayu GCS.conf")
+    # Course: list of (N,E) waypoints. Default = a box at the target altitude.
+    if args.course:
+        wps = [tuple(float(v) for v in p.split(",")) for p in args.course.split(";")]
+    else:
+        d = args.box
+        wps = [(d, 0), (d, d), (0, d), (0, 0), (d, 0)]
+    with SitlLab(attach=True, gcs=args.gcs, conf=conf,
+                 wind=tuple(args.wind), turb=args.turb) as lab:
+        print(f"vsim_d on DEFAULT /tmp/vsim_* (pose=/tmp/vsim_pose)")
+        print(f"  ▶ In Navigator: click 'Attach Ext' to render this flight, and "
+              f"Connect → 'SITL UART2' for telemetry.")
+        if args.gcs:
+            print(f"    (telemetry bridge pty: {lab.gcs_path})")
+        if args.gcs_wait > 0:
+            print(f"  waiting {args.gcs_wait:.0f}s for you to attach + connect…")
+            time.sleep(args.gcs_wait)
+        print(f"  flying {len(wps)} waypoints @ alt {args.alt} m for {args.secs:.0f}s…")
+        rows = lab.fly_course(wps, alt=args.alt, secs=args.secs, csv=args.csv)
+        if rows:
+            xs = [r[1] for r in rows]; ys = [r[2] for r in rows]; zs = [r[3] for r in rows]
+            print(f"  flew {len(rows)} steps; "
+                  f"N∈[{min(xs):+.1f},{max(xs):+.1f}] "
+                  f"E∈[{min(ys):+.1f},{max(ys):+.1f}] "
+                  f"alt∈[{-max(zs):+.1f},{-min(zs):+.1f}] m; "
+                  f"reached wp {rows[-1][10]}/{len(wps)-1}")
+        print("FC telemetry:",
+              ", ".join(f"{k}×{v}" for k, v in sorted(lab.telem_counts.items())) or "(none)")
+        if args.csv:
+            print(f"  CSV → {args.csv}")
+    return 0
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
+    ap.add_argument("--attach", action="store_true",
+                    help="run on default FIFOs + fly a course (GCS 'Attach Ext' renders it)")
+    ap.add_argument("--alt", type=float, default=-3.0, help="hold altitude, NED z (<0=up)")
+    ap.add_argument("--box", type=float, default=6.0, help="default-course box side [m]")
+    ap.add_argument("--course", type=str, default="",
+                    help='waypoints "N,E;N,E;..." (overrides --box)')
+    ap.add_argument("--conf", type=str, default="",
+                    help="GCS .conf to match vveh/vworld (default: ~/.config/Vayu/...)")
     ap.add_argument("--secs", type=float, default=5.0)
     ap.add_argument("--wind", type=float, nargs=3, default=[0, 0, 0],
                     metavar=("N", "E", "D"))
@@ -435,5 +590,6 @@ if __name__ == "__main__":
                          "monitor/record live (auto-advertised)")
     ap.add_argument("--gcs-wait", type=float, default=0.0,
                     help="seconds to pause after setup so you can connect the GCS")
-    sys.exit(demo(ap.parse_args()))
+    args = ap.parse_args()
+    sys.exit(flight(args) if args.attach else demo(args))
 

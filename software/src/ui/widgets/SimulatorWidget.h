@@ -122,6 +122,9 @@ class SimulatorWidget : public QWidget {
   void appendLog(const QString& tag, const QString& text);
 
   void startInAppSim();
+  // Attach the 3D view to an EXTERNAL vsim_d pose stream (/tmp/vsim_pose) —
+  // e.g. a headless sitl_lab.py run — without spawning a daemon or firmware.
+  void attachExternalSim();
   void pushRatesToSim();   // read persisted rates → m_sim->sendRates
   // Load the configured world mesh (baking up-axis/scale into NED) and push
   // it to the renderer; empty path clears it. When the sim is running, also
@@ -288,6 +291,8 @@ class SimulatorWidget : public QWidget {
   QPushButton* m_simStartBtn = nullptr;
   QPushButton* m_simStopBtn = nullptr;
   QPushButton* m_simResetBtn = nullptr;
+  QPushButton* m_simAttachBtn = nullptr;   // attach 3D view to an external vsim_d
+  bool m_attached = false;                 // true while mirroring an external sim
   QCheckBox*   m_fpvCheck = nullptr;   // onboard FPV (only meaningful running)
   QLabel* m_simStatusLabel = nullptr;
   QLabel* m_simPoseLabel = nullptr;

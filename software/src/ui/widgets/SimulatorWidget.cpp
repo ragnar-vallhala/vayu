@@ -595,9 +595,16 @@ void SimulatorWidget::buildUi() {
     m_simResetBtn->setToolTip(tr("Reset the airframe to the spawn pose"));
     connect(m_simResetBtn, &QPushButton::clicked, this,
             [this] { if (m_sim) m_sim->sendReset(); });
+    m_simAttachBtn = new ui::GhostButton(tr("Attach Ext"), simBody);
+    m_simAttachBtn->setToolTip(tr("Render an EXTERNAL vsim_d's pose stream "
+        "(/tmp/vsim_pose) over the loaded world — e.g. a headless sitl_lab.py "
+        "run. No firmware/daemon is started here; this view just mirrors it."));
+    connect(m_simAttachBtn, &QPushButton::clicked, this,
+            &SimulatorWidget::attachExternalSim);
     runRow->addWidget(m_simStartBtn);
     runRow->addWidget(m_simStopBtn);
     runRow->addWidget(m_simResetBtn);
+    runRow->addWidget(m_simAttachBtn);
     runRow->addStretch();
     m_fpvCheck = new QCheckBox(tr("FPV cam"), simBody);
     m_fpvCheck->setToolTip(tr("Onboard first-person camera that rides the drone "
@@ -2142,6 +2149,58 @@ void SimulatorWidget::startInAppSim() {
   emit simRunningChanged(true);
 }
 
+void SimulatorWidget::attachExternalSim() {
+  if (m_sim) return;
+  // Mirror an EXTERNAL vsim_d (default /tmp/vsim_pose) — e.g. a headless
+  // sitl_lab.py run driving the real firmware. We spawn no daemon and boot no
+  // in-process firmware; this view only renders the external pose stream over
+  // the already-loaded vehicle + world meshes. Telemetry (dashboards) still
+  // comes via the normal serial connection (the harness's --gcs bridge).
+  m_attached = true;
+  m_sim = new vsim::SimWorker(this);
+  connect(m_sim, &vsim::SimWorker::stoppedCleanly, this,
+          &SimulatorWidget::onSimWorkerExited);
+  connect(m_sim, &vsim::SimWorker::poseUpdated,
+          m_renderer, &vsim::SimRendererWidget::setSnapshot);
+  if (m_downRenderer)
+    connect(m_sim, &vsim::SimWorker::poseUpdated,
+            m_downRenderer, &vsim::SimRendererWidget::setSnapshot);
+  connect(m_sim, &vsim::SimWorker::poseUpdated, this,
+          [this](vsim::SimSnapshot snap) {
+            const int dec = Units::decimals();
+            float roll, pitch, yaw;
+            vsim::quatToEulerNED(snap.att, &roll, &pitch, &yaw);
+            if (m_simPoseLabel)
+              m_simPoseLabel->setText(
+                  QString("pos=(%1, %2, %3) %7   rpy=(%4, %5, %6)%8")
+                      .arg(Units::toAltitude(snap.pos_w.x()), 7, 'f', dec)
+                      .arg(Units::toAltitude(snap.pos_w.y()), 7, 'f', dec)
+                      .arg(Units::toAltitude(snap.pos_w.z()), 7, 'f', dec)
+                      .arg(Units::toAngle(roll), 6, 'f', dec)
+                      .arg(Units::toAngle(pitch), 6, 'f', dec)
+                      .arg(Units::toAngle(yaw), 6, 'f', dec)
+                      .arg(Units::altSuffix(), Units::angleSuffix()));
+            updateHud(snap);
+            m_propAudio.setMotors(snap.motor_omega);
+          });
+  connect(m_sim, &vsim::SimWorker::logLine, this,
+          [this](const QString& s) { appendLog("attach", s); });
+  m_sim->startAttach(QStringLiteral("/tmp/vsim_pose"));
+
+  m_simStartBtn->setEnabled(false);
+  m_simAttachBtn->setEnabled(false);
+  m_simStopBtn->setEnabled(true);
+  if (m_fpvCheck) m_fpvCheck->setEnabled(true);
+  m_simStatusLabel->setText(tr("● Attached (external sim)"));
+  m_simStatusLabel->setStyleSheet(
+      QString("color: %1;").arg(Theme::hex(Theme::kOk)));
+  if (m_vehicleTab) m_vehicleTab->setEnabled(false);
+  setMode(1);
+  if (m_hud) { m_hud->setGeometry(m_renderer->rect()); m_hud->raise(); m_hud->show(); }
+  if (m_horizonPip) m_horizonPip->raise();
+  if (m_downPip) m_downPip->raise();
+}
+
 void SimulatorWidget::stopInAppSim() {
   if (!m_sim) return;
   // Detach the telemetry callback first: the firmware threads keep running
@@ -2158,6 +2217,8 @@ void SimulatorWidget::stopInAppSim() {
   m_sim = nullptr;
   m_propAudio.setMotors({0.0f, 0.0f, 0.0f, 0.0f});  // silence once stopped
   m_simStartBtn->setEnabled(true);
+  if (m_simAttachBtn) m_simAttachBtn->setEnabled(true);
+  m_attached = false;
   m_simStopBtn->setEnabled(false);
   if (m_simResetBtn) m_simResetBtn->setEnabled(false);
   if (m_fpvCheck) {                       // FPV is drone-only; back to free-roam
