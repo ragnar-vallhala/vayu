@@ -146,14 +146,25 @@ class SitlLab:
     # Default advert file the Navigator toolbar reads to auto-offer a SITL pty.
     GCS_ADVERT = "/tmp/vayu_uart2_pty"
 
+    # Default pose FIFO the GCS "Attach Ext" reads (SimWorker startAttach).
+    GCS_POSE = "/tmp/vsim_pose"
+
     def __init__(self, rig=False, wind=None, turb=0.0, rc_hz=50, gcs=False,
                  attach=False, conf=None):
-        # attach=True → run on the DEFAULT /tmp/vsim_* paths so the GCS's
-        # "Attach Ext" can read /tmp/vsim_pose and render this run.
-        self.suffix = "" if attach else f"_lab{os.getpid()}"
+        # ALWAYS run vsim_d/vayu_sitl on PRIVATE (suffixed) FIFOs+advert: the
+        # harness must be the sole reader of the pose FIFO and the FC pty. When
+        # gcs=True it re-broadcasts pose to the DEFAULT /tmp/vsim_pose (a fan-out
+        # FIFO the harness owns) so the GCS "Attach Ext" renders it — the same
+        # publish pattern as the UART2 telemetry bridge. (A FIFO is single-reader:
+        # if the GCS opened the real pose FIFO directly it would split the byte
+        # stream with the harness and corrupt every frame — hence the re-broadcast.)
+        self.suffix = f"_lab{os.getpid()}"
+        self.attach = attach
         self.gcs = gcs
         self.gcs_master = None
         self.gcs_path = None
+        self.gcs_pose_fd = None
+        self._pose_advertised = False
         self._advertised = False
         self.env = dict(os.environ, VSIM_FIFO_SUFFIX=self.suffix)
         self.paths = {n: f"/tmp/vsim_{n}{self.suffix}" for n in
@@ -265,6 +276,24 @@ class SitlLab:
             threading.Thread(target=self._gcs_rx_thread, daemon=True).start()
             threading.Thread(target=self._gcs_tx_thread, daemon=True).start()
 
+            # GCS-facing pose fan-out FIFO. The harness owns it (creates it and
+            # holds it O_RDWR so writes never SIGPIPE while the GCS is detached);
+            # the GCS "Attach Ext" opens it O_RDONLY. _pose_thread relays every
+            # frame here verbatim, so the GCS renders the SAME pose the harness
+            # guides on. Replace any stale node (e.g. a real-FIFO from a prior run).
+            try:
+                if os.path.exists(self.GCS_POSE):
+                    os.unlink(self.GCS_POSE)
+                os.mkfifo(self.GCS_POSE)
+                self.gcs_pose_fd = os.open(self.GCS_POSE, os.O_RDWR | os.O_NONBLOCK)
+                self._pose_advertised = True
+            except OSError:
+                self.gcs_pose_fd = None
+
+        # Pose relay: the SOLE reader of vsim_d's (private) pose FIFO. Updates
+        # the cached ground truth for guidance AND fans frames out to the GCS.
+        threading.Thread(target=self._pose_thread, daemon=True).start()
+
         threading.Thread(target=self._telem_thread, daemon=True).start()
 
     # -- lifecycle -----------------------------------------------------------
@@ -297,6 +326,11 @@ class SitlLab:
         for p in self.paths.values():
             try:
                 os.unlink(p)
+            except OSError:
+                pass
+        if self._pose_advertised:                # remove our GCS pose fan-out FIFO
+            try:
+                os.unlink(self.GCS_POSE)
             except OSError:
                 pass
 
@@ -424,33 +458,56 @@ class SitlLab:
                 i += 1                # resync on the next SYNC byte
         del buf[:i]
 
-    # -- read physics ground truth (vsim_d pose) -----------------------------
-    def truth(self):
-        chunk = b""
-        try:
-            while True:
-                part = os.read(self.pose_fd, 65536)
-                if not part:
-                    break
-                chunk += part
-        except BlockingIOError:
-            pass
+    # -- read physics ground truth (vsim_d pose) + fan out to the GCS --------
+    def _pose_thread(self):
+        """Sole reader of vsim_d's (private) pose FIFO: parse the latest frame
+        into the cached ground truth AND relay every byte verbatim to the
+        GCS-facing fan-out FIFO so 'Attach Ext' renders the same pose."""
+        pbuf = bytearray()        # frame-parse buffer (ground truth)
+        obuf = bytearray()        # outbound relay buffer (to the GCS)
+        while not self._stop.is_set():
+            try:
+                data = os.read(self.pose_fd, 65536)
+            except (BlockingIOError, OSError):
+                data = b""
+            if data:
+                pbuf += data
+                self._parse_pose(pbuf)
+                if self.gcs_pose_fd is not None:
+                    obuf += data
+                    if len(obuf) > (1 << 18):        # bound if GCS detached
+                        del obuf[:len(obuf) - (1 << 17)]
+            if self.gcs_pose_fd is not None and obuf:
+                try:
+                    n = os.write(self.gcs_pose_fd, bytes(obuf))
+                except (BlockingIOError, OSError):
+                    n = 0                            # FIFO full / GCS not reading
+                if n:
+                    del obuf[:n]
+            if not data:
+                time.sleep(0.002)
+
+    def _parse_pose(self, buf):
         pos = 0
-        while pos + HDR.size <= len(chunk):
-            magic, ver, t, plen, seq = HDR.unpack_from(chunk, pos)
+        while pos + HDR.size <= len(buf):
+            magic, ver, t, plen, seq = HDR.unpack_from(buf, pos)
             if magic != MAGIC:
                 pos += 1
                 continue
-            if pos + HDR.size + plen > len(chunk):
+            if pos + HDR.size + plen > len(buf):
                 break
-            if t == FRAME_POSE:
-                p = POSE.unpack_from(chunk, pos + HDR.size)
+            if t == FRAME_POSE and plen >= POSE.size:
+                p = POSE.unpack_from(buf, pos + HDR.size)
                 self._truth = {
                     "pos": p[2:5], "quat": p[5:9], "vel": p[9:12],
                     "omega": p[12:15], "motor_omega": p[15:19],
                     "wind": p[23:26],
                 }
             pos += HDR.size + plen
+        del buf[:pos]
+
+    def truth(self):
+        """Latest ground-truth pose (updated by _pose_thread)."""
         return self._truth
 
     def reset_pose(self, pos):
