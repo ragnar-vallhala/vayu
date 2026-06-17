@@ -120,3 +120,127 @@ actual 1000 Hz for now; reconcile via `SET_RATES` or a config).
    collision-free tracking test (Gap 4) so the two effects are separable.
 3. The rig system-ID examples (`step`/`chirp`/`doublet`) are trustworthy today —
    use them for cascade ID while the outer loop is being tuned.
+
+---
+
+# Technical appendix — details uncovered during the investigation
+
+Reference material for whoever picks up the open ~12× attitude under-read. Every
+number here was measured this session (collision-free 10 m north position step
+unless noted), file:line against the tree at commit `db9e732`.
+
+## A. Loop topology, rates, and dt sources
+- `IMU_SAMPLE_FREQ_HZ = 2000`, `INNER_LOOP_FREQ_HZ = 1000`,
+  `OUTER_LOOP_FREQ_HZ = INNER/OUTER_LOOP_DECIM`. Measured `ControlTrace.inner_dt
+  = 1.000 ms`, `outer_dt = 4.000 ms` ⇒ inner 1 kHz, outer 250 Hz
+  (`OUTER_LOOP_DECIM = 4`).
+- **Two different dt sources, and that mattered:** the control loops report a
+  perfectly-constant dt (1.000/4.000 ms) ⇒ they use a **fixed nominal** dt, so a
+  wrong sample timestamp never showed up there. The estimator
+  (`attitude_task.c:96`) uses a **measured** dt from sample timestamps
+  (`vayu_dt_from_cycles`), so it was the *only* place the wall-clock-stamp bug
+  surfaced. This is why everything "looked fine" except attitude.
+- `attitude_task` decimation: `ATTITUDE_DECIM = IMU_SAMPLE_FREQ_HZ /
+  ATTITUDE_EST_RATE_HZ` (`attitude_task.c:45`). It accumulates `dt_sum` over
+  DECIM samples, then runs the filter once with the **latest** sample's gyro and
+  `step_dt = dt_sum` (`:101-117`). A prime suspect for the remaining under-read:
+  using one gyro sample for a multi-sample interval, and/or `ATTITUDE_DECIM`
+  computed from the nominal 2000 Hz while the feed is 1000 Hz.
+
+## B. The three fusion filters (audited)
+Selected by `SF_FILTER_USED` (`variables.h:95` = **`SF_EKF`**, 6-state — the
+active one). Constants (`variables.h`, `include/est/ekf.h`):
+- EKF: `EKF_ACC_GATE 1.5`, `EKF_R_ACC_DIR 2.5e-3` (6-state), `EKF_R_ACC 9.0e-2`
+  (9-state), `EKF_R_MAG_YAW 1.0e-2`, `EKF_GRAVITY 9.80665`. Accel gate
+  (`ekf.c:259`) is **magnitude-only**: `|‖a‖−g| > 1.5 → skip`.
+- Mahony: `SF_MAHONY_KP 3.0`, `SF_MAHONY_KI 0.0025`, `SF_MAHONY_MAG_WEIGHT 0.30`.
+  Tilt-error term is **"Always applied"** (`sensor_fusion.c:265`) — no accel gate
+  at all.
+- Complementary: `SF_COMPLEMENTARY_ALPHA 0.98`, `SF_YAW_COMPLEMENTARY_ALPHA 0.92`
+  — accel term `(1−alpha)` always blended, no gate.
+None reject **lateral** specific force; but see §D — that turned out not to be
+the cause.
+
+## C. Units map (this caused real diagnostic confusion)
+- `AttitudeEuler` telemetry is **radians on the wire** (`navlink_tx.c:158`,
+  `att_deg->roll * ATT_DEG2RAD`), while the FC's internal attitude and
+  `ControlTrace` angles are **degrees**. So est-vs-true comparisons must convert
+  (est_rad × 57.2958). Forgetting this made the estimator look 9° "off" when it
+  was a rad-vs-deg mismatch.
+- Gyro path is **consistent end-to-end**: vsim emits body rate, converts
+  rad/s → deg/s with `kRad2Deg = 57.29578` before packing (`main.cpp:105-107`);
+  the EKF expects deg/s and converts back via `to_radians(gx)` (`ekf.c:194/200`).
+  `ekf_predict` bias `bg` is rad/s.
+- `vsim_imu_frame_t` payload = 22 floats (acc, gyr, gyr_raw, mag, mag_compensated,
+  mag_fusion, temp) — **no sim timestamp** on the wire. Hence the fix stamps a
+  fixed cadence host-side rather than reading sim-time from the frame.
+
+## D. Decisive experiments (the ladder that ruled things out)
+1. **Accel hard-disabled** (early `return` in `ekf_update_accel`): est still
+   ~1° at 17° true → **accel is not the cause**. Pure-gyro predict already
+   under-integrates.
+2. **Innovation-based accel down-weight** (`R *= 1+GAIN·|z−gb|²`, GAIN up to
+   5000): **zero effect**, because the innovation stays tiny (~0.02). Insight:
+   on a multirotor the accelerometer is **thrust-aligned (≈ body −Z)** during
+   powered flight, so it *agrees* with a wrong level estimate → innovation is
+   small → no accel-innovation gate can catch lateral specific force. (This is
+   why a magnitude gate *and* an innovation gate both fail; it's a fundamental
+   accel/tilt ambiguity, resolvable only by model- or velocity-aided estimation.)
+3. **Gyro rate vs truth:** `ControlTrace.pitch_rate_curr` tracks
+   `d(true_pitch)/dt` within noise (e.g. t≈3.6 s: true +9.7°/s, FC +12.3) →
+   the gyro *rate* is faithful; only the integrated *angle* is wrong.
+   Conclusion: ~1/12 scale on integrated gyro, independent of accel and dt
+   value → a structural integration issue, not a signal issue.
+
+## E. Measured magnitudes (data points)
+- Estimate vs truth during the dash: true pitch ramps 0 → +17–19°; est pitch
+  stays +1 … +1.6° → ratio ≈ **1/11 to 1/13**, consistent across runs and across
+  *both* estimators (host mahony and firmware EKF).
+- Stick→angle scale: a 0.30 roll/pitch stick saturates the FC angle setpoint at
+  **±2.70°** (`ControlTrace.*_angle_sp`); full stick ≈ ±9°. On the **rig**, a 0.4
+  step produced **+6.4°** true (settle ~1.4 s) — i.e. true > the ~3.6° commanded,
+  consistent with the controller over-driving against an under-reading estimate
+  even on the rig (translation pinned just hid the divergence).
+- Free-flight: 10 m north step overshot to ~12.5 m and **settled at ~7 m** (not
+  10) — a steady-state miss + oscillation, all downstream of the bad attitude.
+- Station-keep: stable to **sub-meter over ~6 s**, but wandered **~18 m over ~1
+  min**; once it strays into `testcourse.glb` it pinballs (mesh restitution 0.3).
+
+## F. SITL task / shim architecture (as found)
+- `host_lifecycle.c` starts these firmware tasks: `angle_controller_task`,
+  `angle_rate_controller_task`, `motor_task`, `imu_telemetry_task`, `flush_task`,
+  `comm_processor_task` — and (now) `attitude_task`. It previously **omitted**
+  `attitude_task`.
+- Host shims feeding the firmware: `host_rc_feeder` (RC over a pty),
+  `host_imu_feeder` (IMU over `/tmp/vsim_imu`), `host_navhal` (PWM out, UART2
+  pty, clocks/cycle-counter). The IMU feeder was the only one running firmware-
+  owned compute (the mahony) — now removed.
+- AttitudeEuler telemetry is popped from `attitude_queue_telemetry`
+  (`telemetry_task.c:115`), so before the fix even the telemetry attitude was the
+  host shim's, not the firmware estimator's.
+
+## G. vsim timing
+- `kImuHz = 1000`, `kPhysicsHz = 8000` (RK4 substeps = physics/imu), pose 60 Hz
+  (`main.cpp:44`). `imu_hz` is **wall-clock paced** (`outer_dur = 1e6/kImuHz`),
+  runtime-tunable via `VSIM_CTL_SET_RATES`.
+- The SDK/host does **not** send `SET_RATES`, so vsim runs the 1000 Hz default —
+  hence the firmware's `IMU_SAMPLE_FREQ_HZ=2000` belief is unmet (discrepancy #2).
+- Even "paced," the FIFO can deliver bursts; wall-clock dt between host reads then
+  collapses. The fix sidesteps this by stamping a fixed cadence (a real IMU's ODR
+  is fixed, not jittery) — more faithful than wall-clock regardless.
+
+## H. Candidate causes for the still-open ~12× under-read (next trace)
+Ordered by suspicion, given §A/§D ruled out accel, dt-value, gyro-units, gyro-
+value, and the EKF-in-isolation (self-test 14/14):
+1. **`attitude_task` decimation feed** — one gyro sample applied over a
+   multi-sample `dt_sum`, and/or `ATTITUDE_DECIM` built from 2000 Hz vs the
+   1000 Hz feed. Instrument `step_dt` and the gyro magnitude actually passed to
+   the filter, per call.
+2. **Sample/queue path** — confirm `imu_queue_attitude` delivers the same gyr the
+   control queue does (no extra LPF/calibration/decimation on the attitude path),
+   and that `gyr` (not `gyr_raw`) is the integrated field.
+3. **EKF predict integration** at the SITL step rate — the self-test passes at
+   its own cadence; reproduce the *exact* SITL call pattern (rate, dt_sum, single
+   latest-sample gyro) in a unit test and watch a pure-rotation ramp.
+   Add the missing regression test: a constant-rate gyro ramp must integrate to
+   the matching angle through the full `attitude_task` path (not just `ekf.c`).
