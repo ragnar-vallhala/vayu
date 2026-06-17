@@ -16,18 +16,19 @@ import time
 
 POSE = "/tmp/vsim_pose"
 MAGIC = 0x4D495356
-VERSION = 1
+VERSION = 3
 FRAME_POSE = 3
 
 # vsim_hdr_t: magic u32, version u16, type u16, payload_bytes u32, seq u32
 HDR = struct.Struct("<IHHII")
-# body: tick_lo u32, tick_hi u32, pos[3]f, quat[4]f, vel[3]f, omega[3]f,
-#       motor_omega[4]f, motor_duty[4]f  = 8 + 92? -> 2*4 + (3+4+3+3+4+4)*4
-BODY = struct.Struct("<II3f4f3f3f4f4f")
+# body (proto v3): tick_lo u32, tick_hi u32, pos[3]f, quat[4]f, vel[3]f,
+#   omega[3]f, motor_omega[4]f, motor_duty[4]f, wind_w[3]f, airspeed f,
+#   ge_factor f, batt_voltage/current/mah/soc f = 2*4 + 30*4 = 128 B
+BODY = struct.Struct("<II3f4f3f3f4f4f3fffffff")
 FRAME_SIZE = HDR.size + BODY.size
 
 assert HDR.size == 16, HDR.size
-assert FRAME_SIZE == 108, FRAME_SIZE  # 16 + 92
+assert FRAME_SIZE == 144, FRAME_SIZE  # 16 + 128 (proto v3)
 
 def main():
     if not os.path.exists(POSE):
