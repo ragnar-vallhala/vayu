@@ -18,11 +18,11 @@ NAV_ARMED = 4
 
 
 @pytest.mark.integration
-def test_boot_takeoff_hover_box_land(require_binaries, gcs_conf, legacy_sitl_lab):
-    S = legacy_sitl_lab
-    lab = S.SitlLab(gcs=False, conf=gcs_conf)
+def test_boot_takeoff_hover_box_land(require_binaries, gcs_conf):
+    from vayu_headless import Pilot, SitlSession
+    lab = SitlSession(gcs=False, conf=gcs_conf)
     try:
-        pilot = S.Pilot(lab, alt=-5.0)
+        pilot = Pilot(lab, alt=-5.0)
 
         # --- takeoff + hold ---
         pilot.arm_takeoff(alt=-5.0)

@@ -14,6 +14,28 @@ DEFAULT_GAINS = dict(kp_z=0.05, ki_z=0.02, kd_z=0.05, hover=0.36,
                      kp_h=0.06, kd_h=0.55, tilt=0.30, vmax=3.0)
 
 
+def _clamp(v, lo, hi):
+    return max(lo, min(hi, v))
+
+
+def guidance_outputs(gp, ez, iz, vD, eN, eE, vN, vE, dt):
+    """Pure cascade-guidance step (no I/O, no state) — unit-testable.
+
+    Inputs: gains `gp`; altitude error `ez` (NED z − target, +ve = below target);
+    altitude integrator `iz`; down-velocity `vD`; horizontal position errors
+    `eN/eE`; horizontal velocities `vN/vE`; timestep `dt`.
+    Returns (throttle[0..1], des_roll, des_pitch, iz_new). yaw is held at 0.
+    """
+    iz = _clamp(iz + ez * dt, -0.3, 0.3)
+    thr = gp["hover"] + gp["kp_z"] * ez + gp["ki_z"] * iz - gp["kd_z"] * (-vD)
+    thr = _clamp(thr, 0.0, 1.0)
+    vdes_n = _clamp(0.6 * eN, -gp["vmax"], gp["vmax"])
+    vdes_e = _clamp(0.6 * eE, -gp["vmax"], gp["vmax"])
+    des_pitch = _clamp(gp["kd_h"] * (vdes_n - vN), -gp["tilt"], gp["tilt"])
+    des_roll = _clamp(gp["kd_h"] * (vdes_e - vE), -gp["tilt"], gp["tilt"])
+    return thr, des_roll, des_pitch, iz
+
+
 class Pilot:
     """Continuous outer-loop guidance that runs for the LIFE of a session (not
     one blocking flight). Once airborne it never stops commanding: it always
@@ -126,17 +148,10 @@ class Pilot:
                 self.wp += 1
                 tx, ty = self.wps[self.wp]
                 eN, eE = tx - x, ty - y
-            # altitude hold (NED z down-positive; alt<0 is up)
+            # altitude hold (NED z down-positive; alt<0 is up) + position cascade
             ez = z - alt
-            self.iz = max(-0.3, min(0.3, self.iz + ez * dt))
-            thr = gp["hover"] + gp["kp_z"] * ez + gp["ki_z"] * self.iz \
-                - gp["kd_z"] * (-vD)
-            thr = max(0.0, min(1.0, thr))
-            # position → speed-capped velocity → damped tilt
-            vdes_n = max(-gp["vmax"], min(gp["vmax"], 0.6 * eN))
-            vdes_e = max(-gp["vmax"], min(gp["vmax"], 0.6 * eE))
-            des_pitch = max(-gp["tilt"], min(gp["tilt"], gp["kd_h"] * (vdes_n - vN)))
-            des_roll = max(-gp["tilt"], min(gp["tilt"], gp["kd_h"] * (vdes_e - vE)))
+            thr, des_roll, des_pitch, self.iz = guidance_outputs(
+                gp, ez, self.iz, vD, eN, eE, vN, vE, dt)
             self.last = dict(x=x, y=y, z=z, vN=vN, vE=vE, vD=vD,
                              roll=roll, pitch=pitch, yaw=yaw, wp=self.wp, thr=thr)
         self.lab.stick(roll=des_roll, pitch=des_pitch, thr=thr, yaw=0.0)

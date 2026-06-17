@@ -9,26 +9,7 @@ to what Navigator renders. Carved verbatim from sitl_lab._build_world_mesh.
 import os
 import subprocess
 
-from ._repo import repo_root
-
-
-def _resolve_tool():
-    env = os.environ.get("VSIM_WORLDMESH_BIN")
-    if env:
-        return env
-    root = repo_root()
-    # Canonical home is the SDK (PLAN.md decision #2); fall back to the legacy
-    # tools/ location until the hard-cut so a move can't break a running setup.
-    candidates = [
-        os.path.join(root, "software", "headless-sdk", "cpp", "worldmesh",
-                     "build", "vsim_worldmesh"),
-        os.path.join(root, "tools", "sim_host", "worldmesh", "build",
-                     "vsim_worldmesh"),
-    ]
-    for c in candidates:
-        if os.path.exists(c):
-            return c
-    return candidates[0]
+from . import paths
 
 
 def build_world_mesh(w, out_path):
@@ -37,7 +18,7 @@ def build_world_mesh(w, out_path):
     mesh = w.get("worldMeshPath", "")
     if not mesh or not os.path.exists(mesh):
         return None
-    tool = _resolve_tool()
+    tool = paths.worldmesh_bin()
     if not os.path.exists(tool):
         print(f"  [world-mesh] builder not built ({tool}); obstacles will NOT "
               f"be solid. Build it: cmake -B build -S software/headless-sdk/cpp/worldmesh")

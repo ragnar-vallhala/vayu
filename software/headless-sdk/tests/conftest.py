@@ -39,12 +39,3 @@ def require_binaries():
     os.environ["VSIM_BIN_PATH"] = VSIM_BIN
     os.environ["VAYU_SITL_BIN"] = SITL_BIN
     return (VSIM_BIN, SITL_BIN)
-
-
-@pytest.fixture
-def legacy_sitl_lab():
-    """Import the current tools/sim_host/sitl_lab.py code path (Phase 0 golden
-    pins THIS behaviour; Phase 1 makes it a shim over the package)."""
-    sys.path.insert(0, os.path.join(ROOT, "tools", "sim_host"))
-    import sitl_lab  # noqa: E402
-    return sitl_lab
