@@ -3,9 +3,13 @@
 
 Renders every ```mermaid block to a PNG (mmdc), rewrites image paths to
 absolute, concatenates the docs in reading order with page breaks, and runs
-pandoc (wkhtmltopdf engine) to produce <archive>/<name>-analysis.pdf.
+pandoc (xelatex engine) to produce <archive>/<name>-analysis.pdf.
 
-Requires: pandoc, wkhtmltopdf, mmdc (mermaid-cli) on PATH.
+xelatex is used (over wkhtmltopdf) because wkhtmltopdf drops spaces before
+bold/italic at line-wrap boundaries; xelatex + DejaVu fonts also covers the
+unicode (− → ≈ ° µ ─) used throughout.
+
+Requires: pandoc, xelatex (TeX Live), mmdc (mermaid-cli) on PATH.
 
 Usage (from repo root):
     python3 docs/log-analysis/build_pdf.py docs/log-analysis/20260617-124210
@@ -27,22 +31,14 @@ ORDER = [
     ("sensor-analysis.md", "Sensor & fusion analysis"),
 ]
 
-CSS = """
-body { font-family: 'DejaVu Sans', sans-serif; font-size: 10.5pt; line-height: 1.4;
-       color: #111; }
-h1 { font-size: 19pt; border-bottom: 2px solid #333; padding-bottom: 3px; }
-h2 { font-size: 14pt; border-bottom: 1px solid #bbb; padding-bottom: 2px; margin-top: 18px; }
-h3 { font-size: 12pt; }
-code, pre { font-family: 'DejaVu Sans Mono', monospace; font-size: 8.8pt; }
-pre { background: #f5f5f5; padding: 8px; border-radius: 4px; white-space: pre-wrap;
-      border: 1px solid #e0e0e0; }
-table { border-collapse: collapse; font-size: 9.2pt; margin: 8px 0; }
-th, td { border: 1px solid #bbb; padding: 3px 7px; }
-th { background: #eee; }
-img { max-width: 100%; height: auto; display: block; margin: 8px auto; }
-blockquote { border-left: 3px solid #ccc; margin-left: 0; padding-left: 10px; color: #444; }
-a { color: #00408a; text-decoration: none; }
-.pagebreak { page-break-before: always; }
+# LaTeX preamble: wrap long code lines (fvextra) so the ASCII diagrams don't
+# overflow the margin, and keep headings tidy.
+HEADER = r"""
+\usepackage{fvextra}
+\DefineVerbatimEnvironment{Highlighting}{Verbatim}{breaklines,breakanywhere,commandchars=\\\{\}}
+\usepackage{sectsty}
+\sectionfont{\large}
+\subsectionfont{\normalsize}
 """
 
 
@@ -61,7 +57,7 @@ def process(archive):
     plots = os.path.join(archive, "plots")
     os.makedirs(plots, exist_ok=True)
 
-    parts = [f"% Vayu flight-log analysis — {name}\n"]
+    parts = []
     mmd_i = 0
     for fname, title in ORDER:
         path = os.path.join(archive, fname)
@@ -82,27 +78,32 @@ def process(archive):
         text = re.sub(r"!\[([^\]]*)\]\((plots/[^)]+)\)",
                       lambda m: f"![{m.group(1)}]({os.path.join(archive, m.group(2))})", text)
 
-        parts.append('\n\n<div class="pagebreak"></div>\n\n')
+        # raw HTML is dropped by pandoc for LaTeX; keep the <sub> footnote text
+        text = text.replace("<sub>", "").replace("</sub>", "")
+
+        parts.append("\n\n\\newpage\n\n")
         parts.append(text)
 
     combined = "\n".join(parts)
     with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False, dir=archive) as f:
         f.write(combined)
         md = f.name
-    css = os.path.join(archive, ".pdf.css")
-    open(css, "w").write(CSS)
+    hdr = os.path.join(archive, ".pdf-header.tex")
+    open(hdr, "w").write(HEADER)
     out = os.path.join(archive, f"{name}-analysis.pdf")
 
-    cmd = ["pandoc", md, "-o", out, "-f", "gfm", "--pdf-engine=wkhtmltopdf",
-           "--css", css, "--metadata", "pagetitle=Vayu log analysis",
-           "--pdf-engine-opt=--enable-local-file-access",
-           "--pdf-engine-opt=--page-size", "--pdf-engine-opt=A4",
-           "--pdf-engine-opt=--margin-top", "--pdf-engine-opt=14mm",
-           "--pdf-engine-opt=--margin-bottom", "--pdf-engine-opt=14mm",
-           "--pdf-engine-opt=--margin-left", "--pdf-engine-opt=13mm",
-           "--pdf-engine-opt=--margin-right", "--pdf-engine-opt=13mm"]
+    cmd = ["pandoc", md, "-o", out,
+           "-f", "markdown-tex_math_dollars", "--pdf-engine=xelatex",
+           "-H", hdr, "--toc", "--toc-depth=2",
+           "-V", "geometry:margin=1.7cm", "-V", "fontsize=10pt",
+           "-V", "mainfont=DejaVu Sans", "-V", "monofont=DejaVu Sans Mono",
+           "-V", "monofontoptions=Scale=0.80",
+           "-V", "colorlinks=true", "-V", "linkcolor=[RGB]{0,64,138}",
+           "-V", "urlcolor=[RGB]{0,64,138}", "-V", "toccolor=black",
+           "-M", f"title=Vayu flight-log analysis — {name}",
+           "-M", "date=bench-rig capture, decoded via NavLink v2"]
     subprocess.run(cmd, check=True)
-    os.unlink(md); os.unlink(css)
+    os.unlink(md); os.unlink(hdr)
     sz = os.path.getsize(out)
     print(f"wrote {out} ({sz/1024:.0f} kB), {mmd_i} diagrams rendered")
 

@@ -10,7 +10,7 @@ raw `.bin` is kept here so every number can be re-derived later.
 | [`20260617-124210-analysis.pdf`](20260617-124210-analysis.pdf) | **all docs below combined into one printable PDF** (with plots & diagrams) |
 | [`export-20260617-124210.bin`](export-20260617-124210.bin) | raw capture (source of truth) |
 | [`session-analysis.md`](session-analysis.md) | full session overview (link, flight timeline, controller, health) |
-| [`control-loop-analysis.md`](control-loop-analysis.md) | cascade controller: the throttle-only tilt, yaw spins, gains/authority |
+| [`control-loop-analysis.md`](control-loop-analysis.md) | cascade controller: **the attitude-loop oscillation/instability**, resting tilt, yaw spins |
 | [`motor-analysis.md`](motor-analysis.md) | quad-X mixer, motor balance, saturation |
 | [`kernel-analysis.md`](kernel-analysis.md) | vaios RTOS: CPU, stacks, heap, IPC, FIFO drops |
 | [`sensor-analysis.md`](sensor-analysis.md) | sensor calibration + **fusion** (EKF) accuracy & reporting |
@@ -76,9 +76,10 @@ Absent: `Statustext`, `CommandAck`, `Ping`, `Capabilities`, `Param*`,
 ## Raw findings log (everything we dug out)
 
 Quick reference; see the per-domain analysis docs for context and method.
-**Rig context:** captured on a bench rig — never `IN_AIR`; the frame was
-hand-spun in yaw and rested tilted. Interpret all attitude/controller numbers as
-bench, not flight.
+**Rig context (operator):** captured on a bench rig (a free pivot) — never
+`IN_AIR`. At rest the frame hangs to one side; on throttle the roll/pitch loop
+tries to level, then **breaks into a growing oscillation, so throttle had to be
+pulled**. Yaw was hand-spun/clamped.
 
 **Decode/transport**
 - 0 CRC errors / 0 unknown msgids over 38,292 frames — wire stack is clean on HW.
@@ -91,11 +92,11 @@ bench, not flight.
 - Every RC dropout (chan 0/1 → 62954 = −2582 as int16) → `FAILSAFE` (615/620 spike frames). Safety path correct.
 
 **Control loop** ([detail](control-loop-analysis.md))
-- Level command but frame held **pitch +25°, roll −10°** — tilt is **real** (fusion matches gravity), not a sensor lie.
-- Controller corrects in the right direction but with almost no authority: rate Kp roll/pitch = 0.0005 (Kd 0, integral-dominated) vs **yaw Kp 0.018 (36×)**. Empirical slopes confirm (0.00033 / 0.0117).
-- Throttle averaged 0.25, **100 % below the 0.30 PID-full-authority point** → roll/pitch further attenuated all session.
-- Yaw: `yaw_rate_sp`=0 always (no yaw commanded); frame disturbed ±80 °/s; `yaw_out` saturates 0.5 % of frames; alternating ±65–80 °/s spins at 343–351 s = hand-spin/clamp (possible yaw limit-cycle).
-- Loop timing 250 Hz outer / 1 kHz inner, **zero jitter**.
+- **INSTABILITY: roll/pitch loop diverges into a ~0.3 Hz limit cycle** (roll to ±50–67°) whenever throttle is held up; operator pulled throttle to stop it in all 3 long windows. Output anti-phase with angle (corr **−0.82**) ⇒ closed-loop, not passive swing. **Fix before flight.**
+- Likely cause: rate Kp roll/pitch = 0.0005 with **Kd = 0** and integral-dominant Ki = 0.01 → underdamped; add Kd, raise Kp, lower Ki/i_max.
+- Resting pose (rig free pivot): frame hangs at **pitch +25°, roll −10°** — real (fusion matches gravity), not a sensor lie.
+- Yaw Kp 0.018 = **36× roll/pitch**; `yaw_rate_sp`=0 always; frame disturbed ±80 °/s; `yaw_out` saturates 0.5 % of frames; 343–351 s alternating ±65–80 °/s spins = hand-spin/clamp (possible separate yaw limit-cycle).
+- Loop timing 250 Hz outer / 1 kHz inner, **zero jitter** → instability is tuning, not scheduling.
 
 **Motors** ([detail](motor-analysis.md))
 - Quad-X mixer signs verified vs firmware. M1 FR/CW, M2 RR/CCW, M3 RL/CW, M4 FL/CCW; `cmd[]` 0..1.

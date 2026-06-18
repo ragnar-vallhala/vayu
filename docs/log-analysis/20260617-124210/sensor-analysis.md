@@ -138,9 +138,10 @@ all ARMED IMU samples:
 ![fusion vs accel tilt](plots/04_fusion_vs_accel_tilt.png)
 
 The estimator tracks the gravity vector to within ~4° on average. **The tilt is
-real**, not a fusion artifact — so the airframe genuinely rested at ~25–37° on the
-rig, and the (weak) attitude controller is what failed to pull it level (see
-[`control-loop-analysis.md`](control-loop-analysis.md)). The 14.7° spread is
+real**, not a fusion artifact — so the airframe genuinely rested/swung at ~25–37°
+on the rig. (What the controller then *does* with that — drive it into a limit
+cycle — is the [control-loop instability](control-loop-analysis.md), a separate
+problem from fusion accuracy.) The 14.7° spread is
 because most rig samples are *dynamic* (hand motion/spin) — the accel reference
 itself is noisy there, and the EKF correctly gates those samples out and coasts on
 the gyro. (A first level frame at t≈60 s read accel `(+1.3, +1.4, −10.1)` against

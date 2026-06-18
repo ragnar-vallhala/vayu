@@ -164,6 +164,28 @@ def main():
     ax.legend(fontsize=7); ax.axhline(0, color="k", lw=0.4); ax.axvline(0, color="k", lw=0.4)
     save(fig, "06_rate_authority.png")
 
+    # ---- 11. Attitude-loop oscillation (episode 1 zoom) ----
+    seg = [(rel(t), m) for t, m, _ in ct if 45 <= rel(t) <= 132]
+    if seg:
+        tx = [t for t, _ in seg]
+        fig, (a1, a2, a3) = plt.subplots(3, 1, figsize=(10, 5.2), sharex=True)
+        a1.plot(tx, [m.thro_out for _, m in seg], color="C1")
+        a1.axhline(0.30, color="r", ls="--", lw=0.8, label="full authority 0.30")
+        a1.set_ylabel("throttle"); a1.legend(fontsize=7, loc="upper right")
+        a1.set_title("Attitude-loop oscillation (armed window 1): grows under sustained throttle (~0.30), "
+                     "pilot pulls throttle near the end")
+        a2.plot(tx, [m.roll_angle_curr for _, m in seg], label="roll", lw=0.8)
+        a2.plot(tx, [m.pitch_angle_curr for _, m in seg], label="pitch", lw=0.8, alpha=0.8)
+        a2.axhline(0, color="k", lw=0.5); a2.set_ylabel("angle (°)")
+        a2.legend(fontsize=7, loc="upper right")
+        a3.plot(tx, [m.roll_out for _, m in seg], color="C3", lw=0.8, label="roll_out")
+        a3.axhline(0, color="k", lw=0.5)
+        a3.set_ylabel("roll_out"); a3.set_xlabel("t (s)")
+        a3.legend(fontsize=7, loc="upper right")
+        a3.text(0.01, 0.05, "controller output anti-phase with angle (corr −0.82): closed-loop, not passive swing",
+                transform=a3.transAxes, fontsize=7, color="#555")
+        save(fig, "11_oscillation.png")
+
     # ---- 7. Motor balance (throttle-only) + over time ----
     mt = col.msgs["MotorTelemetry"]
     rows = [m.cmd[:4] for t, m, _ in mt if nav(t) == ARM

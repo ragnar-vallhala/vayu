@@ -1,9 +1,14 @@
 # Control-loop analysis — `export-20260617-124210.bin`
 
 Cascade controller behaviour from `ControlTrace` (msgid 1030, 7,450 frames),
-restricted to the four **ARMED** windows. **Context: this was a bench-rig run —
-the airframe never flew (`IN_AIR` never reached) and was hand-spun/clamped in
-yaw.** Read accordingly. Firmware refs ground every interpretation. Companion to
+restricted to the four **ARMED** windows. **Context (from the operator):** this
+was a **bench-rig** run — the airframe never flew (`IN_AIR` never reached). The
+rig is a *free pivot*: at rest the frame **hangs/swings to one side** (that is the
+resting pose), and on throttle the controller **tries to level it, partly
+succeeds, then breaks into a growing oscillation that forced the operator to pull
+throttle**. Yaw was also hand-spun/clamped. The data backs every part of this —
+see the [oscillation section](#the-oscillation-why-throttle-had-to-be-pulled).
+Firmware refs ground every interpretation. Companion to
 [`session-analysis.md`](session-analysis.md) and
 [`motor-analysis.md`](motor-analysis.md).
 
@@ -85,15 +90,57 @@ This is compounded by the **authority ramp**: armed throttle averaged **0.25 and
 was below the 0.30 full-authority threshold 100 % of the time**, so roll/pitch
 output was *additionally* attenuated (≈0.5×) the entire session.
 
-**Conclusion.** The +25° pitch is a *real* tilt (confirmed independently — fused
-attitude matches the gravity vector, see
-[`sensor-analysis.md`](sensor-analysis.md) §Fusion), and the attitude controller
-could not pull it level because (a) it ran on the rig where the frame is
-mechanically constrained, (b) roll/pitch rate authority is intentionally tiny
-(Kp 5e-4, Kd 0) and integral-dominated, and (c) throttle never exceeded the 0.30
-full-authority point. **On a rig this is expected; it does not by itself prove a
-tuning fault — but it does mean the bench cannot demonstrate level-hold, and the
-integral-only roll/pitch authority is worth validating in a real hover.**
+**Conclusion.** The mean +25° pitch / −10° roll is partly the rig's natural
+**resting hang** (the operator notes the frame settles to one side at rest) and
+partly the swing of the oscillation below. The tilt is *real* (fused attitude
+matches gravity — see [`sensor-analysis.md`](sensor-analysis.md) §Fusion). The
+earlier reading that "the controller can't move a constrained frame" was **wrong**:
+the rig is a free pivot, the controller *does* move it, and as authority comes up
+with throttle it drives the frame into a **growing oscillation** rather than
+settling level. That instability — not a lack of authority — is the real story.
+
+## The oscillation (why throttle had to be pulled)
+
+This is the key finding. In every armed window, once throttle is held up the
+roll/pitch attitude **builds into a sustained, growing oscillation**, and the only
+thing in the log that stops it is the operator **cutting throttle**.
+
+![attitude-loop oscillation](plots/11_oscillation.png)
+
+Window 1 (above) is the clearest: throttle is held at ~0.30 from t≈48 s; roll
+starts near ±5° and **grows to ±40–50°** (a −115° excursion by t≈128 s) at a
+dominant **~0.3 Hz** (≈3 s period); pitch carries a faster ~0.7–1.2 Hz component.
+The operator then pulls throttle (t≈115–128 s) and the system rings down into the
+disarm. The same build-up repeats in window 2 (roll envelope grows to ~60–67°,
+throttle ~0.25, pulled at t≈276 s) and window 3 (roll grows 12°→58°, throttle
+~0.22, pulled at t≈344 s).
+
+**It is a closed-loop limit cycle, not passive rig swing:**
+
+- The controller output is **anti-phase with the angle** — `roll_out` vs
+  `roll_angle_curr` correlate **−0.82** over the build-up — i.e. negative feedback
+  actively driving the motion, and the motors modulate with it (M1 swings
+  0.00–0.56 in the same window).
+- The oscillation **scales with PID authority**: it appears and grows at
+  flight-relevant throttle (≈0.22–0.30, where the authority ramp opens up) and
+  decays once throttle drops below it. (A per-window throttle↔amplitude
+  correlation is weak/noisy because the build-up and ring-down lag throttle by
+  tens of seconds — it's a slow divergence with hysteresis, not an instantaneous
+  gain.)
+
+**Likely cause.** The roll/pitch rate loop runs **Kp = 0.0005 with Kd = 0 and an
+integral-dominant Ki = 0.01** (i_max 0.2). With essentially no proportional or
+derivative (damping) term, the loop leans on the integrator, which lags the error
+— classic recipe for a low-frequency limit cycle against a pendulum-like plant.
+As the authority ramp raises the effective loop gain with throttle, the closed
+loop becomes underdamped and oscillates. The ~0.3 Hz period is consistent with an
+integral-driven oscillation on the rig's slow pivot dynamics.
+
+**Caveats.** The rig is a constrained pendulum, so the exact frequency/amplitude
+won't match free hover — but a controller that *diverges into oscillation under
+its own feedback* on the bench is a genuine red flag, and the anti-phase output
+proves it's the loop, not the fixture. Re-tune before flight: add rate **Kd** for
+damping, raise **Kp** off the integrator, and reduce **Ki**/`i_max`; then re-test.
 
 ## Yaw — disturbance rejection, saturation, and the hand-clamp episodes
 
@@ -122,15 +169,20 @@ roll/pitch sit near zero. The empirical yaw slope (0.0117) matches `Kp = 0.018`
 
 ## Takeaways
 
-1. **Timing is perfect** (4 ms / 1 ms, zero jitter) — no scheduler/loop problem.
-2. **The bench tilt is real and unforced by the controller**; fusion is accurate.
-   Roll/pitch leveling can't be judged from a rig run, especially one held below
-   30 % throttle the whole time.
-3. **Roll/pitch rate authority is very low** (Kp 5e-4, Kd 0, integral-dominated).
-   Validate level-hold and disturbance recovery in an actual hover before trusting
-   it; consider whether Kd = 0 is intended.
-4. **Yaw loop is ~36× stronger** and saturates against rig disturbances; the
-   343–351 s alternating spins deserve a look for a possible yaw limit-cycle once
-   off the rig.
-5. Next capture: fly it (`IN_AIR`), command non-zero roll/pitch/yaw, and keep
-   throttle above 0.30 so the controller runs at full authority.
+1. **The roll/pitch attitude loop is unstable on the bench** — it diverges into a
+   ~0.3 Hz limit cycle (roll to ±50–67°) whenever throttle is held up, and the
+   operator had to pull throttle to stop it, three times. Output is anti-phase
+   with angle (corr −0.82), so it is the *control loop*, not passive rig swing.
+   **Address this before any flight attempt.**
+2. **Likely fix is rate-loop tuning:** Kp = 5e-4 with **Kd = 0** and integral-
+   dominant Ki = 0.01 gives almost no proportional/damping authority — add Kd for
+   damping, raise Kp off the integrator, lower Ki/`i_max`, re-test on the rig.
+3. **Resting pose:** at idle the frame hangs to one side (rig is a free pivot);
+   that tilt is real and not a sensor/fusion error (fusion matches gravity).
+4. **Timing is perfect** (4 ms / 1 ms, zero jitter) — the instability is a tuning
+   problem, not a scheduling/loop-rate one.
+5. **Yaw loop is ~36× stronger** and saturates against the hand-spin disturbances;
+   the 343–351 s alternating spins may be a separate yaw limit-cycle — re-check
+   after the roll/pitch fix.
+6. Next capture: after re-tuning, validate on the rig that throttle-up no longer
+   oscillates, *then* fly (`IN_AIR`) with stick inputs.

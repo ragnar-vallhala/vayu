@@ -34,8 +34,9 @@ timestamp) holding the raw `.bin` plus all analysis of it.
 
 - [`20260617-124210/`](20260617-124210/) — **2026-06-17 12:42:10**, first
   hardware bring-up **bench-rig** session: 6.25 min, 38 k frames, 0 CRC errors.
-  Never reached IN_AIR; frame hand-spun in yaw and rested tilted. Real tilt with
-  low roll/pitch control authority, yaw 36× stronger, EKF roll/pitch accurate but
+  Never reached IN_AIR. **Headline: the roll/pitch attitude loop is unstable —
+  diverges into a ~0.3 Hz limit cycle on throttle (operator pulled throttle to
+  stop it), likely rate-loop tuning (Kd=0).** Also: EKF roll/pitch accurate but
   yaw untrustworthy (uncalibrated mag), kernel healthy (control FIFOs 0 drops;
   telemetry-only saturation), 5 telemetry data-quality bugs.
   - [`README`](20260617-124210/README.md) — provenance, header, inventory, raw findings log

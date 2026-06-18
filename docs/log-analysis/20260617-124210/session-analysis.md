@@ -14,9 +14,14 @@ python3 docs/log-analysis/parse_log.py docs/log-analysis/20260617-124210/export-
 - **Healthy link decode.** 38,292 frames, **0 CRC errors** across 6.25 min — the
   wire format, framing and CRC are solid end-to-end on hardware.
 - **The aircraft never flew.** `nav_state` reached `ARMED` four times but **never
-  `IN_AIR`**; throttle stayed ≤ 0.3 and motors ≤ 0.69. This is a **bench /
-  handheld bring-up session**, so attitude/controller numbers reflect the board
-  being tilted by hand, not flight.
+  `IN_AIR`**; throttle stayed ≤ 0.3 and motors ≤ 0.69. This is a **bench-rig**
+  session (a free pivot), not flight.
+- **The roll/pitch attitude loop is unstable on the rig.** With throttle held up
+  it diverges into a **~0.3 Hz limit cycle** (roll to ±50–67°); the operator had
+  to pull throttle to stop it, three times. Controller output is anti-phase with
+  angle (corr −0.82) — a real closed-loop instability, almost certainly the
+  rate-loop tuning (**Kd = 0**, tiny Kp, integral-dominant). See
+  [`control-loop-analysis.md`](control-loop-analysis.md). **Fix before flight.**
 - **RC-loss → FAILSAFE works.** Every RC dropout (chan 0/1 → 62954) lined up with
   a `FAILSAFE` transition (615/620 spike frames). Safety path behaves correctly.
 - **Four telemetry data-quality bugs** worth fixing (details below): three
@@ -116,16 +121,17 @@ in degrees, rates in deg/s** (see unit note below):
 | throttle out | 0.0 | 0.3 | 0.2 | 0.2 |
 
 Motor commands during ARMED (0–1 scale): each of motors 0–3 mean ≈ 0.2, max
-≈ 0.6–0.69, **never saturated** (0 frames > 0.95). Sustained ~0.2 throttle with
-big, slow attitude errors is the fingerprint of **handheld bench testing** — the
-operator tilts the frame (±80°) while the angle setpoint sits near level, so the
-"tracking error" is partly hand motion. **Do not read these as flight-tuning
-metrics.** Loop timing is rock-solid: `outer_dt` = 4.000 ms (250 Hz),
-`inner_dt` = 1.000 ms (1 kHz), zero jitter.
+≈ 0.6–0.69, **never saturated** (0 frames > 0.95). The large attitude errors here
+are mostly the **closed-loop oscillation**, not hand motion: with throttle held up
+the roll/pitch loop diverges into a ~0.3 Hz limit cycle and the operator pulls
+throttle to stop it (see [`control-loop-analysis.md`](control-loop-analysis.md)
+for the per-episode breakdown and root-cause). Loop timing is rock-solid:
+`outer_dt` = 4.000 ms (250 Hz), `inner_dt` = 1.000 ms (1 kHz), zero jitter — so
+the instability is a **tuning** problem, not a scheduling one.
 
 > Deep-dives split out by subsystem:
-> [`control-loop-analysis.md`](control-loop-analysis.md) (the real +25° tilt &
-> low roll/pitch authority, yaw spins),
+> [`control-loop-analysis.md`](control-loop-analysis.md) (**the attitude-loop
+> oscillation**, resting tilt, yaw spins),
 > [`motor-analysis.md`](motor-analysis.md) (mixer & balance),
 > [`kernel-analysis.md`](kernel-analysis.md) (RTOS health),
 > [`sensor-analysis.md`](sensor-analysis.md) (sensors + EKF fusion).
@@ -178,6 +184,10 @@ These are populate/units bugs in what the FC *sends*, not decode errors:
 
 ## Recommended follow-ups
 
+- **Fix the attitude-loop instability first** (see
+  [`control-loop-analysis.md`](control-loop-analysis.md)): re-tune the roll/pitch
+  rate loop (add Kd, raise Kp off the integrator, lower Ki/`i_max`) and confirm on
+  the rig that throttle-up no longer oscillates **before** any flight attempt.
 - Fix the three always-zero fields (#1–#3) — #1 (body rates) is the most
   impactful for any attitude consumer/replay.
 - Resolve the °/rad inconsistency (#4) in `dialect.json` field docs and the
@@ -186,5 +196,5 @@ These are populate/units bugs in what the FC *sends*, not decode errors:
   downlink bitrate, decimate the high-rate streams (ImuCompressed 23 Hz +
   ControlTrace 20 Hz + MotorTelemetry 17 Hz dominate), or apply the proposed
   stream-rate control packet (`0x2007`) to throttle on-air rates.
-- Next capture: get it actually airborne (`IN_AIR`) so controller-tuning metrics
-  become meaningful.
+- Next capture: after re-tuning, verify a stable throttle-up on the rig, then get
+  it airborne (`IN_AIR`) so controller-tuning metrics become meaningful.
