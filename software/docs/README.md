@@ -12,7 +12,8 @@ tells you how long it lives and how it's maintained:
 
 - **[reference/](reference/)** — *living contract.* Architecture explainers for
   newcomers plus the formal requirements. Edited in place as the code changes;
-  never deleted. Contains `requirements.md`, `feature-matrix.md`,
+  never deleted. Start with [`reference/gcs-architecture.md`](reference/gcs-architecture.md)
+  for the whole-app picture; also `requirements.md`, `feature-matrix.md`,
   `mockup-to-app.md`, and the `ui-mockup/` design prototype.
 - **[plans/](plans/)** — *active plans* for in-flight work. Deleted once the
   feature ships. Empty for now.
