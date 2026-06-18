@@ -1,7 +1,7 @@
 # Vayu — C Coding Guidelines
 
 Pragmatic C99/C11 subset for the vayu flight-control firmware. Adapted
-from the PX4-grade template (`docs/drone_fcs_requirements_and_coding_guidelines.pdf`)
+from a PX4-grade template
 which itself borrows from MISRA C:2012, CERT C, the Barr Group Embedded
 C Coding Standard, and NASA JPL's Power of Ten.
 
