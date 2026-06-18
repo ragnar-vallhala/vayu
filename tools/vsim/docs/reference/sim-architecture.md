@@ -256,10 +256,12 @@ and pushes gains via `CMD_SET_PID`. See [`autotune-methodology.md`](autotune-met
 
 ## Notes & caveats (verified)
 
-- **`mag_fusion` is zero on the SITL wire:** the daemon packs 76 of the 88 IMU bytes; the
-  estimator-input `mag_fusion[3]` is zero-filled. The "76-byte" comments in `main.cpp` /
-  `host_imu_feeder.c` are stale vs the 88-byte v3 frame. The FC's estimator therefore sees
-  a zeroed fusion-mag in SITL. (`main.cpp:100-116`, `vsim_types.h:73-77`.)
+- **`mag_fusion` is zero on the SITL wire:** `vsim_d`'s `packImu` writes 76 of the 88 IMU
+  payload bytes (acc/gyr/mag/raw/temp); the estimator-input `mag_fusion[3]` is left
+  zero-filled, so the FC's estimator sees a zeroed fusion-mag in SITL.
+  (`tools/vsim/src/main.cpp:100-116`, `vsim_types.h:73-77`.) The host feeder validates the
+  full 88-byte frame and now bails after 64 consecutive mismatched frames — a stale `vsim_d`
+  at the wrong `VSIM_PROTO_VERSION` is diagnosed rather than spun on (`host_imu_feeder.c`).
 - **Pose v3 fields `airspeed` / `ge_factor` / `batt_*` emit zero** — only `wind_w` is filled.
 - The firmware-host I/O comments still mention host-side Mahony; that was **removed** as a
   fidelity violation — the host injects raw IMU only and the firmware's own EKF runs.

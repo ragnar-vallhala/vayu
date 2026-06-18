@@ -181,7 +181,9 @@ flowchart TD
 
 Key subtlety: **the in-app sim's telemetry comes from the in-process firmware's UART2
 callback** (→ `SimSource` → engine), *not* from the pose FIFO. The pose FIFO drives only
-the 3D renderer. `SimWorker` also supports **attach mode** — reading an external pose FIFO
+the 3D renderer (`SimRendererWidget`, which can overlay a procedural ring-gate
+**training course** — `vsim/TrainingCourse` — fed the live drone position each frame).
+`SimWorker` also supports **attach mode** — reading an external pose FIFO
 (a headless `vayu_headless` run or the autotuner) without spawning a daemon.
 
 *Source: `ui/widgets/SimulatorWidget.cpp:2036-2075`, `vsim/SimWorker.{h,cpp}`, `vsim/RcBridge.h`, `comm/SimSource.h`.*
