@@ -41,7 +41,7 @@ The resulting quaternion is normalized to maintain unit length.
 
 ## Implementation Details
 
-The implementation in `vayu` is found in `src/maths/sensor_fusion.c` within the function `m_mahony_filter`.
+The implementation in `vayu` is found in `src/est/sensor_fusion.c` within the function `m_mahony_filter`.
 
 ### Variables & Data Structures
 

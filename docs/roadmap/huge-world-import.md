@@ -1,6 +1,19 @@
 # Plan: Import huge worlds (.blend/.glb/.obj) with rigid triangle-mesh collision
 
+> **DELIVERED.** Phases P0–P3 landed and tested and most of P4; shipped on
+> **2026-06-03** — see `docs/changelog/gcs-in-app-simulator-and-world-collision.md`
+> ("Huge-world import, rigid mesh collision & camera modes"). The per-phase plan
+> below is retained as design rationale, collapsed. Only the deferred P4 items
+> remain open.
+
 Status: 🟢 implemented (P0–P3 landed + tested; P4 mostly satisfied, rest deferred)
+
+**Still deferred** (no real >2 M-tri asset yet to justify the cost): swept-sphere
+CCD, vertex welding, decimate-on-import, frustum cull, "show collision proxy"
+debug overlay.
+
+<details>
+<summary>Delivered phase plan + design rationale (historical)</summary>
 
 Progress:
 - ✅ **P0** `trimesh_bvh.h` + `trimesh_bvh_test` (12/12) — commit `444dbc0`.
@@ -15,8 +28,7 @@ Progress:
   commit `c1373cd`.
 - 🟡 **P4** partially done: re-import/clear/exit all `munmap` (daemon `drop_world_mesh`,
   fd closed post-mmap); render VBO + BVH bytes share one baked `LoadedMesh` so they can't
-  disagree. **Deferred** (no real >2 M-tri asset yet to justify the cost): swept-sphere CCD,
-  vertex welding, decimate-on-import, frustum cull, "show collision proxy" debug overlay.
+  disagree.
 
 ## Context
 The simulator's "world" is today a handful of analytic primitives (box/sphere/cylinder) with
@@ -135,3 +147,5 @@ render/collision frame drift (one shared baked transform) · perf if caching wro
 
 ## Effort
 ≈ 9 working days, front-loaded on the dependency-free, independently-testable BVH + collision math (P0+P3).
+
+</details>

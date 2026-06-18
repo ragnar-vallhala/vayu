@@ -1,10 +1,15 @@
 # Command registry, editable shortcuts, command palette & recent-views switcher
 
-Status: 🟡 planned — additive, with one cross-cutting refactor. Generalises the
-Phase-0 `0l` shortcuts. Wired into [`../requirements.md`](../requirements.md) as
-**FR-UX-19** (command registry + editable shortcuts), **FR-UX-20** (command
-palette), **FR-UX-21** (recent-views switcher), **FR-UX-22** (About), **FR-UX-23**
-(Documentation); Phase-1 item `1g`. Effort: **M–L** (pure GCS, no firmware).
+Status: ✅ shipped — `core/CommandRegistry`, `core/ShortcutsManager`, `core/ViewHistory`
+and the `ui/widgets/{ShortcutsEditorDialog,CommandPalette,RecentViewsOverlay,AboutDialog}`
+are live. Generalises the Phase-0 `0l` shortcuts. Wired into
+[`../requirements.md`](../requirements.md) as **FR-UX-19** (command registry + editable
+shortcuts), **FR-UX-20** (command palette), **FR-UX-21** (recent-views switcher),
+**FR-UX-22** (About), **FR-UX-23** (Documentation); Phase-1 item `1g`. The body below
+remains as design rationale.
+
+> As-built note: the recent-views (MRU) switcher landed on **Ctrl+Tab** by default,
+> not the Firefox-style `Ctrl+`` ` the mockup originally sketched.
 
 ## Context
 

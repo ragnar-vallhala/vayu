@@ -15,7 +15,7 @@ Five sections:
 5. **Maintenance rules** — how this doc stays honest.
 
 Cross-references:
-- [`docs/in-app-sim.md`](../../docs/in-app-sim.md) — the embedded SITL design.
+- [`docs/changelog/gcs-in-app-simulator-and-world-collision.md`](../../docs/changelog/gcs-in-app-simulator-and-world-collision.md) — the embedded SITL design (`vsim_d` daemon).
 - [`docs/telemetry/`](../../docs/telemetry/) — wire format authority.
 - [`docs/coordinate_ref.md`](../../docs/coordinate_ref.md) — NED conventions.
 - [`roadmap/`](roadmap/) — forward-looking GCS feature designs.
@@ -151,7 +151,7 @@ GCS → drone is the weak side.
 | FR-UI-16  | Settings            | 🟡     | Sync period + graph window + dropout. Missing: theme, units, port profile |
 | FR-UI-17  | Parameter editor    | ❌     | Blocks on FR-TX-05                                        |
 | FR-UI-18  | Mission planner / map| ❌    | Blocks on FR-TX-06                                        |
-| FR-UI-19  | Log replay          | ✅     | Session-wide **read-only** replay UI: a crop/loop scrubber (`ReplayBar`) driven by a global replay `SessionMode` (`SessionState` read-only authority). Open via File ▸ Open Log. See FR-LOG-05 and [`roadmap/gcs-log-replay.md`](roadmap/gcs-log-replay.md). |
+| FR-UI-19  | Log replay          | ✅     | Session-wide **read-only** replay UI: a crop/loop scrubber (`ReplayBar`) gated by the `SourceController` FSM (the read-only / source authority). Open via File ▸ Open Log. See FR-LOG-05 and [`roadmap/gcs-log-replay.md`](roadmap/gcs-log-replay.md). |
 
 ### 2.5 Connection layer
 
@@ -167,7 +167,7 @@ GCS → drone is the weak side.
 
 ### 2.6 Embedded SITL (`vsim/` + `SimulatorWidget` + `vsim_d`)
 
-Design doc: `docs/in-app-sim.md`. Wire protocol: `tools/vsim/include/vsim_proto.h`.
+Design record: `docs/changelog/gcs-in-app-simulator-and-world-collision.md`. Wire protocol: `tools/vsim/include/vsim_proto.h`.
 Navigator-side code: `src/vsim/`, `src/ui/widgets/SimulatorWidget.{h,cpp}`.
 Physics daemon: `tools/vsim/` (builds the standalone `vsim_d` binary).
 
@@ -189,11 +189,11 @@ physics; it spawns/supervises `vsim_d` and decodes pose frames.
 | FR-SIM-05| Pose snapshot rendered live (OpenGL)                                     | ✅     |
 | FR-SIM-06| Per-run raw UART byte log to `logs/sim-<ts>.bin`                         | ✅     |
 | FR-SIM-07| Hot reset of physics / firmware state between runs                       | 🟡🔥  | Physics resets via `VSIM_CTL_RESET` (`SimWorker::sendReset`); firmware state still can't (`vayu_sitl_start` one-shot — Navigator restart needed) |
-| FR-SIM-08| Wind / external-force injection                                          | ❌     |
+| FR-SIM-08| Wind / external-force injection                                          | ✅     | World-frame wind field (steady + gust + turbulence) felt as relative-velocity drag. `wind_model.h`, pushed via `VSIM_CTL_SET_WIND` (`SimWorker::sendWind`), edited from the World tab (`WorldEditorWidget::windApplied`). Design: [`sim-fidelity/01-wind-turbulence.md`](sim-fidelity/01-wind-turbulence.md). |
 | FR-SIM-09| Ground-contact model (tipping, friction)                                 | ❌     | Intentional: hard clamp only (`tools/vsim/src/physics_core.cpp`) |
 | FR-SIM-10| FIFO transport to the standalone firmware binary                         | ✅     | `vsim_d` FIFOs are the only transport; the standalone `vayu_sitl` binary attaches to the same `/tmp/vsim_{pwm,imu}` paths |
 | FR-SIM-11| Mesh-derived mass properties + motor-mapping editor                      | ✅     | Import STL/glTF (assimp) → full 3×3 inertia tensor via `MassProperties` (closed-polyhedron integral); 4-motor position/axis/spin/coeff editor (`GeometryEditorWidget`) with interactive Blender-style 3D gizmos (click-select, G/R + X/Y/Z, sim-stopped only); pushed to `vsim_d` over `VSIM_CTL_SET_GEOMETRY`. Daemon integrates the full tensor (`Mat3` in `vsim_math.h`). All dynamics are about the CoM — the mesh is recentered and motor arms made CoM-relative GCS-side (`physicsConfig()`), so the model origin need not coincide with the CoM. Design: [`roadmap/sim-geometry-moi-motor-editor.md`](roadmap/sim-geometry-moi-motor-editor.md). |
-| FR-SIM-12| World/environment editable from UI                                       | ✅     | World tab: gravity (runtime), ground height, restitution, linear/angular drag. Pushed via `VSIM_CTL_SET_WORLD`; composes with geometry (disjoint `DroneParams` fields). `WorldEditorWidget`. Wind (FR-SIM-08) still ❌. |
+| FR-SIM-12| World/environment editable from UI                                       | ✅     | World tab: gravity (runtime), ground height, restitution, linear/angular drag. Pushed via `VSIM_CTL_SET_WORLD`; composes with geometry (disjoint `DroneParams` fields). `WorldEditorWidget`. Wind: see FR-SIM-08 (✅). |
 | FR-SIM-13| Blender-style simulator UI                                               | ✅     | `SimulatorWidget` is a Vehicle\|World mode bar + 3D viewport + categorized (collapsible, `CollapsibleSection`) properties panel. Vehicle = airframe config (locked while running); World = environment design + run controls. FPV telemetry HUD (`SimHudWidget`) overlays the viewport while running. |
 | FR-SIM-14| RC transmitter input (USB joystick)                                      | ✅     | `RcBridge` reads a USB RC TX (Linux `js0`, e.g. Artery PPM / FlySky-via-PPM dongle), maps axes→channels (roll/pitch/throttle/yaw/arm) and streams CSV µs frames over a pty that `$VAYU_UART_RC_PATH` points at, so the firmware RC feeder flies from the sticks. Toggle in World→Simulation; enable before first Start. |
 
@@ -353,7 +353,7 @@ direction lands.
 |---|-------------------------------------------------------------------|--------------------------------------|
 | 2a| Mode switching (FR-TX-07).                                        | Blocks on firmware mode plumbing.    |
 | 2b| Sim wind / external force injection (FR-SIM-08).                  | Test surface for control hardening.  |
-| 2c| **✅ Log replay** (FR-LOG-05, FR-UI-19): **whole-GCS** read-only replay — every panel fed from the log via an `ITelemetrySource` seam + `ReplaySource`, with a crop/loop scrubber and `SessionMode` read-only gating. Design: [`roadmap/gcs-log-replay.md`](roadmap/gcs-log-replay.md). | `src/replay/` (`RecordSink`, `ReplaySource`), `ReplayBar`, `SessionState` |
+| 2c| **✅ Log replay** (FR-LOG-05, FR-UI-19): **whole-GCS** read-only replay — every panel fed from the log via an `ITelemetrySource` seam + `ReplaySource`, with a crop/loop scrubber and `SourceController` (FSM) read-only gating. Design: [`roadmap/gcs-log-replay.md`](roadmap/gcs-log-replay.md). | `src/replay/` (`RecordSink`, `ReplaySource`), `ReplayBar`, `SourceController` |
 | 2d| In-process firmware hot-reset (FR-SIM-07).                        | Requires `host_lifecycle.c` rework — non-trivial. |
 | 2e| Map / mission planner (FR-UI-18, FR-TX-06).                       | Defer until there's a real autonomy stack to talk to. |
 | 2f| Per-airframe profiles (FR-CFG-04).                                | Falls out of 1b + 1e.                |

@@ -10,9 +10,9 @@ the roadmap entry stays as the design rationale.
 |-----|-----------|--------|
 | [mockup-to-app.md](mockup-to-app.md) | Reconcile the UI mockup with the codebase; what's shipped vs genuinely new | 🗺️ overview |
 | [feature-matrix.md](feature-matrix.md) | Every mockup feature → tier · disposition · target class · effort | 🗺️ index |
-| [gcs-log-replay.md](gcs-log-replay.md) | Whole-GCS read-only log replay with a crop/loop scrubber | 🔴 planned (FR-LOG-05 / FR-UI-19) |
-| [command-registry-and-shortcuts.md](command-registry-and-shortcuts.md) | Command registry, editable shortcuts, palette, recent-views switcher, About/Docs | 🟡 planned (FR-UX-19–23, Phase-1 1g) |
-| [gcs-source-state-machine.md](gcs-source-state-machine.md) | Telemetry-source FSM (Idle/FC/Sim/Autotune/Replay) unifying sources behind `engine.setSource()` | 🔴 planned (Phase C) |
+| [gcs-log-replay.md](gcs-log-replay.md) | Whole-GCS read-only log replay with a crop/loop scrubber | ✅ shipped (FR-LOG-05 / FR-UI-19) |
+| [command-registry-and-shortcuts.md](command-registry-and-shortcuts.md) | Command registry, editable shortcuts, palette, recent-views switcher, About/Docs | ✅ shipped (FR-UX-19–23, Phase-1 1g) |
+| [gcs-source-state-machine.md](gcs-source-state-machine.md) | Telemetry-source FSM (Idle/FC/Sim/Autotune/Replay) unifying sources behind `engine.setSource()` | ✅ shipped (Phase C) |
 | [gcs-live-rig-tuning.md](gcs-live-rig-tuning.md) | Reuse the autotuner to tune a real drone in a rig over the live link | 🔬 study |
 | [gcs-live-rig-tuning-prior-art.md](gcs-live-rig-tuning-prior-art.md) | Engineer's teardown of comparable autotune systems (PX4/ArduPilot/CIFER/MathWorks/SafeOpt) | 🔬 study |
 | [gcs-live-rig-tuning-prior-art-deep.md](gcs-live-rig-tuning-prior-art-deep.md) | From-core deep dive per system: control-theory background, block/flow/sequence diagrams, signal sketches | 🔬 study |

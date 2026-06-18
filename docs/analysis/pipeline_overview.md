@@ -2,6 +2,15 @@
 
 This document outlines the high-frequency data processing pipeline for the VaiOS flight controller, starting from the hardware timer interrupt and ending with the consumption by flight control and telemetry tasks.
 
+> **Updated for the post-refactor IMU path.** The single `_imu_fifo` SPSC ring
+> (drained via `imu_buffer_peek*` by a monolithic `control_task`) is gone. The
+> BMX160 reader now **fans out** each sample with
+> `imu_queue_{telemetry,control,calibration}_push` (`src/sensor/imu_buffer.c`) to
+> independent SPSC queues, and **sensor fusion moved out of the driver** into the
+> dedicated `attitude_task` (`src/est/attitude_task.c`, `src/est/sensor_fusion.c`),
+> which publishes attitude to its own `attitude_queue_{telemetry,control}` queues.
+> See also `docs/analysis/firmware-control.md` for the control split.
+
 ## Pipeline Architecture
 
 The pipeline is designed for high-frequency (1kHz) sensor acquisition with asynchronous I2C/DMA transfers to minimize CPU blocking.
@@ -23,28 +32,35 @@ graph TD
         semaDMA -->|"Take"| Process[bmx160_process_data]
     end
 
-    subgraph "Data Processing Details"
+    subgraph "Data Processing Details (driver)"
         Process --> RAW[Raw Extraction]
         RAW --> CONV[Unit Conversion & LPF]
         CONV --> CALIB[Bias & Scale Calibration]
-        CALIB --> FUSION[Sensor Fusion: Mahony/Comp]
-        FUSION -->|"Update"| Orient[(_bmx_orientation)]
-        CALIB -->|"Push"| FIFO[IMU FIFO Buffer]
+        CALIB -->|"imu_queue_telemetry_push"| QT[(imu_telemetry queue)]
+        CALIB -->|"imu_queue_control_push"| QC[(imu_control queue)]
+        CALIB -->|"imu_queue_calibration_push"| QK[(imu_calibration queue)]
+    end
+
+    subgraph "Estimation (src/est)"
+        QC -->|"imu_queue_attitude_wait/pop"| ATT[attitude_task]
+        ATT -->|"sensor_fusion: Mahony/EKF"| FUSE[fused attitude]
+        FUSE -->|"attitude_queue_telemetry_push"| AQT[(attitude_telemetry queue)]
+        FUSE -->|"attitude_queue_control_push"| AQC[(attitude_control queue)]
     end
 
     subgraph "Consumers"
-        FIFO -->|"imu_buffer_peek"| Control[control_task]
-        FIFO -->|"imu_buffer_peek_all"| Telemetry[imu_telemetry_task]
-        Orient -->|"bmx160_get_attitude"| ControlAngle[Angle Control Loop]
-        Orient -->|"bmx160_get_attitude"| TelemetryAtt[Attitude Telemetry]
+        QC -->|"control pop"| RateLoop[angle_rate_controller_task]
+        AQC -->|"attitude pop"| AngleLoop[angle_controller_task]
+        QT -->|"telemetry pop"| Telemetry[imu_telemetry_task]
+        AQT -->|"attitude pop"| TelemetryAtt[Attitude Telemetry]
     end
 
     classDef isr fill:#f96,stroke:#333,stroke-width:2px;
     classDef task fill:#69f,stroke:#333,stroke-width:2px;
     classDef sync fill:#eee,stroke:#333,stroke-dasharray: 5 5;
     class TIM5,ISR,CB,DMA_ISR,DMA_CB isr;
-    class TaskInit,Process,Control,Telemetry task;
-    class semaTimer,semaDMA,FIFO sync;
+    class TaskInit,Process,ATT,RateLoop,AngleLoop,Telemetry task;
+    class semaTimer,semaDMA,QT,QC,QK,AQT,AQC sync;
 ```
 
 ## Synchronization Primitives
@@ -53,14 +69,19 @@ graph TD
 | :---------------------- | :--------------- | :-------------- | :------------ | :-------------------------------------------------------------------- |
 | `bmx160_timer_sema`     | Binary Semaphore | Timer ISR       | Reader Task   | Triggers the 1kHz acquisition cycle.                                  |
 | `bmx160_dma_sema`       | Binary Semaphore | DMA ISR         | Reader Task   | Signals that raw I2C data is ready in the buffer.                     |
-| `bmx160_attitude_mutex` | Mutex            | Reader Task     | Consumers     | Protects the `_bmx_orientation` quaternion during fusion update/read. |
-| `_imu_fifo`             | SPSC FIFO        | Reader Task     | Consumers     | High-speed lock-free buffer for processed IMU samples.                |
+| `imu_*` / `attitude_*` SPSC queues | SPSC FIFO | Reader Task / `attitude_task` | Consumers | Per-consumer lock-free fan-out (see below); `SPSC_POLICY_OVERWRITE`. |
+
+> The old single `_imu_fifo` SPSC ring is replaced by a **fan-out** in
+> `src/sensor/imu_buffer.c`: separate `_imu_{telemetry,control,calibration}_queue`
+> rings for IMU samples and `_attitude_{telemetry,control}_queue` rings for fused
+> attitude, each its own producer→consumer pair (`OVERWRITE` policy so a slow
+> consumer never blocks the producer).
 
 ## Data Buffers
 
 1.  **`_bmx_dma_rx_buffer` (30 bytes)**: Memory-aligned buffer used as the direct destination for DMA transfers from the BMX160 sensor.
 2.  **`_bmx_data` (`bmx160_all_reading_t`)**: Internal task structure where raw data is parsed, converted to SI units, and filtered.
-3.  **`_imu_buffer_data`**: The backing array for the SPSC FIFO, sized to `IMU_BUFFER_SIZE` (typically 10-20 samples) to allow consumers to process bursts or averaged data.
+3.  **`_imu_{telemetry,control,calibration}_queue`** and **`_attitude_{telemetry,control}_queue`** (`src/sensor/imu_buffer.c`): the per-consumer SPSC ring backing arrays, each sized for its consumer's burst needs.
 
 ## Processing Flow
 
@@ -69,19 +90,17 @@ graph TD
 3.  **Filtering**:
     - Low Pass Filters (LPF) are applied to Accel and Gyro to remove high-frequency vibration noise.
     - Magnetometer data undergoes Hard-Iron bias removal and Soft-Iron scaling.
-4.  **Sensor Fusion**:
-    - Processes Accel, Gyro, and Mag into a stable Attitude (Quaternion/Euler).
-    - Supports both **Mahony** and **Complementary** filters.
-5.  **Buffering**: The fully processed `bmx160_all_reading_t` is pushed to the global `imu_buffer`.
+4.  **Fan-out**: the fully processed `bmx160_all_reading_t` is pushed (driver context) to the telemetry, control, and (when calibrating) calibration IMU queues via `imu_queue_{telemetry,control,calibration}_push`.
+5.  **Sensor Fusion (moved to `src/est`)**: `attitude_task` (`src/est/attitude_task.c`) waits on the control IMU queue, runs fusion (`src/est/sensor_fusion.c`, Mahony / EKF), stamps the result, and pushes it to `attitude_queue_{telemetry,control}`.
 
 ## Consumers
 
-### 1. Flight Control (`control_task`)
+### 1. Flight Control
 
-- **Rate Loop**: Peeks the latest gyro samples from `imu_buffer` for the PID inner loop.
-- **Angle Loop**: Calls `bmx160_get_attitude` to get the fused orientation for the PID outer loop.
+- **Rate Loop** (`angle_rate_controller_task`): pops the latest gyro samples from the IMU **control** queue for the PID inner loop.
+- **Angle Loop** (`angle_controller_task`): pops the fused orientation from the **attitude control** queue for the PID outer loop.
 
 ### 2. Telemetry (`imu_telemetry_task`)
 
-- **High-Rate Data**: Drains the `imu_buffer` using `imu_buffer_peek_all` to transmit high-fidelity IMU data to the Ground Control Station (GCS).
-- **Attitude**: Transmits the current Euler angles (Roll, Pitch, Yaw) at a lower frequency (e.g., 10-50Hz).
+- **High-Rate Data**: drains the IMU **telemetry** queue to transmit high-fidelity IMU data to the Ground Control Station (GCS).
+- **Attitude**: transmits the fused Euler angles (Roll, Pitch, Yaw) from the **attitude telemetry** queue at a lower frequency (e.g., 10-50Hz).

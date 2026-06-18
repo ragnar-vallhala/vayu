@@ -11,11 +11,11 @@ Effort: S (days) · M (1–2 wk) · L (3–4 wk) · XL (5+ wk).
 
 | Feature (mockup) | Tier | Disposition | Real class / target | Effort |
 |---|---|---|---|---|
-| **Whole-GCS log replay + crop/loop** | 🔴 | **new** | `src/replay/`, `ITelemetrySource`, `ReplayBar` — see [gcs-log-replay.md](gcs-log-replay.md) | XL |
-| **Editable shortcuts + command registry** (FR-UX-19) | 🔴/🟡 | **new** | `core/CommandRegistry`, `ShortcutsManager`, `ShortcutsEditorDialog` — see [command-registry-and-shortcuts.md](command-registry-and-shortcuts.md) | L |
-| **Command palette** (FR-UX-20) | 🟡 | **new** | `CommandPalette` (same doc) | M |
-| **Recent-views (`Ctrl+`` `) switcher** (FR-UX-21) | 🟡 | **new** | `ViewHistory` + `RecentViewsOverlay` (same doc) | M |
-| **Documentation + About** (FR-UX-22/23) | 🟢 | **new** | `AboutDialog` + `QDesktopServices` | S |
+| **Whole-GCS log replay + crop/loop** | 🔴 | **shipped** | `src/replay/`, `ITelemetrySource`, `ReplayBar` — see [gcs-log-replay.md](gcs-log-replay.md) | XL |
+| **Editable shortcuts + command registry** (FR-UX-19) | 🔴/🟡 | **shipped** | `core/CommandRegistry`, `ShortcutsManager`, `ShortcutsEditorDialog` — see [command-registry-and-shortcuts.md](command-registry-and-shortcuts.md) | L |
+| **Command palette** (FR-UX-20) | 🟡 | **shipped** | `CommandPalette` (same doc) | M |
+| **Recent-views (`Ctrl+Tab`) switcher** (FR-UX-21) | 🟡 | **shipped** | `ViewHistory` + `RecentViewsOverlay` (same doc) | M |
+| **Documentation + About** (FR-UX-22/23) | 🟢 | **shipped** | `AboutDialog` + `QDesktopServices` | S |
 | SITL FPV / camera render | 🔴 | enhance | `SimRendererWidget` (render infra exists; add cam views) | L |
 | Sensor fault / noise injection | 🔴 | enhance | `vsim_d` sensor model + `vsim_ctl` opcode; `WorldEditorWidget` (FR-SIM-04) | L |
 | RC bridge into SITL | 🔴 | enhance | new `vsim_ctl` input path + `SimulatorWidget` | M |

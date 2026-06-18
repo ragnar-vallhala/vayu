@@ -1,55 +1,32 @@
-# Telemetry & Logging Protocol Specification (NAVLINK 1.0)
+# Telemetry & Logging Protocol Specification
 
-**Document Version:** 1.0
+> Updated for NavLink v2. Authoritative wire spec: navlink/dialect.json + docs/analysis/navlink-v2-spec.md.
 
-**Date:** 06/03/2026
-
-**Purpose:** This document specifies the telemetry and logging protocol for the Vayu flight controller.
+**Purpose:** This document indexes the telemetry and logging messages for the Vayu flight controller.
 
 ---
 
-## Packet Structure
+## Wire Frame
 
-The packets sent from and recieved by Vayu is of following standard format:
+The retired NAVLINK 1.0 frame (8-byte header with a 4-bit packet type and a trailing CRC32) has been removed. The firmware now emits **NavLink v2 exclusively**: each message is framed by msgid with a `CRC_EXTRA`-seeded CRC-16. The byte-exact frame layout, integrity scheme, and field encodings are defined normatively in:
 
-```mermaid
-packet-beta
-    0-7: "Sync (0x56) [0:7]"
-    8-11: "Protocol Version [8:11]"
-    12-15: "Packet Type [12:15]"
-    16-23: "Length (N) [16:23]"
-    24-31: "Device ID [24:31]"
-    32-63: "Timestamp [32:63]"
-    64-127: "Generic Payload [64:NR]"
-    128-159: "CRC32 [128:NR+32]"
-```
+- `../../navlink/dialect.json` — the message dialect (single source of truth)
+- `../analysis/navlink-v2-spec.md` — the wire spec
 
-**Sync** is used to synchronize the receiver with the sender. It is a 8-bit value that is used to identify the sync. Only value it has is 0x56.
-
-**Protocol Version** is used to identify the protocol version. It is a 4-bit value that is used to identify the protocol version. This will start from 1 and will increment by 1 for each new version till 0xE. 0xF is reserved for future use.
-
-**Packet Type** is used to identify the packet type. It is a 4-bit value that is used to identify the packet type. So current model supports 16 different packet types.
-
-**Length** is used to identify the length of the payload. It is a 8-bit value that is used to identify the length of the payload. 0x0 means the payload is empty and it's just a header only packet.
-
-**Device ID** is used to identify the device ID. It is a 8-bit value that is used to identify the device ID. The Navigator assigns this device id when devices connect for the first time to it. It is dynamic.
-
-**Timestamp** is used to identify the timestamp. It is a 32-bit value that is used to identify the timestamp. The Navigator sends the timestamp when device is connected and then sync it will 1Hz update cycle.
-
-**Payload** is the generic payload. It is a variable length field that is used to identify the payload. The length of the payload is determined by the length field.
-
-**CRC32** is used to identify the CRC32. This is CRC value for all the above bytes.
+The pages below describe the per-message semantics; consult the spec/dialect for the on-wire bytes.
 
 ---
 
-## Packet Types
+## Messages
 
-- [Heartbeat](heartbeat.md) (0x0)
-- [IMU Data](IMU_data.md) (0x1, 0x2)
-- [Command](command.md) (0x3)
-- [Attitude Data](attitude.md) (0x4)
-- [RC Data](rc_channels.md) (0x5)
-- [System Status](system_status.md) (0x6)
+| Page                            | v2 message (msgid)                                                                   | v1 type |
+| ------------------------------- | ------------------------------------------------------------------------------------ | ------- |
+| [Heartbeat](heartbeat.md)       | `HEARTBEAT` (0)                                                                       | 0x0     |
+| [IMU Data](IMU_data.md)         | `IMU_RAW` (1024), `IMU_COMPRESSED` (1025)                                             | 0x1/0x2 |
+| [Command](command.md)           | `CMD_*` (8192–8198), acks via `COMMAND_ACK` (5)                                       | 0x3     |
+| [Attitude Data](attitude.md)    | `ATTITUDE_EULER` (1026)                                                               | 0x4     |
+| [RC Data](rc_channels.md)       | `RC_CHANNELS` (1028)                                                                  | 0x5     |
+| [System Status](system_status.md) | `SYSTEM_HEALTH` (2), `FLIGHT_MODE` (3), `CONTROL_TRACE` (1030), `EST_PERF` (1033), `CALIBRATION_STATUS` (12320) | 0x6     |
 
 ---
 
@@ -59,3 +36,4 @@ packet-beta
 | ---------- | -------------------- | ---------------------------------- |
 | 06/03/2026 | Ashutosh Vishwakarma | Initial version                    |
 | 11/03/2026 | Antigravity          | Added Attitude and RC Data packets |
+| 06/2026    | —                    | Migrated to NavLink v2             |

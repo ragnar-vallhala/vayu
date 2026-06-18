@@ -1,16 +1,31 @@
 # Roadmap — firmware ↔ GCS sim integration
 
-**Goal:** a stable, reproducible SITL loop you can **arm and fly** inside
-the Navigator GCS: `vsim_d` physics ↔ firmware (`vayu_sitl` /
-`libvayu_sitl_core`) ↔ Navigator (telemetry, render, RC, commands).
+> **Largely shipped.** The headline goal — a stable **arm → fly** SITL loop
+> (clean takeoff, altitude-hold, waypoint) — is delivered via the **headless SDK**
+> (`software/headless-sdk/`) and the daemonised in-app sim. Living record:
+> `docs/changelog/gcs-in-app-simulator-and-world-collision.md` and the headless
+> SDK's own `README.md`/`PLAN.md`. The referenced `build/HANDOFF.md` no longer
+> exists, and the in-process `vayu_sitl_start` / `vsim_iface` UART2-callback notes
+> below describe the pre-daemon embedding (since replaced by `vsim_d` spawned by
+> `SimWorker`). The completed items are collapsed; only the **genuinely-open**
+> items (#5 RC-calibration wizard, #6 `MAX_ANGLE_CUTOFF` provenance) remain live.
 
-**Architecture:** Navigator ⇄ firmware over UART2 NavLink (telemetry +
-commands); firmware ⇄ `vsim_d` over `/tmp/vsim_{pwm,imu,pose}` FIFOs;
-Navigator drives RC via a pty (`$VAYU_UART_RC_PATH`) and configures the
-airframe via the `vsim_d` ctl channel. See
-[`../../build/HANDOFF.md`](../../build/HANDOFF.md).
+**Goal (delivered):** a stable, reproducible SITL loop you can **arm and fly**:
+`vsim_d` physics ↔ firmware ↔ Navigator (telemetry, render, RC, commands).
+The current wire is the standalone `vsim_d` daemon over
+`/tmp/vsim_{pwm,imu,pose,ctl}` FIFOs spawned by `software/src/vsim/SimWorker`.
 
 Status: ⬜ todo · 🟡 in progress · ✅ done · ⛔ blocked
+
+## Open items
+
+| # | Item | Owner | Status | Notes |
+|---|------|-------|--------|-------|
+| 5 | RC calibration wizard | GCS | ⬜ | auto-detect axes/direction; ends manual-mapping friction. |
+| 6 | Verify `MAX_ANGLE_CUTOFF` (45→70) provenance | firmware | ⬜ | Long-dangling uncommitted tuning of the angle failsafe; confirm intended before committing. |
+
+<details>
+<summary>Completed integration pass (historical — references the pre-daemon in-process embedding and the removed build/HANDOFF.md)</summary>
 
 ## Done (this integration pass)
 - ✅ Firmware ↔ GCS **bidirectional NavLink** over the UART2 pty: telemetry
@@ -37,9 +52,9 @@ Status: ⬜ todo · 🟡 in progress · ✅ done · ⛔ blocked
 | 2 | **RC timing vs COMM-RC-002** | firmware | ⬜ | HANDOFF §5.4 — `RcBridge` is 50 Hz (20 ms); confirm it never false-trips the 100 ms `rc_loss` / 1.0 s failsafe (incl. jitter). |
 | 3 | **Arm → fly bring-up** (single clean instance) | integration | 🟡 (#1 unblocked) | HANDOFF §5.2 — with valid IMU + software-arm + throttle, validate stable hover. **Restart-freeze fixed**: on the 2nd Start the pose FIFO file is a leftover, so `SimWorker::openFifos` returned before `vsim_d` opened it as a writer; the read loop got `read()==0` (writer-less EOF), mistook it for "daemon died", and `killDaemon()`'d the just-spawned `vsim_d` — leaving zero `vsim_d`, frozen pose, and the imu feeder stuck in `reopening` (frozen IMU, σ=0). Read loop now tolerates startup EOF until the producer connects (5 s grace). **Operational gotcha**: in-app SITL telemetry reaches the GCS via the `vsim_iface` UART2 callback (no serial needed), but the ARM button writes to `m_serial` (the "Connect" QSerialPort). The SITL firmware's command RX is its **pty** (`cat /tmp/vayu_uart2_pty` → `/dev/pts/N`), driven by `host_navhal`'s `uart2_rx_thread` → `uart2_packet_recv_callback`. So you must point "Connect" at that pty — connecting to `ttyUSB0` (or leaving it unconnected) means `CMD_ARM` never reaches the firmware. UX fix worth doing: auto-connect / route the ARM command through the iface so the two channels are unified. |
 | 4 | **Control tuning vs airframe MoI/mass** | firmware (`src/control`) | ⬜ | HANDOFF §5.2 — if it tumbles when armed, retune rate/angle PIDs against the configured inertia. |
-| 5 | RC calibration wizard | GCS | ⬜ | HANDOFF §5.3 — auto-detect axes/direction; ends manual-mapping friction. |
-| 6 | Verify `MAX_ANGLE_CUTOFF` (45→70) provenance | firmware | ⬜ | Long-dangling uncommitted tuning of the angle failsafe; confirm intended before committing. |
 | 7 | **Wire ARM button → `CMD_ARM`** | GCS | ✅ | USB-HID gives only 4 channels (no arm switch). fw accepts `CMD_ARM`/`CMD_DISARM`; `MainToolbar` button now sends them via `MainWindow::onArmClicked`, enabled on connect, label follows FC telemetry state. |
+
+(Items 5 and 6 are the remaining open work — promoted to the "Open items" table above.)
 
 ## Contract: GCS software-arm (`CMD_ARM` / `CMD_DISARM`) — DONE
 The firmware accepts two NavLink commands over the UART2 command channel.
@@ -78,3 +93,5 @@ the globals.
 
 ## Critical path
 #1 (clean IMU) → #3 (arm→fly) → #4 (tuning if divergent). #2 in parallel.
+
+</details>

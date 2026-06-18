@@ -1,9 +1,13 @@
 # Whole-GCS log replay with a crop/loop scrubber
 
-Status: 🔴 planned — structural. Refines/widens **FR-LOG-05** (record `.bin`) and
-**FR-UI-19** (replay), the `src/replay/` slot from Phase-2 `2c` in
-[`../requirements.md`](../requirements.md). Effort: **XL** (5+ wk), gated on the
-recording format landing first.
+Status: ✅ shipped — `src/replay/RecordSink.{h,cpp}` + `ReplaySource.{h,cpp}` and the
+`ui/widgets/ReplayBar.{h,cpp}` scrubber are live. Refines/widens **FR-LOG-05** (record
+`.bin`) and **FR-UI-19** (replay), the `src/replay/` slot from Phase-2 `2c` in
+[`../requirements.md`](../requirements.md). The body below remains as design rationale.
+
+> As-built note: the read-only / source authority is the `SourceController` FSM (see
+> [`gcs-source-state-machine.md`](gcs-source-state-machine.md)), **not** the 2-state
+> `SessionMode` this doc's Architecture section assumed.
 
 ## Context
 

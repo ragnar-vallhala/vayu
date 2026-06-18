@@ -17,6 +17,13 @@ abstract: |
   vehicle needs next (GPS, battery, position, ESC telemetry, and more).
 ---
 
+> **IMPLEMENTED.** The v2 redesign proposed here shipped — the wire was merged to
+> pure v2. The **live normative spec is `docs/analysis/navlink-v2-spec.md` +
+> `navlink/dialect.json`**; consult those for the as-built dialect, msgids, and
+> codec. This file is retained as the design rationale (especially §2–3 on v1's
+> limitations). The §9 migration plan is a record of how the rollout was framed,
+> not a live to-do.
+
 ## 1. Executive Summary
 
 NavLink v1 is a compact, CRC-protected, byte-framed link that does exactly
@@ -720,7 +727,14 @@ flight — is never close to its ceiling.
 
 ---
 
-## 9. Migration Plan (v1 ↔ v2 coexistence)
+## 9. Migration Plan (v1 ↔ v2 coexistence) — DELIVERED
+
+> **Delivered.** This phased coexistence plan ran to completion: the wire is now
+> **pure v2**. `navlink/dialect.json` is the single source of truth, the codec is
+> generated, the v1 path was retired, and the as-built msgids (e.g.
+> `ATTITUDE_EULER` = **1026**, per §10.2) live in
+> `docs/analysis/navlink-v2-spec.md`. The phase-by-phase text below is kept as a
+> record of how the migration was sequenced.
 
 The two protocols share one UART **and the same `0x56` sync byte**. A **dual
 parser** demultiplexes them on the **version byte** (offset 1): every v1 frame
@@ -753,7 +767,7 @@ message by message with no flag day.
   {
     "messages": [
       {
-        "msgid": 52, "name": "ATTITUDE_EULER", "replaces": "0x4",
+        "msgid": 1026, "name": "ATTITUDE_EULER", "replaces": "0x4",
         "doc": "Euler attitude + body rates, NED.",
         "fields": [
           { "index": 0, "name": "roll",       "type": "f32", "unit": "rad", "doc": "NED roll" },

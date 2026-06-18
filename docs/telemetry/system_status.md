@@ -1,72 +1,50 @@
-# System Status Packet (0x6) [FC → GCS]
+# System Status [FC → GCS]
 
-The **System Status** packet is sent **Drone → GCS** to report structured events, sensor health, and operator instructions.
+> Updated for NavLink v2. Authoritative wire spec: navlink/dialect.json + docs/analysis/navlink-v2-spec.md.
 
----
+The FC reports structured events, sensor health, and operator instructions to the GCS. The v1 single `0x6` container (an `origin` byte + a padded `values[n]` float array) has been retired. In NavLink v2 each former "origin" is its **own message**:
 
-## Wire Format
+| Former v1 origin              | v2 message (msgid)            |
+| ----------------------------- | ----------------------------- |
+| `SYSTEM_ORIGIN_HEALTH`        | `SYSTEM_HEALTH` (2)           |
+| `SYSTEM_ORIGIN_SYS_STATE`     | `FLIGHT_MODE` (3)             |
+| `SYSTEM_ORIGIN_PID_ERROR`     | `CONTROL_TRACE` (1030)        |
+| (estimator perf)              | `EST_PERF` (1033)             |
+| `SYSTEM_ORIGIN_CALIBRATION`   | `CALIBRATION_STATUS` (12320)  |
 
-```mermaid
-packet-beta
-    0-7: "Sync (0x56) [0:7]"
-    8-11: "Protocol Version [8:11]"
-    12-15: "Packet Type (0x6) [12:15]"
-    16-23: "Length (2+n*4) [16:23]"
-    24-31: "Device ID [24:31]"
-    32-63: "Timestamp [32:63]"
-    64-71: "origin [64:71]"
-    72-79: "n [72:79]"
-    80-175: "values[n] (float32 each) [80:80+n*32-1]"
-    176-207: "CRC32 [NR-32:NR]"
-```
-
-**Note:** If any process want to send any other format for args it has to pad the values[n] with 4 byte alignment. Extra bytes are to be added at the end.
+For the exact payload fields of each message, see `../../navlink/dialect.json` and `../analysis/navlink-v2-spec.md`.
 
 ---
 
-## Origins (`system_status_origin_t`)
+## CALIBRATION_STATUS (12320)
 
-| ID   | Name                        | Description                         |
-| ---- | --------------------------- | ----------------------------------- |
-| 0x01 | `SYSTEM_ORIGIN_CALIBRATION` | Calibration routine progress/result |
-| 0x02 | `SYSTEM_ORIGIN_HEALTH`      | System health / sensor diagnostics  |
-| 0x03 | `SYSTEM_ORIGIN_MOTOR`       | Motor / ESC status                  |
-| 0x04 | `SYSTEM_ORIGIN_SYS_STATE`   | Global system state machine status  |
-| 0x05 | `SYSTEM_ORIGIN_PID_ERROR`   | PID Controller errors               |
+This message provides real-time feedback and **operator instructions** during sensor calibration. Payload:
 
----
+| Field      | Type      | Description                                            |
+| ---------- | --------- | ----------------------------------------------------- |
+| `step`     | enum `calib_step` | Current calibration step (see table below).   |
+| `progress` | u8        | Progress percentage, 0–100.                           |
+| `coverage` | f32 × 3   | Live mag axis coverage (range_x, range_y, range_z), valid for `MAG_AXIS_COVERAGE`. |
 
-## Values Layout by Origin
+### Calibration steps (`calib_step`)
 
-### `SYSTEM_ORIGIN_CALIBRATION` (0x01)
+| Value | Mnemonic            | Description                                              |
+| ----: | :------------------ | :------------------------------------------------------ |
+| 0     | `PROGRESS`          | Progress update (`progress` is the percentage).         |
+| 1     | `NOSE_UP`           | Place drone nose up (X axis aligned with +g).           |
+| 2     | `NOSE_DOWN`         | Place drone nose down (X axis aligned with -g).         |
+| 3     | `RIGHT_DOWN`        | Right side down (Y axis aligned with +g).               |
+| 4     | `LEFT_DOWN`         | Left side down (Y axis aligned with -g).                |
+| 5     | `UPRIGHT`           | Upright (Z axis aligned with +g).                       |
+| 6     | `UPSIDE_DOWN`       | Upside down (Z axis aligned with -g).                   |
+| 7     | `FREE_ROT`          | Rotate freely in all directions (mag calibration).      |
+| 8     | `MAG_AXIS_COVERAGE` | Live mag coverage (`coverage` = range_x, range_y, range_z). |
 
-This packet provides real-time feedback and **operator instructions** during sensor calibration procedures. It informs the GCS of the current progress or directs the user to position the drone in a specific orientation.
+> Authoritative mapping: the `calib_step` enum in `../../navlink/dialect.json`.
 
-#### Payload Format
+### Expected Measurement (Developer Reference)
 
-| Byte | Field         | Type    | Description                                         |
-| :--- | :------------ | :------ | :-------------------------------------------------- |
-| 0    | `update_type` | `uint8` | Calibration update type (see table below).          |
-| 1-4  | `data`        | `float` | Context-specific value (e.g., progress percentage). |
-
-#### Update Types
-
-| Value  | Mnemonic                   | Description                                           |
-| :----- | :------------------------- | :---------------------------------------------------- |
-| `0x00` | `CALIB_UPDATE_PROGRESS`    | Progress update (data = percentage 0.0–100.0).        |
-| `0x01` | `CALIB_UPDATE_NOSE_UP`     | Place drone nose up (X axis aligned with +g).         |
-| `0x02` | `CALIB_UPDATE_NOSE_DOWN`   | Place drone nose down (X axis aligned with -g).       |
-| `0x03` | `CALIB_UPDATE_RIGHT_DOWN`  | Right side down (Y axis aligned with +g).             |
-| `0x04` | `CALIB_UPDATE_LEFT_DOWN`   | Left side down (Y axis aligned with -g).              |
-| `0x05` | `CALIB_UPDATE_UPRIGHT`     | Upright (Z axis aligned with +g).                     |
-| `0x06` | `CALIB_UPDATE_UPSIDE_DOWN` | Upside down (Z axis aligned with -g).                 |
-| `0x07` | `CALIB_UPDATE_FREE_ROT`    | Rotate freely in all directions (Mag calibration).    |
-| `0x08` | `CALIB_MAG_READINGS`       | Mag readings for calibration.                         |
-| `0x09` | `CALIB_MAG_AXIS_COVERAGE`  | Live mag coverage (data = range_x, range_y, range_z). |
-
-#### Expected Measurement (Developer Reference)
-
-The following table lists the approximate accelerometer readings expected for each pose to help with debugging and validation.
+Approximate accelerometer readings expected for each pose, for debugging/validation:
 
 | Pose            | Expected accel (approx) |
 | :-------------- | :---------------------- |
@@ -77,24 +55,8 @@ The following table lists the approximate accelerometer readings expected for ea
 | **Upright**     | (0, 0, +g)              |
 | **Upside Down** | (0, 0, -g)              |
 
----
+## Changelog
 
-### `SYSTEM_ORIGIN_SYS_STATE` (0x04)
-
-Emitted whenever the system state machine transitions (e.g. INIT -> STANDBY).
-
-| Index | Meaning   | Units | Notes                               |
-| ----- | --------- | ----- | ----------------------------------- |
-| 0     | sys_state | enum  | See `state_machine/system_state.md` |
-
----
-
-### `SYSTEM_ORIGIN_PID_ERROR` (0x05)
-
-Emitted at a regular interval to provide the current rate loop PID errors.
-
-| Index | Meaning     | Units | Notes            |
-| ----- | ----------- | ----- | ---------------- |
-| 0     | roll_error  | deg/s | Roll rate error  |
-| 1     | pitch_error | deg/s | Pitch rate error |
-| 2     | yaw_error   | deg/s | Yaw rate error   |
+| Date    | Author | Description                                            |
+| ------- | ------ | ----------------------------------------------------- |
+| 06/2026 | —      | NavLink v2: split 0x6 container into per-origin messages |

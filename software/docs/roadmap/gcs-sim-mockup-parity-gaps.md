@@ -16,7 +16,7 @@ honest test for tuning).
 
 | # | Feature | Mockup (id / fn) | Implementation status |
 |---|---------|------------------|------------------------|
-| 1 | **Wind & turbulence** — steady wind N/E/D, gust amplitude/period, turbulence intensity, + live wind-speed/direction graphs | `windN/windE/windD`, `windGust`, `windPeriod`, `windTurb`, `gWindSpd/gWindDir`; `updateEnv()` (app.js ~708) | **Absent.** No wind in `tools/vsim/src/physics_core.cpp` or in `SimulatorWidget`. |
+| 1 | **Wind & turbulence** — steady wind N/E/D, gust amplitude/period, turbulence intensity, + live wind-speed/direction graphs | `windN/windE/windD`, `windGust`, `windPeriod`, `windTurb`, `gWindSpd/gWindDir`; `updateEnv()` (app.js ~708) | **✅ Shipped.** World-frame wind field (`wind_model.h`, `VSIM_CTL_SET_WIND`, `SimWorker::sendWind`, `WorldEditorWidget::windApplied`) — see [`../sim-fidelity/01-wind-turbulence.md`](../sim-fidelity/01-wind-turbulence.md). |
 | 2 | **Atmosphere / aero** — air density, ground effect (enable + height + live GE-factor graph), air-relative airspeed (+ graph) | `airDensity`, `geOn`, `geHeight`, `geFac`, `airSpd`, `gGndEff`, `gAirSpd` | **Absent.** Constant gravity only; no density, ground-effect, or airspeed. |
 | 3 | **GPS + GPS glitch** — GPS sensor + 4 glitch modes (single jump / constant offset / position-file / timed-CSV) | `gpsGlitchEn`, `gpsGlitchMode`, jump/offset N/E/D, file/CSV loaders | **Absent.** Fault checkbox is a **disabled placeholder** ("No GPS is simulated yet"). |
 | 4 | **Barometer sensor** | sensor list `buildSensors()` (app.js ~1294) | **Absent.** No pressure/altitude sensor sim. |
