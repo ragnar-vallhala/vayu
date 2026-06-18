@@ -30,6 +30,7 @@ _vhdr, _ctl = _vsim.vhdr, _vsim.ctl
 _reset, _world = _vsim.reset, _vsim.world
 _testrig, _wind, _world_mesh = _vsim.testrig, _vsim.wind, _vsim.world_mesh
 _read_gcs_conf, _geometry_frame = _config.read_gcs_conf, _config.geometry_frame
+_geometry_from_vveh = _config.geometry_from_vveh
 _build_world_mesh = _world_mod.build_world_mesh
 
 
@@ -41,7 +42,7 @@ class SitlLab:
     GCS_POSE = _paths.GCS_POSE          # GCS "Attach Ext" reads this
 
     def __init__(self, rig=False, wind=None, turb=0.0, rc_hz=50, gcs=False,
-                 attach=False, conf=None):
+                 attach=False, conf=None, vveh=None):
         # ALWAYS run vsim_d/vayu_sitl on PRIVATE (suffixed) FIFOs+advert: the
         # harness must be the sole reader of the pose FIFO and the FC pty. When
         # gcs=True it re-broadcasts pose to the DEFAULT /tmp/vsim_pose (a fan-out
@@ -89,7 +90,12 @@ class SitlLab:
         # resting so it now takes off upright instead of tumbling).
         os.write(self.ctl_fd, _reset(pos=(0, 0, -0.05)))
         # Match the GCS's selected vehicle + world (vveh/vworld) if given.
+        # An explicit vveh= overrides the conf as the geometry source (the .vveh
+        # is the authoritative frame definition; the conf can drift from it).
         g, w = _read_gcs_conf(conf) if conf else ({}, {})
+        if vveh:
+            g = _geometry_from_vveh(vveh)
+        self.geometry = g          # expose the pushed geometry for verification
         if g:
             os.write(self.ctl_fd, _geometry_frame(g))
         if w:

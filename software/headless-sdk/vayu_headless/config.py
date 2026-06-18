@@ -4,9 +4,36 @@ Reads the Navigator's QSettings .conf so a headless run flies the SAME
 vehicle/world (vveh/vworld) the operator has loaded. Carved verbatim from the
 original sitl_lab.py.
 """
+import json
 import struct
 
 from .transport import vsim
+
+
+def geometry_from_vveh(path):
+    r"""Parse a .vveh vehicle file into the same geometry dict shape
+    read_gcs_conf() produces (keys: mass, I0..I8, comX/Y/Z, m{i}_px/py/pz,
+    m{i}_spin/kt/km/wmax/tau). Lets a fidelity run pin the frame straight from
+    the authoritative .vveh file instead of the (possibly stale) GCS conf."""
+    d = json.load(open(path))
+    g = {"mass": d.get("mass", 1.0)}
+    for i, v in enumerate(d.get("inertia", [0.0] * 9)):
+        g["I%d" % i] = v
+    com = d.get("com", {})
+    g["comX"], g["comY"], g["comZ"] = com.get("x", 0.0), com.get("y", 0.0), \
+        com.get("z", 0.0)
+    for i, m in enumerate(d.get("motors", [])[:4]):
+        p, a = m.get("pos", {}), m.get("axis", {})
+        g["m%d_px" % i], g["m%d_py" % i], g["m%d_pz" % i] = \
+            p.get("x", 0.0), p.get("y", 0.0), p.get("z", 0.0)
+        g["m%d_ax" % i], g["m%d_ay" % i], g["m%d_az" % i] = \
+            a.get("x", 0.0), a.get("y", 0.0), a.get("z", 1.0)
+        g["m%d_spin" % i] = m.get("spin", 1)
+        g["m%d_kt" % i] = m.get("k_thrust", 1.522e-5)
+        g["m%d_km" % i] = m.get("k_moment", 2.44e-7)
+        g["m%d_wmax" % i] = m.get("max_omega", 1200.0)
+        g["m%d_tau" % i] = m.get("tau", 0.0125)
+    return g
 
 
 def read_gcs_conf(path):
