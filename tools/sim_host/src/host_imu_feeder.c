@@ -96,35 +96,56 @@ static int read_full(int fd, void *buf, size_t n) {
   return 1;
 }
 
+/* Give up after this many CONSECUTIVE rejected frames. A torn frame at
+ * connect time is recoverable (a handful of bad reads, then we realign),
+ * but a steady stream of rejects means a genuine wire mismatch -- a stale
+ * vsim_d built against a different VSIM_PROTO_VERSION, most often. Spinning
+ * on that forever is pointless; we surface it as a fatal error so the feeder
+ * thread exits with a clear diagnosis instead of looping. */
+#define MAX_CONSECUTIVE_BAD_FRAMES 64
+
 /* Read one framed IMU message from `fd`. Hunts forward byte-by-byte
  * until VSIM_MAGIC appears, then validates type/version/length and
- * copies the 76-byte payload into `out_payload`. Returns 1 on a good
- * frame, 0 on EOF (writer closed), -1 on a read error. */
+ * copies the 88-byte payload into `out_payload`. Returns 1 on a good
+ * frame, 0 on EOF (writer closed), -1 on a read error OR a persistent
+ * wire mismatch.
+ *
+ * Resync is an ITERATIVE loop, not recursion: a persistent mismatch
+ * (e.g. a stale producer at the wrong proto version) yields a bad frame
+ * on every read at ~1 kHz, and the old `return read_framed_imu(...)`
+ * tail-call recursed once per reject -- with no guaranteed TCO that
+ * overflows the stack and SIGSEGVs the host. Looping bounds the work to
+ * O(1) stack regardless of how long the mismatch lasts. */
 static int read_framed_imu(int fd, void *out_payload) {
   vsim_hdr_t hdr;
-  /* Magic resync: read until we land on the magic word. The producer
-   * (vsim_d) only writes whole frames, but if the reader connects
-   * mid-stream we may need to walk to the next boundary. */
+  unsigned bad = 0;
   while (1) {
-    int rc = read_full(fd, &hdr, sizeof(hdr));
-    if (rc <= 0)
-      return rc;
-    if (hdr.magic == VSIM_MAGIC)
-      break;
-    /* Shift one byte forward and refill. Slow but only runs at
-     * connect time / after a producer crash. */
-    memmove(&hdr, ((char *)&hdr) + 1, sizeof(hdr) - 1);
-    char extra;
-    rc = read_full(fd, &extra, 1);
-    if (rc <= 0)
-      return rc;
-    ((char *)&hdr)[sizeof(hdr) - 1] = extra;
-  }
+    /* Magic resync: read until we land on the magic word. The producer
+     * (vsim_d) only writes whole frames, but if the reader connects
+     * mid-stream we may need to walk to the next boundary. */
+    while (1) {
+      int rc = read_full(fd, &hdr, sizeof(hdr));
+      if (rc <= 0)
+        return rc;
+      if (hdr.magic == VSIM_MAGIC)
+        break;
+      /* Shift one byte forward and refill. Slow but only runs at
+       * connect time / after a producer crash. */
+      memmove(&hdr, ((char *)&hdr) + 1, sizeof(hdr) - 1);
+      char extra;
+      rc = read_full(fd, &extra, 1);
+      if (rc <= 0)
+        return rc;
+      ((char *)&hdr)[sizeof(hdr) - 1] = extra;
+    }
 
-  if (hdr.version != VSIM_PROTO_VERSION || hdr.type != VSIM_FRAME_IMU ||
-      hdr.payload_bytes != EXPECTED_FRAME_BYTES) {
-    /* Wire mismatch -- consume the body to stay aligned, then bail
-     * on the caller's next call. */
+    if (hdr.version == VSIM_PROTO_VERSION && hdr.type == VSIM_FRAME_IMU &&
+        hdr.payload_bytes == EXPECTED_FRAME_BYTES) {
+      return read_full(fd, out_payload, EXPECTED_FRAME_BYTES);
+    }
+
+    /* Wire mismatch -- consume the body to stay aligned, then try the
+     * next frame. */
     char drop[256];
     size_t remain = hdr.payload_bytes;
     while (remain > 0) {
@@ -134,14 +155,23 @@ static int read_framed_imu(int fd, void *out_payload) {
         return rc;
       remain -= chunk;
     }
-    fprintf(stderr,
-            "host_imu_feeder: bad frame "
-            "(ver=%u type=%u len=%u); resyncing\n",
-            hdr.version, hdr.type, hdr.payload_bytes);
-    return read_framed_imu(fd, out_payload);
+    /* Log the first reject and then rate-limit, so a persistent mismatch
+     * doesn't flood the log thousands of times a second before we bail. */
+    if (bad == 0)
+      fprintf(stderr,
+              "host_imu_feeder: bad frame "
+              "(ver=%u type=%u len=%u); resyncing "
+              "(expected ver=%u type=%u len=%u -- stale vsim_d?)\n",
+              hdr.version, hdr.type, hdr.payload_bytes, VSIM_PROTO_VERSION,
+              VSIM_FRAME_IMU, EXPECTED_FRAME_BYTES);
+    if (++bad >= MAX_CONSECUTIVE_BAD_FRAMES) {
+      fprintf(stderr,
+              "host_imu_feeder: %u consecutive bad frames -- giving up "
+              "(producer proto mismatch). Rebuild vsim_d.\n",
+              bad);
+      return -1;
+    }
   }
-
-  return read_full(fd, out_payload, EXPECTED_FRAME_BYTES);
 }
 
 static void *imu_feeder_thread(void *arg) {

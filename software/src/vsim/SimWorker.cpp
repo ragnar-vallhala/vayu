@@ -47,10 +47,17 @@ QString resolveBinary(const QString& override_path) {
 
     const QString app_dir = QCoreApplication::applicationDirPath();
     if (!app_dir.isEmpty()) {
-        const QString guess =
-            QDir(app_dir).absoluteFilePath("../../build_vsim/vsim_d");
-        if (QFileInfo(guess).isExecutable()) {
-            return QFileInfo(guess).canonicalFilePath();
+        // Prefer the canonical CMake build dir (tools/vsim/build); fall back to
+        // the legacy repo-root build_vsim. A stale binary in build_vsim built
+        // against an older VSIM_PROTO_VERSION desyncs the IMU feed -- the
+        // consumer rejects every frame ("bad frame ver=N"), so always pick the
+        // in-tree build first.
+        for (const char *rel : {"../../tools/vsim/build/vsim_d",
+                                "../../build_vsim/vsim_d"}) {
+            const QString guess = QDir(app_dir).absoluteFilePath(rel);
+            if (QFileInfo(guess).isExecutable()) {
+                return QFileInfo(guess).canonicalFilePath();
+            }
         }
     }
     return QStringLiteral("vsim_d");
