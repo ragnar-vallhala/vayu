@@ -13,11 +13,14 @@ live/replay and stays in lock-step with `dialect.json`.
   per message type.
 - `make_plots.py` — generate the figures (matplotlib) into `<archive>/plots/`.
   Mermaid diagrams are inline in the markdown (render on GitHub).
+- `build_pdf.py` — combine an archive's docs into one printable PDF (renders the
+  mermaid diagrams via `mmdc`, lays out with `pandoc`+`wkhtmltopdf`).
 
 ```sh
 python3 docs/log-analysis/parse_log.py /path/to/export.bin
 python3 docs/log-analysis/parse_log.py /path/to/export.bin --csv docs/log-analysis/csv
 python3 docs/log-analysis/make_plots.py docs/log-analysis/<archive-dir>
+python3 docs/log-analysis/build_pdf.py docs/log-analysis/<archive-dir>   # needs pandoc, wkhtmltopdf, mmdc
 ```
 
 Generated `csv/` dumps and stray `.bin` files are git-ignored (regenerable /

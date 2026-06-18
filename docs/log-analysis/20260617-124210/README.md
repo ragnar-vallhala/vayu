@@ -7,6 +7,7 @@ raw `.bin` is kept here so every number can be re-derived later.
 
 | file | what |
 |---|---|
+| [`20260617-124210-analysis.pdf`](20260617-124210-analysis.pdf) | **all docs below combined into one printable PDF** (with plots & diagrams) |
 | [`export-20260617-124210.bin`](export-20260617-124210.bin) | raw capture (source of truth) |
 | [`session-analysis.md`](session-analysis.md) | full session overview (link, flight timeline, controller, health) |
 | [`control-loop-analysis.md`](control-loop-analysis.md) | cascade controller: the throttle-only tilt, yaw spins, gains/authority |
@@ -23,6 +24,7 @@ everything from repo root:
 python3 docs/log-analysis/parse_log.py docs/log-analysis/20260617-124210/export-20260617-124210.bin
 python3 docs/log-analysis/parse_log.py docs/log-analysis/20260617-124210/export-20260617-124210.bin --csv docs/log-analysis/20260617-124210/csv
 python3 docs/log-analysis/make_plots.py docs/log-analysis/20260617-124210   # regenerate plots/
+python3 docs/log-analysis/build_pdf.py docs/log-analysis/20260617-124210    # rebuild the combined PDF
 ```
 
 ## Provenance & integrity
@@ -105,11 +107,11 @@ bench, not flight.
 - **FIFO drops are telemetry-only**: control FIFOs 0 drops; telemetry FIFOs pinned 100 %, drop counter saturated at u16 65535. Control path never starved.
 
 **Sensors & fusion** ([detail](sensor-analysis.md))
-- Gyro: bias < 0.1 °/s, noise σ 0.3–0.5 °/s — ✅ good.
-- Accel: +7.8 % scale error at rest (motors off); not vibration — ⚠ needs cal.
-- Mag: `|mag|` 22–92 µT (140 % of mean), hard-iron offsets to 25 µT — ❌ uncalibrated.
-- Temp: 35.6–37.1 °C, smooth — ✅ good.
-- **Fusion (EKF):** roll/pitch accurate (fused tilt 33.7° vs accel 37.5°, Δ −3.8°) — tilt is real ✅. **Yaw untrustworthy** (pinned by uncalibrated mag) ❌.
+- Gyro: bias < 0.1 °/s, noise σ 0.3–0.5 °/s — OK good.
+- Accel: +7.8 % scale error at rest (motors off); not vibration — WARN needs cal.
+- Mag: `|mag|` 22–92 µT (140 % of mean), hard-iron offsets to 25 µT — FAIL uncalibrated.
+- Temp: 35.6–37.1 °C, smooth — OK good.
+- **Fusion (EKF):** roll/pitch accurate (fused tilt 33.7° vs accel 37.5°, Δ −3.8°) — tilt is real OK. **Yaw untrustworthy** (pinned by uncalibrated mag) FAIL.
 - Units: gyro °/s, accel m/s², mag µT, temp °C.
 
 **Telemetry data-quality bugs (firmware-side)**

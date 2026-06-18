@@ -11,12 +11,12 @@ and `ImuCompressed` (delta) streams, `AttitudeEuler` (fused output), plus
 
 | Sensor / stage | Calibration / accuracy | Reporting | Verdict |
 |---|---|---|---|
-| **Gyroscope** | bias < 0.1 °/s, noise 0.3–0.5 °/s | clean | ✅ **good** |
-| **Accelerometer** | **+8 % scale error** at rest | clean | ⚠ **needs scale cal** |
-| **Magnetometer** | **uncalibrated** (hard+soft iron) | reported but unusable | ❌ **fail** |
-| **Temperature** | 35.6–37.1 °C, sane drift | clean | ✅ **good** |
-| **Fusion: roll/pitch** | matches gravity within −3.8° | body rates = 0 ⚠ | ✅ **trustworthy** |
-| **Fusion: yaw/heading** | fed by uncalibrated mag | — | ❌ **do not trust** |
+| **Gyroscope** | bias < 0.1 °/s, noise 0.3–0.5 °/s | clean | OK **good** |
+| **Accelerometer** | **+8 % scale error** at rest | clean | WARN **needs scale cal** |
+| **Magnetometer** | **uncalibrated** (hard+soft iron) | reported but unusable | FAIL **fail** |
+| **Temperature** | 35.6–37.1 °C, sane drift | clean | OK **good** |
+| **Fusion: roll/pitch** | matches gravity within −3.8° | body rates = 0 WARN | OK **trustworthy** |
+| **Fusion: yaw/heading** | fed by uncalibrated mag | — | FAIL **do not trust** |
 
 **No calibration was performed or captured in this session** — zero
 `CalibrationStatus` messages and `nav_state` never entered `CALIBRATING`. The
@@ -115,9 +115,9 @@ flowchart LR
       P[predict] --> U[correct]
     end
     AC["accel (gated |a|−g&lt;1.5)"] -->|"roll/pitch update"| EKF
-    MG["mag ⚠ uncalibrated"] -->|"yaw update (tilt-comp)"| EKF
-    EKF --> RP["roll, pitch ✅ accurate"]
-    EKF --> YW["yaw ❌ tainted by mag"]
+    MG["mag WARN uncalibrated"] -->|"yaw update (tilt-comp)"| EKF
+    EKF --> RP["roll, pitch OK accurate"]
+    EKF --> YW["yaw FAIL tainted by mag"]
     EKF -.->|"not output, =0 bug"| BR[body rates]
 ```
 

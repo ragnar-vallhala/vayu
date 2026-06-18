@@ -44,14 +44,14 @@ python3 docs/log-analysis/parse_log.py docs/log-analysis/20260617-124210/export-
 | ImuCompressed | 8,764 | 23.4 | delta IMU |
 | ControlTrace | 7,450 | 19.9 | PID/loop trace |
 | MotorTelemetry | 6,562 | 17.5 | 4 motors used |
-| AttitudeEuler | 3,520 | 9.4 | body rates **all 0** ⚠ |
+| AttitudeEuler | 3,520 | 9.4 | body rates **all 0** WARN |
 | RcChannels | 3,458 | 9.2 | 14 channels |
 | PerfTask | 3,173 | 8.5 | vaios scheduler |
 | Heartbeat | 1,078 | 2.9 | nav state |
 | PerfFifo | 1,062 | 2.8 | |
 | FlightMode | 1,015 | 2.7 | |
-| SystemHealth | 969 | 2.6 | `cpu_load` **all 0** ⚠ |
-| ImuRaw | 508 | 1.4 | `sample_time_us` **all 0** ⚠ |
+| SystemHealth | 969 | 2.6 | `cpu_load` **all 0** WARN |
+| ImuRaw | 508 | 1.4 | `sample_time_us` **all 0** WARN |
 | PerfGlobal | 372 | 1.0 | |
 | EstPerf | 284 | 0.8 | estimator timing |
 | TimeSync | 77 | 0.2 | |

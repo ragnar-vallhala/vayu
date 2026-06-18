@@ -93,15 +93,15 @@ tilted.
 
 ## What this log can and can't tell us about the motors
 
-- ✅ Mixer wiring/signs look correct: pitch/roll/yaw corrections map to the right
+- OK Mixer wiring/signs look correct: pitch/roll/yaw corrections map to the right
   motor groups with the right signs.
-- ✅ No saturation, no zero/stuck motor, no obvious dead actuator (all four span a
+- OK No saturation, no zero/stuck motor, no obvious dead actuator (all four span a
   sensible 0→0.6 range).
-- ⚠️ **Cannot assess thrust matching / motor health from a rig run.** Equal-command
+- WARN **Cannot assess thrust matching / motor health from a rig run.** Equal-command
   thrust symmetry needs an *unconstrained* hover (or a thrust-stand per motor).
   The differences here are control corrections, so a genuinely weak/strong motor
   would be masked by the loop.
-- ℹ️ `MotorTelemetry` carries 8 slots (`cmd[4..7]`); only 0–3 are used (quad).
+- Note: `MotorTelemetry` carries 8 slots (`cmd[4..7]`); only 0–3 are used (quad).
 
 ## Recommendations
 

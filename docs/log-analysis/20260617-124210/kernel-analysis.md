@@ -23,14 +23,14 @@ rate, so its FIFOs overwrite. Same producers, two fan-outs, opposite outcomes:
 
 ```mermaid
 flowchart LR
-    IMU["imu_read<br/>2 kHz"] -->|IMU_CONTROL ✅0| RATE[rate loop]
-    IMU -->|IMU_TELEMETRY ⚠65535| TLM["telemetry<br/>→ downlink"]
-    EST["attitude/EKF<br/>250 Hz"] -->|ATTITUDE_CONTROL ✅0| ANG[angle loop]
-    EST -->|ATTITUDE_TELEMETRY ⚠65535| TLM
-    RCRX[rc_ibus] -->|RC_CONTROL ✅0| ANG
-    RCRX -->|RC_TELEMETRY ⚠54921| TLM
+    IMU["imu_read<br/>2 kHz"] -->|IMU_CONTROL 0 drops| RATE[rate loop]
+    IMU -->|IMU_TELEMETRY 65535| TLM["telemetry<br/>→ downlink"]
+    EST["attitude/EKF<br/>250 Hz"] -->|ATTITUDE_CONTROL 0 drops| ANG[angle loop]
+    EST -->|ATTITUDE_TELEMETRY 65535| TLM
+    RCRX[rc_ibus] -->|RC_CONTROL 0 drops| ANG
+    RCRX -->|RC_TELEMETRY 54921| TLM
     ANG --> RATE --> MOT[motor]
-    TLM -->|TELEMETRY ⚠65535| LINK[("UART downlink<br/>33.5 kbps · tx_overflow↑")]
+    TLM -->|TELEMETRY 65535| LINK[("UART downlink<br/>33.5 kbps · tx_overflow↑")]
     classDef bad fill:#ffd6d6,stroke:#d00;
     classDef ok fill:#d6f5d6,stroke:#0a0;
     class TLM,LINK bad;
@@ -104,10 +104,10 @@ SPSC FIFOs, `OVERWRITE` policy (newest wins). Worst-case over the session:
 | IMU_CONTROL (2) | IMU → rate loop | 33 % | **0** |
 | ATTITUDE_CONTROL (6) | attitude → angle loop | 22 % | **0** |
 | RC_CONTROL (8) | RC → angle loop | 25 % | **0** |
-| IMU_TELEMETRY (1) | IMU → downlink | 100 % | **65535** ⚠ |
-| ATTITUDE_TELEMETRY (5) | attitude → downlink | 100 % | **65535** ⚠ |
+| IMU_TELEMETRY (1) | IMU → downlink | 100 % | **65535** WARN |
+| ATTITUDE_TELEMETRY (5) | attitude → downlink | 100 % | **65535** WARN |
 | RC_TELEMETRY (7) | RC → downlink | 100 % | 54921 |
-| TELEMETRY (9) | control → downlink | 100 % | **65535** ⚠ |
+| TELEMETRY (9) | control → downlink | 100 % | **65535** WARN |
 | IMU_CALIB (3) / CALIB_TELEM (4) | calibration | 0 % | 0 |
 
 **The split is the whole story:** every **control-path** FIFO never dropped a

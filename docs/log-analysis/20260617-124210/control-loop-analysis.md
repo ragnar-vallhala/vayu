@@ -66,8 +66,8 @@ Tracing the cascade in these frames shows the controller is doing the *right
 thing in the right direction* — it just has almost no authority:
 
 ```
-pitch angle error  -25°  ──Kp=4──►  pitch_rate_sp  -66 °/s   (outer loop OK, commands nose-down)
-pitch rate error   -66 °/s ──Kp=5e-4──► pitch_out  -0.023    (inner loop output ~zero)
+pitch angle error  -25 deg     --[Kp=4]-->    pitch_rate_sp  -66 deg/s   (outer loop OK, commands nose-down)
+pitch rate error   -66 deg/s   --[Kp=5e-4]--> pitch_out      -0.023      (inner loop output ~zero)
 ```
 
 The inner-loop output is tiny **by design**: empirical output/error slope is
