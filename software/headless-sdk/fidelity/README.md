@@ -59,7 +59,7 @@ Each maneuver gets a 0–100 score (`_fidelity.fidelity_score`); each block repo
 a weighted subtotal (`rate_fidelity.WEIGHTS`). Scores are heuristic — meant to
 flag regressions and known defects, not to be a precise grade. The FC estimator
 under-read (deferred #1) is surfaced separately as the est-vs-true ratio; see
-`docs/deferred/01-attitude-estimate-underread.md`.
+`docs/journal/deferred/01-attitude-estimate-underread.md`.
 
 ## The seam is enforced, not just documented
 
