@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the case-study figures for docs/analysis/autotune-methodology.md
+"""Generate the case-study figures for tools/vsim/docs/reference/autotune-methodology.md
 from real log data: optimizer convergence (autotune history JSON), cost noise +
 stability knee (/tmp/case_study.json), and a real GCS flight log (.bin)."""
 import json, os, sys, struct
@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import protocol as P
 
-OUT = os.path.join(os.path.dirname(__file__), "..", "..", "docs", "analysis", "figures")
+OUT = os.path.join(os.path.dirname(__file__), "..", "..", "tools", "vsim", "docs", "reference", "figures")
 os.makedirs(OUT, exist_ok=True)
 GREEN, BLUE, RED, GRAY = "#2ca02c", "#1f77b4", "#d62728", "#888"
 

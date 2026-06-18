@@ -7,7 +7,7 @@ e.g. the autotuner). All three generate their codecs from one source —
 codec: what is ABI-stable, the generated API, the frame layer you supply, and
 worked integration for each side.
 
-Normative wire spec: [`../docs/analysis/navlink-v2-spec.md`](../docs/analysis/navlink-v2-spec.md).
+Normative wire spec: [`docs/reference/navlink-v2-spec.md`](docs/reference/navlink-v2-spec.md).
 Generator & dialect: [`README.md`](README.md). Link emulator: [`sim/README.md`](sim/README.md).
 
 ---

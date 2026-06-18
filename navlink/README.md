@@ -4,7 +4,7 @@ The single source of truth for the Vayu link protocol (NavLink v2). The dialect
 JSON defines every message; the generator emits matching codecs for firmware (C),
 the GCS (C/C++), and tools (Python), so the three trees can never drift.
 
-See `../docs/analysis/navlink-v2-spec.md` for the normative protocol spec, and
+See `docs/reference/navlink-v2-spec.md` for the normative protocol spec, and
 [`ABI.md`](ABI.md) for how the FC firmware and the GCS (Navigator) actually use
 the generated code (encoder, parser, handler tables).
 
