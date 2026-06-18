@@ -98,9 +98,16 @@ Motor commands during ARMED (0–1 scale): each of motors 0–3 mean ≈ 0.2, ma
 ≈ 0.6–0.69, **never saturated** (0 frames > 0.95). Sustained ~0.2 throttle with
 big, slow attitude errors is the fingerprint of **handheld bench testing** — the
 operator tilts the frame (±80°) while the angle setpoint sits near level, so the
-"tracking error" is the hand motion, not a tuning problem. **Do not read these as
-flight-tuning metrics.** Loop timing is rock-solid: `outer_dt` = 4.000 ms
-(250 Hz), `inner_dt` = 1.000 ms (1 kHz), zero jitter.
+"tracking error" is partly hand motion. **Do not read these as flight-tuning
+metrics.** Loop timing is rock-solid: `outer_dt` = 4.000 ms (250 Hz),
+`inner_dt` = 1.000 ms (1 kHz), zero jitter.
+
+> Deep-dives split out by subsystem:
+> [`control-loop-analysis.md`](control-loop-analysis.md) (the real +25° tilt &
+> low roll/pitch authority, yaw spins),
+> [`motor-analysis.md`](motor-analysis.md) (mixer & balance),
+> [`kernel-analysis.md`](kernel-analysis.md) (RTOS health),
+> [`sensor-analysis.md`](sensor-analysis.md) (sensors + EKF fusion).
 
 ## RC link & failsafe (works correctly)
 

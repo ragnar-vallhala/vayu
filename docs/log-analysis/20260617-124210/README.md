@@ -8,8 +8,11 @@ raw `.bin` is kept here so every number can be re-derived later.
 | file | what |
 |---|---|
 | [`export-20260617-124210.bin`](export-20260617-124210.bin) | raw capture (source of truth) |
-| [`session-analysis.md`](session-analysis.md) | full session analysis (link, flight timeline, controller, health) |
-| [`sensor-analysis.md`](sensor-analysis.md) | sensor calibration & reporting deep-dive |
+| [`session-analysis.md`](session-analysis.md) | full session overview (link, flight timeline, controller, health) |
+| [`control-loop-analysis.md`](control-loop-analysis.md) | cascade controller: the throttle-only tilt, yaw spins, gains/authority |
+| [`motor-analysis.md`](motor-analysis.md) | quad-X mixer, motor balance, saturation |
+| [`kernel-analysis.md`](kernel-analysis.md) | vaios RTOS: CPU, stacks, heap, IPC, FIFO drops |
+| [`sensor-analysis.md`](sensor-analysis.md) | sensor calibration + **fusion** (EKF) accuracy & reporting |
 | `csv/` | per-message-type CSVs for plotting (git-ignored, regenerable) |
 
 Decoder lives one level up: [`../parse_log.py`](../parse_log.py). Reproduce
@@ -68,7 +71,10 @@ Absent: `Statustext`, `CommandAck`, `Ping`, `Capabilities`, `Param*`,
 
 ## Raw findings log (everything we dug out)
 
-Quick reference; see the two analysis docs for context and method.
+Quick reference; see the per-domain analysis docs for context and method.
+**Rig context:** captured on a bench rig — never `IN_AIR`; the frame was
+hand-spun in yaw and rested tilted. Interpret all attitude/controller numbers as
+bench, not flight.
 
 **Decode/transport**
 - 0 CRC errors / 0 unknown msgids over 38,292 frames — wire stack is clean on HW.
@@ -76,19 +82,32 @@ Quick reference; see the two analysis docs for context and method.
 - `SystemHealth.tx_overflow` 612 → 2680 (~2,068 telemetry TX-buffer drops): link saturated.
 
 **Flight state**
-- Armed 4× (19.6 s, 98.7 s, 44.0 s, 50.7 s) — **never `IN_AIR`**. Bench/handheld.
+- Armed 4× (19.6 s, 98.7 s, 44.0 s, 50.7 s) — **never `IN_AIR`**. Bench rig.
 - Mode ANGLE throughout except ACRO 185–219 s. All mode changes `source=RC`.
 - Every RC dropout (chan 0/1 → 62954 = −2582 as int16) → `FAILSAFE` (615/620 spike frames). Safety path correct.
 
-**Controller (ARMED windows, ° / °·s⁻¹)**
-- roll angle err rms 23.3°, pitch err rms 33.1° — dominated by hand motion, not tuning.
-- Throttle ≤ 0.3, motors ≤ 0.69, never saturated. Loop timing 250 Hz outer / 1 kHz inner, zero jitter.
+**Control loop** ([detail](control-loop-analysis.md))
+- Level command but frame held **pitch +25°, roll −10°** — tilt is **real** (fusion matches gravity), not a sensor lie.
+- Controller corrects in the right direction but with almost no authority: rate Kp roll/pitch = 0.0005 (Kd 0, integral-dominated) vs **yaw Kp 0.018 (36×)**. Empirical slopes confirm (0.00033 / 0.0117).
+- Throttle averaged 0.25, **100 % below the 0.30 PID-full-authority point** → roll/pitch further attenuated all session.
+- Yaw: `yaw_rate_sp`=0 always (no yaw commanded); frame disturbed ±80 °/s; `yaw_out` saturates 0.5 % of frames; alternating ±65–80 °/s spins at 343–351 s = hand-spin/clamp (possible yaw limit-cycle).
+- Loop timing 250 Hz outer / 1 kHz inner, **zero jitter**.
 
-**Sensors**
+**Motors** ([detail](motor-analysis.md))
+- Quad-X mixer signs verified vs firmware. M1 FR/CW, M2 RR/CCW, M3 RL/CW, M4 FL/CCW; `cmd[]` 0..1.
+- Peak 0.69, **never saturated** (0 frames > 0.95). Throttle-only imbalance (M1 −19 %, M2 +14 %) is the controller's corrections mixed in, not a raw actuator fault — can't assess motor health from a rig.
+
+**Kernel / vaios** ([detail](kernel-analysis.md))
+- CPU **~63 %** (steady, via cycle deltas), estimator EKF 250 Hz using **22 %** of its 4 ms budget.
+- Heap 0 OOM (37 % peak), IPC 0 timeouts, stacks in margin (worst task_id 4 = 74 %).
+- **FIFO drops are telemetry-only**: control FIFOs 0 drops; telemetry FIFOs pinned 100 %, drop counter saturated at u16 65535. Control path never starved.
+
+**Sensors & fusion** ([detail](sensor-analysis.md))
 - Gyro: bias < 0.1 °/s, noise σ 0.3–0.5 °/s — ✅ good.
 - Accel: +7.8 % scale error at rest (motors off); not vibration — ⚠ needs cal.
 - Mag: `|mag|` 22–92 µT (140 % of mean), hard-iron offsets to 25 µT — ❌ uncalibrated.
 - Temp: 35.6–37.1 °C, smooth — ✅ good.
+- **Fusion (EKF):** roll/pitch accurate (fused tilt 33.7° vs accel 37.5°, Δ −3.8°) — tilt is real ✅. **Yaw untrustworthy** (pinned by uncalibrated mag) ❌.
 - Units: gyro °/s, accel m/s², mag µT, temp °C.
 
 **Telemetry data-quality bugs (firmware-side)**

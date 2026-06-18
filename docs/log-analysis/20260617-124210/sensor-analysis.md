@@ -1,18 +1,22 @@
-# Sensor report — `export-20260617-124210.bin`
+# Sensor & fusion report — `export-20260617-124210.bin`
 
-Focused look at the **sensors**: calibration fidelity and reporting quality.
-Source is the `ImuRaw` (full snapshot) and `ImuCompressed` (delta) streams plus
+Focused look at the **sensors and the attitude fusion**: calibration fidelity,
+estimator accuracy, and reporting quality. Source is the `ImuRaw` (full snapshot)
+and `ImuCompressed` (delta) streams, `AttitudeEuler` (fused output), plus
 `SystemHealth`/`Heartbeat` context. All numbers reproducible via
-`../parse_log.py`. Companion to the [session analysis](session-analysis.md).
+`../parse_log.py`. Companion to the [session analysis](session-analysis.md) and
+[`control-loop-analysis.md`](control-loop-analysis.md).
 
 ## Verdict at a glance
 
-| Sensor | Calibration | Reporting | Verdict |
+| Sensor / stage | Calibration / accuracy | Reporting | Verdict |
 |---|---|---|---|
 | **Gyroscope** | bias < 0.1 °/s, noise 0.3–0.5 °/s | clean | ✅ **good** |
 | **Accelerometer** | **+8 % scale error** at rest | clean | ⚠ **needs scale cal** |
 | **Magnetometer** | **uncalibrated** (hard+soft iron) | reported but unusable | ❌ **fail** |
 | **Temperature** | 35.6–37.1 °C, sane drift | clean | ✅ **good** |
+| **Fusion: roll/pitch** | matches gravity within −3.8° | body rates = 0 ⚠ | ✅ **trustworthy** |
+| **Fusion: yaw/heading** | fed by uncalibrated mag | — | ❌ **do not trust** |
 
 **No calibration was performed or captured in this session** — zero
 `CalibrationStatus` messages and `nav_state` never entered `CALIBRATING`. The
@@ -84,6 +88,64 @@ IMU `temp` reads **35.6 – 37.1 °C** with a gentle warm-up drift
 glitches. (No evidence of temperature compensation being applied to gyro/accel,
 but the channel itself reports correctly.)
 
+## Sensor fusion (attitude estimation)
+
+The fused attitude (`AttitudeEuler`, msgid 1026) is produced by an **error-state
+EKF** (6-state: attitude error + gyro bias) running at **250 Hz** (IMU decimation
+8 from 2000 Hz). Accel pins **roll/pitch** via the gravity direction (gated when
+`|a| − g| > 1.5 m/s²` to reject dynamic accel); the magnetometer pins **yaw only**
+(tilt-compensated); gyro bias is estimated online. Output is degrees, NED, with a
+body→world quaternion (firmware `src/est/ekf.c`, `src/est/attitude_task.c`).
+
+### Roll/pitch fusion is accurate — the bench tilt is real
+
+The key cross-check for the "tilted with just throttle" observation: does the
+estimator actually track gravity, or is it inventing a tilt? Comparing the **fused
+total tilt** to the **accelerometer-derived tilt** (angle of the accel vector from
+the at-rest gravity direction, derived from frames the EKF believed level) over
+all ARMED IMU samples:
+
+| | mean | std |
+|---|---:|---:|
+| accel-derived tilt | 37.5° | 21.3° |
+| fused tilt | 33.7° | 18.3° |
+| **fused − accel** | **−3.8°** | 14.7° |
+
+The estimator tracks the gravity vector to within ~4° on average. **The tilt is
+real**, not a fusion artifact — so the airframe genuinely rested at ~25–37° on the
+rig, and the (weak) attitude controller is what failed to pull it level (see
+[`control-loop-analysis.md`](control-loop-analysis.md)). The 14.7° spread is
+because most rig samples are *dynamic* (hand motion/spin) — the accel reference
+itself is noisy there, and the EKF correctly gates those samples out and coasts on
+the gyro. (A first level frame at t≈60 s read accel `(+1.3, +1.4, −10.1)` against
+fused `(−4.5°, +0.7°)` — consistent once the board's z-down convention is applied;
+a naïve roll = atan2(ay, az) without that convention flips ~180°, which is a
+decode-convention trap, not a fusion error.)
+
+### Yaw/heading is not trustworthy
+
+Yaw is pinned by the magnetometer, and **the magnetometer is uncalibrated**
+(`|mag|` swings 22–92 µT, hard-iron offsets to 25 µT — see §Magnetometer). An
+uncorrected mag drags the yaw update toward a distorted heading, so **the fused
+yaw / heading in this log should not be relied on**. Roll/pitch are unaffected
+(they come from accel + gyro, not mag). This matters less in ANGLE/ACRO flight
+(yaw is rate-controlled off the gyro), but any heading-hold or nav use needs the
+mag calibrated first.
+
+### Estimator health & the +8 % accel scale
+
+- The estimator never forced a failsafe: all `FAILSAFE` transitions correlate with
+  **RC loss**, not estimator `degraded` (see session report) — so the EKF stayed
+  healthy throughout despite the aggressive rig handling.
+- The **+8 % accel scale error** biases the gravity-vector magnitude but not its
+  *direction*, so roll/pitch are largely unaffected; however it eats into the
+  `|a|−g| > 1.5 m/s²` accept gate (at rest |a|≈10.6 ⇒ |a|−g≈0.8, already over half
+  the gate), so once calibrated the estimator will accept *more* static samples and
+  lean less on gyro coasting. Worth fixing for fusion robustness, not just for the
+  raw channel.
+- Online gyro-bias estimation has little to do here — the raw gyro bias is already
+  < 0.1 °/s.
+
 ## Reporting fidelity
 
 The IMU uses a **keyframe + delta** scheme:
@@ -120,6 +182,8 @@ rates aren't populated, even though the raw gyro carries them (see the
    before trusting any accel-derived estimate.
 2. **Run magnetometer calibration** (ellipsoid fit, frame powered) — current mag
    is unusable for heading; characterize motor-current interference while at it.
+   This is also a **fusion** fix: the EKF pins yaw from the mag, so fused heading is
+   untrustworthy until the mag is calibrated (roll/pitch are unaffected).
 3. **Fix `ImuCompressed.ref_seq`** to carry the real keyframe seq so the delta
    stream is reconstructable; consider a faster `ImuRaw` keyframe cadence (the
    2.4 s gaps are large for a 38 Hz delta stream).

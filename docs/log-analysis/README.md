@@ -27,11 +27,14 @@ Each capture gets its own dated folder (`YYYYMMDD-hhmmss`, from the log's own
 timestamp) holding the raw `.bin` plus all analysis of it.
 
 - [`20260617-124210/`](20260617-124210/) — **2026-06-17 12:42:10**, first
-  hardware bring-up bench session: 6.25 min, 38 k frames, 0 CRC errors. Never
-  reached IN_AIR (handheld/bench). Surfaced 5 telemetry data-quality bugs, a
-  ControlTrace°/AttitudeEulerᵣ unit mismatch, ~2 k telemetry TX overflows,
-  correct RC-loss → FAILSAFE behaviour, and uncalibrated accel (+8 %) / mag.
-  - [`README`](20260617-124210/README.md) — provenance, header, message
-    inventory, raw findings log
-  - [`session-analysis.md`](20260617-124210/session-analysis.md) — full session
-  - [`sensor-analysis.md`](20260617-124210/sensor-analysis.md) — sensor cal & reporting
+  hardware bring-up **bench-rig** session: 6.25 min, 38 k frames, 0 CRC errors.
+  Never reached IN_AIR; frame hand-spun in yaw and rested tilted. Real tilt with
+  low roll/pitch control authority, yaw 36× stronger, EKF roll/pitch accurate but
+  yaw untrustworthy (uncalibrated mag), kernel healthy (control FIFOs 0 drops;
+  telemetry-only saturation), 5 telemetry data-quality bugs.
+  - [`README`](20260617-124210/README.md) — provenance, header, inventory, raw findings log
+  - [`session-analysis.md`](20260617-124210/session-analysis.md) — full session overview
+  - [`control-loop-analysis.md`](20260617-124210/control-loop-analysis.md) — cascade controller
+  - [`motor-analysis.md`](20260617-124210/motor-analysis.md) — quad-X mixer & balance
+  - [`kernel-analysis.md`](20260617-124210/kernel-analysis.md) — vaios RTOS health
+  - [`sensor-analysis.md`](20260617-124210/sensor-analysis.md) — sensor cal & fusion (EKF)
