@@ -66,6 +66,16 @@ tightly for long.
   *and* its derivative along the path), anti-windup, and a tighter,
   rate-bounded position term. This unblocks every free-flight demo.
 
+**RESOLVED (2026-06-18, pt 4).** Reworked `guidance_outputs`: added velocity
+feedforward from the moving setpoint, a horizontal position integrator with
+conditional-integration anti-windup, and raised the tilt authority (0.30→0.60
+stick, ~2.7°→~5.5°; the old cap was the real sluggishness at ~0.5 m/s² max
+accel). Re-validated: lemniscate **16 m → 1.7 m** mean track error; box-tracking
+fidelity **46 → 77**; hover drift **1.24 m → 0.32 m**; overall control-loop
+fidelity **76.6 → 83.2** with no regressions (48/48 tests pass). Residual
+tracking error is now limited by the attitude under-read (deferred #1), not the
+guidance. See the fidelity suite: `software/headless-sdk/fidelity/`.
+
 ## Gap 4 — free-flight + collision world = pinball
 
 Once the craft strays into the loaded course (testcourse.glb, restitution 0.3),
