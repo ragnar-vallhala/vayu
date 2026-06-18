@@ -552,6 +552,8 @@ void SimulatorWidget::buildUi() {
     // add/remove/edit, no Apply needed.
     connect(m_worldEditor, &WorldEditorWidget::obstaclesChanged, this, [this] {
       if (m_renderer) m_renderer->setObstacles(m_worldEditor->config().obstacles);
+      if (m_downRenderer)
+        m_downRenderer->setObstacles(m_worldEditor->config().obstacles);
       if (m_sim) m_sim->sendObstacles(m_worldEditor->config().obstacles);
       persistWorld(m_worldEditor->config());
     });
@@ -568,6 +570,43 @@ void SimulatorWidget::buildUi() {
       persistWorld(m_worldEditor->config());
     });
     pv->addWidget(m_worldEditor);
+
+    // ---- Training: glowing halo-gate course flown through the world ----
+    {
+      auto* sec = new CollapsibleSection(tr("Training"), page);
+      auto* body = new QWidget();
+      auto* col = new QVBoxLayout(body);
+      col->setContentsMargins(0, 0, 0, 0);
+      col->setSpacing(6);
+
+      auto* row = new QHBoxLayout();
+      row->addWidget(new QLabel(tr("Mode:"), body));
+      m_trainingMode = new QComboBox(body);
+      m_trainingMode->addItem(tr("Off"),    vsim::TrainingCourse::Off);
+      m_trainingMode->addItem(tr("Easy"),   vsim::TrainingCourse::Easy);
+      m_trainingMode->addItem(tr("Medium"), vsim::TrainingCourse::Medium);
+      m_trainingMode->addItem(tr("Hard"),   vsim::TrainingCourse::Hard);
+      m_trainingMode->setToolTip(tr(
+          "Fly the drone through the glowing halo gates. The course starts at "
+          "the floor and gets progressively harder (smaller, farther, more "
+          "weave). A yellow arrow over the drone points to the next gate. "
+          "Selecting a mode resets the airframe to the floor."));
+      connect(m_trainingMode, QOverload<int>::of(&QComboBox::currentIndexChanged),
+              this, [this] {
+                if (m_trainingMode)
+                  setTrainingMode(m_trainingMode->currentData().toInt());
+              });
+      row->addWidget(m_trainingMode, 1);
+      col->addLayout(row);
+
+      m_trainingStatus = new QLabel(tr("Training off"), body);
+      m_trainingStatus->setStyleSheet(
+          QString("color:%1; font-size:11px;").arg(Theme::hex(Theme::kTextMuted)));
+      col->addWidget(m_trainingStatus);
+
+      sec->setContentWidget(body);
+      pv->addWidget(sec);
+    }
 
     auto* simSec = new CollapsibleSection(tr("Simulation"), page);
     auto* simBody = new QWidget();
@@ -920,6 +959,8 @@ void SimulatorWidget::buildUi() {
   m_worldEditor->setConfig(restoreWorld());
   m_worldEditor->setWindConfig(restoreWind());
   if (m_renderer) m_renderer->setObstacles(m_worldEditor->config().obstacles);
+  if (m_downRenderer)
+    m_downRenderer->setObstacles(m_worldEditor->config().obstacles);
   loadWorldMeshToRenderer();
 
   setMode(0);   // start in Vehicle (sim stopped)
@@ -1444,7 +1485,16 @@ void SimulatorWidget::startAutotune() {
   // Locate the SITL binaries the C++ stack spawns (no python3). Prefer the
   // tools/sim_host build dir; fall back to a repo-root build_sitl.
   AutotuneWorker::Params p;
-  p.sitl.vsimBin = root + "/build_vsim/vsim_d";
+  // Prefer the canonical in-tree build (tools/vsim/build); fall back to the
+  // legacy repo-root build_vsim. A stale build_vsim/vsim_d at the wrong
+  // VSIM_PROTO_VERSION desyncs the IMU feed (consumer rejects every frame).
+  for (const QString &cand : {root + "/tools/vsim/build/vsim_d",
+                              root + "/build_vsim/vsim_d"}) {
+    if (QFileInfo::exists(cand)) {
+      p.sitl.vsimBin = cand;
+      break;
+    }
+  }
   for (const QString &cand : {root + "/tools/sim_host/build_sitl/vayu_sitl",
                               root + "/build_sitl/vayu_sitl"}) {
     if (QFileInfo::exists(cand)) {
@@ -1730,6 +1780,63 @@ void SimulatorWidget::updateHud(const vsim::SimSnapshot& s) {
     if (dir < 0.0f) dir += 360.0f;
     m_worldEditor->setWindReadout(spd, dir);
   }
+
+  // Training course: feed the live pose, advance through gates, refresh the
+  // active-gate highlight + guidance arrow in both renderers.
+  if (m_training.active()) {
+    const bool cleared = m_training.advance(s.pos_w);
+    const bool show = !m_training.finished();
+    if (m_renderer) m_renderer->setTrainingActive(m_training.activeIndex(), show);
+    if (m_downRenderer)
+      m_downRenderer->setTrainingActive(m_training.activeIndex(), show);
+    if (cleared) {
+      updateTrainingProgress();
+      if (m_training.finished())
+        appendLog("train", tr("course complete — %1 gates cleared!")
+                               .arg(m_training.total()));
+      else
+        appendLog("train", tr("gate %1 / %2 cleared")
+                               .arg(m_training.passedCount())
+                               .arg(m_training.total()));
+    }
+  }
+}
+
+void SimulatorWidget::setTrainingMode(int difficulty) {
+  m_training.generate(static_cast<vsim::TrainingCourse::Difficulty>(difficulty));
+  pushTrainingGates();
+  updateTrainingProgress();
+  // Start every run from the floor: re-spawn the airframe at the level pose.
+  if (m_training.active() && m_sim) m_sim->sendReset();
+  if (m_training.active())
+    appendLog("train", tr("training course armed (%1 gates)")
+                           .arg(m_training.total()));
+}
+
+void SimulatorWidget::pushTrainingGates() {
+  const bool show = m_training.active() && !m_training.finished();
+  if (m_renderer) {
+    m_renderer->setTrainingGates(m_training.gates());
+    m_renderer->setTrainingActive(m_training.activeIndex(), show);
+  }
+  if (m_downRenderer) {
+    m_downRenderer->setTrainingGates(m_training.gates());
+    m_downRenderer->setTrainingActive(m_training.activeIndex(), show);
+  }
+}
+
+void SimulatorWidget::updateTrainingProgress() {
+  if (!m_trainingStatus) return;
+  if (!m_training.active()) {
+    m_trainingStatus->setText(tr("Training off"));
+  } else if (m_training.finished()) {
+    m_trainingStatus->setText(tr("Course complete — %1 / %1 gates")
+                                  .arg(m_training.total()));
+  } else {
+    m_trainingStatus->setText(tr("Next: gate %1 / %2")
+                                  .arg(m_training.passedCount() + 1)
+                                  .arg(m_training.total()));
+  }
 }
 
 void SimulatorWidget::loadWorldMeshToRenderer() {
@@ -1737,6 +1844,7 @@ void SimulatorWidget::loadWorldMeshToRenderer() {
   const vsim::WorldConfig& w = m_worldEditor->config();
   if (w.worldMeshPath.isEmpty()) {
     m_renderer->setWorldMesh({}, {});
+    if (m_downRenderer) m_downRenderer->setWorldMesh({}, {});
     if (m_sim) m_sim->clearWorldMesh();
     return;
   }
@@ -1755,10 +1863,13 @@ void SimulatorWidget::loadWorldMeshToRenderer() {
   if (!m.valid) {
     appendLog("world", tr("world mesh load failed: %1").arg(err));
     m_renderer->setWorldMesh({}, {});
+    if (m_downRenderer) m_downRenderer->setWorldMesh({}, {});
     if (m_sim) m_sim->clearWorldMesh();
     return;
   }
   m_renderer->setWorldMesh(m.positions, m.normals, m.colors);
+  if (m_downRenderer)
+    m_downRenderer->setWorldMesh(m.positions, m.normals, m.colors);
   appendLog("world", tr("world mesh loaded: %1 tris").arg(m.triangleCount()));
 
   // Hand the same baked geometry to the physics daemon as a collision BVH.
@@ -2112,6 +2223,12 @@ void SimulatorWidget::startInAppSim() {
     pushNoise();   // apply the configured sensor models (σ / enable)
     pushFaults();  // re-assert any latched faults across the restart
     loadWorldMeshToRenderer();  // re-loads + ships the collision BVH now m_sim exists
+    // Restart any armed training course from the first gate, flying from the floor.
+    if (m_training.active()) {
+      m_training.resetProgress();
+      pushTrainingGates();
+      updateTrainingProgress();
+    }
     appendLog("geom", tr("firmware roll-mix %1 (default -+ ; mismatch = inverted "
                           "roll). pushed to firmware + vsim_d.")
                           .arg(rollMixString(cfg)));

@@ -206,6 +206,7 @@ set(GCS_SITL_SOURCES
     src/vsim/WorldMeshBuilder.cpp
     src/vsim/MassProperties.cpp
     src/vsim/RcBridge.cpp
+    src/vsim/TrainingCourse.cpp
     src/audio/PropAudio.cpp
     src/audio/ChimeAudio.cpp
 )
@@ -222,6 +223,7 @@ set(GCS_SITL_HEADERS
     src/vsim/WorldMeshBuilder.h
     src/vsim/MassProperties.h
     src/vsim/RcBridge.h
+    src/vsim/TrainingCourse.h
 )
 
 set(GCS_RESOURCES
