@@ -16,5 +16,5 @@ Living contract: architecture explainers (for newcomers) plus formal requirement
 - [`sensor-fusion/`](sensor-fusion/README.md) — Mahony / complementary filter derivation and tuning.
 - [`imu/`](imu/sensor_data_flow.md) — IMU acquisition and sensor data-flow walkthrough.
 - `datasheet/` — vendor datasheets for on-board sensors.
-- `hard_flow.drawio` — hardware block diagram. (The software flow now lives in [`software-flow.md`](software-flow.md); the old `soft_flow.drawio` was retired to [`../journal/legacy-soft-flow.drawio`](../journal/legacy-soft-flow.drawio) as a pre-v2 snapshot.)
-- `drone_fcs_requirements_and_coding_guidelines.pdf` — the PX4-grade source template the standard is adapted from.
+
+The runtime software flow is [`software-flow.md`](software-flow.md) (above); the old hand-drawn `soft_flow.drawio` was retired to [`../journal/legacy-soft-flow.drawio`](../journal/legacy-soft-flow.drawio) as a pre-v2 snapshot.
