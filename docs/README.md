@@ -38,6 +38,7 @@ in `plans/`; to understand *why* something is the way it is, read `journal/`.
 The FC component is rooted here in `docs/`.
 
 - **[reference/](reference/README.md)** — firmware architecture & requirements (living)
+  - **[software-flow.md](reference/software-flow.md)** — the whole runtime in diagrams (start here for a system picture)
   - [requirements.md](reference/requirements.md) · [coding-guidelines.md](reference/coding-guidelines.md) · [firmware-overview.md](reference/firmware-overview.md)
   - [firmware-control.md](reference/firmware-control.md) · [pipeline-overview.md](reference/pipeline-overview.md) · [coordinate_ref.md](reference/coordinate_ref.md) · [hardware-gotchas.md](reference/hardware-gotchas.md)
   - subsystems: [tasks/](reference/tasks/README.md) · [state-machine/](reference/state-machine/README.md) · [sensor-fusion/](reference/sensor-fusion/README.md) · [imu/](reference/imu/sensor_data_flow.md) · [datasheet/](reference/datasheet/)
