@@ -21,6 +21,7 @@ struct VehicleState {
   ImuData      imu{};
   RcData       rc{};
   MotorData    motors{};
+  BaroData     baro{};
 
   uint8_t flightMode = 0;        // 0 = stabilise/angle, 1 = acro
   uint8_t flightModeSource = 0;  // 0 = RC switch, 1 = GCS override
@@ -35,6 +36,7 @@ struct VehicleState {
   qint64 lastAttMs = 0;
   qint64 lastRcMs = 0;
   qint64 lastMotorMs = 0;
+  qint64 lastBaroMs = 0;
 
   // Rolling attitude std-devs (deg), computed by the engine on each attitude
   // packet from a fixed-window RollingStats — the per-packet accumulation must

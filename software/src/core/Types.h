@@ -25,6 +25,17 @@ struct AttitudeData {
 };
 
 // -----------------------------------------------------------
+// Barometer – mirrors NavLink BARO (msgid 1039), BME280 source
+// -----------------------------------------------------------
+struct BaroData {
+  float pressurePa = 0.0f;    // Pa
+  float temperatureC = 0.0f;  // °C
+  float humidityRh = 0.0f;    // %RH
+  float altitudeM = 0.0f;     // m (ISA, from sea-level reference)
+  uint64_t timestamp = 0;
+};
+
+// -----------------------------------------------------------
 // RC Channels – raw values (us)
 // -----------------------------------------------------------
 struct RcData {

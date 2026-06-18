@@ -130,9 +130,11 @@ int main(int /*argc*/, char** /*argv*/) {
     vsim::FifoIn  pwm_in (suffixed(VSIM_FIFO_PWM));
     vsim::FifoOut imu_out(suffixed(VSIM_FIFO_IMU));
     vsim::FifoOut pose_out(suffixed(VSIM_FIFO_POSE));
+    vsim::FifoOut baro_out(suffixed(VSIM_FIFO_BARO));
     vsim::FifoIn  ctl_in (suffixed(VSIM_FIFO_CTL));
 
-    if (!pwm_in.open() || !imu_out.open() || !pose_out.open() || !ctl_in.open()) {
+    if (!pwm_in.open() || !imu_out.open() || !pose_out.open() ||
+        !baro_out.open() || !ctl_in.open()) {
         std::fprintf(stderr, "vsim_d: FIFO setup failed\n");
         return 1;
     }
@@ -166,7 +168,7 @@ int main(int /*argc*/, char** /*argv*/) {
     std::array<float, 4> duty{0.0f, 0.0f, 0.0f, 0.0f};
     uint64_t tick = 0;          // physics step count (pose-frame display)
     uint64_t outer = 0;         // sample/pace iterations
-    uint32_t imu_seq = 0, pose_seq = 0;
+    uint32_t imu_seq = 0, pose_seq = 0, baro_seq = 0;
     bool paused = false;
 
     // Fault injection (VSIM_CTL_SET_FAULTS): latched failures for failsafe tests.
@@ -506,6 +508,29 @@ int main(int /*argc*/, char** /*argv*/) {
             const vsim::Vec3& vw = ctl.windWorld();   // sim-fidelity telemetry (Phase 1)
             frame.wind_w[0] = vw.x(); frame.wind_w[1] = vw.y(); frame.wind_w[2] = vw.z();
             pose_out.write(&frame, sizeof(frame));
+
+            // 5b) Modelled barometer (BME280 analog). Derive static pressure from
+            // the true altitude (NED down -> up) via the ISA formula — the exact
+            // inverse of the firmware's altitude derivation, so the FC's own
+            // bme280 path recovers this altitude. We emit PHYSICAL pressure only
+            // (no altitude): the firmware does the altitude + telemetry, just as
+            // the IMU feeder hands over physical IMU and lets the FC estimate.
+            {
+                constexpr double kSeaLevelPa = 101325.0;
+                const double altitude_up = -static_cast<double>(st.pos_w.z());
+                double ratio = 1.0 - altitude_up / 44330.0;
+                if (ratio < 0.0) ratio = 0.0;  // guard absurd altitudes
+                vsim_baro_frame_t bframe{};
+                bframe.hdr.magic         = VSIM_MAGIC;
+                bframe.hdr.version       = VSIM_PROTO_VERSION;
+                bframe.hdr.type          = VSIM_FRAME_BARO;
+                bframe.hdr.payload_bytes = sizeof(vsim_baro_frame_t) - sizeof(vsim_hdr_t);
+                bframe.hdr.seq_no        = ++baro_seq;
+                bframe.pressure_pa   = static_cast<float>(kSeaLevelPa * std::pow(ratio, 5.255));
+                bframe.temperature_c = 25.0f;  // modelled cabin/air temperature
+                bframe.humidity_rh   = 50.0f;  // modelled relative humidity
+                baro_out.write(&bframe, sizeof(bframe));
+            }
         }
 
         ++outer;

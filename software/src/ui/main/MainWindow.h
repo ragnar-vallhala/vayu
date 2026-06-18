@@ -154,6 +154,9 @@ private:
 
   // ---- Central panels ----
   ImuPanel *m_imuPanel = nullptr;
+  // Baro AGL ground reference (MSL captured while not flying); see onUiTimer.
+  float m_baroGroundRefM = 0.0f;
+  bool m_haveBaroRef = false;
   AttitudeWidget *m_attitude = nullptr;
   LogPanel *m_logPanel = nullptr;
   PacketAnalyzerWidget *m_analyzerWidget = nullptr;

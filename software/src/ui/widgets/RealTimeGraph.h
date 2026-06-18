@@ -23,6 +23,11 @@ public:
   void setDropoutRate(double rate);
   void setColor(int index, const QColor &color);
   void setPenStyle(int index, Qt::PenStyle style);
+  // Assign a series to an independent right-hand Y axis (default: left). With a
+  // right-axis series present, the left and right axes auto-scale from their own
+  // series so two very different magnitudes (e.g. AGL ~0 m and MSL ~485 m) are
+  // both readable. Requires dynamic-Y. Right-axis ticks render on the right edge.
+  void setSeriesAxis(int index, bool rightAxis);
   // In-graph chrome (mockup .graph): a bold title + unit shown top-left and a
   // top-right legend of the per-series names. Drawn as dim overlays — the
   // traces still fill the whole rect, no margins reserved.
@@ -113,6 +118,10 @@ private:
   bool m_fixedRange = false; // true once setYRange() pins m_min/m_max
   std::vector<QColor> m_colors;
   std::vector<Qt::PenStyle> m_penStyles;
+  // Per-series Y-axis assignment (false = left, true = independent right axis).
+  // m_hasRightAxis caches whether any series is on the right axis.
+  std::vector<bool> m_rightAxis;
+  bool m_hasRightAxis = false;
   QString m_title;
   QString m_unit;
   QStringList m_seriesLabels;

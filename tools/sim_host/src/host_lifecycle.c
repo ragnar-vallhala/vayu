@@ -30,6 +30,7 @@
 #include "vayu_tasks.h"
 
 #include "host_imu_feeder.h"
+#include "host_baro.h"
 #include "host_rc_feeder.h"
 #include "vsim_iface.h"
 
@@ -198,6 +199,7 @@ int vayu_sitl_start(vsim_iface_t *iface) {
 
     host_rc_feeder_start();
     host_imu_feeder_start();
+    host_baro_start();
     host_start_hf_timer();
 
     return 0;

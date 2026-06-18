@@ -47,6 +47,7 @@ enum {
     VSIM_FRAME_IMU   = 2,
     VSIM_FRAME_POSE  = 3,
     VSIM_FRAME_CTL   = 4,
+    VSIM_FRAME_BARO  = 5,
 };
 
 // Common 16-byte header. Fixed prefix on every frame on every channel.
@@ -89,6 +90,18 @@ typedef struct {
     vsim_hdr_t hdr;
     uint8_t imu_payload[VSIM_IMU_PAYLOAD_BYTES];
 } vsim_imu_frame_t;
+
+// Baro body: a modelled barometric pressure sensor (BME280 analog). vsim_d
+// derives pressure from the true altitude via the ISA formula; the host baro
+// feeder injects these PHYSICAL readings and the firmware's own bme280 path
+// derives altitude + emits the BARO telemetry (no host-side altitude — mirrors
+// the IMU feeder feeding physical IMU and letting the FC estimator run).
+typedef struct {
+    vsim_hdr_t hdr;
+    float pressure_pa;    // modelled static pressure [Pa]
+    float temperature_c;  // modelled air temperature [degC]
+    float humidity_rh;    // modelled relative humidity [%]
+} vsim_baro_frame_t;
 
 // Pose body: snapshot of rigid-body state + motor visuals, for the
 // renderer. NED frame; orientation as w-first quaternion.
@@ -306,6 +319,7 @@ typedef struct {
 #define VSIM_FIFO_IMU   "/tmp/vsim_imu"
 #define VSIM_FIFO_POSE  "/tmp/vsim_pose"
 #define VSIM_FIFO_CTL   "/tmp/vsim_ctl"
+#define VSIM_FIFO_BARO  "/tmp/vsim_baro"
 
 // Static size locks. If any of these fail to compile, the wire format
 // has drifted and producer/consumer pair will desync silently.

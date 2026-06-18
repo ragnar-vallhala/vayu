@@ -121,6 +121,19 @@ void thunkEstPerf(void *ctx, const navlink_frame_hdr_t *,
   r->onEstPerf(d);
 }
 
+void thunkBaro(void *ctx, const navlink_frame_hdr_t *,
+               const navlink_baro_t *m) {
+  auto *r = static_cast<NavlinkRouter *>(ctx);
+  if (!r->onBaro)
+    return;
+  BaroData d;
+  d.pressurePa = m->pressure;
+  d.temperatureC = m->temperature;
+  d.humidityRh = m->humidity;
+  d.altitudeM = m->altitude;
+  r->onBaro(d);
+}
+
 void thunkFlightMode(void *ctx, const navlink_frame_hdr_t *,
                      const navlink_flight_mode_t *m) {
   auto *r = static_cast<NavlinkRouter *>(ctx);
@@ -293,6 +306,7 @@ NavlinkRouter::NavlinkRouter() : d_(new Impl) {
   d_->handlers.on_motor_telemetry = thunkMotor;
   d_->handlers.on_control_trace = thunkControlTrace;
   d_->handlers.on_est_perf = thunkEstPerf;
+  d_->handlers.on_baro = thunkBaro;
   d_->handlers.on_flight_mode = thunkFlightMode;
   d_->handlers.on_heartbeat = thunkHeartbeat;
   d_->handlers.on_system_health = thunkSystemHealth;

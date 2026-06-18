@@ -1387,6 +1387,22 @@ void MainWindow::onUiTimer() {
   const bool imuFresh =
       s.lastImuMs != 0 && (nowMs - s.lastImuMs) < kTelemetryStaleMs;
   m_imuPanel->updateImu(s.imu, imuFresh);
+  // BARO altitude → the IMU panel's Baro Altitude graph (separate feed/stamp).
+  // MSL is the absolute sea-level height from the barometer; AGL is height above
+  // a ground reference captured while not flying (re-zeroed whenever disarmed so
+  // it tracks slow baro drift), so it reads ~0 on the ground and climbs in air.
+  const bool baroFresh =
+      s.lastBaroMs != 0 && (nowMs - s.lastBaroMs) < kTelemetryStaleMs;
+  if (baroFresh) {
+    const float msl = s.baro.altitudeM;
+    if (!m_haveBaroRef || !s.armed) {
+      m_baroGroundRefM = msl;
+      m_haveBaroRef = true;
+    }
+    m_imuPanel->setBaroAltitude(msl, msl - m_baroGroundRefM, true);
+  } else {
+    m_imuPanel->setBaroAltitude(0.0f, 0.0f, false);
+  }
   if (m_simulatorWidget) m_simulatorWidget->hudSetImu(s.imu.acc, s.imu.gyr);
 
   // Attitude instruments (2D ADI + 3D airframe) render here at the timer rate
