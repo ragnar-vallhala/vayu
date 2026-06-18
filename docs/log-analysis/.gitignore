@@ -1,0 +1,8 @@
+# regenerable / bulky derived data
+csv/
+__pycache__/
+
+# raw logs are ignored by default...
+*.bin
+# ...except the curated per-archive copies kept as source of truth
+!*/export-*.bin
