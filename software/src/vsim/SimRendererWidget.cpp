@@ -231,6 +231,8 @@ void SimRendererWidget::initializeGL() {
   buildGizmo();
   buildDigits();
   buildNorth();
+  buildRing();
+  buildGuideArrow();
 }
 
 void SimRendererWidget::resizeGL(int w, int h) {
@@ -249,14 +251,27 @@ QVector3D SimRendererWidget::freeForward() const {
       .normalized();
 }
 
+float SimRendererWidget::bodyYawRad() const {
+  // NED yaw (heading about world +Z) from the body->world quaternion.
+  const float w = snap_.att.scalar(), x = snap_.att.x(),
+              y = snap_.att.y(), z = snap_.att.z();
+  return std::atan2(2.0f * (w * z + x * y), 1.0f - 2.0f * (y * y + z * z));
+}
+
+QVector3D SimRendererWidget::orbitOffset() const {
+  // Azimuth = relative drag offset + the drone's heading, so the camera
+  // rotates WITH the vehicle. NED up is -Z (pitch>0 lifts the eye above).
+  const float az = cam_yaw_ + bodyYawRad();
+  return QVector3D(
+      cam_radius_ * std::cos(cam_pitch_) * std::cos(az),
+      cam_radius_ * std::cos(cam_pitch_) * std::sin(az),
+      -cam_radius_ * std::sin(cam_pitch_));
+}
+
 void SimRendererWidget::setFreeFly(bool on) {
   if (on && !freeFly_) {
     // Seed the free camera at the current orbit eye for a seamless handoff.
-    const QVector3D offset(
-        cam_radius_ * std::cos(cam_pitch_) * std::cos(cam_yaw_),
-        cam_radius_ * std::cos(cam_pitch_) * std::sin(cam_yaw_),
-        -cam_radius_ * std::sin(cam_pitch_));
-    camPos_ = snap_.pos_w + offset;
+    camPos_ = snap_.pos_w + orbitOffset();
   }
   freeFly_ = on;
   update();
@@ -269,12 +284,16 @@ void SimRendererWidget::setWorldVisible(bool on) {
 
 QMatrix4x4 SimRendererWidget::cameraView() const {
   if (downCam_) {
-    // Bird's-eye: hover above the drone (NED -Z is up) and look straight down
-    // (+Z), with world +X (north) as the screen-up vector.
-    const QVector3D tgt = snap_.pos_w;
-    const QVector3D eye = tgt + QVector3D(0.0f, 0.0f, -downCamHeight_);
+    // Underbelly camera: rigidly mounted just beneath the airframe, looking
+    // straight down the body's +Z (down) axis. It rides the drone's attitude,
+    // so it banks with the vehicle, and renders the world below (imported mesh,
+    // ground, obstacles). Body +X (forward/north) maps to screen-up.
+    const QVector3D down = snap_.att.rotatedVector(QVector3D(0, 0, 1));
+    const QVector3D fwd  = snap_.att.rotatedVector(QVector3D(1, 0, 0));
+    const QVector3D eye =
+        snap_.pos_w + snap_.att.rotatedVector(QVector3D(0.0f, 0.0f, downCamOffset_));
     QMatrix4x4 view;
-    view.lookAt(eye, tgt, QVector3D(1.0f, 0.0f, 0.0f));
+    view.lookAt(eye, eye + down, fwd);
     return view;
   }
   if (freeFly_ && !fpv_) {
@@ -295,15 +314,11 @@ QMatrix4x4 SimRendererWidget::cameraView() const {
     view.lookAt(eye, eye + fwd, up);
     return view;
   }
-  // Orbit around the drone's current world position. Convert
-  // (radius, yaw, pitch) into a NED offset; remember NED up is -Z.
+  // Third-person orbit, locked to the drone's heading: the eye yaws with the
+  // vehicle so it never spins out of frame. The world up (-Z) stays fixed so
+  // the horizon doesn't tilt; only a mouse drag re-aims the relative offset.
   const auto& tgt = snap_.pos_w;
-  QVector3D offset(
-      cam_radius_ * std::cos(cam_pitch_) * std::cos(cam_yaw_),
-      cam_radius_ * std::cos(cam_pitch_) * std::sin(cam_yaw_),
-      -cam_radius_ * std::sin(cam_pitch_)   // negative: pitch>0 -> above
-  );
-  QVector3D eye = tgt + offset;
+  QVector3D eye = tgt + orbitOffset();
   QMatrix4x4 view;
   view.lookAt(eye, tgt, QVector3D(0.0f, 0.0f, -1.0f));   // NED up = -Z
   return view;
@@ -327,10 +342,15 @@ void SimRendererWidget::paintGL() {
   progSky_.release();
   glEnable(GL_DEPTH_TEST);
 
+  // Training mode hides the imported world + obstacles: the course is flown in
+  // a clean arena over the reference ground grid, so nothing distracts the
+  // pilot or clutters the halo gates.
+  const bool training = !gates_.isEmpty();
+
   // Reference ground grid at z=0 — skipped when an imported world mesh is
   // shown, since that mesh carries its own ground plane (also at z=0) and the
-  // two coplanar surfaces would z-fight.
-  const bool showWorld = worldVisible_ && hasWorldMesh_;
+  // two coplanar surfaces would z-fight. Always shown in training for a floor.
+  const bool showWorld = worldVisible_ && hasWorldMesh_ && !training;
   if (!showWorld)
     drawMesh(ground_, view, QVector3D(0.25f, 0.27f, 0.32f));
   drawMesh(axes_,   view, QVector3D(1, 1, 1));
@@ -338,11 +358,11 @@ void SimRendererWidget::paintGL() {
   // World geometry (imported mesh + obstacles) only in World mode; Vehicle
   // mode shows just the airframe.
   // Imported world mesh (lit solid, world frame).
-  if (worldVisible_ && hasWorldMesh_)
+  if (showWorld)
     drawLit(worldMesh_, view, QMatrix4x4(), QVector3D(1.0f, 1.0f, 1.0f));
 
   // Static world obstacles (lit solids), each scaled/rotated/placed.
-  for (int oi = 0; worldVisible_ && oi < obstacles_.size(); ++oi) {
+  for (int oi = 0; worldVisible_ && !training && oi < obstacles_.size(); ++oi) {
     const vsim::Obstacle& o = obstacles_[oi];
     QMatrix4x4 m;
     m.translate(o.pos);
@@ -366,19 +386,23 @@ void SimRendererWidget::paintGL() {
     drawLit(*mesh, view, m, col);
   }
 
-  // Drone body: apply pos+orientation. Quaternion is normalized by the
-  // sim after every step. In FPV the camera is inside the airframe, so the
-  // body/markers are skipped — you're looking *out*.
-  const QMatrix4x4 model = modelMatrix();
+  // Training course halo gates + guidance arrow (World mode / down-cam only).
+  if (worldVisible_) drawTraining(view);
 
-  if (!fpv_) {
+  // Drone body: apply pos+orientation. Quaternion is normalized by the
+  // sim after every step. In FPV / belly-cam the camera is inside the airframe,
+  // so the body/markers are skipped — you're looking *out* at the world.
+  const QMatrix4x4 model = modelMatrix();
+  const bool hideBody = fpv_ || downCam_;
+
+  if (!hideBody) {
     if (hasMesh_) {
       drawLit(droneMesh_, view, model, QVector3D(0.80f, 0.81f, 0.85f));
     } else {
       drawMesh(body_, view * model, QVector3D(0.85f, 0.55f, 0.20f));
     }
   }
-  if (!fpv_) {
+  if (!hideBody) {
 
   // Motor markers (disk colored by spin + activity) and a thrust-axis
   // line, at the editable body-frame positions/axes.
@@ -422,7 +446,7 @@ void SimRendererWidget::paintGL() {
 
   // Body +X / north arrow: shown in both Vehicle and World modes.
   drawNorthIndicator(view);
-  }  // end if (!fpv_)
+  }  // end if (!hideBody)
 }
 
 void SimRendererWidget::drawMesh(const Mesh& m, const QMatrix4x4& mvp,
@@ -632,6 +656,17 @@ void SimRendererWidget::buildObstacleMeshes() {
 
 void SimRendererWidget::setObstacles(const QVector<vsim::Obstacle>& obs) {
   obstacles_ = obs;
+  update();
+}
+
+void SimRendererWidget::setTrainingGates(const QVector<vsim::RingGate>& gates) {
+  gates_ = gates;
+  update();
+}
+
+void SimRendererWidget::setTrainingActive(int activeIndex, bool showArrow) {
+  trainActive_ = activeIndex;
+  trainArrow_  = showArrow;
   update();
 }
 
@@ -960,6 +995,112 @@ void SimRendererWidget::drawNorthIndicator(const QMatrix4x4& view) {
   glEnable(GL_DEPTH_TEST);
 }
 
+void SimRendererWidget::buildRing() {
+  // Unit torus: major radius 1 in the local XY plane (axis = local +Z), minor
+  // (tube) radius small so it reads as a thin glowing halo. Per-gate scale sets
+  // the real radius. Interleaved pos+normal for the lit shader.
+  const int kMajor = 40, kMinor = 12;
+  const float kTube = 0.09f;   // tube radius relative to the unit major radius
+  std::vector<float> v;
+  v.reserve(static_cast<size_t>(kMajor) * kMinor * 6 * 6);
+  auto vert = [&](int i, int j) {
+    const float u  = float(i % kMajor) / kMajor * 2.0f * float(M_PI);
+    const float vv = float(j % kMinor) / kMinor * 2.0f * float(M_PI);
+    const float cu = std::cos(u), su = std::sin(u);
+    const float cv = std::cos(vv), sv = std::sin(vv);
+    // Position on the torus ring of major radius 1.
+    const QVector3D p((1.0f + kTube * cv) * cu,
+                      (1.0f + kTube * cv) * su,
+                      kTube * sv);
+    // Outward normal points away from the ring centreline.
+    const QVector3D n(cv * cu, cv * su, sv);
+    v.insert(v.end(), {p.x(), p.y(), p.z(), n.x(), n.y(), n.z()});
+  };
+  for (int i = 0; i < kMajor; ++i)
+    for (int j = 0; j < kMinor; ++j) {
+      vert(i, j);   vert(i + 1, j);   vert(i + 1, j + 1);   // tri 1
+      vert(i, j);   vert(i + 1, j + 1); vert(i, j + 1);     // tri 2
+    }
+  uploadLitMesh(ring_, v);
+}
+
+void SimRendererWidget::buildGuideArrow() {
+  // A solid arrow along +X: a thin square shaft (0..0.7) plus a cone head
+  // (0.7..1.0). Built as flat-shaded triangles (pos+normal) for the lit shader.
+  std::vector<float> v;
+  auto tri = [&](const QVector3D& a, const QVector3D& b, const QVector3D& c) {
+    QVector3D n = QVector3D::crossProduct(b - a, c - a);
+    if (n.lengthSquared() > 1e-12f) n.normalize();
+    for (const QVector3D& p : {a, b, c})
+      v.insert(v.end(), {p.x(), p.y(), p.z(), n.x(), n.y(), n.z()});
+  };
+  const float sh = 0.05f;   // shaft half-width
+  const float L  = 0.7f;    // shaft length (head from L..1.0)
+  const float hr = 0.14f;   // head base radius
+  // Shaft: a thin box from x=0 to x=L, square cross-section in y/z.
+  const QVector3D s0(0, -sh, -sh), s1(0, sh, -sh), s2(0, sh, sh), s3(0, -sh, sh);
+  const QVector3D e0(L, -sh, -sh), e1(L, sh, -sh), e2(L, sh, sh), e3(L, -sh, sh);
+  auto quad = [&](const QVector3D& a, const QVector3D& b,
+                  const QVector3D& c, const QVector3D& d) { tri(a, b, c); tri(a, c, d); };
+  quad(s0, s1, s2, s3);            // back cap
+  quad(e3, e2, e1, e0);            // front cap (shaft/head junction filled by cone base)
+  quad(s0, s3, e3, e0);            // -y
+  quad(s1, s0, e0, e1);            // -z
+  quad(s2, s1, e1, e2);            // +y
+  quad(s3, s2, e2, e3);            // +z
+  // Cone head: apex at x=1, base ring of radius hr at x=L.
+  const QVector3D apex(1.0f, 0, 0);
+  const int seg = 16;
+  for (int i = 0; i < seg; ++i) {
+    const float a0 = float(i) / seg * 2.0f * float(M_PI);
+    const float a1 = float(i + 1) / seg * 2.0f * float(M_PI);
+    const QVector3D b0(L, hr * std::cos(a0), hr * std::sin(a0));
+    const QVector3D b1(L, hr * std::cos(a1), hr * std::sin(a1));
+    tri(b0, b1, apex);     // side
+    tri(L * QVector3D(1, 0, 0) + QVector3D(0, 0, 0), b1, b0);  // base
+  }
+  uploadLitMesh(guideArrow_, v);
+}
+
+void SimRendererWidget::drawTraining(const QMatrix4x4& view) {
+  if (gates_.isEmpty()) return;
+  glowPhase_ += 0.08f;
+  const float pulse = 0.5f + 0.5f * std::sin(glowPhase_);
+
+  // Reveal gates one at a time: only the active target glows bright (cyan
+  // pulse); the very next gate shows as a faint ghost so the pilot can read
+  // ahead. Cleared and far-future gates are hidden so the arena stays clean.
+  for (int i = trainActive_; i <= trainActive_ + 1 && i < gates_.size(); ++i) {
+    const vsim::RingGate& g = gates_[i];
+    QMatrix4x4 m;
+    m.translate(g.center);
+    // Orient the torus axis (local +Z) onto the gate normal.
+    m.rotate(QQuaternion::rotationTo(QVector3D(0, 0, 1), g.normal));
+    m.scale(g.radius);
+    const QVector3D col = (i == trainActive_)
+        ? QVector3D(0.20f + 0.6f * pulse, 0.85f, 0.95f)   // active target
+        : QVector3D(0.18f, 0.24f, 0.42f);                 // faint next-gate ghost
+    drawLit(ring_, view, m, col);
+  }
+
+  // Guidance arrow: floats just above the drone, points at the active gate.
+  if (trainArrow_ && trainActive_ >= 0 && trainActive_ < gates_.size()) {
+    const QVector3D from = snap_.pos_w + QVector3D(0, 0, -0.35f);  // above drone
+    QVector3D dir = gates_[trainActive_].center - snap_.pos_w;
+    if (dir.lengthSquared() > 1e-6f) {
+      dir.normalize();
+      QMatrix4x4 m;
+      m.translate(from);
+      m.rotate(QQuaternion::rotationTo(QVector3D(1, 0, 0), dir));
+      m.scale(0.8f);
+      glDisable(GL_DEPTH_TEST);   // always visible, never buried in geometry
+      drawLit(guideArrow_, view, m,
+              QVector3D(1.0f, 0.85f, 0.15f + 0.3f * pulse));
+      glEnable(GL_DEPTH_TEST);
+    }
+  }
+}
+
 // ---------- camera controls ----------
 
 void SimRendererWidget::mousePressEvent(QMouseEvent* e) {
@@ -1132,12 +1273,8 @@ QMatrix4x4 SimRendererWidget::modelMatrix() const {
 
 void SimRendererWidget::cameraEyeTarget(QVector3D* eye, QVector3D* target) const {
   const QVector3D tgt = snap_.pos_w;
-  const QVector3D offset(
-      cam_radius_ * std::cos(cam_pitch_) * std::cos(cam_yaw_),
-      cam_radius_ * std::cos(cam_pitch_) * std::sin(cam_yaw_),
-      -cam_radius_ * std::sin(cam_pitch_));
   if (target) *target = tgt;
-  if (eye)    *eye = tgt + offset;
+  if (eye)    *eye = tgt + orbitOffset();
 }
 
 void SimRendererWidget::rayThroughPixel(const QPoint& px, QVector3D* o,

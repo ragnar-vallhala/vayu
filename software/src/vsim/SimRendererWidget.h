@@ -1,6 +1,7 @@
 #pragma once
 
 #include "SimWorker.h"
+#include "TrainingCourse.h"
 
 #include <QMatrix4x4>
 #include <QOpenGLBuffer>
@@ -47,6 +48,13 @@ class SimRendererWidget : public QOpenGLWidget, protected QOpenGLFunctions {
   // Static world obstacles (boxes/spheres/cylinders) in the NED world frame.
   // Stored + redrawn each frame; safe to call from the UI thread.
   void setObstacles(const QVector<vsim::Obstacle>& obs);
+
+  // Training course: glowing halo gates to fly through. setTrainingGates
+  // replaces the gate layout; setTrainingActive updates which gate to aim for
+  // (highlighted) and whether to draw the guidance arrow (drone -> next gate).
+  // Empty gates clears the course.
+  void setTrainingGates(const QVector<vsim::RingGate>& gates);
+  void setTrainingActive(int activeIndex, bool showArrow);
 
   // Imported static world mesh (triangle soup + normals, NED world frame).
   // Deferred upload like the drone mesh; empty positions clears it. `colors`
@@ -130,6 +138,9 @@ class SimRendererWidget : public QOpenGLWidget, protected QOpenGLFunctions {
   void drawMotorLabels(const QMatrix4x4& view);  // billboarded numbers
   void buildNorth();        // body +X arrow + "N" glyph
   void drawNorthIndicator(const QMatrix4x4& view);
+  void buildRing();         // unit torus (major R=1, in local XY plane)
+  void buildGuideArrow();   // unit solid arrow along +X (shaft + cone head)
+  void drawTraining(const QMatrix4x4& view);  // halo gates + guidance arrow
   void uploadDroneMesh();   // flushes pending_* into droneMesh_ (GL-current)
   void uploadWorldMesh();   // flushes pendingWorld_* into worldMesh_
   // Upload an interleaved [px,py,pz,nx,ny,nz] array into a lit-shader mesh.
@@ -165,6 +176,11 @@ class SimRendererWidget : public QOpenGLWidget, protected QOpenGLFunctions {
 
   QMatrix4x4 cameraView() const;
   QVector3D  freeForward() const;        // free-cam look direction from yaw/pitch
+  float      bodyYawRad() const;         // drone heading (yaw about world Z, NED)
+  // Third-person orbit eye offset from the drone. The azimuth is locked to the
+  // drone's heading (cam_yaw_ is the offset RELATIVE to the body, changed only
+  // by mouse drag) so the camera yaws with the vehicle and stays easy to track.
+  QVector3D  orbitOffset() const;
   bool       freeFlyMove(int key, bool fast);  // WASD/QE → move camPos_; true if used
 
   // Flat shader: vec3 position + uniform color + MVP (grid/axes/markers).
@@ -200,6 +216,14 @@ class SimRendererWidget : public QOpenGLWidget, protected QOpenGLFunctions {
   Mesh digitMesh_[4]; // glyphs for "1".."4", billboarded over each motor
   Mesh northArrow_;   // body +X arrow (shaft + head), rotates with the body
   Mesh glyphN_;       // "N" glyph billboarded at the arrow tip
+  Mesh ring_;         // unit torus for training halo gates (lit, pos+normal)
+  Mesh guideArrow_;   // unit solid arrow (lit) pointing drone -> next gate
+
+  // Training course state (gameplay overlay; populated only in training mode).
+  QVector<vsim::RingGate> gates_;
+  int   trainActive_ = 0;       // index of the gate to aim for next
+  bool  trainArrow_  = false;   // draw the guidance arrow this frame
+  float glowPhase_   = 0.0f;    // advances per paint for the gate pulse
 
   // Imported mesh (pos+normal interleaved). hasMesh_ gates body vs mesh.
   Mesh droneMesh_;
@@ -248,11 +272,11 @@ class SimRendererWidget : public QOpenGLWidget, protected QOpenGLFunctions {
 
   // Camera state (orbit around drone).
   float cam_radius_ = 4.0f;
-  float cam_yaw_    = 0.7f;   // around world -Z (NED up)
+  float cam_yaw_    = 0.7f;   // orbit azimuth RELATIVE to the drone heading
   float cam_pitch_  = 0.5f;   // tilt; >0 = eye above ground looking down (NED)
   bool  fpv_        = false;  // onboard FPV camera vs orbit
-  bool  downCam_    = false;  // bird's-eye top-down camera (Down-Cam PiP)
-  float downCamHeight_ = 6.0f;  // metres above the drone for the down-cam
+  bool  downCam_    = false;  // belly-mounted downward camera (Down-Cam PiP)
+  float downCamOffset_ = 0.05f;  // metres below the CoM the belly lens sits
   bool  freeFly_    = false;  // WASD free-roam camera (sim stopped, World mode)
   bool  worldVisible_ = true; // draw world mesh + obstacles (World mode)
   QVector3D camPos_{-4.0f, -4.0f, -3.0f};  // free-cam world position (NED)

@@ -130,6 +130,12 @@ class SimulatorWidget : public QWidget {
   // it to the renderer; empty path clears it. When the sim is running, also
   // builds the collision BVH and ships it to the daemon (sendWorldMeshToSim).
   void loadWorldMeshToRenderer();
+  // Training course: (re)generate gates for the selected difficulty, push the
+  // layout to both renderers, reset the drone to the floor, and refresh the
+  // progress readout. setTrainingMode is the dropdown handler.
+  void setTrainingMode(int difficulty);
+  void pushTrainingGates();
+  void updateTrainingProgress();
   // Build a serialized BVH from an already-loaded mesh, write it atomically to
   // an mmap file, and point the daemon at it (VSIM_CTL_SET_WORLD_MESH).
   void sendWorldMeshToSim(const vsim::LoadedMesh& m);
@@ -211,6 +217,9 @@ class SimulatorWidget : public QWidget {
   QCheckBox* m_propAudioChk = nullptr;  // "Prop audio" toggle (default via Settings)
   GeometryEditorWidget* m_geomEditor = nullptr;
   WorldEditorWidget* m_worldEditor = nullptr;
+  QComboBox* m_trainingMode = nullptr;   // Off / Easy / Medium / Hard course
+  QLabel* m_trainingStatus = nullptr;    // "Gate 2 / 7" progress readout
+  vsim::TrainingCourse m_training;       // halo-gate course state + progress
   QStackedWidget* m_rightStack = nullptr;   // 0 = Vehicle, 1 = World
   QPushButton* m_vehicleTab = nullptr;
   QPushButton* m_worldTab = nullptr;
