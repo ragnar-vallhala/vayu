@@ -23,25 +23,14 @@ s_roll  = {-1, -1, +1, +1}     s_pitch = {+1, -1, -1, +1}     s_yaw = {+1, -1, +
 | 2 | M3 | rear-left | CW | + |
 | 3 | M4 | front-left | CCW | − |
 
-Layout (front = ↑), with each motor's mix signs `(roll, pitch, yaw)`:
+Plan view (front at top); each cell = motor · spin · mix signs `(roll, pitch, yaw)`:
 
-```mermaid
-flowchart TB
-    subgraph FRONT ["front ↑"]
-      direction LR
-      M4["M4 FL · CCW<br/>roll −  pitch +  yaw −"]:::ccw
-      M1["M1 FR · CW<br/>roll −*  pitch +  yaw +"]:::cw
-    end
-    subgraph REAR ["rear"]
-      direction LR
-      M3["M3 RL · CW<br/>roll +  pitch −  yaw +"]:::cw
-      M2["M2 RR · CCW<br/>roll +*  pitch −  yaw −"]:::ccw
-    end
-    FRONT --- REAR
-    classDef cw fill:#cfe8ff,stroke:#0366d6;
-    classDef ccw fill:#ffe0cc,stroke:#d9480f;
-```
-<sub>*roll signs per firmware `s_roll = {−1,−1,+1,+1}` for M1..M4. CW = M1,M3; CCW = M2,M4.</sub>
+| | **left** | **right** |
+|---|---|---|
+| **front** | M4 FL · CCW · (+, +, −) | M1 FR · CW · (−, +, +) |
+| **rear**  | M3 RL · CW · (+, −, +)  | M2 RR · CCW · (−, −, −) |
+
+<sub>Signs from firmware `s_roll = {−1,−1,+1,+1}`, `s_pitch = {+1,−1,−1,+1}`, `s_yaw = {+1,−1,+1,−1}` for M1..M4. CW = M1,M3; CCW = M2,M4.</sub>
 
 ## Output levels — no saturation, low throttle
 
@@ -108,6 +97,7 @@ tilted.
 1. To rule out a real hardware imbalance behind the tilt, do a **per-motor thrust
    check** (thrust stand or props-off current draw) — the rig log can't separate
    actuator asymmetry from control action.
-2. Re-capture in an actual hover above 0.30 throttle to see true equal-command
-   balance and motor headroom.
+2. Don't judge motor balance from this run — once the rig is stable (see
+   [`recommendations.md`](recommendations.md)), a per-motor thrust check on a stand
+   is the way to confirm true equal-command balance. (No free flight to assess this.)
 3. Mixer signs/geometry verified against firmware — no change needed there.

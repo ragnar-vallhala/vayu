@@ -29,6 +29,7 @@ ORDER = [
     ("motor-analysis.md", "Motor analysis"),
     ("kernel-analysis.md", "Kernel / RTOS analysis"),
     ("sensor-analysis.md", "Sensor & fusion analysis"),
+    ("recommendations.md", "Recommendations & next-run plan"),
 ]
 
 # LaTeX preamble: wrap long code lines (fvextra) so the ASCII diagrams don't

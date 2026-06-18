@@ -184,5 +184,6 @@ roll/pitch sit near zero. The empirical yaw slope (0.0117) matches `Kp = 0.018`
 5. **Yaw loop is ~36× stronger** and saturates against the hand-spin disturbances;
    the 343–351 s alternating spins may be a separate yaw limit-cycle — re-check
    after the roll/pitch fix.
-6. Next capture: after re-tuning, validate on the rig that throttle-up no longer
-   oscillates, *then* fly (`IN_AIR`) with stick inputs.
+6. Next capture is **rig-only**: after re-tuning, prove on the rig that
+   throttle-up no longer oscillates (see [`recommendations.md`](recommendations.md)
+   for the protocol). Flight stays off the table until the rig is stable.

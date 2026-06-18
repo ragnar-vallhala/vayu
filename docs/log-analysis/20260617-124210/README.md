@@ -14,6 +14,7 @@ raw `.bin` is kept here so every number can be re-derived later.
 | [`motor-analysis.md`](motor-analysis.md) | quad-X mixer, motor balance, saturation |
 | [`kernel-analysis.md`](kernel-analysis.md) | vaios RTOS: CPU, stacks, heap, IPC, FIFO drops |
 | [`sensor-analysis.md`](sensor-analysis.md) | sensor calibration + **fusion** (EKF) accuracy & reporting |
+| [`recommendations.md`](recommendations.md) | **fixes before next trial + what to capture next (rig-only)** |
 | `plots/` | figures embedded in the docs above (committed; regenerate with `make_plots.py`) |
 | `csv/` | per-message-type CSVs for plotting (git-ignored, regenerable) |
 

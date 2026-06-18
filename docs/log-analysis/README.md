@@ -45,3 +45,4 @@ timestamp) holding the raw `.bin` plus all analysis of it.
   - [`motor-analysis.md`](20260617-124210/motor-analysis.md) — quad-X mixer & balance
   - [`kernel-analysis.md`](20260617-124210/kernel-analysis.md) — vaios RTOS health
   - [`sensor-analysis.md`](20260617-124210/sensor-analysis.md) — sensor cal & fusion (EKF)
+  - [`recommendations.md`](20260617-124210/recommendations.md) — fixes + next-run capture plan (rig-only)

@@ -196,5 +196,6 @@ These are populate/units bugs in what the FC *sends*, not decode errors:
   downlink bitrate, decimate the high-rate streams (ImuCompressed 23 Hz +
   ControlTrace 20 Hz + MotorTelemetry 17 Hz dominate), or apply the proposed
   stream-rate control packet (`0x2007`) to throttle on-air rates.
-- Next capture: after re-tuning, verify a stable throttle-up on the rig, then get
-  it airborne (`IN_AIR`) so controller-tuning metrics become meaningful.
+- Next capture is **rig-only**: after re-tuning, verify a stable throttle-up and
+  disturbance recovery on the rig (see [`recommendations.md`](recommendations.md)).
+  No free flight until the rig is boring.
