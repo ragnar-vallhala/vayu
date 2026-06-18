@@ -34,6 +34,10 @@ void navlink_tx_rc_channels(const ibus_data_t *rc);           /* v2 RC_CHANNELS 
 void navlink_tx_motor(const motor_outputs_t *m);              /* v2 MOTOR_TELEMETRY */
 void navlink_tx_calibration(const uint8_t *buf,
                             uint8_t len);                     /* v2 CALIBRATION_STATUS */
+/* v2 BARO (msgid 1039): BME280 pressure(Pa)/temperature(degC)/humidity(%RH) +
+ * derived altitude(m). Passed as plain scalars to keep this seam sensor-blind. */
+void navlink_tx_baro(float pressure_pa, float temperature_c, float humidity_rh,
+                     float altitude_m);
 
 /* PERF report (msgid 1034/1035/1036). The v1 fragmented PERF_STATS becomes one
  * v2 message per row; `seq` ties a report's GLOBAL/TASK/FIFO messages together.

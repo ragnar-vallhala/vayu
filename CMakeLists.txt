@@ -131,6 +131,7 @@ set(VAYU_R12_CLEAN_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/est/lpf.c
     # SNS module (Phase 4)
     ${CMAKE_CURRENT_SOURCE_DIR}/src/sensor/bmx160.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/sensor/bme280.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/sensor/imu_buffer.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/sensor/i2c_manager.c
     # CTRL module (Phase 4)
