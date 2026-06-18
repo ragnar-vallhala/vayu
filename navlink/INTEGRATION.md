@@ -193,7 +193,7 @@ t1_gcs_tx(u64 ms) t2_fc_rx(u64 ms) t3_fc_tx(u64 ms) commanded_offset_ms(i32)   =
 `role` is `REQUEST` (GCS→FC, stamps t1) or `RESPONSE` (FC→GCS, echoes t1, adds
 t2/t3); the GCS captures t4 locally. So when this service migrates to v2, the
 existing `TimeSyncEstimator` math and the FC's offset discipline carry over
-unchanged — only the framing swaps. **Follow-up:** `docs/analysis/navlink-v2-spec.md`
+unchanged — only the framing swaps. **Follow-up:** `docs/reference/navlink-v2-spec.md`
 §10/§14 still describes the old two-message form and should be updated to the
 single `TIME_SYNC` message to keep the normative spec consistent with the dialect.
 
