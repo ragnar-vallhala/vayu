@@ -60,6 +60,22 @@ No `Statustext`, `CommandAck`, or `Param*` traffic in this session.
 
 ## Flight timeline
 
+![session overview](plots/01_session_overview.png)
+
+Observed `nav_state` machine (transitions seen in this log; `IN_AIR`, `PREARM`,
+`TERMINATED`, `CALIBRATING` never reached):
+
+```mermaid
+stateDiagram-v2
+    [*] --> ARMED
+    ARMED --> FAILSAFE: RC loss
+    FAILSAFE --> STANDBY: RC restored
+    STANDBY --> ARMED: re-arm (×4)
+    STANDBY --> FAILSAFE: RC loss
+    note right of FAILSAFE: every FAILSAFE caused by RC dropout (chan0/1 → 62954)
+    note right of ARMED: never reached IN_AIR (bench rig)
+```
+
 `nav_state` (from `Heartbeat`) and flight mode (`FlightMode`), times relative to
 first frame:
 
@@ -82,6 +98,11 @@ first frame:
 Four **ARMED** windows totalling ~213 s: 19.6 s, 98.7 s, 44.0 s, 50.7 s.
 The system **never entered `IN_AIR`**. A brief switch to **ACRO** mode at
 185–219 s is the only excursion from ANGLE. All mode changes were `source=RC`.
+
+The fused attitude over the whole session — note the sustained positive pitch
+(the frame rested nose-up on the rig) and the full-range yaw wander:
+
+![fused attitude](plots/02_attitude.png)
 
 ## Controller behaviour (ARMED windows only)
 

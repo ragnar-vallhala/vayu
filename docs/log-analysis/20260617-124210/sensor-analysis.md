@@ -61,6 +61,12 @@ biased high by ~8 %.
 > motion in those samples, not better calibration — treat the **+7.8 % motors-off**
 > number as the real static error.
 
+![sensor magnitudes](plots/08_sensor_magnitudes.png)
+
+The left panel makes the accel scale error visible (the `|accel|` mass sits right
+of the g line); the right panel shows `|mag|` smeared across 22–92 µT instead of a
+single calibrated value.
+
 ## Magnetometer — uncalibrated (do not use as-is)
 
 A calibrated magnetometer reads a near-**constant** field magnitude (Earth's
@@ -81,6 +87,11 @@ ellipsoid-fit magnetometer calibration is run. (Note: this session also ran
 motors, whose current adds field distortion — calibrate *with the frame powered*
 and ideally characterize throttle-dependent interference.)
 
+A calibrated mag scatters as a sphere centered on the origin. These projections
+are off-center, squashed clouds — the visual signature of hard+soft iron:
+
+![magnetometer scatter](plots/09_mag_sphere.png)
+
 ## Temperature — good
 
 IMU `temp` reads **35.6 – 37.1 °C** with a gentle warm-up drift
@@ -97,6 +108,19 @@ EKF** (6-state: attitude error + gyro bias) running at **250 Hz** (IMU decimatio
 (tilt-compensated); gyro bias is estimated online. Output is degrees, NED, with a
 body→world quaternion (firmware `src/est/ekf.c`, `src/est/attitude_task.c`).
 
+```mermaid
+flowchart LR
+    GY["gyro<br/>2 kHz"] -->|predict| EKF
+    subgraph EKF["error-state EKF · 250 Hz<br/>state: attitude err + gyro bias"]
+      P[predict] --> U[correct]
+    end
+    AC["accel (gated |a|−g&lt;1.5)"] -->|"roll/pitch update"| EKF
+    MG["mag ⚠ uncalibrated"] -->|"yaw update (tilt-comp)"| EKF
+    EKF --> RP["roll, pitch ✅ accurate"]
+    EKF --> YW["yaw ❌ tainted by mag"]
+    EKF -.->|"not output, =0 bug"| BR[body rates]
+```
+
 ### Roll/pitch fusion is accurate — the bench tilt is real
 
 The key cross-check for the "tilted with just throttle" observation: does the
@@ -110,6 +134,8 @@ all ARMED IMU samples:
 | accel-derived tilt | 37.5° | 21.3° |
 | fused tilt | 33.7° | 18.3° |
 | **fused − accel** | **−3.8°** | 14.7° |
+
+![fusion vs accel tilt](plots/04_fusion_vs_accel_tilt.png)
 
 The estimator tracks the gravity vector to within ~4° on average. **The tilt is
 real**, not a fusion artifact — so the airframe genuinely rested at ~25–37° on the

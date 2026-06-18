@@ -14,10 +14,21 @@ degrees, rates in deg/s, `*_out` ∈ [−1, +1]** feeding the mixer.
 
 Cascade, two rates:
 
-```
-RC/setpoint ─► ANGLE loop (outer, 250 Hz, Kp only) ─► rate_sp (clamped ±100 °/s)
-                                                          │
-              gyro ─► RATE loop (inner, 1000 Hz, PI) ────► *_out ∈ [−1,1] ─► mixer
+```mermaid
+flowchart LR
+    RC[RC / setpoint] --> ANG
+    ATT["fused attitude<br/>roll/pitch"] --> ANG
+    subgraph OUTER["ANGLE loop · 250 Hz · Kp=4.0"]
+      ANG["angle error → rate_sp<br/>clamp ±100 °/s"]
+    end
+    GYRO["gyro<br/>body rates"] --> RATE
+    ANG -->|rate_sp| RATE
+    subgraph INNER["RATE loop · 1000 Hz · PI"]
+      RATE["roll/pitch Kp=5e-4, Ki=1e-2, Kd=0<br/>yaw Kp=1.8e-2 (36×)"]
+    end
+    RATE -->|"out ∈ [−1,1]"| RAMP["authority ramp<br/>0 @0.10 → full @0.30 thr"]
+    RAMP --> MIX[quad-X mixer] --> M[M1..M4]
+    YAWSP["yaw_rate_sp = 0<br/>(never commanded)"] --> RATE
 ```
 
 - Outer `OUTER_LOOP` = 250 Hz (`outer_dt` = 4.000 ms, **zero jitter** in log).
@@ -47,9 +58,12 @@ airframe sat at:
 | roll_angle_curr | **−9.7°** | 22.6° |
 | pitch_angle_curr | **+25.1°** | 16.3° |
 
-So pitch held ~**+25° nose-up** against a 0° command. Tracing the cascade in
-these frames shows the controller is doing the *right thing in the right
-direction* — it just has almost no authority:
+So pitch held ~**+25° nose-up** against a 0° command.
+
+![throttle-only tilt](plots/03_throttle_only_tilt.png)
+
+Tracing the cascade in these frames shows the controller is doing the *right
+thing in the right direction* — it just has almost no authority:
 
 ```
 pitch angle error  -25°  ──Kp=4──►  pitch_rate_sp  -66 °/s   (outer loop OK, commands nose-down)
@@ -61,6 +75,11 @@ The inner-loop output is tiny **by design**: empirical output/error slope is
 `Kp = 0.0005` (the rest leans on the slow Ki = 0.01 integral, clamped at 0.2).
 With Kd = 0 there is no rate damping either. Net: roll/pitch have very low
 proportional authority.
+
+The authority asymmetry is stark when you plot controller output against rate
+error per axis — roll/pitch barely leave zero while yaw spans the full ±1:
+
+![rate-loop authority](plots/06_rate_authority.png)
 
 This is compounded by the **authority ramp**: armed throttle averaged **0.25 and
 was below the 0.30 full-authority threshold 100 % of the time**, so roll/pitch
@@ -82,6 +101,8 @@ Yaw was **rate-controlled with `yaw_rate_sp` = 0 for the entire session** (pilot
 never commanded yaw). Every bit of yaw motion is therefore a *disturbance* — the
 rig being spun by hand, which the user confirms ("yaw suddenly starts to rotate,
 which I sometimes hand-clamped"). `yaw_rate_curr` ranged **−80…+68 °/s**.
+
+![yaw spin episodes](plots/05_yaw_spins.png)
 
 Detected yaw episodes (|rate| > 40 °/s) fall in two regimes:
 

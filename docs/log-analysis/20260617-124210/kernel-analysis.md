@@ -13,6 +13,31 @@ FIFO**. The only saturation is on the **telemetry** FIFOs and the TX buffer,
 i.e. the *downlink* can't keep up, which is by-design lossy (overwrite) and does
 **not** affect flight control.
 
+![CPU load and FIFO drops](plots/10_kernel.png)
+
+## Dataflow: why telemetry drops but control doesn't
+
+SPSC FIFOs connect producers to consumers. The **control** consumers (rate/angle
+loops) keep up; the **telemetry** consumer (downlink) can't drain at the offered
+rate, so its FIFOs overwrite. Same producers, two fan-outs, opposite outcomes:
+
+```mermaid
+flowchart LR
+    IMU["imu_read<br/>2 kHz"] -->|IMU_CONTROL ✅0| RATE[rate loop]
+    IMU -->|IMU_TELEMETRY ⚠65535| TLM["telemetry<br/>→ downlink"]
+    EST["attitude/EKF<br/>250 Hz"] -->|ATTITUDE_CONTROL ✅0| ANG[angle loop]
+    EST -->|ATTITUDE_TELEMETRY ⚠65535| TLM
+    RCRX[rc_ibus] -->|RC_CONTROL ✅0| ANG
+    RCRX -->|RC_TELEMETRY ⚠54921| TLM
+    ANG --> RATE --> MOT[motor]
+    TLM -->|TELEMETRY ⚠65535| LINK[("UART downlink<br/>33.5 kbps · tx_overflow↑")]
+    classDef bad fill:#ffd6d6,stroke:#d00;
+    classDef ok fill:#d6f5d6,stroke:#0a0;
+    class TLM,LINK bad;
+    class RATE,ANG,MOT ok;
+```
+<sub>Edge labels: FIFO name + worst-case drops. Control FIFOs = 0; telemetry FIFOs saturate.</sub>
+
 ## CPU & scheduler
 
 - **CPU load ≈ 63 %** (mean 63.3 %, range 57.8–65.9 % over 312 inter-sample

@@ -23,6 +23,26 @@ s_roll  = {-1, -1, +1, +1}     s_pitch = {+1, -1, -1, +1}     s_yaw = {+1, -1, +
 | 2 | M3 | rear-left | CW | + |
 | 3 | M4 | front-left | CCW | − |
 
+Layout (front = ↑), with each motor's mix signs `(roll, pitch, yaw)`:
+
+```mermaid
+flowchart TB
+    subgraph FRONT ["front ↑"]
+      direction LR
+      M4["M4 FL · CCW<br/>roll −  pitch +  yaw −"]:::ccw
+      M1["M1 FR · CW<br/>roll −*  pitch +  yaw +"]:::cw
+    end
+    subgraph REAR ["rear"]
+      direction LR
+      M3["M3 RL · CW<br/>roll +  pitch −  yaw +"]:::cw
+      M2["M2 RR · CCW<br/>roll +*  pitch −  yaw −"]:::ccw
+    end
+    FRONT --- REAR
+    classDef cw fill:#cfe8ff,stroke:#0366d6;
+    classDef ccw fill:#ffe0cc,stroke:#d9480f;
+```
+<sub>*roll signs per firmware `s_roll = {−1,−1,+1,+1}` for M1..M4. CW = M1,M3; CCW = M2,M4.</sub>
+
 ## Output levels — no saturation, low throttle
 
 All ARMED frames:
@@ -50,6 +70,8 @@ and throttle up, the four motors *should* be near-equal. They aren't:
 | M2 RR | 0.281 | **+14 %** |
 | M3 RL | 0.252 | +2 % |
 | M4 FL | 0.256 | +4 % |
+
+![motor balance and timeline](plots/07_motors.png)
 
 The spread is the **mixer injecting the controller's (small) corrections**, not a
 raw hardware imbalance — it is fully explained by the logged `roll_out`/`pitch_out`/

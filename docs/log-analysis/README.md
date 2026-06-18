@@ -9,12 +9,15 @@ live/replay and stays in lock-step with `dialect.json`.
 
 ## Tooling
 
-`parse_log.py` — decode a session and print a summary; `--csv DIR` dumps one CSV
-per message type for plotting.
+- `parse_log.py` — decode a session, print a summary; `--csv DIR` dumps one CSV
+  per message type.
+- `make_plots.py` — generate the figures (matplotlib) into `<archive>/plots/`.
+  Mermaid diagrams are inline in the markdown (render on GitHub).
 
 ```sh
 python3 docs/log-analysis/parse_log.py /path/to/export.bin
 python3 docs/log-analysis/parse_log.py /path/to/export.bin --csv docs/log-analysis/csv
+python3 docs/log-analysis/make_plots.py docs/log-analysis/<archive-dir>
 ```
 
 Generated `csv/` dumps and stray `.bin` files are git-ignored (regenerable /

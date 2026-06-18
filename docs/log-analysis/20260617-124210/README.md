@@ -13,6 +13,7 @@ raw `.bin` is kept here so every number can be re-derived later.
 | [`motor-analysis.md`](motor-analysis.md) | quad-X mixer, motor balance, saturation |
 | [`kernel-analysis.md`](kernel-analysis.md) | vaios RTOS: CPU, stacks, heap, IPC, FIFO drops |
 | [`sensor-analysis.md`](sensor-analysis.md) | sensor calibration + **fusion** (EKF) accuracy & reporting |
+| `plots/` | figures embedded in the docs above (committed; regenerate with `make_plots.py`) |
 | `csv/` | per-message-type CSVs for plotting (git-ignored, regenerable) |
 
 Decoder lives one level up: [`../parse_log.py`](../parse_log.py). Reproduce
@@ -21,6 +22,7 @@ everything from repo root:
 ```sh
 python3 docs/log-analysis/parse_log.py docs/log-analysis/20260617-124210/export-20260617-124210.bin
 python3 docs/log-analysis/parse_log.py docs/log-analysis/20260617-124210/export-20260617-124210.bin --csv docs/log-analysis/20260617-124210/csv
+python3 docs/log-analysis/make_plots.py docs/log-analysis/20260617-124210   # regenerate plots/
 ```
 
 ## Provenance & integrity
