@@ -10,30 +10,58 @@ import time
 from .transport.vsim import quat_to_euler
 
 
-DEFAULT_GAINS = dict(kp_z=0.05, ki_z=0.02, kd_z=0.05, hover=0.36,
-                     kp_h=0.06, kd_h=0.55, tilt=0.30, vmax=3.0)
+DEFAULT_GAINS = dict(
+    # altitude PID (NED z) — unchanged, hover hold is already tight.
+    kp_z=0.05, ki_z=0.02, kd_z=0.05, hover=0.36,
+    # horizontal cascade: position P (kp_pos) + velocity feedforward -> desired
+    # velocity (vmax cap); velocity error * kd_h + position integral (ki_pos,
+    # clamped i_lim) -> commanded tilt (tilt cap). tilt raised from the old 0.30
+    # (~2.7 deg, ~0.5 m/s^2 max accel — the real sluggishness) to 0.6 (~5.5 deg).
+    kp_pos=0.9, kd_h=0.85, ki_pos=0.10, i_lim=3.0, tilt=0.6, vmax=2.0)
 
 
 def _clamp(v, lo, hi):
     return max(lo, min(hi, v))
 
 
-def guidance_outputs(gp, ez, iz, vD, eN, eE, vN, vE, dt):
+def guidance_outputs(gp, ez, iz, vD, eN, eE, vN, vE, dt,
+                     vff_n=0.0, vff_e=0.0, iN=0.0, iE=0.0):
     """Pure cascade-guidance step (no I/O, no state) — unit-testable.
 
     Inputs: gains `gp`; altitude error `ez` (NED z − target, +ve = below target);
     altitude integrator `iz`; down-velocity `vD`; horizontal position errors
-    `eN/eE`; horizontal velocities `vN/vE`; timestep `dt`.
-    Returns (throttle[0..1], des_roll, des_pitch, iz_new). yaw is held at 0.
+    `eN/eE`; horizontal velocities `vN/vE`; timestep `dt`; per-axis velocity
+    feedforward `vff_n/vff_e` (the moving setpoint's own velocity); horizontal
+    position integrators `iN/iE`.
+    Returns (throttle[0..1], des_roll, des_pitch, iz, iN, iE). yaw held at 0.
     """
     iz = _clamp(iz + ez * dt, -0.3, 0.3)
     thr = gp["hover"] + gp["kp_z"] * ez + gp["ki_z"] * iz - gp["kd_z"] * (-vD)
     thr = _clamp(thr, 0.0, 1.0)
-    vdes_n = _clamp(0.6 * eN, -gp["vmax"], gp["vmax"])
-    vdes_e = _clamp(0.6 * eE, -gp["vmax"], gp["vmax"])
-    des_pitch = _clamp(gp["kd_h"] * (vdes_n - vN), -gp["tilt"], gp["tilt"])
-    des_roll = _clamp(gp["kd_h"] * (vdes_e - vE), -gp["tilt"], gp["tilt"])
-    return thr, des_roll, des_pitch, iz
+
+    # position error (+ path feedforward) -> desired velocity, capped.
+    vdes_n = _clamp(gp["kp_pos"] * eN + vff_n, -gp["vmax"], gp["vmax"])
+    vdes_e = _clamp(gp["kp_pos"] * eE + vff_e, -gp["vmax"], gp["vmax"])
+
+    # position integral (anti-windup applied below).
+    iN_in, iE_in = iN, iE
+    iN = _clamp(iN + eN * dt, -gp["i_lim"], gp["i_lim"])
+    iE = _clamp(iE + eE * dt, -gp["i_lim"], gp["i_lim"])
+
+    # velocity error * kd_h + position integral -> commanded tilt, capped.
+    raw_pitch = gp["kd_h"] * (vdes_n - vN) + gp["ki_pos"] * iN
+    raw_roll = gp["kd_h"] * (vdes_e - vE) + gp["ki_pos"] * iE
+    des_pitch = _clamp(raw_pitch, -gp["tilt"], gp["tilt"])
+    des_roll = _clamp(raw_roll, -gp["tilt"], gp["tilt"])
+
+    # conditional-integration anti-windup: when the tilt is saturated, HOLD the
+    # integrator at its prior value (don't accumulate) so it can't overshoot on
+    # arrival.
+    if des_pitch != raw_pitch:
+        iN = iN_in
+    if des_roll != raw_roll:
+        iE = iE_in
+    return thr, des_roll, des_pitch, iz, iN, iE
 
 
 class Pilot:
@@ -56,6 +84,9 @@ class Pilot:
         self.wps = [(0.0, 0.0)]
         self.wp = 0
         self.iz = 0.0
+        self.iN = 0.0                    # horizontal position integrators
+        self.iE = 0.0
+        self._prev_tgt = None            # for velocity feedforward (moving sp)
         self.armed = False
         self.active = False              # guidance engaged (hovering/flying)
         self.last = {}
@@ -83,6 +114,8 @@ class Pilot:
             self.wps = [(0.0, 0.0)]
             self.wp = 0
             self.iz = 0.0
+            self.iN = self.iE = 0.0
+            self._prev_tgt = None
             self.armed = True
             self.active = True                        # loop now flies it up + holds
 
@@ -148,10 +181,21 @@ class Pilot:
                 self.wp += 1
                 tx, ty = self.wps[self.wp]
                 eN, eE = tx - x, ty - y
+            # velocity feedforward: the setpoint's OWN velocity, from the
+            # per-tick motion of the (possibly moving) target. A waypoint switch
+            # jumps the target for one tick — vmax-clamped so that can't spike.
+            vff_n = vff_e = 0.0
+            if self._prev_tgt is not None:
+                vff_n = _clamp((tx - self._prev_tgt[0]) / dt,
+                               -gp["vmax"], gp["vmax"])
+                vff_e = _clamp((ty - self._prev_tgt[1]) / dt,
+                               -gp["vmax"], gp["vmax"])
+            self._prev_tgt = (tx, ty)
             # altitude hold (NED z down-positive; alt<0 is up) + position cascade
             ez = z - alt
-            thr, des_roll, des_pitch, self.iz = guidance_outputs(
-                gp, ez, self.iz, vD, eN, eE, vN, vE, dt)
+            thr, des_roll, des_pitch, self.iz, self.iN, self.iE = \
+                guidance_outputs(gp, ez, self.iz, vD, eN, eE, vN, vE, dt,
+                                 vff_n, vff_e, self.iN, self.iE)
             self.last = dict(x=x, y=y, z=z, vN=vN, vE=vE, vD=vD,
                              roll=roll, pitch=pitch, yaw=yaw, wp=self.wp, thr=thr)
         self.lab.stick(roll=des_roll, pitch=des_pitch, thr=thr, yaw=0.0)
