@@ -4,6 +4,9 @@ Start here. Documentation is organized **per component**, and within each
 component into **four layers by lifecycle**. This page defines both, then
 indexes the Flight Controller (FC) docs, which live in this directory.
 
+> For the whole-system picture — how the four components fit together and the
+> runtime topologies — see [`../ARCHITECTURE.md`](../ARCHITECTURE.md).
+
 ## Components
 
 Each major part of the stack owns its own docs tree. Keep cross-coupling
