@@ -164,6 +164,20 @@ void navlink_tx_attitude(const attitude_t *att_deg) {
   write_channel(g_telemetry_channel, frame, (uint16_t)n);
 }
 
+void navlink_tx_baro(float pressure_pa, float temperature_c, float humidity_rh,
+                     float altitude_m) {
+  /* v2 BARO (msgid 1039); BME280 baro/humidity. No v1 equivalent. */
+  static uint8_t seq = 0;
+  navlink_baro_t b = {0};
+  b.pressure = pressure_pa;
+  b.temperature = temperature_c;
+  b.humidity = humidity_rh;
+  b.altitude = altitude_m;
+  uint8_t frame[NAVLINK_MAX_FRAME];
+  size_t n = navlink_baro_encode(frame, &b, seq++, get_device_id(), 1);
+  write_channel(g_telemetry_channel, frame, (uint16_t)n);
+}
+
 void navlink_tx_rc_channels(const ibus_data_t *rc) {
   /* v2 RC_CHANNELS (msgid 1028); replaces v1 PACKET_TYPE_RC_CHANNELS. v1 carried
    * IBUS_MAX_CHANNELS (14) u16; v2 widens to 18, so the tail stays 0. rssi has

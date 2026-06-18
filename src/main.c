@@ -64,6 +64,7 @@ void init_sensors(void) {
   imu_buffer_init();
   control_telemetry_buffer_init();
   bmx160_init();
+  bme280_init(); /* baro/humidity on the shared I2C1 bus; logs + degrades if absent */
   rc_buffer_init();
 
   // Initialize global telemetry — USART6 (PC6 TX / PC7 RX) per Vayu PCB wiring.
@@ -99,6 +100,8 @@ void init_tasks(void) {
   task_create_named(motor_task, NULL, 1024, 1, "motor"); // peak ~252, actuator
   task_create_named(imu_telemetry_task, NULL, 2048, 0,
                     "imu_telemetry"); // peak ~748
+  task_create_named(bme280_read_task, NULL, 1024, 0,
+                    "baro_read"); // low-rate baro/humidity sampler (~20 Hz)
   task_create_named(flush_task, NULL, 1024, 0, "flush"); // peak ~124
   task_create_named(perf_telemetry_task, NULL, 2048, 0,
                     "perf_telemetry"); // peak ~796

@@ -70,6 +70,7 @@ void imu_telemetry_task(void *args) {
     bool send_motor = (packet_counter % 8 == 0);       // 18 Hz
     bool send_pid_err = (packet_counter % 8 == 0);     // 18 Hz
     bool send_log = (packet_counter % 10 == 0);        // 15 Hz
+    bool send_baro = (packet_counter % 15 == 0);       // 10 Hz
     /* Gather domain data + hand it to the TX seam; this task is codec-blind
      * (all framing lives in navlink_tx.c). */
     if (send_log) {
@@ -130,6 +131,16 @@ void imu_telemetry_task(void *args) {
     /* Estimator cost probe (~1 Hz): peak/mean per-update cost + cadence. */
     if (est_perf_queue_pop(&e_data)) {
       navlink_tx_est_perf(&e_data);
+    }
+    /* Barometer (~10 Hz): BME280 pressure/temp/humidity + derived altitude.
+     * bme280_read_all returns the last published sample; only emit once the
+     * sensor has produced one (skips cleanly when absent/mis-wired). */
+    if (send_baro) {
+      bme280_reading_t baro;
+      if (bme280_read_all(&baro) == HAL_OK) {
+        navlink_tx_baro(baro.pressure_pa, baro.temperature_c, baro.humidity_rh,
+                        baro.altitude_m);
+      }
     }
     packet_counter++;
     v_delay(6); // ~166 Hz

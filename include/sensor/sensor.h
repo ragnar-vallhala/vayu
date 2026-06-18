@@ -17,6 +17,7 @@
 #ifndef VAYU_SENSOR_H
 #define VAYU_SENSOR_H
 
+#include "sensor/bme280.h"      /* barometer/humidity (pressure/temp/RH/alt) driver */
 #include "sensor/bmx160.h"      /* IMU driver + reading/calibration types */
 #include "sensor/i2c_manager.h" /* shared I2C bus manager */
 #include "sensor/imu_buffer.h"  /* IMU sample + attitude queues */
