@@ -17,6 +17,7 @@ DroneProtocol::DroneProtocol(QObject *parent) : QObject(parent) {
   m_v2Router.onEstPerf = [this](const EstPerfData &d) {
     emit estPerfReceived(d);
   };
+  m_v2Router.onBaro = [this](const BaroData &d) { emit baroReceived(d); };
   m_v2Router.onFlightMode = [this](uint8_t mode, uint8_t source) {
     emit flightModeReceived(mode, source);
   };

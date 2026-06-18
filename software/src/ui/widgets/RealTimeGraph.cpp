@@ -16,6 +16,7 @@ RealTimeGraph::RealTimeGraph(QWidget *parent, int numSeries) : QWidget(parent) {
   m_sigmaData.resize(numSeries);
   m_colors.resize(numSeries, QColor("#61AFEF"));
   m_penStyles.resize(numSeries, Qt::SolidLine);
+  m_rightAxis.resize(numSeries, false);
 
   // Fixed-rate repaint pump (~30 Hz). Started on show, stopped on hide. Only
   // repaints when new data has been buffered since the last paint, so an idle
@@ -157,6 +158,16 @@ void RealTimeGraph::setPenStyle(int index, Qt::PenStyle style) {
     m_penStyles[index] = style;
     update();
   }
+}
+
+void RealTimeGraph::setSeriesAxis(int index, bool rightAxis) {
+  if (index < 0 || index >= static_cast<int>(m_rightAxis.size()))
+    return;
+  m_rightAxis[index] = rightAxis;
+  m_hasRightAxis = false;
+  for (bool r : m_rightAxis)
+    m_hasRightAxis = m_hasRightAxis || r;
+  update();
 }
 
 void RealTimeGraph::setYRange(float lo, float hi) {
@@ -341,8 +352,10 @@ void RealTimeGraph::paintEvent(QPaintEvent *event) {
     if (m_dynamicYAxis) {
       drawMin = 9999999.0f;
       drawMax = -9999999.0f;
-      for (const auto &series : m_seriesData) {
-        for (const auto &dp : series) {
+      for (size_t i = 0; i < m_seriesData.size(); ++i) {
+        if (m_hasRightAxis && m_rightAxis[i])
+          continue;  // right-axis series scale on their own axis below
+        for (const auto &dp : m_seriesData[i]) {
           drawMin = std::min(drawMin, dp.value);
           drawMax = std::max(drawMax, dp.value);
         }
@@ -365,8 +378,42 @@ void RealTimeGraph::paintEvent(QPaintEvent *event) {
     if (range < 1e-6f)
       range = 1e-6f;
 
+    // Independent right-hand axis: scaled only from its own series, so a series
+    // with a very different magnitude (e.g. MSL ~485 m) stays readable next to a
+    // small left-axis series (AGL ~0 m).
+    float rMin = 0.0f, rMax = 1.0f, rRange = 1.0f;
+    if (m_hasRightAxis) {
+      rMin = 9999999.0f;
+      rMax = -9999999.0f;
+      for (size_t i = 0; i < m_seriesData.size(); ++i) {
+        if (!m_rightAxis[i])
+          continue;
+        for (const auto &dp : m_seriesData[i]) {
+          rMin = std::min(rMin, dp.value);
+          rMax = std::max(rMax, dp.value);
+        }
+      }
+      if (rMin > rMax) {
+        rMin = -1.0f;
+        rMax = 1.0f;
+      }
+      float rr = rMax - rMin;
+      if (rr < 1e-6f) {
+        rMin -= 1e-4f;
+        rMax += 1e-4f;
+      } else {
+        rMin -= rr * 0.1f;
+        rMax += rr * 0.1f;
+      }
+      rRange = rMax - rMin;
+      if (rRange < 1e-6f)
+        rRange = 1e-6f;
+    }
+
     // now / startTime / toX are hoisted above (shared with the state band).
-    auto toY = [&](float val) {
+    auto toY = [&](float val, bool rightAxis) -> float {
+      if (rightAxis)
+        return height() - (height() * (val - rMin) / rRange);
       return height() - (height() * (val - drawMin) / range);
     };
 
@@ -375,12 +422,13 @@ void RealTimeGraph::paintEvent(QPaintEvent *event) {
       const auto &series = m_seriesData[i];
       if (series.empty())
         continue;
+      const bool ra = m_hasRightAxis && m_rightAxis[i];
 
       QPainterPath path;
       bool first = true;
       for (const auto &dp : series) {
         float x = toX(dp.timestamp);
-        float y = toY(dp.value);
+        float y = toY(dp.value, ra);
         if (first) {
           path.moveTo(x, y);
           first = false;
@@ -467,6 +515,28 @@ void RealTimeGraph::paintEvent(QPaintEvent *event) {
           painter.drawText(QRectF(width() - 42, yPos, 40, 12),
                            Qt::AlignRight | Qt::AlignTop, lbl);
         }
+      }
+    }
+
+    // Independent right-hand axis tick labels (right edge), tinted with the
+    // right-axis series' colour so it's clear which trace they belong to.
+    if (m_hasRightAxis) {
+      QColor axc(120, 128, 142);
+      for (size_t i = 0; i < m_rightAxis.size(); ++i)
+        if (m_rightAxis[i] && i < m_colors.size()) {
+          axc = m_colors[i];
+          break;
+        }
+      QFont rf = painter.font();
+      rf.setPointSize(7);
+      painter.setFont(rf);
+      painter.setPen(axc);
+      for (int k = 0; k <= 4; ++k) {
+        const float rval = rMax - (rMax - rMin) * (k / 4.0f);
+        const int yPos = k == 0 ? 14 : static_cast<int>(k / 4.0 * height());
+        painter.drawText(QRectF(width() - 46, yPos, 44, 12),
+                         Qt::AlignRight | Qt::AlignTop,
+                         QString::number(double(rval), 'f', 1));
       }
     }
 

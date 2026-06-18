@@ -66,13 +66,18 @@ ImuPanel::ImuPanel(QWidget *parent) : QWidget(parent) {
   m_gyrG = makeAxisGraph(this, tr("Gyro"), QStringLiteral("°/s"), 2);
   m_magG = makeAxisGraph(this, tr("Mag"), QStringLiteral("µT"), 24);
 
-  // Baro Altitude: single trace, no telemetry source yet → paints NA.
-  m_baroG = new RealTimeGraph(this, 1);
-  m_baroG->setColor(0, QColor("#61AFEF"));
+  // Baro Altitude: two traces — MSL (height above sea level, the absolute
+  // figure from the barometer) and AGL (height above the ground reference
+  // captured on the ground; ~0 at rest, rises with climb). Fed by BARO telem.
+  m_baroG = new RealTimeGraph(this, 2);
+  m_baroG->setColor(0, QColor("#61AFEF"));  // MSL — blue (right axis)
+  m_baroG->setColor(1, QColor("#98C379"));  // AGL — green (left axis)
   m_baroG->setDynamicYAxis(true);
+  m_baroG->setSeriesAxis(0, true);  // MSL on the right axis (sea-level, ~485 m)
+  m_baroG->setSeriesAxis(1, false); // AGL on the left axis (above-ground, ~0 m)
   m_baroG->setStateBandEnabled(false);  // off by default (Settings can enable it)
   m_baroG->setTitle(tr("Baro Altitude"), QStringLiteral("m"));
-  m_baroG->setSeriesLabels({"ALT"});
+  m_baroG->setSeriesLabels({"MSL", "AGL"});
   m_baroG->setMinimumHeight(120);
 
   grid->addWidget(m_accG, 0, 0);
@@ -146,8 +151,19 @@ void ImuPanel::updateImu(const ImuData &data, bool available) {
     }
     graphs[g]->pushState(m_state);
   }
-  m_baroG->pushState(m_state);  // keep the band scrolling even with no baro data
+  m_baroG->pushState(m_state);  // keep the band scrolling; data fed separately
   m_tempGauge->setValue(data.tempC);
+}
+
+void ImuPanel::setBaroAltitude(float mslM, float aglM, bool available) {
+  // BARO arrives independently of the IMU stream (separate NavLink message), so
+  // it has its own slot. When stale, stop feeding — the traces age out to NA on
+  // their own, matching the IMU graphs' behaviour. MSL = sea-level height; AGL =
+  // height above the ground reference (computed by the caller).
+  if (!available)
+    return;
+  m_baroG->appendData(mslM, 0);
+  m_baroG->appendData(aglM, 1);
 }
 
 void ImuPanel::setSensor(const QString &name) {

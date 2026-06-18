@@ -108,6 +108,13 @@ TelemetryEngine::TelemetryEngine(QObject *parent)
             m_state.lastMotorMs = QDateTime::currentMSecsSinceEpoch();
           });
 
+  connect(m_protocol, &DroneProtocol::baroReceived, this,
+          [this](const BaroData &d) {
+            QMutexLocker lock(&m_mutex);
+            m_state.baro = d;
+            m_state.lastBaroMs = QDateTime::currentMSecsSinceEpoch();
+          });
+
   connect(m_protocol, &DroneProtocol::flightModeReceived, this,
           [this](quint8 mode, quint8 source) {
             QMutexLocker lock(&m_mutex);

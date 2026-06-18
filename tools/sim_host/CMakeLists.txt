@@ -56,6 +56,7 @@ set(HOST_SOURCES
     src/host_vaios.c
     src/host_navhal.c
     src/host_imu_feeder.c
+    src/host_baro.c
     src/host_rc_feeder.c
     src/host_lifecycle.c
     src/host_vfs.c
@@ -83,6 +84,7 @@ set(VAYU_SOURCES
     ${VAYU_ROOT}/src/est/ekf.c
     ${VAYU_ROOT}/src/est/attitude_task.c   # the REAL firmware estimator task (now run in SITL)
     ${VAYU_ROOT}/src/sensor/imu_buffer.c
+    ${VAYU_ROOT}/src/sensor/bme280.c   # real FC baro driver (altitude/publish/getters); host_baro.c feeds it
     ${VAYU_ROOT}/src/logger/logger.c    # wrap counters; telemetry reads them
     ${VAYU_ROOT}/src/logger/log_text.c  # vayu_log + queue (moved from utils.c)
     ${VAYU_ROOT}/src/sys/state.c
