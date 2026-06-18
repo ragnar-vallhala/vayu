@@ -45,7 +45,7 @@ The FC component is rooted here in `docs/`.
   - [requirements.md](reference/requirements.md) · [coding-guidelines.md](reference/coding-guidelines.md) · [firmware-overview.md](reference/firmware-overview.md)
   - [firmware-control.md](reference/firmware-control.md) · [pipeline-overview.md](reference/pipeline-overview.md) · [coordinate_ref.md](reference/coordinate_ref.md) · [hardware-gotchas.md](reference/hardware-gotchas.md)
   - subsystems: [tasks/](reference/tasks/README.md) · [state-machine/](reference/state-machine/README.md) · [sensor-fusion/](reference/sensor-fusion/README.md) · [imu/](reference/imu/sensor_data_flow.md) · [datasheet/](reference/datasheet/)
-- **[plans/](plans/README.md)** — active FC plans (currently empty)
+- **[plans/](plans/README.md)** — active FC plans ([altitude-hold-and-in-air-plan.md](plans/altitude-hold-and-in-air-plan.md))
 - **[journal/](journal/README.md)** — persistent record
   - [log-analysis/](journal/log-analysis/README.md) (time-ordered flight-log captures) · [deferred/](journal/deferred/) (open findings) · [memory_report.md](journal/memory_report.md) · [changelog/](journal/changelog/)
 - **[scratch/](scratch/README.md)** — exploratory studies ([application-layer-sandbox.md](scratch/application-layer-sandbox.md))
