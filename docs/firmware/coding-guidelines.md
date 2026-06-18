@@ -25,7 +25,7 @@ up the firmware engineering standard.
 | ID    | Rule | Status |
 |-------|------|--------|
 | R1.1  | The codebase shall target C11 with GNU extensions disabled in upper layers (HAL and below may use vendor extensions where unavoidable). |  |
-| R1.2  | All translation units shall compile cleanly with: `-Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wcast-align -Wpointer-arith -Wstrict-prototypes -Wmissing-prototypes -Wundef -Wfloat-equal -Werror`. | ✅ Phase 4 complete — all 7 owned modules (ACT, EST, SNS, CTRL, COMM, LOG, SYS) compile under the full set with `-Werror` in the target build; vendor headers `-isystem`-exempt (§5.3). Tracking: `docs/firmware/plan/warning-rollout.md`. |
+| R1.2  | All translation units shall compile cleanly with: `-Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wcast-align -Wpointer-arith -Wstrict-prototypes -Wmissing-prototypes -Wundef -Wfloat-equal -Werror`. | ✅ Phase 4 complete — all 7 owned modules (ACT, EST, SNS, CTRL, COMM, LOG, SYS) compile under the full set with `-Werror` in the target build; vendor headers `-isystem`-exempt (§5.3). |
 | R1.3  | Optimisation level for release shall be `-Os` or `-O2`; `-O3` is prohibited without a documented justification. Current vayu uses `-O2`. |  |
 | R1.4  | Compiler version and flags shall be pinned in the build system and reproducible. Target chain: `arm-none-eabi-gcc` for Cortex-M4; `gcc`/`clang` for host SITL. |  |
 | R1.5  | Cortex-M4 target builds shall use `-mfpu=fpv4-sp-d16 -mfloat-abi=hard -fsingle-precision-constant`. Already pinned in `CMakeLists.txt`. |  |
@@ -184,7 +184,7 @@ that don't exist in the codebase yet. They become tracked work items.
 | CONV-03 | `tools/trace.py`                    | ✅ landed (warn-only mode, per Phase 1). Walks `src/`, `extern/vaios/`, `extern/vaios/extern/NavHAL/`, parses `@implements` / `@verifies`, produces `docs/firmware/trace.md`. `--check` fails on unknown ID; missing implementer / verifier currently warn. Flip to fail-on-missing lands in Phase 5 (R12.5). |
 | CONV-04 | `.clang-tidy` baseline              | ✅ landed. `.clang-tidy` (bugprone-* + cert-* + readability-*, noisy checks disabled); CI `clang-tidy` job report-only until the baseline is burned down (R12.3), then flips to failing. |
 | CONV-05 | Host SITL coverage build            | ✅ landed. `tools/sim_host` `VAYU_COVERAGE` option + `coverage` target run the unit suite under gcov and print a gcovr summary; CI `coverage` job. |
-| CONV-06 | Compiler-flag widening rollout      | ✅ Phase 4 complete. All 7 owned modules flipped to the full R1.2 warning set with `-Werror`. Tracked in `docs/firmware/plan/warning-rollout.md`. |
+| CONV-06 | Compiler-flag widening rollout      | ✅ Phase 4 complete. All 7 owned modules flipped to the full R1.2 warning set with `-Werror`. |
 
 ---
 
@@ -199,7 +199,7 @@ that don't exist in the codebase yet. They become tracked work items.
 | Coverage         | gcov + lcov + gcovr                                   |
 | Fuzzing          | libFuzzer, AFL++                                      |
 | Formal methods   | CBMC (PID anti-windup), Frama-C (EVA, WP)             |
-| MCU emulation    | Renode (already used — see [`docs/in-app-sim.md`](../in-app-sim.md)) |
+| MCU emulation    | Renode (already used) |
 | Simulation       | In-app C++/OpenGL sim (current — see [`software/docs/requirements.md`](../../software/docs/requirements.md) FR-SIM-*); legacy Gazebo/JSBSim if needed |
 | Requirements     | Plain Markdown today; consider Doorstop / StrictDoc / OpenFastTrace if scale demands |
 | CI               | GitHub Actions (host build + unit tests + trace gate); target-arch builds run in containers |

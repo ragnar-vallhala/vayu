@@ -1,5 +1,11 @@
 # Findings — live maneuver demo (2026-06-18)
 
+> **Open issue:** the ~12× attitude under-read in powered, translating flight is
+> the one thread still unresolved here. It is tracked separately in
+> [`docs/deferred/01-attitude-estimate-underread.md`](../../../docs/deferred/01-attitude-estimate-underread.md);
+> the analysis below (UPDATEs pt 2/3 + appendix) is its working record. Bugs 1 & 2
+> below are also still open; only Gap 3 (guidance) has landed.
+
 Driving the example maneuvers **through a live `vayu-headless serve` session that
 the Navigator GCS was attached to** (Attach Ext + "SITL UART2"), instead of the
 standalone scripts. This surfaced two concrete SDK bugs and re-confirmed the
@@ -44,37 +50,14 @@ freezes, so `status` shows stale pose even though the craft is still flying and
 - Fix: source pose/alt/att from the live `lab.truth()`; keep `pilot.last` only for
   guidance-specific fields (target/wp). Then `status` is honest in every mode.
 
-## Gap 3 — outer-loop position guidance (the blocker)
+## Gap 3 — outer-loop position guidance — RESOLVED
 
-Quantified this run:
-- **Short station-keep is fine** — held origin to sub-meter (−0.3…−0.1 m) over a
-  6 s window.
-- **Long holds wander** — drifted ~18 m off the hold point over ~1 min of idle
-  (slow divergence / integrator behaviour).
-- **Moving-setpoint tracking fails** — chasing a lemniscate, position error grew
-  to ~16 m mean; the craft never converged. Slowing the path (5 m / 30 s lap)
-  did not help, so it is not a setpoint-rate problem.
-
-Root cause: the cascade in `autopilot.py::guidance_outputs` is a damped
-P-on-position → velocity → tilt with hard caps but **no acceleration limiting,
-no feedforward along the path, and no anti-windup** on the (small) integrator.
-It is adequate to *approach* a static waypoint (the integration golden only
-asserts "advances through the course") but not to *track* a trajectory or hold
-tightly for long.
-
-- Recommended fix: accel-limited / feedforward outer loop (command the velocity
-  *and* its derivative along the path), anti-windup, and a tighter,
-  rate-bounded position term. This unblocks every free-flight demo.
-
-**RESOLVED (2026-06-18, pt 4).** Reworked `guidance_outputs`: added velocity
-feedforward from the moving setpoint, a horizontal position integrator with
-conditional-integration anti-windup, and raised the tilt authority (0.30→0.60
-stick, ~2.7°→~5.5°; the old cap was the real sluggishness at ~0.5 m/s² max
-accel). Re-validated: lemniscate **16 m → 1.7 m** mean track error; box-tracking
-fidelity **46 → 77**; hover drift **1.24 m → 0.32 m**; overall control-loop
-fidelity **76.6 → 83.2** with no regressions (48/48 tests pass). Residual
-tracking error is now limited by the attitude under-read (deferred #1), not the
-guidance. See the fidelity suite: `software/headless-sdk/fidelity/`.
+**RESOLVED (2026-06-18, pt 4)** → `vayu_headless/autopilot.py::guidance_outputs`
+(commit `d9df605`, validated by `software/headless-sdk/fidelity/`). Velocity
+feedforward + anti-windup position integrator + raised tilt authority took the
+lemniscate from **16 m → 1.7 m** mean track error (box fidelity 46→77, hover
+drift 1.24→0.32 m, overall 76.6→83.2; 48/48 tests pass). Residual tracking error
+is now bounded by the attitude under-read (deferred #1) below, not by guidance.
 
 ## Gap 4 — free-flight + collision world = pinball
 

@@ -31,7 +31,7 @@ Cross-references:
 - [`docs/telemetry/`](../telemetry/) — wire format authority.
 - [`docs/state_machine/`](../state_machine/) — system state diagrams.
 - [`docs/coordinate_ref.md`](../coordinate_ref.md) — NED conventions.
-- [`docs/in-app-sim.md`](../in-app-sim.md) — SITL design.
+- [`docs/changelog/gcs-in-app-simulator-and-world-collision.md`](../changelog/gcs-in-app-simulator-and-world-collision.md) — SITL design (`vsim_d` daemon).
 
 ---
 

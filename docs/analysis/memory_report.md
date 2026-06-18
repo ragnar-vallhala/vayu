@@ -1,40 +1,50 @@
 # Vayu Memory Analysis Report
 
-**Date**: 2026-03-24
+**Date**: 2026-03-24 (figures regenerated against the post-refactor tree)
 **Hardware**: STM32F401RD (96 KB SRAM)
 **Kernel**: VAIOS v1.0
 
+> **Figures regenerated.** Heap and task-stack numbers below were updated to
+> match the live tree: `HEAP_SIZE = 0xE000` (**56 KB**, from
+> `include/vaios_app_config.h`) and the actual `task_create_named` calls in
+> `src/main.c` (the modular-refactor split replaced `control_task` /
+> `i2c_manager_task` / `imu_read_task` with `angle_controller_task`,
+> `angle_rate_controller_task`, `attitude_task`, etc.). If you re-tune stacks,
+> regenerate from those two sources.
+
 ## 1. SRAM Footprint Overview
 
-With the recent optimizations (Reduced `IMU_BUFFER_SIZE` and `HEAP_SIZE`), the system has a very healthy memory margin.
+The VAIOS heap is sized at `HEAP_SIZE = 0xE000` = **56 KB** (`include/vaios_app_config.h`),
+deliberately reduced from the old `0x16000` kernel default which overran the 96 KB SRAM
+once `.bss` grew (boot HardFault). `MAIN_STACK_SIZE` is 10 KB.
 
-| Region           | Size    | Address Range           | Description                            |
-| :--------------- | :------ | :---------------------- | :------------------------------------- |
-| **.data / .bss** | 12.4 KB | 0x20000000 - 0x200030E9 | Static globals (IMU Buffer, I2C state) |
-| **VAIOS Heap**   | 64.0 KB | 0x200030E9 - 0x200130E9 | OS heap for task stacks & IPC          |
-| **System Stack** | 19.6 KB | 0x200130E9 - 0x20018000 | Reserved for `main` and ISRs           |
-
-**Safety Margin**: The startup stack now has **~19 KB** of headroom, up from the critical **1.2 KB** that caused the previous hardfault. This provides extreme stability for deep call stacks in ISRs or FatFS operations.
+| Region           | Size    | Description                            |
+| :--------------- | :------ | :------------------------------------- |
+| **VAIOS Heap**   | 56.0 KB | OS heap for task stacks & IPC (`HEAP_SIZE = 0xE000`) |
+| **.data / .bss + system stack** | remainder | Static globals, `main` stack (10 KB), ISRs |
 
 ## 2. Task Stack Audit
 
-The following tasks are created on the 64KB heap.
+The following tasks are created on the 56 KB heap (from `src/main.c` `task_create_named`
+calls; peaks are the in-code high-water comments where present).
 
-| Task Name          | Stack Size | Est. Peak Usage | Status                        |
-| :----------------- | :--------- | :-------------- | :---------------------------- |
-| `boot_task`        | 1024       | ~30%            | OK                            |
-| `heartbeat_task`   | 2048       | ~20%            | OK                            |
-| `i2c_manager_task` | 4096       | ~15%            | OK                            |
-| `comm_processor`   | 4096       | ~25%            | OK (268b `packet_t` on stack) |
-| `imu_read_task`    | 4096       | ~10%            | OK                            |
-| `rc_ibus_task`     | 4096       | ~15%            | OK                            |
-| `control_task`     | 6144       | ~10%            | Oversized (could be 2KB)      |
-| `imu_telemetry`    | 4096       | ~20%            | OK                            |
-| `flush_task`       | 4096       | ~15%            | OK                            |
-| `test_task`        | 4096       | ~10%            | OK                            |
+| Task Name                     | Stack Size | Note / measured peak (bytes) |
+| :---------------------------- | :--------- | :--------------------------- |
+| `comm_processor_task`         | 2048       | peak ~748                    |
+| `bmx160_initiate_read` (imu_read) | 1536   | peak ~404                    |
+| `attitude_task`               | 2048       | fusion split out of IMU driver |
+| `rc_ibus_task`                | 1024       | peak ~120                    |
+| `angle_controller_task`       | 2048       | peak ~396 (control)          |
+| `angle_rate_controller_task`  | 2048       | peak ~484 (control)          |
+| `motor_task`                  | 1024       | peak ~252 (actuator)         |
+| `imu_telemetry_task`          | 2048       | peak ~748                    |
+| `flush_task`                  | 1024       | peak ~124                    |
+| `perf_telemetry_task`         | 2048       | peak ~796                    |
+| `heartbeat_task`              | 1024       | peak ~124                    |
+| `boot_task`                   | 1024       |                              |
 
-**Total Stack Allocation**: ~37.8 KB
-**Remaining Heap**: ~26.2 KB (Available for IPC, Mutexes, Semaphores)
+**Total Stack Allocation**: ~19.5 KB (19944 bytes)
+**Remaining Heap**: ~36.5 KB (Available for IPC, Mutexes, Semaphores)
 
 ## 3. Leak & Fragmentation Analysis
 
@@ -48,11 +58,11 @@ The following tasks are created on the 64KB heap.
 
 ### Risk Assessment
 
-- **Stack Overflow**: `control_task` is the most complex but its actual stack usage is very linear. 6KB is very safe.
-- **Heap Exhaustion**: 26KB of free heap is more than enough for any additional runtime IPC objects.
-- **Fragmentation**: Since the task is only 64KB and we don't frequently alloc/free, fragmentation is negligible.
+- **Stack Overflow**: the control path (`angle_controller_task` / `angle_rate_controller_task`) is the most complex but measured peaks are well under their 2 KB stacks (~396 / ~484 bytes).
+- **Heap Exhaustion**: ~36 KB of free heap is more than enough for any additional runtime IPC objects.
+- **Fragmentation**: With a 56 KB heap and no frequent alloc/free, fragmentation is negligible.
 
 ## 4. Recommendations
 
-1. **Optimization**: `control_task` and `imu_read_task` stacks can likely be reduced to 2KB and 1KB respectively to free up another 7KB of heap if needed.
+1. **Optimization**: several 2 KB stacks (telemetry, attitude) carry large margins over their measured peaks and could be trimmed if heap is needed.
 2. **Monitoring**: If `v_malloc` is used for larger dynamic buffers in the future, implement a watermark check.

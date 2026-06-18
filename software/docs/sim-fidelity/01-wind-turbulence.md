@@ -1,6 +1,9 @@
 # Plan: wind & turbulence
 
-Status: 🔴 planned. Gap doc Tier-1 #1. Adds a world-frame wind field — steady
+Status: ✅ shipped. Gap doc Tier-1 #1. Implemented via `tools/vsim/include/wind_model.h`,
+the `VSIM_CTL_SET_WIND` opcode (`vsim_proto.h`), `SimWorker::sendWind`, and the
+`WorldEditorWidget::windApplied` wiring (see [00-phasing.md](00-phasing.md), Phase 1 ✅).
+Adds a world-frame wind field — steady
 component + periodic gusts + band-limited turbulence — that the airframe feels as
 a relative-velocity drag force. This is the single highest-value sim-fidelity
 addition: it turns the sim into a genuinely harder, more honest test for the

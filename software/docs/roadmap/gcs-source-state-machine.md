@@ -1,9 +1,11 @@
 # GCS telemetry-source state machine
 
-Status: 🔴 planned — structural. Completes **Phase C** of the telemetry-engine
-refactor (unify sources behind one `engine.setSource()`), building directly on the
-`SessionState` + `ITelemetrySource` seams introduced by
-[`gcs-log-replay.md`](gcs-log-replay.md). Effort: **L**.
+Status: ✅ shipped — the `SourceController` FSM (`src/core/SourceController.{h,cpp}`,
+`SourceState.h`, sim source at `src/comm/SimSource.h`) is the live single-owner of
+telemetry-source state; the old scattered flags and the 2-state `SessionState`/
+`SessionMode` are gone. Completed **Phase C** of the telemetry-engine refactor (unify
+sources behind one `engine.setSource()`), building on the `ITelemetrySource` seam from
+[`gcs-log-replay.md`](gcs-log-replay.md). The body below remains as design rationale.
 
 ## Context
 
@@ -218,7 +220,9 @@ reach the parser once Sim is torn down. Autotune remains a **no-source** state
 - **Async open race:** `requestFc` is optimistic; `linkOpened(false) → forceIdle()` +
   release; the pill distinguishes via `m_serialOpen||m_udpOpen`.
 
-## Rollout (SITL-first)
+## Rollout (SITL-first) — completed
+
+The rollout below shipped in this order; retained as the as-built sequence.
 
 1. **Engine seam, no behavior change:** add `setSource`/`setLiveFeed`, migrate replay
    enter/exit onto them; `tst_replay_*` stay green.

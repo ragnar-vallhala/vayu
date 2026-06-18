@@ -7,4 +7,4 @@
 
 ## Description
 
-Designed to intercept rx packets from the drone's active serial channels. Calls `get_next_rx_packet(...)` and examines standard command payloads. For example, if it receives a `PACKET_TYPE_HEARTBEAT` from the GCS, it synchronizes the local `timestamp` and `device_id`.
+Designed to intercept rx packets from the drone's active serial channels and dispatch v2 RX packets (commands and `PACKET_TYPE_TIME_SYNC`). Clock alignment now happens via the `PACKET_TYPE_TIME_SYNC` handler (an NTP-style request/response handshake that disciplines the local clock). A received `PACKET_TYPE_HEARTBEAT` is liveness-only and merely records the GCS `device_id`; it no longer jams the local timestamp.

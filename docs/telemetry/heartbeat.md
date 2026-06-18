@@ -1,25 +1,15 @@
-# Heartbeat (0x0)
+# Heartbeat
 
-Heartbeat is a packet that is sent from the device to the navigator to indicate that the device is alive and well. It is sent at a rate of 1 Hz.
+> Updated for NavLink v2. Authoritative wire spec: navlink/dialect.json + docs/analysis/navlink-v2-spec.md.
 
-This is a header only packet. It does not have any payload. The length of the payload is 0.
+Heartbeat is sent FC → GCS at 1 Hz to indicate the device is alive and to report its high-level state.
 
-## Packet Structure
-
-```mermaid
-packet-beta
-    0-7: "Sync (0x56) [0:7]"
-    8-11: "Protocol Version [8:11]"
-    12-15: "Packet Type (0x0) [12:15]"
-    16-23: "Length (0) [16:23]"
-    24-31: "Device ID [24:31]"
-    32-63: "Timestamp [32:63]"
-    64-95: "CRC32 [64:95]"
-```
+In NavLink v2 this is **`HEARTBEAT` (msgid 0)**. It is **not** header-only: the payload carries 7 fields — `type`, `autopilot`, `base_mode`, `system_status`, `nav_state`, `capabilities` (u32), and `timestamp` (u32). See `nav_state` in `../../navlink/dialect.json` for the flight-state enum. Byte layout: `../analysis/navlink-v2-spec.md`.
 
 ## Changelog
 
-| Date       | Author               | Description        |
-| ---------- | -------------------- | ------------------ |
-| 06/03/2026 | Ashutosh Vishwakarma | Initial version    |
-| 11/03/2026 | Antigravity          | Specified 0x0 code |
+| Date       | Author               | Description                       |
+| ---------- | -------------------- | --------------------------------- |
+| 06/03/2026 | Ashutosh Vishwakarma | Initial version                   |
+| 11/03/2026 | Antigravity          | Specified 0x0 code                |
+| 06/2026    | —                    | NavLink v2: msgid 0, 7-field body |

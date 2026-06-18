@@ -25,7 +25,7 @@ $$ \psi*{t} = \alpha \cdot (\psi*{t-1} + \omega*z \cdot dt) + (1 - \alpha) \cdot
 
 ## Implementation Details
 
-The implementation in `vayu` is found in `src/maths/sensor_fusion.c` within the function `m_complementary_filter`.
+The implementation in `vayu` is found in `src/est/sensor_fusion.c` within the function `m_complementary_filter`.
 
 ### Variables & Data Structures
 

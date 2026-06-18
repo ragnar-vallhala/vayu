@@ -37,7 +37,7 @@ for the Navigator GCS.
    ```c
    /* @verifies CTRL-RATE-001 */
    ```
-4. CI's trace gate (`tools/trace.py`, planned — see
+4. CI's trace gate (`tools/trace.py` — see
    `coding-guidelines.md` §7.13 CONV-03) fails the build if any ID is
    unimplemented, unverified, or unknown.
 
@@ -67,7 +67,7 @@ content:
   referenced by `VOS-*` and the `CTRL-RATE-101` trigger contract.
 - [`docs/coordinate_ref.md`](../coordinate_ref.md) — NED conventions.
   Owns the axis definitions referenced by `EST-*` and `CTRL-MIX-*`.
-- [`docs/in-app-sim.md`](../in-app-sim.md) — SITL architecture.
+- [`docs/changelog/gcs-in-app-simulator-and-world-collision.md`](../changelog/gcs-in-app-simulator-and-world-collision.md) — SITL architecture (`vsim_d` daemon).
   Verification target for any `Test (SITL)` row.
 - [`docs/changelog/`](../changelog/) — historical record of firmware
   changes.
@@ -90,26 +90,16 @@ grow as code matures.
 | Reality vs spec drift             | ✅ §6 captures every correction made by the audit            |
 | 🟡 cleanup backlog                | ✅ enumerated in §6 — ~14 tracked gap items                  |
 | Traceability tag convention       | ✅ defined                                                   |
-| Trace-gate CI script              | ❌ planned (`tools/trace.py`) — see CONV-03                  |
+| Trace-gate CI script              | ✅ shipped (`tools/trace.py` + generated `trace.md`) — CONV-03 |
 | Coding guidelines R1–R12          | ✅ adopted                                                   |
-| Compiler-flag rollout (R1.2)      | 🟡 currently `-Wall` only; widening tracked as CONV-06       |
-| Sanitizer CI                      | ❌ planned                                                   |
-| `vayu_status_t` + `VAYU_ASSERT`   | ❌ planned — see CONV-01 / CONV-02                           |
+| Compiler-flag rollout (R1.2)      | ✅ shipped — `VAYU_R12_WARN_FLAGS` in `CMakeLists.txt` (CONV-06) |
+| Sanitizer CI                      | ✅ shipped — `.github/workflows/ci.yml`                     |
+| `vayu_status_t` + `VAYU_ASSERT`   | ✅ shipped — `include/vayu_status.h`, `include/vayu_assert.h` (CONV-01/02) |
 | Existing `docs/{sensor_fusion,telemetry,state_machine,tasks}` | ✅ in place; referenced from here   |
 
 ## Next concrete steps
 
-1. ✅ **Code audit pass** — done 2026-05-26. See `requirements.md` §6.
-2. **Burn down the 🟡 cleanup backlog** — `requirements.md` §6 lists
-   ~14 audit-derived gaps. Each carries a requirement ID. Pick a
-   coherent slice (e.g. *RC watchdog + estimator-degraded flag +
-   state-transition guard* makes a safety-themed PR).
-3. **Author `include/vayu_status.h` and `include/vayu_assert.h`** —
-   the foundation R7.5, R9.1, R9.2 lean on.
-4. **Write `tools/trace.py`** — the CI gate. Without it the
-   `@implements` / `@verifies` tags are advisory; with it they're
-   binding.
-5. **CI scaffolding** — GitHub Actions workflow: host build + unit
-   tests + trace gate on every PR.
-6. **Compiler-flag rollout** — module-by-module, enable the full R1.2
-   warning set and fix the fallout.
+The original starter-draft action items (status/assert headers, `tools/trace.py`,
+CI scaffolding, compiler-flag rollout) have all shipped. The **living tracker** is
+now the CONV table in `docs/firmware/coding-guidelines.md` and the gap list in
+`requirements.md` §6 — consult those for what remains open.
