@@ -7,7 +7,8 @@ Vayu is a high-performance, real-time operating system for embedded systems. It 
 ## Table of contents
 
 - [Overview](#overview)
-- [Packet Structure](docs/telemetry/data_frame.md)
+- [Documentation index](docs/README.md)
+- [Packet Structure](navlink/docs/reference/messages/data_frame.md)
 
 ## Features
 
