@@ -43,10 +43,28 @@ Results (CSV + a metrics JSON sidecar per maneuver) land in `fidelity/out/`.
 Rig maneuvers pin translation so the attitude loops are measured cleanly; free
 maneuvers exercise the full outer loop + estimator together.
 
-## Scoring
+## Scoring — two distinct things
 
-Each maneuver gets a 0–100 fidelity score (`_fidelity.fidelity_score`); the
-overall is a weighted mean (`rate_fidelity.WEIGHTS`). Scores are heuristic — meant
-to flag regressions and the known defects, not to be a precise grade. The
-estimator under-read (deferred issue #1) is surfaced separately as the est-vs-true
-ratio; see `docs/deferred/01-attitude-estimate-underread.md`.
+The scorecard splits the maneuvers into two blocks, because they measure
+different things (see `memory/sitl-seam-contract.md`):
+
+- **FC FIDELITY** (rig: `step_roll/pitch`, `yaw`) — the Pilot only sets a stick,
+  so the score is pure firmware: sensors → PWM → true attitude. **This is the
+  number that must track real hardware**, and a clever Pilot cannot inflate it.
+- **OPERATOR / SYSTEM** (free: `hover`, `throttle`, `tracking`) — Pilot (which
+  legitimately sees ground truth, like a skilled operator) + FC flying together.
+  As good as the operator's guidance is; not a firmware claim.
+
+Each maneuver gets a 0–100 score (`_fidelity.fidelity_score`); each block reports
+a weighted subtotal (`rate_fidelity.WEIGHTS`). Scores are heuristic — meant to
+flag regressions and known defects, not to be a precise grade. The FC estimator
+under-read (deferred #1) is surfaced separately as the est-vs-true ratio; see
+`docs/deferred/01-attitude-estimate-underread.md`.
+
+## The seam is enforced, not just documented
+
+`tests/integration/test_seam.py` asserts at runtime (via `/proc/<fc>/fd`) that
+the FC process never opens the ground-truth pose FIFO — only its sensor/RC/PWM
+channels. Truth is the operator's (Pilot) channel; if the firmware ever read it,
+the suite would be validating a shim. The test fails loudly if that contract
+breaks.
