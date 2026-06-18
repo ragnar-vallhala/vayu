@@ -4,8 +4,7 @@ Status: living document. Defines what the vayu flight-control firmware
 must do, by module, with bidirectional traceability to source and tests.
 Companion to [`coding-guidelines.md`](coding-guidelines.md).
 
-Adapted from a PX4-grade requirements template (sample
-`docs/drone_fcs_requirements_and_coding_guidelines.pdf`). Borrows the
+Adapted from a PX4-grade requirements template. Borrows the
 template's three-level structure, MOD-SUB-NNN ID format, verification
 methods, and traceability discipline; replaces the template's coarse
 HAL/RTOS/AP/SYS taxonomy with vayu's actual nine-module decomposition.
