@@ -287,6 +287,14 @@ int main(int /*argc*/, char** /*argv*/) {
                     std::fprintf(stderr,
                                  "vsim_d: geometry set (m=%.3f kg, Idiag=%.4g/%.4g/%.4g)\n",
                                  drone.mass, drone.inertia.at(0,0), drone.inertia.at(1,1), drone.inertia.at(2,2));
+                    // Echo the per-rotor positions actually applied so a headless
+                    // harness can assert it is flying the loaded frame's geometry,
+                    // not the compiled-in defaults (see fidelity verify_frame).
+                    for (int i = 0; i < 4; ++i)
+                        std::fprintf(stderr,
+                                     "vsim_d:   motor%d pos=(%.5f, %.5f, %.5f) spin=%d kt=%.4g\n",
+                                     i, motor.pos_b[i].x(), motor.pos_b[i].y(),
+                                     motor.pos_b[i].z(), motor.spin[i], motor.k_thrust[i]);
                     break;
                 }
                 case VSIM_CTL_SET_WORLD: {
