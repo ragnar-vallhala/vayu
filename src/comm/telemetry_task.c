@@ -35,6 +35,7 @@ void imu_telemetry_task(void *args) {
   static control_telemetry_t c_data;
   static attitude_t att;
   static est_perf_telemetry_t e_data;
+  static vertical_state_t vert_data;
   static imu_calibration_telemetry_t imu_calibration_telemetry;
 
   while (1) {
@@ -71,6 +72,7 @@ void imu_telemetry_task(void *args) {
     bool send_pid_err = (packet_counter % 8 == 0);     // 18 Hz
     bool send_log = (packet_counter % 10 == 0);        // 15 Hz
     bool send_baro = (packet_counter % 15 == 0);       // 10 Hz
+    bool send_vert = (packet_counter % 15 == 0);        // 10 Hz (fused vertical)
     /* Gather domain data + hand it to the TX seam; this task is codec-blind
      * (all framing lives in navlink_tx.c). */
     if (send_log) {
@@ -141,6 +143,12 @@ void imu_telemetry_task(void *args) {
         navlink_tx_baro(baro.pressure_pa, baro.temperature_c, baro.humidity_rh,
                         baro.altitude_m);
       }
+    }
+    /* Fused vertical estimate (~10 Hz): VERT task output, with raw baro alt
+     * alongside for a fused-vs-raw chart. Latest-wins ring; skips cleanly until
+     * the VERT task has published. */
+    if (send_vert && vertical_state_queue_pop(&vert_data)) {
+      navlink_tx_vertical_state(&vert_data);
     }
     packet_counter++;
     v_delay(6); // ~166 Hz

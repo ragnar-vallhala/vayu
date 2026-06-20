@@ -178,6 +178,21 @@ void navlink_tx_baro(float pressure_pa, float temperature_c, float humidity_rh,
   write_channel(g_telemetry_channel, frame, (uint16_t)n);
 }
 
+void navlink_tx_vertical_state(const vertical_state_t *vs) {
+  /* v2 VERTICAL_STATE (msgid 1040); fused vertical estimate + raw baro alt. */
+  static uint8_t seq = 0;
+  navlink_vertical_state_t m = {0};
+  m.altitude = vs->altitude;
+  m.climb_rate = vs->climb_rate;
+  m.vertical_accel = vs->vertical_accel;
+  m.baro_altitude = vs->baro_altitude;
+  m.agl = vs->agl;
+  m.valid = vs->valid ? 1u : 0u;
+  uint8_t frame[NAVLINK_MAX_FRAME];
+  size_t n = navlink_vertical_state_encode(frame, &m, seq++, get_device_id(), 1);
+  write_channel(g_telemetry_channel, frame, (uint16_t)n);
+}
+
 void navlink_tx_rc_channels(const ibus_data_t *rc) {
   /* v2 RC_CHANNELS (msgid 1028); replaces v1 PACKET_TYPE_RC_CHANNELS. v1 carried
    * IBUS_MAX_CHANNELS (14) u16; v2 widens to 18, so the tail stays 0. rssi has
