@@ -1,7 +1,4 @@
-build
-build_sitl
-build_tests
-build_flash
+build*/
 .cache
 compile_commands.json
 logs
