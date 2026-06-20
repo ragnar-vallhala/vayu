@@ -11,9 +11,11 @@
  * process, single thread, stepper owns the seed). C ABI for the C stepper.
  */
 #include "sim_controller.h"
+#include "vsim_proto.h"  // vsim_ctl_geometry_t (the GCS wire layout)
 
 #include <array>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 
 namespace {
@@ -51,6 +53,59 @@ void vsim_inproc_reset(uint32_t seed) {
     g_ctl.seedWind(seed);
   }
   g_ctl.setTestRig(true, vsim::Vec3(0.0f, 0.0f, -2.0f), 0.0f);
+}
+
+/* Soft-rig stiffness for the attitude doublet. tether_k > 0 spring-tethers
+ * translation instead of hard-pinning it, so a tilt produces the free-flight
+ * thrust-tilt translation the estimator sees — matching the realtime autotune
+ * rig (RolloutParams.tetherK, default 30). On a HARD pin (k=0) the angle cost is
+ * pathological: a near-motionless craft minimises tracking IAE, so the search
+ * drives angle_kp to its floor. The soft rig makes angle_kp the responsiveness
+ * lever, exactly as in the realtime tuner. Call after vsim_inproc_reset. */
+void vsim_inproc_set_tether(float tether_k) {
+  g_ctl.setTestRig(true, vsim::Vec3(0.0f, 0.0f, -2.0f), tether_k);
+}
+
+/* Load a serialized vsim_ctl_geometry_t from `path` and apply it to the
+ * in-process physics — the SAME mass+inertia+per-rotor mapping vsim_d does for
+ * VSIM_CTL_SET_GEOMETRY (tools/vsim/src/main.cpp), on top of the default
+ * DroneParams/MotorParams (world/drag untouched). The per-motor x/y/spin are
+ * written back so the caller can drive the matching firmware mix
+ * (angle_rate_controller_set_motor_geometry) from the SAME geometry source.
+ * Returns 1 on success, 0 if the file can't be read. Geometry persists across
+ * vsim_inproc_reset (reset only re-seeds state, not params), so call once at
+ * startup. */
+int vsim_inproc_load_geometry(const char *path, float out_x[4], float out_y[4],
+                              int out_spin[4]) {
+  vsim_ctl_geometry_t g;
+  std::FILE *f = std::fopen(path, "rb");
+  if (!f)
+    return 0;
+  const size_t n = std::fread(&g, 1, sizeof g, f);
+  std::fclose(f);
+  if (n != sizeof g)
+    return 0;
+
+  vsim::DroneParams drone;  // defaults; geometry overwrites mass + inertia only
+  vsim::MotorParams motor;  // defaults; geometry overwrites the rotor layout
+  drone.mass = g.mass;
+  for (int k = 0; k < 9; ++k)
+    drone.inertia.m[k] = g.inertia[k];
+  for (int i = 0; i < 4; ++i) {
+    motor.pos_b[i] = vsim::Vec3(g.motors[i].pos[0], g.motors[i].pos[1], g.motors[i].pos[2]);
+    motor.axis_b[i] = vsim::Vec3(g.motors[i].axis[0], g.motors[i].axis[1], g.motors[i].axis[2]);
+    motor.spin[i] = (g.motors[i].spin >= 0.0f) ? +1 : -1;
+    motor.k_thrust[i] = g.motors[i].k_thrust;
+    motor.k_moment[i] = g.motors[i].k_moment;
+    motor.max_omega[i] = g.motors[i].max_omega;
+    motor.tau[i] = (g.motors[i].tau > 1e-6f) ? g.motors[i].tau : 0.0125f;
+    out_x[i] = g.motors[i].pos[0];
+    out_y[i] = g.motors[i].pos[1];
+    out_spin[i] = motor.spin[i];
+  }
+  g_ctl.setDroneParams(drone);
+  g_ctl.setMotorParams(motor);
+  return 1;
 }
 
 /* Advance physics by dt (8 RK4 substeps, matching vsim_d's physics_hz/imu_hz),
