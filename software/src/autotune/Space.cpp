@@ -22,12 +22,22 @@ static const Param kYaw[] = {
     {"yaw_gyro_lpf", 0.0, 0.012, 0.0},
 };
 
-Space::Space(bool tuneYaw) : m_tuneYaw(tuneYaw) {
-  for (const Param &p : kBase)
-    m_params.push_back(p);
-  if (tuneYaw)
-    for (const Param &p : kYaw)
-      m_params.push_back(p);
+Space::Space(bool tuneYaw, bool fastRtos) : m_tuneYaw(tuneYaw) {
+  // The fast in-process RTOS backend only has env hooks for rate kp/ki/kd,
+  // angle_kp and yaw_rate_kp. gyro_lpf is kBase's last entry and the yaw ki/kd/
+  // lpf are kYaw's trailing entries, so a prefix slice drops exactly the
+  // unsupported gains while preserving the SITL param ORDER (don't reorder —
+  // the gains-table/apply mapping and the engine tests key off it).
+  constexpr int kNBase = int(sizeof(kBase) / sizeof(kBase[0]));  // 5 (gyro_lpf last)
+  constexpr int kNYaw = int(sizeof(kYaw) / sizeof(kYaw[0]));     // 4 (yaw_rate_kp first)
+  const int nBase = fastRtos ? kNBase - 1 : kNBase;  // drop gyro_lpf
+  for (int i = 0; i < nBase; ++i)
+    m_params.push_back(kBase[i]);
+  if (tuneYaw) {
+    const int nYaw = fastRtos ? 1 : kNYaw;  // keep yaw_rate_kp only
+    for (int i = 0; i < nYaw; ++i)
+      m_params.push_back(kYaw[i]);
+  }
 }
 
 std::vector<std::string> Space::names() const {

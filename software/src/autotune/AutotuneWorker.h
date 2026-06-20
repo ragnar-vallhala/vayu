@@ -29,6 +29,16 @@ public:
     int repeats = 5;  // rollouts averaged per eval (distinct noise seeds)
     quint64 optSeed = 1;
     autotune::RolloutParams rollout;
+    // Fast backend: when set, run the search on the in-process real-vaios SITL
+    // (`vayu_sitl_rtos`, ~70x realtime, deterministic) instead of the realtime
+    // vsim_d+vayu_sitl FIFO stack — same doublet, same vehicle geometry, and the
+    // same Cost.cpp scoring (RtosEval), just much faster. The SitlStack is not
+    // spawned; the world-tab sim is unaffected and stays realtime.
+    bool fastRtos = false;
+    QString rtosBin;  // path to vayu_sitl_rtos (required when fastRtos)
+    // Fast-backend cost: false = angle tracking (the exact realtime cost);
+    // true = angle + roll/pitch rate-loop tracking (values the inner loop too).
+    bool rtosRateCost = false;
   };
 
   explicit AutotuneWorker(Params p, QObject *parent = nullptr);
@@ -49,6 +59,12 @@ signals:
   void done();  // run() has fully returned (success or failure) — safe to quit
 
 private:
+  // Fast path: drive the search on the deterministic in-process vayu_sitl_rtos
+  // backend (RtosEval) instead of the realtime SitlStack. Selected by
+  // Params::fastRtos. Shares the optimizer/engine; only the evaluate differs
+  // (rate-tracking corr from a doublet vs the SITL telemetry IAE cost).
+  void runRtos();
+
   Params m_p;
   std::atomic<bool> m_cancel{false};
   std::mutex m_engMtx;
