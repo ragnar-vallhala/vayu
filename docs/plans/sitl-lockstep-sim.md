@@ -259,10 +259,49 @@ runnable):
 
 N≈8 so the structures are tiny, but it is real synchronization work, not a
 counter — a racy version is worse than none, so it was **reverted** rather than
-landed. Gate behind `VAYU_SITL_STEP`; validate with
-`tools/autotune/validate_lockstep_determinism.py` (must PASS *and* beat credit=2
-on speed). Until then, **Phases 1–2 at credit=2 are the validated, faithful
-path** (~3×).
+landed.
+
+**Better approach (chosen): run the REAL vaios scheduler on the host.** Rather
+than hand-roll a cooperative scheduler in the shim (which only *approximates*
+vaios's policy and re-solves quiescence), use the actual RTOS. SITL today
+**stubs** the scheduler (`scheduler_init/start` no-ops, `task_create` → raw
+pthread) and lets Linux interleave the 8 threads — that *is* the nondeterminism,
+and it means SITL never tests the real scheduler. Running the real kernel gives
+determinism **and** maximum fidelity, and **quiescence becomes free**: the
+kernel's own ready list (`ready_bitmap`) says when nothing but the idle task is
+runnable — no race to detect.
+
+Feasibility — verified by probe:
+- vaios has a clean **policy/mechanism split**: `kernel/task.c` (ready lists,
+  `set_next_task`, `delayed_list`, block/wake) + `kernel/ipc.c` (real semaphores)
+  are **portable C with zero ARM asm / no `CORTEX_M4` ifdefs**, and `task.c`
+  **compiles clean against host headers** (only cosmetic 64-bit pointer-cast
+  warnings in a stack guard). Only `portable/cortex-m4/port.c` is ARM (the PendSV
+  context switch) — replaced by a host port.
+- **Host port surface** (small): `init_task_stack`, `task_yield`,
+  `scheduler_start`, `load_next_task_from_isr`, `v_port_cpu_relax` via
+  **`ucontext`** (`makecontext`/`swapcontext`, one OS thread, cooperative →
+  deterministic); critical sections `v_port_disable/enable_interrupts`; HW stubs
+  `v_port_hw_*` (no-ops / wire to the virtual clock + host VFS + stderr); drive
+  `SysTick_Handler` / `wake_up_delayed_tasks_isr` from the virtual clock.
+- **Reconcile**: delete the colliding shims from `host_vaios.c` (`task_create`,
+  `v_delay`, `task_delay`, `task_yield`, `v_semaphore_*`, `v_mutex_*`,
+  `v_malloc/free`, `scheduler_*`, `v_init/start/system_init`) — the kernel
+  provides them; `host_vaios.c` keeps only the true-host bits (print, panic,
+  mem*, the port).
+
+Staged build (opt-in `vayu_sitl_rtos` CMake target so the pthread SITL stays
+intact until the RTOS variant is validated):
+1. Host `ucontext` port + link real kernel (`task.c`/`ipc.c`/`vaios.c`/
+   `syscalls.c`/`memory.c`/`utils.c`); get it to boot to STANDBY.
+2. Drive the SysTick from the virtual clock; fold the IMU/baro/rc feeders into a
+   single-threaded **stepper** that injects sensors + ticks + runs the scheduler
+   to idle (PWM settled) per sample.
+3. Validate with `tools/autotune/validate_lockstep_determinism.py` (must PASS
+   *and* beat credit=2 on speed); then make it the default.
+
+Until that lands, **Phases 1–2 at credit=2 are the validated, faithful path**
+(~3×).
 
 ---
 
