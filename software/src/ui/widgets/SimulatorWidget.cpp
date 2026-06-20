@@ -34,6 +34,7 @@
 #include <QStackedWidget>
 #include <QUrl>
 #include <QByteArray>
+#include <QDataStream>
 #include <QFile>
 #include <QVBoxLayout>
 #include <QProcess>
@@ -2302,6 +2303,9 @@ void SimulatorWidget::startInAppSim() {
   if (m_downRenderer)
     connect(m_sim, &vsim::SimWorker::poseUpdated,
             m_downRenderer, &vsim::SimRendererWidget::setSnapshot);
+  // Record physics ground truth for this run (gt-*.bin).
+  connect(m_sim, &vsim::SimWorker::poseUpdated, this,
+          &SimulatorWidget::logGroundTruth);
   connect(m_sim, &vsim::SimWorker::poseUpdated,
           this, [this](vsim::SimSnapshot snap) {
             float pitch, yaw, roll;
@@ -2693,21 +2697,16 @@ vsim::WindConfig SimulatorWidget::restoreWind() {
 }
 
 void SimulatorWidget::onUartBytes(QByteArray bytes) {
-  // 1) Persist to the per-run raw byte log so post-run analysis has
-  //    the exact same byte stream the GCS saw.
-  if (m_runLog && m_runLog->isOpen()) {
-    m_runLog->write(bytes);
-    m_runLogBytes += bytes.size();
-  }
-  // 2) Forward to anything connected to dataReceived (MainWindow's
-  //    DroneProtocol parser typically).
+  // Forward the firmware's telemetry downlink to anything connected to
+  // dataReceived (MainWindow's DroneProtocol parser typically). The FC view is
+  // NOT logged here — that would just duplicate the Export; the per-run log
+  // records the physics ground truth instead (see logGroundTruth).
   emit dataReceived(bytes);
-  // 3) Periodic one-line size readout in the panel log.
-  static int chatter_div = 0;
-  if (++chatter_div % 200 == 0 && m_runLog) {
-    appendLog("uart2", QString("logged %1 KB").arg(m_runLogBytes / 1024));
-  }
 }
+
+// Ground-truth record size: 2 x u64 (tick, t_us) + 27 x f32 (pose/vel/rates/
+// rpy/motors/airspeed/batt). Keep in sync with logGroundTruth + parse_gt.py.
+static constexpr int kGtRecordBytes = 2 * 8 + 27 * 4;  // 124
 
 void SimulatorWidget::openNewLogFile() {
   closeLogFile();
@@ -2718,7 +2717,10 @@ void SimulatorWidget::openNewLogFile() {
   }
   QString stamp =
       QDateTime::currentDateTime().toString("yyyy-MM-dd_HH-mm-ss");
-  QString path = dir.absoluteFilePath(QString("sim-%1.bin").arg(stamp));
+  // gt- (ground truth), not sim-: this file holds the PHYSICS state, not the FC
+  // telemetry. Legacy tools (tools/sim_log_*.py) still parse the old sim-*.bin
+  // as FC NavLink, so a distinct name keeps them from mis-reading this format.
+  QString path = dir.absoluteFilePath(QString("gt-%1.bin").arg(stamp));
   m_runLog = std::make_unique<QFile>(path);
   if (!m_runLog->open(QIODevice::WriteOnly)) {
     appendLog("log", QString("[open failed: %1]").arg(path));
@@ -2726,13 +2728,68 @@ void SimulatorWidget::openNewLogFile() {
     return;
   }
   m_runLogBytes = 0;
+  // Header (little-endian, 20 bytes): magic "VGT1", version, record size,
+  // start wall-clock ms. Per-record layout documented in logGroundTruth /
+  // docs/journal/log-analysis/parse_gt.py.
+  {
+    QDataStream hs(m_runLog.get());
+    hs.setByteOrder(QDataStream::LittleEndian);
+    hs.writeRawData("VGT1", 4);
+    hs << quint32(1) << quint32(kGtRecordBytes)
+       << quint64(QDateTime::currentMSecsSinceEpoch());
+    m_runLogBytes += 20;
+  }
+  m_runClock.start();  // monotonic per-record timestamp base
   if (m_logPathLabel) {
-    m_logPathLabel->setText(QString("Current log: %1").arg(path));
+    m_logPathLabel->setText(QString("Ground-truth log: %1").arg(path));
     m_logPathLabel->setStyleSheet(
         QString("color: %1; font-family: monospace; font-size: 11px;")
             .arg(Theme::hex(Theme::kOk)));
   }
-  appendLog("log", QString("[opened %1]").arg(path));
+  appendLog("log", QString("[opened %1 — physics ground truth]").arg(path));
+}
+
+// One ground-truth record per pose snapshot. Layout (little-endian, packed,
+// kGtRecordBytes total) — kept in lock-step with parse_gt.py:
+//   u64 tick_count            physics tick (sim virtual-time key)
+//   u64 t_us                  microseconds since the log opened (monotonic)
+//   f32 pos[3]                NED position [m]
+//   f32 quat[4]               body->world quaternion, w first
+//   f32 vel[3]                NED velocity [m/s]
+//   f32 omega[3]              body angular velocity [rad/s]
+//   f32 rpy[3]                NED Tait-Bryan roll/pitch/yaw [deg] (convenience)
+//   f32 motor_omega[4]        per-rotor [rad/s]
+//   f32 motor_duty[4]         per-rotor [0,1]
+//   f32 airspeed              [m/s]
+//   f32 batt_voltage          [V]
+//   f32 batt_soc              [0,1]
+void SimulatorWidget::logGroundTruth(vsim::SimSnapshot snap) {
+  if (!m_runLog || !m_runLog->isOpen()) return;
+  float roll, pitch, yaw;
+  vsim::quatToEulerNED(snap.att, &roll, &pitch, &yaw);
+
+  QByteArray rec;
+  rec.reserve(kGtRecordBytes);
+  QDataStream s(&rec, QIODevice::WriteOnly);
+  s.setByteOrder(QDataStream::LittleEndian);
+  s.setFloatingPointPrecision(QDataStream::SinglePrecision);
+  s << quint64(snap.tick_count)
+    << quint64(m_runClock.nsecsElapsed() / 1000);
+  s << snap.pos_w.x() << snap.pos_w.y() << snap.pos_w.z();
+  s << snap.att.scalar() << snap.att.x() << snap.att.y() << snap.att.z();
+  s << snap.vel_w.x() << snap.vel_w.y() << snap.vel_w.z();
+  s << snap.omega_b.x() << snap.omega_b.y() << snap.omega_b.z();
+  s << roll << pitch << yaw;
+  for (float v : snap.motor_omega) s << v;
+  for (float v : snap.motor_duty) s << v;
+  s << snap.airspeed << snap.batt_voltage << snap.batt_soc;
+
+  m_runLog->write(rec);
+  m_runLogBytes += rec.size();
+  // Occasional size readout (every ~5 s at 60 Hz pose).
+  static int chatter_div = 0;
+  if (++chatter_div % 300 == 0)
+    appendLog("gt", QString("logged %1 KB ground truth").arg(m_runLogBytes / 1024));
 }
 
 void SimulatorWidget::closeLogFile() {

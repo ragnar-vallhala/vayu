@@ -15,6 +15,7 @@ extern "C" {
 #include "vsim_iface.h"
 }
 
+#include <QElapsedTimer>
 #include <QFile>
 #include <QLabel>
 #include <QLineEdit>
@@ -152,8 +153,15 @@ class SimulatorWidget : public QWidget {
   // timeout, daemon death) so the UI doesn't get stuck in the Running state.
   void onSimWorkerExited();
 
+  // Per-run log records the PHYSICS ground truth (vsim SimSnapshot), NOT the FC
+  // telemetry — that is captured separately via Export. So a run yields both the
+  // FC's estimated view (export *.bin, VREC) and the true physics state
+  // (gt-*.bin), making estimate-vs-truth an offline overlay. Format: see
+  // docs/journal/log-analysis/parse_gt.py.
   void openNewLogFile();
   void closeLogFile();
+  // Append one ground-truth record for this pose snapshot (no-op if no log open).
+  void logGroundTruth(vsim::SimSnapshot snap);
 
   // Push the editor's motor layout + CoM (and mesh, if loaded) into the
   // renderer so the 3D preview matches the configured airframe.
@@ -182,12 +190,13 @@ class SimulatorWidget : public QWidget {
   QString m_repoRoot;
   QLineEdit* m_repoRootEdit = nullptr;
 
-  // ---- per-run raw UART2 byte log ----
+  // ---- per-run physics ground-truth log (gt-*.bin) ----
   QString m_logDir;                                  // editable in UI
   QLineEdit* m_logDirEdit = nullptr;
   QLabel* m_logPathLabel = nullptr;                  // shows current run's file
   std::unique_ptr<QFile> m_runLog;                   // open while sim running
   qint64 m_runLogBytes = 0;
+  QElapsedTimer m_runClock;                          // monotonic per-record t_us base
 
   // ---- shared iface + in-app sim ----
   vsim_iface_t m_iface{};
