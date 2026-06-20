@@ -221,7 +221,14 @@ int main(int /*argc*/, char** /*argv*/) {
     const int ls_credit = [] {
         const char* e = std::getenv("VSIM_LOCKSTEP_CREDIT");
         const int v = e ? std::atoi(e) : 0;
-        return v > 0 ? v : 16;          // IMU samples vsim may run ahead of PWM
+        // Default 2: the credit window is also added control LATENCY in sim-time
+        // (vsim applies PWM up to `credit` samples stale), and the determinism
+        // validation (tools/autotune/validate_lockstep_determinism.py) showed
+        // that a marginal roll/pitch loop tumbles at credit>=4 while credit=2
+        // tracks realtime to within its run-to-run jitter. Raise it only for a
+        // well-damped plant that tolerates the extra latency (more speed); see
+        // docs/plans/sitl-lockstep-sim.md.
+        return v > 0 ? v : 2;           // IMU samples vsim may run ahead of PWM
     }();
     const auto ls_watchdog = std::chrono::milliseconds(100);
     uint32_t last_pwm_seq = 0;
