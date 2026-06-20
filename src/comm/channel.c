@@ -6,11 +6,19 @@
 #include "variables.h"
 #include <stdint.h>
 
+/* Per-buffer TX capacity. Must hold the largest single-shot write burst between
+ * flushes: the 1 Hz perf report dumps global + up to 24 task + 16 fifo frames
+ * back-to-back (~1336 B worst case). At 512 B that burst overflowed and dropped
+ * ~65% of perf frames (PerfTask especially) and ~20% of PerfGlobals, so the GCS
+ * saw perf "skip seconds". Sized to fit a full burst with margin; the DMA TX
+ * (USART6) drains it without CPU cost. */
+#define CHANNEL_TX_BUF_SIZE 2048u
+
 typedef struct {
   uint32_t baud_rate;
   hal_uart_t uart;
   uint16_t timeout;
-  byte buffers[2][512];          // Ping-Pong buffers
+  byte buffers[2][CHANNEL_TX_BUF_SIZE]; // Ping-Pong buffers
   uint16_t buf_lens[2];          // Length of data in each buffer
   uint8_t active_idx;            // Buffer currently being filled (0 or 1)
   volatile uint8_t busy;         // 1 if a DMA transfer is in progress
@@ -33,6 +41,25 @@ static void _dma_complete_callback(void) {
   // In a more generic impl, we'd need to know which handler triggered this
   for (int i = 0; i < MAX_SERIAL_HANDLERS; i++) {
     if (_serial_handlers[i].uart == HAL_UART_2) {
+      _serial_handlers[i].busy = 0;
+      break;
+    }
+  }
+}
+
+/* Telemetry UART (USART6) TX-DMA completion (DMA2_Stream7). NavHAL's stream IRQ
+ * handler clears the DMA flags and dispatches here; we only release the channel
+ * so the next flush can ping-pong swap and send. Without DMA, flush_task would
+ * block byte-by-byte pushing the whole telemetry stream (~15% CPU).
+ *
+ * Stream7 (not Stream6): USART6_TX shares DMA2 Stream6 with the SDIO write DMA,
+ * which re-grabs the Stream6 completion IRQ on every SD block write and would
+ * permanently strand `busy=1` here (flush then always returns ERROR -> telemetry
+ * dies after the first SD write, e.g. saving calibration). USART6_TX's alternate
+ * mapping is Stream7/Ch5, free of SDIO — see _get_uart_dma_params in NavHAL. */
+static void _dma_complete_callback_u6(void) {
+  for (int i = 0; i < MAX_SERIAL_HANDLERS; i++) {
+    if (_serial_handlers[i].uart == HAL_UART_6) {
       _serial_handlers[i].busy = 0;
       break;
     }
@@ -114,6 +141,14 @@ static err_t get_handler_serial(channel_t *handler, void *args,
     hal_interrupt_attach_callback(DMA1_Stream6_IRQn, _dma_complete_callback);
     hal_interrupt_enable(DMA1_Stream6_IRQn);
   }
+  // Telemetry UART (USART6) TX uses DMA2_Stream7 so flush_channel offloads the
+  // stream to DMA instead of busy-pushing it byte-by-byte; the completion IRQ
+  // releases the channel (_dma_complete_callback_u6). Stream7 (not Stream6) to
+  // avoid the SDIO TX-DMA conflict that wedges telemetry after an SD write.
+  if (s_args->uart == HAL_UART_6) {
+    hal_interrupt_attach_callback(DMA2_Stream7_IRQn, _dma_complete_callback_u6);
+    hal_interrupt_enable(DMA2_Stream7_IRQn);
+  }
 
   return NONE;
 }
@@ -137,7 +172,7 @@ err_t write_channel(channel_t channel, byte *data, uint16_t length) {
     uint8_t idx = s_handle->active_idx;
 
     // Check if buffer has space; if not, drop data
-    if (s_handle->buf_lens[idx] + length > 512) {
+    if (s_handle->buf_lens[idx] + length > CHANNEL_TX_BUF_SIZE) {
       EXIT_CRITICAL();
       _tx_overflow_count++; // COMM-CH-002
       return ERROR; // Buffer full, dropping data
@@ -192,8 +227,13 @@ err_t flush_channel(channel_t channel) {
     s_handle->busy = 1;
     EXIT_CRITICAL();
 
-    // Trigger transmission
-    if (s_handle->uart == HAL_UART_2) {
+    // Trigger transmission. The telemetry UART (USART6) goes out via DMA so the
+    // flush task doesn't busy-push the whole stream a byte at a time (~15% CPU
+    // otherwise); `busy` is cleared by the DMA2_Stream6 completion IRQ. Other
+    // UARTs keep the blocking fallback.
+    if (s_handle->uart == HAL_UART_6) {
+      hal_uart_write_dma(HAL_UART_6, s_handle->buffers[flush_idx], flush_len);
+    } else if (s_handle->uart == HAL_UART_2) {
 #ifdef _UART_BACKEND_DMA
       hal_uart_write_dma(HAL_UART_2, s_handle->buffers[flush_idx], flush_len);
 #else
@@ -203,7 +243,7 @@ err_t flush_channel(channel_t channel) {
       s_handle->busy = 0;
 #endif
     } else {
-      // Other UARTs (currently blocking)
+      // Other UARTs (blocking fallback)
       for (uint16_t i = 0; i < flush_len; i++) {
         hal_uart_write_char(s_handle->uart,
                             (char)s_handle->buffers[flush_idx][i]);
