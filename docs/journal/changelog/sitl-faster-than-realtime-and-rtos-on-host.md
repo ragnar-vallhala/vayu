@@ -64,6 +64,18 @@ throughout; the new capabilities are opt-in.
   differ — currently PASS (~60×). `tools/autotune/validate_lockstep_determinism.py`
   covers backend A (realtime-vs-lockstep credit sweep).
 
+- **Autotune eval backend on backend B.** `vayu_sitl_rtos` gained a `doublet`
+  scenario (`VAYU_RTOS_SCENARIO=doublet`): arm + a sim-time-paced roll/pitch/yaw
+  step-doublet with env-set PID gains (`VAYU_RATE_KP` / `_KI` / `_KD`,
+  `VAYU_ANGLE_KP`, `VAYU_YAW_RATE_KP`), scoring rate-loop tracking
+  `corr(rate_sp, rate_curr)` per axis on a `#RTOS-TUNE` line. Sim-time paced
+  because the stepper owns the clock — no wall-clock `time.sleep` (Phase 3, free).
+  Each rollout is ~0.04 s (~70×) and **bit-deterministic** in (seed, gains).
+  `tools/autotune/rtos_eval.py` wraps it as a Python `rollout(**gains)` eval; a
+  `rate_kp` sweep reproduces the analysis — tracking corr ~0.8 up to
+  `rate_kp ≈ 0.002`, then roll collapses (~0.2) as the loop hits the buzz knee —
+  deterministically in ~1 s instead of minutes.
+
 - **Docs:** the lockstep plan, the autotune soft-rate-loop root-cause analysis,
   and the ARCHITECTURE.md SITL-execution-model + build-reference sections.
 
@@ -87,5 +99,7 @@ throughout; the new capabilities are opt-in.
 
 ### Not yet
 
-Harness RC (arm/doublets) + wiring `vayu_sitl_rtos` into the autotune harness for
-full tracking-quality runs; then making backend B the default SITL.
+Swap `autotune.py`'s optimiser loop onto the `rtos_eval` backend (it currently
+drives the realtime FIFO harness); refine the doublet cost (per-axis isolation /
+reset-between, to remove cross-axis interaction); then make backend B the default
+SITL once it has parity with the GCS in-process host.
