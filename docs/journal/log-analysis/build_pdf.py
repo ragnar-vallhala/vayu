@@ -29,6 +29,7 @@ ORDER = [
     ("motor-analysis.md", "Motor analysis"),
     ("kernel-analysis.md", "Kernel / RTOS analysis"),
     ("sensor-analysis.md", "Sensor & fusion analysis"),
+    ("vertical-analysis.md", "Vertical-channel analysis"),
     ("recommendations.md", "Recommendations & next-run plan"),
 ]
 
@@ -102,7 +103,7 @@ def process(archive):
            "-V", "colorlinks=true", "-V", "linkcolor=[RGB]{0,64,138}",
            "-V", "urlcolor=[RGB]{0,64,138}", "-V", "toccolor=black",
            "-M", f"title=Vayu flight-log analysis — {name}",
-           "-M", "date=bench-rig capture, decoded via NavLink v2"]
+           "-M", "date=decoded via NavLink v2"]
     subprocess.run(cmd, check=True)
     os.unlink(md); os.unlink(hdr)
     sz = os.path.getsize(out)

@@ -17,11 +17,15 @@ live/replay and stays in lock-step with `dialect.json`.
   mermaid diagrams via `mmdc`, lays out with `pandoc`+`wkhtmltopdf`).
 
 ```sh
-python3 docs/log-analysis/parse_log.py /path/to/export.bin
-python3 docs/log-analysis/parse_log.py /path/to/export.bin --csv docs/log-analysis/csv
-python3 docs/log-analysis/make_plots.py docs/log-analysis/<archive-dir>
-python3 docs/log-analysis/build_pdf.py docs/log-analysis/<archive-dir>   # needs pandoc, wkhtmltopdf, mmdc
+python3 docs/journal/log-analysis/parse_log.py /path/to/export.bin
+python3 docs/journal/log-analysis/parse_log.py /path/to/export.bin --csv docs/journal/log-analysis/csv
+python3 docs/journal/log-analysis/make_plots.py docs/journal/log-analysis/<archive-dir>
+python3 docs/journal/log-analysis/build_pdf.py docs/journal/log-analysis/<archive-dir>   # needs pandoc, wkhtmltopdf, mmdc
 ```
+
+Note: `make_plots.py` (and the PDF it feeds) is **bespoke to the 2026-06-17
+hardware session**. SITL captures get a session-specific `make_plots.py` inside
+their own archive dir instead — see `20260620-053528/`.
 
 Generated `csv/` dumps and stray `.bin` files are git-ignored (regenerable /
 bulky); the curated `*/export-*.bin` archived alongside each analysis is kept as
@@ -46,3 +50,18 @@ timestamp) holding the raw `.bin` plus all analysis of it.
   - [`kernel-analysis.md`](20260617-124210/kernel-analysis.md) — vaios RTOS health
   - [`sensor-analysis.md`](20260617-124210/sensor-analysis.md) — sensor cal & fusion (EKF)
   - [`recommendations.md`](20260617-124210/recommendations.md) — fixes + next-run capture plan (rig-only)
+
+- [`20260620-053528/`](20260620-053528/) — **2026-06-20 05:35:28**, **SITL
+  (simulator)** session: 100.9 s, 12.5 k frames, 0 CRC errors. **Headline: the
+  roll/pitch inner rate loop does not track — commanded level, it answers the
+  outer loop's corrective rates with near-zero output (corr 0.12 vs yaw's 0.95),
+  never exceeding 13% authority even at 17.8° pitch error. Root cause: roll/pitch
+  rate Kp=0.0005 (36× below yaw) with Kd=0** — the same untuned-rate-loop defect
+  as the 2026-06-17 rig, reproduced deterministically. The new vertical estimator
+  is healthy (fused-vs-baro RMS 0.25 m across a ±60 m/s, 547 m manual profile;
+  no alt-hold loop in this build).
+  - [`README`](20260620-053528/README.md) — provenance, header, inventory, raw findings log
+  - [`session-analysis.md`](20260620-053528/session-analysis.md) — overview & timeline
+  - [`control-loop-analysis.md`](20260620-053528/control-loop-analysis.md) — **the headline**: cascade tracking & the 36× gain gap
+  - [`vertical-analysis.md`](20260620-053528/vertical-analysis.md) — vertical estimator & flight-phase health
+  - [`recommendations.md`](20260620-053528/recommendations.md) — fixes + next-capture plan
