@@ -39,8 +39,31 @@ extern void increment_high_freq_timer(void);      /* firmware HF timestamp */
 
 /* in-process vsim physics (vsim_inproc.cpp) + PWM read-back (host_navhal.c) */
 extern void vsim_inproc_reset(uint32_t seed);
+extern void vsim_inproc_set_tether(float tether_k);
 extern void vsim_inproc_step(const float duty[4], float dt, uint8_t out_imu[76]);
+extern int  vsim_inproc_load_geometry(const char *path, float out_x[4],
+                                      float out_y[4], int out_spin[4]);
 extern void host_pwm_get_latest(float out[4]);
+
+/* If VAYU_RTOS_GEOMETRY points at a serialized vsim_ctl_geometry_t, drive BOTH
+ * the in-process physics and the firmware mix from it (one geometry source, as
+ * on the realtime stack) — so the fast tuner flies the loaded airframe, not the
+ * compiled reference quad. No-op (reference quad) when unset/unreadable. */
+static void apply_geometry_from_env(void) {
+  const char *path = getenv("VAYU_RTOS_GEOMETRY");
+  if (!path || !*path)
+    return;
+  float gx[4], gy[4];
+  int gs[4];
+  if (vsim_inproc_load_geometry(path, gx, gy, gs)) {
+    angle_rate_controller_set_motor_geometry(gx, gy, gs);
+    fprintf(stderr, "vayu_sitl_rtos: geometry from %s applied (physics + firmware mix)\n",
+            path);
+  } else {
+    fprintf(stderr, "vayu_sitl_rtos: WARN could not read geometry %s — using reference quad\n",
+            path);
+  }
+}
 
 #define HF_PER_SAMPLE 10   /* HIGH_FREQ_TIMER_FREQ(10k) / SITL_IMU_FEED_HZ(1k) */
 #define STEP_SEED     12345u
@@ -128,6 +151,53 @@ static double corr_val(const corr_t *c) {
   return d > 1e-12 ? cov / d : 0.0;
 }
 
+/* ---- per-axis Sample windows for the EXACT GCS cost --------------------
+ * Each captured sample mirrors control_telemetry_t onto the fields of
+ * autotune::Sample, so the Navigator can score the doublet with the SAME
+ * axisCost()/yawRateCost() it runs on the realtime SITL telemetry — including
+ * its |angle|>80 deg -> kBig divergence guard — instead of the rate-tracking
+ * correlation. Written to VAYU_RTOS_TUNE_OUT as a small binary blob the GCS
+ * reads back (one window per axis: roll, pitch, yaw). */
+#define TUNE_WIN_MAX 2000  /* hold+ret steps/axis (1 ms/step), with headroom */
+/* 13 floats/sample: f0..8 mirror autotune::Sample (angle loop for roll/pitch,
+ * rate loop for yaw, + the per-axis output); f9..12 add the roll/pitch RATE
+ * setpoint+measured so the GCS can also score inner-loop tracking (the optional
+ * "angle + rate" cost). The per-axis output (roll_out/pitch_out) IS the rate
+ * controller output, so f2/f5 double as the rate-loop output. */
+#define TUNE_SAMPLE_FLOATS 13
+typedef struct { float f[TUNE_SAMPLE_FLOATS]; } tune_sample_t;
+static tune_sample_t g_tune_win[3][TUNE_WIN_MAX];
+static int g_tune_n[3];
+
+static void tune_win_add(int ax, const control_telemetry_t *ct) {
+  if (ax < 0 || ax > 2 || g_tune_n[ax] >= TUNE_WIN_MAX)
+    return;
+  tune_sample_t *s = &g_tune_win[ax][g_tune_n[ax]++];
+  /* f0..8 field order MUST match autotune::Sample (Cost.h). */
+  s->f[0] = ct->roll_angle_sp;  s->f[1] = ct->roll_angle_curr;  s->f[2] = ct->roll_out;
+  s->f[3] = ct->pitch_angle_sp; s->f[4] = ct->pitch_angle_curr; s->f[5] = ct->pitch_out;
+  s->f[6] = ct->yaw_rate_sp;    s->f[7] = ct->yaw_rate_curr;    s->f[8] = ct->yaw_out;
+  s->f[9]  = ct->roll_rate_sp;  s->f[10] = ct->roll_rate_curr;
+  s->f[11] = ct->pitch_rate_sp; s->f[12] = ct->pitch_rate_curr;
+}
+
+/* [magic u32][n_axes=3 u32], then per axis [count u32][count * tune_sample_t].
+ * magic 'TNT2' (v2 = 13-float record); the GCS rejects an older 9-float file. */
+static void tune_win_write(const char *path) {
+  FILE *f = fopen(path, "wb");
+  if (!f)
+    return;
+  uint32_t magic = 0x32544e54u /* 'TNT2' */, na = 3u;
+  fwrite(&magic, 4, 1, f);
+  fwrite(&na, 4, 1, f);
+  for (int ax = 0; ax < 3; ax++) {
+    uint32_t cnt = (uint32_t)g_tune_n[ax];
+    fwrite(&cnt, 4, 1, f);
+    fwrite(g_tune_win[ax], sizeof(tune_sample_t), (size_t)g_tune_n[ax], f);
+  }
+  fclose(f);
+}
+
 /* Apply roll/pitch (axes 0,1) + optional yaw rate/angle gains from env, so an
  * external tuner can evaluate a gain set. Unset env -> firmware default / pid.bin. */
 static void apply_gains_from_env(void) {
@@ -147,9 +217,28 @@ static void apply_gains_from_env(void) {
     angle_rate_controller_set_gains(2, (float)ykp, 0.0f, 0.0f, 0.0f);
 }
 
+/* Excitation stick µs for step `i` (0-based) within a `hold`-ms maneuver.
+ * waveform 0 = step (constant deflection at step_us); 1 = linear chirp: a swept
+ * sine f0→f1 Hz over the hold, peak amplitude (step_us-1500) about centre — the
+ * instantaneous frequency ramps linearly so the phase is its integral. Mirrors
+ * Rollout.cpp exciteAxis so the fast backend probes the same band as realtime. */
+static int excite_us(int i, int hold, int step_us, int waveform, double f0,
+                     double f1) {
+  if (waveform != 1)
+    return step_us;
+  const double amp = (double)step_us - 1500.0;
+  const double T = hold > 0 ? (double)hold / 1000.0 : 1.0;  /* s */
+  const double t = (double)i / 1000.0;                      /* s (1 ms/step) */
+  const double phase = 2.0 * M_PI * (f0 * t + (f1 - f0) * t * t / (2.0 * T));
+  return (int)(1500.0 + amp * sin(phase));
+}
+
 /* ---- doublet rollout: arm, hover, step each axis, score rate tracking - */
 static int run_doublet(uint32_t seed) {
   vsim_inproc_reset(seed);
+  /* Soft rig (matches the realtime autotune RolloutParams.tetherK, default 30):
+   * a hard pin makes the angle-tracking cost reward a motionless craft. */
+  vsim_inproc_set_tether((float)env_f("VAYU_RTOS_TETHER", 30.0));
   apply_gains_from_env();
   stepper_t s;
   stepper_init(&s);
@@ -158,29 +247,47 @@ static int run_doublet(uint32_t seed) {
   struct timespec t0, t1;
   clock_gettime(CLOCK_MONOTONIC, &t0);
 
-  const int settle = 600, hold = 250, ret = 350;
-  const int hover = 1500, step = 1800;   /* ~21 deg angle command */
+  /* Match the realtime autotune doublet (RolloutParams): hold the step long
+   * enough that the craft reaches steady state — at 1 ms/step, hold=1000 ⇒ 1.0 s,
+   * ret=700 ⇒ 0.7 s, settle=600 ⇒ 0.6 s. A short hold (the craft never arrives)
+   * makes the tracking IAE reward a motionless craft. Env-overridable so the GCS
+   * can pass the same excitation it uses on the realtime path. */
+  const int settle = (int)env_f("VAYU_RTOS_SETTLE_MS", 600);
+  const int hold   = (int)env_f("VAYU_RTOS_HOLD_MS", 1000);
+  const int ret    = (int)env_f("VAYU_RTOS_RET_MS", 700);
+  const int hover  = (int)env_f("VAYU_RTOS_HOVER_US", 1500);
+  const int step   = (int)env_f("VAYU_RTOS_STEP_US", 1800);  /* ~21 deg angle cmd */
+  /* Waveform: 0 = step doublet, 1 = chirp (swept sine f0→f1 over the hold). */
+  const int    wf  = (int)env_f("VAYU_RTOS_WAVEFORM", 0);
+  const double cf0 = env_f("VAYU_RTOS_CHIRP_F0", 1.0);
+  const double cf1 = env_f("VAYU_RTOS_CHIRP_F1", 12.0);
 
   /* Arm (throttle low + arm high), then settle at hover. */
   for (int i = 0; i < 200; i++) set_rc(1500, 1500, 1000, 1500, 2000), step_once(&s, &ct, &got);
   for (int i = 0; i < settle; i++) set_rc(1500, 1500, hover, 1500, 2000), step_once(&s, &ct, &got);
 
   corr_t cr = {0}, cp = {0}, cy = {0};
-  /* roll doublet */
-  for (int i = 0; i < hold; i++) { set_rc(step, 1500, hover, 1500, 2000); step_once(&s, &ct, &got);
-    if (got) corr_add(&cr, ct.roll_rate_sp, ct.roll_rate_curr); }
+  /* Per axis: fire the waveform (step or chirp) over `hold`, then return to
+   * centre + settle over `ret`; capture the angle-loop window for the GCS cost. */
+  /* roll doublet (axis 0) */
+  for (int i = 0; i < hold; i++) { set_rc(excite_us(i, hold, step, wf, cf0, cf1), 1500, hover, 1500, 2000); step_once(&s, &ct, &got);
+    if (got) { corr_add(&cr, ct.roll_rate_sp, ct.roll_rate_curr); tune_win_add(0, &ct); } }
   for (int i = 0; i < ret; i++)  { set_rc(1500, 1500, hover, 1500, 2000); step_once(&s, &ct, &got);
-    if (got) corr_add(&cr, ct.roll_rate_sp, ct.roll_rate_curr); }
-  /* pitch doublet */
-  for (int i = 0; i < hold; i++) { set_rc(1500, step, hover, 1500, 2000); step_once(&s, &ct, &got);
-    if (got) corr_add(&cp, ct.pitch_rate_sp, ct.pitch_rate_curr); }
+    if (got) { corr_add(&cr, ct.roll_rate_sp, ct.roll_rate_curr); tune_win_add(0, &ct); } }
+  /* pitch doublet (axis 1) */
+  for (int i = 0; i < hold; i++) { set_rc(1500, excite_us(i, hold, step, wf, cf0, cf1), hover, 1500, 2000); step_once(&s, &ct, &got);
+    if (got) { corr_add(&cp, ct.pitch_rate_sp, ct.pitch_rate_curr); tune_win_add(1, &ct); } }
   for (int i = 0; i < ret; i++)  { set_rc(1500, 1500, hover, 1500, 2000); step_once(&s, &ct, &got);
-    if (got) corr_add(&cp, ct.pitch_rate_sp, ct.pitch_rate_curr); }
-  /* yaw doublet (yaw is rate-commanded) */
-  for (int i = 0; i < hold; i++) { set_rc(1500, 1500, hover, step, 2000); step_once(&s, &ct, &got);
-    if (got) corr_add(&cy, ct.yaw_rate_sp, ct.yaw_rate_curr); }
+    if (got) { corr_add(&cp, ct.pitch_rate_sp, ct.pitch_rate_curr); tune_win_add(1, &ct); } }
+  /* yaw doublet (axis 2, rate-commanded) */
+  for (int i = 0; i < hold; i++) { set_rc(1500, 1500, hover, excite_us(i, hold, step, wf, cf0, cf1), 2000); step_once(&s, &ct, &got);
+    if (got) { corr_add(&cy, ct.yaw_rate_sp, ct.yaw_rate_curr); tune_win_add(2, &ct); } }
   for (int i = 0; i < ret; i++)  { set_rc(1500, 1500, hover, 1500, 2000); step_once(&s, &ct, &got);
-    if (got) corr_add(&cy, ct.yaw_rate_sp, ct.yaw_rate_curr); }
+    if (got) { corr_add(&cy, ct.yaw_rate_sp, ct.yaw_rate_curr); tune_win_add(2, &ct); } }
+
+  /* Emit the per-axis Sample windows so the GCS can run the exact realtime cost. */
+  { const char *tout = getenv("VAYU_RTOS_TUNE_OUT");
+    if (tout && *tout) tune_win_write(tout); }
 
   clock_gettime(CLOCK_MONOTONIC, &t1);
   double wall = (t1.tv_sec - t0.tv_sec) + (t1.tv_nsec - t0.tv_nsec) / 1e9;
@@ -241,6 +348,7 @@ int main(void) {
     return 1;
   }
   scheduler_start();                  /* run boot tasks to idle */
+  apply_geometry_from_env();          /* after boot so the mix isn't re-init'd */
 
   const char *seed_env = getenv("VAYU_RTOS_SEED");
   const char *nenv = getenv("VAYU_RTOS_SAMPLES");
