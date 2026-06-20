@@ -9,6 +9,7 @@ logs
 venv
 __pycache__
 build_vsim/
+.sessions
 # Docker (tools/docker) out-of-tree build dirs
 build-docker/
 build_sitl-docker/
