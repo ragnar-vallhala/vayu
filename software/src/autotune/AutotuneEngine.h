@@ -27,8 +27,12 @@ public:
   // a divergence penalty so the search moves on).
   using Rollout = std::function<std::optional<double>(const QVector<double> &)>;
 
+  // fastRtos restricts the param space to the gains the in-process RTOS backend
+  // can set (see Space). Trailing default so existing positional callers (and
+  // the realtime SITL path) are unaffected.
   AutotuneEngine(bool tuneYaw, QString optimizer, int budget, quint64 seed,
-                 Rollout rollout, QObject *parent = nullptr);
+                 Rollout rollout, bool fastRtos = false,
+                 QObject *parent = nullptr);
 
   QStringList paramNames() const;
 

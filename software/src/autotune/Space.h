@@ -19,7 +19,11 @@ struct Param {
 
 class Space {
 public:
-  explicit Space(bool tuneYaw);
+  // fastRtos: restrict the space to the gains the in-process vayu_sitl_rtos
+  // backend can actually set (rate kp/ki/kd, angle_kp [, yaw_rate_kp]) — it has
+  // no env hook for gyro_lpf or the yaw ki/kd/lpf, so tuning them there would
+  // burn budget on dimensions its cost is blind to. See AutotuneWorker::runRtos.
+  explicit Space(bool tuneYaw, bool fastRtos = false);
 
   bool tuneYaw() const { return m_tuneYaw; }
   int dim() const { return int(m_params.size()); }

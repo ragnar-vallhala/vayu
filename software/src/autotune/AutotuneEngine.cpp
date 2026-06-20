@@ -16,8 +16,9 @@ QVector<double> toQv(const Vec &v) {
 }  // namespace
 
 AutotuneEngine::AutotuneEngine(bool tuneYaw, QString optimizer, int budget,
-                               quint64 seed, Rollout rollout, QObject *parent)
-    : QObject(parent), m_space(tuneYaw), m_optimizer(std::move(optimizer)),
+                               quint64 seed, Rollout rollout, bool fastRtos,
+                               QObject *parent)
+    : QObject(parent), m_space(tuneYaw, fastRtos), m_optimizer(std::move(optimizer)),
       m_budget(budget), m_seed(seed), m_rollout(std::move(rollout)) {
   // Registered so evaluated()/finished() can cross a thread boundary (the UI
   // runs the engine in a worker thread).
