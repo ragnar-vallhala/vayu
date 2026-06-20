@@ -65,3 +65,20 @@ timestamp) holding the raw `.bin` plus all analysis of it.
   - [`control-loop-analysis.md`](20260620-053528/control-loop-analysis.md) — **the headline**: cascade tracking & the 36× gain gap
   - [`vertical-analysis.md`](20260620-053528/vertical-analysis.md) — vertical estimator & flight-phase health
   - [`recommendations.md`](20260620-053528/recommendations.md) — fixes + next-capture plan
+
+- [`20260621-001850/`](20260621-001850/) — **2026-06-21 00:16–00:18**, **SITL
+  (simulator)** autotune-validation **triplet** (3 logs: 001607 / 001716 /
+  001850; 37.5 / 70.4 / 59.3 s, 0 CRC errors each). **Headline: same airframe
+  and firmware across three aggressive manual ANGLE-mode flights — the only
+  material difference is the roll/pitch rate gain, and it decides the outcome.**
+  At roll Kp_eff ≈ 5–6e-5 the loop tumbles inverted (001607: 38% of flight past
+  90°; 001850: a late tumble); a ~4× bump to ≈2.1e-4 (001716) tracks
+  (corr 0.70/0.84) and never crosses 90° — while still ~45× below yaw and using
+  <12% authority. Direct flight evidence for the autotune/System-ID direction.
+  Vertical estimator healthy in all three (fused-vs-baro RMS 0.21–1.08 m); the
+  001850 4.2 km excursion is a tumble artifact, not a vertical fault.
+  - [`README`](20260621-001850/README.md) — provenance, per-run headers, inventory, raw findings
+  - [`session-analysis.md`](20260621-001850/session-analysis.md) — the three runs, timeline, cross-run table
+  - [`control-loop-analysis.md`](20260621-001850/control-loop-analysis.md) — **the headline**: the gain → tumble-vs-clean differentiator
+  - [`vertical-analysis.md`](20260621-001850/vertical-analysis.md) — estimator health + the 4.2 km tumble artifact
+  - [`recommendations.md`](20260621-001850/recommendations.md) — fixes + before/after fixture plan
