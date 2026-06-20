@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
-project(vayu_sitl C)
+project(vayu_sitl C CXX)   # CXX for the in-process vsim physics (Phase 4 RTOS)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Native host SITL build for vayu. Reuses the firmware controller sources
 # (src/control, src/maths, src/utils, src/actuator/motor.c) and links them
@@ -182,6 +184,21 @@ message(STATUS "vayu_sitl: static library + standalone binary configured")
 # ----------------------------------------------------------------------------
 option(VAYU_SITL_RTOS_BUILD "Build the experimental real-vaios-scheduler SITL" OFF)
 if(VAYU_SITL_RTOS_BUILD)
+  # In-process vsim physics as an ISOLATED C++ library: it must NOT see the
+  # firmware's cortex-m4/vaios/navhal include env (which shadows system headers
+  # for C++ TUs), so override INCLUDE_DIRECTORIES to just the vsim path — same
+  # clean environment as the standalone build_vsim.
+  add_library(vsim_phys STATIC
+      src/vsim_inproc.cpp
+      ${VAYU_ROOT}/tools/vsim/src/sim_controller.cpp
+      ${VAYU_ROOT}/tools/vsim/src/physics_core.cpp
+      ${VAYU_ROOT}/tools/vsim/src/motor_model.cpp
+      ${VAYU_ROOT}/tools/vsim/src/sensor_models.cpp
+  )
+  set_target_properties(vsim_phys PROPERTIES
+      INCLUDE_DIRECTORIES "${VAYU_ROOT}/tools/vsim/include")
+  target_include_directories(vsim_phys INTERFACE ${VAYU_ROOT}/tools/vsim/include)
+
   add_executable(vayu_sitl_rtos
       src/host_rtos_port.c
       src/host_rtos_main.c
@@ -204,8 +221,9 @@ if(VAYU_SITL_RTOS_BUILD)
   )
   target_compile_definitions(vayu_sitl_rtos PRIVATE
       VAYU_SITL_RTOS=1 VAIOS_HOST_TEST=1
+      _GNU_SOURCE           # glibc __USE_MISC (int32_t in <stdlib.h>) for the C++ TUs
       HEAP_SIZE=0x180000)   # 1.5 MB: room for the firmware tasks' 8KB stacks on host
-  target_link_libraries(vayu_sitl_rtos PRIVATE Threads::Threads m rt navlink_codec)
+  target_link_libraries(vayu_sitl_rtos PRIVATE Threads::Threads m rt navlink_codec vsim_phys)
   message(STATUS "vayu_sitl_rtos (Phase 4, experimental) configured")
 endif()
 
