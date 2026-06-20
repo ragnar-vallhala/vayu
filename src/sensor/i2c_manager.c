@@ -88,6 +88,14 @@ i2c_init:
   init_count++;
   i2c_manager_unstick();
 
+  /* Force a real peripheral SWRST every time. init_i2c_manager is the recovery
+   * entry point (bus-stuck / DMA-fail / IMU-stall), but hal_i2c_init() early-
+   * returns HAL_ERR_NOT_INITIALIZED on an already-init bus and SKIPS the SWRST —
+   * so a stuck BUSY (HAL_ERR_IO) could never clear and the bus wedged for good.
+   * Deinit clears the init bit so the hal_i2c_init() below actually resets +
+   * reconfigures the peripheral. */
+  hal_i2c_deinit(I2C_BUS);
+
   // Configure GPIO for I2C1 (PB8=SCL, PB9=SDA)
   hal_gpio_set_alternate_function(I2C_PIN_1, GPIO_FUNC_I2C);
   hal_gpio_set_alternate_function(I2C_PIN_2, GPIO_FUNC_I2C);
