@@ -80,10 +80,28 @@ ImuPanel::ImuPanel(QWidget *parent) : QWidget(parent) {
   m_baroG->setSeriesLabels({"MSL", "AGL"});
   m_baroG->setMinimumHeight(120);
 
+  // Vertical Estimate: the VERT fused-vs-raw validation chart. Fused altitude
+  // (orange) overlays the raw baro altitude (blue) on the left axis so estimator
+  // lag/divergence is visible at a glance; fused climb rate (green) rides the
+  // right axis (m/s). Fed by VERTICAL_STATE telem (setVerticalState).
+  m_vertG = new RealTimeGraph(this, 3);
+  m_vertG->setColor(0, QColor("#E0822E"));  // fused altitude — orange (left axis)
+  m_vertG->setColor(1, QColor("#61AFEF"));  // raw baro altitude — blue (left axis)
+  m_vertG->setColor(2, QColor("#98C379"));  // climb rate — green (right axis, m/s)
+  m_vertG->setDynamicYAxis(true);
+  m_vertG->setSeriesAxis(0, false);  // fused altitude on the left axis (m)
+  m_vertG->setSeriesAxis(1, false);  // raw baro altitude on the left axis (m)
+  m_vertG->setSeriesAxis(2, true);   // climb rate on the right axis (m/s)
+  m_vertG->setStateBandEnabled(false);
+  m_vertG->setTitle(tr("Vertical Estimate"), QStringLiteral("m"));
+  m_vertG->setSeriesLabels({"Fused", "Baro", "Climb"});
+  m_vertG->setMinimumHeight(120);
+
   grid->addWidget(m_accG, 0, 0);
   grid->addWidget(m_gyrG, 0, 1);
   grid->addWidget(m_magG, 1, 0);
   grid->addWidget(m_baroG, 1, 1);
+  grid->addWidget(m_vertG, 2, 0, 1, 2);  // full-width fused-vs-raw chart
   leftCol->addLayout(grid, 1);
 
   // Vehicle-state legend (mockup .status-key).
@@ -152,6 +170,7 @@ void ImuPanel::updateImu(const ImuData &data, bool available) {
     graphs[g]->pushState(m_state);
   }
   m_baroG->pushState(m_state);  // keep the band scrolling; data fed separately
+  m_vertG->pushState(m_state);  // ditto for the fused vertical chart
   m_tempGauge->setValue(data.tempC);
 }
 
@@ -166,6 +185,18 @@ void ImuPanel::setBaroAltitude(float mslM, float aglM, bool available) {
   m_baroG->appendData(aglM, 1);
 }
 
+void ImuPanel::setVerticalState(float fusedAltM, float baroAltM,
+                                float climbRateMs, bool available) {
+  // VERTICAL_STATE arrives independently of the IMU stream (its own NavLink
+  // message + freshness/seeded gate), so it has its own slot. When stale/unseeded
+  // we stop feeding and the traces age out to NA, matching the other graphs.
+  if (!available)
+    return;
+  m_vertG->appendData(fusedAltM, 0);
+  m_vertG->appendData(baroAltM, 1);
+  m_vertG->appendData(climbRateMs, 2);
+}
+
 void ImuPanel::setSensor(const QString &name) {
   if (m_header) m_header->setText(QString("IMU — %1").arg(name));
 }
@@ -173,12 +204,12 @@ void ImuPanel::setSensor(const QString &name) {
 void ImuPanel::setBattery(double pct) { m_battGauge->setValue(pct); }
 
 void ImuPanel::setGraphWindow(int seconds) {
-  for (RealTimeGraph *g : {m_accG, m_gyrG, m_magG, m_baroG})
+  for (RealTimeGraph *g : {m_accG, m_gyrG, m_magG, m_baroG, m_vertG})
     g->setWindowSeconds(seconds);
 }
 
 void ImuPanel::setGraphDropout(double rate) {
-  for (RealTimeGraph *g : {m_accG, m_gyrG, m_magG, m_baroG})
+  for (RealTimeGraph *g : {m_accG, m_gyrG, m_magG, m_baroG, m_vertG})
     g->setDropoutRate(rate);
 }
 
@@ -188,16 +219,16 @@ void ImuPanel::setSigmaTraces(bool on) {
 }
 
 void ImuPanel::setStateBand(bool on) {
-  for (RealTimeGraph *g : {m_accG, m_gyrG, m_magG, m_baroG})
+  for (RealTimeGraph *g : {m_accG, m_gyrG, m_magG, m_baroG, m_vertG})
     g->setStateBandEnabled(on);
 }
 
 void ImuPanel::setTraceWidth(double w) {
-  for (RealTimeGraph *g : {m_accG, m_gyrG, m_magG, m_baroG})
+  for (RealTimeGraph *g : {m_accG, m_gyrG, m_magG, m_baroG, m_vertG})
     g->setTraceWidth(w);
 }
 
 void ImuPanel::setAntialias(bool on) {
-  for (RealTimeGraph *g : {m_accG, m_gyrG, m_magG, m_baroG})
+  for (RealTimeGraph *g : {m_accG, m_gyrG, m_magG, m_baroG, m_vertG})
     g->setAntialias(on);
 }
