@@ -377,6 +377,18 @@
         { "index": 3, "name": "altitude",    "type": "f32", "unit": "m" }
       ]
     },
+    {
+      "msgid": 1040, "name": "VERTICAL_STATE",
+      "doc": "Fused vertical estimate from the VERT 2-state filter (baro + accel). altitude/climb_rate are the fused outputs (altitude is absolute/MSL, same reference as BARO); agl is the FC-authoritative height above the ground reference (captured while disarmed, frozen at arm); baro_altitude is the raw sensor altitude carried alongside so the GCS can chart fused-vs-raw. valid=0 until the filter is seeded by the first baro fix.",
+      "fields": [
+        { "index": 0, "name": "altitude",      "type": "f32", "unit": "m" },
+        { "index": 1, "name": "climb_rate",    "type": "f32", "unit": "m/s" },
+        { "index": 2, "name": "vertical_accel","type": "f32", "unit": "m/s/s" },
+        { "index": 3, "name": "baro_altitude", "type": "f32", "unit": "m" },
+        { "index": 4, "name": "agl",           "type": "f32", "unit": "m" },
+        { "index": 5, "name": "valid",         "type": "u8" }
+      ]
+    },
 
     {
       "msgid": 8192, "name": "CMD_ARM", "replaces": "0x3/cmd 0x0002",

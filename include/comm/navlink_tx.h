@@ -16,6 +16,7 @@
 #include "comm/perf_packet.h"   /* perf_global_body_t, perf_task_row_t, perf_fifo_row_t */
 #include "actuator/actuator.h"  /* motor_outputs_t */
 #include "est/est.h"            /* attitude_t, est_perf_telemetry_t */
+#include "est/vertical_estimator.h" /* vertical_state_t */
 #include "variables.h"          /* control_telemetry_t */
 #include <stdint.h>
 
@@ -38,6 +39,10 @@ void navlink_tx_calibration(const uint8_t *buf,
  * derived altitude(m). Passed as plain scalars to keep this seam sensor-blind. */
 void navlink_tx_baro(float pressure_pa, float temperature_c, float humidity_rh,
                      float altitude_m);
+
+/* v2 VERTICAL_STATE (msgid 1040): fused altitude/climb-rate/vertical-accel from
+ * the VERT 2-state filter, plus the raw baro altitude for a fused-vs-raw chart. */
+void navlink_tx_vertical_state(const vertical_state_t *vs);
 
 /* PERF report (msgid 1034/1035/1036). The v1 fragmented PERF_STATS becomes one
  * v2 message per row; `seq` ties a report's GLOBAL/TASK/FIFO messages together.
