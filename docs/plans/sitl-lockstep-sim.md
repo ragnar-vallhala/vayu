@@ -221,12 +221,48 @@ wait on sim-tick advancement (query vsim tick over the ctl channel, or count IMU
 samples seen on the telemetry stream). Required for the doublet/settle windows to
 have correct **sim** duration under acceleration.
 
-### Phase 4 (optional) — true single-step lockstep / determinism
-For bit-exact regression fixtures, expose a synchronous `sitl_step(imu) -> pwm`
-that pumps estimator→control→mixer inline under a barrier (PX4/ArduPilot-style).
-Bigger change (collapses the pthread-per-task pipeline); only needed if we want
-reproducibility down to the sample. Phases 1–3 already give correct, fast,
-near-deterministic runs.
+### Phase 4 — true single-step lockstep / determinism — INVESTIGATED, NOT LANDED
+Goal: advance physics and the firmware one sim-sample in lockstep — feed one
+IMU sample, let the estimator→control→motor pipeline fully propagate it (PWM
+settled), then step physics — for zero added latency, bit-determinism, and full
+CPU speed (no credit-window latency, no thread-handoff/watchdog overhead).
+
+**Task/blocking structure (verified).** The 8 SITL-live tasks park each
+iteration on one of two primitives:
+- **semaphore** (`v_semaphore_take`): `attitude_task` (`_imu_attitude_sema`,
+  posted by `imu_queue_attitude_push`), `vertical_estimator_task`
+  (`_vert_input_sema`, posted by `attitude_task`).
+- **virtual clock** (`v_delay`/`task_delay_until`): `angle_controller` (250 Hz),
+  `angle_rate_controller` (1 kHz), `motor_task` (2 ms), `imu_telemetry_task`
+  (6 ms), `flush_task` (1 ms), `comm_processor_task` (4 ms).
+  (NB: the "loop blocks on …_wait()" comments at `angle_controller.c:286` /
+  `angle_rate_controller.c:453` are **stale** — the code uses `task_delay_until`.)
+
+**Why the naive barrier is wrong — the premature-settle race.** A parked-task
+counter (`g_parked == g_tasks` ⇒ quiescent) does NOT work: when the feeder
+advances the clock or posts the IMU semaphore and then checks the count, a *due*
+task is still inside `pthread_cond_wait` and hasn't decremented the count yet, so
+the feeder sees "all parked" and reads the next sample **before** the woken task
+processed the current one. With the OVERWRITE queues that silently **drops the
+sample → divergence** (intermittent, scheduler-dependent). Confirmed by reasoning
+through the wake/reacquire ordering; a counter cannot distinguish "parked, work
+done" from "posted, about to wake."
+
+**What it actually requires.** A small **discrete-event scheduler** that knows
+each waiter's wake-condition, so the feeder waits for *true* quiescence (no task
+runnable):
+- clock side: a priority queue of pending wake **targets**; on each advance, the
+  due set (target ≤ now) is known and must drain before settling;
+- semaphore side: per-sem **armed-token** accounting — a `give()` to a sem with a
+  parked waiter marks that waiter runnable until it consumes;
+- quiescence = no running task ∧ no due clock waiter ∧ no armed token.
+
+N≈8 so the structures are tiny, but it is real synchronization work, not a
+counter — a racy version is worse than none, so it was **reverted** rather than
+landed. Gate behind `VAYU_SITL_STEP`; validate with
+`tools/autotune/validate_lockstep_determinism.py` (must PASS *and* beat credit=2
+on speed). Until then, **Phases 1–2 at credit=2 are the validated, faithful
+path** (~3×).
 
 ---
 
