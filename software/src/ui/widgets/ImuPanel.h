@@ -29,6 +29,13 @@ public slots:
   // AGL (height above the ground reference). `available` = fresh BARO telemetry;
   // when false the graph stops getting samples and goes NA.
   void setBaroAltitude(float mslM, float aglM, bool available = true);
+  // Fused vertical estimate (VERTICAL_STATE) for the "Vertical Estimate" graph:
+  // fused altitude vs raw baro altitude (left axis, m) + fused climb rate (right
+  // axis, m/s) — the fused-vs-raw validation chart. `available` = fresh
+  // VERTICAL_STATE telemetry AND the filter is seeded (valid); when false the
+  // graph stops getting samples and ages out to NA.
+  void setVerticalState(float fusedAltM, float baroAltM, float climbRateMs,
+                        bool available = true);
   void setSensor(const QString &name);  // updates the header (e.g. "IMU — BMX160")
   void setGraphWindow(int seconds);
   void setGraphDropout(double rate);
@@ -48,6 +55,7 @@ private:
   RealTimeGraph *m_gyrG = nullptr;
   RealTimeGraph *m_magG = nullptr;
   RealTimeGraph *m_baroG = nullptr;  // fed by BARO telemetry (setBaroAltitude)
+  RealTimeGraph *m_vertG = nullptr;  // fed by VERTICAL_STATE (setVerticalState)
   RollingStats m_accStats[3];
   RollingStats m_gyrStats[3];
   RollingStats m_magStats[3];

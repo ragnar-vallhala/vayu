@@ -134,6 +134,21 @@ void thunkBaro(void *ctx, const navlink_frame_hdr_t *,
   r->onBaro(d);
 }
 
+void thunkVerticalState(void *ctx, const navlink_frame_hdr_t *,
+                        const navlink_vertical_state_t *m) {
+  auto *r = static_cast<NavlinkRouter *>(ctx);
+  if (!r->onVerticalState)
+    return;
+  VerticalStateData d;
+  d.altitudeM = m->altitude;
+  d.climbRateMs = m->climb_rate;
+  d.verticalAccelMs2 = m->vertical_accel;
+  d.baroAltitudeM = m->baro_altitude;
+  d.aglM = m->agl;
+  d.valid = m->valid != 0;
+  r->onVerticalState(d);
+}
+
 void thunkFlightMode(void *ctx, const navlink_frame_hdr_t *,
                      const navlink_flight_mode_t *m) {
   auto *r = static_cast<NavlinkRouter *>(ctx);
@@ -307,6 +322,7 @@ NavlinkRouter::NavlinkRouter() : d_(new Impl) {
   d_->handlers.on_control_trace = thunkControlTrace;
   d_->handlers.on_est_perf = thunkEstPerf;
   d_->handlers.on_baro = thunkBaro;
+  d_->handlers.on_vertical_state = thunkVerticalState;
   d_->handlers.on_flight_mode = thunkFlightMode;
   d_->handlers.on_heartbeat = thunkHeartbeat;
   d_->handlers.on_system_health = thunkSystemHealth;

@@ -37,6 +37,7 @@ signals:
   void controlLoopDataReceived(const ControlLoopData &data);
   void estPerfReceived(const EstPerfData &data);
   void baroReceived(const BaroData &data);
+  void verticalStateReceived(const VerticalStateData &data);
   void flightModeReceived(quint8 mode, quint8 source);
   void logReceived(const QString &message);
   void statusReceived(const QString &message);

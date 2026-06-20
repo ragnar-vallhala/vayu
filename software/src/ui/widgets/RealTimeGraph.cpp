@@ -451,7 +451,9 @@ void RealTimeGraph::paintEvent(QPaintEvent *event) {
       gradient.setColorAt(1, fillColor);
       painter.fillPath(fillPath, gradient);
 
-      QPen pen(m_colors[i], m_traceWidth, m_penStyles[i]);
+      // Right-axis series are drawn DOTTED (like the σ traces) so it's obvious
+      // at a glance which traces read against the right-hand scale vs the left.
+      QPen pen(m_colors[i], m_traceWidth, ra ? Qt::DotLine : m_penStyles[i]);
       painter.setPen(pen);
       painter.drawPath(path);
     }

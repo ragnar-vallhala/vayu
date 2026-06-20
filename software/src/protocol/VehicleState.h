@@ -22,6 +22,7 @@ struct VehicleState {
   RcData       rc{};
   MotorData    motors{};
   BaroData     baro{};
+  VerticalStateData vertical{};  // fused VERT estimate (VERTICAL_STATE, msgid 1040)
 
   uint8_t flightMode = 0;        // 0 = stabilise/angle, 1 = acro
   uint8_t flightModeSource = 0;  // 0 = RC switch, 1 = GCS override
@@ -37,6 +38,7 @@ struct VehicleState {
   qint64 lastRcMs = 0;
   qint64 lastMotorMs = 0;
   qint64 lastBaroMs = 0;
+  qint64 lastVerticalMs = 0;
 
   // Rolling attitude std-devs (deg), computed by the engine on each attitude
   // packet from a fixed-window RollingStats — the per-packet accumulation must

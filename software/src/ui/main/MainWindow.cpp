@@ -1442,10 +1442,17 @@ void MainWindow::onUiTimer() {
   const bool imuFresh =
       s.lastImuMs != 0 && (nowMs - s.lastImuMs) < kTelemetryStaleMs;
   m_imuPanel->updateImu(s.imu, imuFresh);
+  // VERTICAL_STATE freshness — gates both the FC-authoritative AGL (D4) and the
+  // fused-vs-raw chart below. Valid means the VERT filter has been seeded.
+  const bool vertFresh =
+      s.lastVerticalMs != 0 && (nowMs - s.lastVerticalMs) < kTelemetryStaleMs;
+  const bool vertUsable = vertFresh && s.vertical.valid;
+
   // BARO altitude → the IMU panel's Baro Altitude graph (separate feed/stamp).
-  // MSL is the absolute sea-level height from the barometer; AGL is height above
-  // a ground reference captured while not flying (re-zeroed whenever disarmed so
-  // it tracks slow baro drift), so it reads ~0 on the ground and climbs in air.
+  // MSL is the absolute sea-level height from the barometer. AGL is height above
+  // the ground reference: when the FC publishes its authoritative AGL (VERT,
+  // captured while disarmed and frozen at arm — decision D4) we show that;
+  // otherwise we fall back to the legacy GCS-side ground-ref (older firmware).
   const bool baroFresh =
       s.lastBaroMs != 0 && (nowMs - s.lastBaroMs) < kTelemetryStaleMs;
   if (baroFresh) {
@@ -1454,9 +1461,20 @@ void MainWindow::onUiTimer() {
       m_baroGroundRefM = msl;
       m_haveBaroRef = true;
     }
-    m_imuPanel->setBaroAltitude(msl, msl - m_baroGroundRefM, true);
+    const float agl =
+        vertUsable ? s.vertical.aglM : (msl - m_baroGroundRefM);
+    m_imuPanel->setBaroAltitude(msl, agl, true);
   } else {
     m_imuPanel->setBaroAltitude(0.0f, 0.0f, false);
+  }
+  // VERTICAL_STATE → the fused-vs-raw "Vertical Estimate" graph (own feed/stamp).
+  // Before the first baro fix the fused outputs are meaningless, so the trace
+  // stays NA until the filter is seeded.
+  if (vertUsable) {
+    m_imuPanel->setVerticalState(s.vertical.altitudeM, s.vertical.baroAltitudeM,
+                                 s.vertical.climbRateMs, true);
+  } else {
+    m_imuPanel->setVerticalState(0.0f, 0.0f, 0.0f, false);
   }
   if (m_simulatorWidget) m_simulatorWidget->hudSetImu(s.imu.acc, s.imu.gyr);
 

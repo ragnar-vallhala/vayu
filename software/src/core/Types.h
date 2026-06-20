@@ -36,6 +36,22 @@ struct BaroData {
 };
 
 // -----------------------------------------------------------
+// Vertical state – mirrors NavLink VERTICAL_STATE (msgid 1040), the fused
+// 2-state baro+accel estimate (VERT). altitude/climbRate are the fused outputs;
+// baroAltitude is the raw sensor altitude carried alongside so the GCS can chart
+// fused-vs-raw. valid=false until the filter is seeded by the first baro fix.
+// -----------------------------------------------------------
+struct VerticalStateData {
+  float altitudeM = 0.0f;        // fused, m (same reference as BaroData.altitudeM)
+  float climbRateMs = 0.0f;      // fused, m/s (positive climbing)
+  float verticalAccelMs2 = 0.0f; // m/s² (up-positive)
+  float baroAltitudeM = 0.0f;    // raw baro altitude, m
+  float aglM = 0.0f;             // FC-authoritative height above ground ref, m
+  bool  valid = false;           // filter seeded
+  uint64_t timestamp = 0;
+};
+
+// -----------------------------------------------------------
 // RC Channels – raw values (us)
 // -----------------------------------------------------------
 struct RcData {
