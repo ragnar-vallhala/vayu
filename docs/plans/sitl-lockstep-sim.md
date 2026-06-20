@@ -161,7 +161,19 @@ change** — the deliberate "drift-free periodic, not IMU-driven" design
 advance at the sim rate independent of wall time, and attitude/rate traces are
 bit-identical to a 1× run.
 
-### Phase 2 — free-run + bounded backpressure (vsim side)
+### Phase 2 — free-run + bounded backpressure (vsim side) — DONE (branch `feat/sitl-lockstep-virtual-clock`)
+Implemented in `tools/vsim/src/main.cpp`: env `VSIM_LOCKSTEP=1` swaps the
+`sleep_until` wall pacing for PWM-round-trip backpressure. A credit window
+(`VSIM_LOCKSTEP_CREDIT`, default 16) lets vsim run up to N IMU samples ahead of
+the last acknowledged PWM (primes the firmware pipeline, bounds IMU-FIFO
+occupancy so no frames are dropped), then blocks for fresh PWM with a 100 ms
+real-time watchdog so a non-producing firmware can't wedge the sim. Default
+(unset) keeps the original realtime pacing. Verified: full vsim_d+vayu_sitl
+smoke runs **~45× realtime** (virtual clock advances ~45 s per wall-second) with
+no IMU framing errors/drops and no deadlock; default mode still paces at 1×.
+
+Original design notes:
+
 Add `VSIM_CTL_SET_SPEED` (or a `VSIM_FREERUN` env). When set:
 
 - Skip `sleep_until` (`main.cpp:540`).
