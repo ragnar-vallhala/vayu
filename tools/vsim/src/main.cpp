@@ -204,18 +204,57 @@ int main(int /*argc*/, char** /*argv*/) {
     recompute_rates();
     auto next = clock::now();
 
-    while (!g_stop.load(std::memory_order_acquire)) {
-        // 1) Drain incoming pwm. Latest-wins.
+    // Phase 2 lockstep (docs/plans/sitl-lockstep-sim.md): when VSIM_LOCKSTEP is
+    // set, pace the loop on the firmware's PWM round-trip instead of the wall
+    // clock, so the sim runs as fast as the firmware can consume it (faster than
+    // realtime). A credit window lets vsim emit up to N IMU samples ahead of the
+    // last PWM it has seen — enough to prime the firmware's estimator->control->
+    // motor pipeline (depth ~2-3) and absorb thread jitter, while bounding the
+    // IMU FIFO occupancy so frames are never dropped (FifoOut drops on EAGAIN,
+    // and a dropped IMU sample = lost sim time = desync). Beyond the window vsim
+    // blocks for fresh PWM, with a real-time watchdog so a non-producing
+    // firmware can never wedge the sim. Default off → unchanged realtime pacing.
+    const bool lockstep = [] {
+        const char* e = std::getenv("VSIM_LOCKSTEP");
+        return e && *e && std::strcmp(e, "0") != 0;
+    }();
+    const int ls_credit = [] {
+        const char* e = std::getenv("VSIM_LOCKSTEP_CREDIT");
+        const int v = e ? std::atoi(e) : 0;
+        return v > 0 ? v : 16;          // IMU samples vsim may run ahead of PWM
+    }();
+    const auto ls_watchdog = std::chrono::milliseconds(100);
+    uint32_t last_pwm_seq = 0;
+    int      ahead = 0;                 // IMU samples since the last PWM advance
+    if (lockstep)
+        std::fprintf(stderr,
+                     "vsim_d: LOCKSTEP mode (credit=%d) — paced by PWM round-trip, "
+                     "not the wall clock\n", ls_credit);
+
+    // Drain the pwm FIFO (latest-wins), apply duty, and reset the credit window
+    // when the firmware acknowledges progress via a new PWM sequence number.
+    // Returns true iff the sequence advanced. NOTE: std::clamp(NaN,…) returns
+    // NaN, so a NaN duty from a diverged controller would poison physics —
+    // reject non-finite duty explicitly.
+    auto ingest_pwm = [&]() -> bool {
         vsim_pwm_frame_t pwm;
-        if (pwm_in.poll(VSIM_FRAME_PWM, &pwm, sizeof(pwm))) {
-            for (int i = 0; i < 4; ++i) {
-                // NOTE: std::clamp(NaN, …) returns NaN, so a NaN motor
-                // command from a diverged firmware controller would poison
-                // the physics. Reject non-finite duty explicitly.
-                const float d = std::isfinite(pwm.duty[i]) ? pwm.duty[i] : 0.0f;
-                duty[i] = std::clamp(d, 0.0f, 1.0f);
-            }
+        if (!pwm_in.poll(VSIM_FRAME_PWM, &pwm, sizeof(pwm)))
+            return false;
+        for (int i = 0; i < 4; ++i) {
+            const float d = std::isfinite(pwm.duty[i]) ? pwm.duty[i] : 0.0f;
+            duty[i] = std::clamp(d, 0.0f, 1.0f);
         }
+        if (pwm.hdr.seq_no != last_pwm_seq) {
+            last_pwm_seq = pwm.hdr.seq_no;
+            ahead = 0;
+            return true;
+        }
+        return false;
+    };
+
+    while (!g_stop.load(std::memory_order_acquire)) {
+        // 1) Drain incoming pwm. Latest-wins (+ credit-window bookkeeping).
+        ingest_pwm();
 
         // 2) Drain control messages (reset / pause / ...). Lossless: a startup
         // burst (rates + geometry + world) must ALL apply, so process every
@@ -534,13 +573,35 @@ int main(int /*argc*/, char** /*argv*/) {
         }
 
         ++outer;
-        next += outer_dur;
-        auto now = clock::now();
-        if (next > now) {
-            std::this_thread::sleep_until(next);
+        if (!paused) ++ahead;   // one more IMU sample emitted this iteration
+
+        if (lockstep) {
+            // Backpressure: once we're `credit` samples ahead of the firmware's
+            // last acknowledged PWM, wait for it to catch up before stepping on.
+            // This bounds the IMU FIFO occupancy (no dropped samples) and keeps
+            // vsim from outrunning the firmware. Watchdog-bounded so a stalled
+            // (non-PWM-producing) firmware can never deadlock the sim.
+            if (ahead >= ls_credit) {
+                const auto deadline = clock::now() + ls_watchdog;
+                while (!g_stop.load(std::memory_order_acquire)) {
+                    if (ingest_pwm())
+                        break;                       // firmware acknowledged → go
+                    if (clock::now() > deadline) {
+                        ahead = 0;                   // stalled → proceed, don't wedge
+                        break;
+                    }
+                    std::this_thread::sleep_for(std::chrono::microseconds(50));
+                }
+            }
         } else {
-            // Fell behind. Resync without trying to catch up.
-            next = now;
+            next += outer_dur;
+            auto now = clock::now();
+            if (next > now) {
+                std::this_thread::sleep_until(next);
+            } else {
+                // Fell behind. Resync without trying to catch up.
+                next = now;
+            }
         }
     }
 
