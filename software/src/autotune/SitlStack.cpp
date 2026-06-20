@@ -184,10 +184,23 @@ bool SitlStack::start(QString *err) {
   t.start();
   while (t.elapsed() < 8000) {
     if (!snapshot().empty() && !lastState().isEmpty()) {
+      // §10.5 command gate: the FC rejects EVERY command (set_pid, geometry,
+      // flight mode) with TEMPORARILY_REJECTED until the GCS has disciplined its
+      // clock once. The main GCS link does that, but this autotune sim is an
+      // ISOLATED link with its own vayu_sitl, so it must discipline too —
+      // otherwise the whole tune is inert (gains never apply) and runs the
+      // firmware's compiled-default plant, which diverges. One REQUEST with a
+      // non-INT32_MIN commanded offset flips time_sync_is_synced(). This MUST
+      // precede the geometry/PID commands below. Mirrors sitl.py sync_clock().
+      writeNavlink(CommandCodec::encodeTimeSyncRequest(1, 0, 0));
+      std::this_thread::sleep_for(std::chrono::milliseconds(150));
       // Match the firmware mixer to the airframe so the control mix agrees with
       // the physics — without this, raising gains diverges on a non-default
       // motor layout (mirrors sitl.py's post-boot set_motor_geometry).
       if (m_cfg.hasGeometry) {
+        // Firmware mix from the SAME physics-frame layout as vsim: the roll/
+        // pitch torque is generated in that frame, so the mix signs must match
+        // it. (Time-synced above, so this command is now accepted, not gated.)
         float x[4], y[4], sp[4];
         for (int i = 0; i < 4; ++i) {
           x[i] = m_cfg.geometry.motors[i].pos[0];
@@ -247,7 +260,7 @@ void SitlStack::sendCtlRates() {
   ::write(m_ctlFd, &f, sizeof(f));
 }
 
-void SitlStack::sendCtlReset(quint32 seed) {
+void SitlStack::sendCtlReset(quint32 seed, float posZ) {
   if (m_ctlFd < 0) return;
   vsim_ctl_frame_t f{};
   f.hdr.magic = VSIM_MAGIC;
@@ -256,14 +269,14 @@ void SitlStack::sendCtlReset(quint32 seed) {
   f.hdr.payload_bytes = sizeof(f) - sizeof(vsim_hdr_t);
   f.subtype = VSIM_CTL_RESET;
   vsim_ctl_reset_t b{};
-  b.pos_w[2] = -0.05f;
+  b.pos_w[2] = posZ;
   b.quat_wxyz[0] = 1.0f;
   b.seed = seed;
   std::memcpy(f.body, &b, sizeof(b));
   ::write(m_ctlFd, &f, sizeof(f));
 }
 
-void SitlStack::sendCtlTestRig(bool on, float tetherK) {
+void SitlStack::sendCtlTestRig(bool on, float tetherK, float posZ) {
   if (m_ctlFd < 0) return;
   vsim_ctl_frame_t f{};
   f.hdr.magic = VSIM_MAGIC;
@@ -273,15 +286,15 @@ void SitlStack::sendCtlTestRig(bool on, float tetherK) {
   f.subtype = VSIM_CTL_SET_TESTRIG;
   vsim_ctl_testrig_t b{};
   b.enable = on ? 1 : 0;
-  b.pos[2] = -0.05f;
+  b.pos[2] = posZ;
   b.tether_k = tetherK;
   std::memcpy(f.body, &b, sizeof(b));
   ::write(m_ctlFd, &f, sizeof(f));
 }
 
-void SitlStack::reset(quint32 seed) { sendCtlReset(seed); }
-void SitlStack::setTestRig(bool on, float tetherK) {
-  sendCtlTestRig(on, tetherK);
+void SitlStack::reset(quint32 seed, float posZ) { sendCtlReset(seed, posZ); }
+void SitlStack::setTestRig(bool on, float tetherK, float posZ) {
+  sendCtlTestRig(on, tetherK, posZ);
 }
 
 // --- navlink commands ------------------------------------------------------

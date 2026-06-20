@@ -65,6 +65,7 @@ class GeometryEditorWidget : public QWidget {
     c.com       = QVector3D(0, 0, 0);
     return c;
   }
+
   // Load a persisted config: populates the form and, if the mesh path
   // still resolves, loads + recomputes so the preview is ready.
   void setConfig(const vsim::GeometryConfig& c);

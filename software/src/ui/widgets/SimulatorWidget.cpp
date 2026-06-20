@@ -1413,11 +1413,13 @@ void SimulatorWidget::buildAutotunePage(QWidget* page) {
   m_tuneGainsTable->setMaximumHeight(220);
   v->addWidget(m_tuneGainsTable);
 
-  m_tuneApplyBtn = new QPushButton(tr("Apply Gains to Firmware"), page);
+  m_tuneApplyBtn = new QPushButton(tr("Apply Gains"), page);
   m_tuneApplyBtn->setEnabled(false);  // enabled once a search proposes gains
   m_tuneApplyBtn->setToolTip(
-      tr("Send the proposed (best) gains to the connected flight controller "
-         "via CMD_SET_PID. The autotuner never writes them on its own."));
+      tr("Apply the proposed (best) gains. With a flight controller connected "
+         "they go to the board via CMD_SET_PID; otherwise they apply to the "
+         "in-app sim and persist to 0:pid.bin (reloaded on the next sim start). "
+         "The autotuner never writes them on its own."));
   connect(m_tuneApplyBtn, &QPushButton::clicked, this,
           [this] { applyProposedGains(); });
   v->addWidget(m_tuneApplyBtn);
@@ -1543,6 +1545,12 @@ void SimulatorWidget::startAutotune() {
     }
     p.sitl.geometry = gb;
     p.sitl.hasGeometry = true;
+    // Firmware mixer uses the SAME (physics-frame) layout as vsim: the roll/
+    // pitch torque is generated in the rotated physics frame, so the mix signs
+    // must match it. SitlStack derives the mix from geometry (no separate
+    // mixer layout). The real fix for the rotated-vehicle spin was the §10.5
+    // time-sync handshake (SitlStack::start) — without it set_motor_geometry
+    // was rejected and the firmware ran its default mix, which is wrong here.
 
     const vsim::WorldConfig w = m_worldEditor->config();
     vsim_ctl_world_t wb{};
@@ -1563,6 +1571,8 @@ void SimulatorWidget::startAutotune() {
             .arg(g.inertia[0], 0, 'g', 4)
             .arg(g.inertia[4], 0, 'g', 4)
             .arg(g.inertia[8], 0, 'g', 4));
+    m_tuneLog->appendPlainText(
+        tr("[mix] firmware roll-mix=%1 (physics frame)").arg(rollMixString(g)));
   }
 
   p.tuneYaw = m_tuneYaw->isChecked();
@@ -2215,7 +2225,7 @@ void SimulatorWidget::startInAppSim() {
     if (!m_sim) return;
     const auto cfg = m_geomEditor->physicsConfig();
     pushRatesToSim();   // apply configured loop rates before geometry/world
-    pushFirmwareMotorGeometry(cfg);   // firmware roll/pitch/yaw mix signs
+    pushFirmwareMotorGeometry(cfg);   // firmware roll/pitch/yaw mix signs (physics frame)
     m_sim->sendGeometry(cfg);          // vsim_d physics motor layout
     m_sim->sendWorld(m_worldEditor->config());
     m_sim->sendObstacles(m_worldEditor->config().obstacles);

@@ -56,11 +56,19 @@ class _RolloutFailed(Exception):
 # gyro into chatter — so cap both low. RESPONSIVENESS comes from the OUTER
 # angle_kp, which doesn't buzz even at high values, so give it a wide range.
 _BASE = [
-    ("rate_kp", 0.0005, 0.012, 0.007),    # capped below the buzz knee (~0.01)
-    ("rate_ki", 0.0,    0.01,  0.002),
-    ("rate_kd", 0.0,    0.001, 0.0005),   # capped: D on noisy gyro buzzes
-    ("angle_kp", 0.05,  4.0,   2.0),      # the responsiveness lever (safe)
-    ("gyro_lpf", 0.0,   0.012, 0.0),      # gyro LPF [s]; lag here destabilizes
+    ("rate_kp", 0.0005,  0.012, 0.007),   # capped below the buzz knee (~0.01)
+    ("rate_ki", 0.0,     0.01,  0.002),
+    # FLOOR > 0: the soft rig idealizes the attitude estimate, so an UNDAMPED
+    # tune (kd=0) scores fine on the rig yet topples the instant a free-flight
+    # disturbance hits (freeflight_check failed at 178deg tilt with kd=0). The
+    # structured sweep starts each gain at its lower bound, so a zero floor let
+    # it lock kd=0; a small floor guarantees minimum damping while staying well
+    # under the buzz cap. Upper bound unchanged (D on the noisy gyro buzzes).
+    ("rate_kd", 0.0003,  0.001, 0.0005),
+    ("angle_kp", 0.05,   3.0,   2.0),     # responsiveness lever; ceiling trimmed
+                                          # (very high angle_kp + light damping
+                                          # over-tunes the rig -> free-flight flip)
+    ("gyro_lpf", 0.0,    0.012, 0.0),     # gyro LPF [s]; lag here destabilizes
 ]
 # Extra params when --yaw: the yaw RATE loop only. Yaw is rate-controlled in
 # BOTH flight modes (a centered stick holds the current heading; the mag-fused
@@ -163,12 +171,28 @@ def _yaw_rate_cost(samples):
     return iae_n + 3.0 * overshoot + chatter_pen
 
 
+# Rig rollouts pin translation, so the reset height is dynamically irrelevant to
+# the attitude search — EXCEPT that spawning a few cm above ground (the old
+# -0.05 m) lets the ground-contact righting force (ground_right_gain) kick the
+# craft into a spin it never recovers from, diverging every rollout (worse on a
+# low-inertia airframe). Spawn the rig WELL above ground so ground contact never
+# triggers and the search is immune to the world's ground gains. The free-flight
+# check stays near ground on purpose (it must lift off).
+RIG_RESET_Z = -2.0   # NED: 2 m up
+
+# Body rate (deg/s) above which the craft is judged to be in a pre-excitation
+# transient (a vsim reset/arm glitch), not normal hover. Normal post-settle hover
+# is a few deg/s; the glitch spins it at thousands. Sits well between.
+PRE_EXCITE_SPIN_MAX = 300.0
+
+
 def _excite_once(stack, tune_yaw, step_us, hold, ret, settle, hover, seed):
     """A single excitation attempt. Returns the scalar cost, or raises
     _RolloutFailed (arm never confirmed) / _NoData (telemetry starved) so the
     caller can retry instead of recording a phantom divergence."""
-    stack.reset(seed=seed)                    # deterministic sensor noise
-    stack.set_testrig(True, tether_k=stack.tether_k)   # soft rig if tether_k>0
+    stack.reset(pos=(0, 0, RIG_RESET_Z), seed=seed)    # deterministic noise; off the ground
+    stack.set_testrig(True, pos=(0, 0, RIG_RESET_Z),
+                      tether_k=stack.tether_k)          # soft rig if tether_k>0
     stack.set_rc(roll=1500, pitch=1500, yaw=1500, ch6=1000)   # ch6 low = angle mode
     # Let the attitude estimator re-level after the reset before arming. A prior
     # rollout's divergence leaves the estimator 'degraded', which blocks arming;
@@ -180,11 +204,31 @@ def _excite_once(stack, tune_yaw, step_us, hold, ret, settle, hover, seed):
     stack.set_rc(thr=hover)
     time.sleep(settle)
 
+    # Reject a PRE-EXCITATION transient. vsim intermittently injects a large body
+    # rate at the reset/arm/hover transition (rates in the thousands of deg/s —
+    # physically impossible from motor torque), which then runs away regardless
+    # of the gains and would score as a phantom 1e6. It's rare per rollout, but
+    # at repeats>1 nearly every eval catches one and the averaged cost pins at
+    # kBig, so the search never converges. If the craft is already spinning
+    # BEFORE we excite, it's a harness/physics glitch — retry, don't blame gains.
+    stack.clear_samples()
+    time.sleep(0.1)
+    pre = stack.snapshot()
+    if pre:
+        spin = max(max(abs(d["roll_rate_curr"]), abs(d["pitch_rate_curr"]))
+                   for _, d in pre)
+        if spin > PRE_EXCITE_SPIN_MAX:
+            raise _RolloutFailed(f"pre-excitation transient spin {spin:.0f} deg/s")
+
     # Step doublet per axis. Roll/pitch are angle-controlled, so the stick is an
     # ANGLE command scored by angle tracking. Yaw is rate-controlled, so the same
     # stick is a RATE command scored by rate tracking (_yaw_rate_cost).
     axes = ["roll", "pitch"] + (["yaw"] if tune_yaw else [])
     cost = 0.0
+    # Track the peak attitude/pose across all axis windows (the firmware's
+    # estimated pose the controller sees — what diverges). Stashed on `stack`
+    # so the eval logger can surface it; mirrors the C++ AutotuneWorker log.
+    mx_roll = mx_pitch = mx_yawrate = 0.0
     for axis in axes:
         stack.clear_samples()
         stack.set_rc(**{axis: step_us})
@@ -192,8 +236,13 @@ def _excite_once(stack, tune_yaw, step_us, hold, ret, settle, hover, seed):
         stack.set_rc(**{axis: 1500})
         time.sleep(ret)                       # settle window — chatter shows here
         snap = stack.snapshot()
+        for _, d in snap:
+            mx_roll = max(mx_roll, abs(d["roll_angle_curr"]))
+            mx_pitch = max(mx_pitch, abs(d["pitch_angle_curr"]))
+            mx_yawrate = max(mx_yawrate, abs(d["yaw_rate_curr"]))
         cost += _yaw_rate_cost(snap) if axis == "yaw" else _axis_cost(snap, axis)
 
+    stack._last_pose_peak = (mx_roll, mx_pitch, mx_yawrate)
     stack.disarm()
     return cost
 
@@ -217,7 +266,7 @@ def rollout(stack, x, tune_yaw, step_us=1800, hold=1.0, ret=0.7, settle=0.6,
             # On a marginal plant a divergent rollout degrades the estimator,
             # which flips STANDBY->FAILSAFE and blocks the next arm.
             stack.disarm()
-            stack.reset(seed=seed)
+            stack.reset(pos=(0, 0, RIG_RESET_Z), seed=seed)   # off the ground (see RIG_RESET_Z)
             stack.clear_samples()
             stack.wait_level(timeout=3.0)
             time.sleep(0.2)
@@ -293,8 +342,9 @@ def throttle_buzz(stack, x, tune_yaw, sim_seed=DEFAULT_SIM_SEED):
     throttle (authority) rises. Returns 0 for a quiet tune, a scaled penalty for
     a chattery one, BUZZ_DIVERGE if it oscillates past ±80°."""
     apply_gains(stack, x, tune_yaw)
-    stack.reset(seed=sim_seed)
-    stack.set_testrig(True, tether_k=0.0)             # hard pin: no drift to swamp it
+    stack.reset(pos=(0, 0, RIG_RESET_Z), seed=sim_seed)   # off the ground (see RIG_RESET_Z)
+    stack.set_testrig(True, pos=(0, 0, RIG_RESET_Z),
+                      tether_k=0.0)                   # hard pin: no drift to swamp it
     stack.set_rc(roll=1500, pitch=1500, yaw=1500, ch6=1000)   # centered, angle mode
     stack.clear_samples()
     stack.wait_level()
@@ -364,7 +414,11 @@ def make_evaluate(stack, space, repeats, verbose, monitor=None, sim_seed=DEFAULT
         prog["best"] = min(prog["best"], c)
         print(f"#EVAL {prog['n']} {c:.4f} {prog['best']:.4f}", flush=True)
         if verbose:
+            mr, mp, my = getattr(stack, "_last_pose_peak", (0.0, 0.0, 0.0))
+            div = "  *** DIVERGED (>80°)" if c >= BIG else ""
             print(f"    eval cost={c:8.3f}  [{space.fmt(x)}]")
+            print(f"    pose: max|roll|={mr:.1f}° max|pitch|={mp:.1f}° "
+                  f"peak|yawRate|={my:.1f}°/s{div}", flush=True)
         return c
     return evaluate
 
@@ -512,6 +566,10 @@ def main():
                          "free-running noise (legacy).")
     ap.add_argument("--apply", action="store_true",
                     help="push + persist the best gains to the firmware at the end")
+    ap.add_argument("--mixer-geometry", default=None,
+                    help="un-rotated motor layout for the FIRMWARE mixer signs "
+                         "(GeometryEditor mixerConfig); physics uses --geometry. "
+                         "Defaults to --geometry if unset.")
     ap.add_argument("--geometry", default=None,
                     help="vehicle geometry JSON (mass/inertia/motors) to tune against")
     ap.add_argument("--world", default=None,
@@ -543,6 +601,12 @@ def main():
         print(f"vehicle geometry: mass={geom['mass']:.3f} kg, "
               f"inertia diag=[{inr[0]:.5g}, {inr[4]:.5g}, {inr[8]:.5g}] kg·m², "
               f"{len(geom['motors'])} motors (from {os.path.basename(args.geometry)})")
+    mixgeom = None
+    if args.mixer_geometry:
+        with open(args.mixer_geometry) as f:
+            mixgeom = json.load(f)
+        print(f"mixer geometry (un-rotated firmware mix signs) from "
+              f"{os.path.basename(args.mixer_geometry)}")
     world = None
     if args.world:
         with open(args.world) as f:
@@ -552,7 +616,8 @@ def main():
               f"angular_drag={world.get('angular_drag', 0.005):.4f} "
               f"(from {os.path.basename(args.world)})")
     stack = SitlStack(args.repo_root, suffix=args.fifo_suffix,
-                      quiet=not args.verbose or args.quiet, geometry=geom, world=world)
+                      quiet=not args.verbose or args.quiet, geometry=geom,
+                      mixer_geometry=mixgeom, world=world)
     stack.tether_k = args.rig_tether
     print(f"rig: {'soft tether k=%.0f' % args.rig_tether if args.rig_tether > 0 else 'hard pin'}"
           f"  ·  free-flight validation: {'on' if args.validate else 'off'}")
