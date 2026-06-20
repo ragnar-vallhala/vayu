@@ -7,8 +7,8 @@ deterministic and ~60× realtime. Newest first.
 
 Design + rationale: [`docs/plans/sitl-lockstep-sim.md`](../../plans/sitl-lockstep-sim.md).
 System view + build/run commands: [`ARCHITECTURE.md`](../../../ARCHITECTURE.md)
-(§ "SITL execution model", § "Building and running"). Motivating analysis:
-[`AUTOTUNE-ROLLPITCH-ANALYSIS.md`](../../../AUTOTUNE-ROLLPITCH-ANALYSIS.md).
+(§ "SITL execution model", § "Building and running"). The motivating
+soft-rate-loop analysis is summarised under "Why" below.
 
 ---
 

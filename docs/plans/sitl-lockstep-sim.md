@@ -15,8 +15,9 @@ FIFOs:
 
 Everything runs at **1× realtime**. An autotune rollout is ~5–10 s of sim time;
 a `structured --yaw` sweep is dozens of rollouts = many minutes of waiting, and
-the wall-clock pacing injects `dt` jitter that makes the cost noisy (see
-[`AUTOTUNE-ROLLPITCH-ANALYSIS.md`](../../AUTOTUNE-ROLLPITCH-ANALYSIS.md)).
+the wall-clock pacing injects `dt` jitter that makes the cost noisy (this is what
+motivated the work — see the soft-rate-loop analysis in the changelog,
+`docs/journal/changelog/sitl-faster-than-realtime-and-rtos-on-host.md`).
 
 **Goal:** run the sim as fast as the CPU allows (target **10–50×**), deterministically,
 without changing flashed-firmware behaviour.

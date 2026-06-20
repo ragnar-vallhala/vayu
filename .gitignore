@@ -34,3 +34,6 @@ software/docs/roadmap/tex/*.toc
 software/docs/roadmap/tex/*.fls
 software/docs/roadmap/tex/*.fdb_latexmk
 software/docs/roadmap/tex/*.synctex.gz
+
+# Local scratch handoff (autotune optimiser next-session notes); not versioned
+AUTOTUNE-ROLLPITCH-ANALYSIS.md
