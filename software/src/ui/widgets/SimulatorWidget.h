@@ -265,6 +265,10 @@ class SimulatorWidget : public QWidget {
   QSpinBox* m_tuneSeed = nullptr;        // optimizer RNG seed (--seed)
   QSpinBox* m_tuneSimSeed = nullptr;     // sensor-noise base seed (--sim-seed)
   QCheckBox* m_tuneYaw = nullptr;
+  QCheckBox* m_tuneFast = nullptr;       // fast in-process RTOS backend (~70x realtime)
+  QCheckBox* m_tuneSysId = nullptr;      // analytic plant-fit design (implies fast)
+  QDoubleSpinBox* m_tuneSysIdBw = nullptr;  // sys-ID crossover as a fraction of actuator BW
+  QComboBox* m_tuneCostFn = nullptr;     // fast-backend cost: angle vs angle+rate
   QCheckBox* m_tunePlot = nullptr;
   QCheckBox* m_tuneCompare = nullptr;    // run every optimizer (--compare)
   QCheckBox* m_tuneValidate = nullptr;   // free-flight validation (--no-validate if off)
