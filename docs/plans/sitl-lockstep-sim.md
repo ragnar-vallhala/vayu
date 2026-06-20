@@ -221,7 +221,27 @@ wait on sim-tick advancement (query vsim tick over the ctl channel, or count IMU
 samples seen on the telemetry stream). Required for the doublet/settle windows to
 have correct **sim** duration under acceleration.
 
-### Phase 4 — true single-step lockstep / determinism — INVESTIGATED, NOT LANDED
+### Phase 4 — real vaios scheduler on host + in-process physics — ACHIEVED (branch `feat/sitl-lockstep-virtual-clock`)
+Built the RTOS-on-host port and the single-threaded in-process stepper. Outcome
+on `vayu_sitl_rtos` (opt-in `-DVAYU_SITL_RTOS_BUILD=ON`):
+- **Real vaios scheduler runs on host** via a ucontext port (`host_rtos_port.c`);
+  the kernel's idle task yields to the stepper → quiescence is the kernel's own
+  ready list, no race. Boots to STANDBY (`eb4ce16`).
+- **Single-threaded stepper** drives the firmware deterministically: inject IMU →
+  SysTick+1 → run scheduler to idle (PWM written) → repeat (`36d59c2`).
+- **In-process physics** (isolated `vsim_phys` lib) removes the two-process FIFO
+  round-trip that was ~98% of wall time → **~57× realtime**, self-contained, and
+  faithful (PWM read inline, never stale) (`34f586d`).
+- **Deterministic**: two same-seed runs are **bit-identical** (IMU-input and
+  estimator-attitude fingerprints match exactly).
+
+So Phase 4 beats the Phase 1–2 trade-off outright: faithful **and** ~57× **and**
+reproducible. Remaining polish: harness RC (arm/doublets) + wiring
+`validate_lockstep_determinism.py` to `vayu_sitl_rtos`, then make it the default
+SITL. Original investigation notes (the discrete-event-scheduler dead-end that
+the real-RTOS approach replaced) follow.
+
+### Phase 4 (superseded notes) — counter-barrier dead-end — INVESTIGATED, NOT LANDED
 Goal: advance physics and the firmware one sim-sample in lockstep — feed one
 IMU sample, let the estimator→control→motor pipeline fully propagate it (PWM
 settled), then step physics — for zero added latency, bit-determinism, and full
