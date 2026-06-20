@@ -19,6 +19,7 @@
  * runs in its own pthread and doesn't gate the rest of the SITL.
  */
 #define _GNU_SOURCE
+#include "host_clock.h"
 #include "host_imu_feeder.h"
 #include "vsim_iface.h"
 #include "vsim_proto.h"
@@ -237,6 +238,23 @@ static void *imu_feeder_thread(void *arg) {
     imu_queue_control_push(&sample);
     imu_queue_telemetry_push(&sample);
     imu_queue_attitude_push(&sample);
+
+    /* Phase 1 lockstep (docs/plans/sitl-lockstep-sim.md): one IMU sample = one
+     * step of SIM time. Advance the virtual clock AFTER the sample is queued
+     * (so consumers see the data at the new time), which wakes the firmware's
+     * control loops blocked in task_delay_until. Also drive the high-frequency
+     * timestamp counter from the SAME clock — this replaces the old wall-clock
+     * hf_timer_thread, so telemetry timestamps track sim time at any speed. */
+    host_clock_advance_us((uint64_t)1000000 / SITL_IMU_FEED_HZ);
+    {
+      extern void increment_high_freq_timer(void);
+      static uint32_t hf_carry = 0; /* fractional-tick accumulator */
+      hf_carry += HIGH_FREQ_TIMER_FREQ;        /* HF ticks per second ... */
+      while (hf_carry >= SITL_IMU_FEED_HZ) {   /* ... emit per-sample share */
+        increment_high_freq_timer();
+        hf_carry -= SITL_IMU_FEED_HZ;
+      }
+    }
 
     frames++;
     uint32_t now = v_get_ticks();

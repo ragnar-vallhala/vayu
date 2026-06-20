@@ -6,6 +6,7 @@
  * own main()) shares the same boot path.
  */
 #define _GNU_SOURCE
+#include "host_clock.h"
 #include "sys/state.h"
 #include "task.h"
 #include "utils.h"     /* v_get_ticks */
@@ -33,7 +34,8 @@ int main(int argc, char **argv) {
     }
 
     while (g_vayu_sitl_running) {
-        v_delay(1000);
+        host_wall_delay_ms(1000);  /* process-alive heartbeat: wall time, not
+                                    * sim time (must tick even if sim is idle) */
         fprintf(stderr, "host_main: alive @ t=%u ms state=0x%x\n",
                 v_get_ticks(), (unsigned)system_state_get());
     }

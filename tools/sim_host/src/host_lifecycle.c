@@ -29,6 +29,7 @@
 #include "vaios.h"
 #include "vayu_tasks.h"
 
+#include "host_clock.h"
 #include "host_imu_feeder.h"
 #include "host_baro.h"
 #include "host_rc_feeder.h"
@@ -76,59 +77,26 @@ void vayu_sitl_set_passthrough(int enabled) {
     passthrough_mode = enabled ? 1 : 0;
 }
 
-/* High-frequency tick thread. On hardware, `_time_stamp_high_freq`
- * (private to src/utils/utils.c, accessed via increment_high_freq_timer)
- * is bumped by a 10 kHz timer ISR. In the host build there's no ISR,
- * so without this thread the counter stays at 0 forever and every
- * outgoing telemetry packet stamps timestamp=0 - which is what made the
- * 2026-05-25 log analyser hit a "duration 0.0s" divide-by-zero.
+/* High-frequency timestamp counter. On hardware `_time_stamp_high_freq`
+ * (src/utils/utils.c, via increment_high_freq_timer) is bumped by a 10 kHz
+ * timer ISR; every outgoing telemetry packet stamps from it.
  *
- * We wake at ~1 ms and use CLOCK_MONOTONIC to compute how many ticks
- * *should* have elapsed since vayu_sitl_start, then bump the counter
- * to catch up. Ticks come in bursts of ~10 per wake instead of one
- * every 100 us, but get_timestamp_unix() divides by HIGH_FREQ_TIMER_FREQ
- * / 1000 = 10 before returning - i.e. it converts to ms - so the burstiness
- * is invisible at the wire layer. */
-static void *hf_timer_thread(void *arg) {
-    (void)arg;
-    struct timespec origin;
-    clock_gettime(CLOCK_MONOTONIC, &origin);
-    uint64_t emitted = 0;
-    while (g_vayu_sitl_running) {
-        struct timespec now;
-        clock_gettime(CLOCK_MONOTONIC, &now);
-        /* Signed subtract for tv_nsec - if `now.tv_nsec < origin.tv_nsec`
-         * the unsigned cast (previous version) wrapped around to ~1.8e19
-         * and the inner loop bumped the counter that many times,
-         * producing a 213-million-ms ARMED state transition in the
-         * 2026-05-25 23:54 log. Borrow from tv_sec the standard way. */
-        int64_t sec  = (int64_t)now.tv_sec  - (int64_t)origin.tv_sec;
-        int64_t nsec = (int64_t)now.tv_nsec - (int64_t)origin.tv_nsec;
-        if (nsec < 0) { sec--; nsec += 1000000000LL; }
-        if (sec < 0)  { sec = 0; nsec = 0; }   /* clock jumped backwards */
-        uint64_t elapsed_us = (uint64_t)sec * 1000000ULL +
-                              (uint64_t)nsec / 1000ULL;
-        /* 10 kHz -> 100 us per tick. */
-        uint64_t target = elapsed_us / (1000000ULL / HIGH_FREQ_TIMER_FREQ);
-        while (emitted < target) {
-            increment_high_freq_timer();
-            emitted++;
-        }
-        struct timespec rest = { 0, 1000000 };  /* 1 ms */
-        nanosleep(&rest, NULL);
-    }
-    return NULL;
-}
-
-static void host_start_hf_timer(void) {
-    pthread_t th;
-    pthread_create(&th, NULL, hf_timer_thread, NULL);
-    pthread_detach(th);
-}
+ * In SITL this is now driven by the IMU feeder off the VIRTUAL sim clock
+ * (host_imu_feeder.c bumps it HIGH_FREQ_TIMER_FREQ/SITL_IMU_FEED_HZ ticks per
+ * sample) — Phase 1 of docs/plans/sitl-lockstep-sim.md. The old wall-clock
+ * hf_timer_thread that lived here is gone: telemetry timestamps and firmware
+ * delays now share one sim-time base, so they stay correct at any sim speed
+ * (and the wall-clock-wraparound bug it once carried can't recur). */
 
 int vayu_sitl_start(vsim_iface_t *iface) {
     if (started) return -1;
     started = 1;
+
+    /* The IMU feeder owns the virtual clock from here on: firmware task delays
+     * block until sim time advances (lockstep), rather than self-advancing as
+     * they do in driver-less unit tests. Set before any task is created so no
+     * task races the feeder to advance the clock. */
+    host_clock_set_driven(1);
 
     vsim_iface_set_global(iface);
 
@@ -195,7 +163,7 @@ int vayu_sitl_start(vsim_iface_t *iface) {
      * received but never dispatched. */
     task_create(comm_processor_task,            NULL, 1024 * 4, 0);
 
-    v_delay(200);
+    host_wall_delay_ms(200);  /* boot settle, runs before the clock advances */
     set_motor_ready(true);
 
     fprintf(stderr, "host_lifecycle: motor_ready = true, awaiting SwA-up + "
@@ -204,7 +172,8 @@ int vayu_sitl_start(vsim_iface_t *iface) {
     host_rc_feeder_start();
     host_imu_feeder_start();
     host_baro_start();
-    host_start_hf_timer();
+    /* HF timestamp counter is driven by the IMU feeder off the virtual clock;
+     * no separate wall-clock timer thread (see the comment above). */
 
     return 0;
 }
@@ -219,4 +188,8 @@ void vayu_sitl_stop(void) {
         pthread_mutex_unlock(&iface->lock);
     }
     g_vayu_sitl_running = 0;
+    /* Wake any firmware task blocked in a virtual v_delay so the detached
+     * pthreads can observe g_vayu_sitl_running==0 and unwind instead of
+     * sleeping forever on a clock that will no longer advance. */
+    host_clock_stop();
 }
