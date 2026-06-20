@@ -34,9 +34,10 @@
 #include <termios.h>
 #include <unistd.h>
 
+#include "host_clock.h" /* host_wall_delay_ms */
 #include "task.h"
 #include "utils.h"
-#include "vaios.h" /* v_delay */
+#include "vaios.h"
 
 #define DEFAULT_UART_PATH "/dev/ttyUSB0"
 
@@ -146,7 +147,7 @@ static ssize_t read_line(int fd, char *buf, size_t bufsz, int timeout_ms) {
     if (r == 0 || errno == EAGAIN || errno == EWOULDBLOCK) {
       if (waited_ms >= timeout_ms)
         return -2;
-      v_delay(1);
+      host_wall_delay_ms(1);  /* serial I/O backoff: real time, not sim time */
       waited_ms++;
       continue;
     }
@@ -209,7 +210,7 @@ static void *rc_feeder_thread(void *arg) {
         rc_queue_control_push(&rc);
         rc_queue_telemetry_push(&rc);
         pushed_synth++;
-        v_delay(20);
+        host_wall_delay_ms(20);  /* port-reopen retry: real time, not sim time */
         continue;
       }
       fprintf(stderr, "host_rc_feeder: opened %s @ 115200 8N1\n", path);

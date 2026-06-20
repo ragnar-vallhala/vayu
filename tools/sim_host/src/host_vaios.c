@@ -15,6 +15,7 @@
  * directly, so it's not redefined here.
  */
 #define _GNU_SOURCE
+#include "host_clock.h"
 #include "ipc.h"
 #include "task.h"
 #include "utils.h"
@@ -30,33 +31,77 @@
 #include <time.h>
 #include <unistd.h>
 
-/* ---- monotonic clock (1 tick = 1 ms) ---------------------------------- */
-static struct timespec ts_origin;
-static int origin_set = 0;
+/* ---- virtual sim clock (1 tick = 1 ms) -------------------------------- */
+/* See host_clock.h / docs/plans/sitl-lockstep-sim.md. Time advances ONLY via
+ * host_clock_advance_us() (the IMU feeder, one step per sample); the firmware's
+ * vaios delay primitives below block on this clock, not the wall clock, so
+ * firmware timing is slaved to sim time and runs as fast as samples arrive. */
+static pthread_mutex_t clk_mu  = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t  clk_cv  = PTHREAD_COND_INITIALIZER;
+static uint64_t        clk_now_us = 0;
+static int             clk_stopped = 0;
+static int             clk_driven  = 0;  /* 1 once the IMU feeder owns the clock */
 
-static void ensure_origin(void) {
-    if (!origin_set) {
-        clock_gettime(CLOCK_MONOTONIC, &ts_origin);
-        origin_set = 1;
-    }
+void host_clock_set_driven(int driven) {
+    pthread_mutex_lock(&clk_mu);
+    clk_driven = driven ? 1 : 0;
+    pthread_cond_broadcast(&clk_cv);
+    pthread_mutex_unlock(&clk_mu);
 }
 
-uint32_t v_get_ticks(void) {
-    ensure_origin();
-    struct timespec now;
-    clock_gettime(CLOCK_MONOTONIC, &now);
-    uint64_t ms = (uint64_t)(now.tv_sec - ts_origin.tv_sec) * 1000ULL
-                + (now.tv_nsec - ts_origin.tv_nsec) / 1000000;
-    return (uint32_t)ms;
+void host_clock_advance_us(uint64_t us) {
+    pthread_mutex_lock(&clk_mu);
+    clk_now_us += us;
+    pthread_cond_broadcast(&clk_cv);
+    pthread_mutex_unlock(&clk_mu);
 }
 
-/* ---- delays ----------------------------------------------------------- */
-void v_delay(uint32_t ms) {
+uint64_t host_clock_now_us(void) {
+    pthread_mutex_lock(&clk_mu);
+    uint64_t now = clk_now_us;
+    pthread_mutex_unlock(&clk_mu);
+    return now;
+}
+
+void host_clock_stop(void) {
+    pthread_mutex_lock(&clk_mu);
+    clk_stopped = 1;
+    pthread_cond_broadcast(&clk_cv);
+    pthread_mutex_unlock(&clk_mu);
+}
+
+void host_wall_delay_ms(uint32_t ms) {
     struct timespec req = { .tv_sec = ms / 1000,
                             .tv_nsec = (long)(ms % 1000) * 1000000L };
     while (nanosleep(&req, &req) == -1 && errno == EINTR) {
         /* retry */
     }
+}
+
+uint32_t v_get_ticks(void) {
+    return (uint32_t)(host_clock_now_us() / 1000ULL);
+}
+
+/* ---- delays (virtual) ------------------------------------------------- */
+/* Block the calling firmware task until virtual time has advanced `ms`
+ * milliseconds. Wakes early (returns) if the clock is stopped so detached
+ * tasks can unwind at shutdown. */
+void v_delay(uint32_t ms) {
+    pthread_mutex_lock(&clk_mu);
+    uint64_t target = clk_now_us + (uint64_t)ms * 1000ULL;
+    if (!clk_driven) {
+        /* No external driver (unit tests): act as our own clock source so
+         * v_get_ticks() advances deterministically without a wall sleep. */
+        if (clk_now_us < target)
+            clk_now_us = target;
+        pthread_cond_broadcast(&clk_cv);
+    } else {
+        /* Live stack: block until the IMU feeder advances sim time (lockstep). */
+        while (clk_now_us < target && !clk_stopped) {
+            pthread_cond_wait(&clk_cv, &clk_mu);
+        }
+    }
+    pthread_mutex_unlock(&clk_mu);
 }
 
 /* The firmware also calls task_delay(ticks). On vaios ticks are usec; with
