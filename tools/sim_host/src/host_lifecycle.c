@@ -178,6 +178,10 @@ int vayu_sitl_start(vsim_iface_t *iface) {
          * mahony — which meant SITL never exercised the shipped estimator. It
          * now runs here, fed raw IMU via imu_queue_attitude, exactly as on HW. */
         task_create(attitude_task,              NULL, 1024 * 8, 1);
+        /* Vertical estimator (VERT): sibling of attitude_task, consumes its
+         * synchronized {q, accel, dt} output + the modelled baro, publishes the
+         * fused vertical state (VERTICAL_STATE telemetry). */
+        task_create(vertical_estimator_task,    NULL, 1024 * 8, 1);
         task_create(angle_controller_task,      NULL, 1024 * 8, 1);
         task_create(angle_rate_controller_task, NULL, 1024 * 8, 1);
     } else {

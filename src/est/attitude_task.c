@@ -157,6 +157,16 @@ void attitude_task(void *args) {
     attitude_queue_telemetry_push(&ori);
     attitude_queue_control_push(&ori);
 
+    /* Hand the same (attitude, specific-force, dt) triple to the vertical
+     * estimator task so it integrates a self-consistent sample without racing
+     * the angle loop on the attitude control queue. step_dt spans the
+     * decimation window; ax/ay/az are this step's body specific force. */
+    vert_input_t vin = {.q = ori.q,
+                        .a_body = {ax, ay, az},
+                        .dt = step_dt,
+                        .timestamp = now_cyc};
+    vert_input_queue_push(&vin);
+
     /* SYS-SAFE-003: if degraded persists in a flight-relevant state, request
      * FAILSAFE. Same one-IMU-period latency as before the task split. */
     estimator_safety_step();

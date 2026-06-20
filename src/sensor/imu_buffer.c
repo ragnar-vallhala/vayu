@@ -52,6 +52,18 @@ static est_perf_telemetry_t _est_perf_buffer[EST_PERF_TELEMETRY_CAPACITY]
     __attribute__((aligned(sizeof(est_perf_telemetry_t))));
 static spsc_fifo_t _est_perf_queue;
 
+/* Fused vertical state (VERT task -> consumers). Element is 24 B (not a power of
+ * two), so — like the calibration ring — give a little headroom so spsc_init's
+ * alignment/empty-marker slots don't collapse usable capacity to zero. */
+#define VERTICAL_STATE_CAPACITY 4
+static vertical_state_t _vertical_state_buffer[VERTICAL_STATE_CAPACITY];
+static spsc_fifo_t _vertical_state_queue;
+
+/* attitude task -> VERT task input ring (synchronized {q, accel, dt}). */
+static vert_input_t _vert_input_buffer[IMU_BUFFER_INTERNAL_CAPACITY];
+static spsc_fifo_t _vert_input_queue;
+static SemaphoreHandle_t _vert_input_sema = NULL;
+
 void imu_buffer_init(void) {
   spsc_init(&_imu_telemetry_queue, _imu_telemetry_buffer,
             IMU_BUFFER_INTERNAL_CAPACITY, sizeof(bmx160_all_reading_t));
@@ -85,11 +97,20 @@ void imu_buffer_init(void) {
             sizeof(est_perf_telemetry_t));
   spsc_set_policy(&_est_perf_queue, SPSC_POLICY_OVERWRITE);
 
+  spsc_init(&_vertical_state_queue, _vertical_state_buffer,
+            VERTICAL_STATE_CAPACITY, sizeof(vertical_state_t));
+  spsc_set_policy(&_vertical_state_queue, SPSC_POLICY_OVERWRITE);
+
+  spsc_init(&_vert_input_queue, _vert_input_buffer,
+            IMU_BUFFER_INTERNAL_CAPACITY, sizeof(vert_input_t));
+  spsc_set_policy(&_vert_input_queue, SPSC_POLICY_OVERWRITE);
+
   /* CTRL-RATE-101: created empty so the first wait() blocks until the
    * first sample is pushed. */
   _imu_control_sema = v_semaphore_create_binary();
   _attitude_control_sema = v_semaphore_create_binary();
   _imu_attitude_sema = v_semaphore_create_binary();
+  _vert_input_sema = v_semaphore_create_binary();
 }
 
 int imu_buffer_perf_fifos(perf_fifo_row_t *rows, int max) {
@@ -208,6 +229,33 @@ bool est_perf_queue_push(const est_perf_telemetry_t *perf) {
 }
 bool est_perf_queue_pop(est_perf_telemetry_t *out_perf) {
   return spsc_read(&_est_perf_queue, out_perf, 1) == 1;
+}
+
+bool vertical_state_queue_push(const vertical_state_t *vs) {
+  return spsc_write(&_vertical_state_queue, vs, 1) == 1;
+}
+bool vertical_state_queue_pop(vertical_state_t *out_vs) {
+  return spsc_read(&_vertical_state_queue, out_vs, 1) == 1;
+}
+bool vertical_state_queue_peek(vertical_state_t *out_vs) {
+  return spsc_peek(&_vertical_state_queue, out_vs, 1) == 1;
+}
+
+bool vert_input_queue_push(const vert_input_t *in) {
+  bool ok = spsc_write(&_vert_input_queue, in, 1) == 1;
+  if (_vert_input_sema != NULL) {
+    v_semaphore_give(_vert_input_sema);
+  }
+  return ok;
+}
+bool vert_input_queue_pop(vert_input_t *out_in) {
+  return spsc_read(&_vert_input_queue, out_in, 1) == 1;
+}
+bool vert_input_queue_wait(uint32_t ticks_to_wait) {
+  if (_vert_input_sema == NULL) {
+    return false;
+  }
+  return v_semaphore_take(_vert_input_sema, ticks_to_wait) == VA_PASS;
 }
 
 bool imu_queue_calibration_telemetry_push(const imu_calibration_telemetry_t *sample) {

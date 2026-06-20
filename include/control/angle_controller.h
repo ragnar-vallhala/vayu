@@ -22,6 +22,15 @@ void angle_controller_task(void *arg);
 bool angle_controller_get_outputs(angle_controller_outputs_t *outputs);
 
 /**
+ * @brief Latest commanded throttle (normalised 0..1), non-destructive.
+ *
+ * The outputs FIFO is consumed by the rate controller, so observers that must
+ * not steal samples (e.g. the takeoff/landing detector) read the throttle here.
+ * O(1) volatile load; 0 until the first control loop runs.
+ */
+float angle_controller_last_throttle(void);
+
+/**
  * @brief Set the live angle-PID gains for one axis (0..NUM_AXES-1).
  * @return false if axis is out of range; true on apply.
  * @implements COMM-CMD-003

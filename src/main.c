@@ -92,6 +92,10 @@ void init_tasks(void) {
   // timestamped IMU samples, publishes timestamped attitude. Stack TBD via
   // the perf high-water view.
   task_create_named(attitude_task, NULL, 2048, 1, "attitude");
+  // Vertical estimator (VERT): fuses baro + accel into altitude/climb_rate.
+  // Sibling of the attitude task (decision D2); same priority. Stack TBD via
+  // the perf high-water view.
+  task_create_named(vertical_estimator_task, NULL, 2048, 1, "vertical");
   task_create_named(rc_ibus_task, NULL, 1024, 0, "rc_ibus"); // peak ~120
   task_create_named(angle_controller_task, NULL, 2048, 1,
                     "angle_ctl"); // peak ~396, control

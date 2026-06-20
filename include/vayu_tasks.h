@@ -17,6 +17,10 @@ void calibration_task(void *args);
 /* Attitude estimation (fusion) — consumes timestamped IMU samples, publishes
  * timestamped attitude. Split out of the IMU driver. */
 void attitude_task(void *args);
+/* Vertical estimator (VERT) — sibling of the attitude task. Drains the
+ * synchronized {q, accel, dt} input, fuses baro altitude, publishes the
+ * fused {altitude, climb_rate, vertical_accel} for control / IN_AIR / telemetry. */
+void vertical_estimator_task(void *args);
 /* Periodic kernel/observability reporter (FC -> GCS, PACKET_TYPE_PERF_STATS). */
 void perf_telemetry_task(void *args);
 

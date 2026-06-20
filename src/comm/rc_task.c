@@ -71,8 +71,10 @@ static void rc_apply_frame(void) {
         VAYU_DISCARD(system_state_set(SYSTEM_STATE_FAILSAFE));
       }
     } else if (current_state == SYSTEM_STATE_ARMED ||
+               current_state == SYSTEM_STATE_IN_AIR ||
                current_state == SYSTEM_STATE_FAILSAFE) {
-      // Switch is DOWN (Disarmed position)
+      // Switch is DOWN (Disarmed position). IN_AIR is included so an airborne
+      // disarm (kill switch) is always honoured, not just from ARMED.
       VAYU_DISCARD(system_state_set(SYSTEM_STATE_STANDBY));
     }
   }
@@ -146,6 +148,7 @@ void rc_ibus_task(void *args) {
         }
       } else {
         if (current_state == SYSTEM_STATE_ARMED ||
+            current_state == SYSTEM_STATE_IN_AIR ||
             current_state == SYSTEM_STATE_FAILSAFE) {
           VAYU_DISCARD(system_state_set(SYSTEM_STATE_STANDBY));
         }
