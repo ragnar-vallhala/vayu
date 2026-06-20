@@ -32,6 +32,11 @@ bool angle_controller_get_outputs(angle_controller_outputs_t *outputs) {
   return spsc_read(&angle_controller_fifo, outputs, 1);
 }
 
+/* Latest commanded throttle, mirrored out-of-band so non-consuming observers
+ * (the takeoff/landing detector) don't steal from the rate-controller FIFO. */
+static volatile float _last_throttle = 0.0f;
+float angle_controller_last_throttle(void) { return _last_throttle; }
+
 static angle_controller_t angle_controller = {
     .pid = {
         {
@@ -276,6 +281,7 @@ void angle_controller_task(void *arg) {
     }
     angle_controller_outputs.throttle = target_throttle;
     angle_controller_outputs.dt = dt;
+    _last_throttle = target_throttle;
     fifo_push(&angle_controller_outputs);
     /* No v_delay here — the loop blocks on attitude_queue_control_wait() at the
      * top and decimates, so its rate is tied to the inner/IMU rate. */

@@ -49,7 +49,10 @@ void motor_task(void *arg) {
     if (!spsc_read(&motor_angle_rate2motor_queue, &motor_outputs, 1)) {
       motor_outputs = prev_motor_outputs;
     }
-    if (system_state_get() != SYSTEM_STATE_ARMED) {
+    /* Motors may spin while ARMED *or* IN_AIR — IN_AIR is armed-and-flying, not a
+     * disarm. Anything else (STANDBY/FAILSAFE/...) forces them to zero. */
+    sys_state_t mstate = system_state_get();
+    if (mstate != SYSTEM_STATE_ARMED && mstate != SYSTEM_STATE_IN_AIR) {
       motor_outputs.m1 = 0;
       motor_outputs.m2 = 0;
       motor_outputs.m3 = 0;

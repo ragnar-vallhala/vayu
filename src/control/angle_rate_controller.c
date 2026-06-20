@@ -248,10 +248,16 @@ void angle_rate_controller_task(void *arg) {
                                      imu_data.converted.gyr[1],
                                      imu_data.converted.gyr[2]};
 
-    /* (B) Hard reset on every STANDBY -> ARMED transition. Carries no
-     * windup from the previous arm cycle into the new one. */
+    /* (B) Hard reset when ENTERING the armed group (disarmed -> ARMED) so no
+     * windup carries from the previous arm cycle. The ARMED<->IN_AIR internal
+     * transitions (takeoff/touchdown) must NOT reset — they're one continuous
+     * flight, and a mid-air reset would dump the rate integrators. */
     sys_state_t state = system_state_get();
-    if (state == SYSTEM_STATE_ARMED && prev_state != SYSTEM_STATE_ARMED) {
+    bool armed_now =
+        (state == SYSTEM_STATE_ARMED || state == SYSTEM_STATE_IN_AIR);
+    bool armed_prev = (prev_state == SYSTEM_STATE_ARMED ||
+                       prev_state == SYSTEM_STATE_IN_AIR);
+    if (armed_now && !armed_prev) {
       for (int i = 0; i < NUM_AXES; i++) {
         v_pid_reset(&angle_rate_controller.pid[i]);
         s_gyro_lpf_state[i] = 0.0f;     /* clear the input filter too */
@@ -419,7 +425,7 @@ void angle_rate_controller_task(void *arg) {
      * disarmed) before angle_rate_controller has even had a chance to
      * push a fresh, reset-PID value. Drone flips before throttle is
      * touched. Pushing only while armed eliminates that stale slot. */
-    if (state == SYSTEM_STATE_ARMED) {
+    if (state == SYSTEM_STATE_ARMED || state == SYSTEM_STATE_IN_AIR) {
       motor_set_outputs(motor_outputs);
     }
 

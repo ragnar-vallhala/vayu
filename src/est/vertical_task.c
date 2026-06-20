@@ -1,0 +1,106 @@
+/**
+ * @file vertical_task.c
+ * @brief Vertical estimator (VERT) task — sibling of the attitude task.
+ *
+ * Decision D2 (plan §3, §7): the vertical estimate runs in its own task rather
+ * than inside attitude_task, so vertical estimation is decoupled from the
+ * attitude loop's timing. It drains the synchronized {q, body specific force,
+ * dt} triple the attitude task publishes (vert_input_queue) — same sample the
+ * EKF ran on, so attitude and accel are self-consistent — and integrates that
+ * into climb_rate/altitude (predict). It corrects against the latest BME280
+ * altitude whenever a fresh baro sample appears (latest-wins, no baro queue;
+ * the driver publishes ~10-20 Hz). The fused state is published to
+ * vertical_state_queue for the control loop / IN_AIR detector / telemetry.
+ *
+ * The math core (predict/correct/gravity-removal) lives in
+ * src/est/vertical_estimator.c and is unit-tested headlessly
+ * (tools/sim_host/tests/test_vertical_est.c). This file is just the I/O wrapper.
+ */
+#include "control/angle_controller.h" /* angle_controller_last_throttle */
+#include "est/flight_phase.h"
+#include "est/vertical_estimator.h"
+#include "sensor/bme280.h"
+#include "sensor/imu_buffer.h"
+#include "sys/state.h" /* system_state_get/set, SYSTEM_STATE_* */
+#include "vaios.h"
+#include "vaios_app_config.h"
+#include "variables.h" /* MS_TO_TICKS via the task/config chain */
+#include "vayu_tasks.h"
+#include <stdbool.h>
+
+/* Cap the blocking wait so the task keeps publishing (and the baro path keeps
+ * correcting) even if attitude input stalls; normally it is sample-driven. */
+#define VERT_MAX_PERIOD_MS 50u
+
+void vertical_estimator_task(void *args) {
+  (void)args;
+  vertical_estimator_t ve;
+  vert_est_init_default(&ve);
+
+  flight_phase_t fp;
+  flight_phase_init(&fp);
+
+  uint32_t last_baro_stamp = 0;
+  bool have_baro_stamp = false;
+
+  while (1) {
+    /* Block until the attitude task hands over the next synchronized triple
+     * (or the cap elapses, so the baro correction still ticks on a stall). */
+    if (!vert_input_queue_wait(MS_TO_TICKS(VERT_MAX_PERIOD_MS)))
+      continue;
+
+    vert_input_t in;
+    if (!vert_input_queue_pop(&in))
+      continue;
+
+    /* Predict: integrate world-up inertial acceleration over this step. */
+    float a_up = vert_world_up_accel(&in.q, in.a_body);
+    vert_est_predict(&ve, a_up, in.dt);
+
+    /* Correct: fold in the latest baro altitude when a new sample is ready.
+     * bme280_read_all() returns the last published reading with its own
+     * acquisition stamp; we correct only when that stamp advances so each baro
+     * sample is used once (latest-wins). */
+    bme280_reading_t baro;
+    float baro_alt = ve.altitude; /* fallback for telemetry before first baro */
+    if (bme280_read_all(&baro) == HAL_OK) {
+      baro_alt = baro.altitude_m;
+      if (!have_baro_stamp || baro.timestamp != last_baro_stamp) {
+        last_baro_stamp = baro.timestamp;
+        have_baro_stamp = true;
+        vert_est_correct(&ve, baro.altitude_m);
+      }
+    }
+
+    /* Takeoff / landing detector + FC-owned AGL ground reference (plan §5, D4).
+     * Only meaningful once the filter is seeded; until then the ground reference
+     * has no absolute altitude to anchor to. `armed` (ARMED or IN_AIR) freezes
+     * the ground reference; `in_air` selects the landing vs takeoff test. */
+    sys_state_t st = system_state_get();
+    bool in_air = (st == SYSTEM_STATE_IN_AIR);
+    bool armed = (st == SYSTEM_STATE_ARMED) || in_air;
+    if (ve.initialized) {
+      flight_phase_event_t ev =
+          flight_phase_update(&fp, armed, in_air, ve.altitude, baro_alt,
+                              ve.climb_rate, angle_controller_last_throttle(),
+                              in.dt);
+      if (ev == FLIGHT_PHASE_EVENT_TAKEOFF) {
+        VAYU_DISCARD(system_state_set(SYSTEM_STATE_IN_AIR));
+      } else if (ev == FLIGHT_PHASE_EVENT_LAND) {
+        VAYU_DISCARD(system_state_set(SYSTEM_STATE_ARMED));
+      }
+    }
+
+    /* Publish the fused state (OVERWRITE ring — consumers read the latest). */
+    vertical_state_t out = {
+        .altitude = ve.altitude,
+        .climb_rate = ve.climb_rate,
+        .vertical_accel = ve.vertical_accel,
+        .baro_altitude = baro_alt,
+        .agl = fp.agl,
+        .valid = ve.initialized,
+        .timestamp = in.timestamp,
+    };
+    vertical_state_queue_push(&out);
+  }
+}

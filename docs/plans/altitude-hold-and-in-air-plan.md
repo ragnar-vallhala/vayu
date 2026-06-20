@@ -123,17 +123,21 @@ This bounds accel drift with baro's absolute (but noisy) altitude and gives a
 low-lag climb rate that baro alone can't.
 
 ### Where it lives
-A new `src/est/vertical_estimator.c` (`VERT` module), run either inside
-`attitude_task` (it already has `q` + the IMU cadence) or as a sibling task at
-the same rate. It publishes `{altitude_agl, climb_rate, vertical_accel}` into a
-small SPSC ring (like `attitude_queue`) for the control loop to drain.
+A new `src/est/vertical_estimator.c` (`VERT` module), run as a **sibling task**
+at the IMU/attitude rate (decision D2). It consumes `q` (from `attitude_queue`)
+and body specific force (from `imu_queue`) — both plumbed in via the existing
+SPSC queues rather than borrowing `attitude_task`'s locals — and publishes
+`{altitude_agl, climb_rate, vertical_accel}` into a small SPSC ring (like
+`attitude_queue`) for the control loop and the IN_AIR detector to drain. A
+separate task keeps vertical estimation decoupled from the attitude loop's
+timing at the cost of explicit queue plumbing and one more scheduled task.
 
 ### Make it observable first
-Add the fused `altitude`/`climb_rate` to telemetry (extend `BARO`, or a new
-`VERTICAL_STATE` message) so the GCS chart can show **fused vs raw** side by
-side. This is the cheapest way to validate the estimator in SITL before any
-control loop trusts it — and SITL's altitude is exact ground truth, so the fused
-estimate has something to be checked against.
+Add the fused `altitude`/`climb_rate` to telemetry via a new `VERTICAL_STATE`
+message (decision D3) so the GCS chart can show **fused vs raw** side by side.
+`BARO` stays the raw-sensor record. This is the cheapest way to validate the
+estimator in SITL before any control loop trusts it — and SITL's altitude is
+exact ground truth, so the fused estimate has something to be checked against.
 
 ---
 
@@ -148,11 +152,13 @@ throttle = hover_ff + Δthrottle ,  then ÷ cos(tilt)
 
 - **Outer position P:** `alt_error = target_alt − est_alt → desired_climb_rate`,
   clamped to ±~2 m/s.
-- **Inner velocity PID:** `climb_rate_error → Δthrottle`, around a **hover
-  feedforward** (`hover_ff`, ~0.55 per the X3 note at
-  `angle_rate_controller.c:191`). Gains live in `pid_config` so they're tunable
-  live via `CMD_SET_PID` (reuse the existing axis/controller plumbing or add an
-  `ALT` controller id).
+- **Inner velocity PID:** `climb_rate_error → Δthrottle`, around a **learned
+  hover feedforward** (`hover_ff`; decision D1): seed at ~0.55 (the X3 note at
+  `angle_rate_controller.c:191`) and adapt by low-passing the steady-state
+  throttle while `IN_AIR` and `|climb_rate| ≈ 0`. Gains live in `pid_config` so
+  they're tunable live via `CMD_SET_PID` (reuse the existing axis/controller
+  plumbing or add an `ALT` controller id). The learned `hover_ff` is held (not
+  updated) whenever not in steady hover, so climbs/descents don't poison it.
 - **Tilt compensation:** divide commanded throttle by `cos(tilt)` (tilt from `q`)
   so vertical thrust holds while banking.
 - **RC throttle stick = climb-rate command:** centred stick (deadband around
@@ -178,9 +184,12 @@ instead of `channels[2]`. The rate controller / mixer downstream
 ### Failsafe interplay
 - `MAX_ANGLE_CUTOFF` bank failsafe stays armed in `ALT_HOLD` (it's an angle
   mode).
-- On RC loss while in `ALT_HOLD`, the natural failsafe is **commanded descent**
-  (hold a gentle negative climb rate to land) rather than the current cut — a
-  follow-on, but the architecture should not preclude it.
+- On RC loss while in `ALT_HOLD`, the failsafe is **controlled descent**
+  (decision D5): hold a gentle negative climb rate (e.g. −0.3…−0.5 m/s) via the
+  velocity PID to auto-land, rather than the current throttle cut. This is now
+  **in scope** for the ALT_HOLD controller, not a follow-on — the descent reuses
+  the same cascade with a commanded negative climb-rate setpoint, and hands off
+  to the touchdown detector (§5) for auto-disarm once settled.
 
 ---
 
@@ -252,24 +261,30 @@ airframe — then validated on the bench/flight.
 
 ---
 
-## 7. Open questions / decisions
+## 7. Resolved decisions
 
-- **Hover throttle:** constant feedforward (~0.55) to start, or learn it
-  (low-passed steady-state throttle while `IN_AIR` and climb≈0)? Adaptive is a
-  follow-on; constant is fine for first flight.
-- **Estimator placement:** inside `attitude_task` vs a sibling task — affects
-  cadence and queue plumbing. Lean toward inside `attitude_task` (it has `q` and
-  the IMU rate already).
-- **Telemetry shape:** extend `BARO` with fused fields vs a new `VERTICAL_STATE`
-  message. A new message keeps `BARO` as the raw-sensor record (cleaner; mirrors
-  IMU_RAW vs ATTITUDE_EULER).
-- **AGL reference ownership:** the GCS computes its own AGL today; once the FC
-  owns the authoritative ground reference (§5), the GCS should consume the FC's
-  AGL to avoid two references disagreeing.
-- **Failsafe-in-ALT_HOLD policy:** controlled descent vs current cut — decide
-  before ALT_HOLD ships to flight.
-- **`RELEASE_TO_RC` interaction:** how the existing `flight_mode` value relates to
-  the new 3-position switch (is it still reachable, GCS-only?).
+These were the open questions; all are now decided (2026-06-19). IDs are
+referenced from the sections above.
+
+- **D1 — Hover throttle: learned.** Seed `hover_ff` at ~0.55, then adapt by
+  low-passing steady-state throttle while `IN_AIR` and `|climb_rate| ≈ 0`; hold
+  the value whenever not in steady hover. (§4)
+- **D2 — Estimator placement: sibling task.** A dedicated `VERT` task at the
+  IMU/attitude rate, consuming `q` and IMU specific force via SPSC queues, rather
+  than running inside `attitude_task`. Keeps vertical estimation decoupled from
+  the attitude loop's timing. (§3)
+- **D3 — Telemetry shape: new `VERTICAL_STATE` message.** `BARO` stays the
+  raw-sensor record; fused `{altitude_agl, climb_rate, vertical_accel}` ship in a
+  new message (mirrors IMU_RAW vs ATTITUDE_EULER). (§3)
+- **D4 — AGL reference ownership: FC owns it.** The FC captures the ground ref
+  (continuously while disarmed, frozen at arm) and publishes authoritative AGL;
+  the GCS consumes the FC's AGL instead of computing its own. (§5)
+- **D5 — Failsafe in ALT_HOLD: controlled descent.** On RC loss, command a gentle
+  negative climb rate to auto-land (reusing the velocity PID) rather than cutting
+  throttle. Now in scope for the ALT_HOLD controller. (§4)
+- **D6 — `RELEASE_TO_RC`: GCS-only override.** Reachable only via
+  `CMD_SET_FLIGHT_MODE`; not mapped to any `ch6` detent. The switch selects
+  ALT_HOLD/STABILISE/ACRO; `RELEASE_TO_RC` stays a GCS escape hatch. (§2)
 
 ---
 
@@ -282,3 +297,113 @@ airframe — then validated on the bench/flight.
   additive, engaged only by the `ch6` ALT_HOLD detent.
 - **Smallest first, riskiest last:** estimator → IN_AIR (read-only) → mode
   plumbing → ALT_HOLD actuation, every step SITL-verified.
+
+---
+
+## 9. Phased laydown (living progress tracker)
+
+Granular task breakdown of §6, kept current as work lands. Status legend:
+`[ ]` todo · `[~]` in progress · `[x]` done. Update this section (and the
+per-task notes) as each item completes; note the commit/PR where relevant.
+
+### Phase 1 — Vertical estimator + telemetry (§3, D2, D3)
+- [x] Define `VERTICAL_STATE` message in `navlink/dialect.json` (msgid 1040;
+  fields `altitude`, `climb_rate`, `vertical_accel`, `baro_altitude` for the
+  fused-vs-raw overlay, `valid`); codec regenerated (C + Python).
+- [x] New `src/est/vertical_estimator.c` + `include/est/vertical_estimator.h`
+  (`VERT` module): pure 2-state `[altitude, climb_rate]` complementary filter.
+  Host unit test `tools/sim_host/tests/test_vertical_est.c` (14 checks, ctest
+  `vertical_est`) — all green.
+- [x] Sibling task wiring: `src/est/vertical_task.c` (`VERT` I/O wrapper)
+  scheduled at IMU/attitude rate (`main.c`, `host_lifecycle.c`). The attitude
+  task publishes a synchronized `{q, a_body, dt}` triple from the same EKF sample
+  via a new `vert_input_queue` (event-driven, own wake semaphore) rather than
+  racing the angle loop on the attitude control queue; output goes to the
+  OVERWRITE `vertical_state_queue`. Queues + accessors in `imu_buffer.{h,c}`.
+- [x] World-frame predict: `vert_world_up_accel()` rotates `R(q)·a_body` and
+  removes gravity (up-positive); `vert_est_predict()` integrates to
+  climb_rate→altitude. Verified stationary→0 at all attitudes (VERT-001).
+- [x] Baro correct: `vert_est_correct()` two-gain (pos/vel) nudge toward baro;
+  first sample seeds bumplessly. Verified seed/static/step (VERT-002..004).
+- [x] Publish `VERTICAL_STATE` from `telemetry_task` (~10 Hz, latest-wins via
+  `vertical_state_queue_pop`; `navlink_tx_vertical_state`). GCS fused-vs-raw
+  chart done: `VerticalStateData` plumbed router→protocol→engine→`VehicleState`
+  (`onVerticalState`/`verticalStateReceived`), and a full-width "Vertical
+  Estimate" graph in `ImuPanel` overlays fused altitude vs raw baro altitude
+  (left axis) + fused climb rate (right axis), fed from `MainWindow::onUiTimer`
+  gated on freshness + `valid`.
+- [x] **SITL verify:** fused altitude tracks vsim ground truth; climb rate clean
+  during modelled climbs; no control change. Integration test
+  `software/headless-sdk/tests/integration/test_vertical_sitl.py`
+  (`test_vertical_estimate_tracks_truth`) — green: positive climb during takeoff,
+  fused/baro altitude within tolerance of ground truth, settled hover climb rate
+  near zero. Golden-flight + seam regression tests still green.
+
+> **Finding (2026-06-19):** a 2-state filter cannot separate a DC accelerometer
+> bias from true vertical velocity — a constant bias `b` leaves a steady-state
+> climb-rate offset of `(k_alt/k_vel)·b` (test VERT-006 asserts this exactly).
+> Altitude rejection is strong; velocity carries the offset. The attitude path
+> runs `SF_EKF` (6-state, no accel-bias state), so this bias is **not** removed
+> upstream. Mitigation now: gains chosen with `k_alt/k_vel ≈ 1.5` to keep the
+> offset small. **Watch item for Phase 2/4** — a >0.3 m/s offset would bias the
+> `IN_AIR` climb-rate gate and ALT_HOLD hover; if SITL/bench shows real bias,
+> revisit (3-state bias estimate, or feed `SF_EKF_ACCEL_BIAS` accel).
+
+### Phase 2 — Baro-driven `IN_AIR` (§5) — read-only on actuators
+- [x] FC-owned AGL ground reference (D4): `src/est/flight_phase.c`
+  (`flight_phase_t`) anchors the ground ref to the RAW baro (no integration
+  transient) and only refines it while **settled** (low climb rate) so a pre-arm
+  bump / respawn fall can't poison it; frozen at arm. `agl` added to
+  `VERTICAL_STATE` (now msgid 1040, fields shifted: `valid` → index 5; codec
+  regenerated C+Py). GCS re-pointed: `VerticalStateData.aglM` plumbed through,
+  `MainWindow` feeds the Baro-AGL trace from the FC's AGL when VERT is
+  fresh+valid, legacy GCS-side ref only as fallback.
+- [x] Takeoff/landing detector (`flight_phase`): all-three-signals gate —
+  `agl > TAKEOFF_ALT` AND `climb_rate > TAKEOFF_RATE` AND lift-was-commanded
+  (throttle crossed the gate since arm — a **latch**, robust to a mid-coast
+  throttle chop), each sustained past a debounce; touchdown is the settled
+  reverse. Commanded throttle read non-destructively via new
+  `angle_controller_last_throttle()` (the outputs FIFO is the rate loop's).
+  Host unit test `test_flight_phase.c` (14 checks, ctest `flight_phase`) — green.
+- [x] Wire `system_state_set(SYSTEM_STATE_IN_AIR)` on takeoff and `IN_AIR→ARMED`
+  on touchdown (in the VERT task). **Audited every exact-`== ARMED` check** now
+  that IN_AIR is live: `motor.c` (was zeroing motors unless ARMED — the crash)
+  and `angle_rate_controller.c` (output push + arm-reset) now treat ARMED **or**
+  IN_AIR as "armed and flying"; `rc_task.c` disarm-switch-down honours IN_AIR
+  (airborne kill). Heartbeat already had an IN_AIR case → GCS pill works.
+- [x] **SITL verify:** `software/headless-sdk/tests/integration/test_in_air_sitl.py`
+  — `test_takeoff_transitions_to_in_air` (ARMED→IN_AIR fires, FC AGL airborne)
+  and `test_armed_on_ground_does_not_trip_in_air` (idle-on-ground never
+  false-trips, AGL≈0) — both green. Touchdown (IN_AIR→ARMED) is unit-tested
+  (FP-005); through the Pilot it's masked by the RC disarm-on-land. Golden-flight
+  + vertical-SITL tests updated for the now-live IN_AIR nav_state and the
+  known-wobbly hover band; all green. Target firmware (`build_flash`), SITL, and
+  GCS all build clean.
+
+### Phase 3 — `ch6` 3-position + `FLIGHT_MODE_ALT_HOLD` plumbing (§2, D6)
+- [ ] `variables.h`: 3-position thresholds + hysteresis constants.
+- [ ] `flight_mode.{h,c}`: add `FLIGHT_MODE_ALT_HOLD`; 3-way resolve from raw
+  `ch6` µs + GCS arbitration; add `is_alt_hold` query; keep `*_acro` getter;
+  `RELEASE_TO_RC` GCS-only (D6).
+- [ ] `dialect.json`: append `ALT_HOLD` to `flight_mode` enum; regenerate.
+- [ ] GCS mode pill + `CMD_SET_FLIGHT_MODE` carry the new value.
+- [ ] **SITL verify:** mode selection + pill correct; ALT_HOLD still falls back to
+  RC throttle (no actuation change yet).
+
+### Phase 4 — `ALT_HOLD` controller (§4, D1, D5)
+- [ ] Cascade: outer-P (alt→desired climb rate, clamp ±~2 m/s) → inner velocity
+  PID (→Δthrottle) around learned `hover_ff`.
+- [ ] Learned `hover_ff` (D1); `cos(tilt)` compensation; stick-as-climb-rate map
+  with deadband.
+- [ ] Bumpless engage/disengage: `target_alt ← est_alt`, seed velocity-PID
+  integrator with current throttle; gate engage on `IN_AIR`.
+- [ ] Throttle source swap at `angle_controller.c` when `mode == ALT_HOLD`.
+- [ ] Controlled-descent failsafe (D5): negative climb-rate setpoint on RC loss →
+  touchdown detector → auto-disarm.
+- [ ] PID gains exposed via `CMD_SET_PID` (ALT controller id).
+- [ ] **SITL verify:** holds altitude; tune `hover_ff` + gains; bumpless transfer
+  confirmed.
+
+### Phase 5 — Hardware bring-up
+- [ ] Bench thrust-stand checks.
+- [ ] Tethered / low hover.

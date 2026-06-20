@@ -3,6 +3,7 @@
 
 #include "comm/perf_packet.h"
 #include "est/est.h"
+#include "est/vertical_estimator.h"
 #include "sensor/bmx160.h"
 #include <stdbool.h>
 #include <stdint.h>
@@ -64,6 +65,29 @@ bool attitude_queue_control_wait(uint32_t ticks_to_wait);
  * task drains it onto the SYSTEM_ORIGIN_EST_PERF wire packet. */
 bool est_perf_queue_push(const est_perf_telemetry_t *perf);
 bool est_perf_queue_pop(est_perf_telemetry_t *out_perf);
+
+/* Fused vertical state (VERT task -> control loop / IN_AIR detector / telemetry).
+ * OVERWRITE ring: producer is the vertical estimator task, consumers peek/pop
+ * the latest fused {altitude, climb_rate, vertical_accel}. */
+bool vertical_state_queue_push(const vertical_state_t *vs);
+bool vertical_state_queue_pop(vertical_state_t *out_vs);
+bool vertical_state_queue_peek(vertical_state_t *out_vs);
+
+/* Synchronized estimator input for the VERT task. The attitude task publishes
+ * {q, body specific force, dt} from the SAME sample it ran the EKF on, so the
+ * vertical estimator integrates a self-consistent (attitude, accel, dt) triple
+ * without racing the angle loop on the attitude control queue. Event-driven via
+ * a wake semaphore, same pattern as imu_queue_attitude_*. */
+typedef struct {
+  quaternion_t q;     /* body->world attitude at this sample. */
+  float a_body[3];    /* body specific force (m/s^2), as the IMU reports it. */
+  float dt;           /* integration interval (s) for this step. */
+  uint32_t timestamp; /* DWT cycle stamp of the source IMU sample. */
+} vert_input_t;
+
+bool vert_input_queue_push(const vert_input_t *in);
+bool vert_input_queue_pop(vert_input_t *out_in);
+bool vert_input_queue_wait(uint32_t ticks_to_wait);
 
 bool imu_queue_calibration_telemetry_push(const imu_calibration_telemetry_t *sample);
 bool imu_queue_calibration_telemetry_pop(imu_calibration_telemetry_t *out_sample);

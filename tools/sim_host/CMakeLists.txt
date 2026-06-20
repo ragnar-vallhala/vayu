@@ -83,6 +83,9 @@ set(VAYU_SOURCES
     ${VAYU_ROOT}/src/est/sensor_fusion.c
     ${VAYU_ROOT}/src/est/ekf.c
     ${VAYU_ROOT}/src/est/attitude_task.c   # the REAL firmware estimator task (now run in SITL)
+    ${VAYU_ROOT}/src/est/vertical_estimator.c  # 2-state baro+accel vertical estimator (VERT)
+    ${VAYU_ROOT}/src/est/vertical_task.c       # VERT task I/O wrapper (sibling of attitude_task)
+    ${VAYU_ROOT}/src/est/flight_phase.c        # takeoff/landing detector + FC-owned AGL (IN_AIR)
     ${VAYU_ROOT}/src/sensor/imu_buffer.c
     ${VAYU_ROOT}/src/sensor/bme280.c   # real FC baro driver (altitude/publish/getters); host_baro.c feeds it
     ${VAYU_ROOT}/src/logger/logger.c    # wrap counters; telemetry reads them
@@ -203,6 +206,17 @@ add_test(NAME phase3_est_ekf COMMAND test_phase3_est_ekf)
 # Standalone: compiles assert.c with NDEBUG (release branch) and stubs its
 # deps locally — it must NOT link vayu_sitl_core, which carries the debug
 # build of assert.c (duplicate symbol + wrong branch).
+# VERT vertical estimator: pure 2-state baro+accel filter core (in
+# vayu_sitl_core); the test feeds synthetic accel/baro and checks tracking.
+add_executable(test_vertical_est tests/test_vertical_est.c)
+target_link_libraries(test_vertical_est PRIVATE vayu_sitl_core m)
+add_test(NAME vertical_est COMMAND test_vertical_est)
+
+# flight_phase: pure takeoff/landing detector + FC-owned AGL (in vayu_sitl_core).
+add_executable(test_flight_phase tests/test_flight_phase.c)
+target_link_libraries(test_flight_phase PRIVATE vayu_sitl_core m)
+add_test(NAME flight_phase COMMAND test_flight_phase)
+
 add_executable(test_phase0_assert
     tests/test_phase0_assert.c
     ${VAYU_ROOT}/src/sys/assert.c)
