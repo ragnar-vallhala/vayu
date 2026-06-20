@@ -8,4 +8,10 @@
  * attitude_queue_*. */
 void host_imu_feeder_start(void);
 
+/* Single-shot pump for the RTOS cooperative stepper (Phase 4). open() returns
+ * the IMU FIFO fd (<0 on failure); pump() blocks for one framed IMU sample and
+ * injects it into the firmware queues, returning 1 on success / 0 on EOF. */
+int host_imu_feeder_open(void);
+int host_imu_feeder_pump(void);
+
 #endif
