@@ -39,7 +39,12 @@
 // so this value reaches the heap sizing directly — no -DHEAP_SIZE override
 // needed. Sized to fit the 96KB SRAM; the old 0x16000 kernel default overran it
 // once .bss grew past ~8KB (heap_start + 0x16000 > top of RAM) -> boot HardFault.
+// #ifndef-guarded so the host SITL (which has no 96KB SRAM limit and needs room
+// for many 8KB task stacks under the real scheduler) can pass -DHEAP_SIZE; the
+// target build sets no override and keeps 0xE000.
+#ifndef HEAP_SIZE
 #define HEAP_SIZE 0xE000
+#endif
 
 #define STACK_ALIGN_SIZE 8
 

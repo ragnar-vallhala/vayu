@@ -168,6 +168,47 @@ target_link_libraries(vayu_sitl PRIVATE vayu_sitl_core)
 message(STATUS "vayu_sitl: static library + standalone binary configured")
 
 # ----------------------------------------------------------------------------
+# Phase 4 (experimental, opt-in): vayu_sitl_rtos
+#
+# Runs the REAL vaios scheduler on the host via the ucontext port
+# (host_rtos_port.c) instead of the legacy pthread shims — deterministic and
+# maximally faithful (the flight scheduler itself is under test). The host_vaios
+# collision set (task/delay/sema/mutex/heap/scheduler/v_init) is compiled out by
+# -DVAYU_SITL_RTOS and provided by the kernel; -DVAIOS_HOST_TEST drops the
+# kernel's target-SRAM pointer guards. See docs/plans/sitl-lockstep-sim.md.
+#
+#   cmake -S tools/sim_host -B build_sitl_rtos -DVAYU_SITL_RTOS_BUILD=ON
+#   cmake --build build_sitl_rtos --target vayu_sitl_rtos
+# ----------------------------------------------------------------------------
+option(VAYU_SITL_RTOS_BUILD "Build the experimental real-vaios-scheduler SITL" OFF)
+if(VAYU_SITL_RTOS_BUILD)
+  add_executable(vayu_sitl_rtos
+      src/host_rtos_port.c
+      src/host_rtos_main.c
+      src/host_vaios.c        # collisions compiled out by VAYU_SITL_RTOS
+      src/host_navhal.c
+      src/host_vfs.c
+      src/host_baro.c         # provides the i2c_manager_* stubs bme280.c needs
+      src/host_lifecycle.c
+      src/vsim_iface.c
+      # host_port.c (legacy critical_nesting + mutex) is replaced by the port's
+      # own critical_nesting; not linked here.
+      ${VAYU_SOURCES}
+      ${VAIOS_ROOT}/kernel/structure.c
+      ${VAIOS_ROOT}/kernel/task.c
+      ${VAIOS_ROOT}/kernel/ipc.c
+      ${VAIOS_ROOT}/kernel/memory.c
+      ${VAIOS_ROOT}/kernel/vaios.c
+      ${VAIOS_ROOT}/kernel/perf.c
+  )
+  target_compile_definitions(vayu_sitl_rtos PRIVATE
+      VAYU_SITL_RTOS=1 VAIOS_HOST_TEST=1
+      HEAP_SIZE=0x180000)   # 1.5 MB: room for the firmware tasks' 8KB stacks on host
+  target_link_libraries(vayu_sitl_rtos PRIVATE Threads::Threads m rt navlink_codec)
+  message(STATUS "vayu_sitl_rtos (Phase 4, experimental) configured")
+endif()
+
+# ----------------------------------------------------------------------------
 # Verification suite
 #
 # Test binaries provide their own main() and link the firmware sources

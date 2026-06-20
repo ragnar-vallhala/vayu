@@ -31,6 +31,7 @@
 #include <ucontext.h>
 
 #include "host_clock.h"
+#include "memory.h"   /* HEAP_SIZE */
 #include "task.h"
 
 /* ---- per-task execution context -------------------------------------- */
@@ -46,6 +47,28 @@ static int        in_scheduler = 0;     /* 1 while the scheduler is running */
 extern TCB *current_task;               /* kernel-owned */
 extern void set_next_task(void);        /* kernel policy: pick highest-ready */
 extern void task_exit(void);            /* TASK_EXIT trampoline target */
+extern int  wake_up_delayed_tasks_isr(void); /* kernel: move due delayed→ready */
+
+/* ---- the sim clock for the RTOS path --------------------------------- *
+ * The kernel's delay/timeout logic counts SysTick ticks (systick_count, 1 tick =
+ * SYSTICK_PERIOD = 1 ms). On hardware a 1 kHz SysTick ISR bumps it; here the
+ * stepper bumps it one tick per IMU sample (the firmware's loop rate), so sim
+ * time is exactly the sample count — fully deterministic. v_get_ticks reads it;
+ * scheduler_running gates vaios.c's v_delay (busy-wait before start, task_delay
+ * after). Both are kernel-extern'd; we own the definitions on host. */
+volatile uint32_t systick_count = 0;
+extern uint8_t scheduler_running;         /* defined in kernel/task.c */
+volatile uint32_t critical_nesting = 0;   /* port.h critical-section nesting */
+uint32_t v_get_ticks(void) { return systick_count; }
+
+/* Kernel heap backing store: memory.c uses &_heap_start as the base of a
+ * HEAP_SIZE region (on target this is a linker symbol in SRAM). */
+uint32_t _heap_start[HEAP_SIZE / sizeof(uint32_t)] __attribute__((aligned(8)));
+
+/* perf.c cycle-counter port hooks — no DWT on host; report a coarse count off
+ * the sim clock (perf numbers are diagnostic only under lockstep). */
+uint32_t v_port_hw_cycle_counter_read(void) { return systick_count * 1000u; }
+void v_port_hw_cycle_counter_init(void) {}
 
 static ucontext_t *ctx_of(const TCB *t) {
   return &task_ctx[t->task_id % HOST_PORT_MAX_TASKS];
@@ -95,10 +118,22 @@ void load_next_task_from_isr(void) { task_yield(); }
 /* Start the scheduler: pick the first task and jump into it. Returns to the
  * stepper when the system goes idle (idle's cpu_relax swaps back). */
 void scheduler_start(void) {
+  scheduler_running = 1;                /* vaios.c v_delay now uses task_delay */
   set_next_task();
   in_scheduler = 1;
   swapcontext(&stepper_ctx, ctx_of(current_task));
   in_scheduler = 0;
+}
+
+/* ---- stepper: advance the sim clock one tick ------------------------- *
+ * Bump SysTick `ms` times, waking any delayed/timed-out tasks each tick, then
+ * let the scheduler drain (run_until_idle). Called by the single-threaded
+ * stepper once per IMU sample (ms = the sample period). */
+void host_rtos_tick(uint32_t ms) {
+  for (uint32_t i = 0; i < ms; i++) {
+    systick_count++;
+    wake_up_delayed_tasks_isr();        /* delayed→ready; reschedule on next run */
+  }
 }
 
 /* ---- stepper entry: run the scheduler until it goes idle (quiescent) ---
@@ -112,13 +147,25 @@ void host_rtos_run_until_idle(void) {
   in_scheduler = 0;
 }
 
-/* ---- port: idle relax = yield back to the stepper -------------------- */
-/* On hardware this is WFI (spin until the next ISR). On host, "idle is running"
- * means no task is ready → the tick is quiescent → hand control back to the
- * stepper so it can advance time and feed the next sample. */
-void v_port_cpu_relax(void) {
-  swapcontext(ctx_of(current_task), &stepper_ctx);
+/* ---- port: idle behaviour = reschedule, else yield to the stepper ----
+ * vaios's idle task loops calling hal_cpu_idle() (its WFI hook). On hardware a
+ * SysTick ISR preempts idle to run a woken task; cooperatively there is no
+ * preemption, so hal_cpu_idle must do the reschedule itself: pick the highest-
+ * ready task and switch to it; if nothing but idle is ready the tick is
+ * quiescent → swap back to the stepper. This makes "scheduler reached idle with
+ * nothing ready" the race-free settle signal. (Overrides host_navhal's no-op.) */
+extern TCB *idle_task;
+void hal_cpu_idle(void) {
+  set_next_task();                      /* may select a just-woken task */
+  if (current_task != idle_task)
+    swapcontext(ctx_of(idle_task), ctx_of(current_task));
+  else
+    swapcontext(ctx_of(idle_task), &stepper_ctx);  /* quiescent → to stepper */
 }
+
+/* Pre-scheduler busy-wait relax (vaios.c v_delay before scheduler_running).
+ * The boot path doesn't hit this on host; keep it a cheap no-op. */
+void v_port_cpu_relax(void) {}
 
 /* ---- port: critical sections ----------------------------------------- */
 /* Cooperative single-threaded scheduler: tasks only switch at explicit yields,
