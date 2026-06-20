@@ -189,6 +189,7 @@ if(VAYU_SITL_RTOS_BUILD)
       src/host_navhal.c
       src/host_vfs.c
       src/host_baro.c         # provides the i2c_manager_* stubs bme280.c needs
+      src/host_imu_feeder.c   # single-shot pump for the stepper (thread unused)
       src/host_lifecycle.c
       src/vsim_iface.c
       # host_port.c (legacy critical_nesting + mutex) is replaced by the port's

@@ -277,3 +277,35 @@ void host_imu_feeder_start(void) {
   pthread_create(&th, NULL, imu_feeder_thread, NULL);
   pthread_detach(th);
 }
+
+/* ---- single-shot pump for the RTOS cooperative stepper (Phase 4) ------ *
+ * The real-vaios SITL drives sensors from one thread, so it reads + injects one
+ * IMU frame synchronously via these instead of running imu_feeder_thread. The
+ * stepper owns the SysTick + HF clock, so pump does NOT advance them here.
+ * v_semaphore_give (in the queue pushes) only enqueues the woken attitude task
+ * to the ready list — no context switch — so calling these from the stepper
+ * (outside the scheduler) is safe; the scheduler runs them on the next
+ * host_rtos_run_until_idle(). */
+static int s_step_imu_fd = -1;
+
+int host_imu_feeder_open(void) {
+  ensure_fifo();
+  s_step_imu_fd = open(imu_fifo_path(), O_RDONLY);
+  return s_step_imu_fd;
+}
+
+int host_imu_feeder_pump(void) {
+  static bmx160_all_reading_t sample;
+  static uint32_t cyc = 0;
+  if (s_step_imu_fd < 0)
+    return 0;
+  int rc = read_framed_imu(s_step_imu_fd, &sample.converted);
+  if (rc <= 0)
+    return 0;                       /* EOF / wire error */
+  cyc += (uint32_t)(SYS_CLOCK_FREQ / SITL_IMU_FEED_HZ);
+  sample.converted.timestamp = cyc; /* fixed-ODR sim stamp (drives estimator dt) */
+  imu_queue_control_push(&sample);
+  imu_queue_telemetry_push(&sample);
+  imu_queue_attitude_push(&sample);
+  return 1;
+}
