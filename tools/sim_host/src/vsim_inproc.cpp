@@ -14,6 +14,7 @@
 #include "vsim_proto.h"  // vsim_ctl_geometry_t (the GCS wire layout)
 
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -22,20 +23,26 @@ namespace {
 constexpr float kRad2Deg = 57.29577951308232f;
 vsim::SimController g_ctl;
 
-// Identical to vsim_d's packImu (tools/vsim/src/main.cpp): 19 floats = 76 B,
-// matching the firmware's bmx160_all_converted_reading_t wire layout.
-void packImu(const vsim::ImuSample &s, uint8_t out[76]) {
-  float f[19];
+// Identical to vsim_d's packImu (tools/vsim/src/main.cpp): 22 floats = 88 B,
+// matching the firmware's bmx160_all_converted_reading_t layout (acc, gyr, mag,
+// acc_raw, gyr_raw, mag_compensated, mag_fusion, temp). mag_fusion[3] is the
+// estimator's heading reference — it MUST be filled or yaw is unobservable.
+void packImu(const vsim::ImuSample &s, uint8_t out[88]) {
+  float f[22];
   f[0] = s.acc.x();  f[1] = s.acc.y();  f[2] = s.acc.z();
   f[3] = s.gyr.x() * kRad2Deg;
   f[4] = s.gyr.y() * kRad2Deg;
   f[5] = s.gyr.z() * kRad2Deg;
   f[6] = s.mag.x();  f[7] = s.mag.y();  f[8] = s.mag.z();
-  f[9]  = f[0]; f[10] = f[1]; f[11] = f[2];
-  f[12] = f[3]; f[13] = f[4]; f[14] = f[5];
-  f[15] = f[6]; f[16] = f[7]; f[18] = s.temp;
-  f[17] = f[8];
-  std::memcpy(out, f, 76);
+  f[9]  = f[0]; f[10] = f[1]; f[11] = f[2];   // acc_raw
+  f[12] = f[3]; f[13] = f[4]; f[14] = f[5];   // gyr_raw
+  f[15] = f[6]; f[16] = f[7]; f[17] = f[8];   // mag_compensated
+  // mag_fusion[3]: unit-normalized mag (estimator heading input).
+  const float mn = std::sqrt(f[6] * f[6] + f[7] * f[7] + f[8] * f[8]);
+  if (mn > 1e-6f) { f[18] = f[6] / mn; f[19] = f[7] / mn; f[20] = f[8] / mn; }
+  else            { f[18] = f[19] = f[20] = 0.0f; }
+  f[21] = s.temp;
+  std::memcpy(out, f, 88);
 }
 }  // namespace
 
@@ -109,8 +116,8 @@ int vsim_inproc_load_geometry(const char *path, float out_x[4], float out_y[4],
 }
 
 /* Advance physics by dt (8 RK4 substeps, matching vsim_d's physics_hz/imu_hz),
- * sample the IMU, and write the 76-byte firmware payload. */
-void vsim_inproc_step(const float duty[4], float dt, uint8_t out_imu[76]) {
+ * sample the IMU, and write the 88-byte firmware payload. */
+void vsim_inproc_step(const float duty[4], float dt, uint8_t out_imu[88]) {
   std::array<float, 4> d{duty[0], duty[1], duty[2], duty[3]};
   const int substeps = 8;
   const float dt_sub = dt / static_cast<float>(substeps);

@@ -40,7 +40,7 @@ extern void increment_high_freq_timer(void);      /* firmware HF timestamp */
 /* in-process vsim physics (vsim_inproc.cpp) + PWM read-back (host_navhal.c) */
 extern void vsim_inproc_reset(uint32_t seed);
 extern void vsim_inproc_set_tether(float tether_k);
-extern void vsim_inproc_step(const float duty[4], float dt, uint8_t out_imu[76]);
+extern void vsim_inproc_step(const float duty[4], float dt, uint8_t out_imu[88]);
 extern int  vsim_inproc_load_geometry(const char *path, float out_x[4],
                                       float out_y[4], int out_spin[4]);
 extern void host_pwm_get_latest(float out[4]);
