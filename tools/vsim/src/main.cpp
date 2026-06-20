@@ -97,22 +97,31 @@ void ensureSingleton() {
     std::fprintf(stderr, "vsim_d: warning — could not claim singleton lock\n");
 }
 
-// Pack one ImuSample into the 76-byte firmware-side layout. Mirrors
-// SimWorker's writeImuSample. Gyro converted from rad/s to deg/s.
-void packImu(const vsim::ImuSample& s, uint8_t out[76]) {
-    float f[19];
+// Pack one ImuSample into the 88-byte firmware-side bmx160_all_converted_reading_t
+// layout (22 floats: acc, gyr, mag, acc_raw, gyr_raw, mag_compensated,
+// mag_fusion, temp). Gyro converted from rad/s to deg/s. NOTE: the layout grew
+// from 19→22 floats when bmx160 added mag_fusion[3] (the estimator's heading
+// input) — see VSIM_IMU_PAYLOAD_BYTES. The producer MUST fill mag_fusion or the
+// firmware reads {temp,0,0} there and yaw becomes unobservable in SITL.
+void packImu(const vsim::ImuSample& s, uint8_t out[88]) {
+    float f[22];
     f[0] = s.acc.x();  f[1] = s.acc.y();  f[2] = s.acc.z();
     f[3] = s.gyr.x() * kRad2Deg;
     f[4] = s.gyr.y() * kRad2Deg;
     f[5] = s.gyr.z() * kRad2Deg;
     f[6] = s.mag.x();  f[7] = s.mag.y();  f[8] = s.mag.z();
-    // Mirror the calibrated triplets into the "raw" slots. Firmware
-    // doesn't differentiate when samples arrive via the bridge.
-    f[9]  = f[0]; f[10] = f[1]; f[11] = f[2];
-    f[12] = f[3]; f[13] = f[4]; f[14] = f[5];
-    f[15] = f[6]; f[16] = f[7]; f[17] = f[8];
-    f[18] = s.temp;
-    std::memcpy(out, f, 76);
+    // Mirror the calibrated triplets into the "raw" / "compensated" slots.
+    // Firmware doesn't differentiate when samples arrive via the bridge.
+    f[9]  = f[0]; f[10] = f[1]; f[11] = f[2];   // acc_raw
+    f[12] = f[3]; f[13] = f[4]; f[14] = f[5];   // gyr_raw
+    f[15] = f[6]; f[16] = f[7]; f[17] = f[8];   // mag_compensated
+    // mag_fusion[3]: unit-normalized mag — the estimator's absolute heading
+    // reference. On real hardware bmx160 computes this; in SITL we must too.
+    const float mn = std::sqrt(f[6] * f[6] + f[7] * f[7] + f[8] * f[8]);
+    if (mn > 1e-6f) { f[18] = f[6] / mn; f[19] = f[7] / mn; f[20] = f[8] / mn; }
+    else            { f[18] = f[19] = f[20] = 0.0f; }
+    f[21] = s.temp;
+    std::memcpy(out, f, 88);
 }
 
 }  // namespace
