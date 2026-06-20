@@ -102,6 +102,7 @@ set(GCS_SOURCES
     src/autotune/SitlStack.cpp
     src/autotune/Rollout.cpp
     src/autotune/RtosEval.cpp
+    src/autotune/SysId.cpp
     src/autotune/AutotuneWorker.cpp
     src/ui/widgets/FrequencyRibbon.cpp
     src/ui/widgets/LinkStatsPanel.cpp
@@ -170,6 +171,7 @@ set(GCS_HEADERS
     src/autotune/SitlStack.h
     src/autotune/Rollout.h
     src/autotune/RtosEval.h
+    src/autotune/SysId.h
     src/autotune/AutotuneWorker.h
     src/ui/widgets/FrequencyRibbon.h
     src/ui/widgets/LinkStatsPanel.h

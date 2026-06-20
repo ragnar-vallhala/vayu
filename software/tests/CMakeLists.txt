@@ -55,6 +55,20 @@ navigator_test(tst_cost
     ${SRC}/autotune/Cost.cpp)
 target_include_directories(tst_cost PRIVATE ${SRC}/autotune)
 
+# ---- System-ID plant fit + analytic gain design ---------------------------
+navigator_test(tst_sysid
+    tst_sysid.cpp
+    ${SRC}/autotune/SysId.cpp)
+target_include_directories(tst_sysid PRIVATE ${SRC}/autotune)
+
+# ---- System-ID end-to-end vs the real vayu_sitl_rtos binary (opt-in) -------
+navigator_test(tst_sysid_rtos
+    tst_sysid_rtos.cpp
+    ${SRC}/autotune/SysId.cpp
+    ${SRC}/autotune/RtosEval.cpp
+    ${SRC}/autotune/Cost.cpp)
+target_include_directories(tst_sysid_rtos PRIVATE ${SRC}/autotune)
+
 # ---- C++ autotune engine (Space + orchestration, synthetic rollout) -------
 navigator_test(tst_autotune_engine
     tst_autotune_engine.cpp

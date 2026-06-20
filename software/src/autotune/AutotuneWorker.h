@@ -39,6 +39,12 @@ public:
     // Fast-backend cost: false = angle tracking (the exact realtime cost);
     // true = angle + roll/pitch rate-loop tracking (values the inner loop too).
     bool rtosRateCost = false;
+    // System-ID engine: instead of an optimizer search, fly ONE chirp on the
+    // fast backend, fit a plant model per axis, and compute the gains
+    // analytically (loop-shaping). Sidesteps the degenerate "don't-move" cost
+    // minimum entirely. Implies the fast backend (uses rtosBin). See SysId.h.
+    bool sysId = false;
+    double sysIdBwFrac = 0.33;  // crossover as a fraction of the actuator BW
   };
 
   explicit AutotuneWorker(Params p, QObject *parent = nullptr);
@@ -64,6 +70,11 @@ private:
   // Params::fastRtos. Shares the optimizer/engine; only the evaluate differs
   // (rate-tracking corr from a doublet vs the SITL telemetry IAE cost).
   void runRtos();
+
+  // System-ID path: fly one chirp on the fast backend, fit a per-axis plant
+  // (SysId), and design the gains analytically — no optimizer loop. Selected by
+  // Params::sysId. Emits the same finished()/log() so the UI applies the result.
+  void runSysId();
 
   Params m_p;
   std::atomic<bool> m_cancel{false};
