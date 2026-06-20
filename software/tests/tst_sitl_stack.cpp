@@ -1,4 +1,8 @@
 #include <QtTest>
+#include <QFile>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 
 #include "Rollout.h"
 #include "Space.h"
@@ -36,6 +40,33 @@ void TstSitlStack::bringUpAndArm() {
   // FIFO lock and starve this one (the GUI uses a pid-based suffix too).
   cfg.suffix = QStringLiteral("_cpptest%1").arg(QCoreApplication::applicationPid());
   cfg.quiet = true;
+
+  // Optional: load the user's LIVE (rotated) physics geometry + un-rotated mixer
+  // geometry from JSON to reproduce the in-app autotune divergence headlessly.
+  auto loadGeom = [](const QString &path, vsim_ctl_geometry_t *g) -> bool {
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly)) return false;
+    const QJsonObject o = QJsonDocument::fromJson(f.readAll()).object();
+    g->mass = o["mass"].toDouble();
+    const QJsonArray I = o["inertia"].toArray();
+    for (int i = 0; i < 9 && i < I.size(); ++i) g->inertia[i] = I[i].toDouble();
+    const QJsonArray ms = o["motors"].toArray();
+    for (int i = 0; i < 4 && i < ms.size(); ++i) {
+      const QJsonObject m = ms[i].toObject();
+      const QJsonArray p = m["pos"].toArray(), a = m["axis"].toArray();
+      for (int k = 0; k < 3; ++k) { g->motors[i].pos[k] = p[k].toDouble(); g->motors[i].axis[k] = a[k].toDouble(); }
+      g->motors[i].spin = float(m["spin"].toInt());
+      g->motors[i].k_thrust = m["k_thrust"].toDouble();
+      g->motors[i].k_moment = m["k_moment"].toDouble();
+      g->motors[i].max_omega = m["max_omega"].toDouble();
+    }
+    return true;
+  };
+  const QString geomPath = qEnvironmentVariable("VAYU_TEST_GEOM");
+  if (!geomPath.isEmpty() && loadGeom(geomPath, &cfg.geometry)) {
+    cfg.hasGeometry = true;  // firmware mix derives from this (physics frame)
+    qInfo() << "loaded physics geometry from" << geomPath;
+  }
 
   SitlStack stack(cfg);
   QString err;

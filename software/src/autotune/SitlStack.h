@@ -46,7 +46,7 @@ public:
     // vsim_d on start, mirroring the Python harness). Leave the flags false to
     // use the daemon defaults.
     bool hasGeometry = false;
-    vsim_ctl_geometry_t geometry{};
+    vsim_ctl_geometry_t geometry{};       // physics frame; also drives the firmware mix
     bool hasWorld = false;
     vsim_ctl_world_t world{};
   };
@@ -69,8 +69,12 @@ public:
              int arm = -1, int ch6 = -1);
 
   // --- vsim_d control ---
-  void reset(quint32 seed = 0);
-  void setTestRig(bool on, float tetherK = 0.0f);
+  // posZ: spawn height in NED metres (negative = above ground). The default
+  // sits just off the ground; rig rollouts pass a height well above it so the
+  // ground-contact righting force can't kick the (often low-inertia) craft into
+  // a divergent spin during the attitude search. See Rollout.cpp kRigResetZ.
+  void reset(quint32 seed = 0, float posZ = -0.05f);
+  void setTestRig(bool on, float tetherK = 0.0f, float posZ = -0.05f);
 
   // --- arm / state (state names come from telemetry: STANDBY/ARMED/...) ---
   bool arm(int timeoutMs = 2000);
@@ -92,8 +96,8 @@ private:
   bool openUart2Pty(QString *err);
   bool openRcPty(QString *err, QString *rcSlavePathOut);
   void sendCtlRates();
-  void sendCtlReset(quint32 seed);
-  void sendCtlTestRig(bool on, float tetherK);
+  void sendCtlReset(quint32 seed, float posZ);
+  void sendCtlTestRig(bool on, float tetherK, float posZ);
   void writeNavlink(const QByteArray &frame);
   void readerLoop();
   void rcWriterLoop();

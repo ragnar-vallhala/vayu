@@ -27,12 +27,18 @@ RC_NEUTRAL = [1500, 1500, 1000, 1500, 1000, 1000]
 
 class SitlStack:
     def __init__(self, repo_root, suffix=None, rates=(1000, 8000, 120), quiet=True,
-                 geometry=None, world=None):
+                 geometry=None, world=None, mixer_geometry=None):
         self.root = os.path.abspath(repo_root)
         self.suffix = suffix or f"_at{os.getpid()}"
         self.rates = rates                      # (imu_hz, physics_hz, pose_hz)
         self.quiet = quiet
         self.geometry = geometry                # dict: mass/inertia/motors, or None
+        # Firmware-mixer layout (un-rotated): the index-based roll/pitch mix
+        # signs must be invariant to a cosmetic body rotation (e.g. rx=180 to
+        # right an upside-down mesh), so the mixer takes this un-rotated layout
+        # while physics uses `geometry` (rotated). Falls back to `geometry`.
+        # Mirrors GeometryEditorWidget::mixerConfig() / SitlStack mixerGeometry.
+        self.mixer_geometry = mixer_geometry
         self.world = world                      # dict: gravity/drag/..., or None
         self.tether_k = 0.0                     # >0: soft rig (estimator-aware)
         self.vsim_bin = os.path.join(self.root, "build_vsim", "vsim_d")
@@ -106,11 +112,19 @@ class SitlStack:
         # used to leave the first wait_level() sample-starved, failing every
         # arm attempt ("arm not confirmed") before the host was even ready.
         self.wait_ready(timeout=8.0)
+        # §10.5 command gate: the FC rejects EVERY command (set_pid, geometry,
+        # flight mode) with TEMPORARILY_REJECTED until the GCS has disciplined
+        # its clock at least once. Discipline it now, before the first command
+        # below — otherwise the harness silently runs the loaded/default plant
+        # (the bug that made every prior sweep inert). The GCS does this via its
+        # time-sync handshake; we mirror it with a single REQUEST.
+        self.sync_clock()
         if self.geometry:
-            # Also set the FIRMWARE mixer from the same motor layout so the
-            # control mix matches the physics (keeps the loop stable for any
-            # quad layout, not just the firmware's default numbering).
-            self.send_navlink(P.set_motor_geometry_command(self.geometry["motors"]))
+            # Set the FIRMWARE mixer from the UN-ROTATED layout (mixer_geometry
+            # if given, else geometry): the index-based roll/pitch mix signs are
+            # a wiring property and must not flip under a cosmetic body rotation.
+            mix = self.mixer_geometry or self.geometry
+            self.send_navlink(P.set_motor_geometry_command(mix["motors"]))
             time.sleep(0.1)
         return self
 
@@ -147,6 +161,13 @@ class SitlStack:
     def send_navlink(self, pkt: bytes):
         if self._pty_fd >= 0:
             self._write_all(self._pty_fd, pkt)
+
+    def sync_clock(self, seq=1):
+        """Send a TIME_SYNC REQUEST so the FC's §10.5 command gate opens
+        (time_sync_is_synced() -> commands ACCEPTED instead of
+        TEMPORARILY_REJECTED). Idempotent; safe to re-send."""
+        self.send_navlink(P.time_sync_command(seq))
+        time.sleep(0.15)
 
     def set_pid(self, controller, axis, kp, ki, kd, kff):
         self.send_navlink(P.set_pid_command(controller, axis, kp, ki, kd, kff))

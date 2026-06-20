@@ -42,6 +42,21 @@
 #include <QVBoxLayout>
 #include <QWidget>
 #include <cmath>
+#include <cstdint>
+#include <cstring>
+
+#ifdef NAVIGATOR_HAS_SITL
+// In-process firmware (libvayu_sitl_core) PID apply — the exact function the
+// real FC runs for CMD_SET_PID: validate the payload, push to the live
+// controllers, AND persist to 0:pid.bin (host VFS -> $VAYU_VFS_DIR, default
+// /tmp/vayu_vfs), which host_lifecycle reloads on boot. Returns VAYU_OK (0).
+// Lets "Apply Gains" target the in-app sim persistently, with no FC link.
+extern "C" int pid_config_apply_command(const uint8_t *payload,
+                                        uint16_t payload_len);
+// CMD_SET_PID command id (firmware comm_types.h is not on the GCS include path;
+// the dissector hardcodes the same value).
+static constexpr uint16_t kCmdSetPid = 0x000A;
+#endif
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   setWindowTitle("Vayu GCS — Ground Control Station");
@@ -291,23 +306,63 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   // over the live link (sendToFc refuses in replay; we also require a link).
   connect(m_simulatorWidget, &SimulatorWidget::applyPidGainsRequested, this,
           [this](const QVector<PidSetCmd> &cmds) {
-            // Applying tuned gains targets the real board — require a live FC link.
-            const bool linkUp = (m_source.state() == SourceState::Fc);
-            if (!linkUp) {
+            // Two apply targets, picked by what's live:
+            //   Fc        -> send CMD_SET_PID over the live link (real board).
+            //   sim core  -> apply in-process to the in-app firmware, which
+            //                persists to 0:pid.bin so the tune survives a sim
+            //                restart (same path the real FC uses; no link).
+            // A live FC link wins. Otherwise, if the in-process firmware has
+            // been started this session (true even in the Idle window right
+            // after an autotune run), apply there.
+            const SourceState st = m_source.state();
+            if (st == SourceState::Fc) {
+              const uint32_t now =
+                  static_cast<uint32_t>(QDateTime::currentMSecsSinceEpoch());
+              for (const PidSetCmd &c : cmds)
+                sendToFc(CommandCodec::encodeSetPid(c.controller, c.axis, c.kp,
+                                                    c.ki, c.kd, c.kff, 42, now));
               m_logPanel->appendLog(
-                  "[GCS] Apply gains ignored — no flight controller link");
-              Notify::warn(this, tr("Not connected — can't apply gains"));
+                  QString(
+                      "[GCS] Applied %1 PID slot(s) to firmware (CMD_SET_PID)")
+                      .arg(cmds.size()));
+              Notify::ok(this, tr("Applied gains to firmware"));
               return;
             }
-            const uint32_t now =
-                static_cast<uint32_t>(QDateTime::currentMSecsSinceEpoch());
-            for (const PidSetCmd &c : cmds)
-              sendToFc(CommandCodec::encodeSetPid(c.controller, c.axis, c.kp,
-                                                  c.ki, c.kd, c.kff, 42, now));
+#ifdef NAVIGATOR_HAS_SITL
+            if (m_simulatorWidget && m_simulatorWidget->sitlCoreStarted()) {
+              // Build the v1 CMD_SET_PID payload the firmware expects and hand
+              // it to the same apply+persist routine the link path triggers:
+              //   [0..1] cmd_id LE | [2] argc(6) | [3..] 6 LE floats:
+              //   ctrl, axis, kp, ki, kd, kff. Host is little-endian like the
+              //   target FC, so a raw memcpy of the floats is wire-correct.
+              int ok = 0;
+              for (const PidSetCmd &c : cmds) {
+                uint8_t buf[3 + 6 * 4];
+                buf[0] = static_cast<uint8_t>(kCmdSetPid & 0xFF);
+                buf[1] = static_cast<uint8_t>((kCmdSetPid >> 8) & 0xFF);
+                buf[2] = 6;  // argc
+                const float args[6] = {static_cast<float>(c.controller),
+                                       static_cast<float>(c.axis),
+                                       c.kp, c.ki, c.kd, c.kff};
+                std::memcpy(&buf[3], args, sizeof args);
+                if (pid_config_apply_command(buf, sizeof buf) == 0 /*VAYU_OK*/)
+                  ++ok;
+              }
+              m_logPanel->appendLog(
+                  QString("[GCS] Applied %1/%2 PID slot(s) to sim "
+                          "(persisted to 0:pid.bin)")
+                      .arg(ok)
+                      .arg(cmds.size()));
+              if (ok == cmds.size())
+                Notify::ok(this, tr("Applied gains to sim (persisted)"));
+              else
+                Notify::warn(this, tr("Some sim gains were rejected"));
+              return;
+            }
+#endif
             m_logPanel->appendLog(
-                QString("[GCS] Applied %1 PID slot(s) to firmware (CMD_SET_PID)")
-                    .arg(cmds.size()));
-            Notify::ok(this, tr("Applied gains to firmware"));
+                "[GCS] Apply gains ignored — connect an FC or start the sim");
+            Notify::warn(this, tr("No FC link or sim — can't apply gains"));
           });
   // Reflect the firmware's reported flight mode (stabilise/acro + RC/GCS source)
   // back onto the simulator's Acro toggle.

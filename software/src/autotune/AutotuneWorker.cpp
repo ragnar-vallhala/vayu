@@ -1,7 +1,9 @@
 #include "AutotuneWorker.h"
 
 #include <algorithm>
+#include <cmath>
 
+#include "Cost.h"       // autotune::kBig (divergence threshold)
 #include "Optimizer.h"  // autotune::Vec
 #include "Space.h"
 
@@ -69,6 +71,38 @@ void AutotuneWorker::run() {
             meas.push_back(s.rollAngleCurr);
           }
           emit responseWindow(sp, meas);
+        }
+        // State + POSE log so the operator (and offline diagnosis) can see WHAT
+        // each eval did, not just the cost: the gains tried, the mean cost, and
+        // the peak attitude the firmware reported during the roll-axis window
+        // (rollAngleCurr/pitchAngleCurr are the estimated pose the controller
+        // sees and what diverges; yawRateCurr is the yaw body rate). A cost
+        // >= kBig means the craft tumbled past 80° on some axis.
+        {
+          double mxRoll = 0.0, mxPitch = 0.0, mxYawRate = 0.0;
+          for (const autotune::Sample &s : resp) {
+            mxRoll = std::max(mxRoll, std::fabs(s.rollAngleCurr));
+            mxPitch = std::max(mxPitch, std::fabs(s.pitchAngleCurr));
+            mxYawRate = std::max(mxYawRate, std::fabs(s.yawRateCurr));
+          }
+          QStringList gs;
+          for (int gi = 0; gi < int(names.size()) && gi < int(x.size()); ++gi)
+            gs << QStringLiteral("%1=%2")
+                      .arg(QString::fromStdString(names[size_t(gi)]))
+                      .arg(x[size_t(gi)], 0, 'g', 4);
+          const bool diverged = (scored == 0) || (sum / std::max(1, scored)) >= autotune::kBig;
+          const QString costStr =
+              (scored == 0) ? QStringLiteral("n/a (harness fail)")
+                            : QString::number(sum / scored, 'f', 2);
+          emit log(QStringLiteral("  eval [%1]  cost=%2  pose: max|roll|=%3° "
+                                  "max|pitch|=%4° peak|yawRate|=%5°/s%6")
+                       .arg(gs.join(QStringLiteral(", ")))
+                       .arg(costStr)
+                       .arg(mxRoll, 0, 'f', 1)
+                       .arg(mxPitch, 0, 'f', 1)
+                       .arg(mxYawRate, 0, 'f', 1)
+                       .arg(diverged ? QStringLiteral("  *** DIVERGED (>80°)")
+                                     : QString()));
         }
         if (scored == 0)
           return std::nullopt;  // every attempt was a harness failure

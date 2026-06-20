@@ -2,36 +2,53 @@
 
 Two protocols are spoken here:
 
-1. NavLink (firmware <-> GCS over the UART2 pty): an 8-byte header
-   [0x56][type<<4|ver][len][dev_id][ts:4] + payload + CRC32(4). We *decode*
-   the control-telemetry packet (setpoint vs measured for every loop) and
-   *encode* CMD_ARM / CMD_DISARM / CMD_SET_PID.
+1. NavLink **v2** (firmware <-> GCS over the UART2 pty): 10-byte header
+   [0x56][ver][len][incompat][seq][sysid][compid][msgid:3] + payload + CRC16.
+   We encode the GCS->FC commands (SET_PID / SET_GYRO_LPF / SET_FLIGHT_MODE /
+   SET_MOTOR_GEOMETRY) and decode the control-telemetry / heartbeat / flight-
+   mode frames. Both directions go through the generated codec
+   (navlink/generated/python/navlink_msgs.py) so this stays in lockstep with
+   the dialect — the firmware RX is v2-only (navlink_parser_push), so the old
+   hand-rolled v1 framing here silently applied NOTHING.
 
 2. vsim ctl frames (autotuner -> vsim_d over the /tmp/vsim_ctl FIFO): a
    16-byte header + subtype + reserved + 256-byte body. We build RESET,
-   SET_TESTRIG, SET_RATES and parse the pose frame.
+   SET_TESTRIG, SET_RATES and parse the pose frame. This is the vsim daemon
+   protocol, NOT NavLink — left untouched.
 
-Everything is little-endian (host-native on x86_64), matching the C structs in
-src/comm/serializer.c, software/src/protocol/PacketDecoder.cpp and
-tools/vsim/include/vsim_proto.h. Keep this file dependency-free (stdlib only).
+Everything is little-endian (host-native on x86_64). Keep this file dependency-
+free beyond the generated NavLink codec (stdlib only otherwise).
 """
 
+import os as _os
 import struct
+import sys as _sys
 
-# ---------------------------------------------------------------------------
-# CRC32 — MSB-first, poly 0x04C11DB7, init 0xFFFFFFFF, no reflection, no final
-# XOR. Byte-for-byte port of software/src/core/crc.cpp (the STM32 HAL CRC).
-# ---------------------------------------------------------------------------
-def crc32(data: bytes) -> int:
-    crc = 0xFFFFFFFF
-    for b in data:
-        crc ^= (b << 24) & 0xFFFFFFFF
-        for _ in range(8):
-            if crc & 0x80000000:
-                crc = ((crc << 1) ^ 0x04C11DB7) & 0xFFFFFFFF
-            else:
-                crc = (crc << 1) & 0xFFFFFFFF
-    return crc & 0xFFFFFFFF
+# The generated NavLink v2 codec is the single source of truth for framing +
+# message layout (shared with the firmware C codec and the GCS).
+_GEN = _os.path.join(_os.path.dirname(__file__), "..", "..",
+                     "navlink", "generated", "python")
+if _GEN not in _sys.path:
+    _sys.path.insert(0, _GEN)
+import navlink_msgs as _nl  # noqa: E402
+
+# Match the GCS CommandCodec exactly (proven to apply on the firmware): the
+# command targets device 42 / component 1, and the frame is stamped sysid 0xFF,
+# compid 1, with a rolling per-command sequence.
+_TARGET_SYS = 42
+_TARGET_COMP = 1
+_seq = 0
+
+
+def _next_seq() -> int:
+    global _seq
+    _seq = (_seq + 1) & 0xFF
+    return _seq
+
+
+def _frame(msg) -> bytes:
+    """A populated CmdX dataclass -> full NavLink v2 frame bytes."""
+    return _nl.encode(msg, seq=msg.req_seq, sysid=0xFF, compid=_TARGET_COMP)
 
 
 # ---- NavLink framing ------------------------------------------------------
@@ -72,105 +89,121 @@ CT = {
 }
 
 
-def build_command(cmd_id: int, args=None, device_id: int = 0, timestamp: int = 0) -> bytes:
-    """Frame a NavLink COMMAND packet.
-
-    args=None -> bare command (payload is just the 2-byte cmd id, like ARM).
-    args=list of floats -> payload is [cmd_id:2][argc:1][argc * f32] (SET_PID).
-    """
-    payload = struct.pack("<H", cmd_id)
-    if args is not None:
-        payload += struct.pack("<B", len(args))
-        for a in args:
-            payload += struct.pack("<f", float(a))
-    type_byte = ((PKT_COMMAND & 0xF) << 4) | (PROTO_VER & 0xF)
-    header = struct.pack("<BBBBI", SYNC, type_byte, len(payload), device_id, timestamp)
-    pkt = header + payload
-    return pkt + struct.pack("<I", crc32(pkt))
-
-
 def set_pid_command(controller: int, axis: int, kp: float, ki: float,
                     kd: float, kff: float) -> bytes:
-    """CMD_SET_PID: controller 0=angle/1=rate, axis 0=roll/1=pitch/2=yaw."""
-    return build_command(CMD_SET_PID,
-                         [float(controller), float(axis), kp, ki, kd, kff])
+    """CMD_SET_PID (v2): controller 0=angle/1=rate, axis 0=roll/1=pitch/2=yaw."""
+    m = _nl.CmdSetPid(target_sys=_TARGET_SYS, target_comp=_TARGET_COMP,
+                      req_seq=_next_seq(), controller=int(controller),
+                      axis=int(axis), kp=float(kp), ki=float(ki),
+                      kd=float(kd), kff=float(kff))
+    return _frame(m)
+
+
+def time_sync_command(seq: int = 1) -> bytes:
+    """TIME_SYNC REQUEST (v2, role=0). The FC starts UNSYNCHRONISED and the
+    §10.5 command gate (navlink_router command_gate -> time_sync_is_synced)
+    rejects every command with TEMPORARILY_REJECTED until the GCS has
+    disciplined its clock at least once. A single REQUEST with a non-INT32_MIN
+    commanded_offset_ms makes the FC call time_sync_set_offset() -> _clock_synced
+    = 1, after which set_pid/set_flight_mode/etc. are accepted. The harness must
+    send this before any command or it runs the loaded plant, inert."""
+    m = _nl.TimeSync(role=0, seq=int(seq) & 0xFF, t1_gcs_tx=0, t2_fc_rx=0,
+                     t3_fc_tx=0, commanded_offset_ms=0, commanded_offset_hi_ms=0)
+    return _nl.encode(m, seq=int(seq) & 0xFF, sysid=0xFF, compid=_TARGET_COMP)
 
 
 def set_gyro_lpf_command(axis: int, rc: float) -> bytes:
-    """CMD_SET_GYRO_LPF: rate-loop gyro low-pass time constant [s] (<=0 = off)."""
-    return build_command(CMD_SET_GYRO_LPF, [float(axis), float(rc)])
+    """CMD_SET_GYRO_LPF (v2): rate-loop gyro LPF time constant [s] (<=0 = off)."""
+    m = _nl.CmdSetGyroLpf(target_sys=_TARGET_SYS, target_comp=_TARGET_COMP,
+                          req_seq=_next_seq(), axis=int(axis), rc=float(rc))
+    return _frame(m)
 
 
 def set_flight_mode_command(mode: int) -> bytes:
-    """CMD_SET_FLIGHT_MODE: 0=stabilise/angle, 1=acro, 2=release to RC switch."""
-    return build_command(CMD_SET_FLIGHT_MODE, [float(mode)])
+    """CMD_SET_FLIGHT_MODE (v2): 0=stabilise/angle, 1=acro, 2=release to RC."""
+    m = _nl.CmdSetFlightMode(target_sys=_TARGET_SYS, target_comp=_TARGET_COMP,
+                             req_seq=_next_seq(), mode=int(mode), source=1)
+    return _frame(m)
 
 
 def set_motor_geometry_command(motors) -> bytes:
-    """CMD_SET_MOTOR_GEOMETRY: per-motor body x,y,spin -> firmware mixer signs.
-    Args: x[4], y[4], spin[4] (12 floats), so the firmware mix matches the sim."""
-    xs = [m["pos"][0] for m in motors]
-    ys = [m["pos"][1] for m in motors]
-    sp = [m["spin"] for m in motors]
-    return build_command(CMD_SET_MOTOR_GEOMETRY, xs + ys + sp)
+    """CMD_SET_MOTOR_GEOMETRY (v2): per-motor body x,y + spin -> firmware mixer
+    signs. The v2 message carries pos_x[4], pos_y[4], spin[4]."""
+    m = _nl.CmdSetMotorGeometry(target_sys=_TARGET_SYS, target_comp=_TARGET_COMP,
+                                req_seq=_next_seq(), layout=0,
+                                pos_x=[float(mo["pos"][0]) for mo in motors],
+                                pos_y=[float(mo["pos"][1]) for mo in motors],
+                                spin=[int(mo["spin"]) for mo in motors])
+    return _frame(m)
 
 
 class NavlinkDecoder:
     """Incremental decoder. Feed bytes; pull decoded control-telemetry dicts.
 
-    Mirrors DroneProtocol::parseBuffer: scan for sync, check version nibble,
-    length, validate CRC32 over header+payload, then dispatch.
+    The firmware speaks NavLink **v2** (sync 0x56, 10-byte header keyed by a
+    24-bit msgid, CRC16) — not the v1 SYSTEM_STATUS/ORIGIN framing this file
+    used to hand-parse (that left every rollout sample-starved -> phantom
+    divergences). Decode through the generated v2 codec
+    (navlink/generated/python/navlink_msgs.py) so we stay in lockstep with the
+    dialect. Consumers still branch on dict key presence, exactly as before.
     """
 
+    # ControlTrace (msgid 1030) carries the 18-float loop trace the cost
+    # function scores; Heartbeat carries nav_state; FlightMode the mode/source.
+    _CT_FIELDS = ("roll_angle_sp", "pitch_angle_sp", "yaw_angle_sp",
+                  "roll_angle_curr", "pitch_angle_curr", "yaw_angle_curr",
+                  "roll_rate_sp", "pitch_rate_sp", "yaw_rate_sp",
+                  "roll_rate_curr", "pitch_rate_curr", "yaw_rate_curr",
+                  "roll_out", "pitch_out", "yaw_out", "thro_out",
+                  "outer_dt", "inner_dt")
+
     def __init__(self):
-        self._buf = bytearray()
+        import os, sys
+        gen = os.path.join(os.path.dirname(__file__), "..", "..",
+                           "navlink", "generated", "python")
+        if gen not in sys.path:
+            sys.path.insert(0, gen)
+        import navlink_msgs as nl
+        self._nl = nl
+        self._out = []
+        h = nl.Handlers()
+        h.on_unknown = None
+        h.on_crc_error = None
+
+        def on_default(frame, msg):
+            mid = frame.msgid
+            if mid == nl.ControlTrace.MSGID:
+                self._out.append({k: getattr(msg, k) for k in self._CT_FIELDS})
+            elif mid == nl.Heartbeat.MSGID:
+                # nav_state is the sequential v2 enum (STANDBY=2, ARMED=4, ...);
+                # the harness compares firmware bit values (0x4/0x10/...), so
+                # map enum n -> bit (1 << n).
+                self._out.append(
+                    {"sys_state": float(1 << int(msg.nav_state))})
+            elif mid == nl.FlightMode.MSGID:
+                self._out.append({"flight_mode": int(msg.mode),
+                                  "flight_mode_src": int(msg.source)})
+
+        # Null any per-msg handler so everything routes through on_default.
+        for mid in (nl.ControlTrace.MSGID, nl.Heartbeat.MSGID,
+                    nl.FlightMode.MSGID):
+            nm = nl.MSGID_TO_HANDLER.get(mid)
+            if nm and hasattr(h, nm):
+                setattr(h, nm, None)
+        h.on_default = on_default
+        self._parser = nl.Parser(h)
 
     def feed(self, data: bytes):
-        """Append bytes and yield every decoded frame found.
+        """Push bytes through the v2 parser; return the dicts decoded this call.
 
-        Yields two kinds of dict:
-          - control-telemetry: the 18-float CT.* fields (ORIGIN_CONTROL_DATA).
-          - system-state:      {"sys_state": float} (ORIGIN_SYS_STATE) — used to
-            confirm ARMED before a rollout. Consumers branch on key presence.
+        Yields three kinds of dict (consumers branch on key presence):
+          - control-telemetry: the 18 ControlTrace fields.
+          - system-state:      {"sys_state": float} (firmware bit value).
+          - flight-mode:       {"flight_mode": int, "flight_mode_src": int}.
         """
-        self._buf.extend(data)
-        out = []
-        while True:
-            i = self._buf.find(SYNC)
-            if i < 0:
-                self._buf.clear()
-                break
-            if i > 0:
-                del self._buf[:i]
-            if len(self._buf) < 8:
-                break
-            type_byte = self._buf[1]
-            if (type_byte & 0x0F) != PROTO_VER:
-                del self._buf[0]
-                continue
-            length = self._buf[2]
-            total = 8 + length + 4
-            if len(self._buf) < total:
-                break
-            frame = bytes(self._buf[:total])
-            if crc32(frame[:8 + length]) != struct.unpack_from("<I", frame, 8 + length)[0]:
-                del self._buf[0]            # false sync; resync
-                continue
-            ptype = (type_byte >> 4) & 0x0F
-            if (ptype == PKT_SYSTEM_STATUS and length == 74
-                    and frame[8] == ORIGIN_CONTROL_DATA):
-                vals = struct.unpack_from("<18f", frame, 10)
-                out.append({k: vals[i] for k, i in CT.items()})
-            elif (ptype == PKT_SYSTEM_STATUS and length == 6
-                    and frame[8] == ORIGIN_SYS_STATE):
-                # [0x04][pad][state:f32] — state is a sys_state_t bit value.
-                out.append({"sys_state": struct.unpack_from("<f", frame, 10)[0]})
-            elif (ptype == PKT_SYSTEM_STATUS and length == 4
-                    and frame[8] == ORIGIN_FLIGHT_MODE):
-                # [0x07][pad][mode:u8][source:u8]
-                out.append({"flight_mode": frame[10], "flight_mode_src": frame[11]})
-            del self._buf[:total]
-        return out
+        self._out = []
+        self._parser.push(data)
+        return self._out
 
 
 # ---- vsim ctl / pose frames ----------------------------------------------
@@ -227,14 +260,19 @@ def ctl_rates(imu_hz: int, physics_hz: int, pose_hz: int) -> bytes:
 
 def ctl_geometry(mass: float, inertia9, motors) -> bytes:
     """vsim_ctl_geometry_t: mass, 3x3 inertia (row-major, 9 floats), then 4
-    motors {pos[3], axis[3], spin, k_thrust, k_moment, max_omega}. 200 bytes."""
+    motors {pos[3], axis[3], spin, k_thrust, k_moment, max_omega, tau}. The
+    trailing `tau` (rotor spin-up time constant) is REQUIRED: the C struct has
+    it, so omitting it misaligns every motor after the first and feeds vsim a
+    scrambled layout (motors read each other's fields). tau<=0 => daemon
+    default. 216 bytes."""
     body = struct.pack("<f", float(mass)) + struct.pack("<9f", *[float(v) for v in inertia9])
     for m in motors:
-        body += struct.pack("<3f3f4f",
+        body += struct.pack("<3f3f5f",
                             *[float(v) for v in m["pos"]],
                             *[float(v) for v in m["axis"]],
                             float(m["spin"]), float(m["k_thrust"]),
-                            float(m["k_moment"]), float(m["max_omega"]))
+                            float(m["k_moment"]), float(m["max_omega"]),
+                            float(m.get("tau", 0.0)))
     return _ctl_frame(VSIM_CTL_SET_GEOMETRY, body)
 
 

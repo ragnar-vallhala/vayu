@@ -61,6 +61,14 @@ class SimulatorWidget : public QWidget {
   explicit SimulatorWidget(QWidget* parent = nullptr);
   ~SimulatorWidget() override;
 
+  /* True once vayu_sitl_start has booted the in-process firmware this session.
+   * vayu_sitl_start runs at most once per process and the firmware threads then
+   * live for the whole process (Stop pauses the feed, it does NOT tear the
+   * firmware down), so this stays true after the first sim start — including the
+   * Idle window after an autotune run. MainWindow uses it to allow applying
+   * tuned gains to the in-process firmware (which persists them to 0:pid.bin). */
+  bool sitlCoreStarted() const { return m_sitlStarted; }
+
  signals:
   void backToHomeRequested();
 
@@ -81,9 +89,10 @@ class SimulatorWidget : public QWidget {
    * no feed). gcs-source-state-machine.md */
   void autotuneRunningChanged(bool running);
 
-  /* AT-1: the operator clicked "Apply Gains to Firmware". MainWindow turns
-   * each PidSetCmd into a CMD_SET_PID frame and sends it over the live link.
-   * The autotuner never writes to firmware on its own. */
+  /* AT-1: the operator clicked "Apply Gains". MainWindow routes each PidSetCmd
+   * to the live FC over the link (CMD_SET_PID) when connected, or otherwise to
+   * the in-process sim firmware (which persists them to 0:pid.bin). The
+   * autotuner never writes to firmware on its own. */
   void applyPidGainsRequested(const QVector<PidSetCmd>& cmds);
 
  protected:
@@ -268,7 +277,7 @@ class SimulatorWidget : public QWidget {
   TuneChart* m_tuneChart = nullptr;
   // AT-1: autotune proposes; applying to firmware is an explicit click.
   QLabel* m_tuneProposed = nullptr;     // human-readable best gains
-  QPushButton* m_tuneApplyBtn = nullptr;  // "Apply Gains to Firmware"
+  QPushButton* m_tuneApplyBtn = nullptr;  // "Apply Gains" (FC link or sim)
   class QTableWidget* m_tuneGainsTable = nullptr;  // AT-2: current vs best
   QString m_tuneOutJson;                // --out path for the running search
   QStringList m_tuneParams;             // param names from the result

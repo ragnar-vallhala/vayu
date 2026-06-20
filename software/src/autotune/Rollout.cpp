@@ -3,6 +3,7 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <cstdio>
 #include <thread>
 #include <unordered_map>
 
@@ -11,6 +12,20 @@
 namespace autotune {
 
 namespace {
+// Rig rollouts pin translation, so the spawn height is dynamically irrelevant
+// to the attitude search — EXCEPT that spawning ~5 cm above ground lets the
+// ground-contact righting force (world ground_right_gain) kick the craft into a
+// divergent spin (every rollout -> kBig), badly so on a low-inertia airframe.
+// Spawn the rig well above ground so ground contact never triggers and the
+// search is immune to the world's ground gains. Mirrors autotune.py RIG_RESET_Z.
+constexpr float kRigResetZ = -2.0f;  // NED: 2 m up
+
+// Pre-excitation: at sp=0 a settled craft sits within waitLevel's 6°. If it
+// exceeds this over the brief pre-excite window it's spinning from a reset/arm
+// transient (a vsim glitch), not the gains -> retry. Well above settled tilt,
+// well below a divergence (80°). See the pre-excitation check in exciteOnce.
+constexpr double kPreExciteTiltMax = 45.0;  // deg
+
 void sleepS(double s) {
   std::this_thread::sleep_for(
       std::chrono::milliseconds(qint64(s * 1000.0 + 0.5)));
@@ -103,15 +118,40 @@ std::optional<double> exciteOnce(SitlStack &stack, bool tuneYaw,
                                  const RolloutParams &p,
                                  std::vector<Sample> *outResponse,
                                  const std::atomic<bool> *cancel) {
-  stack.reset(p.seed);
-  stack.setTestRig(true, float(p.tetherK));
+  stack.reset(p.seed, kRigResetZ);
+  stack.setTestRig(true, float(p.tetherK), kRigResetZ);
   stack.setRc(1500, 1500, /*thr*/ -1, 1500, /*arm*/ -1, /*ch6*/ 1000);
   stack.clearSamples();
   stack.waitLevel(6.0, 2500, cancel);
-  if (cancelled(cancel) || !stack.arm())
-    return std::nullopt;  // cancelled, or arm not confirmed -> retry
+  if (cancelled(cancel)) return std::nullopt;
+  if (!stack.arm()) {
+    std::fprintf(stderr, "[rollout] FAIL: arm not confirmed (no ARMED state in telemetry)\n");
+    return std::nullopt;  // arm not confirmed -> retry
+  }
   stack.setRc(-1, -1, /*thr*/ p.hover);
   sleepSC(p.settle, cancel);
+
+  // Reject a PRE-EXCITATION transient. vsim intermittently injects a large body
+  // rate at the reset/arm/hover transition (physically impossible from motors),
+  // which runs away regardless of gains and would score as a phantom kBig. It's
+  // rare per rollout, but at repeats>1 nearly every eval catches one and the
+  // averaged cost pins at kBig -> the search "never converges". If the craft is
+  // not level BEFORE we excite (sp=0, so it should be ~0°), it's a harness/
+  // physics glitch, not the gains -> retry. (The Sample carries angle, not
+  // roll/pitch rate, so a spinning craft is caught as a large off-level angle
+  // over the brief check window.) Mirrors autotune.py PRE_EXCITE_SPIN_MAX.
+  stack.clearSamples();
+  sleepSC(0.1, cancel);
+  for (const Sample &s : stack.snapshot()) {
+    if (std::fabs(s.rollAngleCurr) > kPreExciteTiltMax ||
+        std::fabs(s.pitchAngleCurr) > kPreExciteTiltMax) {
+      std::fprintf(stderr,
+                   "[rollout] FAIL: pre-excite spin (armed+level then ran away "
+                   "BEFORE excitation): roll=%.1f pitch=%.1f deg\n",
+                   s.rollAngleCurr, s.pitchAngleCurr);
+      return std::nullopt;  // transient -> runRollout resets + retries
+    }
+  }
 
   struct Axis {
     int rc;  // RC channel index for setRc
@@ -137,6 +177,9 @@ std::optional<double> exciteOnce(SitlStack &stack, bool tuneYaw,
     std::optional<double> c =
         (ch == 3) ? yawRateCost(snap) : axisCost(snap, ch == 1 ? 1 : 0);
     if (!c.has_value()) {  // starved window -> the whole rollout retries
+      std::fprintf(stderr,
+                   "[rollout] FAIL: starved/unscorable window on ch=%d "
+                   "(%zu samples)\n", ch, snap.size());
       stack.disarm();
       return std::nullopt;
     }
@@ -164,7 +207,7 @@ std::optional<double> runRollout(SitlStack &stack,
       break;
     // Harness hiccup (arm-fail / starved): recover and retry.
     stack.disarm();
-    stack.reset(p.seed);
+    stack.reset(p.seed, kRigResetZ);   // off the ground (see kRigResetZ)
     stack.clearSamples();
     stack.waitLevel(6.0, 3000, cancel);
     sleepSC(0.2, cancel);

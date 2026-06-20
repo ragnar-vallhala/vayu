@@ -6,8 +6,13 @@ namespace autotune {
 static const Param kBase[] = {
     {"rate_kp", 0.0005, 0.012, 0.007},  // capped below the buzz knee (~0.01)
     {"rate_ki", 0.0, 0.01, 0.002},
-    {"rate_kd", 0.0, 0.001, 0.0005},  // D on the noisy gyro buzzes -> capped
-    {"angle_kp", 0.05, 4.0, 2.0},     // responsiveness lever (safe, wide)
+    // FLOOR > 0: the soft rig idealises attitude, so an undamped tune (kd=0)
+    // scores fine on the rig yet topples at free-flight lift-off. The structured
+    // sweep starts each gain at its lower bound, so a zero floor let it lock
+    // kd=0; a small floor guarantees damping, well under the buzz cap.
+    {"rate_kd", 0.0003, 0.001, 0.0005},
+    {"angle_kp", 0.05, 3.0, 2.0},     // ceiling trimmed: very high angle_kp +
+                                      // light damping over-tunes the rig -> flip
     {"gyro_lpf", 0.0, 0.012, 0.0},    // gyro LPF [s]; lag here destabilises
 };
 static const Param kYaw[] = {
