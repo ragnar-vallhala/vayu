@@ -11,7 +11,9 @@
  * exactly what proves the scheduler + context switches work end to end.
  */
 #define _GNU_SOURCE
+#include <stdint.h>   /* before <stdlib.h>: glibc stdlib.h uses int32_t */
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
@@ -76,7 +78,15 @@ int main(void) {
    * SysTick +1 → run the cooperative scheduler to idle (firmware writes PWM) →
    * read that PWM back inline → repeat. One process, one thread, seeded — fast,
    * faithful (PWM never stale), and deterministic. */
-  vsim_inproc_reset(STEP_SEED);
+  /* Seed + sample count are env-overridable so the determinism validator can
+   * vary them (same seed -> identical; different seed -> different). */
+  const char *seed_env = getenv("VAYU_RTOS_SEED");
+  const char *nenv = getenv("VAYU_RTOS_SAMPLES");
+  const uint32_t seed = seed_env && *seed_env ? (uint32_t)strtoul(seed_env, 0, 10)
+                                              : STEP_SEED;
+  const int N = nenv && *nenv ? atoi(nenv) : 5000;   /* default 5 s at 1 kHz */
+
+  vsim_inproc_reset(seed);
   float duty[4] = {0.0f, 0.0f, 0.0f, 0.0f};
   bmx160_all_reading_t sample;
   memset(&sample, 0, sizeof sample);   /* rule out uninitialised fields */
@@ -85,7 +95,6 @@ int main(void) {
 
   struct timespec t0;
   clock_gettime(CLOCK_MONOTONIC, &t0);
-  const int N = 5000;                /* 5 s of sim time at 1 kHz */
   int n = 0;
   double fp = 0.0;                   /* determinism fingerprint (estimator output) */
   attitude_t att = {0};
@@ -121,5 +130,13 @@ int main(void) {
           n, sims, wall, wall > 0 ? sims / wall : 0.0,
           (unsigned)system_state_get(), get_context_switch_count(),
           v_get_ticks());
+
+  /* Machine-parseable result for the determinism validator. The two
+   * fingerprints are exact functions of (seed, sample count): identical across
+   * runs of the same seed, different across seeds. */
+  printf("#RTOS-RESULT seed=%u samples=%d imu_fp=%.17g att_fp=%.17g "
+         "wall=%.6f speedup=%.2f\n",
+         seed, n, imu_fp, fp, wall, wall > 0 ? sims / wall : 0.0);
+  fflush(stdout);
   return 0;
 }
