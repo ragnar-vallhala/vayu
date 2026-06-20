@@ -179,6 +179,15 @@ hal_status_t hal_pwm_set_duty_cycle(hal_pwm_handle_t *pwm, float duty_cycle) {
     return HAL_OK;
 }
 
+/* Latest motor command (0..1), for the RTOS in-process stepper to read back
+ * inline instead of round-tripping PWM through the FIFO. */
+void host_pwm_get_latest(float out[4]) {
+    out[0] = pwm_latest[0];
+    out[1] = pwm_latest[1];
+    out[2] = pwm_latest[2];
+    out[3] = pwm_latest[3];
+}
+
 hal_status_t hal_pwm_set_frequency(hal_pwm_handle_t *pwm, uint32_t frequency) {
     if (!pwm || pwm->channel < 1 || pwm->channel > 4)
         return HAL_ERR_INVALID_ARG;

@@ -16,16 +16,25 @@
 #include <time.h>
 
 #include "comm/comm.h"        /* ibus_data_t, rc_queue_control_push */
-#include "host_imu_feeder.h"  /* host_imu_feeder_open / _pump */
+#include "est/est.h"          /* attitude_t */
 #include "host_rtos.h"
+#include "sensor/imu_buffer.h" /* attitude_queue_telemetry_peek */
+#include "sensor/sensor.h"    /* bmx160_all_reading_t, imu_queue_*_push */
 #include "sys/state.h"
 #include "vaios.h"
+#include "variables.h"        /* SYS_CLOCK_FREQ */
 
 extern int vayu_sitl_start(void *iface);          /* host_lifecycle.c */
 extern uint32_t get_context_switch_count(void);   /* kernel task.c */
 extern void increment_high_freq_timer(void);      /* firmware HF timestamp */
 
+/* in-process vsim physics (vsim_inproc.cpp) + PWM read-back (host_navhal.c) */
+extern void vsim_inproc_reset(uint32_t seed);
+extern void vsim_inproc_step(const float duty[4], float dt, uint8_t out_imu[76]);
+extern void host_pwm_get_latest(float out[4]);
+
 #define HF_PER_SAMPLE 10   /* HIGH_FREQ_TIMER_FREQ(10k) / SITL_IMU_FEED_HZ(1k) */
+#define STEP_SEED     12345u
 
 /* Constant neutral RC (centred sticks, idle throttle, disarmed) pushed each
  * tick so the control loops have an input. Step-2 milestone keeps it constant;
@@ -61,34 +70,46 @@ int main(void) {
   fprintf(stderr, "vayu_sitl_rtos: tasks created, starting scheduler\n");
   scheduler_start();                 /* run boot tasks to idle (all parked) */
 
-  /* ---- single-threaded sensor stepper (Phase 4 step 2) ----------------
-   * Lockstep with vsim_d: read one IMU sample, inject it (wakes the estimator),
-   * advance the SysTick one tick (wakes the control loops), run the scheduler to
-   * idle (the firmware fully processes the sample and writes PWM), repeat. vsim
-   * reads the PWM, steps physics, emits the next IMU — a deterministic 1:1
-   * handshake driven entirely from this one thread (no pthread interleaving). */
-  fprintf(stderr, "vayu_sitl_rtos: stepper waiting for vsim IMU producer...\n");
-  if (host_imu_feeder_open() < 0) {
-    fprintf(stderr, "vayu_sitl_rtos: IMU FIFO open failed\n");
-    return 1;
-  }
+  /* ---- single-threaded, in-process stepper (Phase 4 step 2a) ----------
+   * Physics is linked in (vsim_inproc.cpp), so each sample is pure CPU with no
+   * FIFO round-trip: step physics under the last PWM → sample IMU → inject →
+   * SysTick +1 → run the cooperative scheduler to idle (firmware writes PWM) →
+   * read that PWM back inline → repeat. One process, one thread, seeded — fast,
+   * faithful (PWM never stale), and deterministic. */
+  vsim_inproc_reset(STEP_SEED);
+  float duty[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+  bmx160_all_reading_t sample;
+  memset(&sample, 0, sizeof sample);   /* rule out uninitialised fields */
+  uint32_t cyc = 0;
+  double imu_fp = 0.0;                  /* fingerprint of the vsim IMU input */
 
   struct timespec t0;
   clock_gettime(CLOCK_MONOTONIC, &t0);
   const int N = 5000;                /* 5 s of sim time at 1 kHz */
   int n = 0;
+  double fp = 0.0;                   /* determinism fingerprint (estimator output) */
+  attitude_t att = {0};
   for (; n < N; n++) {
     inject_neutral_rc();
-    if (!host_imu_feeder_pump())      /* blocks for one vsim IMU frame */
-      break;                          /* producer closed */
+    vsim_inproc_step(duty, 0.001f, (uint8_t *)&sample.converted);  /* 76B payload */
+    cyc += (uint32_t)(SYS_CLOCK_FREQ / 1000);
+    sample.converted.timestamp = cyc;
+    imu_fp += (double)sample.converted.acc[0] + sample.converted.gyr[0] +
+              sample.converted.mag[0];
+    imu_queue_control_push(&sample);
+    imu_queue_telemetry_push(&sample);
+    imu_queue_attitude_push(&sample);
     host_rtos_tick(1);               /* +1 ms SysTick → wake delayed loops */
     for (int h = 0; h < HF_PER_SAMPLE; h++)
       increment_high_freq_timer();   /* HF timestamp tracks sim time */
     host_rtos_run_until_idle();      /* run firmware to quiescence (PWM written) */
-    if ((n + 1) % 1000 == 0)
-      fprintf(stderr, "vayu_sitl_rtos: stepped %d samples (t=%u ms)\n",
-              n + 1, v_get_ticks());
+    host_pwm_get_latest(duty);       /* read back the motor output for next step */
+    if (attitude_queue_telemetry_peek(&att))
+      fp += (double)att.roll + (double)att.pitch + (double)att.yaw;
   }
+  fprintf(stderr, "vayu_sitl_rtos: IMU input fp = %.10g | attitude fp = %.10g "
+          "(final r/p/y = %.5f/%.5f/%.5f)\n", imu_fp, fp, att.roll, att.pitch,
+          att.yaw);
   struct timespec t1;
   clock_gettime(CLOCK_MONOTONIC, &t1);
   double wall = (t1.tv_sec - t0.tv_sec) + (t1.tv_nsec - t0.tv_nsec) / 1e9;
