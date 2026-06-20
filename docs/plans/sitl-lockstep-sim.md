@@ -164,13 +164,40 @@ bit-identical to a 1× run.
 ### Phase 2 — free-run + bounded backpressure (vsim side) — DONE (branch `feat/sitl-lockstep-virtual-clock`)
 Implemented in `tools/vsim/src/main.cpp`: env `VSIM_LOCKSTEP=1` swaps the
 `sleep_until` wall pacing for PWM-round-trip backpressure. A credit window
-(`VSIM_LOCKSTEP_CREDIT`, default 16) lets vsim run up to N IMU samples ahead of
-the last acknowledged PWM (primes the firmware pipeline, bounds IMU-FIFO
-occupancy so no frames are dropped), then blocks for fresh PWM with a 100 ms
-real-time watchdog so a non-producing firmware can't wedge the sim. Default
-(unset) keeps the original realtime pacing. Verified: full vsim_d+vayu_sitl
-smoke runs **~45× realtime** (virtual clock advances ~45 s per wall-second) with
-no IMU framing errors/drops and no deadlock; default mode still paces at 1×.
+(`VSIM_LOCKSTEP_CREDIT`, **default 2** — see the validation finding below) lets
+vsim run up to N IMU samples ahead of the last acknowledged PWM (primes the
+firmware pipeline, bounds IMU-FIFO occupancy so no frames are dropped), then
+blocks for fresh PWM with a 100 ms real-time watchdog so a non-producing
+firmware can't wedge the sim. Default (env unset) keeps the original realtime
+pacing.
+
+**Determinism validation (key finding).**
+`tools/autotune/validate_lockstep_determinism.py` runs a seeded, constant-input,
+rig scenario and compares the per-frame attitude trajectory: two realtime runs
+set the noise floor (thread jitter, ~0.2–0.4° max), then a credit sweep checks
+lockstep against it. Result:
+
+| credit | max angle Δ vs realtime | verdict |
+|---|---|---|
+| 16 | ~175° (vehicle tumbles) | FAIL |
+| 8 | 7.5° | FAIL |
+| 4 | 3.5° | FAIL |
+| 3 | 2.4° | FAIL |
+| **2** | **0.2–0.4° (within floor)** | **PASS** |
+| 1 | — | arm fails (pipeline can't prime) |
+
+The credit window is also **added control latency in sim-time** (vsim applies
+PWM up to `credit` samples stale). The roll/pitch loop is *marginally stable*
+(the low-`rate_kp` defect from the autotune analysis), so even ~4 ms of extra
+latency tips it into a divergent tumble — while credit=2 tracks realtime to
+within thread jitter. So the **faithful default is 2**, giving ~**3×** wall-clock
+speedup for an armed marginal-plant rollout (the earlier "~45×" smoke was a
+*disarmed*, benign case with no control loop to destabilise). A well-damped
+plant tolerates a larger credit (more speed); the ceiling is plant-dependent.
+
+Takeaway: the threaded run-ahead design has an inherent **speed↔fidelity
+trade-off**. High-speed *and* faithful needs Phase 4 (single-step, zero added
+latency). Phases 1–2 deliver a validated ~3× that preserves behaviour.
 
 Original design notes:
 
