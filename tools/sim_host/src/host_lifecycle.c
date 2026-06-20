@@ -169,11 +169,16 @@ int vayu_sitl_start(vsim_iface_t *iface) {
     fprintf(stderr, "host_lifecycle: motor_ready = true, awaiting SwA-up + "
                     "low throttle to arm\n");
 
+#ifndef VAYU_SITL_RTOS
+    /* Legacy pthread SITL: free-running feeder threads. The RTOS variant
+     * (Phase 4) drives sensors single-threaded from the stepper, so it does not
+     * start feeder threads here. */
     host_rc_feeder_start();
     host_imu_feeder_start();
     host_baro_start();
     /* HF timestamp counter is driven by the IMU feeder off the virtual clock;
      * no separate wall-clock timer thread (see the comment above). */
+#endif
 
     return 0;
 }

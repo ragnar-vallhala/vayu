@@ -78,6 +78,10 @@ void host_wall_delay_ms(uint32_t ms) {
     }
 }
 
+/* Under the RTOS port (Phase 4) the real vaios kernel provides v_get_ticks,
+ * v_delay, task_delay, the task/semaphore/mutex/heap/scheduler primitives and
+ * v_init/v_start; compile out the legacy pthread shims for those. */
+#ifndef VAYU_SITL_RTOS
 uint32_t v_get_ticks(void) {
     return (uint32_t)(host_clock_now_us() / 1000ULL);
 }
@@ -124,8 +128,10 @@ bool task_delay_until(uint32_t *last_wake, uint32_t period) {
     v_delay((uint32_t)remaining);
     return true;
 }
+#endif /* !VAYU_SITL_RTOS */
 
 /* ---- task creation: 1 task <-> 1 pthread ------------------------------ */
+#ifndef VAYU_SITL_RTOS
 typedef struct {
     void (*entry)(void *);
     void *arg;
@@ -196,6 +202,7 @@ void task_exit(void) {
 void task_exit_request(uint32_t task_id) { (void)task_id; }
 
 void task_yield(void) { sched_yield(); }
+#endif /* !VAYU_SITL_RTOS */
 
 /* ---- panic ------------------------------------------------------------ */
 volatile uint8_t is_panicking = 0;
@@ -222,12 +229,14 @@ int v_strncmp(const char *a, const char *b, int n) { return strncmp(a, b, (size_
 float v_atof(const char *s) { return (float)strtod(s, NULL); }
 
 /* ---- v_malloc / v_free: just libc ------------------------------------ */
+#ifndef VAYU_SITL_RTOS
 void *v_malloc(size_t size) { return malloc(size); }
 void v_free(void *ptr) { free(ptr); }
 uint32_t v_get_heap_size(void) { return 0; }
 uint32_t v_get_heap_allocation_count(void) { return 0; }
 uint32_t v_get_heap_allocation_size(void) { return 0; }
 void v_heap_memory_init(void) {}
+#endif /* !VAYU_SITL_RTOS */
 
 /* ---- print / log: route to stderr ------------------------------------ */
 void print(const char *str) { fputs(str, stderr); }
@@ -254,6 +263,7 @@ void direct_dma_print(const uint8_t *bytes, uint32_t len) {
 void dma_tx_complete_callback(void) {}
 
 /* ---- semaphores -------------------------------------------------------- */
+#ifndef VAYU_SITL_RTOS
 typedef struct {
     sem_t sem;
     uint32_t max_count;
@@ -382,3 +392,4 @@ void v_start(void) { }
 void v_stop(void)  { }
 void scheduler_init(void)  { }
 void scheduler_start(void) { }
+#endif /* !VAYU_SITL_RTOS */
