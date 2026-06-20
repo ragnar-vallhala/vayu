@@ -1202,6 +1202,67 @@ void SimulatorWidget::buildAutotunePage(QWidget* page) {
                            "+ gyro LPF, excited by a yaw-rate doublet. Yaw is "
                            "rate-controlled, so there is no yaw angle gain to tune."));
   form->addWidget(m_tuneYaw, r++, 1);
+  m_tuneFast = new QCheckBox(tr("Fast sim (~70× realtime)"), page);
+  m_tuneFast->setToolTip(tr(
+      "Run the search on the in-process real-vaios backend (vayu_sitl_rtos): a "
+      "seeded arm+doublet, ~70× realtime and deterministic — a full sweep "
+      "finishes in seconds. It uses the SAME cost as the realtime tuner (angle "
+      "IAE + overshoot + chatter, with a large divergence penalty), so a "
+      "tumbling tune scores high, never low. The current vehicle geometry is "
+      "applied (physics + firmware mix).\n"
+      "Scope: tunes rate kp/ki/kd, angle_kp and yaw_rate_kp — the gains this "
+      "backend can set; gyro_lpf and the yaw ki/kd/lpf are left out of the "
+      "search.\nThe World tab sim is unaffected and always runs realtime."));
+  form->addWidget(m_tuneFast, r++, 1);
+
+  m_tuneSysId = new QCheckBox(tr("System ID (analytic design)"), page);
+  m_tuneSysId->setToolTip(tr(
+      "Instead of an optimizer search, fly ONE broadband chirp on the fast "
+      "backend, fit a physical plant model (omega/u = K/(s(tau·s+1))) per axis, "
+      "and compute the gains analytically by loop-shaping (PD zero on the "
+      "actuator pole; crossover at a fraction of the actuator bandwidth).\n"
+      "Why: the search minimizes a tracking cost that the OUTER angle loop "
+      "dominates, so it never values a stiff inner rate loop and settles on a "
+      "near-zero rate_kp. System-ID has no cost to game — the rate loop gets a "
+      "real gain by construction, in ONE rollout instead of a full sweep.\n"
+      "Implies the fast backend. Budget/optimizer/cost-function are ignored; the "
+      "chirp band + rig come from the Excitation settings. The result is applied "
+      "and a verification doublet is flown to confirm it tracks."));
+  form->addWidget(m_tuneSysId, r++, 1);
+
+  form->addWidget(new QLabel(tr("Design bandwidth:"), page), r, 0);
+  m_tuneSysIdBw = new QDoubleSpinBox(page);
+  m_tuneSysIdBw->setRange(0.10, 0.50);
+  m_tuneSysIdBw->setSingleStep(0.05);
+  m_tuneSysIdBw->setDecimals(2);
+  m_tuneSysIdBw->setValue(0.33);
+  m_tuneSysIdBw->setToolTip(tr(
+      "System-ID only: the rate-loop crossover as a fraction of the identified "
+      "actuator bandwidth (1/tau). This is the aggressiveness lever — it sets "
+      "rate_kp = wc/K and angle_kp = 0.25·wc.\n"
+      "• Higher (→0.5): stiffer, faster disturbance rejection, but closer to the "
+      "actuator pole — risks buzz; rate_kp is hard-capped at the buzz knee.\n"
+      "• Lower (→0.1): gentler, more phase margin, softer response.\n"
+      "0.33 (crossover at ~1/3 of the actuator BW) is a balanced default."));
+  form->addWidget(m_tuneSysIdBw, r++, 1);
+
+  form->addWidget(new QLabel(tr("Cost function:"), page), r, 0);
+  m_tuneCostFn = new QComboBox(page);
+  m_tuneCostFn->addItem(tr("Angle tracking (realtime cost)"));
+  m_tuneCostFn->addItem(tr("Angle + rate tracking"));
+  m_tuneCostFn->setToolTip(tr(
+      "Cost used by the Fast backend.\n"
+      "• Angle tracking: the exact realtime cost — angle-loop IAE + overshoot + "
+      "chatter, with the divergence penalty. Scores the OUTER loop.\n"
+      "• Angle + rate tracking: adds a roll/pitch RATE-loop tracking term so the "
+      "search also values a tracking, non-buzzy inner loop (the analysis's "
+      "Part-D rate term). Note: on the current sim plant the rate loop buzzes "
+      "before it stiffens, so this mainly penalises buzzy high-rate_kp tunes "
+      "rather than pushing rate_kp up.\n"
+      "Applies to the Fast backend only; the realtime tuner always uses angle "
+      "tracking."));
+  form->addWidget(m_tuneCostFn, r++, 1);
+
   m_tuneCompare = new QCheckBox(tr("Compare all optimizers"), page);
   m_tuneCompare->setToolTip(tr("Run every optimizer on equal budgets and keep the "
                                "best (--compare). Much slower (N× the budget)."));
@@ -1268,6 +1329,10 @@ void SimulatorWidget::buildAutotunePage(QWidget* page) {
     m_tuneSeed->setValue(st.value(QStringLiteral("seed"), m_tuneSeed->value()).toInt());
     m_tuneSimSeed->setValue(st.value(QStringLiteral("simSeed"), m_tuneSimSeed->value()).toInt());
     m_tuneYaw->setChecked(st.value(QStringLiteral("yaw"), m_tuneYaw->isChecked()).toBool());
+    m_tuneFast->setChecked(st.value(QStringLiteral("fast"), m_tuneFast->isChecked()).toBool());
+    m_tuneSysId->setChecked(st.value(QStringLiteral("sysid"), m_tuneSysId->isChecked()).toBool());
+    m_tuneSysIdBw->setValue(st.value(QStringLiteral("sysidBw"), m_tuneSysIdBw->value()).toDouble());
+    m_tuneCostFn->setCurrentIndex(st.value(QStringLiteral("costFn"), m_tuneCostFn->currentIndex()).toInt());
     m_tuneCompare->setChecked(st.value(QStringLiteral("compare"), m_tuneCompare->isChecked()).toBool());
     m_tuneBuzz->setChecked(st.value(QStringLiteral("buzz"), m_tuneBuzz->isChecked()).toBool());
     m_tuneValidate->setChecked(st.value(QStringLiteral("validate"), m_tuneValidate->isChecked()).toBool());
@@ -1275,6 +1340,8 @@ void SimulatorWidget::buildAutotunePage(QWidget* page) {
     m_tuneVerbose->setChecked(st.value(QStringLiteral("verbose"), m_tuneVerbose->isChecked()).toBool());
     st.endGroup();
   }
+  // Design-bandwidth knob is meaningful only for the System-ID path.
+  m_tuneSysIdBw->setEnabled(m_tuneSysId->isChecked());
   auto saveTune = [](const QString& key, const QVariant& val) {
     QSettings s;
     s.setValue(QStringLiteral("autotune/") + key, val);
@@ -1295,6 +1362,21 @@ void SimulatorWidget::buildAutotunePage(QWidget* page) {
           [saveTune](int v) { saveTune(QStringLiteral("simSeed"), v); });
   connect(m_tuneYaw, &QCheckBox::toggled, this,
           [saveTune](bool v) { saveTune(QStringLiteral("yaw"), v); });
+  connect(m_tuneFast, &QCheckBox::toggled, this,
+          [saveTune](bool v) { saveTune(QStringLiteral("fast"), v); });
+  // System-ID implies the fast backend; auto-check Fast so the UI state is honest.
+  connect(m_tuneSysId, &QCheckBox::toggled, this,
+          [this, saveTune](bool v) {
+            saveTune(QStringLiteral("sysid"), v);
+            if (v && m_tuneFast)
+              m_tuneFast->setChecked(true);
+            if (m_tuneSysIdBw)
+              m_tuneSysIdBw->setEnabled(v);
+          });
+  connect(m_tuneSysIdBw, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+          [saveTune](double v) { saveTune(QStringLiteral("sysidBw"), v); });
+  connect(m_tuneCostFn, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+          [saveTune](int v) { saveTune(QStringLiteral("costFn"), v); });
   connect(m_tuneCompare, &QCheckBox::toggled, this,
           [saveTune](bool v) { saveTune(QStringLiteral("compare"), v); });
   connect(m_tuneBuzz, &QCheckBox::toggled, this,
@@ -1504,8 +1586,33 @@ void SimulatorWidget::startAutotune() {
       break;
     }
   }
-  if (!QFileInfo::exists(p.sitl.vsimBin) || p.sitl.sitlBin.isEmpty() ||
-      !QFileInfo::exists(p.sitl.sitlBin)) {
+
+  // Fast backend: the single in-process binary replaces the vsim_d+vayu_sitl
+  // pair. Locate it and validate the right binary set for the chosen engine.
+  // System-ID is an analytic design path that also runs on the fast binary, so
+  // it implies fastRtos (the optimizer/cost settings are ignored for it).
+  p.sysId = m_tuneSysId && m_tuneSysId->isChecked();
+  if (m_tuneSysIdBw)
+    p.sysIdBwFrac = m_tuneSysIdBw->value();
+  p.fastRtos = p.sysId || (m_tuneFast && m_tuneFast->isChecked());
+  p.rtosRateCost = m_tuneCostFn && m_tuneCostFn->currentIndex() == 1;
+  for (const QString &cand : {root + "/build_sitl_rtos/vayu_sitl_rtos",
+                              root + "/tools/sim_host/build_sitl_rtos/vayu_sitl_rtos"}) {
+    if (QFileInfo::exists(cand)) {
+      p.rtosBin = cand;
+      break;
+    }
+  }
+  if (p.fastRtos) {
+    if (p.rtosBin.isEmpty()) {
+      m_tuneLog->appendPlainText(tr(
+          "[error] fast backend not found. Build it with:\n"
+          "  cmake -S tools/sim_host -B build_sitl_rtos -DVAYU_SITL_RTOS_BUILD=ON\n"
+          "  cmake --build build_sitl_rtos --target vayu_sitl_rtos"));
+      return;
+    }
+  } else if (!QFileInfo::exists(p.sitl.vsimBin) || p.sitl.sitlBin.isEmpty() ||
+             !QFileInfo::exists(p.sitl.sitlBin)) {
     m_tuneLog->appendPlainText(
         tr("[error] SITL binaries not found (build vsim_d + vayu_sitl):\n  %1\n  %2")
             .arg(p.sitl.vsimBin, p.sitl.sitlBin));
@@ -1590,9 +1697,10 @@ void SimulatorWidget::startAutotune() {
   p.rollout.chirpF1 = m_tuneChirpF1->value();
 
   m_tuneChart->reset();
-  // Seed the current-vs-best table with this run's param rows (AT-2).
+  // Seed the current-vs-best table with this run's param rows (AT-2). The fast
+  // backend tunes a restricted set, so the table must match it.
   {
-    const autotune::Space space(p.tuneYaw);
+    const autotune::Space space(p.tuneYaw, p.fastRtos);
     const auto names = space.names();
     m_tuneGainsTable->setRowCount(int(names.size()));
     for (int i = 0; i < int(names.size()); ++i) {
