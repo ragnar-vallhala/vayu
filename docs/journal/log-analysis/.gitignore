@@ -12,3 +12,6 @@ __pycache__/
 **/plots/diagram_*.png
 .pdf-header.tex
 .pdf.css
+
+# rendered PDFs are regenerable (build_pdf.py) — not committed
+*-analysis.pdf
