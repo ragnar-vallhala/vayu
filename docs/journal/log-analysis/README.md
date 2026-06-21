@@ -81,3 +81,18 @@ timestamp) holding the raw `.bin` plus all analysis of it.
   - [`session-analysis.md`](20260621-021352/session-analysis.md) — the run, timeline, cross-run context
   - [`estimator-analysis.md`](20260621-021352/estimator-analysis.md) — **the headline**: estimate vs truth; yaw fix + roll/pitch limitation
   - [`recommendations.md`](20260621-021352/recommendations.md) — fault statuses + the velocity-aiding decision
+
+- [`20260621-053142/`](20260621-053142/) — **2026-06-21 05:31**, **SITL
+  (simulator)** dual-log, **aggressive** flight after raising `EKF_R_ACC_DIR`
+  2.5e-3 → 2.5e-2 (trust the accelerometer less — the GPS-less PX4/ArduPilot
+  approach). **Headline: the roll/pitch tilt under-report is essentially gone —
+  with sticks centered the estimate and true tilt now agree to 0.15° (was 2.15°
+  at the old accel trust), and the craft flies genuinely more level.** Yaw RMS
+  0.32° (tracks a −108° swing) and altitude 0.04 m stay exact even at roll +60° /
+  pitch −50° / 14.5 m/s. The residual is confined to *sustained* acceleration
+  (the IMU-only floor); a separate 176 s flight confirmed no long-term drift from
+  the change. The before/after to `021352`.
+  - [`README`](20260621-053142/README.md) — provenance, paired headers, fault-status table, raw findings
+  - [`session-analysis.md`](20260621-053142/session-analysis.md) — the run, timeline, before/after vs 021352
+  - [`estimator-analysis.md`](20260621-053142/estimator-analysis.md) — **the headline**: the accel-trust effect + the residual
+  - [`recommendations.md`](20260621-053142/recommendations.md) — fault statuses + the commit / real-HW decision
