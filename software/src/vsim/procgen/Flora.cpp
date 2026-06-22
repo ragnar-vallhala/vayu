@@ -83,7 +83,7 @@ std::vector<FloraInstance> scatterFlora(const TerrainField& f, int cx, int cy,
       const float t = h / (f.params().heightM + 1e-3f);
       const float altF = 1.0f - smoothstep(p.grassMaxFrac * 0.55f,
                                            p.grassMaxFrac, t);
-      const float slopeF = smoothstep(0.80f, 0.93f, flatness);
+      const float slopeF = smoothstep(p.slopeLo, p.slopeHi, flatness);
       const float density = altF * slopeF;
       if (density <= 0.0f) continue;
       if (u01(hcell(gx, gy, p.seed, 3)) > density) continue;

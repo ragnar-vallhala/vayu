@@ -29,8 +29,11 @@ struct FloraParams {
   uint32_t seed = 1337u;
   float spacing = 0.7f;        // grid spacing between blades [m] (dense meadow)
   float jitter = 0.9f;         // positional jitter (fraction of spacing)
-  float maxSlope = 0.32f;      // (unused; density handles slope smoothly)
   float grassMaxFrac = 0.5f;   // grass fades out by this fraction of heightM
+  // Slope (flatness in [0,1], 1 = flat) where grass density ramps in: none below
+  // slopeLo, full above slopeHi. Lower = grass tolerates steeper ground.
+  float slopeLo = 0.80f;
+  float slopeHi = 0.93f;
   float minHeight = 0.16f;     // blade height range [m] (shorter, less spiky)
   float maxHeight = 0.34f;
   float flowerFrac = 0.04f;    // fraction of blades that become flowers

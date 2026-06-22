@@ -84,16 +84,19 @@ PgVec3 TerrainField::color(float h, float flatness) const {
   const PgVec3 rock {0.47f, 0.44f, 0.41f};
   const PgVec3 snow {0.95f, 0.96f, 0.98f};
 
-  // Altitude band: green valley -> brown mid -> bare rock high.
-  PgVec3 c = mix(green, brown, smoothstep(0.16f, 0.48f, t));
-  c = mix(c, rock, smoothstep(0.48f, 0.82f, t));
+  // Altitude band: green valley -> brown mid -> bare rock high. Each threshold
+  // is the elevation where the band completes; it starts a fixed width below.
+  PgVec3 c = mix(green, brown, smoothstep(p_.colBrownT - 0.32f, p_.colBrownT, t));
+  c = mix(c, rock, smoothstep(p_.colRockT - 0.34f, p_.colRockT, t));
 
   // Slope exposes brown/rock regardless of altitude (steeper = rockier).
-  const float steepMix = smoothstep(0.28f, 0.62f, steep);
+  const float steepMix =
+      smoothstep(p_.colSlopeT - 0.17f, p_.colSlopeT + 0.17f, steep);
   c = mix(c, mix(brown, rock, t), steepMix);
 
   // Snow caps the high tops, and not on near-vertical faces (won't hold).
-  const float snowAmt = smoothstep(0.68f, 0.88f, t) * (1.0f - 0.7f * steepMix);
+  const float snowAmt =
+      smoothstep(p_.colSnowT, p_.colSnowT + 0.2f, t) * (1.0f - 0.7f * steepMix);
   c = mix(c, snow, snowAmt);
   return c;
 }

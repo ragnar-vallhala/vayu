@@ -1,5 +1,8 @@
 #pragma once
 
+#include "procgen/Flora.h"         // procgen::FloraParams (procedural tuning)
+#include "procgen/TerrainField.h"  // procgen::FieldParams
+
 #include <QQuaternion>
 #include <QString>
 #include <QVector>
@@ -114,6 +117,11 @@ struct WorldConfig {
   quint32  proceduralSeed = 1337u;     // same seed+params -> same world
   float    proceduralSizeM = 256.0f;   // square extent [m]
   int      proceduralResolution = 192; // grid samples per side
+
+  // Live-tunable generator params (exposed in the World tab's Procedural
+  // section). seed is driven by proceduralSeed; the rest are user knobs.
+  procgen::FieldParams field;          // terrain shape + surface colour bands
+  procgen::FloraParams flora;          // grass density / slope / height
 };
 
 // World-frame wind field (VSIM_CTL_SET_WIND): steady + gust + turbulence.
