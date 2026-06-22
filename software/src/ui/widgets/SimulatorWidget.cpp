@@ -705,6 +705,16 @@ void SimulatorWidget::buildUi() {
     });
     runRow->addWidget(contourChk);
 
+    auto* grassChk = new QCheckBox(tr("Grass"), simBody);
+    grassChk->setChecked(true);
+    grassChk->setToolTip(tr("Render instanced grass + flowers on procedural "
+                            "terrain."));
+    connect(grassChk, &QCheckBox::toggled, this, [this](bool on) {
+      if (m_renderer) m_renderer->setFloraVisible(on);
+      if (m_downRenderer) m_downRenderer->setFloraVisible(on);
+    });
+    runRow->addWidget(grassChk);
+
     m_propAudioChk = new QCheckBox(tr("Prop audio"), simBody);
     m_propAudioChk->setToolTip(tr("Propeller sound synthesized from motor rpm "
                                   "(pitch + loudness rise with throttle)."));
@@ -2032,7 +2042,11 @@ void SimulatorWidget::loadWorldMeshToRenderer() {
     m_collisionPending = false;
     if (m_streamTimer) m_streamTimer->stop();
     m_renderer->clearWorldChunks();
-    if (m_downRenderer) m_downRenderer->clearWorldChunks();
+    m_renderer->clearChunkFlora();
+    if (m_downRenderer) {
+      m_downRenderer->clearWorldChunks();
+      m_downRenderer->clearChunkFlora();
+    }
   }
 
   // Endless streaming biome: drive the chunk streamer instead of one mesh.
@@ -2040,7 +2054,11 @@ void SimulatorWidget::loadWorldMeshToRenderer() {
     m_renderer->setWorldMesh({}, {});
     if (m_downRenderer) m_downRenderer->setWorldMesh({}, {});
     m_renderer->clearWorldChunks();
-    if (m_downRenderer) m_downRenderer->clearWorldChunks();
+    m_renderer->clearChunkFlora();
+    if (m_downRenderer) {
+      m_downRenderer->clearWorldChunks();
+      m_downRenderer->clearChunkFlora();
+    }
 
     // New generation: invalidate any in-flight builds from a prior config and
     // drop the mesh cache.
@@ -2140,7 +2158,11 @@ void SimulatorWidget::onStreamTick() {
 
   for (qint64 key : p.toRemove) {
     m_renderer->removeWorldChunk(key);
-    if (m_downRenderer) m_downRenderer->removeWorldChunk(key);
+    m_renderer->removeChunkFlora(key);
+    if (m_downRenderer) {
+      m_downRenderer->removeWorldChunk(key);
+      m_downRenderer->removeChunkFlora(key);
+    }
     m_chunkCache.erase(key);
     m_chunkStreamer.forget(key);
   }
@@ -2157,34 +2179,51 @@ void SimulatorWidget::onStreamTick() {
   const auto field = m_chunkStreamer.field();
   const float chunkM = m_chunkStreamer.config().chunkM;
   const int res = m_chunkStreamer.config().resolution;
+  const uint32_t seed = m_chunkStreamer.config().field.seed;
   const int gen = m_streamGen;
   for (const vsim::ChunkReq& req : p.toBuild) {
-    auto* watcher = new QFutureWatcher<vsim::procgen::ProcMesh>(this);
+    auto* watcher = new QFutureWatcher<BuiltChunk>(this);
     connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher, req, gen]() {
       if (gen == m_streamGen) onChunkMeshed(req.key, watcher->result());
       else m_chunkStreamer.forget(req.key);  // stale: config changed mid-build
       watcher->deleteLater();
     });
-    watcher->setFuture(QtConcurrent::run([field, req, chunkM, res]() {
-      return vsim::procgen::meshFieldChunk(*field, req.cx, req.cy, chunkM, res);
+    watcher->setFuture(QtConcurrent::run([field, req, chunkM, res, seed]() {
+      BuiltChunk b;
+      b.mesh = vsim::procgen::meshFieldChunk(*field, req.cx, req.cy, chunkM, res);
+      vsim::procgen::FloraParams fp;
+      fp.seed = seed;
+      b.flora = vsim::procgen::scatterFlora(*field, req.cx, req.cy, chunkM, fp);
+      return b;
     }));
   }
 
   tryBuildCollision();  // in case the neighbourhood is already cached
 }
 
-void SimulatorWidget::onChunkMeshed(qint64 key,
-                                    const vsim::procgen::ProcMesh& mesh) {
+void SimulatorWidget::onChunkMeshed(qint64 key, const BuiltChunk& built) {
   m_chunkStreamer.markBuilt(key);
   if (!m_chunkStreamer.wanted(key)) {  // drifted out of range while meshing
     m_chunkStreamer.forget(key);
     return;
   }
-  m_chunkCache[key] = mesh;  // retained so collision can reuse it (no regen)
+  m_chunkCache[key] = built.mesh;  // retained so collision can reuse it (no regen)
   const vsim::ChunkMeshData d = vsim::toChunkMeshData(key, m_chunkCache[key]);
   m_renderer->setWorldChunk(d.key, d.positions, d.normals, d.colors);
   if (m_downRenderer)
     m_downRenderer->setWorldChunk(d.key, d.positions, d.normals, d.colors);
+
+  // Flora: pack instances [pos, yaw,height,flower, tint] -> 9 floats each.
+  std::vector<float> fd;
+  fd.reserve(built.flora.size() * 9);
+  for (const vsim::procgen::FloraInstance& g : built.flora) {
+    fd.insert(fd.end(), {g.pos.x, g.pos.y, g.pos.z, g.yaw, g.height, g.flower,
+                         g.tint.x, g.tint.y, g.tint.z});
+  }
+  const int n = static_cast<int>(built.flora.size());
+  m_renderer->setChunkFlora(key, fd, n);
+  if (m_downRenderer) m_downRenderer->setChunkFlora(key, fd, n);
+
   tryBuildCollision();
 }
 

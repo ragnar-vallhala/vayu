@@ -3,6 +3,7 @@
 #include "vsim/SimWorker.h"
 #include "vsim/SimRendererWidget.h"
 #include "vsim/ChunkStreamer.h"
+#include "vsim/procgen/Flora.h"
 #include "vsim/RcBridge.h"
 #include "GeometryEditorWidget.h"
 #include "WorldEditorWidget.h"
@@ -61,6 +62,14 @@ namespace vsim { struct LoadedMesh; }
  * the vsim_d process and pose reader. A Navigator restart fully
  * resets the firmware state.
  */
+// Result of an off-thread terrain-chunk build: the collision/render mesh and the
+// grass/flower instances scattered on it. Carried back to the UI thread via a
+// QFuture.
+struct BuiltChunk {
+  vsim::procgen::ProcMesh mesh;
+  std::vector<vsim::procgen::FloraInstance> flora;
+};
+
 class SimulatorWidget : public QWidget {
   Q_OBJECT
  public:
@@ -149,9 +158,9 @@ class SimulatorWidget : public QWidget {
   // free-fly camera), drop out-of-range chunks, and farm new-chunk meshing out
   // to background threads.
   void onStreamTick();
-  // A background chunk mesh finished: cache it, upload it, and (re)try the local
-  // collision build. Runs on the UI thread.
-  void onChunkMeshed(qint64 key, const vsim::procgen::ProcMesh& mesh);
+  // A background chunk build finished: cache the mesh, upload mesh + flora, and
+  // (re)try the local collision build. Runs on the UI thread.
+  void onChunkMeshed(qint64 key, const BuiltChunk& built);
   // Build + ship the local collision BVH from cached chunk meshes once the whole
   // collision neighbourhood is present (no terrain regeneration).
   void tryBuildCollision();

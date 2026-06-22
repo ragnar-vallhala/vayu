@@ -215,6 +215,7 @@ set(GCS_SITL_SOURCES
     src/vsim/procgen/Noise.cpp
     src/vsim/procgen/TerrainGen.cpp
     src/vsim/procgen/TerrainField.cpp
+    src/vsim/procgen/Flora.cpp
     src/vsim/MassProperties.cpp
     src/vsim/RcBridge.cpp
     src/vsim/TrainingCourse.cpp
@@ -240,6 +241,7 @@ set(GCS_SITL_HEADERS
     src/vsim/procgen/Heightfield.h
     src/vsim/procgen/TerrainGen.h
     src/vsim/procgen/TerrainField.h
+    src/vsim/procgen/Flora.h
     src/vsim/MassProperties.h
     src/vsim/RcBridge.h
     src/vsim/TrainingCourse.h

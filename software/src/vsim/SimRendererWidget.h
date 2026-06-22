@@ -5,7 +5,7 @@
 
 #include <QMatrix4x4>
 #include <QOpenGLBuffer>
-#include <QOpenGLFunctions>
+#include <QOpenGLExtraFunctions>
 #include <QOpenGLShaderProgram>
 #include <QOpenGLVertexArrayObject>
 #include <QOpenGLWidget>
@@ -22,7 +22,7 @@ namespace vsim {
 // drone in NED world coordinates directly (camera "up" vector is
 // (0,0,-1)), so the world axes you see line up with what the IMU /
 // firmware actually sees.
-class SimRendererWidget : public QOpenGLWidget, protected QOpenGLFunctions {
+class SimRendererWidget : public QOpenGLWidget, protected QOpenGLExtraFunctions {
   Q_OBJECT
  public:
   explicit SimRendererWidget(QWidget* parent = nullptr);
@@ -79,6 +79,15 @@ class SimRendererWidget : public QOpenGLWidget, protected QOpenGLFunctions {
   bool hasWorldChunks() const {
     return !worldChunks_.empty() || !pendingChunkUploads_.empty();
   }
+
+  // Per-chunk instanced flora. `interleaved` is `count` blades of 9 floats each:
+  // [posx,posy,posz, yaw,height,flower, tintr,tintg,tintb]. Deferred upload like
+  // the chunk meshes; keyed the same so it loads/unloads with its chunk.
+  void setChunkFlora(qint64 key, const std::vector<float>& interleaved,
+                     int count);
+  void removeChunkFlora(qint64 key);
+  void clearChunkFlora();
+  void setFloraVisible(bool on) { floraVisible_ = on; update(); }
   // World-space XY the terrain streamer should centre on: the free-fly camera
   // when roaming (sim stopped), otherwise the drone. Lets endless terrain follow
   // both WASD navigation and actual flight.
@@ -167,6 +176,9 @@ class SimRendererWidget : public QOpenGLWidget, protected QOpenGLFunctions {
   void uploadDroneMesh();   // flushes pending_* into droneMesh_ (GL-current)
   void uploadWorldMesh();   // flushes pendingWorld_* into worldMesh_
   void flushChunkUpdates(); // applies queued chunk uploads/removals (GL-current)
+  void buildGrassBlade();   // shared unit-blade geometry (crossed tapered quads)
+  void flushFloraUpdates(); // applies queued flora uploads/removals (GL-current)
+  void drawFlora(const QMatrix4x4& view);  // instanced blades over the chunks
   // Upload an interleaved [px,py,pz,nx,ny,nz] array into a lit-shader mesh.
   void uploadLitMesh(Mesh& m, const std::vector<float>& interleaved);
   // As uploadLitMesh, but the array is [px,py,pz,nx,ny,nz,r,g,b] and vertex
@@ -230,6 +242,16 @@ class SimRendererWidget : public QOpenGLWidget, protected QOpenGLFunctions {
   int us_sundir_ = -1;
   QOpenGLVertexArrayObject skyVao_;
 
+  // Flora shader: instanced grass/flower blades, wind + distance fade + fog.
+  QOpenGLShaderProgram progFlora_;
+  int uf_vp_ = -1, uf_campos_ = -1, uf_time_ = -1;
+  int uf_fadestart_ = -1, uf_fadeend_ = -1, uf_sundir_ = -1;
+  int uf_fogdensity_ = -1, uf_fogstart_ = -1;
+  QOpenGLBuffer grassVbo_{QOpenGLBuffer::VertexBuffer};  // shared unit blade
+  int grassVerts_ = 0;
+  float floraTime_ = 0.0f;     // advances per paint to drive the wind
+  bool floraVisible_ = true;
+
   // Camera world position (NED), refreshed each paintGL; fed to the lit shader
   // for distance fog.
   QVector3D camEye_;
@@ -284,6 +306,20 @@ class SimRendererWidget : public QOpenGLWidget, protected QOpenGLFunctions {
   std::vector<qint64> pendingChunkRemovals_;
   bool chunksDirty_ = false;
   bool clearAllChunks_ = false;
+
+  // Per-chunk instanced flora (grass/flowers), keyed like worldChunks_. Each
+  // holds a VAO binding the shared blade geometry + this chunk's instance VBO.
+  struct FloraChunk {
+    QOpenGLVertexArrayObject vao;
+    QOpenGLBuffer inst{QOpenGLBuffer::VertexBuffer};
+    int count = 0;
+  };
+  std::map<qint64, std::unique_ptr<FloraChunk>> floraChunks_;
+  struct PendingFlora { qint64 key; std::vector<float> data; int count; };
+  std::vector<PendingFlora> pendingFloraUploads_;
+  std::vector<qint64> pendingFloraRemovals_;
+  bool floraDirty_ = false;
+  bool clearAllFlora_ = false;
 
   // Editable motor layout (defaults mirror the firmware quad geometry).
   std::array<QVector3D, 4> motorPos_ = {

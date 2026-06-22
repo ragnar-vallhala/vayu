@@ -150,6 +150,74 @@ void main() {
 }
 )GLSL";
 
+// Instanced grass/flora. A shared unit-blade mesh (crossed tapered quads, local
+// z in [-1,0] = up) is drawn once per scattered instance: the vertex shader
+// rotates it by the instance yaw, scales to its height, bends the tip with a
+// world-space wind wave, and shrinks blades to nothing past a fade distance so
+// the flora edge dissolves (the terrain fog finishes the job). Fragment shades a
+// base->tip AO gradient over the instance tint, then the same distance fog into
+// the sky as the terrain — so grass and ground share one atmosphere.
+const char* kFloraVertexShader = R"GLSL(
+#version 330 core
+layout(location=0) in vec3 a_local;   // unit blade (z in [-1,0])
+layout(location=1) in vec3 i_pos;     // world base (NED)
+layout(location=2) in vec3 i_yhf;     // yaw, height, flower
+layout(location=3) in vec3 i_tint;
+uniform mat4 u_vp;
+uniform vec3 u_campos;
+uniform float u_time;
+uniform float u_fadestart;
+uniform float u_fadeend;
+out vec3 v_color;
+out vec3 v_world;
+out float v_hf;
+void main() {
+  float yaw = i_yhf.x, height = i_yhf.y, flower = i_yhf.z;
+  float hf = -a_local.z;                       // 0 base .. 1 tip
+  // Distance fade: shrink height to 0 between fadestart..fadeend.
+  float d = length(i_pos - u_campos);
+  float fade = 1.0 - clamp((d - u_fadestart) / max(u_fadeend - u_fadestart, 1.0),
+                           0.0, 1.0);
+  height *= fade;
+  // Flowers fan their top out into a small bloom.
+  vec2 xy = a_local.xy * (1.0 + flower * hf * hf * 5.0);
+  float s = sin(yaw), c = cos(yaw);
+  vec3 r = vec3(c * xy.x - s * xy.y, s * xy.x + c * xy.y, a_local.z * height);
+  // Wind: bend the tip along a world direction, strongest near the tip.
+  float w = sin(u_time * 1.6 + i_pos.x * 0.22 + i_pos.y * 0.18);
+  vec2 bend = vec2(0.80, 0.55) * (w * 0.14 * height * hf * hf);
+  vec3 world = i_pos + vec3(r.xy + bend, r.z);
+  v_world = world;
+  v_color = i_tint;
+  v_hf = hf;
+  gl_Position = u_vp * vec4(world, 1.0);
+}
+)GLSL";
+
+const char* kFloraFragmentHead = R"GLSL(
+#version 330 core
+in vec3 v_color;
+in vec3 v_world;
+in float v_hf;
+out vec4 o_color;
+uniform vec3 u_campos;
+uniform float u_fogdensity;
+uniform float u_fogstart;
+)GLSL";
+
+const char* kFloraFragmentMain = R"GLSL(
+void main() {
+  float ao = mix(0.45, 1.05, v_hf);            // dark base, bright tip
+  vec3 col = v_color * ao;
+  vec3 toFrag = v_world - u_campos;
+  float dist = length(toFrag);
+  vec3 vdir = dist > 1e-4 ? toFrag / dist : vec3(0.0, 0.0, 1.0);
+  float fd = max(dist - u_fogstart, 0.0) * u_fogdensity;
+  float fog = 1.0 - exp(-fd * fd);
+  o_color = vec4(mix(col, skyColor(vdir), clamp(fog, 0.0, 1.0)), 1.0);
+}
+)GLSL";
+
 }  // namespace
 
 SimRendererWidget::SimRendererWidget(QWidget* parent)
@@ -260,6 +328,21 @@ void SimRendererWidget::initializeGL() {
   us_invvp_ = progSky_.uniformLocation("u_invvp");
   us_sundir_ = progSky_.uniformLocation("u_sundir");
   skyVao_.create();   // core profile needs a bound VAO even with no attributes
+
+  progFlora_.addShaderFromSourceCode(QOpenGLShader::Vertex, kFloraVertexShader);
+  progFlora_.addShaderFromSourceCode(
+      QOpenGLShader::Fragment,
+      QByteArray(kFloraFragmentHead) + kAtmosphereGLSL + kFloraFragmentMain);
+  progFlora_.link();
+  uf_vp_        = progFlora_.uniformLocation("u_vp");
+  uf_campos_    = progFlora_.uniformLocation("u_campos");
+  uf_time_      = progFlora_.uniformLocation("u_time");
+  uf_fadestart_ = progFlora_.uniformLocation("u_fadestart");
+  uf_fadeend_   = progFlora_.uniformLocation("u_fadeend");
+  uf_sundir_    = progFlora_.uniformLocation("u_sundir");
+  uf_fogdensity_= progFlora_.uniformLocation("u_fogdensity");
+  uf_fogstart_  = progFlora_.uniformLocation("u_fogstart");
+  buildGrassBlade();
 
   buildGroundGrid();
   buildObstacleMeshes();
@@ -377,6 +460,8 @@ void SimRendererWidget::paintGL() {
   if (meshDirty_) uploadDroneMesh();
   if (worldMeshDirty_) uploadWorldMesh();
   if (chunksDirty_) flushChunkUpdates();
+  if (floraDirty_) flushFloraUpdates();
+  floraTime_ += 0.016f;   // ~60 Hz wind clock
 
   QMatrix4x4 view = cameraView();
   camEye_ = view.inverted().map(QVector3D(0.0f, 0.0f, 0.0f));  // world eye for fog
@@ -419,6 +504,9 @@ void SimRendererWidget::paintGL() {
     for (auto& kv : worldChunks_)
       if (kv.second->vertex_count)
         drawLit(*kv.second, view, QMatrix4x4(), QVector3D(1.0f, 1.0f, 1.0f));
+
+  // Instanced grass/flowers over the terrain (after the ground so depth works).
+  if (worldVisible_ && !training && floraVisible_) drawFlora(view);
 
   // Static world obstacles (lit solids), each scaled/rotated/placed.
   for (int oi = 0; worldVisible_ && !training && oi < obstacles_.size(); ++oi) {
@@ -795,6 +883,115 @@ void SimRendererWidget::flushChunkUpdates() {
     uploadColoredMesh(*mesh, pc.data);
   }
   pendingChunkUploads_.clear();
+}
+
+void SimRendererWidget::buildGrassBlade() {
+  // A unit blade: two crossed tapered quads, base at z=0, tip at z=-1 (NED up).
+  const float wb = 0.05f;   // base half-width
+  const float wt = 0.006f;  // tip half-width
+  auto quad = [](std::vector<float>& v, float ax, float ay, float bx, float by) {
+    // base edge (ax,ay)..(bx,by) at z=0, tip edge tapered toward 0 at z=-1.
+    const float tax = ax * 0.12f, tay = ay * 0.12f;  // tip keeps a sliver
+    const float tbx = bx * 0.12f, tby = by * 0.12f;
+    // tri 1: base-a, base-b, tip-b
+    v.insert(v.end(), {ax, ay, 0.0f, bx, by, 0.0f, tbx, tby, -1.0f});
+    // tri 2: base-a, tip-b, tip-a
+    v.insert(v.end(), {ax, ay, 0.0f, tbx, tby, -1.0f, tax, tay, -1.0f});
+  };
+  std::vector<float> v;
+  quad(v, -wb, 0.0f, wb, 0.0f);   // quad in the X plane
+  quad(v, 0.0f, -wb, 0.0f, wb);   // crossed quad in the Y plane
+  (void)wt;
+  grassVbo_.create();
+  grassVbo_.bind();
+  grassVbo_.allocate(v.data(), int(v.size() * sizeof(float)));
+  grassVbo_.release();
+  grassVerts_ = int(v.size() / 3);
+}
+
+void SimRendererWidget::setChunkFlora(qint64 key,
+                                      const std::vector<float>& interleaved,
+                                      int count) {
+  pendingFloraUploads_.push_back({key, interleaved, count});
+  floraDirty_ = true;
+  update();
+}
+
+void SimRendererWidget::removeChunkFlora(qint64 key) {
+  pendingFloraRemovals_.push_back(key);
+  floraDirty_ = true;
+  update();
+}
+
+void SimRendererWidget::clearChunkFlora() {
+  clearAllFlora_ = true;
+  floraDirty_ = true;
+  update();
+}
+
+void SimRendererWidget::flushFloraUpdates() {
+  floraDirty_ = false;
+  if (clearAllFlora_) {
+    floraChunks_.clear();
+    pendingFloraRemovals_.clear();
+    clearAllFlora_ = false;
+    // (queued uploads are kept — fresh set after a reconfigure)
+  }
+  for (qint64 key : pendingFloraRemovals_) floraChunks_.erase(key);
+  pendingFloraRemovals_.clear();
+  for (PendingFlora& pf : pendingFloraUploads_) {
+    if (pf.count <= 0) { floraChunks_.erase(pf.key); continue; }
+    std::unique_ptr<FloraChunk>& fc = floraChunks_[pf.key];
+    if (!fc) fc = std::make_unique<FloraChunk>();
+    if (!fc->vao.isCreated()) fc->vao.create();
+    fc->vao.bind();
+    // Shared blade geometry -> attribute 0 (divisor 0).
+    grassVbo_.bind();
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), nullptr);
+    // Per-instance data -> attributes 1..3 (divisor 1). 9 floats/instance.
+    if (!fc->inst.isCreated()) fc->inst.create();
+    fc->inst.bind();
+    fc->inst.allocate(pf.data.data(), int(pf.data.size() * sizeof(float)));
+    const int stride = 9 * sizeof(float);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, stride, nullptr);
+    glVertexAttribDivisor(1, 1);
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, stride,
+                          reinterpret_cast<void*>(3 * sizeof(float)));
+    glVertexAttribDivisor(2, 1);
+    glEnableVertexAttribArray(3);
+    glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, stride,
+                          reinterpret_cast<void*>(6 * sizeof(float)));
+    glVertexAttribDivisor(3, 1);
+    fc->inst.release();
+    fc->vao.release();
+    grassVbo_.release();
+    fc->count = pf.count;
+  }
+  pendingFloraUploads_.clear();
+}
+
+void SimRendererWidget::drawFlora(const QMatrix4x4& view) {
+  if (floraChunks_.empty() || grassVerts_ == 0) return;
+  progFlora_.bind();
+  progFlora_.setUniformValue(uf_vp_, proj_ * view);
+  progFlora_.setUniformValue(uf_campos_, camEye_);
+  progFlora_.setUniformValue(uf_time_, floraTime_);
+  progFlora_.setUniformValue(uf_fadestart_, 90.0f);
+  progFlora_.setUniformValue(uf_fadeend_, 150.0f);
+  progFlora_.setUniformValue(uf_sundir_, sunDir_);
+  progFlora_.setUniformValue(uf_fogdensity_, 1.0f / 420.0f);
+  progFlora_.setUniformValue(uf_fogstart_, 45.0f);
+  for (auto& kv : floraChunks_) {
+    FloraChunk* fc = kv.second.get();
+    if (fc->count == 0) continue;
+    fc->vao.bind();
+    glDrawArraysInstanced(GL_TRIANGLES, 0, grassVerts_, fc->count);
+    fc->vao.release();
+  }
+  progFlora_.release();
 }
 
 void SimRendererWidget::buildGroundGrid() {
