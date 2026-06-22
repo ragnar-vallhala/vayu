@@ -206,17 +206,20 @@ bool GpuGrass::init(QOpenGLExtraFunctions* gl) {
   gl->glGenBuffers(1, &ssbo_);
   gl->glGenBuffers(1, &indirect_);
   gl->glGenBuffers(1, &counter_);
+
+  // Allocate the instance buffer BEFORE wiring its vertex attributes (some
+  // drivers ignore attribs pointing at an unallocated buffer).
+  maxBlades_ = params_.grid * params_.grid;
+  gl->glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo_);
+  gl->glBufferData(GL_SHADER_STORAGE_BUFFER,
+                   GLsizeiptr(maxBlades_) * 12 * sizeof(float), nullptr,
+                   GL_DYNAMIC_DRAW);
   buildBlade(gl);
 
   gl->glBindBuffer(GL_ATOMIC_COUNTER_BUFFER, counter_);
   const unsigned int zero = 0u;
   gl->glBufferData(GL_ATOMIC_COUNTER_BUFFER, sizeof(zero), &zero, GL_DYNAMIC_DRAW);
 
-  maxBlades_ = params_.grid * params_.grid;
-  gl->glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo_);
-  gl->glBufferData(GL_SHADER_STORAGE_BUFFER,
-                   GLsizeiptr(maxBlades_) * 12 * sizeof(float), nullptr,
-                   GL_DYNAMIC_DRAW);
   gl->glBindBuffer(GL_DRAW_INDIRECT_BUFFER, indirect_);
   const unsigned int cmd[4] = {0u, 0u, 0u, 0u};
   gl->glBufferData(GL_DRAW_INDIRECT_BUFFER, sizeof(cmd), cmd, GL_DYNAMIC_DRAW);
@@ -368,10 +371,23 @@ void GpuGrass::render(QOpenGLExtraFunctions* gl, const QMatrix4x4& proj,
     gl->glUnmapBuffer(GL_ATOMIC_COUNTER_BUFFER);
   }
   static int frame = 0;
-  if ((frame++ % 90) == 0)
-    qInfo("[GpuGrass] %u blades (grid=%d cell=%.3f origin=%.0f,%.0f cam=%.0f,%.0f)",
-          lastCount_, params_.grid, double(params_.cell), double(origin.x()),
-          double(origin.y()), double(camPos.x()), double(camPos.y()));
+  if ((frame++ % 90) == 0) {
+    // Read blade[0] from the SSBO: if pos/height are real, the compute wrote the
+    // buffer (so any blank screen is a draw bug); if all zero, the writes didn't
+    // land.
+    gl->glBindBuffer(GL_ARRAY_BUFFER, ssbo_);
+    float b0[12] = {0};
+    void* bp = gl->glMapBufferRange(GL_ARRAY_BUFFER, 0, 48, GL_MAP_READ_BIT);
+    if (bp) {
+      for (int i = 0; i < 12; ++i) b0[i] = static_cast<float*>(bp)[i];
+      gl->glUnmapBuffer(GL_ARRAY_BUFFER);
+    }
+    qInfo("[GpuGrass] %u blades cam=%.0f,%.0f | blade0 pos=(%.1f,%.1f,%.1f) "
+          "yaw=%.2f h=%.2f tint=(%.2f,%.2f,%.2f)",
+          lastCount_, double(camPos.x()), double(camPos.y()), double(b0[0]),
+          double(b0[1]), double(b0[2]), double(b0[3]), double(b0[4]),
+          double(b0[8]), double(b0[9]), double(b0[10]));
+  }
 
   // --- draw ---
   while (gl->glGetError() != 0u) {}  // clear pending errors
