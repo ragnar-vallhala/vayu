@@ -43,10 +43,12 @@ class ChunkStreamer {
  public:
   struct Config {
     procgen::FieldParams field;
-    float chunkM = 160.0f;     // world metres per chunk side
-    int resolution = 64;       // grid cells per chunk side
-    int renderRadius = 4;      // Chebyshev chunk radius kept loaded (visual)
+    float chunkM = 192.0f;     // world metres per chunk side
+    int resolution = 48;       // grid cells per chunk side
+    int renderRadius = 3;      // Chebyshev chunk radius kept loaded (visual)
     int collisionRadius = 1;   // chunk radius shipped to the daemon as a BVH
+    int maxBuildsPerUpdate = 3;  // chunks meshed per update() — spreads cost so
+                                 // generation never freezes the UI thread
   };
 
   // (Re)configure: rebuilds the field and forgets the loaded set, so the next
@@ -75,7 +77,8 @@ class ChunkStreamer {
 
   Config cfg_;
   std::unique_ptr<procgen::TerrainField> field_;
-  std::set<qint64> loaded_;
+  std::set<qint64> loaded_;   // chunks currently uploaded to the renderer
+  std::set<qint64> desired_;  // chunks that SHOULD be loaded for the current cell
   int curCx_ = INT_MIN, curCy_ = INT_MIN;  // centre's current chunk cell
   int colCx_ = INT_MIN, colCy_ = INT_MIN;  // cell the shipped collision covers
   bool active_ = false;

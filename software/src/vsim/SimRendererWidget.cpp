@@ -727,10 +727,11 @@ void SimRendererWidget::flushChunkUpdates() {
   chunksDirty_ = false;
   if (clearAllChunks_) {
     worldChunks_.clear();          // GL context current here -> safe to destroy
-    pendingChunkUploads_.clear();
     pendingChunkRemovals_.clear();
     clearAllChunks_ = false;
-    return;
+    // NOTE: pendingChunkUploads_ is intentionally NOT cleared — uploads queued
+    // after a clear request (e.g. reconfiguring the streamer: clear old set,
+    // then stream the new one) are the fresh set and must still apply.
   }
   for (qint64 key : pendingChunkRemovals_) worldChunks_.erase(key);
   pendingChunkRemovals_.clear();
