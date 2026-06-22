@@ -1,5 +1,6 @@
 #include "TerrainField.h"
 
+#include <algorithm>
 #include <cmath>
 
 namespace vsim::procgen {
@@ -111,20 +112,67 @@ ProcMesh meshFieldChunk(const TerrainField& f, int cx, int cy, float chunkM,
   const float y0 = static_cast<float>(cy) * chunkM;
   const int verts = res + 1;
 
-  // Precompute node position / normal / color, then emit a triangle soup.
+  // Sample heights on an extended grid (chunk + apron). The apron lets the slope
+  // cap be applied identically at chunk borders, so adjacent chunks stay
+  // seamless. apron must exceed the number of erosion iterations.
+  const float maxSlope = f.params().maxSlope;
+  const bool limit = maxSlope > 0.0f && maxSlope < 8.0f;
+  const int apron = limit ? 8 : 0;
+  const int iters = 6;
+  const int gn = verts + 2 * apron;
+
+  std::vector<float> H(static_cast<std::size_t>(gn) * gn);
+  for (int j = 0; j < gn; ++j)
+    for (int i = 0; i < gn; ++i)
+      H[static_cast<std::size_t>(j) * gn + i] = f.height(
+          x0 + step * static_cast<float>(i - apron),
+          y0 + step * static_cast<float>(j - apron));
+
+  // Slope cap: iteratively pull any cell down to at most maxStep above its
+  // lowest 4-neighbour (grayscale erosion). Removes spikes/near-vertical faces
+  // while leaving slopes below the cap untouched. Buffered for order-independence.
+  if (limit) {
+    const float maxStep = maxSlope * step;
+    std::vector<float> B = H;
+    for (int k = 0; k < iters; ++k) {
+      for (int j = 1; j < gn - 1; ++j)
+        for (int i = 1; i < gn - 1; ++i) {
+          const std::size_t c = static_cast<std::size_t>(j) * gn + i;
+          const float lo = std::min(std::min(H[c - 1], H[c + 1]),
+                                    std::min(H[c - gn], H[c + gn]));
+          B[c] = std::min(H[c], lo + maxStep);
+        }
+      H = B;
+    }
+  }
+
+  // Limited-grid accessor for chunk node (i,j); the apron covers i,j in [-1..verts].
+  auto gh = [&](int i, int j) -> float {
+    int gi = i + apron, gj = j + apron;
+    gi = gi < 0 ? 0 : (gi >= gn ? gn - 1 : gi);
+    gj = gj < 0 ? 0 : (gj >= gn ? gn - 1 : gj);
+    return H[static_cast<std::size_t>(gj) * gn + gi];
+  };
+  const float inv2s = 1.0f / (2.0f * step);
+
+  // Node position / normal (from the limited grid) / color, then triangle soup.
   std::vector<PgVec3> pos(static_cast<std::size_t>(verts) * verts);
   std::vector<PgVec3> nrm(static_cast<std::size_t>(verts) * verts);
   std::vector<PgVec3> col(static_cast<std::size_t>(verts) * verts);
   for (int j = 0; j < verts; ++j) {
     for (int i = 0; i < verts; ++i) {
-      const float wx = x0 + step * static_cast<float>(i);
-      const float wy = y0 + step * static_cast<float>(j);
-      const float h = f.height(wx, wy);
-      const PgVec3 nv = f.normal(wx, wy, step);
+      const float h = gh(i, j);
+      // Surface z = -h; outward normal ∝ (dh/dx, dh/dy, -1) from the limited grid.
+      const float dhdx = (gh(i + 1, j) - gh(i - 1, j)) * inv2s;
+      const float dhdy = (gh(i, j + 1) - gh(i, j - 1)) * inv2s;
+      float nx = dhdx, ny = dhdy, nz = -1.0f;
+      const float len = std::sqrt(nx * nx + ny * ny + nz * nz);
+      if (len > 0.0f) { nx /= len; ny /= len; nz /= len; }
       const std::size_t k = static_cast<std::size_t>(j) * verts + i;
-      pos[k] = PgVec3{wx, wy, -h};  // up is -Z in NED
-      nrm[k] = nv;
-      const float flatness = nv.z < 0.0f ? -nv.z : 0.0f;
+      pos[k] = PgVec3{x0 + step * static_cast<float>(i),
+                      y0 + step * static_cast<float>(j), -h};
+      nrm[k] = PgVec3{nx, ny, nz};
+      const float flatness = nz < 0.0f ? -nz : 0.0f;
       col[k] = f.color(h, flatness);
     }
   }

@@ -29,6 +29,10 @@ struct FieldParams {
   float lacunarity = 2.0f;
   float gain = 0.5f;
   float mountainMix = 0.55f; // ridged-ridge weight inside mountainous regions
+  // Hard slope cap applied when meshing (rise/run; 1.0 = 45 deg). Spikes steeper
+  // than this are eroded down so the mesh has no near-vertical faces. >=8
+  // disables it.
+  float maxSlope = 0.8f;
 
   // Surface-colour thresholds, as fractions of heightM (0..1). Each is the
   // elevation where that band is reached; colour() blends with fixed widths.
