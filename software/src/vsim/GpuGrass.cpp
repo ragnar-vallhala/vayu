@@ -50,7 +50,7 @@ layout(local_size_x = 16, local_size_y = 16) in;
 struct Blade { vec4 posyaw; vec4 hf; vec4 tint; };
 layout(std430, binding = 0) buffer Blades { Blade blades[]; };
 layout(binding = 1) uniform atomic_uint instanceCount;  // dedicated counter buffer
-uniform uint u_seed, u_maxBlades;
+uniform uint u_seed;
 uniform float u_heightM, u_featureM, u_macroM, u_lacunarity, u_gain, u_mountainMix;
 uniform int u_octaves, u_G;
 uniform float u_grassMaxFrac, u_slopeLo, u_slopeHi, u_heightMean, u_heightStd, u_flowerFrac;
@@ -122,7 +122,6 @@ void main(){
   if(flower){ float fh=rnd(hc*0x3a5fu+8u); tint=fh<0.40?vec3(0.95,0.95,0.97):(fh<0.72?vec3(0.93,0.84,0.28):vec3(0.86,0.34,0.30)); }
   else { float v=0.85+0.34*rnd(hc*0x9f3bu+9u); tint=vec3((0.30+0.12*rnd(hc*0xc2b2u+10u))*v,0.52*v,0.18*v); }
   uint idx=atomicCounterIncrement(instanceCount);
-  if(idx>=u_maxBlades) return;
   blades[idx].posyaw=vec4(wx,wy,-h,yaw);
   blades[idx].hf=vec4(height,flower?1.0:0.0,0.0,0.0);
   blades[idx].tint=vec4(tint,0.0);
@@ -326,8 +325,9 @@ void GpuGrass::render(QOpenGLExtraFunctions* gl, const QMatrix4x4& proj,
 
   // --- generate ---
   comp_.bind();
-  comp_.setUniformValue("u_seed", static_cast<GLuint>(params_.seed));
-  comp_.setUniformValue("u_maxBlades", static_cast<GLuint>(maxBlades_));
+  // uint uniforms must go through glUniform1ui — QOpenGLShaderProgram's GLuint
+  // overload doesn't set them on this driver.
+  gl->glUniform1ui(comp_.uniformLocation("u_seed"), params_.seed);
   comp_.setUniformValue("u_heightM", params_.heightM);
   comp_.setUniformValue("u_featureM", params_.featureM);
   comp_.setUniformValue("u_macroM", params_.macroM);
