@@ -2039,6 +2039,8 @@ void SimulatorWidget::loadWorldMeshToRenderer() {
     ++m_streamGen;  // invalidate in-flight builds
     m_chunkStreamer.deactivate();
     m_chunkCache.clear();
+    m_floraCache.clear();
+    m_floraShown.clear();
     m_collisionPending = false;
     if (m_streamTimer) m_streamTimer->stop();
     m_renderer->clearWorldChunks();
@@ -2061,9 +2063,11 @@ void SimulatorWidget::loadWorldMeshToRenderer() {
     }
 
     // New generation: invalidate any in-flight builds from a prior config and
-    // drop the mesh cache.
+    // drop the mesh + flora caches.
     ++m_streamGen;
     m_chunkCache.clear();
+    m_floraCache.clear();
+    m_floraShown.clear();
     m_collisionPending = false;
 
     vsim::ChunkStreamer::Config sc;
@@ -2164,6 +2168,8 @@ void SimulatorWidget::onStreamTick() {
       m_downRenderer->removeChunkFlora(key);
     }
     m_chunkCache.erase(key);
+    m_floraCache.erase(key);
+    m_floraShown.erase(key);
     m_chunkStreamer.forget(key);
   }
 
@@ -2171,6 +2177,7 @@ void SimulatorWidget::onStreamTick() {
     m_collisionPending = true;
     m_colCx = p.colCx;
     m_colCy = p.colCy;
+    streamFlora(p.colCx, p.colCy);  // grass follows the centre
   }
 
   // Mesh the requested chunks OFF the UI thread; apply the results on the main
@@ -2213,18 +2220,50 @@ void SimulatorWidget::onChunkMeshed(qint64 key, const BuiltChunk& built) {
   if (m_downRenderer)
     m_downRenderer->setWorldChunk(d.key, d.positions, d.normals, d.colors);
 
-  // Flora: pack instances [pos, yaw,height,flower, tint] -> 9 floats each.
+  // Flora: pack instances [pos, yaw,height,flower, tint] -> 9 floats each, cache
+  // them, and upload only if this chunk is near the view centre.
   std::vector<float> fd;
   fd.reserve(built.flora.size() * 9);
   for (const vsim::procgen::FloraInstance& g : built.flora) {
     fd.insert(fd.end(), {g.pos.x, g.pos.y, g.pos.z, g.yaw, g.height, g.flower,
                          g.tint.x, g.tint.y, g.tint.z});
   }
-  const int n = static_cast<int>(built.flora.size());
-  m_renderer->setChunkFlora(key, fd, n);
-  if (m_downRenderer) m_downRenderer->setChunkFlora(key, fd, n);
+  m_floraCache[key] = {std::move(fd), static_cast<int>(built.flora.size())};
+  if (std::abs(vsim::ChunkStreamer::cxOf(key) - m_colCx) <= kFloraRadius &&
+      std::abs(vsim::ChunkStreamer::cyOf(key) - m_colCy) <= kFloraRadius)
+    uploadFloraChunk(key);
 
   tryBuildCollision();
+}
+
+void SimulatorWidget::uploadFloraChunk(qint64 key) {
+  auto it = m_floraCache.find(key);
+  if (it == m_floraCache.end()) return;
+  m_renderer->setChunkFlora(key, it->second.first, it->second.second);
+  if (m_downRenderer)
+    m_downRenderer->setChunkFlora(key, it->second.first, it->second.second);
+  m_floraShown.insert(key);
+}
+
+void SimulatorWidget::streamFlora(int cx, int cy) {
+  // Drop grass that drifted out of the near radius.
+  std::vector<qint64> drop;
+  for (qint64 key : m_floraShown)
+    if (std::abs(vsim::ChunkStreamer::cxOf(key) - cx) > kFloraRadius ||
+        std::abs(vsim::ChunkStreamer::cyOf(key) - cy) > kFloraRadius)
+      drop.push_back(key);
+  for (qint64 key : drop) {
+    m_renderer->removeChunkFlora(key);
+    if (m_downRenderer) m_downRenderer->removeChunkFlora(key);
+    m_floraShown.erase(key);
+  }
+  // Add cached grass that came into range.
+  for (int j = cy - kFloraRadius; j <= cy + kFloraRadius; ++j)
+    for (int i = cx - kFloraRadius; i <= cx + kFloraRadius; ++i) {
+      const qint64 key = vsim::ChunkStreamer::keyOf(i, j);
+      if (m_floraShown.count(key) == 0 && m_floraCache.count(key) != 0)
+        uploadFloraChunk(key);
+    }
 }
 
 void SimulatorWidget::tryBuildCollision() {

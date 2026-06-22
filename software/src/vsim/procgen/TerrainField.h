@@ -25,7 +25,7 @@ struct FieldParams {
   float heightM = 80.0f;     // peak (mountain) elevation above ground [m]
   float featureM = 150.0f;   // metres of the largest detail feature
   float macroM = 1400.0f;    // metres of the macro range/basin placement field
-  int octaves = 6;
+  int octaves = 7;           // detail layers (more = finer relief)
   float lacunarity = 2.0f;
   float gain = 0.5f;
   float mountainMix = 0.6f;  // ridged-peak weight inside mountainous regions
