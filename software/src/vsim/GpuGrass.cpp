@@ -109,7 +109,7 @@ uniform float u_grassMaxFrac,u_slopeLo,u_slopeHi,u_heightMean,u_heightStd,u_flow
 uniform int u_originCellX,u_originCellY; uniform float u_cell;
 uniform vec2 u_regionMin; uniform float u_regionSize;
 uniform vec3 u_camPos; uniform mat4 u_vp;
-uniform float u_falloffStart,u_falloffEnd,u_innerCut,u_heightScale;
+uniform float u_falloffStart,u_falloffEnd,u_innerStart,u_innerEnd,u_farRadius;
 uint hash32(uint x){ x^=x>>16; x*=0x7feb352du; x^=x>>15; x*=0x846ca68bu; x^=x>>16; return x; }
 uint hash2(int ix,int iy,uint seed){ uint h=uint(ix)*0x9e3779b1u; h^=uint(iy)*0x85ebca77u; h^=seed*0xc2b2ae3du; return hash32(h); }
 float rnd(uint h){ return float(h & 0xffffffu)/16777216.0; }
@@ -139,7 +139,9 @@ void main(){
   float density=(1.0-ss(u_grassMaxFrac*0.55,u_grassMaxFrac,t))*ss(u_slopeLo,u_slopeHi,flatn);
   float dist=length(vec2(wx,wy)-u_camPos.xy);
   float outer=1.0-ss(u_falloffStart,u_falloffEnd,dist);
-  float inner=(u_innerCut>0.0)?ss(u_innerCut*0.70,u_innerCut,dist):1.0;  // far ring skips the near zone
+  // Far rings fade IN over the SAME window the previous ring fades OUT, so total
+  // density crosses over smoothly (no double-density band, no seam line).
+  float inner=(u_innerEnd>0.0)?ss(u_innerStart,u_innerEnd,dist):1.0;
   float keep=density*outer*inner;
   if(keep<=0.0||rnd(hc*0x85ebu+3u)>keep) return;
   vec4 clip=u_vp*vec4(wx,wy,-h,1.0);
@@ -149,7 +151,11 @@ void main(){
   if(idx>=uint(u_maxBlades)) return;  // never write past the instance buffer
   float yaw=2.0*(sin(baseX*0.035)+cos(baseY*0.028))+(rnd(hc*0x27d4u+4u)-0.5)*2.0;
   float u1=max(rnd(hc*0x165667u+5u),1e-6),u2=rnd(hc*0x2545f4u+6u);
-  float height=u_heightScale*max(0.03,u_heightMean+u_heightStd*sqrt(-2.0*log(u1))*cos(6.2831853*u2));
+  float height=max(0.03,u_heightMean+u_heightStd*sqrt(-2.0*log(u1))*cos(6.2831853*u2));
+  // Continuous, ring-independent height boost with distance so the sparse far
+  // field still reads as a carpet — applied to ALL blades by world distance, so
+  // it never steps at a ring boundary.
+  height*=1.0+0.32*ss(0.12*u_farRadius,0.85*u_farRadius,dist);
   float bend=0.55+0.9*rnd(hc*0x51e3u+11u);  // per-blade lean (top-down coverage + variety)
   bool fl=rnd(hc*0x1b873u+7u)<u_flowerFrac; vec3 tint;
   if(fl){ float fh=rnd(hc*0x3a5fu+8u); tint=fh<0.45?vec3(0.93,0.83,0.30):(fh<0.78?vec3(0.90,0.55,0.62):vec3(0.95,0.95,0.97)); }
@@ -249,7 +255,6 @@ void main(){
 // taller blades so the sparse far field still reads as a carpet.
 static constexpr int kNumRings = 3;
 static constexpr float kRingMul[kNumRings] = {1.0f, 4.0f, 12.0f};
-static constexpr float kRingHScale[kNumRings] = {1.0f, 1.15f, 1.32f};
 
 GpuGrass::~GpuGrass() = default;
 
@@ -404,18 +409,21 @@ void GpuGrass::render(QOpenGLExtraFunctions* gl, const QMatrix4x4& proj,
   // ring fades IN where the previous one fades out (innerCut) to avoid a doubled
   // band. All sample the SAME height texture, refilled per ring.
   struct Ring {
-    float cell, innerCut, falloffStart, falloffEnd, heightScale;
+    float cell, innerStart, innerEnd, falloffStart, falloffEnd;
   };
   Ring rings[kNumRings];
-  float prevRadius = 0.0f;
+  float prevStart = 0.0f, prevEnd = 0.0f;
   for (int i = 0; i < kNumRings; ++i) {
     const float c = params_.cell * kRingMul[i];
     const float radius = float(params_.grid) * c * 0.5f;
-    rings[i] = {c, (i == 0) ? 0.0f : prevRadius * 0.70f, radius * 0.80f,
-                radius * 0.97f, kRingHScale[i]};
-    prevRadius = radius;
+    const float fStart = radius * 0.80f, fEnd = radius * 0.97f;
+    // Fade IN over exactly the previous ring's fade-OUT window -> seamless handoff.
+    rings[i] = {c, prevStart, prevEnd, fStart, fEnd};
+    prevStart = fStart;
+    prevEnd = fEnd;
   }
-  const float farRadius = prevRadius;  // outermost ring radius (for the draw fade)
+  const float farRadius =
+      float(params_.grid) * params_.cell * kRingMul[kNumRings - 1] * 0.5f;
 
   for (const Ring& ring : rings) {
     // Anchor the grid to world cells (not the camera) so the blade field stays
@@ -469,8 +477,9 @@ void GpuGrass::render(QOpenGLExtraFunctions* gl, const QMatrix4x4& proj,
     comp_.setUniformValue("u_vp", vp);
     comp_.setUniformValue("u_falloffStart", ring.falloffStart);
     comp_.setUniformValue("u_falloffEnd", ring.falloffEnd);
-    comp_.setUniformValue("u_innerCut", ring.innerCut);
-    comp_.setUniformValue("u_heightScale", ring.heightScale);
+    comp_.setUniformValue("u_innerStart", ring.innerStart);
+    comp_.setUniformValue("u_innerEnd", ring.innerEnd);
+    comp_.setUniformValue("u_farRadius", farRadius);
     gl->glBindImageTexture(0, heightTex_, 0, GL_FALSE, 0, GL_READ_ONLY, GL_R32F);
     gl->glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, ssbo_);
     gl->glBindBufferBase(GL_ATOMIC_COUNTER_BUFFER, 1, counter_);
