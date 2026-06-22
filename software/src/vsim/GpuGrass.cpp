@@ -133,13 +133,13 @@ const char* kVert = R"GLSL(
 #version 430 core
 layout(location=0) in vec3 a_local;
 layout(location=1) in vec3 a_normal;
-struct Blade { vec4 posyaw; vec4 hf; vec4 tint; };
-layout(std430, binding=0) buffer Blades { Blade blades[]; };
+layout(location=2) in vec4 i_posyaw;   // per-instance (from the compute-written buffer)
+layout(location=3) in vec4 i_hf;
+layout(location=4) in vec4 i_tint;
 uniform mat4 u_vp; uniform vec3 u_campos; uniform float u_time, u_fadestart, u_fadeend;
 out vec3 v_color; out vec3 v_world; out vec3 v_normal; out float v_hf; out float v_flower;
 void main(){
-  Blade b=blades[gl_InstanceID];
-  vec3 ipos=b.posyaw.xyz; float yaw=b.posyaw.w, height=b.hf.x, flower=b.hf.y;
+  vec3 ipos=i_posyaw.xyz; float yaw=i_posyaw.w, height=i_hf.x, flower=i_hf.y;
   float hf=-a_local.z;
   float d=length(ipos-u_campos);
   height*=1.0-clamp((d-u_fadestart)/max(u_fadeend-u_fadestart,1.0),0.0,1.0);
@@ -148,7 +148,7 @@ void main(){
   vec3 r=vec3(c*L.x-s*L.y, s*L.x+c*L.y, L.z);
   float w=sin(u_time*1.6+ipos.x*0.22+ipos.y*0.18);
   vec3 world=ipos+vec3(r.xy+vec2(0.80,0.55)*(w*0.14*height*hf*hf), r.z);
-  v_world=world; v_color=b.tint.xyz; v_hf=hf; v_flower=flower;
+  v_world=world; v_color=i_tint.xyz; v_hf=hf; v_flower=flower;
   v_normal=vec3(c*a_normal.x-s*a_normal.y, s*a_normal.x+c*a_normal.y, a_normal.z);
   gl_Position=u_vp*vec4(world,1.0);
 }
@@ -264,14 +264,32 @@ void GpuGrass::buildBlade(QOpenGLExtraFunctions* gl) {
   bladeVbo_.allocate(v.data(), int(v.size() * sizeof(float)));
   vao_.create();
   vao_.bind();
-  const int stride = 6 * sizeof(float);
+  // Per-vertex blade geometry (divisor 0) from bladeVbo_.
+  const int gstride = 6 * sizeof(float);
   gl->glEnableVertexAttribArray(0);
-  gl->glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, nullptr);
+  gl->glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, gstride, nullptr);
   gl->glEnableVertexAttribArray(1);
-  gl->glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, stride,
+  gl->glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, gstride,
                             reinterpret_cast<void*>(3 * sizeof(float)));
-  vao_.release();
   bladeVbo_.release();
+  // Per-instance blade data (divisor 1) read from the SAME buffer the compute
+  // writes — but as vertex attributes, which avoids the (often unsupported)
+  // SSBO-read-in-vertex-shader. Layout: 3 vec4 = 48 bytes per blade.
+  gl->glBindBuffer(GL_ARRAY_BUFFER, ssbo_);
+  const int istride = 12 * sizeof(float);
+  gl->glEnableVertexAttribArray(2);
+  gl->glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, istride, nullptr);
+  gl->glVertexAttribDivisor(2, 1);
+  gl->glEnableVertexAttribArray(3);
+  gl->glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, istride,
+                            reinterpret_cast<void*>(4 * sizeof(float)));
+  gl->glVertexAttribDivisor(3, 1);
+  gl->glEnableVertexAttribArray(4);
+  gl->glVertexAttribPointer(4, 4, GL_FLOAT, GL_FALSE, istride,
+                            reinterpret_cast<void*>(8 * sizeof(float)));
+  gl->glVertexAttribDivisor(4, 1);
+  gl->glBindBuffer(GL_ARRAY_BUFFER, 0);
+  vao_.release();
 }
 
 void GpuGrass::render(QOpenGLExtraFunctions* gl, const QMatrix4x4& proj,
@@ -356,6 +374,7 @@ void GpuGrass::render(QOpenGLExtraFunctions* gl, const QMatrix4x4& proj,
           double(origin.y()), double(camPos.x()), double(camPos.y()));
 
   // --- draw ---
+  while (gl->glGetError() != 0u) {}  // clear pending errors
   draw_.bind();
   draw_.setUniformValue("u_vp", vp);
   draw_.setUniformValue("u_campos", camPos);
@@ -365,12 +384,16 @@ void GpuGrass::render(QOpenGLExtraFunctions* gl, const QMatrix4x4& proj,
   draw_.setUniformValue("u_sundir", sunDir);
   draw_.setUniformValue("u_fogdensity", 1.0f / 420.0f);
   draw_.setUniformValue("u_fogstart", 45.0f);
-  gl->glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, ssbo_);
-  vao_.bind();
+  vao_.bind();  // per-instance blade data read as vertex attributes (no SSBO read)
   gl->glBindBuffer(GL_DRAW_INDIRECT_BUFFER, indirect_);
   gl->glDrawArraysIndirect(GL_TRIANGLES, nullptr);
+  const unsigned int err = gl->glGetError();
   vao_.release();
   draw_.release();
+  static int dframe = 0;
+  if (err != 0u && (dframe++ % 90) == 0)
+    qInfo("[GpuGrass] DRAW gl error 0x%x (verts=%d instances=%u)", err,
+          bladeVerts_, lastCount_);
 }
 
 }  // namespace vsim
