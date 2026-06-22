@@ -57,8 +57,11 @@ class GpuGrass {
 
   bool ready_ = false;
   Params params_;
-  QOpenGLShaderProgram comp_;   // generation
+  QOpenGLShaderProgram fill_;   // fill the height texture (noise once per texel)
+  QOpenGLShaderProgram comp_;   // generation (samples the height texture)
   QOpenGLShaderProgram draw_;   // render
+  unsigned int heightTex_ = 0;  // R32F terrain-height image around the camera
+  int texSize_ = 512;
   unsigned int ssbo_ = 0;       // blade instances (binding 0)
   unsigned int indirect_ = 0;   // DrawArraysIndirectCommand
   unsigned int counter_ = 0;    // dedicated atomic counter (copied into indirect)
