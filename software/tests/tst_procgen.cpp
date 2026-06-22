@@ -7,6 +7,7 @@
 #include <QtTest/QtTest>
 
 #include "ChunkStreamer.h"
+#include "procgen/Flora.h"
 #include "procgen/Heightfield.h"
 #include "procgen/Noise.h"
 #include "procgen/TerrainField.h"
@@ -44,6 +45,8 @@ class TstProcgen : public QObject {
   void streamerLoadsNeighborhood();
   void streamerStableWithinCell();
   void streamerPagesOnCrossing();
+  void floraSitsOnSurfaceAndDeterministic();
+  void floraTilesWithoutDuplicates();
 };
 
 void TstProcgen::noiseIsDeterministicAndBounded() {
@@ -285,6 +288,51 @@ void TstProcgen::streamerPagesOnCrossing() {
   QCOMPARE(d.builds, static_cast<std::size_t>(2 * r + 1));
   QCOMPARE(d.removes, static_cast<std::size_t>(2 * r + 1));
   QVERIFY(d.collision);  // centre changed cell -> collision reshipped
+}
+
+void TstProcgen::floraSitsOnSurfaceAndDeterministic() {
+  FieldParams fp;
+  fp.seed = 4u;
+  TerrainField f(fp);
+  FloraParams gp;
+  gp.seed = 4u;
+  gp.spacing = 2.0f;
+  const std::vector<FloraInstance> a = scatterFlora(f, 0, 0, 160.0f, gp);
+  const std::vector<FloraInstance> b = scatterFlora(f, 0, 0, 160.0f, gp);
+  QVERIFY(!a.empty());
+  QCOMPARE(a.size(), b.size());
+  for (std::size_t i = 0; i < a.size(); ++i) {
+    // Deterministic.
+    QCOMPARE(a[i].pos.x, b[i].pos.x);
+    QCOMPARE(a[i].pos.z, b[i].pos.z);
+    // Base sits on the surface (z == -height at the blade's xy).
+    const float surf = -f.height(a[i].pos.x, a[i].pos.y);
+    QVERIFY(std::fabs(a[i].pos.z - surf) < 1e-2f);
+    // Height + colour are sane.
+    QVERIFY(a[i].height >= gp.minHeight - 1e-3f &&
+            a[i].height <= gp.maxHeight * 1.2f + 1e-3f);
+    QVERIFY(a[i].tint.x >= 0.0f && a[i].tint.x <= 1.0f);
+  }
+}
+
+void TstProcgen::floraTilesWithoutDuplicates() {
+  // A blade is owned by exactly one chunk: the same world cell must not appear
+  // in two adjacent chunks. Check no blade in chunk (1,0) lies in chunk (0,0)'s
+  // x-range and vice versa — ownership is by the unjittered cell centre, so
+  // positions stay within (roughly) their chunk.
+  FieldParams fp;
+  TerrainField f(fp);
+  FloraParams gp;
+  gp.spacing = 2.0f;
+  const float chunkM = 160.0f;
+  const std::vector<FloraInstance> c0 = scatterFlora(f, 0, 0, chunkM, gp);
+  const std::vector<FloraInstance> c1 = scatterFlora(f, 1, 0, chunkM, gp);
+  QVERIFY(!c0.empty() && !c1.empty());
+  // Jitter can push a base slightly over the seam; allow a small margin.
+  for (const FloraInstance& b : c0)
+    QVERIFY(b.pos.x < chunkM + gp.spacing);
+  for (const FloraInstance& b : c1)
+    QVERIFY(b.pos.x >= chunkM - gp.spacing);
 }
 
 QTEST_MAIN(TstProcgen)

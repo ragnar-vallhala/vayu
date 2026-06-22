@@ -178,5 +178,6 @@ navigator_test(tst_procgen
     ${SRC}/vsim/procgen/Noise.cpp
     ${SRC}/vsim/procgen/TerrainGen.cpp
     ${SRC}/vsim/procgen/TerrainField.cpp
+    ${SRC}/vsim/procgen/Flora.cpp
     ${SRC}/vsim/ChunkStreamer.cpp)
 target_include_directories(tst_procgen PRIVATE ${SRC}/vsim)
