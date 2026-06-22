@@ -1,0 +1,31 @@
+{
+  "_comment": "Current live on-hardware rig tune (geometry + gains) as applied this session. Re-apply after every battery cycle: python3 tools/apply_tune.py --file rig_tune.json. NOTHING on the FC persists across power cycles. Pitch is a roll-seeded stabilization (stiff inner + slow outer) to break the angle_kp=4.0 cascade runaway; pitch sysid still pending. See memory onhw-sysid-phase0.",
+  "captured": "2026-06-22",
+  "airframe": "X-quad on a free-rotating rig (raised inertia). Motors: M1,M3 CW, M2,M4 CCW. IMU aligned.",
+
+  "motor_geometry": {
+    "_comment": "Spin INVERTED vs firmware default -> flips s_mix_yaw only (default spin-sign was backwards, causing yaw positive feedback). Keeps roll/pitch mix identical. REQUIRED.",
+    "pos_x": [1.0, -1.0, -1.0, 1.0],
+    "pos_y": [1.0, 1.0, -1.0, -1.0],
+    "spin":  [-1, 1, -1, 1]
+  },
+
+  "rate_pid": {
+    "_comment": "controller=1 (rate). roll sysid-tuned; pitch SEEDED from roll (X-quad roll~=pitch inertia) to give a stiff inner loop so the slow outer loop can't cascade -- pitch's own sysid is still pending; yaw firmware default (stable with geometry fix).",
+    "roll":  { "kp": 0.01200, "ki": 0.00811, "kd": 0.00025, "kff": 0.0, "status": "sysid-tuned" },
+    "pitch": { "kp": 0.01200, "ki": 0.00500, "kd": 0.00010, "kff": 0.0, "status": "seed-from-roll (pitch sysid pending)" },
+    "yaw":   { "kp": 0.01800, "ki": 0.00800, "kd": 0.0,     "kff": 0.0, "status": "default (stable with geometry fix)" }
+  },
+
+  "angle_pid": {
+    "_comment": "controller=0 (angle). roll from sysid loop-shaping; pitch SOFTENED 4.0->1.0 (firmware default 4.0 over the soft inner loop caused the ~300 dps pitch cascade runaway). yaw left at firmware default.",
+    "roll":  { "kp": 1.6898, "ki": 0.0, "kd": 0.0, "kff": 0.0, "status": "sysid-tuned" },
+    "pitch": { "kp": 1.0,    "ki": 0.0, "kd": 0.0, "kff": 0.0, "status": "cascade fix (4.0 -> 1.0)" }
+  },
+
+  "identified_plant": {
+    "_comment": "rate-loop plant omega/u = K/(s(tau s + 1)). roll: archived rig chirp (live gains). roll_2: this session's re-chirp (lower R^2; gains NOT applied).",
+    "roll":   { "K": 563.3, "tau_ms": 20.88, "actuator_bw_hz": 7.6,  "r2": 0.827, "note": "archived fit; these gains are the live roll gains above" },
+    "roll_2": { "K": 355.3, "tau_ms": 9.99,  "actuator_bw_hz": 15.9, "r2": 0.705, "note": "2026-06-22 re-chirp; not applied (u saturation + 80 dropped samples)" }
+  }
+}
