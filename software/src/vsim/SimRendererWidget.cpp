@@ -46,10 +46,11 @@ void main() {
 // Shared atmosphere GLSL. Appended after the #version + uniform/in decls of
 // BOTH the sky and lit fragment shaders so distant terrain fog fades into
 // exactly the sky behind it (no edge seam). Declares u_sundir; defines the sky
-// gradient + sun glow and an ACES filmic tonemap.
+// gradient + a warm sun glow. (No tonemap: the terrain albedo/lighting are
+// already display-referred, so we show them directly — an ACES pass here, with
+// no linear/sRGB management around it, just shifted the colors.)
 const char* kAtmosphereGLSL = R"GLSL(
 uniform vec3 u_sundir;     // unit direction toward the sun (world, NED)
-const float kExposure = 1.15;
 vec3 skyColor(vec3 dir) {
   float up = -dir.z;        // NED up is -Z
   vec3 zenith  = vec3(0.15, 0.35, 0.66);
@@ -59,12 +60,8 @@ vec3 skyColor(vec3 dir) {
       ? mix(horizon, zenith, pow(clamp(up, 0.0, 1.0), 0.45))
       : mix(horizon, ground, clamp(-up * 2.5, 0.0, 1.0));
   float s = max(dot(normalize(dir), normalize(u_sundir)), 0.0);
-  col += vec3(0.40, 0.32, 0.20) * pow(s, 8.0) * step(0.0, up);  // warm sun glow
+  col += vec3(0.30, 0.24, 0.15) * pow(s, 8.0) * step(0.0, up);  // warm sun glow
   return col;
-}
-vec3 aces(vec3 x) {
-  const float a = 2.51, b = 0.03, c = 2.43, d = 0.59, e = 0.14;
-  return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
 }
 )GLSL";
 
@@ -107,11 +104,12 @@ const char* kLitFragmentMain = R"GLSL(
 void main() {
   vec3 n = normalize(v_normal);
   float ndl = max(dot(n, normalize(u_sundir)), 0.0);
+  // Hemispheric ambient: NED up is -Z, so up-facing (n.z<0) catches sky light.
   float hemi = 0.5 + 0.5 * (-n.z);                 // 0 down .. 1 up
-  vec3 ambient = mix(vec3(0.20, 0.22, 0.26),
-                     vec3(0.45, 0.48, 0.54), clamp(hemi, 0.0, 1.0));
+  vec3 ambient = mix(vec3(0.18, 0.19, 0.22),
+                     vec3(0.40, 0.43, 0.48), clamp(hemi, 0.0, 1.0));
   vec3 base = u_color * v_color;
-  vec3 lit  = base * (ambient + vec3(1.0) * ndl);
+  vec3 lit  = base * (ambient + vec3(0.85) * ndl);
   // Aerial perspective: fade toward the sky behind the surface with distance,
   // so the streamed-terrain edge dissolves into haze.
   vec3 toFrag = v_world - u_campos;
@@ -119,8 +117,7 @@ void main() {
   vec3 vdir = dist > 1e-4 ? toFrag / dist : vec3(0.0, 0.0, 1.0);
   float fd = max(dist - u_fogstart, 0.0) * u_fogdensity;
   float fog = 1.0 - exp(-fd * fd);
-  vec3 col = mix(lit, skyColor(vdir), clamp(fog, 0.0, 1.0));
-  o_color = vec4(aces(col * kExposure), 1.0);
+  o_color = vec4(mix(lit, skyColor(vdir), clamp(fog, 0.0, 1.0)), 1.0);
 }
 )GLSL";
 
@@ -149,7 +146,7 @@ void main() {
   vec4 wn = u_invvp * vec4(v_ndc, -1.0, 1.0);
   vec4 wf = u_invvp * vec4(v_ndc,  1.0, 1.0);
   vec3 dir = normalize(wf.xyz / wf.w - wn.xyz / wn.w);
-  o_color = vec4(aces(skyColor(dir) * kExposure), 1.0);
+  o_color = vec4(skyColor(dir), 1.0);
 }
 )GLSL";
 
