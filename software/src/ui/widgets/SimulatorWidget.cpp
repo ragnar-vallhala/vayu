@@ -2041,6 +2041,7 @@ void SimulatorWidget::loadWorldMeshToRenderer() {
     m_chunkCache.clear();
     m_floraCache.clear();
     m_floraShown.clear();
+    m_floraInflight.clear();
     m_collisionPending = false;
     if (m_streamTimer) m_streamTimer->stop();
     m_renderer->clearWorldChunks();
@@ -2068,6 +2069,7 @@ void SimulatorWidget::loadWorldMeshToRenderer() {
     m_chunkCache.clear();
     m_floraCache.clear();
     m_floraShown.clear();
+    m_floraInflight.clear();
     m_collisionPending = false;
 
     vsim::ChunkStreamer::Config sc;
@@ -2170,6 +2172,7 @@ void SimulatorWidget::onStreamTick() {
     m_chunkCache.erase(key);
     m_floraCache.erase(key);
     m_floraShown.erase(key);
+    m_floraInflight.erase(key);
     m_chunkStreamer.forget(key);
   }
 
@@ -2186,7 +2189,7 @@ void SimulatorWidget::onStreamTick() {
   const auto field = m_chunkStreamer.field();
   const float chunkM = m_chunkStreamer.config().chunkM;
   const int res = m_chunkStreamer.config().resolution;
-  const uint32_t seed = m_chunkStreamer.config().field.seed;
+  const int collRes = m_chunkStreamer.config().collisionResolution;
   const int gen = m_streamGen;
   for (const vsim::ChunkReq& req : p.toBuild) {
     auto* watcher = new QFutureWatcher<BuiltChunk>(this);
@@ -2195,12 +2198,11 @@ void SimulatorWidget::onStreamTick() {
       else m_chunkStreamer.forget(req.key);  // stale: config changed mid-build
       watcher->deleteLater();
     });
-    watcher->setFuture(QtConcurrent::run([field, req, chunkM, res, seed]() {
+    watcher->setFuture(QtConcurrent::run([field, req, chunkM, res, collRes]() {
       BuiltChunk b;
       b.mesh = vsim::procgen::meshFieldChunk(*field, req.cx, req.cy, chunkM, res);
-      vsim::procgen::FloraParams fp;
-      fp.seed = seed;
-      b.flora = vsim::procgen::scatterFlora(*field, req.cx, req.cy, chunkM, fp);
+      b.collMesh =
+          vsim::procgen::meshFieldChunk(*field, req.cx, req.cy, chunkM, collRes);
       return b;
     }));
   }
@@ -2214,24 +2216,13 @@ void SimulatorWidget::onChunkMeshed(qint64 key, const BuiltChunk& built) {
     m_chunkStreamer.forget(key);
     return;
   }
-  m_chunkCache[key] = built.mesh;  // retained so collision can reuse it (no regen)
-  const vsim::ChunkMeshData d = vsim::toChunkMeshData(key, m_chunkCache[key]);
+  // Cache the COARSE mesh for collision reuse; upload the FINE mesh for render.
+  // Flora is scattered separately (streamFlora), only for the near chunks.
+  m_chunkCache[key] = built.collMesh;
+  const vsim::ChunkMeshData d = vsim::toChunkMeshData(key, built.mesh);
   m_renderer->setWorldChunk(d.key, d.positions, d.normals, d.colors);
   if (m_downRenderer)
     m_downRenderer->setWorldChunk(d.key, d.positions, d.normals, d.colors);
-
-  // Flora: pack instances [pos, yaw,height,flower, tint] -> 9 floats each, cache
-  // them, and upload only if this chunk is near the view centre.
-  std::vector<float> fd;
-  fd.reserve(built.flora.size() * 9);
-  for (const vsim::procgen::FloraInstance& g : built.flora) {
-    fd.insert(fd.end(), {g.pos.x, g.pos.y, g.pos.z, g.yaw, g.height, g.flower,
-                         g.tint.x, g.tint.y, g.tint.z});
-  }
-  m_floraCache[key] = {std::move(fd), static_cast<int>(built.flora.size())};
-  if (std::abs(vsim::ChunkStreamer::cxOf(key) - m_colCx) <= kFloraRadius &&
-      std::abs(vsim::ChunkStreamer::cyOf(key) - m_colCy) <= kFloraRadius)
-    uploadFloraChunk(key);
 
   tryBuildCollision();
 }
@@ -2257,13 +2248,49 @@ void SimulatorWidget::streamFlora(int cx, int cy) {
     if (m_downRenderer) m_downRenderer->removeChunkFlora(key);
     m_floraShown.erase(key);
   }
-  // Add cached grass that came into range.
+  // Bring grass into range: upload from cache, or scatter it off-thread.
+  const auto field = m_chunkStreamer.field();
+  if (!field) return;
+  const float chunkM = m_chunkStreamer.config().chunkM;
+  const uint32_t seed = m_chunkStreamer.config().field.seed;
+  const int gen = m_streamGen;
   for (int j = cy - kFloraRadius; j <= cy + kFloraRadius; ++j)
     for (int i = cx - kFloraRadius; i <= cx + kFloraRadius; ++i) {
       const qint64 key = vsim::ChunkStreamer::keyOf(i, j);
-      if (m_floraShown.count(key) == 0 && m_floraCache.count(key) != 0)
-        uploadFloraChunk(key);
+      if (m_floraShown.count(key)) continue;
+      if (m_floraCache.count(key)) { uploadFloraChunk(key); continue; }
+      if (m_floraInflight.count(key)) continue;
+      m_floraInflight.insert(key);
+      const int fcx = i, fcy = j;
+      auto* w = new QFutureWatcher<std::vector<float>>(this);
+      connect(w, &QFutureWatcherBase::finished, this, [this, w, key, gen]() {
+        if (gen == m_streamGen) onFloraScattered(key, w->result());
+        else m_floraInflight.erase(key);
+        w->deleteLater();
+      });
+      w->setFuture(QtConcurrent::run([field, fcx, fcy, chunkM, seed]() {
+        vsim::procgen::FloraParams fp;
+        fp.seed = seed;
+        const auto blades =
+            vsim::procgen::scatterFlora(*field, fcx, fcy, chunkM, fp);
+        std::vector<float> d;
+        d.reserve(blades.size() * 9);
+        for (const vsim::procgen::FloraInstance& g : blades)
+          d.insert(d.end(), {g.pos.x, g.pos.y, g.pos.z, g.yaw, g.height,
+                             g.flower, g.tint.x, g.tint.y, g.tint.z});
+        return d;
+      }));
     }
+}
+
+void SimulatorWidget::onFloraScattered(qint64 key,
+                                       const std::vector<float>& packed) {
+  m_floraInflight.erase(key);
+  m_floraCache[key] = {packed, static_cast<int>(packed.size() / 9)};
+  // Upload only if it's still within the near radius of the current centre.
+  if (std::abs(vsim::ChunkStreamer::cxOf(key) - m_colCx) <= kFloraRadius &&
+      std::abs(vsim::ChunkStreamer::cyOf(key) - m_colCy) <= kFloraRadius)
+    uploadFloraChunk(key);
 }
 
 void SimulatorWidget::tryBuildCollision() {

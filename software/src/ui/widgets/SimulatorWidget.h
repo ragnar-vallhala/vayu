@@ -67,8 +67,8 @@ namespace vsim { struct LoadedMesh; }
 // grass/flower instances scattered on it. Carried back to the UI thread via a
 // QFuture.
 struct BuiltChunk {
-  vsim::procgen::ProcMesh mesh;
-  std::vector<vsim::procgen::FloraInstance> flora;
+  vsim::procgen::ProcMesh mesh;      // fine, for rendering
+  vsim::procgen::ProcMesh collMesh;  // coarse, for the collision BVH
 };
 
 class SimulatorWidget : public QWidget {
@@ -166,6 +166,7 @@ class SimulatorWidget : public QWidget {
   // are uploaded (the rest stay cached). streamFlora adds/removes as you move.
   void streamFlora(int cx, int cy);
   void uploadFloraChunk(qint64 key);
+  void onFloraScattered(qint64 key, const std::vector<float>& packed);
   // Build + ship the local collision BVH from cached chunk meshes once the whole
   // collision neighbourhood is present (no terrain regeneration).
   void tryBuildCollision();
@@ -249,6 +250,7 @@ class SimulatorWidget : public QWidget {
   // currently uploaded to the renderer (only the near ones, for perf).
   std::unordered_map<qint64, std::pair<std::vector<float>, int>> m_floraCache;
   std::set<qint64> m_floraShown;
+  std::set<qint64> m_floraInflight;       // flora scatters in progress
   static constexpr int kFloraRadius = 1;  // chunks each side kept grassed
 
   // Lift-onto-terrain: a height sampler for the active procedural world (null
