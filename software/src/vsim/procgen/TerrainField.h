@@ -22,13 +22,13 @@ namespace vsim::procgen {
 
 struct FieldParams {
   uint32_t seed = 1337u;
-  float heightM = 80.0f;     // peak (mountain) elevation above ground [m]
-  float featureM = 150.0f;   // metres of the largest detail feature
+  float heightM = 70.0f;     // peak (mountain) elevation above ground [m]
+  float featureM = 220.0f;   // metres of the largest detail feature (broader)
   float macroM = 1400.0f;    // metres of the macro range/basin placement field
-  int octaves = 7;           // detail layers (more = finer relief)
+  int octaves = 6;           // detail layers (6 is plenty; 7 over-sharpened)
   float lacunarity = 2.0f;
   float gain = 0.5f;
-  float mountainMix = 0.6f;  // ridged-peak weight inside mountainous regions
+  float mountainMix = 0.55f; // ridged-ridge weight inside mountainous regions
 };
 
 class TerrainField {
