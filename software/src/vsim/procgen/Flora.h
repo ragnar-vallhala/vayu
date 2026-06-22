@@ -37,8 +37,8 @@ struct FloraParams {
   // Extra blades scattered per grid cell — multiplies density much more cheaply
   // than shrinking the spacing (the field grid is sampled once per cell).
   float bladesPerCell = 1.0f;
-  float heightMean = 0.34f;    // blade height: normal distribution [m]
-  float heightStdDev = 0.09f;
+  float heightMean = 1.0f;     // blade height: normal distribution [m]
+  float heightStdDev = 0.3f;
   float flowerFrac = 0.02f;    // fraction of blades that become flowers
 };
 
