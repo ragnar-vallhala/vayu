@@ -208,6 +208,9 @@ set(GCS_SITL_SOURCES
     src/vsim/SimRendererWidget.cpp
     src/vsim/MeshLoader.cpp
     src/vsim/WorldMeshBuilder.cpp
+    src/vsim/ProceduralWorld.cpp
+    src/vsim/procgen/Noise.cpp
+    src/vsim/procgen/TerrainGen.cpp
     src/vsim/MassProperties.cpp
     src/vsim/RcBridge.cpp
     src/vsim/TrainingCourse.cpp
@@ -225,6 +228,11 @@ set(GCS_SITL_HEADERS
     src/vsim/SimRendererWidget.h
     src/vsim/MeshLoader.h
     src/vsim/WorldMeshBuilder.h
+    src/vsim/ProceduralWorld.h
+    src/vsim/procgen/ProcgenTypes.h
+    src/vsim/procgen/Noise.h
+    src/vsim/procgen/Heightfield.h
+    src/vsim/procgen/TerrainGen.h
     src/vsim/MassProperties.h
     src/vsim/RcBridge.h
     src/vsim/TrainingCourse.h

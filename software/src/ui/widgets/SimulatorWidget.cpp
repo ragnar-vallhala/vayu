@@ -3,6 +3,7 @@
 #include "core/Units.h"
 
 #include "../../vsim/MeshLoader.h"
+#include "../../vsim/ProceduralWorld.h"
 #include "../../vsim/WorldMeshBuilder.h"
 #include "CollapsibleSection.h"
 #include "comm/PortArbiter.h"
@@ -1961,6 +1962,30 @@ void SimulatorWidget::updateTrainingProgress() {
 void SimulatorWidget::loadWorldMeshToRenderer() {
   if (!m_renderer || !m_worldEditor) return;
   const vsim::WorldConfig& w = m_worldEditor->config();
+
+  // Procedural world takes precedence over an imported mesh: generate it from
+  // the biome params and feed the same render + collision pipeline.
+  if (!w.proceduralBiome.isEmpty()) {
+    const vsim::LoadedMesh m = vsim::generateProceduralWorld(w);
+    if (!m.valid) {
+      appendLog("world", tr("procedural world: unknown biome '%1'")
+                             .arg(w.proceduralBiome));
+      m_renderer->setWorldMesh({}, {});
+      if (m_downRenderer) m_downRenderer->setWorldMesh({}, {});
+      if (m_sim) m_sim->clearWorldMesh();
+      return;
+    }
+    m_renderer->setWorldMesh(m.positions, m.normals, m.colors);
+    if (m_downRenderer)
+      m_downRenderer->setWorldMesh(m.positions, m.normals, m.colors);
+    appendLog("world", tr("procedural world '%1' (seed %2): %3 tris")
+                           .arg(w.proceduralBiome)
+                           .arg(w.proceduralSeed)
+                           .arg(m.triangleCount()));
+    if (m_sim) sendWorldMeshToSim(m);
+    return;
+  }
+
   if (w.worldMeshPath.isEmpty()) {
     m_renderer->setWorldMesh({}, {});
     if (m_downRenderer) m_downRenderer->setWorldMesh({}, {});
