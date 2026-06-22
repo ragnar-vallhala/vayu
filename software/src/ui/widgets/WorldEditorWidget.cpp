@@ -81,6 +81,7 @@ QJsonObject worldToJson(const vsim::WorldConfig& w) {
         {"height_m", w.field.heightM},
         {"feature_m", w.field.featureM},
         {"mountain_mix", w.field.mountainMix},
+        {"max_slope", w.field.maxSlope},
         {"col_brown", w.field.colBrownT},
         {"col_rock", w.field.colRockT},
         {"col_snow", w.field.colSnowT},
@@ -129,6 +130,7 @@ vsim::WorldConfig worldFromJson(const QJsonObject& root) {
   w.field.heightM = pg.value("height_m").toDouble(w.field.heightM);
   w.field.featureM = pg.value("feature_m").toDouble(w.field.featureM);
   w.field.mountainMix = pg.value("mountain_mix").toDouble(w.field.mountainMix);
+  w.field.maxSlope = pg.value("max_slope").toDouble(w.field.maxSlope);
   w.field.colBrownT = pg.value("col_brown").toDouble(w.field.colBrownT);
   w.field.colRockT = pg.value("col_rock").toDouble(w.field.colRockT);
   w.field.colSnowT = pg.value("col_snow").toDouble(w.field.colSnowT);
@@ -444,6 +446,7 @@ void WorldEditorWidget::buildProceduralTuningSection(QVBoxLayout* root) {
     knob(f, tr("Peak height:"), 5, 250, 0, 5, &cfg_.field.heightM, tr(" m"));
     knob(f, tr("Feature size:"), 40, 800, 0, 10, &cfg_.field.featureM, tr(" m"));
     knob(f, tr("Mountain amount:"), 0, 1, 2, 0.05, &cfg_.field.mountainMix, {});
+    knob(f, tr("Max slope (rise/run):"), 0.2, 8.0, 2, 0.1, &cfg_.field.maxSlope, {});
     col->addLayout(f);
   }
   group(tr("Surface colour — elevation fraction (0=valley, 1=peak)"));
