@@ -179,11 +179,12 @@ void main() {
   float fade = 1.0 - clamp((d - u_fadestart) / max(u_fadeend - u_fadestart, 1.0),
                            0.0, 1.0);
   height *= fade;
-  // Flowers fan their top out into a small bloom.
-  vec2 xy = a_local.xy * (1.0 + flower * hf * hf * 5.0);
+  // Scale the whole curved blade (arc + width + length) by its height.
+  vec3 L = a_local * height;
+  L.xy *= (1.0 + flower * hf * hf * 5.0);       // flowers fan a bloom at the tip
   float s = sin(yaw), c = cos(yaw);
-  vec3 r = vec3(c * xy.x - s * xy.y, s * xy.x + c * xy.y, a_local.z * height);
-  // Wind: bend the tip along a world direction, strongest near the tip.
+  vec3 r = vec3(c * L.x - s * L.y, s * L.x + c * L.y, L.z);
+  // Wind: extra bend on top of the baked arc, strongest near the tip.
   float w = sin(u_time * 1.6 + i_pos.x * 0.22 + i_pos.y * 0.18);
   vec2 bend = vec2(0.80, 0.55) * (w * 0.14 * height * hf * hf);
   vec3 world = i_pos + vec3(r.xy + bend, r.z);
@@ -886,22 +887,35 @@ void SimRendererWidget::flushChunkUpdates() {
 }
 
 void SimRendererWidget::buildGrassBlade() {
-  // A unit blade: two crossed tapered quads, base at z=0, tip at z=-1 (NED up).
-  const float wb = 0.05f;   // base half-width
-  const float wt = 0.006f;  // tip half-width
-  auto quad = [](std::vector<float>& v, float ax, float ay, float bx, float by) {
-    // base edge (ax,ay)..(bx,by) at z=0, tip edge tapered toward 0 at z=-1.
-    const float tax = ax * 0.12f, tay = ay * 0.12f;  // tip keeps a sliver
-    const float tbx = bx * 0.12f, tby = by * 0.12f;
-    // tri 1: base-a, base-b, tip-b
-    v.insert(v.end(), {ax, ay, 0.0f, bx, by, 0.0f, tbx, tby, -1.0f});
-    // tri 2: base-a, tip-b, tip-a
-    v.insert(v.end(), {ax, ay, 0.0f, tbx, tby, -1.0f, tax, tay, -1.0f});
+  // A single curved blade (UE5-style): a quadratic Bezier spine swept into a
+  // tapered strip. Local space: base at origin, up = -Z, the arc leans toward
+  // +X; per-instance yaw randomises the lean direction and the vertex shader
+  // scales it by the blade height. Width tapers to a near-point at the tip.
+  const int kSeg = 4;
+  const float wb = 0.05f;                       // base half-width
+  const float P0x = 0.0f,  P0z = 0.0f;          // base
+  const float P1x = 0.14f, P1z = -0.55f;        // mid (slight forward)
+  const float P2x = 0.42f, P2z = -1.0f;         // tip (arched over)
+  auto bez = [&](float t, float& x, float& z) {
+    const float u = 1.0f - t;
+    x = u * u * P0x + 2.0f * u * t * P1x + t * t * P2x;
+    z = u * u * P0z + 2.0f * u * t * P1z + t * t * P2z;
   };
+  // Taper, with a small minimum so flowers can fan a bloom at the tip.
+  auto width = [&](float t) { return wb * (0.06f + 0.94f * std::pow(1.0f - t, 0.7f)); };
+
   std::vector<float> v;
-  quad(v, -wb, 0.0f, wb, 0.0f);   // quad in the X plane
-  quad(v, 0.0f, -wb, 0.0f, wb);   // crossed quad in the Y plane
-  (void)wt;
+  auto vert = [&](float x, float y, float z) { v.insert(v.end(), {x, y, z}); };
+  for (int s = 0; s < kSeg; ++s) {
+    const float t0 = float(s) / kSeg, t1 = float(s + 1) / kSeg;
+    float x0, z0, x1, z1;
+    bez(t0, x0, z0);
+    bez(t1, x1, z1);
+    const float w0 = width(t0), w1 = width(t1);
+    // Strip quad: +Y (left) / -Y (right) edges of the cross-sections.
+    vert(x0, +w0, z0); vert(x0, -w0, z0); vert(x1, -w1, z1);
+    vert(x0, +w0, z0); vert(x1, -w1, z1); vert(x1, +w1, z1);
+  }
   grassVbo_.create();
   grassVbo_.bind();
   grassVbo_.allocate(v.data(), int(v.size() * sizeof(float)));
