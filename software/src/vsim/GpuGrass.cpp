@@ -158,8 +158,8 @@ void main(){
   height*=1.0+0.32*ss(0.12*u_farRadius,0.85*u_farRadius,dist);
   float bend=0.55+0.9*rnd(hc*0x51e3u+11u);  // per-blade lean (top-down coverage + variety)
   bool fl=rnd(hc*0x1b873u+7u)<u_flowerFrac; vec3 tint;
-  if(fl){ float fh=rnd(hc*0x3a5fu+8u); tint=fh<0.45?vec3(0.93,0.83,0.30):(fh<0.78?vec3(0.90,0.55,0.62):vec3(0.95,0.95,0.97)); }
-  else { float v=0.82+0.36*rnd(hc*0x9f3bu+9u); tint=vec3((0.28+0.12*rnd(hc*0xc2b2u+10u))*v,0.50*v,0.17*v); }
+  if(fl){ float fh=rnd(hc*0x3a5fu+8u); tint=fh<0.45?vec3(0.78,0.70,0.26):(fh<0.78?vec3(0.74,0.46,0.52):vec3(0.80,0.80,0.82)); }
+  else { float v=0.62+0.30*rnd(hc*0x9f3bu+9u); tint=vec3((0.20+0.10*rnd(hc*0xc2b2u+10u))*v,0.36*v,0.13*v); }
   blades[idx].posyaw=vec4(wx,wy,-h,yaw);
   blades[idx].hf=vec4(height,fl?1.0:0.0,bend,0.0);
   blades[idx].tint=vec4(tint,0.0);
@@ -203,8 +203,8 @@ vec3 skyColor(vec3 dir){
 }
 void main(){
   // Darker stem at the base, blade colour toward the tip; flowers brighten the top.
-  vec3 stem=vec3(0.16,0.30,0.10);
-  vec3 grassAlbedo=mix(stem,v_color,smoothstep(0.20,0.85,v_hf));
+  vec3 stem=vec3(0.07,0.14,0.05);
+  vec3 grassAlbedo=mix(stem,v_color,smoothstep(0.15,0.85,v_hf));
   vec3 albedo=mix(grassAlbedo, mix(grassAlbedo,v_color,smoothstep(0.55,0.98,v_hf)), v_flower);
 
   // Soften the per-vertex normal toward up — real grass scatters light, so a
@@ -212,33 +212,32 @@ void main(){
   vec3 up=vec3(0.0,0.0,-1.0);
   vec3 n=normalize(mix(normalize(v_normal), up, 0.40));
   vec3 sun=normalize(u_sundir);
-  vec3 sunCol=vec3(1.10,0.98,0.80);   // warm key light
+  vec3 sunCol=vec3(0.78,0.76,0.68);   // soft, muted overcast key
 
   // Wrapped diffuse — softens the terminator so blades don't go flat-black.
   float ndl=dot(n,sun);
   float wrap=clamp(ndl*0.5+0.5,0.0,1.0); wrap*=wrap;
 
-  // Hemispheric sky ambient: cool blue from above, darker green bounce below.
+  // Hemispheric sky ambient: dim, cool from above, near-black bounce below.
   float hemi=clamp(0.5+0.5*(-n.z),0.0,1.0);
-  vec3 ambient=mix(vec3(0.13,0.17,0.13),vec3(0.40,0.50,0.60),hemi);
+  vec3 ambient=mix(vec3(0.05,0.07,0.06),vec3(0.24,0.29,0.34),hemi);
 
-  float ao=mix(0.40,1.0,v_hf);   // base is occluded by the canopy
-  vec3 col=albedo*(ambient + sunCol*wrap*1.05)*ao;
+  // Deep base shadow: the canopy heavily occludes its own base, so the lower
+  // blade goes nearly black and brightens toward the tip (the GoT dark-floor look).
+  float ao=mix(0.10,1.0,smoothstep(0.0,0.6,v_hf));
+  vec3 col=albedo*(ambient + sunCol*wrap*0.70)*ao;
 
   vec3 toFrag=v_world-u_campos; float dist=length(toFrag);
   vec3 vdir=dist>1e-4?toFrag/dist:vec3(0.0,0.0,1.0);
 
-  // Subsurface translucency: thin blades glow when backlit (camera looking
-  // toward the sun through the canopy). The signature GoT meadow look.
+  // Subsurface translucency: thin blades glow when backlit — softened for overcast.
   float back=pow(max(dot(vdir,sun),0.0),3.0);
-  col+=albedo*sunCol*back*(0.30+0.70*v_hf)*0.9;
+  col+=albedo*sunCol*back*(0.25+0.75*v_hf)*0.55;
 
-  // Soft anisotropic sheen along the blades.
+  // Faint anisotropic sheen along the blades.
   vec3 hv=normalize(sun-vdir);
-  float spec=pow(max(dot(n,hv),0.0),18.0)*0.22*v_hf;
+  float spec=pow(max(dot(n,hv),0.0),18.0)*0.12*v_hf;
   col+=sunCol*spec;
-  // Tip highlight.
-  col+=albedo*0.12*smoothstep(0.75,1.0,v_hf);
 
   float fd=max(dist-u_fogstart,0.0)*u_fogdensity;
   float fog=1.0-exp(-fd*fd);
@@ -315,7 +314,7 @@ void GpuGrass::setParams(const Params& p) { params_ = p; }
 void GpuGrass::buildBlade(QOpenGLExtraFunctions* gl) {
   // Bezier ribbon blade with per-vertex normals (single LOD; the GPU regenerates
   // every frame so a moderate vertex count is fine). Mirrors the CPU blade.
-  const float wb = 0.09f;  // base half-width (wider blades read less thin)
+  const float wb = 0.055f;  // base half-width (thin GoT-style blades)
   const float P0x = 0, P0z = 0, P1x = 0.14f, P1z = -0.55f, P2x = 0.42f, P2z = -1.0f;
   auto bez = [&](float t, float& x, float& z) {
     float u = 1 - t;
