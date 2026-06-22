@@ -176,5 +176,7 @@ target_include_directories(tst_about_dialog PRIVATE ${SRC}/ui/widgets)
 navigator_test(tst_procgen
     tst_procgen.cpp
     ${SRC}/vsim/procgen/Noise.cpp
-    ${SRC}/vsim/procgen/TerrainGen.cpp)
+    ${SRC}/vsim/procgen/TerrainGen.cpp
+    ${SRC}/vsim/procgen/TerrainField.cpp
+    ${SRC}/vsim/ChunkStreamer.cpp)
 target_include_directories(tst_procgen PRIVATE ${SRC}/vsim)

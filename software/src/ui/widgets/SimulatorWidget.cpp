@@ -1963,6 +1963,42 @@ void SimulatorWidget::loadWorldMeshToRenderer() {
   if (!m_renderer || !m_worldEditor) return;
   const vsim::WorldConfig& w = m_worldEditor->config();
 
+  const bool endless =
+      w.proceduralBiome.compare(QStringLiteral("endless"), Qt::CaseInsensitive) == 0;
+
+  // Leaving the endless biome: stop the streamer and drop its chunks so a
+  // finite mesh / grid shows cleanly.
+  if (!endless && m_chunkStreamer.active()) {
+    m_chunkStreamer.deactivate();
+    if (m_streamTimer) m_streamTimer->stop();
+    m_renderer->clearWorldChunks();
+    if (m_downRenderer) m_downRenderer->clearWorldChunks();
+  }
+
+  // Endless streaming biome: drive the chunk streamer instead of one mesh.
+  if (endless) {
+    m_renderer->setWorldMesh({}, {});
+    if (m_downRenderer) m_downRenderer->setWorldMesh({}, {});
+    m_renderer->clearWorldChunks();
+    if (m_downRenderer) m_downRenderer->clearWorldChunks();
+
+    vsim::ChunkStreamer::Config sc;
+    sc.field.seed = static_cast<uint32_t>(w.proceduralSeed);
+    m_chunkStreamer.configure(sc);
+
+    if (!m_streamTimer) {
+      m_streamTimer = new QTimer(this);
+      m_streamTimer->setInterval(100);  // 10 Hz poll of the view centre
+      connect(m_streamTimer, &QTimer::timeout, this,
+              &SimulatorWidget::onStreamTick);
+    }
+    m_streamTimer->start();
+    onStreamTick();  // stream the initial neighbourhood immediately
+    appendLog("world", tr("endless procedural terrain (seed %1) streaming")
+                           .arg(w.proceduralSeed));
+    return;
+  }
+
   // Procedural world takes precedence over an imported mesh: generate it from
   // the biome params and feed the same render + collision pipeline.
   if (!w.proceduralBiome.isEmpty()) {
@@ -2019,6 +2055,25 @@ void SimulatorWidget::loadWorldMeshToRenderer() {
   // Hand the same baked geometry to the physics daemon as a collision BVH.
   // Render and collision therefore share one transform → they never disagree.
   if (m_sim) sendWorldMeshToSim(m);
+}
+
+void SimulatorWidget::onStreamTick() {
+  if (!m_chunkStreamer.active() || !m_renderer) return;
+  const QVector3D c = m_renderer->streamCenter();
+  vsim::StreamDiff d = m_chunkStreamer.update(c.x(), c.y());
+  if (d.add.empty() && d.remove.empty() && !d.collisionChanged) return;
+
+  for (qint64 key : d.remove) {
+    m_renderer->removeWorldChunk(key);
+    if (m_downRenderer) m_downRenderer->removeWorldChunk(key);
+  }
+  for (const vsim::ChunkMeshData& ch : d.add) {
+    m_renderer->setWorldChunk(ch.key, ch.positions, ch.normals, ch.colors);
+    if (m_downRenderer)
+      m_downRenderer->setWorldChunk(ch.key, ch.positions, ch.normals, ch.colors);
+  }
+  // Re-ship the local collision BVH when the centre crossed into a new cell.
+  if (d.collisionChanged && m_sim) sendWorldMeshToSim(d.collision);
 }
 
 void SimulatorWidget::sendWorldMeshToSim(const vsim::LoadedMesh& m) {

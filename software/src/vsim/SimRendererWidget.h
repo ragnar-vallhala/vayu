@@ -12,6 +12,8 @@
 #include <QPoint>
 
 #include <array>
+#include <map>
+#include <memory>
 #include <vector>
 
 namespace vsim {
@@ -63,6 +65,24 @@ class SimRendererWidget : public QOpenGLWidget, protected QOpenGLFunctions {
   void setWorldMesh(const std::vector<QVector3D>& positions,
                     const std::vector<QVector3D>& normals,
                     const std::vector<QVector3D>& colors = {});
+
+  // Streaming world chunks (endless procedural terrain). Each chunk is an
+  // independently uploaded colored mesh keyed by a packed (cx,cy). The streamer
+  // adds/removes chunks as the drone moves; uploads are deferred to the next
+  // paintGL like the single world mesh. Coexists with obstacles/training; an
+  // imported world mesh and chunks are mutually exclusive in practice.
+  void setWorldChunk(qint64 key, const std::vector<QVector3D>& positions,
+                     const std::vector<QVector3D>& normals,
+                     const std::vector<QVector3D>& colors);
+  void removeWorldChunk(qint64 key);
+  void clearWorldChunks();
+  bool hasWorldChunks() const {
+    return !worldChunks_.empty() || !pendingChunkUploads_.empty();
+  }
+  // World-space XY the terrain streamer should centre on: the free-fly camera
+  // when roaming (sim stopped), otherwise the drone. Lets endless terrain follow
+  // both WASD navigation and actual flight.
+  QVector3D streamCenter() const { return freeFly_ ? camPos_ : snap_.pos_w; }
 
   // Enable Blender-style obstacle gizmo editing (click-select, G move /
   // R rotate / S scale, X/Y/Z constrain) — World mode while the sim is
@@ -143,6 +163,7 @@ class SimRendererWidget : public QOpenGLWidget, protected QOpenGLFunctions {
   void drawTraining(const QMatrix4x4& view);  // halo gates + guidance arrow
   void uploadDroneMesh();   // flushes pending_* into droneMesh_ (GL-current)
   void uploadWorldMesh();   // flushes pendingWorld_* into worldMesh_
+  void flushChunkUpdates(); // applies queued chunk uploads/removals (GL-current)
   // Upload an interleaved [px,py,pz,nx,ny,nz] array into a lit-shader mesh.
   void uploadLitMesh(Mesh& m, const std::vector<float>& interleaved);
   // As uploadLitMesh, but the array is [px,py,pz,nx,ny,nz,r,g,b] and vertex
@@ -239,6 +260,16 @@ class SimRendererWidget : public QOpenGLWidget, protected QOpenGLFunctions {
   std::vector<QVector3D> pendingWorldPos_;
   std::vector<QVector3D> pendingWorldNrm_;
   std::vector<QVector3D> pendingWorldCol_;  // per-vertex RGB (may be empty)
+
+  // Streaming terrain chunks. Heap-allocated Meshes so addresses stay stable in
+  // the map (and GL handles aren't moved). Uploads/removals are queued from the
+  // UI thread and flushed in paintGL where the GL context is current.
+  std::map<qint64, std::unique_ptr<Mesh>> worldChunks_;
+  struct PendingChunk { qint64 key; std::vector<float> data; };  // 9 floats/vert
+  std::vector<PendingChunk> pendingChunkUploads_;
+  std::vector<qint64> pendingChunkRemovals_;
+  bool chunksDirty_ = false;
+  bool clearAllChunks_ = false;
 
   // Editable motor layout (defaults mirror the firmware quad geometry).
   std::array<QVector3D, 4> motorPos_ = {

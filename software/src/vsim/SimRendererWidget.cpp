@@ -328,6 +328,7 @@ void SimRendererWidget::paintGL() {
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
   if (meshDirty_) uploadDroneMesh();
   if (worldMeshDirty_) uploadWorldMesh();
+  if (chunksDirty_) flushChunkUpdates();
 
   QMatrix4x4 view = cameraView();
 
@@ -351,7 +352,8 @@ void SimRendererWidget::paintGL() {
   // shown, since that mesh carries its own ground plane (also at z=0) and the
   // two coplanar surfaces would z-fight. Always shown in training for a floor.
   const bool showWorld = worldVisible_ && hasWorldMesh_ && !training;
-  if (!showWorld)
+  const bool showChunks = worldVisible_ && !training && !worldChunks_.empty();
+  if (!showWorld && !showChunks)
     drawMesh(ground_, view, QVector3D(0.25f, 0.27f, 0.32f));
   drawMesh(axes_,   view, QVector3D(1, 1, 1));
 
@@ -360,6 +362,13 @@ void SimRendererWidget::paintGL() {
   // Imported world mesh (lit solid, world frame).
   if (showWorld)
     drawLit(worldMesh_, view, QMatrix4x4(), QVector3D(1.0f, 1.0f, 1.0f));
+
+  // Streaming terrain chunks (lit, world frame). Same lit shader / vertex-color
+  // path as the imported mesh, one draw per loaded chunk.
+  if (showChunks)
+    for (auto& kv : worldChunks_)
+      if (kv.second->vertex_count)
+        drawLit(*kv.second, view, QMatrix4x4(), QVector3D(1.0f, 1.0f, 1.0f));
 
   // Static world obstacles (lit solids), each scaled/rotated/placed.
   for (int oi = 0; worldVisible_ && !training && oi < obstacles_.size(); ++oi) {
@@ -678,6 +687,59 @@ void SimRendererWidget::setWorldMesh(const std::vector<QVector3D>& positions,
   pendingWorldCol_ = colors;
   worldMeshDirty_ = true;   // uploaded in paintGL (needs GL context)
   update();
+}
+
+void SimRendererWidget::setWorldChunk(qint64 key,
+                                      const std::vector<QVector3D>& positions,
+                                      const std::vector<QVector3D>& normals,
+                                      const std::vector<QVector3D>& colors) {
+  // Interleave [px,py,pz, nx,ny,nz, r,g,b] now (UI thread, no GL) and queue the
+  // VBO upload for paintGL.
+  PendingChunk pc;
+  pc.key = key;
+  pc.data.reserve(positions.size() * 9);
+  for (size_t i = 0; i < positions.size(); ++i) {
+    const QVector3D& p = positions[i];
+    const QVector3D n = (i < normals.size()) ? normals[i] : QVector3D(0, 0, -1);
+    const QVector3D c =
+        (i < colors.size()) ? colors[i] : QVector3D(0.4f, 0.5f, 0.3f);
+    pc.data.insert(pc.data.end(), {p.x(), p.y(), p.z(), n.x(), n.y(), n.z(),
+                                   c.x(), c.y(), c.z()});
+  }
+  pendingChunkUploads_.push_back(std::move(pc));
+  chunksDirty_ = true;
+  update();
+}
+
+void SimRendererWidget::removeWorldChunk(qint64 key) {
+  pendingChunkRemovals_.push_back(key);
+  chunksDirty_ = true;
+  update();
+}
+
+void SimRendererWidget::clearWorldChunks() {
+  clearAllChunks_ = true;
+  chunksDirty_ = true;
+  update();
+}
+
+void SimRendererWidget::flushChunkUpdates() {
+  chunksDirty_ = false;
+  if (clearAllChunks_) {
+    worldChunks_.clear();          // GL context current here -> safe to destroy
+    pendingChunkUploads_.clear();
+    pendingChunkRemovals_.clear();
+    clearAllChunks_ = false;
+    return;
+  }
+  for (qint64 key : pendingChunkRemovals_) worldChunks_.erase(key);
+  pendingChunkRemovals_.clear();
+  for (PendingChunk& pc : pendingChunkUploads_) {
+    std::unique_ptr<Mesh>& mesh = worldChunks_[pc.key];
+    if (!mesh) mesh = std::make_unique<Mesh>();
+    uploadColoredMesh(*mesh, pc.data);
+  }
+  pendingChunkUploads_.clear();
 }
 
 void SimRendererWidget::buildGroundGrid() {
