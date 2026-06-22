@@ -242,10 +242,14 @@ void main(){
 
 }  // namespace
 
-// Two density rings share the pipeline: a dense near ring + a coarse far ring
-// that carries grass out to the horizon. Both append to the same instance
-// buffer, so it must hold this many grids' worth of blades.
-static constexpr int kNumRings = 2;
+// Concentric density rings share the pipeline: a dense near ring plus coarser
+// rings (cell multiplied) that carry grass out to the visible horizon. All
+// append to the same instance buffer, so it must hold this many grids' worth of
+// blades. Each ring's cell = base cell * kRingMul; coarser rings get slightly
+// taller blades so the sparse far field still reads as a carpet.
+static constexpr int kNumRings = 3;
+static constexpr float kRingMul[kNumRings] = {1.0f, 4.0f, 12.0f};
+static constexpr float kRingHScale[kNumRings] = {1.0f, 1.15f, 1.32f};
 
 GpuGrass::~GpuGrass() = default;
 
@@ -395,30 +399,33 @@ void GpuGrass::render(QOpenGLExtraFunctions* gl, const QMatrix4x4& proj,
   gl->glBindBuffer(GL_ATOMIC_COUNTER_BUFFER, counter_);
   gl->glBufferSubData(GL_ATOMIC_COUNTER_BUFFER, 0, sizeof(zero), &zero);
 
-  // Two density rings: a dense near ring, then a coarse far ring (4x cell) that
-  // carries grass out to the horizon. Each fades smoothly before its grid edge;
-  // the far ring fades IN where the near ring fades out (innerCut) to avoid a
-  // doubled band. Both sample the SAME height texture, refilled per ring.
-  const float nearCell = params_.cell;
-  const float farCell = params_.cell * 4.0f;
-  const float nearRadius = float(params_.grid) * nearCell * 0.5f;
-  const float farRadius = float(params_.grid) * farCell * 0.5f;
+  // Concentric density rings: a dense near ring, then coarser rings that carry
+  // grass to the horizon. Each fades smoothly before its grid edge; each outer
+  // ring fades IN where the previous one fades out (innerCut) to avoid a doubled
+  // band. All sample the SAME height texture, refilled per ring.
   struct Ring {
     float cell, innerCut, falloffStart, falloffEnd, heightScale;
   };
-  const Ring rings[kNumRings] = {
-      {nearCell, 0.0f, nearRadius * 0.80f, nearRadius * 0.98f, 1.0f},
-      {farCell, nearRadius * 0.70f, farRadius * 0.82f, farRadius * 0.98f, 1.18f},
-  };
+  Ring rings[kNumRings];
+  float prevRadius = 0.0f;
+  for (int i = 0; i < kNumRings; ++i) {
+    const float c = params_.cell * kRingMul[i];
+    const float radius = float(params_.grid) * c * 0.5f;
+    rings[i] = {c, (i == 0) ? 0.0f : prevRadius * 0.70f, radius * 0.80f,
+                radius * 0.97f, kRingHScale[i]};
+    prevRadius = radius;
+  }
+  const float farRadius = prevRadius;  // outermost ring radius (for the draw fade)
 
   for (const Ring& ring : rings) {
     // Anchor the grid to world cells (not the camera) so the blade field stays
     // fixed and the camera moves through it.
     const int originCellX = int(std::floor(camPos.x() / ring.cell));
     const int originCellY = int(std::floor(camPos.y() / ring.cell));
+    const int halfGrid = params_.grid / 2;  // grid origin offset, in cells
     const float regionSize = float(params_.grid) * ring.cell;
-    const QVector2D regionMin(float(originCellX - params_.grid / 2) * ring.cell,
-                              float(originCellY - params_.grid / 2) * ring.cell);
+    const QVector2D regionMin(float(originCellX - halfGrid) * ring.cell,
+                              float(originCellY - halfGrid) * ring.cell);
 
     // --- pass 1: fill the height texture (terrain noise once per texel) ---
     fill_.bind();
