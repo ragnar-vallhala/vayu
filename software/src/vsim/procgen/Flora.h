@@ -27,7 +27,7 @@ struct FloraInstance {
 
 struct FloraParams {
   uint32_t seed = 1337u;
-  float spacing = 0.3f;        // grid spacing between blades [m] (dense meadow)
+  float spacing = 0.15f;       // grid spacing between blades [m] (dense meadow)
   float jitter = 0.9f;         // positional jitter (fraction of spacing)
   float grassMaxFrac = 0.5f;   // grass fades out by this fraction of heightM
   // Slope (flatness in [0,1], 1 = flat) where grass density ramps in: none below
@@ -36,7 +36,7 @@ struct FloraParams {
   float slopeHi = 0.93f;
   // Extra blades scattered per grid cell — multiplies density much more cheaply
   // than shrinking the spacing (the field grid is sampled once per cell).
-  float bladesPerCell = 1.0f;
+  float bladesPerCell = 2.0f;
   float heightMean = 1.0f;     // blade height: normal distribution [m]
   float heightStdDev = 0.3f;
   float flowerFrac = 0.02f;    // fraction of blades that become flowers
