@@ -6,9 +6,12 @@
 #include <QSurfaceFormat>
 
 int main(int argc, char *argv[]) {
-  // Request OpenGL Core profile for the attitude widget
+  // Request OpenGL 4.6 Core (with a graceful drop to whatever the driver gives).
+  // 4.3+ unlocks compute shaders + indirect draw, which the GPU grass uses; the
+  // rest of the renderer is 3.3-core code that runs unchanged on a 4.x core
+  // context. On a driver that can't give 4.3 the grass falls back to the CPU path.
   QSurfaceFormat fmt;
-  fmt.setVersion(3, 3);
+  fmt.setVersion(4, 6);
   fmt.setProfile(QSurfaceFormat::CoreProfile);
   fmt.setSamples(4); // MSAA
   QSurfaceFormat::setDefaultFormat(fmt);

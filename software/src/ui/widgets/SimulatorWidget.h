@@ -253,6 +253,7 @@ class SimulatorWidget : public QWidget {
   std::set<qint64> m_floraInflight;       // flora scatters in progress
   static constexpr int kFloraRadius = 1;  // chunks each side kept grassed
   vsim::procgen::FloraParams m_floraParams;  // active grass tuning (from config)
+  bool m_useGpuGrass = false;  // GPU grass active -> skip the CPU flora streaming
 
   // Lift-onto-terrain: a height sampler for the active procedural world (null
   // for imported / no world), the last known drone position, and a request to
