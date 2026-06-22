@@ -83,6 +83,9 @@ class SimRendererWidget : public QOpenGLWidget, protected QOpenGLFunctions {
   // when roaming (sim stopped), otherwise the drone. Lets endless terrain follow
   // both WASD navigation and actual flight.
   QVector3D streamCenter() const { return freeFly_ ? camPos_ : snap_.pos_w; }
+  // NED heading (radians, 0 = north) the minimap should orient by: the free-fly
+  // look direction when roaming, otherwise the drone's body heading.
+  float viewHeadingRad() const;
 
   // Enable Blender-style obstacle gizmo editing (click-select, G move /
   // R rotate / S scale, X/Y/Z constrain) — World mode while the sim is

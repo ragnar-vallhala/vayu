@@ -202,6 +202,7 @@ set(GCS_SITL_SOURCES
     src/ui/widgets/SimulatorWidget.cpp
     src/ui/widgets/GeometryEditorWidget.cpp
     src/ui/widgets/WorldEditorWidget.cpp
+    src/ui/widgets/ContourMinimapWidget.cpp
     src/ui/widgets/CollapsibleSection.cpp
     src/ui/widgets/SimHudWidget.cpp
     src/vsim/SimWorker.cpp
@@ -223,6 +224,7 @@ set(GCS_SITL_HEADERS
     src/ui/widgets/SimulatorWidget.h
     src/ui/widgets/GeometryEditorWidget.h
     src/ui/widgets/WorldEditorWidget.h
+    src/ui/widgets/ContourMinimapWidget.h
     src/ui/widgets/CollapsibleSection.h
     src/ui/widgets/SimHudWidget.h
     src/vsim/VsimTypes.h

@@ -7,13 +7,22 @@
 // what lets the core stay Qt-free and unit-tested.
 #pragma once
 
-#include "MeshLoader.h"   // vsim::LoadedMesh
-#include "VsimTypes.h"    // vsim::WorldConfig
+#include "MeshLoader.h"            // vsim::LoadedMesh
+#include "VsimTypes.h"             // vsim::WorldConfig
+#include "procgen/Heightfield.h"   // procgen::Heightfield
+#include "procgen/TerrainGen.h"    // procgen::TerrainParams
 
 namespace vsim {
 
 // True if `biome` names a generator this build knows how to produce.
 bool isKnownBiome(const QString& biome);
+
+// Map the procedural fields of `w` to the finite meadow generator's params.
+procgen::TerrainParams meadowParams(const WorldConfig& w);
+
+// The finite meadow's elevation grid — lets the minimap sample terrain height
+// without retaining the (much larger) render mesh.
+procgen::Heightfield proceduralMeadowHeightfield(const WorldConfig& w);
 
 // Generate a procedural world from the procedural fields of `w`, in NED world
 // metres (terrain up is -Z, ground plane at z=0). Returns {valid=false} if the
