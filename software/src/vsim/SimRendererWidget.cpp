@@ -163,6 +163,7 @@ layout(location=0) in vec3 a_local;   // unit blade (z in [-1,0])
 layout(location=1) in vec3 i_pos;     // world base (NED)
 layout(location=2) in vec3 i_yhf;     // yaw, height, flower
 layout(location=3) in vec3 i_tint;
+layout(location=4) in vec3 a_normal;  // ribbon surface normal (local)
 uniform mat4 u_vp;
 uniform vec3 u_campos;
 uniform float u_time;
@@ -170,6 +171,7 @@ uniform float u_fadestart;
 uniform float u_fadeend;
 out vec3 v_color;
 out vec3 v_world;
+out vec3 v_normal;
 out float v_hf;
 void main() {
   float yaw = i_yhf.x, height = i_yhf.y, flower = i_yhf.z;
@@ -191,6 +193,9 @@ void main() {
   v_world = world;
   v_color = i_tint;
   v_hf = hf;
+  // Rotate the (uniform-scaled) ribbon normal by the same yaw.
+  v_normal = vec3(c * a_normal.x - s * a_normal.y,
+                  s * a_normal.x + c * a_normal.y, a_normal.z);
   gl_Position = u_vp * vec4(world, 1.0);
 }
 )GLSL";
@@ -199,6 +204,7 @@ const char* kFloraFragmentHead = R"GLSL(
 #version 330 core
 in vec3 v_color;
 in vec3 v_world;
+in vec3 v_normal;
 in float v_hf;
 out vec4 o_color;
 uniform vec3 u_campos;
@@ -208,8 +214,15 @@ uniform float u_fogstart;
 
 const char* kFloraFragmentMain = R"GLSL(
 void main() {
-  float ao = mix(0.45, 1.05, v_hf);            // dark base, bright tip
-  vec3 col = v_color * ao;
+  // Per-blade lighting: directional sun + sky/ground hemispheric ambient off the
+  // (up-biased) ribbon normal, with a base->tip ambient-occlusion gradient.
+  vec3 n = normalize(v_normal);
+  float ndl = max(dot(n, normalize(u_sundir)), 0.0);
+  float hemi = 0.5 + 0.5 * (-n.z);             // up-facing catches sky
+  vec3 ambient = mix(vec3(0.22, 0.24, 0.28),
+                     vec3(0.50, 0.53, 0.58), clamp(hemi, 0.0, 1.0));
+  float ao = mix(0.55, 1.0, v_hf);             // darker at the base
+  vec3 col = v_color * (ambient + vec3(0.85) * ndl) * ao;
   vec3 toFrag = v_world - u_campos;
   float dist = length(toFrag);
   vec3 vdir = dist > 1e-4 ? toFrag / dist : vec3(0.0, 0.0, 1.0);
@@ -888,45 +901,63 @@ void SimRendererWidget::flushChunkUpdates() {
 
 void SimRendererWidget::buildGrassBlade() {
   // A single curved blade (UE5-style): a quadratic Bezier spine swept into a
-  // tapered strip. Local space: base at origin, up = -Z, the arc leans toward
-  // +X; per-instance yaw randomises the lean direction and the vertex shader
-  // scales it by the blade height. Width tapers to a near-point at the tip.
-  const int kSeg = 4;
-  const float wb = 0.05f;                       // base half-width
-  const float P0x = 0.0f,  P0z = 0.0f;          // base
-  const float P1x = 0.14f, P1z = -0.55f;        // mid (slight forward)
-  const float P2x = 0.42f, P2z = -1.0f;         // tip (arched over)
+  // tapered strip with a real surface (ribbon) normal per cross-section. Built
+  // at 3 LODs (4/2/1 segments) so distant chunks draw far fewer verts/blade.
+  // Local space: base at origin, up = -Z, arc leans toward +X.
+  const float wb = 0.05f;
+  const float P0x = 0.0f,  P0z = 0.0f;
+  const float P1x = 0.14f, P1z = -0.55f;
+  const float P2x = 0.42f, P2z = -1.0f;
   auto bez = [&](float t, float& x, float& z) {
     const float u = 1.0f - t;
     x = u * u * P0x + 2.0f * u * t * P1x + t * t * P2x;
     z = u * u * P0z + 2.0f * u * t * P1z + t * t * P2z;
   };
-  // Taper, with a small minimum so flowers can fan a bloom at the tip.
+  // Spine tangent (derivative); the ribbon normal is perpendicular to it and Y,
+  // biased toward up (-Z) so blades catch overhead sun/sky (softer, UE5-like).
+  auto normal = [&](float t, float& nx, float& nz) {
+    const float tx = 2.0f * (1.0f - t) * (P1x - P0x) + 2.0f * t * (P2x - P1x);
+    const float tz = 2.0f * (1.0f - t) * (P1z - P0z) + 2.0f * t * (P2z - P1z);
+    float rx = -tz, rz = tx;             // cross(T, +Y) in the X-Z plane
+    rz -= 0.9f;                          // up-bias (NED up is -Z)
+    const float l = std::sqrt(rx * rx + rz * rz);
+    nx = rx / l; nz = rz / l;
+  };
   auto width = [&](float t) { return wb * (0.06f + 0.94f * std::pow(1.0f - t, 0.7f)); };
 
-  std::vector<float> v;
-  auto vert = [&](float x, float y, float z) { v.insert(v.end(), {x, y, z}); };
-  for (int s = 0; s < kSeg; ++s) {
-    const float t0 = float(s) / kSeg, t1 = float(s + 1) / kSeg;
-    float x0, z0, x1, z1;
-    bez(t0, x0, z0);
-    bez(t1, x1, z1);
-    const float w0 = width(t0), w1 = width(t1);
-    // Strip quad: +Y (left) / -Y (right) edges of the cross-sections.
-    vert(x0, +w0, z0); vert(x0, -w0, z0); vert(x1, -w1, z1);
-    vert(x0, +w0, z0); vert(x1, -w1, z1); vert(x1, +w1, z1);
+  const int segCounts[3] = {4, 2, 1};
+  for (int lod = 0; lod < 3; ++lod) {
+    const int kSeg = segCounts[lod];
+    std::vector<float> v;  // [px,py,pz, nx,ny,nz] per vertex
+    auto vert = [&](float x, float y, float z, float nx, float nz) {
+      v.insert(v.end(), {x, y, z, nx, 0.0f, nz});
+    };
+    for (int s = 0; s < kSeg; ++s) {
+      const float t0 = float(s) / kSeg, t1 = float(s + 1) / kSeg;
+      float x0, z0, x1, z1, n0x, n0z, n1x, n1z;
+      bez(t0, x0, z0); bez(t1, x1, z1);
+      normal(t0, n0x, n0z); normal(t1, n1x, n1z);
+      const float w0 = width(t0), w1 = width(t1);
+      vert(x0, +w0, z0, n0x, n0z); vert(x0, -w0, z0, n0x, n0z);
+      vert(x1, -w1, z1, n1x, n1z);
+      vert(x0, +w0, z0, n0x, n0z); vert(x1, -w1, z1, n1x, n1z);
+      vert(x1, +w1, z1, n1x, n1z);
+    }
+    grassVbo_[lod].create();
+    grassVbo_[lod].bind();
+    grassVbo_[lod].allocate(v.data(), int(v.size() * sizeof(float)));
+    grassVbo_[lod].release();
+    grassVerts_[lod] = int(v.size() / 6);
   }
-  grassVbo_.create();
-  grassVbo_.bind();
-  grassVbo_.allocate(v.data(), int(v.size() * sizeof(float)));
-  grassVbo_.release();
-  grassVerts_ = int(v.size() / 3);
+  floraVao_.create();
 }
 
 void SimRendererWidget::setChunkFlora(qint64 key,
                                       const std::vector<float>& interleaved,
-                                      int count) {
-  pendingFloraUploads_.push_back({key, interleaved, count});
+                                      int count, float centerX, float centerY,
+                                      float halfExtent) {
+  pendingFloraUploads_.push_back(
+      {key, interleaved, count, centerX, centerY, halfExtent});
   floraDirty_ = true;
   update();
 }
@@ -957,38 +988,20 @@ void SimRendererWidget::flushFloraUpdates() {
     if (pf.count <= 0) { floraChunks_.erase(pf.key); continue; }
     std::unique_ptr<FloraChunk>& fc = floraChunks_[pf.key];
     if (!fc) fc = std::make_unique<FloraChunk>();
-    if (!fc->vao.isCreated()) fc->vao.create();
-    fc->vao.bind();
-    // Shared blade geometry -> attribute 0 (divisor 0).
-    grassVbo_.bind();
-    glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), nullptr);
-    // Per-instance data -> attributes 1..3 (divisor 1). 9 floats/instance.
     if (!fc->inst.isCreated()) fc->inst.create();
     fc->inst.bind();
     fc->inst.allocate(pf.data.data(), int(pf.data.size() * sizeof(float)));
-    const int stride = 9 * sizeof(float);
-    glEnableVertexAttribArray(1);
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, stride, nullptr);
-    glVertexAttribDivisor(1, 1);
-    glEnableVertexAttribArray(2);
-    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, stride,
-                          reinterpret_cast<void*>(3 * sizeof(float)));
-    glVertexAttribDivisor(2, 1);
-    glEnableVertexAttribArray(3);
-    glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, stride,
-                          reinterpret_cast<void*>(6 * sizeof(float)));
-    glVertexAttribDivisor(3, 1);
     fc->inst.release();
-    fc->vao.release();
-    grassVbo_.release();
     fc->count = pf.count;
+    fc->cx = pf.cx;
+    fc->cy = pf.cy;
+    fc->half = pf.half;
   }
   pendingFloraUploads_.clear();
 }
 
 void SimRendererWidget::drawFlora(const QMatrix4x4& view) {
-  if (floraChunks_.empty() || grassVerts_ == 0) return;
+  if (floraChunks_.empty() || grassVerts_[0] == 0) return;
   progFlora_.bind();
   progFlora_.setUniformValue(uf_vp_, proj_ * view);
   progFlora_.setUniformValue(uf_campos_, camEye_);
@@ -998,13 +1011,47 @@ void SimRendererWidget::drawFlora(const QMatrix4x4& view) {
   progFlora_.setUniformValue(uf_sundir_, sunDir_);
   progFlora_.setUniformValue(uf_fogdensity_, 1.0f / 420.0f);
   progFlora_.setUniformValue(uf_fogstart_, 45.0f);
+  floraVao_.bind();
   for (auto& kv : floraChunks_) {
     FloraChunk* fc = kv.second.get();
     if (fc->count == 0) continue;
-    fc->vao.bind();
-    glDrawArraysInstanced(GL_TRIANGLES, 0, grassVerts_, fc->count);
-    fc->vao.release();
+    // Per-chunk LOD by distance to the NEAREST point of the chunk (so the chunk
+    // you're standing in stays full detail): fewer verts/blade the farther it is.
+    const float nx = std::max(fc->cx - fc->half,
+                              std::min(camEye_.x(), fc->cx + fc->half));
+    const float ny = std::max(fc->cy - fc->half,
+                              std::min(camEye_.y(), fc->cy + fc->half));
+    const float dx = nx - camEye_.x(), dy = ny - camEye_.y();
+    const float dist = std::sqrt(dx * dx + dy * dy);
+    const int lod = dist < 40.0f ? 0 : (dist < 90.0f ? 1 : 2);
+
+    // Bind the LOD geometry (pos + normal, divisor 0).
+    grassVbo_[lod].bind();
+    const int gstride = 6 * sizeof(float);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, gstride, nullptr);
+    glVertexAttribDivisor(0, 0);
+    glEnableVertexAttribArray(4);
+    glVertexAttribPointer(4, 3, GL_FLOAT, GL_FALSE, gstride,
+                          reinterpret_cast<void*>(3 * sizeof(float)));
+    glVertexAttribDivisor(4, 0);
+    // Bind this chunk's instance data (9 floats/instance, divisor 1).
+    fc->inst.bind();
+    const int istride = 9 * sizeof(float);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, istride, nullptr);
+    glVertexAttribDivisor(1, 1);
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, istride,
+                          reinterpret_cast<void*>(3 * sizeof(float)));
+    glVertexAttribDivisor(2, 1);
+    glEnableVertexAttribArray(3);
+    glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, istride,
+                          reinterpret_cast<void*>(6 * sizeof(float)));
+    glVertexAttribDivisor(3, 1);
+    glDrawArraysInstanced(GL_TRIANGLES, 0, grassVerts_[lod], fc->count);
   }
+  floraVao_.release();
   progFlora_.release();
 }
 
