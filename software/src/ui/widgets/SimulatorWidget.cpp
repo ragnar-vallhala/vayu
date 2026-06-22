@@ -18,7 +18,9 @@
 #include <QDesktopServices>
 #include <QCoreApplication>
 #include <QDir>
+#include <QFutureWatcher>
 #include <QTimer>
+#include <QtConcurrent>
 #include <QEvent>
 #include <QFileInfo>
 #include <QGridLayout>
@@ -1995,9 +1997,10 @@ void SimulatorWidget::loadWorldMeshToRenderer() {
   if (m_minimap) {
     if (endless) {
       m_minimap->setSampler([this](float n, float e) {
-        const vsim::procgen::TerrainField* f = m_chunkStreamer.field();
+        const auto f = m_chunkStreamer.field();
         return f ? f->height(n, e) : 0.0f;
       });
+      m_minimap->setRangeM(200.0f);
     } else if (vsim::isKnownBiome(w.proceduralBiome)) {
       auto hf = std::make_shared<vsim::procgen::Heightfield>(
           vsim::proceduralMeadowHeightfield(w));
@@ -2012,7 +2015,10 @@ void SimulatorWidget::loadWorldMeshToRenderer() {
   // Leaving the endless biome: stop the streamer and drop its chunks so a
   // finite mesh / grid shows cleanly.
   if (!endless && m_chunkStreamer.active()) {
+    ++m_streamGen;  // invalidate in-flight builds
     m_chunkStreamer.deactivate();
+    m_chunkCache.clear();
+    m_collisionPending = false;
     if (m_streamTimer) m_streamTimer->stop();
     m_renderer->clearWorldChunks();
     if (m_downRenderer) m_downRenderer->clearWorldChunks();
@@ -2024,6 +2030,12 @@ void SimulatorWidget::loadWorldMeshToRenderer() {
     if (m_downRenderer) m_downRenderer->setWorldMesh({}, {});
     m_renderer->clearWorldChunks();
     if (m_downRenderer) m_downRenderer->clearWorldChunks();
+
+    // New generation: invalidate any in-flight builds from a prior config and
+    // drop the mesh cache.
+    ++m_streamGen;
+    m_chunkCache.clear();
+    m_collisionPending = false;
 
     vsim::ChunkStreamer::Config sc;
     sc.field.seed = static_cast<uint32_t>(w.proceduralSeed);
@@ -2110,20 +2122,75 @@ void SimulatorWidget::updateMinimap() {
 void SimulatorWidget::onStreamTick() {
   if (!m_chunkStreamer.active() || !m_renderer) return;
   const QVector3D c = m_renderer->streamCenter();
-  vsim::StreamDiff d = m_chunkStreamer.update(c.x(), c.y());
-  if (d.add.empty() && d.remove.empty() && !d.collisionChanged) return;
+  const vsim::StreamPlan p = m_chunkStreamer.plan(c.x(), c.y());
 
-  for (qint64 key : d.remove) {
+  for (qint64 key : p.toRemove) {
     m_renderer->removeWorldChunk(key);
     if (m_downRenderer) m_downRenderer->removeWorldChunk(key);
+    m_chunkCache.erase(key);
+    m_chunkStreamer.forget(key);
   }
-  for (const vsim::ChunkMeshData& ch : d.add) {
-    m_renderer->setWorldChunk(ch.key, ch.positions, ch.normals, ch.colors);
-    if (m_downRenderer)
-      m_downRenderer->setWorldChunk(ch.key, ch.positions, ch.normals, ch.colors);
+
+  if (p.collisionDue) {
+    m_collisionPending = true;
+    m_colCx = p.colCx;
+    m_colCy = p.colCy;
   }
-  // Re-ship the local collision BVH when the centre crossed into a new cell.
-  if (d.collisionChanged && m_sim) sendWorldMeshToSim(d.collision);
+
+  // Mesh the requested chunks OFF the UI thread; apply the results on the main
+  // thread when each future finishes. The field is const + shared, so parallel
+  // sampling is safe; the generation tag drops results from a stale config.
+  const auto field = m_chunkStreamer.field();
+  const float chunkM = m_chunkStreamer.config().chunkM;
+  const int res = m_chunkStreamer.config().resolution;
+  const int gen = m_streamGen;
+  for (const vsim::ChunkReq& req : p.toBuild) {
+    auto* watcher = new QFutureWatcher<vsim::procgen::ProcMesh>(this);
+    connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher, req, gen]() {
+      if (gen == m_streamGen) onChunkMeshed(req.key, watcher->result());
+      else m_chunkStreamer.forget(req.key);  // stale: config changed mid-build
+      watcher->deleteLater();
+    });
+    watcher->setFuture(QtConcurrent::run([field, req, chunkM, res]() {
+      return vsim::procgen::meshFieldChunk(*field, req.cx, req.cy, chunkM, res);
+    }));
+  }
+
+  tryBuildCollision();  // in case the neighbourhood is already cached
+}
+
+void SimulatorWidget::onChunkMeshed(qint64 key,
+                                    const vsim::procgen::ProcMesh& mesh) {
+  m_chunkStreamer.markBuilt(key);
+  if (!m_chunkStreamer.wanted(key)) {  // drifted out of range while meshing
+    m_chunkStreamer.forget(key);
+    return;
+  }
+  m_chunkCache[key] = mesh;  // retained so collision can reuse it (no regen)
+  const vsim::ChunkMeshData d = vsim::toChunkMeshData(key, m_chunkCache[key]);
+  m_renderer->setWorldChunk(d.key, d.positions, d.normals, d.colors);
+  if (m_downRenderer)
+    m_downRenderer->setWorldChunk(d.key, d.positions, d.normals, d.colors);
+  tryBuildCollision();
+}
+
+void SimulatorWidget::tryBuildCollision() {
+  if (!m_collisionPending) return;
+  if (!m_sim) { m_collisionPending = false; return; }  // no physics -> not needed
+  // Build the local collision BVH from the cached chunk meshes (no regen). Wait
+  // until the whole collision neighbourhood is cached.
+  const std::vector<vsim::ChunkReq> need =
+      m_chunkStreamer.collisionChunks(m_colCx, m_colCy);
+  std::vector<const vsim::procgen::ProcMesh*> meshes;
+  meshes.reserve(need.size());
+  for (const vsim::ChunkReq& req : need) {
+    auto it = m_chunkCache.find(req.key);
+    if (it == m_chunkCache.end()) return;  // not all cached yet; retry on next
+    meshes.push_back(&it->second);
+  }
+  const vsim::LoadedMesh m = vsim::collisionMeshFromChunks(meshes);
+  m_collisionPending = false;
+  if (m.valid) sendWorldMeshToSim(m);
 }
 
 void SimulatorWidget::sendWorldMeshToSim(const vsim::LoadedMesh& m) {

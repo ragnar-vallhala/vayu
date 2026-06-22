@@ -45,6 +45,7 @@ find_package(Qt6 REQUIRED COMPONENTS
     Network
     OpenGL
     OpenGLWidgets
+    Concurrent
 )
 
 # -------------------------------------------------------
@@ -278,6 +279,7 @@ target_link_libraries(Navigator PRIVATE
     Qt6::Network
     Qt6::OpenGL
     Qt6::OpenGLWidgets
+    Qt6::Concurrent
     navlink_codec   # NavLink v2 generated codec (PUBLIC include comes with it)
 )
 

@@ -1,11 +1,14 @@
-// ChunkStreamer.h — pages endless procedural terrain around a moving centre.
+// ChunkStreamer.h — bookkeeping for endless procedural terrain streaming.
 //
-// Holds an infinite TerrainField and a set of currently-loaded chunk cells.
-// Each update() recomputes which chunks should be loaded for the current centre
-// (the drone, or the free-fly camera) and returns a diff: meshes to upload,
-// chunk keys to drop, and — when the centre crosses into a new cell — a freshly
-// built local collision mesh for the daemon. The streamer is render/sim-agnostic
-// (it returns data); SimulatorWidget applies the diff to the renderer(s) + sim.
+// Decides which terrain chunks should be loaded around a moving centre (the
+// drone or the free-fly camera) and which to drop. It does NOT mesh chunks
+// itself: meshing is the expensive part (~15 ms/chunk) and runs OFF the UI
+// thread (SimulatorWidget farms meshFieldChunk out via QtConcurrent), then the
+// results come back and are applied on the main thread. The streamer just
+// tracks loaded / in-flight / desired sets and hands out a plan.
+//
+// Collision reuses the meshes already built for rendering (cached by the
+// caller), so crossing a chunk boundary no longer re-generates terrain.
 #pragma once
 
 #include "MeshLoader.h"  // vsim::LoadedMesh
@@ -30,13 +33,22 @@ struct ChunkMeshData {
   std::vector<QVector3D> colors;
 };
 
-// What to apply after an update(). `add`/`remove` drive the renderer; when
-// `collisionChanged` is set, `collision` is the new local terrain BVH source.
-struct StreamDiff {
-  std::vector<ChunkMeshData> add;
-  std::vector<qint64> remove;
-  bool collisionChanged = false;
-  LoadedMesh collision;
+// A chunk that needs meshing, identified by both its key and cell coords.
+struct ChunkReq {
+  qint64 key = 0;
+  int cx = 0;
+  int cy = 0;
+};
+
+// What to do for the current centre: build these chunks (off-thread), drop
+// those, and — when the centre crossed into a new cell — rebuild local
+// collision around (colCx, colCy).
+struct StreamPlan {
+  std::vector<ChunkReq> toBuild;
+  std::vector<qint64> toRemove;
+  bool collisionDue = false;
+  int colCx = 0;
+  int colCy = 0;
 };
 
 class ChunkStreamer {
@@ -47,45 +59,57 @@ class ChunkStreamer {
     int resolution = 48;       // grid cells per chunk side
     int renderRadius = 3;      // Chebyshev chunk radius kept loaded (visual)
     int collisionRadius = 1;   // chunk radius shipped to the daemon as a BVH
-    int maxBuildsPerUpdate = 3;  // chunks meshed per update() — spreads cost so
-                                 // generation never freezes the UI thread
+    int maxInFlight = 6;       // cap on concurrent off-thread chunk builds
   };
 
-  // (Re)configure: rebuilds the field and forgets the loaded set, so the next
-  // update() re-streams from scratch. Marks the streamer active.
   void configure(const Config& c);
-  // Turn streaming off and forget state (e.g. switching away from an endless
-  // biome). active() is false afterwards.
   void deactivate();
   bool active() const { return active_; }
-
   const Config& config() const { return cfg_; }
-  // The live infinite field (null when inactive) — lets the minimap sample
-  // terrain height anywhere without going through the chunk meshes.
-  const procgen::TerrainField* field() const { return field_.get(); }
 
-  // Bring the loaded set in line with world-XY centre (wx, wy) and return the
-  // diff. Cheap when the centre stays within its current cell (no new geometry).
-  StreamDiff update(float wx, float wy);
+  // The live infinite field (null when inactive). Shared so off-thread builds
+  // and the minimap can sample it concurrently (read-only -> safe), and an
+  // in-flight build keeps the old field alive across a reconfigure.
+  std::shared_ptr<const procgen::TerrainField> field() const { return field_; }
 
-  // Pack/unpack chunk cell <-> key (must match the renderer's opaque key use).
+  // Plan the work for centre world-XY (wx, wy). Chunks returned in toBuild are
+  // marked in-flight (won't be re-requested); call markBuilt or forget when
+  // each resolves. toBuild is nearest-first and capped to the in-flight budget.
+  StreamPlan plan(float wx, float wy);
+
+  bool wanted(qint64 key) const { return desired_.count(key) > 0; }
+  void markBuilt(qint64 key);   // a build resolved -> loaded
+  void forget(qint64 key);      // dropped from the renderer -> untrack
+
+  // The chunk cells the current collision neighbourhood needs (so the caller
+  // can check its mesh cache has them all before building the BVH).
+  std::vector<ChunkReq> collisionChunks(int cx, int cy) const;
+
   static qint64 keyOf(int cx, int cy) {
     return (static_cast<qint64>(cx) << 32) |
            static_cast<qint64>(static_cast<uint32_t>(cy));
   }
+  static int cxOf(qint64 k) { return static_cast<int>(k >> 32); }
+  static int cyOf(qint64 k) { return static_cast<int>(static_cast<uint32_t>(k)); }
 
  private:
-  ChunkMeshData buildRenderChunk(int cx, int cy) const;
-  LoadedMesh buildCollisionMesh(int cx, int cy) const;
-
   Config cfg_;
-  std::unique_ptr<procgen::TerrainField> field_;
-  std::set<qint64> loaded_;   // chunks currently uploaded to the renderer
-  std::set<qint64> desired_;  // chunks that SHOULD be loaded for the current cell
-  int curCx_ = INT_MIN, curCy_ = INT_MIN;  // centre's current chunk cell
-  int colCx_ = INT_MIN, colCy_ = INT_MIN;  // cell the shipped collision covers
+  std::shared_ptr<const procgen::TerrainField> field_;
+  std::set<qint64> loaded_;    // uploaded to the renderer
+  std::set<qint64> inflight_;  // meshing off-thread
+  std::set<qint64> desired_;   // should be loaded for the current cell
+  int curCx_ = INT_MIN, curCy_ = INT_MIN;
+  int colCx_ = INT_MIN, colCy_ = INT_MIN;
   bool active_ = false;
   bool first_ = true;
 };
+
+// Convert a meshed chunk (procgen soup) into renderer form (QVector3D arrays).
+ChunkMeshData toChunkMeshData(qint64 key, const procgen::ProcMesh& m);
+
+// Concatenate a set of chunk meshes into one collision LoadedMesh (NED world
+// frame, positions + normals). Used to feed buildWorldBvh from cached chunks.
+LoadedMesh collisionMeshFromChunks(
+    const std::vector<const procgen::ProcMesh*>& chunks);
 
 }  // namespace vsim
