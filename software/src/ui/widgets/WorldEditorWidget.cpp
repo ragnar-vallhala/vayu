@@ -221,7 +221,8 @@ void WorldEditorWidget::buildProceduralSection(QVBoxLayout* root) {
   auto* form = new QFormLayout();
   procBiome_ = new QComboBox(body);
   procBiome_->addItem(tr("None (use world mesh)"), QString());
-  procBiome_->addItem(tr("Meadow"), QStringLiteral("meadow"));
+  procBiome_->addItem(tr("Meadow (finite arena)"), QStringLiteral("meadow"));
+  procBiome_->addItem(tr("Endless meadow (streaming)"), QStringLiteral("endless"));
 
   procSeed_ = new QSpinBox(body);
   procSeed_->setRange(0, 2147483647);

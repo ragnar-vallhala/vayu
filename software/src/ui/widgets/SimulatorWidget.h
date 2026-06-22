@@ -2,6 +2,7 @@
 
 #include "vsim/SimWorker.h"
 #include "vsim/SimRendererWidget.h"
+#include "vsim/ChunkStreamer.h"
 #include "vsim/RcBridge.h"
 #include "GeometryEditorWidget.h"
 #include "WorldEditorWidget.h"
@@ -140,6 +141,9 @@ class SimulatorWidget : public QWidget {
   // it to the renderer; empty path clears it. When the sim is running, also
   // builds the collision BVH and ships it to the daemon (sendWorldMeshToSim).
   void loadWorldMeshToRenderer();
+  // Endless terrain: poll the streamer at the current view centre (drone or
+  // free-fly camera) and apply the chunk add/remove diff + local collision.
+  void onStreamTick();
   // Training course: (re)generate gates for the selected difficulty, push the
   // layout to both renderers, reset the drone to the floor, and refresh the
   // progress readout. setTrainingMode is the dropdown handler.
@@ -203,6 +207,10 @@ class SimulatorWidget : public QWidget {
   bool m_ifaceInit = false;
   bool m_sitlStarted = false;
   vsim::SimWorker* m_sim = nullptr;
+
+  // Endless procedural terrain streaming (active only for the "endless" biome).
+  vsim::ChunkStreamer m_chunkStreamer;
+  class QTimer* m_streamTimer = nullptr;  // polls the view centre (~10 Hz)
   RcBridge* m_rc = nullptr;        // RC transmitter → firmware RC feeder
   QCheckBox* m_rcEnable = nullptr;
   QComboBox* m_rcSource = nullptr;          // USB joystick vs UART (CSV)
