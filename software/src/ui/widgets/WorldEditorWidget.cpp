@@ -91,7 +91,9 @@ QJsonObject worldToJson(const vsim::WorldConfig& w) {
         {"grass_slope_lo", w.flora.slopeLo},
         {"grass_slope_hi", w.flora.slopeHi},
         {"flower_frac", w.flora.flowerFrac},
-        {"blade_height", w.flora.maxHeight}};
+        {"blades_per_cell", w.flora.bladesPerCell},
+        {"blade_height_mean", w.flora.heightMean},
+        {"blade_height_dev", w.flora.heightStdDev}};
   }
   return root;
 }
@@ -140,7 +142,11 @@ vsim::WorldConfig worldFromJson(const QJsonObject& root) {
   w.flora.slopeLo = pg.value("grass_slope_lo").toDouble(w.flora.slopeLo);
   w.flora.slopeHi = pg.value("grass_slope_hi").toDouble(w.flora.slopeHi);
   w.flora.flowerFrac = pg.value("flower_frac").toDouble(w.flora.flowerFrac);
-  w.flora.maxHeight = pg.value("blade_height").toDouble(w.flora.maxHeight);
+  w.flora.bladesPerCell =
+      pg.value("blades_per_cell").toDouble(w.flora.bladesPerCell);
+  w.flora.heightMean = pg.value("blade_height_mean").toDouble(w.flora.heightMean);
+  w.flora.heightStdDev =
+      pg.value("blade_height_dev").toDouble(w.flora.heightStdDev);
   return w;
 }
 }  // namespace
@@ -461,12 +467,14 @@ void WorldEditorWidget::buildProceduralTuningSection(QVBoxLayout* root) {
   group(tr("Grass — flatness 1=flat, 0=vertical"));
   {
     auto* f = new QFormLayout();
-    knob(f, tr("Spacing (density):"), 0.3, 4.0, 2, 0.1, &cfg_.flora.spacing, tr(" m"));
+    knob(f, tr("Spacing (density):"), 0.15, 4.0, 2, 0.05, &cfg_.flora.spacing, tr(" m"));
+    knob(f, tr("Blades per cell:"), 1, 12, 0, 1, &cfg_.flora.bladesPerCell, {});
     knob(f, tr("Height limit:"), 0, 1, 2, 0.02, &cfg_.flora.grassMaxFrac, {});
     knob(f, tr("Slope start:"), 0, 1, 2, 0.02, &cfg_.flora.slopeLo, {});
     knob(f, tr("Slope full:"), 0, 1, 2, 0.02, &cfg_.flora.slopeHi, {});
     knob(f, tr("Flower fraction:"), 0, 0.4, 2, 0.01, &cfg_.flora.flowerFrac, {});
-    knob(f, tr("Blade height:"), 0.05, 1.5, 2, 0.02, &cfg_.flora.maxHeight, tr(" m"));
+    knob(f, tr("Blade height mean:"), 0.05, 1.5, 2, 0.02, &cfg_.flora.heightMean, tr(" m"));
+    knob(f, tr("Blade height σ:"), 0.0, 0.5, 2, 0.01, &cfg_.flora.heightStdDev, tr(" m"));
     col->addLayout(f);
   }
 

@@ -308,9 +308,9 @@ void TstProcgen::floraSitsOnSurfaceAndDeterministic() {
     // Base sits on the surface (z == -height at the blade's xy).
     const float surf = -f.height(a[i].pos.x, a[i].pos.y);
     QVERIFY(std::fabs(a[i].pos.z - surf) < 1e-2f);
-    // Height + colour are sane.
-    QVERIFY(a[i].height >= gp.minHeight - 1e-3f &&
-            a[i].height <= gp.maxHeight * 1.2f + 1e-3f);
+    // Height is positive and within a few std deviations of the mean.
+    QVERIFY(a[i].height > 0.0f &&
+            a[i].height <= gp.heightMean + 6.0f * gp.heightStdDev + 0.1f);
     QVERIFY(a[i].tint.x >= 0.0f && a[i].tint.x <= 1.0f);
   }
 }

@@ -88,36 +88,46 @@ std::vector<FloraInstance> scatterFlora(const TerrainField& f, int cx, int cy,
       if (density <= 0.0f) continue;
       if (u01(hcell(gx, gy, p.seed, 3)) > density) continue;
 
-      const float jx = (u01(hcell(gx, gy, p.seed, 1)) - 0.5f) * p.jitter;
-      const float jy = (u01(hcell(gx, gy, p.seed, 2)) - 0.5f) * p.jitter;
-      const float wx = baseX + jx * p.spacing;
-      const float wy = baseY + jy * p.spacing;
+      // Multiple blades per cell (each with its own jitter/yaw/height) to crank
+      // density cheaply. Per-blade salts are spaced 20 apart so they don't
+      // collide across blades or with the cell's density salt (3).
+      const int nb = std::max(1, static_cast<int>(p.bladesPerCell + 0.5f));
+      for (int bi = 0; bi < nb; ++bi) {
+        const uint32_t s0 = 10u + static_cast<uint32_t>(bi) * 20u;
+        const float jx = (u01(hcell(gx, gy, p.seed, s0)) - 0.5f) * p.jitter;
+        const float jy = (u01(hcell(gx, gy, p.seed, s0 + 1)) - 0.5f) * p.jitter;
+        const float wx = baseX + jx * p.spacing;
+        const float wy = baseY + jy * p.spacing;
 
-      FloraInstance b;
-      // Exact surface height at the jittered position (only for kept blades, so
-      // it stays cheap) so blades sit ON the ground, not floating on a slope.
-      b.pos = PgVec3{wx, wy, -f.height(wx, wy)};
-      b.yaw = u01(hcell(gx, gy, p.seed, 4)) * 6.2831853f;
-      b.height = p.minHeight +
-                 (p.maxHeight - p.minHeight) * u01(hcell(gx, gy, p.seed, 5));
+        FloraInstance b;
+        // Exact surface height at the jittered position (only for kept blades)
+        // so blades sit ON the ground, not floating on a slope.
+        b.pos = PgVec3{wx, wy, -f.height(wx, wy)};
+        b.yaw = u01(hcell(gx, gy, p.seed, s0 + 2)) * 6.2831853f;
+        // Normal-distributed height (Box-Muller) from mean + std deviation.
+        float u1 = u01(hcell(gx, gy, p.seed, s0 + 3));
+        const float u2 = u01(hcell(gx, gy, p.seed, s0 + 4));
+        if (u1 < 1e-6f) u1 = 1e-6f;
+        const float gauss =
+            std::sqrt(-2.0f * std::log(u1)) * std::cos(6.2831853f * u2);
+        b.height = std::max(0.03f, p.heightMean + p.heightStdDev * gauss);
 
-      const bool isFlower = u01(hcell(gx, gy, p.seed, 6)) < p.flowerFrac;
-      if (isFlower) {
-        // A few bright accents: yellow / red / white from the hash.
-        const float fh = u01(hcell(gx, gy, p.seed, 7));
-        if (fh < 0.55f)      b.tint = PgVec3{0.92f, 0.82f, 0.20f};  // yellow
-        else if (fh < 0.85f) b.tint = PgVec3{0.86f, 0.30f, 0.26f};  // red
-        else                 b.tint = PgVec3{0.92f, 0.92f, 0.95f};  // white
-        b.flower = 1.0f;
-        b.height *= 1.15f;
-      } else {
-        // Grass green with per-blade lightness + hue variation.
-        const float v = 0.85f + 0.34f * u01(hcell(gx, gy, p.seed, 8));
-        const float yellow = 0.12f * u01(hcell(gx, gy, p.seed, 9));
-        b.tint = PgVec3{(0.30f + yellow) * v, 0.52f * v, 0.18f * v};
-        b.flower = 0.0f;
+        const bool isFlower = u01(hcell(gx, gy, p.seed, s0 + 5)) < p.flowerFrac;
+        if (isFlower) {
+          const float fh = u01(hcell(gx, gy, p.seed, s0 + 6));
+          if (fh < 0.55f)      b.tint = PgVec3{0.92f, 0.82f, 0.20f};  // yellow
+          else if (fh < 0.85f) b.tint = PgVec3{0.86f, 0.30f, 0.26f};  // red
+          else                 b.tint = PgVec3{0.92f, 0.92f, 0.95f};  // white
+          b.flower = 1.0f;
+          b.height *= 1.15f;
+        } else {
+          const float v = 0.85f + 0.34f * u01(hcell(gx, gy, p.seed, s0 + 7));
+          const float yellow = 0.12f * u01(hcell(gx, gy, p.seed, s0 + 8));
+          b.tint = PgVec3{(0.30f + yellow) * v, 0.52f * v, 0.18f * v};
+          b.flower = 0.0f;
+        }
+        out.push_back(b);
       }
-      out.push_back(b);
     }
   }
   return out;
