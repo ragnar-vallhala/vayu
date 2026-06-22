@@ -1,6 +1,8 @@
 #include "ChunkStreamer.h"
 
+#include <algorithm>
 #include <cmath>
+#include <cstdlib>
 
 namespace vsim {
 
@@ -11,6 +13,7 @@ void ChunkStreamer::configure(const Config& c) {
   cfg_ = c;
   field_ = std::make_unique<TerrainField>(c.field);
   loaded_.clear();
+  desired_.clear();
   curCx_ = curCy_ = INT_MIN;
   colCx_ = colCy_ = INT_MIN;
   first_ = true;
@@ -21,6 +24,7 @@ void ChunkStreamer::deactivate() {
   active_ = false;
   field_.reset();
   loaded_.clear();
+  desired_.clear();
   first_ = true;
 }
 
@@ -74,41 +78,57 @@ StreamDiff ChunkStreamer::update(float wx, float wy) {
 
   const int cx = static_cast<int>(std::floor(wx / cfg_.chunkM));
   const int cy = static_cast<int>(std::floor(wy / cfg_.chunkM));
+  const bool cellChanged = first_ || cx != curCx_ || cy != curCy_;
 
-  // Nothing to do if we're still in the same cell and not the first call.
-  if (!first_ && cx == curCx_ && cy == curCy_) return diff;
+  if (cellChanged) {
+    // Recompute the desired set (Chebyshev disc of renderRadius) and unload any
+    // chunks that drifted out of range. Removal is cheap (no meshing).
+    const int r = cfg_.renderRadius;
+    desired_.clear();
+    for (int j = cy - r; j <= cy + r; ++j)
+      for (int i = cx - r; i <= cx + r; ++i)
+        desired_.insert(keyOf(i, j));
+    for (qint64 key : loaded_)
+      if (desired_.find(key) == desired_.end()) diff.remove.push_back(key);
+    for (qint64 key : diff.remove) loaded_.erase(key);
 
-  // Desired render set: Chebyshev disc of renderRadius around (cx, cy).
-  const int r = cfg_.renderRadius;
-  std::set<qint64> desired;
-  for (int j = cy - r; j <= cy + r; ++j)
-    for (int i = cx - r; i <= cx + r; ++i)
-      desired.insert(keyOf(i, j));
+    // Local collision follows the cell. Built synchronously (small: a
+    // collisionRadius neighbourhood), reshipped only on a cell change.
+    if (cx != colCx_ || cy != colCy_) {
+      diff.collision = buildCollisionMesh(cx, cy);
+      diff.collisionChanged = diff.collision.valid;
+      colCx_ = cx;
+      colCy_ = cy;
+    }
+    curCx_ = cx;
+    curCy_ = cy;
+    first_ = false;
+  }
 
-  // Unload chunks that drifted out of range.
-  for (qint64 key : loaded_)
-    if (desired.find(key) == desired.end()) diff.remove.push_back(key);
-  for (qint64 key : diff.remove) loaded_.erase(key);
-
-  // Load chunks that came into range.
-  for (int j = cy - r; j <= cy + r; ++j) {
-    for (int i = cx - r; i <= cx + r; ++i) {
-      const qint64 key = keyOf(i, j);
-      if (loaded_.insert(key).second) diff.add.push_back(buildRenderChunk(i, j));
+  // Amortised load: mesh at most maxBuildsPerUpdate of the still-missing chunks
+  // per call, nearest-first, so a full neighbourhood streams in over several
+  // ticks instead of freezing the UI thread in one burst.
+  std::vector<qint64> missing;
+  for (qint64 key : desired_)
+    if (loaded_.find(key) == loaded_.end()) missing.push_back(key);
+  if (!missing.empty()) {
+    auto cheb = [cx, cy](qint64 key) {
+      const int ix = static_cast<int>(key >> 32);
+      const int iy = static_cast<int>(static_cast<uint32_t>(key));
+      return std::max(std::abs(ix - cx), std::abs(iy - cy));
+    };
+    std::sort(missing.begin(), missing.end(),
+              [&](qint64 a, qint64 b) { return cheb(a) < cheb(b); });
+    const int budget = cfg_.maxBuildsPerUpdate > 0 ? cfg_.maxBuildsPerUpdate : 1;
+    const int n = std::min<int>(budget, static_cast<int>(missing.size()));
+    for (int k = 0; k < n; ++k) {
+      const qint64 key = missing[k];
+      const int ix = static_cast<int>(key >> 32);
+      const int iy = static_cast<int>(static_cast<uint32_t>(key));
+      diff.add.push_back(buildRenderChunk(ix, iy));
+      loaded_.insert(key);
     }
   }
-
-  // Refresh local collision when the cell changed (or on the first update).
-  if (first_ || cx != colCx_ || cy != colCy_) {
-    diff.collision = buildCollisionMesh(cx, cy);
-    diff.collisionChanged = diff.collision.valid;
-    colCx_ = cx;
-    colCy_ = cy;
-  }
-
-  curCx_ = cx;
-  curCy_ = cy;
-  first_ = false;
   return diff;
 }
 
