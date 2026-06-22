@@ -95,7 +95,9 @@ SimSnapshot SimWorker::snapshot() const {
     return last_snap_;
 }
 
-void SimWorker::sendReset() {
+void SimWorker::sendReset() { sendResetPose(0.0f, 0.0f, -0.05f); }
+
+void SimWorker::sendResetPose(float x, float y, float z) {
     if (ctl_fd_ < 0) return;
     vsim_ctl_frame_t f{};
     f.hdr.magic         = VSIM_MAGIC;
@@ -105,8 +107,10 @@ void SimWorker::sendReset() {
     f.hdr.seq_no        = 0;  // ctl is one-shot; the daemon doesn't dedupe by seq
     f.subtype           = VSIM_CTL_RESET;
     vsim_ctl_reset_t body{};
-    body.pos_w[2]       = -0.05f;  // a few cm above ground
-    body.quat_wxyz[0]   = 1.0f;    // identity
+    body.pos_w[0]       = x;
+    body.pos_w[1]       = y;
+    body.pos_w[2]       = z;     // NED: more negative = higher above ground
+    body.quat_wxyz[0]   = 1.0f;  // identity (level)
     std::memcpy(f.body, &body, sizeof(body));
     ::write(ctl_fd_, &f, sizeof(f));
 }
