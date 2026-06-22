@@ -226,6 +226,10 @@ void main() {
   vec3 toFrag = v_world - u_campos;
   float dist = length(toFrag);
   vec3 vdir = dist > 1e-4 ? toFrag / dist : vec3(0.0, 0.0, 1.0);
+  // Subsurface translucency: blades glow when backlit (looking toward the sun
+  // through them), strongest near the thin tip — the soft GoT meadow look.
+  float trans = pow(max(dot(vdir, normalize(u_sundir)), 0.0), 4.0);
+  col += v_color * trans * (0.25 + 0.75 * v_hf) * 0.8;
   float fd = max(dist - u_fogstart, 0.0) * u_fogdensity;
   float fog = 1.0 - exp(-fd * fd);
   o_color = vec4(mix(col, skyColor(vdir), clamp(fog, 0.0, 1.0)), 1.0);
