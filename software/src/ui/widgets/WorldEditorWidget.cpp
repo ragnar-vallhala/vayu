@@ -20,6 +20,7 @@
 #include <QJsonObject>
 #include <QLabel>
 #include <QListWidget>
+#include <QSpinBox>
 #include <QVBoxLayout>
 
 namespace {
@@ -48,7 +49,7 @@ QVector3D vec3FromJson(const QJsonValue& v, const QVector3D& def) {
 QJsonObject worldToJson(const vsim::WorldConfig& w) {
   QJsonObject root;
   root["format"] = "vayu-world";
-  root["version"] = 1;
+  root["version"] = 2;
   root["gravity"] = w.gravity;
   root["ground_z"] = w.ground_z;
   root["restitution"] = w.restitution;
@@ -71,6 +72,13 @@ QJsonObject worldToJson(const vsim::WorldConfig& w) {
                            {"restitution", o.restitution}});
   }
   root["obstacles"] = obs;
+  if (!w.proceduralBiome.isEmpty()) {
+    root["procedural"] = QJsonObject{
+        {"biome", w.proceduralBiome},
+        {"seed", static_cast<double>(w.proceduralSeed)},
+        {"size_m", w.proceduralSizeM},
+        {"resolution", w.proceduralResolution}};
+  }
   return root;
 }
 
@@ -99,6 +107,12 @@ vsim::WorldConfig worldFromJson(const QJsonObject& root) {
     ob.restitution = o.value("restitution").toDouble(ob.restitution);
     w.obstacles.push_back(ob);
   }
+  const QJsonObject pg = root.value("procedural").toObject();
+  w.proceduralBiome = pg.value("biome").toString(w.proceduralBiome);
+  w.proceduralSeed = static_cast<quint32>(
+      pg.value("seed").toDouble(static_cast<double>(w.proceduralSeed)));
+  w.proceduralSizeM = pg.value("size_m").toDouble(w.proceduralSizeM);
+  w.proceduralResolution = pg.value("resolution").toInt(w.proceduralResolution);
   return w;
 }
 }  // namespace
@@ -178,6 +192,9 @@ void WorldEditorWidget::buildUi() {
     root->addWidget(fileStatus_);
   }
 
+  // -- Procedural world --
+  buildProceduralSection(root);
+
   // -- World mesh --
   buildWorldMeshSection(root);
 
@@ -185,6 +202,85 @@ void WorldEditorWidget::buildUi() {
   buildObstacleSection(root);
 
   root->addStretch();
+}
+
+void WorldEditorWidget::buildProceduralSection(QVBoxLayout* root) {
+  auto* sec = new CollapsibleSection(tr("Procedural world"), this);
+  auto* body = new QWidget();
+  auto* col = new QVBoxLayout(body);
+
+  auto* hint = new QLabel(
+      tr("Generate the world from a biome instead of importing a mesh. "
+         "Takes precedence over the world mesh below; same seed → same world."),
+      body);
+  hint->setWordWrap(true);
+  hint->setStyleSheet(
+      QString("color:%1; font-size:11px;").arg(Theme::hex(Theme::kTextMuted)));
+  col->addWidget(hint);
+
+  auto* form = new QFormLayout();
+  procBiome_ = new QComboBox(body);
+  procBiome_->addItem(tr("None (use world mesh)"), QString());
+  procBiome_->addItem(tr("Meadow"), QStringLiteral("meadow"));
+
+  procSeed_ = new QSpinBox(body);
+  procSeed_->setRange(0, 2147483647);
+  procSeed_->setValue(static_cast<int>(cfg_.proceduralSeed));
+  procSeed_->setToolTip(tr("Random seed — change it for a different world."));
+
+  procSizeM_ = spin(16.0, 4096.0, 0, 16.0, cfg_.proceduralSizeM,
+                    QStringLiteral(" m"));
+  procSizeM_->setToolTip(tr("Square world extent in metres."));
+
+  procResolution_ = new QSpinBox(body);
+  procResolution_->setRange(2, 1024);
+  procResolution_->setValue(cfg_.proceduralResolution);
+  procResolution_->setToolTip(
+      tr("Grid samples per side (higher = finer terrain, more triangles)."));
+
+  form->addRow(tr("Biome:"), procBiome_);
+  form->addRow(tr("Seed:"), procSeed_);
+  form->addRow(tr("Size:"), procSizeM_);
+  form->addRow(tr("Resolution:"), procResolution_);
+  col->addLayout(form);
+
+  // Pull the four widgets into cfg_ (no regen — that's the button's job).
+  auto pull = [this] {
+    if (procSyncing_) return;
+    cfg_.proceduralBiome = procBiome_->currentData().toString();
+    cfg_.proceduralSeed = static_cast<quint32>(procSeed_->value());
+    cfg_.proceduralSizeM = static_cast<float>(procSizeM_->value());
+    cfg_.proceduralResolution = procResolution_->value();
+  };
+
+  // Changing the biome regenerates immediately (it switches the whole world
+  // on/off); the numeric knobs apply on the explicit Generate button so
+  // dragging a spinner doesn't rebuild the mesh + BVH on every step.
+  connect(procBiome_, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+          [this, pull] { pull(); emit worldMeshChanged(); });
+  connect(procSeed_, QOverload<int>::of(&QSpinBox::valueChanged), this,
+          [pull] { pull(); });
+  connect(procSizeM_, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+          [pull] { pull(); });
+  connect(procResolution_, QOverload<int>::of(&QSpinBox::valueChanged), this,
+          [pull] { pull(); });
+
+  {
+    auto* row = new QHBoxLayout();
+    auto* gen = new ui::GhostButton(tr("Generate"), body);
+    gen->setToolTip(tr("(Re)generate the world from the current biome params."));
+    connect(gen, &QPushButton::clicked, this, [this, pull] {
+      pull();
+      if (cfg_.proceduralBiome.isEmpty()) return;
+      emit worldMeshChanged();
+    });
+    row->addWidget(gen);
+    row->addStretch();
+    col->addLayout(row);
+  }
+
+  sec->setContentWidget(body);
+  root->addWidget(sec);
 }
 
 void WorldEditorWidget::buildWindSection(QVBoxLayout* root) {
@@ -633,4 +729,14 @@ void WorldEditorWidget::setConfig(const vsim::WorldConfig& c) {
   for (int i = 0; i < 3; ++i)
     if (worldOffset_[i]) worldOffset_[i]->setValue(cfg_.worldMeshOffset[i]);
   worldMeshSyncing_ = false;
+
+  procSyncing_ = true;
+  if (procBiome_) {
+    const int idx = procBiome_->findData(cfg_.proceduralBiome);
+    procBiome_->setCurrentIndex(idx >= 0 ? idx : 0);
+  }
+  if (procSeed_) procSeed_->setValue(static_cast<int>(cfg_.proceduralSeed));
+  if (procSizeM_) procSizeM_->setValue(cfg_.proceduralSizeM);
+  if (procResolution_) procResolution_->setValue(cfg_.proceduralResolution);
+  procSyncing_ = false;
 }

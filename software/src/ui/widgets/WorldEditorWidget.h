@@ -9,6 +9,7 @@ class QComboBox;
 class QDoubleSpinBox;
 class QListWidget;
 class QPushButton;
+class QSpinBox;
 class QVBoxLayout;
 
 // WorldEditorWidget — the "World" tab's environment + aerodynamics, plus a
@@ -57,6 +58,7 @@ class WorldEditorWidget : public QWidget {
  private:
   void buildUi();
   void buildWindSection(QVBoxLayout* root);
+  void buildProceduralSection(QVBoxLayout* root);
   void buildWorldMeshSection(QVBoxLayout* root);
   void buildObstacleSection(QVBoxLayout* root);
   void syncConfigToUi();
@@ -104,4 +106,12 @@ class WorldEditorWidget : public QWidget {
   QComboBox* worldUpAxis_ = nullptr;
   QDoubleSpinBox* worldOffset_[3] = {nullptr, nullptr, nullptr};  // NED placement
   bool worldMeshSyncing_ = false;
+
+  // Procedural world controls (Phase 0). Biome "None" = off (use imported
+  // mesh); selecting a biome generates and takes precedence.
+  QComboBox* procBiome_ = nullptr;
+  QSpinBox* procSeed_ = nullptr;
+  QDoubleSpinBox* procSizeM_ = nullptr;
+  QSpinBox* procResolution_ = nullptr;
+  bool procSyncing_ = false;
 };
