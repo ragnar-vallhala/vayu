@@ -4,6 +4,9 @@
 
 #include <QWidget>
 
+#include <functional>
+#include <vector>
+
 class QCheckBox;
 class QComboBox;
 class QDoubleSpinBox;
@@ -59,6 +62,7 @@ class WorldEditorWidget : public QWidget {
   void buildUi();
   void buildWindSection(QVBoxLayout* root);
   void buildProceduralSection(QVBoxLayout* root);
+  void buildProceduralTuningSection(QVBoxLayout* root);
   void buildWorldMeshSection(QVBoxLayout* root);
   void buildObstacleSection(QVBoxLayout* root);
   void syncConfigToUi();
@@ -114,4 +118,7 @@ class WorldEditorWidget : public QWidget {
   QDoubleSpinBox* procSizeM_ = nullptr;
   QSpinBox* procResolution_ = nullptr;
   bool procSyncing_ = false;
+  // Generator-tuning knobs: each pushes a sync lambda (cfg_ -> spinbox) here so
+  // setConfig can refresh them all without a member per knob.
+  std::vector<std::function<void()>> procKnobSyncers_;
 };

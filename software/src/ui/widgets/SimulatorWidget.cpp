@@ -2030,7 +2030,10 @@ void SimulatorWidget::loadWorldMeshToRenderer() {
   m_terrainHeightAt = heightAt;  // null for imported / no world
   if (m_minimap) {
     m_minimap->setSampler(heightAt);
-    if (heightAt) m_minimap->setRangeM(minimapRange);
+    if (heightAt) {
+      m_minimap->setRangeM(minimapRange);
+      m_minimap->setReferenceHeight(endless ? w.field.heightM : 80.0f);
+    }
   }
 
   // Leaving the endless biome: stop the streamer and drop its chunks so a
@@ -2073,8 +2076,11 @@ void SimulatorWidget::loadWorldMeshToRenderer() {
     m_collisionPending = false;
 
     vsim::ChunkStreamer::Config sc;
+    sc.field = w.field;  // user-tuned terrain shape + colour bands
     sc.field.seed = static_cast<uint32_t>(w.proceduralSeed);
     m_chunkStreamer.configure(sc);
+    m_floraParams = w.flora;  // user-tuned grass density / slope / height
+    m_floraParams.seed = static_cast<uint32_t>(w.proceduralSeed);
 
     if (!m_streamTimer) {
       m_streamTimer = new QTimer(this);
@@ -2252,7 +2258,7 @@ void SimulatorWidget::streamFlora(int cx, int cy) {
   const auto field = m_chunkStreamer.field();
   if (!field) return;
   const float chunkM = m_chunkStreamer.config().chunkM;
-  const uint32_t seed = m_chunkStreamer.config().field.seed;
+  const vsim::procgen::FloraParams fp = m_floraParams;  // user-tuned knobs
   const int gen = m_streamGen;
   for (int j = cy - kFloraRadius; j <= cy + kFloraRadius; ++j)
     for (int i = cx - kFloraRadius; i <= cx + kFloraRadius; ++i) {
@@ -2268,9 +2274,7 @@ void SimulatorWidget::streamFlora(int cx, int cy) {
         else m_floraInflight.erase(key);
         w->deleteLater();
       });
-      w->setFuture(QtConcurrent::run([field, fcx, fcy, chunkM, seed]() {
-        vsim::procgen::FloraParams fp;
-        fp.seed = seed;
+      w->setFuture(QtConcurrent::run([field, fcx, fcy, chunkM, fp]() {
         const auto blades =
             vsim::procgen::scatterFlora(*field, fcx, fcy, chunkM, fp);
         std::vector<float> d;

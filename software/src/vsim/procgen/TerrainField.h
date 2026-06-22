@@ -29,6 +29,13 @@ struct FieldParams {
   float lacunarity = 2.0f;
   float gain = 0.5f;
   float mountainMix = 0.55f; // ridged-ridge weight inside mountainous regions
+
+  // Surface-colour thresholds, as fractions of heightM (0..1). Each is the
+  // elevation where that band is reached; colour() blends with fixed widths.
+  float colBrownT = 0.48f;   // green -> brown by this elevation
+  float colRockT = 0.82f;    // brown -> bare rock by this elevation
+  float colSnowT = 0.68f;    // snow begins capping above this elevation
+  float colSlopeT = 0.45f;   // slope steepness (0..1) that exposes rock
 };
 
 class TerrainField {
