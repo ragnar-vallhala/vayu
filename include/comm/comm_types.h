@@ -80,6 +80,18 @@ typedef enum {
   CALIB_UPDATE_UPRIGHT = 0x05,
   CALIB_UPDATE_UPSIDE_DOWN = 0x06,
   CALIB_UPDATE_FREE_ROT = 0x07,
+  /* Per-axis mag coverage (FC -> GCS): coverage[0..2] carry the fraction (0..100)
+   * of each axis's normalized-field range swept so far. Drives the GCS coverage
+   * readout; the FC also derives overall PROGRESS from it. Wire: step 8, len>=15
+   * (navlink_tx_calibration coverage path). */
+  CALIB_UPDATE_MAG_AXIS_COVERAGE = 0x08,
+  /* Terminal status (FC -> GCS): the routine ended. COMPLETE = persisted OK;
+   * FAILED = aborted/fit failure/save failure. Lets the GCS wizard finish on an
+   * explicit event instead of inferring it from a STANDBY heartbeat (which is
+   * absent when calibration legitimately ends in FAILSAFE). Keep these aligned
+   * with navlink calib_step. */
+  CALIB_UPDATE_COMPLETE = 0x09,
+  CALIB_UPDATE_FAILED = 0x0A,
 } calib_update_type_t;
 
 /**
