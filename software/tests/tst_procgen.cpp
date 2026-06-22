@@ -230,22 +230,23 @@ static vsim::ChunkStreamer::Config streamCfg(int renderRadius) {
   c.resolution = 8;        // tiny chunks -> fast test
   c.renderRadius = renderRadius;
   c.collisionRadius = 1;
-  c.maxBuildsPerUpdate = 4;  // amortised; drain over several update() calls
+  c.maxInFlight = 4;       // cap per plan(); drain over several calls
   return c;
 }
 
-// Pump update() at a fixed point until amortised loading stops producing new
-// chunks, accumulating the totals. Returns {totalAdds, totalRemoves,
-// collisionEverChanged}.
-struct DrainResult { std::size_t adds, removes; bool collision; };
+// Pump plan() at a fixed point, "building" each requested chunk (markBuilt),
+// until no more work is produced. Returns {totalBuilds, totalRemoves,
+// collisionEverDue}.
+struct DrainResult { std::size_t builds, removes; bool collision; };
 static DrainResult drain(vsim::ChunkStreamer& s, float wx, float wy) {
   DrainResult r{0, 0, false};
   for (int i = 0; i < 200; ++i) {
-    const vsim::StreamDiff d = s.update(wx, wy);
-    r.adds += d.add.size();
-    r.removes += d.remove.size();
-    r.collision = r.collision || d.collisionChanged;
-    if (d.add.empty() && d.remove.empty()) break;
+    const vsim::StreamPlan p = s.plan(wx, wy);
+    r.builds += p.toBuild.size();
+    r.removes += p.toRemove.size();
+    r.collision = r.collision || p.collisionDue;
+    for (const vsim::ChunkReq& req : p.toBuild) s.markBuilt(req.key);
+    if (p.toBuild.empty() && p.toRemove.empty()) break;
   }
   return r;
 }
@@ -255,8 +256,8 @@ void TstProcgen::streamerLoadsNeighborhood() {
   s.configure(streamCfg(2));
   QVERIFY(s.active());
   const DrainResult r = drain(s, 0.0f, 0.0f);
-  // Chebyshev radius 2 -> a 5x5 = 25 window, streamed in over several ticks.
-  QCOMPARE(r.adds, std::size_t(25));
+  // Chebyshev radius 2 -> a 5x5 = 25 window, streamed in over several plans.
+  QCOMPARE(r.builds, std::size_t(25));
   QCOMPARE(r.removes, std::size_t(0));
   QVERIFY(r.collision);
 }
@@ -266,11 +267,11 @@ void TstProcgen::streamerStableWithinCell() {
   s.configure(streamCfg(2));
   drain(s, 0.0f, 0.0f);
   // Move within the same chunk cell (cell is 100 m): fully loaded already, so
-  // no new geometry and no collision rebuild.
-  const vsim::StreamDiff d = s.update(40.0f, 25.0f);
-  QVERIFY(d.add.empty());
-  QVERIFY(d.remove.empty());
-  QVERIFY(!d.collisionChanged);
+  // no new builds and no collision rebuild.
+  const vsim::StreamPlan p = s.plan(40.0f, 25.0f);
+  QVERIFY(p.toBuild.empty());
+  QVERIFY(p.toRemove.empty());
+  QVERIFY(!p.collisionDue);
 }
 
 void TstProcgen::streamerPagesOnCrossing() {
@@ -279,9 +280,9 @@ void TstProcgen::streamerPagesOnCrossing() {
   s.configure(streamCfg(r));
   drain(s, 0.0f, 0.0f);
   // Cross one cell east (x: 0 -> cell 1). One column leaves, one enters; the
-  // loaded-set size is conserved, so total adds == total removes == (2r+1).
+  // loaded-set size is conserved, so total builds == total removes == (2r+1).
   const DrainResult d = drain(s, 150.0f, 0.0f);
-  QCOMPARE(d.adds, static_cast<std::size_t>(2 * r + 1));
+  QCOMPARE(d.builds, static_cast<std::size_t>(2 * r + 1));
   QCOMPARE(d.removes, static_cast<std::size_t>(2 * r + 1));
   QVERIFY(d.collision);  // centre changed cell -> collision reshipped
 }

@@ -27,6 +27,7 @@ extern "C" {
 #include <QString>
 #include <QWidget>
 #include <memory>
+#include <unordered_map>
 
 class QGridLayout;
 class QStackedWidget;
@@ -143,8 +144,15 @@ class SimulatorWidget : public QWidget {
   // builds the collision BVH and ships it to the daemon (sendWorldMeshToSim).
   void loadWorldMeshToRenderer();
   // Endless terrain: poll the streamer at the current view centre (drone or
-  // free-fly camera) and apply the chunk add/remove diff + local collision.
+  // free-fly camera), drop out-of-range chunks, and farm new-chunk meshing out
+  // to background threads.
   void onStreamTick();
+  // A background chunk mesh finished: cache it, upload it, and (re)try the local
+  // collision build. Runs on the UI thread.
+  void onChunkMeshed(qint64 key, const vsim::procgen::ProcMesh& mesh);
+  // Build + ship the local collision BVH from cached chunk meshes once the whole
+  // collision neighbourhood is present (no terrain regeneration).
+  void tryBuildCollision();
   // Contour minimap: re-centre it on the current view centre + heading (~8 Hz).
   void updateMinimap();
   // Training course: (re)generate gates for the selected difficulty, push the
@@ -214,6 +222,12 @@ class SimulatorWidget : public QWidget {
   // Endless procedural terrain streaming (active only for the "endless" biome).
   vsim::ChunkStreamer m_chunkStreamer;
   class QTimer* m_streamTimer = nullptr;  // polls the view centre (~10 Hz)
+  // Mesh cache for loaded chunks (keyed like the streamer) — lets local
+  // collision reuse meshes instead of regenerating them on each crossing.
+  std::unordered_map<qint64, vsim::procgen::ProcMesh> m_chunkCache;
+  int m_streamGen = 0;             // bumped on (re)configure to drop stale builds
+  bool m_collisionPending = false; // a crossing asked for a collision rebuild
+  int m_colCx = 0, m_colCy = 0;    // cell that collision should cover
   RcBridge* m_rc = nullptr;        // RC transmitter → firmware RC feeder
   QCheckBox* m_rcEnable = nullptr;
   QComboBox* m_rcSource = nullptr;          // USB joystick vs UART (CSV)
