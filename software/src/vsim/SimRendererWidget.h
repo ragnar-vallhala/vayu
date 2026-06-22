@@ -212,18 +212,29 @@ class SimRendererWidget : public QOpenGLWidget, protected QOpenGLFunctions {
   int u_mvp_   = -1;
   int u_color_ = -1;
 
-  // Lit shader: position + normal, directional Lambert + ambient. Used
-  // for the imported airframe mesh so a real solid reads as 3D.
+  // Lit shader: position + normal, directional Lambert + ambient, plus aerial
+  // perspective (distance fog into the sky) and an ACES tonemap.
   QOpenGLShaderProgram progLit_;
   int ul_mvp_   = -1;
+  int ul_model_ = -1;
   int ul_nmat_  = -1;
   int ul_color_ = -1;
-  int ul_light_ = -1;
+  int ul_sundir_= -1;
+  int ul_campos_= -1;
+  int ul_fogdensity_ = -1;
+  int ul_fogstart_   = -1;
 
-  // Sky shader: attribute-less fullscreen triangle, view-ray gradient.
+  // Sky shader: attribute-less fullscreen triangle, view-ray gradient + glow.
   QOpenGLShaderProgram progSky_;
-  int us_invvp_ = -1;
+  int us_invvp_  = -1;
+  int us_sundir_ = -1;
   QOpenGLVertexArrayObject skyVao_;
+
+  // Camera world position (NED), refreshed each paintGL; fed to the lit shader
+  // for distance fog.
+  QVector3D camEye_;
+  // Sun direction (toward the light, world NED) shared by lit + sky.
+  QVector3D sunDir_{0.3f, 0.2f, -1.0f};
 
   Mesh ground_;
   Mesh unitBox_;       // [-0.5,0.5]^3, pos+normal (lit) — scaled per obstacle

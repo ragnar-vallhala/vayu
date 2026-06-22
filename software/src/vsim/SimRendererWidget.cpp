@@ -43,51 +43,90 @@ void main() {
 }
 )GLSL";
 
-// Lit program for solids (imported airframe + world mesh, obstacles): a
-// world-space directional Lambert plus a sky/ground hemispheric ambient so
-// the solid reads as 3D. The surface color is u_color * a_color: meshes with
-// real per-vertex/material colors (the world mesh) feed a_color, while flat
-// solids leave attribute 2 disabled (generic white) and tint via u_color.
+// Shared atmosphere GLSL. Appended after the #version + uniform/in decls of
+// BOTH the sky and lit fragment shaders so distant terrain fog fades into
+// exactly the sky behind it (no edge seam). Declares u_sundir; defines the sky
+// gradient + sun glow and an ACES filmic tonemap.
+const char* kAtmosphereGLSL = R"GLSL(
+uniform vec3 u_sundir;     // unit direction toward the sun (world, NED)
+const float kExposure = 1.15;
+vec3 skyColor(vec3 dir) {
+  float up = -dir.z;        // NED up is -Z
+  vec3 zenith  = vec3(0.15, 0.35, 0.66);
+  vec3 horizon = vec3(0.80, 0.86, 0.93);
+  vec3 ground  = vec3(0.16, 0.18, 0.22);
+  vec3 col = (up >= 0.0)
+      ? mix(horizon, zenith, pow(clamp(up, 0.0, 1.0), 0.45))
+      : mix(horizon, ground, clamp(-up * 2.5, 0.0, 1.0));
+  float s = max(dot(normalize(dir), normalize(u_sundir)), 0.0);
+  col += vec3(0.40, 0.32, 0.20) * pow(s, 8.0) * step(0.0, up);  // warm sun glow
+  return col;
+}
+vec3 aces(vec3 x) {
+  const float a = 2.51, b = 0.03, c = 2.43, d = 0.59, e = 0.14;
+  return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
+}
+)GLSL";
+
+// Lit program for solids (imported airframe + world mesh / terrain, obstacles):
+// world-space directional Lambert + sky/ground hemispheric ambient, then aerial
+// perspective (distance fog into the sky color) and the shared tonemap. Surface
+// color is u_color * a_color.
 const char* kLitVertexShader = R"GLSL(
 #version 330 core
 layout(location=0) in vec3 a_pos;
 layout(location=1) in vec3 a_normal;
 layout(location=2) in vec3 a_color;
 uniform mat4 u_mvp;
+uniform mat4 u_model;
 uniform mat3 u_nmat;
 out vec3 v_normal;
 out vec3 v_color;
+out vec3 v_world;
 void main() {
+  v_world = (u_model * vec4(a_pos, 1.0)).xyz;
   gl_Position = u_mvp * vec4(a_pos, 1.0);
   v_normal = u_nmat * a_normal;
   v_color = a_color;
 }
 )GLSL";
 
-const char* kLitFragmentShader = R"GLSL(
+const char* kLitFragmentHead = R"GLSL(
 #version 330 core
 in vec3 v_normal;
 in vec3 v_color;
+in vec3 v_world;
 out vec4 o_color;
 uniform vec3 u_color;
-uniform vec3 u_lightdir;   // world-space direction toward the light
+uniform vec3 u_campos;       // camera world position (NED)
+uniform float u_fogdensity;  // aerial-perspective strength
+uniform float u_fogstart;    // metres before fog begins
+)GLSL";
+
+const char* kLitFragmentMain = R"GLSL(
 void main() {
   vec3 n = normalize(v_normal);
-  float ndl = max(dot(n, normalize(u_lightdir)), 0.0);
-  // Hemispheric ambient: NED up is -Z, so up-facing (n.z<0) catches sky light.
+  float ndl = max(dot(n, normalize(u_sundir)), 0.0);
   float hemi = 0.5 + 0.5 * (-n.z);                 // 0 down .. 1 up
-  vec3 ambient = mix(vec3(0.18, 0.19, 0.22),
-                     vec3(0.40, 0.43, 0.48), clamp(hemi, 0.0, 1.0));
+  vec3 ambient = mix(vec3(0.20, 0.22, 0.26),
+                     vec3(0.45, 0.48, 0.54), clamp(hemi, 0.0, 1.0));
   vec3 base = u_color * v_color;
-  vec3 lit  = base * (ambient + vec3(0.85) * ndl);
-  o_color = vec4(lit, 1.0);
+  vec3 lit  = base * (ambient + vec3(1.0) * ndl);
+  // Aerial perspective: fade toward the sky behind the surface with distance,
+  // so the streamed-terrain edge dissolves into haze.
+  vec3 toFrag = v_world - u_campos;
+  float dist = length(toFrag);
+  vec3 vdir = dist > 1e-4 ? toFrag / dist : vec3(0.0, 0.0, 1.0);
+  float fd = max(dist - u_fogstart, 0.0) * u_fogdensity;
+  float fog = 1.0 - exp(-fd * fd);
+  vec3 col = mix(lit, skyColor(vdir), clamp(fog, 0.0, 1.0));
+  o_color = vec4(aces(col * kExposure), 1.0);
 }
 )GLSL";
 
 // Sky background: a fullscreen triangle (generated from gl_VertexID, no VBO)
-// whose color is a gradient along the per-pixel world view ray — blue zenith,
-// bright horizon, darker ground below — so it reads as a real sky dome and
-// tracks the camera as it orbits/tilts. Drawn first, depth test off.
+// shaded by the shared skyColor() along the per-pixel world view ray, tonemapped
+// to match the fogged terrain. Drawn first, depth test off.
 const char* kSkyVertexShader = R"GLSL(
 #version 330 core
 out vec2 v_ndc;
@@ -98,24 +137,19 @@ void main() {
 }
 )GLSL";
 
-const char* kSkyFragmentShader = R"GLSL(
+const char* kSkyFragmentHead = R"GLSL(
 #version 330 core
 in vec2 v_ndc;
 out vec4 o_color;
 uniform mat4 u_invvp;   // inverse(proj * view)
+)GLSL";
+
+const char* kSkyFragmentMain = R"GLSL(
 void main() {
-  // Unproject the near/far points of this pixel to get the world view ray.
   vec4 wn = u_invvp * vec4(v_ndc, -1.0, 1.0);
   vec4 wf = u_invvp * vec4(v_ndc,  1.0, 1.0);
   vec3 dir = normalize(wf.xyz / wf.w - wn.xyz / wn.w);
-  float up = -dir.z;   // NED up is -Z
-  vec3 zenith  = vec3(0.16, 0.36, 0.66);
-  vec3 horizon = vec3(0.74, 0.82, 0.90);
-  vec3 ground  = vec3(0.16, 0.18, 0.22);
-  vec3 col = (up >= 0.0)
-      ? mix(horizon, zenith, pow(clamp(up, 0.0, 1.0), 0.45))
-      : mix(horizon, ground, clamp(-up * 2.5, 0.0, 1.0));
-  o_color = vec4(col, 1.0);
+  o_color = vec4(aces(skyColor(dir) * kExposure), 1.0);
 }
 )GLSL";
 
@@ -208,17 +242,26 @@ void SimRendererWidget::initializeGL() {
   u_color_ = prog_.uniformLocation("u_color");
 
   progLit_.addShaderFromSourceCode(QOpenGLShader::Vertex,   kLitVertexShader);
-  progLit_.addShaderFromSourceCode(QOpenGLShader::Fragment, kLitFragmentShader);
+  progLit_.addShaderFromSourceCode(
+      QOpenGLShader::Fragment,
+      QByteArray(kLitFragmentHead) + kAtmosphereGLSL + kLitFragmentMain);
   progLit_.link();
   ul_mvp_   = progLit_.uniformLocation("u_mvp");
+  ul_model_ = progLit_.uniformLocation("u_model");
   ul_nmat_  = progLit_.uniformLocation("u_nmat");
   ul_color_ = progLit_.uniformLocation("u_color");
-  ul_light_ = progLit_.uniformLocation("u_lightdir");
+  ul_sundir_= progLit_.uniformLocation("u_sundir");
+  ul_campos_= progLit_.uniformLocation("u_campos");
+  ul_fogdensity_ = progLit_.uniformLocation("u_fogdensity");
+  ul_fogstart_   = progLit_.uniformLocation("u_fogstart");
 
   progSky_.addShaderFromSourceCode(QOpenGLShader::Vertex,   kSkyVertexShader);
-  progSky_.addShaderFromSourceCode(QOpenGLShader::Fragment, kSkyFragmentShader);
+  progSky_.addShaderFromSourceCode(
+      QOpenGLShader::Fragment,
+      QByteArray(kSkyFragmentHead) + kAtmosphereGLSL + kSkyFragmentMain);
   progSky_.link();
   us_invvp_ = progSky_.uniformLocation("u_invvp");
+  us_sundir_ = progSky_.uniformLocation("u_sundir");
   skyVao_.create();   // core profile needs a bound VAO even with no attributes
 
   buildGroundGrid();
@@ -339,12 +382,14 @@ void SimRendererWidget::paintGL() {
   if (chunksDirty_) flushChunkUpdates();
 
   QMatrix4x4 view = cameraView();
+  camEye_ = view.inverted().map(QVector3D(0.0f, 0.0f, 0.0f));  // world eye for fog
 
-  // Sky-dome background (gradient along the per-pixel view ray). Drawn first
-  // with depth test off so the scene paints over it.
+  // Sky-dome background (gradient + sun glow along the per-pixel view ray).
+  // Drawn first with depth test off so the scene paints over it.
   glDisable(GL_DEPTH_TEST);
   progSky_.bind();
   progSky_.setUniformValue(us_invvp_, (proj_ * view).inverted());
+  progSky_.setUniformValue(us_sundir_, sunDir_);
   skyVao_.bind();
   glDrawArrays(GL_TRIANGLES, 0, 3);
   skyVao_.release();
@@ -482,10 +527,14 @@ void SimRendererWidget::drawLit(const Mesh& m, const QMatrix4x4& view,
   if (m.vertex_count == 0) return;
   progLit_.bind();
   progLit_.setUniformValue(ul_mvp_, proj_ * view * model);
+  progLit_.setUniformValue(ul_model_, model);
   progLit_.setUniformValue(ul_nmat_, model.normalMatrix());
   progLit_.setUniformValue(ul_color_, color);
-  // Light mostly from above (NED up is -Z) with a slight side bias.
-  progLit_.setUniformValue(ul_light_, QVector3D(0.3f, 0.2f, -1.0f));
+  progLit_.setUniformValue(ul_sundir_, sunDir_);
+  progLit_.setUniformValue(ul_campos_, camEye_);
+  // Aerial perspective: gentle haze that fully veils the streamed-terrain edge.
+  progLit_.setUniformValue(ul_fogdensity_, 1.0f / 420.0f);
+  progLit_.setUniformValue(ul_fogstart_, 45.0f);
   QOpenGLVertexArrayObject::Binder b(const_cast<QOpenGLVertexArrayObject*>(&m.vao));
   // Flat solids leave attribute 2 disabled; feed white as the generic value so
   // u_color*a_color == u_color. Meshes with a real color array (world mesh)
