@@ -34,8 +34,11 @@ struct FloraParams {
   // slopeLo, full above slopeHi. Lower = grass tolerates steeper ground.
   float slopeLo = 0.80f;
   float slopeHi = 0.93f;
-  float minHeight = 0.16f;     // blade height range [m] (shorter, less spiky)
-  float maxHeight = 0.34f;
+  // Extra blades scattered per grid cell — multiplies density much more cheaply
+  // than shrinking the spacing (the field grid is sampled once per cell).
+  float bladesPerCell = 1.0f;
+  float heightMean = 0.25f;    // blade height: normal distribution [m]
+  float heightStdDev = 0.07f;
   float flowerFrac = 0.04f;    // fraction of blades that become flowers
 };
 
