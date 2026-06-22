@@ -39,19 +39,25 @@ float TerrainField::height(float wx, float wy) const {
   // Detail bands. Domain-warp so nothing looks grid-aligned.
   const float nx = wx * baseFreq_;
   const float ny = wy * baseFreq_;
-  const float wxw = nx + 0.6f * warp_.fbm(nx * 0.5f, ny * 0.5f, 3, 2.0f, 0.5f);
-  const float wyw = ny + 0.6f * warp_.fbm(nx * 0.5f + 5.2f, ny * 0.5f + 1.3f, 3,
+  // Strong domain warp so ridgelines meander instead of marching in a regular
+  // row (the warp is the main thing that makes the mountains look natural).
+  const float wxw = nx + 0.9f * warp_.fbm(nx * 0.5f, ny * 0.5f, 3, 2.0f, 0.5f);
+  const float wyw = ny + 0.9f * warp_.fbm(nx * 0.5f + 5.2f, ny * 0.5f + 1.3f, 3,
                                           2.0f, 0.5f);
 
   const float roll = hills_.fbm(wxw, wyw, p_.octaves, p_.lacunarity, p_.gain);
   const float rollUnit = roll * 0.5f + 0.5f;                  // [0,1] gentle
-  const float ridge = mtn_.ridged(wxw, wyw, p_.octaves, p_.lacunarity, p_.gain);
-  const float mtnUnit = ridge * ridge;                        // [0,1] sharp
+  // Broad mountain ridges from only a few ridged octaves (more octaves added
+  // thin high-frequency spikes). The fbm `roll` above supplies the fine surface
+  // texture on the slopes, so the result is wide mountains, not cones.
+  const int ridgeOctaves = std::min(p_.octaves, 4);
+  const float ridge = mtn_.ridged(wxw, wyw, ridgeOctaves, p_.lacunarity, 0.55f);
+  const float mtnUnit = std::pow(clamp01(ridge), 0.7f);  // round the crests
 
-  // Meadow regions: gentle undulation only. Mountain regions: ridged peaks plus
-  // some hill mass so slopes aren't bare. mountainAmount blends between them.
+  // Meadow regions: gentle undulation only. Mountain regions: rounded ridges
+  // plus some hill mass so slopes aren't bare. mountainAmount blends between.
   const float elev = 0.10f * rollUnit +
-                     mountainAmount * (p_.mountainMix * mtnUnit + 0.3f * rollUnit);
+                     mountainAmount * (p_.mountainMix * mtnUnit + 0.35f * rollUnit);
   return clamp01(elev) * p_.heightM;
 }
 

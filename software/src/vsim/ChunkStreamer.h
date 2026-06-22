@@ -56,7 +56,7 @@ class ChunkStreamer {
   struct Config {
     procgen::FieldParams field;
     float chunkM = 192.0f;       // world metres per chunk side
-    int resolution = 144;        // visual tessellation (grid cells per side)
+    int resolution = 100;        // visual tessellation (grid cells per side)
     int collisionResolution = 48;  // coarse mesh for the collision BVH (cheap)
     int renderRadius = 3;        // Chebyshev chunk radius kept loaded (visual)
     int collisionRadius = 1;     // chunk radius shipped to the daemon as a BVH
