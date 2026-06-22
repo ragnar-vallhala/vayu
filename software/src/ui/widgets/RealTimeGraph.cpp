@@ -75,7 +75,11 @@ void RealTimeGraph::pushState(const QColor &color) {
   if (!m_stateBand)
     return;
   const qint64 now = QDateTime::currentMSecsSinceEpoch();
-  m_stateHist.push_back({now, color});
+  // Coalesce: only record actual state transitions. Pushing a cell per sample
+  // made consecutive translucent rects overlap at their +0.5px seams, double-
+  // blending into vertical streaks instead of one solid run.
+  if (m_stateHist.empty() || m_stateHist.back().color != color)
+    m_stateHist.push_back({now, color});
   // Drop cells older than the window, but keep the one active at window-start so
   // the band still fills to the left edge (the cell whose successor is also out
   // of the window is the redundant one to evict).
