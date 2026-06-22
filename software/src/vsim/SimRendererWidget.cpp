@@ -251,6 +251,14 @@ QVector3D SimRendererWidget::freeForward() const {
       .normalized();
 }
 
+float SimRendererWidget::viewHeadingRad() const {
+  if (freeFly_) {
+    const QVector3D f = freeForward();
+    return std::atan2(f.y(), f.x());  // NED: x=north, y=east
+  }
+  return bodyYawRad();
+}
+
 float SimRendererWidget::bodyYawRad() const {
   // NED yaw (heading about world +Z) from the body->world quaternion.
   const float w = snap_.att.scalar(), x = snap_.att.x(),

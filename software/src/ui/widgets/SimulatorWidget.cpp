@@ -481,6 +481,20 @@ void SimulatorWidget::buildUi() {
   m_downPip->show();
   m_downPip->raise();
 
+  // Contour minimap PiP: top-down hypsometric + contour view of the procedural
+  // terrain, centred on the drone (running) or the free-fly camera. Helps read
+  // height, which the perspective view hides. Driven by m_minimapTimer.
+  m_minimap = new ContourMinimapWidget(m_renderer);
+  m_minimapPip = new PipOverlay(tr("CONTOURS"), m_minimap, m_renderer);
+  m_minimapPip->resize(200, 200);
+  m_minimapPip->move(8, 344);
+  m_minimapPip->show();
+  m_minimapPip->raise();
+  m_minimapTimer = new QTimer(this);
+  m_minimapTimer->setInterval(120);  // ~8 Hz: cheap, smooth enough to follow
+  connect(m_minimapTimer, &QTimer::timeout, this, &SimulatorWidget::updateMinimap);
+  m_minimapTimer->start();
+
   m_renderer->installEventFilter(this);
 
   m_rightStack = new QStackedWidget(splitter);
@@ -672,6 +686,15 @@ void SimulatorWidget::buildUi() {
       if (m_horizonPip) m_horizonPip->setVisible(on);
     });
     runRow->addWidget(horizonChk);
+
+    auto* contourChk = new QCheckBox(tr("Contours"), simBody);
+    contourChk->setChecked(true);
+    contourChk->setToolTip(tr("Show the draggable top-down contour minimap "
+                              "(procedural terrain height)."));
+    connect(contourChk, &QCheckBox::toggled, this, [this](bool on) {
+      if (m_minimapPip) m_minimapPip->setVisible(on);
+    });
+    runRow->addWidget(contourChk);
 
     m_propAudioChk = new QCheckBox(tr("Prop audio"), simBody);
     m_propAudioChk->setToolTip(tr("Propeller sound synthesized from motor rpm "
@@ -1966,6 +1989,26 @@ void SimulatorWidget::loadWorldMeshToRenderer() {
   const bool endless =
       w.proceduralBiome.compare(QStringLiteral("endless"), Qt::CaseInsensitive) == 0;
 
+  // Point the contour minimap at the active terrain's height source. The
+  // endless lambda reads the streamer's field lazily (configured below); the
+  // finite lambda owns its heightfield via the captured shared_ptr.
+  if (m_minimap) {
+    if (endless) {
+      m_minimap->setSampler([this](float n, float e) {
+        const vsim::procgen::TerrainField* f = m_chunkStreamer.field();
+        return f ? f->height(n, e) : 0.0f;
+      });
+    } else if (vsim::isKnownBiome(w.proceduralBiome)) {
+      auto hf = std::make_shared<vsim::procgen::Heightfield>(
+          vsim::proceduralMeadowHeightfield(w));
+      m_minimap->setSampler(
+          [hf](float n, float e) { return hf->sampleWorld(n, e); });
+      m_minimap->setRangeM(w.proceduralSizeM * 0.5f);  // fit the finite arena
+    } else {
+      m_minimap->setSampler(nullptr);  // imported / none -> no minimap terrain
+    }
+  }
+
   // Leaving the endless biome: stop the streamer and drop its chunks so a
   // finite mesh / grid shows cleanly.
   if (!endless && m_chunkStreamer.active()) {
@@ -2055,6 +2098,13 @@ void SimulatorWidget::loadWorldMeshToRenderer() {
   // Hand the same baked geometry to the physics daemon as a collision BVH.
   // Render and collision therefore share one transform → they never disagree.
   if (m_sim) sendWorldMeshToSim(m);
+}
+
+void SimulatorWidget::updateMinimap() {
+  if (!m_minimap || !m_minimapPip || !m_minimapPip->isVisible()) return;
+  if (!m_renderer || !m_minimap->hasSampler()) return;
+  const QVector3D c = m_renderer->streamCenter();
+  m_minimap->setView(c.x(), c.y(), m_renderer->viewHeadingRad());
 }
 
 void SimulatorWidget::onStreamTick() {
@@ -2318,7 +2368,7 @@ bool SimulatorWidget::eventFilter(QObject* obj, QEvent* ev) {
     if (m_hud) m_hud->setGeometry(m_renderer->rect());
     // The PiPs float at user-chosen positions; just keep them above the HUD and
     // clamp them back inside if the viewport shrank past them.
-    for (QWidget* pip : {m_horizonPip, m_downPip}) {
+    for (QWidget* pip : {m_horizonPip, m_downPip, m_minimapPip}) {
       if (!pip) continue;
       QPoint p = pip->pos();
       p.setX(qBound(0, p.x(), qMax(0, m_renderer->width() - pip->width())));

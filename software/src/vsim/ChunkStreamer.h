@@ -60,6 +60,9 @@ class ChunkStreamer {
   bool active() const { return active_; }
 
   const Config& config() const { return cfg_; }
+  // The live infinite field (null when inactive) — lets the minimap sample
+  // terrain height anywhere without going through the chunk meshes.
+  const procgen::TerrainField* field() const { return field_.get(); }
 
   // Bring the loaded set in line with world-XY centre (wx, wy) and return the
   // diff. Cheap when the centre stays within its current cell (no new geometry).

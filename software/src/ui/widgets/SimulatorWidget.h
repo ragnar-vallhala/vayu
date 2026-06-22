@@ -7,6 +7,7 @@
 #include "GeometryEditorWidget.h"
 #include "WorldEditorWidget.h"
 #include "SimHudWidget.h"
+#include "ContourMinimapWidget.h"
 #include "HorizonHud.h"
 #include "TuneChart.h"
 #include "AutotuneGains.h"
@@ -144,6 +145,8 @@ class SimulatorWidget : public QWidget {
   // Endless terrain: poll the streamer at the current view centre (drone or
   // free-fly camera) and apply the chunk add/remove diff + local collision.
   void onStreamTick();
+  // Contour minimap: re-centre it on the current view centre + heading (~8 Hz).
+  void updateMinimap();
   // Training course: (re)generate gates for the selected difficulty, push the
   // layout to both renderers, reset the drone to the floor, and refresh the
   // progress readout. setTrainingMode is the dropdown handler.
@@ -239,6 +242,9 @@ class SimulatorWidget : public QWidget {
   vsim::SimRendererWidget* m_downRenderer = nullptr;  // Down-Cam PiP renderer
   QWidget* m_horizonPip = nullptr; // draggable PipOverlay hosting m_horizon
   QWidget* m_downPip = nullptr;    // draggable PipOverlay hosting m_downRenderer
+  ContourMinimapWidget* m_minimap = nullptr;  // top-down contour minimap
+  QWidget* m_minimapPip = nullptr;            // draggable PipOverlay hosting it
+  class QTimer* m_minimapTimer = nullptr;     // re-centres the minimap (~8 Hz)
   PropAudio m_propAudio;           // rpm-driven propeller sound
   QCheckBox* m_propAudioChk = nullptr;  // "Prop audio" toggle (default via Settings)
   GeometryEditorWidget* m_geomEditor = nullptr;
