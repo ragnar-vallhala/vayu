@@ -30,6 +30,7 @@ extern "C" {
 #include <QWidget>
 #include <functional>
 #include <memory>
+#include <set>
 #include <unordered_map>
 
 class QGridLayout;
@@ -161,6 +162,10 @@ class SimulatorWidget : public QWidget {
   // A background chunk build finished: cache the mesh, upload mesh + flora, and
   // (re)try the local collision build. Runs on the UI thread.
   void onChunkMeshed(qint64 key, const BuiltChunk& built);
+  // Flora is dense, so only the chunks within kFloraRadius of the view centre
+  // are uploaded (the rest stay cached). streamFlora adds/removes as you move.
+  void streamFlora(int cx, int cy);
+  void uploadFloraChunk(qint64 key);
   // Build + ship the local collision BVH from cached chunk meshes once the whole
   // collision neighbourhood is present (no terrain regeneration).
   void tryBuildCollision();
@@ -239,6 +244,12 @@ class SimulatorWidget : public QWidget {
   int m_streamGen = 0;             // bumped on (re)configure to drop stale builds
   bool m_collisionPending = false; // a crossing asked for a collision rebuild
   int m_colCx = 0, m_colCy = 0;    // cell that collision should cover
+
+  // Flora: packed instance data per built chunk (cache), and which chunks are
+  // currently uploaded to the renderer (only the near ones, for perf).
+  std::unordered_map<qint64, std::pair<std::vector<float>, int>> m_floraCache;
+  std::set<qint64> m_floraShown;
+  static constexpr int kFloraRadius = 1;  // chunks each side kept grassed
 
   // Lift-onto-terrain: a height sampler for the active procedural world (null
   // for imported / no world), the last known drone position, and a request to

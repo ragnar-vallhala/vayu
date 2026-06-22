@@ -72,13 +72,24 @@ PgVec3 TerrainField::normal(float wx, float wy, float eps) const {
 
 PgVec3 TerrainField::color(float h, float flatness) const {
   const float t = clamp01(p_.heightM > 0.0f ? h / p_.heightM : 0.0f);
-  const PgVec3 grass{0.27f, 0.44f, 0.16f};
-  const PgVec3 olive{0.46f, 0.49f, 0.24f};
-  const PgVec3 rock {0.42f, 0.38f, 0.33f};
-  PgVec3 c = t < 0.5f ? mix(grass, olive, t * 2.0f)
-                      : mix(olive, rock, (t - 0.5f) * 2.0f);
-  const float rockiness = clamp01((0.78f - flatness) * 3.0f);
-  return mix(c, PgVec3{0.36f, 0.31f, 0.26f}, rockiness);
+  const float steep = clamp01(1.0f - flatness);   // 0 flat .. 1 vertical
+  const PgVec3 green{0.24f, 0.46f, 0.15f};
+  const PgVec3 brown{0.42f, 0.33f, 0.21f};
+  const PgVec3 rock {0.47f, 0.44f, 0.41f};
+  const PgVec3 snow {0.95f, 0.96f, 0.98f};
+
+  // Altitude band: green valley -> brown mid -> bare rock high.
+  PgVec3 c = mix(green, brown, smoothstep(0.16f, 0.48f, t));
+  c = mix(c, rock, smoothstep(0.48f, 0.82f, t));
+
+  // Slope exposes brown/rock regardless of altitude (steeper = rockier).
+  const float steepMix = smoothstep(0.28f, 0.62f, steep);
+  c = mix(c, mix(brown, rock, t), steepMix);
+
+  // Snow caps the high tops, and not on near-vertical faces (won't hold).
+  const float snowAmt = smoothstep(0.68f, 0.88f, t) * (1.0f - 0.7f * steepMix);
+  c = mix(c, snow, snowAmt);
+  return c;
 }
 
 ProcMesh meshFieldChunk(const TerrainField& f, int cx, int cy, float chunkM,

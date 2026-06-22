@@ -56,7 +56,7 @@ class ChunkStreamer {
   struct Config {
     procgen::FieldParams field;
     float chunkM = 192.0f;     // world metres per chunk side
-    int resolution = 48;       // grid cells per chunk side
+    int resolution = 72;       // grid cells per chunk side (terrain tessellation)
     int renderRadius = 3;      // Chebyshev chunk radius kept loaded (visual)
     int collisionRadius = 1;   // chunk radius shipped to the daemon as a BVH
     int maxInFlight = 6;       // cap on concurrent off-thread chunk builds
