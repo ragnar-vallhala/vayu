@@ -368,6 +368,7 @@ void SimRendererWidget::initializeGL() {
   uf_fogdensity_= progFlora_.uniformLocation("u_fogdensity");
   uf_fogstart_  = progFlora_.uniformLocation("u_fogstart");
   buildGrassBlade();
+  gpuGrass_.init(this);  // GPU grass if the context supports compute (4.3+)
 
   buildGroundGrid();
   buildObstacleMeshes();
@@ -530,8 +531,14 @@ void SimRendererWidget::paintGL() {
       if (kv.second->vertex_count)
         drawLit(*kv.second, view, QMatrix4x4(), QVector3D(1.0f, 1.0f, 1.0f));
 
-  // Instanced grass/flowers over the terrain (after the ground so depth works).
-  if (worldVisible_ && !training && floraVisible_) drawFlora(view);
+  // Grass over the terrain (after the ground so depth works). GPU-generated when
+  // available + selected; otherwise the CPU chunk-instanced path.
+  if (worldVisible_ && !training && floraVisible_) {
+    if (gpuGrassActive_ && gpuGrass_.ready())
+      gpuGrass_.render(this, proj_, view, camEye_, sunDir_, floraTime_);
+    else
+      drawFlora(view);
+  }
 
   // Static world obstacles (lit solids), each scaled/rotated/placed.
   for (int oi = 0; worldVisible_ && !training && oi < obstacles_.size(); ++oi) {

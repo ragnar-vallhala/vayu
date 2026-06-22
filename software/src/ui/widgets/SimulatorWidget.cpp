@@ -2038,6 +2038,11 @@ void SimulatorWidget::loadWorldMeshToRenderer() {
 
   // Leaving the endless biome: stop the streamer and drop its chunks so a
   // finite mesh / grid shows cleanly.
+  if (!endless && m_useGpuGrass) {  // leaving the GPU-grass biome
+    m_useGpuGrass = false;
+    m_renderer->setGpuGrassActive(false);
+    if (m_downRenderer) m_downRenderer->setGpuGrassActive(false);
+  }
   if (!endless && m_chunkStreamer.active()) {
     ++m_streamGen;  // invalidate in-flight builds
     m_chunkStreamer.deactivate();
@@ -2081,6 +2086,46 @@ void SimulatorWidget::loadWorldMeshToRenderer() {
     m_chunkStreamer.configure(sc);
     m_floraParams = w.flora;  // user-tuned grass density / slope / height
     m_floraParams.seed = static_cast<uint32_t>(w.proceduralSeed);
+
+    // Prefer GPU-generated grass when the context supports compute (GL 4.3+):
+    // it regenerates around the camera each frame, so we skip the CPU flora.
+    vsim::GpuGrass::Params gp;
+    gp.seed = static_cast<uint32_t>(w.proceduralSeed);
+    gp.heightM = w.field.heightM;
+    gp.featureM = w.field.featureM;
+    gp.macroM = w.field.macroM;
+    gp.octaves = w.field.octaves;
+    gp.lacunarity = w.field.lacunarity;
+    gp.gain = w.field.gain;
+    gp.mountainMix = w.field.mountainMix;
+    gp.grassMaxFrac = w.flora.grassMaxFrac;
+    gp.slopeLo = w.flora.slopeLo;
+    gp.slopeHi = w.flora.slopeHi;
+    gp.heightMean = w.flora.heightMean;
+    gp.heightStdDev = w.flora.heightStdDev;
+    gp.flowerFrac = w.flora.flowerFrac;
+    const float bpc = std::max(1.0f, w.flora.bladesPerCell);
+    gp.cell = std::clamp(w.flora.spacing / std::sqrt(bpc), 0.06f, 1.0f);
+    gp.grid = 768;
+    const float radius = gp.grid * gp.cell * 0.5f;
+    gp.falloffEnd = radius * 0.9f;
+    gp.falloffStart = gp.falloffEnd * 0.6f;
+
+    m_useGpuGrass = m_renderer->gpuGrassReady();
+    if (m_useGpuGrass) {
+      m_renderer->setGpuGrassParams(gp);
+      m_renderer->setGpuGrassActive(true);
+      m_renderer->clearChunkFlora();
+      if (m_downRenderer) {
+        m_downRenderer->setGpuGrassParams(gp);
+        m_downRenderer->setGpuGrassActive(true);
+        m_downRenderer->clearChunkFlora();
+      }
+      appendLog("world", tr("GPU grass active (compute)"));
+    } else {
+      m_renderer->setGpuGrassActive(false);
+      if (m_downRenderer) m_downRenderer->setGpuGrassActive(false);
+    }
 
     if (!m_streamTimer) {
       m_streamTimer = new QTimer(this);
@@ -2186,7 +2231,7 @@ void SimulatorWidget::onStreamTick() {
     m_collisionPending = true;
     m_colCx = p.colCx;
     m_colCy = p.colCy;
-    streamFlora(p.colCx, p.colCy);  // grass follows the centre
+    if (!m_useGpuGrass) streamFlora(p.colCx, p.colCy);  // CPU grass follows centre
   }
 
   // Mesh the requested chunks OFF the UI thread; apply the results on the main

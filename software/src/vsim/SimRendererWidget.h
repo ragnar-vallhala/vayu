@@ -1,5 +1,6 @@
 #pragma once
 
+#include "GpuGrass.h"
 #include "SimWorker.h"
 #include "TrainingCourse.h"
 
@@ -88,6 +89,14 @@ class SimRendererWidget : public QOpenGLWidget, protected QOpenGLExtraFunctions 
   void removeChunkFlora(qint64 key);
   void clearChunkFlora();
   void setFloraVisible(bool on) { floraVisible_ = on; update(); }
+
+  // GPU-driven grass (regenerated on the GPU each frame). Available only on a
+  // GL 4.3+ context; falls back to the CPU chunk flora otherwise.
+  bool gpuGrassReady() const { return gpuGrass_.ready(); }
+  void setGpuGrassParams(const vsim::GpuGrass::Params& p) {
+    gpuGrass_.setParams(p);
+  }
+  void setGpuGrassActive(bool on) { gpuGrassActive_ = on; update(); }
   // World-space XY the terrain streamer should centre on: the free-fly camera
   // when roaming (sim stopped), otherwise the drone. Lets endless terrain follow
   // both WASD navigation and actual flight.
@@ -252,6 +261,11 @@ class SimRendererWidget : public QOpenGLWidget, protected QOpenGLExtraFunctions 
   QOpenGLVertexArrayObject floraVao_;  // shared; geometry+instance bound per draw
   float floraTime_ = 0.0f;     // advances per paint to drive the wind
   bool floraVisible_ = true;
+
+  // GPU grass (compute-generated each frame). Inactive unless the endless biome
+  // selects it and the context supports compute.
+  GpuGrass gpuGrass_;
+  bool gpuGrassActive_ = false;
 
   // Camera world position (NED), refreshed each paintGL; fed to the lit shader
   // for distance fog.

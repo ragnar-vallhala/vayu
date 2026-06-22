@@ -1,0 +1,70 @@
+// GpuGrass.h — GPU-driven grass (Ghost-of-Tsushima style).
+//
+// A compute shader regenerates grass blade instances around the camera EVERY
+// frame: it evaluates the terrain (the procgen noise ported to GLSL), applies
+// the same density (slope/altitude) + a distance falloff + frustum culling,
+// and appends surviving blades to an SSBO via an atomic counter. An indirect
+// draw then renders exactly that many instances — the CPU never touches a blade,
+// so there is no scatter cost, no instance storage, and no upload hitches.
+//
+// Requires GL 4.3+ (compute + SSBO + indirect). init() returns false otherwise
+// and the renderer falls back to the CPU flora path.
+#pragma once
+
+#include <QMatrix4x4>
+#include <QOpenGLBuffer>
+#include <QOpenGLShaderProgram>
+#include <QOpenGLVertexArrayObject>
+#include <QVector3D>
+
+#include <cstdint>
+
+class QOpenGLExtraFunctions;
+
+namespace vsim {
+
+class GpuGrass {
+ public:
+  struct Params {
+    // Terrain field — MUST mirror procgen::TerrainField so blades sit on the
+    // same surface the mesh is built from.
+    uint32_t seed = 1337u;
+    float heightM = 70.0f, featureM = 220.0f, macroM = 1400.0f;
+    int octaves = 6;
+    float lacunarity = 2.0f, gain = 0.5f, mountainMix = 0.55f;
+    // Grass placement (mirrors procgen::FloraParams).
+    float grassMaxFrac = 0.5f, slopeLo = 0.80f, slopeHi = 0.93f;
+    float heightMean = 0.34f, heightStdDev = 0.09f, flowerFrac = 0.02f;
+    // Generation grid around the camera.
+    float cell = 0.16f;      // candidate spacing [m] (smaller = denser)
+    int grid = 768;          // candidates per side
+    float falloffStart = 55.0f, falloffEnd = 90.0f;  // distance density fade [m]
+  };
+
+  ~GpuGrass();
+  bool init(QOpenGLExtraFunctions* gl);   // false if compute unsupported
+  bool ready() const { return ready_; }
+  void setParams(const Params& p);
+
+  // Regenerate blades around camPos and draw them. proj/view are the render
+  // matrices; sunDir/time feed lighting + wind.
+  void render(QOpenGLExtraFunctions* gl, const QMatrix4x4& proj,
+              const QMatrix4x4& view, const QVector3D& camPos,
+              const QVector3D& sunDir, float time);
+
+ private:
+  void buildBlade(QOpenGLExtraFunctions* gl);
+
+  bool ready_ = false;
+  Params params_;
+  QOpenGLShaderProgram comp_;   // generation
+  QOpenGLShaderProgram draw_;   // render
+  unsigned int ssbo_ = 0;       // blade instances (binding 0)
+  unsigned int indirect_ = 0;   // DrawArraysIndirectCommand; counter at offset 4
+  QOpenGLBuffer bladeVbo_{QOpenGLBuffer::VertexBuffer};  // shared blade geometry
+  QOpenGLVertexArrayObject vao_;
+  int bladeVerts_ = 0;
+  int maxBlades_ = 0;
+};
+
+}  // namespace vsim

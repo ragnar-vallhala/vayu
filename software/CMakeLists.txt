@@ -212,6 +212,7 @@ set(GCS_SITL_SOURCES
     src/vsim/WorldMeshBuilder.cpp
     src/vsim/ProceduralWorld.cpp
     src/vsim/ChunkStreamer.cpp
+    src/vsim/GpuGrass.cpp
     src/vsim/procgen/Noise.cpp
     src/vsim/procgen/TerrainGen.cpp
     src/vsim/procgen/TerrainField.cpp
@@ -236,6 +237,7 @@ set(GCS_SITL_HEADERS
     src/vsim/WorldMeshBuilder.h
     src/vsim/ProceduralWorld.h
     src/vsim/ChunkStreamer.h
+    src/vsim/GpuGrass.h
     src/vsim/procgen/ProcgenTypes.h
     src/vsim/procgen/Noise.h
     src/vsim/procgen/Heightfield.h
