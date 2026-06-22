@@ -650,8 +650,15 @@ void SimulatorWidget::buildUi() {
     m_simResetBtn = new ui::GhostButton(tr("Reset"), simBody);
     m_simResetBtn->setEnabled(false);
     m_simResetBtn->setToolTip(tr("Reset the airframe to the spawn pose"));
-    connect(m_simResetBtn, &QPushButton::clicked, this,
-            [this] { if (m_sim) m_sim->sendReset(); });
+    connect(m_simResetBtn, &QPushButton::clicked, this, [this] {
+      if (!m_sim) return;
+      // On procedural terrain, respawn at the origin a clear margin ABOVE the
+      // surface (heights are positive, so z=-0.05 would bury it under the hill).
+      if (m_terrainHeightAt)
+        m_sim->sendResetPose(0.0f, 0.0f, -m_terrainHeightAt(0.0f, 0.0f) - 1.5f);
+      else
+        m_sim->sendReset();
+    });
     m_simAttachBtn = new ui::GhostButton(tr("Attach Ext"), simBody);
     m_simAttachBtn->setToolTip(tr("Render an EXTERNAL vsim_d's pose stream "
         "(/tmp/vsim_pose) over the loaded world — e.g. a headless sitl_lab.py "
@@ -2040,7 +2047,6 @@ void SimulatorWidget::loadWorldMeshToRenderer() {
     ++m_streamGen;
     m_chunkCache.clear();
     m_collisionPending = false;
-    m_liftPending = true;  // lift onto the surface once local collision ships
 
     vsim::ChunkStreamer::Config sc;
     sc.field.seed = static_cast<uint32_t>(w.proceduralSeed);
@@ -2199,25 +2205,33 @@ void SimulatorWidget::tryBuildCollision() {
   const vsim::LoadedMesh m = vsim::collisionMeshFromChunks(meshes);
   m_collisionPending = false;
   if (m.valid) sendWorldMeshToSim(m);
-  if (m_liftPending) {  // first collision after (re)configure -> lift onto it
-    liftDroneToSurface();
-    m_liftPending = false;
-  }
+  // The local terrain just changed under the drone (spawn or a crossing); if
+  // that left it buried, re-drop it above the new surface. Self-guarded, so an
+  // airborne or resting drone is untouched.
+  liftDroneToSurface();
 }
 
 void SimulatorWidget::liftDroneToSurface() {
   if (!m_sim || !m_terrainHeightAt) return;
   const float x = m_lastDronePos.x();
   const float y = m_lastDronePos.y();
+  // Terrain is a single-valued height field, so the analytic height under the
+  // drone is exactly where a ray cast straight down from far above would hit.
   const float h = m_terrainHeightAt(x, y);     // surface elevation [m] above z=0
-  const float clearance = 0.15f;
-  const float targetZ = -h - clearance;        // NED: above the surface
-  // Only lift when the drone is at/below the surface (buried). In NED a larger z
-  // is lower, so droneZ > targetZ means it's sitting in/under the terrain.
-  if (m_lastDronePos.z() > targetZ) {
-    m_sim->sendResetPose(x, y, targetZ);
-    appendLog("world", tr("lifted drone onto terrain surface (%.1f m)").arg(h));
-  }
+  const float surfaceZ = -h;                   // NED z of the surface (above z=0)
+
+  // Only re-drop when the drone is genuinely buried — more than buriedEps below
+  // the surface. In NED a larger z is lower, so droneZ > surfaceZ + eps means it
+  // has sunk into the terrain. A drone resting on or flying above the surface is
+  // left alone (no yanking a landed or airborne drone).
+  const float buriedEps = 0.3f;
+  if (m_lastDronePos.z() <= surfaceZ + buriedEps) return;
+
+  // Re-drop level + stationary a clear margin above the surface, so it falls and
+  // settles instead of spawning embedded in a slope (which wedges it tilted).
+  const float dropClearance = 1.5f;
+  m_sim->sendResetPose(x, y, surfaceZ - dropClearance);
+  appendLog("world", tr("re-dropped drone above terrain (surface %.1f m)").arg(h));
 }
 
 void SimulatorWidget::sendWorldMeshToSim(const vsim::LoadedMesh& m) {

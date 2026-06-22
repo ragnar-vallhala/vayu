@@ -236,8 +236,7 @@ class SimulatorWidget : public QWidget {
   // lift once the endless biome's local collision has shipped.
   std::function<float(float, float)> m_terrainHeightAt;
   QVector3D m_lastDronePos{0, 0, 0};
-  bool m_liftPending = false;
-  void liftDroneToSurface();  // reset the drone onto the surface if it's buried
+  void liftDroneToSurface();  // re-drop the drone above the surface if buried
   RcBridge* m_rc = nullptr;        // RC transmitter → firmware RC feeder
   QCheckBox* m_rcEnable = nullptr;
   QComboBox* m_rcSource = nullptr;          // USB joystick vs UART (CSV)
