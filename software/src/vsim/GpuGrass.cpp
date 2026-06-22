@@ -54,7 +54,7 @@ uniform uint u_seed;
 uniform float u_heightM, u_featureM, u_macroM, u_lacunarity, u_gain, u_mountainMix;
 uniform int u_octaves, u_G;
 uniform float u_grassMaxFrac, u_slopeLo, u_slopeHi, u_heightMean, u_heightStd, u_flowerFrac;
-uniform vec2 u_origin; uniform float u_cell;
+uniform int u_originCellX, u_originCellY; uniform float u_cell;
 uniform vec3 u_camPos; uniform mat4 u_vp;
 uniform float u_falloffStart, u_falloffEnd;
 uint hash32(uint x){ x^=x>>16; x*=0x7feb352du; x^=x>>15; x*=0x846ca68bu; x^=x>>16; return x; }
@@ -94,9 +94,12 @@ float rnd(uint h){ return float(h & 0xffffffu)/16777216.0; }
 void main(){
   uvec2 id=gl_GlobalInvocationID.xy;
   if(id.x>=uint(u_G)||id.y>=uint(u_G)) return;
-  int cx=int(id.x)-u_G/2, cy=int(id.y)-u_G/2;
-  float baseX=u_origin.x+float(cx)*u_cell, baseY=u_origin.y+float(cy)*u_cell;
-  uint hc=hash2(cx,cy,u_seed^0x1234567u);
+  // WORLD cell index (the grid window slides over a world-anchored field, so the
+  // blades stay put and the camera moves through them).
+  int wcx=u_originCellX+int(id.x)-u_G/2;
+  int wcy=u_originCellY+int(id.y)-u_G/2;
+  float baseX=float(wcx)*u_cell, baseY=float(wcy)*u_cell;
+  uint hc=hash2(wcx,wcy,u_seed^0x1234567u);
   float wx=baseX+(rnd(hc)-0.5)*0.9*u_cell, wy=baseY+(rnd(hc*0x9e37u+1u)-0.5)*0.9*u_cell;
   float h=terrainHeight(wx,wy);
   float e=u_cell;
@@ -311,8 +314,10 @@ void GpuGrass::render(QOpenGLExtraFunctions* gl, const QMatrix4x4& proj,
 
   const QMatrix4x4 vp = proj * view;
   const float cell = params_.cell;
-  const QVector2D origin(std::floor(camPos.x() / cell) * cell,
-                         std::floor(camPos.y() / cell) * cell);
+  // Origin CELL index (the grid is anchored to world cells, not the camera, so
+  // the blade field stays fixed and the camera moves through it).
+  const int originCellX = int(std::floor(camPos.x() / cell));
+  const int originCellY = int(std::floor(camPos.y() / cell));
 
   // Reset the indirect command {vertexCount, instanceCount=0, first=0, base=0}
   // and the atomic counter to 0.
@@ -341,7 +346,8 @@ void GpuGrass::render(QOpenGLExtraFunctions* gl, const QMatrix4x4& proj,
   comp_.setUniformValue("u_heightMean", params_.heightMean);
   comp_.setUniformValue("u_heightStd", params_.heightStdDev);
   comp_.setUniformValue("u_flowerFrac", params_.flowerFrac);
-  comp_.setUniformValue("u_origin", origin);
+  comp_.setUniformValue("u_originCellX", originCellX);
+  comp_.setUniformValue("u_originCellY", originCellY);
   comp_.setUniformValue("u_cell", cell);
   comp_.setUniformValue("u_G", params_.grid);
   comp_.setUniformValue("u_camPos", camPos);
@@ -363,34 +369,7 @@ void GpuGrass::render(QOpenGLExtraFunctions* gl, const QMatrix4x4& proj,
   gl->glCopyBufferSubData(GL_COPY_READ_BUFFER, GL_COPY_WRITE_BUFFER, 0, 4, 4);
   gl->glMemoryBarrier(GL_ALL_BARRIER_BITS);
 
-  // Diagnostic: read back the blade count (once-per-frame stall; remove later).
-  gl->glBindBuffer(GL_ATOMIC_COUNTER_BUFFER, counter_);
-  void* ptr = gl->glMapBufferRange(GL_ATOMIC_COUNTER_BUFFER, 0, 4, GL_MAP_READ_BIT);
-  if (ptr) {
-    lastCount_ = *static_cast<unsigned int*>(ptr);
-    gl->glUnmapBuffer(GL_ATOMIC_COUNTER_BUFFER);
-  }
-  static int frame = 0;
-  if ((frame++ % 90) == 0) {
-    // Read blade[0] from the SSBO: if pos/height are real, the compute wrote the
-    // buffer (so any blank screen is a draw bug); if all zero, the writes didn't
-    // land.
-    gl->glBindBuffer(GL_ARRAY_BUFFER, ssbo_);
-    float b0[12] = {0};
-    void* bp = gl->glMapBufferRange(GL_ARRAY_BUFFER, 0, 48, GL_MAP_READ_BIT);
-    if (bp) {
-      for (int i = 0; i < 12; ++i) b0[i] = static_cast<float*>(bp)[i];
-      gl->glUnmapBuffer(GL_ARRAY_BUFFER);
-    }
-    qInfo("[GpuGrass] %u blades cam=%.0f,%.0f | blade0 pos=(%.1f,%.1f,%.1f) "
-          "yaw=%.2f h=%.2f tint=(%.2f,%.2f,%.2f)",
-          lastCount_, double(camPos.x()), double(camPos.y()), double(b0[0]),
-          double(b0[1]), double(b0[2]), double(b0[3]), double(b0[4]),
-          double(b0[8]), double(b0[9]), double(b0[10]));
-  }
-
   // --- draw ---
-  while (gl->glGetError() != 0u) {}  // clear pending errors
   draw_.bind();
   draw_.setUniformValue("u_vp", vp);
   draw_.setUniformValue("u_campos", camPos);
@@ -403,13 +382,8 @@ void GpuGrass::render(QOpenGLExtraFunctions* gl, const QMatrix4x4& proj,
   vao_.bind();  // per-instance blade data read as vertex attributes (no SSBO read)
   gl->glBindBuffer(GL_DRAW_INDIRECT_BUFFER, indirect_);
   gl->glDrawArraysIndirect(GL_TRIANGLES, nullptr);
-  const unsigned int err = gl->glGetError();
   vao_.release();
   draw_.release();
-  static int dframe = 0;
-  if (err != 0u && (dframe++ % 90) == 0)
-    qInfo("[GpuGrass] DRAW gl error 0x%x (verts=%d instances=%u)", err,
-          bladeVerts_, lastCount_);
 }
 
 }  // namespace vsim
