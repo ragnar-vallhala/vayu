@@ -36,45 +36,50 @@ std::vector<FloraInstance> scatterFlora(const TerrainField& f, int cx, int cy,
   const float x0 = static_cast<float>(cx) * chunkM;
   const float y0 = static_cast<float>(cy) * chunkM;
 
-  // Iterate the global grid cells whose centre falls in this chunk, so the
-  // scatter is identical regardless of which chunk emits a given cell.
+  // Sample the field's height onto a fixed-resolution COARSE grid ONCE, then
+  // bilinear-sample that for every blade. The expensive noise field is evaluated
+  // ~CR^2 times no matter how dense the grass is (instead of once per blade) —
+  // this is the CPU analogue of Ghost of Tsushima's GPU height texture, and is
+  // what makes tiny spacing affordable to scatter.
+  const int CR = 128;
+  const int cg = CR + 1;
+  const float cstep = chunkM / static_cast<float>(CR);
+  std::vector<float> CH(static_cast<std::size_t>(cg) * cg);
+  for (int j = 0; j < cg; ++j)
+    for (int i = 0; i < cg; ++i)
+      CH[static_cast<std::size_t>(j) * cg + i] =
+          f.height(x0 + static_cast<float>(i) * cstep,
+                   y0 + static_cast<float>(j) * cstep);
+  auto hAt = [&](float wx, float wy) -> float {
+    float gx = (wx - x0) / cstep, gy = (wy - y0) / cstep;
+    gx = gx < 0.0f ? 0.0f : (gx > CR ? float(CR) : gx);
+    gy = gy < 0.0f ? 0.0f : (gy > CR ? float(CR) : gy);
+    const int i0 = int(gx), j0 = int(gy);
+    const int i1 = i0 < CR ? i0 + 1 : i0, j1 = j0 < CR ? j0 + 1 : j0;
+    const float fx = gx - i0, fy = gy - j0;
+    const float a = CH[j0 * cg + i0] * (1 - fx) + CH[j0 * cg + i1] * fx;
+    const float b = CH[j1 * cg + i0] * (1 - fx) + CH[j1 * cg + i1] * fx;
+    return a * (1 - fy) + b * fy;
+  };
+
+  // Global blade grid (cell ownership keeps neighbours seamless).
   const int gx0 = static_cast<int>(std::floor(x0 / p.spacing));
   const int gx1 = static_cast<int>(std::floor((x0 + chunkM) / p.spacing));
   const int gy0 = static_cast<int>(std::floor(y0 / p.spacing));
   const int gy1 = static_cast<int>(std::floor((y0 + chunkM) / p.spacing));
-  const int nx = gx1 - gx0 + 1, ny = gy1 - gy0 + 1;
-  if (nx < 1 || ny < 1) return out;
-
-  // Sample terrain height ONCE per cell centre (the dominant cost), then derive
-  // slope from grid neighbours instead of a full field normal per blade — ~5x
-  // cheaper than sampling height+normal at every blade.
-  std::vector<float> H(static_cast<std::size_t>(nx) * ny);
-  for (int gi = 0; gi < nx; ++gi)
-    for (int gj = 0; gj < ny; ++gj)
-      H[static_cast<std::size_t>(gj) * nx + gi] =
-          f.height((static_cast<float>(gx0 + gi) + 0.5f) * p.spacing,
-                   (static_cast<float>(gy0 + gj) + 0.5f) * p.spacing);
-  auto at = [&](int gi, int gj) {
-    gi = gi < 0 ? 0 : (gi >= nx ? nx - 1 : gi);
-    gj = gj < 0 ? 0 : (gj >= ny ? ny - 1 : gj);
-    return H[static_cast<std::size_t>(gj) * nx + gi];
-  };
-
-  out.reserve(static_cast<std::size_t>(nx) * ny / 2);
-  for (int gi = 0; gi < nx; ++gi) {
-    const int gx = gx0 + gi;
+  for (int gx = gx0; gx <= gx1; ++gx) {
     const float baseX = (static_cast<float>(gx) + 0.5f) * p.spacing;
     if (baseX < x0 || baseX >= x0 + chunkM) continue;  // owned by another chunk
-    for (int gj = 0; gj < ny; ++gj) {
-      const int gy = gy0 + gj;
+    for (int gy = gy0; gy <= gy1; ++gy) {
       const float baseY = (static_cast<float>(gy) + 0.5f) * p.spacing;
       if (baseY < y0 || baseY >= y0 + chunkM) continue;
 
-      const float h = at(gi, gj);
-      // Slope from grid neighbours: surface z = -h, normal ∝ (dh/dx, dh/dy, -1),
-      // so flatness = 1/|normal|.
-      const float dhdx = (at(gi + 1, gj) - at(gi - 1, gj)) / (2.0f * p.spacing);
-      const float dhdy = (at(gi, gj + 1) - at(gi, gj - 1)) / (2.0f * p.spacing);
+      const float h = hAt(baseX, baseY);
+      // Slope from the coarse grid (cheap bilinear taps). flatness = 1/|normal|.
+      const float dhdx =
+          (hAt(baseX + cstep, baseY) - hAt(baseX - cstep, baseY)) / (2.0f * cstep);
+      const float dhdy =
+          (hAt(baseX, baseY + cstep) - hAt(baseX, baseY - cstep)) / (2.0f * cstep);
       const float flatness = 1.0f / std::sqrt(dhdx * dhdx + dhdy * dhdy + 1.0f);
 
       // Density as a smooth function of height and slope: full on the flat,
@@ -100,9 +105,8 @@ std::vector<FloraInstance> scatterFlora(const TerrainField& f, int cx, int cy,
         const float wy = baseY + jy * p.spacing;
 
         FloraInstance b;
-        // Exact surface height at the jittered position (only for kept blades)
-        // so blades sit ON the ground, not floating on a slope.
-        b.pos = PgVec3{wx, wy, -f.height(wx, wy)};
+        // Surface height at the jittered position from the coarse grid (cheap).
+        b.pos = PgVec3{wx, wy, -hAt(wx, wy)};
         b.yaw = u01(hcell(gx, gy, p.seed, s0 + 2)) * 6.2831853f;
         // Normal-distributed height (Box-Muller) from mean + std deviation.
         float u1 = u01(hcell(gx, gy, p.seed, s0 + 3));
