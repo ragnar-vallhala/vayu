@@ -93,6 +93,11 @@ std::vector<FloraInstance> scatterFlora(const TerrainField& f, int cx, int cy,
       if (density <= 0.0f) continue;
       if (u01(hcell(gx, gy, p.seed, 3)) > density) continue;
 
+      // Regional lean angle: a slow spatial variation so nearby blades lean
+      // together (the meadow "flows") instead of pointing every which way.
+      const float regAngle =
+          2.0f * (std::sin(baseX * 0.035f) + std::cos(baseY * 0.028f));
+
       // Multiple blades per cell (each with its own jitter/yaw/height) to crank
       // density cheaply. Per-blade salts are spaced 20 apart so they don't
       // collide across blades or with the cell's density salt (3).
@@ -107,7 +112,8 @@ std::vector<FloraInstance> scatterFlora(const TerrainField& f, int cx, int cy,
         FloraInstance b;
         // Surface height at the jittered position from the coarse grid (cheap).
         b.pos = PgVec3{wx, wy, -hAt(wx, wy)};
-        b.yaw = u01(hcell(gx, gy, p.seed, s0 + 2)) * 6.2831853f;
+        // Yaw = regional lean + a moderate per-blade spread (flow, not chaos).
+        b.yaw = regAngle + (u01(hcell(gx, gy, p.seed, s0 + 2)) - 0.5f) * 2.0f;
         // Normal-distributed height (Box-Muller) from mean + std deviation.
         float u1 = u01(hcell(gx, gy, p.seed, s0 + 3));
         const float u2 = u01(hcell(gx, gy, p.seed, s0 + 4));
@@ -119,11 +125,10 @@ std::vector<FloraInstance> scatterFlora(const TerrainField& f, int cx, int cy,
         const bool isFlower = u01(hcell(gx, gy, p.seed, s0 + 5)) < p.flowerFrac;
         if (isFlower) {
           const float fh = u01(hcell(gx, gy, p.seed, s0 + 6));
-          if (fh < 0.55f)      b.tint = PgVec3{0.92f, 0.82f, 0.20f};  // yellow
-          else if (fh < 0.85f) b.tint = PgVec3{0.86f, 0.30f, 0.26f};  // red
-          else                 b.tint = PgVec3{0.92f, 0.92f, 0.95f};  // white
-          b.flower = 1.0f;
-          b.height *= 1.15f;
+          if (fh < 0.40f)      b.tint = PgVec3{0.95f, 0.95f, 0.97f};  // white
+          else if (fh < 0.72f) b.tint = PgVec3{0.93f, 0.84f, 0.28f};  // yellow
+          else                 b.tint = PgVec3{0.86f, 0.34f, 0.30f};  // red
+          b.flower = 1.0f;  // renderer keeps a green stem, blooms only the top
         } else {
           const float v = 0.85f + 0.34f * u01(hcell(gx, gy, p.seed, s0 + 7));
           const float yellow = 0.12f * u01(hcell(gx, gy, p.seed, s0 + 8));
