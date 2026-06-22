@@ -76,7 +76,13 @@ enum class CalibUpdateType : uint8_t {
   Upright = 0x05,
   UpsideDown = 0x06,
   FreeRot = 0x07,
-  MagAxisCoverage = 0x08
+  MagAxisCoverage = 0x08,
+  // Terminal status from the FC: the routine ended. Complete = persisted OK;
+  // Failed = aborted/fit failure/save failure. The wizard finishes on these
+  // explicit events instead of inferring completion from a STANDBY heartbeat
+  // (absent when calibration legitimately ends in FAILSAFE).
+  Complete = 0x09,
+  Failed = 0x0A
 };
 
 struct CalibrationUpdate {

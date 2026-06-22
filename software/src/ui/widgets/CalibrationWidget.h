@@ -83,6 +83,11 @@ private:
   CalibMode currentMode() const;
   void refreshSteps();
 
+  // Terminal handler for a running calibration. Driven by the firmware's
+  // explicit CALIBRATION_STATUS COMPLETE/FAILED steps (not by inferring a
+  // STANDBY heartbeat — ending in FAILSAFE is a valid, non-failure outcome).
+  void finishCalibration(bool success);
+
   // Main Controls
   QPushButton *m_startBtn;
   QPushButton *m_cancelBtn;

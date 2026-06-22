@@ -208,10 +208,19 @@ void CalibrationWidget::setProtocol(DroneProtocol *protocol) {
             if (update.type == CalibUpdateType::Progress) {
               onProgressReceived(update.data);
             } else if (update.type == CalibUpdateType::MagAxisCoverage) {
-              m_statusLabel->setText(QString("COVERAGE: X:%1 Y:%2 Z:%3")
+              // One coverage frame drives both the per-axis readout and the bar
+              // (mean of the three) — the FC derives progress from coverage now.
+              const float avg = (update.values[0] + update.values[1] +
+                                 update.values[2]) / 3.0f;
+              m_progressBar->setValue(static_cast<int>(avg));
+              m_statusLabel->setText(QString("COVERAGE  X:%1%  Y:%2%  Z:%3%")
                                          .arg(update.values[0], 0, 'f', 0)
                                          .arg(update.values[1], 0, 'f', 0)
                                          .arg(update.values[2], 0, 'f', 0));
+            } else if (update.type == CalibUpdateType::Complete) {
+              finishCalibration(true);
+            } else if (update.type == CalibUpdateType::Failed) {
+              finishCalibration(false);
             } else {
               onInstructionReceived(static_cast<int>(update.type));
             }
@@ -273,10 +282,14 @@ void CalibrationWidget::onStartClicked() {
 }
 
 CalibMode CalibrationWidget::currentMode() const {
-  const bool full = m_fullCalibRadio && m_fullCalibRadio->isChecked();
   switch (m_selectedImuId) {
     case 1:  // accelerometer
-      return full ? CalibMode::Accel6Axis : CalibMode::AccelBias;
+      // Always the 6-pose wizard: the firmware runs the full 6-point loop for
+      // bias-only too (it needs the +g and -g pose per axis to separate bias
+      // from gravity). The Bias-Only vs Full radio only selects whether the
+      // firmware also computes scale; it is carried in the command's type
+      // nibble, not by showing fewer poses here.
+      return CalibMode::Accel6Axis;
     case 3:  // magnetometer
       return CalibMode::Mag;
     case 2:  // gyroscope
@@ -334,6 +347,13 @@ void CalibrationWidget::onProgressReceived(float pct) {
 void CalibrationWidget::onInstructionReceived(int type) {
   CalibUpdateType instruction = static_cast<CalibUpdateType>(type);
   m_currentAxis = instruction;
+
+  // A new pose is being requested: the firmware's per-pose sample counter starts
+  // over at zero and won't send a PROGRESS update until the pose is held in
+  // tolerance. Clear the readout so it doesn't keep showing the PREVIOUS pose's
+  // final "100.0%" for the whole next wait (which reads as a stuck/finished
+  // calibration). onProgressReceived overwrites this once recording begins.
+  m_statusLabel->setText(QStringLiteral("HOLD POSE STILL…"));
 
   // Advance the guided wizard checklist to the prompted orientation.
   m_wizard.onInstruction(instruction);
@@ -400,24 +420,50 @@ void CalibrationWidget::onCancelClicked() {
 }
 
 void CalibrationWidget::onStatusReceived(const QString &msg) {
-  if (msg == "STANDBY") {
-    if (!m_startBtn->isEnabled()) {
-      m_statusLabel->setText("SUCCESSFUL");
-      m_instructionText->setText("CALIBRATION COMPLETE!");
-      m_instructionGroup->setStyleSheet(
-          QString("QGroupBox { color: %1; font-weight: bold; "
-                  "border: 2px solid %1; border-radius: 8px; "
-                  "margin-top: 15px; padding: 20px; } "
-                  "QGroupBox::title { subcontrol-origin: margin; "
-                  "subcontrol-position: top center; }")
-              .arg(Theme::hex(Theme::kOk)));
-      m_startBtn->setEnabled(true);
-      m_cancelBtn->setVisible(false);
-      m_sensorSelectArea->setEnabled(true);
-      m_configGroup->setEnabled(true);
-      m_progressBar->setValue(100);
-      m_wizard.markComplete();  // tick every step done
-      refreshSteps();
-    }
+  // Legacy fallback only. The firmware now ends a routine with an explicit
+  // CALIBRATION_STATUS COMPLETE/FAILED step (see finishCalibration), so this no
+  // longer drives normal completion. It stays so an older FC that signalled done
+  // by returning to STANDBY still closes the wizard. Other states are ignored on
+  // purpose — ending in FAILSAFE is a valid outcome, not a failure.
+  if (msg == "STANDBY")
+    finishCalibration(true);
+}
+
+void CalibrationWidget::finishCalibration(bool success) {
+  // Terminal events only matter while a calibration is running. An enabled Start
+  // button means idle / already finished, so a duplicate COMPLETE or the late
+  // STANDBY fallback can't re-trigger (and can't overwrite a FAILED result).
+  if (m_startBtn->isEnabled())
+    return;
+
+  if (success) {
+    m_statusLabel->setText("SUCCESSFUL");
+    m_instructionText->setText("CALIBRATION COMPLETE!");
+    m_instructionGroup->setStyleSheet(
+        QString("QGroupBox { color: %1; font-weight: bold; "
+                "border: 2px solid %1; border-radius: 8px; "
+                "margin-top: 15px; padding: 20px; } "
+                "QGroupBox::title { subcontrol-origin: margin; "
+                "subcontrol-position: top center; }")
+            .arg(Theme::hex(Theme::kOk)));
+    m_progressBar->setValue(100);
+    m_wizard.markComplete();  // tick every step done
+  } else {
+    m_statusLabel->setText("FAILED");
+    m_instructionText->setText("CALIBRATION FAILED — SEE LOG");
+    m_instructionGroup->setStyleSheet(
+        QString("QGroupBox { color: %1; font-weight: bold; "
+                "border: 2px solid %1; border-radius: 8px; "
+                "margin-top: 15px; padding: 20px; } "
+                "QGroupBox::title { subcontrol-origin: margin; "
+                "subcontrol-position: top center; }")
+            .arg(Theme::hex(Theme::kDanger)));
+    // Leave the progress bar where it stopped so the failing step stays visible.
   }
+
+  m_startBtn->setEnabled(true);
+  m_cancelBtn->setVisible(false);
+  m_sensorSelectArea->setEnabled(true);
+  m_configGroup->setEnabled(true);
+  refreshSteps();
 }
