@@ -5,6 +5,7 @@
 #include "control/pid_config.h"
 #include "control/flight_mode.h"           /* flight_mode_apply_command */
 #include "control/angle_rate_controller.h" /* geometry apply */
+#include "control/sysid.h"                  /* sysid_start/abort (CMD_SYSID_EXCITE) */
 #include "sys/state.h"                      /* system_state_get, SYSTEM_STATE_* */
 #include "navhal.h"           /* hal_gpio_write, HAL_GPIO_HIGH/LOW */
 #include "sys/sys_utils.h"    /* get_device_id */
@@ -125,6 +126,38 @@ static navlink_ack_t on_cmd_set_pid(void *ctx, const navlink_frame_hdr_t *hdr,
                    m->kp, m->ki, m->kd, m->kff};
   uint8_t len = build_cmd(p, (uint16_t)CMD_SET_PID, args, 6);
   return navlink_ack_result(pid_config_apply_command(p, len) == VAYU_OK ? ACK_OK : ACK_BAD);
+}
+
+static navlink_ack_t on_cmd_sysid_excite(void *ctx, const navlink_frame_hdr_t *hdr,
+                                         const navlink_cmd_sysid_excite_t *m) {
+  (void)ctx; (void)hdr;
+  /* axis 0xFF is the abort sentinel; any other out-of-range axis is rejected.
+   * Otherwise start a chirp (sysid_start clamps amp/freq/duration to hard caps).
+   * Injection only reaches the motors through the controller's ARMED gate, so a
+   * disarmed FC accepts this and shows the chirp in CONTROL_TRACE with props
+   * still. The run self-aborts on angle/rate limits and at duration. */
+  if (m->axis == 0xFFu) {
+    sysid_abort();
+    return navlink_ack_result(ACK_OK);
+  }
+  if (m->axis > 2u)
+    return navlink_ack_result(ACK_BAD);
+  sysid_request_t req = {.axis = m->axis,
+                         .f0_hz = m->f0_hz,
+                         .f1_hz = m->f1_hz,
+                         .amp_dps = m->amp_dps,
+                         .duration_s = m->duration_s};
+  sysid_start(&req);
+  return navlink_ack_result(ACK_OK);
+}
+
+static navlink_ack_t on_cmd_sysid_dump(void *ctx, const navlink_frame_hdr_t *hdr,
+                                       const navlink_cmd_sysid_dump_t *m) {
+  (void)ctx; (void)hdr; (void)m;
+  /* Arm the dump cursor; the telemetry task streams SYSID_SAMPLE chunks. Reads
+   * the capture buffer that the (now-finished) run filled, so no race. */
+  sysid_dump_request();
+  return navlink_ack_result(ACK_OK);
 }
 
 static navlink_ack_t on_cmd_arm(void *ctx, const navlink_frame_hdr_t *hdr,
@@ -270,6 +303,8 @@ void navlink_router_init(void) {
   s_handlers.command_gate = router_command_gate; /* §10.5: reject until synced */
   s_handlers.on_default = on_default; /* every unhandled leaf -> blink */
   s_handlers.on_cmd_set_pid = on_cmd_set_pid;
+  s_handlers.on_cmd_sysid_excite = on_cmd_sysid_excite;
+  s_handlers.on_cmd_sysid_dump = on_cmd_sysid_dump;
   s_handlers.on_cmd_arm = on_cmd_arm;
   s_handlers.on_cmd_disarm = on_cmd_disarm;
   s_handlers.on_cmd_calibrate_imu = on_cmd_calibrate_imu;
