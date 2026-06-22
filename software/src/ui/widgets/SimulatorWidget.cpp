@@ -2236,9 +2236,15 @@ void SimulatorWidget::onChunkMeshed(qint64 key, const BuiltChunk& built) {
 void SimulatorWidget::uploadFloraChunk(qint64 key) {
   auto it = m_floraCache.find(key);
   if (it == m_floraCache.end()) return;
-  m_renderer->setChunkFlora(key, it->second.first, it->second.second);
+  const float chunkM = m_chunkStreamer.config().chunkM;
+  const float cxw = (vsim::ChunkStreamer::cxOf(key) + 0.5f) * chunkM;
+  const float cyw = (vsim::ChunkStreamer::cyOf(key) + 0.5f) * chunkM;
+  const float half = chunkM * 0.5f;
+  m_renderer->setChunkFlora(key, it->second.first, it->second.second, cxw, cyw,
+                            half);
   if (m_downRenderer)
-    m_downRenderer->setChunkFlora(key, it->second.first, it->second.second);
+    m_downRenderer->setChunkFlora(key, it->second.first, it->second.second, cxw,
+                                  cyw, half);
   m_floraShown.insert(key);
 }
 

@@ -84,7 +84,7 @@ class SimRendererWidget : public QOpenGLWidget, protected QOpenGLExtraFunctions 
   // [posx,posy,posz, yaw,height,flower, tintr,tintg,tintb]. Deferred upload like
   // the chunk meshes; keyed the same so it loads/unloads with its chunk.
   void setChunkFlora(qint64 key, const std::vector<float>& interleaved,
-                     int count);
+                     int count, float centerX, float centerY, float halfExtent);
   void removeChunkFlora(qint64 key);
   void clearChunkFlora();
   void setFloraVisible(bool on) { floraVisible_ = on; update(); }
@@ -247,8 +247,9 @@ class SimRendererWidget : public QOpenGLWidget, protected QOpenGLExtraFunctions 
   int uf_vp_ = -1, uf_campos_ = -1, uf_time_ = -1;
   int uf_fadestart_ = -1, uf_fadeend_ = -1, uf_sundir_ = -1;
   int uf_fogdensity_ = -1, uf_fogstart_ = -1;
-  QOpenGLBuffer grassVbo_{QOpenGLBuffer::VertexBuffer};  // shared unit blade
-  int grassVerts_ = 0;
+  QOpenGLBuffer grassVbo_[3];   // shared blade geometry at 3 LODs (24/12/6 verts)
+  int grassVerts_[3] = {0, 0, 0};
+  QOpenGLVertexArrayObject floraVao_;  // shared; geometry+instance bound per draw
   float floraTime_ = 0.0f;     // advances per paint to drive the wind
   bool floraVisible_ = true;
 
@@ -310,12 +311,14 @@ class SimRendererWidget : public QOpenGLWidget, protected QOpenGLExtraFunctions 
   // Per-chunk instanced flora (grass/flowers), keyed like worldChunks_. Each
   // holds a VAO binding the shared blade geometry + this chunk's instance VBO.
   struct FloraChunk {
-    QOpenGLVertexArrayObject vao;
     QOpenGLBuffer inst{QOpenGLBuffer::VertexBuffer};
     int count = 0;
+    float cx = 0.0f, cy = 0.0f, half = 0.0f;  // chunk centre + half-extent (LOD)
   };
   std::map<qint64, std::unique_ptr<FloraChunk>> floraChunks_;
-  struct PendingFlora { qint64 key; std::vector<float> data; int count; };
+  struct PendingFlora {
+    qint64 key; std::vector<float> data; int count; float cx, cy, half;
+  };
   std::vector<PendingFlora> pendingFloraUploads_;
   std::vector<qint64> pendingFloraRemovals_;
   bool floraDirty_ = false;
