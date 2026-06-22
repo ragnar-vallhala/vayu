@@ -25,7 +25,9 @@ extern "C" {
 #include <QProgressBar>
 #include <QPushButton>
 #include <QString>
+#include <QVector3D>
 #include <QWidget>
+#include <functional>
 #include <memory>
 #include <unordered_map>
 
@@ -228,6 +230,14 @@ class SimulatorWidget : public QWidget {
   int m_streamGen = 0;             // bumped on (re)configure to drop stale builds
   bool m_collisionPending = false; // a crossing asked for a collision rebuild
   int m_colCx = 0, m_colCy = 0;    // cell that collision should cover
+
+  // Lift-onto-terrain: a height sampler for the active procedural world (null
+  // for imported / no world), the last known drone position, and a request to
+  // lift once the endless biome's local collision has shipped.
+  std::function<float(float, float)> m_terrainHeightAt;
+  QVector3D m_lastDronePos{0, 0, 0};
+  bool m_liftPending = false;
+  void liftDroneToSurface();  // reset the drone onto the surface if it's buried
   RcBridge* m_rc = nullptr;        // RC transmitter → firmware RC feeder
   QCheckBox* m_rcEnable = nullptr;
   QComboBox* m_rcSource = nullptr;          // USB joystick vs UART (CSV)

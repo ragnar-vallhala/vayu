@@ -1911,6 +1911,7 @@ void SimulatorWidget::detachTuneSim() {
 }
 
 void SimulatorWidget::updateHud(const vsim::SimSnapshot& s) {
+  m_lastDronePos = s.pos_w;  // tracked for the lift-onto-terrain logic
   if (m_hud) m_hud->setSnapshot(s);
   if (m_horizon) {
     float roll, pitch, yaw;
@@ -1994,22 +1995,25 @@ void SimulatorWidget::loadWorldMeshToRenderer() {
   // Point the contour minimap at the active terrain's height source. The
   // endless lambda reads the streamer's field lazily (configured below); the
   // finite lambda owns its heightfield via the captured shared_ptr.
+  // One terrain-height sampler (world N,E -> elevation [m]) for the active world,
+  // shared by the minimap and the "lift drone onto the surface" logic.
+  std::function<float(float, float)> heightAt;
+  float minimapRange = 200.0f;
+  if (endless) {
+    heightAt = [this](float n, float e) {
+      const auto f = m_chunkStreamer.field();
+      return f ? f->height(n, e) : 0.0f;
+    };
+  } else if (vsim::isKnownBiome(w.proceduralBiome)) {
+    auto hf = std::make_shared<vsim::procgen::Heightfield>(
+        vsim::proceduralMeadowHeightfield(w));
+    heightAt = [hf](float n, float e) { return hf->sampleWorld(n, e); };
+    minimapRange = w.proceduralSizeM * 0.5f;  // fit the finite arena
+  }
+  m_terrainHeightAt = heightAt;  // null for imported / no world
   if (m_minimap) {
-    if (endless) {
-      m_minimap->setSampler([this](float n, float e) {
-        const auto f = m_chunkStreamer.field();
-        return f ? f->height(n, e) : 0.0f;
-      });
-      m_minimap->setRangeM(200.0f);
-    } else if (vsim::isKnownBiome(w.proceduralBiome)) {
-      auto hf = std::make_shared<vsim::procgen::Heightfield>(
-          vsim::proceduralMeadowHeightfield(w));
-      m_minimap->setSampler(
-          [hf](float n, float e) { return hf->sampleWorld(n, e); });
-      m_minimap->setRangeM(w.proceduralSizeM * 0.5f);  // fit the finite arena
-    } else {
-      m_minimap->setSampler(nullptr);  // imported / none -> no minimap terrain
-    }
+    m_minimap->setSampler(heightAt);
+    if (heightAt) m_minimap->setRangeM(minimapRange);
   }
 
   // Leaving the endless biome: stop the streamer and drop its chunks so a
@@ -2036,6 +2040,7 @@ void SimulatorWidget::loadWorldMeshToRenderer() {
     ++m_streamGen;
     m_chunkCache.clear();
     m_collisionPending = false;
+    m_liftPending = true;  // lift onto the surface once local collision ships
 
     vsim::ChunkStreamer::Config sc;
     sc.field.seed = static_cast<uint32_t>(w.proceduralSeed);
@@ -2073,7 +2078,10 @@ void SimulatorWidget::loadWorldMeshToRenderer() {
                            .arg(w.proceduralBiome)
                            .arg(w.proceduralSeed)
                            .arg(m.triangleCount()));
-    if (m_sim) sendWorldMeshToSim(m);
+    if (m_sim) {
+      sendWorldMeshToSim(m);     // collision ready -> safe to lift onto it
+      liftDroneToSurface();
+    }
     return;
   }
 
@@ -2191,6 +2199,25 @@ void SimulatorWidget::tryBuildCollision() {
   const vsim::LoadedMesh m = vsim::collisionMeshFromChunks(meshes);
   m_collisionPending = false;
   if (m.valid) sendWorldMeshToSim(m);
+  if (m_liftPending) {  // first collision after (re)configure -> lift onto it
+    liftDroneToSurface();
+    m_liftPending = false;
+  }
+}
+
+void SimulatorWidget::liftDroneToSurface() {
+  if (!m_sim || !m_terrainHeightAt) return;
+  const float x = m_lastDronePos.x();
+  const float y = m_lastDronePos.y();
+  const float h = m_terrainHeightAt(x, y);     // surface elevation [m] above z=0
+  const float clearance = 0.15f;
+  const float targetZ = -h - clearance;        // NED: above the surface
+  // Only lift when the drone is at/below the surface (buried). In NED a larger z
+  // is lower, so droneZ > targetZ means it's sitting in/under the terrain.
+  if (m_lastDronePos.z() > targetZ) {
+    m_sim->sendResetPose(x, y, targetZ);
+    appendLog("world", tr("lifted drone onto terrain surface (%.1f m)").arg(h));
+  }
 }
 
 void SimulatorWidget::sendWorldMeshToSim(const vsim::LoadedMesh& m) {

@@ -81,6 +81,9 @@ class SimWorker : public QThread {
   // Send a CTL_RESET to vsim_d. With no args, re-spawns at level pose
   // slightly above ground (matches the daemon's own initial state).
   void sendReset();
+  // Re-spawn at a specific NED world position, level attitude, zero velocity.
+  // Used to lift the drone onto the terrain surface when a world loads.
+  void sendResetPose(float x, float y, float z);
 
   // Test-rig mode (VSIM_CTL_SET_TESTRIG): pin translation, leave rotation free —
   // a frictionless attitude gimbal. Pair with sendRigPose to pose the airframe.
