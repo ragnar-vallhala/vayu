@@ -173,6 +173,7 @@ out vec3 v_color;
 out vec3 v_world;
 out vec3 v_normal;
 out float v_hf;
+out float v_flower;
 void main() {
   float yaw = i_yhf.x, height = i_yhf.y, flower = i_yhf.z;
   float hf = -a_local.z;                       // 0 base .. 1 tip
@@ -183,7 +184,7 @@ void main() {
   height *= fade;
   // Scale the whole curved blade (arc + width + length) by its height.
   vec3 L = a_local * height;
-  L.xy *= (1.0 + flower * hf * hf * 5.0);       // flowers fan a bloom at the tip
+  L.xy *= (1.0 + flower * hf * hf * 2.0);        // flowers fan a small bloom
   float s = sin(yaw), c = cos(yaw);
   vec3 r = vec3(c * L.x - s * L.y, s * L.x + c * L.y, L.z);
   // Wind: extra bend on top of the baked arc, strongest near the tip.
@@ -193,6 +194,7 @@ void main() {
   v_world = world;
   v_color = i_tint;
   v_hf = hf;
+  v_flower = flower;
   // Rotate the (uniform-scaled) ribbon normal by the same yaw.
   v_normal = vec3(c * a_normal.x - s * a_normal.y,
                   s * a_normal.x + c * a_normal.y, a_normal.z);
@@ -206,6 +208,7 @@ in vec3 v_color;
 in vec3 v_world;
 in vec3 v_normal;
 in float v_hf;
+in float v_flower;
 out vec4 o_color;
 uniform vec3 u_campos;
 uniform float u_fogdensity;
@@ -214,6 +217,10 @@ uniform float u_fogstart;
 
 const char* kFloraFragmentMain = R"GLSL(
 void main() {
+  // Flowers keep a green stem and only bloom their colour near the tip.
+  vec3 stem = vec3(0.28, 0.46, 0.18);
+  vec3 albedo = mix(v_color, mix(stem, v_color, smoothstep(0.6, 0.95, v_hf)),
+                    v_flower);
   // Per-blade lighting: directional sun + sky/ground hemispheric ambient off the
   // (up-biased) ribbon normal, with a base->tip ambient-occlusion gradient.
   vec3 n = normalize(v_normal);
@@ -222,14 +229,14 @@ void main() {
   vec3 ambient = mix(vec3(0.22, 0.24, 0.28),
                      vec3(0.50, 0.53, 0.58), clamp(hemi, 0.0, 1.0));
   float ao = mix(0.55, 1.0, v_hf);             // darker at the base
-  vec3 col = v_color * (ambient + vec3(0.85) * ndl) * ao;
+  vec3 col = albedo * (ambient + vec3(0.85) * ndl) * ao;
   vec3 toFrag = v_world - u_campos;
   float dist = length(toFrag);
   vec3 vdir = dist > 1e-4 ? toFrag / dist : vec3(0.0, 0.0, 1.0);
   // Subsurface translucency: blades glow when backlit (looking toward the sun
   // through them), strongest near the thin tip — the soft GoT meadow look.
   float trans = pow(max(dot(vdir, normalize(u_sundir)), 0.0), 4.0);
-  col += v_color * trans * (0.25 + 0.75 * v_hf) * 0.8;
+  col += albedo * trans * (0.25 + 0.75 * v_hf) * 0.8;
   float fd = max(dist - u_fogstart, 0.0) * u_fogdensity;
   float fog = 1.0 - exp(-fd * fd);
   o_color = vec4(mix(col, skyColor(vdir), clamp(fog, 0.0, 1.0)), 1.0);
