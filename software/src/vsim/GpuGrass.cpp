@@ -2,6 +2,7 @@
 
 #include <QOpenGLExtraFunctions>
 #include <QVector2D>
+#include <QtGlobal>
 
 #include <cmath>
 #include <vector>
@@ -25,6 +26,18 @@
 #ifndef GL_COMMAND_BARRIER_BIT
 #define GL_COMMAND_BARRIER_BIT 0x00000040
 #endif
+#ifndef GL_ALL_BARRIER_BITS
+#define GL_ALL_BARRIER_BITS 0xFFFFFFFF
+#endif
+#ifndef GL_COPY_READ_BUFFER
+#define GL_COPY_READ_BUFFER 0x8F36
+#endif
+#ifndef GL_COPY_WRITE_BUFFER
+#define GL_COPY_WRITE_BUFFER 0x8F37
+#endif
+#ifndef GL_MAP_READ_BIT
+#define GL_MAP_READ_BIT 0x0001
+#endif
 
 namespace vsim {
 namespace {
@@ -36,7 +49,7 @@ const char* kCompute = R"GLSL(
 layout(local_size_x = 16, local_size_y = 16) in;
 struct Blade { vec4 posyaw; vec4 hf; vec4 tint; };
 layout(std430, binding = 0) buffer Blades { Blade blades[]; };
-layout(binding = 1, offset = 4) uniform atomic_uint instanceCount;
+layout(binding = 1) uniform atomic_uint instanceCount;  // dedicated counter buffer
 uniform uint u_seed, u_maxBlades;
 uniform float u_heightM, u_featureM, u_macroM, u_lacunarity, u_gain, u_mountainMix;
 uniform int u_octaves, u_G;
@@ -176,16 +189,28 @@ GpuGrass::~GpuGrass() = default;
 
 bool GpuGrass::init(QOpenGLExtraFunctions* gl) {
   if (!comp_.addShaderFromSourceCode(QOpenGLShader::Compute, kCompute) ||
-      !comp_.link())
+      !comp_.link()) {
+    qInfo("[GpuGrass] compute unavailable -> CPU flora fallback. log:\n%s",
+          comp_.log().toLocal8Bit().constData());
     return false;  // compute unsupported -> caller falls back to CPU flora
+  }
   if (!draw_.addShaderFromSourceCode(QOpenGLShader::Vertex, kVert) ||
       !draw_.addShaderFromSourceCode(QOpenGLShader::Fragment, kFrag) ||
-      !draw_.link())
+      !draw_.link()) {
+    qInfo("[GpuGrass] draw program failed: %s",
+          draw_.log().toLocal8Bit().constData());
     return false;
+  }
+  qInfo("[GpuGrass] ready (compute + indirect).");
 
   gl->glGenBuffers(1, &ssbo_);
   gl->glGenBuffers(1, &indirect_);
+  gl->glGenBuffers(1, &counter_);
   buildBlade(gl);
+
+  gl->glBindBuffer(GL_ATOMIC_COUNTER_BUFFER, counter_);
+  const unsigned int zero = 0u;
+  gl->glBufferData(GL_ATOMIC_COUNTER_BUFFER, sizeof(zero), &zero, GL_DYNAMIC_DRAW);
 
   maxBlades_ = params_.grid * params_.grid;
   gl->glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo_);
@@ -269,10 +294,14 @@ void GpuGrass::render(QOpenGLExtraFunctions* gl, const QMatrix4x4& proj,
   const QVector2D origin(std::floor(camPos.x() / cell) * cell,
                          std::floor(camPos.y() / cell) * cell);
 
-  // Reset the indirect command: {vertexCount, instanceCount=0, first=0, base=0}.
+  // Reset the indirect command {vertexCount, instanceCount=0, first=0, base=0}
+  // and the atomic counter to 0.
   const unsigned int cmd[4] = {static_cast<unsigned int>(bladeVerts_), 0u, 0u, 0u};
   gl->glBindBuffer(GL_DRAW_INDIRECT_BUFFER, indirect_);
   gl->glBufferSubData(GL_DRAW_INDIRECT_BUFFER, 0, sizeof(cmd), cmd);
+  const unsigned int zero = 0u;
+  gl->glBindBuffer(GL_ATOMIC_COUNTER_BUFFER, counter_);
+  gl->glBufferSubData(GL_ATOMIC_COUNTER_BUFFER, 0, sizeof(zero), &zero);
 
   // --- generate ---
   comp_.bind();
@@ -299,12 +328,32 @@ void GpuGrass::render(QOpenGLExtraFunctions* gl, const QMatrix4x4& proj,
   comp_.setUniformValue("u_falloffStart", params_.falloffStart);
   comp_.setUniformValue("u_falloffEnd", params_.falloffEnd);
   gl->glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, ssbo_);
-  gl->glBindBufferBase(GL_ATOMIC_COUNTER_BUFFER, 1, indirect_);  // counter @ +4
+  gl->glBindBufferBase(GL_ATOMIC_COUNTER_BUFFER, 1, counter_);
   const int groups = (params_.grid + 15) / 16;
   gl->glDispatchCompute(groups, groups, 1);
-  gl->glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT |
-                      GL_ATOMIC_COUNTER_BARRIER_BIT | GL_COMMAND_BARRIER_BIT);
+  gl->glMemoryBarrier(GL_ALL_BARRIER_BITS);
   comp_.release();
+
+  // Copy the generated count into the indirect command's instanceCount (offset
+  // 4). A dedicated counter buffer is far more portable than aliasing the
+  // indirect buffer as an atomic-counter buffer.
+  gl->glBindBuffer(GL_COPY_READ_BUFFER, counter_);
+  gl->glBindBuffer(GL_COPY_WRITE_BUFFER, indirect_);
+  gl->glCopyBufferSubData(GL_COPY_READ_BUFFER, GL_COPY_WRITE_BUFFER, 0, 4, 4);
+  gl->glMemoryBarrier(GL_ALL_BARRIER_BITS);
+
+  // Diagnostic: read back the blade count (once-per-frame stall; remove later).
+  gl->glBindBuffer(GL_ATOMIC_COUNTER_BUFFER, counter_);
+  void* ptr = gl->glMapBufferRange(GL_ATOMIC_COUNTER_BUFFER, 0, 4, GL_MAP_READ_BIT);
+  if (ptr) {
+    lastCount_ = *static_cast<unsigned int*>(ptr);
+    gl->glUnmapBuffer(GL_ATOMIC_COUNTER_BUFFER);
+  }
+  static int frame = 0;
+  if ((frame++ % 90) == 0)
+    qInfo("[GpuGrass] %u blades (grid=%d cell=%.3f origin=%.0f,%.0f cam=%.0f,%.0f)",
+          lastCount_, params_.grid, double(params_.cell), double(origin.x()),
+          double(origin.y()), double(camPos.x()), double(camPos.y()));
 
   // --- draw ---
   draw_.bind();

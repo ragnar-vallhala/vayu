@@ -60,7 +60,9 @@ class GpuGrass {
   QOpenGLShaderProgram comp_;   // generation
   QOpenGLShaderProgram draw_;   // render
   unsigned int ssbo_ = 0;       // blade instances (binding 0)
-  unsigned int indirect_ = 0;   // DrawArraysIndirectCommand; counter at offset 4
+  unsigned int indirect_ = 0;   // DrawArraysIndirectCommand
+  unsigned int counter_ = 0;    // dedicated atomic counter (copied into indirect)
+  unsigned int lastCount_ = 0;  // blades generated last frame (diagnostic)
   QOpenGLBuffer bladeVbo_{QOpenGLBuffer::VertexBuffer};  // shared blade geometry
   QOpenGLVertexArrayObject vao_;
   int bladeVerts_ = 0;
