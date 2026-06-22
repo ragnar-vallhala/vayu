@@ -34,7 +34,7 @@ class GpuGrass {
     float lacunarity = 2.0f, gain = 0.5f, mountainMix = 0.55f;
     // Grass placement (mirrors procgen::FloraParams).
     float grassMaxFrac = 0.5f, slopeLo = 0.80f, slopeHi = 0.93f;
-    float heightMean = 0.34f, heightStdDev = 0.09f, flowerFrac = 0.02f;
+    float heightMean = 1.0f, heightStdDev = 0.3f, flowerFrac = 0.02f;
     // Generation grid around the camera.
     float cell = 0.16f;      // candidate spacing [m] (smaller = denser)
     int grid = 768;          // candidates per side
