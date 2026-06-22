@@ -2105,8 +2105,12 @@ void SimulatorWidget::loadWorldMeshToRenderer() {
     gp.heightStdDev = w.flora.heightStdDev;
     gp.flowerFrac = w.flora.flowerFrac;
     const float bpc = std::max(1.0f, w.flora.bladesPerCell);
-    gp.cell = std::clamp(w.flora.spacing / std::sqrt(bpc), 0.06f, 1.0f);
+    // Near-ring candidate spacing. GpuGrass adds a coarse FAR ring (4x cell) on
+    // top for distance, so this only controls near density — push it small.
+    gp.cell = std::clamp(w.flora.spacing / std::sqrt(bpc), 0.045f, 1.0f);
     gp.grid = 768;
+    // Falloff is computed per-ring inside GpuGrass::render now; these are only a
+    // hint for the near ring.
     const float radius = gp.grid * gp.cell * 0.5f;
     gp.falloffEnd = radius * 0.9f;
     gp.falloffStart = gp.falloffEnd * 0.6f;

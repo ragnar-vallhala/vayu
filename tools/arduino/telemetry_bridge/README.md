@@ -62,11 +62,17 @@ arduino-cli upload  -p /dev/ttyUSB0 --fqbn esp8266:esp8266:nodemcuv2 tools/ardui
 
 ## How it works
 
-- **Frame-aware relay** — UART bytes accumulate in `acc[]`; whole frames
-  (`sync 0x56 · typever · length · … · crc32`, total = `8 + length + 4`) are
-  sliced out and packed into `out[]`, which is sent as one datagram per **512 B**
-  or per **2 ms** (a hardware timer1 ISR sets the flush flag). Never splits a
-  frame across packets.
+- **Frame-aware relay + coalescing** — UART bytes accumulate in `acc[]`; whole
+  frames (`sync 0x56 · typever · length · … · crc32`, total = `8 + length + 4`)
+  are sliced out and packed into `out[]`, sent as one datagram when it fills the
+  **MTU cap (~1472 B)** or on the **`FLUSH_MS` (8 ms) timer** (a hardware timer1
+  ISR sets the flush flag). Never splits a frame across packets. Packing many
+  frames per datagram is the throughput lever: the ESP's limit is sustainable UDP
+  **datagrams/s** (per-packet WiFi airtime + MAC retries), not bytes/s — so fewer,
+  fuller datagrams carry more frames under the same ceiling. `MAX_UDP` is capped
+  at the MTU so each datagram stays a single WiFi frame (above MTU, IP
+  fragmentation saves no airtime and makes any lost fragment drop the whole
+  datagram). `FLUSH_MS` trades latency for coalescing.
 - **Reliable delivery** — `WIFI_NONE_SLEEP` kills modem-sleep latency/loss, and
   the bridge unicasts to the GCS once it has heard from it (the GCS announces
   itself periodically), so WiFi MAC retries cover lost frames instead of an
@@ -82,6 +88,6 @@ arduino-cli upload  -p /dev/ttyUSB0 --fqbn esp8266:esp8266:nodemcuv2 tools/ardui
 |----------|---------|----------------|
 | `FC_BAUD` | `230400` | Must equal the FC's `UART_BAUDRATE`. |
 | `UDP_PORT` | `14555` | Must match the GCS UDP port. |
-| `MAX_UDP` | `512` | Datagram size cap (keep ≤ MTU to avoid IP fragmentation). |
-| `FLUSH_TICKS` | `10000` | Flush timeout in timer1 ticks (5 MHz → 0.2 µs/tick; 10000 = 2 ms). |
+| `MAX_UDP` | `1472` | Datagram size cap = MTU − IP/UDP headers. **Do not raise past ~1472** — above MTU lwIP fragments (no airtime saved; one lost fragment drops the whole datagram). |
+| `FLUSH_MS` | `8` | Flush interval (ms). Latency-for-coalescing knob: longer = more frames/datagram = fewer datagrams/s (further under the ESP ceiling). Drop to `2` for low-latency stick-feel data. `FLUSH_TICKS` derives from this (5000 ticks/ms @ TIM_DIV16). |
 | `CFG_PORTAL` | `"vayu-config"` | Captive-portal AP name. |

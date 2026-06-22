@@ -104,11 +104,12 @@ layout(std430, binding=0) buffer Blades { Blade blades[]; };
 layout(binding=1) uniform atomic_uint instanceCount;
 layout(r32f, binding=0) readonly uniform image2D heightImg;
 uniform uint u_seed; uniform float u_heightM;
-uniform int u_G, u_texSize;
+uniform int u_G, u_texSize, u_maxBlades;
 uniform float u_grassMaxFrac,u_slopeLo,u_slopeHi,u_heightMean,u_heightStd,u_flowerFrac;
 uniform int u_originCellX,u_originCellY; uniform float u_cell;
 uniform vec2 u_regionMin; uniform float u_regionSize;
-uniform vec3 u_camPos; uniform mat4 u_vp; uniform float u_falloffStart,u_falloffEnd;
+uniform vec3 u_camPos; uniform mat4 u_vp;
+uniform float u_falloffStart,u_falloffEnd,u_innerCut,u_heightScale;
 uint hash32(uint x){ x^=x>>16; x*=0x7feb352du; x^=x>>15; x*=0x846ca68bu; x^=x>>16; return x; }
 uint hash2(int ix,int iy,uint seed){ uint h=uint(ix)*0x9e3779b1u; h^=uint(iy)*0x85ebca77u; h^=seed*0xc2b2ae3du; return hash32(h); }
 float rnd(uint h){ return float(h & 0xffffffu)/16777216.0; }
@@ -136,20 +137,25 @@ void main(){
   float flatn=1.0/sqrt(dhdx*dhdx+dhdy*dhdy+1.0);
   float t=h/(u_heightM+1e-3);
   float density=(1.0-ss(u_grassMaxFrac*0.55,u_grassMaxFrac,t))*ss(u_slopeLo,u_slopeHi,flatn);
-  float keep=density*(1.0-ss(u_falloffStart,u_falloffEnd,length(vec2(wx,wy)-u_camPos.xy)));
+  float dist=length(vec2(wx,wy)-u_camPos.xy);
+  float outer=1.0-ss(u_falloffStart,u_falloffEnd,dist);
+  float inner=(u_innerCut>0.0)?ss(u_innerCut*0.70,u_innerCut,dist):1.0;  // far ring skips the near zone
+  float keep=density*outer*inner;
   if(keep<=0.0||rnd(hc*0x85ebu+3u)>keep) return;
   vec4 clip=u_vp*vec4(wx,wy,-h,1.0);
   if(clip.w<=0.0) return; vec3 ndc=clip.xyz/clip.w;
   if(ndc.x<-1.3||ndc.x>1.3||ndc.y<-1.3||ndc.y>1.3||ndc.z>1.0) return;
+  uint idx=atomicCounterIncrement(instanceCount);
+  if(idx>=uint(u_maxBlades)) return;  // never write past the instance buffer
   float yaw=2.0*(sin(baseX*0.035)+cos(baseY*0.028))+(rnd(hc*0x27d4u+4u)-0.5)*2.0;
   float u1=max(rnd(hc*0x165667u+5u),1e-6),u2=rnd(hc*0x2545f4u+6u);
-  float height=max(0.03,u_heightMean+u_heightStd*sqrt(-2.0*log(u1))*cos(6.2831853*u2));
+  float height=u_heightScale*max(0.03,u_heightMean+u_heightStd*sqrt(-2.0*log(u1))*cos(6.2831853*u2));
+  float bend=0.55+0.9*rnd(hc*0x51e3u+11u);  // per-blade lean (top-down coverage + variety)
   bool fl=rnd(hc*0x1b873u+7u)<u_flowerFrac; vec3 tint;
-  if(fl){ float fh=rnd(hc*0x3a5fu+8u); tint=fh<0.40?vec3(0.95,0.95,0.97):(fh<0.72?vec3(0.93,0.84,0.28):vec3(0.86,0.34,0.30)); }
-  else { float v=0.85+0.34*rnd(hc*0x9f3bu+9u); tint=vec3((0.30+0.12*rnd(hc*0xc2b2u+10u))*v,0.52*v,0.18*v); }
-  uint idx=atomicCounterIncrement(instanceCount);
+  if(fl){ float fh=rnd(hc*0x3a5fu+8u); tint=fh<0.45?vec3(0.93,0.83,0.30):(fh<0.78?vec3(0.90,0.55,0.62):vec3(0.95,0.95,0.97)); }
+  else { float v=0.82+0.36*rnd(hc*0x9f3bu+9u); tint=vec3((0.28+0.12*rnd(hc*0xc2b2u+10u))*v,0.50*v,0.17*v); }
   blades[idx].posyaw=vec4(wx,wy,-h,yaw);
-  blades[idx].hf=vec4(height,fl?1.0:0.0,0.0,0.0);
+  blades[idx].hf=vec4(height,fl?1.0:0.0,bend,0.0);
   blades[idx].tint=vec4(tint,0.0);
 }
 )GLSL";
@@ -164,11 +170,11 @@ layout(location=4) in vec4 i_tint;
 uniform mat4 u_vp; uniform vec3 u_campos; uniform float u_time, u_fadestart, u_fadeend;
 out vec3 v_color; out vec3 v_world; out vec3 v_normal; out float v_hf; out float v_flower;
 void main(){
-  vec3 ipos=i_posyaw.xyz; float yaw=i_posyaw.w, height=i_hf.x, flower=i_hf.y;
+  vec3 ipos=i_posyaw.xyz; float yaw=i_posyaw.w, height=i_hf.x, flower=i_hf.y, bend=i_hf.z;
   float hf=-a_local.z;
   float d=length(ipos-u_campos);
   height*=1.0-clamp((d-u_fadestart)/max(u_fadeend-u_fadestart,1.0),0.0,1.0);
-  vec3 L=a_local*height; L.xy*=(1.0+flower*hf*hf*2.0);
+  vec3 L=a_local*height; L.x*=bend; L.xy*=(1.0+flower*hf*hf*0.9);
   float s=sin(yaw),c=cos(yaw);
   vec3 r=vec3(c*L.x-s*L.y, s*L.x+c*L.y, L.z);
   float w=sin(u_time*1.6+ipos.x*0.22+ipos.y*0.18);
@@ -190,18 +196,44 @@ vec3 skyColor(vec3 dir){
   return (up>=0.0)?mix(h,z,pow(clamp(up,0.0,1.0),0.45)):mix(h,g,clamp(-up*2.5,0.0,1.0));
 }
 void main(){
-  vec3 stem=vec3(0.28,0.46,0.18);
-  vec3 albedo=mix(v_color, mix(stem,v_color,smoothstep(0.6,0.95,v_hf)), v_flower);
-  vec3 n=normalize(v_normal);
-  float ndl=max(dot(n,normalize(u_sundir)),0.0);
-  float hemi=0.5+0.5*(-n.z);
-  vec3 ambient=mix(vec3(0.22,0.24,0.28),vec3(0.50,0.53,0.58),clamp(hemi,0.0,1.0));
-  float ao=mix(0.55,1.0,v_hf);
-  vec3 col=albedo*(ambient+vec3(0.85)*ndl)*ao;
+  // Darker stem at the base, blade colour toward the tip; flowers brighten the top.
+  vec3 stem=vec3(0.16,0.30,0.10);
+  vec3 grassAlbedo=mix(stem,v_color,smoothstep(0.20,0.85,v_hf));
+  vec3 albedo=mix(grassAlbedo, mix(grassAlbedo,v_color,smoothstep(0.55,0.98,v_hf)), v_flower);
+
+  // Soften the per-vertex normal toward up — real grass scatters light, so a
+  // pure ribbon normal reads too hard. Blend gives the soft GoT shading.
+  vec3 up=vec3(0.0,0.0,-1.0);
+  vec3 n=normalize(mix(normalize(v_normal), up, 0.40));
+  vec3 sun=normalize(u_sundir);
+  vec3 sunCol=vec3(1.10,0.98,0.80);   // warm key light
+
+  // Wrapped diffuse — softens the terminator so blades don't go flat-black.
+  float ndl=dot(n,sun);
+  float wrap=clamp(ndl*0.5+0.5,0.0,1.0); wrap*=wrap;
+
+  // Hemispheric sky ambient: cool blue from above, darker green bounce below.
+  float hemi=clamp(0.5+0.5*(-n.z),0.0,1.0);
+  vec3 ambient=mix(vec3(0.13,0.17,0.13),vec3(0.40,0.50,0.60),hemi);
+
+  float ao=mix(0.40,1.0,v_hf);   // base is occluded by the canopy
+  vec3 col=albedo*(ambient + sunCol*wrap*1.05)*ao;
+
   vec3 toFrag=v_world-u_campos; float dist=length(toFrag);
   vec3 vdir=dist>1e-4?toFrag/dist:vec3(0.0,0.0,1.0);
-  float trans=pow(max(dot(vdir,normalize(u_sundir)),0.0),4.0);
-  col+=albedo*trans*(0.25+0.75*v_hf)*0.8;
+
+  // Subsurface translucency: thin blades glow when backlit (camera looking
+  // toward the sun through the canopy). The signature GoT meadow look.
+  float back=pow(max(dot(vdir,sun),0.0),3.0);
+  col+=albedo*sunCol*back*(0.30+0.70*v_hf)*0.9;
+
+  // Soft anisotropic sheen along the blades.
+  vec3 hv=normalize(sun-vdir);
+  float spec=pow(max(dot(n,hv),0.0),18.0)*0.22*v_hf;
+  col+=sunCol*spec;
+  // Tip highlight.
+  col+=albedo*0.12*smoothstep(0.75,1.0,v_hf);
+
   float fd=max(dist-u_fogstart,0.0)*u_fogdensity;
   float fog=1.0-exp(-fd*fd);
   o_color=vec4(mix(col,skyColor(vdir),clamp(fog,0.0,1.0)),1.0);
@@ -209,6 +241,11 @@ void main(){
 )GLSL";
 
 }  // namespace
+
+// Two density rings share the pipeline: a dense near ring + a coarse far ring
+// that carries grass out to the horizon. Both append to the same instance
+// buffer, so it must hold this many grids' worth of blades.
+static constexpr int kNumRings = 2;
 
 GpuGrass::~GpuGrass() = default;
 
@@ -237,7 +274,7 @@ bool GpuGrass::init(QOpenGLExtraFunctions* gl) {
 
   // Allocate the instance buffer BEFORE wiring its vertex attributes (some
   // drivers ignore attribs pointing at an unallocated buffer).
-  maxBlades_ = params_.grid * params_.grid;
+  maxBlades_ = kNumRings * params_.grid * params_.grid;
   gl->glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo_);
   gl->glBufferData(GL_SHADER_STORAGE_BUFFER,
                    GLsizeiptr(maxBlades_) * 12 * sizeof(float), nullptr,
@@ -338,7 +375,7 @@ void GpuGrass::render(QOpenGLExtraFunctions* gl, const QMatrix4x4& proj,
   if (!ready_) return;
 
   // Grow the instance buffer if the grid was enlarged.
-  const int need = params_.grid * params_.grid;
+  const int need = kNumRings * params_.grid * params_.grid;
   if (need != maxBlades_) {
     maxBlades_ = need;
     gl->glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo_);
@@ -348,14 +385,9 @@ void GpuGrass::render(QOpenGLExtraFunctions* gl, const QMatrix4x4& proj,
   }
 
   const QMatrix4x4 vp = proj * view;
-  const float cell = params_.cell;
-  // Origin CELL index (the grid is anchored to world cells, not the camera, so
-  // the blade field stays fixed and the camera moves through it).
-  const int originCellX = int(std::floor(camPos.x() / cell));
-  const int originCellY = int(std::floor(camPos.y() / cell));
 
   // Reset the indirect command {vertexCount, instanceCount=0, first=0, base=0}
-  // and the atomic counter to 0.
+  // and the atomic counter to 0 — ONCE; both rings accumulate into them.
   const unsigned int cmd[4] = {static_cast<unsigned int>(bladeVerts_), 0u, 0u, 0u};
   gl->glBindBuffer(GL_DRAW_INDIRECT_BUFFER, indirect_);
   gl->glBufferSubData(GL_DRAW_INDIRECT_BUFFER, 0, sizeof(cmd), cmd);
@@ -363,60 +395,83 @@ void GpuGrass::render(QOpenGLExtraFunctions* gl, const QMatrix4x4& proj,
   gl->glBindBuffer(GL_ATOMIC_COUNTER_BUFFER, counter_);
   gl->glBufferSubData(GL_ATOMIC_COUNTER_BUFFER, 0, sizeof(zero), &zero);
 
-  // World region the height texture + grass grid both cover (anchored to the
-  // origin cell so it slides with the camera but the field stays fixed).
-  const float regionSize = float(params_.grid) * cell;
-  const QVector2D regionMin(float(originCellX - params_.grid / 2) * cell,
-                            float(originCellY - params_.grid / 2) * cell);
+  // Two density rings: a dense near ring, then a coarse far ring (4x cell) that
+  // carries grass out to the horizon. Each fades smoothly before its grid edge;
+  // the far ring fades IN where the near ring fades out (innerCut) to avoid a
+  // doubled band. Both sample the SAME height texture, refilled per ring.
+  const float nearCell = params_.cell;
+  const float farCell = params_.cell * 4.0f;
+  const float nearRadius = float(params_.grid) * nearCell * 0.5f;
+  const float farRadius = float(params_.grid) * farCell * 0.5f;
+  struct Ring {
+    float cell, innerCut, falloffStart, falloffEnd, heightScale;
+  };
+  const Ring rings[kNumRings] = {
+      {nearCell, 0.0f, nearRadius * 0.80f, nearRadius * 0.98f, 1.0f},
+      {farCell, nearRadius * 0.70f, farRadius * 0.82f, farRadius * 0.98f, 1.18f},
+  };
 
-  // --- pass 1: fill the height texture (terrain noise once per texel) ---
-  fill_.bind();
-  gl->glUniform1ui(fill_.uniformLocation("u_seed"), params_.seed);
-  fill_.setUniformValue("u_heightM", params_.heightM);
-  fill_.setUniformValue("u_featureM", params_.featureM);
-  fill_.setUniformValue("u_macroM", params_.macroM);
-  fill_.setUniformValue("u_octaves", params_.octaves);
-  fill_.setUniformValue("u_lacunarity", params_.lacunarity);
-  fill_.setUniformValue("u_gain", params_.gain);
-  fill_.setUniformValue("u_mountainMix", params_.mountainMix);
-  fill_.setUniformValue("u_texSize", texSize_);
-  fill_.setUniformValue("u_regionMin", regionMin);
-  fill_.setUniformValue("u_regionSize", regionSize);
-  gl->glBindImageTexture(0, heightTex_, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_R32F);
-  const int fg = (texSize_ + 15) / 16;
-  gl->glDispatchCompute(fg, fg, 1);
-  gl->glMemoryBarrier(GL_ALL_BARRIER_BITS);
-  fill_.release();
+  for (const Ring& ring : rings) {
+    // Anchor the grid to world cells (not the camera) so the blade field stays
+    // fixed and the camera moves through it.
+    const int originCellX = int(std::floor(camPos.x() / ring.cell));
+    const int originCellY = int(std::floor(camPos.y() / ring.cell));
+    const float regionSize = float(params_.grid) * ring.cell;
+    const QVector2D regionMin(float(originCellX - params_.grid / 2) * ring.cell,
+                              float(originCellY - params_.grid / 2) * ring.cell);
 
-  // --- pass 2: place blades (sampling the height texture, no per-blade noise) ---
-  comp_.bind();
-  // uint uniforms must go through glUniform1ui (Qt's GLuint overload no-ops here).
-  gl->glUniform1ui(comp_.uniformLocation("u_seed"), params_.seed);
-  comp_.setUniformValue("u_heightM", params_.heightM);
-  comp_.setUniformValue("u_grassMaxFrac", params_.grassMaxFrac);
-  comp_.setUniformValue("u_slopeLo", params_.slopeLo);
-  comp_.setUniformValue("u_slopeHi", params_.slopeHi);
-  comp_.setUniformValue("u_heightMean", params_.heightMean);
-  comp_.setUniformValue("u_heightStd", params_.heightStdDev);
-  comp_.setUniformValue("u_flowerFrac", params_.flowerFrac);
-  comp_.setUniformValue("u_originCellX", originCellX);
-  comp_.setUniformValue("u_originCellY", originCellY);
-  comp_.setUniformValue("u_cell", cell);
-  comp_.setUniformValue("u_G", params_.grid);
-  comp_.setUniformValue("u_texSize", texSize_);
-  comp_.setUniformValue("u_regionMin", regionMin);
-  comp_.setUniformValue("u_regionSize", regionSize);
-  comp_.setUniformValue("u_camPos", camPos);
-  comp_.setUniformValue("u_vp", vp);
-  comp_.setUniformValue("u_falloffStart", params_.falloffStart);
-  comp_.setUniformValue("u_falloffEnd", params_.falloffEnd);
-  gl->glBindImageTexture(0, heightTex_, 0, GL_FALSE, 0, GL_READ_ONLY, GL_R32F);
-  gl->glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, ssbo_);
-  gl->glBindBufferBase(GL_ATOMIC_COUNTER_BUFFER, 1, counter_);
-  const int groups = (params_.grid + 15) / 16;
-  gl->glDispatchCompute(groups, groups, 1);
-  gl->glMemoryBarrier(GL_ALL_BARRIER_BITS);
-  comp_.release();
+    // --- pass 1: fill the height texture (terrain noise once per texel) ---
+    fill_.bind();
+    gl->glUniform1ui(fill_.uniformLocation("u_seed"), params_.seed);
+    fill_.setUniformValue("u_heightM", params_.heightM);
+    fill_.setUniformValue("u_featureM", params_.featureM);
+    fill_.setUniformValue("u_macroM", params_.macroM);
+    fill_.setUniformValue("u_octaves", params_.octaves);
+    fill_.setUniformValue("u_lacunarity", params_.lacunarity);
+    fill_.setUniformValue("u_gain", params_.gain);
+    fill_.setUniformValue("u_mountainMix", params_.mountainMix);
+    fill_.setUniformValue("u_texSize", texSize_);
+    fill_.setUniformValue("u_regionMin", regionMin);
+    fill_.setUniformValue("u_regionSize", regionSize);
+    gl->glBindImageTexture(0, heightTex_, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_R32F);
+    const int fg = (texSize_ + 15) / 16;
+    gl->glDispatchCompute(fg, fg, 1);
+    gl->glMemoryBarrier(GL_ALL_BARRIER_BITS);
+    fill_.release();
+
+    // --- pass 2: place blades (sampling the height texture, no per-blade noise) ---
+    comp_.bind();
+    // uint uniforms must go through glUniform1ui (Qt's GLuint overload no-ops here).
+    gl->glUniform1ui(comp_.uniformLocation("u_seed"), params_.seed);
+    comp_.setUniformValue("u_heightM", params_.heightM);
+    comp_.setUniformValue("u_grassMaxFrac", params_.grassMaxFrac);
+    comp_.setUniformValue("u_slopeLo", params_.slopeLo);
+    comp_.setUniformValue("u_slopeHi", params_.slopeHi);
+    comp_.setUniformValue("u_heightMean", params_.heightMean);
+    comp_.setUniformValue("u_heightStd", params_.heightStdDev);
+    comp_.setUniformValue("u_flowerFrac", params_.flowerFrac);
+    comp_.setUniformValue("u_originCellX", originCellX);
+    comp_.setUniformValue("u_originCellY", originCellY);
+    comp_.setUniformValue("u_cell", ring.cell);
+    comp_.setUniformValue("u_G", params_.grid);
+    comp_.setUniformValue("u_texSize", texSize_);
+    comp_.setUniformValue("u_maxBlades", maxBlades_);
+    comp_.setUniformValue("u_regionMin", regionMin);
+    comp_.setUniformValue("u_regionSize", regionSize);
+    comp_.setUniformValue("u_camPos", camPos);
+    comp_.setUniformValue("u_vp", vp);
+    comp_.setUniformValue("u_falloffStart", ring.falloffStart);
+    comp_.setUniformValue("u_falloffEnd", ring.falloffEnd);
+    comp_.setUniformValue("u_innerCut", ring.innerCut);
+    comp_.setUniformValue("u_heightScale", ring.heightScale);
+    gl->glBindImageTexture(0, heightTex_, 0, GL_FALSE, 0, GL_READ_ONLY, GL_R32F);
+    gl->glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, ssbo_);
+    gl->glBindBufferBase(GL_ATOMIC_COUNTER_BUFFER, 1, counter_);
+    const int groups = (params_.grid + 15) / 16;
+    gl->glDispatchCompute(groups, groups, 1);
+    gl->glMemoryBarrier(GL_ALL_BARRIER_BITS);
+    comp_.release();
+  }
 
   // Copy the generated count into the indirect command's instanceCount (offset
   // 4). A dedicated counter buffer is far more portable than aliasing the
@@ -431,8 +486,9 @@ void GpuGrass::render(QOpenGLExtraFunctions* gl, const QMatrix4x4& proj,
   draw_.setUniformValue("u_vp", vp);
   draw_.setUniformValue("u_campos", camPos);
   draw_.setUniformValue("u_time", time);
-  draw_.setUniformValue("u_fadestart", params_.falloffStart);
-  draw_.setUniformValue("u_fadeend", params_.falloffEnd);
+  // Height fade only at the very far edge — near grass keeps full height.
+  draw_.setUniformValue("u_fadestart", farRadius * 0.85f);
+  draw_.setUniformValue("u_fadeend", farRadius * 0.99f);
   draw_.setUniformValue("u_sundir", sunDir);
   draw_.setUniformValue("u_fogdensity", 1.0f / 420.0f);
   draw_.setUniformValue("u_fogstart", 45.0f);
