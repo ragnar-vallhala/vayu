@@ -42,23 +42,40 @@ std::vector<FloraInstance> scatterFlora(const TerrainField& f, int cx, int cy,
   const int gx1 = static_cast<int>(std::floor((x0 + chunkM) / p.spacing));
   const int gy0 = static_cast<int>(std::floor(y0 / p.spacing));
   const int gy1 = static_cast<int>(std::floor((y0 + chunkM) / p.spacing));
+  const int nx = gx1 - gx0 + 1, ny = gy1 - gy0 + 1;
+  if (nx < 1 || ny < 1) return out;
 
-  out.reserve(static_cast<std::size_t>(gx1 - gx0 + 1) * (gy1 - gy0 + 1));
-  for (int gx = gx0; gx <= gx1; ++gx) {
+  // Sample terrain height ONCE per cell centre (the dominant cost), then derive
+  // slope from grid neighbours instead of a full field normal per blade — ~5x
+  // cheaper than sampling height+normal at every blade.
+  std::vector<float> H(static_cast<std::size_t>(nx) * ny);
+  for (int gi = 0; gi < nx; ++gi)
+    for (int gj = 0; gj < ny; ++gj)
+      H[static_cast<std::size_t>(gj) * nx + gi] =
+          f.height((static_cast<float>(gx0 + gi) + 0.5f) * p.spacing,
+                   (static_cast<float>(gy0 + gj) + 0.5f) * p.spacing);
+  auto at = [&](int gi, int gj) {
+    gi = gi < 0 ? 0 : (gi >= nx ? nx - 1 : gi);
+    gj = gj < 0 ? 0 : (gj >= ny ? ny - 1 : gj);
+    return H[static_cast<std::size_t>(gj) * nx + gi];
+  };
+
+  out.reserve(static_cast<std::size_t>(nx) * ny / 2);
+  for (int gi = 0; gi < nx; ++gi) {
+    const int gx = gx0 + gi;
     const float baseX = (static_cast<float>(gx) + 0.5f) * p.spacing;
     if (baseX < x0 || baseX >= x0 + chunkM) continue;  // owned by another chunk
-    for (int gy = gy0; gy <= gy1; ++gy) {
+    for (int gj = 0; gj < ny; ++gj) {
+      const int gy = gy0 + gj;
       const float baseY = (static_cast<float>(gy) + 0.5f) * p.spacing;
       if (baseY < y0 || baseY >= y0 + chunkM) continue;
 
-      const float jx = (u01(hcell(gx, gy, p.seed, 1)) - 0.5f) * p.jitter;
-      const float jy = (u01(hcell(gx, gy, p.seed, 2)) - 0.5f) * p.jitter;
-      const float wx = baseX + jx * p.spacing;
-      const float wy = baseY + jy * p.spacing;
-
-      const float h = f.height(wx, wy);
-      const PgVec3 n = f.normal(wx, wy, p.spacing);
-      const float flatness = n.z < 0.0f ? -n.z : 0.0f;
+      const float h = at(gi, gj);
+      // Slope from grid neighbours: surface z = -h, normal ∝ (dh/dx, dh/dy, -1),
+      // so flatness = 1/|normal|.
+      const float dhdx = (at(gi + 1, gj) - at(gi - 1, gj)) / (2.0f * p.spacing);
+      const float dhdy = (at(gi, gj + 1) - at(gi, gj - 1)) / (2.0f * p.spacing);
+      const float flatness = 1.0f / std::sqrt(dhdx * dhdx + dhdy * dhdy + 1.0f);
 
       // Density as a smooth function of height and slope: full on the flat,
       // low valley floor; falls to zero on steep faces and up toward the rocky
@@ -71,8 +88,15 @@ std::vector<FloraInstance> scatterFlora(const TerrainField& f, int cx, int cy,
       if (density <= 0.0f) continue;
       if (u01(hcell(gx, gy, p.seed, 3)) > density) continue;
 
+      const float jx = (u01(hcell(gx, gy, p.seed, 1)) - 0.5f) * p.jitter;
+      const float jy = (u01(hcell(gx, gy, p.seed, 2)) - 0.5f) * p.jitter;
+      const float wx = baseX + jx * p.spacing;
+      const float wy = baseY + jy * p.spacing;
+
       FloraInstance b;
-      b.pos = PgVec3{wx, wy, -h};
+      // Exact surface height at the jittered position (only for kept blades, so
+      // it stays cheap) so blades sit ON the ground, not floating on a slope.
+      b.pos = PgVec3{wx, wy, -f.height(wx, wy)};
       b.yaw = u01(hcell(gx, gy, p.seed, 4)) * 6.2831853f;
       b.height = p.minHeight +
                  (p.maxHeight - p.minHeight) * u01(hcell(gx, gy, p.seed, 5));
