@@ -104,7 +104,9 @@
         { "name": "UPRIGHT",           "value": 5 },
         { "name": "UPSIDE_DOWN",       "value": 6 },
         { "name": "FREE_ROT",          "value": 7 },
-        { "name": "MAG_AXIS_COVERAGE", "value": 8 }
+        { "name": "MAG_AXIS_COVERAGE", "value": 8 },
+        { "name": "COMPLETE",          "value": 9 },
+        { "name": "FAILED",            "value": 10 }
       ]
     },
     "perf_fifo_id": {
@@ -389,6 +391,19 @@
         { "index": 5, "name": "valid",         "type": "u8" }
       ]
     },
+    {
+      "msgid": 1041, "name": "SYSID_SAMPLE",
+      "doc": "One chunk of the on-hardware system-ID capture, streamed in response to CMD_SYSID_DUMP. sp/gyro are the rate setpoint (incl. chirp) and the measured gyro rate, in 0.1 deg/s units (i16). start_index is this chunk's first sample; total/capture_hz/axis are repeated in every chunk so a dropped first chunk doesn't lose the metadata.",
+      "fields": [
+        { "index": 0, "name": "start_index", "type": "u16" },
+        { "index": 1, "name": "total",       "type": "u16" },
+        { "index": 2, "name": "capture_hz",  "type": "u16" },
+        { "index": 3, "name": "axis",        "type": "u8" },
+        { "index": 4, "name": "count",       "type": "u8" },
+        { "index": 5, "name": "sp",          "type": "i16", "len": 10, "unit": "0.1 deg/s" },
+        { "index": 6, "name": "gyro",        "type": "i16", "len": 10, "unit": "0.1 deg/s" }
+      ]
+    },
 
     {
       "msgid": 8192, "name": "CMD_ARM", "replaces": "0x3/cmd 0x0002",
@@ -470,6 +485,29 @@
         { "index": 4, "name": "source",      "type": "u8", "enum": "mode_source" }
       ]
     },
+    {
+      "msgid": 8199, "name": "CMD_SYSID_EXCITE",
+      "doc": "On-hardware system-ID: inject a linear chirp into one rate-loop setpoint (deg/s) for `duration_s`, for plant identification on a rig. axis 0=roll/1=pitch/2=yaw; axis 0xFF aborts. The FC self-aborts on angle/rate limits. Phase 0: testable disarmed (motors stay off; the chirp shows in CONTROL_TRACE rate_sp).",
+      "fields": [
+        { "index": 0, "name": "target_sys",  "type": "u8" },
+        { "index": 1, "name": "target_comp", "type": "u8" },
+        { "index": 2, "name": "req_seq",     "type": "u8" },
+        { "index": 3, "name": "axis",        "type": "u8" },
+        { "index": 4, "name": "f0_hz",       "type": "f32" },
+        { "index": 5, "name": "f1_hz",       "type": "f32" },
+        { "index": 6, "name": "amp_dps",     "type": "f32" },
+        { "index": 7, "name": "duration_s",  "type": "f32" }
+      ]
+    },
+    {
+      "msgid": 8200, "name": "CMD_SYSID_DUMP",
+      "doc": "Request the FC stream back the last CMD_SYSID_EXCITE capture buffer as SYSID_SAMPLE chunks. Idempotent — re-send to re-dump (e.g. to fill dropped chunks).",
+      "fields": [
+        { "index": 0, "name": "target_sys",  "type": "u8" },
+        { "index": 1, "name": "target_comp", "type": "u8" },
+        { "index": 2, "name": "req_seq",     "type": "u8" }
+      ]
+    },
 
     {
       "msgid": 12288, "name": "PARAM_REQUEST_LIST",
@@ -514,10 +552,10 @@
     },
     {
       "msgid": 12320, "name": "CALIBRATION_STATUS", "replaces": "0x6/0x01",
-      "doc": "IMU calibration progress + operator instruction. Drives the GCS calibration wizard (spec §14.8).",
+      "doc": "IMU calibration progress + operator instruction. Drives the GCS calibration wizard (spec §14.8). The terminal COMPLETE/FAILED steps tell the wizard the routine ended; it no longer infers completion from a STANDBY heartbeat (which never arrives if calibration legitimately ends in FAILSAFE).",
       "fields": [
         { "index": 0, "name": "step",     "type": "u8",  "enum": "calib_step" },
-        { "index": 1, "name": "progress", "type": "u8",  "doc": "0..100 percent, for the PROGRESS step" },
+        { "index": 1, "name": "progress", "type": "u8",  "doc": "0..100 percent for PROGRESS; reason code for FAILED; 0 otherwise" },
         { "index": 2, "name": "coverage", "type": "f32", "len": 3, "doc": "mag axis coverage x/y/z for MAG_AXIS_COVERAGE; 0 otherwise" }
       ]
     }

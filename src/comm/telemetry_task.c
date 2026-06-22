@@ -8,6 +8,7 @@
 #include "logger/logger.h"
 #include "control/control.h"
 #include "control/flight_mode.h"
+#include "control/sysid.h"
 #include "est/est.h"
 #include "sensor/sensor.h"
 #include "sys/state.h"
@@ -73,6 +74,14 @@ void imu_telemetry_task(void *args) {
     bool send_log = (packet_counter % 10 == 0);        // 15 Hz
     bool send_baro = (packet_counter % 15 == 0);       // 10 Hz
     bool send_vert = (packet_counter % 15 == 0);        // 10 Hz (fused vertical)
+
+    /* While dumping the system-ID capture, hand the bridge's ~150 pkt/s budget
+     * to the dump: suppress the heavy periodic telemetry so the chunks aren't
+     * crowded out and dropped (this is a deliberate post-run, bench-only op). */
+    if (sysid_dump_active()) {
+      send_full = send_comp = send_att = send_rc = send_motor = send_pid_err =
+          send_baro = send_vert = false;
+    }
     /* Gather domain data + hand it to the TX seam; this task is codec-blind
      * (all framing lives in navlink_tx.c). */
     if (send_log) {
@@ -129,6 +138,30 @@ void imu_telemetry_task(void *args) {
     if (imu_queue_calibration_telemetry_pop(&imu_calibration_telemetry)) {
       navlink_tx_calibration(imu_calibration_telemetry.buffer,
                              imu_calibration_telemetry.size);
+    }
+    /* System-ID: flush captured half-buffers to SD during a run (all the vfs I/O
+     * lives here, off the 1 kHz control loop). Cheap no-op when idle. */
+    sysid_flush_poll();
+    /* System-ID capture dump: read the SD file back as SYSID_SAMPLE chunks, a few
+     * per cycle so write_channel isn't flooded. The host re-sends CMD_SYSID_DUMP
+     * to refill any chunks the lossy link dropped (idempotent re-dump). */
+    if (sysid_dump_active()) {
+      /* Pace to ~80 chunks/s (1 chunk per 2 cycles at 166 Hz): the ESP bridge
+       * only sustains ~150 pkts/s shared with the rest of telemetry, so blasting
+       * the whole file at once just gets ~80% dropped. Paced under capacity, a
+       * single dump pass arrives intact (the host still re-requests for any
+       * residual drops, deduping by start_index). */
+      uint16_t total = (uint16_t)sysid_capture_count();
+      uint16_t hz = (uint16_t)sysid_capture_hz();
+      uint8_t axis = (uint8_t)sysid_capture_axis();
+      for (int b = 0; b < 2 && sysid_dump_active(); b++) {
+        uint16_t start = 0;
+        int16_t sp[10], gyro[10];
+        int n = sysid_dump_next(&start, sp, gyro, 10);
+        if (n <= 0)
+          break;
+        navlink_tx_sysid_sample(start, total, hz, axis, (uint8_t)n, sp, gyro);
+      }
     }
     /* Estimator cost probe (~1 Hz): peak/mean per-update cost + cadence. */
     if (est_perf_queue_pop(&e_data)) {

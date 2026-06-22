@@ -137,6 +137,7 @@ set(VAYU_R12_CLEAN_SOURCES
     # CTRL module (Phase 4)
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/angle_controller.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/angle_rate_controller.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/sysid.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/pid_config.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/pid.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/control_buffer.c
