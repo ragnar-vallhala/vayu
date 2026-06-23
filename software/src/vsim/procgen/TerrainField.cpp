@@ -87,9 +87,10 @@ PgVec3 TerrainField::color(float h, float flatness) const {
   const PgVec3 rock {0.33f, 0.33f, 0.32f};
   const PgVec3 snow {0.80f, 0.83f, 0.88f};
 
-  // Altitude band: green valley -> brown mid -> bare rock high. Each threshold
-  // is the elevation where the band completes; it starts a fixed width below.
-  PgVec3 c = mix(green, brown, smoothstep(p_.colBrownT - 0.32f, p_.colBrownT, t));
+  // Altitude band: green valley -> brown mid -> bare rock high. The green holds
+  // up to near the grass line so thinning grass blends into green ground (not a
+  // bare-soil edge), then browns over a narrow band above it.
+  PgVec3 c = mix(green, brown, smoothstep(p_.colBrownT - 0.12f, p_.colBrownT + 0.10f, t));
   c = mix(c, rock, smoothstep(p_.colRockT - 0.34f, p_.colRockT, t));
 
   // Slope exposes brown/rock regardless of altitude (steeper = rockier).
