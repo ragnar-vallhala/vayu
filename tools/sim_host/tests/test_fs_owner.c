@@ -184,6 +184,85 @@ static void test_wrap_accounting_wired(void) {
         "wrap total equals the per-log sum");
 }
 
+/* ----------------------------------------------------------------------------
+ * Write-at lane (xfer uploads): positioned writes accumulate into one file and
+ * read back via fs_owner_read_at. Small file (<4 KB) so the host VFS models it.
+ * --------------------------------------------------------------------------*/
+static void test_writeat_roundtrip(void) {
+  printf("  test_writeat_roundtrip\n");
+  fs_owner_pump(); /* drain */
+
+  uint8_t src[600];
+  for (uint32_t i = 0; i < sizeof src; i++)
+    src[i] = (uint8_t)(i * 13u + 5u);
+
+  /* Three positioned chunks, as an upload would arrive — drained between
+   * batches by the FS task (lane CAP=2 flow-controls more than 2 outstanding). */
+  CHECK(fs_owner_enqueue_write_at("0:upload.bin", 0, src, 247),
+        "write-at chunk @0 queued");
+  CHECK(fs_owner_enqueue_write_at("0:upload.bin", 247, src + 247, 247),
+        "write-at chunk @247 queued");
+  fs_owner_pump(); /* FS task drains the 2 outstanding */
+  CHECK(fs_owner_enqueue_write_at("0:upload.bin", 494, src + 494, 106),
+        "write-at chunk @494 queued after drain");
+  fs_owner_pump();
+
+  uint8_t back[600];
+  int n = fs_owner_read_at("0:upload.bin", 0, back, sizeof back);
+  CHECK(n == (int)sizeof back, "read-at returns the full written length");
+  CHECK(memcmp(back, src, sizeof src) == 0,
+        "positioned writes reassemble to the source");
+
+  /* Positioned partial read. */
+  uint8_t mid[100];
+  int m = fs_owner_read_at("0:upload.bin", 247, mid, sizeof mid);
+  CHECK(m == (int)sizeof mid && memcmp(mid, src + 247, sizeof mid) == 0,
+        "read-at honours the offset");
+}
+
+/* ----------------------------------------------------------------------------
+ * The write-at lane is bounded + drop-counted, and (being a separate lane) it
+ * can neither starve the reserved save lane nor be starved by logs.
+ * --------------------------------------------------------------------------*/
+static void test_writeat_lane_bounds_and_reservation(void) {
+  printf("  test_writeat_lane_bounds_and_reservation\n");
+  fs_owner_pump(); /* drained queues */
+
+  uint32_t wa0 = fs_owner_dropped_writeats();
+  uint32_t saves0 = fs_owner_dropped_saves();
+
+  /* Flood the write-at lane WITHOUT draining. */
+  uint8_t rec[64];
+  memset(rec, 0x7E, sizeof rec);
+  int accepted = 0;
+  const int flood = 50;
+  for (int i = 0; i < flood; i++)
+    if (fs_owner_enqueue_write_at("0:u.bin", (uint32_t)(i * 64), rec, sizeof rec))
+      accepted++;
+  CHECK(accepted >= 1 && accepted <= 2,
+        "write-at lane bounded by its capacity (<=2)");
+  CHECK(fs_owner_dropped_writeats() == wa0 + (uint32_t)(flood - accepted),
+        "every over-capacity write-at is counted as a drop");
+
+  /* With the write-at lane jammed full, a save is still accepted (reserved). */
+  uint8_t pid[140];
+  memset(pid, 0x22, sizeof pid);
+  CHECK(fs_owner_enqueue_pid_save(pid, sizeof pid),
+        "save accepted while write-at lane is full (reserved lane)");
+  CHECK(fs_owner_dropped_saves() == saves0, "no save dropped");
+
+  /* Over-long path is rejected (bounds the fixed path buffer). */
+  char longpath[80];
+  memset(longpath, 'a', sizeof longpath);
+  longpath[sizeof longpath - 1] = '\0';
+  uint32_t wa1 = fs_owner_dropped_writeats();
+  CHECK(!fs_owner_enqueue_write_at(longpath, 0, rec, sizeof rec),
+        "over-long path rejected");
+  CHECK(fs_owner_dropped_writeats() == wa1 + 1, "rejected path counted as a drop");
+
+  fs_owner_pump(); /* drain everything queued */
+}
+
 int main(void) {
   printf("== FS owner SITL verification ==\n");
 
@@ -202,6 +281,8 @@ int main(void) {
   test_calib_snapshot_round_trip();
   test_reserved_save_lane();
   test_wrap_accounting_wired();
+  test_writeat_roundtrip();
+  test_writeat_lane_bounds_and_reservation();
 
   printf("\n%d checks, %d failures\n", g_checks, g_fails);
   return g_fails == 0 ? 0 : 1;
