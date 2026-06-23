@@ -77,6 +77,18 @@ void xfer_reset_all(void) {
   }
 }
 
+bool xfer_download_active(void) {
+  if (!s_ready)
+    return false;
+  for (uint8_t i = 0; i < XFER_MAX_SESSIONS; i++) {
+    const xfer_session_t *s = &s_sessions[i];
+    if (s->state == XFER_ST_ACTIVE && s->dir == XFER_DIR_DOWNLOAD &&
+        s->mode == XFER_MODE_FILE)
+      return true;
+  }
+  return false;
+}
+
 bool xfer_session_active(uint8_t session) {
   if (!s_ready || session >= XFER_MAX_SESSIONS)
     return false;
@@ -147,6 +159,7 @@ void xfer_on_data(uint8_t session, uint32_t offset, const uint8_t *buf,
 
   /* Contiguous-only: a dup (offset < cursor) or a gap (offset > cursor) is
    * ignored; the next periodic XFER_ACK{cursor} tells the GCS where to resume. */
+  s->rx_activity = true; /* any chunk (dup/gap/accepted) is GCS liveness */
   if (offset == s->cursor && len > 0 && s->provider && s->provider->write) {
     int w = s->provider->write(s, offset, buf, len);
     if (w > 0)
@@ -308,7 +321,11 @@ static int tick_stream(xfer_session_t *s, uint32_t now_ms, uint32_t tx_overflow)
 
 /* Upload: periodic cumulative XFER_ACK so the GCS knows where to resume. */
 static void tick_upload(xfer_session_t *s, uint32_t now_ms) {
-  s->last_rx_ms = now_ms; /* GCS-driven; the FC only acks (no idle-timeout here) */
+  if (s->rx_activity) { /* refresh liveness only when chunks are still arriving,
+                         * so a vanished GCS is reaped by the idle timeout */
+    s->last_rx_ms = now_ms;
+    s->rx_activity = false;
+  }
   if ((uint32_t)(now_ms - s->last_emit_ms) >= XFER_ACK_PERIOD_MS) {
     if (s_tx && s_tx->ack)
       s_tx->ack(s, XFER_F_NONE, XFER_RES_ACCEPTED, s->cursor);
@@ -319,8 +336,13 @@ static void tick_upload(xfer_session_t *s, uint32_t now_ms) {
 int xfer_tick(uint32_t now_ms, uint32_t tx_overflow, int chunk_budget) {
   if (!s_ready)
     return 0;
+  /* Rotate which session gets first claim on the shared chunk_budget each tick,
+   * so two concurrent downloads share the link fairly instead of the lower slot
+   * always starving the higher one. */
+  static uint8_t s_rr;
   int emitted = 0;
-  for (uint8_t i = 0; i < XFER_MAX_SESSIONS; i++) {
+  for (uint8_t k = 0; k < XFER_MAX_SESSIONS; k++) {
+    uint8_t i = (uint8_t)((s_rr + k) % XFER_MAX_SESSIONS);
     xfer_session_t *s = &s_sessions[i];
 
     /* Deferred close: emit the COMMAND_ACK and tear down. */
@@ -376,5 +398,6 @@ int xfer_tick(uint32_t now_ms, uint32_t tx_overflow, int chunk_budget) {
       break;
     }
   }
+  s_rr = (uint8_t)((s_rr + 1u) % XFER_MAX_SESSIONS);
   return emitted;
 }

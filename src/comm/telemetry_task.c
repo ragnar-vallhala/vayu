@@ -5,6 +5,7 @@
 #include "comm/ibus.h"
 #include "comm/navlink_tx.h"
 #include "comm/rc_buffer.h"
+#include "comm/xfer/navlink_xfer.h"
 #include "storage/fs_owner.h"
 #include "control/control.h"
 #include "control/flight_mode.h"
@@ -92,6 +93,12 @@ void imu_telemetry_task(void *args) {
     if (sysid_dump_active()) {
       send_full = send_comp = send_att = send_rc = send_motor = send_pid_err =
           send_baro = send_vert = false;
+    }
+    /* A big file download is a deliberate ground op; hand it the link by
+     * suppressing the heaviest tuning streams (keep attitude/RC/baro/status/
+     * heartbeat for situational awareness). Mirrors the sysid-dump case. */
+    if (xfer_download_active()) {
+      send_full = send_comp = send_motor = send_pid_err = false;
     }
     /* Gather domain data + hand it to the TX seam; this task is codec-blind
      * (all framing lives in navlink_tx.c). */

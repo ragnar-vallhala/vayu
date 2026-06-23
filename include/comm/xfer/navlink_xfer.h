@@ -96,6 +96,7 @@ typedef struct xfer_session {
   uint8_t close_req_seq;
   bool close_pending;  /* xfer_on_close seen; tick emits the close COMMAND_ACK */
   bool info_acked;     /* first XFER_ACK/peer response seen -> stop retrying INFO */
+  bool rx_activity;    /* a chunk arrived since the last tick (upload liveness) */
   uint16_t service_id;
   uint16_t chunk_size; /* negotiated emit size (<= XFER_CHUNK_MAX) */
   uint32_t total_size; /* XFER_SIZE_STREAM for streams */
@@ -185,6 +186,11 @@ int xfer_on_close(uint8_t session, uint8_t req_seq, uint8_t result);
  * caps XFER_DATA emissions this call (shared round-robin across sessions).
  * Returns the number of chunks emitted (so the task can pace its delay). */
 int xfer_tick(uint32_t now_ms, uint32_t tx_overflow, int chunk_budget);
+
+/* True while any file-mode DOWNLOAD is ACTIVE — lets imu_telemetry_task suppress
+ * heavy streams to hand the link to a big transfer (mirrors sysid_dump_active()).
+ * Streams are best-effort, so this never suppresses a stream-mode xfer. */
+bool xfer_download_active(void);
 
 /* Test/inspection helpers. */
 bool xfer_session_active(uint8_t session);
