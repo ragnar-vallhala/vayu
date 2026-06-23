@@ -150,6 +150,10 @@ set(VAYU_R12_CLEAN_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/comm/rc_task.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/comm/rc_buffer.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/comm/rc_safety.c
+    # xfer (FTP) substrate: codec-blind core SM + service task hold to the strict
+    # bar; navlink_xfer_tx.c is excluded (codec-touching, like navlink_tx.c).
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/comm/xfer/navlink_xfer.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/comm/xfer/xfer_service_task.c
     # LOG / STORAGE module (Phase 4)
     ${CMAKE_CURRENT_SOURCE_DIR}/src/storage/fs_owner.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/logger/log_text.c
