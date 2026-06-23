@@ -136,7 +136,9 @@ void main(){
   float dhdy=(sampleH(vec2(wx,wy+tm))-sampleH(vec2(wx,wy-tm)))/(2.0*tm);
   float flatn=1.0/sqrt(dhdx*dhdx+dhdy*dhdy+1.0);
   float t=h/(u_heightM+1e-3);
-  float density=(1.0-ss(u_grassMaxFrac*0.55,u_grassMaxFrac,t))*ss(u_slopeLo,u_slopeHi,flatn);
+  // Altitude thinning over a WIDE band (0.40..1.20 of the height limit) so grass
+  // fades out gradually with elevation instead of cutting off in a hard line.
+  float density=(1.0-ss(u_grassMaxFrac*0.40,u_grassMaxFrac*1.20,t))*ss(u_slopeLo,u_slopeHi,flatn);
   float dist=length(vec2(wx,wy)-u_camPos.xy);
   float outer=1.0-ss(u_falloffStart,u_falloffEnd,dist);
   // Far rings fade IN over the SAME window the previous ring fades OUT, so total
