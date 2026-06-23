@@ -5,7 +5,7 @@
 #include "comm/ibus.h"
 #include "comm/navlink_tx.h"
 #include "comm/rc_buffer.h"
-#include "logger/logger.h"
+#include "storage/fs_owner.h"
 #include "control/control.h"
 #include "control/flight_mode.h"
 #include "control/sysid.h"
@@ -104,7 +104,7 @@ void imu_telemetry_task(void *args) {
       /* Health counters (COMM-CH-002, SNS-BUF-002, LOG-SD-002). The legacy IMU
        * averaging ring was removed; imu_drop stays 0 to preserve the layout. */
       navlink_tx_health(channel_tx_overflow_count(), 0u,
-                        logger_wrap_count_total());
+                        fs_owner_log_wrap_count_total());
     }
     if (send_pid_err && control_telemetry_queue_pop(&c_data)) {
       navlink_tx_pid_error(&c_data);
