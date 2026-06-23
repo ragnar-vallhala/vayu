@@ -15,7 +15,7 @@
 #include "control/angle_controller.h"
 #include "control/angle_rate_controller.h"
 #include "memory.h"                   /* v_memcpy */
-#include "logger/logger.h"              /* vayu_log */
+#include "storage/fs_owner.h"              /* vayu_log */
 #include "variables.h"                /* NUM_AXES */
 #include "vfs.h"
 #include <math.h>
@@ -91,17 +91,14 @@ bool pid_config_get_gyro_lpf(uint8_t axis, float *rc) {
 }
 
 /* ------------------------------------------------------------------ save */
+/* Hand a snapshot of the store to the centralised FS owner. The live-controller
+ * apply at the call site already happened and is authoritative; persistence is
+ * asynchronous (off the comm task — this is the C1->C3 RX-drop fix) and
+ * best-effort. Snapshotting is what makes the async write safe against a
+ * concurrent CMD_SET_PID mutating s_store before the FS task runs. */
 static void pid_config_save(void) {
   s_store.magic = PID_CONFIG_MAGIC;
-  vfs_fd_t fd =
-      vfs_open(PID_CONFIG_FILE_PATH, VFS_O_WRONLY | VFS_O_CREAT | VFS_O_TRUNC);
-  if (fd < 0) {
-    vayu_log("[PID] failed to open %s for write", PID_CONFIG_FILE_PATH);
-    return;
-  }
-  vfs_write(fd, &s_store, sizeof s_store);
-  vfs_sync(fd);
-  vfs_close(fd);
+  fs_owner_enqueue_pid_save(&s_store, sizeof s_store);
 }
 
 /* --------------------------------------------------------------- command */

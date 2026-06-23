@@ -10,7 +10,7 @@
 #include "sys/state.h"
 #include "task.h"
 #include "utils.h"
-#include "logger/logger.h"
+#include "storage/fs_owner.h"
 #include "vaios.h"
 #include "variables.h"
 #include "vayu_tasks.h"
@@ -1913,24 +1913,20 @@ void calibration_task(void *args) {
   calib_telemetry(CALIB_UPDATE_PROGRESS, 100.0f);
 
   // Persist with a versioned header so a future format change (or an old
-  // headerless file) is detected on load rather than misread.
+  // headerless file) is detected on load rather than misread. Hand a snapshot
+  // to the centralised FS owner instead of writing SD inline: the actual
+  // vfs_open/write/sync/close runs on the FS task, off this calibration task.
+  // NOTE: calib_ok now means "successfully enqueued", not "written to SD" — the
+  // terminal CALIB_UPDATE_COMPLETE telemetry fires on enqueue success.
   i2c_error_count = 0;
   {
-    vfs_fd_t file = vfs_open(CALIBRATION_FILE_PATH,
-                             VFS_O_WRONLY | VFS_O_CREAT | VFS_O_TRUNC);
-    if (file < 0) {
-      vayu_log("[CALIB] Failed to open calibration file.");
-      goto done; // cleanup still runs — no longer wedges the FC
-    }
     calib_file_header_t hdr = {CALIB_FILE_MAGIC, CALIB_FILE_VERSION,
                                (uint16_t)sizeof(bmx160_calibration_t)};
-    vfs_write(file, &hdr, sizeof(hdr));
-    int res = vfs_write(file, &bmx160_calib, sizeof(bmx160_calibration_t));
-    vayu_log("[CALIB] Calibration file written. Result: %d", res);
-    vfs_close(file);
-    /* Result is the byte count from vfs_write; a short write means the file is
-     * truncated, so only declare success on a full-size write. */
-    calib_ok = (res == (int)sizeof(bmx160_calibration_t));
+    calib_ok = fs_owner_enqueue_calib_save(&hdr, sizeof(hdr), &bmx160_calib,
+                                           sizeof(bmx160_calibration_t));
+    if (!calib_ok) {
+      vayu_log("[CALIB] Failed to enqueue calibration save.");
+    }
   }
 
 done:

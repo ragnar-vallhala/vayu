@@ -150,8 +150,8 @@ set(VAYU_R12_CLEAN_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/comm/rc_task.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/comm/rc_buffer.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/comm/rc_safety.c
-    # LOG module (Phase 4)
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/logger/logger.c
+    # LOG / STORAGE module (Phase 4)
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/storage/fs_owner.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/logger/log_text.c
     # SYS module (Phase 4)
     ${CMAKE_CURRENT_SOURCE_DIR}/src/sys/state.c

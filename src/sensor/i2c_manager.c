@@ -3,7 +3,7 @@
 #include "navhal.h"
 #include "port.h"
 #include "utils.h"
-#include "logger/logger.h"
+#include "storage/fs_owner.h"
 #include "vaios.h"
 #include "variables.h"
 #include <stdint.h>

@@ -45,7 +45,7 @@ typedef enum {
 /**
  * @brief Load any persisted PID gains from SD into the in-memory store.
  *
- * Call once at boot, after the SD/VFS layer is up (logger_init) and
+ * Call once at boot, after the SD/VFS layer is up (fs_owner_boot_init) and
  * before the scheduler starts. The controllers consult the store via
  * pid_config_get_*() during their own init, so order between this call
  * and the (later) controller init is irrelevant.

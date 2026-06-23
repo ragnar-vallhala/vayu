@@ -1,7 +1,7 @@
 #include "comm/comm.h"
 #include "control/control.h"
 #include "sensor/sensor.h"
-#include "logger/logger.h"
+#include "storage/fs_owner.h"
 #include "navhal.h"
 #include "sys/state.h"
 #include "task.h"
@@ -109,6 +109,10 @@ void init_tasks(void) {
   task_create_named(flush_task, NULL, 1024, 0, "flush"); // peak ~124
   task_create_named(perf_telemetry_task, NULL, 2048, 0,
                     "perf_telemetry"); // peak ~796
+  // Centralised FS owner: sole runtime SD/VFS writer (blackbox logger + PID/calib
+  // saves). Lowest band (prio 0); blocks on its queue so it only runs when there
+  // is work and never preempts control. Queues are created lazily on first run.
+  task_create_named(fs_owner_task, NULL, 2048, 0, "fs_owner");
   // task_create(test_task, NULL, 4096, 0);
 }
 void init_timer_callbacks(void) {
@@ -150,7 +154,7 @@ int main() {
   v_system_init(&cfg);
 
   init_i2c_manager(&i2c_config);
-  logger_init();
+  fs_owner_boot_init(); /* prealloc/open the blackbox log files (was logger_init) */
 #ifdef EKF_SELFTEST
   run_ekf_selftest(); /* report over UART before the scheduler starts */
 #endif

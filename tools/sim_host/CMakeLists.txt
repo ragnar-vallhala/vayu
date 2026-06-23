@@ -91,7 +91,7 @@ set(VAYU_SOURCES
     ${VAYU_ROOT}/src/est/flight_phase.c        # takeoff/landing detector + FC-owned AGL (IN_AIR)
     ${VAYU_ROOT}/src/sensor/imu_buffer.c
     ${VAYU_ROOT}/src/sensor/bme280.c   # real FC baro driver (altitude/publish/getters); host_baro.c feeds it
-    ${VAYU_ROOT}/src/logger/logger.c    # wrap counters; telemetry reads them
+    ${VAYU_ROOT}/src/storage/fs_owner.c # centralised FS owner (absorbs logger.c)
     ${VAYU_ROOT}/src/logger/log_text.c  # vayu_log + queue (moved from utils.c)
     ${VAYU_ROOT}/src/sys/state.c
     ${VAYU_ROOT}/src/sys/assert.c
@@ -253,6 +253,12 @@ add_test(NAME phase3_comm COMMAND test_phase3_comm)
 add_executable(test_phase3_slog tests/test_phase3_slog.c)
 target_link_libraries(test_phase3_slog PRIVATE vayu_sitl_core m)
 add_test(NAME phase3_slog COMMAND test_phase3_slog)
+
+# Centralised FS owner: snapshot/torn-read, reserved save lane, drop accounting,
+# log round-trip (src/storage/fs_owner.c, in vayu_sitl_core).
+add_executable(test_fs_owner tests/test_fs_owner.c)
+target_link_libraries(test_fs_owner PRIVATE vayu_sitl_core m)
+add_test(NAME fs_owner COMMAND test_fs_owner)
 
 # EKF estimator: thin adapter over the shared branch-coverage core in
 # src/est/ekf_selftest.c, which we compile here with -DEKF_SELFTEST (the same
