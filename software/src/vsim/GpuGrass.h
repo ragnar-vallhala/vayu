@@ -17,6 +17,8 @@
 #include <QOpenGLVertexArrayObject>
 #include <QVector3D>
 
+#include "procgen/Flora.h"   // procgen::GrassLook
+
 #include <cstdint>
 
 class QOpenGLExtraFunctions;
@@ -39,6 +41,7 @@ class GpuGrass {
     float cell = 0.16f;      // candidate spacing [m] (smaller = denser)
     int grid = 768;          // candidates per side
     float falloffStart = 55.0f, falloffEnd = 90.0f;  // distance density fade [m]
+    procgen::GrassLook look;  // live shading knobs (drive draw/compute uniforms)
   };
 
   ~GpuGrass();

@@ -107,6 +107,7 @@ layout(r32f, binding=0) readonly uniform image2D heightImg;
 uniform uint u_seed; uniform float u_heightM;
 uniform int u_G, u_texSize, u_maxBlades;
 uniform float u_grassMaxFrac,u_slopeLo,u_slopeHi,u_heightMean,u_heightStd,u_flowerFrac;
+uniform float u_facefrac;   // fraction of blades turned broadside to the camera
 uniform int u_originCellX,u_originCellY; uniform float u_cell;
 uniform vec2 u_regionMin; uniform float u_regionSize;
 uniform vec3 u_camPos; uniform mat4 u_vp;
@@ -157,6 +158,14 @@ void main(){
   // pointing every which way.
   float yaw=1.5*sin(baseX*0.024+baseY*0.011)+0.9*cos(baseY*0.030-baseX*0.008)
             +(rnd(hc*0x27d4u+4u)-0.5)*0.8;
+  // A fraction of blades turn broadside to the camera so the field never collapses
+  // into edge-on "thin vertical lines". The strap's face (local +y) is at yaw+90deg,
+  // so yaw = bearing(toCam) - 90deg aims the face at the viewer; jitter keeps it
+  // from reading as a flat wall. Recomputed every frame (compute runs per-frame).
+  if(rnd(hc*0x77a1u+13u)<u_facefrac){
+    vec2 toCam=u_camPos.xy-vec2(wx,wy);
+    yaw=atan(toCam.y,toCam.x)-1.5707963+(rnd(hc*0x44b3u+14u)-0.5)*0.6;
+  }
   float u1=max(rnd(hc*0x165667u+5u),1e-6),u2=rnd(hc*0x2545f4u+6u);
   float height=max(0.03,u_heightMean+u_heightStd*sqrt(-2.0*log(u1))*cos(6.2831853*u2));
   // Length layering: ~35% form a shorter understory stratum for canopy depth.
@@ -167,8 +176,10 @@ void main(){
   height*=1.0+0.32*ss(0.12*u_farRadius,0.85*u_farRadius,dist);
   float bend=0.55+0.9*rnd(hc*0x51e3u+11u);  // per-blade lean (top-down coverage + variety)
   bool fl=rnd(hc*0x1b873u+7u)<u_flowerFrac; vec3 tint;
-  if(fl){ float fh=rnd(hc*0x3a5fu+8u); tint=fh<0.45?vec3(0.78,0.70,0.26):(fh<0.78?vec3(0.74,0.46,0.52):vec3(0.80,0.80,0.82)); }
-  else { float v=0.62+0.30*rnd(hc*0x9f3bu+9u); tint=vec3((0.20+0.10*rnd(hc*0xc2b2u+10u))*v,0.36*v,0.13*v); }
+  // Muted wildflower tints — buttercup / mauve / pale straw. NO near-white (it read
+  // as flat paper litter against the dark field); these stay in the meadow's value range.
+  if(fl){ float fh=rnd(hc*0x3a5fu+8u); tint=fh<0.45?vec3(0.60,0.52,0.16):(fh<0.78?vec3(0.50,0.32,0.42):vec3(0.56,0.55,0.46)); }
+  else { float v=0.78+0.34*rnd(hc*0x9f3bu+9u); tint=vec3((0.16+0.07*rnd(hc*0xc2b2u+10u))*v,0.40*v,0.16*v); }
   blades[idx].posyaw=vec4(wx,wy,-h,yaw);
   blades[idx].hf=vec4(height,fl?1.0:0.0,bend,0.0);
   blades[idx].tint=vec4(tint,0.0);
@@ -182,20 +193,23 @@ layout(location=1) in vec3 a_normal;
 layout(location=2) in vec4 i_posyaw;   // per-instance (from the compute-written buffer)
 layout(location=3) in vec4 i_hf;
 layout(location=4) in vec4 i_tint;
+layout(location=5) in float a_across;   // -1 edge .. 0 spine .. +1 edge (vein coord)
 uniform mat4 u_vp; uniform vec3 u_campos; uniform float u_time, u_fadestart, u_fadeend;
 out vec3 v_color; out vec3 v_world; out vec3 v_normal; out float v_hf; out float v_flower;
+out float v_across;
 void main(){
   vec3 ipos=i_posyaw.xyz; float yaw=i_posyaw.w, height=i_hf.x, flower=i_hf.y, bend=i_hf.z;
   float hf=-a_local.z;
   // XY-plane distance ONLY: flying high must not fade out the grass below us.
   float d=length(ipos.xy-u_campos.xy);
   height*=1.0-clamp((d-u_fadestart)/max(u_fadeend-u_fadestart,1.0),0.0,1.0);
-  vec3 L=a_local*height; L.x*=bend; L.xy*=(1.0+flower*hf*hf*0.9);
+  // Flowers gain only a slight tip flare (was 1.9x -> fat broadside cards/"litter").
+  vec3 L=a_local*height; L.x*=bend; L.xy*=(1.0+flower*hf*hf*0.22);
   float s=sin(yaw),c=cos(yaw);
   vec3 r=vec3(c*L.x-s*L.y, s*L.x+c*L.y, L.z);
   float w=sin(u_time*1.6+ipos.x*0.22+ipos.y*0.18);
   vec3 world=ipos+vec3(r.xy+vec2(0.80,0.55)*(w*0.14*height*hf*hf), r.z);
-  v_world=world; v_color=i_tint.xyz; v_hf=hf; v_flower=flower;
+  v_world=world; v_color=i_tint.xyz; v_hf=hf; v_flower=flower; v_across=a_across;
   v_normal=vec3(c*a_normal.x-s*a_normal.y, s*a_normal.x+c*a_normal.y, a_normal.z);
   gl_Position=u_vp*vec4(world,1.0);
 }
@@ -204,9 +218,13 @@ void main(){
 const char* kFrag = R"GLSL(
 #version 430 core
 in vec3 v_color; in vec3 v_world; in vec3 v_normal; in float v_hf; in float v_flower;
+in float v_across;
 out vec4 o_color;
 uniform vec3 u_campos, u_sundir; uniform float u_fogdensity, u_fogstart;
 uniform sampler2D u_shadowtex; uniform mat4 u_lightvp; uniform float u_shadowon;
+// Live look knobs (procgen::GrassLook).
+uniform float u_sunint, u_ambstr, u_brightness, u_tipwarm, u_backlight, u_sheen,
+              u_veinstr, u_rootao;
 vec3 skyColor(vec3 dir){
   float up=-dir.z;
   vec3 z=vec3(0.15,0.35,0.66),h=vec3(0.80,0.86,0.93),g=vec3(0.16,0.18,0.22);
@@ -225,19 +243,20 @@ float shadowFactor(vec3 wpos){
 void main(){
   // Hue shift along the blade: deep blue-green roots in shadow -> blade colour ->
   // warm yellow-green at the lit tips (the GoT depth->canopy colour ramp).
-  vec3 root=vec3(0.04,0.11,0.07);                  // cool, dark canopy floor
+  vec3 root=vec3(0.05,0.14,0.09);                  // cool green canopy floor (not olive)
   vec3 grassAlbedo=mix(root,v_color,smoothstep(0.12,0.80,v_hf));
-  // Warm the upper blade toward yellow-green.
-  grassAlbedo=mix(grassAlbedo, grassAlbedo*vec3(1.25,1.12,0.62)+vec3(0.04,0.05,0.0),
-                  smoothstep(0.55,1.0,v_hf)*0.7);
+  // Warm the upper blade toward yellow-green — keep green dominant (don't go olive).
+  grassAlbedo=mix(grassAlbedo, grassAlbedo*vec3(1.15,1.14,0.80)+vec3(0.03,0.05,0.0),
+                  smoothstep(0.55,1.0,v_hf)*u_tipwarm);
   vec3 albedo=mix(grassAlbedo, mix(grassAlbedo,v_color,smoothstep(0.55,0.98,v_hf)), v_flower);
+  albedo*=u_brightness;
 
   // Soften the per-vertex normal toward up — real grass scatters light, so a
   // pure ribbon normal reads too hard. Blend gives the soft GoT shading.
   vec3 up=vec3(0.0,0.0,-1.0);
   vec3 n=normalize(mix(normalize(v_normal), up, 0.40));
   vec3 sun=normalize(u_sundir);
-  vec3 sunCol=vec3(0.92,0.89,0.78);   // directional overcast key
+  vec3 sunCol=vec3(1.04,0.93,0.74)*u_sunint;   // warm golden key
 
   // Wrapped diffuse — softens the terminator but keeps a clear light direction.
   float ndl=dot(n,sun);
@@ -246,12 +265,13 @@ void main(){
   // Hemispheric sky ambient: low, cool from above, near-black bounce below — the
   // sun does most of the work so the scene stays directional and moody.
   float hemi=clamp(0.5+0.5*(-n.z),0.0,1.0);
-  // Cool teal overcast ambient (shadows read teal, not black) to match the storm sky.
-  vec3 ambient=mix(vec3(0.05,0.08,0.09),vec3(0.18,0.24,0.27),hemi);
+  // Greener fill so the lit canopy reads as a bright living meadow (GoT tone),
+  // shaded depths stay a cool green rather than cold/black.
+  vec3 ambient=mix(vec3(0.07,0.11,0.10),vec3(0.24,0.30,0.27),hemi)*u_ambstr;
 
   // Steep vertical light gradient: the canopy heavily occludes its own base, so
   // the lower blade falls to near-black and the lit band sits high near the tips.
-  float ao=mix(0.06,1.0,smoothstep(0.0,0.5,v_hf));
+  float ao=mix(u_rootao,1.0,smoothstep(0.0,0.42,v_hf));
   float sh=shadowFactor(v_world);   // 1 lit .. 0 in terrain shadow
   vec3 col=albedo*(ambient + sunCol*wrap*0.95*sh)*ao;
 
@@ -262,12 +282,20 @@ void main(){
   // warm-green transmission (the signature GoT backlit-meadow look). Gated by
   // shadow: a blade in shade gets no sun to transmit.
   float back=pow(max(dot(vdir,sun),0.0),2.5);
-  col+=albedo*vec3(1.05,1.1,0.7)*back*(0.20+0.80*v_hf)*0.95*sh;
+  col+=albedo*vec3(1.05,1.1,0.7)*back*(0.20+0.80*v_hf)*0.95*sh*u_backlight;
 
   // Broad waxy sheen along the lit blades.
   vec3 hv=normalize(sun-vdir);
-  float spec=pow(max(dot(n,hv),0.0),12.0)*0.18*smoothstep(0.3,1.0,v_hf);
+  float spec=pow(max(dot(n,hv),0.0),12.0)*0.18*smoothstep(0.3,1.0,v_hf)*u_sheen;
   col+=sunCol*spec;
+
+  // Midrib vein + cross-section AO: the raised central spine catches a thin
+  // highlight, the curled edges fall into slight shade — gives the blade visible
+  // mass and a leaf vein instead of reading as a flat sheet.
+  float acr=abs(v_across);
+  float vein=1.0-0.28*u_veinstr*smoothstep(0.05,0.95,acr);   // edges darker than the spine
+  vein+=0.14*u_veinstr*(1.0-smoothstep(0.0,0.18,acr));        // bright line along the midrib
+  col*=vein;
 
   float fd=max(dist-u_fogstart,0.0)*u_fogdensity;
   float fog=1.0-exp(-fd*fd);
@@ -376,9 +404,19 @@ void GpuGrass::buildBlade(QOpenGLExtraFunctions* gl, int ring, int segments) {
     return wb * std::pow(1.0f - t, 0.40f) * baseNarrow;
   };
   const int kSeg = segments;  // LOD: fewer segments for far rings
+  // Folded cross-section: a raised central SPINE (the midrib) with the surface
+  // curling back to each edge. Three columns per rib (+edge, spine, -edge); the
+  // spine is pushed out along the face normal so the blade reads as a rounded,
+  // voluminous leaf — not flat paper — and the edge normals tilt outward so it
+  // shades like a cylinder across its width. The 7th component is the across
+  // coordinate (-1 edge .. 0 spine .. +1 edge) used to draw the vein.
+  const float bulge = 0.45f;  // spine displacement (fraction of half-width)
+  const float curl = 0.95f;   // edge-normal outward tilt (rounded-leaf shading)
   std::vector<float> v;
-  auto vert = [&](float x, float y, float z, float nx, float nz) {
-    v.insert(v.end(), {x, y, z, nx, 0.0f, nz});
+  auto vert = [&](float x, float y, float z, float nx, float ny, float nz, float acr) {
+    float l = std::sqrt(nx * nx + ny * ny + nz * nz);
+    if (l < 1e-6f) l = 1.0f;
+    v.insert(v.end(), {x, y, z, nx / l, ny / l, nz / l, acr});
   };
   for (int s = 0; s < kSeg; ++s) {
     float t0 = float(s) / kSeg, t1 = float(s + 1) / kSeg;
@@ -386,22 +424,41 @@ void GpuGrass::buildBlade(QOpenGLExtraFunctions* gl, int ring, int segments) {
     bez(t0, x0, z0); bez(t1, x1, z1);
     nrm(t0, n0x, n0z); nrm(t1, n1x, n1z);
     float w0 = width(t0), w1 = width(t1);
-    vert(x0, +w0, z0, n0x, n0z); vert(x0, -w0, z0, n0x, n0z); vert(x1, -w1, z1, n1x, n1z);
-    vert(x0, +w0, z0, n0x, n0z); vert(x1, -w1, z1, n1x, n1z); vert(x1, +w1, z1, n1x, n1z);
+    // Spine vertices: edge curve displaced outward along the face normal.
+    float s0x = x0 + bulge * w0 * n0x, s0z = z0 + bulge * w0 * n0z;
+    float s1x = x1 + bulge * w1 * n1x, s1z = z1 + bulge * w1 * n1z;
+    // +edge half (between +w and the spine).
+    vert(x0, +w0, z0, n0x, +curl, n0z, +1.0f);
+    vert(s0x, 0.0f, s0z, n0x, 0.0f, n0z, 0.0f);
+    vert(s1x, 0.0f, s1z, n1x, 0.0f, n1z, 0.0f);
+    vert(x0, +w0, z0, n0x, +curl, n0z, +1.0f);
+    vert(s1x, 0.0f, s1z, n1x, 0.0f, n1z, 0.0f);
+    vert(x1, +w1, z1, n1x, +curl, n1z, +1.0f);
+    // -edge half (between the spine and -w).
+    vert(s0x, 0.0f, s0z, n0x, 0.0f, n0z, 0.0f);
+    vert(x0, -w0, z0, n0x, -curl, n0z, -1.0f);
+    vert(x1, -w1, z1, n1x, -curl, n1z, -1.0f);
+    vert(s0x, 0.0f, s0z, n0x, 0.0f, n0z, 0.0f);
+    vert(x1, -w1, z1, n1x, -curl, n1z, -1.0f);
+    vert(s1x, 0.0f, s1z, n1x, 0.0f, n1z, 0.0f);
   }
-  bladeVerts_[ring] = int(v.size() / 6);
+  bladeVerts_[ring] = int(v.size() / 7);
   bladeVbo_[ring].create();
   bladeVbo_[ring].bind();
   bladeVbo_[ring].allocate(v.data(), int(v.size() * sizeof(float)));
   vao_[ring].create();
   vao_[ring].bind();
   // Per-vertex blade geometry (divisor 0) from this ring's LOD VBO.
-  const int gstride = 6 * sizeof(float);
+  // Layout: pos(3) normal(3) across(1) = 7 floats.
+  const int gstride = 7 * sizeof(float);
   gl->glEnableVertexAttribArray(0);
   gl->glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, gstride, nullptr);
   gl->glEnableVertexAttribArray(1);
   gl->glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, gstride,
                             reinterpret_cast<void*>(3 * sizeof(float)));
+  gl->glEnableVertexAttribArray(5);
+  gl->glVertexAttribPointer(5, 1, GL_FLOAT, GL_FALSE, gstride,
+                            reinterpret_cast<void*>(6 * sizeof(float)));
   bladeVbo_[ring].release();
   // Per-instance blade data (divisor 1) read from the SAME buffer the compute
   // writes — but as vertex attributes, which avoids the (often unsupported)
@@ -516,6 +573,7 @@ void GpuGrass::render(QOpenGLExtraFunctions* gl, const QMatrix4x4& proj,
     comp_.setUniformValue("u_heightMean", params_.heightMean);
     comp_.setUniformValue("u_heightStd", params_.heightStdDev);
     comp_.setUniformValue("u_flowerFrac", params_.flowerFrac);
+    comp_.setUniformValue("u_facefrac", params_.look.faceCameraFrac);
     comp_.setUniformValue("u_originCellX", originCellX);
     comp_.setUniformValue("u_originCellY", originCellY);
     comp_.setUniformValue("u_cell", ring.cell);
@@ -562,6 +620,15 @@ void GpuGrass::render(QOpenGLExtraFunctions* gl, const QMatrix4x4& proj,
   draw_.setUniformValue("u_lightvp", lightVP);
   draw_.setUniformValue("u_shadowon", shadowOn ? 1.0f : 0.0f);
   draw_.setUniformValue("u_shadowtex", 1);   // sampler on texture unit 1
+  // Live look knobs (procgen::GrassLook).
+  draw_.setUniformValue("u_sunint", params_.look.sunIntensity);
+  draw_.setUniformValue("u_ambstr", params_.look.ambientStrength);
+  draw_.setUniformValue("u_brightness", params_.look.brightness);
+  draw_.setUniformValue("u_tipwarm", params_.look.tipWarmth);
+  draw_.setUniformValue("u_backlight", params_.look.backlight);
+  draw_.setUniformValue("u_sheen", params_.look.sheen);
+  draw_.setUniformValue("u_veinstr", params_.look.veinStrength);
+  draw_.setUniformValue("u_rootao", params_.look.rootDarkness);
   gl->glActiveTexture(0x84C1 /*GL_TEXTURE1*/);
   gl->glBindTexture(0x0DE1 /*GL_TEXTURE_2D*/, shadowTex);
   gl->glActiveTexture(0x84C0 /*GL_TEXTURE0*/);

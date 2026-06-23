@@ -254,6 +254,7 @@ class SimulatorWidget : public QWidget {
   static constexpr int kFloraRadius = 1;  // chunks each side kept grassed
   vsim::procgen::FloraParams m_floraParams;  // active grass tuning (from config)
   bool m_useGpuGrass = false;  // GPU grass active -> skip the CPU flora streaming
+  bool m_grassEnabled = false; // "Grass" toggle (off by default); gates rendering
 
   // Lift-onto-terrain: a height sampler for the active procedural world (null
   // for imported / no world), the last known drone position, and a request to
@@ -261,6 +262,20 @@ class SimulatorWidget : public QWidget {
   std::function<float(float, float)> m_terrainHeightAt;
   QVector3D m_lastDronePos{0, 0, 0};
   void liftDroneToSurface();  // re-drop the drone above the surface if buried
+
+  // Helipad landing platforms scattered deterministically on flat ground. Each
+  // entry is (worldX, worldY, terrainHeight). The home pad (drone spawn) is at
+  // the origin. Recomputed as the view roams; pushed to the renderer to draw.
+  std::vector<QVector3D> m_helipads;
+  QVector3D m_homePad{0, 0, 0};
+  QVector3D m_lastHelipadCenter{1e9f, 1e9f, 0};  // recompute only when view moves
+  void recomputeHelipads(float cx, float cy);
+  // Append each helipad's solid cylinder (deck cap + side wall, double-sided) to
+  // a collision triangle-soup so the drone physically lands on the pads.
+  void appendHelipadCollision(std::vector<QVector3D>& positions) const;
+  // NED z of the landing surface at (x,y): pad top when over a helipad, else
+  // the terrain surface. Used by spawn/reset and the lift-onto-surface logic.
+  float landingSurfaceZ(float x, float y) const;
   RcBridge* m_rc = nullptr;        // RC transmitter → firmware RC feeder
   QCheckBox* m_rcEnable = nullptr;
   QComboBox* m_rcSource = nullptr;          // USB joystick vs UART (CSV)

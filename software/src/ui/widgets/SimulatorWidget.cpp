@@ -652,12 +652,14 @@ void SimulatorWidget::buildUi() {
     m_simResetBtn->setToolTip(tr("Reset the airframe to the spawn pose"));
     connect(m_simResetBtn, &QPushButton::clicked, this, [this] {
       if (!m_sim) return;
-      // On procedural terrain, respawn at the origin a clear margin ABOVE the
-      // surface (heights are positive, so z=-0.05 would bury it under the hill).
-      if (m_terrainHeightAt)
-        m_sim->sendResetPose(0.0f, 0.0f, -m_terrainHeightAt(0.0f, 0.0f) - 1.5f);
-      else
+      // On procedural terrain, respawn ON the home helipad (origin) — a small
+      // margin above the pad top so it settles onto the deck, not the slope.
+      if (m_terrainHeightAt) {
+        const float padTop = landingSurfaceZ(m_homePad.x(), m_homePad.y());
+        m_sim->sendResetPose(m_homePad.x(), m_homePad.y(), padTop - 0.4f);
+      } else {
         m_sim->sendReset();
+      }
     });
     m_simAttachBtn = new ui::GhostButton(tr("Attach Ext"), simBody);
     m_simAttachBtn->setToolTip(tr("Render an EXTERNAL vsim_d's pose stream "
@@ -706,14 +708,26 @@ void SimulatorWidget::buildUi() {
     runRow->addWidget(contourChk);
 
     auto* grassChk = new QCheckBox(tr("Grass"), simBody);
-    grassChk->setChecked(true);
+    grassChk->setChecked(false);   // off by default
     grassChk->setToolTip(tr("Render instanced grass + flowers on procedural "
                             "terrain."));
     connect(grassChk, &QCheckBox::toggled, this, [this](bool on) {
-      if (m_renderer) m_renderer->setFloraVisible(on);
-      if (m_downRenderer) m_downRenderer->setFloraVisible(on);
+      m_grassEnabled = on;
+      // Drive both grass paths: CPU flora visibility and the GPU-grass pass.
+      if (m_renderer) {
+        m_renderer->setFloraVisible(on);
+        if (m_useGpuGrass) m_renderer->setGpuGrassActive(on);
+      }
+      if (m_downRenderer) {
+        m_downRenderer->setFloraVisible(on);
+        if (m_useGpuGrass) m_downRenderer->setGpuGrassActive(on);
+      }
     });
     runRow->addWidget(grassChk);
+    // Apply the unchecked default to the renderers now (an unchecked box emits
+    // no toggled signal at startup).
+    if (m_renderer) m_renderer->setFloraVisible(false);
+    if (m_downRenderer) m_downRenderer->setFloraVisible(false);
 
     m_propAudioChk = new QCheckBox(tr("Prop audio"), simBody);
     m_propAudioChk->setToolTip(tr("Propeller sound synthesized from motor rpm "
@@ -2028,6 +2042,9 @@ void SimulatorWidget::loadWorldMeshToRenderer() {
     minimapRange = w.proceduralSizeM * 0.5f;  // fit the finite arena
   }
   m_terrainHeightAt = heightAt;  // null for imported / no world
+  // Scatter helipad pads (and the home pad at origin) for the new world.
+  m_lastHelipadCenter = QVector3D(0, 0, 0);
+  recomputeHelipads(0.0f, 0.0f);
   if (m_minimap) {
     m_minimap->setSampler(heightAt);
     if (heightAt) {
@@ -2104,6 +2121,7 @@ void SimulatorWidget::loadWorldMeshToRenderer() {
     gp.heightMean = w.flora.heightMean;
     gp.heightStdDev = w.flora.heightStdDev;
     gp.flowerFrac = w.flora.flowerFrac;
+    gp.look = w.look;   // live grass shading knobs
     const float bpc = std::max(1.0f, w.flora.bladesPerCell);
     // Near-ring candidate spacing. GpuGrass adds a coarse FAR ring (4x cell) on
     // top for distance, so this only controls near density — push it small.
@@ -2115,17 +2133,26 @@ void SimulatorWidget::loadWorldMeshToRenderer() {
     gp.falloffEnd = radius * 0.9f;
     gp.falloffStart = gp.falloffEnd * 0.6f;
 
+    // Terrain lighting tracks the same look knobs so ground + grass warm together.
+    m_renderer->setTerrainLook(w.look.sunIntensity, w.look.ambientStrength);
+    if (m_downRenderer)
+      m_downRenderer->setTerrainLook(w.look.sunIntensity, w.look.ambientStrength);
+
     m_useGpuGrass = m_renderer->gpuGrassReady();
     if (m_useGpuGrass) {
+      // Params are always pushed so a later toggle-on renders immediately, but
+      // the pass only activates when the "Grass" toggle is on.
       m_renderer->setGpuGrassParams(gp);
-      m_renderer->setGpuGrassActive(true);
+      m_renderer->setGpuGrassActive(m_grassEnabled);
       m_renderer->clearChunkFlora();
       if (m_downRenderer) {
         m_downRenderer->setGpuGrassParams(gp);
-        m_downRenderer->setGpuGrassActive(true);
+        m_downRenderer->setGpuGrassActive(m_grassEnabled);
         m_downRenderer->clearChunkFlora();
       }
-      appendLog("world", tr("GPU grass active (compute)"));
+      appendLog("world", m_grassEnabled
+                             ? tr("GPU grass active (compute)")
+                             : tr("GPU grass ready (toggle 'Grass' to show)"));
     } else {
       m_renderer->setGpuGrassActive(false);
       if (m_downRenderer) m_downRenderer->setGpuGrassActive(false);
@@ -2235,7 +2262,8 @@ void SimulatorWidget::onStreamTick() {
     m_collisionPending = true;
     m_colCx = p.colCx;
     m_colCy = p.colCy;
-    if (!m_useGpuGrass) streamFlora(p.colCx, p.colCy);  // CPU grass follows centre
+    // CPU grass follows the centre — only when enabled and GPU grass isn't used.
+    if (m_grassEnabled && !m_useGpuGrass) streamFlora(p.colCx, p.colCy);
   }
 
   // Mesh the requested chunks OFF the UI thread; apply the results on the main
@@ -2263,6 +2291,13 @@ void SimulatorWidget::onStreamTick() {
   }
 
   tryBuildCollision();  // in case the neighbourhood is already cached
+
+  // Refresh helipads when the view has roamed enough (avoids 10 Hz churn).
+  if (std::hypot(c.x() - m_lastHelipadCenter.x(),
+                 c.y() - m_lastHelipadCenter.y()) > 35.0f) {
+    m_lastHelipadCenter = c;
+    recomputeHelipads(c.x(), c.y());
+  }
 }
 
 void SimulatorWidget::onChunkMeshed(qint64 key, const BuiltChunk& built) {
@@ -2366,13 +2401,117 @@ void SimulatorWidget::tryBuildCollision() {
     if (it == m_chunkCache.end()) return;  // not all cached yet; retry on next
     meshes.push_back(&it->second);
   }
-  const vsim::LoadedMesh m = vsim::collisionMeshFromChunks(meshes);
+  vsim::LoadedMesh m = vsim::collisionMeshFromChunks(meshes);
   m_collisionPending = false;
-  if (m.valid) sendWorldMeshToSim(m);
+  if (m.valid) {
+    appendHelipadCollision(m.positions);  // pads become solid landing surfaces
+    sendWorldMeshToSim(m);
+  }
   // The local terrain just changed under the drone (spawn or a crossing); if
   // that left it buried, re-drop it above the new surface. Self-guarded, so an
   // airborne or resting drone is untouched.
   liftDroneToSurface();
+}
+
+void SimulatorWidget::recomputeHelipads(float cx, float cy) {
+  m_helipads.clear();
+  if (!m_terrainHeightAt) {
+    m_homePad = QVector3D(0, 0, 0);
+    if (m_renderer) m_renderer->setHelipads(m_helipads);
+    if (m_downRenderer) m_downRenderer->setHelipads(m_helipads);
+    return;
+  }
+  // Home pad always at the origin — a deterministic, guaranteed drone spawn.
+  m_homePad = QVector3D(0, 0, m_terrainHeightAt(0.0f, 0.0f));
+  m_helipads.push_back(m_homePad);
+
+  // Deterministic coarse grid: one jittered candidate per cell, accepted on
+  // flat enough ground. Mirrors the flora global-grid idea but far sparser, so
+  // the same pads appear regardless of view history. Computed within kRange of
+  // the view centre so pads stream in/out as you roam.
+  const float kGrid = 70.0f, kRange = 260.0f, kEps = 2.0f, kMaxSlope = 0.09f;
+  const int kCandidates = 4;  // probe several spots/cell, keep the flattest
+  auto hash = [](int gx, int gy) -> uint32_t {
+    uint32_t h = uint32_t(gx) * 0x9e3779b1u ^ uint32_t(gy) * 0x85ebca77u;
+    h ^= h >> 16; h *= 0x7feb352du; h ^= h >> 15; h *= 0x846ca68bu; h ^= h >> 16;
+    return h;
+  };
+  auto slopeAt = [&](float px, float py) {
+    const float dhdx =
+        (m_terrainHeightAt(px + kEps, py) - m_terrainHeightAt(px - kEps, py)) /
+        (2.0f * kEps);
+    const float dhdy =
+        (m_terrainHeightAt(px, py + kEps) - m_terrainHeightAt(px, py - kEps)) /
+        (2.0f * kEps);
+    return std::sqrt(dhdx * dhdx + dhdy * dhdy);
+  };
+  const int gx0 = int(std::floor((cx - kRange) / kGrid));
+  const int gx1 = int(std::floor((cx + kRange) / kGrid));
+  const int gy0 = int(std::floor((cy - kRange) / kGrid));
+  const int gy1 = int(std::floor((cy + kRange) / kGrid));
+  for (int gx = gx0; gx <= gx1; ++gx)
+    for (int gy = gy0; gy <= gy1; ++gy) {
+      if (gx == 0 && gy == 0) continue;  // origin reserved for the home pad
+      if ((hash(gx, gy) & 0xffu) > 180u) continue;  // ~70% of cells get a pad
+      // Probe several jittered spots in the cell, keep the flattest one.
+      float bestSlope = 1e9f, bx = 0, by = 0;
+      for (int k = 0; k < kCandidates; ++k) {
+        const uint32_t h2 = hash(gx * 73856093 + k * 19349663, gy * 83492791 - k);
+        const float jx = float(h2 & 0xffu) / 255.0f - 0.5f;
+        const float jy = float((h2 >> 8) & 0xffu) / 255.0f - 0.5f;
+        const float px = (float(gx) + 0.5f + jx * 0.8f) * kGrid;
+        const float py = (float(gy) + 0.5f + jy * 0.8f) * kGrid;
+        const float s = slopeAt(px, py);
+        if (s < bestSlope) { bestSlope = s; bx = px; by = py; }
+      }
+      if (bestSlope > kMaxSlope) continue;  // no flat-enough spot in this cell
+      if ((bx - cx) * (bx - cx) + (by - cy) * (by - cy) > kRange * kRange) continue;
+      m_helipads.emplace_back(bx, by, m_terrainHeightAt(bx, by));
+    }
+  if (m_renderer) m_renderer->setHelipads(m_helipads);
+  if (m_downRenderer) m_downRenderer->setHelipads(m_helipads);
+}
+
+void SimulatorWidget::appendHelipadCollision(std::vector<QVector3D>& pos) const {
+  const float R = vsim::SimRendererWidget::kHelipadRadiusM;
+  const int N = 20;  // collision tessellation (coarser than render is fine)
+  // Every triangle is emitted with BOTH windings so it collides regardless of
+  // the BVH's single/double-sided flag (the drone must rest on the deck top).
+  auto tri2 = [&](const QVector3D& a, const QVector3D& b, const QVector3D& c) {
+    pos.push_back(a); pos.push_back(b); pos.push_back(c);
+    pos.push_back(a); pos.push_back(c); pos.push_back(b);
+  };
+  for (const QVector3D& pad : m_helipads) {
+    const float px = pad.x(), py = pad.y();
+    const float zDeck = -pad.z() - vsim::SimRendererWidget::kHelipadDeckM;  // top
+    const float zBase = -pad.z();                                          // terrain
+    const QVector3D ctr(px, py, zDeck);
+    for (int j = 0; j < N; ++j) {
+      const double a0 = 2 * M_PI * j / N, a1 = 2 * M_PI * (j + 1) / N;
+      const QVector3D r0(px + R * std::cos(a0), py + R * std::sin(a0), zDeck);
+      const QVector3D r1(px + R * std::cos(a1), py + R * std::sin(a1), zDeck);
+      const QVector3D b0(px + R * std::cos(a0), py + R * std::sin(a0), zBase);
+      const QVector3D b1(px + R * std::cos(a1), py + R * std::sin(a1), zBase);
+      tri2(ctr, r0, r1);   // deck cap (landing surface)
+      tri2(r0, b0, b1);    // side wall down to terrain
+      tri2(r0, b1, r1);
+    }
+  }
+}
+
+float SimulatorWidget::landingSurfaceZ(float x, float y) const {
+  float z = m_terrainHeightAt ? -m_terrainHeightAt(x, y) : 0.0f;  // terrain surface
+  const float r2 = vsim::SimRendererWidget::kHelipadRadiusM *
+                   vsim::SimRendererWidget::kHelipadRadiusM;
+  for (const QVector3D& pad : m_helipads) {
+    const float dx = x - pad.x(), dy = y - pad.y();
+    if (dx * dx + dy * dy <= r2) {
+      // Deck sits kHelipadDeckM above that pad's terrain (more negative z =
+      // higher); rest on the highest surface we're standing over.
+      z = std::min(z, -pad.z() - vsim::SimRendererWidget::kHelipadDeckM);
+    }
+  }
+  return z;
 }
 
 void SimulatorWidget::liftDroneToSurface() {
@@ -2382,7 +2521,8 @@ void SimulatorWidget::liftDroneToSurface() {
   // Terrain is a single-valued height field, so the analytic height under the
   // drone is exactly where a ray cast straight down from far above would hit.
   const float h = m_terrainHeightAt(x, y);     // surface elevation [m] above z=0
-  const float surfaceZ = -h;                   // NED z of the surface (above z=0)
+  // Land on the pad top when over a helipad, otherwise on the terrain.
+  const float surfaceZ = landingSurfaceZ(x, y);
 
   // Only re-drop when the drone is genuinely buried — more than buriedEps below
   // the surface. In NED a larger z is lower, so droneZ > surfaceZ + eps means it

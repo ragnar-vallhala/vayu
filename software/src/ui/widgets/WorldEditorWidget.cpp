@@ -93,7 +93,16 @@ QJsonObject worldToJson(const vsim::WorldConfig& w) {
         {"flower_frac", w.flora.flowerFrac},
         {"blades_per_cell", w.flora.bladesPerCell},
         {"blade_height_mean", w.flora.heightMean},
-        {"blade_height_dev", w.flora.heightStdDev}};
+        {"blade_height_dev", w.flora.heightStdDev},
+        {"look_sun_intensity", w.look.sunIntensity},
+        {"look_ambient_strength", w.look.ambientStrength},
+        {"look_brightness", w.look.brightness},
+        {"look_tip_warmth", w.look.tipWarmth},
+        {"look_backlight", w.look.backlight},
+        {"look_sheen", w.look.sheen},
+        {"look_vein_strength", w.look.veinStrength},
+        {"look_root_darkness", w.look.rootDarkness},
+        {"look_face_camera_frac", w.look.faceCameraFrac}};
   }
   return root;
 }
@@ -147,6 +156,20 @@ vsim::WorldConfig worldFromJson(const QJsonObject& root) {
   w.flora.heightMean = pg.value("blade_height_mean").toDouble(w.flora.heightMean);
   w.flora.heightStdDev =
       pg.value("blade_height_dev").toDouble(w.flora.heightStdDev);
+  w.look.sunIntensity =
+      pg.value("look_sun_intensity").toDouble(w.look.sunIntensity);
+  w.look.ambientStrength =
+      pg.value("look_ambient_strength").toDouble(w.look.ambientStrength);
+  w.look.brightness = pg.value("look_brightness").toDouble(w.look.brightness);
+  w.look.tipWarmth = pg.value("look_tip_warmth").toDouble(w.look.tipWarmth);
+  w.look.backlight = pg.value("look_backlight").toDouble(w.look.backlight);
+  w.look.sheen = pg.value("look_sheen").toDouble(w.look.sheen);
+  w.look.veinStrength =
+      pg.value("look_vein_strength").toDouble(w.look.veinStrength);
+  w.look.rootDarkness =
+      pg.value("look_root_darkness").toDouble(w.look.rootDarkness);
+  w.look.faceCameraFrac =
+      pg.value("look_face_camera_frac").toDouble(w.look.faceCameraFrac);
   return w;
 }
 }  // namespace
@@ -164,7 +187,7 @@ void WorldEditorWidget::buildUi() {
 
   // -- Environment --
   {
-    auto* sec = new CollapsibleSection(tr("Environment"), this);
+    auto* sec = new CollapsibleSection(tr("Environment"), this, /*expanded=*/false);
     auto* body = new QWidget();
     auto* form = new QFormLayout(body);
     gravity_ = spin(0.0, 30.0, 2, 0.1, cfg_.gravity, QStringLiteral(" m/s²"));
@@ -179,7 +202,7 @@ void WorldEditorWidget::buildUi() {
 
   // -- Aerodynamics --
   {
-    auto* sec = new CollapsibleSection(tr("Aerodynamics"), this);
+    auto* sec = new CollapsibleSection(tr("Aerodynamics"), this, /*expanded=*/false);
     auto* body = new QWidget();
     auto* form = new QFormLayout(body);
     linDrag_ = spin(0.0, 5.0, 3, 0.01, cfg_.linear_drag, QStringLiteral(" N·s/m"));
@@ -240,7 +263,7 @@ void WorldEditorWidget::buildUi() {
 }
 
 void WorldEditorWidget::buildProceduralSection(QVBoxLayout* root) {
-  auto* sec = new CollapsibleSection(tr("Procedural world"), this);
+  auto* sec = new CollapsibleSection(tr("Procedural world"), this, /*expanded=*/false);
   auto* body = new QWidget();
   auto* col = new QVBoxLayout(body);
 
@@ -320,7 +343,7 @@ void WorldEditorWidget::buildProceduralSection(QVBoxLayout* root) {
 }
 
 void WorldEditorWidget::buildWindSection(QVBoxLayout* root) {
-  auto* sec = new CollapsibleSection(tr("Wind & Turbulence"), this);
+  auto* sec = new CollapsibleSection(tr("Wind & Turbulence"), this, /*expanded=*/false);
   auto* body = new QWidget();
   auto* col = new QVBoxLayout(body);
 
@@ -416,7 +439,7 @@ void WorldEditorWidget::setWindReadout(float speedMs, float dirDeg) {
 }
 
 void WorldEditorWidget::buildProceduralTuningSection(QVBoxLayout* root) {
-  auto* sec = new CollapsibleSection(tr("Procedural tuning"), this);
+  auto* sec = new CollapsibleSection(tr("Procedural tuning"), this, /*expanded=*/false);
   auto* body = new QWidget();
   auto* col = new QVBoxLayout(body);
 
@@ -477,13 +500,27 @@ void WorldEditorWidget::buildProceduralTuningSection(QVBoxLayout* root) {
     knob(f, tr("Blade height σ:"), 0.0, 0.5, 2, 0.01, &cfg_.flora.heightStdDev, tr(" m"));
     col->addLayout(f);
   }
+  group(tr("Grass shading & lighting"));
+  {
+    auto* f = new QFormLayout();
+    knob(f, tr("Sun intensity:"), 0, 3, 2, 0.05, &cfg_.look.sunIntensity, {});
+    knob(f, tr("Ambient strength:"), 0, 3, 2, 0.05, &cfg_.look.ambientStrength, {});
+    knob(f, tr("Grass brightness:"), 0, 3, 2, 0.05, &cfg_.look.brightness, {});
+    knob(f, tr("Tip warmth:"), 0, 2, 2, 0.05, &cfg_.look.tipWarmth, {});
+    knob(f, tr("Backlight (SSS):"), 0, 3, 2, 0.05, &cfg_.look.backlight, {});
+    knob(f, tr("Sheen:"), 0, 3, 2, 0.05, &cfg_.look.sheen, {});
+    knob(f, tr("Vein strength:"), 0, 3, 2, 0.05, &cfg_.look.veinStrength, {});
+    knob(f, tr("Root darkness:"), 0, 0.6, 2, 0.02, &cfg_.look.rootDarkness, {});
+    knob(f, tr("Face-camera fraction:"), 0, 1, 2, 0.05, &cfg_.look.faceCameraFrac, {});
+    col->addLayout(f);
+  }
 
   sec->setContentWidget(body);
   root->addWidget(sec);
 }
 
 void WorldEditorWidget::buildWorldMeshSection(QVBoxLayout* root) {
-  auto* sec = new CollapsibleSection(tr("World mesh"), this);
+  auto* sec = new CollapsibleSection(tr("World mesh"), this, /*expanded=*/false);
   auto* body = new QWidget();
   auto* col = new QVBoxLayout(body);
 
@@ -616,7 +653,7 @@ void WorldEditorWidget::onLoadWorld() {
 }
 
 void WorldEditorWidget::buildObstacleSection(QVBoxLayout* root) {
-  auto* sec = new CollapsibleSection(tr("Obstacles"), this);
+  auto* sec = new CollapsibleSection(tr("Obstacles"), this, /*expanded=*/false);
   auto* body = new QWidget();
   auto* col = new QVBoxLayout(body);
 

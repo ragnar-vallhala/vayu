@@ -122,6 +122,7 @@ struct WorldConfig {
   // section). seed is driven by proceduralSeed; the rest are user knobs.
   procgen::FieldParams field;          // terrain shape + surface colour bands
   procgen::FloraParams flora;          // grass density / slope / height
+  procgen::GrassLook look;             // live grass/terrain shading knobs
 };
 
 // World-frame wind field (VSIM_CTL_SET_WIND): steady + gust + turbulence.
