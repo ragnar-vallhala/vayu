@@ -270,8 +270,10 @@ class SimRendererWidget : public QOpenGLWidget, protected QOpenGLExtraFunctions 
   // Camera world position (NED), refreshed each paintGL; fed to the lit shader
   // for distance fog.
   QVector3D camEye_;
-  // Sun direction (toward the light, world NED) shared by lit + sky.
-  QVector3D sunDir_{0.3f, 0.2f, -1.0f};
+  // Sun direction (toward the light, world NED) shared by lit + sky. A real
+  // directional key ~45 deg above the horizon (z<0 is up in NED) for moody,
+  // directional overcast light rather than flat noon overhead.
+  QVector3D sunDir_{0.55f, 0.42f, -0.72f};
 
   Mesh ground_;
   Mesh unitBox_;       // [-0.5,0.5]^3, pos+normal (lit) — scaled per obstacle

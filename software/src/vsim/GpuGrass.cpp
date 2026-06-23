@@ -212,20 +212,21 @@ void main(){
   vec3 up=vec3(0.0,0.0,-1.0);
   vec3 n=normalize(mix(normalize(v_normal), up, 0.40));
   vec3 sun=normalize(u_sundir);
-  vec3 sunCol=vec3(0.78,0.76,0.68);   // soft, muted overcast key
+  vec3 sunCol=vec3(0.92,0.89,0.78);   // directional overcast key
 
-  // Wrapped diffuse — softens the terminator so blades don't go flat-black.
+  // Wrapped diffuse — softens the terminator but keeps a clear light direction.
   float ndl=dot(n,sun);
-  float wrap=clamp(ndl*0.5+0.5,0.0,1.0); wrap*=wrap;
+  float wrap=clamp(ndl*0.45+0.55,0.0,1.0); wrap*=wrap;
 
-  // Hemispheric sky ambient: dim, cool from above, near-black bounce below.
+  // Hemispheric sky ambient: low, cool from above, near-black bounce below — the
+  // sun does most of the work so the scene stays directional and moody.
   float hemi=clamp(0.5+0.5*(-n.z),0.0,1.0);
-  vec3 ambient=mix(vec3(0.05,0.07,0.06),vec3(0.24,0.29,0.34),hemi);
+  vec3 ambient=mix(vec3(0.03,0.04,0.04),vec3(0.15,0.19,0.23),hemi);
 
   // Deep base shadow: the canopy heavily occludes its own base, so the lower
   // blade goes nearly black and brightens toward the tip (the GoT dark-floor look).
   float ao=mix(0.10,1.0,smoothstep(0.0,0.6,v_hf));
-  vec3 col=albedo*(ambient + sunCol*wrap*0.70)*ao;
+  vec3 col=albedo*(ambient + sunCol*wrap*0.95)*ao;
 
   vec3 toFrag=v_world-u_campos; float dist=length(toFrag);
   vec3 vdir=dist>1e-4?toFrag/dist:vec3(0.0,0.0,1.0);
@@ -252,8 +253,11 @@ void main(){
 // append to the same instance buffer, so it must hold this many grids' worth of
 // blades. Each ring's cell = base cell * kRingMul; coarser rings get slightly
 // taller blades so the sparse far field still reads as a carpet.
-static constexpr int kNumRings = 3;
-static constexpr float kRingMul[kNumRings] = {1.0f, 4.0f, 12.0f};
+// Four rings with gentle (~2.4x) steps instead of three with 4x steps: the
+// density contrast at each crossover is far smaller, so the dense->sparse
+// handoff no longer reads as a tonal band/seam, while still reaching the horizon.
+static constexpr int kNumRings = 4;
+static constexpr float kRingMul[kNumRings] = {1.0f, 2.5f, 6.0f, 14.0f};
 
 GpuGrass::~GpuGrass() = default;
 
@@ -415,7 +419,8 @@ void GpuGrass::render(QOpenGLExtraFunctions* gl, const QMatrix4x4& proj,
   for (int i = 0; i < kNumRings; ++i) {
     const float c = params_.cell * kRingMul[i];
     const float radius = float(params_.grid) * c * 0.5f;
-    const float fStart = radius * 0.80f, fEnd = radius * 0.97f;
+    // Wide fade window (0.62..0.97 of the radius) -> long, gradual crossover.
+    const float fStart = radius * 0.62f, fEnd = radius * 0.97f;
     // Fade IN over exactly the previous ring's fade-OUT window -> seamless handoff.
     rings[i] = {c, prevStart, prevEnd, fStart, fEnd};
     prevStart = fStart;

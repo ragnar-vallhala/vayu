@@ -60,7 +60,9 @@ vec3 skyColor(vec3 dir) {
       ? mix(horizon, zenith, pow(clamp(up, 0.0, 1.0), 0.45))
       : mix(horizon, ground, clamp(-up * 2.5, 0.0, 1.0));
   float s = max(dot(normalize(dir), normalize(u_sundir)), 0.0);
-  col += vec3(0.30, 0.24, 0.15) * pow(s, 8.0) * step(0.0, up);  // warm sun glow
+  float aboveHorizon = step(0.0, up);
+  col += vec3(0.42, 0.34, 0.22) * pow(s, 8.0) * aboveHorizon;        // warm glow halo
+  col += vec3(1.0, 0.96, 0.86) * pow(s, 380.0) * aboveHorizon * 1.3; // bright sun disc
   return col;
 }
 )GLSL";
@@ -104,15 +106,15 @@ const char* kLitFragmentMain = R"GLSL(
 void main() {
   vec3 n = normalize(v_normal);
   vec3 sun = normalize(u_sundir);
-  vec3 sunCol = vec3(0.78, 0.76, 0.68);            // soft overcast key (matches grass)
-  // Wrapped diffuse for a soft overcast terminator (no harsh shadow line).
-  float wrap = clamp(dot(n, sun) * 0.5 + 0.5, 0.0, 1.0); wrap *= wrap;
+  vec3 sunCol = vec3(0.92, 0.89, 0.78);            // directional overcast key (matches grass)
+  // Wrapped diffuse for a soft terminator that still shows light direction.
+  float wrap = clamp(dot(n, sun) * 0.45 + 0.55, 0.0, 1.0); wrap *= wrap;
   // Hemispheric ambient: NED up is -Z, so up-facing (n.z<0) catches sky light.
   float hemi = 0.5 + 0.5 * (-n.z);                 // 0 down .. 1 up
-  vec3 ambient = mix(vec3(0.06, 0.08, 0.08),
-                     vec3(0.24, 0.29, 0.34), clamp(hemi, 0.0, 1.0));
+  vec3 ambient = mix(vec3(0.03, 0.04, 0.04),
+                     vec3(0.15, 0.19, 0.23), clamp(hemi, 0.0, 1.0));
   vec3 base = u_color * v_color;
-  vec3 lit  = base * (ambient + sunCol * wrap * 0.70);
+  vec3 lit  = base * (ambient + sunCol * wrap * 0.95);
   // Aerial perspective: fade toward the sky behind the surface with distance,
   // so the streamed-terrain edge dissolves into haze.
   vec3 toFrag = v_world - u_campos;
