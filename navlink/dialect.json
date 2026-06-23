@@ -123,6 +123,16 @@
         { "name": "RC_CONTROL",         "value": 8 },
         { "name": "TELEMETRY",          "value": 9 }
       ]
+    },
+    "xfer_flags": {
+      "doc": "XFER_DATA/XFER_ACK.flags — bitmask carried on the bulk-transfer substrate (docs/plans/navlink-xfer-substrate.md). DONE/ABORT terminate a session; NAK requests resend from XFER_ACK.next_offset; EOF marks the final XFER_DATA chunk.",
+      "entries": [
+        { "name": "NONE",  "value": 0 },
+        { "name": "DONE",  "value": 1 },
+        { "name": "NAK",   "value": 2 },
+        { "name": "ABORT", "value": 4 },
+        { "name": "EOF",   "value": 8 }
+      ]
     }
   },
 
@@ -406,6 +416,39 @@
     },
 
     {
+      "msgid": 1042, "name": "XFER_INFO",
+      "doc": "Reply to XFER_OPEN once a session is accepted: advertises the negotiated chunk_size and total_size (0xFFFFFFFF = stream/unknown length). Carries no reliability of its own (the session SM owns that); retransmitted by the FC until the first XFER_ACK is seen. Part of the generic bulk-transfer substrate (docs/plans/navlink-xfer-substrate.md).",
+      "fields": [
+        { "index": 0, "name": "session",    "type": "u8" },
+        { "index": 1, "name": "result",     "type": "u8",  "enum": "command_result", "doc": "open result; ACCEPTED means the rest is valid" },
+        { "index": 2, "name": "chunk_size", "type": "u16", "doc": "max XFER_DATA payload bytes the FC will use (<= 247)" },
+        { "index": 3, "name": "total_size", "type": "u32", "unit": "bytes", "doc": "0xFFFFFFFF = stream/unknown" },
+        { "index": 4, "name": "mtime",      "type": "u32", "unit": "s", "extension": true, "doc": "file mtime (epoch s) if known, else 0; ABI-safe extension" }
+      ]
+    },
+    {
+      "msgid": 1043, "name": "XFER_DATA",
+      "doc": "One offset-addressed chunk on a bulk-transfer session, in either direction (download FC->GCS, upload GCS->FC). The receiver trusts `len`, never the unpacked `data` tail — the final short chunk trailing-zero-truncates on the wire (like SYSID_SAMPLE). flags carries EOF on the last chunk. Wire size 254 B (1 B under the 255 cap). docs/plans/navlink-xfer-substrate.md.",
+      "fields": [
+        { "index": 0, "name": "session", "type": "u8" },
+        { "index": 1, "name": "flags",   "type": "u8", "enum": "xfer_flags" },
+        { "index": 2, "name": "len",     "type": "u8", "doc": "valid bytes in data[] (authoritative; do not infer from the array)" },
+        { "index": 3, "name": "offset",  "type": "u32", "unit": "bytes", "doc": "byte offset of data[0] within the transfer" },
+        { "index": 4, "name": "data",    "type": "u8", "len": 247 }
+      ]
+    },
+    {
+      "msgid": 1044, "name": "XFER_ACK",
+      "doc": "Cumulative flow-control ack on a bulk-transfer session, in either direction. next_offset is the lowest byte offset NOT yet received (download: GCS->FC; upload: FC->GCS); the sender rewinds its cursor to next_offset to resume/refill (idempotent re-read). flags=NAK forces a rewind, DONE/ABORT terminate. docs/plans/navlink-xfer-substrate.md.",
+      "fields": [
+        { "index": 0, "name": "session",     "type": "u8" },
+        { "index": 1, "name": "flags",       "type": "u8", "enum": "xfer_flags" },
+        { "index": 2, "name": "result",      "type": "u8", "enum": "command_result", "doc": "terminal result on DONE/ABORT, else ACCEPTED" },
+        { "index": 3, "name": "next_offset", "type": "u32", "unit": "bytes", "doc": "lowest byte offset not yet received" }
+      ]
+    },
+
+    {
       "msgid": 8192, "name": "CMD_ARM", "replaces": "0x3/cmd 0x0002",
       "doc": "Set the software-arm latch. Opens with the standard command header (spec §12.1).",
       "fields": [
@@ -506,6 +549,33 @@
         { "index": 0, "name": "target_sys",  "type": "u8" },
         { "index": 1, "name": "target_comp", "type": "u8" },
         { "index": 2, "name": "req_seq",     "type": "u8" }
+      ]
+    },
+    {
+      "msgid": 8201, "name": "XFER_OPEN",
+      "doc": "Open a bulk-transfer/stream session on the generic xfer substrate (docs/plans/navlink-xfer-substrate.md). The FC replies with COMMAND_ACK (deferred) then XFER_INFO. dir 0=download (FC->GCS), 1=upload (GCS->FC). mode 0=file, 1=stream (rate_hz applies; total_size advertised 0xFFFFFFFF). service_id selects the provider (0=file,1=log,2=stream); arg is the provider argument (e.g. SD path or stream name). Re-send with the same (session,req_seq) is idempotent.",
+      "fields": [
+        { "index": 0, "name": "target_sys",   "type": "u8" },
+        { "index": 1, "name": "target_comp",  "type": "u8" },
+        { "index": 2, "name": "req_seq",      "type": "u8" },
+        { "index": 3, "name": "session",      "type": "u8", "doc": "GCS-chosen session slot (0..XFER_MAX_SESSIONS-1)" },
+        { "index": 4, "name": "dir",          "type": "u8", "doc": "0=download (FC->GCS), 1=upload (GCS->FC)" },
+        { "index": 5, "name": "mode",         "type": "u8", "doc": "0=file, 1=stream" },
+        { "index": 6, "name": "service_id",   "type": "u16", "doc": "provider id (0=file,1=log,2=stream)" },
+        { "index": 7, "name": "offset_start", "type": "u32", "unit": "bytes", "doc": "initial cursor (resume point)" },
+        { "index": 8, "name": "rate_hz",      "type": "u16", "unit": "Hz", "doc": "stream mode emission rate; 0 in file mode" },
+        { "index": 9, "name": "arg",          "type": "char", "len": 32, "doc": "provider argument (SD path / stream name)" }
+      ]
+    },
+    {
+      "msgid": 8202, "name": "XFER_CLOSE",
+      "doc": "Close/abort a bulk-transfer session (docs/plans/navlink-xfer-substrate.md). The FC tears down the session, calls provider close, and ACKs. result records the GCS-side reason (ACCEPTED = normal completion).",
+      "fields": [
+        { "index": 0, "name": "target_sys",  "type": "u8" },
+        { "index": 1, "name": "target_comp", "type": "u8" },
+        { "index": 2, "name": "req_seq",     "type": "u8" },
+        { "index": 3, "name": "session",     "type": "u8" },
+        { "index": 4, "name": "result",      "type": "u8", "enum": "command_result" }
       ]
     },
 

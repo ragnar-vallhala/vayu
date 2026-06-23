@@ -139,6 +139,13 @@ class FC:
             if d.msgid == nl.Ping.MSGID:                      # echo PING back
                 self._send(nl.Ping.MSGID, d.payload)
                 self.pings_echoed += 1
+            elif d.msgid in (nl.XferOpen.MSGID, nl.XferClose.MSGID):
+                # The xfer substrate replies in two phases (COMMAND_ACK + XFER_INFO)
+                # and owns its own reliability — the blanket auto-ack below would
+                # spoof an ACCEPTED. Routed to the real XferServer when it lands
+                # (Phase B/C, docs/plans/navlink-xfer-substrate.md); until then the
+                # sim deliberately stays silent so loopback tests see no spurious ack.
+                pass
             elif 8192 <= d.msgid <= 12319:                    # a command → COMMAND_ACK
                 req_seq = d.payload[2] if len(d.payload) > 2 else 0
                 ack = nl.CommandAck(command=d.msgid, req_seq=req_seq,
