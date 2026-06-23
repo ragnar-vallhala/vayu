@@ -80,10 +80,12 @@ PgVec3 TerrainField::normal(float wx, float wy, float eps) const {
 PgVec3 TerrainField::color(float h, float flatness) const {
   const float t = clamp01(p_.heightM > 0.0f ? h / p_.heightM : 0.0f);
   const float steep = clamp01(1.0f - flatness);   // 0 flat .. 1 vertical
-  const PgVec3 green{0.24f, 0.46f, 0.15f};
-  const PgVec3 brown{0.42f, 0.33f, 0.21f};
-  const PgVec3 rock {0.47f, 0.44f, 0.41f};
-  const PgVec3 snow {0.95f, 0.96f, 0.98f};
+  // Muted, overcast palette to match the moody grass: darker desaturated greens,
+  // earthy soil, cool grey rock, and cool (not blown-out) snow.
+  const PgVec3 green{0.15f, 0.29f, 0.11f};
+  const PgVec3 brown{0.29f, 0.23f, 0.15f};
+  const PgVec3 rock {0.33f, 0.33f, 0.32f};
+  const PgVec3 snow {0.80f, 0.83f, 0.88f};
 
   // Altitude band: green valley -> brown mid -> bare rock high. Each threshold
   // is the elevation where the band completes; it starts a fixed width below.
