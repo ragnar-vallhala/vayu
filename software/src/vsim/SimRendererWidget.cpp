@@ -103,13 +103,16 @@ uniform float u_fogstart;    // metres before fog begins
 const char* kLitFragmentMain = R"GLSL(
 void main() {
   vec3 n = normalize(v_normal);
-  float ndl = max(dot(n, normalize(u_sundir)), 0.0);
+  vec3 sun = normalize(u_sundir);
+  vec3 sunCol = vec3(0.78, 0.76, 0.68);            // soft overcast key (matches grass)
+  // Wrapped diffuse for a soft overcast terminator (no harsh shadow line).
+  float wrap = clamp(dot(n, sun) * 0.5 + 0.5, 0.0, 1.0); wrap *= wrap;
   // Hemispheric ambient: NED up is -Z, so up-facing (n.z<0) catches sky light.
   float hemi = 0.5 + 0.5 * (-n.z);                 // 0 down .. 1 up
-  vec3 ambient = mix(vec3(0.18, 0.19, 0.22),
-                     vec3(0.40, 0.43, 0.48), clamp(hemi, 0.0, 1.0));
+  vec3 ambient = mix(vec3(0.06, 0.08, 0.08),
+                     vec3(0.24, 0.29, 0.34), clamp(hemi, 0.0, 1.0));
   vec3 base = u_color * v_color;
-  vec3 lit  = base * (ambient + vec3(0.85) * ndl);
+  vec3 lit  = base * (ambient + sunCol * wrap * 0.70);
   // Aerial perspective: fade toward the sky behind the surface with distance,
   // so the streamed-terrain edge dissolves into haze.
   vec3 toFrag = v_world - u_campos;
