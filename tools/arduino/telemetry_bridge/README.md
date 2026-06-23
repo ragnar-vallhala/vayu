@@ -22,7 +22,8 @@ it parses the stream identically to serial.
 
 - **ESP8266 NodeMCU 1.0** (ESP-12E). Other ESP8266 boards work if the strapping
   pins below are respected.
-- Flight controller streaming vayu telemetry on **USART6 @ 230400 8N1**.
+- Flight controller streaming vayu telemetry on **USART6 @ 460800 8N1** (matches the
+  FC's `UART_BAUDRATE`; was 230400 before the bandwidth boost).
 
 ### Wiring — FC ⇄ ESP (3.3 V, direct, no level shifter)
 
@@ -86,7 +87,7 @@ arduino-cli upload  -p /dev/ttyUSB0 --fqbn esp8266:esp8266:nodemcuv2 tools/ardui
 
 | Constant | Default | When to change |
 |----------|---------|----------------|
-| `FC_BAUD` | `230400` | Must equal the FC's `UART_BAUDRATE`. |
+| `FC_BAUD` | `460800` | Must equal the FC's `UART_BAUDRATE`. Raised from 230400 with the 4 KiB RX ring + `acc[]` (below) to absorb WiFi-TX stalls at the higher byte rate. See `docs/plans/link-bandwidth-boost.md`. |
 | `UDP_PORT` | `14555` | Must match the GCS UDP port. |
 | `MAX_UDP` | `1472` | Datagram size cap = MTU − IP/UDP headers. **Do not raise past ~1472** — above MTU lwIP fragments (no airtime saved; one lost fragment drops the whole datagram). |
 | `FLUSH_MS` | `8` | Flush interval (ms). Latency-for-coalescing knob: longer = more frames/datagram = fewer datagrams/s (further under the ESP ceiling). Drop to `2` for low-latency stick-feel data. `FLUSH_TICKS` derives from this (5000 ticks/ms @ TIM_DIV16). |
