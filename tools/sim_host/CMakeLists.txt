@@ -109,6 +109,9 @@ set(VAYU_SOURCES
     ${VAYU_ROOT}/src/comm/telemetry_task.c
     ${VAYU_ROOT}/src/comm/xfer/navlink_xfer.c     # bulk-transfer (FTP) substrate core SM
     ${VAYU_ROOT}/src/comm/xfer/navlink_xfer_tx.c  # xfer codec/channel seam (g_xfer_tx_ops)
+    ${VAYU_ROOT}/src/comm/xfer/providers/file_provider.c
+    ${VAYU_ROOT}/src/comm/xfer/providers/log_provider.c
+    ${VAYU_ROOT}/src/comm/xfer/providers/stream_provider.c
 )
 
 # vaios kernel pieces that are pure C and portable.
@@ -271,6 +274,11 @@ add_test(NAME xfer_sm COMMAND test_xfer_sm)
 add_executable(test_xfer_e2e tests/test_xfer_e2e.c)
 target_link_libraries(test_xfer_e2e PRIVATE vayu_sitl_core navlink_codec m)
 add_test(NAME xfer_e2e COMMAND test_xfer_e2e)
+
+# xfer real providers: FILE round-trip, LOG download/deny, STREAM source.
+add_executable(test_xfer_providers tests/test_xfer_providers.c)
+target_link_libraries(test_xfer_providers PRIVATE vayu_sitl_core m)
+add_test(NAME xfer_providers COMMAND test_xfer_providers)
 
 # EKF estimator: thin adapter over the shared branch-coverage core in
 # src/est/ekf_selftest.c, which we compile here with -DEKF_SELFTEST (the same

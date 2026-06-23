@@ -8,16 +8,17 @@
  * C1->C3 "no blocking SD on the comm task" invariant (see the centralised FS
  * owner). Body: bind the emitter, register providers, then loop xfer_tick().
  *
- * Phase C wires the transport + SM + task; real providers (file/log/stream) are
- * registered here in Phase E. Until then the substrate is live but has no
- * provider, so any XFER_OPEN is answered UNSUPPORTED — the wiring + RAM budget
- * are exercised on hardware without yet exposing the SD.
+ * Providers (Phase E): FILE (any SD path, up+down), LOG (blackbox download),
+ * STREAM (named live source). All SD I/O goes through fs_owner; the STREAM
+ * provider is registered but carries no source until one is wired via
+ * xfer_stream_register_source().
  */
 #include "vayu_tasks.h"
 
 #include "comm/channel.h"            /* channel_tx_overflow_count */
 #include "comm/xfer/navlink_xfer.h"
 #include "comm/xfer/navlink_xfer_tx.h" /* g_xfer_tx_ops */
+#include "comm/xfer/xfer_providers.h"  /* xfer_providers_register_all */
 #include "utils.h"                   /* v_get_ticks, v_delay */
 #include "vaios.h"
 
@@ -29,7 +30,10 @@
 void xfer_service_task(void *args) {
   (void)args;
   xfer_init(&g_xfer_tx_ops);
-  /* Phase E: xfer_register_provider(file/log/stream) goes here. */
+  /* FILE (up+down any SD path), LOG (download the blackbox files), STREAM
+   * (named live source). The STREAM provider is registered but sourceless until
+   * a source is wired via xfer_stream_register_source(). */
+  xfer_providers_register_all();
 
   for (;;) {
     int emitted = xfer_tick((uint32_t)v_get_ticks(),

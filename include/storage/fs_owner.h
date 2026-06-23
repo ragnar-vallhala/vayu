@@ -116,6 +116,14 @@ bool fs_owner_enqueue_write_at(const char *path, uint32_t offset,
                                const void *data, uint32_t len);
 
 /**
+ * @brief Truncate-or-create a file to empty. **Called ONLY from
+ *        xfer_service_task** (a fresh upload at offset 0 replacing a file).
+ *        Same vfs_mutex-serialised safety as fs_owner_read_at. Returns 0 on
+ *        success, <0 on open failure.
+ */
+int fs_owner_truncate(const char *path);
+
+/**
  * @brief Synchronous positioned read. **Called ONLY from xfer_service_task.**
  *
  * fs_owner is the sole *writer* of the SD; this is the one sanctioned reader.
