@@ -17,6 +17,19 @@ namespace vsim {
 // like: red=N (+X), green=E (+Y), blue=down (+Z).
 namespace {
 
+// Model transform for a helipad at pad=(x,y,terrainHeight): the cylinder mesh
+// (local z in [-1 top .. 0 base]) is scaled to the full height and shifted so
+// the base buries below the surface and the deck sits kHelipadDeckM above it.
+QMatrix4x4 helipadModel(const QVector3D& pad) {
+  const float bury = SimRendererWidget::kHelipadHeightM -
+                     SimRendererWidget::kHelipadDeckM;  // base depth below surface
+  QMatrix4x4 m;
+  m.translate(pad.x(), pad.y(), -pad.z() + bury);  // surface z=-h, base sunk by bury
+  m.scale(SimRendererWidget::kHelipadRadiusM, SimRendererWidget::kHelipadRadiusM,
+          SimRendererWidget::kHelipadHeightM);
+  return m;
+}
+
 constexpr int kGridHalf   = 10;       // m, ground plane extends +/- this
 constexpr float kGridStep = 1.0f;
 constexpr float kBodyL    = 0.40f;    // body extents in X
@@ -101,22 +114,24 @@ uniform vec3 u_color;
 uniform vec3 u_campos;       // camera world position (NED)
 uniform float u_fogdensity;  // aerial-perspective strength
 uniform float u_fogstart;    // metres before fog begins
+uniform float u_sunint;      // sun-intensity look knob (matches grass)
+uniform float u_ambstr;      // ambient-strength look knob (matches grass)
 )GLSL";
 
 const char* kLitFragmentMain = R"GLSL(
 void main() {
   vec3 n = normalize(v_normal);
   vec3 sun = normalize(u_sundir);
-  vec3 sunCol = vec3(0.92, 0.89, 0.78);            // directional overcast key (matches grass)
+  vec3 sunCol = vec3(1.04, 0.93, 0.74) * u_sunint;  // warm golden key (matches grass)
   // Wrapped diffuse for a soft terminator that still shows light direction.
   float wrap = clamp(dot(n, sun) * 0.45 + 0.55, 0.0, 1.0); wrap *= wrap;
   // Hemispheric ambient: NED up is -Z, so up-facing (n.z<0) catches sky light.
   float hemi = 0.5 + 0.5 * (-n.z);                 // 0 down .. 1 up
-  // Cool teal overcast ambient to match the storm sky (shadows read teal).
-  vec3 ambient = mix(vec3(0.05, 0.08, 0.09),
-                     vec3(0.18, 0.24, 0.27), clamp(hemi, 0.0, 1.0));
+  // Cool-but-warmed overcast ambient (shadows read soft teal, not cold).
+  vec3 ambient = mix(vec3(0.07, 0.09, 0.09),
+                     vec3(0.22, 0.25, 0.26), clamp(hemi, 0.0, 1.0)) * u_ambstr;
   vec3 base = u_color * v_color;
-  vec3 lit  = base * (ambient + sunCol * wrap * 0.95 * shadowFactor(v_world));
+  vec3 lit  = base * (ambient + sunCol * wrap * 0.95 * shadowFactor(v_world, n, sun));
   // Aerial perspective: fade toward the sky behind the surface with distance,
   // so the streamed-terrain edge dissolves into haze.
   vec3 toFrag = v_world - u_campos;
@@ -202,12 +217,20 @@ const char* kShadowGLSL = R"GLSL(
 uniform sampler2D u_shadowtex;
 uniform mat4 u_lightvp;
 uniform float u_shadowon;
-float shadowFactor(vec3 wpos) {
+float shadowFactor(vec3 wpos, vec3 nrm, vec3 lightDir) {
   if (u_shadowon < 0.5) return 1.0;
-  vec4 lp = u_lightvp * vec4(wpos, 1.0);
+  vec3 n = normalize(nrm);
+  float ndl = clamp(dot(n, normalize(lightDir)), 0.0, 1.0);
+  // Normal-offset: push the receiver off its own surface — more at grazing sun
+  // angles where one shadow texel covers many fragments — so the depth compare
+  // samples clear of the caster. This is what kills the terraced self-shadow
+  // banding (acne) on slopes; a flat constant bias cannot.
+  vec3 wp = wpos + n * (0.05 + 0.35 * (1.0 - ndl));
+  vec4 lp = u_lightvp * vec4(wp, 1.0);
   vec3 p = lp.xyz / lp.w * 0.5 + 0.5;
   if (p.x <= 0.0 || p.x >= 1.0 || p.y <= 0.0 || p.y >= 1.0 || p.z >= 1.0) return 1.0;
-  float bias = 0.0022;
+  // Slope-scaled depth bias on top of the offset (grows toward grazing).
+  float bias = clamp(0.0008 * tan(acos(ndl)), 0.0004, 0.004);
   float texel = 1.0 / 2048.0;
   float s = 0.0;
   for (int dx = -1; dx <= 1; ++dx)
@@ -417,6 +440,8 @@ void SimRendererWidget::initializeGL() {
   ul_lightvp_    = progLit_.uniformLocation("u_lightvp");
   ul_shadowtex_  = progLit_.uniformLocation("u_shadowtex");
   ul_shadowon_   = progLit_.uniformLocation("u_shadowon");
+  ul_sunint_     = progLit_.uniformLocation("u_sunint");
+  ul_ambstr_     = progLit_.uniformLocation("u_ambstr");
 
   progDepth_.addShaderFromSourceCode(QOpenGLShader::Vertex,   kDepthVertexShader);
   progDepth_.addShaderFromSourceCode(QOpenGLShader::Fragment, kDepthFragmentShader);
@@ -452,6 +477,7 @@ void SimRendererWidget::initializeGL() {
 
   buildGroundGrid();
   buildObstacleMeshes();
+  buildHelipadMeshes();
   buildAxes();
   buildDroneBody();
   buildRotorDisk();
@@ -652,6 +678,14 @@ void SimRendererWidget::paintGL() {
     drawLit(*mesh, view, m, col);
   }
 
+  // Helipad landing platforms (scattered on flat ground; the drone spawns on one).
+  if (worldVisible_ && !training)
+    for (const QVector3D& pad : helipads_) {
+      QMatrix4x4 m = helipadModel(pad);
+      drawLit(helipadDisk_, view, m, QVector3D(0.22f, 0.23f, 0.26f));  // grey deck
+      drawLit(helipadMark_, view, m, QVector3D(0.93f, 0.93f, 0.90f));  // white H+ring
+    }
+
   // Training course halo gates + guidance arrow (World mode / down-cam only).
   if (worldVisible_) drawTraining(view);
 
@@ -790,6 +824,13 @@ void SimRendererWidget::renderShadowPass(bool showWorld, bool showChunks) {
   if (showChunks)
     for (auto& kv : worldChunks_)
       if (kv.second->vertex_count) drawDepth(*kv.second);
+  // Helipad platforms cast shadows too (each has its own model transform).
+  if (helipadDisk_.vertex_count)
+    for (const QVector3D& pad : helipads_) {
+      progDepth_.setUniformValue(ud_lightmvp_, lightVP_ * helipadModel(pad));
+      QOpenGLVertexArrayObject::Binder b(&helipadDisk_.vao);
+      glDrawArrays(GL_TRIANGLES, 0, helipadDisk_.vertex_count);
+    }
   progDepth_.release();
 
   glBindFramebuffer(GL_FRAMEBUFFER, defaultFramebufferObject());
@@ -814,6 +855,8 @@ void SimRendererWidget::drawLit(const Mesh& m, const QMatrix4x4& view,
   progLit_.setUniformValue(ul_lightvp_, lightVP_);
   progLit_.setUniformValue(ul_shadowon_, shadowOn_ ? 1.0f : 0.0f);
   progLit_.setUniformValue(ul_shadowtex_, 1);   // sampler on texture unit 1
+  progLit_.setUniformValue(ul_sunint_, litSunInt_);
+  progLit_.setUniformValue(ul_ambstr_, litAmbStr_);
   glActiveTexture(GL_TEXTURE1);
   glBindTexture(GL_TEXTURE_2D, shadowTex_);
   glActiveTexture(GL_TEXTURE0);
@@ -1000,6 +1043,66 @@ void SimRendererWidget::buildObstacleMeshes() {
     }
     uploadLitMesh(unitCyl_, v);
   }
+}
+
+void SimRendererWidget::buildHelipadMeshes() {
+  const QVector3D up(0, 0, -1);  // NED up
+  auto pushUp = [](std::vector<float>& v, const QVector3D& p, const QVector3D& n) {
+    v.insert(v.end(), {p.x(), p.y(), p.z(), n.x(), n.y(), n.z()});
+  };
+  // --- platform: radius 1, local z in [-1 (top/landing) .. 0 (base/terrain)] ---
+  {
+    std::vector<float> v;
+    const int N = 32;
+    const float zt = -1.0f, zb = 0.0f;
+    for (int j = 0; j < N; ++j) {
+      const double a0 = 2 * M_PI * j / N, a1 = 2 * M_PI * (j + 1) / N;
+      const QVector3D n0(std::cos(a0), std::sin(a0), 0),
+          n1(std::cos(a1), std::sin(a1), 0);
+      const QVector3D bt0(n0.x(), n0.y(), zt), bb0(n0.x(), n0.y(), zb),
+          bt1(n1.x(), n1.y(), zt), bb1(n1.x(), n1.y(), zb);
+      // side wall (outward normals)
+      pushUp(v, bb0, n0); pushUp(v, bb1, n1); pushUp(v, bt1, n1);
+      pushUp(v, bb0, n0); pushUp(v, bt1, n1); pushUp(v, bt0, n0);
+      // top cap (up-facing)
+      pushUp(v, QVector3D(0, 0, zt), up); pushUp(v, bt0, up); pushUp(v, bt1, up);
+    }
+    uploadLitMesh(helipadDisk_, v);
+  }
+  // --- mark: "H" + ring border, flat just above the top, up-facing (white) ---
+  {
+    std::vector<float> v;
+    // Sit a FIXED ~2 cm above the deck regardless of pad height: the local z is
+    // scaled by kHelipadHeightM at draw time, so divide the world clearance out
+    // here (otherwise a taller pad floats the "H" up off the deck).
+    const float z = -1.0f - 0.02f / kHelipadHeightM;
+    auto quad = [&](float x0, float x1, float y0, float y1) {
+      const QVector3D a(x0, y0, z), b(x1, y0, z), c(x1, y1, z), d(x0, y1, z);
+      for (const QVector3D& p : {a, b, c}) pushUp(v, p, up);
+      for (const QVector3D& p : {a, c, d}) pushUp(v, p, up);
+    };
+    quad(-0.40f, -0.20f, -0.55f, 0.55f);  // H left bar
+    quad(0.20f, 0.40f, -0.55f, 0.55f);    // H right bar
+    quad(-0.20f, 0.20f, -0.12f, 0.12f);   // H crossbar
+    const int N = 48;
+    const float ri = 0.80f, ro = 0.92f;   // ring border annulus
+    auto rv = [&](float r, double a) {
+      return QVector3D(r * std::cos(a), r * std::sin(a), z);
+    };
+    for (int j = 0; j < N; ++j) {
+      const double a0 = 2 * M_PI * j / N, a1 = 2 * M_PI * (j + 1) / N;
+      const QVector3D i0 = rv(ri, a0), o0 = rv(ro, a0), i1 = rv(ri, a1),
+                      o1 = rv(ro, a1);
+      for (const QVector3D& p : {i0, o0, o1}) pushUp(v, p, up);
+      for (const QVector3D& p : {i0, o1, i1}) pushUp(v, p, up);
+    }
+    uploadLitMesh(helipadMark_, v);
+  }
+}
+
+void SimRendererWidget::setHelipads(const std::vector<QVector3D>& pads) {
+  helipads_ = pads;
+  update();
 }
 
 void SimRendererWidget::setObstacles(const QVector<vsim::Obstacle>& obs) {

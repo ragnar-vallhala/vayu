@@ -82,7 +82,10 @@ PgVec3 TerrainField::color(float h, float flatness) const {
   const float steep = clamp01(1.0f - flatness);   // 0 flat .. 1 vertical
   // Muted, overcast palette to match the moody grass: darker desaturated greens,
   // earthy soil, cool grey rock, and cool (not blown-out) snow.
-  const PgVec3 green{0.15f, 0.29f, 0.11f};
+  // Grassy ground matches the CANOPY-FLOOR colour at the base of the GPU blades
+  // (GpuGrass root ~vec3(0.05,0.14,0.09)) so the ground showing between blades
+  // reads as the same shaded floor, not a lighter gap.
+  const PgVec3 green{0.06f, 0.15f, 0.09f};
   const PgVec3 brown{0.29f, 0.23f, 0.15f};
   const PgVec3 rock {0.33f, 0.33f, 0.32f};
   const PgVec3 snow {0.80f, 0.83f, 0.88f};

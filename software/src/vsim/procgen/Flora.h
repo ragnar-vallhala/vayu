@@ -27,7 +27,7 @@ struct FloraInstance {
 
 struct FloraParams {
   uint32_t seed = 1337u;
-  float spacing = 0.15f;       // grid spacing between blades [m] (dense meadow)
+  float spacing = 0.20f;       // grid spacing between blades [m] (dense meadow)
   float jitter = 0.9f;         // positional jitter (fraction of spacing)
   float grassMaxFrac = 0.5f;   // grass fades out by this fraction of heightM
   // Slope (flatness in [0,1], 1 = flat) where grass density ramps in: none below
@@ -36,10 +36,27 @@ struct FloraParams {
   float slopeHi = 0.93f;
   // Extra blades scattered per grid cell — multiplies density much more cheaply
   // than shrinking the spacing (the field grid is sampled once per cell).
-  float bladesPerCell = 4.0f;  // denser carpet (no black gaps between blades)
+  float bladesPerCell = 2.0f;  // carpet density (camera-facing fraction fills gaps)
   float heightMean = 1.4f;     // blade height: normal distribution [m]
   float heightStdDev = 0.3f;
-  float flowerFrac = 0.006f;   // sparse flowers (more reads as litter in a dense field)
+  float flowerFrac = 0.01f;    // sparse flowers (more reads as litter in a dense field)
+};
+
+// Live look/shading knobs for the GPU grass + terrain lighting. These drive
+// shader uniforms (per-frame), so edits take effect immediately — no terrain
+// regeneration needed. Defaults reproduce the tuned Ghost-of-Tsushima look.
+struct GrassLook {
+  // Lighting — shared by grass and terrain.
+  float sunIntensity = 1.0f;     // multiplies the directional sun (key light)
+  float ambientStrength = 1.0f;  // multiplies the sky/hemisphere ambient fill
+  // Grass shading.
+  float brightness = 1.0f;       // multiplies grass albedo (overall green level)
+  float tipWarmth = 0.55f;       // yellow-green warming toward the lit tips
+  float backlight = 1.0f;        // subsurface backlight (SSS) when sun is behind
+  float sheen = 1.0f;            // waxy specular sheen along lit blades
+  float veinStrength = 1.0f;     // midrib highlight + curled-edge shade (the vein)
+  float rootDarkness = 0.14f;    // ambient-occlusion floor at the blade base (lower = darker)
+  float faceCameraFrac = 0.35f;  // fraction of blades turned broadside to the camera
 };
 
 // Scatter blades over chunk (cx, cy) spanning [cx*chunkM,(cx+1)*chunkM]^2.

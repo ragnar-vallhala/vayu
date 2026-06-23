@@ -52,6 +52,16 @@ class SimRendererWidget : public QOpenGLWidget, protected QOpenGLExtraFunctions 
   // Stored + redrawn each frame; safe to call from the UI thread.
   void setObstacles(const QVector<vsim::Obstacle>& obs);
 
+  // Helipad landing platforms: cylinder pads marked "H", scattered on flat
+  // ground. Each entry is (worldX, worldY, terrainHeight) — terrainHeight is the
+  // positive elevation. The pad is a tall cylinder whose base is BURIED below the
+  // surface and whose deck sits kHelipadDeckM ABOVE it, so the deck reliably
+  // clears undulating terrain (a thin flush pad gets swallowed by the ground).
+  static constexpr float kHelipadRadiusM = 3.0f;
+  static constexpr float kHelipadDeckM   = 0.90f;  // deck height above terrain
+  static constexpr float kHelipadHeightM = 2.20f;  // total cylinder (deck + skirt)
+  void setHelipads(const std::vector<QVector3D>& pads);
+
   // Training course: glowing halo gates to fly through. setTrainingGates
   // replaces the gate layout; setTrainingActive updates which gate to aim for
   // (highlighted) and whether to draw the guidance arrow (drone -> next gate).
@@ -97,6 +107,13 @@ class SimRendererWidget : public QOpenGLWidget, protected QOpenGLExtraFunctions 
     gpuGrass_.setParams(p);
   }
   void setGpuGrassActive(bool on) { gpuGrassActive_ = on; update(); }
+  // Terrain lighting look knobs — kept in sync with the grass GrassLook so the
+  // ground and grass warm/brighten together. Applied live in drawLit.
+  void setTerrainLook(float sunIntensity, float ambientStrength) {
+    litSunInt_ = sunIntensity;
+    litAmbStr_ = ambientStrength;
+    update();
+  }
   // World-space XY the terrain streamer should centre on: the free-fly camera
   // when roaming (sim stopped), otherwise the drone. Lets endless terrain follow
   // both WASD navigation and actual flight.
@@ -169,6 +186,7 @@ class SimRendererWidget : public QOpenGLWidget, protected QOpenGLExtraFunctions 
 
   void buildGroundGrid();
   void buildObstacleMeshes();   // unit box / sphere / cylinder (pos+normal)
+  void buildHelipadMeshes();    // unit pad platform + "H"/ring mark (pos+normal)
   void buildAxes();
   void buildDroneBody();
   void buildRotorDisk();
@@ -249,6 +267,10 @@ class SimRendererWidget : public QOpenGLWidget, protected QOpenGLExtraFunctions 
   int ul_lightvp_    = -1;
   int ul_shadowtex_  = -1;
   int ul_shadowon_   = -1;
+  int ul_sunint_     = -1;
+  int ul_ambstr_     = -1;
+  float litSunInt_   = 1.0f;   // terrain lighting look knobs (match grass)
+  float litAmbStr_   = 1.0f;
 
   // Shadow map: a directional depth buffer rendered from the sun's view each
   // frame (terrain casters); lit terrain + grass sample it to drop into shade.
@@ -297,6 +319,9 @@ class SimRendererWidget : public QOpenGLWidget, protected QOpenGLExtraFunctions 
   Mesh unitBox_;       // [-0.5,0.5]^3, pos+normal (lit) — scaled per obstacle
   Mesh unitSphere_;    // radius-1 UV sphere, pos+normal
   Mesh unitCyl_;       // radius-1, height-1 cylinder (+caps), pos+normal
+  Mesh helipadDisk_;   // radius-1 pad platform, local z in [-1(top)..0(base)]
+  Mesh helipadMark_;   // flat "H" + ring on the pad top (white), pos+normal
+  std::vector<QVector3D> helipads_;  // (x, y, terrainHeight) per pad
   QVector<vsim::Obstacle> obstacles_;
   Mesh axes_;
   Mesh body_;
