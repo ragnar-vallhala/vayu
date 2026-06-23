@@ -338,7 +338,7 @@ void GpuGrass::buildBlade(QOpenGLExtraFunctions* gl) {
   // — the defining GoT meadow-grass shape. The curve peaks near z=-0.8 (t~0.64)
   // and the tip falls back to z=-0.55, sweeping out to x=1.0 (then per-blade bend
   // + yaw orient it). Mirrors the conceptual CPU blade.
-  const float wb = 0.075f;  // half-width of the strap at its widest
+  const float wb = 0.040f;  // half-width: slender strap (was too card-like at 0.075)
   const float P0x = 0, P0z = 0, P1x = 0.16f, P1z = -1.25f, P2x = 1.0f, P2z = -0.55f;
   auto bez = [&](float t, float& x, float& z) {
     float u = 1 - t;
