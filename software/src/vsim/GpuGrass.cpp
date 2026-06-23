@@ -272,8 +272,11 @@ void main(){
 // Four rings with gentle (~2.4x) steps instead of three with 4x steps: the
 // density contrast at each crossover is far smaller, so the dense->sparse
 // handoff no longer reads as a tonal band/seam, while still reaching the horizon.
-static constexpr int kNumRings = 4;
+static constexpr int kNumRings = GpuGrass::kRings;
 static constexpr float kRingMul[kNumRings] = {1.0f, 2.5f, 6.0f, 14.0f};
+// Blade segment count per ring (LOD): near rings get a smooth arch, far rings a
+// coarse 2-quad blade — far blades are tiny on screen so the silhouette holds.
+static constexpr int kRingSeg[kNumRings] = {5, 4, 3, 2};
 
 GpuGrass::~GpuGrass() = default;
 
@@ -296,26 +299,28 @@ bool GpuGrass::init(QOpenGLExtraFunctions* gl) {
   }
   qInfo("[GpuGrass] ready (compute + indirect).");
 
-  gl->glGenBuffers(1, &ssbo_);
-  gl->glGenBuffers(1, &indirect_);
-  gl->glGenBuffers(1, &counter_);
+  gl->glGenBuffers(kNumRings, ssbo_);
+  gl->glGenBuffers(kNumRings, indirect_);
+  gl->glGenBuffers(kNumRings, counter_);
 
-  // Allocate the instance buffer BEFORE wiring its vertex attributes (some
-  // drivers ignore attribs pointing at an unallocated buffer).
-  maxBlades_ = kNumRings * params_.grid * params_.grid;
-  gl->glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo_);
-  gl->glBufferData(GL_SHADER_STORAGE_BUFFER,
-                   GLsizeiptr(maxBlades_) * 12 * sizeof(float), nullptr,
-                   GL_DYNAMIC_DRAW);
-  buildBlade(gl);
-
-  gl->glBindBuffer(GL_ATOMIC_COUNTER_BUFFER, counter_);
+  // Each ring owns a buffer holding up to one grid's worth of blades (a candidate
+  // appends at most once). Allocate it BEFORE wiring its vertex attributes (some
+  // drivers ignore attribs pointing at an unallocated buffer), then build that
+  // ring's LOD blade mesh + VAO bound to it.
+  maxBladesPerRing_ = params_.grid * params_.grid;
   const unsigned int zero = 0u;
-  gl->glBufferData(GL_ATOMIC_COUNTER_BUFFER, sizeof(zero), &zero, GL_DYNAMIC_DRAW);
-
-  gl->glBindBuffer(GL_DRAW_INDIRECT_BUFFER, indirect_);
   const unsigned int cmd[4] = {0u, 0u, 0u, 0u};
-  gl->glBufferData(GL_DRAW_INDIRECT_BUFFER, sizeof(cmd), cmd, GL_DYNAMIC_DRAW);
+  for (int i = 0; i < kNumRings; ++i) {
+    gl->glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo_[i]);
+    gl->glBufferData(GL_SHADER_STORAGE_BUFFER,
+                     GLsizeiptr(maxBladesPerRing_) * 12 * sizeof(float), nullptr,
+                     GL_DYNAMIC_DRAW);
+    buildBlade(gl, i, kRingSeg[i]);
+    gl->glBindBuffer(GL_ATOMIC_COUNTER_BUFFER, counter_[i]);
+    gl->glBufferData(GL_ATOMIC_COUNTER_BUFFER, sizeof(zero), &zero, GL_DYNAMIC_DRAW);
+    gl->glBindBuffer(GL_DRAW_INDIRECT_BUFFER, indirect_[i]);
+    gl->glBufferData(GL_DRAW_INDIRECT_BUFFER, sizeof(cmd), cmd, GL_DYNAMIC_DRAW);
+  }
 
   // R32F terrain-height image (immutable storage, point access via imageLoad).
   gl->glGenTextures(1, &heightTex_);
@@ -331,9 +336,7 @@ bool GpuGrass::init(QOpenGLExtraFunctions* gl) {
 
 void GpuGrass::setParams(const Params& p) { params_ = p; }
 
-void GpuGrass::buildBlade(QOpenGLExtraFunctions* gl) {
-  // Bezier ribbon blade with per-vertex normals (single LOD; the GPU regenerates
-  // every frame so a moderate vertex count is fine). Mirrors the CPU blade.
+void GpuGrass::buildBlade(QOpenGLExtraFunctions* gl, int ring, int segments) {
   // Strap-leaf blade that RISES then ARCHES OVER (tip droops well below the apex)
   // — the defining GoT meadow-grass shape. The curve peaks near z=-0.8 (t~0.64)
   // and the tip falls back to z=-0.55, sweeping out to x=1.0 (then per-blade bend
@@ -359,7 +362,7 @@ void GpuGrass::buildBlade(QOpenGLExtraFunctions* gl) {
     float baseNarrow = 0.50f + 0.50f * (s * s * (3.0f - 2.0f * s));
     return wb * std::pow(1.0f - t, 0.40f) * baseNarrow;
   };
-  const int kSeg = 5;  // a touch more curve resolution for the smooth arch
+  const int kSeg = segments;  // LOD: fewer segments for far rings
   std::vector<float> v;
   auto vert = [&](float x, float y, float z, float nx, float nz) {
     v.insert(v.end(), {x, y, z, nx, 0.0f, nz});
@@ -373,24 +376,24 @@ void GpuGrass::buildBlade(QOpenGLExtraFunctions* gl) {
     vert(x0, +w0, z0, n0x, n0z); vert(x0, -w0, z0, n0x, n0z); vert(x1, -w1, z1, n1x, n1z);
     vert(x0, +w0, z0, n0x, n0z); vert(x1, -w1, z1, n1x, n1z); vert(x1, +w1, z1, n1x, n1z);
   }
-  bladeVerts_ = int(v.size() / 6);
-  bladeVbo_.create();
-  bladeVbo_.bind();
-  bladeVbo_.allocate(v.data(), int(v.size() * sizeof(float)));
-  vao_.create();
-  vao_.bind();
-  // Per-vertex blade geometry (divisor 0) from bladeVbo_.
+  bladeVerts_[ring] = int(v.size() / 6);
+  bladeVbo_[ring].create();
+  bladeVbo_[ring].bind();
+  bladeVbo_[ring].allocate(v.data(), int(v.size() * sizeof(float)));
+  vao_[ring].create();
+  vao_[ring].bind();
+  // Per-vertex blade geometry (divisor 0) from this ring's LOD VBO.
   const int gstride = 6 * sizeof(float);
   gl->glEnableVertexAttribArray(0);
   gl->glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, gstride, nullptr);
   gl->glEnableVertexAttribArray(1);
   gl->glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, gstride,
                             reinterpret_cast<void*>(3 * sizeof(float)));
-  bladeVbo_.release();
+  bladeVbo_[ring].release();
   // Per-instance blade data (divisor 1) read from the SAME buffer the compute
   // writes — but as vertex attributes, which avoids the (often unsupported)
   // SSBO-read-in-vertex-shader. Layout: 3 vec4 = 48 bytes per blade.
-  gl->glBindBuffer(GL_ARRAY_BUFFER, ssbo_);
+  gl->glBindBuffer(GL_ARRAY_BUFFER, ssbo_[ring]);
   const int istride = 12 * sizeof(float);
   gl->glEnableVertexAttribArray(2);
   gl->glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, istride, nullptr);
@@ -404,7 +407,7 @@ void GpuGrass::buildBlade(QOpenGLExtraFunctions* gl) {
                             reinterpret_cast<void*>(8 * sizeof(float)));
   gl->glVertexAttribDivisor(4, 1);
   gl->glBindBuffer(GL_ARRAY_BUFFER, 0);
-  vao_.release();
+  vao_[ring].release();
 }
 
 void GpuGrass::render(QOpenGLExtraFunctions* gl, const QMatrix4x4& proj,
@@ -412,26 +415,20 @@ void GpuGrass::render(QOpenGLExtraFunctions* gl, const QMatrix4x4& proj,
                       const QVector3D& sunDir, float time) {
   if (!ready_) return;
 
-  // Grow the instance buffer if the grid was enlarged.
-  const int need = kNumRings * params_.grid * params_.grid;
-  if (need != maxBlades_) {
-    maxBlades_ = need;
-    gl->glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo_);
-    gl->glBufferData(GL_SHADER_STORAGE_BUFFER,
-                     GLsizeiptr(maxBlades_) * 12 * sizeof(float), nullptr,
-                     GL_DYNAMIC_DRAW);
+  // Grow the per-ring instance buffers if the grid was enlarged.
+  const int need = params_.grid * params_.grid;
+  if (need != maxBladesPerRing_) {
+    maxBladesPerRing_ = need;
+    for (int i = 0; i < kNumRings; ++i) {
+      gl->glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo_[i]);
+      gl->glBufferData(GL_SHADER_STORAGE_BUFFER,
+                       GLsizeiptr(maxBladesPerRing_) * 12 * sizeof(float), nullptr,
+                       GL_DYNAMIC_DRAW);
+    }
   }
 
   const QMatrix4x4 vp = proj * view;
-
-  // Reset the indirect command {vertexCount, instanceCount=0, first=0, base=0}
-  // and the atomic counter to 0 — ONCE; both rings accumulate into them.
-  const unsigned int cmd[4] = {static_cast<unsigned int>(bladeVerts_), 0u, 0u, 0u};
-  gl->glBindBuffer(GL_DRAW_INDIRECT_BUFFER, indirect_);
-  gl->glBufferSubData(GL_DRAW_INDIRECT_BUFFER, 0, sizeof(cmd), cmd);
   const unsigned int zero = 0u;
-  gl->glBindBuffer(GL_ATOMIC_COUNTER_BUFFER, counter_);
-  gl->glBufferSubData(GL_ATOMIC_COUNTER_BUFFER, 0, sizeof(zero), &zero);
 
   // Concentric density rings: a dense near ring, then coarser rings that carry
   // grass to the horizon. Each fades smoothly before its grid edge; each outer
@@ -455,7 +452,16 @@ void GpuGrass::render(QOpenGLExtraFunctions* gl, const QMatrix4x4& proj,
   const float farRadius =
       float(params_.grid) * params_.cell * kRingMul[kNumRings - 1] * 0.5f;
 
-  for (const Ring& ring : rings) {
+  for (int i = 0; i < kNumRings; ++i) {
+    const Ring& ring = rings[i];
+    // Reset this ring's indirect command {vertexCount, instanceCount=0, ..} and
+    // its atomic counter before the grass pass appends into them.
+    const unsigned int cmd[4] = {static_cast<unsigned int>(bladeVerts_[i]), 0u, 0u, 0u};
+    gl->glBindBuffer(GL_DRAW_INDIRECT_BUFFER, indirect_[i]);
+    gl->glBufferSubData(GL_DRAW_INDIRECT_BUFFER, 0, sizeof(cmd), cmd);
+    gl->glBindBuffer(GL_ATOMIC_COUNTER_BUFFER, counter_[i]);
+    gl->glBufferSubData(GL_ATOMIC_COUNTER_BUFFER, 0, sizeof(zero), &zero);
+
     // Anchor the grid to world cells (not the camera) so the blade field stays
     // fixed and the camera moves through it.
     const int originCellX = int(std::floor(camPos.x() / ring.cell));
@@ -500,7 +506,7 @@ void GpuGrass::render(QOpenGLExtraFunctions* gl, const QMatrix4x4& proj,
     comp_.setUniformValue("u_cell", ring.cell);
     comp_.setUniformValue("u_G", params_.grid);
     comp_.setUniformValue("u_texSize", texSize_);
-    comp_.setUniformValue("u_maxBlades", maxBlades_);
+    comp_.setUniformValue("u_maxBlades", maxBladesPerRing_);
     comp_.setUniformValue("u_regionMin", regionMin);
     comp_.setUniformValue("u_regionSize", regionSize);
     comp_.setUniformValue("u_camPos", camPos);
@@ -511,23 +517,23 @@ void GpuGrass::render(QOpenGLExtraFunctions* gl, const QMatrix4x4& proj,
     comp_.setUniformValue("u_innerEnd", ring.innerEnd);
     comp_.setUniformValue("u_farRadius", farRadius);
     gl->glBindImageTexture(0, heightTex_, 0, GL_FALSE, 0, GL_READ_ONLY, GL_R32F);
-    gl->glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, ssbo_);
-    gl->glBindBufferBase(GL_ATOMIC_COUNTER_BUFFER, 1, counter_);
+    gl->glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, ssbo_[i]);
+    gl->glBindBufferBase(GL_ATOMIC_COUNTER_BUFFER, 1, counter_[i]);
     const int groups = (params_.grid + 15) / 16;
     gl->glDispatchCompute(groups, groups, 1);
     gl->glMemoryBarrier(GL_ALL_BARRIER_BITS);
     comp_.release();
-  }
 
-  // Copy the generated count into the indirect command's instanceCount (offset
-  // 4). A dedicated counter buffer is far more portable than aliasing the
-  // indirect buffer as an atomic-counter buffer.
-  gl->glBindBuffer(GL_COPY_READ_BUFFER, counter_);
-  gl->glBindBuffer(GL_COPY_WRITE_BUFFER, indirect_);
-  gl->glCopyBufferSubData(GL_COPY_READ_BUFFER, GL_COPY_WRITE_BUFFER, 0, 4, 4);
+    // Copy this ring's generated count into its indirect command's instanceCount
+    // (offset 4). A dedicated counter buffer is far more portable than aliasing
+    // the indirect buffer as an atomic-counter buffer.
+    gl->glBindBuffer(GL_COPY_READ_BUFFER, counter_[i]);
+    gl->glBindBuffer(GL_COPY_WRITE_BUFFER, indirect_[i]);
+    gl->glCopyBufferSubData(GL_COPY_READ_BUFFER, GL_COPY_WRITE_BUFFER, 0, 4, 4);
+  }
   gl->glMemoryBarrier(GL_ALL_BARRIER_BITS);
 
-  // --- draw ---
+  // --- draw: one indirect draw per ring with its own LOD blade mesh ---
   draw_.bind();
   draw_.setUniformValue("u_vp", vp);
   draw_.setUniformValue("u_campos", camPos);
@@ -538,10 +544,12 @@ void GpuGrass::render(QOpenGLExtraFunctions* gl, const QMatrix4x4& proj,
   draw_.setUniformValue("u_sundir", sunDir);
   draw_.setUniformValue("u_fogdensity", 1.0f / 420.0f);
   draw_.setUniformValue("u_fogstart", 45.0f);
-  vao_.bind();  // per-instance blade data read as vertex attributes (no SSBO read)
-  gl->glBindBuffer(GL_DRAW_INDIRECT_BUFFER, indirect_);
-  gl->glDrawArraysIndirect(GL_TRIANGLES, nullptr);
-  vao_.release();
+  for (int i = 0; i < kNumRings; ++i) {
+    vao_[i].bind();  // ring LOD mesh + ring instance buffer (no SSBO read)
+    gl->glBindBuffer(GL_DRAW_INDIRECT_BUFFER, indirect_[i]);
+    gl->glDrawArraysIndirect(GL_TRIANGLES, nullptr);
+    vao_[i].release();
+  }
   draw_.release();
 }
 

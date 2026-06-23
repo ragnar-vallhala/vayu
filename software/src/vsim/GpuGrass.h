@@ -52,8 +52,14 @@ class GpuGrass {
               const QMatrix4x4& view, const QVector3D& camPos,
               const QVector3D& sunDir, float time);
 
+ public:
+  // Concentric density rings (dense near .. coarse far) each get their own
+  // instance buffer + indirect draw + a lower-LOD blade mesh (fewer segments
+  // with distance), so far blades cost a fraction of the near ones.
+  static constexpr int kRings = 4;
+
  private:
-  void buildBlade(QOpenGLExtraFunctions* gl);
+  void buildBlade(QOpenGLExtraFunctions* gl, int ring, int segments);
 
   bool ready_ = false;
   Params params_;
@@ -62,14 +68,13 @@ class GpuGrass {
   QOpenGLShaderProgram draw_;   // render
   unsigned int heightTex_ = 0;  // R32F terrain-height image around the camera
   int texSize_ = 512;
-  unsigned int ssbo_ = 0;       // blade instances (binding 0)
-  unsigned int indirect_ = 0;   // DrawArraysIndirectCommand
-  unsigned int counter_ = 0;    // dedicated atomic counter (copied into indirect)
-  unsigned int lastCount_ = 0;  // blades generated last frame (diagnostic)
-  QOpenGLBuffer bladeVbo_{QOpenGLBuffer::VertexBuffer};  // shared blade geometry
-  QOpenGLVertexArrayObject vao_;
-  int bladeVerts_ = 0;
-  int maxBlades_ = 0;
+  unsigned int ssbo_[kRings] = {0};      // per-ring blade instances
+  unsigned int indirect_[kRings] = {0};  // per-ring DrawArraysIndirectCommand
+  unsigned int counter_[kRings] = {0};   // per-ring atomic counter (-> indirect)
+  QOpenGLBuffer bladeVbo_[kRings];       // per-ring LOD blade geometry
+  QOpenGLVertexArrayObject vao_[kRings];
+  int bladeVerts_[kRings] = {0};
+  int maxBladesPerRing_ = 0;
 };
 
 }  // namespace vsim
