@@ -39,7 +39,7 @@
 #include <WiFiUdp.h>
 #include <WiFiManager.h>
 
-#define FC_BAUD     230400
+#define FC_BAUD     460800  // must match the FC's UART_BAUDRATE (vaios_app_config.h)
 #define UDP_PORT    14555
 #define CFG_PORTAL  "vayu-config"
 // Datagram cap. Coalescing more whole frames per datagram is what raises the
@@ -66,7 +66,11 @@ IPAddress gcsIp(0, 0, 0, 0);
 bool haveGcs = false;
 bool wifiUp = false;
 
-uint8_t acc[2048];  // writer side: raw UART bytes awaiting framing
+uint8_t acc[4096];  // writer side: raw UART bytes awaiting framing. 4 KiB (was 2 KiB)
+                    // to absorb a WiFi-TX stall at the higher baud without overflow:
+                    // at 460800 (~46 B/ms) 4 KiB buffers ~89 ms of stall (cf. ~22 ms for
+                    // 2 KiB at the old 230400). This + the matching RX ring below is what
+                    // lets us raise baud past the old ESP cap. docs/plans/link-bandwidth-boost.md
 int accLen = 0;
 uint8_t out[MAX_UDP]; // reader side: whole frames packed for one datagram
 int outLen = 0;
@@ -93,8 +97,9 @@ static void flushOut() {
 
 void setup() {
   // UART0: FC telemetry IN, swapped to GPIO13/15 so GPIO1/3 stay free for USB
-  // flashing. Big RX ring so a WiFi TX stall can't overflow it mid-frame.
-  Serial.setRxBufferSize(2048);
+  // flashing. Big RX ring so a WiFi TX stall can't overflow it mid-frame. 4 KiB
+  // (was 2 KiB) to survive the higher FC_BAUD — see the acc[] note above.
+  Serial.setRxBufferSize(4096);
   Serial.begin(FC_BAUD);
   Serial.swap();
   // UART1: commands OUT to the FC on GPIO2 (TX-only, safe boot strap).

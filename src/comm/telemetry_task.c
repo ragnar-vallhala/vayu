@@ -24,6 +24,20 @@
 /* Owned here; the TX seam (navlink_tx.c) and RX router both extern it. */
 channel_t g_telemetry_channel = {0};
 
+/* Telemetry stream gating expressed in MILLISECONDS, decoupled from the loop tick
+ * (TELEM_BASE_MS). Lowering TELEM_BASE_MS runs the loop faster and spreads
+ * emissions over more, smaller iterations — smaller channel-buffer bursts ->
+ * smoother/faster flushing — WITHOUT changing any stream's effective rate (at the
+ * old 6 ms tick these reproduce the original tick periods exactly).
+ *   TELEM_TICKS(ms)              : period in ticks, floored at 1.
+ *   TELEM_GATE(cnt, ms, phase_ms): true once per `ms`, phase-shifted by `phase_ms`
+ *     so streams that share a period don't all fire on the same tick. */
+#define TELEM_TICKS(ms) \
+  (((uint32_t)(ms) / TELEM_BASE_MS) ? ((uint32_t)(ms) / TELEM_BASE_MS) : 1u)
+#define TELEM_GATE(cnt, ms, phase_ms)              \
+  (((cnt) % TELEM_TICKS(ms)) ==                    \
+   (((uint32_t)(phase_ms) / TELEM_BASE_MS) % TELEM_TICKS(ms)))
+
 void imu_telemetry_task(void *args) {
   (void)args;
   static bmx160_all_reading_t samples;
@@ -57,23 +71,20 @@ void imu_telemetry_task(void *args) {
       current_floats[9] = (float)samples.converted.temp;
     }
 
-    // Base loop is v_delay(6) below => ~166 Hz tick.
-    // COMM-TEL-002 / SYS-TEL-001: heartbeat must be >= 1 Hz. 166 ticks x
-    // 6 ms = 996 ms => 1.004 Hz (the previous 150 ticks = 900 ms = 1.11 Hz
-    // was mislabelled "1 Hz"; 166 is the closest period to 1 s that still
-    // satisfies >= 1 Hz).
-#define HEARTBEAT_PERIOD_TICKS 166
-    bool send_heartbeat = (packet_counter % HEARTBEAT_PERIOD_TICKS == 0); // ~1 Hz
-    bool send_full = (packet_counter % 100 == 0);      // 1 Hz
-    bool send_comp = (packet_counter % 6 == 0);        // 25 Hz
-    bool send_att = (packet_counter % 15 == 0);        // 10 Hz
-    bool send_rc = (packet_counter % 15 == 0);         // 10 Hz
-    bool send_status = (packet_counter % 50 == 0);     // 2 Hz
-    bool send_motor = (packet_counter % 8 == 0);       // 18 Hz
-    bool send_pid_err = (packet_counter % 8 == 0);     // 18 Hz
-    bool send_log = (packet_counter % 10 == 0);        // 15 Hz
-    bool send_baro = (packet_counter % 15 == 0);       // 10 Hz
-    bool send_vert = (packet_counter % 15 == 0);        // 10 Hz (fused vertical)
+    /* Per-stream emission gating in ms (see TELEM_GATE above). Effective rates
+     * match the historical tick periods; same-period streams are phase-staggered
+     * (the phase_ms arg) so a faster loop yields smaller per-tick bursts. Heartbeat
+     * rides send_status (>= 1 Hz, COMM-TEL-002 / SYS-TEL-001). */
+    bool send_full    = TELEM_GATE(packet_counter, 600, 0);  // ~1.7 Hz
+    bool send_comp    = TELEM_GATE(packet_counter, 20, 0);   // 50 Hz
+    bool send_att     = TELEM_GATE(packet_counter, 20, 5);   // 50 Hz (staggered)
+    bool send_motor   = TELEM_GATE(packet_counter, 20, 10);  // 50 Hz (staggered)
+    bool send_pid_err = TELEM_GATE(packet_counter, 20, 15);  // 50 Hz (staggered, CONTROL_TRACE)
+    bool send_rc      = TELEM_GATE(packet_counter, 90, 22);  // ~11 Hz
+    bool send_baro    = TELEM_GATE(packet_counter, 200, 0);  // 5 Hz
+    bool send_vert    = TELEM_GATE(packet_counter, 200, 100);// 5 Hz (staggered)
+    bool send_status  = TELEM_GATE(packet_counter, 300, 12); // ~3.3 Hz
+    bool send_log     = TELEM_GATE(packet_counter, 60, 30);  // ~17 Hz
 
     /* While dumping the system-ID capture, hand the bridge's ~150 pkt/s budget
      * to the dump: suppress the heavy periodic telemetry so the chunks aren't
@@ -92,7 +103,6 @@ void imu_telemetry_task(void *args) {
         navlink_tx_log(log_buf, len);
       }
     }
-    (void)send_heartbeat; /* heartbeat now rides the send_status gate below */
     if (send_status) {
       /* v2 HEARTBEAT carries nav_state (folds in the former SYS_STATE origin);
        * emitted at the status cadence so the vehicle-state pill stays responsive
@@ -184,6 +194,9 @@ void imu_telemetry_task(void *args) {
       navlink_tx_vertical_state(&vert_data);
     }
     packet_counter++;
-    v_delay(6); // ~166 Hz
+    /* Loop/flush granularity (~500 Hz at TELEM_BASE_MS=2). Per-stream rates are set by
+     * the ms-based TELEM_GATE above and are independent of this tick — a smaller tick
+     * just flushes smaller bursts more often. See vaios_app_config.h. */
+    v_delay(TELEM_BASE_MS);
   }
 }
