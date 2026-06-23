@@ -187,7 +187,8 @@ out vec3 v_color; out vec3 v_world; out vec3 v_normal; out float v_hf; out float
 void main(){
   vec3 ipos=i_posyaw.xyz; float yaw=i_posyaw.w, height=i_hf.x, flower=i_hf.y, bend=i_hf.z;
   float hf=-a_local.z;
-  float d=length(ipos-u_campos);
+  // XY-plane distance ONLY: flying high must not fade out the grass below us.
+  float d=length(ipos.xy-u_campos.xy);
   height*=1.0-clamp((d-u_fadestart)/max(u_fadeend-u_fadestart,1.0),0.0,1.0);
   vec3 L=a_local*height; L.x*=bend; L.xy*=(1.0+flower*hf*hf*0.9);
   float s=sin(yaw),c=cos(yaw);
@@ -234,7 +235,8 @@ void main(){
   // Hemispheric sky ambient: low, cool from above, near-black bounce below — the
   // sun does most of the work so the scene stays directional and moody.
   float hemi=clamp(0.5+0.5*(-n.z),0.0,1.0);
-  vec3 ambient=mix(vec3(0.03,0.04,0.04),vec3(0.15,0.19,0.23),hemi);
+  // Cool teal overcast ambient (shadows read teal, not black) to match the storm sky.
+  vec3 ambient=mix(vec3(0.05,0.08,0.09),vec3(0.18,0.24,0.27),hemi);
 
   // Steep vertical light gradient: the canopy heavily occludes its own base, so
   // the lower blade falls to near-black and the lit band sits high near the tips.

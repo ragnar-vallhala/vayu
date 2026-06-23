@@ -53,16 +53,17 @@ const char* kAtmosphereGLSL = R"GLSL(
 uniform vec3 u_sundir;     // unit direction toward the sun (world, NED)
 vec3 skyColor(vec3 dir) {
   float up = -dir.z;        // NED up is -Z
-  vec3 zenith  = vec3(0.15, 0.35, 0.66);
-  vec3 horizon = vec3(0.80, 0.86, 0.93);
-  vec3 ground  = vec3(0.16, 0.18, 0.22);
+  // Overcast, desaturated grey-teal — the moody storm palette.
+  vec3 zenith  = vec3(0.28, 0.35, 0.38);
+  vec3 horizon = vec3(0.52, 0.57, 0.58);
+  vec3 ground  = vec3(0.10, 0.12, 0.13);
   vec3 col = (up >= 0.0)
-      ? mix(horizon, zenith, pow(clamp(up, 0.0, 1.0), 0.45))
+      ? mix(horizon, zenith, pow(clamp(up, 0.0, 1.0), 0.55))
       : mix(horizon, ground, clamp(-up * 2.5, 0.0, 1.0));
   float s = max(dot(normalize(dir), normalize(u_sundir)), 0.0);
   float aboveHorizon = step(0.0, up);
-  col += vec3(0.42, 0.34, 0.22) * pow(s, 8.0) * aboveHorizon;        // warm glow halo
-  col += vec3(1.0, 0.96, 0.86) * pow(s, 380.0) * aboveHorizon * 1.3; // bright sun disc
+  // Sun is diffused behind cloud: a soft bright bloom, no hard disc.
+  col += vec3(0.30, 0.30, 0.26) * pow(s, 5.0) * aboveHorizon;
   return col;
 }
 )GLSL";
@@ -111,8 +112,9 @@ void main() {
   float wrap = clamp(dot(n, sun) * 0.45 + 0.55, 0.0, 1.0); wrap *= wrap;
   // Hemispheric ambient: NED up is -Z, so up-facing (n.z<0) catches sky light.
   float hemi = 0.5 + 0.5 * (-n.z);                 // 0 down .. 1 up
-  vec3 ambient = mix(vec3(0.03, 0.04, 0.04),
-                     vec3(0.15, 0.19, 0.23), clamp(hemi, 0.0, 1.0));
+  // Cool teal overcast ambient to match the storm sky (shadows read teal).
+  vec3 ambient = mix(vec3(0.05, 0.08, 0.09),
+                     vec3(0.18, 0.24, 0.27), clamp(hemi, 0.0, 1.0));
   vec3 base = u_color * v_color;
   vec3 lit  = base * (ambient + sunCol * wrap * 0.95);
   // Aerial perspective: fade toward the sky behind the surface with distance,
@@ -144,14 +146,39 @@ const char* kSkyFragmentHead = R"GLSL(
 in vec2 v_ndc;
 out vec4 o_color;
 uniform mat4 u_invvp;   // inverse(proj * view)
+uniform float u_time;   // cloud drift clock
 )GLSL";
 
+// Procedural overcast cloud deck layered on the sky gradient. Value-noise fBm is
+// sampled on a parallax-projected dome plane (clouds spread toward the horizon)
+// and drifts slowly with u_time. Kept ONLY in the sky shader so per-pixel fog on
+// terrain/grass stays a cheap gradient (it still fades into the overcast base).
 const char* kSkyFragmentMain = R"GLSL(
+float h21(vec2 p){ p=fract(p*vec2(123.34,345.45)); p+=dot(p,p+34.345); return fract(p.x*p.y); }
+float vnoise(vec2 p){ vec2 i=floor(p),f=fract(p); f=f*f*(3.0-2.0*f);
+  float a=h21(i),b=h21(i+vec2(1,0)),c=h21(i+vec2(0,1)),d=h21(i+vec2(1,1));
+  return mix(mix(a,b,f.x),mix(c,d,f.x),f.y); }
+float cfbm(vec2 p){ float s=0.0,a=0.55; for(int i=0;i<5;++i){ s+=a*vnoise(p); p=p*2.03+11.7; a*=0.5; } return s; }
 void main() {
   vec4 wn = u_invvp * vec4(v_ndc, -1.0, 1.0);
   vec4 wf = u_invvp * vec4(v_ndc,  1.0, 1.0);
   vec3 dir = normalize(wf.xyz / wf.w - wn.xyz / wn.w);
-  o_color = vec4(skyColor(dir), 1.0);
+  float up = clamp(-dir.z, 0.0, 1.0);
+  vec3 sky = skyColor(dir);
+
+  // Parallax-project the ray onto a cloud plane and sample drifting fBm.
+  vec2 cuv = dir.xy / max(-dir.z * 0.65 + 0.12, 0.10);
+  cuv = cuv * 0.9 + u_time * vec2(0.012, 0.005);
+  float cov = cfbm(cuv);
+  cov = smoothstep(0.30, 0.92, cov);          // dense overcast coverage
+  cov *= smoothstep(0.02, 0.22, up);          // no clouds right at the horizon
+  // Cloud shading: dark teal-grey masses, lighter toward the diffused sun.
+  float sunAmt = pow(max(dot(normalize(dir), normalize(u_sundir)), 0.0), 3.0);
+  vec3 darkCloud = vec3(0.15, 0.19, 0.21);
+  vec3 litCloud  = vec3(0.55, 0.59, 0.60);
+  vec3 cloudCol = mix(darkCloud, litCloud, clamp(sunAmt * 0.8 + 0.18, 0.0, 1.0));
+  sky = mix(sky, cloudCol, cov * 0.88);
+  o_color = vec4(sky, 1.0);
 }
 )GLSL";
 
@@ -357,6 +384,7 @@ void SimRendererWidget::initializeGL() {
   progSky_.link();
   us_invvp_ = progSky_.uniformLocation("u_invvp");
   us_sundir_ = progSky_.uniformLocation("u_sundir");
+  us_time_ = progSky_.uniformLocation("u_time");
   skyVao_.create();   // core profile needs a bound VAO even with no attributes
 
   progFlora_.addShaderFromSourceCode(QOpenGLShader::Vertex, kFloraVertexShader);
@@ -503,6 +531,7 @@ void SimRendererWidget::paintGL() {
   progSky_.bind();
   progSky_.setUniformValue(us_invvp_, (proj_ * view).inverted());
   progSky_.setUniformValue(us_sundir_, sunDir_);
+  progSky_.setUniformValue(us_time_, floraTime_);
   skyVao_.bind();
   glDrawArrays(GL_TRIANGLES, 0, 3);
   skyVao_.release();
