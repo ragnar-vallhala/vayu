@@ -24,7 +24,13 @@
  * =========================================================================== */
 #define FS_LOG_PAYLOAD_MAX 256u  /* >= max navlink blackbox record           */
 #define FS_SAVE_PAYLOAD_MAX 160u /* pid_store ~140B; calib hdr(8)+payload(84) */
-#define FS_LOG_QUEUE_CAP 32u     /* ~8.3 KB; absorbs a burst behind one write */
+/* Log lane depth. KEEP SMALL: each slot is FS_LOG_PAYLOAD_MAX+4 bytes of static
+ * BSS, and the STM32F401 (96 KiB SRAM) is RAM-starved — a too-large queue pushes
+ * _heap_start up until the kernel heap's HEAP_SIZE memset runs off the top of RAM
+ * (silent: the linker can't see it), corrupting memory at boot -> HardFault. 4 is
+ * ample for the (currently unused) blackbox path; do NOT raise without checking
+ * _heap_start + HEAP_SIZE <= top-of-RAM on the real build. */
+#define FS_LOG_QUEUE_CAP 4u      /* ~1 KiB. Was 32 (8.3 KiB) — overflowed F401 SRAM. */
 #define FS_SAVE_QUEUE_CAP 4u     /* reserved — logs can never occupy this lane */
 #define FS_POLL_TICKS 5u         /* save-lane latency bound while blocked on logs */
 
