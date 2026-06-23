@@ -37,7 +37,7 @@ struct FloraParams {
   // Extra blades scattered per grid cell — multiplies density much more cheaply
   // than shrinking the spacing (the field grid is sampled once per cell).
   float bladesPerCell = 4.0f;  // denser carpet (no black gaps between blades)
-  float heightMean = 1.0f;     // blade height: normal distribution [m]
+  float heightMean = 1.4f;     // blade height: normal distribution [m]
   float heightStdDev = 0.3f;
   float flowerFrac = 0.006f;   // sparse flowers (more reads as litter in a dense field)
 };
