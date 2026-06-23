@@ -50,7 +50,9 @@ class GpuGrass {
   // matrices; sunDir/time feed lighting + wind.
   void render(QOpenGLExtraFunctions* gl, const QMatrix4x4& proj,
               const QMatrix4x4& view, const QVector3D& camPos,
-              const QVector3D& sunDir, float time);
+              const QVector3D& sunDir, float time,
+              const QMatrix4x4& lightVP = QMatrix4x4(),
+              unsigned int shadowTex = 0, bool shadowOn = false);
 
  public:
   // Concentric density rings (dense near .. coarse far) each get their own

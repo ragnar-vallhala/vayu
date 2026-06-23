@@ -206,10 +206,21 @@ const char* kFrag = R"GLSL(
 in vec3 v_color; in vec3 v_world; in vec3 v_normal; in float v_hf; in float v_flower;
 out vec4 o_color;
 uniform vec3 u_campos, u_sundir; uniform float u_fogdensity, u_fogstart;
+uniform sampler2D u_shadowtex; uniform mat4 u_lightvp; uniform float u_shadowon;
 vec3 skyColor(vec3 dir){
   float up=-dir.z;
   vec3 z=vec3(0.15,0.35,0.66),h=vec3(0.80,0.86,0.93),g=vec3(0.16,0.18,0.22);
   return (up>=0.0)?mix(h,z,pow(clamp(up,0.0,1.0),0.45)):mix(h,g,clamp(-up*2.5,0.0,1.0));
+}
+float shadowFactor(vec3 wpos){
+  if(u_shadowon<0.5) return 1.0;
+  vec4 lp=u_lightvp*vec4(wpos,1.0); vec3 p=lp.xyz/lp.w*0.5+0.5;
+  if(p.x<=0.0||p.x>=1.0||p.y<=0.0||p.y>=1.0||p.z>=1.0) return 1.0;
+  float bias=0.0030, texel=1.0/2048.0, s=0.0;
+  for(int dx=-1;dx<=1;++dx)for(int dy=-1;dy<=1;++dy){
+    float d=texture(u_shadowtex,p.xy+vec2(dx,dy)*texel).r;
+    s+=(p.z-bias>d)?0.0:1.0; }
+  return s/9.0;
 }
 void main(){
   // Hue shift along the blade: deep blue-green roots in shadow -> blade colour ->
@@ -241,15 +252,17 @@ void main(){
   // Steep vertical light gradient: the canopy heavily occludes its own base, so
   // the lower blade falls to near-black and the lit band sits high near the tips.
   float ao=mix(0.06,1.0,smoothstep(0.0,0.5,v_hf));
-  vec3 col=albedo*(ambient + sunCol*wrap*0.95)*ao;
+  float sh=shadowFactor(v_world);   // 1 lit .. 0 in terrain shadow
+  vec3 col=albedo*(ambient + sunCol*wrap*0.95*sh)*ao;
 
   vec3 toFrag=v_world-u_campos; float dist=length(toFrag);
   vec3 vdir=dist>1e-4?toFrag/dist:vec3(0.0,0.0,1.0);
 
   // Subsurface translucency: thin strap blades glow when backlit — a strong,
-  // warm-green transmission (the signature GoT backlit-meadow look).
+  // warm-green transmission (the signature GoT backlit-meadow look). Gated by
+  // shadow: a blade in shade gets no sun to transmit.
   float back=pow(max(dot(vdir,sun),0.0),2.5);
-  col+=albedo*vec3(1.05,1.1,0.7)*back*(0.20+0.80*v_hf)*0.95;
+  col+=albedo*vec3(1.05,1.1,0.7)*back*(0.20+0.80*v_hf)*0.95*sh;
 
   // Broad waxy sheen along the lit blades.
   vec3 hv=normalize(sun-vdir);
@@ -412,7 +425,9 @@ void GpuGrass::buildBlade(QOpenGLExtraFunctions* gl, int ring, int segments) {
 
 void GpuGrass::render(QOpenGLExtraFunctions* gl, const QMatrix4x4& proj,
                       const QMatrix4x4& view, const QVector3D& camPos,
-                      const QVector3D& sunDir, float time) {
+                      const QVector3D& sunDir, float time,
+                      const QMatrix4x4& lightVP, unsigned int shadowTex,
+                      bool shadowOn) {
   if (!ready_) return;
 
   // Grow the per-ring instance buffers if the grid was enlarged.
@@ -544,6 +559,12 @@ void GpuGrass::render(QOpenGLExtraFunctions* gl, const QMatrix4x4& proj,
   draw_.setUniformValue("u_sundir", sunDir);
   draw_.setUniformValue("u_fogdensity", 1.0f / 420.0f);
   draw_.setUniformValue("u_fogstart", 45.0f);
+  draw_.setUniformValue("u_lightvp", lightVP);
+  draw_.setUniformValue("u_shadowon", shadowOn ? 1.0f : 0.0f);
+  draw_.setUniformValue("u_shadowtex", 1);   // sampler on texture unit 1
+  gl->glActiveTexture(0x84C1 /*GL_TEXTURE1*/);
+  gl->glBindTexture(0x0DE1 /*GL_TEXTURE_2D*/, shadowTex);
+  gl->glActiveTexture(0x84C0 /*GL_TEXTURE0*/);
   for (int i = 0; i < kNumRings; ++i) {
     vao_[i].bind();  // ring LOD mesh + ring instance buffer (no SSBO read)
     gl->glBindBuffer(GL_DRAW_INDIRECT_BUFFER, indirect_[i]);

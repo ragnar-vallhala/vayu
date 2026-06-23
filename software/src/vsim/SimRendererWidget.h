@@ -186,6 +186,8 @@ class SimRendererWidget : public QOpenGLWidget, protected QOpenGLExtraFunctions 
   void uploadWorldMesh();   // flushes pendingWorld_* into worldMesh_
   void flushChunkUpdates(); // applies queued chunk uploads/removals (GL-current)
   void buildGrassBlade();   // shared unit-blade geometry (crossed tapered quads)
+  void buildShadowMap();    // create the directional shadow-map FBO + depth texture
+  void renderShadowPass(bool showWorld, bool showChunks);  // terrain depth from the sun
   void flushFloraUpdates(); // applies queued flora uploads/removals (GL-current)
   void drawFlora(const QMatrix4x4& view);  // instanced blades over the chunks
   // Upload an interleaved [px,py,pz,nx,ny,nz] array into a lit-shader mesh.
@@ -244,6 +246,21 @@ class SimRendererWidget : public QOpenGLWidget, protected QOpenGLExtraFunctions 
   int ul_campos_= -1;
   int ul_fogdensity_ = -1;
   int ul_fogstart_   = -1;
+  int ul_lightvp_    = -1;
+  int ul_shadowtex_  = -1;
+  int ul_shadowon_   = -1;
+
+  // Shadow map: a directional depth buffer rendered from the sun's view each
+  // frame (terrain casters); lit terrain + grass sample it to drop into shade.
+  QOpenGLShaderProgram progDepth_;   // depth-only, light-space
+  int ud_lightmvp_ = -1;
+  unsigned int shadowFbo_ = 0;
+  unsigned int shadowTex_ = 0;
+  int shadowSize_ = 2048;
+  bool shadowReady_ = false;         // FBO built ok
+  bool shadowOn_ = false;            // a shadow map was rendered this frame
+  QMatrix4x4 lightVP_;               // light view-projection (world -> light clip)
+  int fbW_ = 1, fbH_ = 1;            // saved framebuffer size (viewport restore)
 
   // Sky shader: attribute-less fullscreen triangle, view-ray gradient + glow.
   QOpenGLShaderProgram progSky_;
