@@ -192,11 +192,12 @@ static void test_tx_overflow(void) {
   memset(buf, 0xAB, sizeof buf);
   uint32_t before = channel_tx_overflow_count();
 
-  /* No flush runs in the unit test, so the active 512 B buffer just fills:
-   * 2 x 256 = 512 (exactly full), then any further byte overflows. */
-  CHECK(write_channel(ch, buf, 256) == NONE, "first 256 B write ok");
-  CHECK(write_channel(ch, buf, 256) == NONE, "second 256 B write fills buffer");
-  CHECK(write_channel(ch, buf, 1) == ERROR, "write past 512 B returns ERROR");
+  /* No flush runs in the unit test, so the active CHANNEL_TX_BUF_SIZE (2048 B,
+   * raised from 512 B in the bandwidth boost f30317e) buffer just fills:
+   * 8 x 256 = 2048 (exactly full), then any further byte overflows. */
+  for (int i = 0; i < 8; i++)
+    CHECK(write_channel(ch, buf, 256) == NONE, "256 B write fills toward 2048");
+  CHECK(write_channel(ch, buf, 1) == ERROR, "write past 2048 B returns ERROR");
   CHECK(channel_tx_overflow_count() == before + 1, "overflow counted once");
 
   write_channel(ch, buf, 1);

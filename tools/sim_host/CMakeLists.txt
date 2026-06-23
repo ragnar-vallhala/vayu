@@ -107,6 +107,7 @@ set(VAYU_SOURCES
     ${VAYU_ROOT}/src/comm/navlink_router.c  # v2 RX handler table (uplink)
     ${VAYU_ROOT}/src/comm/navlink_tx.c      # TX seam (telemetry/cmd-resp framing)
     ${VAYU_ROOT}/src/comm/telemetry_task.c
+    ${VAYU_ROOT}/src/comm/xfer/navlink_xfer.c  # bulk-transfer (FTP) substrate core SM
 )
 
 # vaios kernel pieces that are pure C and portable.
@@ -259,6 +260,11 @@ add_test(NAME phase3_slog COMMAND test_phase3_slog)
 add_executable(test_fs_owner tests/test_fs_owner.c)
 target_link_libraries(test_fs_owner PRIVATE vayu_sitl_core m)
 add_test(NAME fs_owner COMMAND test_fs_owner)
+
+# xfer (FTP) substrate core SM (src/comm/xfer/navlink_xfer.c, in vayu_sitl_core).
+add_executable(test_xfer_sm tests/test_xfer_sm.c)
+target_link_libraries(test_xfer_sm PRIVATE vayu_sitl_core m)
+add_test(NAME xfer_sm COMMAND test_xfer_sm)
 
 # EKF estimator: thin adapter over the shared branch-coverage core in
 # src/est/ekf_selftest.c, which we compile here with -DEKF_SELFTEST (the same
