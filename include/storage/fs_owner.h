@@ -93,6 +93,42 @@ bool fs_owner_enqueue_calib_save(const void *header, uint32_t hlen,
                                  const void *payload, uint32_t plen);
 
 /* ===========================================================================
+ * Positioned write/read for the xfer (bulk-transfer) substrate.
+ * =========================================================================== */
+
+/**
+ * @brief Enqueue a positioned write (open-or-create the path, seek to offset,
+ *        write len bytes, sync) for asynchronous execution by the FS task.
+ *
+ * A dedicated THIRD lane, drained AFTER the reserved save lane but BEFORE the
+ * log lane, so file uploads can never starve PID/calib saves yet still take
+ * priority over best-effort blackbox logging. Snapshots the payload like the
+ * other producers (the caller — an xfer upload handler on the comm task — may
+ * reuse its buffer immediately). Backing store is heap-allocated in
+ * fs_owner_init (docs/plans/xfer-memory-budget.md), so .bss stays flat.
+ *
+ * @return true if queued; false if dropped (path too long, len out of range,
+ *         lane full, or not ready) — drop-and-counted like the other lanes. A
+ *         full lane is the upload's backpressure signal (the cursor stalls and
+ *         the next XFER_ACK tells the GCS to pause/retransmit).
+ */
+bool fs_owner_enqueue_write_at(const char *path, uint32_t offset,
+                               const void *data, uint32_t len);
+
+/**
+ * @brief Synchronous positioned read. **Called ONLY from xfer_service_task.**
+ *
+ * fs_owner is the sole *writer* of the SD; this is the one sanctioned reader.
+ * Safe because the kernel vfs_* ops already take the global vfs_mutex
+ * (extern/vaios/kernel/vfs.c), so this read serialises against fs_owner_task's
+ * writes — the SD stays one-transaction-at-a-time with no new locks.
+ *
+ * @return bytes read (>=0), or <0 on open/seek/read error.
+ */
+int fs_owner_read_at(const char *path, uint32_t offset, void *buf,
+                     uint32_t len);
+
+/* ===========================================================================
  * Accounting.
  * =========================================================================== */
 
@@ -105,5 +141,6 @@ uint32_t fs_owner_log_wrap_count_total(void);
 /* Drop accounting (mirrors COMM-CH-002): requests lost to a full lane. */
 uint32_t fs_owner_dropped_logs(void);
 uint32_t fs_owner_dropped_saves(void);
+uint32_t fs_owner_dropped_writeats(void);
 
 #endif /* VAYU_STORAGE_FS_OWNER_H */

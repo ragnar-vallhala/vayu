@@ -14,6 +14,7 @@
  */
 #include "storage/fs_owner.h"
 
+#include "memory.h"               /* v_malloc (heap-backed write-at lane) */
 #include "utils.h"                /* v_memcpy */
 #include "vaios_config_default.h" /* PANIC */
 #include "variables.h" /* *_LOGGING_FILENAME/_FILE_SIZE, CALIBRATION_FILE_PATH */
@@ -34,6 +35,14 @@
 #define FS_SAVE_QUEUE_CAP 4u     /* reserved — logs can never occupy this lane */
 #define FS_POLL_TICKS 5u         /* save-lane latency bound while blocked on logs */
 
+/* Upload write-at lane (xfer substrate). Each slot ~296 B; the backing buffer is
+ * HEAP-allocated (v_malloc) not static, so adding this lane keeps .bss flat and
+ * doesn't shrink the F401 MSP margin (docs/plans/xfer-memory-budget.md). CAP=2
+ * gives one chunk of pipelining; CAP=1 reclaims a slot if the heap ever tightens. */
+#define FS_WRITEAT_PAYLOAD_MAX 247u /* = XFER_CHUNK_MAX (one XFER_DATA chunk)     */
+#define FS_WRITEAT_PATH_MAX 40u     /* >= XFER_ARG_MAX(32) SD path                */
+#define FS_WRITEAT_QUEUE_CAP 2u
+
 #define FS_PID_FILE_PATH "0:pid.bin" /* mirrors pid_config.c boot reader */
 
 typedef enum { FS_SAVE_PID = 0, FS_SAVE_CALIB } fs_save_type_t;
@@ -50,13 +59,22 @@ typedef struct {
   uint8_t payload[FS_SAVE_PAYLOAD_MAX];
 } fs_save_req_t;
 
+typedef struct {
+  char path[FS_WRITEAT_PATH_MAX];
+  uint32_t offset;
+  uint16_t len;
+  uint8_t payload[FS_WRITEAT_PAYLOAD_MAX];
+} fs_writeat_req_t;
+
 /* ===========================================================================
  * State
  * =========================================================================== */
 static mpmc_queue_t s_log_q;
 static mpmc_queue_t s_save_q;
+static mpmc_queue_t s_writeat_q;
 static fs_log_req_t s_log_buf[FS_LOG_QUEUE_CAP];
 static fs_save_req_t s_save_buf[FS_SAVE_QUEUE_CAP];
+static fs_writeat_req_t *s_writeat_buf; /* heap (v_malloc in fs_owner_init) */
 static volatile bool s_ready = false;
 
 /* Blackbox file state (moved out of logger.c; single writer = the FS task). */
@@ -72,6 +90,7 @@ static volatile uint32_t general_wrap_count = 0;
 
 static volatile uint32_t s_dropped_logs = 0;
 static volatile uint32_t s_dropped_saves = 0;
+static volatile uint32_t s_dropped_writeats = 0;
 
 /* ===========================================================================
  * Boot-time file setup (formerly logger_init) — direct vfs_*, scheduler off.
@@ -180,6 +199,30 @@ static void fs_drain_saves(void) {
   }
 }
 
+/* Positioned write: open-or-create, seek, write, sync, close. Open with RDWR (not
+ * TRUNC) so writes at different offsets accumulate into one file (an upload). */
+static void fs_do_write_at(const fs_writeat_req_t *req) {
+  vfs_fd_t fd = vfs_open(req->path, VFS_O_RDWR | VFS_O_CREAT);
+  if (fd < 0) {
+    vayu_log("[FSOWN] write-at open %s failed", req->path);
+    return;
+  }
+  vfs_lseek(fd, (long)req->offset, VFS_SEEK_SET);
+  vfs_write(fd, req->payload, req->len);
+  vfs_sync(fd);
+  vfs_close(fd);
+}
+
+static void fs_drain_writeats(void) {
+  if (!s_writeat_buf) {
+    return;
+  }
+  fs_writeat_req_t req;
+  while (mpmc_try_pop(&s_writeat_q, &req)) {
+    fs_do_write_at(&req);
+  }
+}
+
 /* ===========================================================================
  * Lifecycle
  * =========================================================================== */
@@ -191,6 +234,17 @@ void fs_owner_init(void) {
   mpmc_set_policy(&s_log_q, MPMC_POLICY_DROP);
   mpmc_init(&s_save_q, s_save_buf, FS_SAVE_QUEUE_CAP, sizeof(fs_save_req_t));
   mpmc_set_policy(&s_save_q, MPMC_POLICY_DROP);
+  /* Write-at lane: heap-backed (keeps .bss flat — RAM budget). If the alloc
+   * fails the lane stays disabled; logs + saves still work. */
+  if (!s_writeat_buf) {
+    s_writeat_buf =
+        (fs_writeat_req_t *)v_malloc(sizeof(fs_writeat_req_t) * FS_WRITEAT_QUEUE_CAP);
+  }
+  if (s_writeat_buf) {
+    mpmc_init(&s_writeat_q, s_writeat_buf, FS_WRITEAT_QUEUE_CAP,
+              sizeof(fs_writeat_req_t));
+    mpmc_set_policy(&s_writeat_q, MPMC_POLICY_DROP);
+  }
   s_ready = true;
 }
 
@@ -199,6 +253,7 @@ void fs_owner_pump(void) {
     return;
   }
   fs_drain_saves();
+  fs_drain_writeats();
   fs_log_req_t req;
   while (mpmc_try_pop(&s_log_q, &req)) {
     fs_do_log_req(&req);
@@ -210,9 +265,11 @@ void fs_owner_task(void *args) {
   fs_owner_init();
   fs_log_req_t lreq;
   for (;;) {
-    /* Reserved save lane drained fully first. */
+    /* Reserved save lane drained fully first, then the upload write-at lane;
+     * logs are best-effort and yield to both. */
     fs_drain_saves();
-    /* Then block briefly for a log; the timeout bounds save-lane latency. */
+    fs_drain_writeats();
+    /* Then block briefly for a log; the timeout bounds save/write-at latency. */
     if (mpmc_pop_timeout(&s_log_q, &lreq, FS_POLL_TICKS)) {
       fs_do_log_req(&lreq);
     }
@@ -274,6 +331,49 @@ bool fs_owner_enqueue_calib_save(const void *header, uint32_t hlen,
   return true;
 }
 
+bool fs_owner_enqueue_write_at(const char *path, uint32_t offset,
+                               const void *data, uint32_t len) {
+  if (!s_ready || s_writeat_buf == NULL || path == NULL || data == NULL ||
+      len == 0u || len > FS_WRITEAT_PAYLOAD_MAX) {
+    s_dropped_writeats++;
+    return false;
+  }
+  fs_writeat_req_t req;
+  /* Bounded copy of the path (must fit with a NUL). */
+  uint32_t i = 0;
+  for (; i < FS_WRITEAT_PATH_MAX - 1u && path[i] != '\0'; i++) {
+    req.path[i] = path[i];
+  }
+  if (path[i] != '\0') { /* path too long to store safely */
+    s_dropped_writeats++;
+    return false;
+  }
+  req.path[i] = '\0';
+  req.offset = offset;
+  req.len = (uint16_t)len;
+  v_memcpy(req.payload, data, len);
+  if (!mpmc_try_push(&s_writeat_q, &req)) {
+    s_dropped_writeats++;
+    return false;
+  }
+  return true;
+}
+
+int fs_owner_read_at(const char *path, uint32_t offset, void *buf,
+                     uint32_t len) {
+  if (path == NULL || buf == NULL || len == 0u) {
+    return -1;
+  }
+  vfs_fd_t fd = vfs_open(path, VFS_O_RDONLY);
+  if (fd < 0) {
+    return -1;
+  }
+  vfs_lseek(fd, (long)offset, VFS_SEEK_SET);
+  int n = vfs_read(fd, buf, len);
+  vfs_close(fd);
+  return n;
+}
+
 /* ===========================================================================
  * Accounting
  * =========================================================================== */
@@ -295,3 +395,4 @@ uint32_t fs_owner_log_wrap_count_total(void) {
 
 uint32_t fs_owner_dropped_logs(void) { return s_dropped_logs; }
 uint32_t fs_owner_dropped_saves(void) { return s_dropped_saves; }
+uint32_t fs_owner_dropped_writeats(void) { return s_dropped_writeats; }
