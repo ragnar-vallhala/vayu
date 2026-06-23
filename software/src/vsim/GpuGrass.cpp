@@ -4,6 +4,7 @@
 #include <QVector2D>
 #include <QtGlobal>
 
+#include <algorithm>
 #include <cmath>
 #include <vector>
 
@@ -151,9 +152,15 @@ void main(){
   if(ndc.x<-1.3||ndc.x>1.3||ndc.y<-1.3||ndc.y>1.3||ndc.z>1.0) return;
   uint idx=atomicCounterIncrement(instanceCount);
   if(idx>=uint(u_maxBlades)) return;  // never write past the instance buffer
-  float yaw=2.0*(sin(baseX*0.035)+cos(baseY*0.028))+(rnd(hc*0x27d4u+4u)-0.5)*2.0;
+  // Coherent directional flow (wind/slope grain): big low-freq sweeps dominate
+  // with only mild per-blade jitter, so clumps lean together like GoT instead of
+  // pointing every which way.
+  float yaw=1.5*sin(baseX*0.024+baseY*0.011)+0.9*cos(baseY*0.030-baseX*0.008)
+            +(rnd(hc*0x27d4u+4u)-0.5)*0.8;
   float u1=max(rnd(hc*0x165667u+5u),1e-6),u2=rnd(hc*0x2545f4u+6u);
   float height=max(0.03,u_heightMean+u_heightStd*sqrt(-2.0*log(u1))*cos(6.2831853*u2));
+  // Length layering: ~35% form a shorter understory stratum for canopy depth.
+  height*=(rnd(hc*0x6d2bu+12u)<0.35)?0.55:1.0;
   // Continuous, ring-independent height boost with distance so the sparse far
   // field still reads as a carpet — applied to ALL blades by world distance, so
   // it never steps at a ring boundary.
@@ -204,9 +211,13 @@ vec3 skyColor(vec3 dir){
   return (up>=0.0)?mix(h,z,pow(clamp(up,0.0,1.0),0.45)):mix(h,g,clamp(-up*2.5,0.0,1.0));
 }
 void main(){
-  // Darker stem at the base, blade colour toward the tip; flowers brighten the top.
-  vec3 stem=vec3(0.07,0.14,0.05);
-  vec3 grassAlbedo=mix(stem,v_color,smoothstep(0.15,0.85,v_hf));
+  // Hue shift along the blade: deep blue-green roots in shadow -> blade colour ->
+  // warm yellow-green at the lit tips (the GoT depth->canopy colour ramp).
+  vec3 root=vec3(0.04,0.11,0.07);                  // cool, dark canopy floor
+  vec3 grassAlbedo=mix(root,v_color,smoothstep(0.12,0.80,v_hf));
+  // Warm the upper blade toward yellow-green.
+  grassAlbedo=mix(grassAlbedo, grassAlbedo*vec3(1.25,1.12,0.62)+vec3(0.04,0.05,0.0),
+                  smoothstep(0.55,1.0,v_hf)*0.7);
   vec3 albedo=mix(grassAlbedo, mix(grassAlbedo,v_color,smoothstep(0.55,0.98,v_hf)), v_flower);
 
   // Soften the per-vertex normal toward up — real grass scatters light, so a
@@ -225,21 +236,22 @@ void main(){
   float hemi=clamp(0.5+0.5*(-n.z),0.0,1.0);
   vec3 ambient=mix(vec3(0.03,0.04,0.04),vec3(0.15,0.19,0.23),hemi);
 
-  // Deep base shadow: the canopy heavily occludes its own base, so the lower
-  // blade goes nearly black and brightens toward the tip (the GoT dark-floor look).
-  float ao=mix(0.10,1.0,smoothstep(0.0,0.6,v_hf));
+  // Steep vertical light gradient: the canopy heavily occludes its own base, so
+  // the lower blade falls to near-black and the lit band sits high near the tips.
+  float ao=mix(0.06,1.0,smoothstep(0.0,0.5,v_hf));
   vec3 col=albedo*(ambient + sunCol*wrap*0.95)*ao;
 
   vec3 toFrag=v_world-u_campos; float dist=length(toFrag);
   vec3 vdir=dist>1e-4?toFrag/dist:vec3(0.0,0.0,1.0);
 
-  // Subsurface translucency: thin blades glow when backlit — softened for overcast.
-  float back=pow(max(dot(vdir,sun),0.0),3.0);
-  col+=albedo*sunCol*back*(0.25+0.75*v_hf)*0.55;
+  // Subsurface translucency: thin strap blades glow when backlit — a strong,
+  // warm-green transmission (the signature GoT backlit-meadow look).
+  float back=pow(max(dot(vdir,sun),0.0),2.5);
+  col+=albedo*vec3(1.05,1.1,0.7)*back*(0.20+0.80*v_hf)*0.95;
 
-  // Faint anisotropic sheen along the blades.
+  // Broad waxy sheen along the lit blades.
   vec3 hv=normalize(sun-vdir);
-  float spec=pow(max(dot(n,hv),0.0),18.0)*0.12*v_hf;
+  float spec=pow(max(dot(n,hv),0.0),12.0)*0.18*smoothstep(0.3,1.0,v_hf);
   col+=sunCol*spec;
 
   float fd=max(dist-u_fogstart,0.0)*u_fogdensity;
@@ -320,8 +332,12 @@ void GpuGrass::setParams(const Params& p) { params_ = p; }
 void GpuGrass::buildBlade(QOpenGLExtraFunctions* gl) {
   // Bezier ribbon blade with per-vertex normals (single LOD; the GPU regenerates
   // every frame so a moderate vertex count is fine). Mirrors the CPU blade.
-  const float wb = 0.055f;  // base half-width (thin GoT-style blades)
-  const float P0x = 0, P0z = 0, P1x = 0.14f, P1z = -0.55f, P2x = 0.42f, P2z = -1.0f;
+  // Strap-leaf blade that RISES then ARCHES OVER (tip droops well below the apex)
+  // — the defining GoT meadow-grass shape. The curve peaks near z=-0.8 (t~0.64)
+  // and the tip falls back to z=-0.55, sweeping out to x=1.0 (then per-blade bend
+  // + yaw orient it). Mirrors the conceptual CPU blade.
+  const float wb = 0.075f;  // half-width of the strap at its widest
+  const float P0x = 0, P0z = 0, P1x = 0.16f, P1z = -1.25f, P2x = 1.0f, P2z = -0.55f;
   auto bez = [&](float t, float& x, float& z) {
     float u = 1 - t;
     x = u * u * P0x + 2 * u * t * P1x + t * t * P2x;
@@ -334,8 +350,14 @@ void GpuGrass::buildBlade(QOpenGLExtraFunctions* gl) {
     float l = std::sqrt(rx * rx + rz * rz);
     nx = rx / l; nz = rz / l;
   };
-  auto width = [&](float t) { return wb * (0.06f + 0.94f * std::pow(1 - t, 0.7f)); };
-  const int kSeg = 4;
+  // Strap profile: narrow at the very base, widest through the lower-mid, then a
+  // quick taper to a sharp point — a leaf, not a triangle spike.
+  auto width = [&](float t) {
+    float s = std::clamp(t / 0.20f, 0.0f, 1.0f);
+    float baseNarrow = 0.50f + 0.50f * (s * s * (3.0f - 2.0f * s));
+    return wb * std::pow(1.0f - t, 0.40f) * baseNarrow;
+  };
+  const int kSeg = 5;  // a touch more curve resolution for the smooth arch
   std::vector<float> v;
   auto vert = [&](float x, float y, float z, float nx, float nz) {
     v.insert(v.end(), {x, y, z, nx, 0.0f, nz});
