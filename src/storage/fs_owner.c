@@ -359,6 +359,18 @@ bool fs_owner_enqueue_write_at(const char *path, uint32_t offset,
   return true;
 }
 
+int fs_owner_truncate(const char *path) {
+  if (path == NULL) {
+    return -1;
+  }
+  vfs_fd_t fd = vfs_open(path, VFS_O_WRONLY | VFS_O_CREAT | VFS_O_TRUNC);
+  if (fd < 0) {
+    return -1;
+  }
+  vfs_close(fd);
+  return 0;
+}
+
 int fs_owner_read_at(const char *path, uint32_t offset, void *buf,
                      uint32_t len) {
   if (path == NULL || buf == NULL || len == 0u) {
