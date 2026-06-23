@@ -13,6 +13,7 @@
 #include "variables.h"        /* _BLUE_LED_PIN */
 #include "vayu_status.h"
 #include "vayu_tasks.h"       /* comm_processor_dispatch */
+#include "comm/xfer/navlink_xfer.h" /* bulk-transfer substrate SM (codec-blind) */
 #include "navlink_msgs.h"     /* the generated codec — included ONLY here */
 #include <stdint.h>
 
@@ -158,6 +159,54 @@ static navlink_ack_t on_cmd_sysid_dump(void *ctx, const navlink_frame_hdr_t *hdr
    * the capture buffer that the (now-finished) run filled, so no race. */
   sysid_dump_request();
   return navlink_ack_result(ACK_OK);
+}
+
+/* ---- xfer (FTP) substrate: map codec structs -> the codec-blind SM --------
+ * on_xfer_open/close run here on the comm task (state only). A valid open is
+ * deferred: the SM stashes it and xfer_service_task runs provider->open then
+ * emits COMMAND_ACK + XFER_INFO (off the comm task — the C1->C3 invariant).
+ * xfer_result_t mirrors command_result by value, so an immediate disposition
+ * passes straight to navlink_ack_result(). */
+static navlink_ack_t on_xfer_open(void *ctx, const navlink_frame_hdr_t *hdr,
+                                  const navlink_xfer_open_t *m) {
+  (void)ctx;
+  xfer_open_args_t a = {0};
+  a.session = m->session;
+  a.dir = m->dir;
+  a.mode = m->mode;
+  a.req_seq = m->req_seq;
+  a.gcs_sys = hdr->sysid;   /* stamp the reply target from the frame header */
+  a.gcs_comp = hdr->compid;
+  a.service_id = m->service_id;
+  a.offset_start = m->offset_start;
+  a.rate_hz = m->rate_hz;
+  for (uint8_t i = 0; i < XFER_ARG_MAX; i++)
+    a.arg[i] = m->arg[i];
+  int d = xfer_on_open(&a);
+  if (d == XFER_OPEN_DEFERRED)
+    return navlink_ack_deferred();
+  return navlink_ack_result((uint8_t)d);
+}
+
+static navlink_ack_t on_xfer_close(void *ctx, const navlink_frame_hdr_t *hdr,
+                                   const navlink_xfer_close_t *m) {
+  (void)ctx; (void)hdr;
+  int d = xfer_on_close(m->session, m->req_seq, m->result);
+  if (d == XFER_OPEN_DEFERRED)
+    return navlink_ack_deferred();
+  return navlink_ack_result((uint8_t)d);
+}
+
+static void on_xfer_data(void *ctx, const navlink_frame_hdr_t *hdr,
+                         const navlink_xfer_data_t *m) {
+  (void)ctx; (void)hdr;
+  xfer_on_data(m->session, m->offset, m->data, m->len, m->flags);
+}
+
+static void on_xfer_ack(void *ctx, const navlink_frame_hdr_t *hdr,
+                        const navlink_xfer_ack_t *m) {
+  (void)ctx; (void)hdr;
+  xfer_on_ack(m->session, m->next_offset, m->flags);
 }
 
 static navlink_ack_t on_cmd_arm(void *ctx, const navlink_frame_hdr_t *hdr,
@@ -313,6 +362,10 @@ void navlink_router_init(void) {
   s_handlers.on_cmd_set_flight_mode = on_cmd_set_flight_mode;
   s_handlers.on_time_sync = on_time_sync;
   s_handlers.on_perf_taskname_request = on_perf_taskname_request;
+  s_handlers.on_xfer_open = on_xfer_open;
+  s_handlers.on_xfer_close = on_xfer_close;
+  s_handlers.on_xfer_data = on_xfer_data;
+  s_handlers.on_xfer_ack = on_xfer_ack;
 }
 
 /* Resolve a deferred CMD_ARM ack from the flight-state machine: ACCEPTED once it

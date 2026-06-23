@@ -113,6 +113,11 @@ void init_tasks(void) {
   // saves). Lowest band (prio 0); blocks on its queue so it only runs when there
   // is work and never preempts control. Queues are created lazily on first run.
   task_create_named(fs_owner_task, NULL, 2048, 0, "fs_owner");
+  // Bulk-transfer (FTP) substrate: runs the xfer SM off the comm + control
+  // tasks (prio 0). Blocking SD reads + paced emission live here; the comm-task
+  // handlers only touch session state (the C1->C3 invariant). 2 KiB stack from
+  // the heap (RAM budget: docs/plans/xfer-memory-budget.md).
+  task_create_named(xfer_service_task, NULL, 2048, 0, "xfer");
   // task_create(test_task, NULL, 4096, 0);
 }
 void init_timer_callbacks(void) {
