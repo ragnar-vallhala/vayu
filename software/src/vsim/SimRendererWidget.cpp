@@ -116,7 +116,7 @@ void main() {
   vec3 ambient = mix(vec3(0.05, 0.08, 0.09),
                      vec3(0.18, 0.24, 0.27), clamp(hemi, 0.0, 1.0));
   vec3 base = u_color * v_color;
-  vec3 lit  = base * (ambient + sunCol * wrap * 0.95);
+  vec3 lit  = base * (ambient + sunCol * wrap * 0.95 * shadowFactor(v_world));
   // Aerial perspective: fade toward the sky behind the surface with distance,
   // so the streamed-terrain edge dissolves into haze.
   vec3 toFrag = v_world - u_campos;
@@ -179,6 +179,43 @@ void main() {
   vec3 cloudCol = mix(darkCloud, litCloud, clamp(sunAmt * 0.8 + 0.18, 0.0, 1.0));
   sky = mix(sky, cloudCol, cov * 0.88);
   o_color = vec4(sky, 1.0);
+}
+)GLSL";
+
+// Depth-only program for the shadow pass: terrain transformed into the sun's
+// light-space clip; the rasteriser writes depth, no colour.
+const char* kDepthVertexShader = R"GLSL(
+#version 330 core
+layout(location = 0) in vec3 a_pos;
+uniform mat4 u_lightmvp;   // lightVP * model
+void main() { gl_Position = u_lightmvp * vec4(a_pos, 1.0); }
+)GLSL";
+const char* kDepthFragmentShader = R"GLSL(
+#version 330 core
+void main() {}
+)GLSL";
+
+// Shadow-receive helper shared by the lit + (a copy in the) grass shader. Samples
+// the light-space depth map with a 3x3 PCF kernel; returns 1 = lit, 0 = shadow.
+// Guarded by u_shadowon so the scene is unchanged when the map is unavailable.
+const char* kShadowGLSL = R"GLSL(
+uniform sampler2D u_shadowtex;
+uniform mat4 u_lightvp;
+uniform float u_shadowon;
+float shadowFactor(vec3 wpos) {
+  if (u_shadowon < 0.5) return 1.0;
+  vec4 lp = u_lightvp * vec4(wpos, 1.0);
+  vec3 p = lp.xyz / lp.w * 0.5 + 0.5;
+  if (p.x <= 0.0 || p.x >= 1.0 || p.y <= 0.0 || p.y >= 1.0 || p.z >= 1.0) return 1.0;
+  float bias = 0.0022;
+  float texel = 1.0 / 2048.0;
+  float s = 0.0;
+  for (int dx = -1; dx <= 1; ++dx)
+    for (int dy = -1; dy <= 1; ++dy) {
+      float d = texture(u_shadowtex, p.xy + vec2(dx, dy) * texel).r;
+      s += (p.z - bias > d) ? 0.0 : 1.0;
+    }
+  return s / 9.0;
 }
 )GLSL";
 
@@ -366,7 +403,8 @@ void SimRendererWidget::initializeGL() {
   progLit_.addShaderFromSourceCode(QOpenGLShader::Vertex,   kLitVertexShader);
   progLit_.addShaderFromSourceCode(
       QOpenGLShader::Fragment,
-      QByteArray(kLitFragmentHead) + kAtmosphereGLSL + kLitFragmentMain);
+      QByteArray(kLitFragmentHead) + kAtmosphereGLSL + kShadowGLSL +
+          kLitFragmentMain);
   progLit_.link();
   ul_mvp_   = progLit_.uniformLocation("u_mvp");
   ul_model_ = progLit_.uniformLocation("u_model");
@@ -376,6 +414,15 @@ void SimRendererWidget::initializeGL() {
   ul_campos_= progLit_.uniformLocation("u_campos");
   ul_fogdensity_ = progLit_.uniformLocation("u_fogdensity");
   ul_fogstart_   = progLit_.uniformLocation("u_fogstart");
+  ul_lightvp_    = progLit_.uniformLocation("u_lightvp");
+  ul_shadowtex_  = progLit_.uniformLocation("u_shadowtex");
+  ul_shadowon_   = progLit_.uniformLocation("u_shadowon");
+
+  progDepth_.addShaderFromSourceCode(QOpenGLShader::Vertex,   kDepthVertexShader);
+  progDepth_.addShaderFromSourceCode(QOpenGLShader::Fragment, kDepthFragmentShader);
+  progDepth_.link();
+  ud_lightmvp_ = progDepth_.uniformLocation("u_lightmvp");
+  buildShadowMap();
 
   progSky_.addShaderFromSourceCode(QOpenGLShader::Vertex,   kSkyVertexShader);
   progSky_.addShaderFromSourceCode(
@@ -418,6 +465,8 @@ void SimRendererWidget::initializeGL() {
 }
 
 void SimRendererWidget::resizeGL(int w, int h) {
+  fbW_ = w;
+  fbH_ = h;
   glViewport(0, 0, w, h);
   proj_.setToIdentity();
   proj_.perspective(60.0f, float(w) / std::max(1, h), 0.05f, 200.0f);
@@ -525,6 +574,16 @@ void SimRendererWidget::paintGL() {
   QMatrix4x4 view = cameraView();
   camEye_ = view.inverted().map(QVector3D(0.0f, 0.0f, 0.0f));  // world eye for fog
 
+  // Training mode hides the imported world + obstacles (computed up here so the
+  // shadow pass knows what to render as casters).
+  const bool training = !gates_.isEmpty();
+  const bool showWorld = worldVisible_ && hasWorldMesh_ && !training;
+  const bool showChunks = worldVisible_ && !training && !worldChunks_.empty();
+
+  // Shadow map: render terrain depth from the sun's view into the FBO first, so
+  // the lit terrain + grass can sample it. Restores the default FBO + viewport.
+  renderShadowPass(showWorld, showChunks);
+
   // Sky-dome background (gradient + sun glow along the per-pixel view ray).
   // Drawn first with depth test off so the scene paints over it.
   glDisable(GL_DEPTH_TEST);
@@ -538,16 +597,9 @@ void SimRendererWidget::paintGL() {
   progSky_.release();
   glEnable(GL_DEPTH_TEST);
 
-  // Training mode hides the imported world + obstacles: the course is flown in
-  // a clean arena over the reference ground grid, so nothing distracts the
-  // pilot or clutters the halo gates.
-  const bool training = !gates_.isEmpty();
-
   // Reference ground grid at z=0 — skipped when an imported world mesh is
-  // shown, since that mesh carries its own ground plane (also at z=0) and the
-  // two coplanar surfaces would z-fight. Always shown in training for a floor.
-  const bool showWorld = worldVisible_ && hasWorldMesh_ && !training;
-  const bool showChunks = worldVisible_ && !training && !worldChunks_.empty();
+  // shown (it carries its own ground plane at z=0; the two would z-fight).
+  // training/showWorld/showChunks were computed above for the shadow pass.
   if (!showWorld && !showChunks)
     drawMesh(ground_, view, QVector3D(0.25f, 0.27f, 0.32f));
   drawMesh(axes_,   view, QVector3D(1, 1, 1));
@@ -569,7 +621,8 @@ void SimRendererWidget::paintGL() {
   // available + selected; otherwise the CPU chunk-instanced path.
   if (worldVisible_ && !training && floraVisible_) {
     if (gpuGrassActive_ && gpuGrass_.ready())
-      gpuGrass_.render(this, proj_, view, camEye_, sunDir_, floraTime_);
+      gpuGrass_.render(this, proj_, view, camEye_, sunDir_, floraTime_,
+                       lightVP_, shadowTex_, shadowOn_);
     else
       drawFlora(view);
   }
@@ -672,6 +725,78 @@ void SimRendererWidget::drawMesh(const Mesh& m, const QMatrix4x4& mvp,
   prog_.release();
 }
 
+#ifndef GL_DEPTH_COMPONENT32F
+#define GL_DEPTH_COMPONENT32F 0x8CAC
+#endif
+#ifndef GL_CLAMP_TO_EDGE
+#define GL_CLAMP_TO_EDGE 0x812F
+#endif
+
+void SimRendererWidget::buildShadowMap() {
+  // Depth-only FBO: a single 32F depth texture, no colour buffer.
+  glGenFramebuffers(1, &shadowFbo_);
+  glGenTextures(1, &shadowTex_);
+  glBindTexture(GL_TEXTURE_2D, shadowTex_);
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT32F, shadowSize_, shadowSize_,
+               0, GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+  glBindFramebuffer(GL_FRAMEBUFFER, shadowFbo_);
+  glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D,
+                         shadowTex_, 0);
+  GLenum none = GL_NONE;
+  glDrawBuffers(1, &none);   // depth-only: no colour draw/read targets
+  glReadBuffer(GL_NONE);
+  shadowReady_ =
+      glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+  glBindTexture(GL_TEXTURE_2D, 0);
+  glBindFramebuffer(GL_FRAMEBUFFER, defaultFramebufferObject());
+  if (!shadowReady_)
+    qInfo("[SimRenderer] shadow FBO incomplete -> shadows disabled.");
+}
+
+void SimRendererWidget::renderShadowPass(bool showWorld, bool showChunks) {
+  shadowOn_ = false;
+  if (!shadowReady_ || (!showWorld && !showChunks)) return;
+
+  // Orthographic light frustum aimed along -sun, centred on the ground under the
+  // camera so it follows the view. NED up is -Z; pick a safe up if sun is steep.
+  const QVector3D fwd = -sunDir_.normalized();              // light view forward
+  const QVector3D center(camEye_.x(), camEye_.y(), 0.0f);   // ground under camera
+  const QVector3D lpos = center - fwd * 200.0f;
+  const QVector3D up =
+      std::abs(fwd.z()) > 0.99f ? QVector3D(1, 0, 0) : QVector3D(0, 0, -1);
+  QMatrix4x4 lview;
+  lview.lookAt(lpos, center, up);
+  QMatrix4x4 lproj;
+  lproj.ortho(-130.0f, 130.0f, -130.0f, 130.0f, 1.0f, 400.0f);
+  lightVP_ = lproj * lview;
+
+  glBindFramebuffer(GL_FRAMEBUFFER, shadowFbo_);
+  glViewport(0, 0, shadowSize_, shadowSize_);
+  glClear(GL_DEPTH_BUFFER_BIT);
+  glEnable(GL_DEPTH_TEST);
+  progDepth_.bind();
+  auto drawDepth = [&](const Mesh& m) {
+    if (m.vertex_count == 0) return;
+    progDepth_.setUniformValue(ud_lightmvp_, lightVP_);  // model = identity (world)
+    QOpenGLVertexArrayObject::Binder b(
+        const_cast<QOpenGLVertexArrayObject*>(&m.vao));
+    glDrawArrays(GL_TRIANGLES, 0, m.vertex_count);
+  };
+  if (showWorld) drawDepth(worldMesh_);
+  if (showChunks)
+    for (auto& kv : worldChunks_)
+      if (kv.second->vertex_count) drawDepth(*kv.second);
+  progDepth_.release();
+
+  glBindFramebuffer(GL_FRAMEBUFFER, defaultFramebufferObject());
+  glViewport(0, 0, fbW_, fbH_);
+  shadowOn_ = true;
+}
+
 void SimRendererWidget::drawLit(const Mesh& m, const QMatrix4x4& view,
                                 const QMatrix4x4& model,
                                 const QVector3D& color) {
@@ -686,6 +811,12 @@ void SimRendererWidget::drawLit(const Mesh& m, const QMatrix4x4& view,
   // Aerial perspective: gentle haze that fully veils the streamed-terrain edge.
   progLit_.setUniformValue(ul_fogdensity_, 1.0f / 420.0f);
   progLit_.setUniformValue(ul_fogstart_, 45.0f);
+  progLit_.setUniformValue(ul_lightvp_, lightVP_);
+  progLit_.setUniformValue(ul_shadowon_, shadowOn_ ? 1.0f : 0.0f);
+  progLit_.setUniformValue(ul_shadowtex_, 1);   // sampler on texture unit 1
+  glActiveTexture(GL_TEXTURE1);
+  glBindTexture(GL_TEXTURE_2D, shadowTex_);
+  glActiveTexture(GL_TEXTURE0);
   QOpenGLVertexArrayObject::Binder b(const_cast<QOpenGLVertexArrayObject*>(&m.vao));
   // Flat solids leave attribute 2 disabled; feed white as the generic value so
   // u_color*a_color == u_color. Meshes with a real color array (world mesh)
