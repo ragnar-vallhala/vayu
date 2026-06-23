@@ -249,6 +249,7 @@ class SimRendererWidget : public QOpenGLWidget, protected QOpenGLExtraFunctions 
   QOpenGLShaderProgram progSky_;
   int us_invvp_  = -1;
   int us_sundir_ = -1;
+  int us_time_   = -1;
   QOpenGLVertexArrayObject skyVao_;
 
   // Flora shader: instanced grass/flower blades, wind + distance fade + fog.
