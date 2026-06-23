@@ -1,8 +1,19 @@
 # Stream Rates (0x2007 / `CMD_SET_STREAM_RATE`) — design & implementation plan
 
-Status: **proposed** (not yet implemented). This document specifies a
-GCS-controlled, per-stream **enable + request-rate** mechanism for FC→GCS
-telemetry, so unused streams can be disabled or throttled to fit the link.
+Status: **SUPERSEDED** (never implemented). Per-stream rate control is now folded
+into the generic bulk-transfer/streaming substrate: a live stream is opened with
+`XFER_OPEN{mode=stream, service_id=stream, arg=<source>, rate_hz=<rate>}` (see
+[`xfer.md`](xfer.md)), which reuses one mechanism instead of a bespoke command. The
+msgid **8201** once sketched here for `CMD_SET_STREAM_RATE` is now `XFER_OPEN`. If a
+GCS-controlled enable/throttle of the *always-on periodic* telemetry (IMU/MOTOR/
+PERF/…) is still wanted, design it as a thin command atop the substrate. The
+original design is retained below for reference.
+
+---
+
+This document specifies a GCS-controlled, per-stream **enable + request-rate**
+mechanism for FC→GCS telemetry, so unused streams can be disabled or throttled to
+fit the link.
 
 ## Motivation
 

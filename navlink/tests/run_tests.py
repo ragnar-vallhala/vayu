@@ -144,6 +144,14 @@ def main():
               f"{'OK' if sim_ok else 'FAIL'}")
         ok &= sim_ok
 
+    step("6. xfer loopback (Python client <-> server, real frames)")
+    r = run([sys.executable, os.path.join(HERE, "test_xfer_loopback.py")],
+            capture_output=True, text=True)
+    sys.stdout.write(r.stdout)
+    if r.returncode != 0:
+        sys.stderr.write(r.stderr)
+        ok = False
+
     step("RESULT")
     print("PASS" if ok else "FAIL")
     sys.exit(0 if ok else 1)

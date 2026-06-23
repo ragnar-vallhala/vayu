@@ -65,6 +65,7 @@ static struct {
     uint32_t next_offset;
   } ack[64];
   int n_ack;
+  int data_by_session[XFER_MAX_SESSIONS];
 } CAP;
 
 static void cap_reset(void) { memset(&CAP, 0, sizeof CAP); }
@@ -89,11 +90,12 @@ static void e_info(const xfer_session_t *s, uint8_t result, uint16_t cs,
 }
 static void e_data(const xfer_session_t *s, uint8_t flags, uint8_t len,
                    uint32_t offset, const uint8_t *buf) {
-  (void)s;
   int i = CAP.n_data++;
   CAP.data[i].offset = offset;
   CAP.data[i].len = len;
   CAP.data[i].flags = flags;
+  if (s->session < XFER_MAX_SESSIONS)
+    CAP.data_by_session[s->session]++;
   if (len)
     memcpy(CAP.data[i].data, buf, len);
 }
@@ -405,6 +407,72 @@ static void test_close_acks_and_frees(void) {
   CHECK(!xfer_session_active(0), "session freed after close");
 }
 
+/* Hardening: a vanished GCS mid-upload is reaped by the idle timeout (the FC
+ * keeps acking but cursor stalls; with no fresh chunks last_rx ages out). */
+static void test_idle_timeout_reaps_stalled_upload(void) {
+  printf("  test_idle_timeout_reaps_stalled_upload\n");
+  fake_reset();
+  int closes0 = FAKE.closes;
+  xfer_open_args_t up = mkargs(0, XFER_DIR_UPLOAD, 7, 0);
+  xfer_on_open(&up);
+  xfer_tick(0, 0, 4);
+  uint8_t blk[100];
+  memset(blk, 0x33, sizeof blk);
+  xfer_on_data(0, 0, blk, sizeof blk, XFER_F_NONE); /* one chunk, then silence */
+  xfer_tick(10, 0, 4);                              /* refreshes liveness @10 */
+  CHECK(xfer_session_active(0), "upload alive while chunks arrive");
+  /* No more chunks; tick well past the 5 s idle bound. */
+  xfer_tick(10 + 4000, 0, 4);
+  CHECK(xfer_session_active(0), "still alive before the idle bound");
+  xfer_tick(10 + 6000, 0, 4);
+  CHECK(!xfer_session_active(0), "stalled upload reaped after idle timeout");
+  CHECK(FAKE.closes == closes0 + 1, "provider close called on idle reap");
+}
+
+/* Hardening: two concurrent downloads share the chunk budget (round-robin), so
+ * neither slot starves the other. */
+static void test_concurrent_budget_fairness(void) {
+  printf("  test_concurrent_budget_fairness\n");
+  fake_reset();
+  for (uint32_t i = 0; i < 2000; i++)
+    FAKE.buf[i] = (uint8_t)i;
+  FAKE.size = 2000;
+
+  xfer_open_args_t a = mkargs(0, XFER_DIR_DOWNLOAD, 7, 0);
+  xfer_open_args_t b = mkargs(1, XFER_DIR_DOWNLOAD, 7, 0);
+  xfer_on_open(&a);
+  xfer_on_open(&b);
+  /* Budget 2/tick shared across both sessions; ack both so they keep flowing. */
+  for (int t = 0; t < 6; t++) {
+    xfer_tick(10 + (uint32_t)t, 0, 2);
+    xfer_on_ack(0, 2000, XFER_F_NONE); /* keep them ACTIVE (don't finish early) */
+    xfer_on_ack(1, 2000, XFER_F_NONE);
+  }
+  CHECK(CAP.data_by_session[0] > 0 && CAP.data_by_session[1] > 0,
+        "both concurrent downloads emitted (neither starved)");
+  int d = CAP.data_by_session[0] - CAP.data_by_session[1];
+  if (d < 0)
+    d = -d;
+  CHECK(d <= 1, "round-robin keeps the two within one chunk of each other");
+}
+
+static void test_download_active_flag(void) {
+  printf("  test_download_active_flag\n");
+  fake_reset();
+  FAKE.size = 500;
+  CHECK(!xfer_download_active(), "no download active initially");
+  xfer_open_args_t dn = mkargs(0, XFER_DIR_DOWNLOAD, 7, 0);
+  xfer_on_open(&dn);
+  xfer_tick(0, 0, 1); /* -> ACTIVE file download */
+  CHECK(xfer_download_active(), "file download flips xfer_download_active()");
+  /* An upload must NOT count as a download. */
+  fake_reset();
+  xfer_open_args_t up = mkargs(0, XFER_DIR_UPLOAD, 7, 0);
+  xfer_on_open(&up);
+  xfer_tick(0, 0, 1);
+  CHECK(!xfer_download_active(), "upload does not set download-active");
+}
+
 int main(void) {
   printf("== xfer SM SITL verification ==\n");
   xfer_init(&TX);
@@ -418,6 +486,9 @@ int main(void) {
   test_offset_past_eof();
   test_open_error_failed();
   test_close_acks_and_frees();
+  test_idle_timeout_reaps_stalled_upload();
+  test_concurrent_budget_fairness();
+  test_download_active_flag();
 
   printf("\n%d checks, %d failures\n", g_checks, g_fails);
   return g_fails == 0 ? 0 : 1;
