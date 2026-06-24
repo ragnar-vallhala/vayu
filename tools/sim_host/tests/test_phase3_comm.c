@@ -35,6 +35,7 @@
 #include "comm/comm.h"
 #include "comm/ibus.h"
 #include "control/control.h"
+#include "storage/fs_owner.h"
 #include "sys/sys_utils.h"
 #include "vayu_status.h"
 #include "vayu_tasks.h"
@@ -134,6 +135,12 @@ static void test_payload_validation(void) {
 static void test_set_pid_apply(void) {
   printf("  test_set_pid_apply (COMM-CMD-003)\n");
 
+  /* The PID save is enqueued off the comm task (the C1->C3 RX-drop fix), so the
+   * save lane must be up for pid_config_save() to enqueue at all, and it needs a
+   * synchronous drain to actually land on disk — a unit test has no fs_owner
+   * task running it. (s_ready latches for the process, so this is idempotent.) */
+  fs_owner_init();
+
   const uint8_t axis = 1; /* pitch */
   const float kp = 0.111f, ki = 0.022f, kd = 0.033f, kff = 0.044f;
 
@@ -158,8 +165,11 @@ static void test_set_pid_apply(void) {
   CHECK(feq(skp, kp) && feq(ski, ki) && feq(skd, kd) && feq(skff, kff),
         "stored gains match commanded values");
 
-  /* Persistence round-trip: reload from the (RAM-backed) VFS file and
-   * confirm the value survives — proves save wrote and load read it. */
+  /* Persistence round-trip: drain the enqueued save so the CURRENT gains hit
+   * pid.bin, then reload from the (host-mirrored) VFS file and confirm the value
+   * survives — proves save wrote and load read it. Without the pump, init would
+   * read a stale pid.bin from a previous run. */
+  fs_owner_pump();
   pid_config_init();
   float rkp, rki, rkd, rkff;
   CHECK(pid_config_get_rate(axis, &rkp, &rki, &rkd, &rkff) && feq(rkp, kp) &&
