@@ -98,7 +98,7 @@ static float acc_scale = 0.0f;
 static float gyr_scale = 0.0f;
 static bmx160_calibration_t bmx160_calib = {
     .acc_offset = {0.0f, 0.0f, 0.0f},
-    .acc_scale = {1.0f, 1.0f, 1.0f},
+    .acc_soft_iron = {1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f},
     .gyr_offset = {0.0f, 0.0f, 0.0f},
     .mag_offset = {0.0f, 0.0f, 0.0f},
     .mag_soft_iron = {1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f}};
@@ -1284,15 +1284,21 @@ void bmx160_process_data(void) {
     _temp_fresh = 0;
   }
 
-  // Apply LPF to accelerometer (gyro was already filtered before bias
-  // correction)
-  for (int i = 0; i < 3; i++) {
-    // Apply calibration: (raw_converted - bias) * scale
-    _bmx_data.converted.acc[i] =
-        (_bmx_data.converted.acc[i] - bmx160_calib.acc_offset[i]) *
-        bmx160_calib.acc_scale[i];
-    _bmx_data.converted.acc[i] =
-        lpf_apply(&acc_lpf[i], _bmx_data.converted.acc[i]);
+  // Apply accelerometer calibration: a_cal = M_acc * (a_raw - bias), where M_acc
+  // is the full 3x3 (scale + cross-axis misalignment). Same shape as the mag
+  // soft-iron apply above. Then LPF (gyro was already filtered before its bias
+  // correction). Compute into locals first — each output axis depends on all
+  // three inputs, so we can't overwrite in place.
+  {
+    float a0 = _bmx_data.converted.acc[0] - bmx160_calib.acc_offset[0];
+    float a1 = _bmx_data.converted.acc[1] - bmx160_calib.acc_offset[1];
+    float a2 = _bmx_data.converted.acc[2] - bmx160_calib.acc_offset[2];
+    const float *Asi = bmx160_calib.acc_soft_iron;
+    _bmx_data.converted.acc[0] = Asi[0] * a0 + Asi[1] * a1 + Asi[2] * a2;
+    _bmx_data.converted.acc[1] = Asi[3] * a0 + Asi[4] * a1 + Asi[5] * a2;
+    _bmx_data.converted.acc[2] = Asi[6] * a0 + Asi[7] * a1 + Asi[8] * a2;
+    for (int i = 0; i < 3; i++)
+      _bmx_data.converted.acc[i] = lpf_apply(&acc_lpf[i], _bmx_data.converted.acc[i]);
   }
 
   // Tag the converted sample with its acquisition cycle stamp and fan it out.
@@ -1556,6 +1562,90 @@ static void mag_commit(const float offset[3], const float mat[9], void *ctx) {
            bmx160_calib.mag_soft_iron[8]);
 }
 
+/* Commit a successful accel fit: bias (m/s^2) + full 3x3 (scale+misalignment). */
+static void acc_commit(const float offset[3], const float mat[9], void *ctx) {
+  (void)ctx;
+  for (int i = 0; i < 3; i++)
+    bmx160_calib.acc_offset[i] = offset[i];
+  for (int i = 0; i < 9; i++)
+    bmx160_calib.acc_soft_iron[i] = mat[i];
+  vayu_log("[CALIB] Accel Bias: %.3f, %.3f, %.3f", bmx160_calib.acc_offset[0],
+           bmx160_calib.acc_offset[1], bmx160_calib.acc_offset[2]);
+  vayu_log("[CALIB] Accel SoftIron diag: %.3f, %.3f, %.3f",
+           bmx160_calib.acc_soft_iron[0], bmx160_calib.acc_soft_iron[4],
+           bmx160_calib.acc_soft_iron[8]);
+}
+
+/* Pose-tolerant static capture for the full-3x3 accel calibration. Prompts the
+ * given pose code, then averages ACCEL_POSE_STILL_SAMPLES contiguous STILL raw
+ * accel samples — "still" = gyro near zero AND |a| in a WIDE 1 g band (so a
+ * grossly mis-scaled sensor still qualifies) — with NO axis-dominance gate, so
+ * the operator's pose only has to be roughly right. Averages acc_raw into
+ * accel_out (m/s^2). Returns 1 on success, -1 on cancel. */
+static int wait_for_static_pose(uint8_t code, float accel_out[3]) {
+  calib_telemetry(code, 0.0f); // prompt the operator (advisory)
+  v_delay(CALIBRATION_WAIT_USER_TIME_PRE_CALIBRATION);
+
+  const float g = 9.81f;
+  const float mag_min2 = (0.45f * g) * (0.45f * g); // reject free-fall / drops
+  const float mag_max2 = (2.0f * g) * (2.0f * g);   // permissive: up to ~2x scale
+  const float gyro_still2 = ACCEL_CAL_GYRO_STILL_DPS * ACCEL_CAL_GYRO_STILL_DPS;
+
+  const int target = ACCEL_POSE_STILL_SAMPLES;
+  float sum[3] = {0.0f, 0.0f, 0.0f};
+  int count = 0;
+  int reprompt = 0;
+  const int reprompt_period = 50; // ~1 s; re-announce a dropped prompt
+  int starve = 0;
+  const int starve_limit = 2500; // ~5 s of empty queue -> abort cleanly
+
+  while (count < target) {
+    if (_calib_cancel)
+      return -1;
+    bmx160_all_reading_t s;
+    if (!imu_queue_calibration_pop(&s)) {
+      if (++starve >= starve_limit) {
+        vayu_log("[CALIB] sample stream starved; aborting pose %d", code);
+        return -1;
+      }
+      v_delay(2);
+      continue;
+    }
+    starve = 0;
+    float ax = s.converted.acc_raw[0], ay = s.converted.acc_raw[1],
+          az = s.converted.acc_raw[2];
+    float mag2 = ax * ax + ay * ay + az * az;
+    float gx = s.converted.gyr_raw[0], gy = s.converted.gyr_raw[1],
+          gz = s.converted.gyr_raw[2];
+    float gyro2 = gx * gx + gy * gy + gz * gz;
+
+    if (mag2 > mag_min2 && mag2 < mag_max2 && gyro2 < gyro_still2) {
+      sum[0] += ax;
+      sum[1] += ay;
+      sum[2] += az;
+      count++;
+      if (count % (target / 20) == 0)
+        calib_telemetry(CALIB_UPDATE_PROGRESS,
+                        (100.0f * (float)count) / (float)target);
+    } else {
+      // Disturbed: require a contiguous still window, and re-prompt periodically.
+      count = 0;
+      sum[0] = sum[1] = sum[2] = 0.0f;
+      if (++reprompt >= reprompt_period) {
+        reprompt = 0;
+        calib_telemetry(code, 0.0f);
+      }
+    }
+    v_delay(20);
+  }
+
+  float inv = 1.0f / (float)target;
+  accel_out[0] = sum[0] * inv;
+  accel_out[1] = sum[1] * inv;
+  accel_out[2] = sum[2] * inv;
+  return 1;
+}
+
 void calibration_task(void *args) {
   calibration_args_t *cal_args = (calibration_args_t *)args;
   /* Set once the calibration is computed and persisted; drives the terminal
@@ -1587,58 +1677,45 @@ void calibration_task(void *args) {
   v_delay(500);
   vayu_log("[CALIB] IMU ID: %.1f, Type: %.1f", imu_id, cal_args->type);
 
-  if ((int)imu_id == 1) { // ACCEL (6-point)
-    calib_update_type_t orients[] = {
+  if ((int)imu_id == 1) { // ACCEL (pose-tolerant full-3x3 ellipsoid)
+    // ~12 prompted holds: the 6 faces + 6 edges/corners. The edge/corner holds
+    // share gravity between axes, which is the only way the off-diagonal
+    // (misalignment) terms of the 3x3 become observable. Poses are advisory —
+    // the fit is magnitude-only, so a roughly-held pose contributes no error.
+    static const uint8_t accel_poses[ACCEL_CAL_POSES] = {
         CALIB_UPDATE_UPRIGHT,    CALIB_UPDATE_UPSIDE_DOWN,
         CALIB_UPDATE_NOSE_UP,    CALIB_UPDATE_NOSE_DOWN,
-        CALIB_UPDATE_RIGHT_DOWN, CALIB_UPDATE_LEFT_DOWN};
-    float averages[6][3];
+        CALIB_UPDATE_RIGHT_DOWN, CALIB_UPDATE_LEFT_DOWN,
+        CALIB_UPDATE_EDGE_1,     CALIB_UPDATE_EDGE_2,
+        CALIB_UPDATE_EDGE_3,     CALIB_UPDATE_EDGE_4,
+        CALIB_UPDATE_EDGE_5,     CALIB_UPDATE_EDGE_6};
+    float pts[ACCEL_CAL_POSES][3];
+    int npts = 0;
 
-    for (int i = 0; i < 6; i++) {
-      if (wait_for_orientation(orients[i], averages[i]) < 0) {
+    vayu_log("[CALIB] Accel Calibration (full 3x3, %d poses)...", ACCEL_CAL_POSES);
+    for (int i = 0; i < ACCEL_CAL_POSES; i++) {
+      if (wait_for_static_pose(accel_poses[i], pts[npts]) < 0) {
         vayu_log("[CALIB] Accel calibration cancelled.");
         goto done;
       }
+      npts++;
       vayu_log("[CALIB] Pose %d recorded.", i);
       v_delay(CALIBRATION_WAIT_USER_TIME_PRE_CALIBRATION); // user moves the board
     }
 
-    // Offset = midpoint of the +g and -g poses on each axis (symmetric, so it
-    // is correct regardless of sign). The pose index that reads +9.81 ("pos")
-    // and the one that reads -9.81 ("neg"), per axis:
-    //   X: NOSE_UP(2)=+g, NOSE_DOWN(3)=-g  (nose-up reads +g on this airframe)
-    //   Y: LEFT_DOWN(5)=+g, RIGHT_DOWN(4)=-g
-    //   Z: UPSIDE_DOWN(1)=+g, UPRIGHT(0)=-g
-    const struct {
-      int pos, neg, axis;
-    } AX[3] = {{2, 3, 0}, {5, 4, 1}, {1, 0, 2}};
-
-    int full = ((int)cal_args->type == 1);
-    vayu_log(full ? "[CALIB] Full Accel Calibration (bias + scale)..."
-                  : "[CALIB] Bias-Only Accel Calibration...");
-    for (int k = 0; k < 3; k++) {
-      float pos = averages[AX[k].pos][AX[k].axis]; // ≈ +9.81
-      float neg = averages[AX[k].neg][AX[k].axis]; // ≈ -9.81
-      bmx160_calib.acc_offset[AX[k].axis] = (pos + neg) * 0.5f;
-      if (full) {
-        // Scale = 2g / span, span = (+g pose) - (-g pose) ≈ +19.62. Guard
-        // against a degenerate span (a pose that was not actually held).
-        float span = pos - neg;
-        if (FABS_F(span) >= ACCEL_SCALE_MIN_SPAN) {
-          bmx160_calib.acc_scale[AX[k].axis] = (2.0f * 9.80665f) / span;
-        } else {
-          bmx160_calib.acc_scale[AX[k].axis] = 1.0f;
-          vayu_log("[CALIB] Accel axis %d span too small (%.2f); scale=1.0",
-                   AX[k].axis, span);
-        }
-      }
+    calib_target_t acc_target = {
+        .name = "accel",
+        .fit = CALIB_FIT_ELLIPSOID,
+        .radius = 9.80665f,              // gravity (m/s^2) — absolute target
+        .min_samples = ACCEL_CAL_MIN_POSES,
+        .normalize_radius = true,        // rescale so |a_cal| == g exactly
+        .commit = acc_commit,
+        .ctx = NULL,
+    };
+    if (calib_engine_fit_points(&acc_target, (const float (*)[3])pts, npts) != 0) {
+      vayu_log("[CALIB] Accel fit failed; keeping old calibration.");
+      goto done;
     }
-    vayu_log("[CALIB] Accel Bias: %.3f, %.3f, %.3f", bmx160_calib.acc_offset[0],
-             bmx160_calib.acc_offset[1], bmx160_calib.acc_offset[2]);
-    if (full)
-      vayu_log("[CALIB] Accel Scale: %.3f, %.3f, %.3f",
-               bmx160_calib.acc_scale[0], bmx160_calib.acc_scale[1],
-               bmx160_calib.acc_scale[2]);
 
   } else if ((int)imu_id == 2) { // GYRO (bias-only; gyro bias is
                                  // orientation-independent, so no 6-point pass)
