@@ -1,5 +1,5 @@
 #include "sensor/bmx160.h"
-#include "calib/calib_ellipsoid.h"
+#include "calib/calib_engine.h"
 #include "comm/comm.h"
 #include "sensor/bme280.h"
 #include "sensor/i2c_manager.h"
@@ -1509,6 +1509,53 @@ static void calib_coverage(float cx, float cy, float cz) {
   imu_queue_calibration_telemetry_push(&t);
 }
 
+/* ---- calib_engine descriptor callbacks (shared cancel + mag target) ------- */
+
+/* Operator-cancel poll for the calib engine (every target uses this). */
+static bool calib_cancelled(void *ctx) {
+  (void)ctx;
+  return _calib_cancel != 0;
+}
+
+/* Mag: pop one compensated sample (uT), gated on a sane rhall + finite values.
+ * False = nothing usable this tick (the engine skips it). */
+static bool mag_read_raw(float v[3], void *ctx) {
+  (void)ctx;
+  bmx160_all_reading_t s;
+  if (!imu_queue_calibration_pop(&s))
+    return false;
+  if (s.raw.rhall < 50 || s.raw.rhall > 30000)
+    return false;
+  float mx = s.converted.mag_compensated[0];
+  float my = s.converted.mag_compensated[1];
+  float mz = s.converted.mag_compensated[2];
+  if (!IS_FINITE(mx) || !IS_FINITE(my) || !IS_FINITE(mz))
+    return false;
+  v[0] = mx;
+  v[1] = my;
+  v[2] = mz;
+  return true;
+}
+
+static void mag_on_coverage(float cx, float cy, float cz, void *ctx) {
+  (void)ctx;
+  calib_coverage(cx, cy, cz);
+}
+
+/* Commit a successful mag fit: hard iron in uT, soft iron used as-is. */
+static void mag_commit(const float offset[3], const float mat[9], void *ctx) {
+  (void)ctx;
+  for (int i = 0; i < 3; i++)
+    bmx160_calib.mag_offset[i] = offset[i];
+  for (int i = 0; i < 9; i++)
+    bmx160_calib.mag_soft_iron[i] = mat[i];
+  vayu_log("[CALIB] Mag Bias: %.2f, %.2f, %.2f", bmx160_calib.mag_offset[0],
+           bmx160_calib.mag_offset[1], bmx160_calib.mag_offset[2]);
+  vayu_log("[CALIB] Mag SoftIron diag: %.3f, %.3f, %.3f",
+           bmx160_calib.mag_soft_iron[0], bmx160_calib.mag_soft_iron[4],
+           bmx160_calib.mag_soft_iron[8]);
+}
+
 void calibration_task(void *args) {
   calibration_args_t *cal_args = (calibration_args_t *)args;
   /* Set once the calibration is computed and persisted; drives the terminal
@@ -1630,104 +1677,29 @@ void calibration_task(void *args) {
     calib_telemetry(CALIB_UPDATE_FREE_ROT, 0.0f);
     v_delay(1000); // give the user time to see the prompt
 
-    // Online least-squares ellipsoid fit: accumulate the 9x9 normal equations
-    // S p = t over the spin. Samples are scaled by MAG_FIT_NORM so the matrix
-    // entries (which span x^4 .. x) stay well-conditioned in float32.
-    const float MAG_FIT_NORM = 50.0f; // nominal Earth field (uT)
-    float S[81] = {0};
-    float t9[9] = {0};
-    int nvalid = 0;
-
-    /* Real coverage feedback (replaces the old elapsed-time bar): track the min
-     * and max of each RAW (uncalibrated, uT) mag component. Under full rotation
-     * each component sweeps ~[-|field|, +|field|], so its span grows to ~2*|field|
-     * (~100 uT); a still board sweeps nothing. We use the RAW span — NOT the
-     * normalized direction — because an uncalibrated mag's hard-iron offset can
-     * dominate |m| and pin m/|m| nearly constant regardless of rotation; the raw
-     * span subtracts that constant offset, so it tracks rotation honestly.
-     * cov% = span / (2*MAG_FIT_NORM) * 100, capped at 100. Progress = mean. */
-    float cmin[3] = {1e9f, 1e9f, 1e9f};
-    float cmax[3] = {-1e9f, -1e9f, -1e9f};
-    float cov[3] = {0.0f, 0.0f, 0.0f};
-    const float COV_SCALE = 100.0f / (2.0f * MAG_FIT_NORM); // span(uT) -> %
-    const float COV_DONE = 80.0f; // per-axis % to finish early (~field tolerant)
-
-    const int iterations = 20000 / 20; // 20 s at 20 ms/tick (hard upper bound)
-    for (int i = 0; i < iterations; i++) {
-      if (_calib_cancel) {
-        vayu_log("[CALIB] Mag calibration cancelled.");
-        goto done;
-      }
-      // One recent sample per tick (the SPSC queue is OVERWRITE, so this reads
-      // near the head); ~1000 samples spread over the spin.
-      bmx160_all_reading_t sample;
-      if (imu_queue_calibration_pop(&sample) &&
-          sample.raw.rhall >= 50 && sample.raw.rhall <= 30000) {
-        float mx = sample.converted.mag_compensated[0];
-        float my = sample.converted.mag_compensated[1];
-        float mz = sample.converted.mag_compensated[2];
-        if (IS_FINITE(mx) && IS_FINITE(my) && IS_FINITE(mz)) {
-          float x = mx / MAG_FIT_NORM, y = my / MAG_FIT_NORM,
-                z = mz / MAG_FIT_NORM;
-          float r[9] = {x * x,     y * y, z * z, 2 * y * z, 2 * x * z,
-                        2 * x * y, 2 * x, 2 * y, 2 * z};
-          for (int a = 0; a < 9; a++) {
-            t9[a] += r[a];
-            for (int b = 0; b < 9; b++)
-              S[a * 9 + b] += r[a] * r[b];
-          }
-          nvalid++;
-
-          // Update per-axis coverage from the RAW component span (offset-invariant).
-          float m[3] = {mx, my, mz};
-          for (int k = 0; k < 3; k++) {
-            if (m[k] < cmin[k]) cmin[k] = m[k];
-            if (m[k] > cmax[k]) cmax[k] = m[k];
-            float c = (cmax[k] - cmin[k]) * COV_SCALE;
-            cov[k] = c < 0.0f ? 0.0f : (c > 100.0f ? 100.0f : c);
-          }
-        }
-      }
-
-      // ~1 Hz coverage update. The GCS shows per-axis X/Y/Z and drives the bar
-      // off the mean of the three (one message, both UI elements — avoids the
-      // OVERWRITE telemetry queue dropping a separate PROGRESS frame).
-      if (i % (iterations / 20) == 0)
-        calib_coverage(cov[0], cov[1], cov[2]);
-
-      // Finish as soon as every axis is well covered (and the fit has enough
-      // points) — so 100% means "done", with the 20 s loop as a fallback cap.
-      if (nvalid >= MAG_FIT_MIN_SAMPLES && cov[0] >= COV_DONE &&
-          cov[1] >= COV_DONE && cov[2] >= COV_DONE)
-        break;
-
-      v_delay(20);
-    }
-
-    vayu_log("[CALIB] Mag samples: %d", nvalid);
-    if (nvalid < MAG_FIT_MIN_SAMPLES) {
-      vayu_log("[CALIB] Too few mag samples (%d < %d); keeping old calibration.",
-               nvalid, MAG_FIT_MIN_SAMPLES);
+    // Online least-squares ellipsoid fit over the spin, run by the shared
+    // calib engine: samples scaled by MAG_FIT_NORM, per-axis raw-span coverage,
+    // early-finish at COV_DONE, commit-only-on-success. The RAW-span coverage is
+    // offset-invariant (an uncalibrated hard-iron offset can pin m/|m| nearly
+    // constant, so we never normalise the direction for coverage).
+    calib_target_t mag_target = {
+        .name = "mag",
+        .fit = CALIB_FIT_ELLIPSOID,
+        .radius = 50.0f,                    // nominal Earth field (uT)
+        .min_samples = MAG_FIT_MIN_SAMPLES, // enough points to attempt the fit
+        .cov_done = 80.0f,                  // per-axis % to finish early
+        .max_ticks = 20000 / 20,            // 20 s at 20 ms/tick (fallback cap)
+        .poll_ms = 20,
+        .read_raw = mag_read_raw,
+        .cancelled = calib_cancelled,
+        .on_coverage = mag_on_coverage,
+        .commit = mag_commit,
+        .ctx = NULL,
+    };
+    if (calib_engine_run(&mag_target) != 0) {
+      vayu_log("[CALIB] Mag calibration not committed; keeping old calibration.");
       goto done;
     }
-
-    float offset[3], soft[9];
-    if (calib_fit_ellipsoid(S, t9, offset, soft) != 0) {
-      vayu_log("[CALIB] Mag ellipsoid fit failed; keeping old calibration.");
-      goto done;
-    }
-    // Commit only on success. Hard iron scales back to uT; soft iron is
-    // scale-invariant so it is used as-is.
-    for (int i = 0; i < 3; i++)
-      bmx160_calib.mag_offset[i] = offset[i] * MAG_FIT_NORM;
-    for (int i = 0; i < 9; i++)
-      bmx160_calib.mag_soft_iron[i] = soft[i];
-
-    vayu_log("[CALIB] Mag Bias: %.2f, %.2f, %.2f", bmx160_calib.mag_offset[0],
-             bmx160_calib.mag_offset[1], bmx160_calib.mag_offset[2]);
-    vayu_log("[CALIB] Mag SoftIron diag: %.3f, %.3f, %.3f",
-             bmx160_calib.mag_soft_iron[0], bmx160_calib.mag_soft_iron[4],
-             bmx160_calib.mag_soft_iron[8]);
   } else {
     vayu_log("[CALIB] Unknown IMU ID %d; nothing to do.", (int)imu_id);
     goto done;
