@@ -69,6 +69,17 @@ void fs_owner_init(void);
 void fs_owner_task(void *args);
 
 /**
+ * @brief Quiesce best-effort blackbox logging while a bulk transfer runs.
+ *
+ * When @p suppress is true the FS task stops draining the log lane to SD, so an
+ * in-flight xfer is the sole multi-file SD actor (interleaving log writes with
+ * the transfer's I/O corrupts the FatFS/SD read-back). Driven by the xfer
+ * service task from xfer_active(). Queued records drop (circular blackbox) until
+ * the transfer ends. Safe to call from any task (single volatile flag).
+ */
+void fs_owner_suppress_logs(bool suppress);
+
+/**
  * @brief Drain everything currently queued, synchronously, in the caller's
  *        context (saves first, then all pending logs). Used by tests to run
  *        the same handlers the task runs, deterministically and without
@@ -108,13 +119,35 @@ bool fs_owner_enqueue_calib_save(const void *header, uint32_t hlen,
  * reuse its buffer immediately). Backing store is heap-allocated in
  * fs_owner_init (docs/plans/xfer-memory-budget.md), so .bss stays flat.
  *
- * @return true if queued; false if dropped (path too long, len out of range,
- *         lane full, or not ready) — drop-and-counted like the other lanes. A
- *         full lane is the upload's backpressure signal (the cursor stalls and
- *         the next XFER_ACK tells the GCS to pause/retransmit).
+ * A write whose vfs_open/write fails (e.g. all 4 FatFS slots momentarily busy)
+ * is NOT lost: fs_do_write_at re-queues it onto a separate retry lane that the
+ * task drains, again and again, whenever no fresh write-at is pending — until it
+ * succeeds or a bounded retry budget is exhausted (then the session is marked
+ * failed). Per-session bookkeeping (pending / committed / failed) lets the xfer
+ * upload report true persistence to the GCS (see fs_owner_writeat_* below).
+ *
+ * `session` tags the write to an xfer session (0..XFER_MAX_SESSIONS-1) for that
+ * bookkeeping; non-xfer callers may pass 0.
+ *
+ * @return true if queued; false if the main lane is full (backpressure: the
+ *         cursor stalls and the next XFER_ACK tells the GCS to pause/retransmit)
+ *         or the request is malformed (path too long, len out of range, not
+ *         ready) — drop-and-counted.
  */
-bool fs_owner_enqueue_write_at(const char *path, uint32_t offset,
-                               const void *data, uint32_t len);
+bool fs_owner_enqueue_write_at(uint8_t session, const char *path,
+                               uint32_t offset, const void *data, uint32_t len);
+
+/* ---- per-session write-at status (the xfer upload's confirmed-write report) --
+ * fs_owner_writeat_reset() zeroes a session's counters at the start of an upload.
+ * pending()  = chunks queued or retrying but not yet durably written.
+ * committed()= bytes successfully written (== upload size when fully flushed).
+ * failed()   = a write exhausted its retry budget (permanent failure).
+ * The xfer FILE provider polls these in its flush() hook: pending==0 && !failed
+ * => DONE; failed => FAILED. */
+void fs_owner_writeat_reset(uint8_t session);
+uint32_t fs_owner_writeat_pending(uint8_t session);
+uint32_t fs_owner_writeat_committed(uint8_t session);
+bool fs_owner_writeat_failed(uint8_t session);
 
 /**
  * @brief Truncate-or-create a file to empty. **Called ONLY from

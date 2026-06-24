@@ -95,6 +95,19 @@ bool xfer_session_active(uint8_t session) {
   return s_sessions[session].state != XFER_ST_FREE;
 }
 
+bool xfer_active(void) {
+  if (!s_ready)
+    return false;
+  /* Any non-FREE session — covers pending-open, active up/down, and done-linger.
+   * Used to quiesce best-effort blackbox logging for the whole transfer window so
+   * the SD sees only the transfer's file (sequential = the one corruption-free
+   * multi-file pattern; see fs_owner log suppression). */
+  for (uint8_t i = 0; i < XFER_MAX_SESSIONS; i++)
+    if (s_sessions[i].state != XFER_ST_FREE)
+      return true;
+  return false;
+}
+
 const xfer_session_t *xfer_session_get(uint8_t session) {
   if (!s_ready || session >= XFER_MAX_SESSIONS)
     return NULL;
@@ -166,13 +179,13 @@ void xfer_on_data(uint8_t session, uint32_t offset, const uint8_t *buf,
       s->cursor += (uint32_t)w; /* accepted (enqueued); 0 = backpressure, hold */
   }
   if (flags & XFER_F_EOF) {
-    /* Final chunk seen; once the contiguous cursor has reached it, finish. */
+    /* Final chunk seen + contiguously received: mark EOF and record the size.
+     * The terminal DONE is NOT sent here — tick_upload waits for provider->flush
+     * to confirm every byte is durably written (so the GCS's DONE means "on disk",
+     * not merely "enqueued"), then sends DONE, or FAILED if a write never lands. */
     if (offset + len <= s->cursor) {
       s->total_size = s->cursor;
-      if (s_tx && s_tx->ack)
-        s_tx->ack(s, XFER_F_DONE, XFER_RES_ACCEPTED, s->cursor);
-      s->state = XFER_ST_DONE_LINGER;
-      s->last_emit_ms = s->last_rx_ms; /* linger from now */
+      s->upload_eof = true;
     }
   }
   if (flags & XFER_F_ABORT) {
@@ -191,6 +204,13 @@ void xfer_on_ack(uint8_t session, uint32_t next_offset, uint8_t flags) {
   if (s->state != XFER_ST_ACTIVE && s->state != XFER_ST_DONE_LINGER)
     return;
 
+  /* A peer ack/NAK IS liveness: the GCS is actively driving recovery. Flag it so
+   * the next tick refreshes the idle clock (tick owns the time source) — a
+   * download that's momentarily not emitting (e.g. a transient read shortfall
+   * being retried) must NOT be reaped out from under an attentive GCS; the reap
+   * then strands the GCS re-requesting a dead session until ITS timeout = the
+   * observed tail stall. (rx_activity is otherwise download-unused.) */
+  s->rx_activity = true;
   s->info_acked = true;
   if (flags & XFER_F_DONE) {
     if (s->provider && s->provider->close)
@@ -257,30 +277,57 @@ static void tick_pending_open(xfer_session_t *s, uint32_t now_ms) {
 }
 
 /* Download: emit up to `budget` chunks from the cursor; returns chunks emitted. */
-static int tick_download(xfer_session_t *s, uint32_t now_ms, int budget) {
+static int tick_download(xfer_session_t *s, uint32_t now_ms, int budget,
+                         uint32_t tx_overflow) {
+  /* Channel-paced: XFER_DATA shares the telemetry channel, so emitting flat-out
+   * (budget chunks every tick ≈ 250 KB/s) swamps the ~44 KB/s link. The pacing
+   * MUST come from whether each frame is actually accepted into the TX ring
+   * (s_tx->data() return), NOT from the channel-wide overflow *counter*: telemetry
+   * shares the channel and bumps that counter independently, so keying off it
+   * froze the download whenever telemetry congested the ring (the residual
+   * mid-file stall — confirmed on hardware: SDIO error-free, reads fine, the chunk
+   * simply never left the FC). The cursor now advances only on an accepted write,
+   * so a full ring just holds position and retries next tick — no chunk loss, no
+   * race to EOF, self-paced to the link's real throughput. */
+  (void)tx_overflow;
   int emitted = 0;
   uint8_t buf[XFER_CHUNK_MAX];
   while (budget > 0 && s->state == XFER_ST_ACTIVE) {
     if (s->cursor >= s->total_size) {
-      /* Nothing left: send a zero-length EOF marker and linger for the ack. */
-      if (s_tx && s_tx->data)
-        s_tx->data(s, XFER_F_EOF, 0, s->cursor, buf);
+      /* Nothing left: send a zero-length EOF marker and linger for the ack. Only
+       * transition once the marker is actually accepted, else retry next tick. */
+      if (s_tx && s_tx->data && !s_tx->data(s, XFER_F_EOF, 0, s->cursor, buf))
+        break; /* ring full: hold, retry the EOF marker next tick */
       s->state = XFER_ST_DONE_LINGER;
       s->last_emit_ms = now_ms;
       emitted++;
       break;
     }
+    /* Snapshot the cursor ONCE and use it for BOTH the read and the emit. The
+     * GCS's XFER_ACK/NAK handler (xfer_on_ack) runs on the COMM task and can
+     * REWIND s->cursor concurrently mid-tick; reading s->cursor separately for
+     * the read offset and the emit offset let a rewind land between them, so the
+     * frame went out labelled with the rewound offset but carrying the data read
+     * at the old offset → a chunk delivered with another chunk's content (the
+     * intermittent +k*247 silent corruption, confirmed on HW). One snapshot makes
+     * each emitted frame self-consistent. */
+    uint32_t off = s->cursor;
     uint16_t want = s->chunk_size;
-    if ((uint32_t)want > s->total_size - s->cursor)
-      want = (uint16_t)(s->total_size - s->cursor);
-    int n = s->provider->read ? s->provider->read(s, s->cursor, buf, want) : -1;
+    if ((uint32_t)want > s->total_size - off)
+      want = (uint16_t)(s->total_size - off);
+    int n = s->provider->read ? s->provider->read(s, off, buf, want) : -1;
     if (n <= 0)
       break; /* transient read shortfall; retry next tick */
-    bool last = (s->cursor + (uint32_t)n) >= s->total_size;
+    bool last = (off + (uint32_t)n) >= s->total_size;
     uint8_t flags = last ? XFER_F_EOF : XFER_F_NONE;
-    if (s_tx && s_tx->data)
-      s_tx->data(s, flags, (uint8_t)n, s->cursor, buf);
-    s->cursor += (uint32_t)n;
+    /* Backpressure: if the channel dropped the frame, do NOT advance the cursor —
+     * hold here and retry next tick once the ring drains. */
+    if (s_tx && s_tx->data && !s_tx->data(s, flags, (uint8_t)n, off, buf))
+      break;
+    /* Advance only if no concurrent GCS rewind moved the cursor during the
+     * read/emit; if it did, honour the rewind (re-read that offset next tick). */
+    if (s->cursor == off)
+      s->cursor = off + (uint32_t)n;
     s->last_emit_ms = now_ms;
     s->last_rx_ms = now_ms; /* progress == liveness (idle-timeout base) */
     emitted++;
@@ -326,6 +373,23 @@ static void tick_upload(xfer_session_t *s, uint32_t now_ms) {
     s->last_rx_ms = now_ms;
     s->rx_activity = false;
   }
+  /* All chunks received: poll the provider for durable-persist confirmation
+   * before the terminal ack. flush==NULL (no async write-back) reads as done. */
+  if (s->upload_eof) {
+    int fl = (s->provider && s->provider->flush) ? s->provider->flush(s) : 1;
+    if (fl != 0) { /* 1 = fully flushed -> DONE; <0 = a write failed -> FAILED */
+      uint8_t res = (fl > 0) ? (uint8_t)XFER_RES_ACCEPTED : (uint8_t)XFER_RES_FAILED;
+      if (s_tx && s_tx->ack)
+        s_tx->ack(s, XFER_F_DONE, res, s->cursor);
+      s->state = XFER_ST_DONE_LINGER;
+      s->last_emit_ms = now_ms; /* linger from now */
+      return;
+    }
+    /* fl == 0: still flushing — refresh liveness (the flush is bounded: the
+     * provider returns <0 once retries are exhausted) and fall through to keep
+     * emitting progress acks so the GCS knows we're alive and holding at cursor. */
+    s->last_rx_ms = now_ms;
+  }
   if ((uint32_t)(now_ms - s->last_emit_ms) >= XFER_ACK_PERIOD_MS) {
     if (s_tx && s_tx->ack)
       s_tx->ack(s, XFER_F_NONE, XFER_RES_ACCEPTED, s->cursor);
@@ -368,10 +432,14 @@ int xfer_tick(uint32_t now_ms, uint32_t tx_overflow, int chunk_budget) {
       break;
     case XFER_ST_ACTIVE:
       if (s->dir == XFER_DIR_DOWNLOAD) {
+        if (s->rx_activity) { /* peer ack since last tick == liveness */
+          s->last_rx_ms = now_ms;
+          s->rx_activity = false;
+        }
         if (s->mode == XFER_MODE_STREAM)
           emitted += tick_stream(s, now_ms, tx_overflow);
         else
-          emitted += tick_download(s, now_ms, chunk_budget - emitted);
+          emitted += tick_download(s, now_ms, chunk_budget - emitted, tx_overflow);
       } else {
         tick_upload(s, now_ms);
       }
