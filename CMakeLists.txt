@@ -121,6 +121,8 @@ set(VAYU_R12_WARN_FLAGS
     -isystem ${CMAKE_CURRENT_SOURCE_DIR}/extern/vaios/extern/NavHAL/include/port/cortex-m4
     -isystem ${CMAKE_CURRENT_SOURCE_DIR}/extern/vaios/extern/NavHAL/src/vendor/stm32/family/stm32f4/include)
 set(VAYU_R12_CLEAN_SOURCES
+    # CALIB module (shared sensor-agnostic ellipsoid fit)
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/calib/calib_ellipsoid.c
     # ACT module (Phase 4)
     ${CMAKE_CURRENT_SOURCE_DIR}/src/actuator/esc.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/actuator/motor.c
