@@ -31,7 +31,7 @@ CalibrationWidget::CalibrationWidget(QWidget *parent) : QWidget(parent) {
     btn->setCheckable(true);
     sensorLayout->addWidget(btn);
   }
-  m_accBtn->setToolTip(tr("Accelerometer — bias + 6-axis full calibration"));
+  m_accBtn->setToolTip(tr("Accelerometer — pose-tolerant full 3×3 (12 holds)"));
   m_gyrBtn->setToolTip(tr("Gyroscope — bias-only zeroing"));
   m_magBtn->setToolTip(tr("Magnetometer — rotate the airframe for axis coverage"));
 
@@ -240,7 +240,13 @@ void CalibrationWidget::onSensorSelected(int id) {
   m_fullCalibRadio->setEnabled(true);
   m_axisStatusArea->setVisible(true);
 
-  if (id == 2) {
+  if (id == 1) {
+    // Accel has a single routine now (pose-tolerant full 3x3 ellipsoid); the
+    // firmware ignores the mode arg, so don't offer a misleading bias-only option.
+    m_biasOnlyRadio->setText("Full 3×3 (Bias + Scale + Misalignment)");
+    m_biasOnlyRadio->setChecked(true);
+    m_fullCalibRadio->setEnabled(false);
+  } else if (id == 2) {
     // Gyro: Bias-Only only
     m_fullCalibRadio->setEnabled(false);
     m_biasOnlyRadio->setChecked(true);
@@ -284,11 +290,9 @@ void CalibrationWidget::onStartClicked() {
 CalibMode CalibrationWidget::currentMode() const {
   switch (m_selectedImuId) {
     case 1:  // accelerometer
-      // Always the 6-pose wizard: the firmware runs the full 6-point loop for
-      // bias-only too (it needs the +g and -g pose per axis to separate bias
-      // from gravity). The Bias-Only vs Full radio only selects whether the
-      // firmware also computes scale; it is carried in the command's type
-      // nibble, not by showing fewer poses here.
+      // One routine now: a pose-tolerant full-3x3 ellipsoid fit over 6 faces +
+      // 6 edges/corners. The firmware ignores the command's mode nibble for
+      // accel (there is no bias-only accel anymore), so we always run this flow.
       return CalibMode::Accel6Axis;
     case 3:  // magnetometer
       return CalibMode::Mag;
@@ -390,6 +394,24 @@ void CalibrationWidget::onInstructionReceived(int type) {
     break;
   case CalibUpdateType::FreeRot:
     msg = "ROTATE DRONE FREELY IN ALL AXES";
+    break;
+  case CalibUpdateType::Edge1:
+    msg = "REST ON FRONT EDGE (NOSE UP ~45°)";
+    break;
+  case CalibUpdateType::Edge2:
+    msg = "REST ON BACK EDGE (NOSE DOWN ~45°)";
+    break;
+  case CalibUpdateType::Edge3:
+    msg = "REST ON RIGHT EDGE (~45°)";
+    break;
+  case CalibUpdateType::Edge4:
+    msg = "REST ON LEFT EDGE (~45°)";
+    break;
+  case CalibUpdateType::Edge5:
+    msg = "TILT ONTO FRONT-RIGHT CORNER";
+    break;
+  case CalibUpdateType::Edge6:
+    msg = "TILT ONTO BACK-LEFT CORNER";
     break;
   default:
     msg = "STAY STILL...";
