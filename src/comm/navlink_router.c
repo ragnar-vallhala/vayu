@@ -14,6 +14,7 @@
 #include "vayu_status.h"
 #include "vayu_tasks.h"       /* comm_processor_dispatch */
 #include "comm/xfer/navlink_xfer.h" /* bulk-transfer substrate SM (codec-blind) */
+#include "comm/xfer/fs_query.h"     /* filesystem-navigation service */
 #include "navlink_msgs.h"     /* the generated codec — included ONLY here */
 #include <stdint.h>
 
@@ -209,6 +210,28 @@ static void on_xfer_ack(void *ctx, const navlink_frame_hdr_t *hdr,
   xfer_on_ack(m->session, m->next_offset, m->flags);
 }
 
+/* ---- filesystem navigation: list a dir / stat a path ---------------------
+ * Deferred like xfer-open: stash on the comm task, do the VFS walk + emit on
+ * the xfer task. fs_query results mirror command_result by value. */
+static navlink_ack_t on_fs_list(void *ctx, const navlink_frame_hdr_t *hdr,
+                                const navlink_fs_list_t *m) {
+  (void)ctx;
+  int d = fs_query_on_list(m->req_seq, hdr->sysid, hdr->compid, m->path,
+                           m->start_index);
+  if (d == FS_QUERY_DEFERRED)
+    return navlink_ack_deferred();
+  return navlink_ack_result((uint8_t)d);
+}
+
+static navlink_ack_t on_fs_info(void *ctx, const navlink_frame_hdr_t *hdr,
+                                const navlink_fs_info_t *m) {
+  (void)ctx;
+  int d = fs_query_on_info(m->req_seq, hdr->sysid, hdr->compid, m->path);
+  if (d == FS_QUERY_DEFERRED)
+    return navlink_ack_deferred();
+  return navlink_ack_result((uint8_t)d);
+}
+
 static navlink_ack_t on_cmd_arm(void *ctx, const navlink_frame_hdr_t *hdr,
                                 const navlink_cmd_arm_t *m) {
   (void)ctx; (void)hdr;
@@ -366,6 +389,8 @@ void navlink_router_init(void) {
   s_handlers.on_xfer_close = on_xfer_close;
   s_handlers.on_xfer_data = on_xfer_data;
   s_handlers.on_xfer_ack = on_xfer_ack;
+  s_handlers.on_fs_list = on_fs_list;
+  s_handlers.on_fs_info = on_fs_info;
 }
 
 /* Resolve a deferred CMD_ARM ack from the flight-state machine: ACCEPTED once it

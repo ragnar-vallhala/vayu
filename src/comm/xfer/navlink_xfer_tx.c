@@ -91,3 +91,45 @@ static void op_ack(const xfer_session_t *s, uint8_t flags, uint8_t result,
 }
 
 const xfer_tx_ops_t g_xfer_tx_ops = {op_command_ack, op_info, op_data, op_ack};
+
+/* ---- fs_query (filesystem navigation) seam ------------------------------- */
+static void fsq_command_ack(uint32_t acked_msgid, uint8_t req_seq,
+                            uint8_t result) {
+  uint8_t frame[NAVLINK_MAX_FRAME];
+  size_t n = xfer_build_command_ack(frame, acked_msgid, req_seq, result, 0);
+  write_channel(g_telemetry_channel, frame, (uint16_t)n);
+}
+
+static void fsq_entry(uint8_t req_seq, uint8_t result, uint16_t index,
+                      uint16_t count, uint8_t type, uint32_t size,
+                      const char *name) {
+  navlink_fs_entry_t m = {0};
+  m.req_seq = req_seq;
+  m.result = result;
+  m.index = index;
+  m.count = count;
+  m.type = type;
+  m.size = size;
+  for (uint8_t i = 0; i < sizeof(m.name) && name[i]; i++)
+    m.name[i] = name[i];
+  uint8_t frame[NAVLINK_MAX_FRAME];
+  size_t n = navlink_fs_entry_encode(frame, &m, s_seq++, get_device_id(), 1);
+  write_channel(g_telemetry_channel, frame, (uint16_t)n);
+}
+
+static void fsq_info_reply(uint8_t req_seq, uint8_t result, uint8_t type,
+                           uint32_t size, uint32_t mtime) {
+  navlink_fs_info_reply_t m = {0};
+  m.req_seq = req_seq;
+  m.result = result;
+  m.type = type;
+  m.size = size;
+  m.mtime = mtime;
+  uint8_t frame[NAVLINK_MAX_FRAME];
+  size_t n =
+      navlink_fs_info_reply_encode(frame, &m, s_seq++, get_device_id(), 1);
+  write_channel(g_telemetry_channel, frame, (uint16_t)n);
+}
+
+const fs_query_tx_ops_t g_fs_query_tx_ops = {fsq_command_ack, fsq_entry,
+                                             fsq_info_reply};

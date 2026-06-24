@@ -447,6 +447,31 @@
         { "index": 3, "name": "next_offset", "type": "u32", "unit": "bytes", "doc": "lowest byte offset not yet received" }
       ]
     },
+    {
+      "msgid": 1045, "name": "FS_ENTRY",
+      "doc": "One directory entry streamed in reply to FS_LIST (filesystem navigation). The FC emits one per entry (index 0..count-1) then a terminal entry with an empty name marking end-of-listing; on a bad/absent path it emits a single entry with result=DENIED and count=0. result=ACCEPTED on valid entries. docs/reference/messages/fs_nav.md.",
+      "fields": [
+        { "index": 0, "name": "req_seq", "type": "u8", "doc": "correlates to the FS_LIST request" },
+        { "index": 1, "name": "result",  "type": "u8", "enum": "command_result", "doc": "ACCEPTED ok; DENIED = path does not exist" },
+        { "index": 2, "name": "index",   "type": "u16", "doc": "this entry's index (0-based)" },
+        { "index": 3, "name": "count",   "type": "u16", "doc": "total entries (set on the terminal entry; 0 when not yet known)" },
+        { "index": 4, "name": "type",    "type": "u8", "doc": "0 = file, 1 = directory" },
+        { "index": 5, "name": "size",    "type": "u32", "unit": "bytes", "doc": "file size (0 for directories)" },
+        { "index": 6, "name": "name",    "type": "char", "len": 16, "doc": "entry name (8.3); empty marks end-of-listing" }
+      ]
+    },
+    {
+      "msgid": 1046, "name": "FS_INFO_REPLY",
+      "doc": "Status of one path, in reply to FS_INFO (filesystem navigation). result=ACCEPTED if the path exists (type/size/mtime valid), DENIED if it does not exist. docs/reference/messages/fs_nav.md.",
+      "fields": [
+        { "index": 0, "name": "req_seq", "type": "u8" },
+        { "index": 1, "name": "result",  "type": "u8", "enum": "command_result", "doc": "ACCEPTED = exists; DENIED = does not exist" },
+        { "index": 2, "name": "type",    "type": "u8", "doc": "0 = file, 1 = directory" },
+        { "index": 3, "name": "_pad",    "type": "u8" },
+        { "index": 4, "name": "size",    "type": "u32", "unit": "bytes" },
+        { "index": 5, "name": "mtime",   "type": "u32", "unit": "s", "extension": true, "doc": "FatFS packed mtime if known, else 0" }
+      ]
+    },
 
     {
       "msgid": 8192, "name": "CMD_ARM", "replaces": "0x3/cmd 0x0002",
@@ -576,6 +601,27 @@
         { "index": 2, "name": "req_seq",     "type": "u8" },
         { "index": 3, "name": "session",     "type": "u8" },
         { "index": 4, "name": "result",      "type": "u8", "enum": "command_result" }
+      ]
+    },
+    {
+      "msgid": 8203, "name": "FS_LIST",
+      "doc": "List the files/folders in a directory (filesystem navigation). The FC replies with COMMAND_ACK (deferred) then a stream of FS_ENTRY. If the path does not exist a single FS_ENTRY with result=DENIED is returned. start_index lets the GCS resume/refill from a given entry. docs/reference/messages/fs_nav.md.",
+      "fields": [
+        { "index": 0, "name": "target_sys",  "type": "u8" },
+        { "index": 1, "name": "target_comp", "type": "u8" },
+        { "index": 2, "name": "req_seq",     "type": "u8" },
+        { "index": 3, "name": "start_index", "type": "u16", "doc": "first entry index to emit (resume point)" },
+        { "index": 4, "name": "path",        "type": "char", "len": 48, "doc": "directory path, e.g. \"0:\" or \"0:logs\"" }
+      ]
+    },
+    {
+      "msgid": 8204, "name": "FS_INFO",
+      "doc": "Request the status of a single path (filesystem navigation). The FC replies with COMMAND_ACK (deferred) then FS_INFO_REPLY (result=DENIED if the path does not exist). docs/reference/messages/fs_nav.md.",
+      "fields": [
+        { "index": 0, "name": "target_sys",  "type": "u8" },
+        { "index": 1, "name": "target_comp", "type": "u8" },
+        { "index": 2, "name": "req_seq",     "type": "u8" },
+        { "index": 3, "name": "path",        "type": "char", "len": 48, "doc": "file or directory path" }
       ]
     },
 

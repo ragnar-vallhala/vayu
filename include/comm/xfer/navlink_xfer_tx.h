@@ -14,10 +14,14 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "comm/xfer/fs_query.h"
 #include "comm/xfer/navlink_xfer.h"
 
 /* Emitter wired into xfer_init() in the xfer_service_task. */
 extern const xfer_tx_ops_t g_xfer_tx_ops;
+
+/* Emitter wired into fs_query_init() (filesystem navigation). */
+extern const fs_query_tx_ops_t g_fs_query_tx_ops;
 
 /* Pure builders (encode into `frame`, return its length). No channel write — the
  * ops wrap these with write_channel(); the test decodes them. `frame` must hold
