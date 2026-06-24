@@ -71,6 +71,7 @@ set(HOST_MAIN_SOURCES
 # Firmware sources the host binary reuses verbatim.
 set(VAYU_SOURCES
     ${VAYU_ROOT}/src/calib/calib_ellipsoid.c # shared sensor-agnostic ellipsoid fit
+    ${VAYU_ROOT}/src/calib/calib_engine.c    # calibration engine (acquire + fit + commit)
     ${VAYU_ROOT}/src/actuator/esc.c
     ${VAYU_ROOT}/src/actuator/motor.c
     ${VAYU_ROOT}/src/control/angle_controller.c
@@ -292,6 +293,12 @@ add_test(NAME fs_query COMMAND test_fs_query)
 add_executable(test_calib_ellipsoid tests/test_calib_ellipsoid.c)
 target_link_libraries(test_calib_ellipsoid PRIVATE vayu_sitl_core m)
 add_test(NAME calib_ellipsoid COMMAND test_calib_ellipsoid)
+
+# calibration engine (src/calib/calib_engine.c, in vayu_sitl_core): fake-provider
+# acquire+fit+commit, plus cancel / too-few-samples rejection paths.
+add_executable(test_calib_engine tests/test_calib_engine.c)
+target_link_libraries(test_calib_engine PRIVATE vayu_sitl_core m)
+add_test(NAME calib_engine COMMAND test_calib_engine)
 
 # EKF estimator: thin adapter over the shared branch-coverage core in
 # src/est/ekf_selftest.c, which we compile here with -DEKF_SELFTEST (the same
