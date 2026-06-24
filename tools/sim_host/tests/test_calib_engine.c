@@ -171,6 +171,49 @@ int main(void) {
   CHECK(rc == -1, "under-sampled run returns failure");
   CHECK(s_commits == 0, "no commit when too few samples");
 
+  printf("  [4] fit_points + normalize_radius -> |corrected| == radius\n");
+  {
+    float pts[NDIR][3];
+    for (int i = 0; i < NDIR; i++) {
+      float u[3];
+      fib_dir(i, NDIR, u);
+      synth(u, pts[i]);
+    }
+    t = base_target();
+    t.normalize_radius = true;
+    s_commits = 0;
+    rc = calib_engine_fit_points(&t, (const float (*)[3])pts, NDIR);
+    CHECK(rc == 0, "fit_points succeeds");
+    CHECK(s_commits == 1, "commit called once");
+    /* Apply exactly as the firmware does: a_cal = M * (raw - offset), in raw
+     * units (no /radius). normalize_radius makes |a_cal| == radius. */
+    float mag_mean = 0.0f, mags[NDIR];
+    int dir_ok = 1;
+    for (int i = 0; i < NDIR; i++) {
+      float u[3];
+      fib_dir(i, NDIR, u);
+      float d[3] = {pts[i][0] - s_offset[0], pts[i][1] - s_offset[1],
+                    pts[i][2] - s_offset[2]};
+      float corr[3];
+      mat3_vec(s_mat, d, corr);
+      float mag = sqrtf(corr[0] * corr[0] + corr[1] * corr[1] + corr[2] * corr[2]);
+      mags[i] = mag;
+      mag_mean += mag;
+      if ((corr[0] * u[0] + corr[1] * u[1] + corr[2] * u[2]) / mag < 0.999f)
+        dir_ok = 0;
+    }
+    mag_mean /= (float)NDIR;
+    CHECK(dir_ok, "corrected direction == true direction");
+    /* the whole point of normalize_radius: absolute magnitude == radius (g),
+     * NOT the bare fit's det(A)^(1/3) */
+    CHECK(fabsf(mag_mean - RADIUS) < 0.05f, "corrected magnitude == radius (g)");
+    int mag_const = 1;
+    for (int i = 0; i < NDIR; i++)
+      if (fabsf(mags[i] - RADIUS) > 0.02f * RADIUS)
+        mag_const = 0;
+    CHECK(mag_const, "corrected magnitude constant == radius");
+  }
+
   printf("\n  %d checks, %d failures\n", g_checks, g_fails);
   return g_fails ? 1 : 0;
 }

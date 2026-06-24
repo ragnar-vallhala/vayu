@@ -1,15 +1,16 @@
 import struct
 import re
 
-# On-disk calibration file (0:cal.bin) format, v2:
-#   header: uint32 magic ('VCAL' = 0x4C414356), uint16 version (2),
-#           uint16 payload_size (== sizeof(bmx160_calibration_t) = 84)
-#   payload: 21 little-endian floats:
-#     acc_offset[3], acc_scale[3], gyr_offset[3], mag_offset[3], mag_soft_iron[9]
+# On-disk calibration file (0:cal.bin) format, v3:
+#   header: uint32 magic ('VCAL' = 0x4C414356), uint16 version (3),
+#           uint16 payload_size (== sizeof(bmx160_calibration_t) = 108)
+#   payload: 27 little-endian floats:
+#     acc_offset[3], acc_soft_iron[9], gyr_offset[3], mag_offset[3], mag_soft_iron[9]
+#   (v3 replaced acc_scale[3] with the full acc_soft_iron[9].)
 CALIB_MAGIC = 0x4C414356
-CALIB_VERSION = 2
-PAYLOAD_FLOATS = 21
-PAYLOAD_BYTES = PAYLOAD_FLOATS * 4  # 84
+CALIB_VERSION = 3
+PAYLOAD_FLOATS = 27
+PAYLOAD_BYTES = PAYLOAD_FLOATS * 4  # 108
 HEADER_BYTES = 8
 
 
@@ -51,10 +52,10 @@ def decode_calibration(data):
 
     result = {
         "acc_offset":    floats[0:3],
-        "acc_scale":     floats[3:6],
-        "gyr_offset":    floats[6:9],
-        "mag_offset":    floats[9:12],
-        "mag_soft_iron": floats[12:21],  # row-major 3x3
+        "acc_soft_iron": floats[3:12],   # row-major 3x3
+        "gyr_offset":    floats[12:15],
+        "mag_offset":    floats[15:18],
+        "mag_soft_iron": floats[18:27],  # row-major 3x3
     }
 
     return result
@@ -63,7 +64,7 @@ def decode_calibration(data):
 def pretty_print(calib):
     for key, values in calib.items():
         print(f"{key}:")
-        if key == "mag_soft_iron":
+        if key in ("acc_soft_iron", "mag_soft_iron"):
             for r in range(3):
                 row = values[r * 3:r * 3 + 3]
                 print("  [{: .6f} {: .6f} {: .6f}]".format(*row))
@@ -74,12 +75,14 @@ def pretty_print(calib):
 
 
 if __name__ == "__main__":
-    # Build a sample v2 file (identity calibration) and decode it, so the demo
+    # Build a sample v3 file (identity calibration) and decode it, so the demo
     # stays self-consistent with the on-disk format.
     payload = struct.pack(
         '<%df' % PAYLOAD_FLOATS,
         0.0, 0.0, 0.0,        # acc_offset
-        1.0, 1.0, 1.0,        # acc_scale
+        1.0, 0.0, 0.0,        # acc_soft_iron (identity 3x3)
+        0.0, 1.0, 0.0,
+        0.0, 0.0, 1.0,
         0.0, 0.0, 0.0,        # gyr_offset
         0.0, 0.0, 0.0,        # mag_offset
         1.0, 0.0, 0.0,        # mag_soft_iron (identity 3x3)

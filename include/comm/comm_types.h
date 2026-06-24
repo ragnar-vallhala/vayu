@@ -92,6 +92,19 @@ typedef enum {
    * with navlink calib_step. */
   CALIB_UPDATE_COMPLETE = 0x09,
   CALIB_UPDATE_FAILED = 0x0A,
+  /* Edge/corner accel poses (FC -> GCS) for the pose-tolerant full-3x3 accel
+   * calibration: in addition to the 6 face poses above, the operator rests the
+   * board on ~6 edges/corners so gravity is shared between axes (the only way the
+   * off-diagonal/misalignment terms of the 3x3 become observable). The fit is
+   * magnitude-only, so the exact pose is advisory — the GCS just needs a distinct
+   * illustration per code. NavLink is unchanged: these ride the existing
+   * calibration status buffer, not a dialect message. */
+  CALIB_UPDATE_EDGE_1 = 0x0B,
+  CALIB_UPDATE_EDGE_2 = 0x0C,
+  CALIB_UPDATE_EDGE_3 = 0x0D,
+  CALIB_UPDATE_EDGE_4 = 0x0E,
+  CALIB_UPDATE_EDGE_5 = 0x0F,
+  CALIB_UPDATE_EDGE_6 = 0x10,
 } calib_update_type_t;
 
 /**

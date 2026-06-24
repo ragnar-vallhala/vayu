@@ -271,10 +271,18 @@ typedef struct __attribute__((packed)) {
   1000 // 1 seconds, waits after recording before saving the calibration
 #define CALIBRATION_SAMPLE_COUNT                                               \
   500 // Number of samples to take for calibration
-#define ACCEL_SCALE_MIN_SPAN                                                   \
-  5.0f // m/s^2; reject a degenerate accel pose span (avoids divide-by-~0 scale)
 #define MAG_FIT_MIN_SAMPLES                                                    \
   400 // minimum valid samples required to attempt the mag ellipsoid fit
+
+/* Pose-tolerant full-3x3 accel calibration (calib engine, point-set fit). */
+#define ACCEL_CAL_POSES                                                        \
+  12 // 6 faces + 6 edges/corners — enough spread directions for a 9-DOF fit
+#define ACCEL_CAL_MIN_POSES                                                    \
+  9 // minimum captured poses to attempt the fit (9 DOF)
+#define ACCEL_POSE_STILL_SAMPLES                                               \
+  100 // contiguous static samples averaged per pose (~2 s at the 50 Hz cal poll)
+#define ACCEL_CAL_GYRO_STILL_DPS                                               \
+  3.0f // |gyro| below this (per axis sum-of-squares) counts the board as still
 
 // Global telemetry channel and mutex
 #include "comm/channel.h"

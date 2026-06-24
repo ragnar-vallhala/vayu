@@ -5,7 +5,62 @@
 
 #include "calib/calib_engine.h"
 #include "calib/calib_ellipsoid.h"
-#include "vaios.h" /* v_delay */
+#include "vaios.h"  /* v_delay */
+#include <math.h>   /* sqrtf */
+#include <stddef.h> /* NULL */
+
+/* Accumulate one raw 3-vector (scaled by 1/radius) into the normal equations. */
+static void accum(float S[81], float t9[9], const float m[3], float inv_r) {
+  float x = m[0] * inv_r, y = m[1] * inv_r, z = m[2] * inv_r;
+  float r[9] = {x * x,     y * y, z * z, 2 * y * z, 2 * x * z,
+                2 * x * y, 2 * x, 2 * y, 2 * z};
+  for (int a = 0; a < 9; a++) {
+    t9[a] += r[a];
+    for (int b = 0; b < 9; b++)
+      S[a * 9 + b] += r[a] * r[b];
+  }
+}
+
+/* Solve the accumulated system, optionally rescale to an absolute radius, and
+ * commit. `pts`/`npts` are needed only when normalize_radius is set (to measure
+ * the common corrected magnitude). Returns 0 (committed) or -1. */
+static int finalize(const calib_target_t *t, float S[81], float t9[9], int nvalid,
+                    const float (*pts)[3], int npts) {
+  if (nvalid < (int)t->min_samples)
+    return -1;
+
+  float offset[3], soft[9];
+  if (calib_fit_ellipsoid(S, t9, offset, soft) != 0)
+    return -1;
+
+  /* offset comes back in scaled units (samples were divided by radius). */
+  for (int i = 0; i < 3; i++)
+    offset[i] *= t->radius;
+
+  /* The bare fit normalises corrected vectors to the geometric-mean semi-axis.
+   * For an absolute-magnitude sensor (accel: |a|=g) rescale soft so the mean
+   * corrected magnitude over the samples is exactly `radius`. */
+  if (t->normalize_radius && pts && npts > 0) {
+    const float inv_r = 1.0f / t->radius;
+    float msum = 0.0f;
+    for (int j = 0; j < npts; j++) {
+      float d[3] = {(pts[j][0] - offset[0]) * inv_r,
+                    (pts[j][1] - offset[1]) * inv_r,
+                    (pts[j][2] - offset[2]) * inv_r};
+      float c0 = soft[0] * d[0] + soft[1] * d[1] + soft[2] * d[2];
+      float c1 = soft[3] * d[0] + soft[4] * d[1] + soft[5] * d[2];
+      float c2 = soft[6] * d[0] + soft[7] * d[1] + soft[8] * d[2];
+      msum += sqrtf(c0 * c0 + c1 * c1 + c2 * c2);
+    }
+    float mean = msum / (float)npts;
+    if (mean > 1e-6f)
+      for (int i = 0; i < 9; i++)
+        soft[i] /= mean;
+  }
+
+  t->commit(offset, soft, t->ctx);
+  return 0;
+}
 
 /* Sphere-constrained fit (accel, mag): accumulate the 9x9 normal equations over
  * the acquisition window, tracking per-axis raw-component coverage, then fit the
@@ -31,14 +86,7 @@ static int run_ellipsoid(const calib_target_t *t) {
 
     float m[3];
     if (t->read_raw(m, t->ctx)) {
-      float x = m[0] * inv_r, y = m[1] * inv_r, z = m[2] * inv_r;
-      float r[9] = {x * x,     y * y, z * z, 2 * y * z, 2 * x * z,
-                    2 * x * y, 2 * x, 2 * y, 2 * z};
-      for (int a = 0; a < 9; a++) {
-        t9[a] += r[a];
-        for (int b = 0; b < 9; b++)
-          S[a * 9 + b] += r[a] * r[b];
-      }
+      accum(S, t9, m, inv_r);
       nvalid++;
 
       for (int k = 0; k < 3; k++) {
@@ -61,19 +109,8 @@ static int run_ellipsoid(const calib_target_t *t) {
     v_delay(t->poll_ms);
   }
 
-  if (nvalid < (int)t->min_samples)
-    return -1;
-
-  float offset[3], soft[9];
-  if (calib_fit_ellipsoid(S, t9, offset, soft) != 0)
-    return -1;
-
-  /* offset is in scaled units (samples were divided by radius); restore raw. */
-  for (int i = 0; i < 3; i++)
-    offset[i] *= t->radius;
-
-  t->commit(offset, soft, t->ctx);
-  return 0;
+  /* free-running acquisition keeps no samples, so no radius normalisation here */
+  return finalize(t, S, t9, nvalid, NULL, 0);
 }
 
 int calib_engine_run(const calib_target_t *t) {
@@ -85,4 +122,14 @@ int calib_engine_run(const calib_target_t *t) {
     /* Gyro bias path lands in Phase 5 (separate routine). */
     return -1;
   }
+}
+
+int calib_engine_fit_points(const calib_target_t *t, const float (*pts)[3],
+                            int npts) {
+  float S[81] = {0};
+  float t9[9] = {0};
+  const float inv_r = 1.0f / t->radius;
+  for (int j = 0; j < npts; j++)
+    accum(S, t9, pts[j], inv_r);
+  return finalize(t, S, t9, npts, pts, npts);
 }

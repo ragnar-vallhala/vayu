@@ -250,7 +250,7 @@ void bmx160_get_attitude(attitude_t *att);
 
 typedef struct {
   float acc_offset[3];
-  float acc_scale[3];
+  float acc_soft_iron[9]; // row-major 3x3: scale + cross-axis misalignment, identity default
   float gyr_offset[3];
   float mag_offset[3];   // hard-iron bias (uT)
   float mag_soft_iron[9]; // row-major 3x3 soft-iron matrix, identity default
@@ -258,10 +258,11 @@ typedef struct {
 
 /* On-disk calibration file (0:cal.bin) layout: a small header for
  * forward-compatibility followed by a raw bmx160_calibration_t payload. A
- * mismatched magic/version/size (e.g. a pre-v2 headerless file) is rejected on
- * load and the compiled-in identity defaults are kept. */
+ * mismatched magic/version/size (e.g. a pre-v3 file with the old acc_scale[3]
+ * layout) is rejected on load and the compiled-in identity defaults are kept.
+ * v3 replaced acc_scale[3] with the full acc_soft_iron[9]. */
 #define CALIB_FILE_MAGIC 0x4C414356u /* 'VCAL' */
-#define CALIB_FILE_VERSION 2u
+#define CALIB_FILE_VERSION 3u
 
 typedef struct {
   uint32_t magic;

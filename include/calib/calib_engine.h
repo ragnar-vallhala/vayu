@@ -24,6 +24,12 @@ typedef struct calib_target {
   float       cov_done;    /* per-axis coverage % to early-finish (ellipsoid) */
   uint16_t    max_ticks;   /* hard cap on acquisition ticks */
   uint16_t    poll_ms;     /* delay between acquisition ticks */
+  /* If true, rescale the fitted shape matrix so the corrected magnitude equals
+   * `radius` exactly (e.g. |a|=g for accel). The bare ellipsoid fit normalises to
+   * the geometric-mean semi-axis (det=1), which is fine for the mag (direction
+   * only) but wrong for the accel (absolute g matters). Only honoured by the
+   * point-set fit, which has the samples to measure the common radius. */
+  bool        normalize_radius;
 
   /* Pop one RAW physical 3-vector (uT, m/s^2, ...). Return false if no valid
    * sample is ready this tick — the engine skips it but still counts the tick
@@ -43,5 +49,12 @@ typedef struct calib_target {
  * was called; -1 on cancel / too-few-samples / fit failure (the caller then
  * keeps the previous calibration). */
 int calib_engine_run(const calib_target_t *t);
+
+/* Fit a pre-collected set of raw 3-vectors (e.g. one averaged static sample per
+ * accel pose) rather than free-running acquisition. Honours t->normalize_radius.
+ * Uses t->radius, t->min_samples, t->commit; ignores read_raw/cancelled/
+ * on_coverage/max_ticks/poll_ms. Returns 0 (committed) or -1 (too few points /
+ * fit failure — caller keeps the old calibration). */
+int calib_engine_fit_points(const calib_target_t *t, const float (*pts)[3], int npts);
 
 #endif /* CALIB_ENGINE_H */
