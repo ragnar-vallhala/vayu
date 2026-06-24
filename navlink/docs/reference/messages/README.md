@@ -35,3 +35,4 @@ This directory contains the protocol definitions for serial communication betwee
 | :------------------------ | :----------------- | :--------------------------------------------------------- |
 | [Time Sync](time_sync.md) | `TIME_SYNC` (10)   | NTP-style clock-sync handshake (replaces the heartbeat timestamp jam). |
 | [Bulk Transfer](xfer.md)  | `XFER_OPEN` (8201), `XFER_INFO` (1042), `XFER_DATA` (1043), `XFER_ACK` (1044), `XFER_CLOSE` (8202) | Generic FTP-like file transfer + live streaming substrate (provider-based). |
+| [Filesystem Nav](fs_nav.md) | `FS_LIST` (8203), `FS_ENTRY` (1045), `FS_INFO` (8204), `FS_INFO_REPLY` (1046) | Browse the SD: list a directory, stat a path (missing → DENIED). |
