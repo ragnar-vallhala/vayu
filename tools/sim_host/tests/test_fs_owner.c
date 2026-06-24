@@ -263,6 +263,57 @@ static void test_writeat_lane_bounds_and_reservation(void) {
   fs_owner_pump(); /* drain everything queued */
 }
 
+/* ----------------------------------------------------------------------------
+ * Directory browse + stat (the filesystem-navigation gateway). Create a couple
+ * of files, list the root, stat a file, and confirm a bad path reports "does
+ * not exist" distinctly.
+ * --------------------------------------------------------------------------*/
+static void test_dir_browse_and_stat(void) {
+  printf("  test_dir_browse_and_stat\n");
+
+  uint8_t blob[120];
+  memset(blob, 0x5C, sizeof blob);
+  fs_owner_enqueue_write_at("0:nav_a.bin", 0, blob, sizeof blob);
+  fs_owner_pump();
+  fs_owner_enqueue_write_at("0:nav_b.bin", 0, blob, 64);
+  fs_owner_pump();
+
+  /* stat an existing file: exists, size, not a directory. */
+  vfs_stat_t st;
+  int r = fs_owner_stat("0:nav_a.bin", &st);
+  CHECK(r == 0 && st.exists == 1, "stat finds an existing file");
+  CHECK(st.size == sizeof blob && st.is_dir == 0, "stat reports size + not-dir");
+
+  /* stat a missing path: distinct "does not exist". */
+  r = fs_owner_stat("0:nope_xyz.bin", &st);
+  CHECK(r < 0 && st.exists == 0, "stat of a missing path reports does-not-exist");
+
+  /* stat the root: it is a directory. */
+  CHECK(fs_owner_stat("0:", &st) == 0 && st.is_dir == 1, "root stats as a dir");
+
+  /* list the root and confirm both files appear. */
+  vfs_dir_t d = fs_owner_opendir("0:");
+  CHECK(d >= 0, "opendir root succeeds");
+  bool saw_a = false, saw_b = false;
+  int guard = 0;
+  vfs_dirent_t ent;
+  while (guard++ < 64) {
+    int n = fs_owner_readdir(d, &ent);
+    if (n <= 0)
+      break;
+    if (strcmp(ent.name, "nav_a.bin") == 0)
+      saw_a = true;
+    if (strcmp(ent.name, "nav_b.bin") == 0)
+      saw_b = true;
+  }
+  fs_owner_closedir(d);
+  CHECK(saw_a && saw_b, "readdir lists the created files");
+
+  /* opendir of a non-directory / missing path fails (does not exist). */
+  CHECK(fs_owner_opendir("0:not_a_dir/") < 0,
+        "opendir of a missing path fails");
+}
+
 int main(void) {
   printf("== FS owner SITL verification ==\n");
 
@@ -283,6 +334,7 @@ int main(void) {
   test_wrap_accounting_wired();
   test_writeat_roundtrip();
   test_writeat_lane_bounds_and_reservation();
+  test_dir_browse_and_stat();
 
   printf("\n%d checks, %d failures\n", g_checks, g_fails);
   return g_fails == 0 ? 0 : 1;

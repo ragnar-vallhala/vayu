@@ -240,3 +240,92 @@ long vfs_size(vfs_fd_t fd) {
   host_vfs_handle_t *h = handle_of(fd);
   return h ? (long)s_files[h->file_idx].size : -1;
 }
+
+/* ---- directory iteration + stat -----------------------------------------
+ * The host FS is flat: paths are "0:name" mapped to mangled backing files, so
+ * the only listable directory is the root ("0:" / "0:/" / ""). A non-root path
+ * has no subdirectory to open, which models FatFS returning "no path" for a
+ * directory that does not exist. Listing iterates the in-memory file table. */
+
+static int dir_is_root(const char *path) {
+  return path != NULL && (path[0] == '\0' || strcmp(path, "0:") == 0 ||
+                          strcmp(path, "0:/") == 0 || strcmp(path, "/") == 0);
+}
+
+/* The part of `p` under root prefix "0:" (or "0:/"). */
+static const char *under_root(const char *p) {
+  if (strncmp(p, "0:/", 3) == 0)
+    return p + 3;
+  if (strncmp(p, "0:", 2) == 0)
+    return p + 2;
+  return p;
+}
+
+int vfs_stat(const char *path, vfs_stat_t *st) {
+  if (st == NULL || path == NULL)
+    return -1;
+  st->size = 0;
+  st->mtime = 0;
+  st->is_dir = 0;
+  st->exists = 0;
+  if (dir_is_root(path)) {
+    st->exists = 1;
+    st->is_dir = 1;
+    return 0;
+  }
+  int fidx = find_file(path);
+  if (fidx < 0)
+    fidx = load_file(path);
+  if (fidx < 0)
+    return -1; /* not found: exists stays 0 */
+  st->exists = 1;
+  st->size = (uint32_t)s_files[fidx].size;
+  return 0;
+}
+
+typedef struct {
+  int used;
+  int idx;
+} host_vfs_dir_t;
+static host_vfs_dir_t s_dirs[2];
+
+vfs_dir_t vfs_opendir(const char *path) {
+  if (!dir_is_root(path))
+    return -1; /* flat FS: only the root is a directory */
+  for (int i = 0; i < 2; i++) {
+    if (!s_dirs[i].used) {
+      s_dirs[i].used = 1;
+      s_dirs[i].idx = 0;
+      return i;
+    }
+  }
+  return -1;
+}
+
+int vfs_readdir(vfs_dir_t d, vfs_dirent_t *ent) {
+  if (d < 0 || d >= 2 || !s_dirs[d].used || ent == NULL)
+    return -1;
+  while (s_dirs[d].idx < HOST_VFS_MAX_FILES) {
+    int i = s_dirs[d].idx++;
+    if (!s_files[i].used)
+      continue;
+    const char *name = under_root(s_files[i].path);
+    if (name[0] == '\0' || strchr(name, '/') != NULL)
+      continue; /* skip the dir itself / non-immediate children */
+    size_t j = 0;
+    for (; j < (size_t)(VFS_NAME_MAX - 1) && name[j]; j++)
+      ent->name[j] = name[j];
+    ent->name[j] = '\0';
+    ent->size = (uint32_t)s_files[i].size;
+    ent->is_dir = 0;
+    return 1;
+  }
+  return 0; /* end of directory */
+}
+
+int vfs_closedir(vfs_dir_t d) {
+  if (d < 0 || d >= 2 || !s_dirs[d].used)
+    return -1;
+  s_dirs[d].used = 0;
+  return 0;
+}

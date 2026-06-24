@@ -23,6 +23,7 @@
  */
 
 #include "structure.h" /* mpmc_queue_t (for vayu_log_queue) */
+#include "vfs.h"       /* vfs_stat_t, vfs_dir_t, vfs_dirent_t */
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -135,6 +136,27 @@ int fs_owner_truncate(const char *path);
  */
 int fs_owner_read_at(const char *path, uint32_t offset, void *buf,
                      uint32_t len);
+
+/* ===========================================================================
+ * Directory browse + file status (the filesystem-navigation feature).
+ * Synchronous, **xfer_service_task only** — same vfs_mutex-serialised safety as
+ * fs_owner_read_at (these are reads). Thin pass-throughs to the VFS so the SD
+ * stays single-transaction with no new locks.
+ * =========================================================================== */
+
+/** @brief Status of a path. Returns 0 if it exists (st->exists=1), <0 if not
+ *         (st->exists=0) — lets callers report "path does not exist" distinctly. */
+int fs_owner_stat(const char *path, vfs_stat_t *st);
+
+/** @brief Open a directory for iteration. >=0 handle, or <0 if the path is not a
+ *         directory / does not exist. */
+vfs_dir_t fs_owner_opendir(const char *path);
+
+/** @brief Next entry: 1 = entry filled, 0 = end of directory, <0 = error. */
+int fs_owner_readdir(vfs_dir_t d, vfs_dirent_t *ent);
+
+/** @brief Close a directory handle. */
+int fs_owner_closedir(vfs_dir_t d);
 
 /* ===========================================================================
  * Accounting.
