@@ -386,6 +386,18 @@ int fs_owner_read_at(const char *path, uint32_t offset, void *buf,
   return n;
 }
 
+int fs_owner_stat(const char *path, vfs_stat_t *st) {
+  return vfs_stat(path, st);
+}
+
+vfs_dir_t fs_owner_opendir(const char *path) { return vfs_opendir(path); }
+
+int fs_owner_readdir(vfs_dir_t d, vfs_dirent_t *ent) {
+  return vfs_readdir(d, ent);
+}
+
+int fs_owner_closedir(vfs_dir_t d) { return vfs_closedir(d); }
+
 /* ===========================================================================
  * Accounting
  * =========================================================================== */
