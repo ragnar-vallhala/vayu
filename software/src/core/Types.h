@@ -82,7 +82,17 @@ enum class CalibUpdateType : uint8_t {
   // explicit events instead of inferring completion from a STANDBY heartbeat
   // (absent when calibration legitimately ends in FAILSAFE).
   Complete = 0x09,
-  Failed = 0x0A
+  Failed = 0x0A,
+  // Edge/corner accel poses (full-3x3 pose-tolerant calibration): in addition to
+  // the 6 face poses, the operator rests the board on ~6 edges/corners so gravity
+  // is shared between axes (needed to observe the off-diagonal terms). Mirrors the
+  // firmware's CALIB_UPDATE_EDGE_* in include/comm/comm_types.h.
+  Edge1 = 0x0B,
+  Edge2 = 0x0C,
+  Edge3 = 0x0D,
+  Edge4 = 0x0E,
+  Edge5 = 0x0F,
+  Edge6 = 0x10
 };
 
 struct CalibrationUpdate {

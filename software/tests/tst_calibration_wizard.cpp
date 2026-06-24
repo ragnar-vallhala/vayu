@@ -22,7 +22,7 @@ void TstCalibrationWizard::modesHaveExpectedSteps() {
   w.begin(CalibMode::AccelBias);
   QCOMPARE(w.stepCount(), 1);
   w.begin(CalibMode::Accel6Axis);
-  QCOMPARE(w.stepCount(), 6);
+  QCOMPARE(w.stepCount(), 12);  // 6 faces + 6 edges/corners (full 3x3)
   w.begin(CalibMode::Mag);
   QCOMPARE(w.stepCount(), 1);
   QCOMPARE(w.steps().first().orient, CalibUpdateType::FreeRot);
@@ -42,7 +42,7 @@ void TstCalibrationWizard::sixAxisAdvancesAndCompletes() {
 
   w.markComplete();
   QVERIFY(w.isComplete());
-  QCOMPARE(w.doneCount(), 6);
+  QCOMPARE(w.doneCount(), 12);
   QCOMPARE(w.progress(), 1.0);
   QVERIFY(!w.isActive());
 }
@@ -66,7 +66,7 @@ void TstCalibrationWizard::advancesByArrivalOrderNotCatalog() {
   w.onInstruction(CalibUpdateType::NoseUp);
   QCOMPARE(w.currentIndex(), 1);
   QCOMPARE(w.doneCount(), 1);
-  QVERIFY(qFuzzyCompare(w.progress(), 1.0 / 6.0));
+  QVERIFY(qFuzzyCompare(w.progress(), 1.0 / 12.0));
   QCOMPARE(w.steps().at(1).orient, CalibUpdateType::NoseUp);
 
   // A re-prompt of an already-completed pose must never move backwards.

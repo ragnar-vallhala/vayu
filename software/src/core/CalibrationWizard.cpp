@@ -9,10 +9,13 @@ QVector<CalibStep> CalibrationWizard::stepsFor(CalibMode mode) {
       return {{CalibUpdateType::Upright, QStringLiteral("Level"),
                QStringLiteral("Place the vehicle level and still.")}};
     case CalibMode::Accel6Axis:
-      // Listed in the firmware's emission order so the initial (all-pending)
-      // checklist reads in the real sequence. Advancement is order-agnostic
-      // regardless (see onInstruction), so this order is display-only — the two
-      // can never drift into the wrong-phase bug again.
+      // Full-3x3 pose-tolerant accel: 6 faces + 6 edges/corners. Listed in the
+      // firmware's emission order so the initial (all-pending) checklist reads in
+      // the real sequence. Advancement is order-agnostic regardless (see
+      // onInstruction), so this order is display-only — the two can never drift
+      // into the wrong-phase bug again. The edge/corner holds share gravity
+      // between axes; poses are advisory (the fit is magnitude-only), so "roughly
+      // this orientation, held still" is all the operator needs.
       return {
           {CalibUpdateType::Upright, QStringLiteral("Level"),
            QStringLiteral("Set level, upright.")},
@@ -26,6 +29,18 @@ QVector<CalibStep> CalibrationWizard::stepsFor(CalibMode mode) {
            QStringLiteral("Roll onto the right side.")},
           {CalibUpdateType::LeftDown, QStringLiteral("Left side down"),
            QStringLiteral("Roll onto the left side.")},
+          {CalibUpdateType::Edge1, QStringLiteral("Front edge"),
+           QStringLiteral("Tilt nose-up ~45°, resting on the front edge.")},
+          {CalibUpdateType::Edge2, QStringLiteral("Back edge"),
+           QStringLiteral("Tilt nose-down ~45°, resting on the back edge.")},
+          {CalibUpdateType::Edge3, QStringLiteral("Right edge"),
+           QStringLiteral("Roll ~45° onto the right edge.")},
+          {CalibUpdateType::Edge4, QStringLiteral("Left edge"),
+           QStringLiteral("Roll ~45° onto the left edge.")},
+          {CalibUpdateType::Edge5, QStringLiteral("Front-right corner"),
+           QStringLiteral("Tilt onto the front-right corner.")},
+          {CalibUpdateType::Edge6, QStringLiteral("Back-left corner"),
+           QStringLiteral("Tilt onto the back-left corner.")},
       };
     case CalibMode::Mag:
       return {{CalibUpdateType::FreeRot, QStringLiteral("Figure-8"),
