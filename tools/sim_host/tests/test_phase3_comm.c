@@ -176,8 +176,11 @@ static void test_set_pid_apply(void) {
 }
 
 /* ----------------------------------------------------------------------------
- * COMM-CH-002 — a write that would exceed the 512 B TX buffer returns
- * ERROR and bumps the overflow counter.
+ * COMM-CH-002 — a write that would exceed the TX buffer returns ERROR and bumps
+ * the overflow counter. NOTE: normal writes (telemetry/acks) are now capped at
+ * CHANNEL_TX_BUF_SIZE - CHANNEL_TX_XFER_RESERVE (2048 - 768 = 1280) so a
+ * saturating telemetry stream can't starve a bulk xfer; write_channel_xfer may
+ * use the reserved tail up to the full 2048.
  * --------------------------------------------------------------------------*/
 static void test_tx_overflow(void) {
   printf("  test_tx_overflow (COMM-CH-002)\n");
@@ -192,16 +195,22 @@ static void test_tx_overflow(void) {
   memset(buf, 0xAB, sizeof buf);
   uint32_t before = channel_tx_overflow_count();
 
-  /* No flush runs in the unit test, so the active CHANNEL_TX_BUF_SIZE (2048 B,
-   * raised from 512 B in the bandwidth boost f30317e) buffer just fills:
-   * 8 x 256 = 2048 (exactly full), then any further byte overflows. */
-  for (int i = 0; i < 8; i++)
-    CHECK(write_channel(ch, buf, 256) == NONE, "256 B write fills toward 2048");
-  CHECK(write_channel(ch, buf, 1) == ERROR, "write past 2048 B returns ERROR");
+  /* No flush runs in the unit test, so the buffer just fills. Normal writes stop
+   * at the reserved cap: 5 x 256 = 1280 (exactly the normal cap), then any
+   * further normal byte overflows. */
+  for (int i = 0; i < 5; i++)
+    CHECK(write_channel(ch, buf, 256) == NONE,
+          "256 B normal write fills toward the 1280 reserved cap");
+  CHECK(write_channel(ch, buf, 1) == ERROR, "normal write past 1280 B returns ERROR");
   CHECK(channel_tx_overflow_count() == before + 1, "overflow counted once");
 
   write_channel(ch, buf, 1);
   CHECK(channel_tx_overflow_count() == before + 2, "second overflow counted");
+
+  /* The reserved tail is still available to bulk xfer: with 1280 B of normal
+   * data parked, write_channel_xfer can take ~768 more up to the full 2048. */
+  CHECK(write_channel_xfer(ch, buf, 256) == NONE,
+        "xfer write uses the reserved tail past the normal cap");
 }
 
 int main(void) {

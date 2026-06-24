@@ -198,12 +198,12 @@ static void test_writeat_roundtrip(void) {
 
   /* Three positioned chunks, as an upload would arrive — drained between
    * batches by the FS task (lane CAP=2 flow-controls more than 2 outstanding). */
-  CHECK(fs_owner_enqueue_write_at("0:upload.bin", 0, src, 247),
+  CHECK(fs_owner_enqueue_write_at(0, "0:upload.bin", 0, src, 247),
         "write-at chunk @0 queued");
-  CHECK(fs_owner_enqueue_write_at("0:upload.bin", 247, src + 247, 247),
+  CHECK(fs_owner_enqueue_write_at(0, "0:upload.bin", 247, src + 247, 247),
         "write-at chunk @247 queued");
   fs_owner_pump(); /* FS task drains the 2 outstanding */
-  CHECK(fs_owner_enqueue_write_at("0:upload.bin", 494, src + 494, 106),
+  CHECK(fs_owner_enqueue_write_at(0, "0:upload.bin", 494, src + 494, 106),
         "write-at chunk @494 queued after drain");
   fs_owner_pump();
 
@@ -237,7 +237,7 @@ static void test_writeat_lane_bounds_and_reservation(void) {
   int accepted = 0;
   const int flood = 50;
   for (int i = 0; i < flood; i++)
-    if (fs_owner_enqueue_write_at("0:u.bin", (uint32_t)(i * 64), rec, sizeof rec))
+    if (fs_owner_enqueue_write_at(0, "0:u.bin", (uint32_t)(i * 64), rec, sizeof rec))
       accepted++;
   CHECK(accepted >= 1 && accepted <= 2,
         "write-at lane bounded by its capacity (<=2)");
@@ -256,7 +256,7 @@ static void test_writeat_lane_bounds_and_reservation(void) {
   memset(longpath, 'a', sizeof longpath);
   longpath[sizeof longpath - 1] = '\0';
   uint32_t wa1 = fs_owner_dropped_writeats();
-  CHECK(!fs_owner_enqueue_write_at(longpath, 0, rec, sizeof rec),
+  CHECK(!fs_owner_enqueue_write_at(0, longpath, 0, rec, sizeof rec),
         "over-long path rejected");
   CHECK(fs_owner_dropped_writeats() == wa1 + 1, "rejected path counted as a drop");
 
@@ -273,9 +273,9 @@ static void test_dir_browse_and_stat(void) {
 
   uint8_t blob[120];
   memset(blob, 0x5C, sizeof blob);
-  fs_owner_enqueue_write_at("0:nav_a.bin", 0, blob, sizeof blob);
+  fs_owner_enqueue_write_at(0, "0:nav_a.bin", 0, blob, sizeof blob);
   fs_owner_pump();
-  fs_owner_enqueue_write_at("0:nav_b.bin", 0, blob, 64);
+  fs_owner_enqueue_write_at(0, "0:nav_b.bin", 0, blob, 64);
   fs_owner_pump();
 
   /* stat an existing file: exists, size, not a directory. */

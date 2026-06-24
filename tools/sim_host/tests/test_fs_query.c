@@ -144,9 +144,9 @@ int main(void) {
   /* Seed two files (200 B + 80 B). */
   uint8_t blob[200];
   memset(blob, 0x3C, sizeof blob);
-  fs_owner_enqueue_write_at("0:q_a.bin", 0, blob, 200);
+  fs_owner_enqueue_write_at(0, "0:q_a.bin", 0, blob, 200);
   fs_owner_pump();
-  fs_owner_enqueue_write_at("0:q_b.bin", 0, blob, 80);
+  fs_owner_enqueue_write_at(0, "0:q_b.bin", 0, blob, 80);
   fs_owner_pump();
 
   test_list();

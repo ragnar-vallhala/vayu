@@ -59,8 +59,8 @@ static void e_info(const xfer_session_t *s, uint8_t result, uint16_t cs,
   (void)s; (void)result; (void)cs; (void)total; (void)mtime;
   CAP.n_info++;
 }
-static void e_data(const xfer_session_t *s, uint8_t flags, uint8_t len,
-                   uint32_t offset, const uint8_t *buf) {
+static int e_data(const xfer_session_t *s, uint8_t flags, uint8_t len,
+                  uint32_t offset, const uint8_t *buf) {
   (void)s; (void)flags;
   if (CAP.n_data < 256) {
     CAP.data_offsets[CAP.n_data] = offset;
@@ -72,6 +72,7 @@ static void e_data(const xfer_session_t *s, uint8_t flags, uint8_t len,
       CAP.assembled = offset + len;
   }
   CAP.n_data++;
+  return 1; /* fake channel always accepts */
 }
 static void e_ack(const xfer_session_t *s, uint8_t flags, uint8_t result,
                   uint32_t next_offset) {
@@ -152,7 +153,7 @@ static void test_log_provider(void) {
   uint8_t rec[200]; /* one write-at chunk (<= FS_WRITEAT_PAYLOAD_MAX) */
   for (uint32_t i = 0; i < sizeof rec; i++)
     rec[i] = (uint8_t)(0x40u + (i & 0x3Fu));
-  CHECK(fs_owner_enqueue_write_at(NAVLINK_LOGGING_FILENAME, 0, rec, sizeof rec),
+  CHECK(fs_owner_enqueue_write_at(0, NAVLINK_LOGGING_FILENAME, 0, rec, sizeof rec),
         "seed navlink log record");
   fs_owner_pump();
 
