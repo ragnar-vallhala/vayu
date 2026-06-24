@@ -88,8 +88,8 @@ static void e_info(const xfer_session_t *s, uint8_t result, uint16_t cs,
   CAP.info[i].chunk_size = cs;
   CAP.info[i].total = total;
 }
-static void e_data(const xfer_session_t *s, uint8_t flags, uint8_t len,
-                   uint32_t offset, const uint8_t *buf) {
+static int e_data(const xfer_session_t *s, uint8_t flags, uint8_t len,
+                  uint32_t offset, const uint8_t *buf) {
   int i = CAP.n_data++;
   CAP.data[i].offset = offset;
   CAP.data[i].len = len;
@@ -98,6 +98,7 @@ static void e_data(const xfer_session_t *s, uint8_t flags, uint8_t len,
     CAP.data_by_session[s->session]++;
   if (len)
     memcpy(CAP.data[i].data, buf, len);
+  return 1; /* fake channel always accepts */
 }
 static void e_ack(const xfer_session_t *s, uint8_t flags, uint8_t result,
                   uint32_t next_offset) {

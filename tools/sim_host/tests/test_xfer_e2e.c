@@ -132,8 +132,8 @@ static void cap_info(const xfer_session_t *s, uint8_t result, uint16_t cs,
   CAP.last_info_total = a.total_size;
   CAP.n_info++;
 }
-static void cap_data(const xfer_session_t *s, uint8_t flags, uint8_t len,
-                     uint32_t offset, const uint8_t *buf) {
+static int cap_data(const xfer_session_t *s, uint8_t flags, uint8_t len,
+                    uint32_t offset, const uint8_t *buf) {
   uint8_t frame[NAVLINK_MAX_FRAME];
   size_t n = xfer_build_data(frame, s, flags, len, offset, buf);
   (void)n;
@@ -150,6 +150,7 @@ static void cap_data(const xfer_session_t *s, uint8_t flags, uint8_t len,
       CAP.assembled = a.offset + a.len;
   }
   CAP.n_data++;
+  return 1; /* fake channel always accepts */
 }
 static void cap_ack(const xfer_session_t *s, uint8_t flags, uint8_t result,
                     uint32_t next_offset) {
