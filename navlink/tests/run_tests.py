@@ -152,6 +152,14 @@ def main():
         sys.stderr.write(r.stderr)
         ok = False
 
+    step("7. fs-nav loopback (FS_LIST / FS_INFO, real frames)")
+    r = run([sys.executable, os.path.join(HERE, "test_fs_nav_loopback.py")],
+            capture_output=True, text=True)
+    sys.stdout.write(r.stdout)
+    if r.returncode != 0:
+        sys.stderr.write(r.stderr)
+        ok = False
+
     step("RESULT")
     print("PASS" if ok else "FAIL")
     sys.exit(0 if ok else 1)
