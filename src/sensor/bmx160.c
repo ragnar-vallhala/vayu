@@ -1314,7 +1314,7 @@ void bmx160_process_data(void) {
   // attitude estimation runs. Keyed off _calib_active rather than the system
   // state: the RC watchdog may flip us to FAILSAFE mid-calibration (no RC link
   // on the bench), and we must keep feeding the calibration task regardless or
-  // wait_for_orientation starves and hangs.
+  // the calibration sample readers starve and hang.
   if (_calib_active) {
     imu_queue_calibration_push(&_bmx_data);
     return;
@@ -1335,159 +1335,6 @@ void bmx160_process_data(void) {
 /* Ellipsoid fit (offset + full 3x3) + its float linear-algebra helpers
  * moved to the shared, sensor-agnostic src/calib/calib_ellipsoid.c
  * (calib_fit_ellipsoid). */
-
-/* Map a 6-point orientation to (target axis index, expected sign of g on that
- * axis). The firmware uses a gravity-down convention: the axis pointing up
- * reads ≈ -9.81, so the "UP" poses have sign -1. Returns 0 on an unknown
- * orientation. */
-static int orient_axis_sign(calib_update_type_t orient, int *axis, float *sign) {
-  switch (orient) {
-  case CALIB_UPDATE_UPRIGHT:    *axis = 2; *sign = -1.0f; return 1;
-  case CALIB_UPDATE_UPSIDE_DOWN:*axis = 2; *sign = +1.0f; return 1;
-  // Nose up/down: on this airframe the IMU X reads +g when the nose points UP
-  // (and -g nose-down) — the opposite of the other "up = -g" axes. Without this
-  // the nose-up pose can never be achieved and 6-point accel calibration wedges.
-  case CALIB_UPDATE_NOSE_UP:    *axis = 0; *sign = +1.0f; return 1;
-  case CALIB_UPDATE_NOSE_DOWN:  *axis = 0; *sign = -1.0f; return 1;
-  case CALIB_UPDATE_RIGHT_DOWN: *axis = 1; *sign = -1.0f; return 1;
-  case CALIB_UPDATE_LEFT_DOWN:  *axis = 1; *sign = +1.0f; return 1;
-  default:                      return 0;
-  }
-}
-
-/* Collect CALIBRATION_SAMPLE_COUNT stationary accel samples in the requested
- * orientation, averaging into accel_out (m/s^2). Pose acceptance is orientation-
- * based and scale/bias independent (see the gate inside): the target axis must
- * have the right sign and dominate the vector, with off-axis components small
- * RELATIVE to the measured magnitude — so an uncalibrated sensor reading well off
- * 9.81 can still be calibrated. Returns 1 on success, -1 if a cancel was
- * requested mid-collection. */
-static int wait_for_orientation(calib_update_type_t orient, float *accel_out) {
-  vayu_log("[CALIB] Waiting for orientation: %d", orient);
-
-  // Send instruction to GCS
-  imu_calibration_telemetry_t imu_calibration_telemetry;
-  imu_calibration_telemetry.buffer[0] = SYSTEM_ORIGIN_CALIBRATION;
-  imu_calibration_telemetry.buffer[1] = 0x01;
-  imu_calibration_telemetry.buffer[2] = (uint8_t)orient;
-
-  float zero = 0.0f;
-  v_memcpy(&imu_calibration_telemetry.buffer[3], &zero, 4);
-  imu_calibration_telemetry.size = 7;
-  imu_queue_calibration_telemetry_push(&imu_calibration_telemetry);
-
-  v_delay(CALIBRATION_WAIT_USER_TIME_PRE_CALIBRATION);
-
-  int t_axis = 2;
-  float t_sign = -1.0f;
-  if (!orient_axis_sign(orient, &t_axis, &t_sign)) {
-    accel_out[0] = accel_out[1] = accel_out[2] = 0.0f;
-    return 1;
-  }
-  const int o_a = (t_axis + 1) % 3; // the two non-target axes
-  const int o_b = (t_axis + 2) % 3;
-
-  const int target_samples = CALIBRATION_SAMPLE_COUNT;
-  float sum[3] = {0.0f, 0.0f, 0.0f};
-  int count = 0;
-
-  // Pose detection is ORIENTATION-based plus a PERMISSIVE magnitude band. A raw
-  // uncalibrated accel can read far from 9.81 on the gravity axis (e.g. ~13 m/s^2
-  // = ~33% scale error), so a tight magnitude gate would make exactly the
-  // miscalibrated sensors we are here to fix impossible to calibrate. We require:
-  // (1) the requested axis carries the correct sign and dominates the vector
-  // (off-axis < cross_ratio of |vec|, scale-independent), and (2) the vector
-  // length is in a WIDE 1 g band — just enough to reject free-fall / gross motion
-  // while tolerating large scale error. The operator verifies the result after.
-  const float g = 9.81f;
-  const float mag_min2 = (0.45f * g) * (0.45f * g);  // reject free-fall / drops
-  const float mag_max2 = (2.0f * g) * (2.0f * g);    // permissive: up to ~2x scale
-  const float cross_ratio2 = 0.20f * 0.20f;          // off-axis < 20% of |vec| (~12°)
-
-  /* The instruction above is a one-shot over a lossy link (CALIBRATION_STATUS is
-   * un-acked). If it is dropped the operator never sees the new pose, holds the
-   * old one, and this loop waits forever. While the pose has not been achieved
-   * (count == 0) re-announce it periodically; the GCS treats a repeated prompt
-   * idempotently, so this self-heals a dropped instruction within ~1 s. */
-  const int reprompt_period = 50; // ~1 s at 20 ms/tick
-  int reprompt = 0;
-
-  /* Defensive starvation guard. With _calib_active gating the sample diversion
-   * this should not trip, but if the stream ever dries up (e.g. a future state
-   * regression) we abort cleanly — surfacing as FAILED on the GCS — instead of
-   * spinning here forever. ~5 s at 2 ms/poll. */
-  const int starve_limit = 2500;
-  int starve = 0;
-
-  while (count < target_samples) {
-    if (_calib_cancel)
-      return -1;
-
-    bmx160_all_reading_t sample;
-    if (!imu_queue_calibration_pop(&sample)) {
-      if (++starve >= starve_limit) {
-        vayu_log("[CALIB] sample stream starved; aborting orientation %d",
-                 orient);
-        return -1;
-      }
-      v_delay(2);
-      continue;
-    }
-    starve = 0;
-    float raw[3] = {sample.converted.acc_raw[0], sample.converted.acc_raw[1],
-                    sample.converted.acc_raw[2]};
-
-    const float mag2 =
-        raw[0] * raw[0] + raw[1] * raw[1] + raw[2] * raw[2];
-
-    // Orientation (sign + axis-dominant) AND a permissive 1 g magnitude band.
-    // Requiring target_samples CONTIGUOUS in-orientation samples (the count reset
-    // below) still keeps a moving board from being averaged in.
-    int match = (raw[t_axis] * t_sign > 0.0f) &&
-                (mag2 > mag_min2) && (mag2 < mag_max2) &&
-                (raw[o_a] * raw[o_a] < cross_ratio2 * mag2) &&
-                (raw[o_b] * raw[o_b] < cross_ratio2 * mag2);
-
-    if (match) {
-      sum[0] += raw[0];
-      sum[1] += raw[1];
-      sum[2] += raw[2];
-      count++;
-
-      // Progress update (every 5%)
-      if (count % (target_samples / 20) == 0) {
-        imu_calibration_telemetry.buffer[2] = CALIB_UPDATE_PROGRESS;
-        float progress = (100.0f * (float)count) / (float)target_samples;
-        v_memcpy(&imu_calibration_telemetry.buffer[3], &progress, 4);
-        imu_calibration_telemetry.size = 7;
-        imu_queue_calibration_telemetry_push(&imu_calibration_telemetry);
-      }
-    } else {
-      // Reset if orientation disturbed — require a contiguous still window.
-      count = 0;
-      sum[0] = sum[1] = sum[2] = 0.0f;
-
-      // Pose not achieved yet: re-announce it so a dropped prompt recovers.
-      if (++reprompt >= reprompt_period) {
-        reprompt = 0;
-        imu_calibration_telemetry.buffer[2] = (uint8_t)orient;
-        v_memcpy(&imu_calibration_telemetry.buffer[3], &zero, 4);
-        imu_calibration_telemetry.size = 7;
-        imu_queue_calibration_telemetry_push(&imu_calibration_telemetry);
-      }
-    }
-    v_delay(20);
-  }
-
-  float inv = 1.0f / (float)target_samples;
-  accel_out[0] = sum[0] * inv;
-  accel_out[1] = sum[1] * inv;
-  accel_out[2] = sum[2] * inv;
-
-  vayu_log("[CALIB] Orientation %d done: %.3f %.3f %.3f", orient, accel_out[0],
-           accel_out[1], accel_out[2]);
-  return 1;
-}
 
 /* Push a calibration telemetry packet [origin][nargs=1][code][float]. */
 static void calib_telemetry(uint8_t code, float value) {
@@ -1646,6 +1493,46 @@ static int wait_for_static_pose(uint8_t code, float accel_out[3]) {
   return 1;
 }
 
+/* Gyro bias capture (calib engine BIAS path). read_raw returns gyr_raw ONLY when
+ * the board is still (same gyro+|a| gate as the accel capture) — a moving board
+ * yields no accepted samples, so the engine times out and keeps the old offset
+ * instead of latching a bad bias (the old routine averaged 500 samples blindly). */
+static bool gyr_read_raw_still(float v[3], void *ctx) {
+  (void)ctx;
+  bmx160_all_reading_t s;
+  if (!imu_queue_calibration_pop(&s))
+    return false;
+  float ax = s.converted.acc_raw[0], ay = s.converted.acc_raw[1],
+        az = s.converted.acc_raw[2];
+  float mag2 = ax * ax + ay * ay + az * az;
+  float gx = s.converted.gyr_raw[0], gy = s.converted.gyr_raw[1],
+        gz = s.converted.gyr_raw[2];
+  float gyro2 = gx * gx + gy * gy + gz * gz;
+  const float g = 9.81f;
+  if (mag2 < (0.45f * g) * (0.45f * g) || mag2 > (2.0f * g) * (2.0f * g))
+    return false;
+  if (gyro2 >= ACCEL_CAL_GYRO_STILL_DPS * ACCEL_CAL_GYRO_STILL_DPS)
+    return false;
+  v[0] = gx;
+  v[1] = gy;
+  v[2] = gz;
+  return true;
+}
+
+static void gyr_on_progress(float pct, void *ctx) {
+  (void)ctx;
+  calib_telemetry(CALIB_UPDATE_PROGRESS, pct);
+}
+
+static void gyr_commit(const float offset[3], const float mat[9], void *ctx) {
+  (void)mat; // identity for a bias fit
+  (void)ctx;
+  for (int i = 0; i < 3; i++)
+    bmx160_calib.gyr_offset[i] = offset[i];
+  vayu_log("[CALIB] Gyro Bias: %.4f, %.4f, %.4f", bmx160_calib.gyr_offset[0],
+           bmx160_calib.gyr_offset[1], bmx160_calib.gyr_offset[2]);
+}
+
 void calibration_task(void *args) {
   calibration_args_t *cal_args = (calibration_args_t *)args;
   /* Set once the calibration is computed and persisted; drives the terminal
@@ -1662,7 +1549,7 @@ void calibration_task(void *args) {
 
   _calib_cancel = 0; // clear any stale cancel from a previous run
   /* Must actually enter CALIBRATING — otherwise bmx160_process_data never
-   * diverts samples to the calibration queue and wait_for_orientation would
+   * diverts samples to the calibration queue and the capture loops would
    * spin forever. Bail cleanly if the state machine rejects the transition
    * (e.g. we're in FAILSAFE/ARMED, not STANDBY). */
   if (system_state_set(SYSTEM_STATE_CALIBRATING) != VAYU_OK) {
@@ -1717,37 +1604,29 @@ void calibration_task(void *args) {
       goto done;
     }
 
-  } else if ((int)imu_id == 2) { // GYRO (bias-only; gyro bias is
-                                 // orientation-independent, so no 6-point pass)
-    vayu_log("[CALIB] Collecting Gyro data (Bias-Only)...");
-    float avg[3];
-    if (wait_for_orientation(CALIB_UPDATE_UPRIGHT, avg) < 0) {
-      vayu_log("[CALIB] Gyro calibration cancelled.");
+  } else if ((int)imu_id == 2) { // GYRO (stillness-gated bias; orientation-
+                                 // independent, so a single still hold)
+    vayu_log("[CALIB] Gyro Calibration (stillness-gated)...");
+    calib_telemetry(CALIB_UPDATE_UPRIGHT, 0.0f); // "hold still, level" prompt
+    v_delay(CALIBRATION_WAIT_USER_TIME_PRE_CALIBRATION);
+
+    calib_target_t gyr_target = {
+        .name = "gyro",
+        .fit = CALIB_FIT_BIAS,
+        .min_samples = GYRO_CAL_STILL_SAMPLES,
+        .max_ticks = GYRO_CAL_MAX_TICKS,
+        .poll_ms = 20,
+        .bias_var_max = GYRO_CAL_VAR_MAX,
+        .read_raw = gyr_read_raw_still,
+        .cancelled = calib_cancelled,
+        .on_progress = gyr_on_progress,
+        .commit = gyr_commit,
+        .ctx = NULL,
+    };
+    if (calib_engine_run(&gyr_target) != 0) {
+      vayu_log("[CALIB] Gyro calibration not committed; keeping old offset.");
       goto done;
     }
-
-    float gsum[3] = {0, 0, 0};
-    bmx160_all_reading_t sample;
-    int n = 0;
-    while (n < 500) {
-      if (_calib_cancel) {
-        vayu_log("[CALIB] Gyro calibration cancelled.");
-        goto done;
-      }
-      if (!imu_queue_calibration_pop(&sample)) {
-        v_delay(2);
-        continue;
-      }
-      gsum[0] += sample.converted.gyr_raw[0];
-      gsum[1] += sample.converted.gyr_raw[1];
-      gsum[2] += sample.converted.gyr_raw[2];
-      n++;
-    }
-    bmx160_calib.gyr_offset[0] = gsum[0] / 500.0f;
-    bmx160_calib.gyr_offset[1] = gsum[1] / 500.0f;
-    bmx160_calib.gyr_offset[2] = gsum[2] / 500.0f;
-    vayu_log("[CALIB] Gyro Bias: %.4f, %.4f, %.4f", bmx160_calib.gyr_offset[0],
-             bmx160_calib.gyr_offset[1], bmx160_calib.gyr_offset[2]);
 
   } else if ((int)imu_id == 3) { // MAGNETOMETER (ellipsoid: hard + soft iron)
     vayu_log("[CALIB] Starting Magnetometer Calibration (Free-Rotation)...");

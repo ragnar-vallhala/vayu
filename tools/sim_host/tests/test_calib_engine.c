@@ -88,6 +88,41 @@ static void fake_commit(const float offset[3], const float mat[9], void *ctx) {
     s_mat[i] = mat[i];
 }
 
+/* ---- fake bias (gyro) provider ------------------------------------------- */
+static const float GBIAS[3] = {0.5f, -0.3f, 0.8f};
+static bool s_bias_still;     // does the board count as still this run?
+static float s_bias_noise;    // +/- amplitude of per-sample noise
+static unsigned int s_blcg;
+
+static bool bias_read(float v[3], void *ctx) {
+  (void)ctx;
+  if (!s_bias_still)
+    return false; // board moving -> no accepted samples (engine should time out)
+  for (int k = 0; k < 3; k++) {
+    s_blcg = s_blcg * 1103515245u + 12345u;
+    float nz = s_bias_noise * ((float)((s_blcg >> 16) & 0xFFFF) / 32768.0f - 1.0f);
+    v[k] = GBIAS[k] + nz;
+  }
+  return true;
+}
+
+static calib_target_t bias_target(void) {
+  calib_target_t t = {
+      .name = "gyro",
+      .fit = CALIB_FIT_BIAS,
+      .min_samples = 50,
+      .max_ticks = 500,
+      .poll_ms = 20,
+      .bias_var_max = 1.0f,
+      .read_raw = bias_read,
+      .cancelled = fake_cancel,
+      .on_progress = NULL,
+      .commit = fake_commit,
+      .ctx = NULL,
+  };
+  return t;
+}
+
 static calib_target_t base_target(void) {
   calib_target_t t = {
       .name = "fake",
@@ -213,6 +248,40 @@ int main(void) {
         mag_const = 0;
     CHECK(mag_const, "corrected magnitude constant == radius");
   }
+
+  printf("  [5] bias (gyro) recovery\n");
+  s_force_cancel = false;
+  s_bias_still = true;
+  s_bias_noise = 0.01f;
+  s_blcg = 777;
+  s_commits = 0;
+  t = bias_target();
+  rc = calib_engine_run(&t);
+  CHECK(rc == 0, "bias run succeeds");
+  CHECK(s_commits == 1, "commit called once");
+  for (int i = 0; i < 3; i++) {
+    char b[40];
+    snprintf(b, sizeof b, "gyro bias[%d] recovered", i);
+    CHECK(fabsf(s_offset[i] - GBIAS[i]) < 0.05f, b);
+  }
+
+  printf("  [6] never still -> timeout, no commit\n");
+  s_bias_still = false;
+  s_commits = 0;
+  t = bias_target();
+  rc = calib_engine_run(&t);
+  CHECK(rc == -1, "moving board times out");
+  CHECK(s_commits == 0, "no commit when never still");
+
+  printf("  [7] too noisy -> variance reject, no commit\n");
+  s_bias_still = true;
+  s_bias_noise = 3.0f; // var ~ 3 dps^2 > bias_var_max (1.0)
+  s_blcg = 4242;
+  s_commits = 0;
+  t = bias_target();
+  rc = calib_engine_run(&t);
+  CHECK(rc == -1, "noisy window rejected");
+  CHECK(s_commits == 0, "no commit when variance too high");
 
   printf("\n  %d checks, %d failures\n", g_checks, g_fails);
   return g_fails ? 1 : 0;

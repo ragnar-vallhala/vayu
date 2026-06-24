@@ -284,6 +284,14 @@ typedef struct __attribute__((packed)) {
 #define ACCEL_CAL_GYRO_STILL_DPS                                               \
   3.0f // |gyro| below this (per axis sum-of-squares) counts the board as still
 
+/* Stillness-gated gyro bias capture (calib engine, bias fit). */
+#define GYRO_CAL_STILL_SAMPLES                                                 \
+  300 // still samples to average for the bias (~6 s at the 50 Hz cal poll)
+#define GYRO_CAL_MAX_TICKS                                                     \
+  1500 // ~30 s budget; if the board never settles, fail (keep the old offset)
+#define GYRO_CAL_VAR_MAX                                                       \
+  1.0f // dps^2 per-axis variance ceiling on the accepted window
+
 // Global telemetry channel and mutex
 #include "comm/channel.h"
 #include "ipc.h"

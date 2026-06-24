@@ -37,8 +37,13 @@ typedef struct calib_target {
   bool (*read_raw)(float v[3], void *ctx);
   /* Poll for an operator cancel. NULL = never cancelled. */
   bool (*cancelled)(void *ctx);
-  /* Per-axis coverage 0..100 for the GCS progress UI. NULL = no reporting. */
+  /* Per-axis coverage 0..100 for the GCS progress UI (ellipsoid). NULL = none. */
   void (*on_coverage)(float cx, float cy, float cz, void *ctx);
+  /* Single 0..100 progress for the bias path (gyro). NULL = no reporting. */
+  void (*on_progress)(float pct, void *ctx);
+  /* BIAS only: reject the capture if any axis variance exceeds this (in raw
+   * units squared) — guards against a disturbed board. 0 = no variance check. */
+  float bias_var_max;
   /* Store a successful fit: offset in raw units, mat = row-major 3x3 (identity
    * for BIAS). Called at most once, only on a successful fit. */
   void (*commit)(const float offset[3], const float mat[9], void *ctx);

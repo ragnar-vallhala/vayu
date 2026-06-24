@@ -113,13 +113,64 @@ static int run_ellipsoid(const calib_target_t *t) {
   return finalize(t, S, t9, nvalid, NULL, 0);
 }
 
+/* Zero-rate bias (gyro): average raw samples that the provider only returns when
+ * the board is still, then commit the mean as the offset (matrix = identity).
+ * Fails (keeps the old offset) if too few still samples are gathered within the
+ * tick budget, or if the accepted samples are too noisy. */
+static int run_bias(const calib_target_t *t) {
+  float sum[3] = {0.0f, 0.0f, 0.0f};
+  float sumsq[3] = {0.0f, 0.0f, 0.0f};
+  int n = 0;
+  const int iters = (int)t->max_ticks;
+  const int prog_period = (iters / 20) > 0 ? (iters / 20) : 1;
+
+  for (int i = 0; i < iters; i++) {
+    if (t->cancelled && t->cancelled(t->ctx))
+      return -1;
+    float v[3];
+    if (t->read_raw(v, t->ctx)) {
+      for (int k = 0; k < 3; k++) {
+        sum[k] += v[k];
+        sumsq[k] += v[k] * v[k];
+      }
+      n++;
+      if (n >= (int)t->min_samples)
+        break;
+    }
+    if (t->on_progress && (i % prog_period) == 0) {
+      float pct = 100.0f * (float)n / (float)t->min_samples;
+      t->on_progress(pct > 100.0f ? 100.0f : pct, t->ctx);
+    }
+    v_delay(t->poll_ms);
+  }
+
+  if (n < (int)t->min_samples)
+    return -1; // couldn't gather enough still samples (board kept moving)
+
+  float mean[3];
+  for (int k = 0; k < 3; k++)
+    mean[k] = sum[k] / (float)n;
+
+  if (t->bias_var_max > 0.0f) {
+    for (int k = 0; k < 3; k++) {
+      float var = sumsq[k] / (float)n - mean[k] * mean[k];
+      if (var > t->bias_var_max)
+        return -1; // accepted window too noisy — disturbed capture
+    }
+  }
+
+  const float identity[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
+  t->commit(mean, identity, t->ctx);
+  return 0;
+}
+
 int calib_engine_run(const calib_target_t *t) {
   switch (t->fit) {
   case CALIB_FIT_ELLIPSOID:
     return run_ellipsoid(t);
   case CALIB_FIT_BIAS:
+    return run_bias(t);
   default:
-    /* Gyro bias path lands in Phase 5 (separate routine). */
     return -1;
   }
 }
