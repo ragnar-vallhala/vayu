@@ -9,7 +9,15 @@ QVector<CalibStep> CalibrationWizard::stepsFor(CalibMode mode) {
       return {{CalibUpdateType::Upright, QStringLiteral("Level"),
                QStringLiteral("Place the vehicle level and still.")}};
     case CalibMode::Accel6Axis:
+      // Listed in the firmware's emission order so the initial (all-pending)
+      // checklist reads in the real sequence. Advancement is order-agnostic
+      // regardless (see onInstruction), so this order is display-only — the two
+      // can never drift into the wrong-phase bug again.
       return {
+          {CalibUpdateType::Upright, QStringLiteral("Level"),
+           QStringLiteral("Set level, upright.")},
+          {CalibUpdateType::UpsideDown, QStringLiteral("Upside down"),
+           QStringLiteral("Flip fully inverted.")},
           {CalibUpdateType::NoseUp, QStringLiteral("Nose up"),
            QStringLiteral("Stand the vehicle on its tail, nose pointing up.")},
           {CalibUpdateType::NoseDown, QStringLiteral("Nose down"),
@@ -18,10 +26,6 @@ QVector<CalibStep> CalibrationWizard::stepsFor(CalibMode mode) {
            QStringLiteral("Roll onto the right side.")},
           {CalibUpdateType::LeftDown, QStringLiteral("Left side down"),
            QStringLiteral("Roll onto the left side.")},
-          {CalibUpdateType::Upright, QStringLiteral("Level"),
-           QStringLiteral("Set level, upright.")},
-          {CalibUpdateType::UpsideDown, QStringLiteral("Upside down"),
-           QStringLiteral("Flip fully inverted.")},
       };
     case CalibMode::Mag:
       return {{CalibUpdateType::FreeRot, QStringLiteral("Figure-8"),
@@ -57,15 +61,32 @@ double CalibrationWizard::progress() const {
 }
 
 void CalibrationWizard::onInstruction(CalibUpdateType orient) {
+  // Find the prompted orientation in this mode's catalog. A status we don't
+  // model (e.g. Progress, or a pose this mode doesn't list) advances nothing.
+  int j = -1;
   for (int i = 0; i < m_steps.size(); ++i) {
     if (m_steps[i].orient == orient) {
-      m_current = i;
-      m_done = i;  // every step before the current one is complete
-      m_active = true;
-      return;
+      j = i;
+      break;
     }
   }
-  // Not an orientation step (e.g. Progress) — leave the wizard position alone.
+  if (j < 0)
+    return;
+
+  // Advance by ARRIVAL order, not by the catalog position: the firmware owns the
+  // orientation sequence and the GCS must not assume it. (The old code set
+  // m_done = catalog index, so e.g. UPSIDE_DOWN — last in the GCS list but 2nd
+  // in firmware order — looked "almost done" and the next pose appeared to move
+  // the bar backwards.) Bring the prompted pose into the next live slot so the
+  // checklist reflects the true order and progress stays monotonic.
+  if (j <= m_current)
+    return;  // a pose already visited was re-prompted — never go backwards
+  const int nextSlot = m_current + 1;  // m_current starts at -1 -> first slot 0
+  if (j != nextSlot)
+    m_steps.swapItemsAt(nextSlot, j);
+  m_current = nextSlot;
+  m_done = nextSlot;  // every step ahead of the current one is complete
+  m_active = true;
 }
 
 void CalibrationWizard::markComplete() {

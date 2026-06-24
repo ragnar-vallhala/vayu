@@ -1,0 +1,29 @@
+{
+  "_comment": "On-hardware sysid + stabilization tune for the rig airframe. Captured from the live FC after diagnosing/fixing the throttle-up runaway and running roll system-ID. NOTHING on the FC is persisted across battery cycles, so re-apply these with tools/apply_tune.py after each boot. See memory onhw-sysid-phase0.",
+  "captured": "2026-06-22",
+  "airframe": "X-quad on a free-rotating rig (raised inertia). Motors: M1,M3 CW, M2,M4 CCW. IMU aligned (no relative rotation).",
+
+  "motor_geometry": {
+    "_comment": "Default X positions but spin INVERTED vs firmware default -> flips s_mix_yaw only (the firmware's default spin-sign was backwards for this build, causing yaw positive feedback). Keeps roll/pitch mix identical.",
+    "pos_x": [1.0, -1.0, -1.0, 1.0],
+    "pos_y": [1.0, 1.0, -1.0, -1.0],
+    "spin":  [-1, 1, -1, 1]
+  },
+
+  "rate_pid": {
+    "_comment": "controller=1 (rate). roll is sysid-TUNED; pitch is the stable pure-P SEED (kill the default ki=0.01 double-integrator oscillation) and still needs its own sysid; yaw is firmware default (stable once the geometry above is applied).",
+    "roll":  { "kp": 0.01200, "ki": 0.00811, "kd": 0.00025, "kff": 0.0, "status": "sysid-tuned" },
+    "pitch": { "kp": 0.00050, "ki": 0.0,     "kd": 0.0,     "kff": 0.0, "status": "stable pure-P seed (untuned)" },
+    "yaw":   { "kp": 0.01800, "ki": 0.00800, "kd": 0.0,     "kff": 0.0, "status": "default (stable with geometry fix)" }
+  },
+
+  "angle_pid": {
+    "_comment": "controller=0 (angle). roll from sysid loop-shaping; pitch/yaw left at firmware default (not re-pushed).",
+    "roll":  { "kp": 1.6898, "ki": 0.0, "kd": 0.0, "kff": 0.0, "status": "sysid-tuned" }
+  },
+
+  "identified_plant": {
+    "_comment": "rate-loop plant omega/u = K/(s(tau s + 1)), fitted from one 0.5->12 Hz chirp at ~47% throttle.",
+    "roll": { "K": 563.3, "tau_ms": 20.88, "actuator_bw_hz": 7.6, "r2": 0.827 }
+  }
+}

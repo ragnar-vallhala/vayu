@@ -17,6 +17,19 @@ namespace vsim {
 // like: red=N (+X), green=E (+Y), blue=down (+Z).
 namespace {
 
+// Model transform for a helipad at pad=(x,y,terrainHeight): the cylinder mesh
+// (local z in [-1 top .. 0 base]) is scaled to the full height and shifted so
+// the base buries below the surface and the deck sits kHelipadDeckM above it.
+QMatrix4x4 helipadModel(const QVector3D& pad) {
+  const float bury = SimRendererWidget::kHelipadHeightM -
+                     SimRendererWidget::kHelipadDeckM;  // base depth below surface
+  QMatrix4x4 m;
+  m.translate(pad.x(), pad.y(), -pad.z() + bury);  // surface z=-h, base sunk by bury
+  m.scale(SimRendererWidget::kHelipadRadiusM, SimRendererWidget::kHelipadRadiusM,
+          SimRendererWidget::kHelipadHeightM);
+  return m;
+}
+
 constexpr int kGridHalf   = 10;       // m, ground plane extends +/- this
 constexpr float kGridStep = 1.0f;
 constexpr float kBodyL    = 0.40f;    // body extents in X
@@ -43,51 +56,96 @@ void main() {
 }
 )GLSL";
 
-// Lit program for solids (imported airframe + world mesh, obstacles): a
-// world-space directional Lambert plus a sky/ground hemispheric ambient so
-// the solid reads as 3D. The surface color is u_color * a_color: meshes with
-// real per-vertex/material colors (the world mesh) feed a_color, while flat
-// solids leave attribute 2 disabled (generic white) and tint via u_color.
+// Shared atmosphere GLSL. Appended after the #version + uniform/in decls of
+// BOTH the sky and lit fragment shaders so distant terrain fog fades into
+// exactly the sky behind it (no edge seam). Declares u_sundir; defines the sky
+// gradient + a warm sun glow. (No tonemap: the terrain albedo/lighting are
+// already display-referred, so we show them directly — an ACES pass here, with
+// no linear/sRGB management around it, just shifted the colors.)
+const char* kAtmosphereGLSL = R"GLSL(
+uniform vec3 u_sundir;     // unit direction toward the sun (world, NED)
+vec3 skyColor(vec3 dir) {
+  float up = -dir.z;        // NED up is -Z
+  // Overcast, desaturated grey-teal — the moody storm palette.
+  vec3 zenith  = vec3(0.28, 0.35, 0.38);
+  vec3 horizon = vec3(0.52, 0.57, 0.58);
+  vec3 ground  = vec3(0.10, 0.12, 0.13);
+  vec3 col = (up >= 0.0)
+      ? mix(horizon, zenith, pow(clamp(up, 0.0, 1.0), 0.55))
+      : mix(horizon, ground, clamp(-up * 2.5, 0.0, 1.0));
+  float s = max(dot(normalize(dir), normalize(u_sundir)), 0.0);
+  float aboveHorizon = step(0.0, up);
+  // Sun is diffused behind cloud: a soft bright bloom, no hard disc.
+  col += vec3(0.30, 0.30, 0.26) * pow(s, 5.0) * aboveHorizon;
+  return col;
+}
+)GLSL";
+
+// Lit program for solids (imported airframe + world mesh / terrain, obstacles):
+// world-space directional Lambert + sky/ground hemispheric ambient, then aerial
+// perspective (distance fog into the sky color) and the shared tonemap. Surface
+// color is u_color * a_color.
 const char* kLitVertexShader = R"GLSL(
 #version 330 core
 layout(location=0) in vec3 a_pos;
 layout(location=1) in vec3 a_normal;
 layout(location=2) in vec3 a_color;
 uniform mat4 u_mvp;
+uniform mat4 u_model;
 uniform mat3 u_nmat;
 out vec3 v_normal;
 out vec3 v_color;
+out vec3 v_world;
 void main() {
+  v_world = (u_model * vec4(a_pos, 1.0)).xyz;
   gl_Position = u_mvp * vec4(a_pos, 1.0);
   v_normal = u_nmat * a_normal;
   v_color = a_color;
 }
 )GLSL";
 
-const char* kLitFragmentShader = R"GLSL(
+const char* kLitFragmentHead = R"GLSL(
 #version 330 core
 in vec3 v_normal;
 in vec3 v_color;
+in vec3 v_world;
 out vec4 o_color;
 uniform vec3 u_color;
-uniform vec3 u_lightdir;   // world-space direction toward the light
+uniform vec3 u_campos;       // camera world position (NED)
+uniform float u_fogdensity;  // aerial-perspective strength
+uniform float u_fogstart;    // metres before fog begins
+uniform float u_sunint;      // sun-intensity look knob (matches grass)
+uniform float u_ambstr;      // ambient-strength look knob (matches grass)
+)GLSL";
+
+const char* kLitFragmentMain = R"GLSL(
 void main() {
   vec3 n = normalize(v_normal);
-  float ndl = max(dot(n, normalize(u_lightdir)), 0.0);
+  vec3 sun = normalize(u_sundir);
+  vec3 sunCol = vec3(1.04, 0.93, 0.74) * u_sunint;  // warm golden key (matches grass)
+  // Wrapped diffuse for a soft terminator that still shows light direction.
+  float wrap = clamp(dot(n, sun) * 0.45 + 0.55, 0.0, 1.0); wrap *= wrap;
   // Hemispheric ambient: NED up is -Z, so up-facing (n.z<0) catches sky light.
   float hemi = 0.5 + 0.5 * (-n.z);                 // 0 down .. 1 up
-  vec3 ambient = mix(vec3(0.18, 0.19, 0.22),
-                     vec3(0.40, 0.43, 0.48), clamp(hemi, 0.0, 1.0));
+  // Cool-but-warmed overcast ambient (shadows read soft teal, not cold).
+  vec3 ambient = mix(vec3(0.07, 0.09, 0.09),
+                     vec3(0.22, 0.25, 0.26), clamp(hemi, 0.0, 1.0)) * u_ambstr;
   vec3 base = u_color * v_color;
-  vec3 lit  = base * (ambient + vec3(0.85) * ndl);
-  o_color = vec4(lit, 1.0);
+  vec3 lit  = base * (ambient + sunCol * wrap * 0.95 * shadowFactor(v_world, n, sun));
+  // Aerial perspective: fade toward the sky behind the surface with distance,
+  // so the streamed-terrain edge dissolves into haze.
+  vec3 toFrag = v_world - u_campos;
+  float dist = length(toFrag);
+  vec3 vdir = dist > 1e-4 ? toFrag / dist : vec3(0.0, 0.0, 1.0);
+  float fd = max(dist - u_fogstart, 0.0) * u_fogdensity;
+  float fog = 1.0 - exp(-fd * fd);
+  o_color = vec4(mix(lit, skyColor(vdir), clamp(fog, 0.0, 1.0)), 1.0);
 }
 )GLSL";
 
 // Sky background: a fullscreen triangle (generated from gl_VertexID, no VBO)
-// whose color is a gradient along the per-pixel world view ray — blue zenith,
-// bright horizon, darker ground below — so it reads as a real sky dome and
-// tracks the camera as it orbits/tilts. Drawn first, depth test off.
+// shaded by the shared skyColor() along the per-pixel world view ray, tonemapped
+// to match the fogged terrain. Drawn first, depth test off.
 const char* kSkyVertexShader = R"GLSL(
 #version 330 core
 out vec2 v_ndc;
@@ -98,24 +156,182 @@ void main() {
 }
 )GLSL";
 
-const char* kSkyFragmentShader = R"GLSL(
+const char* kSkyFragmentHead = R"GLSL(
 #version 330 core
 in vec2 v_ndc;
 out vec4 o_color;
 uniform mat4 u_invvp;   // inverse(proj * view)
+uniform float u_time;   // cloud drift clock
+)GLSL";
+
+// Procedural overcast cloud deck layered on the sky gradient. Value-noise fBm is
+// sampled on a parallax-projected dome plane (clouds spread toward the horizon)
+// and drifts slowly with u_time. Kept ONLY in the sky shader so per-pixel fog on
+// terrain/grass stays a cheap gradient (it still fades into the overcast base).
+const char* kSkyFragmentMain = R"GLSL(
+float h21(vec2 p){ p=fract(p*vec2(123.34,345.45)); p+=dot(p,p+34.345); return fract(p.x*p.y); }
+float vnoise(vec2 p){ vec2 i=floor(p),f=fract(p); f=f*f*(3.0-2.0*f);
+  float a=h21(i),b=h21(i+vec2(1,0)),c=h21(i+vec2(0,1)),d=h21(i+vec2(1,1));
+  return mix(mix(a,b,f.x),mix(c,d,f.x),f.y); }
+float cfbm(vec2 p){ float s=0.0,a=0.55; for(int i=0;i<5;++i){ s+=a*vnoise(p); p=p*2.03+11.7; a*=0.5; } return s; }
 void main() {
-  // Unproject the near/far points of this pixel to get the world view ray.
   vec4 wn = u_invvp * vec4(v_ndc, -1.0, 1.0);
   vec4 wf = u_invvp * vec4(v_ndc,  1.0, 1.0);
   vec3 dir = normalize(wf.xyz / wf.w - wn.xyz / wn.w);
-  float up = -dir.z;   // NED up is -Z
-  vec3 zenith  = vec3(0.16, 0.36, 0.66);
-  vec3 horizon = vec3(0.74, 0.82, 0.90);
-  vec3 ground  = vec3(0.16, 0.18, 0.22);
-  vec3 col = (up >= 0.0)
-      ? mix(horizon, zenith, pow(clamp(up, 0.0, 1.0), 0.45))
-      : mix(horizon, ground, clamp(-up * 2.5, 0.0, 1.0));
-  o_color = vec4(col, 1.0);
+  float up = clamp(-dir.z, 0.0, 1.0);
+  vec3 sky = skyColor(dir);
+
+  // Parallax-project the ray onto a cloud plane and sample drifting fBm.
+  vec2 cuv = dir.xy / max(-dir.z * 0.65 + 0.12, 0.10);
+  cuv = cuv * 0.9 + u_time * vec2(0.012, 0.005);
+  float cov = cfbm(cuv);
+  cov = smoothstep(0.30, 0.92, cov);          // dense overcast coverage
+  cov *= smoothstep(0.02, 0.22, up);          // no clouds right at the horizon
+  // Cloud shading: dark teal-grey masses, lighter toward the diffused sun.
+  float sunAmt = pow(max(dot(normalize(dir), normalize(u_sundir)), 0.0), 3.0);
+  vec3 darkCloud = vec3(0.15, 0.19, 0.21);
+  vec3 litCloud  = vec3(0.55, 0.59, 0.60);
+  vec3 cloudCol = mix(darkCloud, litCloud, clamp(sunAmt * 0.8 + 0.18, 0.0, 1.0));
+  sky = mix(sky, cloudCol, cov * 0.88);
+  o_color = vec4(sky, 1.0);
+}
+)GLSL";
+
+// Depth-only program for the shadow pass: terrain transformed into the sun's
+// light-space clip; the rasteriser writes depth, no colour.
+const char* kDepthVertexShader = R"GLSL(
+#version 330 core
+layout(location = 0) in vec3 a_pos;
+uniform mat4 u_lightmvp;   // lightVP * model
+void main() { gl_Position = u_lightmvp * vec4(a_pos, 1.0); }
+)GLSL";
+const char* kDepthFragmentShader = R"GLSL(
+#version 330 core
+void main() {}
+)GLSL";
+
+// Shadow-receive helper shared by the lit + (a copy in the) grass shader. Samples
+// the light-space depth map with a 3x3 PCF kernel; returns 1 = lit, 0 = shadow.
+// Guarded by u_shadowon so the scene is unchanged when the map is unavailable.
+const char* kShadowGLSL = R"GLSL(
+uniform sampler2D u_shadowtex;
+uniform mat4 u_lightvp;
+uniform float u_shadowon;
+float shadowFactor(vec3 wpos, vec3 nrm, vec3 lightDir) {
+  if (u_shadowon < 0.5) return 1.0;
+  vec3 n = normalize(nrm);
+  float ndl = clamp(dot(n, normalize(lightDir)), 0.0, 1.0);
+  // Normal-offset: push the receiver off its own surface — more at grazing sun
+  // angles where one shadow texel covers many fragments — so the depth compare
+  // samples clear of the caster. This is what kills the terraced self-shadow
+  // banding (acne) on slopes; a flat constant bias cannot.
+  vec3 wp = wpos + n * (0.05 + 0.35 * (1.0 - ndl));
+  vec4 lp = u_lightvp * vec4(wp, 1.0);
+  vec3 p = lp.xyz / lp.w * 0.5 + 0.5;
+  if (p.x <= 0.0 || p.x >= 1.0 || p.y <= 0.0 || p.y >= 1.0 || p.z >= 1.0) return 1.0;
+  // Slope-scaled depth bias on top of the offset (grows toward grazing).
+  float bias = clamp(0.0008 * tan(acos(ndl)), 0.0004, 0.004);
+  float texel = 1.0 / 2048.0;
+  float s = 0.0;
+  for (int dx = -1; dx <= 1; ++dx)
+    for (int dy = -1; dy <= 1; ++dy) {
+      float d = texture(u_shadowtex, p.xy + vec2(dx, dy) * texel).r;
+      s += (p.z - bias > d) ? 0.0 : 1.0;
+    }
+  return s / 9.0;
+}
+)GLSL";
+
+// Instanced grass/flora. A shared unit-blade mesh (crossed tapered quads, local
+// z in [-1,0] = up) is drawn once per scattered instance: the vertex shader
+// rotates it by the instance yaw, scales to its height, bends the tip with a
+// world-space wind wave, and shrinks blades to nothing past a fade distance so
+// the flora edge dissolves (the terrain fog finishes the job). Fragment shades a
+// base->tip AO gradient over the instance tint, then the same distance fog into
+// the sky as the terrain — so grass and ground share one atmosphere.
+const char* kFloraVertexShader = R"GLSL(
+#version 330 core
+layout(location=0) in vec3 a_local;   // unit blade (z in [-1,0])
+layout(location=1) in vec3 i_pos;     // world base (NED)
+layout(location=2) in vec3 i_yhf;     // yaw, height, flower
+layout(location=3) in vec3 i_tint;
+layout(location=4) in vec3 a_normal;  // ribbon surface normal (local)
+uniform mat4 u_vp;
+uniform vec3 u_campos;
+uniform float u_time;
+uniform float u_fadestart;
+uniform float u_fadeend;
+out vec3 v_color;
+out vec3 v_world;
+out vec3 v_normal;
+out float v_hf;
+out float v_flower;
+void main() {
+  float yaw = i_yhf.x, height = i_yhf.y, flower = i_yhf.z;
+  float hf = -a_local.z;                       // 0 base .. 1 tip
+  // Distance fade: shrink height to 0 between fadestart..fadeend.
+  float d = length(i_pos - u_campos);
+  float fade = 1.0 - clamp((d - u_fadestart) / max(u_fadeend - u_fadestart, 1.0),
+                           0.0, 1.0);
+  height *= fade;
+  // Scale the whole curved blade (arc + width + length) by its height.
+  vec3 L = a_local * height;
+  L.xy *= (1.0 + flower * hf * hf * 2.0);        // flowers fan a small bloom
+  float s = sin(yaw), c = cos(yaw);
+  vec3 r = vec3(c * L.x - s * L.y, s * L.x + c * L.y, L.z);
+  // Wind: extra bend on top of the baked arc, strongest near the tip.
+  float w = sin(u_time * 1.6 + i_pos.x * 0.22 + i_pos.y * 0.18);
+  vec2 bend = vec2(0.80, 0.55) * (w * 0.14 * height * hf * hf);
+  vec3 world = i_pos + vec3(r.xy + bend, r.z);
+  v_world = world;
+  v_color = i_tint;
+  v_hf = hf;
+  v_flower = flower;
+  // Rotate the (uniform-scaled) ribbon normal by the same yaw.
+  v_normal = vec3(c * a_normal.x - s * a_normal.y,
+                  s * a_normal.x + c * a_normal.y, a_normal.z);
+  gl_Position = u_vp * vec4(world, 1.0);
+}
+)GLSL";
+
+const char* kFloraFragmentHead = R"GLSL(
+#version 330 core
+in vec3 v_color;
+in vec3 v_world;
+in vec3 v_normal;
+in float v_hf;
+in float v_flower;
+out vec4 o_color;
+uniform vec3 u_campos;
+uniform float u_fogdensity;
+uniform float u_fogstart;
+)GLSL";
+
+const char* kFloraFragmentMain = R"GLSL(
+void main() {
+  // Flowers keep a green stem and only bloom their colour near the tip.
+  vec3 stem = vec3(0.28, 0.46, 0.18);
+  vec3 albedo = mix(v_color, mix(stem, v_color, smoothstep(0.6, 0.95, v_hf)),
+                    v_flower);
+  // Per-blade lighting: directional sun + sky/ground hemispheric ambient off the
+  // (up-biased) ribbon normal, with a base->tip ambient-occlusion gradient.
+  vec3 n = normalize(v_normal);
+  float ndl = max(dot(n, normalize(u_sundir)), 0.0);
+  float hemi = 0.5 + 0.5 * (-n.z);             // up-facing catches sky
+  vec3 ambient = mix(vec3(0.22, 0.24, 0.28),
+                     vec3(0.50, 0.53, 0.58), clamp(hemi, 0.0, 1.0));
+  float ao = mix(0.55, 1.0, v_hf);             // darker at the base
+  vec3 col = albedo * (ambient + vec3(0.85) * ndl) * ao;
+  vec3 toFrag = v_world - u_campos;
+  float dist = length(toFrag);
+  vec3 vdir = dist > 1e-4 ? toFrag / dist : vec3(0.0, 0.0, 1.0);
+  // Subsurface translucency: blades glow when backlit (looking toward the sun
+  // through them), strongest near the thin tip — the soft GoT meadow look.
+  float trans = pow(max(dot(vdir, normalize(u_sundir)), 0.0), 4.0);
+  col += albedo * trans * (0.25 + 0.75 * v_hf) * 0.8;
+  float fd = max(dist - u_fogstart, 0.0) * u_fogdensity;
+  float fog = 1.0 - exp(-fd * fd);
+  o_color = vec4(mix(col, skyColor(vdir), clamp(fog, 0.0, 1.0)), 1.0);
 }
 )GLSL";
 
@@ -208,21 +424,60 @@ void SimRendererWidget::initializeGL() {
   u_color_ = prog_.uniformLocation("u_color");
 
   progLit_.addShaderFromSourceCode(QOpenGLShader::Vertex,   kLitVertexShader);
-  progLit_.addShaderFromSourceCode(QOpenGLShader::Fragment, kLitFragmentShader);
+  progLit_.addShaderFromSourceCode(
+      QOpenGLShader::Fragment,
+      QByteArray(kLitFragmentHead) + kAtmosphereGLSL + kShadowGLSL +
+          kLitFragmentMain);
   progLit_.link();
   ul_mvp_   = progLit_.uniformLocation("u_mvp");
+  ul_model_ = progLit_.uniformLocation("u_model");
   ul_nmat_  = progLit_.uniformLocation("u_nmat");
   ul_color_ = progLit_.uniformLocation("u_color");
-  ul_light_ = progLit_.uniformLocation("u_lightdir");
+  ul_sundir_= progLit_.uniformLocation("u_sundir");
+  ul_campos_= progLit_.uniformLocation("u_campos");
+  ul_fogdensity_ = progLit_.uniformLocation("u_fogdensity");
+  ul_fogstart_   = progLit_.uniformLocation("u_fogstart");
+  ul_lightvp_    = progLit_.uniformLocation("u_lightvp");
+  ul_shadowtex_  = progLit_.uniformLocation("u_shadowtex");
+  ul_shadowon_   = progLit_.uniformLocation("u_shadowon");
+  ul_sunint_     = progLit_.uniformLocation("u_sunint");
+  ul_ambstr_     = progLit_.uniformLocation("u_ambstr");
+
+  progDepth_.addShaderFromSourceCode(QOpenGLShader::Vertex,   kDepthVertexShader);
+  progDepth_.addShaderFromSourceCode(QOpenGLShader::Fragment, kDepthFragmentShader);
+  progDepth_.link();
+  ud_lightmvp_ = progDepth_.uniformLocation("u_lightmvp");
+  buildShadowMap();
 
   progSky_.addShaderFromSourceCode(QOpenGLShader::Vertex,   kSkyVertexShader);
-  progSky_.addShaderFromSourceCode(QOpenGLShader::Fragment, kSkyFragmentShader);
+  progSky_.addShaderFromSourceCode(
+      QOpenGLShader::Fragment,
+      QByteArray(kSkyFragmentHead) + kAtmosphereGLSL + kSkyFragmentMain);
   progSky_.link();
   us_invvp_ = progSky_.uniformLocation("u_invvp");
+  us_sundir_ = progSky_.uniformLocation("u_sundir");
+  us_time_ = progSky_.uniformLocation("u_time");
   skyVao_.create();   // core profile needs a bound VAO even with no attributes
+
+  progFlora_.addShaderFromSourceCode(QOpenGLShader::Vertex, kFloraVertexShader);
+  progFlora_.addShaderFromSourceCode(
+      QOpenGLShader::Fragment,
+      QByteArray(kFloraFragmentHead) + kAtmosphereGLSL + kFloraFragmentMain);
+  progFlora_.link();
+  uf_vp_        = progFlora_.uniformLocation("u_vp");
+  uf_campos_    = progFlora_.uniformLocation("u_campos");
+  uf_time_      = progFlora_.uniformLocation("u_time");
+  uf_fadestart_ = progFlora_.uniformLocation("u_fadestart");
+  uf_fadeend_   = progFlora_.uniformLocation("u_fadeend");
+  uf_sundir_    = progFlora_.uniformLocation("u_sundir");
+  uf_fogdensity_= progFlora_.uniformLocation("u_fogdensity");
+  uf_fogstart_  = progFlora_.uniformLocation("u_fogstart");
+  buildGrassBlade();
+  gpuGrass_.init(this);  // GPU grass if the context supports compute (4.3+)
 
   buildGroundGrid();
   buildObstacleMeshes();
+  buildHelipadMeshes();
   buildAxes();
   buildDroneBody();
   buildRotorDisk();
@@ -236,6 +491,8 @@ void SimRendererWidget::initializeGL() {
 }
 
 void SimRendererWidget::resizeGL(int w, int h) {
+  fbW_ = w;
+  fbH_ = h;
   glViewport(0, 0, w, h);
   proj_.setToIdentity();
   proj_.perspective(60.0f, float(w) / std::max(1, h), 0.05f, 200.0f);
@@ -249,6 +506,14 @@ QVector3D SimRendererWidget::freeForward() const {
                    -std::cos(cam_pitch_) * std::sin(cam_yaw_),
                     std::sin(cam_pitch_))
       .normalized();
+}
+
+float SimRendererWidget::viewHeadingRad() const {
+  if (freeFly_) {
+    const QVector3D f = freeForward();
+    return std::atan2(f.y(), f.x());  // NED: x=north, y=east
+  }
+  return bodyYawRad();
 }
 
 float SimRendererWidget::bodyYawRad() const {
@@ -328,30 +593,40 @@ void SimRendererWidget::paintGL() {
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
   if (meshDirty_) uploadDroneMesh();
   if (worldMeshDirty_) uploadWorldMesh();
+  if (chunksDirty_) flushChunkUpdates();
+  if (floraDirty_) flushFloraUpdates();
+  floraTime_ += 0.016f;   // ~60 Hz wind clock
 
   QMatrix4x4 view = cameraView();
+  camEye_ = view.inverted().map(QVector3D(0.0f, 0.0f, 0.0f));  // world eye for fog
 
-  // Sky-dome background (gradient along the per-pixel view ray). Drawn first
-  // with depth test off so the scene paints over it.
+  // Training mode hides the imported world + obstacles (computed up here so the
+  // shadow pass knows what to render as casters).
+  const bool training = !gates_.isEmpty();
+  const bool showWorld = worldVisible_ && hasWorldMesh_ && !training;
+  const bool showChunks = worldVisible_ && !training && !worldChunks_.empty();
+
+  // Shadow map: render terrain depth from the sun's view into the FBO first, so
+  // the lit terrain + grass can sample it. Restores the default FBO + viewport.
+  renderShadowPass(showWorld, showChunks);
+
+  // Sky-dome background (gradient + sun glow along the per-pixel view ray).
+  // Drawn first with depth test off so the scene paints over it.
   glDisable(GL_DEPTH_TEST);
   progSky_.bind();
   progSky_.setUniformValue(us_invvp_, (proj_ * view).inverted());
+  progSky_.setUniformValue(us_sundir_, sunDir_);
+  progSky_.setUniformValue(us_time_, floraTime_);
   skyVao_.bind();
   glDrawArrays(GL_TRIANGLES, 0, 3);
   skyVao_.release();
   progSky_.release();
   glEnable(GL_DEPTH_TEST);
 
-  // Training mode hides the imported world + obstacles: the course is flown in
-  // a clean arena over the reference ground grid, so nothing distracts the
-  // pilot or clutters the halo gates.
-  const bool training = !gates_.isEmpty();
-
   // Reference ground grid at z=0 — skipped when an imported world mesh is
-  // shown, since that mesh carries its own ground plane (also at z=0) and the
-  // two coplanar surfaces would z-fight. Always shown in training for a floor.
-  const bool showWorld = worldVisible_ && hasWorldMesh_ && !training;
-  if (!showWorld)
+  // shown (it carries its own ground plane at z=0; the two would z-fight).
+  // training/showWorld/showChunks were computed above for the shadow pass.
+  if (!showWorld && !showChunks)
     drawMesh(ground_, view, QVector3D(0.25f, 0.27f, 0.32f));
   drawMesh(axes_,   view, QVector3D(1, 1, 1));
 
@@ -360,6 +635,23 @@ void SimRendererWidget::paintGL() {
   // Imported world mesh (lit solid, world frame).
   if (showWorld)
     drawLit(worldMesh_, view, QMatrix4x4(), QVector3D(1.0f, 1.0f, 1.0f));
+
+  // Streaming terrain chunks (lit, world frame). Same lit shader / vertex-color
+  // path as the imported mesh, one draw per loaded chunk.
+  if (showChunks)
+    for (auto& kv : worldChunks_)
+      if (kv.second->vertex_count)
+        drawLit(*kv.second, view, QMatrix4x4(), QVector3D(1.0f, 1.0f, 1.0f));
+
+  // Grass over the terrain (after the ground so depth works). GPU-generated when
+  // available + selected; otherwise the CPU chunk-instanced path.
+  if (worldVisible_ && !training && floraVisible_) {
+    if (gpuGrassActive_ && gpuGrass_.ready())
+      gpuGrass_.render(this, proj_, view, camEye_, sunDir_, floraTime_,
+                       lightVP_, shadowTex_, shadowOn_);
+    else
+      drawFlora(view);
+  }
 
   // Static world obstacles (lit solids), each scaled/rotated/placed.
   for (int oi = 0; worldVisible_ && !training && oi < obstacles_.size(); ++oi) {
@@ -385,6 +677,14 @@ void SimRendererWidget::paintGL() {
     if (obsMode_ && oi == selObs_) col = QVector3D(0.95f, 0.80f, 0.30f);  // selected
     drawLit(*mesh, view, m, col);
   }
+
+  // Helipad landing platforms (scattered on flat ground; the drone spawns on one).
+  if (worldVisible_ && !training)
+    for (const QVector3D& pad : helipads_) {
+      QMatrix4x4 m = helipadModel(pad);
+      drawLit(helipadDisk_, view, m, QVector3D(0.22f, 0.23f, 0.26f));  // grey deck
+      drawLit(helipadMark_, view, m, QVector3D(0.93f, 0.93f, 0.90f));  // white H+ring
+    }
 
   // Training course halo gates + guidance arrow (World mode / down-cam only).
   if (worldVisible_) drawTraining(view);
@@ -459,16 +759,107 @@ void SimRendererWidget::drawMesh(const Mesh& m, const QMatrix4x4& mvp,
   prog_.release();
 }
 
+#ifndef GL_DEPTH_COMPONENT32F
+#define GL_DEPTH_COMPONENT32F 0x8CAC
+#endif
+#ifndef GL_CLAMP_TO_EDGE
+#define GL_CLAMP_TO_EDGE 0x812F
+#endif
+
+void SimRendererWidget::buildShadowMap() {
+  // Depth-only FBO: a single 32F depth texture, no colour buffer.
+  glGenFramebuffers(1, &shadowFbo_);
+  glGenTextures(1, &shadowTex_);
+  glBindTexture(GL_TEXTURE_2D, shadowTex_);
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT32F, shadowSize_, shadowSize_,
+               0, GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+  glBindFramebuffer(GL_FRAMEBUFFER, shadowFbo_);
+  glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D,
+                         shadowTex_, 0);
+  GLenum none = GL_NONE;
+  glDrawBuffers(1, &none);   // depth-only: no colour draw/read targets
+  glReadBuffer(GL_NONE);
+  shadowReady_ =
+      glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+  glBindTexture(GL_TEXTURE_2D, 0);
+  glBindFramebuffer(GL_FRAMEBUFFER, defaultFramebufferObject());
+  if (!shadowReady_)
+    qInfo("[SimRenderer] shadow FBO incomplete -> shadows disabled.");
+}
+
+void SimRendererWidget::renderShadowPass(bool showWorld, bool showChunks) {
+  shadowOn_ = false;
+  if (!shadowReady_ || (!showWorld && !showChunks)) return;
+
+  // Orthographic light frustum aimed along -sun, centred on the ground under the
+  // camera so it follows the view. NED up is -Z; pick a safe up if sun is steep.
+  const QVector3D fwd = -sunDir_.normalized();              // light view forward
+  const QVector3D center(camEye_.x(), camEye_.y(), 0.0f);   // ground under camera
+  const QVector3D lpos = center - fwd * 200.0f;
+  const QVector3D up =
+      std::abs(fwd.z()) > 0.99f ? QVector3D(1, 0, 0) : QVector3D(0, 0, -1);
+  QMatrix4x4 lview;
+  lview.lookAt(lpos, center, up);
+  QMatrix4x4 lproj;
+  lproj.ortho(-130.0f, 130.0f, -130.0f, 130.0f, 1.0f, 400.0f);
+  lightVP_ = lproj * lview;
+
+  glBindFramebuffer(GL_FRAMEBUFFER, shadowFbo_);
+  glViewport(0, 0, shadowSize_, shadowSize_);
+  glClear(GL_DEPTH_BUFFER_BIT);
+  glEnable(GL_DEPTH_TEST);
+  progDepth_.bind();
+  auto drawDepth = [&](const Mesh& m) {
+    if (m.vertex_count == 0) return;
+    progDepth_.setUniformValue(ud_lightmvp_, lightVP_);  // model = identity (world)
+    QOpenGLVertexArrayObject::Binder b(
+        const_cast<QOpenGLVertexArrayObject*>(&m.vao));
+    glDrawArrays(GL_TRIANGLES, 0, m.vertex_count);
+  };
+  if (showWorld) drawDepth(worldMesh_);
+  if (showChunks)
+    for (auto& kv : worldChunks_)
+      if (kv.second->vertex_count) drawDepth(*kv.second);
+  // Helipad platforms cast shadows too (each has its own model transform).
+  if (helipadDisk_.vertex_count)
+    for (const QVector3D& pad : helipads_) {
+      progDepth_.setUniformValue(ud_lightmvp_, lightVP_ * helipadModel(pad));
+      QOpenGLVertexArrayObject::Binder b(&helipadDisk_.vao);
+      glDrawArrays(GL_TRIANGLES, 0, helipadDisk_.vertex_count);
+    }
+  progDepth_.release();
+
+  glBindFramebuffer(GL_FRAMEBUFFER, defaultFramebufferObject());
+  glViewport(0, 0, fbW_, fbH_);
+  shadowOn_ = true;
+}
+
 void SimRendererWidget::drawLit(const Mesh& m, const QMatrix4x4& view,
                                 const QMatrix4x4& model,
                                 const QVector3D& color) {
   if (m.vertex_count == 0) return;
   progLit_.bind();
   progLit_.setUniformValue(ul_mvp_, proj_ * view * model);
+  progLit_.setUniformValue(ul_model_, model);
   progLit_.setUniformValue(ul_nmat_, model.normalMatrix());
   progLit_.setUniformValue(ul_color_, color);
-  // Light mostly from above (NED up is -Z) with a slight side bias.
-  progLit_.setUniformValue(ul_light_, QVector3D(0.3f, 0.2f, -1.0f));
+  progLit_.setUniformValue(ul_sundir_, sunDir_);
+  progLit_.setUniformValue(ul_campos_, camEye_);
+  // Aerial perspective: gentle haze that fully veils the streamed-terrain edge.
+  progLit_.setUniformValue(ul_fogdensity_, 1.0f / 420.0f);
+  progLit_.setUniformValue(ul_fogstart_, 45.0f);
+  progLit_.setUniformValue(ul_lightvp_, lightVP_);
+  progLit_.setUniformValue(ul_shadowon_, shadowOn_ ? 1.0f : 0.0f);
+  progLit_.setUniformValue(ul_shadowtex_, 1);   // sampler on texture unit 1
+  progLit_.setUniformValue(ul_sunint_, litSunInt_);
+  progLit_.setUniformValue(ul_ambstr_, litAmbStr_);
+  glActiveTexture(GL_TEXTURE1);
+  glBindTexture(GL_TEXTURE_2D, shadowTex_);
+  glActiveTexture(GL_TEXTURE0);
   QOpenGLVertexArrayObject::Binder b(const_cast<QOpenGLVertexArrayObject*>(&m.vao));
   // Flat solids leave attribute 2 disabled; feed white as the generic value so
   // u_color*a_color == u_color. Meshes with a real color array (world mesh)
@@ -654,6 +1045,66 @@ void SimRendererWidget::buildObstacleMeshes() {
   }
 }
 
+void SimRendererWidget::buildHelipadMeshes() {
+  const QVector3D up(0, 0, -1);  // NED up
+  auto pushUp = [](std::vector<float>& v, const QVector3D& p, const QVector3D& n) {
+    v.insert(v.end(), {p.x(), p.y(), p.z(), n.x(), n.y(), n.z()});
+  };
+  // --- platform: radius 1, local z in [-1 (top/landing) .. 0 (base/terrain)] ---
+  {
+    std::vector<float> v;
+    const int N = 32;
+    const float zt = -1.0f, zb = 0.0f;
+    for (int j = 0; j < N; ++j) {
+      const double a0 = 2 * M_PI * j / N, a1 = 2 * M_PI * (j + 1) / N;
+      const QVector3D n0(std::cos(a0), std::sin(a0), 0),
+          n1(std::cos(a1), std::sin(a1), 0);
+      const QVector3D bt0(n0.x(), n0.y(), zt), bb0(n0.x(), n0.y(), zb),
+          bt1(n1.x(), n1.y(), zt), bb1(n1.x(), n1.y(), zb);
+      // side wall (outward normals)
+      pushUp(v, bb0, n0); pushUp(v, bb1, n1); pushUp(v, bt1, n1);
+      pushUp(v, bb0, n0); pushUp(v, bt1, n1); pushUp(v, bt0, n0);
+      // top cap (up-facing)
+      pushUp(v, QVector3D(0, 0, zt), up); pushUp(v, bt0, up); pushUp(v, bt1, up);
+    }
+    uploadLitMesh(helipadDisk_, v);
+  }
+  // --- mark: "H" + ring border, flat just above the top, up-facing (white) ---
+  {
+    std::vector<float> v;
+    // Sit a FIXED ~2 cm above the deck regardless of pad height: the local z is
+    // scaled by kHelipadHeightM at draw time, so divide the world clearance out
+    // here (otherwise a taller pad floats the "H" up off the deck).
+    const float z = -1.0f - 0.02f / kHelipadHeightM;
+    auto quad = [&](float x0, float x1, float y0, float y1) {
+      const QVector3D a(x0, y0, z), b(x1, y0, z), c(x1, y1, z), d(x0, y1, z);
+      for (const QVector3D& p : {a, b, c}) pushUp(v, p, up);
+      for (const QVector3D& p : {a, c, d}) pushUp(v, p, up);
+    };
+    quad(-0.40f, -0.20f, -0.55f, 0.55f);  // H left bar
+    quad(0.20f, 0.40f, -0.55f, 0.55f);    // H right bar
+    quad(-0.20f, 0.20f, -0.12f, 0.12f);   // H crossbar
+    const int N = 48;
+    const float ri = 0.80f, ro = 0.92f;   // ring border annulus
+    auto rv = [&](float r, double a) {
+      return QVector3D(r * std::cos(a), r * std::sin(a), z);
+    };
+    for (int j = 0; j < N; ++j) {
+      const double a0 = 2 * M_PI * j / N, a1 = 2 * M_PI * (j + 1) / N;
+      const QVector3D i0 = rv(ri, a0), o0 = rv(ro, a0), i1 = rv(ri, a1),
+                      o1 = rv(ro, a1);
+      for (const QVector3D& p : {i0, o0, o1}) pushUp(v, p, up);
+      for (const QVector3D& p : {i0, o1, i1}) pushUp(v, p, up);
+    }
+    uploadLitMesh(helipadMark_, v);
+  }
+}
+
+void SimRendererWidget::setHelipads(const std::vector<QVector3D>& pads) {
+  helipads_ = pads;
+  update();
+}
+
 void SimRendererWidget::setObstacles(const QVector<vsim::Obstacle>& obs) {
   obstacles_ = obs;
   update();
@@ -678,6 +1129,216 @@ void SimRendererWidget::setWorldMesh(const std::vector<QVector3D>& positions,
   pendingWorldCol_ = colors;
   worldMeshDirty_ = true;   // uploaded in paintGL (needs GL context)
   update();
+}
+
+void SimRendererWidget::setWorldChunk(qint64 key,
+                                      const std::vector<QVector3D>& positions,
+                                      const std::vector<QVector3D>& normals,
+                                      const std::vector<QVector3D>& colors) {
+  // Interleave [px,py,pz, nx,ny,nz, r,g,b] now (UI thread, no GL) and queue the
+  // VBO upload for paintGL.
+  PendingChunk pc;
+  pc.key = key;
+  pc.data.reserve(positions.size() * 9);
+  for (size_t i = 0; i < positions.size(); ++i) {
+    const QVector3D& p = positions[i];
+    const QVector3D n = (i < normals.size()) ? normals[i] : QVector3D(0, 0, -1);
+    const QVector3D c =
+        (i < colors.size()) ? colors[i] : QVector3D(0.4f, 0.5f, 0.3f);
+    pc.data.insert(pc.data.end(), {p.x(), p.y(), p.z(), n.x(), n.y(), n.z(),
+                                   c.x(), c.y(), c.z()});
+  }
+  pendingChunkUploads_.push_back(std::move(pc));
+  chunksDirty_ = true;
+  update();
+}
+
+void SimRendererWidget::removeWorldChunk(qint64 key) {
+  pendingChunkRemovals_.push_back(key);
+  chunksDirty_ = true;
+  update();
+}
+
+void SimRendererWidget::clearWorldChunks() {
+  clearAllChunks_ = true;
+  chunksDirty_ = true;
+  update();
+}
+
+void SimRendererWidget::flushChunkUpdates() {
+  chunksDirty_ = false;
+  if (clearAllChunks_) {
+    worldChunks_.clear();          // GL context current here -> safe to destroy
+    pendingChunkRemovals_.clear();
+    clearAllChunks_ = false;
+    // NOTE: pendingChunkUploads_ is intentionally NOT cleared — uploads queued
+    // after a clear request (e.g. reconfiguring the streamer: clear old set,
+    // then stream the new one) are the fresh set and must still apply.
+  }
+  for (qint64 key : pendingChunkRemovals_) worldChunks_.erase(key);
+  pendingChunkRemovals_.clear();
+  for (PendingChunk& pc : pendingChunkUploads_) {
+    std::unique_ptr<Mesh>& mesh = worldChunks_[pc.key];
+    if (!mesh) mesh = std::make_unique<Mesh>();
+    uploadColoredMesh(*mesh, pc.data);
+  }
+  pendingChunkUploads_.clear();
+}
+
+void SimRendererWidget::buildGrassBlade() {
+  // A single curved blade (UE5-style): a quadratic Bezier spine swept into a
+  // tapered strip with a real surface (ribbon) normal per cross-section. Built
+  // at 3 LODs (4/2/1 segments) so distant chunks draw far fewer verts/blade.
+  // Local space: base at origin, up = -Z, arc leans toward +X.
+  const float wb = 0.05f;
+  const float P0x = 0.0f,  P0z = 0.0f;
+  const float P1x = 0.14f, P1z = -0.55f;
+  const float P2x = 0.42f, P2z = -1.0f;
+  auto bez = [&](float t, float& x, float& z) {
+    const float u = 1.0f - t;
+    x = u * u * P0x + 2.0f * u * t * P1x + t * t * P2x;
+    z = u * u * P0z + 2.0f * u * t * P1z + t * t * P2z;
+  };
+  // Spine tangent (derivative); the ribbon normal is perpendicular to it and Y,
+  // biased toward up (-Z) so blades catch overhead sun/sky (softer, UE5-like).
+  auto normal = [&](float t, float& nx, float& nz) {
+    const float tx = 2.0f * (1.0f - t) * (P1x - P0x) + 2.0f * t * (P2x - P1x);
+    const float tz = 2.0f * (1.0f - t) * (P1z - P0z) + 2.0f * t * (P2z - P1z);
+    float rx = -tz, rz = tx;             // cross(T, +Y) in the X-Z plane
+    rz -= 0.9f;                          // up-bias (NED up is -Z)
+    const float l = std::sqrt(rx * rx + rz * rz);
+    nx = rx / l; nz = rz / l;
+  };
+  auto width = [&](float t) { return wb * (0.06f + 0.94f * std::pow(1.0f - t, 0.7f)); };
+
+  const int segCounts[3] = {4, 2, 1};
+  for (int lod = 0; lod < 3; ++lod) {
+    const int kSeg = segCounts[lod];
+    std::vector<float> v;  // [px,py,pz, nx,ny,nz] per vertex
+    auto vert = [&](float x, float y, float z, float nx, float nz) {
+      v.insert(v.end(), {x, y, z, nx, 0.0f, nz});
+    };
+    for (int s = 0; s < kSeg; ++s) {
+      const float t0 = float(s) / kSeg, t1 = float(s + 1) / kSeg;
+      float x0, z0, x1, z1, n0x, n0z, n1x, n1z;
+      bez(t0, x0, z0); bez(t1, x1, z1);
+      normal(t0, n0x, n0z); normal(t1, n1x, n1z);
+      const float w0 = width(t0), w1 = width(t1);
+      vert(x0, +w0, z0, n0x, n0z); vert(x0, -w0, z0, n0x, n0z);
+      vert(x1, -w1, z1, n1x, n1z);
+      vert(x0, +w0, z0, n0x, n0z); vert(x1, -w1, z1, n1x, n1z);
+      vert(x1, +w1, z1, n1x, n1z);
+    }
+    grassVbo_[lod].create();
+    grassVbo_[lod].bind();
+    grassVbo_[lod].allocate(v.data(), int(v.size() * sizeof(float)));
+    grassVbo_[lod].release();
+    grassVerts_[lod] = int(v.size() / 6);
+  }
+  floraVao_.create();
+}
+
+void SimRendererWidget::setChunkFlora(qint64 key,
+                                      const std::vector<float>& interleaved,
+                                      int count, float centerX, float centerY,
+                                      float halfExtent) {
+  pendingFloraUploads_.push_back(
+      {key, interleaved, count, centerX, centerY, halfExtent});
+  floraDirty_ = true;
+  update();
+}
+
+void SimRendererWidget::removeChunkFlora(qint64 key) {
+  pendingFloraRemovals_.push_back(key);
+  floraDirty_ = true;
+  update();
+}
+
+void SimRendererWidget::clearChunkFlora() {
+  clearAllFlora_ = true;
+  floraDirty_ = true;
+  update();
+}
+
+void SimRendererWidget::flushFloraUpdates() {
+  floraDirty_ = false;
+  if (clearAllFlora_) {
+    floraChunks_.clear();
+    pendingFloraRemovals_.clear();
+    clearAllFlora_ = false;
+    // (queued uploads are kept — fresh set after a reconfigure)
+  }
+  for (qint64 key : pendingFloraRemovals_) floraChunks_.erase(key);
+  pendingFloraRemovals_.clear();
+  for (PendingFlora& pf : pendingFloraUploads_) {
+    if (pf.count <= 0) { floraChunks_.erase(pf.key); continue; }
+    std::unique_ptr<FloraChunk>& fc = floraChunks_[pf.key];
+    if (!fc) fc = std::make_unique<FloraChunk>();
+    if (!fc->inst.isCreated()) fc->inst.create();
+    fc->inst.bind();
+    fc->inst.allocate(pf.data.data(), int(pf.data.size() * sizeof(float)));
+    fc->inst.release();
+    fc->count = pf.count;
+    fc->cx = pf.cx;
+    fc->cy = pf.cy;
+    fc->half = pf.half;
+  }
+  pendingFloraUploads_.clear();
+}
+
+void SimRendererWidget::drawFlora(const QMatrix4x4& view) {
+  if (floraChunks_.empty() || grassVerts_[0] == 0) return;
+  progFlora_.bind();
+  progFlora_.setUniformValue(uf_vp_, proj_ * view);
+  progFlora_.setUniformValue(uf_campos_, camEye_);
+  progFlora_.setUniformValue(uf_time_, floraTime_);
+  progFlora_.setUniformValue(uf_fadestart_, 90.0f);
+  progFlora_.setUniformValue(uf_fadeend_, 150.0f);
+  progFlora_.setUniformValue(uf_sundir_, sunDir_);
+  progFlora_.setUniformValue(uf_fogdensity_, 1.0f / 420.0f);
+  progFlora_.setUniformValue(uf_fogstart_, 45.0f);
+  floraVao_.bind();
+  for (auto& kv : floraChunks_) {
+    FloraChunk* fc = kv.second.get();
+    if (fc->count == 0) continue;
+    // Per-chunk LOD by distance to the NEAREST point of the chunk (so the chunk
+    // you're standing in stays full detail): fewer verts/blade the farther it is.
+    const float nx = std::max(fc->cx - fc->half,
+                              std::min(camEye_.x(), fc->cx + fc->half));
+    const float ny = std::max(fc->cy - fc->half,
+                              std::min(camEye_.y(), fc->cy + fc->half));
+    const float dx = nx - camEye_.x(), dy = ny - camEye_.y();
+    const float dist = std::sqrt(dx * dx + dy * dy);
+    const int lod = dist < 40.0f ? 0 : (dist < 90.0f ? 1 : 2);
+
+    // Bind the LOD geometry (pos + normal, divisor 0).
+    grassVbo_[lod].bind();
+    const int gstride = 6 * sizeof(float);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, gstride, nullptr);
+    glVertexAttribDivisor(0, 0);
+    glEnableVertexAttribArray(4);
+    glVertexAttribPointer(4, 3, GL_FLOAT, GL_FALSE, gstride,
+                          reinterpret_cast<void*>(3 * sizeof(float)));
+    glVertexAttribDivisor(4, 0);
+    // Bind this chunk's instance data (9 floats/instance, divisor 1).
+    fc->inst.bind();
+    const int istride = 9 * sizeof(float);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, istride, nullptr);
+    glVertexAttribDivisor(1, 1);
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, istride,
+                          reinterpret_cast<void*>(3 * sizeof(float)));
+    glVertexAttribDivisor(2, 1);
+    glEnableVertexAttribArray(3);
+    glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, istride,
+                          reinterpret_cast<void*>(6 * sizeof(float)));
+    glVertexAttribDivisor(3, 1);
+    glDrawArraysInstanced(GL_TRIANGLES, 0, grassVerts_[lod], fc->count);
+  }
+  floraVao_.release();
+  progFlora_.release();
 }
 
 void SimRendererWidget::buildGroundGrid() {

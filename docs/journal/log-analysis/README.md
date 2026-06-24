@@ -66,19 +66,33 @@ timestamp) holding the raw `.bin` plus all analysis of it.
   - [`vertical-analysis.md`](20260620-053528/vertical-analysis.md) — vertical estimator & flight-phase health
   - [`recommendations.md`](20260620-053528/recommendations.md) — fixes + next-capture plan
 
-- [`20260621-001850/`](20260621-001850/) — **2026-06-21 00:16–00:18**, **SITL
-  (simulator)** autotune-validation **triplet** (3 logs: 001607 / 001716 /
-  001850; 37.5 / 70.4 / 59.3 s, 0 CRC errors each). **Headline: same airframe
-  and firmware across three aggressive manual ANGLE-mode flights — the only
-  material difference is the roll/pitch rate gain, and it decides the outcome.**
-  At roll Kp_eff ≈ 5–6e-5 the loop tumbles inverted (001607: 38% of flight past
-  90°; 001850: a late tumble); a ~4× bump to ≈2.1e-4 (001716) tracks
-  (corr 0.70/0.84) and never crosses 90° — while still ~45× below yaw and using
-  <12% authority. Direct flight evidence for the autotune/System-ID direction.
-  Vertical estimator healthy in all three (fused-vs-baro RMS 0.21–1.08 m); the
-  001850 4.2 km excursion is a tumble artifact, not a vertical fault.
-  - [`README`](20260621-001850/README.md) — provenance, per-run headers, inventory, raw findings
-  - [`session-analysis.md`](20260621-001850/session-analysis.md) — the three runs, timeline, cross-run table
-  - [`control-loop-analysis.md`](20260621-001850/control-loop-analysis.md) — **the headline**: the gain → tumble-vs-clean differentiator
-  - [`vertical-analysis.md`](20260621-001850/vertical-analysis.md) — estimator health + the 4.2 km tumble artifact
-  - [`recommendations.md`](20260621-001850/recommendations.md) — fixes + before/after fixture plan
+- [`20260621-021352/`](20260621-021352/) — **2026-06-21 02:13**, **SITL
+  (simulator)** — the **first dual-log archive**, pairing the FC telemetry
+  (estimate) with the physics ground truth (`gt-*.bin`), captured *after* the
+  `mag_fusion` producer fix. **Headline: against ground truth the estimator now
+  matches truth on yaw and altitude; the one remaining gap is roll/pitch under
+  sustained acceleration.** Yaw error **121° → 2.9°** (tracks the −134° heading
+  swing — the `mag_fusion` SITL data bug is resolved); altitude RMS **0.12 m**;
+  roll/pitch reads ~level while the craft is genuinely tilted up to 23° in
+  free-flight drift (∝ horizontal speed) — the accelerometer gravity-vs-accel
+  ambiguity, fixable only with GPS/optical-flow. Includes the status of every
+  previously-detected fault.
+  - [`README`](20260621-021352/README.md) — provenance, paired headers, fault-status table, raw findings
+  - [`session-analysis.md`](20260621-021352/session-analysis.md) — the run, timeline, cross-run context
+  - [`estimator-analysis.md`](20260621-021352/estimator-analysis.md) — **the headline**: estimate vs truth; yaw fix + roll/pitch limitation
+  - [`recommendations.md`](20260621-021352/recommendations.md) — fault statuses + the velocity-aiding decision
+
+- [`20260621-053142/`](20260621-053142/) — **2026-06-21 05:31**, **SITL
+  (simulator)** dual-log, **aggressive** flight after raising `EKF_R_ACC_DIR`
+  2.5e-3 → 2.5e-2 (trust the accelerometer less — the GPS-less PX4/ArduPilot
+  approach). **Headline: the roll/pitch tilt under-report is essentially gone —
+  with sticks centered the estimate and true tilt now agree to 0.15° (was 2.15°
+  at the old accel trust), and the craft flies genuinely more level.** Yaw RMS
+  0.32° (tracks a −108° swing) and altitude 0.04 m stay exact even at roll +60° /
+  pitch −50° / 14.5 m/s. The residual is confined to *sustained* acceleration
+  (the IMU-only floor); a separate 176 s flight confirmed no long-term drift from
+  the change. The before/after to `021352`.
+  - [`README`](20260621-053142/README.md) — provenance, paired headers, fault-status table, raw findings
+  - [`session-analysis.md`](20260621-053142/session-analysis.md) — the run, timeline, before/after vs 021352
+  - [`estimator-analysis.md`](20260621-053142/estimator-analysis.md) — **the headline**: the accel-trust effect + the residual
+  - [`recommendations.md`](20260621-053142/recommendations.md) — fault statuses + the commit / real-HW decision

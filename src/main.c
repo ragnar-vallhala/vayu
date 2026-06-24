@@ -1,7 +1,7 @@
 #include "comm/comm.h"
 #include "control/control.h"
 #include "sensor/sensor.h"
-#include "logger/logger.h"
+#include "storage/fs_owner.h"
 #include "navhal.h"
 #include "sys/state.h"
 #include "task.h"
@@ -83,8 +83,13 @@ void init_sensors(void) {
  * exercising worst-case paths (arm, calibrate, failsafe) before trusting the
  * tightest values. Peaks at last measurement noted per line. */
 void init_tasks(void) {
-  task_create_named(comm_processor_task, NULL, 2048, 0,
-                    "comm_processor"); // peak ~748
+  // 4096 (was 2048): the NavLink router now dispatches the xfer + fs_query
+  // handlers on this task, and the generated dispatch builds large aligned
+  // message structs on-stack (XFER_DATA alone is ~254 B for data[247]) on top of
+  // navlink_router_poll's buf[256]. Measured overflow at ~1884/2048 on real HW
+  // (kernel stack-watermark panic); right-size down from the perf high-water view.
+  task_create_named(comm_processor_task, NULL, 4096, 0,
+                    "comm_processor"); // was peak ~748 pre-xfer
   bmx160_task_id =
       task_create_named(bmx160_initiate_read, NULL, 1536, 2,
                         "imu_read"); // peak ~404
@@ -109,6 +114,18 @@ void init_tasks(void) {
   task_create_named(flush_task, NULL, 1024, 0, "flush"); // peak ~124
   task_create_named(perf_telemetry_task, NULL, 2048, 0,
                     "perf_telemetry"); // peak ~796
+  // Centralised FS owner: sole runtime SD/VFS writer (blackbox logger + PID/calib
+  // saves). Lowest band (prio 0); blocks on its queue so it only runs when there
+  // is work and never preempts control. Queues are created lazily on first run.
+  task_create_named(fs_owner_task, NULL, 2048, 0, "fs_owner");
+  // Bulk-transfer (FTP) substrate: runs the xfer SM off the comm + control
+  // tasks (prio 0). Blocking SD reads + paced emission live here; the comm-task
+  // handlers only touch session state (the C1->C3 invariant). 2 KiB stack from
+  // the heap (RAM budget: docs/plans/xfer-memory-budget.md). 3072 (was 2048):
+  // fs_query_tick / xfer_tick do the blocking FatFS dir-walk (FILINFO on-stack)
+  // plus a 247 B chunk buffer and the XFER_DATA encode struct; same dispatch-depth
+  // risk as comm_processor. Right-size from the perf high-water view.
+  task_create_named(xfer_service_task, NULL, 3072, 0, "xfer");
   // task_create(test_task, NULL, 4096, 0);
 }
 void init_timer_callbacks(void) {
@@ -150,7 +167,7 @@ int main() {
   v_system_init(&cfg);
 
   init_i2c_manager(&i2c_config);
-  logger_init();
+  fs_owner_boot_init(); /* prealloc/open the blackbox log files (was logger_init) */
 #ifdef EKF_SELFTEST
   run_ekf_selftest(); /* report over UART before the scheduler starts */
 #endif

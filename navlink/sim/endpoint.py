@@ -117,6 +117,12 @@ class FC:
         self.streams = [{"name": cls.__name__, "cls": cls, "build": build,
                          "rate": rate, "enabled": True, "count": 0, "due": 0.0}
                         for (cls, rate, build) in SCHEDULE]
+        # xfer (FTP) substrate: serve a demo file so a GCS can exercise a real
+        # download over the live link. Frames go straight onto the link (the
+        # server builds its own). docs/reference/messages/xfer.md.
+        from xfer_server import XferServer
+        self.xfer = XferServer(send=self.link.send,
+                               files={"demo.txt": b"vayu xfer demo\n" * 64})
 
     def _send(self, msgid, payload):
         with self.lock:
@@ -139,6 +145,12 @@ class FC:
             if d.msgid == nl.Ping.MSGID:                      # echo PING back
                 self._send(nl.Ping.MSGID, d.payload)
                 self.pings_echoed += 1
+            elif d.msgid in (nl.XferOpen.MSGID, nl.XferClose.MSGID,
+                             nl.XferData.MSGID, nl.XferAck.MSGID):
+                # The xfer substrate owns its own two-phase open + reliability, so
+                # it bypasses the blanket auto-ack and is served by the real
+                # XferServer (docs/reference/messages/xfer.md).
+                self.xfer.feed(d)
             elif 8192 <= d.msgid <= 12319:                    # a command → COMMAND_ACK
                 req_seq = d.payload[2] if len(d.payload) > 2 else 0
                 ack = nl.CommandAck(command=d.msgid, req_seq=req_seq,
@@ -166,6 +178,7 @@ class FC:
                     s["due"] += period
                     if s["due"] < now:                        # fell behind; resync
                         s["due"] = now + period
+            self.xfer.tick()  # drive any in-flight bulk transfer
             time.sleep(0.001)
         self.stop.set()
         rx.join(timeout=1.0)

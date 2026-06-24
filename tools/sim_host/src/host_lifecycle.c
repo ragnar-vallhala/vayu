@@ -23,7 +23,7 @@
 #include "sensor/sensor.h"
 #include "sys/state.h"
 #include "task.h"
-#include "logger/logger.h"
+#include "storage/fs_owner.h"
 #include "sys/sys_utils.h"
 #include "variables.h"   /* HIGH_FREQ_TIMER_FREQ */
 #include "vaios.h"

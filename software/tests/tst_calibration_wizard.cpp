@@ -10,7 +10,7 @@ class TstCalibrationWizard : public QObject {
 private slots:
   void modesHaveExpectedSteps();
   void sixAxisAdvancesAndCompletes();
-  void instructionMarksEarlierStepsDone();
+  void advancesByArrivalOrderNotCatalog();
   void nonStepInstructionIgnored();
   void magIsSingleFigure8();
 };
@@ -47,25 +47,43 @@ void TstCalibrationWizard::sixAxisAdvancesAndCompletes() {
   QVERIFY(!w.isActive());
 }
 
-void TstCalibrationWizard::instructionMarksEarlierStepsDone() {
+void TstCalibrationWizard::advancesByArrivalOrderNotCatalog() {
   CalibrationWizard w;
   w.begin(CalibMode::Accel6Axis);
-  // Firmware jumps to the 3rd orientation -> steps 0,1 are done, step 2 current.
-  w.onInstruction(CalibUpdateType::RightDown);  // index 2
-  QCOMPARE(w.currentIndex(), 2);
-  QCOMPARE(w.doneCount(), 2);
-  QVERIFY(qFuzzyCompare(w.progress(), 2.0 / 6.0));
+
+  // The firmware owns the pose sequence; whatever it prompts first is step 0 of
+  // the run with nothing yet done — regardless of where that pose sits in the
+  // GCS catalog. (The old code used the catalog index, which made e.g. an early
+  // pose look "almost done" and the next prompt move the bar backwards.)
+  w.onInstruction(CalibUpdateType::RightDown);
+  QCOMPARE(w.currentIndex(), 0);
+  QCOMPARE(w.doneCount(), 0);
+  QCOMPARE(w.progress(), 0.0);
+  QCOMPARE(w.steps().at(0).orient, CalibUpdateType::RightDown);
+
+  // Each new prompt advances monotonically: one pose done, now on the second,
+  // and the checklist reflects the real arrival order.
+  w.onInstruction(CalibUpdateType::NoseUp);
+  QCOMPARE(w.currentIndex(), 1);
+  QCOMPARE(w.doneCount(), 1);
+  QVERIFY(qFuzzyCompare(w.progress(), 1.0 / 6.0));
+  QCOMPARE(w.steps().at(1).orient, CalibUpdateType::NoseUp);
+
+  // A re-prompt of an already-completed pose must never move backwards.
+  w.onInstruction(CalibUpdateType::RightDown);
+  QCOMPARE(w.currentIndex(), 1);
+  QCOMPARE(w.doneCount(), 1);
 }
 
 void TstCalibrationWizard::nonStepInstructionIgnored() {
   CalibrationWizard w;
   w.begin(CalibMode::Accel6Axis);
-  w.onInstruction(CalibUpdateType::LeftDown);  // index 3
-  QCOMPARE(w.currentIndex(), 3);
+  w.onInstruction(CalibUpdateType::LeftDown);  // first arrival -> slot 0
+  QCOMPARE(w.currentIndex(), 0);
   // A Progress "still calibrating" status must not move the wizard.
   w.onInstruction(CalibUpdateType::Progress);
-  QCOMPARE(w.currentIndex(), 3);
-  QCOMPARE(w.doneCount(), 3);
+  QCOMPARE(w.currentIndex(), 0);
+  QCOMPARE(w.doneCount(), 0);
 }
 
 void TstCalibrationWizard::magIsSingleFigure8() {

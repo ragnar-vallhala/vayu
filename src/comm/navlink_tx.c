@@ -40,6 +40,25 @@ void navlink_tx_log(const char *buf, uint8_t len) {
   }
 }
 
+void navlink_tx_sysid_sample(uint16_t start, uint16_t total, uint16_t hz,
+                             uint8_t axis, uint8_t count, const int16_t *sp,
+                             const int16_t *gyro) {
+  static uint8_t seq = 0;
+  navlink_sysid_sample_t msg = {0};
+  msg.start_index = start;
+  msg.total = total;
+  msg.capture_hz = hz;
+  msg.axis = axis;
+  msg.count = count;
+  for (uint8_t i = 0; i < count && i < 10; i++) {
+    msg.sp[i] = sp[i];
+    msg.gyro[i] = gyro[i];
+  }
+  uint8_t frame[NAVLINK_MAX_FRAME];
+  size_t n = navlink_sysid_sample_encode(frame, &msg, seq++, get_device_id(), 1);
+  write_channel(g_telemetry_channel, frame, (uint16_t)n);
+}
+
 void navlink_tx_heartbeat(void) {
   /* v2 HEARTBEAT (msgid 0); replaces the v1 empty heartbeat AND folds in the
    * former SYSTEM_STATUS SYS_STATE origin. The firmware flight-state machine is

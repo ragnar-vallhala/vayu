@@ -1,0 +1,67 @@
+RECONSTRUCTED FLIGHT-ATTEMPT MONITOR LOG — on-hardware free-flight tuning, 2026-06-22
+=====================================================================================
+SOURCE: live NavLink CONTROL_TRACE/ATTITUDE readouts streamed over UDP 14555 and
+printed to the host terminal during each arm. These were NOT persisted to a file at
+capture time; the values below are reconstructed from the session. Per-run PEAK gyro,
+throttle reached, gains, and outcome are reliable (cross-checked against the README
+table). Fine-grained time series were transient and are summarized, not verbatim.
+
+Geometry for every run below: spin=[-1,1,-1,1] (yaw-sign fix applied & ACKed).
+State machine: STANDBY -> ARMED -> IN_AIR. Throttle = thro_out (0..1).
+
+-------------------------------------------------------------------------------------
+RIG BASELINE (pre-free-flight, stable) — for reference
+  gains: rate roll/pitch pure-P kp=0.0005 ki=0 kd=0 ; yaw kp=0.018 ki=0.008
+  throttle held ~0.46, motors spinning, gimbal free
+  gyro: roll pk ~15 dps, pitch pk ~27 dps, yaw pk ~8 dps  -> STABLE, no divergence
+  (this is the state that made the rig look flyable and MASKED the roll/pitch issue)
+
+ROLL SYSID (armed, rig, ~0.47 throttle)
+  chirp 0.5->12 Hz, captured to data/sysid_roll_capture.csv (999/999 samples @500Hz)
+  fit: K=563 (rate/s)/u, tau=20.9 ms, actuator BW 7.6 Hz, R^2=0.83
+
+=====================================================================================
+FREE FLIGHT (rigless) — all attempts crashed, every one diving LEFT
+=====================================================================================
+
+FF-1  rate kp=0.0001476 (GCS autotune), ki=0.0002549, kd=2.82e-6, angle_kp=4.317
+      yaw kp=0.002965 ki=0 (autotune, NO integral)
+  throttle raised to ~0.22; never broke ground cleanly, slumped/toppled.
+  peak gyro: roll ~102, pitch ~29, yaw ~87 dps (yaw WANDERING — no heading hold).
+  read: far too soft to hold attitude; yaw drifting open-loop.
+  -> action: restore yaw integral (kp=0.018 ki=0.008); stiffen roll/pitch rate kp.
+
+FF-2  rate roll/pitch kp=0.001 ; yaw kp=0.018 ki=0.008 ; angle_kp=4.317
+  throttle ~0.38; lifted a few cm, immediately ROLLED LEFT and set back down.
+  peak gyro: roll ~571, pitch ~195, yaw ~308 dps.
+  read: still too soft; note the LEFT roll even at low authority.
+
+FF-3  rate roll/pitch kp=0.004 ; angle_kp=4.317
+  throttle 0.44; got airborne ~4-5 ft but OSCILLATED hard (~1 Hz), disarmed.
+  peak gyro: roll ~731, pitch ~592, yaw ~237 dps.
+  read: oscillation => suspect cascade (fast outer angle_kp vs soft inner rate).
+
+FF-4  rate roll/pitch kp=0.0025 (REDUCED from FF-3) ; angle_kp=4.317
+  throttle climbed briskly to 0.56; oscillation got WORSE, diverged.
+  peak gyro: roll ~760, pitch ~412, yaw ~239 dps.
+  KEY: lowering rate kp made it WORSE -> confirms outer loop too fast (cascade),
+       not an inner-gain magnitude problem. -> soften angle_kp.
+  (battery power-cycled here; full tune re-applied with apply_tune.py)
+
+FF-5  rate roll/pitch kp=0.004 ; angle_kp=1.0 (SOFTENED from 4.317)
+  throttle ~0.58, reached IN_AIR; immediately dived LEFT and hit a wall.
+  peak gyro: roll ~344, pitch ~494, yaw ~268 dps.
+  read: cascade calmer (lower roll-rate peak) but STILL crashes LEFT.
+
+=====================================================================================
+PATTERN: across FF-1..FF-5, spanning rate kp 0.00015 -> 0.004 and angle_kp 4.317 ->
+1.0, the vehicle ALWAYS departs to the LEFT. Gain magnitude changes the violence of
+the oscillation but never the DIRECTION. Direction is set by SIGN, not gain.
+The yaw spin-sign was already proven backwards for this build (fixed via geometry).
+=> Prime suspect: a roll and/or pitch mix/wiring SIGN inversion that the rig masked.
+
+NEXT STEP (not yet performed): props-off motor-command validation —
+  arm props-off @ ~0.20-0.25 throttle, tilt airframe right-side-down by hand, read
+  MOTOR_TELEMETRY: the right motors should spin UP to push level. If the LEFT side
+  spins up instead, the roll mix sign is inverted -> flip it (as done for yaw) and
+  re-test before any further flight or gain tuning.

@@ -104,7 +104,9 @@
         { "name": "UPRIGHT",           "value": 5 },
         { "name": "UPSIDE_DOWN",       "value": 6 },
         { "name": "FREE_ROT",          "value": 7 },
-        { "name": "MAG_AXIS_COVERAGE", "value": 8 }
+        { "name": "MAG_AXIS_COVERAGE", "value": 8 },
+        { "name": "COMPLETE",          "value": 9 },
+        { "name": "FAILED",            "value": 10 }
       ]
     },
     "perf_fifo_id": {
@@ -120,6 +122,16 @@
         { "name": "RC_TELEMETRY",       "value": 7 },
         { "name": "RC_CONTROL",         "value": 8 },
         { "name": "TELEMETRY",          "value": 9 }
+      ]
+    },
+    "xfer_flags": {
+      "doc": "XFER_DATA/XFER_ACK.flags — bitmask carried on the bulk-transfer substrate (docs/plans/navlink-xfer-substrate.md). DONE/ABORT terminate a session; NAK requests resend from XFER_ACK.next_offset; EOF marks the final XFER_DATA chunk.",
+      "entries": [
+        { "name": "NONE",  "value": 0 },
+        { "name": "DONE",  "value": 1 },
+        { "name": "NAK",   "value": 2 },
+        { "name": "ABORT", "value": 4 },
+        { "name": "EOF",   "value": 8 }
       ]
     }
   },
@@ -389,6 +401,77 @@
         { "index": 5, "name": "valid",         "type": "u8" }
       ]
     },
+    {
+      "msgid": 1041, "name": "SYSID_SAMPLE",
+      "doc": "One chunk of the on-hardware system-ID capture, streamed in response to CMD_SYSID_DUMP. sp/gyro are the rate setpoint (incl. chirp) and the measured gyro rate, in 0.1 deg/s units (i16). start_index is this chunk's first sample; total/capture_hz/axis are repeated in every chunk so a dropped first chunk doesn't lose the metadata.",
+      "fields": [
+        { "index": 0, "name": "start_index", "type": "u16" },
+        { "index": 1, "name": "total",       "type": "u16" },
+        { "index": 2, "name": "capture_hz",  "type": "u16" },
+        { "index": 3, "name": "axis",        "type": "u8" },
+        { "index": 4, "name": "count",       "type": "u8" },
+        { "index": 5, "name": "sp",          "type": "i16", "len": 10, "unit": "0.1 deg/s" },
+        { "index": 6, "name": "gyro",        "type": "i16", "len": 10, "unit": "0.1 deg/s" }
+      ]
+    },
+
+    {
+      "msgid": 1042, "name": "XFER_INFO",
+      "doc": "Reply to XFER_OPEN once a session is accepted: advertises the negotiated chunk_size and total_size (0xFFFFFFFF = stream/unknown length). Carries no reliability of its own (the session SM owns that); retransmitted by the FC until the first XFER_ACK is seen. Part of the generic bulk-transfer substrate (docs/plans/navlink-xfer-substrate.md).",
+      "fields": [
+        { "index": 0, "name": "session",    "type": "u8" },
+        { "index": 1, "name": "result",     "type": "u8",  "enum": "command_result", "doc": "open result; ACCEPTED means the rest is valid" },
+        { "index": 2, "name": "chunk_size", "type": "u16", "doc": "max XFER_DATA payload bytes the FC will use (<= 247)" },
+        { "index": 3, "name": "total_size", "type": "u32", "unit": "bytes", "doc": "0xFFFFFFFF = stream/unknown" },
+        { "index": 4, "name": "mtime",      "type": "u32", "unit": "s", "extension": true, "doc": "file mtime (epoch s) if known, else 0; ABI-safe extension" }
+      ]
+    },
+    {
+      "msgid": 1043, "name": "XFER_DATA",
+      "doc": "One offset-addressed chunk on a bulk-transfer session, in either direction (download FC->GCS, upload GCS->FC). The receiver trusts `len`, never the unpacked `data` tail — the final short chunk trailing-zero-truncates on the wire (like SYSID_SAMPLE). flags carries EOF on the last chunk. Wire size 254 B (1 B under the 255 cap). docs/plans/navlink-xfer-substrate.md.",
+      "fields": [
+        { "index": 0, "name": "session", "type": "u8" },
+        { "index": 1, "name": "flags",   "type": "u8", "enum": "xfer_flags" },
+        { "index": 2, "name": "len",     "type": "u8", "doc": "valid bytes in data[] (authoritative; do not infer from the array)" },
+        { "index": 3, "name": "offset",  "type": "u32", "unit": "bytes", "doc": "byte offset of data[0] within the transfer" },
+        { "index": 4, "name": "data",    "type": "u8", "len": 247 }
+      ]
+    },
+    {
+      "msgid": 1044, "name": "XFER_ACK",
+      "doc": "Cumulative flow-control ack on a bulk-transfer session, in either direction. next_offset is the lowest byte offset NOT yet received (download: GCS->FC; upload: FC->GCS); the sender rewinds its cursor to next_offset to resume/refill (idempotent re-read). flags=NAK forces a rewind, DONE/ABORT terminate. docs/plans/navlink-xfer-substrate.md.",
+      "fields": [
+        { "index": 0, "name": "session",     "type": "u8" },
+        { "index": 1, "name": "flags",       "type": "u8", "enum": "xfer_flags" },
+        { "index": 2, "name": "result",      "type": "u8", "enum": "command_result", "doc": "terminal result on DONE/ABORT, else ACCEPTED" },
+        { "index": 3, "name": "next_offset", "type": "u32", "unit": "bytes", "doc": "lowest byte offset not yet received" }
+      ]
+    },
+    {
+      "msgid": 1045, "name": "FS_ENTRY",
+      "doc": "One directory entry streamed in reply to FS_LIST (filesystem navigation). The FC emits one per entry (index 0..count-1) then a terminal entry with an empty name marking end-of-listing; on a bad/absent path it emits a single entry with result=DENIED and count=0. result=ACCEPTED on valid entries. docs/reference/messages/fs_nav.md.",
+      "fields": [
+        { "index": 0, "name": "req_seq", "type": "u8", "doc": "correlates to the FS_LIST request" },
+        { "index": 1, "name": "result",  "type": "u8", "enum": "command_result", "doc": "ACCEPTED ok; DENIED = path does not exist" },
+        { "index": 2, "name": "index",   "type": "u16", "doc": "this entry's index (0-based)" },
+        { "index": 3, "name": "count",   "type": "u16", "doc": "total entries (set on the terminal entry; 0 when not yet known)" },
+        { "index": 4, "name": "type",    "type": "u8", "doc": "0 = file, 1 = directory" },
+        { "index": 5, "name": "size",    "type": "u32", "unit": "bytes", "doc": "file size (0 for directories)" },
+        { "index": 6, "name": "name",    "type": "char", "len": 16, "doc": "entry name (8.3); empty marks end-of-listing" }
+      ]
+    },
+    {
+      "msgid": 1046, "name": "FS_INFO_REPLY",
+      "doc": "Status of one path, in reply to FS_INFO (filesystem navigation). result=ACCEPTED if the path exists (type/size/mtime valid), DENIED if it does not exist. docs/reference/messages/fs_nav.md.",
+      "fields": [
+        { "index": 0, "name": "req_seq", "type": "u8" },
+        { "index": 1, "name": "result",  "type": "u8", "enum": "command_result", "doc": "ACCEPTED = exists; DENIED = does not exist" },
+        { "index": 2, "name": "type",    "type": "u8", "doc": "0 = file, 1 = directory" },
+        { "index": 3, "name": "_pad",    "type": "u8" },
+        { "index": 4, "name": "size",    "type": "u32", "unit": "bytes" },
+        { "index": 5, "name": "mtime",   "type": "u32", "unit": "s", "extension": true, "doc": "FatFS packed mtime if known, else 0" }
+      ]
+    },
 
     {
       "msgid": 8192, "name": "CMD_ARM", "replaces": "0x3/cmd 0x0002",
@@ -470,6 +553,77 @@
         { "index": 4, "name": "source",      "type": "u8", "enum": "mode_source" }
       ]
     },
+    {
+      "msgid": 8199, "name": "CMD_SYSID_EXCITE",
+      "doc": "On-hardware system-ID: inject a linear chirp into one rate-loop setpoint (deg/s) for `duration_s`, for plant identification on a rig. axis 0=roll/1=pitch/2=yaw; axis 0xFF aborts. The FC self-aborts on angle/rate limits. Phase 0: testable disarmed (motors stay off; the chirp shows in CONTROL_TRACE rate_sp).",
+      "fields": [
+        { "index": 0, "name": "target_sys",  "type": "u8" },
+        { "index": 1, "name": "target_comp", "type": "u8" },
+        { "index": 2, "name": "req_seq",     "type": "u8" },
+        { "index": 3, "name": "axis",        "type": "u8" },
+        { "index": 4, "name": "f0_hz",       "type": "f32" },
+        { "index": 5, "name": "f1_hz",       "type": "f32" },
+        { "index": 6, "name": "amp_dps",     "type": "f32" },
+        { "index": 7, "name": "duration_s",  "type": "f32" }
+      ]
+    },
+    {
+      "msgid": 8200, "name": "CMD_SYSID_DUMP",
+      "doc": "Request the FC stream back the last CMD_SYSID_EXCITE capture buffer as SYSID_SAMPLE chunks. Idempotent — re-send to re-dump (e.g. to fill dropped chunks).",
+      "fields": [
+        { "index": 0, "name": "target_sys",  "type": "u8" },
+        { "index": 1, "name": "target_comp", "type": "u8" },
+        { "index": 2, "name": "req_seq",     "type": "u8" }
+      ]
+    },
+    {
+      "msgid": 8201, "name": "XFER_OPEN",
+      "doc": "Open a bulk-transfer/stream session on the generic xfer substrate (docs/plans/navlink-xfer-substrate.md). The FC replies with COMMAND_ACK (deferred) then XFER_INFO. dir 0=download (FC->GCS), 1=upload (GCS->FC). mode 0=file, 1=stream (rate_hz applies; total_size advertised 0xFFFFFFFF). service_id selects the provider (0=file,1=log,2=stream); arg is the provider argument (e.g. SD path or stream name). Re-send with the same (session,req_seq) is idempotent.",
+      "fields": [
+        { "index": 0, "name": "target_sys",   "type": "u8" },
+        { "index": 1, "name": "target_comp",  "type": "u8" },
+        { "index": 2, "name": "req_seq",      "type": "u8" },
+        { "index": 3, "name": "session",      "type": "u8", "doc": "GCS-chosen session slot (0..XFER_MAX_SESSIONS-1)" },
+        { "index": 4, "name": "dir",          "type": "u8", "doc": "0=download (FC->GCS), 1=upload (GCS->FC)" },
+        { "index": 5, "name": "mode",         "type": "u8", "doc": "0=file, 1=stream" },
+        { "index": 6, "name": "service_id",   "type": "u16", "doc": "provider id (0=file,1=log,2=stream)" },
+        { "index": 7, "name": "offset_start", "type": "u32", "unit": "bytes", "doc": "initial cursor (resume point)" },
+        { "index": 8, "name": "rate_hz",      "type": "u16", "unit": "Hz", "doc": "stream mode emission rate; 0 in file mode" },
+        { "index": 9, "name": "arg",          "type": "char", "len": 32, "doc": "provider argument (SD path / stream name)" }
+      ]
+    },
+    {
+      "msgid": 8202, "name": "XFER_CLOSE",
+      "doc": "Close/abort a bulk-transfer session (docs/plans/navlink-xfer-substrate.md). The FC tears down the session, calls provider close, and ACKs. result records the GCS-side reason (ACCEPTED = normal completion).",
+      "fields": [
+        { "index": 0, "name": "target_sys",  "type": "u8" },
+        { "index": 1, "name": "target_comp", "type": "u8" },
+        { "index": 2, "name": "req_seq",     "type": "u8" },
+        { "index": 3, "name": "session",     "type": "u8" },
+        { "index": 4, "name": "result",      "type": "u8", "enum": "command_result" }
+      ]
+    },
+    {
+      "msgid": 8203, "name": "FS_LIST",
+      "doc": "List the files/folders in a directory (filesystem navigation). The FC replies with COMMAND_ACK (deferred) then a stream of FS_ENTRY. If the path does not exist a single FS_ENTRY with result=DENIED is returned. start_index lets the GCS resume/refill from a given entry. docs/reference/messages/fs_nav.md.",
+      "fields": [
+        { "index": 0, "name": "target_sys",  "type": "u8" },
+        { "index": 1, "name": "target_comp", "type": "u8" },
+        { "index": 2, "name": "req_seq",     "type": "u8" },
+        { "index": 3, "name": "start_index", "type": "u16", "doc": "first entry index to emit (resume point)" },
+        { "index": 4, "name": "path",        "type": "char", "len": 48, "doc": "directory path, e.g. \"0:\" or \"0:logs\"" }
+      ]
+    },
+    {
+      "msgid": 8204, "name": "FS_INFO",
+      "doc": "Request the status of a single path (filesystem navigation). The FC replies with COMMAND_ACK (deferred) then FS_INFO_REPLY (result=DENIED if the path does not exist). docs/reference/messages/fs_nav.md.",
+      "fields": [
+        { "index": 0, "name": "target_sys",  "type": "u8" },
+        { "index": 1, "name": "target_comp", "type": "u8" },
+        { "index": 2, "name": "req_seq",     "type": "u8" },
+        { "index": 3, "name": "path",        "type": "char", "len": 48, "doc": "file or directory path" }
+      ]
+    },
 
     {
       "msgid": 12288, "name": "PARAM_REQUEST_LIST",
@@ -514,10 +668,10 @@
     },
     {
       "msgid": 12320, "name": "CALIBRATION_STATUS", "replaces": "0x6/0x01",
-      "doc": "IMU calibration progress + operator instruction. Drives the GCS calibration wizard (spec §14.8).",
+      "doc": "IMU calibration progress + operator instruction. Drives the GCS calibration wizard (spec §14.8). The terminal COMPLETE/FAILED steps tell the wizard the routine ended; it no longer infers completion from a STANDBY heartbeat (which never arrives if calibration legitimately ends in FAILSAFE).",
       "fields": [
         { "index": 0, "name": "step",     "type": "u8",  "enum": "calib_step" },
-        { "index": 1, "name": "progress", "type": "u8",  "doc": "0..100 percent, for the PROGRESS step" },
+        { "index": 1, "name": "progress", "type": "u8",  "doc": "0..100 percent for PROGRESS; reason code for FAILED; 0 otherwise" },
         { "index": 2, "name": "coverage", "type": "f32", "len": 3, "doc": "mag axis coverage x/y/z for MAG_AXIS_COVERAGE; 0 otherwise" }
       ]
     }

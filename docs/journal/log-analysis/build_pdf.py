@@ -25,6 +25,7 @@ import tempfile
 ORDER = [
     ("README.md", "Overview & provenance"),
     ("session-analysis.md", "Session analysis"),
+    ("estimator-analysis.md", "Estimator analysis (estimate vs ground truth)"),
     ("control-loop-analysis.md", "Control-loop analysis"),
     ("motor-analysis.md", "Motor analysis"),
     ("kernel-analysis.md", "Kernel / RTOS analysis"),
@@ -82,6 +83,13 @@ def process(archive):
 
         # raw HTML is dropped by pandoc for LaTeX; keep the <sub> footnote text
         text = text.replace("<sub>", "").replace("</sub>", "")
+
+        # DejaVu (the PDF font) has no colour-emoji glyphs; strip the decorative
+        # status emoji (the bold text label beside them carries the meaning),
+        # their U+FE0F variation selectors, and any stray ones, so they don't
+        # print as blanks.
+        text = re.sub("[✅⚠↪✔✗]️?\\s*", "", text)
+        text = text.replace("️", "")
 
         parts.append("\n\n\\newpage\n\n")
         parts.append(text)

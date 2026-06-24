@@ -38,9 +38,11 @@ public:
   bool isComplete() const { return m_complete; }
   double progress() const;  // 0..1; 1.0 once complete
 
-  // A firmware CALIB_UPDATE_<orient> instruction arrived: the matching step
-  // becomes current and every earlier step is marked done. Non-step statuses
-  // (e.g. Progress) are ignored for advancement.
+  // A firmware CALIB_UPDATE_<orient> instruction arrived: the prompted pose
+  // becomes current and every pose instructed before it is marked done.
+  // Advancement follows ARRIVAL order, not the catalog order, so the firmware
+  // and GCS can never disagree on the sequence. Non-step statuses (e.g.
+  // Progress) and poses this mode doesn't list are ignored for advancement.
   void onInstruction(CalibUpdateType orient);
   // Calibration finished successfully — mark every step done.
   void markComplete();

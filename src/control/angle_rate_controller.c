@@ -6,6 +6,7 @@
 #include "control/pid_config.h"
 #include "control/control_buffer.h"
 #include "control/pid.h"
+#include "control/sysid.h"
 #include "memory.h"   /* v_memcpy */
 #include "navhal.h"
 #include "sensor/sensor.h"
@@ -248,6 +249,19 @@ void angle_rate_controller_task(void *arg) {
                                      imu_data.converted.gyr[1],
                                      imu_data.converted.gyr[2]};
 
+    /* SYS-ID (Phase 0): add the chirp excitation onto the rate setpoints. This
+     * is zero unless an on-hardware system-ID run is active. The closed rate
+     * loop tracks it and CONTROL_TRACE captures rate_sp (incl. the chirp) vs
+     * rate_curr (gyro). Motors move only via the ARMED-gated motor_set_outputs()
+     * below, so this is safe to exercise DISARMED (props off). */
+    {
+      float sysid_inject[NUM_AXES] = {0.0f, 0.0f, 0.0f};
+      sysid_step(dt, angle_controller_outputs.angle_curr, current_rates,
+                 sysid_inject);
+      for (int i = 0; i < NUM_AXES; i++)
+        target_rates[i] += sysid_inject[i];
+    }
+
     /* (B) Hard reset when ENTERING the armed group (disarmed -> ARMED) so no
      * windup carries from the previous arm cycle. The ARMED<->IN_AIR internal
      * transitions (takeoff/touchdown) must NOT reset — they're one continuous
@@ -297,6 +311,13 @@ void angle_rate_controller_task(void *arg) {
       outputs[i] = v_pid_update(&angle_rate_controller.pid[i], target_rates[i],
                                 current_rates[i], 0, dt);
     }
+
+    /* SYS-ID capture: record the excited axis's rate-PID OUTPUT u (the control
+     * effort the plant fit needs) and the measured gyro rate, decimated to
+     * ~500 Hz into RAM; dumped after the run via CMD_SYSID_DUMP. Taken pre-throttle
+     * -gating so the chirp response is visible even disarmed; at hover throttle the
+     * gating is full-authority, so this equals the command actually applied. */
+    sysid_capture(outputs, current_rates);
 
     /* PID authority ramp. Below MIN_ARMED_THROTTLE the airframe is
      * either disarmed-ish or so lightly throttled that the motors can't

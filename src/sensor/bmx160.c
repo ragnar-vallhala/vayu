@@ -10,7 +10,7 @@
 #include "sys/state.h"
 #include "task.h"
 #include "utils.h"
-#include "logger/logger.h"
+#include "storage/fs_owner.h"
 #include "vaios.h"
 #include "variables.h"
 #include "vayu_tasks.h"
@@ -106,6 +106,14 @@ static bmx160_calibration_t bmx160_calib = {
  * cleared by calibration_task. volatile: written from the comm task, read from
  * the calibration task. */
 static volatile int _calib_cancel = 0;
+
+/* True while a calibration routine owns the IMU stream. The sample diversion in
+ * bmx160_process_data() keys off THIS, not the system state: the RC watchdog can
+ * slam the FC into FAILSAFE at any instant (no RC link is normal during a bench
+ * calibration), and gating on `state == CALIBRATING` would silently cut the
+ * calibration task off from its samples mid-pose and hang it forever. volatile:
+ * written by the calibration task, read by the sensor task. */
+static volatile int _calib_active = 0;
 
 void bmx160_calib_request_cancel(void) { _calib_cancel = 1; }
 
@@ -1296,8 +1304,11 @@ void bmx160_process_data(void) {
   imu_queue_control_push(&_bmx_data);
 
   // During calibration the sample goes to the calibration consumer; no
-  // attitude estimation runs.
-  if (system_state_get() == SYSTEM_STATE_CALIBRATING) {
+  // attitude estimation runs. Keyed off _calib_active rather than the system
+  // state: the RC watchdog may flip us to FAILSAFE mid-calibration (no RC link
+  // on the bench), and we must keep feeding the calibration task regardless or
+  // wait_for_orientation starves and hangs.
+  if (_calib_active) {
     imu_queue_calibration_push(&_bmx_data);
     return;
   }
@@ -1502,8 +1513,11 @@ static int orient_axis_sign(calib_update_type_t orient, int *axis, float *sign) 
   switch (orient) {
   case CALIB_UPDATE_UPRIGHT:    *axis = 2; *sign = -1.0f; return 1;
   case CALIB_UPDATE_UPSIDE_DOWN:*axis = 2; *sign = +1.0f; return 1;
-  case CALIB_UPDATE_NOSE_UP:    *axis = 0; *sign = -1.0f; return 1;
-  case CALIB_UPDATE_NOSE_DOWN:  *axis = 0; *sign = +1.0f; return 1;
+  // Nose up/down: on this airframe the IMU X reads +g when the nose points UP
+  // (and -g nose-down) — the opposite of the other "up = -g" axes. Without this
+  // the nose-up pose can never be achieved and 6-point accel calibration wedges.
+  case CALIB_UPDATE_NOSE_UP:    *axis = 0; *sign = +1.0f; return 1;
+  case CALIB_UPDATE_NOSE_DOWN:  *axis = 0; *sign = -1.0f; return 1;
   case CALIB_UPDATE_RIGHT_DOWN: *axis = 1; *sign = -1.0f; return 1;
   case CALIB_UPDATE_LEFT_DOWN:  *axis = 1; *sign = +1.0f; return 1;
   default:                      return 0;
@@ -1511,11 +1525,12 @@ static int orient_axis_sign(calib_update_type_t orient, int *axis, float *sign) 
 }
 
 /* Collect CALIBRATION_SAMPLE_COUNT stationary accel samples in the requested
- * orientation, averaging into accel_out (m/s^2). A sample is accepted only when
- * the target axis is within `thr` of ±g AND the two other axes are near zero
- * (< ACCEL_CROSS_AXIS_THR) — this rejects tilted poses that would otherwise
- * leak cross-axis gravity into the offsets. Returns 1 on success, -1 if a
- * cancel was requested mid-collection. */
+ * orientation, averaging into accel_out (m/s^2). Pose acceptance is orientation-
+ * based and scale/bias independent (see the gate inside): the target axis must
+ * have the right sign and dominate the vector, with off-axis components small
+ * RELATIVE to the measured magnitude — so an uncalibrated sensor reading well off
+ * 9.81 can still be calibrated. Returns 1 on success, -1 if a cancel was
+ * requested mid-collection. */
 static int wait_for_orientation(calib_update_type_t orient, float *accel_out) {
   vayu_log("[CALIB] Waiting for orientation: %d", orient);
 
@@ -1545,8 +1560,33 @@ static int wait_for_orientation(calib_update_type_t orient, float *accel_out) {
   float sum[3] = {0.0f, 0.0f, 0.0f};
   int count = 0;
 
+  // Pose detection is ORIENTATION-based plus a PERMISSIVE magnitude band. A raw
+  // uncalibrated accel can read far from 9.81 on the gravity axis (e.g. ~13 m/s^2
+  // = ~33% scale error), so a tight magnitude gate would make exactly the
+  // miscalibrated sensors we are here to fix impossible to calibrate. We require:
+  // (1) the requested axis carries the correct sign and dominates the vector
+  // (off-axis < cross_ratio of |vec|, scale-independent), and (2) the vector
+  // length is in a WIDE 1 g band — just enough to reject free-fall / gross motion
+  // while tolerating large scale error. The operator verifies the result after.
   const float g = 9.81f;
-  const float thr = 0.5f; // target-axis tolerance around ±g
+  const float mag_min2 = (0.45f * g) * (0.45f * g);  // reject free-fall / drops
+  const float mag_max2 = (2.0f * g) * (2.0f * g);    // permissive: up to ~2x scale
+  const float cross_ratio2 = 0.20f * 0.20f;          // off-axis < 20% of |vec| (~12°)
+
+  /* The instruction above is a one-shot over a lossy link (CALIBRATION_STATUS is
+   * un-acked). If it is dropped the operator never sees the new pose, holds the
+   * old one, and this loop waits forever. While the pose has not been achieved
+   * (count == 0) re-announce it periodically; the GCS treats a repeated prompt
+   * idempotently, so this self-heals a dropped instruction within ~1 s. */
+  const int reprompt_period = 50; // ~1 s at 20 ms/tick
+  int reprompt = 0;
+
+  /* Defensive starvation guard. With _calib_active gating the sample diversion
+   * this should not trip, but if the stream ever dries up (e.g. a future state
+   * regression) we abort cleanly — surfacing as FAILED on the GCS — instead of
+   * spinning here forever. ~5 s at 2 ms/poll. */
+  const int starve_limit = 2500;
+  int starve = 0;
 
   while (count < target_samples) {
     if (_calib_cancel)
@@ -1554,16 +1594,28 @@ static int wait_for_orientation(calib_update_type_t orient, float *accel_out) {
 
     bmx160_all_reading_t sample;
     if (!imu_queue_calibration_pop(&sample)) {
+      if (++starve >= starve_limit) {
+        vayu_log("[CALIB] sample stream starved; aborting orientation %d",
+                 orient);
+        return -1;
+      }
       v_delay(2);
       continue;
     }
+    starve = 0;
     float raw[3] = {sample.converted.acc_raw[0], sample.converted.acc_raw[1],
                     sample.converted.acc_raw[2]};
 
-    // Target axis near ±g, and the other two axes near 0 (level pose).
-    int match = (FABS_F(raw[t_axis] - t_sign * g) < thr) &&
-                (FABS_F(raw[o_a]) < ACCEL_CROSS_AXIS_THR) &&
-                (FABS_F(raw[o_b]) < ACCEL_CROSS_AXIS_THR);
+    const float mag2 =
+        raw[0] * raw[0] + raw[1] * raw[1] + raw[2] * raw[2];
+
+    // Orientation (sign + axis-dominant) AND a permissive 1 g magnitude band.
+    // Requiring target_samples CONTIGUOUS in-orientation samples (the count reset
+    // below) still keeps a moving board from being averaged in.
+    int match = (raw[t_axis] * t_sign > 0.0f) &&
+                (mag2 > mag_min2) && (mag2 < mag_max2) &&
+                (raw[o_a] * raw[o_a] < cross_ratio2 * mag2) &&
+                (raw[o_b] * raw[o_b] < cross_ratio2 * mag2);
 
     if (match) {
       sum[0] += raw[0];
@@ -1583,6 +1635,15 @@ static int wait_for_orientation(calib_update_type_t orient, float *accel_out) {
       // Reset if orientation disturbed — require a contiguous still window.
       count = 0;
       sum[0] = sum[1] = sum[2] = 0.0f;
+
+      // Pose not achieved yet: re-announce it so a dropped prompt recovers.
+      if (++reprompt >= reprompt_period) {
+        reprompt = 0;
+        imu_calibration_telemetry.buffer[2] = (uint8_t)orient;
+        v_memcpy(&imu_calibration_telemetry.buffer[3], &zero, 4);
+        imu_calibration_telemetry.size = 7;
+        imu_queue_calibration_telemetry_push(&imu_calibration_telemetry);
+      }
     }
     v_delay(20);
   }
@@ -1608,8 +1669,27 @@ static void calib_telemetry(uint8_t code, float value) {
   imu_queue_calibration_telemetry_push(&t);
 }
 
+/* Per-axis mag coverage (step 8): three floats in buffer[3],[7],[11], size 15 —
+ * the layout navlink_tx_calibration unpacks into CALIBRATION_STATUS.coverage[3].
+ * The GCS renders it as "COVERAGE: X.. Y.. Z..". */
+static void calib_coverage(float cx, float cy, float cz) {
+  imu_calibration_telemetry_t t;
+  t.buffer[0] = SYSTEM_ORIGIN_CALIBRATION;
+  t.buffer[1] = 0x01;
+  t.buffer[2] = CALIB_UPDATE_MAG_AXIS_COVERAGE;
+  v_memcpy(&t.buffer[3], &cx, 4);
+  v_memcpy(&t.buffer[7], &cy, 4);
+  v_memcpy(&t.buffer[11], &cz, 4);
+  t.size = 15;
+  imu_queue_calibration_telemetry_push(&t);
+}
+
 void calibration_task(void *args) {
   calibration_args_t *cal_args = (calibration_args_t *)args;
+  /* Set once the calibration is computed and persisted; drives the terminal
+   * COMPLETE/FAILED status emitted at `done:`. Declared before the first goto so
+   * every exit path sees a defined value. */
+  int calib_ok = 0;
   /* args is NULL only when the command dispatcher's malloc failed; bail via the
    * shared cleanup epilogue instead of dereferencing cal_args. */
   if (cal_args == NULL) {
@@ -1627,6 +1707,11 @@ void calibration_task(void *args) {
     vayu_log("[CALIB] cannot enter CALIBRATING from current state; aborting");
     goto done;
   }
+  /* Latch sample diversion ON now that we are genuinely calibrating. Set after
+   * the transition succeeds so a rejected entry never strands the diversion on.
+   * From here, samples flow to the calibration queue even if the RC watchdog
+   * flips the system state to FAILSAFE underneath us. */
+  _calib_active = 1;
   v_delay(500);
   vayu_log("[CALIB] IMU ID: %.1f, Type: %.1f", imu_id, cal_args->type);
 
@@ -1649,12 +1734,12 @@ void calibration_task(void *args) {
     // Offset = midpoint of the +g and -g poses on each axis (symmetric, so it
     // is correct regardless of sign). The pose index that reads +9.81 ("pos")
     // and the one that reads -9.81 ("neg"), per axis:
-    //   X: NOSE_DOWN(3)=+g, NOSE_UP(2)=-g
+    //   X: NOSE_UP(2)=+g, NOSE_DOWN(3)=-g  (nose-up reads +g on this airframe)
     //   Y: LEFT_DOWN(5)=+g, RIGHT_DOWN(4)=-g
     //   Z: UPSIDE_DOWN(1)=+g, UPRIGHT(0)=-g
     const struct {
       int pos, neg, axis;
-    } AX[3] = {{3, 2, 0}, {5, 4, 1}, {1, 0, 2}};
+    } AX[3] = {{2, 3, 0}, {5, 4, 1}, {1, 0, 2}};
 
     int full = ((int)cal_args->type == 1);
     vayu_log(full ? "[CALIB] Full Accel Calibration (bias + scale)..."
@@ -1728,7 +1813,21 @@ void calibration_task(void *args) {
     float t9[9] = {0};
     int nvalid = 0;
 
-    const int iterations = 20000 / 20; // 20 s at 20 ms/tick
+    /* Real coverage feedback (replaces the old elapsed-time bar): track the min
+     * and max of each RAW (uncalibrated, uT) mag component. Under full rotation
+     * each component sweeps ~[-|field|, +|field|], so its span grows to ~2*|field|
+     * (~100 uT); a still board sweeps nothing. We use the RAW span — NOT the
+     * normalized direction — because an uncalibrated mag's hard-iron offset can
+     * dominate |m| and pin m/|m| nearly constant regardless of rotation; the raw
+     * span subtracts that constant offset, so it tracks rotation honestly.
+     * cov% = span / (2*MAG_FIT_NORM) * 100, capped at 100. Progress = mean. */
+    float cmin[3] = {1e9f, 1e9f, 1e9f};
+    float cmax[3] = {-1e9f, -1e9f, -1e9f};
+    float cov[3] = {0.0f, 0.0f, 0.0f};
+    const float COV_SCALE = 100.0f / (2.0f * MAG_FIT_NORM); // span(uT) -> %
+    const float COV_DONE = 80.0f; // per-axis % to finish early (~field tolerant)
+
+    const int iterations = 20000 / 20; // 20 s at 20 ms/tick (hard upper bound)
     for (int i = 0; i < iterations; i++) {
       if (_calib_cancel) {
         vayu_log("[CALIB] Mag calibration cancelled.");
@@ -1753,12 +1852,30 @@ void calibration_task(void *args) {
               S[a * 9 + b] += r[a] * r[b];
           }
           nvalid++;
+
+          // Update per-axis coverage from the RAW component span (offset-invariant).
+          float m[3] = {mx, my, mz};
+          for (int k = 0; k < 3; k++) {
+            if (m[k] < cmin[k]) cmin[k] = m[k];
+            if (m[k] > cmax[k]) cmax[k] = m[k];
+            float c = (cmax[k] - cmin[k]) * COV_SCALE;
+            cov[k] = c < 0.0f ? 0.0f : (c > 100.0f ? 100.0f : c);
+          }
         }
       }
 
+      // ~1 Hz coverage update. The GCS shows per-axis X/Y/Z and drives the bar
+      // off the mean of the three (one message, both UI elements — avoids the
+      // OVERWRITE telemetry queue dropping a separate PROGRESS frame).
       if (i % (iterations / 20) == 0)
-        calib_telemetry(CALIB_UPDATE_PROGRESS,
-                        (100.0f * (float)i) / (float)iterations);
+        calib_coverage(cov[0], cov[1], cov[2]);
+
+      // Finish as soon as every axis is well covered (and the fit has enough
+      // points) — so 100% means "done", with the 20 s loop as a fallback cap.
+      if (nvalid >= MAG_FIT_MIN_SAMPLES && cov[0] >= COV_DONE &&
+          cov[1] >= COV_DONE && cov[2] >= COV_DONE)
+        break;
+
       v_delay(20);
     }
 
@@ -1796,24 +1913,36 @@ void calibration_task(void *args) {
   calib_telemetry(CALIB_UPDATE_PROGRESS, 100.0f);
 
   // Persist with a versioned header so a future format change (or an old
-  // headerless file) is detected on load rather than misread.
+  // headerless file) is detected on load rather than misread. Hand a snapshot
+  // to the centralised FS owner instead of writing SD inline: the actual
+  // vfs_open/write/sync/close runs on the FS task, off this calibration task.
+  // NOTE: calib_ok now means "successfully enqueued", not "written to SD" — the
+  // terminal CALIB_UPDATE_COMPLETE telemetry fires on enqueue success.
   i2c_error_count = 0;
   {
-    vfs_fd_t file = vfs_open(CALIBRATION_FILE_PATH,
-                             VFS_O_WRONLY | VFS_O_CREAT | VFS_O_TRUNC);
-    if (file < 0) {
-      vayu_log("[CALIB] Failed to open calibration file.");
-      goto done; // cleanup still runs — no longer wedges the FC
-    }
     calib_file_header_t hdr = {CALIB_FILE_MAGIC, CALIB_FILE_VERSION,
                                (uint16_t)sizeof(bmx160_calibration_t)};
-    vfs_write(file, &hdr, sizeof(hdr));
-    int res = vfs_write(file, &bmx160_calib, sizeof(bmx160_calibration_t));
-    vayu_log("[CALIB] Calibration file written. Result: %d", res);
-    vfs_close(file);
+    calib_ok = fs_owner_enqueue_calib_save(&hdr, sizeof(hdr), &bmx160_calib,
+                                           sizeof(bmx160_calibration_t));
+    if (!calib_ok) {
+      vayu_log("[CALIB] Failed to enqueue calibration save.");
+    }
   }
 
 done:
+  /* Stop diverting samples to the calibration queue: the routine is tearing
+   * down, so the estimator should get the stream back immediately. */
+  _calib_active = 0;
+  /* Terminal status for the GCS wizard. An explicit COMPLETE/FAILED ends the
+   * wizard on a real event rather than inferring it from a STANDBY heartbeat —
+   * which is correct because ending in FAILSAFE is a valid outcome, not a
+   * failure. A user cancel is not a failure either (the GCS already tore the
+   * wizard down locally), so suppress FAILED in that case. */
+  if (calib_ok)
+    calib_telemetry(CALIB_UPDATE_COMPLETE, 0.0f);
+  else if (!_calib_cancel)
+    calib_telemetry(CALIB_UPDATE_FAILED, 0.0f);
+
   /* Single exit path for every outcome — success, cancel, fit failure, save
    * failure, NULL args. Always restores STANDBY (so IMU samples resume flowing
    * to the estimator), clears the cancel flag, and frees the heap args. Fixes

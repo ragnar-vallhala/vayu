@@ -231,6 +231,36 @@ class TestRegistry(unittest.TestCase):
             self.assertLessEqual(msgid, 0x7FFFFF)
 
 
+class TestXferSubstrate(unittest.TestCase):
+    """Lock the bulk-transfer (FTP) wire — docs/plans/navlink-xfer-substrate.md.
+    XFER_DATA is sized to ride 1 byte under the 255 payload cap; if a field is
+    ever added these guard the regression at the codec layer (the C generator's
+    <=255 validator is the other backstop)."""
+
+    def test_xfer_data_wire_is_254(self):                 # 1 B under the 255 cap
+        self.assertEqual(nl.XferData.WIRE_SIZE, 254)
+        # header (session,flags,len,offset) = 7 B → 247 B data chunk
+        self.assertEqual(nl.XferData.WIRE_SIZE - 7, 247)
+
+    def test_every_xfer_msg_under_payload_cap(self):
+        for cls in (nl.XferOpen, nl.XferInfo, nl.XferData, nl.XferAck, nl.XferClose):
+            self.assertLessEqual(cls.WIRE_SIZE, 255, cls.__name__)
+
+    def test_xfer_data_trusts_len_not_array_tail(self):
+        # final short chunk: len=3 of a 247 array; trailing zeros truncate on wire
+        d = nl.XferData(session=1, flags=int(nl.XferFlags.EOF), len=3,
+                        offset=512, data=[0xAA, 0xBB, 0xCC] + [0] * 244)
+        buf = d.pack()
+        self.assertEqual(len(buf), nl.XferData.WIRE_SIZE)
+        rt = nl.XferData.unpack(buf)
+        self.assertEqual(rt.len, 3)
+        self.assertEqual(list(rt.data[:3]), [0xAA, 0xBB, 0xCC])
+
+    def test_xfer_open_is_a_command(self):                # auto-ack + time-sync gate
+        self.assertTrue(8192 <= nl.XferOpen.MSGID <= 0x2FFF)
+        self.assertTrue(8192 <= nl.XferClose.MSGID <= 0x2FFF)
+
+
 class TestFraming(unittest.TestCase):
     def test_heartbeat_frame_layout(self):               # §16.3 step 1
         hb = nl.Heartbeat(type=2, autopilot=1, base_mode=0, system_status=4,
