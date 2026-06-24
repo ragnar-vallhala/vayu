@@ -76,7 +76,11 @@ uint8_t out[MAX_UDP]; // reader side: whole frames packed for one datagram
 int outLen = 0;
 volatile bool flushDue = false; // set by the timer ISR, cleared in loop()
 
-uint8_t cmd[256];   // GCS -> FC command scratch
+uint8_t cmd[512];   // GCS -> FC command scratch. MUST be >= NAVLINK_MAX_FRAME
+                    // (267 B = 10 hdr + 255 payload + 2 CRC): a full XFER_DATA
+                    // upload chunk is a 266 B frame, and udp.read() silently
+                    // truncates to sizeof(cmd) — a 256 B buffer dropped the CRC
+                    // tail of large uplink frames, wedging file uploads.
 uint32_t lastFrame = 0, lastBeat = 0;
 
 void IRAM_ATTR onFlushTick() { flushDue = true; }

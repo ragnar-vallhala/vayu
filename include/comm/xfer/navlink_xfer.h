@@ -97,6 +97,8 @@ typedef struct xfer_session {
   bool close_pending;  /* xfer_on_close seen; tick emits the close COMMAND_ACK */
   bool info_acked;     /* first XFER_ACK/peer response seen -> stop retrying INFO */
   bool rx_activity;    /* a chunk arrived since the last tick (upload liveness) */
+  bool upload_eof;     /* EOF chunk received; tick polls provider->flush (all
+                        * bytes persisted) before the terminal DONE/FAILED ack */
   uint16_t service_id;
   uint16_t chunk_size; /* negotiated emit size (<= XFER_CHUNK_MAX) */
   uint32_t total_size; /* XFER_SIZE_STREAM for streams */
@@ -143,6 +145,13 @@ typedef struct xfer_provider {
   int (*write)(xfer_session_t *s, uint32_t off, const uint8_t *buf, uint16_t len);
   int (*poll)(xfer_session_t *s, uint8_t *buf, uint16_t max);
   void (*close)(xfer_session_t *s, int result);
+  /* Upload completion (optional). After the EOF chunk, tick polls this until the
+   * provider confirms every byte is durably persisted, so the GCS's terminal ack
+   * means "on disk", not merely "enqueued". Returns 1 = all flushed (-> DONE),
+   * 0 = still pending (keep waiting), <0 = a write permanently failed (-> FAILED,
+   * reported to the GCS). NULL => no async write-back, treated as 1 (e.g. the RAM
+   * / stream providers). */
+  int (*flush)(xfer_session_t *s);
 } xfer_provider_t;
 
 /* ---- injected emitter (keeps the core codec-blind) ----------------------- */
@@ -151,8 +160,15 @@ typedef struct {
                       uint8_t req_seq, uint8_t result, int32_t param2);
   void (*info)(const xfer_session_t *s, uint8_t result, uint16_t chunk_size,
                uint32_t total_size, uint32_t mtime);
-  void (*data)(const xfer_session_t *s, uint8_t flags, uint8_t len,
-               uint32_t offset, const uint8_t *buf);
+  /* Returns 1 if the frame was accepted by the channel (will be transmitted),
+   * 0 if the TX ring was full and it was dropped. The download SM uses this as
+   * real backpressure: the cursor only advances on an accepted write, so it
+   * self-paces to the link's true throughput instead of racing ahead and losing
+   * chunks. (Must NOT key off the channel-wide overflow *counter* — telemetry
+   * shares the channel and moves that counter independently, which would stall
+   * the download whenever telemetry congests the ring.) */
+  int (*data)(const xfer_session_t *s, uint8_t flags, uint8_t len,
+              uint32_t offset, const uint8_t *buf);
   void (*ack)(const xfer_session_t *s, uint8_t flags, uint8_t result,
               uint32_t next_offset);
 } xfer_tx_ops_t;
@@ -191,6 +207,12 @@ int xfer_tick(uint32_t now_ms, uint32_t tx_overflow, int chunk_budget);
  * heavy streams to hand the link to a big transfer (mirrors sysid_dump_active()).
  * Streams are best-effort, so this never suppresses a stream-mode xfer. */
 bool xfer_download_active(void);
+
+/* True while ANY session is non-FREE (pending-open, active up/down, done-linger).
+ * The xfer service task uses this to suppress best-effort blackbox logging for the
+ * whole transfer window (fs_owner_suppress_logs), so concurrent multi-file SD
+ * access can't corrupt the transfer (the only clean pattern is sequential). */
+bool xfer_active(void);
 
 /* Test/inspection helpers. */
 bool xfer_session_active(uint8_t session);

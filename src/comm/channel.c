@@ -153,7 +153,18 @@ static err_t get_handler_serial(channel_t *handler, void *args,
   return NONE;
 }
 
-err_t write_channel(channel_t channel, byte *data, uint16_t length) {
+// Tail of the TX ring reserved for bulk xfer (XFER_DATA download chunks).
+// Normal writes (telemetry/acks) are capped at CHANNEL_TX_BUF_SIZE - this, so a
+// saturating telemetry stream cannot fill the whole ring and starve a download;
+// write_channel_xfer may use the full ring. ~3 max frames (3*~264 B) of
+// guaranteed headroom -> the download always makes forward progress, sharing the
+// link with telemetry rather than pausing it.
+#define CHANNEL_TX_XFER_RESERVE 768u
+
+// Shared core: `cap` is the highest fill level this writer may reach. Normal
+// writers pass the reserved cap; xfer passes the full buffer.
+static err_t _write_channel(channel_t channel, byte *data, uint16_t length,
+                            uint16_t cap) {
   // This function is not thread safe
   if (channel.handle == NULL || data == NULL || length == 0) {
     return USAGE;
@@ -171,8 +182,8 @@ err_t write_channel(channel_t channel, byte *data, uint16_t length) {
     ENTER_CRITICAL();
     uint8_t idx = s_handle->active_idx;
 
-    // Check if buffer has space; if not, drop data
-    if (s_handle->buf_lens[idx] + length > CHANNEL_TX_BUF_SIZE) {
+    // Check if buffer has space (up to this writer's cap); if not, drop data
+    if (s_handle->buf_lens[idx] + length > cap) {
       EXIT_CRITICAL();
       _tx_overflow_count++; // COMM-CH-002
       return ERROR; // Buffer full, dropping data
@@ -189,6 +200,15 @@ err_t write_channel(channel_t channel, byte *data, uint16_t length) {
   }
 
   return USAGE;
+}
+
+err_t write_channel(channel_t channel, byte *data, uint16_t length) {
+  return _write_channel(channel, data, length,
+                        CHANNEL_TX_BUF_SIZE - CHANNEL_TX_XFER_RESERVE);
+}
+
+err_t write_channel_xfer(channel_t channel, byte *data, uint16_t length) {
+  return _write_channel(channel, data, length, CHANNEL_TX_BUF_SIZE);
 }
 
 err_t flush_channel(channel_t channel) {

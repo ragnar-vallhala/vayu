@@ -20,6 +20,7 @@
 #include "comm/xfer/navlink_xfer.h"
 #include "comm/xfer/navlink_xfer_tx.h" /* g_xfer_tx_ops, g_fs_query_tx_ops */
 #include "comm/xfer/xfer_providers.h"  /* xfer_providers_register_all */
+#include "storage/fs_owner.h"          /* fs_owner_suppress_logs */
 #include "utils.h"                   /* v_get_ticks, v_delay */
 #include "vaios.h"
 
@@ -38,6 +39,10 @@ void xfer_service_task(void *args) {
   xfer_providers_register_all();
 
   for (;;) {
+    /* Quiesce best-effort blackbox logging for the whole transfer window so the
+     * SD sees only the transfer's file (sequential = the one corruption-free
+     * multi-file pattern). Released the moment all sessions go idle. */
+    fs_owner_suppress_logs(xfer_active());
     int emitted = xfer_tick((uint32_t)v_get_ticks(),
                             channel_tx_overflow_count(), XFER_CHUNK_BUDGET);
     /* Directory browse / stat replies (blocking VFS walk lives here too). */

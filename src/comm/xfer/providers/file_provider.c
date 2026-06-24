@@ -38,6 +38,9 @@ static int file_open(xfer_session_t *s, const xfer_open_args_t *a,
      * into the existing one, so only truncate at the start. */
     if (s->offset_start == 0)
       fs_owner_truncate(s->arg);
+    /* Start the per-session write-at bookkeeping so flush() can report true
+     * persistence (pending/committed/failed) to the GCS. */
+    fs_owner_writeat_reset(s->session);
   }
   return 0;
 }
@@ -52,8 +55,20 @@ static int file_write(xfer_session_t *s, uint32_t off, const uint8_t *buf,
   /* true => accepted (return len); false => write-at lane full => 0 = backpressure
    * (the SM holds the cursor, the next XFER_ACK pauses the GCS). len is bounded
    * by chunk_size <= FS_WRITEAT_PAYLOAD_MAX, so a false is never a permanent
-   * reject here. */
-  return fs_owner_enqueue_write_at(s->arg, off, buf, len) ? (int)len : 0;
+   * reject here. The write is fire-and-forget into fs_owner; file_flush() below
+   * reports its eventual persistence. */
+  return fs_owner_enqueue_write_at(s->session, s->arg, off, buf, len) ? (int)len
+                                                                       : 0;
+}
+
+/* Upload completion: 1 = every chunk durably written (-> DONE), 0 = still
+ * flushing (fs_owner draining/retrying), <0 = a write permanently failed
+ * (-> FAILED). The xfer SM polls this after EOF before the terminal ack, so the
+ * GCS's DONE means the bytes are on the SD card, not merely enqueued. */
+static int file_flush(xfer_session_t *s) {
+  if (fs_owner_writeat_failed(s->session))
+    return -1;
+  return (fs_owner_writeat_pending(s->session) == 0u) ? 1 : 0;
 }
 
 static const xfer_provider_t FILE_PROVIDER = {
@@ -64,6 +79,7 @@ static const xfer_provider_t FILE_PROVIDER = {
     .write = file_write,
     .poll = NULL,
     .close = NULL,
+    .flush = file_flush,
 };
 
 int file_provider_register(void) {
