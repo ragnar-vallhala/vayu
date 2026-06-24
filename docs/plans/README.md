@@ -16,6 +16,12 @@ Active plans for in-flight firmware work; a plan is deleted once its feature shi
   (~3× at credit=2) and Phase 4 (real vaios scheduler on host, ~57×) achieved on
   `vayu_sitl_rtos`; remaining: sim-time harness pacing (Phase 3) + wire-up to make
   the RTOS variant the default SITL. Host/harness only; flashed firmware untouched.
+- [`robust-imu-accel-gyro-calibration.md`](robust-imu-accel-gyro-calibration.md) —
+  replace the fragile exact-pose accel calibration with a true full-3×3 ellipsoid
+  fit over ~12 pose-tolerant holds (6 faces + edges/corners; NavLink unchanged, GCS
+  wizard updated), make the gyro capture stillness-gated as a separate routine, and
+  lift the whole calibration into a shared sensor-agnostic `src/calib/` module (mag
+  migrated onto it). Mag behaviour deferred. Design stage.
 - [`procedural-world-generation.md`](procedural-world-generation.md) — pluggable
   biome architecture for the SITL renderer. Phase 0 (meadow terrain) shipped;
   further biomes/phases remain.
