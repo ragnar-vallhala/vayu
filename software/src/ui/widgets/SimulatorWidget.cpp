@@ -3,6 +3,7 @@
 #include "core/Units.h"
 
 #include "../../vsim/MeshLoader.h"
+#include "../../vsim/ProceduralWorld.h"
 #include "../../vsim/WorldMeshBuilder.h"
 #include "CollapsibleSection.h"
 #include "comm/PortArbiter.h"
@@ -17,7 +18,9 @@
 #include <QDesktopServices>
 #include <QCoreApplication>
 #include <QDir>
+#include <QFutureWatcher>
 #include <QTimer>
+#include <QtConcurrent>
 #include <QEvent>
 #include <QFileInfo>
 #include <QGridLayout>
@@ -480,6 +483,20 @@ void SimulatorWidget::buildUi() {
   m_downPip->show();
   m_downPip->raise();
 
+  // Contour minimap PiP: top-down hypsometric + contour view of the procedural
+  // terrain, centred on the drone (running) or the free-fly camera. Helps read
+  // height, which the perspective view hides. Driven by m_minimapTimer.
+  m_minimap = new ContourMinimapWidget(m_renderer);
+  m_minimapPip = new PipOverlay(tr("CONTOURS"), m_minimap, m_renderer);
+  m_minimapPip->resize(200, 200);
+  m_minimapPip->move(8, 344);
+  m_minimapPip->show();
+  m_minimapPip->raise();
+  m_minimapTimer = new QTimer(this);
+  m_minimapTimer->setInterval(120);  // ~8 Hz: cheap, smooth enough to follow
+  connect(m_minimapTimer, &QTimer::timeout, this, &SimulatorWidget::updateMinimap);
+  m_minimapTimer->start();
+
   m_renderer->installEventFilter(this);
 
   m_rightStack = new QStackedWidget(splitter);
@@ -633,8 +650,17 @@ void SimulatorWidget::buildUi() {
     m_simResetBtn = new ui::GhostButton(tr("Reset"), simBody);
     m_simResetBtn->setEnabled(false);
     m_simResetBtn->setToolTip(tr("Reset the airframe to the spawn pose"));
-    connect(m_simResetBtn, &QPushButton::clicked, this,
-            [this] { if (m_sim) m_sim->sendReset(); });
+    connect(m_simResetBtn, &QPushButton::clicked, this, [this] {
+      if (!m_sim) return;
+      // On procedural terrain, respawn ON the home helipad (origin) — a small
+      // margin above the pad top so it settles onto the deck, not the slope.
+      if (m_terrainHeightAt) {
+        const float padTop = landingSurfaceZ(m_homePad.x(), m_homePad.y());
+        m_sim->sendResetPose(m_homePad.x(), m_homePad.y(), padTop - 0.4f);
+      } else {
+        m_sim->sendReset();
+      }
+    });
     m_simAttachBtn = new ui::GhostButton(tr("Attach Ext"), simBody);
     m_simAttachBtn->setToolTip(tr("Render an EXTERNAL vsim_d's pose stream "
         "(/tmp/vsim_pose) over the loaded world — e.g. a headless sitl_lab.py "
@@ -671,6 +697,37 @@ void SimulatorWidget::buildUi() {
       if (m_horizonPip) m_horizonPip->setVisible(on);
     });
     runRow->addWidget(horizonChk);
+
+    auto* contourChk = new QCheckBox(tr("Contours"), simBody);
+    contourChk->setChecked(true);
+    contourChk->setToolTip(tr("Show the draggable top-down contour minimap "
+                              "(procedural terrain height)."));
+    connect(contourChk, &QCheckBox::toggled, this, [this](bool on) {
+      if (m_minimapPip) m_minimapPip->setVisible(on);
+    });
+    runRow->addWidget(contourChk);
+
+    auto* grassChk = new QCheckBox(tr("Grass"), simBody);
+    grassChk->setChecked(false);   // off by default
+    grassChk->setToolTip(tr("Render instanced grass + flowers on procedural "
+                            "terrain."));
+    connect(grassChk, &QCheckBox::toggled, this, [this](bool on) {
+      m_grassEnabled = on;
+      // Drive both grass paths: CPU flora visibility and the GPU-grass pass.
+      if (m_renderer) {
+        m_renderer->setFloraVisible(on);
+        if (m_useGpuGrass) m_renderer->setGpuGrassActive(on);
+      }
+      if (m_downRenderer) {
+        m_downRenderer->setFloraVisible(on);
+        if (m_useGpuGrass) m_downRenderer->setGpuGrassActive(on);
+      }
+    });
+    runRow->addWidget(grassChk);
+    // Apply the unchecked default to the renderers now (an unchecked box emits
+    // no toggled signal at startup).
+    if (m_renderer) m_renderer->setFloraVisible(false);
+    if (m_downRenderer) m_downRenderer->setFloraVisible(false);
 
     m_propAudioChk = new QCheckBox(tr("Prop audio"), simBody);
     m_propAudioChk->setToolTip(tr("Propeller sound synthesized from motor rpm "
@@ -1885,6 +1942,7 @@ void SimulatorWidget::detachTuneSim() {
 }
 
 void SimulatorWidget::updateHud(const vsim::SimSnapshot& s) {
+  m_lastDronePos = s.pos_w;  // tracked for the lift-onto-terrain logic
   if (m_hud) m_hud->setSnapshot(s);
   if (m_horizon) {
     float roll, pitch, yaw;
@@ -1961,6 +2019,184 @@ void SimulatorWidget::updateTrainingProgress() {
 void SimulatorWidget::loadWorldMeshToRenderer() {
   if (!m_renderer || !m_worldEditor) return;
   const vsim::WorldConfig& w = m_worldEditor->config();
+
+  const bool endless =
+      w.proceduralBiome.compare(QStringLiteral("endless"), Qt::CaseInsensitive) == 0;
+
+  // Point the contour minimap at the active terrain's height source. The
+  // endless lambda reads the streamer's field lazily (configured below); the
+  // finite lambda owns its heightfield via the captured shared_ptr.
+  // One terrain-height sampler (world N,E -> elevation [m]) for the active world,
+  // shared by the minimap and the "lift drone onto the surface" logic.
+  std::function<float(float, float)> heightAt;
+  float minimapRange = 200.0f;
+  if (endless) {
+    heightAt = [this](float n, float e) {
+      const auto f = m_chunkStreamer.field();
+      return f ? f->height(n, e) : 0.0f;
+    };
+  } else if (vsim::isKnownBiome(w.proceduralBiome)) {
+    auto hf = std::make_shared<vsim::procgen::Heightfield>(
+        vsim::proceduralMeadowHeightfield(w));
+    heightAt = [hf](float n, float e) { return hf->sampleWorld(n, e); };
+    minimapRange = w.proceduralSizeM * 0.5f;  // fit the finite arena
+  }
+  m_terrainHeightAt = heightAt;  // null for imported / no world
+  // Scatter helipad pads (and the home pad at origin) for the new world.
+  m_lastHelipadCenter = QVector3D(0, 0, 0);
+  recomputeHelipads(0.0f, 0.0f);
+  if (m_minimap) {
+    m_minimap->setSampler(heightAt);
+    if (heightAt) {
+      m_minimap->setRangeM(minimapRange);
+      m_minimap->setReferenceHeight(endless ? w.field.heightM : 80.0f);
+    }
+  }
+
+  // Leaving the endless biome: stop the streamer and drop its chunks so a
+  // finite mesh / grid shows cleanly.
+  if (!endless && m_useGpuGrass) {  // leaving the GPU-grass biome
+    m_useGpuGrass = false;
+    m_renderer->setGpuGrassActive(false);
+    if (m_downRenderer) m_downRenderer->setGpuGrassActive(false);
+  }
+  if (!endless && m_chunkStreamer.active()) {
+    ++m_streamGen;  // invalidate in-flight builds
+    m_chunkStreamer.deactivate();
+    m_chunkCache.clear();
+    m_floraCache.clear();
+    m_floraShown.clear();
+    m_floraInflight.clear();
+    m_collisionPending = false;
+    if (m_streamTimer) m_streamTimer->stop();
+    m_renderer->clearWorldChunks();
+    m_renderer->clearChunkFlora();
+    if (m_downRenderer) {
+      m_downRenderer->clearWorldChunks();
+      m_downRenderer->clearChunkFlora();
+    }
+  }
+
+  // Endless streaming biome: drive the chunk streamer instead of one mesh.
+  if (endless) {
+    m_renderer->setWorldMesh({}, {});
+    if (m_downRenderer) m_downRenderer->setWorldMesh({}, {});
+    m_renderer->clearWorldChunks();
+    m_renderer->clearChunkFlora();
+    if (m_downRenderer) {
+      m_downRenderer->clearWorldChunks();
+      m_downRenderer->clearChunkFlora();
+    }
+
+    // New generation: invalidate any in-flight builds from a prior config and
+    // drop the mesh + flora caches.
+    ++m_streamGen;
+    m_chunkCache.clear();
+    m_floraCache.clear();
+    m_floraShown.clear();
+    m_floraInflight.clear();
+    m_collisionPending = false;
+
+    vsim::ChunkStreamer::Config sc;
+    sc.field = w.field;  // user-tuned terrain shape + colour bands
+    sc.field.seed = static_cast<uint32_t>(w.proceduralSeed);
+    m_chunkStreamer.configure(sc);
+    m_floraParams = w.flora;  // user-tuned grass density / slope / height
+    m_floraParams.seed = static_cast<uint32_t>(w.proceduralSeed);
+
+    // Prefer GPU-generated grass when the context supports compute (GL 4.3+):
+    // it regenerates around the camera each frame, so we skip the CPU flora.
+    vsim::GpuGrass::Params gp;
+    gp.seed = static_cast<uint32_t>(w.proceduralSeed);
+    gp.heightM = w.field.heightM;
+    gp.featureM = w.field.featureM;
+    gp.macroM = w.field.macroM;
+    gp.octaves = w.field.octaves;
+    gp.lacunarity = w.field.lacunarity;
+    gp.gain = w.field.gain;
+    gp.mountainMix = w.field.mountainMix;
+    gp.grassMaxFrac = w.flora.grassMaxFrac;
+    gp.slopeLo = w.flora.slopeLo;
+    gp.slopeHi = w.flora.slopeHi;
+    gp.heightMean = w.flora.heightMean;
+    gp.heightStdDev = w.flora.heightStdDev;
+    gp.flowerFrac = w.flora.flowerFrac;
+    gp.look = w.look;   // live grass shading knobs
+    const float bpc = std::max(1.0f, w.flora.bladesPerCell);
+    // Near-ring candidate spacing. GpuGrass adds a coarse FAR ring (4x cell) on
+    // top for distance, so this only controls near density — push it small.
+    gp.cell = std::clamp(w.flora.spacing / std::sqrt(bpc), 0.045f, 1.0f);
+    gp.grid = 768;
+    // Falloff is computed per-ring inside GpuGrass::render now; these are only a
+    // hint for the near ring.
+    const float radius = gp.grid * gp.cell * 0.5f;
+    gp.falloffEnd = radius * 0.9f;
+    gp.falloffStart = gp.falloffEnd * 0.6f;
+
+    // Terrain lighting tracks the same look knobs so ground + grass warm together.
+    m_renderer->setTerrainLook(w.look.sunIntensity, w.look.ambientStrength);
+    if (m_downRenderer)
+      m_downRenderer->setTerrainLook(w.look.sunIntensity, w.look.ambientStrength);
+
+    m_useGpuGrass = m_renderer->gpuGrassReady();
+    if (m_useGpuGrass) {
+      // Params are always pushed so a later toggle-on renders immediately, but
+      // the pass only activates when the "Grass" toggle is on.
+      m_renderer->setGpuGrassParams(gp);
+      m_renderer->setGpuGrassActive(m_grassEnabled);
+      m_renderer->clearChunkFlora();
+      if (m_downRenderer) {
+        m_downRenderer->setGpuGrassParams(gp);
+        m_downRenderer->setGpuGrassActive(m_grassEnabled);
+        m_downRenderer->clearChunkFlora();
+      }
+      appendLog("world", m_grassEnabled
+                             ? tr("GPU grass active (compute)")
+                             : tr("GPU grass ready (toggle 'Grass' to show)"));
+    } else {
+      m_renderer->setGpuGrassActive(false);
+      if (m_downRenderer) m_downRenderer->setGpuGrassActive(false);
+    }
+
+    if (!m_streamTimer) {
+      m_streamTimer = new QTimer(this);
+      m_streamTimer->setInterval(100);  // 10 Hz poll of the view centre
+      connect(m_streamTimer, &QTimer::timeout, this,
+              &SimulatorWidget::onStreamTick);
+    }
+    m_streamTimer->start();
+    onStreamTick();  // stream the initial neighbourhood immediately
+    appendLog("world", tr("endless procedural terrain (seed %1) streaming")
+                           .arg(w.proceduralSeed));
+    return;
+  }
+
+  // Procedural world takes precedence over an imported mesh: generate it from
+  // the biome params and feed the same render + collision pipeline.
+  if (!w.proceduralBiome.isEmpty()) {
+    const vsim::LoadedMesh m = vsim::generateProceduralWorld(w);
+    if (!m.valid) {
+      appendLog("world", tr("procedural world: unknown biome '%1'")
+                             .arg(w.proceduralBiome));
+      m_renderer->setWorldMesh({}, {});
+      if (m_downRenderer) m_downRenderer->setWorldMesh({}, {});
+      if (m_sim) m_sim->clearWorldMesh();
+      return;
+    }
+    m_renderer->setWorldMesh(m.positions, m.normals, m.colors);
+    if (m_downRenderer)
+      m_downRenderer->setWorldMesh(m.positions, m.normals, m.colors);
+    appendLog("world", tr("procedural world '%1' (seed %2): %3 tris")
+                           .arg(w.proceduralBiome)
+                           .arg(w.proceduralSeed)
+                           .arg(m.triangleCount()));
+    if (m_sim) {
+      sendWorldMeshToSim(m);     // collision ready -> safe to lift onto it
+      liftDroneToSurface();
+    }
+    return;
+  }
+
   if (w.worldMeshPath.isEmpty()) {
     m_renderer->setWorldMesh({}, {});
     if (m_downRenderer) m_downRenderer->setWorldMesh({}, {});
@@ -1994,6 +2230,312 @@ void SimulatorWidget::loadWorldMeshToRenderer() {
   // Hand the same baked geometry to the physics daemon as a collision BVH.
   // Render and collision therefore share one transform → they never disagree.
   if (m_sim) sendWorldMeshToSim(m);
+}
+
+void SimulatorWidget::updateMinimap() {
+  if (!m_minimap || !m_minimapPip || !m_minimapPip->isVisible()) return;
+  if (!m_renderer || !m_minimap->hasSampler()) return;
+  const QVector3D c = m_renderer->streamCenter();
+  m_minimap->setView(c.x(), c.y(), m_renderer->viewHeadingRad());
+}
+
+void SimulatorWidget::onStreamTick() {
+  if (!m_chunkStreamer.active() || !m_renderer) return;
+  const QVector3D c = m_renderer->streamCenter();
+  const vsim::StreamPlan p = m_chunkStreamer.plan(c.x(), c.y());
+
+  for (qint64 key : p.toRemove) {
+    m_renderer->removeWorldChunk(key);
+    m_renderer->removeChunkFlora(key);
+    if (m_downRenderer) {
+      m_downRenderer->removeWorldChunk(key);
+      m_downRenderer->removeChunkFlora(key);
+    }
+    m_chunkCache.erase(key);
+    m_floraCache.erase(key);
+    m_floraShown.erase(key);
+    m_floraInflight.erase(key);
+    m_chunkStreamer.forget(key);
+  }
+
+  if (p.collisionDue) {
+    m_collisionPending = true;
+    m_colCx = p.colCx;
+    m_colCy = p.colCy;
+    // CPU grass follows the centre — only when enabled and GPU grass isn't used.
+    if (m_grassEnabled && !m_useGpuGrass) streamFlora(p.colCx, p.colCy);
+  }
+
+  // Mesh the requested chunks OFF the UI thread; apply the results on the main
+  // thread when each future finishes. The field is const + shared, so parallel
+  // sampling is safe; the generation tag drops results from a stale config.
+  const auto field = m_chunkStreamer.field();
+  const float chunkM = m_chunkStreamer.config().chunkM;
+  const int res = m_chunkStreamer.config().resolution;
+  const int collRes = m_chunkStreamer.config().collisionResolution;
+  const int gen = m_streamGen;
+  for (const vsim::ChunkReq& req : p.toBuild) {
+    auto* watcher = new QFutureWatcher<BuiltChunk>(this);
+    connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher, req, gen]() {
+      if (gen == m_streamGen) onChunkMeshed(req.key, watcher->result());
+      else m_chunkStreamer.forget(req.key);  // stale: config changed mid-build
+      watcher->deleteLater();
+    });
+    watcher->setFuture(QtConcurrent::run([field, req, chunkM, res, collRes]() {
+      BuiltChunk b;
+      b.mesh = vsim::procgen::meshFieldChunk(*field, req.cx, req.cy, chunkM, res);
+      b.collMesh =
+          vsim::procgen::meshFieldChunk(*field, req.cx, req.cy, chunkM, collRes);
+      return b;
+    }));
+  }
+
+  tryBuildCollision();  // in case the neighbourhood is already cached
+
+  // Refresh helipads when the view has roamed enough (avoids 10 Hz churn).
+  if (std::hypot(c.x() - m_lastHelipadCenter.x(),
+                 c.y() - m_lastHelipadCenter.y()) > 35.0f) {
+    m_lastHelipadCenter = c;
+    recomputeHelipads(c.x(), c.y());
+  }
+}
+
+void SimulatorWidget::onChunkMeshed(qint64 key, const BuiltChunk& built) {
+  m_chunkStreamer.markBuilt(key);
+  if (!m_chunkStreamer.wanted(key)) {  // drifted out of range while meshing
+    m_chunkStreamer.forget(key);
+    return;
+  }
+  // Cache the COARSE mesh for collision reuse; upload the FINE mesh for render.
+  // Flora is scattered separately (streamFlora), only for the near chunks.
+  m_chunkCache[key] = built.collMesh;
+  const vsim::ChunkMeshData d = vsim::toChunkMeshData(key, built.mesh);
+  m_renderer->setWorldChunk(d.key, d.positions, d.normals, d.colors);
+  if (m_downRenderer)
+    m_downRenderer->setWorldChunk(d.key, d.positions, d.normals, d.colors);
+
+  tryBuildCollision();
+}
+
+void SimulatorWidget::uploadFloraChunk(qint64 key) {
+  auto it = m_floraCache.find(key);
+  if (it == m_floraCache.end()) return;
+  const float chunkM = m_chunkStreamer.config().chunkM;
+  const float cxw = (vsim::ChunkStreamer::cxOf(key) + 0.5f) * chunkM;
+  const float cyw = (vsim::ChunkStreamer::cyOf(key) + 0.5f) * chunkM;
+  const float half = chunkM * 0.5f;
+  m_renderer->setChunkFlora(key, it->second.first, it->second.second, cxw, cyw,
+                            half);
+  if (m_downRenderer)
+    m_downRenderer->setChunkFlora(key, it->second.first, it->second.second, cxw,
+                                  cyw, half);
+  m_floraShown.insert(key);
+}
+
+void SimulatorWidget::streamFlora(int cx, int cy) {
+  // Drop grass that drifted out of the near radius.
+  std::vector<qint64> drop;
+  for (qint64 key : m_floraShown)
+    if (std::abs(vsim::ChunkStreamer::cxOf(key) - cx) > kFloraRadius ||
+        std::abs(vsim::ChunkStreamer::cyOf(key) - cy) > kFloraRadius)
+      drop.push_back(key);
+  for (qint64 key : drop) {
+    m_renderer->removeChunkFlora(key);
+    if (m_downRenderer) m_downRenderer->removeChunkFlora(key);
+    m_floraShown.erase(key);
+  }
+  // Bring grass into range: upload from cache, or scatter it off-thread.
+  const auto field = m_chunkStreamer.field();
+  if (!field) return;
+  const float chunkM = m_chunkStreamer.config().chunkM;
+  const vsim::procgen::FloraParams fp = m_floraParams;  // user-tuned knobs
+  const int gen = m_streamGen;
+  for (int j = cy - kFloraRadius; j <= cy + kFloraRadius; ++j)
+    for (int i = cx - kFloraRadius; i <= cx + kFloraRadius; ++i) {
+      const qint64 key = vsim::ChunkStreamer::keyOf(i, j);
+      if (m_floraShown.count(key)) continue;
+      if (m_floraCache.count(key)) { uploadFloraChunk(key); continue; }
+      if (m_floraInflight.count(key)) continue;
+      m_floraInflight.insert(key);
+      const int fcx = i, fcy = j;
+      auto* w = new QFutureWatcher<std::vector<float>>(this);
+      connect(w, &QFutureWatcherBase::finished, this, [this, w, key, gen]() {
+        if (gen == m_streamGen) onFloraScattered(key, w->result());
+        else m_floraInflight.erase(key);
+        w->deleteLater();
+      });
+      w->setFuture(QtConcurrent::run([field, fcx, fcy, chunkM, fp]() {
+        const auto blades =
+            vsim::procgen::scatterFlora(*field, fcx, fcy, chunkM, fp);
+        std::vector<float> d;
+        d.reserve(blades.size() * 9);
+        for (const vsim::procgen::FloraInstance& g : blades)
+          d.insert(d.end(), {g.pos.x, g.pos.y, g.pos.z, g.yaw, g.height,
+                             g.flower, g.tint.x, g.tint.y, g.tint.z});
+        return d;
+      }));
+    }
+}
+
+void SimulatorWidget::onFloraScattered(qint64 key,
+                                       const std::vector<float>& packed) {
+  m_floraInflight.erase(key);
+  m_floraCache[key] = {packed, static_cast<int>(packed.size() / 9)};
+  // Upload only if it's still within the near radius of the current centre.
+  if (std::abs(vsim::ChunkStreamer::cxOf(key) - m_colCx) <= kFloraRadius &&
+      std::abs(vsim::ChunkStreamer::cyOf(key) - m_colCy) <= kFloraRadius)
+    uploadFloraChunk(key);
+}
+
+void SimulatorWidget::tryBuildCollision() {
+  if (!m_collisionPending) return;
+  if (!m_sim) { m_collisionPending = false; return; }  // no physics -> not needed
+  // Build the local collision BVH from the cached chunk meshes (no regen). Wait
+  // until the whole collision neighbourhood is cached.
+  const std::vector<vsim::ChunkReq> need =
+      m_chunkStreamer.collisionChunks(m_colCx, m_colCy);
+  std::vector<const vsim::procgen::ProcMesh*> meshes;
+  meshes.reserve(need.size());
+  for (const vsim::ChunkReq& req : need) {
+    auto it = m_chunkCache.find(req.key);
+    if (it == m_chunkCache.end()) return;  // not all cached yet; retry on next
+    meshes.push_back(&it->second);
+  }
+  vsim::LoadedMesh m = vsim::collisionMeshFromChunks(meshes);
+  m_collisionPending = false;
+  if (m.valid) {
+    appendHelipadCollision(m.positions);  // pads become solid landing surfaces
+    sendWorldMeshToSim(m);
+  }
+  // The local terrain just changed under the drone (spawn or a crossing); if
+  // that left it buried, re-drop it above the new surface. Self-guarded, so an
+  // airborne or resting drone is untouched.
+  liftDroneToSurface();
+}
+
+void SimulatorWidget::recomputeHelipads(float cx, float cy) {
+  m_helipads.clear();
+  if (!m_terrainHeightAt) {
+    m_homePad = QVector3D(0, 0, 0);
+    if (m_renderer) m_renderer->setHelipads(m_helipads);
+    if (m_downRenderer) m_downRenderer->setHelipads(m_helipads);
+    return;
+  }
+  // Home pad always at the origin — a deterministic, guaranteed drone spawn.
+  m_homePad = QVector3D(0, 0, m_terrainHeightAt(0.0f, 0.0f));
+  m_helipads.push_back(m_homePad);
+
+  // Deterministic coarse grid: one jittered candidate per cell, accepted on
+  // flat enough ground. Mirrors the flora global-grid idea but far sparser, so
+  // the same pads appear regardless of view history. Computed within kRange of
+  // the view centre so pads stream in/out as you roam.
+  const float kGrid = 70.0f, kRange = 260.0f, kEps = 2.0f, kMaxSlope = 0.09f;
+  const int kCandidates = 4;  // probe several spots/cell, keep the flattest
+  auto hash = [](int gx, int gy) -> uint32_t {
+    uint32_t h = uint32_t(gx) * 0x9e3779b1u ^ uint32_t(gy) * 0x85ebca77u;
+    h ^= h >> 16; h *= 0x7feb352du; h ^= h >> 15; h *= 0x846ca68bu; h ^= h >> 16;
+    return h;
+  };
+  auto slopeAt = [&](float px, float py) {
+    const float dhdx =
+        (m_terrainHeightAt(px + kEps, py) - m_terrainHeightAt(px - kEps, py)) /
+        (2.0f * kEps);
+    const float dhdy =
+        (m_terrainHeightAt(px, py + kEps) - m_terrainHeightAt(px, py - kEps)) /
+        (2.0f * kEps);
+    return std::sqrt(dhdx * dhdx + dhdy * dhdy);
+  };
+  const int gx0 = int(std::floor((cx - kRange) / kGrid));
+  const int gx1 = int(std::floor((cx + kRange) / kGrid));
+  const int gy0 = int(std::floor((cy - kRange) / kGrid));
+  const int gy1 = int(std::floor((cy + kRange) / kGrid));
+  for (int gx = gx0; gx <= gx1; ++gx)
+    for (int gy = gy0; gy <= gy1; ++gy) {
+      if (gx == 0 && gy == 0) continue;  // origin reserved for the home pad
+      if ((hash(gx, gy) & 0xffu) > 180u) continue;  // ~70% of cells get a pad
+      // Probe several jittered spots in the cell, keep the flattest one.
+      float bestSlope = 1e9f, bx = 0, by = 0;
+      for (int k = 0; k < kCandidates; ++k) {
+        const uint32_t h2 = hash(gx * 73856093 + k * 19349663, gy * 83492791 - k);
+        const float jx = float(h2 & 0xffu) / 255.0f - 0.5f;
+        const float jy = float((h2 >> 8) & 0xffu) / 255.0f - 0.5f;
+        const float px = (float(gx) + 0.5f + jx * 0.8f) * kGrid;
+        const float py = (float(gy) + 0.5f + jy * 0.8f) * kGrid;
+        const float s = slopeAt(px, py);
+        if (s < bestSlope) { bestSlope = s; bx = px; by = py; }
+      }
+      if (bestSlope > kMaxSlope) continue;  // no flat-enough spot in this cell
+      if ((bx - cx) * (bx - cx) + (by - cy) * (by - cy) > kRange * kRange) continue;
+      m_helipads.emplace_back(bx, by, m_terrainHeightAt(bx, by));
+    }
+  if (m_renderer) m_renderer->setHelipads(m_helipads);
+  if (m_downRenderer) m_downRenderer->setHelipads(m_helipads);
+}
+
+void SimulatorWidget::appendHelipadCollision(std::vector<QVector3D>& pos) const {
+  const float R = vsim::SimRendererWidget::kHelipadRadiusM;
+  const int N = 20;  // collision tessellation (coarser than render is fine)
+  // Every triangle is emitted with BOTH windings so it collides regardless of
+  // the BVH's single/double-sided flag (the drone must rest on the deck top).
+  auto tri2 = [&](const QVector3D& a, const QVector3D& b, const QVector3D& c) {
+    pos.push_back(a); pos.push_back(b); pos.push_back(c);
+    pos.push_back(a); pos.push_back(c); pos.push_back(b);
+  };
+  for (const QVector3D& pad : m_helipads) {
+    const float px = pad.x(), py = pad.y();
+    const float zDeck = -pad.z() - vsim::SimRendererWidget::kHelipadDeckM;  // top
+    const float zBase = -pad.z();                                          // terrain
+    const QVector3D ctr(px, py, zDeck);
+    for (int j = 0; j < N; ++j) {
+      const double a0 = 2 * M_PI * j / N, a1 = 2 * M_PI * (j + 1) / N;
+      const QVector3D r0(px + R * std::cos(a0), py + R * std::sin(a0), zDeck);
+      const QVector3D r1(px + R * std::cos(a1), py + R * std::sin(a1), zDeck);
+      const QVector3D b0(px + R * std::cos(a0), py + R * std::sin(a0), zBase);
+      const QVector3D b1(px + R * std::cos(a1), py + R * std::sin(a1), zBase);
+      tri2(ctr, r0, r1);   // deck cap (landing surface)
+      tri2(r0, b0, b1);    // side wall down to terrain
+      tri2(r0, b1, r1);
+    }
+  }
+}
+
+float SimulatorWidget::landingSurfaceZ(float x, float y) const {
+  float z = m_terrainHeightAt ? -m_terrainHeightAt(x, y) : 0.0f;  // terrain surface
+  const float r2 = vsim::SimRendererWidget::kHelipadRadiusM *
+                   vsim::SimRendererWidget::kHelipadRadiusM;
+  for (const QVector3D& pad : m_helipads) {
+    const float dx = x - pad.x(), dy = y - pad.y();
+    if (dx * dx + dy * dy <= r2) {
+      // Deck sits kHelipadDeckM above that pad's terrain (more negative z =
+      // higher); rest on the highest surface we're standing over.
+      z = std::min(z, -pad.z() - vsim::SimRendererWidget::kHelipadDeckM);
+    }
+  }
+  return z;
+}
+
+void SimulatorWidget::liftDroneToSurface() {
+  if (!m_sim || !m_terrainHeightAt) return;
+  const float x = m_lastDronePos.x();
+  const float y = m_lastDronePos.y();
+  // Terrain is a single-valued height field, so the analytic height under the
+  // drone is exactly where a ray cast straight down from far above would hit.
+  const float h = m_terrainHeightAt(x, y);     // surface elevation [m] above z=0
+  // Land on the pad top when over a helipad, otherwise on the terrain.
+  const float surfaceZ = landingSurfaceZ(x, y);
+
+  // Only re-drop when the drone is genuinely buried — more than buriedEps below
+  // the surface. In NED a larger z is lower, so droneZ > surfaceZ + eps means it
+  // has sunk into the terrain. A drone resting on or flying above the surface is
+  // left alone (no yanking a landed or airborne drone).
+  const float buriedEps = 0.3f;
+  if (m_lastDronePos.z() <= surfaceZ + buriedEps) return;
+
+  // Re-drop level + stationary a clear margin above the surface, so it falls and
+  // settles instead of spawning embedded in a slope (which wedges it tilted).
+  const float dropClearance = 1.5f;
+  m_sim->sendResetPose(x, y, surfaceZ - dropClearance);
+  appendLog("world", tr("re-dropped drone above terrain (surface %.1f m)").arg(h));
 }
 
 void SimulatorWidget::sendWorldMeshToSim(const vsim::LoadedMesh& m) {
@@ -2238,7 +2780,7 @@ bool SimulatorWidget::eventFilter(QObject* obj, QEvent* ev) {
     if (m_hud) m_hud->setGeometry(m_renderer->rect());
     // The PiPs float at user-chosen positions; just keep them above the HUD and
     // clamp them back inside if the viewport shrank past them.
-    for (QWidget* pip : {m_horizonPip, m_downPip}) {
+    for (QWidget* pip : {m_horizonPip, m_downPip, m_minimapPip}) {
       if (!pip) continue;
       QPoint p = pip->pos();
       p.setX(qBound(0, p.x(), qMax(0, m_renderer->width() - pip->width())));

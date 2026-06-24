@@ -169,3 +169,15 @@ navigator_test(tst_about_dialog
     tst_about_dialog.cpp
     ${SRC}/ui/widgets/AboutDialog.cpp)
 target_include_directories(tst_about_dialog PRIVATE ${SRC}/ui/widgets)
+
+# ---- Procedural world generation (Phase 0): noise/heightfield/terrain ------
+# Qt-free core; the test just needs QtTest as a harness. Include dir is
+# ${SRC}/vsim so the "procgen/..." paths resolve.
+navigator_test(tst_procgen
+    tst_procgen.cpp
+    ${SRC}/vsim/procgen/Noise.cpp
+    ${SRC}/vsim/procgen/TerrainGen.cpp
+    ${SRC}/vsim/procgen/TerrainField.cpp
+    ${SRC}/vsim/procgen/Flora.cpp
+    ${SRC}/vsim/ChunkStreamer.cpp)
+target_include_directories(tst_procgen PRIVATE ${SRC}/vsim)

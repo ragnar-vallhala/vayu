@@ -12,7 +12,7 @@
  */
 #include "sys/state.h"
 
-#include "logger/logger.h"   /* vayu_log */
+#include "storage/fs_owner.h"   /* vayu_log */
 #include "vayu_status.h"
 
 #include <stddef.h>

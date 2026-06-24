@@ -1,17 +1,20 @@
 #pragma once
 
+#include "GpuGrass.h"
 #include "SimWorker.h"
 #include "TrainingCourse.h"
 
 #include <QMatrix4x4>
 #include <QOpenGLBuffer>
-#include <QOpenGLFunctions>
+#include <QOpenGLExtraFunctions>
 #include <QOpenGLShaderProgram>
 #include <QOpenGLVertexArrayObject>
 #include <QOpenGLWidget>
 #include <QPoint>
 
 #include <array>
+#include <map>
+#include <memory>
 #include <vector>
 
 namespace vsim {
@@ -20,7 +23,7 @@ namespace vsim {
 // drone in NED world coordinates directly (camera "up" vector is
 // (0,0,-1)), so the world axes you see line up with what the IMU /
 // firmware actually sees.
-class SimRendererWidget : public QOpenGLWidget, protected QOpenGLFunctions {
+class SimRendererWidget : public QOpenGLWidget, protected QOpenGLExtraFunctions {
   Q_OBJECT
  public:
   explicit SimRendererWidget(QWidget* parent = nullptr);
@@ -49,6 +52,16 @@ class SimRendererWidget : public QOpenGLWidget, protected QOpenGLFunctions {
   // Stored + redrawn each frame; safe to call from the UI thread.
   void setObstacles(const QVector<vsim::Obstacle>& obs);
 
+  // Helipad landing platforms: cylinder pads marked "H", scattered on flat
+  // ground. Each entry is (worldX, worldY, terrainHeight) — terrainHeight is the
+  // positive elevation. The pad is a tall cylinder whose base is BURIED below the
+  // surface and whose deck sits kHelipadDeckM ABOVE it, so the deck reliably
+  // clears undulating terrain (a thin flush pad gets swallowed by the ground).
+  static constexpr float kHelipadRadiusM = 3.0f;
+  static constexpr float kHelipadDeckM   = 0.90f;  // deck height above terrain
+  static constexpr float kHelipadHeightM = 2.20f;  // total cylinder (deck + skirt)
+  void setHelipads(const std::vector<QVector3D>& pads);
+
   // Training course: glowing halo gates to fly through. setTrainingGates
   // replaces the gate layout; setTrainingActive updates which gate to aim for
   // (highlighted) and whether to draw the guidance arrow (drone -> next gate).
@@ -63,6 +76,51 @@ class SimRendererWidget : public QOpenGLWidget, protected QOpenGLFunctions {
   void setWorldMesh(const std::vector<QVector3D>& positions,
                     const std::vector<QVector3D>& normals,
                     const std::vector<QVector3D>& colors = {});
+
+  // Streaming world chunks (endless procedural terrain). Each chunk is an
+  // independently uploaded colored mesh keyed by a packed (cx,cy). The streamer
+  // adds/removes chunks as the drone moves; uploads are deferred to the next
+  // paintGL like the single world mesh. Coexists with obstacles/training; an
+  // imported world mesh and chunks are mutually exclusive in practice.
+  void setWorldChunk(qint64 key, const std::vector<QVector3D>& positions,
+                     const std::vector<QVector3D>& normals,
+                     const std::vector<QVector3D>& colors);
+  void removeWorldChunk(qint64 key);
+  void clearWorldChunks();
+  bool hasWorldChunks() const {
+    return !worldChunks_.empty() || !pendingChunkUploads_.empty();
+  }
+
+  // Per-chunk instanced flora. `interleaved` is `count` blades of 9 floats each:
+  // [posx,posy,posz, yaw,height,flower, tintr,tintg,tintb]. Deferred upload like
+  // the chunk meshes; keyed the same so it loads/unloads with its chunk.
+  void setChunkFlora(qint64 key, const std::vector<float>& interleaved,
+                     int count, float centerX, float centerY, float halfExtent);
+  void removeChunkFlora(qint64 key);
+  void clearChunkFlora();
+  void setFloraVisible(bool on) { floraVisible_ = on; update(); }
+
+  // GPU-driven grass (regenerated on the GPU each frame). Available only on a
+  // GL 4.3+ context; falls back to the CPU chunk flora otherwise.
+  bool gpuGrassReady() const { return gpuGrass_.ready(); }
+  void setGpuGrassParams(const vsim::GpuGrass::Params& p) {
+    gpuGrass_.setParams(p);
+  }
+  void setGpuGrassActive(bool on) { gpuGrassActive_ = on; update(); }
+  // Terrain lighting look knobs — kept in sync with the grass GrassLook so the
+  // ground and grass warm/brighten together. Applied live in drawLit.
+  void setTerrainLook(float sunIntensity, float ambientStrength) {
+    litSunInt_ = sunIntensity;
+    litAmbStr_ = ambientStrength;
+    update();
+  }
+  // World-space XY the terrain streamer should centre on: the free-fly camera
+  // when roaming (sim stopped), otherwise the drone. Lets endless terrain follow
+  // both WASD navigation and actual flight.
+  QVector3D streamCenter() const { return freeFly_ ? camPos_ : snap_.pos_w; }
+  // NED heading (radians, 0 = north) the minimap should orient by: the free-fly
+  // look direction when roaming, otherwise the drone's body heading.
+  float viewHeadingRad() const;
 
   // Enable Blender-style obstacle gizmo editing (click-select, G move /
   // R rotate / S scale, X/Y/Z constrain) — World mode while the sim is
@@ -128,6 +186,7 @@ class SimRendererWidget : public QOpenGLWidget, protected QOpenGLFunctions {
 
   void buildGroundGrid();
   void buildObstacleMeshes();   // unit box / sphere / cylinder (pos+normal)
+  void buildHelipadMeshes();    // unit pad platform + "H"/ring mark (pos+normal)
   void buildAxes();
   void buildDroneBody();
   void buildRotorDisk();
@@ -143,6 +202,12 @@ class SimRendererWidget : public QOpenGLWidget, protected QOpenGLFunctions {
   void drawTraining(const QMatrix4x4& view);  // halo gates + guidance arrow
   void uploadDroneMesh();   // flushes pending_* into droneMesh_ (GL-current)
   void uploadWorldMesh();   // flushes pendingWorld_* into worldMesh_
+  void flushChunkUpdates(); // applies queued chunk uploads/removals (GL-current)
+  void buildGrassBlade();   // shared unit-blade geometry (crossed tapered quads)
+  void buildShadowMap();    // create the directional shadow-map FBO + depth texture
+  void renderShadowPass(bool showWorld, bool showChunks);  // terrain depth from the sun
+  void flushFloraUpdates(); // applies queued flora uploads/removals (GL-current)
+  void drawFlora(const QMatrix4x4& view);  // instanced blades over the chunks
   // Upload an interleaved [px,py,pz,nx,ny,nz] array into a lit-shader mesh.
   void uploadLitMesh(Mesh& m, const std::vector<float>& interleaved);
   // As uploadLitMesh, but the array is [px,py,pz,nx,ny,nz,r,g,b] and vertex
@@ -188,23 +253,75 @@ class SimRendererWidget : public QOpenGLWidget, protected QOpenGLFunctions {
   int u_mvp_   = -1;
   int u_color_ = -1;
 
-  // Lit shader: position + normal, directional Lambert + ambient. Used
-  // for the imported airframe mesh so a real solid reads as 3D.
+  // Lit shader: position + normal, directional Lambert + ambient, plus aerial
+  // perspective (distance fog into the sky) and an ACES tonemap.
   QOpenGLShaderProgram progLit_;
   int ul_mvp_   = -1;
+  int ul_model_ = -1;
   int ul_nmat_  = -1;
   int ul_color_ = -1;
-  int ul_light_ = -1;
+  int ul_sundir_= -1;
+  int ul_campos_= -1;
+  int ul_fogdensity_ = -1;
+  int ul_fogstart_   = -1;
+  int ul_lightvp_    = -1;
+  int ul_shadowtex_  = -1;
+  int ul_shadowon_   = -1;
+  int ul_sunint_     = -1;
+  int ul_ambstr_     = -1;
+  float litSunInt_   = 1.0f;   // terrain lighting look knobs (match grass)
+  float litAmbStr_   = 1.0f;
 
-  // Sky shader: attribute-less fullscreen triangle, view-ray gradient.
+  // Shadow map: a directional depth buffer rendered from the sun's view each
+  // frame (terrain casters); lit terrain + grass sample it to drop into shade.
+  QOpenGLShaderProgram progDepth_;   // depth-only, light-space
+  int ud_lightmvp_ = -1;
+  unsigned int shadowFbo_ = 0;
+  unsigned int shadowTex_ = 0;
+  int shadowSize_ = 2048;
+  bool shadowReady_ = false;         // FBO built ok
+  bool shadowOn_ = false;            // a shadow map was rendered this frame
+  QMatrix4x4 lightVP_;               // light view-projection (world -> light clip)
+  int fbW_ = 1, fbH_ = 1;            // saved framebuffer size (viewport restore)
+
+  // Sky shader: attribute-less fullscreen triangle, view-ray gradient + glow.
   QOpenGLShaderProgram progSky_;
-  int us_invvp_ = -1;
+  int us_invvp_  = -1;
+  int us_sundir_ = -1;
+  int us_time_   = -1;
   QOpenGLVertexArrayObject skyVao_;
+
+  // Flora shader: instanced grass/flower blades, wind + distance fade + fog.
+  QOpenGLShaderProgram progFlora_;
+  int uf_vp_ = -1, uf_campos_ = -1, uf_time_ = -1;
+  int uf_fadestart_ = -1, uf_fadeend_ = -1, uf_sundir_ = -1;
+  int uf_fogdensity_ = -1, uf_fogstart_ = -1;
+  QOpenGLBuffer grassVbo_[3];   // shared blade geometry at 3 LODs (24/12/6 verts)
+  int grassVerts_[3] = {0, 0, 0};
+  QOpenGLVertexArrayObject floraVao_;  // shared; geometry+instance bound per draw
+  float floraTime_ = 0.0f;     // advances per paint to drive the wind
+  bool floraVisible_ = true;
+
+  // GPU grass (compute-generated each frame). Inactive unless the endless biome
+  // selects it and the context supports compute.
+  GpuGrass gpuGrass_;
+  bool gpuGrassActive_ = false;
+
+  // Camera world position (NED), refreshed each paintGL; fed to the lit shader
+  // for distance fog.
+  QVector3D camEye_;
+  // Sun direction (toward the light, world NED) shared by lit + sky. A real
+  // directional key ~45 deg above the horizon (z<0 is up in NED) for moody,
+  // directional overcast light rather than flat noon overhead.
+  QVector3D sunDir_{0.55f, 0.42f, -0.72f};
 
   Mesh ground_;
   Mesh unitBox_;       // [-0.5,0.5]^3, pos+normal (lit) — scaled per obstacle
   Mesh unitSphere_;    // radius-1 UV sphere, pos+normal
   Mesh unitCyl_;       // radius-1, height-1 cylinder (+caps), pos+normal
+  Mesh helipadDisk_;   // radius-1 pad platform, local z in [-1(top)..0(base)]
+  Mesh helipadMark_;   // flat "H" + ring on the pad top (white), pos+normal
+  std::vector<QVector3D> helipads_;  // (x, y, terrainHeight) per pad
   QVector<vsim::Obstacle> obstacles_;
   Mesh axes_;
   Mesh body_;
@@ -239,6 +356,32 @@ class SimRendererWidget : public QOpenGLWidget, protected QOpenGLFunctions {
   std::vector<QVector3D> pendingWorldPos_;
   std::vector<QVector3D> pendingWorldNrm_;
   std::vector<QVector3D> pendingWorldCol_;  // per-vertex RGB (may be empty)
+
+  // Streaming terrain chunks. Heap-allocated Meshes so addresses stay stable in
+  // the map (and GL handles aren't moved). Uploads/removals are queued from the
+  // UI thread and flushed in paintGL where the GL context is current.
+  std::map<qint64, std::unique_ptr<Mesh>> worldChunks_;
+  struct PendingChunk { qint64 key; std::vector<float> data; };  // 9 floats/vert
+  std::vector<PendingChunk> pendingChunkUploads_;
+  std::vector<qint64> pendingChunkRemovals_;
+  bool chunksDirty_ = false;
+  bool clearAllChunks_ = false;
+
+  // Per-chunk instanced flora (grass/flowers), keyed like worldChunks_. Each
+  // holds a VAO binding the shared blade geometry + this chunk's instance VBO.
+  struct FloraChunk {
+    QOpenGLBuffer inst{QOpenGLBuffer::VertexBuffer};
+    int count = 0;
+    float cx = 0.0f, cy = 0.0f, half = 0.0f;  // chunk centre + half-extent (LOD)
+  };
+  std::map<qint64, std::unique_ptr<FloraChunk>> floraChunks_;
+  struct PendingFlora {
+    qint64 key; std::vector<float> data; int count; float cx, cy, half;
+  };
+  std::vector<PendingFlora> pendingFloraUploads_;
+  std::vector<qint64> pendingFloraRemovals_;
+  bool floraDirty_ = false;
+  bool clearAllFlora_ = false;
 
   // Editable motor layout (defaults mirror the firmware quad geometry).
   std::array<QVector3D, 4> motorPos_ = {

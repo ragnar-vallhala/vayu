@@ -23,5 +23,12 @@ void attitude_task(void *args);
 void vertical_estimator_task(void *args);
 /* Periodic kernel/observability reporter (FC -> GCS, PACKET_TYPE_PERF_STATS). */
 void perf_telemetry_task(void *args);
+/* Centralised filesystem owner — sole runtime SD/VFS writer (blackbox logger +
+ * PID/calib persistence). Declared in full in storage/fs_owner.h. */
+void fs_owner_task(void *args);
+/* Bulk-transfer (FTP) substrate service task — runs the xfer state machine off
+ * the comm + control tasks: deferred provider->open, paced XFER_DATA emission,
+ * periodic acks, timeouts. Declared in full in comm/xfer/navlink_xfer.h. */
+void xfer_service_task(void *args);
 
 #endif // !VAYU_TASKS_H

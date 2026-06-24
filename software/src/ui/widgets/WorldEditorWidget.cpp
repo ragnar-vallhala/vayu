@@ -20,6 +20,7 @@
 #include <QJsonObject>
 #include <QLabel>
 #include <QListWidget>
+#include <QSpinBox>
 #include <QVBoxLayout>
 
 namespace {
@@ -48,7 +49,7 @@ QVector3D vec3FromJson(const QJsonValue& v, const QVector3D& def) {
 QJsonObject worldToJson(const vsim::WorldConfig& w) {
   QJsonObject root;
   root["format"] = "vayu-world";
-  root["version"] = 1;
+  root["version"] = 2;
   root["gravity"] = w.gravity;
   root["ground_z"] = w.ground_z;
   root["restitution"] = w.restitution;
@@ -71,6 +72,38 @@ QJsonObject worldToJson(const vsim::WorldConfig& w) {
                            {"restitution", o.restitution}});
   }
   root["obstacles"] = obs;
+  if (!w.proceduralBiome.isEmpty()) {
+    root["procedural"] = QJsonObject{
+        {"biome", w.proceduralBiome},
+        {"seed", static_cast<double>(w.proceduralSeed)},
+        {"size_m", w.proceduralSizeM},
+        {"resolution", w.proceduralResolution},
+        {"height_m", w.field.heightM},
+        {"feature_m", w.field.featureM},
+        {"mountain_mix", w.field.mountainMix},
+        {"max_slope", w.field.maxSlope},
+        {"col_brown", w.field.colBrownT},
+        {"col_rock", w.field.colRockT},
+        {"col_snow", w.field.colSnowT},
+        {"col_slope", w.field.colSlopeT},
+        {"grass_spacing", w.flora.spacing},
+        {"grass_max_frac", w.flora.grassMaxFrac},
+        {"grass_slope_lo", w.flora.slopeLo},
+        {"grass_slope_hi", w.flora.slopeHi},
+        {"flower_frac", w.flora.flowerFrac},
+        {"blades_per_cell", w.flora.bladesPerCell},
+        {"blade_height_mean", w.flora.heightMean},
+        {"blade_height_dev", w.flora.heightStdDev},
+        {"look_sun_intensity", w.look.sunIntensity},
+        {"look_ambient_strength", w.look.ambientStrength},
+        {"look_brightness", w.look.brightness},
+        {"look_tip_warmth", w.look.tipWarmth},
+        {"look_backlight", w.look.backlight},
+        {"look_sheen", w.look.sheen},
+        {"look_vein_strength", w.look.veinStrength},
+        {"look_root_darkness", w.look.rootDarkness},
+        {"look_face_camera_frac", w.look.faceCameraFrac}};
+  }
   return root;
 }
 
@@ -99,6 +132,44 @@ vsim::WorldConfig worldFromJson(const QJsonObject& root) {
     ob.restitution = o.value("restitution").toDouble(ob.restitution);
     w.obstacles.push_back(ob);
   }
+  const QJsonObject pg = root.value("procedural").toObject();
+  w.proceduralBiome = pg.value("biome").toString(w.proceduralBiome);
+  w.proceduralSeed = static_cast<quint32>(
+      pg.value("seed").toDouble(static_cast<double>(w.proceduralSeed)));
+  w.proceduralSizeM = pg.value("size_m").toDouble(w.proceduralSizeM);
+  w.proceduralResolution = pg.value("resolution").toInt(w.proceduralResolution);
+  w.field.heightM = pg.value("height_m").toDouble(w.field.heightM);
+  w.field.featureM = pg.value("feature_m").toDouble(w.field.featureM);
+  w.field.mountainMix = pg.value("mountain_mix").toDouble(w.field.mountainMix);
+  w.field.maxSlope = pg.value("max_slope").toDouble(w.field.maxSlope);
+  w.field.colBrownT = pg.value("col_brown").toDouble(w.field.colBrownT);
+  w.field.colRockT = pg.value("col_rock").toDouble(w.field.colRockT);
+  w.field.colSnowT = pg.value("col_snow").toDouble(w.field.colSnowT);
+  w.field.colSlopeT = pg.value("col_slope").toDouble(w.field.colSlopeT);
+  w.flora.spacing = pg.value("grass_spacing").toDouble(w.flora.spacing);
+  w.flora.grassMaxFrac = pg.value("grass_max_frac").toDouble(w.flora.grassMaxFrac);
+  w.flora.slopeLo = pg.value("grass_slope_lo").toDouble(w.flora.slopeLo);
+  w.flora.slopeHi = pg.value("grass_slope_hi").toDouble(w.flora.slopeHi);
+  w.flora.flowerFrac = pg.value("flower_frac").toDouble(w.flora.flowerFrac);
+  w.flora.bladesPerCell =
+      pg.value("blades_per_cell").toDouble(w.flora.bladesPerCell);
+  w.flora.heightMean = pg.value("blade_height_mean").toDouble(w.flora.heightMean);
+  w.flora.heightStdDev =
+      pg.value("blade_height_dev").toDouble(w.flora.heightStdDev);
+  w.look.sunIntensity =
+      pg.value("look_sun_intensity").toDouble(w.look.sunIntensity);
+  w.look.ambientStrength =
+      pg.value("look_ambient_strength").toDouble(w.look.ambientStrength);
+  w.look.brightness = pg.value("look_brightness").toDouble(w.look.brightness);
+  w.look.tipWarmth = pg.value("look_tip_warmth").toDouble(w.look.tipWarmth);
+  w.look.backlight = pg.value("look_backlight").toDouble(w.look.backlight);
+  w.look.sheen = pg.value("look_sheen").toDouble(w.look.sheen);
+  w.look.veinStrength =
+      pg.value("look_vein_strength").toDouble(w.look.veinStrength);
+  w.look.rootDarkness =
+      pg.value("look_root_darkness").toDouble(w.look.rootDarkness);
+  w.look.faceCameraFrac =
+      pg.value("look_face_camera_frac").toDouble(w.look.faceCameraFrac);
   return w;
 }
 }  // namespace
@@ -116,7 +187,7 @@ void WorldEditorWidget::buildUi() {
 
   // -- Environment --
   {
-    auto* sec = new CollapsibleSection(tr("Environment"), this);
+    auto* sec = new CollapsibleSection(tr("Environment"), this, /*expanded=*/false);
     auto* body = new QWidget();
     auto* form = new QFormLayout(body);
     gravity_ = spin(0.0, 30.0, 2, 0.1, cfg_.gravity, QStringLiteral(" m/s²"));
@@ -131,7 +202,7 @@ void WorldEditorWidget::buildUi() {
 
   // -- Aerodynamics --
   {
-    auto* sec = new CollapsibleSection(tr("Aerodynamics"), this);
+    auto* sec = new CollapsibleSection(tr("Aerodynamics"), this, /*expanded=*/false);
     auto* body = new QWidget();
     auto* form = new QFormLayout(body);
     linDrag_ = spin(0.0, 5.0, 3, 0.01, cfg_.linear_drag, QStringLiteral(" N·s/m"));
@@ -178,6 +249,10 @@ void WorldEditorWidget::buildUi() {
     root->addWidget(fileStatus_);
   }
 
+  // -- Procedural world --
+  buildProceduralSection(root);
+  buildProceduralTuningSection(root);
+
   // -- World mesh --
   buildWorldMeshSection(root);
 
@@ -187,8 +262,88 @@ void WorldEditorWidget::buildUi() {
   root->addStretch();
 }
 
+void WorldEditorWidget::buildProceduralSection(QVBoxLayout* root) {
+  auto* sec = new CollapsibleSection(tr("Procedural world"), this, /*expanded=*/false);
+  auto* body = new QWidget();
+  auto* col = new QVBoxLayout(body);
+
+  auto* hint = new QLabel(
+      tr("Generate the world from a biome instead of importing a mesh. "
+         "Takes precedence over the world mesh below; same seed → same world."),
+      body);
+  hint->setWordWrap(true);
+  hint->setStyleSheet(
+      QString("color:%1; font-size:11px;").arg(Theme::hex(Theme::kTextMuted)));
+  col->addWidget(hint);
+
+  auto* form = new QFormLayout();
+  procBiome_ = new QComboBox(body);
+  procBiome_->addItem(tr("None (use world mesh)"), QString());
+  procBiome_->addItem(tr("Meadow (finite arena)"), QStringLiteral("meadow"));
+  procBiome_->addItem(tr("Endless meadow (streaming)"), QStringLiteral("endless"));
+
+  procSeed_ = new QSpinBox(body);
+  procSeed_->setRange(0, 2147483647);
+  procSeed_->setValue(static_cast<int>(cfg_.proceduralSeed));
+  procSeed_->setToolTip(tr("Random seed — change it for a different world."));
+
+  procSizeM_ = spin(16.0, 4096.0, 0, 16.0, cfg_.proceduralSizeM,
+                    QStringLiteral(" m"));
+  procSizeM_->setToolTip(tr("Square world extent in metres."));
+
+  procResolution_ = new QSpinBox(body);
+  procResolution_->setRange(2, 1024);
+  procResolution_->setValue(cfg_.proceduralResolution);
+  procResolution_->setToolTip(
+      tr("Grid samples per side (higher = finer terrain, more triangles)."));
+
+  form->addRow(tr("Biome:"), procBiome_);
+  form->addRow(tr("Seed:"), procSeed_);
+  form->addRow(tr("Size:"), procSizeM_);
+  form->addRow(tr("Resolution:"), procResolution_);
+  col->addLayout(form);
+
+  // Pull the four widgets into cfg_ (no regen — that's the button's job).
+  auto pull = [this] {
+    if (procSyncing_) return;
+    cfg_.proceduralBiome = procBiome_->currentData().toString();
+    cfg_.proceduralSeed = static_cast<quint32>(procSeed_->value());
+    cfg_.proceduralSizeM = static_cast<float>(procSizeM_->value());
+    cfg_.proceduralResolution = procResolution_->value();
+  };
+
+  // Changing the biome regenerates immediately (it switches the whole world
+  // on/off); the numeric knobs apply on the explicit Generate button so
+  // dragging a spinner doesn't rebuild the mesh + BVH on every step.
+  connect(procBiome_, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+          [this, pull] { pull(); emit worldMeshChanged(); });
+  connect(procSeed_, QOverload<int>::of(&QSpinBox::valueChanged), this,
+          [pull] { pull(); });
+  connect(procSizeM_, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+          [pull] { pull(); });
+  connect(procResolution_, QOverload<int>::of(&QSpinBox::valueChanged), this,
+          [pull] { pull(); });
+
+  {
+    auto* row = new QHBoxLayout();
+    auto* gen = new ui::GhostButton(tr("Generate"), body);
+    gen->setToolTip(tr("(Re)generate the world from the current biome params."));
+    connect(gen, &QPushButton::clicked, this, [this, pull] {
+      pull();
+      if (cfg_.proceduralBiome.isEmpty()) return;
+      emit worldMeshChanged();
+    });
+    row->addWidget(gen);
+    row->addStretch();
+    col->addLayout(row);
+  }
+
+  sec->setContentWidget(body);
+  root->addWidget(sec);
+}
+
 void WorldEditorWidget::buildWindSection(QVBoxLayout* root) {
-  auto* sec = new CollapsibleSection(tr("Wind & Turbulence"), this);
+  auto* sec = new CollapsibleSection(tr("Wind & Turbulence"), this, /*expanded=*/false);
   auto* body = new QWidget();
   auto* col = new QVBoxLayout(body);
 
@@ -283,8 +438,89 @@ void WorldEditorWidget::setWindReadout(float speedMs, float dirDeg) {
       tr("wind: %1 m/s @ %2°").arg(speedMs, 0, 'f', 1).arg(dirDeg, 0, 'f', 0));
 }
 
+void WorldEditorWidget::buildProceduralTuningSection(QVBoxLayout* root) {
+  auto* sec = new CollapsibleSection(tr("Procedural tuning"), this, /*expanded=*/false);
+  auto* body = new QWidget();
+  auto* col = new QVBoxLayout(body);
+
+  auto* hint = new QLabel(
+      tr("Live knobs for the Endless biome — edit, then press Generate above to "
+         "apply. (Seed and size are in the section above.)"), body);
+  hint->setWordWrap(true);
+  hint->setStyleSheet(
+      QString("color:%1; font-size:11px;").arg(Theme::hex(Theme::kTextMuted)));
+  col->addWidget(hint);
+
+  // A spinbox bound to a float in cfg_. Writes on edit (Generate applies the
+  // result) and registers a syncer so setConfig can refresh it from cfg_.
+  auto knob = [this](QFormLayout* form, const QString& label, double lo,
+                     double hi, int dec, double step, float* ref,
+                     const QString& suffix) {
+    QDoubleSpinBox* s = spin(lo, hi, dec, step, *ref, suffix);
+    form->addRow(label, s);
+    connect(s, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+            [this, ref](double v) { if (!procSyncing_) *ref = static_cast<float>(v); });
+    procKnobSyncers_.push_back([s, ref] { s->setValue(*ref); });
+  };
+  auto group = [&](const QString& title) {
+    auto* l = new QLabel(title, body);
+    l->setStyleSheet(QString("color:%1; font-weight:bold; font-size:11px;")
+                         .arg(Theme::hex(Theme::kTextMuted)));
+    col->addWidget(l);
+  };
+
+  group(tr("Terrain"));
+  {
+    auto* f = new QFormLayout();
+    knob(f, tr("Peak height:"), 5, 250, 0, 5, &cfg_.field.heightM, tr(" m"));
+    knob(f, tr("Feature size:"), 40, 800, 0, 10, &cfg_.field.featureM, tr(" m"));
+    knob(f, tr("Mountain amount:"), 0, 1, 2, 0.05, &cfg_.field.mountainMix, {});
+    knob(f, tr("Max slope (rise/run):"), 0.2, 8.0, 2, 0.1, &cfg_.field.maxSlope, {});
+    col->addLayout(f);
+  }
+  group(tr("Surface colour — elevation fraction (0=valley, 1=peak)"));
+  {
+    auto* f = new QFormLayout();
+    knob(f, tr("Brown above:"), 0, 1, 2, 0.02, &cfg_.field.colBrownT, {});
+    knob(f, tr("Rock above:"), 0, 1, 2, 0.02, &cfg_.field.colRockT, {});
+    knob(f, tr("Snow above:"), 0, 1, 2, 0.02, &cfg_.field.colSnowT, {});
+    knob(f, tr("Slope→rock:"), 0, 1, 2, 0.02, &cfg_.field.colSlopeT, {});
+    col->addLayout(f);
+  }
+  group(tr("Grass — flatness 1=flat, 0=vertical"));
+  {
+    auto* f = new QFormLayout();
+    knob(f, tr("Spacing (density):"), 0.15, 4.0, 2, 0.05, &cfg_.flora.spacing, tr(" m"));
+    knob(f, tr("Blades per cell:"), 1, 12, 0, 1, &cfg_.flora.bladesPerCell, {});
+    knob(f, tr("Height limit:"), 0, 1, 2, 0.02, &cfg_.flora.grassMaxFrac, {});
+    knob(f, tr("Slope start:"), 0, 1, 2, 0.02, &cfg_.flora.slopeLo, {});
+    knob(f, tr("Slope full:"), 0, 1, 2, 0.02, &cfg_.flora.slopeHi, {});
+    knob(f, tr("Flower fraction:"), 0, 0.4, 2, 0.01, &cfg_.flora.flowerFrac, {});
+    knob(f, tr("Blade height mean:"), 0.05, 1.5, 2, 0.02, &cfg_.flora.heightMean, tr(" m"));
+    knob(f, tr("Blade height σ:"), 0.0, 0.5, 2, 0.01, &cfg_.flora.heightStdDev, tr(" m"));
+    col->addLayout(f);
+  }
+  group(tr("Grass shading & lighting"));
+  {
+    auto* f = new QFormLayout();
+    knob(f, tr("Sun intensity:"), 0, 3, 2, 0.05, &cfg_.look.sunIntensity, {});
+    knob(f, tr("Ambient strength:"), 0, 3, 2, 0.05, &cfg_.look.ambientStrength, {});
+    knob(f, tr("Grass brightness:"), 0, 3, 2, 0.05, &cfg_.look.brightness, {});
+    knob(f, tr("Tip warmth:"), 0, 2, 2, 0.05, &cfg_.look.tipWarmth, {});
+    knob(f, tr("Backlight (SSS):"), 0, 3, 2, 0.05, &cfg_.look.backlight, {});
+    knob(f, tr("Sheen:"), 0, 3, 2, 0.05, &cfg_.look.sheen, {});
+    knob(f, tr("Vein strength:"), 0, 3, 2, 0.05, &cfg_.look.veinStrength, {});
+    knob(f, tr("Root darkness:"), 0, 0.6, 2, 0.02, &cfg_.look.rootDarkness, {});
+    knob(f, tr("Face-camera fraction:"), 0, 1, 2, 0.05, &cfg_.look.faceCameraFrac, {});
+    col->addLayout(f);
+  }
+
+  sec->setContentWidget(body);
+  root->addWidget(sec);
+}
+
 void WorldEditorWidget::buildWorldMeshSection(QVBoxLayout* root) {
-  auto* sec = new CollapsibleSection(tr("World mesh"), this);
+  auto* sec = new CollapsibleSection(tr("World mesh"), this, /*expanded=*/false);
   auto* body = new QWidget();
   auto* col = new QVBoxLayout(body);
 
@@ -417,7 +653,7 @@ void WorldEditorWidget::onLoadWorld() {
 }
 
 void WorldEditorWidget::buildObstacleSection(QVBoxLayout* root) {
-  auto* sec = new CollapsibleSection(tr("Obstacles"), this);
+  auto* sec = new CollapsibleSection(tr("Obstacles"), this, /*expanded=*/false);
   auto* body = new QWidget();
   auto* col = new QVBoxLayout(body);
 
@@ -633,4 +869,15 @@ void WorldEditorWidget::setConfig(const vsim::WorldConfig& c) {
   for (int i = 0; i < 3; ++i)
     if (worldOffset_[i]) worldOffset_[i]->setValue(cfg_.worldMeshOffset[i]);
   worldMeshSyncing_ = false;
+
+  procSyncing_ = true;
+  if (procBiome_) {
+    const int idx = procBiome_->findData(cfg_.proceduralBiome);
+    procBiome_->setCurrentIndex(idx >= 0 ? idx : 0);
+  }
+  if (procSeed_) procSeed_->setValue(static_cast<int>(cfg_.proceduralSeed));
+  if (procSizeM_) procSizeM_->setValue(cfg_.proceduralSizeM);
+  if (procResolution_) procResolution_->setValue(cfg_.proceduralResolution);
+  for (auto& f : procKnobSyncers_) f();  // refresh the tuning knobs from cfg_
+  procSyncing_ = false;
 }

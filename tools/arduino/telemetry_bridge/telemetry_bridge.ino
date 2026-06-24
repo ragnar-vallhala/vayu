@@ -39,12 +39,26 @@
 #include <WiFiUdp.h>
 #include <WiFiManager.h>
 
-#define FC_BAUD     230400
+#define FC_BAUD     460800  // must match the FC's UART_BAUDRATE (vaios_app_config.h)
 #define UDP_PORT    14555
 #define CFG_PORTAL  "vayu-config"
-#define MAX_UDP     512
-// timer1 @ 5 MHz (TIM_DIV16) -> 0.2 us/tick; 2 ms = 10000 ticks.
-#define FLUSH_TICKS 10000
+// Datagram cap. Coalescing more whole frames per datagram is what raises the
+// effective frame throughput: the binding limit is the ESP's sustainable UDP
+// *datagrams/s* (per-packet WiFi airtime + unicast MAC retries), NOT bytes/s and
+// NOT RAM. 1472 = 1500 MTU - 20 IP - 8 UDP: the largest payload that still rides
+// in a SINGLE WiFi frame. Do NOT raise past this "because we have RAM" — above
+// MTU lwIP fragments into multiple IP fragments, each still its own over-the-air
+// TX (no airtime saved) and losing any one fragment drops the WHOLE datagram
+// (UDP has no retransmit). One datagram = one <=MTU WiFi frame keeps loss atomic.
+#define MAX_UDP     1472
+// Flush cadence = a latency-for-throughput knob. Frames accrue only at the UART
+// rate (~46 B ~= 1 frame per 2 ms @ 230400), so a longer interval packs more
+// frames per datagram -> fewer datagrams/s -> further under the ESP ceiling, at
+// the cost of that much added latency. 8 ms (~4-5 frames/datagram, ~100 dg/s)
+// is a good monitoring default; drop to 2 ms (10000 ticks) if you need
+// low-latency stick-feel data. timer1 @ 5 MHz (TIM_DIV16) -> 0.2 us/tick.
+#define FLUSH_MS    8
+#define FLUSH_TICKS (FLUSH_MS * 5000)  // 5000 ticks/ms at TIM_DIV16
 
 WiFiUDP udp;
 WiFiManager wm;
@@ -52,13 +66,21 @@ IPAddress gcsIp(0, 0, 0, 0);
 bool haveGcs = false;
 bool wifiUp = false;
 
-uint8_t acc[2048];  // writer side: raw UART bytes awaiting framing
+uint8_t acc[4096];  // writer side: raw UART bytes awaiting framing. 4 KiB (was 2 KiB)
+                    // to absorb a WiFi-TX stall at the higher baud without overflow:
+                    // at 460800 (~46 B/ms) 4 KiB buffers ~89 ms of stall (cf. ~22 ms for
+                    // 2 KiB at the old 230400). This + the matching RX ring below is what
+                    // lets us raise baud past the old ESP cap. docs/plans/link-bandwidth-boost.md
 int accLen = 0;
 uint8_t out[MAX_UDP]; // reader side: whole frames packed for one datagram
 int outLen = 0;
 volatile bool flushDue = false; // set by the timer ISR, cleared in loop()
 
-uint8_t cmd[256];   // GCS -> FC command scratch
+uint8_t cmd[512];   // GCS -> FC command scratch. MUST be >= NAVLINK_MAX_FRAME
+                    // (267 B = 10 hdr + 255 payload + 2 CRC): a full XFER_DATA
+                    // upload chunk is a 266 B frame, and udp.read() silently
+                    // truncates to sizeof(cmd) — a 256 B buffer dropped the CRC
+                    // tail of large uplink frames, wedging file uploads.
 uint32_t lastFrame = 0, lastBeat = 0;
 
 void IRAM_ATTR onFlushTick() { flushDue = true; }
@@ -79,8 +101,9 @@ static void flushOut() {
 
 void setup() {
   // UART0: FC telemetry IN, swapped to GPIO13/15 so GPIO1/3 stay free for USB
-  // flashing. Big RX ring so a WiFi TX stall can't overflow it mid-frame.
-  Serial.setRxBufferSize(2048);
+  // flashing. Big RX ring so a WiFi TX stall can't overflow it mid-frame. 4 KiB
+  // (was 2 KiB) to survive the higher FC_BAUD — see the acc[] note above.
+  Serial.setRxBufferSize(4096);
   Serial.begin(FC_BAUD);
   Serial.swap();
   // UART1: commands OUT to the FC on GPIO2 (TX-only, safe boot strap).
@@ -152,8 +175,14 @@ void loop() {
     int total = 8 + acc[i + 2] + 4; // header + payload + crc (v1 8+4 == v2 10+2)
     if (accLen - i < total)
       break; // rest of this frame hasn't arrived yet
+    // Adaptive flush, fast path: if the next whole frame won't fit the MTU-sized
+    // datagram, send what we have now and start a new one. A single frame never
+    // exceeds MAX_UDP (max NavLink frame = 255 payload + 12 = 267 B << 1472), so
+    // an empty `out` always has room for one frame. Bursts (e.g. the ~1336 B perf
+    // report) thus go out the instant they fill a datagram, without waiting for
+    // the timer — keeping latency low while still coalescing.
     if (outLen + total > MAX_UDP)
-      flushOut(); // current datagram is full — send it, start a new one
+      flushOut();
     memcpy(out + outLen, acc + i, total);
     outLen += total;
     i += total;
@@ -164,11 +193,11 @@ void loop() {
     accLen -= i;
   }
 
-  // Flush the packed frames on the 2 ms tick (bounded latency) or when full.
+  // Adaptive flush, slow path: send whatever frames have accumulated on the
+  // FLUSH_MS timer tick, bounding latency when traffic is too light to fill a
+  // datagram. (The fill path above already handles the bursty case.)
   if (flushDue) {
     flushDue = false;
-    flushOut();
-  } else if (outLen >= MAX_UDP) {
     flushOut();
   }
 

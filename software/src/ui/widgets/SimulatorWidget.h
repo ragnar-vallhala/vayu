@@ -2,10 +2,13 @@
 
 #include "vsim/SimWorker.h"
 #include "vsim/SimRendererWidget.h"
+#include "vsim/ChunkStreamer.h"
+#include "vsim/procgen/Flora.h"
 #include "vsim/RcBridge.h"
 #include "GeometryEditorWidget.h"
 #include "WorldEditorWidget.h"
 #include "SimHudWidget.h"
+#include "ContourMinimapWidget.h"
 #include "HorizonHud.h"
 #include "TuneChart.h"
 #include "AutotuneGains.h"
@@ -23,8 +26,12 @@ extern "C" {
 #include <QProgressBar>
 #include <QPushButton>
 #include <QString>
+#include <QVector3D>
 #include <QWidget>
+#include <functional>
 #include <memory>
+#include <set>
+#include <unordered_map>
 
 class QGridLayout;
 class QStackedWidget;
@@ -56,6 +63,14 @@ namespace vsim { struct LoadedMesh; }
  * the vsim_d process and pose reader. A Navigator restart fully
  * resets the firmware state.
  */
+// Result of an off-thread terrain-chunk build: the collision/render mesh and the
+// grass/flower instances scattered on it. Carried back to the UI thread via a
+// QFuture.
+struct BuiltChunk {
+  vsim::procgen::ProcMesh mesh;      // fine, for rendering
+  vsim::procgen::ProcMesh collMesh;  // coarse, for the collision BVH
+};
+
 class SimulatorWidget : public QWidget {
   Q_OBJECT
  public:
@@ -140,6 +155,23 @@ class SimulatorWidget : public QWidget {
   // it to the renderer; empty path clears it. When the sim is running, also
   // builds the collision BVH and ships it to the daemon (sendWorldMeshToSim).
   void loadWorldMeshToRenderer();
+  // Endless terrain: poll the streamer at the current view centre (drone or
+  // free-fly camera), drop out-of-range chunks, and farm new-chunk meshing out
+  // to background threads.
+  void onStreamTick();
+  // A background chunk build finished: cache the mesh, upload mesh + flora, and
+  // (re)try the local collision build. Runs on the UI thread.
+  void onChunkMeshed(qint64 key, const BuiltChunk& built);
+  // Flora is dense, so only the chunks within kFloraRadius of the view centre
+  // are uploaded (the rest stay cached). streamFlora adds/removes as you move.
+  void streamFlora(int cx, int cy);
+  void uploadFloraChunk(qint64 key);
+  void onFloraScattered(qint64 key, const std::vector<float>& packed);
+  // Build + ship the local collision BVH from cached chunk meshes once the whole
+  // collision neighbourhood is present (no terrain regeneration).
+  void tryBuildCollision();
+  // Contour minimap: re-centre it on the current view centre + heading (~8 Hz).
+  void updateMinimap();
   // Training course: (re)generate gates for the selected difficulty, push the
   // layout to both renderers, reset the drone to the floor, and refresh the
   // progress readout. setTrainingMode is the dropdown handler.
@@ -203,6 +235,47 @@ class SimulatorWidget : public QWidget {
   bool m_ifaceInit = false;
   bool m_sitlStarted = false;
   vsim::SimWorker* m_sim = nullptr;
+
+  // Endless procedural terrain streaming (active only for the "endless" biome).
+  vsim::ChunkStreamer m_chunkStreamer;
+  class QTimer* m_streamTimer = nullptr;  // polls the view centre (~10 Hz)
+  // Mesh cache for loaded chunks (keyed like the streamer) — lets local
+  // collision reuse meshes instead of regenerating them on each crossing.
+  std::unordered_map<qint64, vsim::procgen::ProcMesh> m_chunkCache;
+  int m_streamGen = 0;             // bumped on (re)configure to drop stale builds
+  bool m_collisionPending = false; // a crossing asked for a collision rebuild
+  int m_colCx = 0, m_colCy = 0;    // cell that collision should cover
+
+  // Flora: packed instance data per built chunk (cache), and which chunks are
+  // currently uploaded to the renderer (only the near ones, for perf).
+  std::unordered_map<qint64, std::pair<std::vector<float>, int>> m_floraCache;
+  std::set<qint64> m_floraShown;
+  std::set<qint64> m_floraInflight;       // flora scatters in progress
+  static constexpr int kFloraRadius = 1;  // chunks each side kept grassed
+  vsim::procgen::FloraParams m_floraParams;  // active grass tuning (from config)
+  bool m_useGpuGrass = false;  // GPU grass active -> skip the CPU flora streaming
+  bool m_grassEnabled = false; // "Grass" toggle (off by default); gates rendering
+
+  // Lift-onto-terrain: a height sampler for the active procedural world (null
+  // for imported / no world), the last known drone position, and a request to
+  // lift once the endless biome's local collision has shipped.
+  std::function<float(float, float)> m_terrainHeightAt;
+  QVector3D m_lastDronePos{0, 0, 0};
+  void liftDroneToSurface();  // re-drop the drone above the surface if buried
+
+  // Helipad landing platforms scattered deterministically on flat ground. Each
+  // entry is (worldX, worldY, terrainHeight). The home pad (drone spawn) is at
+  // the origin. Recomputed as the view roams; pushed to the renderer to draw.
+  std::vector<QVector3D> m_helipads;
+  QVector3D m_homePad{0, 0, 0};
+  QVector3D m_lastHelipadCenter{1e9f, 1e9f, 0};  // recompute only when view moves
+  void recomputeHelipads(float cx, float cy);
+  // Append each helipad's solid cylinder (deck cap + side wall, double-sided) to
+  // a collision triangle-soup so the drone physically lands on the pads.
+  void appendHelipadCollision(std::vector<QVector3D>& positions) const;
+  // NED z of the landing surface at (x,y): pad top when over a helipad, else
+  // the terrain surface. Used by spawn/reset and the lift-onto-surface logic.
+  float landingSurfaceZ(float x, float y) const;
   RcBridge* m_rc = nullptr;        // RC transmitter → firmware RC feeder
   QCheckBox* m_rcEnable = nullptr;
   QComboBox* m_rcSource = nullptr;          // USB joystick vs UART (CSV)
@@ -231,6 +304,9 @@ class SimulatorWidget : public QWidget {
   vsim::SimRendererWidget* m_downRenderer = nullptr;  // Down-Cam PiP renderer
   QWidget* m_horizonPip = nullptr; // draggable PipOverlay hosting m_horizon
   QWidget* m_downPip = nullptr;    // draggable PipOverlay hosting m_downRenderer
+  ContourMinimapWidget* m_minimap = nullptr;  // top-down contour minimap
+  QWidget* m_minimapPip = nullptr;            // draggable PipOverlay hosting it
+  class QTimer* m_minimapTimer = nullptr;     // re-centres the minimap (~8 Hz)
   PropAudio m_propAudio;           // rpm-driven propeller sound
   QCheckBox* m_propAudioChk = nullptr;  // "Prop audio" toggle (default via Settings)
   GeometryEditorWidget* m_geomEditor = nullptr;

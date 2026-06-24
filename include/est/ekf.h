@@ -44,7 +44,7 @@
 
 /* Measurement noise. */
 #ifndef EKF_R_ACC_DIR
-#define EKF_R_ACC_DIR 2.5e-3f /* 6-state: unit gravity-direction variance */
+#define EKF_R_ACC_DIR 2.5e-2f /* 6-state: unit gravity-direction variance */
 #endif
 #ifndef EKF_R_ACC
 #define EKF_R_ACC 9.0e-2f /* 9-state: accel variance (m/s^2)^2 */

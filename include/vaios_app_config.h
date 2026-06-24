@@ -17,7 +17,20 @@
 
 #define UART_LOGGING_ENABLE 1
 
-#define UART_BAUDRATE 230400 // ~22.5 KiB/s — sized for the ESP8266 WiFi relay
+#define UART_BAUDRATE 460800 // ~45 KiB/s. Raised from 230400 (the old ESP8266 cap);
+// the bridge now has a 4 KiB RX ring to absorb WiFi-TX stalls at this rate. The ESP's
+// FC_BAUD must match. See docs/plans/link-bandwidth-boost.md.
+
+/* Telemetry base tick (ms) for imu_telemetry_task's main loop. The per-stream gates are
+ * expressed in MILLISECONDS (TELEM_GATE in telemetry_task.c), so this sets the loop/flush
+ * granularity WITHOUT changing any stream's effective rate: a smaller value runs the loop
+ * faster and spreads emissions over more, smaller iterations -> smaller channel-buffer
+ * bursts -> smoother/faster flushing. 2 ms (~500 Hz) default; 6 ms reproduces the original
+ * tick periods exactly. (Gate floor is 1 tick, so at very small values low-period streams
+ * saturate — useful as a coarse load knob.) */
+#ifndef TELEM_BASE_MS
+#define TELEM_BASE_MS 2
+#endif
 
 #define LOGGING_ENABLED 0
 

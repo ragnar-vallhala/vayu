@@ -99,6 +99,12 @@ def main():
     bad = collections.Counter()            # reason -> count
     peer = None
     total_bytes = 0
+    # Knee/throughput accounting (link bandwidth boost — docs/plans/link-bandwidth-boost.md).
+    win_bytes = 0          # payload bytes received this second (effective KB/s)
+    win_dgrams = 0         # UDP datagrams this second (ESP coalesces frames into these)
+    win_lost = 0           # frames inferred dropped this second (per-msgid seq gaps)
+    lost_total = 0
+    frames_total = 0
 
     t0 = time.monotonic()
     last_hello = 0.0
@@ -125,24 +131,59 @@ def main():
                         peer = addr
                         print(f"[sniff] peer -> {addr[0]}:{addr[1]}")
                     total_bytes += len(data)
-                    d = frame.decode(data)
-                    if d.ok:
+                    win_bytes += len(data)
+                    win_dgrams += 1
+                    # One UDP datagram carries N coalesced NavLink frames (the ESP bridge
+                    # packs whole frames up to the MTU). Walk them ALL — frame.decode()
+                    # only parses the first, which silently undercounts under coalescing.
+                    # Frame length is HDR_LEN + payload_len(byte[2]) + 2 CRC.
+                    off = 0
+                    while len(data) - off >= frame.HDR_LEN + 2:
+                        if data[off] != 0x56 or data[off + 1] != 0x02:
+                            off += 1  # resync past junk / a dropped-fragment boundary
+                            continue
+                        flen = frame.HDR_LEN + data[off + 2] + 2
+                        if len(data) - off < flen:
+                            break  # trailing partial frame (bridge is frame-aligned, so rare)
+                        d = frame.decode(data[off:off + flen])
+                        off += flen
+                        if not d.ok:
+                            bad[d.reason] += 1
+                            continue
+                        frames_total += 1
                         counts[d.msgid] += 1
                         window[d.msgid] += 1
+                        # Frame-loss via the per-msgid 8-bit header seq: a gap = that many
+                        # frames of this stream were dropped (bridge RX-ring overflow or
+                        # WiFi loss). Bounded (<64) to ignore 256-wraps/reorders. This is
+                        # the knee signal — loss climbs from ~0 as the rate passes the wall.
+                        prev = last_seq.get(d.msgid)
+                        if prev is not None:
+                            gap = (d.seq - prev - 1) & 0xFF
+                            if 0 < gap < 64:
+                                win_lost += gap
+                                lost_total += gap
                         last_seq[d.msgid] = d.seq
                         peek = fmt_peek(d.msgid, d.payload)
                         if peek:
                             last_peek[d.msgid] = peek
                         if args.raw and peek:
                             print(f"  {name_of(d.msgid):16s} {peek}")
-                    else:
-                        bad[d.reason] += 1
 
             if now - last_report >= 1.0:
                 dt = now - last_report
+                win_frames = sum(window.values())
+                kbps = win_bytes / 1024.0 / dt
+                fps = win_frames / dt
+                dps = win_dgrams / dt
+                loss = 100.0 * win_lost / max(1, win_frames + win_lost)
+                fpd = win_frames / win_dgrams if win_dgrams else 0.0
+                # The knee line: watch loss% climb from ~0 as you crank TELEM_BASE_MS down.
                 print(f"\n=== t+{now - t0:5.1f}s  peer={peer[0] if peer else '—'}  "
-                      f"{total_bytes/1024:.1f} KiB total  "
+                      f"LINK {kbps:6.1f} KiB/s  {fps:6.0f} frame/s  {dps:5.0f} dgram/s "
+                      f"({fpd:.1f} f/dg)  loss {loss:5.1f}%  "
                       f"bad={dict(bad) or '{}'} ===")
+                win_bytes = win_dgrams = win_lost = 0
                 for msgid in sorted(window, key=lambda m: -window[m]):
                     hz = window[msgid] / dt
                     line = (f"  {name_of(msgid):18s} {hz:6.1f} Hz  "
@@ -159,7 +200,12 @@ def main():
     finally:
         sock.close()
         dur = time.monotonic() - t0
-        print(f"\n[sniff] stopped after {dur:.1f}s. totals:")
+        agg_loss = 100.0 * lost_total / max(1, frames_total + lost_total)
+        print(f"\n[sniff] stopped after {dur:.1f}s. "
+              f"{frames_total} frames, {total_bytes/1024:.1f} KiB "
+              f"({total_bytes/1024/max(dur,1e-9):.1f} KiB/s avg), "
+              f"~{lost_total} frames lost ({agg_loss:.1f}%).")
+        print("[sniff] totals:")
         for msgid in sorted(counts, key=lambda m: -counts[m]):
             print(f"  {name_of(msgid):18s} n={counts[msgid]:<7d} "
                   f"avg {counts[msgid]/dur:6.1f} Hz")

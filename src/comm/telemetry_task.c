@@ -5,9 +5,11 @@
 #include "comm/ibus.h"
 #include "comm/navlink_tx.h"
 #include "comm/rc_buffer.h"
-#include "logger/logger.h"
+#include "comm/xfer/navlink_xfer.h"
+#include "storage/fs_owner.h"
 #include "control/control.h"
 #include "control/flight_mode.h"
+#include "control/sysid.h"
 #include "est/est.h"
 #include "sensor/sensor.h"
 #include "sys/state.h"
@@ -22,6 +24,20 @@
 
 /* Owned here; the TX seam (navlink_tx.c) and RX router both extern it. */
 channel_t g_telemetry_channel = {0};
+
+/* Telemetry stream gating expressed in MILLISECONDS, decoupled from the loop tick
+ * (TELEM_BASE_MS). Lowering TELEM_BASE_MS runs the loop faster and spreads
+ * emissions over more, smaller iterations — smaller channel-buffer bursts ->
+ * smoother/faster flushing — WITHOUT changing any stream's effective rate (at the
+ * old 6 ms tick these reproduce the original tick periods exactly).
+ *   TELEM_TICKS(ms)              : period in ticks, floored at 1.
+ *   TELEM_GATE(cnt, ms, phase_ms): true once per `ms`, phase-shifted by `phase_ms`
+ *     so streams that share a period don't all fire on the same tick. */
+#define TELEM_TICKS(ms) \
+  (((uint32_t)(ms) / TELEM_BASE_MS) ? ((uint32_t)(ms) / TELEM_BASE_MS) : 1u)
+#define TELEM_GATE(cnt, ms, phase_ms)              \
+  (((cnt) % TELEM_TICKS(ms)) ==                    \
+   (((uint32_t)(phase_ms) / TELEM_BASE_MS) % TELEM_TICKS(ms)))
 
 void imu_telemetry_task(void *args) {
   (void)args;
@@ -56,23 +72,34 @@ void imu_telemetry_task(void *args) {
       current_floats[9] = (float)samples.converted.temp;
     }
 
-    // Base loop is v_delay(6) below => ~166 Hz tick.
-    // COMM-TEL-002 / SYS-TEL-001: heartbeat must be >= 1 Hz. 166 ticks x
-    // 6 ms = 996 ms => 1.004 Hz (the previous 150 ticks = 900 ms = 1.11 Hz
-    // was mislabelled "1 Hz"; 166 is the closest period to 1 s that still
-    // satisfies >= 1 Hz).
-#define HEARTBEAT_PERIOD_TICKS 166
-    bool send_heartbeat = (packet_counter % HEARTBEAT_PERIOD_TICKS == 0); // ~1 Hz
-    bool send_full = (packet_counter % 100 == 0);      // 1 Hz
-    bool send_comp = (packet_counter % 6 == 0);        // 25 Hz
-    bool send_att = (packet_counter % 15 == 0);        // 10 Hz
-    bool send_rc = (packet_counter % 15 == 0);         // 10 Hz
-    bool send_status = (packet_counter % 50 == 0);     // 2 Hz
-    bool send_motor = (packet_counter % 8 == 0);       // 18 Hz
-    bool send_pid_err = (packet_counter % 8 == 0);     // 18 Hz
-    bool send_log = (packet_counter % 10 == 0);        // 15 Hz
-    bool send_baro = (packet_counter % 15 == 0);       // 10 Hz
-    bool send_vert = (packet_counter % 15 == 0);        // 10 Hz (fused vertical)
+    /* Per-stream emission gating in ms (see TELEM_GATE above). Effective rates
+     * match the historical tick periods; same-period streams are phase-staggered
+     * (the phase_ms arg) so a faster loop yields smaller per-tick bursts. Heartbeat
+     * rides send_status (>= 1 Hz, COMM-TEL-002 / SYS-TEL-001). */
+    bool send_full    = TELEM_GATE(packet_counter, 600, 0);  // ~1.7 Hz
+    bool send_comp    = TELEM_GATE(packet_counter, 20, 0);   // 50 Hz
+    bool send_att     = TELEM_GATE(packet_counter, 20, 5);   // 50 Hz (staggered)
+    bool send_motor   = TELEM_GATE(packet_counter, 20, 10);  // 50 Hz (staggered)
+    bool send_pid_err = TELEM_GATE(packet_counter, 20, 15);  // 50 Hz (staggered, CONTROL_TRACE)
+    bool send_rc      = TELEM_GATE(packet_counter, 90, 22);  // ~11 Hz
+    bool send_baro    = TELEM_GATE(packet_counter, 200, 0);  // 5 Hz
+    bool send_vert    = TELEM_GATE(packet_counter, 200, 100);// 5 Hz (staggered)
+    bool send_status  = TELEM_GATE(packet_counter, 300, 12); // ~3.3 Hz
+    bool send_log     = TELEM_GATE(packet_counter, 60, 30);  // ~17 Hz
+
+    /* While dumping the system-ID capture, hand the bridge's ~150 pkt/s budget
+     * to the dump: suppress the heavy periodic telemetry so the chunks aren't
+     * crowded out and dropped (this is a deliberate post-run, bench-only op). */
+    if (sysid_dump_active()) {
+      send_full = send_comp = send_att = send_rc = send_motor = send_pid_err =
+          send_baro = send_vert = false;
+    }
+    /* A big file download is a deliberate ground op; hand it the link by
+     * suppressing the heaviest tuning streams (keep attitude/RC/baro/status/
+     * heartbeat for situational awareness). Mirrors the sysid-dump case. */
+    if (xfer_download_active()) {
+      send_full = send_comp = send_motor = send_pid_err = false;
+    }
     /* Gather domain data + hand it to the TX seam; this task is codec-blind
      * (all framing lives in navlink_tx.c). */
     if (send_log) {
@@ -83,7 +110,6 @@ void imu_telemetry_task(void *args) {
         navlink_tx_log(log_buf, len);
       }
     }
-    (void)send_heartbeat; /* heartbeat now rides the send_status gate below */
     if (send_status) {
       /* v2 HEARTBEAT carries nav_state (folds in the former SYS_STATE origin);
        * emitted at the status cadence so the vehicle-state pill stays responsive
@@ -95,7 +121,7 @@ void imu_telemetry_task(void *args) {
       /* Health counters (COMM-CH-002, SNS-BUF-002, LOG-SD-002). The legacy IMU
        * averaging ring was removed; imu_drop stays 0 to preserve the layout. */
       navlink_tx_health(channel_tx_overflow_count(), 0u,
-                        logger_wrap_count_total());
+                        fs_owner_log_wrap_count_total());
     }
     if (send_pid_err && control_telemetry_queue_pop(&c_data)) {
       navlink_tx_pid_error(&c_data);
@@ -130,6 +156,30 @@ void imu_telemetry_task(void *args) {
       navlink_tx_calibration(imu_calibration_telemetry.buffer,
                              imu_calibration_telemetry.size);
     }
+    /* System-ID: flush captured half-buffers to SD during a run (all the vfs I/O
+     * lives here, off the 1 kHz control loop). Cheap no-op when idle. */
+    sysid_flush_poll();
+    /* System-ID capture dump: read the SD file back as SYSID_SAMPLE chunks, a few
+     * per cycle so write_channel isn't flooded. The host re-sends CMD_SYSID_DUMP
+     * to refill any chunks the lossy link dropped (idempotent re-dump). */
+    if (sysid_dump_active()) {
+      /* Pace to ~80 chunks/s (1 chunk per 2 cycles at 166 Hz): the ESP bridge
+       * only sustains ~150 pkts/s shared with the rest of telemetry, so blasting
+       * the whole file at once just gets ~80% dropped. Paced under capacity, a
+       * single dump pass arrives intact (the host still re-requests for any
+       * residual drops, deduping by start_index). */
+      uint16_t total = (uint16_t)sysid_capture_count();
+      uint16_t hz = (uint16_t)sysid_capture_hz();
+      uint8_t axis = (uint8_t)sysid_capture_axis();
+      for (int b = 0; b < 2 && sysid_dump_active(); b++) {
+        uint16_t start = 0;
+        int16_t sp[10], gyro[10];
+        int n = sysid_dump_next(&start, sp, gyro, 10);
+        if (n <= 0)
+          break;
+        navlink_tx_sysid_sample(start, total, hz, axis, (uint8_t)n, sp, gyro);
+      }
+    }
     /* Estimator cost probe (~1 Hz): peak/mean per-update cost + cadence. */
     if (est_perf_queue_pop(&e_data)) {
       navlink_tx_est_perf(&e_data);
@@ -151,6 +201,9 @@ void imu_telemetry_task(void *args) {
       navlink_tx_vertical_state(&vert_data);
     }
     packet_counter++;
-    v_delay(6); // ~166 Hz
+    /* Loop/flush granularity (~500 Hz at TELEM_BASE_MS=2). Per-stream rates are set by
+     * the ms-based TELEM_GATE above and are independent of this tick — a smaller tick
+     * just flushes smaller bursts more often. See vaios_app_config.h. */
+    v_delay(TELEM_BASE_MS);
   }
 }

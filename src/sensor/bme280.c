@@ -1,7 +1,7 @@
 #include "sensor/bme280.h"
 #include "sensor/i2c_manager.h"
 #include "maths/maths_interface.h"
-#include "logger/logger.h"
+#include "storage/fs_owner.h"
 #include "vaios.h"
 #include <stdint.h>
 

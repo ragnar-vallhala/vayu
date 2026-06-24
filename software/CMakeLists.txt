@@ -45,6 +45,7 @@ find_package(Qt6 REQUIRED COMPONENTS
     Network
     OpenGL
     OpenGLWidgets
+    Concurrent
 )
 
 # -------------------------------------------------------
@@ -202,12 +203,20 @@ set(GCS_SITL_SOURCES
     src/ui/widgets/SimulatorWidget.cpp
     src/ui/widgets/GeometryEditorWidget.cpp
     src/ui/widgets/WorldEditorWidget.cpp
+    src/ui/widgets/ContourMinimapWidget.cpp
     src/ui/widgets/CollapsibleSection.cpp
     src/ui/widgets/SimHudWidget.cpp
     src/vsim/SimWorker.cpp
     src/vsim/SimRendererWidget.cpp
     src/vsim/MeshLoader.cpp
     src/vsim/WorldMeshBuilder.cpp
+    src/vsim/ProceduralWorld.cpp
+    src/vsim/ChunkStreamer.cpp
+    src/vsim/GpuGrass.cpp
+    src/vsim/procgen/Noise.cpp
+    src/vsim/procgen/TerrainGen.cpp
+    src/vsim/procgen/TerrainField.cpp
+    src/vsim/procgen/Flora.cpp
     src/vsim/MassProperties.cpp
     src/vsim/RcBridge.cpp
     src/vsim/TrainingCourse.cpp
@@ -218,6 +227,7 @@ set(GCS_SITL_HEADERS
     src/ui/widgets/SimulatorWidget.h
     src/ui/widgets/GeometryEditorWidget.h
     src/ui/widgets/WorldEditorWidget.h
+    src/ui/widgets/ContourMinimapWidget.h
     src/ui/widgets/CollapsibleSection.h
     src/ui/widgets/SimHudWidget.h
     src/vsim/VsimTypes.h
@@ -225,6 +235,15 @@ set(GCS_SITL_HEADERS
     src/vsim/SimRendererWidget.h
     src/vsim/MeshLoader.h
     src/vsim/WorldMeshBuilder.h
+    src/vsim/ProceduralWorld.h
+    src/vsim/ChunkStreamer.h
+    src/vsim/GpuGrass.h
+    src/vsim/procgen/ProcgenTypes.h
+    src/vsim/procgen/Noise.h
+    src/vsim/procgen/Heightfield.h
+    src/vsim/procgen/TerrainGen.h
+    src/vsim/procgen/TerrainField.h
+    src/vsim/procgen/Flora.h
     src/vsim/MassProperties.h
     src/vsim/RcBridge.h
     src/vsim/TrainingCourse.h
@@ -264,6 +283,7 @@ target_link_libraries(Navigator PRIVATE
     Qt6::Network
     Qt6::OpenGL
     Qt6::OpenGLWidgets
+    Qt6::Concurrent
     navlink_codec   # NavLink v2 generated codec (PUBLIC include comes with it)
 )
 

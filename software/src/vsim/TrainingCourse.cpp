@@ -17,21 +17,28 @@ struct DiffParams {
   float minStep;      // floor on the forward step, metres
   float baseRadius;   // first gate radius, metres (generous = easy)
   float shrink;       // radius removed per gate (rings get smaller)
+  float baseAlt;      // altitude of the first gate, metres above ground
   float climb;        // altitude gained per gate, metres (up = -z)
   float latAmp;       // lateral (east) swing amplitude, metres
 };
 
 DiffParams paramsFor(TrainingCourse::Difficulty d) {
+  // The course flies high off the deck (no ground-skimming rings), starts with
+  // the first gate a long way out, and tightens gradually over many gates so
+  // neither the ring size nor the spacing collapses in just a handful of gates.
+  // spacingDecay/shrink are sized to ease from the opening value down to the
+  // floor over (count-1) gates.
   switch (d) {
-    // First-timers: big rings, well spaced, almost straight, gentle climb.
+    // First-timers: big rings, far apart, almost straight, high and gentle.
+    // 20 gates: first at 100 m, spacing eases 100 m -> 5 m, size eases gradually.
     case TrainingCourse::Easy:
-      return {5, 11.0f, 1.2f, 6.0f, 3.6f, 0.35f, 0.9f, 1.5f};
+      return {20, 100.0f, 5.0f, 5.0f, 3.6f, 0.16f, 22.0f, 0.8f, 1.5f};
     case TrainingCourse::Medium:
-      return {7, 9.0f, 1.0f, 5.0f, 2.6f, 0.28f, 1.4f, 3.0f};
+      return {24, 100.0f, 4.5f, 5.0f, 3.0f, 0.12f, 22.0f, 1.0f, 4.0f};
     case TrainingCourse::Hard:
-      return {10, 8.0f, 0.7f, 4.0f, 1.9f, 0.16f, 2.0f, 5.0f};
+      return {30, 90.0f, 3.2f, 4.0f, 2.4f, 0.07f, 20.0f, 1.3f, 7.0f};
     default:
-      return {0, 0, 0, 0, 0, 0, 0, 0};
+      return {0, 0, 0, 0, 0, 0, 0, 0, 0};
   }
 }
 constexpr float kMinRadius = 0.6f;
@@ -59,9 +66,9 @@ void TrainingCourse::generate(Difficulty d) {
     // Lateral swing grows with progress; alternate sides for an S-weave.
     const float swing = p.latAmp * (0.4f + 0.6f * float(i) / std::max(1, p.count - 1));
     const float y = swing * std::sin(float(i) * 1.15f);
-    // Climb, but keep a sensible ceiling and never below the floor.
-    const float alt = 1.2f + p.climb * i;          // metres above ground
-    const float z = -std::min(alt, 18.0f);          // NED up is negative
+    // Fly high off the deck and climb gently, with a sensible ceiling.
+    const float alt = p.baseAlt + p.climb * i;      // metres above ground
+    const float z = -std::min(alt, 50.0f);          // NED up is negative
     centres.push_back(QVector3D(x, y, z));
   }
 

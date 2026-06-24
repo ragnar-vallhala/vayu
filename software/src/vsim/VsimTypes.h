@@ -1,5 +1,8 @@
 #pragma once
 
+#include "procgen/Flora.h"         // procgen::FloraParams (procedural tuning)
+#include "procgen/TerrainField.h"  // procgen::FieldParams
+
 #include <QQuaternion>
 #include <QString>
 #include <QVector>
@@ -106,6 +109,20 @@ struct WorldConfig {
   float     worldMeshRestitution = 0.3f;
   bool      worldMeshDoubleSided = true;
   QVector3D worldMeshOffset{0, 0, 0};  // NED world-space placement [m]
+
+  // Procedural world (Phase 0). When proceduralBiome is non-empty it takes
+  // precedence over worldMeshPath: the world is generated from these params
+  // instead of imported, then fed to the same render + collision pipeline.
+  QString  proceduralBiome;            // empty = none; "meadow" supported now
+  quint32  proceduralSeed = 1337u;     // same seed+params -> same world
+  float    proceduralSizeM = 256.0f;   // square extent [m]
+  int      proceduralResolution = 192; // grid samples per side
+
+  // Live-tunable generator params (exposed in the World tab's Procedural
+  // section). seed is driven by proceduralSeed; the rest are user knobs.
+  procgen::FieldParams field;          // terrain shape + surface colour bands
+  procgen::FloraParams flora;          // grass density / slope / height
+  procgen::GrassLook look;             // live grass/terrain shading knobs
 };
 
 // World-frame wind field (VSIM_CTL_SET_WIND): steady + gust + turbulence.

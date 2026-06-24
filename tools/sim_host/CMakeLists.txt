@@ -74,6 +74,7 @@ set(VAYU_SOURCES
     ${VAYU_ROOT}/src/actuator/motor.c
     ${VAYU_ROOT}/src/control/angle_controller.c
     ${VAYU_ROOT}/src/control/angle_rate_controller.c
+    ${VAYU_ROOT}/src/control/sysid.c        # rate-loop system-ID excite/capture (angle_rate_controller + navlink refs)
     ${VAYU_ROOT}/src/control/pid_config.c   # CMD_SET_PID apply + SD persistence
     ${VAYU_ROOT}/src/control/flight_mode.c  # stabilise/acro arbitration (RC + GCS)
     ${VAYU_ROOT}/src/control/control_buffer.c
@@ -90,7 +91,7 @@ set(VAYU_SOURCES
     ${VAYU_ROOT}/src/est/flight_phase.c        # takeoff/landing detector + FC-owned AGL (IN_AIR)
     ${VAYU_ROOT}/src/sensor/imu_buffer.c
     ${VAYU_ROOT}/src/sensor/bme280.c   # real FC baro driver (altitude/publish/getters); host_baro.c feeds it
-    ${VAYU_ROOT}/src/logger/logger.c    # wrap counters; telemetry reads them
+    ${VAYU_ROOT}/src/storage/fs_owner.c # centralised FS owner (absorbs logger.c)
     ${VAYU_ROOT}/src/logger/log_text.c  # vayu_log + queue (moved from utils.c)
     ${VAYU_ROOT}/src/sys/state.c
     ${VAYU_ROOT}/src/sys/assert.c
@@ -106,6 +107,12 @@ set(VAYU_SOURCES
     ${VAYU_ROOT}/src/comm/navlink_router.c  # v2 RX handler table (uplink)
     ${VAYU_ROOT}/src/comm/navlink_tx.c      # TX seam (telemetry/cmd-resp framing)
     ${VAYU_ROOT}/src/comm/telemetry_task.c
+    ${VAYU_ROOT}/src/comm/xfer/navlink_xfer.c     # bulk-transfer (FTP) substrate core SM
+    ${VAYU_ROOT}/src/comm/xfer/navlink_xfer_tx.c  # xfer codec/channel seam (g_xfer_tx_ops)
+    ${VAYU_ROOT}/src/comm/xfer/fs_query.c         # filesystem navigation (list/stat)
+    ${VAYU_ROOT}/src/comm/xfer/providers/file_provider.c
+    ${VAYU_ROOT}/src/comm/xfer/providers/log_provider.c
+    ${VAYU_ROOT}/src/comm/xfer/providers/stream_provider.c
 )
 
 # vaios kernel pieces that are pure C and portable.
@@ -252,6 +259,32 @@ add_test(NAME phase3_comm COMMAND test_phase3_comm)
 add_executable(test_phase3_slog tests/test_phase3_slog.c)
 target_link_libraries(test_phase3_slog PRIVATE vayu_sitl_core m)
 add_test(NAME phase3_slog COMMAND test_phase3_slog)
+
+# Centralised FS owner: snapshot/torn-read, reserved save lane, drop accounting,
+# log round-trip (src/storage/fs_owner.c, in vayu_sitl_core).
+add_executable(test_fs_owner tests/test_fs_owner.c)
+target_link_libraries(test_fs_owner PRIVATE vayu_sitl_core m)
+add_test(NAME fs_owner COMMAND test_fs_owner)
+
+# xfer (FTP) substrate core SM (src/comm/xfer/navlink_xfer.c, in vayu_sitl_core).
+add_executable(test_xfer_sm tests/test_xfer_sm.c)
+target_link_libraries(test_xfer_sm PRIVATE vayu_sitl_core m)
+add_test(NAME xfer_sm COMMAND test_xfer_sm)
+
+# xfer end-to-end through the real codec seam (navlink_xfer_tx.c + navlink_codec).
+add_executable(test_xfer_e2e tests/test_xfer_e2e.c)
+target_link_libraries(test_xfer_e2e PRIVATE vayu_sitl_core navlink_codec m)
+add_test(NAME xfer_e2e COMMAND test_xfer_e2e)
+
+# xfer real providers: FILE round-trip, LOG download/deny, STREAM source.
+add_executable(test_xfer_providers tests/test_xfer_providers.c)
+target_link_libraries(test_xfer_providers PRIVATE vayu_sitl_core m)
+add_test(NAME xfer_providers COMMAND test_xfer_providers)
+
+# filesystem navigation (FS_LIST / FS_INFO) service over fs_owner + host VFS.
+add_executable(test_fs_query tests/test_fs_query.c)
+target_link_libraries(test_fs_query PRIVATE vayu_sitl_core m)
+add_test(NAME fs_query COMMAND test_fs_query)
 
 # EKF estimator: thin adapter over the shared branch-coverage core in
 # src/est/ekf_selftest.c, which we compile here with -DEKF_SELFTEST (the same

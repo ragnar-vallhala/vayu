@@ -35,6 +35,7 @@
 #include "comm/comm.h"
 #include "comm/ibus.h"
 #include "control/control.h"
+#include "storage/fs_owner.h"
 #include "sys/sys_utils.h"
 #include "vayu_status.h"
 #include "vayu_tasks.h"
@@ -134,6 +135,12 @@ static void test_payload_validation(void) {
 static void test_set_pid_apply(void) {
   printf("  test_set_pid_apply (COMM-CMD-003)\n");
 
+  /* The PID save is enqueued off the comm task (the C1->C3 RX-drop fix), so the
+   * save lane must be up for pid_config_save() to enqueue at all, and it needs a
+   * synchronous drain to actually land on disk — a unit test has no fs_owner
+   * task running it. (s_ready latches for the process, so this is idempotent.) */
+  fs_owner_init();
+
   const uint8_t axis = 1; /* pitch */
   const float kp = 0.111f, ki = 0.022f, kd = 0.033f, kff = 0.044f;
 
@@ -158,8 +165,11 @@ static void test_set_pid_apply(void) {
   CHECK(feq(skp, kp) && feq(ski, ki) && feq(skd, kd) && feq(skff, kff),
         "stored gains match commanded values");
 
-  /* Persistence round-trip: reload from the (RAM-backed) VFS file and
-   * confirm the value survives — proves save wrote and load read it. */
+  /* Persistence round-trip: drain the enqueued save so the CURRENT gains hit
+   * pid.bin, then reload from the (host-mirrored) VFS file and confirm the value
+   * survives — proves save wrote and load read it. Without the pump, init would
+   * read a stale pid.bin from a previous run. */
+  fs_owner_pump();
   pid_config_init();
   float rkp, rki, rkd, rkff;
   CHECK(pid_config_get_rate(axis, &rkp, &rki, &rkd, &rkff) && feq(rkp, kp) &&
@@ -176,8 +186,11 @@ static void test_set_pid_apply(void) {
 }
 
 /* ----------------------------------------------------------------------------
- * COMM-CH-002 — a write that would exceed the 512 B TX buffer returns
- * ERROR and bumps the overflow counter.
+ * COMM-CH-002 — a write that would exceed the TX buffer returns ERROR and bumps
+ * the overflow counter. NOTE: normal writes (telemetry/acks) are now capped at
+ * CHANNEL_TX_BUF_SIZE - CHANNEL_TX_XFER_RESERVE (2048 - 768 = 1280) so a
+ * saturating telemetry stream can't starve a bulk xfer; write_channel_xfer may
+ * use the reserved tail up to the full 2048.
  * --------------------------------------------------------------------------*/
 static void test_tx_overflow(void) {
   printf("  test_tx_overflow (COMM-CH-002)\n");
@@ -192,15 +205,22 @@ static void test_tx_overflow(void) {
   memset(buf, 0xAB, sizeof buf);
   uint32_t before = channel_tx_overflow_count();
 
-  /* No flush runs in the unit test, so the active 512 B buffer just fills:
-   * 2 x 256 = 512 (exactly full), then any further byte overflows. */
-  CHECK(write_channel(ch, buf, 256) == NONE, "first 256 B write ok");
-  CHECK(write_channel(ch, buf, 256) == NONE, "second 256 B write fills buffer");
-  CHECK(write_channel(ch, buf, 1) == ERROR, "write past 512 B returns ERROR");
+  /* No flush runs in the unit test, so the buffer just fills. Normal writes stop
+   * at the reserved cap: 5 x 256 = 1280 (exactly the normal cap), then any
+   * further normal byte overflows. */
+  for (int i = 0; i < 5; i++)
+    CHECK(write_channel(ch, buf, 256) == NONE,
+          "256 B normal write fills toward the 1280 reserved cap");
+  CHECK(write_channel(ch, buf, 1) == ERROR, "normal write past 1280 B returns ERROR");
   CHECK(channel_tx_overflow_count() == before + 1, "overflow counted once");
 
   write_channel(ch, buf, 1);
   CHECK(channel_tx_overflow_count() == before + 2, "second overflow counted");
+
+  /* The reserved tail is still available to bulk xfer: with 1280 B of normal
+   * data parked, write_channel_xfer can take ~768 more up to the full 2048. */
+  CHECK(write_channel_xfer(ch, buf, 256) == NONE,
+        "xfer write uses the reserved tail past the normal cap");
 }
 
 int main(void) {

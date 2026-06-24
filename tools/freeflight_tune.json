@@ -1,0 +1,25 @@
+{
+  "_comment": "FREE-FLIGHT (rigless) tune — IN PROGRESS, converging by hand-flight. Started from the GCS autotune gains (too soft -> tipped), stiffening roll/pitch rate kp by binary search: 0.001 too soft, 0.004 flew but oscillated, now trying 0.0025. yaw needed its integral restored (default heading-hold). The geometry sign fix is REQUIRED (default spin-sign backwards -> yaw positive feedback). All live-only; re-apply after each battery cycle with tools/apply_tune.py.",
+  "captured": "2026-06-22",
+  "airframe": "X-quad free flight. M1,M3 CW, M2,M4 CCW. IMU aligned.",
+
+  "motor_geometry": {
+    "_comment": "Inverted spin vs firmware default -> flips s_mix_yaw only. REQUIRED for free flight.",
+    "pos_x": [1.0, -1.0, -1.0, 1.0],
+    "pos_y": [1.0, 1.0, -1.0, -1.0],
+    "spin":  [-1, 1, -1, 1]
+  },
+
+  "rate_pid": {
+    "_comment": "roll/pitch rate kp 0.004 (moderate inner loop), kd on the actuator pole, low ki knee. yaw: firmware default WITH integral (heading hold).",
+    "roll":  { "kp": 0.004, "ki": 0.0004, "kd": 0.00008, "kff": 0.0, "status": "hand-tuning" },
+    "pitch": { "kp": 0.004, "ki": 0.0004, "kd": 0.00008, "kff": 0.0, "status": "hand-tuning" },
+    "yaw":   { "kp": 0.018, "ki": 0.008,  "kd": 0.0,     "kff": 0.0, "status": "default + integral (stable)" }
+  },
+
+  "angle_pid": {
+    "_comment": "OUTER loop SOFTENED to 1.0 (was 4.317) — the autotune angle_kp was faster than the soft inner loop -> ~1 Hz cascade oscillation. Outer must be slower than inner.",
+    "roll":  { "kp": 1.0, "ki": 0.0, "kd": 0.0, "kff": 0.0, "status": "softened (cascade fix)" },
+    "pitch": { "kp": 1.0, "ki": 0.0, "kd": 0.0, "kff": 0.0, "status": "softened (cascade fix)" }
+  }
+}
