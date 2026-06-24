@@ -16,8 +16,9 @@
 #include "vayu_tasks.h"
 
 #include "comm/channel.h"            /* channel_tx_overflow_count */
+#include "comm/xfer/fs_query.h"        /* filesystem navigation */
 #include "comm/xfer/navlink_xfer.h"
-#include "comm/xfer/navlink_xfer_tx.h" /* g_xfer_tx_ops */
+#include "comm/xfer/navlink_xfer_tx.h" /* g_xfer_tx_ops, g_fs_query_tx_ops */
 #include "comm/xfer/xfer_providers.h"  /* xfer_providers_register_all */
 #include "utils.h"                   /* v_get_ticks, v_delay */
 #include "vaios.h"
@@ -30,6 +31,7 @@
 void xfer_service_task(void *args) {
   (void)args;
   xfer_init(&g_xfer_tx_ops);
+  fs_query_init(&g_fs_query_tx_ops);
   /* FILE (up+down any SD path), LOG (download the blackbox files), STREAM
    * (named live source). The STREAM provider is registered but sourceless until
    * a source is wired via xfer_stream_register_source(). */
@@ -38,6 +40,8 @@ void xfer_service_task(void *args) {
   for (;;) {
     int emitted = xfer_tick((uint32_t)v_get_ticks(),
                             channel_tx_overflow_count(), XFER_CHUNK_BUDGET);
+    /* Directory browse / stat replies (blocking VFS walk lives here too). */
+    emitted += fs_query_tick(XFER_CHUNK_BUDGET);
     /* Busy -> short delay to keep chunks flowing; idle -> back off. */
     v_delay(emitted > 0 ? 4 : 10);
   }

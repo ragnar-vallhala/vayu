@@ -154,6 +154,7 @@ set(VAYU_R12_CLEAN_SOURCES
     # bar; navlink_xfer_tx.c is excluded (codec-touching, like navlink_tx.c).
     ${CMAKE_CURRENT_SOURCE_DIR}/src/comm/xfer/navlink_xfer.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/comm/xfer/xfer_service_task.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/comm/xfer/fs_query.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/comm/xfer/providers/file_provider.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/comm/xfer/providers/log_provider.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/comm/xfer/providers/stream_provider.c
