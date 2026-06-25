@@ -21,7 +21,7 @@ Seven sections:
 7. **Maintenance rules** — how the doc stays honest.
 
 The GCS-side companion lives at
-[`software/docs/requirements.md`](../../software/docs/reference/requirements.md);
+[`navigator/docs/requirements.md`](../../navigator/docs/reference/requirements.md);
 SYS-level requirements that span firmware ↔ GCS are owned here, with the
 GCS doc referring back to them.
 
@@ -30,7 +30,7 @@ Cross-references:
 - [`navlink messages`](../../navlink/docs/reference/messages/) — wire format authority.
 - [`state-machine/`](state-machine/) — system state diagrams.
 - [`coordinate_ref.md`](coordinate_ref.md) — NED conventions.
-- [`gcs-in-app-simulator-and-world-collision.md`](../../software/docs/journal/changelog/gcs-in-app-simulator-and-world-collision.md) — SITL design (`vsim_d` daemon).
+- [`gcs-in-app-simulator-and-world-collision.md`](../../navigator/docs/journal/changelog/gcs-in-app-simulator-and-world-collision.md) — SITL design (`vsim_d` daemon).
 
 ---
 
@@ -236,7 +236,7 @@ service routines, monotonic clock.
 | HAL-PWM-001   | ESC output sync        | All configured ESC outputs shall update synchronously at a rate ∈ [400 Hz, 8 kHz]. Vayu currently uses 400 Hz on TIM1 channels 1–4.                                                       | SYS-TIM-002         | Test (target HIL, logic analyser)     |
 | HAL-CRC-001   | Hardware CRC32         | The HAL shall expose a CRC32 unit configured to match the GCS-side polynomial 0x04C11DB7, MSB-first, init 0xFFFFFFFF.                                                                      | SYS-TEL-004         | Test (unit + vector compare with GCS) |
 | HAL-TIME-001  | Monotonic time         | The HAL shall expose a monotonic microsecond counter with drift ≤ ±50 ppm over the operating temperature range.                                                                            | SYS-TIM-002         | Analysis (datasheet) + Test (24 h)    |
-| HAL-API-001   | Host-stub portability  | The HAL public API shall be implementable on a POSIX host (`tools/sim_host/`) such that upper layers compile unchanged for SITL.                                                          | (process)           | Inspection + Test (host build CI)     |
+| HAL-API-001   | Host-stub portability  | The HAL public API shall be implementable on a POSIX host (`sim/host/`) such that upper layers compile unchanged for SITL.                                                          | (process)           | Inspection + Test (host build CI)     |
 
 #### 4.1.2 Low-Level Requirements (HAL-LLR)
 
@@ -447,7 +447,7 @@ PKT (frame encoder/decoder), CMD (inbound command dispatch), TEL
 | COMM-CH-001   | UART TX ping-pong buffer           | Each UART channel shall maintain two 512-byte ping-pong buffers, the inactive being TX'd via DMA while the active one accumulates writes.                                                                                                                 | (process)        | Inspection                  |
 | COMM-CH-002   | UART backpressure                  | A write that would exceed the active buffer's capacity (2048 B ping-pong, capped at 1280 B for telemetry — the remaining 768 B is reserved for bulk-transfer) shall return `ERROR` and increment a `tx_overflow` counter. The counter shall be surfaced through telemetry. ✅ `channel_tx_overflow_count()` increments on the full-buffer drop and is emitted as a HEALTH status (SYSTEM_ORIGIN_HEALTH) at 2 Hz (Phase 3 COMM).             | (process)        | Test (unit, fault injection) |
 | COMM-PKT-001  | Outbound frame format              | All outbound frames shall use the wire framing in SYS-TEL-004 (sync `0x56`, protocol nibble `0x1`, type nibble in upper 4 bits of byte 1).                                                                                                                | SYS-TEL-004      | Inspection + Test           |
-| COMM-PKT-002  | Inbound frame parsing              | Incoming GCS frames shall be validated by CRC32 before dispatch; a CRC failure shall increment a `crc_failed` counter and resync; the parser shall expose the counter via telemetry.                                                                     | SYS-TEL-004      | Test (unit, golden vectors mirroring `software/src/protocol/PacketDecoder.cpp`) |
+| COMM-PKT-002  | Inbound frame parsing              | Incoming GCS frames shall be validated by CRC32 before dispatch; a CRC failure shall increment a `crc_failed` counter and resync; the parser shall expose the counter via telemetry.                                                                     | SYS-TEL-004      | Test (unit, golden vectors mirroring `navigator/src/protocol/PacketDecoder.cpp`) |
 | COMM-PKT-003  | Inbound packet buffer              | The deserializer shall stage decoded packets in a 3-slot ring buffer between the UART RX ISR and the command-dispatch task; overflows shall increment a `pkt_dropped` counter.                                                                            | (process)        | Test (unit)                 |
 | COMM-CMD-001  | Calibration commands                | The command dispatcher shall accept `CMD_CALIBRATE_IMU` (0x0001, payload: `[u16 cmd_id][u8 argc][float imu_id][float type]`) and `CMD_CANCEL_CALIBRATION` (0x0009, no args).                                                                              | SYS-CAL-001/2/3  | Test (unit)                 |
 | COMM-CMD-002  | Command payload validation          | Every command handler shall validate `argc ≥ expected_argc` and `payload_length ≥ argc × 4 + 3` before reading args.                                                                                                                                       | (process)        | Test (unit, fuzz)           | ✅ `command_payload_valid()` gates the calibration + SET_PID handlers; `pkt.length` guarded before any arg read (Phase 3 COMM). |
@@ -601,7 +601,7 @@ work is tracked in the trace matrix when `tools/trace.py` lands.
 
 ### What's healthy (worth recording as "verified by reading")
 
-- Wire framing on tx matches `software/src/protocol/PacketDecoder.cpp` byte-for-byte (sync, version nibble, length, dev_id, ts, CRC32 polynomial).
+- Wire framing on tx matches `navigator/src/protocol/PacketDecoder.cpp` byte-for-byte (sync, version nibble, length, dev_id, ts, CRC32 polynomial).
 - Motor mixing layout matches `docs/coordinate_ref.md` X-config; saturation-preserving scaling is the correct strategy (CTRL-MIX-002).
 - PID anti-windup gating on `P + I` saturation is implemented correctly in `pid.c`.
 - ESC arming sequence (4 ms inter-ESC + 100 ms hold) is conservative and matches typical ESC requirements.

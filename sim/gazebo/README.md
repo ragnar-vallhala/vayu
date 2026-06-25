@@ -30,7 +30,7 @@ gz sim --version    # should print 8.x (Harmonic = gz-sim 8)
 From this repo's root:
 
 ```bash
-gz sim tools/sim_gazebo/worlds/vayu_quad.sdf
+gz sim sim/gazebo/worlds/vayu_quad.sdf
 ```
 
 First launch downloads the X3 UAV model from Fuel (≈10 MB, cached at `~/.gz/fuel`). Then the GUI opens, the quad is on the ground; press the play button (▶) to step physics.
@@ -38,7 +38,7 @@ First launch downloads the X3 UAV model from Fuel (≈10 MB, cached at `~/.gz/fu
 ### Headless smoke test (no GUI)
 
 ```bash
-gz sim -s -r --iterations 1000 tools/sim_gazebo/worlds/vayu_quad.sdf
+gz sim -s -r --iterations 1000 sim/gazebo/worlds/vayu_quad.sdf
 ```
 
 Should exit cleanly after 1 s of sim time.
@@ -75,16 +75,16 @@ Note the rotor naming difference between variants: `X3 UAV` uses link names like
 
 ```bash
 # Terminal 1: Gazebo, headless
-gz sim -s -r --headless-rendering tools/sim_gazebo/worlds/vayu_quad.sdf
+gz sim -s -r --headless-rendering sim/gazebo/worlds/vayu_quad.sdf
 
-# Terminal 2: host SITL binary (Stage 2 — see tools/sim_host/)
+# Terminal 2: host SITL binary (Stage 2 — see sim/host/)
 ./build_sitl/vayu_sitl
 
 # Terminal 3: PWM out bridge
-python3 tools/sim_gazebo/vayu_pwm_to_gz.py
+python3 sim/gazebo/vayu_pwm_to_gz.py
 
 # Terminal 4: IMU in bridge
-python3 tools/sim_gazebo/gz_imu_to_vayu.py
+python3 sim/gazebo/gz_imu_to_vayu.py
 ```
 
 The closed loop runs vayu's actual controller and sensor-fusion code against Gazebo's physics — same source as on hardware.

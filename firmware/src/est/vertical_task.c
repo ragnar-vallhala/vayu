@@ -14,7 +14,7 @@
  *
  * The math core (predict/correct/gravity-removal) lives in
  * src/est/vertical_estimator.c and is unit-tested headlessly
- * (tools/sim_host/tests/test_vertical_est.c). This file is just the I/O wrapper.
+ * (sim/host/tests/test_vertical_est.c). This file is just the I/O wrapper.
  */
 #include "control/angle_controller.h" /* angle_controller_last_throttle */
 #include "est/flight_phase.h"

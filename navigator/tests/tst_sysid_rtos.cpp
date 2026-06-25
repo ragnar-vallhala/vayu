@@ -9,7 +9,7 @@ using namespace autotune;
 // End-to-end System-ID against the REAL vayu_sitl_rtos binary: fly an
 // identification chirp, fit the rate-loop plant, design gains, and verify the
 // designed gains track in a doublet. Opt-in (the binary is a separate build):
-//   cmake -S tools/sim_host -B build_sitl_rtos -DVAYU_SITL_RTOS_BUILD=ON
+//   cmake -S sim/host -B build_sitl_rtos -DVAYU_SITL_RTOS_BUILD=ON
 //   cmake --build build_sitl_rtos --target vayu_sitl_rtos
 //   VAYU_RTOS_BIN=<repo>/build_sitl_rtos/vayu_sitl_rtos ctest -R tst_sysid_rtos
 class TstSysIdRtos : public QObject {

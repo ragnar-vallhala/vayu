@@ -1,6 +1,6 @@
 # Headless SDK — standardisation plan
 
-> Blueprint for turning the ad-hoc `tools/sim_host/sitl_lab.py` harness into a
+> Blueprint for turning the ad-hoc `sim/host/sitl_lab.py` harness into a
 > first-class, reusable SDK for driving the **real** flight-controller logic
 > headlessly. Companion to `docs/sim-fidelity/00-phasing.md`.
 >
@@ -20,7 +20,7 @@
 >   to the CLI (no logic); worldmesh under `cpp/worldmesh/`.
 >
 > **DONE. Suite: 51 tests, 85% coverage** (45 unit + 6 integration flights).
-> Run: `cd software/headless-sdk && ./.venv/bin/python -m pytest tests -q`
+> Run: `cd navigator/headless-sdk && ./.venv/bin/python -m pytest tests -q`
 > (`--cov=vayu_headless` for coverage; integration boots vsim_d + vayu_sitl and
 > skips if binaries unbuilt).
 
@@ -31,7 +31,7 @@
 We can already fly the *actual* firmware (estimator → angle/rate cascade →
 mixer → arming → telemetry) with no hardware and no human on the sticks, and
 render it live in the GCS. But the whole capability lives in one ~1100-line
-script (`tools/sim_host/sitl_lab.py`) that grew organically while debugging:
+script (`sim/host/sitl_lab.py`) that grew organically while debugging:
 process orchestration, three wire protocols, a guidance autopilot, a socket
 server, a CLI, and the GCS bridges are all interleaved in one file.
 
@@ -46,14 +46,14 @@ script.
 
 | Piece | Location | Role |
 |---|---|---|
-| `SitlLab` | `tools/sim_host/sitl_lab.py` | process lifecycle (vsim_d + vayu_sitl), FIFO/pty wiring, RC feed, NavLink telemetry decode, UART2→GCS bridge, pose read + GCS fan-out, world-mesh push, ground truth |
+| `SitlLab` | `sim/host/sitl_lab.py` | process lifecycle (vsim_d + vayu_sitl), FIFO/pty wiring, RC feed, NavLink telemetry decode, UART2→GCS bridge, pose read + GCS fan-out, world-mesh push, ground truth |
 | `Pilot` | same file | continuous 50 Hz outer-loop guidance (takeoff/goto/land/station-keep) |
 | `serve()` / `client()` | same file | persistent session over a Unix socket + thin CLI |
 | `demo()` / `flight()` | same file | one-shot run modes |
 | vsim wire helpers | same file | `_ctl/_reset/_world/_geometry_frame/_wind/_world_mesh` framing |
-| world-mesh builder | `tools/sim_host/worldmesh/` (C++) | reuses GCS `vsim::loadMesh` + `buildWorldBvh` to build the collision BVH |
-| host shims | `tools/sim_host/src/*.c` | the real-firmware host (RC/IMU feeders, UART2 pty, PWM fifo) |
-| physics daemon | `tools/vsim/` | `vsim_d` rigid-body + collision |
+| world-mesh builder | `sim/host/worldmesh/` (C++) | reuses GCS `vsim::loadMesh` + `buildWorldBvh` to build the collision BVH |
+| host shims | `sim/host/src/*.c` | the real-firmware host (RC/IMU feeders, UART2 pty, PWM fifo) |
+| physics daemon | `sim/vsim/` | `vsim_d` rigid-body + collision |
 | NavLink codec | `navlink/generated/python/`, `navlink/sim/` | telemetry decode |
 
 **Pain points to fix:** one-file monolith; no installable package or import
@@ -66,7 +66,7 @@ hand.
 ## 3. Goals / non-goals
 
 **Goals**
-- A Python package `vayu_headless` under `software/headless-sdk/` that is
+- A Python package `vayu_headless` under `navigator/headless-sdk/` that is
   `pip install -e`-able and importable.
 - A **stable public API** (`SitlSession`, `Pilot`/autopilot, telemetry &
   ground-truth accessors) and a versioned **session protocol**.
@@ -88,7 +88,7 @@ hand.
 ## 4. Proposed layout
 
 ```
-software/headless-sdk/
+navigator/headless-sdk/
   PLAN.md                     # this doc
   README.md                   # quickstart + API tour (Phase 5)
   pyproject.toml              # installable: package `vayu_headless`, CLI `vayu-headless`
@@ -107,14 +107,14 @@ software/headless-sdk/
     server.py                 # session daemon (socket, command dispatch)
     client.py                 # client lib used by the CLI
     cli.py                    # `vayu-headless` argparse entrypoint
-  cpp/worldmesh/              # BVH builder (pulled in from tools/sim_host/worldmesh)
+  cpp/worldmesh/              # BVH builder (pulled in from sim/host/worldmesh)
   tests/
     unit/                     # pure-logic tests (config, framing, autopilot math)
     integration/              # real boot-fly-land flights against vsim_d + vayu_sitl
   examples/                   # roll-step sysID, ring course, tuning sweep
 ```
 
-Lives in `software/` (per request) because it shares code with the GCS
+Lives in `navigator/` (per request) because it shares code with the GCS
 (NavLink codec, `vsim_proto`, the mesh builder). The firmware **binaries** it
 drives (`vsim_d`, `vayu_sitl`) stay in `tools/` and are resolved by path/env;
 the SDK never rebuilds them. The native **worldmesh** helper is pulled in under
@@ -196,7 +196,7 @@ hard-cut (decision #3).
   layer; docs complete.
 - **Phase 6 — Validate + hard-cut.** Run the full suite across several real
   flights (course, sysID, GCS-attached) to confirm zero regression, **then
-  remove** `tools/sim_host/sitl_lab.py`. CI wiring is a later, separate task
+  remove** `sim/host/sitl_lab.py`. CI wiring is a later, separate task
   (decision #5) — the suite is already locally runnable. *DoD:* shim gone;
   everything reachable via package API + CLI.
 
@@ -210,7 +210,7 @@ hard-cut (decision #3).
   fails loudly.
 - **World mesh:** keep the C++ builder as the one implementation (it already
   reuses the GCS's `loadMesh`/`buildWorldBvh`); the SDK shells out to it.
-  Decide in Phase 1 whether it moves to `software/headless-sdk/cpp/worldmesh/`
+  Decide in Phase 1 whether it moves to `navigator/headless-sdk/cpp/worldmesh/`
   or stays in `tools/` and is referenced.
 
 ## 9. Risks / watch-items
@@ -230,9 +230,9 @@ hard-cut (decision #3).
 
 1. **Package / CLI name** — `vayu_headless` package, `vayu-headless` CLI. ✅
 2. **Worldmesh C++** — **pulled into the SDK** at
-   `software/headless-sdk/cpp/worldmesh/` (the canonical home; `tools/sim_host/
+   `navigator/headless-sdk/cpp/worldmesh/` (the canonical home; `sim/host/
    worldmesh/` is removed/redirected). The SDK owns its native helper. ✅
-3. **Back-comp** — keep `tools/sim_host/sitl_lab.py` as a thin shim **until we
+3. **Back-comp** — keep `sim/host/sitl_lab.py` as a thin shim **until we
    have thoroughly validated no regression** (golden + integration suite green
    across a few real runs), **then hard-cut** it. ✅
 4. **Tests** — grow **both unit and integration tests as the code builds up**
@@ -242,14 +242,14 @@ hard-cut (decision #3).
 
 ## 11. Definition of done (whole effort)
 
-- `pip install -e software/headless-sdk` → `import vayu_headless` and
+- `pip install -e navigator/headless-sdk` → `import vayu_headless` and
   `vayu-headless serve|do|run` both work.
 - Everything today's script does is reachable through the package API + CLI.
 - Unit + integration suite (locally runnable) covers the wire layers, config,
   guidance math, and a real boot-fly-land flight; green across several runs.
 - Wire layer is single-sourced or drift-guarded; protocol + API documented in
   `README.md`.
-- `tools/sim_host/sitl_lab.py` is **removed** (hard-cut) after the no-regression
+- `sim/host/sitl_lab.py` is **removed** (hard-cut) after the no-regression
   validation; the worldmesh C++ lives under `cpp/worldmesh/`.
 - CI wiring is explicitly **out of scope** here (a later task), but nothing
   blocks it.

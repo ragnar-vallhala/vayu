@@ -26,7 +26,7 @@
  *   - IN_AIR -> ARMED (touchdown): agl < LAND, |climb| < rate, throttle < gate,
  *     sustained past the (longer) landing debounce.
  *
- * Pure/host-testable: see tools/sim_host/tests/test_flight_phase.c.
+ * Pure/host-testable: see sim/host/tests/test_flight_phase.c.
  */
 #ifndef VAYU_FLIGHT_PHASE_H
 #define VAYU_FLIGHT_PHASE_H

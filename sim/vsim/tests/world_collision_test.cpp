@@ -1,6 +1,6 @@
 // world_collision_test.cpp — drone-vs-world-mesh collision (no Qt/daemon).
-//   g++ -std=c++17 -I tools/vsim/include tools/vsim/tests/world_collision_test.cpp \
-//       tools/vsim/src/physics_core.cpp -o /tmp/wct && /tmp/wct
+//   g++ -std=c++17 -I sim/vsim/include sim/vsim/tests/world_collision_test.cpp \
+//       sim/vsim/src/physics_core.cpp -o /tmp/wct && /tmp/wct
 #include "physics_core.h"
 #include "trimesh_bvh.h"
 

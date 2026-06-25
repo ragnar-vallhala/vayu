@@ -39,7 +39,7 @@ DEFAULT_BASE_LINK    = "X3::base_link"
 DEFAULT_RATE         = 100
 N_MOTORS             = 4
 
-# motorConstant + momentConstant match tools/sim_gazebo/worlds/vayu_quad.sdf.
+# motorConstant + momentConstant match sim/gazebo/worlds/vayu_quad.sdf.
 # Per-rotor thrust = motorConstant * vel^2 along the rotor's +Z (body up).
 # Per-rotor counter-torque on the body = -turningDirection * motorConstant *
 #   momentConstant * vel^2 about base_link's Z (aerodynamic drag from the
@@ -82,7 +82,7 @@ ROTOR_POS_X = [+0.13, -0.13, -0.13, +0.13]   # M1, M2, M3, M4
 ROTOR_POS_Y = [-0.22, -0.20, +0.20, +0.22]
 ROTOR_SPIN  = [+1,    -1,    +1,    -1]      # M1+M3 CCW, M2+M4 CW
 
-# The SITL host shim (tools/sim_host/src/host_navhal.c) already strips
+# The SITL host shim (sim/host/src/host_navhal.c) already strips
 # the firmware's ESC 0.4..0.8 pulse-width band, so the FIFO carries a
 # direct linear motor command in [0, 1]. We just multiply by the
 # rotor's max velocity to get rad/s.

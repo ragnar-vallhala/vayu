@@ -1,9 +1,9 @@
 # Simulator mockup-parity gaps
 
-Status: 🗺️ gap analysis. What the UI mockup (`software/docs/ui-mockup/`,
+Status: 🗺️ gap analysis. What the UI mockup (`navigator/docs/ui-mockup/`,
 `index.html` + `app.js`) shows for the **Simulator** that the real
-`SimulatorWidget` + `tools/vsim` physics do **not** implement yet. Companion to
-[mockup-to-app.md](../../../../software/docs/reference/mockup-to-app.md); the broad mockup-parity effort already
+`SimulatorWidget` + `sim/vsim` physics do **not** implement yet. Companion to
+[mockup-to-app.md](../../../../navigator/docs/reference/mockup-to-app.md); the broad mockup-parity effort already
 shipped the app shell + most pages, so this drills into the sim specifically.
 
 **Headline:** autotune and the core sim are essentially at parity. The gaps
@@ -74,16 +74,16 @@ to be meaningful.
    position/heading estimation is exercised in the sim.
 4. **Power model (#6)** + **RPM/ESC-temp readouts (#13)** — enables the
    battery-sag / thermal realism that the live-rig tuning study flagged as a
-   real-world non-stationarity (see [gcs-live-rig-tuning.md](../../../../software/docs/scratch/gcs-live-rig-tuning.md)).
+   real-world non-stationarity (see [gcs-live-rig-tuning.md](../../../../navigator/docs/scratch/gcs-live-rig-tuning.md)).
 5. **Tier 2/3 polish** — autotune 4-plot dashboard, RC mapping table, spawn-pose
    config, sim-speed selector, copy-coefficients, pause.
 
 ## Sources
-- Mockup: `software/docs/ui-mockup/{index.html,app.js,styles.css}` (Simulator
+- Mockup: `navigator/docs/ui-mockup/{index.html,app.js,styles.css}` (Simulator
   page ~HTML 434–747; sim JS ~app.js 703–1341).
-- Implementation: `software/src/ui/widgets/SimulatorWidget.{h,cpp}`,
-  `SimHudWidget.*`, `software/src/vsim/SimWorker.*`, `software/src/autotune/`,
-  `tools/vsim/src/physics_core.cpp`, `tools/vsim/include/vsim_proto.h`.
+- Implementation: `navigator/src/ui/widgets/SimulatorWidget.{h,cpp}`,
+  `SimHudWidget.*`, `navigator/src/vsim/SimWorker.*`, `navigator/src/autotune/`,
+  `sim/vsim/src/physics_core.cpp`, `sim/vsim/include/vsim_proto.h`.
 
 ## Changelog
 

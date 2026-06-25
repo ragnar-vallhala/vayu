@@ -428,7 +428,7 @@ a correctness edge (C7), or already resolved (C8).
 
 ## 9. SITL divergences (important caveats)
 
-The host shims (`tools/sim_host/`, see `sitl-fc-stub-inventory.md`) change some
+The host shims (`sim/host/`, see `sitl-fc-stub-inventory.md`) change some
 ownership:
 
 - **UART roles invert.** Real HW: telemetry=UART6, RC=UART2. SITL:

@@ -1,5 +1,5 @@
 /**
- * @file tools/sim_host/tests/test_calib_ellipsoid.c
+ * @file sim/host/tests/test_calib_ellipsoid.c
  * @brief Host unit test for the shared ellipsoid fit (src/calib/calib_ellipsoid.c).
  *
  * Synthesises static sensor samples from a KNOWN ground truth — a bias `b` plus a

@@ -1,7 +1,7 @@
 # Navigator (GCS) — documentation
 
 The **Navigator** is Vayu's ground-control station: a Qt6 desktop app (under
-`software/src/`) that talks to the flight controller over the NavLink wire
+`navigator/src/`) that talks to the flight controller over the NavLink wire
 protocol. It renders live telemetry (attitude, IMU, RC, motors, control loop),
 drives calibration, replays logged sessions, and hosts an embedded SITL
 simulator (`vsim_d`) for flying the real firmware control logic without

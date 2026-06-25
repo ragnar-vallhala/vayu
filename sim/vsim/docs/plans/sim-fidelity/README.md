@@ -27,20 +27,20 @@ be meaningful, so planning them now would be speculative.
 All five follow the same seam, so implementing one teaches the rest:
 
 - **Protocol:** add a `VSIM_CTL_SET_*` opcode to the enum in
-  `tools/vsim/include/vsim_proto.h` (next free value after `VSIM_CTL_SET_FAULTS = 13`),
+  `sim/vsim/include/vsim_proto.h` (next free value after `VSIM_CTL_SET_FAULTS = 13`),
   plus a `vsim_ctl_*_t` POD body struct (keep ≤ 256 B — the `vsim_ctl_frame_t.body`
   size). These plans reserve **14 = wind, 15 = atmosphere, 16 = magfield,
   17 = power-config, 18 = sensor-error** to avoid collisions if built in parallel.
 - **Daemon:** add a `case` in the control dispatch `switch (cmd.subtype)` in
-  `tools/vsim/src/main.cpp` (lines ~223–422); `memcpy` the body, push it into a
+  `sim/vsim/src/main.cpp` (lines ~223–422); `memcpy` the body, push it into a
   setter on the controller/physics, log one line.
 - **Physics:** environment forces sum into `force_b`/`torque_b` **before**
   `PhysicsCore::step()`, or as new terms inside `PhysicsCore::derive()`
-  (`tools/vsim/src/physics_core.cpp` ~line 22) right where `linear_drag` is applied
+  (`sim/vsim/src/physics_core.cpp` ~line 22) right where `linear_drag` is applied
   (line 30).
-- **GCS send:** add a `send*()` to `software/src/vsim/SimWorker.{h,cpp}` mirroring
+- **GCS send:** add a `send*()` to `navigator/src/vsim/SimWorker.{h,cpp}` mirroring
   `sendNoise`/`sendWorld` (build a `vsim_ctl_frame_t`, `::write(ctl_fd_, …)`).
-- **GCS UI:** mirror the mockup ids in `software/src/ui/widgets/SimulatorWidget.cpp`;
+- **GCS UI:** mirror the mockup ids in `navigator/src/ui/widgets/SimulatorWidget.cpp`;
   wire each control to a `push*()` slot (live-apply, like `pushNoise()` line ~937).
 - **"Hot" vs "structural":** every feature here is a **hot** group in mockup terms
   (live-appliable while the sim runs) — none require a restart. Do not lock these

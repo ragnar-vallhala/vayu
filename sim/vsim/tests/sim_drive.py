@@ -6,7 +6,7 @@ firmware: spawn an isolated vsim_d, push control frames (reset / world /
 wind), stream motor PWM (the actuator input), and read back the pose +
 IMU streams — i.e. drive every input and read all the data from a script.
 
-  Channels (tools/vsim/include/vsim_proto.h), all /tmp/vsim_*$SUFFIX:
+  Channels (sim/vsim/include/vsim_proto.h), all /tmp/vsim_*$SUFFIX:
     ctl  (write)  reset, world, wind, ... (this script wires a useful subset)
     pwm  (write)  4 motor duties [0,1]   — open-loop actuator command
     pose (read)   full rigid-body state + motor + wind/airspeed/batt (proto v3)
@@ -14,7 +14,7 @@ IMU streams — i.e. drive every input and read all the data from a script.
 
 Examples:
   # 0.34 duty (~hover) in a 5 m/s north wind, 3 s, print a summary:
-  VSIM_BIN_PATH=tools/vsim/build/vsim_d python3 tools/vsim/tests/sim_drive.py \
+  VSIM_BIN_PATH=sim/vsim/build/vsim_d python3 sim/vsim/tests/sim_drive.py \
       --duty 0.34 --wind 5 0 0 --secs 3
   # dump every pose row to CSV for offline analysis:
   ... --csv /tmp/run.csv

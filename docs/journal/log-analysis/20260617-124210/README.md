@@ -37,7 +37,7 @@ python3 docs/log-analysis/build_pdf.py docs/log-analysis/20260617-124210    # re
 | Size | 2,032,071 bytes |
 | SHA-256 | `8b4f82ccb50a7166c23fd9149f51069063fd522de7b40df86898ad5aed039e0c` |
 
-## Container header (`VREC`, `software/src/replay/RecordFormat.h`)
+## Container header (`VREC`, `navigator/src/replay/RecordFormat.h`)
 
 | field | value |
 |---|---|

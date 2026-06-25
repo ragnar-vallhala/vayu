@@ -29,7 +29,7 @@ Cross-references:
 | Item              | Version    | Hard? | Notes                                                           |
 |-------------------|------------|-------|-----------------------------------------------------------------|
 | C++ standard      | C++17      | hard  | `CMAKE_CXX_STANDARD_REQUIRED ON`                                |
-| CMake             | ≥ 3.20     | hard  | `cmake_minimum_required` in `software/CMakeLists.txt:1`         |
+| CMake             | ≥ 3.20     | hard  | `cmake_minimum_required` in `navigator/CMakeLists.txt:1`         |
 | Qt                | 6.x        | hard  | `Core Widgets SerialPort OpenGL OpenGLWidgets`                  |
 | Compiler          | gcc/clang  | hard  | Anything that ships C++17 + Qt6 binding works                   |
 | OpenGL            | 3.3 core   | hard  | Requested in `src/app/main.cpp:7`; MSAA x4                      |
@@ -41,18 +41,18 @@ Cross-references:
 | Platform | Tier  | Notes                                                                       |
 |----------|-------|-----------------------------------------------------------------------------|
 | Linux    | tier 1| Primary dev target. Real serial via `/dev/ttyUSB*`, SITL via pty.           |
-| macOS    | tier 2| Bundle metadata in `software/CMakeLists.txt:138`; SITL untested.            |
+| macOS    | tier 2| Bundle metadata in `navigator/CMakeLists.txt:138`; SITL untested.            |
 | Windows  | tier 3| `WIN32_EXECUTABLE TRUE` set, but POSIX FIFO / pty paths in vsim are Linux.  |
 
 ### 1.3 Build outputs
 
-- `software/build/Navigator` — single executable.
+- `navigator/build/Navigator` — single executable.
 - Statically linked against `vayu_sitl_core` (firmware + host shims from
-  `tools/sim_host/`). The `NAVIGATOR_HAS_SITL=1` compile define gates
+  `sim/host/`). The `NAVIGATOR_HAS_SITL=1` compile define gates
   SITL features; **when `sim_host` is absent the SITL sources are not
   compiled in**, the Simulator menu entry disappears, and the executable
   links cleanly without `vayu_sitl_core` (CMake conditionally adds
-  `GCS_SITL_SOURCES` only if `tools/sim_host/CMakeLists.txt` exists).
+  `GCS_SITL_SOURCES` only if `sim/host/CMakeLists.txt` exists).
 
 ### 1.4 Runtime resources
 
@@ -74,7 +74,7 @@ Cross-references:
 | ID       | Requirement                                                                                  |
 |----------|----------------------------------------------------------------------------------------------|
 | NFR-01   | UI thread never blocked > 16 ms by sim/serial work. Heavy work runs in `SimWorker`/timers.   |
-| NFR-02   | SITL physics steps at 1 kHz, IMU emit 200 Hz, snapshot 60 Hz (paced in `vsim_d`, `tools/vsim/src/main.cpp`). |
+| NFR-02   | SITL physics steps at 1 kHz, IMU emit 200 Hz, snapshot 60 Hz (paced in `vsim_d`, `sim/vsim/src/main.cpp`). |
 | NFR-03   | No data copies between firmware and renderer beyond the queued `SimSnapshot` (trivially copyable). |
 | NFR-04   | `DroneProtocol` parser handles partial reads and drops at most 1 byte per CRC failure.       |
 | NFR-05   | Heartbeat round-trip drift surfaced to the user, colour-banded at ±20 ms / ±100 ms.          |
@@ -167,9 +167,9 @@ GCS → drone is the weak side.
 
 ### 2.6 Embedded SITL (`vsim/` + `SimulatorWidget` + `vsim_d`)
 
-Design record: `docs/changelog/gcs-in-app-simulator-and-world-collision.md`. Wire protocol: `tools/vsim/include/vsim_proto.h`.
+Design record: `docs/changelog/gcs-in-app-simulator-and-world-collision.md`. Wire protocol: `sim/vsim/include/vsim_proto.h`.
 Navigator-side code: `src/vsim/`, `src/ui/widgets/SimulatorWidget.{h,cpp}`.
-Physics daemon: `tools/vsim/` (builds the standalone `vsim_d` binary).
+Physics daemon: `sim/vsim/` (builds the standalone `vsim_d` binary).
 
 Two-process architecture (since the vsim_d split). The firmware threads
 still run *in-process* inside Navigator via `vayu_sitl_start`, but the
@@ -183,14 +183,14 @@ physics; it spawns/supervises `vsim_d` and decodes pose frames.
 | ID       | Requirement                                                              | Status |
 |----------|--------------------------------------------------------------------------|--------|
 | FR-SIM-01| Run firmware in-process via `vayu_sitl_start(&iface)`                    | ✅     | Physics now out-of-process in `vsim_d`; firmware threads still in Navigator |
-| FR-SIM-02| 1 kHz physics (RK4), 200 Hz IMU emit, 60 Hz pose snapshot                | ✅     | Driven by `vsim_d` (`tools/vsim/src/main.cpp`); SimWorker only reads pose |
+| FR-SIM-02| 1 kHz physics (RK4), 200 Hz IMU emit, 60 Hz pose snapshot                | ✅     | Driven by `vsim_d` (`sim/vsim/src/main.cpp`); SimWorker only reads pose |
 | FR-SIM-03| Drone parameters (mass, inertia, motor geometry) editable from UI        | ✅     | `GeometryEditorWidget`: mass + 4-motor layout editable; inertia tensor derived from the airframe mesh; pushed live via `VSIM_CTL_SET_GEOMETRY`. See FR-SIM-11. |
 | FR-SIM-04| Sensor noise / bias parameters editable from UI                          | ✅     | Vehicle ▸ Sensor Models panel (`SimulatorWidget`): per-sensor white-noise σ, bias clip, and enable toggle, pushed via `SimWorker::sendNoise()` / `VSIM_CTL_SET_NOISE` |
 | FR-SIM-05| Pose snapshot rendered live (OpenGL)                                     | ✅     |
 | FR-SIM-06| Per-run raw UART byte log to `logs/sim-<ts>.bin`                         | ✅     |
 | FR-SIM-07| Hot reset of physics / firmware state between runs                       | 🟡🔥  | Physics resets via `VSIM_CTL_RESET` (`SimWorker::sendReset`); firmware state still can't (`vayu_sitl_start` one-shot — Navigator restart needed) |
-| FR-SIM-08| Wind / external-force injection                                          | ✅     | World-frame wind field (steady + gust + turbulence) felt as relative-velocity drag. `wind_model.h`, pushed via `VSIM_CTL_SET_WIND` (`SimWorker::sendWind`), edited from the World tab (`WorldEditorWidget::windApplied`). Design: [`01-wind-turbulence.md`](../../../tools/vsim/docs/plans/sim-fidelity/01-wind-turbulence.md). |
-| FR-SIM-09| Ground-contact model (tipping, friction)                                 | ❌     | Intentional: hard clamp only (`tools/vsim/src/physics_core.cpp`) |
+| FR-SIM-08| Wind / external-force injection                                          | ✅     | World-frame wind field (steady + gust + turbulence) felt as relative-velocity drag. `wind_model.h`, pushed via `VSIM_CTL_SET_WIND` (`SimWorker::sendWind`), edited from the World tab (`WorldEditorWidget::windApplied`). Design: [`01-wind-turbulence.md`](../../../sim/vsim/docs/plans/sim-fidelity/01-wind-turbulence.md). |
+| FR-SIM-09| Ground-contact model (tipping, friction)                                 | ❌     | Intentional: hard clamp only (`sim/vsim/src/physics_core.cpp`) |
 | FR-SIM-10| FIFO transport to the standalone firmware binary                         | ✅     | `vsim_d` FIFOs are the only transport; the standalone `vayu_sitl` binary attaches to the same `/tmp/vsim_{pwm,imu}` paths |
 | FR-SIM-11| Mesh-derived mass properties + motor-mapping editor                      | ✅     | Import STL/glTF (assimp) → full 3×3 inertia tensor via `MassProperties` (closed-polyhedron integral); 4-motor position/axis/spin/coeff editor (`GeometryEditorWidget`) with interactive Blender-style 3D gizmos (click-select, G/R + X/Y/Z, sim-stopped only); pushed to `vsim_d` over `VSIM_CTL_SET_GEOMETRY`. Daemon integrates the full tensor (`Mat3` in `vsim_math.h`). All dynamics are about the CoM — the mesh is recentered and motor arms made CoM-relative GCS-side (`physicsConfig()`), so the model origin need not coincide with the CoM. Design: [`sim-geometry-moi-motor-editor.md`](../journal/shipped/sim-geometry-moi-motor-editor.md). |
 | FR-SIM-12| World/environment editable from UI                                       | ✅     | World tab: gravity (runtime), ground height, restitution, linear/angular drag. Pushed via `VSIM_CTL_SET_WORLD`; composes with geometry (disjoint `DroneParams` fields). `WorldEditorWidget`. Wind: see FR-SIM-08 (✅). |
@@ -230,7 +230,7 @@ functionality made usable.
 | ID        | Requirement                                                                 | Status | Notes |
 |-----------|-----------------------------------------------------------------------------|--------|-------|
 | FR-UX-01  | Single source of truth for theme / colors / spacing                          | ✅     | `core/Theme.{h,cpp}` + `resources/styles/dark.qss`; applied once in `main.cpp` via `Theme::apply()`. |
-| FR-UX-02  | No copy-pasted `QPushButton { background: … }` literals at call sites        | ✅     | Primary/Success/Danger/Ghost/Back/Toggle/FilterPill/SensorCard subclasses + object-name selectors in dark.qss; `grep "QPushButton { background"` returns empty across `software/src/`. |
+| FR-UX-02  | No copy-pasted `QPushButton { background: … }` literals at call sites        | ✅     | Primary/Success/Danger/Ghost/Back/Toggle/FilterPill/SensorCard subclasses + object-name selectors in dark.qss; `grep "QPushButton { background"` returns empty across `navigator/src/`. |
 | FR-UX-03  | ARM button reflects real state, not local toggle                             | 🟡     | Local-toggle removed; button disabled with explanatory tooltip until FR-TX-02 ships. Will become ✅ once 0a lands. |
 | FR-UX-04  | Confirmation step before sending ARM                                         | ❌     | Modal or "hold to arm" affordance. Required before FR-TX-02 ships. |
 | FR-UX-05  | One canonical place to show connection state                                 | ✅     | Status-bar pill is canonical. The attitude-panel pill is now a firmware-state indicator only (idle "—" when no state packet has arrived). |
@@ -303,7 +303,7 @@ Exit criteria:
 1. Every Phase-0 row above is ✅ or explicitly bumped (with a one-line
    reason in the table). **Met** — 14/15 ✅, 0a blocked on firmware and
    documented inline.
-2. `grep -nE 'QPushButton \{ background' software/src/` returns nothing
+2. `grep -nE 'QPushButton \{ background' navigator/src/` returns nothing
    — all button styling lives in the theme. **Met.**
 3. Restarting Navigator restores the last window size, splitter
    positions, page, port, and baud. **Met.**
@@ -363,7 +363,7 @@ direction lands.
 ## 4. Architecture map
 
 A new reader's "where do I find things" cheatsheet. File paths under
-`software/src/` unless noted.
+`navigator/src/` unless noted.
 
 **Entry point**
 - `app/main.cpp` — sets GL 3.3 core, applies theme, inits Logger,
@@ -408,12 +408,12 @@ A new reader's "where do I find things" cheatsheet. File paths under
 - `RealTimeGraph` — the per-trace ring-buffered plotter every panel uses.
 
 **Embedded SITL** — two processes (Navigator side only when `NAVIGATOR_HAS_SITL=1`)
-- `tools/vsim/` — the standalone `vsim_d` physics daemon. Holds
+- `sim/vsim/` — the standalone `vsim_d` physics daemon. Holds
   `physics_core` + `motor_model` + `sensor_models` (RK4 6-DOF + rotor
   dynamics + IMU noise, NED throughout) composed by `sim_controller`,
   plus `fifo_transport`. `vsim_proto.h` defines the four-FIFO wire
   format (`/tmp/vsim_{pwm,imu,pose,ctl}`). These classes used to live
-  in `software/src/vsim/` in-process; they moved here in the vsim_d split.
+  in `navigator/src/vsim/` in-process; they moved here in the vsim_d split.
 - `src/vsim/SimWorker.{h,cpp}` — thin supervisor: spawns `vsim_d` via
   `posix_spawnp`, reads pose frames off `/tmp/vsim_pose`, writes control
   (e.g. reset) to `/tmp/vsim_ctl`. No physics, no IMU push, no PWM pull.

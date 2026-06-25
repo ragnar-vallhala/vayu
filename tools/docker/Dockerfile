@@ -6,7 +6,7 @@
 # Covers all three build targets:
 #   * firmware  — arm-none-eabi cross-compile (STM32F4)         -> build-docker/
 #   * SITL      — host unit tests / sanitizers                  -> build_sitl-docker/
-#   * Navigator — Qt6 ground-control station + in-app simulator -> software/build-docker/
+#   * Navigator — Qt6 ground-control station + in-app simulator -> navigator/build-docker/
 #
 # Flashing is intentionally NOT here: USB/SWD passthrough isn't portable across
 # Docker Desktop backends. Build in the container, flash from the host (see

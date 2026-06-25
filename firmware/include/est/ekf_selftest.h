@@ -5,7 +5,7 @@
  * One set of branch-coverage scenarios driven through the real EKF API, with
  * results delivered via a caller-supplied callback. This lets the SAME checks
  * run two ways:
- *   - HOST: tools/sim_host/tests/test_phase3_est_ekf.c adapts the callback to
+ *   - HOST: sim/host/tests/test_phase3_est_ekf.c adapts the callback to
  *     the CHECK()/ctest harness (native gcc).
  *   - FIRMWARE: src/main.c (built with -DEKF_SELFTEST) adapts it to vayu_log,
  *     so the suite runs on target and reports over UART.

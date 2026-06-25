@@ -17,7 +17,7 @@ PID config that overrides them at boot (`pid_config_get_rate` in
 `angle_rate_controller.c`).
 
 **Action — preferred: run autotune.** The repo has an autotune stack
-(`tools/autotune/`, `software/src/autotune/`) that searches rate-loop gains in
+(`tools/autotune/`, `navigator/src/autotune/`) that searches rate-loop gains in
 SITL. Roll/pitch are the axes to target; yaw is already a reasonable reference
 for the achievable authority. Autotune avoids hand-guessing the right Kp/Kd for
 the simulated airframe's inertia and motor-torque arms.
@@ -47,7 +47,7 @@ it an ideal **before/after** fixture. Keep `export-20260620-053528.bin` as the
 - the t≈77 s class of disturbance arrested in << the current sloppy recovery.
 
 Consider promoting this into the headless-SDK integration suite
-(`software/headless-sdk/tests/integration/`) as a tracking-quality assertion so
+(`navigator/headless-sdk/tests/integration/`) as a tracking-quality assertion so
 the gain regression can't silently come back.
 
 ## 3. Follow-up captures (not failures, coverage gaps)

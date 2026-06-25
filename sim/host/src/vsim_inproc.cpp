@@ -23,7 +23,7 @@ namespace {
 constexpr float kRad2Deg = 57.29577951308232f;
 vsim::SimController g_ctl;
 
-// Identical to vsim_d's packImu (tools/vsim/src/main.cpp): 22 floats = 88 B,
+// Identical to vsim_d's packImu (sim/vsim/src/main.cpp): 22 floats = 88 B,
 // matching the firmware's bmx160_all_converted_reading_t layout (acc, gyr, mag,
 // acc_raw, gyr_raw, mag_compensated, mag_fusion, temp). mag_fusion[3] is the
 // estimator's heading reference — it MUST be filled or yaw is unobservable.
@@ -75,7 +75,7 @@ void vsim_inproc_set_tether(float tether_k) {
 
 /* Load a serialized vsim_ctl_geometry_t from `path` and apply it to the
  * in-process physics — the SAME mass+inertia+per-rotor mapping vsim_d does for
- * VSIM_CTL_SET_GEOMETRY (tools/vsim/src/main.cpp), on top of the default
+ * VSIM_CTL_SET_GEOMETRY (sim/vsim/src/main.cpp), on top of the default
  * DroneParams/MotorParams (world/drag untouched). The per-motor x/y/spin are
  * written back so the caller can drive the matching firmware mix
  * (angle_rate_controller_set_motor_geometry) from the SAME geometry source.

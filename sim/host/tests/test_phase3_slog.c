@@ -1,5 +1,5 @@
 /**
- * @file tools/sim_host/tests/test_phase3_slog.c
+ * @file sim/host/tests/test_phase3_slog.c
  * @brief SITL verification suite for the Phase-3 SLOG cluster.
  *
  * Links the real firmware sources (libvayu_sitl_core) and drives their

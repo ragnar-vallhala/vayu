@@ -157,7 +157,7 @@ here (UART/I2C/DMA/timer handlers), but note:
   (`host_vaios.c` `if (stack_size < 65536)`) — host libc/pthread overhead, not
   representative of target.
 - **SITL RTOS** overrides `HEAP_SIZE = 0x180000` (1.5 MB) so the real scheduler's
-  8 KB stacks fit on the host (`tools/sim_host/CMakeLists.txt:225`).
+  8 KB stacks fit on the host (`sim/host/CMakeLists.txt:225`).
 - The figures in §1–§5 are the **real flash target** (`HEAP_SIZE = 0xE000`).
 
 ---

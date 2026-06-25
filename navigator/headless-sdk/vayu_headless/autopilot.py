@@ -2,7 +2,7 @@
 
 Always writes RC STICKS only (never position) except the explicit takeoff/land
 respawn, so the flight stays genuine firmware-in-the-loop physics. Carved
-verbatim from tools/sim_host/sitl_lab.py.
+verbatim from sim/host/sitl_lab.py.
 """
 import threading
 import time

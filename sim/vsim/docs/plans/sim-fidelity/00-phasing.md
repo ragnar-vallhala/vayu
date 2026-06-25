@@ -62,7 +62,7 @@ README's `1→2→5→3→4`:
 A single ABI bump + plumbing so later phases just fill fields in.
 
 **Why it's safe to do up front:** `vsim_pose_frame_t` is consumed *only* by the
-daemon (`tools/vsim/`), `SimWorker`, and `world_mesh_transport_test.cpp` — **no
+daemon (`sim/vsim/`), `SimWorker`, and `world_mesh_transport_test.cpp` — **no
 firmware**. The firmware IMU shim uses `/tmp/vsim_imu`, a separate format. So this
 is a contained daemon↔GCS change, not a cross-stack break.
 
@@ -216,7 +216,7 @@ where the mockup under-specifies. Resolve each when its phase starts.
 
 ## Per-phase definition of done
 
-1. Builds clean (firmware + GCS + `tools/vsim`); no static_assert regressions.
+1. Builds clean (firmware + GCS + `sim/vsim`); no static_assert regressions.
 2. Daemon unit tests for the phase's math, run headless with a fixed seed.
 3. One physics/behaviour test proving the headline effect (per the plan).
 4. Manual SITL: the World-tab/sensor controls drive the live readouts/graphs.

@@ -3,7 +3,7 @@
 Status: 🔬 study / feasibility. Next phase of the autotuner: reuse the SITL
 tuning method to tune a **real** flight controller held in a physical test rig,
 driven over the live GCS link. Builds on the autotune stack
-(`software/src/autotune/`), the source state machine
+(`navigator/src/autotune/`), the source state machine
 ([gcs-source-state-machine.md](../journal/shipped/gcs-source-state-machine.md)), and the
 [time-sync](../../../navlink/docs/reference/messages/time_sync.md) work.
 
@@ -360,12 +360,12 @@ sequenced after NavLink v2 — none is a study blocker:
 - **Optimizer budget**: real rollouts are slow; favor sample-efficient methods.
 
 ## Key references
-- Autotune: `software/src/autotune/{AutotuneEngine,Optimizer,Space,Cost,Rollout,SitlStack,AutotuneWorker}.{h,cpp}`
+- Autotune: `navigator/src/autotune/{AutotuneEngine,Optimizer,Space,Cost,Rollout,SitlStack,AutotuneWorker}.{h,cpp}`
 - Excitation/RC path: `Rollout.cpp` (`exciteAxis`/`exciteOnce`), `SitlStack.cpp` (`setRc`/`rcWriterLoop`), firmware `src/comm/rc_task.c` (`VAYU_SIM` override), `src/comm/rc_safety.c`
-- Commands: `software/src/protocol/CommandCodec.{h,cpp}`, firmware `include/comm/comm_types.h`, `src/comm/comm_processor.c`, `src/control/pid_config.c`
-- Telemetry for cost: `control_telemetry_t` (`include/variables.h`) → `ControlLoopData` (`software/src/core/Types.h`)
-- Sim rig physics: `tools/vsim/src/physics_core.cpp`, `tools/vsim/include/vsim_proto.h` (`vsim_ctl_testrig_t`)
-- FSM: `software/src/core/SourceController.{h,cpp}`, `SourceState.h`
+- Commands: `navigator/src/protocol/CommandCodec.{h,cpp}`, firmware `include/comm/comm_types.h`, `src/comm/comm_processor.c`, `src/control/pid_config.c`
+- Telemetry for cost: `control_telemetry_t` (`include/variables.h`) → `ControlLoopData` (`navigator/src/core/Types.h`)
+- Sim rig physics: `sim/vsim/src/physics_core.cpp`, `sim/vsim/include/vsim_proto.h` (`vsim_ctl_testrig_t`)
+- FSM: `navigator/src/core/SourceController.{h,cpp}`, `SourceState.h`
 
 ## Changelog
 

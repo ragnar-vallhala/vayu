@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Parse a recorded NavLink v2 telemetry session (.bin) into decoded frames.
 
-On-disk container (software/src/replay/RecordFormat.h, little-endian):
+On-disk container (navigator/src/replay/RecordFormat.h, little-endian):
     header:  [magic:u32 "VREC"][formatVersion:u32][protocolVersion:u32]
              [startWallClockMs:u64]            -> 20 bytes
     records: N x [t_us:u64][len:u32][bytes:len]

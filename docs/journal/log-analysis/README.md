@@ -2,7 +2,7 @@
 
 Decoded analyses of recorded NavLink v2 telemetry sessions (`.bin`) captured
 from real hardware. Each log is a `VREC` container (see
-`software/src/replay/RecordFormat.h`) holding raw inbound byte chunks; every
+`navigator/src/replay/RecordFormat.h`) holding raw inbound byte chunks; every
 chunk is replayed through the **generated** NavLink v2 Python codec
 (`navlink/generated/python/navlink_msgs.py`) so the decode path is identical to
 live/replay and stays in lock-step with `dialect.json`.

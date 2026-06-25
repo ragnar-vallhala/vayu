@@ -312,7 +312,7 @@ per-task notes) as each item completes; note the commit/PR where relevant.
   fused-vs-raw overlay, `valid`); codec regenerated (C + Python).
 - [x] New `src/est/vertical_estimator.c` + `include/est/vertical_estimator.h`
   (`VERT` module): pure 2-state `[altitude, climb_rate]` complementary filter.
-  Host unit test `tools/sim_host/tests/test_vertical_est.c` (14 checks, ctest
+  Host unit test `sim/host/tests/test_vertical_est.c` (14 checks, ctest
   `vertical_est`) — all green.
 - [x] Sibling task wiring: `src/est/vertical_task.c` (`VERT` I/O wrapper)
   scheduled at IMU/attitude rate (`main.c`, `host_lifecycle.c`). The attitude
@@ -334,7 +334,7 @@ per-task notes) as each item completes; note the commit/PR where relevant.
   gated on freshness + `valid`.
 - [x] **SITL verify:** fused altitude tracks vsim ground truth; climb rate clean
   during modelled climbs; no control change. Integration test
-  `software/headless-sdk/tests/integration/test_vertical_sitl.py`
+  `navigator/headless-sdk/tests/integration/test_vertical_sitl.py`
   (`test_vertical_estimate_tracks_truth`) — green: positive climb during takeoff,
   fused/baro altitude within tolerance of ground truth, settled hover climb rate
   near zero. Golden-flight + seam regression tests still green.
@@ -371,7 +371,7 @@ per-task notes) as each item completes; note the commit/PR where relevant.
   and `angle_rate_controller.c` (output push + arm-reset) now treat ARMED **or**
   IN_AIR as "armed and flying"; `rc_task.c` disarm-switch-down honours IN_AIR
   (airborne kill). Heartbeat already had an IN_AIR case → GCS pill works.
-- [x] **SITL verify:** `software/headless-sdk/tests/integration/test_in_air_sitl.py`
+- [x] **SITL verify:** `navigator/headless-sdk/tests/integration/test_in_air_sitl.py`
   — `test_takeoff_transitions_to_in_air` (ARMED→IN_AIR fires, FC AGL airborne)
   and `test_armed_on_ground_does_not_trip_in_air` (idle-on-ground never
   false-trips, AGL≈0) — both green. Touchdown (IN_AIR→ARMED) is unit-tested

@@ -60,7 +60,7 @@ costs only ~2 extra states + a few flops on the F4 (the Martin & Salaün / Leish
 **Prerequisites / caveats:**
 
 - **vsim fidelity gate (blocking).** vsim models drag as isotropic world-frame
-  `a -= (vel_w − wind)·(linear_drag/mass)` (`tools/vsim/src/physics_core.cpp:32`),
+  `a -= (vel_w − wind)·(linear_drag/mass)` (`sim/vsim/src/physics_core.cpp:32`),
   not body-frame rotor drag. With small `linear_drag` the sim accel is ≈ pure
   thrust and reads level regardless of tilt — so a model-aided filter cannot be
   developed or validated in SITL until vsim has a proper body-frame thrust +
@@ -89,10 +89,10 @@ firmware. SITL routes the FC's stderr to `/tmp/sitl.err` when `SITL_LAB_DEBUG=1`
 
 ```sh
 # 1. Build SITL (after re-adding the diagnostic)
-cd tools/sim_host && cmake --build build_sitl --target vayu_sitl
+cd sim/host && cmake --build build_sitl --target vayu_sitl
 
 # 2. Healthy case (rig, translation pinned) — estimate TRACKS truth
-cd ../../software/headless-sdk
+cd ../../navigator/headless-sdk
 rm -f /tmp/sitl.err
 SITL_LAB_DEBUG=1 PYTHONPATH="$PWD:$PWD/examples" \
   python3 examples/step_response.py --axis pitch --amp 0.4 --csv /tmp/step.csv
@@ -110,4 +110,4 @@ grep ATT_DIAG /tmp/sitl.err     # |gyro| 8–13°/s but est att stays ±1–2°,
 rate is 8–13°/s and the gyro bias winds to ±1.5°/s and sign-flips with each lobe —
 the accel update fighting the gyro.
 
-Full investigation log: `software/headless-sdk/docs/FINDINGS.md` (§H + UPDATE pt 3).
+Full investigation log: `navigator/headless-sdk/docs/FINDINGS.md` (§H + UPDATE pt 3).

@@ -1,5 +1,5 @@
 /**
- * @file tools/sim_host/tests/test_vertical_est.c
+ * @file sim/host/tests/test_vertical_est.c
  * @brief Host verification suite for the 2-state vertical estimator (VERT).
  *
  * Exercises the pure core in src/est/vertical_estimator.c (linked via

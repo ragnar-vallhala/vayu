@@ -5,13 +5,13 @@
 The SITL stack is **two processes paced by the wall clock**, coupled by lossy
 FIFOs:
 
-- **vsim_d** (physics, `tools/vsim/`) steps at `imu_hz` and throttles with
-  `std::this_thread::sleep_until(next)` (`tools/vsim/src/main.cpp:540`). It
+- **vsim_d** (physics, `sim/vsim/`) steps at `imu_hz` and throttles with
+  `std::this_thread::sleep_until(next)` (`sim/vsim/src/main.cpp:540`). It
   ingests PWM with a non-blocking, **latest-wins** `poll` (`main.cpp:210`) — no
   backpressure.
-- **vayu_sitl** (firmware host, `tools/sim_host/`) runs each vaios task as a
+- **vayu_sitl** (firmware host, `sim/host/`) runs each vaios task as a
   detached pthread, each sleeping against `CLOCK_MONOTONIC` + `nanosleep`
-  (`tools/sim_host/src/host_vaios.c`).
+  (`sim/host/src/host_vaios.c`).
 
 Everything runs at **1× realtime**. An autotune rollout is ~5–10 s of sim time;
 a `structured --yaw` sweep is dozens of rollouts = many minutes of waiting, and
@@ -127,7 +127,7 @@ The harness must block on **sim-tick / IMU-sample-count** advancement instead of
 ## 4. The plan (phased by priority)
 
 ### Phase 1 — single virtual clock (firmware host side) — DONE (branch `feat/sitl-lockstep-virtual-clock`)
-Implemented in `tools/sim_host/include/host_clock.h` + `host_vaios.c`
+Implemented in `sim/host/include/host_clock.h` + `host_vaios.c`
 (`host_clock_advance_us` / `host_clock_now_us` / `host_clock_stop` /
 `host_clock_set_driven` / `host_wall_delay_ms`). The IMU feeder advances the
 clock + drives the HF counter (`host_imu_feeder.c`); the wall-clock
@@ -163,7 +163,7 @@ advance at the sim rate independent of wall time, and attitude/rate traces are
 bit-identical to a 1× run.
 
 ### Phase 2 — free-run + bounded backpressure (vsim side) — DONE (branch `feat/sitl-lockstep-virtual-clock`)
-Implemented in `tools/vsim/src/main.cpp`: env `VSIM_LOCKSTEP=1` swaps the
+Implemented in `sim/vsim/src/main.cpp`: env `VSIM_LOCKSTEP=1` swaps the
 `sleep_until` wall pacing for PWM-round-trip backpressure. A credit window
 (`VSIM_LOCKSTEP_CREDIT`, **default 2** — see the validation finding below) lets
 vsim run up to N IMU samples ahead of the last acknowledged PWM (primes the
@@ -330,7 +330,7 @@ Until that lands, **Phases 1–2 at credit=2 are the validated, faithful path**
 
 - **Shared-symbol deadlock** (the main risk): if any host I/O loop keeps the
   virtual `v_delay`, it hangs. Mitigation: the Layer-2 carve-out, plus a grep
-  gate that no `tools/sim_host` infra file calls the virtual `v_delay`.
+  gate that no `sim/host` infra file calls the virtual `v_delay`.
 - **Condvar correctness:** advance `g_sim_now_us` **after** pushing the IMU
   sample (consumers must see data at the new time), and **broadcast** so all
   waiting tasks re-evaluate their deadlines.
@@ -341,7 +341,7 @@ Until that lands, **Phases 1–2 at credit=2 are the validated, faithful path**
   telemetry trace at 1× and at N×. This doubles as the regression that the
   refactor preserved behaviour, and directly attacks the noisy-cost problem in
   the autotune analysis.
-- **HW untouched:** all changes live in `tools/sim_host` + `tools/vsim`; the
+- **HW untouched:** all changes live in `sim/host` + `sim/vsim`; the
   flashed firmware (`src/`) is not modified.
 
 ## 6. Payoff

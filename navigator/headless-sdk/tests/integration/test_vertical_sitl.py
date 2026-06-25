@@ -1,7 +1,7 @@
 """Phase 1 SITL verify (altitude-hold plan §6 step 1): the VERT vertical
 estimator tracks ground truth in the simulator.
 
-The 2-state filter core is unit-tested headlessly (tools/sim_host/tests/
+The 2-state filter core is unit-tested headlessly (sim/host/tests/
 test_vertical_est.c). This test closes the loop end-to-end: real firmware VERT
 task fed the modelled baro, publishing VERTICAL_STATE telemetry, checked against
 vsim ground truth. No control change is exercised (Phase 1 is read-only on
@@ -9,7 +9,7 @@ actuators) — we just confirm the fused estimate is trustworthy before any
 controller leans on it.
 
 The vsim baro model derives pressure from the true altitude (-pos_z) with the
-exact ISA inverse the firmware uses (tools/vsim/src/main.cpp:519, sea-level
+exact ISA inverse the firmware uses (sim/vsim/src/main.cpp:519, sea-level
 101325 Pa), and the spawn is at z≈0, so fused `altitude` / raw `baro_altitude`
 both read AGL-above-spawn with no MSL offset — directly comparable to -pos_z.
 

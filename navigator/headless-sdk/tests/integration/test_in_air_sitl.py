@@ -12,7 +12,7 @@ properties end-to-end:
     (VERTICAL_STATE.agl, decision D4) reads airborne.
 
 The touchdown edge (IN_AIR→ARMED) is exercised by the host unit test
-(tools/sim_host/tests/test_flight_phase.c, FP-005) — through the Pilot it is
+(sim/host/tests/test_flight_phase.c, FP-005) — through the Pilot it is
 masked by the RC disarm-on-land (IN_AIR→STANDBY), so it isn't asserted here.
 
 No GCS bridges (gcs=False) so it never touches the shared singletons.

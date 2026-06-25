@@ -1,6 +1,6 @@
 // wind_model_test.cpp — WindModel statistics + wind-relative drag (no Qt/daemon).
-//   g++ -std=c++17 -I tools/vsim/include tools/vsim/tests/wind_model_test.cpp \
-//       tools/vsim/src/physics_core.cpp -o /tmp/wmt && /tmp/wmt
+//   g++ -std=c++17 -I sim/vsim/include sim/vsim/tests/wind_model_test.cpp \
+//       sim/vsim/src/physics_core.cpp -o /tmp/wmt && /tmp/wmt
 //
 // Covers docs/sim-fidelity/01-wind-turbulence.md's test list:
 //   - steady-only      -> constant v_wind

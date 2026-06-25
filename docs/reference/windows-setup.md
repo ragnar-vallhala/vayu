@@ -196,7 +196,7 @@ Healthy link ≈ 250 packets/s of `5602…`-framed NavLink data.
 
 ## 8. Building the GCS (Navigator desktop app)
 
-The firmware steps above cross-compile for the board. The **GCS** (`software/`,
+The firmware steps above cross-compile for the board. The **GCS** (`navigator/`,
 the `Navigator` Qt6 app) is instead a *native* Windows program — it needs a host
 C++ compiler **and Qt6 + assimp**, none of which the Arm toolchain provides. The
 cleanest fully-headless way to get all of them from one package manager is
@@ -268,13 +268,13 @@ full transitive DLL closure with `ldd`):
 
 ```bash
 bash tools/windows/deploy-navigator-msys.sh
-# -> software/build/dist/  (Navigator.exe + ~30 DLLs, fully self-contained)
+# -> navigator/build/dist/  (Navigator.exe + ~30 DLLs, fully self-contained)
 ```
 
 Smoke-test it headless (no display) from a clean shell:
 
 ```bash
-cd /c/src/vayu/software/build/dist
+cd /c/src/vayu/navigator/build/dist
 QT_QPA_PLATFORM=offscreen ./Navigator.exe   # event loop stays alive = OK
 ```
 

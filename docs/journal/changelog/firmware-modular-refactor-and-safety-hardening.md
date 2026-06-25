@@ -3,7 +3,7 @@
 The on-target flight-control firmware (`src/`, ARM Cortex-M, built on the vaios
 RTOS + NavHAL). Newest first. Discrete bug investigations keep their own
 deep-dive files — see [implement-mahony-filter-and-quaternions.md](implement-mahony-filter-and-quaternions.md)
-and [implement-rc-telemetry-and-gcs-ui.md](../../../software/docs/journal/changelog/implement-rc-telemetry-and-gcs-ui.md).
+and [implement-rc-telemetry-and-gcs-ui.md](../../../navigator/docs/journal/changelog/implement-rc-telemetry-and-gcs-ui.md).
 
 Convention/requirement tags (`CONV-0x`, `R1.2`, `R12.3`, `COMM-RC-002`, …) refer
 to the FCS requirements & coding guidelines doc
@@ -110,7 +110,7 @@ Condensed; see the per-feature deep-dive changelogs where noted.
   [implement-mahony-filter-and-quaternions.md](implement-mahony-filter-and-quaternions.md).
 - **RC + telemetry:** iBus RC parsing (UART1 DMA circular buffer) and telemetry
   broadcasting, including the critical UART1 BRR/baudrate fix — full writeup in
-  [implement-rc-telemetry-and-gcs-ui.md](../../../software/docs/journal/changelog/implement-rc-telemetry-and-gcs-ui.md).
+  [implement-rc-telemetry-and-gcs-ui.md](../../../navigator/docs/journal/changelog/implement-rc-telemetry-and-gcs-ui.md).
 - **Comm core:** packet types, serialization infrastructure, and a dedicated
   physical heartbeat module.
 - **Math backend:** introduced custom `m_`-prefixed math routines and removed

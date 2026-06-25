@@ -10,7 +10,7 @@ plant.
 ## Run it
 
 ```sh
-cd software/headless-sdk
+cd navigator/headless-sdk
 PYTHONPATH=".:examples:fidelity" python3 fidelity/run_all.py          # whole suite + scorecard
 PYTHONPATH=".:examples:fidelity" python3 fidelity/run_all.py --vveh ../../v2.vveh   # pin a frame
 PYTHONPATH=".:examples:fidelity" python3 fidelity/attitude_steps.py --axis roll     # one maneuver

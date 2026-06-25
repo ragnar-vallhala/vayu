@@ -1,5 +1,5 @@
 // trimesh_bvh_test.cpp — standalone (no Qt/daemon) check of the world collider.
-//   g++ -std=c++17 -I tools/vsim/include tools/vsim/tests/trimesh_bvh_test.cpp -o /tmp/t && /tmp/t
+//   g++ -std=c++17 -I sim/vsim/include sim/vsim/tests/trimesh_bvh_test.cpp -o /tmp/t && /tmp/t
 #include "trimesh_bvh.h"
 
 #include <cmath>

@@ -3,7 +3,7 @@
 // with a separate process that talks to the Navigator GCS (and the
 // firmware living inside it) via four FIFOs.
 //
-// Wire protocol: tools/vsim/include/vsim_proto.h.
+// Wire protocol: sim/vsim/include/vsim_proto.h.
 //
 // One thread, three rates:
 //   8 kHz : physics tick + drain pwm FIFO + drain ctl FIFO

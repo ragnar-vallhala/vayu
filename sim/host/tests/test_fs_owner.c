@@ -1,5 +1,5 @@
 /**
- * @file tools/sim_host/tests/test_fs_owner.c
+ * @file sim/host/tests/test_fs_owner.c
  * @brief SITL verification suite for the centralised filesystem owner.
  *
  * Links the real firmware source (libvayu_sitl_core -> src/storage/fs_owner.c)

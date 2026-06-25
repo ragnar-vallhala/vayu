@@ -1,5 +1,5 @@
 /**
- * @file tools/sim_host/tests/test_fs_query.c
+ * @file sim/host/tests/test_fs_query.c
  * @brief SITL test of the filesystem-navigation service (FS_LIST / FS_INFO).
  *
  * Drives the real fs_query service (SM + fs_owner + host VFS) through a capturing

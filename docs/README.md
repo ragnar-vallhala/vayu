@@ -16,8 +16,8 @@ minimal — components may *refer* to each other, but each owns its own contract
 |-----------|------------|-----------|
 | **FC** | Flight-controller firmware (this repo's `src/`, `include/`) | `docs/` *(here)* |
 | **NavLink** | Wire protocol / generated codec | [`navlink/docs/`](../navlink/docs/README.md) |
-| **GCS** | Navigator ground-control station (`software/`) | [`software/docs/`](../software/docs/README.md) |
-| **Sim** | `vsim_d` physics daemon + SITL harness | [`tools/vsim/docs/`](../tools/vsim/docs/README.md) |
+| **GCS** | Navigator ground-control station (`navigator/`) | [`navigator/docs/`](../navigator/docs/README.md) |
+| **Sim** | `vsim_d` physics daemon + SITL harness | [`sim/vsim/docs/`](../sim/vsim/docs/README.md) |
 
 ## The four layers (lifecycle)
 

@@ -1,5 +1,5 @@
 /**
- * @file tools/sim_host/tests/test_safety_phase2.c
+ * @file sim/host/tests/test_safety_phase2.c
  * @brief SITL verification suite for the Phase-2 safety cluster.
  *
  * Links the real firmware safety sources (compiled into
@@ -33,7 +33,7 @@
 #include "sys/state.h"
 #include "vayu_status.h"
 
-/* vaios host clock (tools/sim_host/src/host_vaios.c). */
+/* vaios host clock (sim/host/src/host_vaios.c). */
 extern uint32_t v_get_ticks(void);
 extern void     v_delay(uint32_t ms);
 

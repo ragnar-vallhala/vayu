@@ -3,7 +3,7 @@
 //
 // The whole procgen/ module is deliberately Qt-free: plain structs + std::vector
 // only, so it unit-tests without a GL context or QApplication and could later be
-// shared with tools/vsim/. The thin Qt adapter that turns a ProcMesh into a
+// shared with sim/vsim/. The thin Qt adapter that turns a ProcMesh into a
 // vsim::LoadedMesh lives outside this directory (ProceduralWorld.cpp).
 #pragma once
 

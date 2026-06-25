@@ -1,5 +1,5 @@
 // sensor_models.h — synthetic IMU/mag with noise + random-walk bias.
-// Ported from software/src/vsim/SensorModels.h, Qt-free.
+// Ported from navigator/src/vsim/SensorModels.h, Qt-free.
 #ifndef VSIM_SENSOR_MODELS_H
 #define VSIM_SENSOR_MODELS_H
 

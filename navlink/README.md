@@ -16,7 +16,7 @@ the generated code (encoder, parser, handler tables).
 | `dialect.schema.json` | JSON Schema the dialect must validate against (spec §7.4) |
 | `generate.py` | the generator (stdlib only, no deps) |
 | `ABI.md` | the contract: generated API + ABI rules for FC firmware + GCS |
-| `INTEGRATION.md` | the migration plan: how v2 lands in `src/comm/` + `software/src/protocol/` |
+| `INTEGRATION.md` | the migration plan: how v2 lands in `src/comm/` + `navigator/src/protocol/` |
 | `generated/c/navlink_msgs.{h,c}` | generated C codec + framing (firmware + GCS) |
 | `generated/python/navlink_msgs.py` | generated Python codec + framing (tools / autotuner) |
 | `tests/` | generator self-tests + C↔Python parity (`run_tests.py`) |

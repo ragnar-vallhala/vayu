@@ -622,6 +622,6 @@ harder against noise.
   blackbox PID/filter tuning (Oscar Liang): <https://oscarliang.com/pid-filter-tuning-blackbox/> ·
   RPM filter: <https://oscarliang.com/rpm-filter/>
 - Vayu autotuner source: `tools/autotune/` (`autotune.py`, `optimizers.py`,
-  `sitl.py`, `protocol.py`); control loops `src/control/`; sim `tools/vsim/`.
+  `sitl.py`, `protocol.py`); control loops `src/control/`; sim `sim/vsim/`.
 - SPSA: J. C. Spall, "Multivariate Stochastic Approximation Using a Simultaneous
   Perturbation Gradient Approximation," IEEE TAC, 1992.

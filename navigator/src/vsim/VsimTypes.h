@@ -14,7 +14,7 @@
 // Navigator-side type aliases for SimSnapshot fields. The full physics
 // state structures (RigidBodyState, DroneParams, MotorParams,
 // SensorNoise, ImuSample) used to live here when the simulator was
-// in-process; they now live in tools/vsim/include/vsim_types.h on the
+// in-process; they now live in sim/vsim/include/vsim_types.h on the
 // daemon side. Navigator only consumes pose snapshots, so all it needs
 // is the Qt-typed Vec3 / Quat the renderer reads off SimSnapshot.
 namespace vsim {

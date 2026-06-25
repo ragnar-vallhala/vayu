@@ -1,5 +1,5 @@
 /**
- * @file tools/sim_host/tests/test_phase3_est_ekf.c
+ * @file sim/host/tests/test_phase3_est_ekf.c
  * @brief SITL verification suite for the attitude EKF (SF_EKF / SF_EKF_ACCEL_BIAS).
  *
  * Thin host adapter over the shared, reporter-agnostic branch-coverage core in

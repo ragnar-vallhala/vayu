@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """On-hardware system-ID plant fit + analytic gain design.
 
-Port of software/src/autotune/SysId.cpp to the capture-CSV workflow. Reads a
+Port of navigator/src/autotune/SysId.cpp to the capture-CSV workflow. Reads a
 captured run (control effort u = rate-PID output, measured rate omega), fits the
 rate-loop plant  omega/u = K / (s (tau s + 1))  by the same differenced-ARX
 method, then loop-shapes the rate+angle gains. Optionally applies them to the FC
