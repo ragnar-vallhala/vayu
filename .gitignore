@@ -3,7 +3,8 @@ build*/
 compile_commands.json
 logs
 .vscode
-venv
+.venv
+venv/
 __pycache__
 build_vsim/
 .sessions
