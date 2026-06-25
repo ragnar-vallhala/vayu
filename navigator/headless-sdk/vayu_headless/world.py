@@ -21,7 +21,7 @@ def build_world_mesh(w, out_path):
     tool = paths.worldmesh_bin()
     if not os.path.exists(tool):
         print(f"  [world-mesh] builder not built ({tool}); obstacles will NOT "
-              f"be solid. Build it: cmake -B build -S software/headless-sdk/cpp/worldmesh")
+              f"be solid. Build it: cmake -B build -S navigator/headless-sdk/cpp/worldmesh")
         return None
     scale = w.get("worldScale", "1")
     up = "1" if str(w.get("worldUpAxis", "0")) in ("1", "Y", "y") else "0"

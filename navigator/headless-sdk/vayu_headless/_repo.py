@@ -1,4 +1,4 @@
-"""Locate the Vayu repo root (the dir containing navlink/, tools/, software/).
+"""Locate the Vayu repo root (the dir containing navlink/, tools/, navigator/).
 
 Shared by the modules that need to resolve binary/codec paths. Phase 2's
 paths.py will build the full path-resolution policy on top of this.

@@ -10,7 +10,7 @@ build_vsim/
 # Docker (tools/docker) out-of-tree build dirs
 build-docker/
 build_sitl-docker/
-software/build-docker/
+navigator/build-docker/
 
 # sim world / vehicle assets + tuner run artifacts (not source)
 *.vveh
@@ -25,15 +25,15 @@ tuned_pid.json
 vayu_settings.dat
 
 # Generated roadmap doc PDFs + LaTeX build artifacts (.tex sources are tracked)
-software/docs/roadmap/pdf/
-software/docs/roadmap/tex/*.pdf
-software/docs/roadmap/tex/*.aux
-software/docs/roadmap/tex/*.log
-software/docs/roadmap/tex/*.out
-software/docs/roadmap/tex/*.toc
-software/docs/roadmap/tex/*.fls
-software/docs/roadmap/tex/*.fdb_latexmk
-software/docs/roadmap/tex/*.synctex.gz
+navigator/docs/roadmap/pdf/
+navigator/docs/roadmap/tex/*.pdf
+navigator/docs/roadmap/tex/*.aux
+navigator/docs/roadmap/tex/*.log
+navigator/docs/roadmap/tex/*.out
+navigator/docs/roadmap/tex/*.toc
+navigator/docs/roadmap/tex/*.fls
+navigator/docs/roadmap/tex/*.fdb_latexmk
+navigator/docs/roadmap/tex/*.synctex.gz
 
 # Local scratch handoff (autotune optimiser next-session notes); not versioned
 AUTOTUNE-ROLLPITCH-ANALYSIS.md
