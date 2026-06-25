@@ -119,7 +119,9 @@ def main():
     ap.add_argument("--csv", type=str, default="", help="dump pose rows here")
     args = ap.parse_args()
 
-    binp = os.environ.get("VSIM_BIN_PATH", "tools/vsim/build/vsim_d")
+    _repo = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+    binp = os.environ.get(
+        "VSIM_BIN_PATH", os.path.join(_repo, "tools", "vsim", "build", "vsim_d"))
     if not os.path.exists(binp):
         print(f"FAIL: vsim_d not found at {binp} (set VSIM_BIN_PATH)")
         return 2

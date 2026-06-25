@@ -254,8 +254,19 @@ constexpr int kRcDefaultAxis[5] = {0, 1, 2, 3, 4};
 constexpr const char* kRcFuncName[5] = {"Roll", "Pitch", "Throttle", "Yaw", "Arm"};
 
 QString defaultRepoRoot() {
+  // 1) Explicit override always wins.
   QByteArray env = qgetenv("VAYU_REPO");
   if (!env.isEmpty()) return QString::fromUtf8(env);
+  // 2) Walk up from the executable to find the repo root, identified by its
+  //    marker dirs (tools/ + navlink/). The GCS binary is built somewhere
+  //    under the repo, so this resolves on any checkout path / machine
+  //    (mirrors SimWorker's app-dir-relative binary lookup).
+  QDir d(QCoreApplication::applicationDirPath());
+  for (int up = 0; up < 8; ++up) {
+    if (d.exists("tools") && d.exists("navlink")) return d.absolutePath();
+    if (!d.cdUp()) break;
+  }
+  // 3) Last-resort dev default (overridable in the UI / via VAYU_REPO).
   return QDir::homePath() + "/Documents/Drone/stack/vayu";
 }
 
