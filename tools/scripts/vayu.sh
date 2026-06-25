@@ -128,24 +128,67 @@ ensure_headless_build() {
   "$HEADLESS_PY" -m pip install -q -e "navigator/headless-sdk[test]"
 }
 
+# Per-suite result tallies (test cases run), filled by the run_* steps and read
+# by the summary table. SKIP is dynamic (pytest); ctest suites here all run.
+SITL_PASS=0 SITL_FAIL=0 SITL_SKIP=0
+GCS_PASS=0  GCS_FAIL=0  GCS_SKIP=0
+HL_PASS=0   HL_FAIL=0   HL_SKIP=0
+LOGDIR=""
+_ensure_logdir() { [ -n "$LOGDIR" ] || LOGDIR="$(mktemp -d "${TMPDIR:-/tmp}/vayu-test.XXXXXX")"; }
+
+# Parse a captured ctest log -> "pass fail skip" (each ctest test == one case).
+# `|| true` on every grep: a no-match exits non-zero, which under `set -e` would
+# otherwise abort the parser mid-way and yield empty counts.
+parse_ctest() {
+  local total failed
+  total=$(grep -oE 'out of [0-9]+' "$1" 2>/dev/null | tail -1 | grep -oE '[0-9]+' || true)
+  failed=$(grep -oE '[0-9]+ tests failed' "$1" 2>/dev/null | tail -1 | grep -oE '[0-9]+' || true)
+  total=${total:-0}; failed=${failed:-0}
+  echo "$((total - failed)) $failed 0"
+}
+# Parse a captured pytest log -> "pass fail skip" (errors fold into fail). pytest
+# omits a category entirely when its count is 0 (e.g. no "failed" on a clean run),
+# so each grep must tolerate no-match — hence `|| true`.
+parse_pytest() {
+  local line p f e s
+  line=$(grep -E '^=+.*(passed|failed|error|skipped|no tests).*=+$' "$1" 2>/dev/null | tail -1 || true)
+  p=$(printf '%s' "$line" | grep -oE '[0-9]+ passed'  | grep -oE '[0-9]+' || true); p=${p:-0}
+  f=$(printf '%s' "$line" | grep -oE '[0-9]+ failed'  | grep -oE '[0-9]+' || true); f=${f:-0}
+  e=$(printf '%s' "$line" | grep -oE '[0-9]+ error'   | grep -oE '[0-9]+' || true); e=${e:-0}
+  s=$(printf '%s' "$line" | grep -oE '[0-9]+ skipped' | grep -oE '[0-9]+' || true); s=${s:-0}
+  echo "$p $((f + e)) $s"
+}
+
 run_sitl_tests() {
+  _ensure_logdir
   say "ctest: sim/host"
-  ctest --test-dir build_sitl --output-on-failure || return 1
-  if [ "$COVERAGE" = 1 ]; then say "coverage summary"; cmake --build build_sitl --target coverage; fi
+  local log="$LOGDIR/sitl.log" rc=0
+  if ctest --test-dir build_sitl --output-on-failure 2>&1 | tee "$log"; then rc=0; else rc=1; fi
+  read -r SITL_PASS SITL_FAIL SITL_SKIP < <(parse_ctest "$log")
+  if [ "$COVERAGE" = 1 ] && [ "$rc" = 0 ]; then say "coverage summary"; cmake --build build_sitl --target coverage; fi
+  return "$rc"
 }
 run_gcs_tests() {
+  _ensure_logdir
   # Only navigator's own QtTest binaries (tst_*); navigator add_subdirectory's
   # sim/host, which registers the host ctest suite too — run that via `test sitl`.
   say "ctest: navigator (offscreen, tst_*)"
-  ctest --test-dir navigator/build -R '^tst_' --output-on-failure
+  local log="$LOGDIR/gcs.log" rc=0
+  if ctest --test-dir navigator/build -R '^tst_' --output-on-failure 2>&1 | tee "$log"; then rc=0; else rc=1; fi
+  read -r GCS_PASS GCS_FAIL GCS_SKIP < <(parse_ctest "$log")
+  return "$rc"
 }
 run_headless_tests() {
+  _ensure_logdir
   # Point the SDK at the binaries vayu.sh just built (its root-convention build
   # dirs), so the integration tests never resolve to a stale sim/*/build copy.
   say "pytest: navigator/headless-sdk (binaries: build_vsim + build_sitl)"
-  VSIM_BIN_PATH="$REPO_ROOT/build_vsim/vsim_d" \
-  VAYU_SITL_BIN="$REPO_ROOT/build_sitl/vayu_sitl" \
-  "$HEADLESS_PY" -m pytest navigator/headless-sdk/tests
+  local log="$LOGDIR/headless.log" rc=0
+  if VSIM_BIN_PATH="$REPO_ROOT/build_vsim/vsim_d" \
+     VAYU_SITL_BIN="$REPO_ROOT/build_sitl/vayu_sitl" \
+     "$HEADLESS_PY" -m pytest navigator/headless-sdk/tests 2>&1 | tee "$log"; then rc=0; else rc=1; fi
+  read -r HL_PASS HL_FAIL HL_SKIP < <(parse_pytest "$log")
+  return "$rc"
 }
 
 # single-component: build then run (set -e aborts on a build failure)
@@ -153,7 +196,34 @@ test_sitl()     { ensure_sitl_build;     run_sitl_tests; }
 test_gcs()      { ensure_gcs_build;      run_gcs_tests; }
 test_headless() { ensure_headless_build; run_headless_tests; }
 
-# everything: build all targets first, THEN run all suites, THEN one summary.
+# Consolidated table: static source counts (Files/Asserts) + dynamic case
+# tallies (Pass/Fail/Skip) collected by the run_* steps.
+test_table() {
+  local f_sitl a_sitl f_gcs a_gcs f_hl a_hl
+  f_sitl=$(find sim/host/tests -maxdepth 1 -name 'test_*.c' 2>/dev/null | wc -l | tr -d ' ')
+  a_sitl=$(grep -rhoE '\bCHECK\b' sim/host/tests/*.c 2>/dev/null | wc -l | tr -d ' ')
+  f_gcs=$(find navigator/tests -maxdepth 1 -name 'tst_*.cpp' 2>/dev/null | wc -l | tr -d ' ')
+  a_gcs=$(grep -rhoE '\bQVERIFY2?\b|\bQCOMPARE\b|\bQTRY_[A-Z]+\b|\bQFAIL\b|\bQVERIFY_EXCEPTION_THROWN\b' navigator/tests/tst_*.cpp 2>/dev/null | wc -l | tr -d ' ')
+  f_hl=$(find navigator/headless-sdk/tests -name 'test_*.py' 2>/dev/null | wc -l | tr -d ' ')
+  a_hl=$(grep -rhE '^[[:space:]]*assert\b' navigator/headless-sdk/tests 2>/dev/null | wc -l | tr -d ' ')
+
+  local tp=$((SITL_PASS + GCS_PASS + HL_PASS))
+  local tf=$((SITL_FAIL + GCS_FAIL + HL_FAIL))
+  local ts=$((SITL_SKIP + GCS_SKIP + HL_SKIP))
+  local tfiles=$((f_sitl + f_gcs + f_hl))
+  local tas=$((a_sitl + a_gcs + a_hl))
+
+  printf '\n\033[1m==== test all — summary ====\033[0m\n'
+  printf '  \033[1m%-24s %6s %8s %6s %6s %6s\033[0m\n' "Category" "Files" "Asserts" "Pass" "Fail" "Skip"
+  printf '  %-24s %6s %8s %6s %6s %6s\n' "sim/host (ctest)"      "$f_sitl" "$a_sitl" "$SITL_PASS" "$SITL_FAIL" "$SITL_SKIP"
+  printf '  %-24s %6s %8s %6s %6s %6s\n' "navigator (tst_*)"     "$f_gcs"  "$a_gcs"  "$GCS_PASS"  "$GCS_FAIL"  "$GCS_SKIP"
+  printf '  %-24s %6s %8s %6s %6s %6s\n' "headless-sdk (pytest)" "$f_hl"   "$a_hl"   "$HL_PASS"   "$HL_FAIL"   "$HL_SKIP"
+  printf '  %s\n' "------------------------------------------------------------------"
+  printf '  \033[1m%-24s %6s %8s %6s %6s %6s\033[0m\n' "TOTAL" "$tfiles" "$tas" "$tp" "$tf" "$ts"
+  printf '  \033[2mFiles/Asserts = source counts; Pass/Fail/Skip = test cases run.\033[0m\n'
+}
+
+# everything: build all targets first, THEN run all suites, THEN one table.
 test_all() {
   say "PHASE 1/2 — building all test targets"
   ensure_sitl_build
@@ -161,16 +231,13 @@ test_all() {
   ensure_headless_build
 
   say "PHASE 2/2 — running all suites"
-  local fail=0 r_sitl r_gcs r_hl
-  run_sitl_tests     && r_sitl=PASS || { r_sitl=FAIL; fail=1; }
-  run_gcs_tests      && r_gcs=PASS  || { r_gcs=FAIL;  fail=1; }
-  run_headless_tests && r_hl=PASS   || { r_hl=FAIL;   fail=1; }
+  local fail=0
+  run_sitl_tests     || fail=1
+  run_gcs_tests      || fail=1
+  run_headless_tests || fail=1
 
-  printf '\n\033[1m==== test all — summary ====\033[0m\n'
-  printf '  sim/host (ctest)       %s\n' "$r_sitl"
-  printf '  navigator (tst_*)      %s\n' "$r_gcs"
-  printf '  headless-sdk (pytest)  %s\n' "$r_hl"
-  if [ "$fail" = 0 ]; then printf '  \033[1mALL GREEN\033[0m\n'; else printf '  \033[1mSOME FAILED\033[0m\n'; fi
+  test_table
+  if [ "$fail" = 0 ]; then printf '  \033[1;32mALL GREEN\033[0m\n'; else printf '  \033[1;31mSOME FAILED\033[0m\n'; fi
   return "$fail"
 }
 
