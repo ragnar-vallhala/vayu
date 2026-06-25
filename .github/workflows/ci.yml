@@ -60,7 +60,7 @@ jobs:
         # failing once clean.
         run: |
           cppcheck --enable=warning,portability --std=c11 --quiet --error-exitcode=1 \
-            --inline-suppr --suppress=missingInclude -I include src/
+            --inline-suppr --suppress=missingInclude -I firmware/include firmware/src/
 
   sitl-tests:
     name: SITL unit tests
@@ -118,4 +118,4 @@ jobs:
         run: |
           cmake -S sim/host -B build_tidy -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
           cmake --build build_tidy -j --target vayu_sitl_core
-          git ls-files 'src/*.c' | xargs -P4 -I{} clang-tidy -p build_tidy {}
+          git ls-files 'firmware/src/*.c' | xargs -P4 -I{} clang-tidy -p build_tidy {}
