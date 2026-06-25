@@ -179,11 +179,16 @@ Options: `-j N` (jobs), `--release` / `--debug` (build type), `--no-sitl`
 | `build.sh` | shim → `vayu.sh build firmware` |
 | `flash.sh` | firmware build + objcopy + `st-flash` |
 
-Notes: `test sitl` builds `build_sitl` if absent, then `ctest` (the 15-test host
+Notes: `test sitl` (re)builds `build_sitl` incrementally, then `ctest` (the host
 suite); `test gcs` builds the QtTest binaries and runs only the navigator `tst_*`
 tests (the host suite leaks in via `add_subdirectory(sim/host)` — run it through
-`test sitl`); `test headless` pip-installs the SDK (into `.venv` if present) and
-runs pytest; `build all` = firmware + sitl + vsim + gcs.
+`test sitl`); `test headless` also builds `vsim_d` + `vayu_sitl` (the SDK's
+integration tests drive the real SITL stack — without the binaries `conftest`
+*silently skips* them), creates/uses `.venv`, installs the SDK editable, and runs
+pytest with `VSIM_BIN_PATH`/`VAYU_SITL_BIN` pointed at those fresh binaries (so a
+stale `sim/*/build` copy is never picked up); `build all` = firmware + sitl +
+vsim + gcs. The `ensure_*_build` steps always do an incremental build, so a test
+run can't serve a stale binary.
 
 Other entry points: `tools/docker/build.sh {image,firmware,sitl,gcs,all,shell,clean}`
 (containerised builds into `*-docker/`), and `tools/dev/trace.py --check` (the

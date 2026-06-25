@@ -96,7 +96,14 @@ build_gcs() {
 #      then run every suite, keeping the results together at the end. -----------
 HEADLESS_PY=python3   # resolved by ensure_headless_build, used by run_headless_tests
 
-ensure_sitl_build() { [ -d build_sitl ] || build_sitl; }
+# configure-if-needed, then ALWAYS incrementally build, so a test run can never
+# pick up a stale binary (cheap when nothing changed).
+ensure_sitl_build() {
+  if [ -d build_sitl ]; then cmake --build build_sitl -j"$JOBS"; else build_sitl; fi
+}
+ensure_vsim_build() {
+  if [ -d build_vsim ]; then cmake --build build_vsim -j"$JOBS"; else build_vsim; fi
+}
 ensure_gcs_build() {
   local type; type="$(bt_flag)"; [ -z "$type" ] && type="-DCMAKE_BUILD_TYPE=Release"
   say "navigator: configure + build with tests"
@@ -104,6 +111,11 @@ ensure_gcs_build() {
   cmake --build navigator/build -j"$JOBS"
 }
 ensure_headless_build() {
+  # The integration tests drive the REAL SITL stack, so they need fresh vsim_d
+  # + vayu_sitl; without them conftest SILENTLY skips (false green). Build both
+  # (run_headless_tests points the SDK at these via VSIM_BIN_PATH/VAYU_SITL_BIN).
+  ensure_vsim_build
+  ensure_sitl_build
   # System Python is often externally managed (PEP 668), so install into a venv.
   # Use $REPO_ROOT/.venv if present, otherwise create it.
   if [ ! -x "$REPO_ROOT/.venv/bin/python" ]; then
@@ -128,7 +140,11 @@ run_gcs_tests() {
   ctest --test-dir navigator/build -R '^tst_' --output-on-failure
 }
 run_headless_tests() {
-  say "pytest: navigator/headless-sdk"
+  # Point the SDK at the binaries vayu.sh just built (its root-convention build
+  # dirs), so the integration tests never resolve to a stale sim/*/build copy.
+  say "pytest: navigator/headless-sdk (binaries: build_vsim + build_sitl)"
+  VSIM_BIN_PATH="$REPO_ROOT/build_vsim/vsim_d" \
+  VAYU_SITL_BIN="$REPO_ROOT/build_sitl/vayu_sitl" \
   "$HEADLESS_PY" -m pytest navigator/headless-sdk/tests
 }
 
