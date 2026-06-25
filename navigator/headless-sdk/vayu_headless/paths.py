@@ -35,7 +35,7 @@ def worldmesh_bin():
         return env
     root = repo_root()
     candidates = [
-        os.path.join(root, "software", "headless-sdk", "cpp", "worldmesh",
+        os.path.join(root, "navigator", "headless-sdk", "cpp", "worldmesh",
                      "build", "vsim_worldmesh"),
         os.path.join(root, "sim", "host", "worldmesh", "build",
                      "vsim_worldmesh"),

@@ -10,14 +10,14 @@
 #
 # Usage (from an MSYS2 UCRT64 shell, or: bash deploy-navigator-msys.sh):
 #   bash tools/windows/deploy-navigator-msys.sh <path-to-build-dir>
-# Default build dir: software/build (relative to repo root).
+# Default build dir: navigator/build (relative to repo root).
 set -o pipefail
 export CHERE_INVOKING=1
 export MSYSTEM=UCRT64
 source /etc/profile
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"   # repo root
-BUILD="${1:-$here/software/build}"
+BUILD="${1:-$here/navigator/build}"
 EXE="$BUILD/Navigator.exe"
 DIST="$BUILD/dist"
 

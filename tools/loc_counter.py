@@ -6,7 +6,7 @@ total:
 
   - vayu      : the firmware / flight stack (src/, include/)            — C
   - navlink   : the wire-protocol codec + generator (navlink/)          — Python, JSON, C
-  - navigator : the ground-control station (software/src, software/tests) — C++
+  - navigator : the ground-control station (navigator/src, navigator/tests) — C++
 
 Generated code (navlink/generated, */navlink_gen), build trees, vendored
 submodules and virtualenvs are excluded — only hand-written source is counted.
@@ -31,7 +31,7 @@ CC = {".c", ".h", ".cpp", ".cc", ".cxx", ".hpp", ".hh"}
 COMPONENTS = [
     ("vayu (firmware)",  ["src", "include"],                  {".c", ".h"},               "own"),
     ("navlink (codec)",  ["navlink"],                         {".py", ".json", ".c", ".h"}, "own"),
-    ("navigator (GCS)",  ["software/src", "software/tests"],  CC,                         "own"),
+    ("navigator (GCS)",  ["navigator/src", "navigator/tests"],  CC,                         "own"),
     ("vaios (RTOS)",     ["extern/vaios"],                    CC,                         "own"),
     ("navhal (HAL)",     ["extern/vaios/extern/NavHAL"],      CC,                         "own"),
 ]

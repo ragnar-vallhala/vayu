@@ -5,7 +5,7 @@
 #   tools/docker/build.sh image      # build (or rebuild) the toolchain image
 #   tools/docker/build.sh firmware   # arm-none-eabi STM32 build -> build-docker/
 #   tools/docker/build.sh sitl       # host SITL build + ctest    -> build_sitl-docker/
-#   tools/docker/build.sh gcs        # Qt6 Navigator GCS          -> software/build-docker/
+#   tools/docker/build.sh gcs        # Qt6 Navigator GCS          -> navigator/build-docker/
 #   tools/docker/build.sh all        # firmware + sitl + gcs
 #   tools/docker/build.sh shell      # interactive shell in the container
 #   tools/docker/build.sh clean      # remove the *-docker build dirs
@@ -30,9 +30,9 @@ case "${1:-all}" in
   image)    $DC build ;;
   firmware) run "cmake -B build-docker && cmake --build build-docker $J" ;;
   sitl)     run "cmake -S sim/host -B build_sitl-docker && cmake --build build_sitl-docker $J && ctest --test-dir build_sitl-docker --output-on-failure" ;;
-  gcs)      run "cmake -S software -B software/build-docker && cmake --build software/build-docker $J" ;;
+  gcs)      run "cmake -S navigator -B navigator/build-docker && cmake --build navigator/build-docker $J" ;;
   all)      "$0" firmware && "$0" sitl && "$0" gcs ;;
   shell)    $DC run --rm vayu bash ;;
-  clean)    rm -rf build-docker build_sitl-docker software/build-docker ;;
+  clean)    rm -rf build-docker build_sitl-docker navigator/build-docker ;;
   *)        echo "usage: $0 [image|firmware|sitl|gcs|all|shell|clean]"; exit 1 ;;
 esac

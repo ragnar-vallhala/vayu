@@ -51,7 +51,7 @@ QString AboutDialog::docsPath() {
   const QStringList candidates = {
       appDir + "/docs",
       appDir + "/../docs",
-      appDir + "/../software/docs",
+      appDir + "/../navigator/docs",
       // Source-tree fallback for a dev run from the build directory.
       appDir + "/../../docs",
   };
