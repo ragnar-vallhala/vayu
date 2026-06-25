@@ -37,7 +37,7 @@ for the Navigator GCS.
    ```c
    /* @verifies CTRL-RATE-001 */
    ```
-4. CI's trace gate (`tools/trace.py` — see
+4. CI's trace gate (`tools/dev/trace.py` — see
    `coding-guidelines.md` §7.13 CONV-03) fails the build if any ID is
    unimplemented, unverified, or unknown.
 
@@ -90,7 +90,7 @@ grow as code matures.
 | Reality vs spec drift             | ✅ §6 captures every correction made by the audit            |
 | 🟡 cleanup backlog                | ✅ enumerated in §6 — ~14 tracked gap items                  |
 | Traceability tag convention       | ✅ defined                                                   |
-| Trace-gate CI script              | ✅ shipped (`tools/trace.py` + generated `trace.md`) — CONV-03 |
+| Trace-gate CI script              | ✅ shipped (`tools/dev/trace.py` + generated `trace.md`) — CONV-03 |
 | Coding guidelines R1–R12          | ✅ adopted                                                   |
 | Compiler-flag rollout (R1.2)      | ✅ shipped — `VAYU_R12_WARN_FLAGS` in `CMakeLists.txt` (CONV-06) |
 | Sanitizer CI                      | ✅ shipped — `.github/workflows/ci.yml`                     |
@@ -99,7 +99,7 @@ grow as code matures.
 
 ## Next concrete steps
 
-The original starter-draft action items (status/assert headers, `tools/trace.py`,
+The original starter-draft action items (status/assert headers, `tools/dev/trace.py`,
 CI scaffolding, compiler-flag rollout) have all shipped. The **living tracker** is
 now the CONV table in `docs/firmware/coding-guidelines.md` and the gap list in
 `requirements.md` §6 — consult those for what remains open.

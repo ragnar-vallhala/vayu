@@ -23,10 +23,10 @@ and a textual summary of the armed-window metrics is printed to stdout:
   - mean outer / inner loop dt
 
 Usage:
-  ./tools/sim_log_plot.py                   # newest logs/sim-*.bin
-  ./tools/sim_log_plot.py <log.bin>
-  ./tools/sim_log_plot.py --logs-dir DIR    # different logs root
-  ./tools/sim_log_plot.py --show            # open the figure interactively
+  ./tools/analysis/sim_log_plot.py                   # newest logs/sim-*.bin
+  ./tools/analysis/sim_log_plot.py <log.bin>
+  ./tools/analysis/sim_log_plot.py --logs-dir DIR    # different logs root
+  ./tools/analysis/sim_log_plot.py --show            # open the figure interactively
 """
 
 from __future__ import annotations
@@ -495,7 +495,7 @@ def main(argv=None):
         logs_dir = args.logs_dir
         if logs_dir is None:
             # Default = sibling of this script.
-            logs_dir = os.path.abspath(os.path.join(HERE, "..", "logs"))
+            logs_dir = os.path.abspath(os.path.join(HERE, "..", "..", "logs"))
         log_path = newest_log(logs_dir)
         if log_path is None:
             print(f"no sim-*.bin in {logs_dir}", file=sys.stderr)

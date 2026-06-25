@@ -1,5 +1,5 @@
 {
-  "_comment": "On-hardware sysid + stabilization tune for the rig airframe. Captured from the live FC after diagnosing/fixing the throttle-up runaway and running roll system-ID. NOTHING on the FC is persisted across battery cycles, so re-apply these with tools/apply_tune.py after each boot. See memory onhw-sysid-phase0.",
+  "_comment": "On-hardware sysid + stabilization tune for the rig airframe. Captured from the live FC after diagnosing/fixing the throttle-up runaway and running roll system-ID. NOTHING on the FC is persisted across battery cycles, so re-apply these with tools/sysid/apply_tune.py after each boot. See memory onhw-sysid-phase0.",
   "captured": "2026-06-22",
   "airframe": "X-quad on a free-rotating rig (raised inertia). Motors: M1,M3 CW, M2,M4 CCW. IMU aligned (no relative rotation).",
 

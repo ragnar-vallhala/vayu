@@ -12,7 +12,7 @@ Generated code (navlink/generated, */navlink_gen), build trees, vendored
 submodules and virtualenvs are excluded — only hand-written source is counted.
 
 Usage:
-    python3 tools/loc_counter.py [--files] [--root <project-root>]
+    python3 tools/dev/loc_counter.py [--files] [--root <project-root>]
 
     --files   also list every file with its LOC, grouped by component
     --root    override the project root (default: the parent of tools/)
@@ -171,7 +171,7 @@ def scan_component(root, dirs, exts):
 
 def main():
     here = os.path.dirname(os.path.abspath(__file__))
-    default_root = os.path.dirname(here)
+    default_root = os.path.dirname(os.path.dirname(here))
     ap = argparse.ArgumentParser(description="Vayu project LOC counter")
     ap.add_argument("--files", action="store_true", help="list every file with its LOC")
     ap.add_argument("--root", default=default_root, help="project root (default: parent of tools/)")

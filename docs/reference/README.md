@@ -8,7 +8,7 @@ Living contract: architecture explainers (for newcomers) plus formal requirement
 - [`software-flow.md`](software-flow.md) — **the whole runtime in diagrams**: boot, every task, the IPC, and the sense→estimate→control→actuate + comms hot paths (Mermaid; verified against source).
 - [`firmware-control.md`](firmware-control.md) — the cascade control path (rate/attitude loops, mixer) explained.
 - [`pipeline-overview.md`](pipeline-overview.md) — end-to-end sensor → estimator → control → actuator data pipeline.
-- [`trace.md`](trace.md) — generated requirement ↔ source traceability table (`tools/trace.py`).
+- [`trace.md`](trace.md) — generated requirement ↔ source traceability table (`tools/dev/trace.py`).
 - [`coordinate_ref.md`](coordinate_ref.md) — NED axis conventions used across estimation and mixing.
 - [`hardware-gotchas.md`](hardware-gotchas.md) — survival notes (e.g. no locks in high-frequency loop paths).
 - [`tasks/`](tasks/README.md) — RTOS task layout and per-task contracts.

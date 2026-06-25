@@ -1,5 +1,5 @@
 {
-  "_comment": "Current live on-hardware rig tune (geometry + gains) as applied this session. Re-apply after every battery cycle: python3 tools/apply_tune.py --file rig_tune.json. NOTHING on the FC persists across power cycles. Pitch is a roll-seeded stabilization (stiff inner + slow outer) to break the angle_kp=4.0 cascade runaway; pitch sysid still pending. See memory onhw-sysid-phase0.",
+  "_comment": "Current live on-hardware rig tune (geometry + gains) as applied this session. Re-apply after every battery cycle: python3 tools/sysid/apply_tune.py --file rig_tune.json. NOTHING on the FC persists across power cycles. Pitch is a roll-seeded stabilization (stiff inner + slow outer) to break the angle_kp=4.0 cascade runaway; pitch sysid still pending. See memory onhw-sysid-phase0.",
   "captured": "2026-06-22",
   "airframe": "X-quad on a free-rotating rig (raised inertia). Motors: M1,M3 CW, M2,M4 CCW. IMU aligned.",
 

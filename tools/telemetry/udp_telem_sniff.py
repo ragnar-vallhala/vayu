@@ -8,10 +8,10 @@ then decodes the live NavLink v2 stream with the SAME codec the GCS/sim use
 Navigator needed — useful for verifying that a flashed board is actually
 streaming, and at what rates, straight from the terminal.
 
-    python3 tools/udp_telem_sniff.py                 # port 14555, run until Ctrl-C
-    python3 tools/udp_telem_sniff.py --port 14550
-    python3 tools/udp_telem_sniff.py --seconds 10    # auto-stop after 10 s
-    python3 tools/udp_telem_sniff.py --raw           # also dump each frame's fields
+    python3 tools/telemetry/udp_telem_sniff.py                 # port 14555, run until Ctrl-C
+    python3 tools/telemetry/udp_telem_sniff.py --port 14550
+    python3 tools/telemetry/udp_telem_sniff.py --seconds 10    # auto-stop after 10 s
+    python3 tools/telemetry/udp_telem_sniff.py --raw           # also dump each frame's fields
 
 Every second it prints a table: per-message Hz, total count, last seq, plus a
 peek at AttitudeEuler / FlightMode / Heartbeat so you can eyeball live attitude.
@@ -24,7 +24,7 @@ import sys
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.dirname(HERE)
+ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, os.path.join(ROOT, "navlink", "sim"))
 sys.path.insert(0, os.path.join(ROOT, "navlink", "generated", "python"))
 

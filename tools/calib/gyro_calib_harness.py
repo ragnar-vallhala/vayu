@@ -14,10 +14,10 @@ that matters to debug a stuck calibration:
 Requires the Navigator GCS to be CLOSED first (only one process can own the
 UDP port / the bridge's unicast target).
 
-    python3 tools/gyro_calib_harness.py                 # gyro bias (which=0x20)
-    python3 tools/gyro_calib_harness.py --which 0x21    # gyro full
-    python3 tools/gyro_calib_harness.py --which 0x10    # accel bias
-    python3 tools/gyro_calib_harness.py --monitor-only  # no command, just watch
+    python3 tools/calib/gyro_calib_harness.py                 # gyro bias (which=0x20)
+    python3 tools/calib/gyro_calib_harness.py --which 0x21    # gyro full
+    python3 tools/calib/gyro_calib_harness.py --which 0x10    # accel bias
+    python3 tools/calib/gyro_calib_harness.py --monitor-only  # no command, just watch
 """
 import argparse
 import os
@@ -26,7 +26,7 @@ import sys
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.dirname(HERE)
+ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, os.path.join(ROOT, "navlink", "sim"))
 sys.path.insert(0, os.path.join(ROOT, "navlink", "generated", "python"))
 

@@ -11,8 +11,8 @@ setpoint but motors only move via the controller's ARMED gate, so a disarmed FC
 captures the input path with props still. Only arm on the rig after the dump,
 waveform, and abort all check out at low amplitude.
 
-    python3 tools/sysid_excite.py --axis roll --f0 0.5 --f1 12 --amp 30 --dur 6
-    python3 tools/sysid_excite.py --abort                 # stop a run now
+    python3 tools/sysid/sysid_excite.py --axis roll --f0 0.5 --f1 12 --amp 30 --dur 6
+    python3 tools/sysid/sysid_excite.py --abort                 # stop a run now
 
 Close the Navigator GCS first (UDP 14555 is single-owner).
 """
@@ -24,7 +24,7 @@ import sys
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.dirname(HERE)
+ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, os.path.join(ROOT, "navlink", "sim"))
 sys.path.insert(0, os.path.join(ROOT, "navlink", "generated", "python"))
 
