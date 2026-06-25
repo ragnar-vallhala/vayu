@@ -13,7 +13,7 @@ import pytest
 from vayu_headless._repo import repo_root
 from vayu_headless.transport import vsim
 
-PROTO = os.path.join(repo_root(), "tools", "vsim", "include", "vsim_proto.h")
+PROTO = os.path.join(repo_root(), "sim", "vsim", "include", "vsim_proto.h")
 
 
 def _proto_sizes():

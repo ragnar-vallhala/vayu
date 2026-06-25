@@ -19,14 +19,14 @@ def vsim_bin():
     env = os.environ.get("VSIM_BIN_PATH")
     if env:
         return env
-    return os.path.join(repo_root(), "tools", "vsim", "build", "vsim_d")
+    return os.path.join(repo_root(), "sim", "vsim", "build", "vsim_d")
 
 
 def sitl_bin():
     env = os.environ.get("VAYU_SITL_BIN")
     if env:
         return env
-    return os.path.join(repo_root(), "tools", "sim_host", "build_sitl", "vayu_sitl")
+    return os.path.join(repo_root(), "sim", "host", "build_sitl", "vayu_sitl")
 
 
 def worldmesh_bin():
@@ -37,7 +37,7 @@ def worldmesh_bin():
     candidates = [
         os.path.join(root, "software", "headless-sdk", "cpp", "worldmesh",
                      "build", "vsim_worldmesh"),
-        os.path.join(root, "tools", "sim_host", "worldmesh", "build",
+        os.path.join(root, "sim", "host", "worldmesh", "build",
                      "vsim_worldmesh"),
     ]
     for c in candidates:

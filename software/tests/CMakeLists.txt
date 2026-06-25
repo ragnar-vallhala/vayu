@@ -92,7 +92,7 @@ navigator_test(tst_sitl_stack
     ${SRC}/core/crc.cpp)
 target_include_directories(tst_sitl_stack PRIVATE
     ${SRC}/autotune ${SRC}/protocol ${SRC}/core
-    ${CMAKE_SOURCE_DIR}/../tools/vsim/include)
+    ${CMAKE_SOURCE_DIR}/../sim/vsim/include)
 # DroneProtocol + CommandCodec pull in the NavLink v2 codec (RX router / TX).
 target_link_libraries(tst_sitl_stack PRIVATE navlink_codec)
 
