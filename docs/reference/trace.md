@@ -109,7 +109,7 @@
 | `SNS-BUF-002` | active | Drop accounting | — | `tools/sim_host/tests/test_phase3_slog.c` |
 | `SNS-CAL-001` | active | Persistent calibration store | — | — |
 | `SNS-CAL-002` | active | Online gyro bias estimator | — | — |
-| `SNS-CAL-101` | active | Accel 6-point calibration | — | — |
+| `SNS-CAL-101` | active | Accel ellipsoid calibration | — | — |
 | `SNS-CAL-102` | active | Gyro bias calibration | — | — |
 | `SNS-CAL-103` | active | Mag free-rotation calibration | — | — |
 | `SNS-I2C-001` | active | I2C bus contract | — | — |
@@ -121,8 +121,8 @@
 | `SNS-MAG-001` | active | Mag sample availability | — | — |
 | `SNS-MAG-002` | active | Mag disturbance rejection | — | — |
 | `SNS-MAG-101` | active | Trim-data compensation | — | — |
-| `SYS-CAL-001` | active | Gyro bias-only calibration | — | — |
-| `SYS-CAL-002` | active | Accel 6-axis calibration | — | — |
+| `SYS-CAL-001` | active | Gyro bias calibration | — | — |
+| `SYS-CAL-002` | active | Accel calibration | — | — |
 | `SYS-CAL-003` | active | Magnetometer axis coverage | — | — |
 | `SYS-CAL-004` | active | Calibration persistence | — | — |
 | `SYS-CTRL-001` | active | Manual rate mode (acro) | — | — |

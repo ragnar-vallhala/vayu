@@ -855,12 +855,8 @@ float bmx160_raw_gyr_to_dps(int16_t raw) {
   return (float)raw * gyr_scale;
 }
 
-// Removed: bmx160_raw_mag_to_uT was deprecated and broken.
-
 bmx160_config_t bmx160_get_current_config(void) { return bmx160_cfg; }
 void bmx160_set_current_config(bmx160_config_t *cfg) { bmx160_cfg = *cfg; }
-
-extern uint32_t bmx160_task_id;
 
 // Run from ISR
 #define MAX(a, b) ((a) > (b) ? (a) : (b))

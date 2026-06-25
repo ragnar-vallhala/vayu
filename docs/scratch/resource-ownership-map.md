@@ -170,9 +170,9 @@ Three USARTs exist; two are used. **Note the SITL inversion** (see end).
 separate IRQs); the TX `busy` flag never blocks RX.
 
 ### Telemetry message rates (content, produced by the real `telemetry_task`)
-~166 Hz base tick (`v_delay(6)`): ImuCompressed 25 Hz · Motor/PIDerr 18 Hz ·
-log 15 Hz · Attitude/RC/Baro/Vertical 10 Hz · Status 2 Hz · full-state/cost/
-heartbeat ~1 Hz.
+~500 Hz base tick (`v_delay(TELEM_BASE_MS)`, =2), ms-gated per stream:
+ImuCompressed/Attitude/Motor/CONTROL_TRACE 50 Hz · log ~17 Hz · RC ~11 Hz ·
+Baro/Vertical 5 Hz · Status ~3.3 Hz · IMU_RAW keyframe ~1.7 Hz · perf/heartbeat ~1 Hz.
 
 ---
 
@@ -403,7 +403,7 @@ atomic acquire; relies on the "blocking = boot only" discipline being preserved.
 
 ### C6 — CRC unit shared on the telemetry hot path *(minor)*
 One HW CRC unit, `crc_mutex`-guarded (`sys_utils.c:105`), used by telemetry frame
-checksums (~166 Hz) and config CRC. A config save briefly blocks framing.
+checksums (per emitted frame on the ~500 Hz telemetry loop) and config CRC. A config save briefly blocks framing.
 **Mitigation:** mutex; contention window tiny. *Low impact.*
 
 ### C7 — DWT 32-bit wrap (~51 s) *(correctness, not a lock)*

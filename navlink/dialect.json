@@ -106,7 +106,13 @@
         { "name": "FREE_ROT",          "value": 7 },
         { "name": "MAG_AXIS_COVERAGE", "value": 8 },
         { "name": "COMPLETE",          "value": 9 },
-        { "name": "FAILED",            "value": 10 }
+        { "name": "FAILED",            "value": 10 },
+        { "name": "EDGE_1",            "value": 11 },
+        { "name": "EDGE_2",            "value": 12 },
+        { "name": "EDGE_3",            "value": 13 },
+        { "name": "EDGE_4",            "value": 14 },
+        { "name": "EDGE_5",            "value": 15 },
+        { "name": "EDGE_6",            "value": 16 }
       ]
     },
     "perf_fifo_id": {

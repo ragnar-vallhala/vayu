@@ -14,8 +14,10 @@
  * Mahony/complementary filters, so running it on every 2 kHz IMU sample
  * saturates the F4 and starves the low-priority telemetry tasks. The EKF is
  * therefore decimated to the control-loop rate (INNER_LOOP_FREQ_HZ, 1 kHz):
- * accel/gyro are averaged over the decimation window (anti-alias) and dt is
- * accumulated so predict integrates the full elapsed interval. The rate loop
+ * the latest sample of the window is fed to the estimator (no averaging — the
+ * IMU driver already low-passes accel/gyro, so a boxcar average just added group
+ * delay) and dt is accumulated so predict integrates the full elapsed interval.
+ * The rate loop
  * reads the freshest attitude each cycle, so one estimate per control cycle
  * loses nothing. Cheaper filters keep running on every sample (decim = 1).
  */

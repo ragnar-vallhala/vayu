@@ -55,11 +55,11 @@ int sysid_capture_count(void); // total samples written to SD for the last run
 int sysid_capture_hz(void);    // capture rate (Hz)
 int sysid_capture_axis(void);  // excited axis of the last run
 
-/* Post-run dump: stream the captured "0:sysid.bin" back over the link. Driven by
+/* Post-run dump: stream the captured RAM buffer back over the link. Driven by
  * CMD_SYSID_DUMP; the telemetry task pulls chunks via sysid_dump_next(). */
 void sysid_dump_request(void); // (re)start the dump from sample 0
 int sysid_dump_active(void);   // non-zero while a dump is in progress
-/* Read the next chunk of up to `cap` samples (0.1 deg/s, i16) FROM the SD file
- * into sp/gyro; returns the count read (0 when complete / on error) and sets
+/* Read the next chunk of up to `cap` samples (0.1 deg/s, i16) from the RAM capture
+ * buffer into sp/gyro; returns the count read (0 when complete / on error) and sets
  * *start to this chunk's first sample index. Called from the telemetry task. */
 int sysid_dump_next(uint16_t *start, int16_t *sp, int16_t *gyro, int cap);

@@ -19,5 +19,11 @@ Active plans for in-flight firmware work; a plan is deleted once its feature shi
 - [`procedural-world-generation.md`](procedural-world-generation.md) — pluggable
   biome architecture for the SITL renderer. Phase 0 (meadow terrain) shipped;
   further biomes/phases remain.
+- [`stale-docs-comment-audit.md`](stale-docs-comment-audit.md) — codebase-wide
+  sweep (excl. `extern/`) fixing docs/comments that drifted from the code: the
+  calibration overhaul, telemetry 166→500 Hz, channel 512→2048 B, stale
+  control-loop/EKF/sysid comments, dead declarations, `calib_step` EDGE codes,
+  and a few GCS fixes. Doc/comment edits + one dialect-enum regen; no behavioral
+  change.
 
 Add a plan here when starting a new piece of firmware work, and remove it on completion.

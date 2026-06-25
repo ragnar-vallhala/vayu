@@ -1356,7 +1356,9 @@ enum { PF_IMU_RAW = 0,            /* reserved: legacy ring, no longer emitted */
 /* CALIBRATION_STATUS.step (§14.8) */
 enum { CAL_PROGRESS = 0, CAL_NOSE_UP = 1, CAL_NOSE_DOWN = 2, CAL_RIGHT_DOWN = 3,
        CAL_LEFT_DOWN = 4, CAL_UPRIGHT = 5, CAL_UPSIDE_DOWN = 6, CAL_FREE_ROT = 7,
-       CAL_MAG_AXIS_COVERAGE = 8 };
+       CAL_MAG_AXIS_COVERAGE = 8, CAL_COMPLETE = 9, CAL_FAILED = 10,
+       CAL_EDGE_1 = 11, CAL_EDGE_2 = 12, CAL_EDGE_3 = 13, CAL_EDGE_4 = 14,
+       CAL_EDGE_5 = 15, CAL_EDGE_6 = 16 };
 ```
 
 *End of specification.*

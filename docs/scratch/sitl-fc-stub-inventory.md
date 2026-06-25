@@ -90,7 +90,7 @@ All shims live in `tools/sim_host/src/`. FIFOs/pty paths are suffixed with
 | Mechanism | Two modes. **(a) In-process iface:** when Navigator registers a `vsim_iface_t`, `hal_uart_write_dma` hands bytes to `iface->on_uart2_bytes` callback. **(b) Legacy/standalone:** opens a **pty** (`posix_openpt`, raw mode), advertises the slave path to `/tmp/vayu_uart2_pty$SUFFIX`, and tees a raw copy to `/tmp/vayu_uart2.log$SUFFIX`. A reader thread on the pty master delivers GCS→FC bytes one at a time via `uart2_packet_recv_callback` + `hal_uart_read_char` (emulating the per-byte RX IRQ) |
 | DMA fakery | `hal_uart_write_dma` is synchronous, so it immediately calls `dma_tx_complete_callback()` to clear `channel.c`'s busy flag (no real TX-complete IRQ). `hal_uart_init_dma_rx` / idle-callback / `hal_uart_dma_rx_index` are no-ops (RC uses the bypass, not DMA-RX) |
 | Baud | `UART_BAUDRATE = 230400` configured but not rate-limiting on host (pty is memory-speed) |
-| **Data rate** | The *content* is produced by the real `telemetry_task` at ~166 Hz tick (`v_delay(6)`), emitting per-message: ImuCompressed 25 Hz, Motor/PIDerr 18 Hz, log 15 Hz, Attitude/RC/Baro/Vertical 10 Hz, Status 2 Hz, full-state + cost + heartbeat ~1 Hz |
+| **Data rate** | The *content* is produced by the real `telemetry_task` at a ~500 Hz base tick (`v_delay(TELEM_BASE_MS)`, =2), ms-gated per stream: ImuCompressed/Attitude/Motor/CONTROL_TRACE 50 Hz, log ~17 Hz, RC ~11 Hz, Baro/Vertical 5 Hz, Status ~3.3 Hz, IMU_RAW keyframe ~1.7 Hz, perf/heartbeat ~1 Hz |
 
 ### 6. CRC peripheral — `host_navhal.c` (CRC HAL)
 
@@ -167,7 +167,7 @@ every frame. Rebuild both `vsim_d` and the SITL on any wire change.
 | Baro (BME280) | `host_baro.c` → `bme280_publish` | FIFO `/tmp/vsim_baro` in | physical, FC re-emits ~10 Hz |
 | RC (iBus/PPM) | `host_rc_feeder.c` | serial/pty CSV in | ~50 Hz |
 | Motors (PWM TIM1) | `host_navhal.c` | FIFO `/tmp/vsim_pwm` out | per control iter (~1 kHz) |
-| GCS link (UART2) | `host_navhal.c` | iface callback or pty | content ~166 Hz tick |
+| GCS link (UART2) | `host_navhal.c` | iface callback or pty | content ~500 Hz base tick |
 | CRC unit | `host_navhal.c` | software CRC32 | per packet |
 | Clock/DWT/timers | `host_navhal.c` + `host_clock.h` | virtual sim clock | 1 ms/IMU sample |
 | GPIO/NVIC | `host_navhal.c` | no-ops | n/a |

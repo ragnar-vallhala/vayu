@@ -55,9 +55,10 @@ cadence, so behaviour is unchanged until the user touches it.
 Not configurable (procedural / handshake, always on):
 `CALIBRATION_STATUS` (0x3020) and `TIME_SYNC` (0xA).
 
-The telemetry loop runs at ~166 Hz. A stream's period is
-`period_ticks = round(166 / rate_hz)` (clamped ≥1); the loop sends the stream when
-`packet_counter % period_ticks == 0`, and skips entirely when rate is 0.
+The telemetry loop runs a ~500 Hz base tick (`TELEM_BASE_MS = 2`). Each stream is
+gated by a **millisecond period** via the `TELEM_GATE` macro, so its effective
+rate is independent of the base-loop frequency; the loop emits a stream when its
+gate elapses (gate floor = 1 tick) and skips it entirely when its period is 0.
 
 ## Wire format
 

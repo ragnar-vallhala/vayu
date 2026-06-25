@@ -87,9 +87,10 @@ graph TD
 
 1.  **Extraction**: 30 bytes are parsed into Accel (X, Y, Z), Gyro (X, Y, Z), Mag (X, Y, Z), RHALL, and Temperature.
 2.  **Unit Conversion**: Raw bits are converted to $m/s^2$ (Accel), $dps$ (Gyro), and $uT$ (Mag).
-3.  **Filtering**:
-    - Low Pass Filters (LPF) are applied to Accel and Gyro to remove high-frequency vibration noise.
-    - Magnetometer data undergoes Hard-Iron bias removal and Soft-Iron scaling.
+3.  **Calibration + Filtering**:
+    - Gyro: the stored bias offset is subtracted, then a Low-Pass Filter (LPF) removes high-frequency vibration noise.
+    - Accel: the full 3×3 calibration `a_cal = M·(a_raw − offset)` (offset + scale + cross-axis misalignment) is applied, then an LPF.
+    - Magnetometer data undergoes Hard-Iron bias removal and Soft-Iron scaling (`m_cal = M·(m_raw − offset)`).
 4.  **Fan-out**: the fully processed `bmx160_all_reading_t` is pushed (driver context) to the telemetry, control, and (when calibrating) calibration IMU queues via `imu_queue_{telemetry,control,calibration}_push`.
 5.  **Sensor Fusion (moved to `src/est`)**: `attitude_task` (`src/est/attitude_task.c`) waits on the control IMU queue, runs fusion (`src/est/sensor_fusion.c`, Mahony / EKF), stamps the result, and pushes it to `attitude_queue_{telemetry,control}`.
 

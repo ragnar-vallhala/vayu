@@ -55,8 +55,8 @@ void imu_telemetry_task(void *args) {
   static imu_calibration_telemetry_t imu_calibration_telemetry;
 
   while (1) {
-    /* Slew the disciplined clock toward the GCS-commanded offset (~166 Hz,
-     * independent of how often a sync arrives). docs/telemetry/time_sync.md */
+    /* Slew the disciplined clock toward the GCS-commanded offset (once per base
+     * loop, ~500 Hz, independent of how often a sync arrives). docs/telemetry/time_sync.md */
     time_sync_discipline_tick();
 
     if (imu_queue_telemetry_pop(&samples)) {
@@ -163,11 +163,10 @@ void imu_telemetry_task(void *args) {
      * per cycle so write_channel isn't flooded. The host re-sends CMD_SYSID_DUMP
      * to refill any chunks the lossy link dropped (idempotent re-dump). */
     if (sysid_dump_active()) {
-      /* Pace to ~80 chunks/s (1 chunk per 2 cycles at 166 Hz): the ESP bridge
-       * only sustains ~150 pkts/s shared with the rest of telemetry, so blasting
-       * the whole file at once just gets ~80% dropped. Paced under capacity, a
-       * single dump pass arrives intact (the host still re-requests for any
-       * residual drops, deduping by start_index). */
+      /* Emit up to 2 SYSID_SAMPLE chunks per base-loop cycle. The heavy periodic
+       * telemetry is suppressed during a dump (above) to free the ESP bridge's
+       * ~150 pkt/s budget; any chunks the lossy link still drops are re-requested
+       * by the host (idempotent CMD_SYSID_DUMP, deduped by start_index). */
       uint16_t total = (uint16_t)sysid_capture_count();
       uint16_t hz = (uint16_t)sysid_capture_hz();
       uint8_t axis = (uint8_t)sysid_capture_axis();

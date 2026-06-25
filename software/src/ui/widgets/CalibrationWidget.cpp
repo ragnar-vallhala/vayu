@@ -32,7 +32,7 @@ CalibrationWidget::CalibrationWidget(QWidget *parent) : QWidget(parent) {
     sensorLayout->addWidget(btn);
   }
   m_accBtn->setToolTip(tr("Accelerometer — pose-tolerant full 3×3 (12 holds)"));
-  m_gyrBtn->setToolTip(tr("Gyroscope — bias-only zeroing"));
+  m_gyrBtn->setToolTip(tr("Gyroscope — stillness-gated bias zeroing"));
   m_magBtn->setToolTip(tr("Magnetometer — rotate the airframe for axis coverage"));
 
   m_typeGroup = new QButtonGroup(this);
@@ -326,9 +326,9 @@ void CalibrationWidget::refreshSteps() {
 }
 
 void CalibrationWidget::sendCalibrationCommand(int imu_id, int type) {
-  // NavLink v2 CMD_CALIBRATE_IMU carries a single `which` byte. Pack the sensor
-  // selector in the high nibble (1=accel, 2=gyro, 3=mag) and the mode in the
-  // low nibble (0=bias, 1=full); the firmware router unpacks both.
+  // NavLink v2 CMD_CALIBRATE_IMU carries a single `which` byte. The sensor
+  // selector is the high nibble (1=accel, 2=gyro, 3=mag); the low nibble is a
+  // legacy mode field the firmware ignores (each sensor has one routine now).
   quint8 which = static_cast<quint8>(((imu_id & 0x0F) << 4) | (type & 0x0F));
   emit commandRequested(CommandCodec::encodeCalibrate(which));
 }

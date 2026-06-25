@@ -39,6 +39,9 @@ This message provides real-time feedback and **operator instructions** during se
 | 6     | `UPSIDE_DOWN`       | Upside down (Z axis aligned with -g).                   |
 | 7     | `FREE_ROT`          | Rotate freely in all directions (mag calibration).      |
 | 8     | `MAG_AXIS_COVERAGE` | Live mag coverage (`coverage` = range_x, range_y, range_z). |
+| 9     | `COMPLETE`          | Terminal: routine finished and persisted OK.            |
+| 10    | `FAILED`            | Terminal: routine aborted / fit or save failed.         |
+| 11–16 | `EDGE_1`…`EDGE_6`   | Accel edge/corner holds — rest the board on an edge/corner so gravity is shared between axes (the off-diagonal terms of the 3×3 fit). |
 
 > Authoritative mapping: the `calib_step` enum in `../../navlink/dialect.json`.
 

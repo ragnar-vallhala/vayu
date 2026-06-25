@@ -55,7 +55,7 @@ flowchart TD
     end
     subgraph COMMS ["Comms"]
         COMMP["comm_processor · prio 0<br/>NavLink v2 RX @250 Hz"]:::task
-        TELE["imu_telemetry · prio 0<br/>TX @166 Hz"]:::task
+        TELE["imu_telemetry · prio 0<br/>TX ~500 Hz base"]:::task
         FLUSH["flush · prio 0<br/>DMA flush @1 kHz"]:::task
         PERF["perf_telemetry · prio 0<br/>@1 Hz"]:::task
     end
@@ -64,7 +64,7 @@ flowchart TD
         BOOT["boot · once<br/>checks → STANDBY/FAILSAFE"]:::task
     end
 
-    CH[["g_telemetry_channel<br/>ping-pong 512 B"]]:::ipc
+    CH[["g_telemetry_channel<br/>ping-pong 2048 B"]]:::ipc
 
     HWIMU -->|DMA done → ready_sema| IMUREAD
     TICK  -->|fast_tick_sema 2 kHz| IMUREAD
@@ -287,8 +287,9 @@ clock jam (that is the dedicated TIME_SYNC path).*
 
 ## 7. Telemetry TX (FC → GCS)
 
-`imu_telemetry_task` runs a 166 Hz base loop and gates each message by
-`packet_counter % N`. Output is buffered in `g_telemetry_channel` (ping-pong) and
+`imu_telemetry_task` runs a ~500 Hz base loop (`TELEM_BASE_MS = 2`) and gates each
+message by a millisecond-based `TELEM_GATE` (so a stream's effective rate is
+independent of the base loop). Output is buffered in `g_telemetry_channel` (ping-pong) and
 DMA-flushed by `flush_task`. `perf_telemetry_task` emits kernel/IPC stats at 1 Hz.
 
 ```mermaid
@@ -296,20 +297,20 @@ flowchart LR
     classDef task fill:#e8f0fe,stroke:#3367d6,color:#111;
     classDef ipc  fill:#f3e8fd,stroke:#7b2cbf,color:#111;
 
-    TELE["imu_telemetry · @166 Hz<br/>packet_counter % N gates"]:::task
-    TELE -->|"%6"| M2["IMU_COMPRESSED 1025 (~25 Hz)"]
-    TELE -->|"%100"| M1["IMU_RAW 1024 (1 Hz)"]
-    TELE -->|"%15"| M3["ATTITUDE_EULER 1026 (~10 Hz)"]
-    TELE -->|"%15"| M4["RC_CHANNELS 1028 (~10 Hz)"]
-    TELE -->|"%8"| M5["MOTOR_TELEMETRY 1029 (~18 Hz)"]
-    TELE -->|"%8"| M6["CONTROL_TRACE 1030 (~18 Hz)"]
-    TELE -->|"%50"| M7["HEARTBEAT 0 · SYSTEM_HEALTH 2 · FLIGHT_MODE 3 (2 Hz)"]
-    TELE -->|"%10"| M8["STATUSTEXT 4 (log drain)"]
+    TELE["imu_telemetry · ~500 Hz base<br/>ms-based TELEM_GATE per stream"]:::task
+    TELE -->|"50 Hz"| M2["IMU_COMPRESSED 1025 (50 Hz)"]
+    TELE -->|"1.7 Hz"| M1["IMU_RAW 1024 (~1.7 Hz keyframe)"]
+    TELE -->|"50 Hz"| M3["ATTITUDE_EULER 1026 (50 Hz)"]
+    TELE -->|"11 Hz"| M4["RC_CHANNELS 1028 (~11 Hz)"]
+    TELE -->|"50 Hz"| M5["MOTOR_TELEMETRY 1029 (50 Hz)"]
+    TELE -->|"50 Hz"| M6["CONTROL_TRACE 1030 (50 Hz)"]
+    TELE -->|"3.3 Hz"| M7["HEARTBEAT 0 · SYSTEM_HEALTH 2 · FLIGHT_MODE 3 (~3.3 Hz)"]
+    TELE -->|"17 Hz"| M8["STATUSTEXT 4 (log drain)"]
     TELE -->|event| M9["CALIBRATION_STATUS 12320 · EST_PERF 1033"]
 
     PERF["perf_telemetry · @1 Hz"]:::task --> M10["PERF_GLOBAL 1034 · PERF_TASK 1035 · PERF_FIFO 1036"]
 
-    M1 & M2 & M3 & M4 & M5 & M6 & M7 & M8 & M9 & M10 --> CH[["g_telemetry_channel<br/>ping-pong 512 B"]]:::ipc
+    M1 & M2 & M3 & M4 & M5 & M6 & M7 & M8 & M9 & M10 --> CH[["g_telemetry_channel<br/>ping-pong 2048 B"]]:::ipc
     CH -->|"flush · @1 kHz · DMA"| OUT(["USART6 → GCS"])
 ```
 
@@ -335,7 +336,7 @@ disciplined clock between sync handshakes.
 | `angle_ctl` | `angle_controller_task` | 2048 | 1 | periodic 250 Hz |
 | `rate_ctl` | `angle_rate_controller_task` | 2048 | 1 | periodic 1000 Hz |
 | `motor` | `motor_task` | 1024 | 1 | poll @~500 Hz |
-| `imu_telemetry` | `imu_telemetry_task` | 2048 | 0 | poll @~166 Hz |
+| `imu_telemetry` | `imu_telemetry_task` | 2048 | 0 | poll @~500 Hz |
 | `flush` | `flush_task` | 1024 | 0 | poll @~1 kHz |
 | `perf_telemetry` | `perf_telemetry_task` | 2048 | 0 | 1 Hz |
 | `heartbeat` | `heartbeat_task` | 1024 | 0 | ≥250 ms |

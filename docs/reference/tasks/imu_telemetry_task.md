@@ -3,7 +3,7 @@
 **Source File**: `src/comm/telemetry_task.c`
 **Stack Size**: 2048
 **Priority**: 0
-**Loop Rate**: Base loop runs at 150 Hz (6ms delay)
+**Loop Rate**: Base loop ~500 Hz (`v_delay(TELEM_BASE_MS)`, TELEM_BASE_MS = 2 ms). Per-stream rates are set by millisecond-based `TELEM_GATE` gates, independent of the base loop.
 
 ## Description
 

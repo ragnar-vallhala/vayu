@@ -283,7 +283,8 @@ void angle_controller_task(void *arg) {
     angle_controller_outputs.dt = dt;
     _last_throttle = target_throttle;
     fifo_push(&angle_controller_outputs);
-    /* No v_delay here — the loop blocks on attitude_queue_control_wait() at the
-     * top and decimates, so its rate is tied to the inner/IMU rate. */
+    /* No v_delay here — task_delay_until() (above) drives a drift-free periodic
+     * schedule at OUTER_LOOP_PERIOD_TICKS; the loop drains the freshest attitude
+     * sample each tick rather than blocking on queue arrival. */
   }
 }

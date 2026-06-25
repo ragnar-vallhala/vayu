@@ -104,7 +104,7 @@ CRC32: poly `0x04C11DB7`, init `0xFFFFFFFF`, MSB-first byte-wise.
 | FR-RX-05 | RC channels          | 0x5  | ✅     | 14× u16 µs                                           |
 | FR-RX-06 | System state         | 0x6/0x04 | ✅ | 1 float, mapped to named state strings              |
 | FR-RX-07 | Control loop data    | 0x6/0x05 | ✅ | 18 floats (setpoints, currents, outputs, dts)       |
-| FR-RX-08 | Calibration update   | 0x6/0x01 | ✅ | Bias-only + 6-axis + mag axis coverage              |
+| FR-RX-08 | Calibration update   | 0x6/0x01 | ✅ | Accel 12-pose (faces+edges) + gyro + mag; pose / axis-coverage progress |
 | FR-RX-09 | Log text             | 0x7  | ✅     | Free-form ASCII                                      |
 | FR-RX-10 | Motor telemetry      | 0x8  | ✅     | 4 floats                                             |
 | FR-RX-11 | Unknown packet       | —    | ✅     | Forwarded raw to listener (Packet Analyzer + log)    |
@@ -185,7 +185,7 @@ physics; it spawns/supervises `vsim_d` and decodes pose frames.
 | FR-SIM-01| Run firmware in-process via `vayu_sitl_start(&iface)`                    | ✅     | Physics now out-of-process in `vsim_d`; firmware threads still in Navigator |
 | FR-SIM-02| 1 kHz physics (RK4), 200 Hz IMU emit, 60 Hz pose snapshot                | ✅     | Driven by `vsim_d` (`tools/vsim/src/main.cpp`); SimWorker only reads pose |
 | FR-SIM-03| Drone parameters (mass, inertia, motor geometry) editable from UI        | ✅     | `GeometryEditorWidget`: mass + 4-motor layout editable; inertia tensor derived from the airframe mesh; pushed live via `VSIM_CTL_SET_GEOMETRY`. See FR-SIM-11. |
-| FR-SIM-04| Sensor noise / bias parameters editable from UI                          | ❌     | `VSIM_CTL_SET_NOISE` opcode reserved in `vsim_proto.h`; no UI yet |
+| FR-SIM-04| Sensor noise / bias parameters editable from UI                          | ✅     | Vehicle ▸ Sensor Models panel (`SimulatorWidget`): per-sensor white-noise σ, bias clip, and enable toggle, pushed via `SimWorker::sendNoise()` / `VSIM_CTL_SET_NOISE` |
 | FR-SIM-05| Pose snapshot rendered live (OpenGL)                                     | ✅     |
 | FR-SIM-06| Per-run raw UART byte log to `logs/sim-<ts>.bin`                         | ✅     |
 | FR-SIM-07| Hot reset of physics / firmware state between runs                       | 🟡🔥  | Physics resets via `VSIM_CTL_RESET` (`SimWorker::sendReset`); firmware state still can't (`vayu_sitl_start` one-shot — Navigator restart needed) |
@@ -324,7 +324,7 @@ surface and breaks `MainWindow.cpp` apart before it hits 1500 LOC.
 | 1b| **Parameter tree (FR-TX-05 + FR-UI-17)**. Needs paired firmware work — keep the GCS side behind a feature flag until both ends ship. | new `src/params/`                    |
 | 1c| Persistent text log with rotation (FR-LOG-03). **✅ shipped.**     | `core/Logger.{h,cpp}`                 |
 | 1d| CSV export of telemetry traces (FR-LOG-04). **✅ shipped.**        | `core/CsvExport.{h,cpp}`; ImuPanel/ControlLoopPlot/MotorStatusWidget |
-| 1e| Sim parameter editor: mass, inertia, k_thrust, max_omega, noise (FR-SIM-03, -04). **🟡 mostly shipped** — mesh-derived mass/inertia + per-motor position/axis/spin/k_thrust/k_moment/max_omega land via `GeometryEditorWidget` (FR-SIM-11). Sensor-noise editing (FR-SIM-04) still pending. | `GeometryEditorWidget`, `MeshLoader`, `MassProperties` |
+| 1e| Sim parameter editor: mass, inertia, k_thrust, max_omega, noise (FR-SIM-03, -04). **✅ shipped** — mesh-derived mass/inertia + per-motor position/axis/spin/k_thrust/k_moment/max_omega via `GeometryEditorWidget` (FR-SIM-11); sensor-noise editing (FR-SIM-04) via the `SimulatorWidget` Sensor Models panel. | `GeometryEditorWidget`, `MeshLoader`, `MassProperties`, `SimulatorWidget` |
 | 1f| CRC32 lookup table (perf nit; only if profile shows it).          | `core/crc.cpp`                       |
 | 1g| **✅ Command layer** (FR-UX-19–23): command registry + editable shortcuts, palette, recent-views switcher, About/Docs. Pure GCS, no firmware; supersedes the `0l` `QShortcut`s. Design: [`command-registry-and-shortcuts.md`](../journal/shipped/command-registry-and-shortcuts.md). | `core/CommandRegistry`, `ShortcutsManager`, `ViewHistory`, `src/ui/widgets/{ShortcutsEditorDialog,CommandPalette,RecentViewsOverlay,AboutDialog}` |
 
