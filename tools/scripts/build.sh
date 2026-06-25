@@ -1,11 +1,4 @@
 #!/usr/bin/env bash
-# Firmware build. Run from anywhere; it locates the repo root itself.
-set -euo pipefail
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-cd "$REPO_ROOT"
-
-rm -rf build
-mkdir build
-cd build
-cmake "$REPO_ROOT/firmware" -DNAVHAL=ON -DEXTERNAL_LINKER=ON
-cmake --build .
+# Firmware build (shim). Equivalent to: vayu.sh build firmware.
+# Kept as a stable entry point; the dispatcher does the work.
+exec "$(dirname "${BASH_SOURCE[0]}")/vayu.sh" build firmware "$@"
