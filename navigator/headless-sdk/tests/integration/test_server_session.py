@@ -30,18 +30,20 @@ def test_serve_text_and_json(require_binaries, gcs_conf, tmp_path):
             except ConnectionError:
                 time.sleep(0.05)
 
-        # text protocol: takeoff then status
+        # text protocol: takeoff then status. nav is ARMED (4) on the ground or
+        # IN_AIR (5) once the baro-driven takeoff detector fires (Phase 2) —
+        # accept either, like test_golden_flight.py.
         assert client.send_command("takeoff -5", sock_path=sock).startswith("ok")
         time.sleep(4.0)
         txt = client.send_command("status", sock_path=sock)
-        assert "nav=4" in txt, txt
+        assert ("nav=4" in txt or "nav=5" in txt), txt
 
         # JSON protocol: structured request → structured reply
         reply = client.send_command(
             json.dumps({"v": 1, "cmd": "status"}), sock_path=sock)
         obj = json.loads(reply)
         assert obj["ok"] is True
-        assert obj["status"]["nav"] == 4
+        assert obj["status"]["nav"] in (4, 5)  # ARMED or IN_AIR
         assert obj["status"]["alt"] > 3.0
 
         # shutdown
