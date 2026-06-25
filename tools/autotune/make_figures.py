@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the case-study figures for tools/vsim/docs/reference/autotune-methodology.md
+"""Generate the case-study figures for sim/vsim/docs/reference/autotune-methodology.md
 from real log data: optimizer convergence (autotune history JSON), cost noise +
 stability knee (/tmp/case_study.json), and a real GCS flight log (.bin)."""
 import json, os, sys, struct

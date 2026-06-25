@@ -49,7 +49,7 @@ future.)
 
 ## Protocol
 
-`tools/vsim/include/vsim_proto.h`:
+`sim/vsim/include/vsim_proto.h`:
 
 ```c
 VSIM_CTL_SET_ATMOS = 15,          // body: vsim_ctl_atmos_t
@@ -66,7 +66,7 @@ typedef struct {
 
 ## Daemon
 
-`tools/vsim/src/main.cpp`, new `case` beside `SET_WORLD` (~line 292):
+`sim/vsim/src/main.cpp`, new `case` beside `SET_WORLD` (~line 292):
 
 ```c
 case VSIM_CTL_SET_ATMOS: {
@@ -83,7 +83,7 @@ each step.
 
 ## Physics integration
 
-`tools/vsim/src/motor_model.cpp`, the thrust line (`thrust_i = k_thrust[i] *
+`sim/vsim/src/motor_model.cpp`, the thrust line (`thrust_i = k_thrust[i] *
 omega_[i]²`, ~line 32) becomes:
 
 ```cpp
@@ -101,7 +101,7 @@ Density-scaled drag: in `derive()` multiply the (already wind-relative) drag ter
 
 ## GCS — SimWorker
 
-`software/src/vsim/SimWorker.{h,cpp}`:
+`navigator/src/vsim/SimWorker.{h,cpp}`:
 
 ```cpp
 void sendAtmos(const AtmosConfig& a);   // VSIM_CTL_SET_ATMOS, mirrors sendWorld

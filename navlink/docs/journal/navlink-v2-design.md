@@ -1,7 +1,7 @@
 ---
 title: "NavLink v2"
 subtitle: "Protocol Analysis & a MAVLink-Class Scalable Redesign"
-author: "Vayu flight stack · `src/comm`, `software/src/protocol`, `tools/autotune`"
+author: "Vayu flight stack · `src/comm`, `navigator/src/protocol`, `tools/autotune`"
 date: "June 2026"
 abstract: |
   An analysis of the as-built **NavLink v1** link protocol — its wire format,
@@ -82,7 +82,7 @@ Source of truth: `include/comm/comm_types.h:62` (`packet_t`),
   (`comm_types.h:8`). 4 bits → 16 versions.
 - **Packet type** = *high* nibble of byte 1. 4 bits → **16 message types**.
 - **CRC** = CRC-32/MPEG-2: poly `0x04C11DB7`, init `0xFFFFFFFF`, no
-  reflection, no final XOR (`software/src/core/crc.cpp:3`). Computed over
+  reflection, no final XOR (`navigator/src/core/crc.cpp:3`). Computed over
   header+payload, *excluding* the CRC field. The firmware additionally
   rejects a packet whose computed CRC is `0` (`deserializer.c:60`) — a
   quirk that throws away ~1 in 4 billion otherwise-valid frames.
@@ -790,7 +790,7 @@ message by message with no flag day.
 - Write a small generator (`tools/navlink/generate.py`) emitting:
   - `include/comm/navlink_msgs.h` + `src/comm/navlink_msgs.c` (C structs,
     pack/unpack, `CRC_EXTRA` table) for firmware,
-  - `software/src/protocol/NavlinkMsgs.{h,cpp}` for the GCS,
+  - `navigator/src/protocol/NavlinkMsgs.{h,cpp}` for the GCS,
   - `tools/autotune/navlink_msgs.py` for tools.
 - **A generated dispatcher.** Since every frame is decoded in the same FC, the
   dispatch belongs in the generated codec, not in hand-written branching. Codegen
@@ -857,8 +857,8 @@ message by message with no flag day.
 ### Code touch-points (for sizing)
 - Firmware: `include/comm/comm_types.h`, `src/comm/serializer.c`,
   `deserializer.c`, `comm_processor.c`, `telemetry_task.c`, `variables.h`.
-- GCS: `software/src/protocol/DroneProtocol.{cpp,h}`,
-  `PacketDecoder.{cpp,h}`, `software/src/core/Types.h`, `crc.cpp`.
+- GCS: `navigator/src/protocol/DroneProtocol.{cpp,h}`,
+  `PacketDecoder.{cpp,h}`, `navigator/src/core/Types.h`, `crc.cpp`.
 - Tools: `tools/autotune/protocol.py` (+ generated module).
 - New: `navlink/dialect.json` (+ its JSON Schema), `tools/navlink/generate.py`,
   generated codec files in all three trees.

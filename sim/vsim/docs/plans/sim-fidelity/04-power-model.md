@@ -9,7 +9,7 @@ Why it matters beyond a readout: **battery sag is a real non-stationarity** the
 live-rig tuning study flagged — thrust per PWM drops as the pack drains, so a tune
 done at full charge degrades. Simulating it lets the autotuner (and the operator) see
 that effect before hardware. See
-[`gcs-live-rig-tuning.md`](../../../../../software/docs/scratch/gcs-live-rig-tuning.md).
+[`gcs-live-rig-tuning.md`](../../../../../navigator/docs/scratch/gcs-live-rig-tuning.md).
 
 ## Model
 
@@ -63,7 +63,7 @@ pure readout if desired.
 Two directions: **config in**, **state out**.
 
 ### Config (GCS → daemon)
-`tools/vsim/include/vsim_proto.h`:
+`sim/vsim/include/vsim_proto.h`:
 
 ```c
 VSIM_CTL_SET_POWER = 17,          // body: vsim_ctl_power_t
@@ -95,7 +95,7 @@ float batt_soc;        // [0..1]
 
 ## Daemon
 
-`tools/vsim/src/main.cpp`, new `case`:
+`sim/vsim/src/main.cpp`, new `case`:
 
 ```c
 case VSIM_CTL_SET_POWER: {

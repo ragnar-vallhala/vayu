@@ -13,7 +13,7 @@
 // pointed to via env vars; otherwise it skips. Run it with the sim built:
 //
 //   VAYU_VSIM_BIN=<repo>/build_vsim/vsim_d \
-//   VAYU_SITL_BIN=<repo>/tools/sim_host/build_sitl/vayu_sitl \
+//   VAYU_SITL_BIN=<repo>/sim/host/build_sitl/vayu_sitl \
 //   ctest -R tst_sitl_stack --output-on-failure
 //
 // Verifies: the stack starts, firmware telemetry flows (control-loop samples +

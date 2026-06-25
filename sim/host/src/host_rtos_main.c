@@ -6,7 +6,7 @@
  *
  * Two scenarios (env VAYU_RTOS_SCENARIO):
  *   hold     (default) constant neutral RC; emits determinism fingerprints
- *                      (see tools/sim_host/validate_rtos_determinism.py).
+ *                      (see sim/host/validate_rtos_determinism.py).
  *   doublet            arm + a roll/pitch/yaw step-doublet with env-set PID
  *                      gains; scores rate-loop tracking corr(rate_sp,rate_curr)
  *                      — a fast, deterministic autotune-style eval. Sim-time

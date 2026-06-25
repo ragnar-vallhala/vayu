@@ -1,6 +1,6 @@
 """Phase 0 GOLDEN: pin today's boot → takeoff → hover → box → land behaviour.
 
-This drives the CURRENT tools/sim_host/sitl_lab.py code path (via the
+This drives the CURRENT sim/host/sitl_lab.py code path (via the
 legacy_sitl_lab fixture). Phase 1 carves that logic into the package and this
 same test must stay green — it is the no-regression anchor for the hard-cut
 (PLAN.md decision #3, Phase 6).

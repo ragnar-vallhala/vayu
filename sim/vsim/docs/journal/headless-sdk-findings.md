@@ -53,7 +53,7 @@ freezes, so `status` shows stale pose even though the craft is still flying and
 ## Gap 3 — outer-loop position guidance — RESOLVED
 
 **RESOLVED (2026-06-18, pt 4)** → `vayu_headless/autopilot.py::guidance_outputs`
-(commit `d9df605`, validated by `software/headless-sdk/fidelity/`). Velocity
+(commit `d9df605`, validated by `navigator/headless-sdk/fidelity/`). Velocity
 feedforward + anti-windup position integrator + raised tilt authority took the
 lemniscate from **16 m → 1.7 m** mean track error (box fidelity 46→77, hover
 drift 1.24→0.32 m, overall 76.6→83.2; 48/48 tests pass). Residual tracking error
@@ -92,7 +92,7 @@ attitude → position) overturned the guidance theory entirely:
 - `host_lifecycle.c`: starts the real `attitude_task` (EKF/Mahony per
   `SF_FILTER_USED`), fed raw IMU exactly as on hardware.
 - `host_navhal.c`: added `hal_cycle_counter_cycles_per_us()` (84) the task needs.
-- `tools/sim_host/CMakeLists.txt`: added `src/est/attitude_task.c` to the SITL core.
+- `sim/host/CMakeLists.txt`: added `src/est/attitude_task.c` to the SITL core.
 - Audit: the host mahony was the ONLY firmware-bypassing compute in the shims.
 
 **STILL OPEN (exposed, not yet fixed):** with the real EKF now running, the

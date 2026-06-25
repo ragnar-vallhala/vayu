@@ -3,19 +3,19 @@
 A complete map of the simulation stack: the `vsim_d` physics daemon, how the
 **real firmware** runs headlessly against it (SITL), the seam that keeps the FC
 honest, and the **`vayu_headless` Pilot** — the Python API you script flights with.
-Verified against `tools/vsim/`, `tools/sim_host/`, and `software/headless-sdk/`.
+Verified against `sim/vsim/`, `sim/host/`, and `navigator/headless-sdk/`.
 
 > Companion docs: firmware internals → [`../../../../docs/reference/software-flow.md`](../../../../docs/reference/software-flow.md);
 > wire protocol → [`../../include/vsim_proto.h`](../../include/vsim_proto.h);
-> the GCS that also hosts this sim in-process → [`../../../../software/docs/reference/gcs-architecture.md`](../../../../software/docs/reference/gcs-architecture.md).
+> the GCS that also hosts this sim in-process → [`../../../../navigator/docs/reference/gcs-architecture.md`](../../../../navigator/docs/reference/gcs-architecture.md).
 
 ## The three processes
 
 | Process | Binary / package | Role |
 |---|---|---|
-| **vsim_d** | `tools/vsim` → `vsim_d` | Rigid-body physics, sensor synthesis, world/wind. The *plant*. |
-| **vayu_sitl** | `tools/sim_host` → `vayu_sitl` (links `libvayu_sitl_core.a`) | The **real firmware** control logic compiled for the host. The *flight controller*. |
-| **driver / Pilot** | `software/headless-sdk` → `vayu_headless` | Orchestration: spawns both, injects RC, reads telemetry + ground truth, flies trajectories, scores fidelity. |
+| **vsim_d** | `sim/vsim` → `vsim_d` | Rigid-body physics, sensor synthesis, world/wind. The *plant*. |
+| **vayu_sitl** | `sim/host` → `vayu_sitl` (links `libvayu_sitl_core.a`) | The **real firmware** control logic compiled for the host. The *flight controller*. |
+| **driver / Pilot** | `navigator/headless-sdk` → `vayu_headless` | Orchestration: spawns both, injects RC, reads telemetry + ground truth, flies trajectories, scores fidelity. |
 
 They connect over four `/tmp` **FIFOs** plus two **PTYs**, isolated per session by
 `VSIM_FIFO_SUFFIX` (e.g. `_lab<pid>`) so concurrent runs never collide.
@@ -49,7 +49,7 @@ startup burst — rates, geometry, world, wind — must all apply.
 > run as `vayu_sitl`, PWM/IMU/pose still ride the FIFOs, but UART2 telemetry is delivered
 > by an in-process callback rather than a PTY. See the GCS doc, "In-app sim hosting".
 
-*Source: `tools/vsim/include/vsim_proto.h:305-308`, `software/headless-sdk/vayu_headless/session.py:44-154`, `vayu_headless/paths.py`.*
+*Source: `sim/vsim/include/vsim_proto.h:305-308`, `navigator/headless-sdk/vayu_headless/session.py:44-154`, `vayu_headless/paths.py`.*
 
 ---
 
@@ -87,7 +87,7 @@ flowchart TD
 | 13 | `SET_FAULTS` | per-motor kill + imu dropout |
 | **14** | **`SET_WIND`** | steady + gust + Dryden turbulence |
 
-*Source: `tools/vsim/src/main.cpp:205-520`, `sim_controller.cpp`, `physics_core.cpp`.*
+*Source: `sim/vsim/src/main.cpp:205-520`, `sim_controller.cpp`, `physics_core.cpp`.*
 
 ---
 
@@ -123,8 +123,8 @@ flowchart TD
     PILOT -->|"RC sticks (µs)"| RCF
 ```
 
-*Source: `tools/sim_host/src/host_imu_feeder.c`, `host_navhal.c`, `host_lifecycle.c:179-191`,
-`software/headless-sdk/tests/integration/test_seam.py:29-62`.*
+*Source: `sim/host/src/host_imu_feeder.c`, `host_navhal.c`, `host_lifecycle.c:179-191`,
+`navigator/headless-sdk/tests/integration/test_seam.py:29-62`.*
 
 ---
 
@@ -245,21 +245,21 @@ and pushes gains via `CMD_SET_PID`. See [`autotune-methodology.md`](autotune-met
 
 | File | Role |
 |------|------|
-| `tools/vsim/include/vsim_proto.h` | wire protocol: FIFOs, header, opcodes, payloads |
-| `tools/vsim/src/main.cpp` | daemon loop, CTL dispatch, physics/IMU/pose emit |
-| `tools/vsim/src/{sim_controller,physics_core}.cpp` | per-tick orchestration + RK4 integrator |
-| `tools/sim_host/src/host_lifecycle.c` | boots the real firmware tasks on the host |
-| `tools/sim_host/src/host_imu_feeder.c` | IMU FIFO → imu queues (fixed sim-dt) |
-| `tools/sim_host/src/host_navhal.c` | PWM → FIFO; UART2 telemetry PTY |
-| `software/headless-sdk/vayu_headless/{session,autopilot,server,cli}.py` | the scripting SDK + Pilot |
-| `software/headless-sdk/fidelity/*` | maneuver metrics + FC-vs-operator fidelity scoring |
+| `sim/vsim/include/vsim_proto.h` | wire protocol: FIFOs, header, opcodes, payloads |
+| `sim/vsim/src/main.cpp` | daemon loop, CTL dispatch, physics/IMU/pose emit |
+| `sim/vsim/src/{sim_controller,physics_core}.cpp` | per-tick orchestration + RK4 integrator |
+| `sim/host/src/host_lifecycle.c` | boots the real firmware tasks on the host |
+| `sim/host/src/host_imu_feeder.c` | IMU FIFO → imu queues (fixed sim-dt) |
+| `sim/host/src/host_navhal.c` | PWM → FIFO; UART2 telemetry PTY |
+| `navigator/headless-sdk/vayu_headless/{session,autopilot,server,cli}.py` | the scripting SDK + Pilot |
+| `navigator/headless-sdk/fidelity/*` | maneuver metrics + FC-vs-operator fidelity scoring |
 
 ## Notes & caveats (verified)
 
 - **`mag_fusion` is zero on the SITL wire:** `vsim_d`'s `packImu` writes 76 of the 88 IMU
   payload bytes (acc/gyr/mag/raw/temp); the estimator-input `mag_fusion[3]` is left
   zero-filled, so the FC's estimator sees a zeroed fusion-mag in SITL.
-  (`tools/vsim/src/main.cpp:100-116`, `vsim_types.h:73-77`.) The host feeder validates the
+  (`sim/vsim/src/main.cpp:100-116`, `vsim_types.h:73-77`.) The host feeder validates the
   full 88-byte frame and now bails after 64 consecutive mismatched frames — a stale `vsim_d`
   at the wrong `VSIM_PROTO_VERSION` is diagnosed rather than spun on (`host_imu_feeder.c`).
 - **Pose v3 fields `airspeed` / `ge_factor` / `batt_*` emit zero** — only `wind_w` is filled.

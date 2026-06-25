@@ -21,14 +21,14 @@ non-obvious engineering live.
 
 All control code is **shared between hardware and SITL** — only the HAL is
 swapped. The same `src/control/*` and `src/actuator/*` run in the simulator;
-`tools/sim_host` provides the PWM/IMU/RC shims.
+`sim/host` provides the PWM/IMU/RC shims.
 
 ---
 
 ## 2. Architecture, threading, and data flow
 
 Four cooperating tasks (FreeRTOS tasks on hardware; detached `pthread`s in SITL,
-created in `tools/sim_host/src/host_lifecycle.c`), communicating through
+created in `sim/host/src/host_lifecycle.c`), communicating through
 single-producer/single-consumer queues:
 
 ```
@@ -197,7 +197,7 @@ $$
 $$
 
 - **Hardware:** `hal_pwm_set_duty_cycle` drives the timer → ESC PWM/DShot.
-- **SITL:** `tools/sim_host/src/host_navhal.c` clamps duty to $[0,1]$ and writes the
+- **SITL:** `sim/host/src/host_navhal.c` clamps duty to $[0,1]$ and writes the
   four values to the `/tmp/vsim_pwm` FIFO (latest-wins) for `vsim_d` to integrate.
 
 ---
@@ -290,6 +290,6 @@ autotuner and HUD consume).
 | `src/control/pid_config.c` | gain/LPF persistence, `CMD_SET_*` apply |
 | `src/actuator/motor.c` | motor task, arm-state zeroing |
 | `src/actuator/esc.c` | throttle → pulse → duty |
-| `tools/sim_host/src/host_navhal.c` | SITL PWM → `/tmp/vsim_pwm` |
+| `sim/host/src/host_navhal.c` | SITL PWM → `/tmp/vsim_pwm` |
 | `include/variables.h` | constants + gain seeds |
 </content>

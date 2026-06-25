@@ -7,7 +7,7 @@
  * The pure safety policy that the iBUS task (src/comm/rc_task.c) drives.
  * Deliberately free of any DMA / UART / register dependency so it builds
  * and runs on the host SITL target and can be verified in isolation
- * (tools/sim_host/tests/test_safety_phase2.c). rc_task.c calls these
+ * (sim/host/tests/test_safety_phase2.c). rc_task.c calls these
  * via the declarations in comm/ibus.h.
  */
 #include "comm/ibus.h"

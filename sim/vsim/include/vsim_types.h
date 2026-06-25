@@ -1,7 +1,7 @@
 // vsim_types.h — physics-side state structures for vsim_d.
 //
 // Same fields and units as the in-process port that lived in
-// software/src/vsim/VsimTypes.h, minus the Qt dependency. NED frame
+// navigator/src/vsim/VsimTypes.h, minus the Qt dependency. NED frame
 // throughout (+X north, +Y east, +Z down). Defaults are X3-class.
 #ifndef VSIM_TYPES_H
 #define VSIM_TYPES_H

@@ -1,5 +1,5 @@
 /**
- * @file tools/sim_host/tests/test_xfer_sm.c
+ * @file sim/host/tests/test_xfer_sm.c
  * @brief SITL unit suite for the NavLink xfer (FTP) substrate core SM.
  *
  * Links the real firmware SM (src/comm/xfer/navlink_xfer.c in vayu_sitl_core) and

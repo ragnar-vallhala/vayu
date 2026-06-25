@@ -1,5 +1,5 @@
 /**
- * @file tools/sim_host/tests/test_phase0_assert.c
+ * @file sim/host/tests/test_phase0_assert.c
  * @brief Verification of the VAYU_ASSERT release-mode contract (CONV-02).
  *
  *   @verifies CONV-02   VAYU_ASSERT failure handling (R9.2 release branch)

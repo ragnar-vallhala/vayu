@@ -2,7 +2,7 @@
 
 Status: ✅ shipped as FR-SIM-11 (Phase-1 item 1e mostly closed; sensor-noise
 editing FR-SIM-04 still pending). See [`../../reference/requirements.md`](../../reference/requirements.md).
-Headless coverage: `tools/vsim/tests/massprops_test.cpp` (analytic inertia +
+Headless coverage: `sim/vsim/tests/massprops_test.cpp` (analytic inertia +
 `Mat3` inverse + STL import) and `simworker_smoke.cpp` (geometry push over the
 ctl FIFO without desync).
 
@@ -10,7 +10,7 @@ ctl FIFO without desync).
 
 The `vsim_d` simulator currently flies a hardcoded X3-class quad: a
 **diagonal-only** inertia (`DroneParams.inertia_diag`, a `Vec3`) and a
-**fixed 4-motor layout** baked into `tools/vsim/include/vsim_types.h`,
+**fixed 4-motor layout** baked into `sim/vsim/include/vsim_types.h`,
 rendered as a procedural box + disks. There is no way to use a real
 airframe's mass distribution or to reposition the motors without
 recompiling.
@@ -39,15 +39,15 @@ Keep the daemon **dependency-free**. All mesh loading, inertia
 computation, and editing happen GCS-side (Qt/OpenGL). The GCS pushes a
 compact POD payload (mass + 3×3 inertia + 4-motor layout) to the daemon
 over the existing **`/tmp/vsim_ctl`** FIFO via a new opcode. This
-preserves the two-process split. Scope is entirely `software/` +
-`tools/vsim/` — **no firmware edits**.
+preserves the two-process split. Scope is entirely `navigator/` +
+`sim/vsim/` — **no firmware edits**.
 
 ## Work items
 
-1. **Daemon math** — `tools/vsim/include/vsim_math.h`: header-only
+1. **Daemon math** — `sim/vsim/include/vsim_math.h`: header-only
    `Mat3` (row-major) with symmetric/diagonal builders, `Mat3*Vec3`,
    `Mat3*Mat3`, and `inverse()` (closed-form 3×3, det≈0 guard).
-2. **Daemon params** — `tools/vsim/include/vsim_types.h`:
+2. **Daemon params** — `sim/vsim/include/vsim_types.h`:
    `DroneParams.inertia_diag (Vec3)` → `inertia (Mat3)`; `MotorParams`
    gains `axis_b[4]` (default `{0,0,-1}`) and per-motor
    `k_thrust`/`k_moment`/`max_omega` arrays.
@@ -55,14 +55,14 @@ preserves the two-process split. Scope is entirely `software/` +
    `d_omega = I_inv·(τ − ω×(I·ω) − drag·ω)`. `motor_model.cpp`: thrust
    along per-motor `axis_b[i]`, per-motor coefficients, reaction torque
    about that axis.
-4. **Daemon protocol** — `tools/vsim/include/vsim_proto.h`: add
+4. **Daemon protocol** — `sim/vsim/include/vsim_proto.h`: add
    `VSIM_CTL_SET_GEOMETRY = 5`, POD `vsim_ctl_geometry_t` (mass + 9-float
    inertia + 4×{pos[3],axis[3],spin,k_thrust,k_moment,max_omega} ≈ 200 B),
    enlarge ctl body `64 → 256`, update static_assert. **No
    `VSIM_PROTO_VERSION` bump / no firmware impact** — the ctl frame is
    Navigator↔daemon only; pwm/imu/pose frames are byte-identical.
    `main.cpp`: dispatch case → `setDroneParams` + `setMotorParams`.
-5. **GCS mesh + mass props** — new `software/src/vsim/MeshLoader.{h,cpp}`
+5. **GCS mesh + mass props** — new `navigator/src/vsim/MeshLoader.{h,cpp}`
    (assimp wrapper → verts/normals/indices + triangle soup) and
    `MassProperties.{h,cpp}` (closed-polyhedron integral → volume, CoM,
    inertia at density 1, scaled to target mass). Pure math, unit-tested.
@@ -70,7 +70,7 @@ preserves the two-process split. Scope is entirely `software/` +
    the existing VBO/VAO, a normal attribute + directional Lambert term in
    the shader, motor markers along `axis_b` colored by spin, CoM
    crosshair. Procedural body stays as the no-mesh fallback.
-7. **GCS editor** — new `software/src/ui/widgets/GeometryEditorWidget.
+7. **GCS editor** — new `navigator/src/ui/widgets/GeometryEditorWidget.
    {h,cpp}`: mesh picker + target-mass, **Load & Compute** (shows tensor
    + CoM offset diagnostic), 4-row motor grid, **Apply** →
    `geometryApplied(GeometryConfig)`. Mirrors `SettingsWidget` /
@@ -79,7 +79,7 @@ preserves the two-process split. Scope is entirely `software/` +
    `sendReset()`); `GeometryConfig` in `VsimTypes.h`; `SimulatorWidget`
    hosts the editor and routes `geometryApplied` to renderer + daemon;
    QSettings persistence under `sim/geometry/*`.
-9. **Build** — `software/CMakeLists.txt`: `find_package(assimp)`, link
+9. **Build** — `navigator/CMakeLists.txt`: `find_package(assimp)`, link
    `assimp::assimp` inside the SITL gate, add the new sources.
 10. **Tests + docs** — cube analytic-inertia + `Mat3` inverse unit tests,
     extend `simworker_smoke` with `sendGeometry`, ship a sample STL,

@@ -1,7 +1,7 @@
 ---
 title: "NavLink v2 — Protocol Specification"
 subtitle: "Wire format, dialect, codegen contract, services, security & time sync"
-author: "Vayu flight stack · `src/comm`, `software/src/protocol`, `tools/navlink`"
+author: "Vayu flight stack · `src/comm`, `navigator/src/protocol`, `tools/navlink`"
 date: "June 2026"
 version: "2.0-draft"
 abstract: |
@@ -619,7 +619,7 @@ CI additionally checks index contiguity, msgid uniqueness, msgid range, and
 `tools/navlink/generate.py` reads `dialect.json` and emits, deterministically:
 
 - firmware: `include/comm/navlink_msgs.h`, `src/comm/navlink_msgs.c`
-- GCS: `software/src/protocol/NavlinkMsgs.{h,cpp}`
+- GCS: `navigator/src/protocol/NavlinkMsgs.{h,cpp}`
 - tools: `tools/autotune/navlink_msgs.py`
 
 ### 8.1 What is generated

@@ -29,7 +29,7 @@ Or a single target:
 ```bash
 tools/docker/build.sh firmware   # STM32 build      -> build-docker/main(.bin via objcopy)
 tools/docker/build.sh sitl       # host SITL + ctest -> build_sitl-docker/
-tools/docker/build.sh gcs        # Qt6 Navigator     -> software/build-docker/Navigator
+tools/docker/build.sh gcs        # Qt6 Navigator     -> navigator/build-docker/Navigator
 tools/docker/build.sh shell      # interactive shell in the container
 tools/docker/build.sh clean      # remove the *-docker build dirs
 ```

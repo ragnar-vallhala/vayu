@@ -38,7 +38,7 @@ throughout; the new capabilities are opt-in.
 - **vsim lockstep pacing (Phase 2, opt-in `VSIM_LOCKSTEP=1`).** `vsim_d` swaps
   its realtime `sleep_until` for PWM-round-trip backpressure: it runs as fast as
   the firmware returns PWM, bounded by a credit window (`VSIM_LOCKSTEP_CREDIT`,
-  default 2). Default (unset) is unchanged realtime. (`tools/vsim/src/main.cpp`.)
+  default 2). Default (unset) is unchanged realtime. (`sim/vsim/src/main.cpp`.)
 
 - **Real vaios scheduler on host (Phase 4, opt-in `-DVAYU_SITL_RTOS_BUILD=ON`).**
   A new `vayu_sitl_rtos` target runs the **actual RTOS scheduler** (kernel
@@ -59,7 +59,7 @@ throughout; the new capabilities are opt-in.
   self-contained, and **faithful** (PWM read inline, never stale).
 
 - **Determinism validators.**
-  `tools/sim_host/validate_rtos_determinism.py` runs `vayu_sitl_rtos` across
+  `sim/host/validate_rtos_determinism.py` runs `vayu_sitl_rtos` across
   seeds and asserts same-seed runs are **bit-identical** while different seeds
   differ — currently PASS (~60×). `tools/autotune/validate_lockstep_determinism.py`
   covers backend A (realtime-vs-lockstep credit sweep).

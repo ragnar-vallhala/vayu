@@ -1,5 +1,5 @@
 /**
- * @file tools/sim_host/tests/test_flight_phase.c
+ * @file sim/host/tests/test_flight_phase.c
  * @brief Host verification suite for the takeoff/landing detector (flight_phase).
  *
  * Exercises the pure core in src/est/flight_phase.c (linked via vayu_sitl_core)

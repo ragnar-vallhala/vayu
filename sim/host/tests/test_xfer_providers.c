@@ -1,5 +1,5 @@
 /**
- * @file tools/sim_host/tests/test_xfer_providers.c
+ * @file sim/host/tests/test_xfer_providers.c
  * @brief SITL test of the real xfer providers (file / log / stream).
  *
  * Drives the full firmware stack — SM + provider + fs_owner (file/log) or a

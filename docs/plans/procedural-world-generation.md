@@ -2,7 +2,7 @@
 
 ## Context
 
-The SITL renderer (`software/src/vsim/SimRendererWidget.*`, Qt6 + OpenGL 3.3
+The SITL renderer (`navigator/src/vsim/SimRendererWidget.*`, Qt6 + OpenGL 3.3
 core, GLSL `330 core`) can today show a world in exactly two ways:
 
 1. A flat 10 m × 10 m line grid at `z = 0` (`buildGroundGrid()`), or
@@ -39,7 +39,7 @@ are pointers to the live tree at time of writing, not contracts.
 
 - **OpenGL 4.6 core, behind a capability seam.** We target GL 4.6 on the primary
   platforms (Linux / Windows desktop), which unlocks **compute shaders, tessellation,
-  SSBOs, and indirect draw**. This is a one-line bump: `software/src/app/main.cpp:11`
+  SSBOs, and indirect draw**. This is a one-line bump: `navigator/src/app/main.cpp:11`
   (`fmt.setVersion(3,3)` → `4,6`) plus switching the renderer base class from
   `QOpenGLFunctions` to `QOpenGLFunctions_4_6_Core` / `QOpenGLExtraFunctions`.
   The default-format change is global; the existing `AttitudeWidget`/`Drone3DWidget`
@@ -117,9 +117,9 @@ The flow at world-load time:
 
 ### Layer 1 — generation core (biome-agnostic, Qt-free)
 
-New module `software/src/vsim/procgen/`. Follows the `WorldMeshBuilder`
+New module `navigator/src/vsim/procgen/`. Follows the `WorldMeshBuilder`
 precedent: **Qt-free**, plain `struct Vec3 {float x,y,z;}` + `std::vector`, so it
-unit-tests without a GL context and could later be shared with `tools/vsim/`.
+unit-tests without a GL context and could later be shared with `sim/vsim/`.
 
 Components, each independently useful and reusable:
 

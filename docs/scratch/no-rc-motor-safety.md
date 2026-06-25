@@ -87,7 +87,7 @@ ignored while armed.
 The SITL synthetic-RC fallback is **not** an arm path: `host_rc_feeder`'s
 `fill_hover` sets throttle = 1300, which fails `arm_preconditions_met`'s
 `channels[2] < 1100` check → it routes to FAILSAFE, not ARMED.
-(`tools/sim_host/src/host_rc_feeder.c`, `rc_safety.c:136-141`.)
+(`sim/host/src/host_rc_feeder.c`, `rc_safety.c:136-141`.)
 
 ## Bottom line
 

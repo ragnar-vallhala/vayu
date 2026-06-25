@@ -1,5 +1,5 @@
 /**
- * @file tools/sim_host/src/host_vfs.c
+ * @file sim/host/src/host_vfs.c
  * @brief Disk-backed VFS shim for the host SITL build.
  *
  * The firmware persists tunables (IMU calibration, PID gains) to an SD

@@ -14,9 +14,9 @@
 // builds the blob via the Qt-free WorldMeshBuilder bridge.
 //
 // build:
-//   g++ -std=c++17 -I tools/vsim/include -I software/src/vsim \
-//       tools/vsim/tests/world_mesh_transport_test.cpp \
-//       tools/vsim/src/fifo_transport.cpp software/src/vsim/WorldMeshBuilder.cpp \
+//   g++ -std=c++17 -I sim/vsim/include -I navigator/src/vsim \
+//       sim/vsim/tests/world_mesh_transport_test.cpp \
+//       sim/vsim/src/fifo_transport.cpp navigator/src/vsim/WorldMeshBuilder.cpp \
 //       -o /tmp/wmtx && VSIM_BIN_PATH=build_vsim/vsim_d /tmp/wmtx
 #include "WorldMeshBuilder.h"
 #include "fifo_transport.h"

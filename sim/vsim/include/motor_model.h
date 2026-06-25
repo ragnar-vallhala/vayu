@@ -1,5 +1,5 @@
 // motor_model.h — per-rotor first-order dynamics + thrust/torque
-// aggregation. Ported from software/src/vsim/MotorModel.h, Qt-free.
+// aggregation. Ported from navigator/src/vsim/MotorModel.h, Qt-free.
 #ifndef VSIM_MOTOR_MODEL_H
 #define VSIM_MOTOR_MODEL_H
 

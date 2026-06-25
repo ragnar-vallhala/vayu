@@ -1,6 +1,6 @@
 // sim_controller.h — composes PhysicsCore + MotorModel + SensorModels
 // and exposes a single tick entry point. Ported verbatim from
-// software/src/vsim/SimController.h.
+// navigator/src/vsim/SimController.h.
 #ifndef VSIM_SIM_CONTROLLER_H
 #define VSIM_SIM_CONTROLLER_H
 

@@ -23,17 +23,17 @@
 | `ACT-MOT-002` | active | Motor task period | — | — |
 | `ACT-MOT-003` | active | Per-motor channel mapping | — | — |
 | `COMM-CH-001` | active | UART TX ping-pong buffer | — | — |
-| `COMM-CH-002` | active | UART backpressure | `include/comm/channel.h`<br>`src/comm/channel.c` | `tools/sim_host/tests/test_phase3_comm.c` |
+| `COMM-CH-002` | active | UART backpressure | `include/comm/channel.h`<br>`src/comm/channel.c` | `sim/host/tests/test_phase3_comm.c` |
 | `COMM-CMD-001` | active | Calibration commands | — | — |
-| `COMM-CMD-002` | active | Command payload validation | `include/control/pid_config.h`<br>`src/comm/comm_processor.c` | `tools/sim_host/tests/test_phase3_comm.c` |
-| `COMM-CMD-003` | active | CMD_SET_PID | `include/control/angle_controller.h`<br>`include/control/angle_rate_controller.h`<br>`include/control/pid_config.h`<br>`src/control/pid_config.c` | `tools/sim_host/tests/test_phase3_comm.c` |
+| `COMM-CMD-002` | active | Command payload validation | `include/control/pid_config.h`<br>`src/comm/comm_processor.c` | `sim/host/tests/test_phase3_comm.c` |
+| `COMM-CMD-003` | active | CMD_SET_PID | `include/control/angle_controller.h`<br>`include/control/angle_rate_controller.h`<br>`include/control/pid_config.h`<br>`src/control/pid_config.c` | `sim/host/tests/test_phase3_comm.c` |
 | `COMM-FLUSH-001` | active | Flush task | — | — |
 | `COMM-HB-001` | active | Heartbeat handshake | — | — |
 | `COMM-PKT-001` | active | Outbound frame format | — | — |
 | `COMM-PKT-002` | active | Inbound frame parsing | — | — |
 | `COMM-PKT-003` | active | Inbound packet buffer | — | — |
 | `COMM-RC-001` | active | iBUS frame validity | — | — |
-| `COMM-RC-002` | active | RC loss detection | `include/comm/ibus.h`<br>`src/comm/rc_safety.c` | `tools/sim_host/tests/test_safety_phase2.c` |
+| `COMM-RC-002` | active | RC loss detection | `include/comm/ibus.h`<br>`src/comm/rc_safety.c` | `sim/host/tests/test_safety_phase2.c` |
 | `COMM-RC-003` | active | RC arming logic | — | — |
 | `COMM-RC-004` | active | iBUS transport | — | — |
 | `COMM-TEL-001` | active | Telemetry task cadence | — | — |
@@ -44,7 +44,7 @@
 | `CTRL-ANGLE-101` | active | Angle-loop trigger | — | — |
 | `CTRL-ANGLE-102` | active | Angle PID gains | — | — |
 | `CTRL-ANGLE-103` | active | RC stick mapping | — | — |
-| `CTRL-ARM-001` | active | Arming preconditions | `include/comm/ibus.h`<br>`src/comm/rc_safety.c` | `tools/sim_host/tests/test_safety_phase2.c` |
+| `CTRL-ARM-001` | active | Arming preconditions | `include/comm/ibus.h`<br>`src/comm/rc_safety.c` | `sim/host/tests/test_safety_phase2.c` |
 | `CTRL-ARM-002` | active | Authority ramp | — | — |
 | `CTRL-FAIL-001` | active | Failsafe entry on attitude | — | — |
 | `CTRL-FAIL-101` | active | Failsafe path | — | — |
@@ -59,27 +59,27 @@
 | `CTRL-PID-102` | active | PID reset on ARM transition | — | — |
 | `CTRL-PID-103` | active | PID integrator gating | — | — |
 | `CTRL-RATE-001` | active | Rate-loop frequency | — | — |
-| `CTRL-RATE-101` | active | Rate-loop trigger | `include/sensor/imu_buffer.h` | `tools/sim_host/tests/test_phase3_ctrl.c` |
+| `CTRL-RATE-101` | active | Rate-loop trigger | `include/sensor/imu_buffer.h` | `sim/host/tests/test_phase3_ctrl.c` |
 | `CTRL-RATE-102` | active | Rate PID gains (hardware) | — | — |
 | `CTRL-RATE-103` | active | Rate PID gains (SITL) | — | — |
 | `EST-COMP-101` | active | Complementary parameters | — | — |
 | `EST-COV-001` | active | Estimator output queues | — | — |
-| `EST-EKF-001` | active | EKF attitude estimator | `src/est/ekf.c` | `tools/sim_host/tests/test_phase3_est_ekf.c` |
-| `EST-EKF-002` | active | Accel-bias variant | `src/est/ekf.c` | `tools/sim_host/tests/test_phase3_est_ekf.c` |
-| `EST-EKF-101` | active | Init / reset / state selection | `src/est/ekf.c` | `tools/sim_host/tests/test_phase3_est_ekf.c` |
-| `EST-EKF-102` | active | Accelerometer tilt update | `src/est/ekf.c` | `tools/sim_host/tests/test_phase3_est_ekf.c` |
-| `EST-EKF-103` | active | Gyro-bias observability | `src/est/ekf.c` | `tools/sim_host/tests/test_phase3_est_ekf.c` |
-| `EST-EKF-104` | active | Accel-bias update (9-state) | `src/est/ekf.c` | `tools/sim_host/tests/test_phase3_est_ekf.c` |
-| `EST-EKF-105` | active | Measurement gating | `src/est/ekf.c` | `tools/sim_host/tests/test_phase3_est_ekf.c` |
-| `EST-EKF-106` | active | Covariance / quaternion health | `src/est/ekf.c` | `tools/sim_host/tests/test_phase3_est_ekf.c` |
+| `EST-EKF-001` | active | EKF attitude estimator | `src/est/ekf.c` | `sim/host/tests/test_phase3_est_ekf.c` |
+| `EST-EKF-002` | active | Accel-bias variant | `src/est/ekf.c` | `sim/host/tests/test_phase3_est_ekf.c` |
+| `EST-EKF-101` | active | Init / reset / state selection | `src/est/ekf.c` | `sim/host/tests/test_phase3_est_ekf.c` |
+| `EST-EKF-102` | active | Accelerometer tilt update | `src/est/ekf.c` | `sim/host/tests/test_phase3_est_ekf.c` |
+| `EST-EKF-103` | active | Gyro-bias observability | `src/est/ekf.c` | `sim/host/tests/test_phase3_est_ekf.c` |
+| `EST-EKF-104` | active | Accel-bias update (9-state) | `src/est/ekf.c` | `sim/host/tests/test_phase3_est_ekf.c` |
+| `EST-EKF-105` | active | Measurement gating | `src/est/ekf.c` | `sim/host/tests/test_phase3_est_ekf.c` |
+| `EST-EKF-106` | active | Covariance / quaternion health | `src/est/ekf.c` | `sim/host/tests/test_phase3_est_ekf.c` |
 | `EST-MAH-001` | active | Attitude convergence | — | — |
-| `EST-MAH-002` | active | Fault-sample rejection | `include/est/est.h`<br>`src/est/sensor_fusion.c` | `tools/sim_host/tests/test_safety_phase2.c` |
+| `EST-MAH-002` | active | Fault-sample rejection | `include/est/est.h`<br>`src/est/sensor_fusion.c` | `sim/host/tests/test_safety_phase2.c` |
 | `EST-MAH-003` | active | Filter selection | — | — |
 | `EST-MAH-101` | active | Quaternion representation | — | — |
 | `EST-MAH-102` | active | Mahony gains | — | — |
 | `EST-MAH-103` | active | dt source | — | — |
 | `EST-MAH-104` | active | Mag conditional update | — | — |
-| `EST-MAH-105` | active | Integral feedback bound | `include/est/est.h`<br>`src/est/sensor_fusion.c` | `tools/sim_host/tests/test_phase3_ctrl.c` |
+| `EST-MAH-105` | active | Integral feedback bound | `include/est/est.h`<br>`src/est/sensor_fusion.c` | `sim/host/tests/test_phase3_ctrl.c` |
 | `EST-MAH-106` | active | Init quaternion | — | — |
 | `HAL-API-001` | active | Host-stub portability | — | — |
 | `HAL-API-101` | active | Header-only API | — | — |
@@ -106,7 +106,7 @@
 | `SNS-BMX-105` | active | DMA + semaphore handshake | — | — |
 | `SNS-BMX-106` | active | Axis-frame remap | — | — |
 | `SNS-BUF-001` | active | IMU buffer SPSC ring | — | — |
-| `SNS-BUF-002` | active | Drop accounting | — | `tools/sim_host/tests/test_phase3_slog.c` |
+| `SNS-BUF-002` | active | Drop accounting | — | `sim/host/tests/test_phase3_slog.c` |
 | `SNS-CAL-001` | active | Persistent calibration store | — | — |
 | `SNS-CAL-002` | active | Online gyro bias estimator | — | — |
 | `SNS-CAL-101` | active | Accel ellipsoid calibration | — | — |
@@ -131,13 +131,13 @@
 | `SYS-PWR-001` | deferred | Battery monitor input | — | — |
 | `SYS-PWR-002` | deferred | Low-battery failsafe | — | — |
 | `SYS-SAFE-001` | active | Emergency disarm | — | — |
-| `SYS-SAFE-002` | active | RC loss behaviour | `include/comm/ibus.h`<br>`src/comm/rc_safety.c` | `tools/sim_host/tests/test_safety_phase2.c` |
-| `SYS-SAFE-003` | active | Sensor-fault failsafe | `include/est/est.h`<br>`src/est/sensor_fusion.c` | `tools/sim_host/tests/test_safety_phase2.c` |
+| `SYS-SAFE-002` | active | RC loss behaviour | `include/comm/ibus.h`<br>`src/comm/rc_safety.c` | `sim/host/tests/test_safety_phase2.c` |
+| `SYS-SAFE-003` | active | Sensor-fault failsafe | `include/est/est.h`<br>`src/est/sensor_fusion.c` | `sim/host/tests/test_safety_phase2.c` |
 | `SYS-SAFE-004` | active | Max attitude failsafe | — | — |
-| `SYS-SAFE-005` | active | Arming preconditions | `include/comm/ibus.h`<br>`src/comm/rc_safety.c` | `tools/sim_host/tests/test_safety_phase2.c` |
-| `SYS-SAFE-006` | active | State-transition validation | `include/sys/state.h`<br>`src/sys/state.c` | `tools/sim_host/tests/test_safety_phase2.c` |
+| `SYS-SAFE-005` | active | Arming preconditions | `include/comm/ibus.h`<br>`src/comm/rc_safety.c` | `sim/host/tests/test_safety_phase2.c` |
+| `SYS-SAFE-006` | active | State-transition validation | `include/sys/state.h`<br>`src/sys/state.c` | `sim/host/tests/test_safety_phase2.c` |
 | `SYS-STATE-001` | active | State enumeration | `src/sys/state.c` | — |
-| `SYS-STATE-002` | active | Read accessor | `include/sys/state.h`<br>`src/sys/state.c` | `tools/sim_host/tests/test_safety_phase2.c` |
+| `SYS-STATE-002` | active | Read accessor | `include/sys/state.h`<br>`src/sys/state.c` | `sim/host/tests/test_safety_phase2.c` |
 | `SYS-STATE-003` | active | Boot start state | — | — |
 | `SYS-TEL-001` | active | Heartbeat cadence | — | — |
 | `SYS-TEL-002` | active | IMU stream | — | — |

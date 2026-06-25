@@ -40,7 +40,7 @@ mid-latitude) so existing behaviour is sensible if never configured.
 
 ## Protocol
 
-`tools/vsim/include/vsim_proto.h`:
+`sim/vsim/include/vsim_proto.h`:
 
 ```c
 VSIM_CTL_SET_MAGFIELD = 16,       // body: vsim_ctl_magfield_t
@@ -61,7 +61,7 @@ typedef struct {
 
 ## Daemon
 
-`tools/vsim/src/main.cpp`, new `case` beside `SET_NOISE` (~line 388):
+`sim/vsim/src/main.cpp`, new `case` beside `SET_NOISE` (~line 388):
 
 ```c
 case VSIM_CTL_SET_MAGFIELD: {

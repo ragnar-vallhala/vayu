@@ -10,7 +10,7 @@
 
 // Finite state machine that owns which telemetry source is active and is the
 // single authority for tx-gating, the engine feed, and the status pill
-// (software/docs/roadmap/gcs-source-state-machine.md). Replaces the scattered
+// (navigator/docs/roadmap/gcs-source-state-machine.md). Replaces the scattered
 // MainWindow flags + the 2-state SessionState.
 //
 // The graph is fully connected: every request<State>() moves from the current

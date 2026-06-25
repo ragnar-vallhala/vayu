@@ -1,5 +1,5 @@
 /**
- * @file tools/sim_host/tests/test_calib_engine.c
+ * @file sim/host/tests/test_calib_engine.c
  * @brief Host unit test for the sensor-agnostic calibration engine
  *        (src/calib/calib_engine.c) via a fake provider.
  *

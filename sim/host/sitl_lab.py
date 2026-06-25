@@ -2,7 +2,7 @@
 """DEPRECATED — superseded by the `vayu-headless` CLI (vayu_headless.cli).
 
 The headless harness now lives in the installable package at
-software/headless-sdk (see its README/PLAN). This file is a thin forwarder that
+navigator/headless-sdk (see its README/PLAN). This file is a thin forwarder that
 translates the old flags to the new subcommands so existing
 `sitl_lab.py --serve` / `--do ...` invocations keep working. No logic lives
 here anymore; prefer `vayu-headless serve|do|run` directly.

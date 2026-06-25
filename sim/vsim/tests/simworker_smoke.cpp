@@ -1,6 +1,6 @@
 // Headless smoke test for the Navigator-side SimWorker glue.
 //
-// Drives the REAL vsim::SimWorker (software/src/vsim/SimWorker.cpp): it
+// Drives the REAL vsim::SimWorker (navigator/src/vsim/SimWorker.cpp): it
 // spawns the vsim_d daemon via posix_spawnp, opens /tmp/vsim_pose +
 // /tmp/vsim_ctl, decodes pose frames, and emits poseUpdated across the
 // thread boundary. We count those signals and sanity-check the latest

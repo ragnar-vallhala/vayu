@@ -1,6 +1,6 @@
 # Plan: wind & turbulence
 
-Status: ✅ shipped. Gap doc Tier-1 #1. Implemented via `tools/vsim/include/wind_model.h`,
+Status: ✅ shipped. Gap doc Tier-1 #1. Implemented via `sim/vsim/include/wind_model.h`,
 the `VSIM_CTL_SET_WIND` opcode (`vsim_proto.h`), `SimWorker::sendWind`, and the
 `WorldEditorWidget::windApplied` wiring (see [00-phasing.md](00-phasing.md), Phase 1 ✅).
 Adds a world-frame wind field — steady
@@ -57,7 +57,7 @@ wind; gust+turb just make `v_wind` time-varying.
 
 ## Protocol
 
-`tools/vsim/include/vsim_proto.h`:
+`sim/vsim/include/vsim_proto.h`:
 
 ```c
 VSIM_CTL_SET_WIND = 14,           // body: vsim_ctl_wind_t
@@ -76,7 +76,7 @@ typedef struct {
 
 ## Daemon
 
-`tools/vsim/src/main.cpp`, new `case` in the dispatch switch (~line 408, beside
+`sim/vsim/src/main.cpp`, new `case` in the dispatch switch (~line 408, beside
 `SET_FAULTS`):
 
 ```c
@@ -116,7 +116,7 @@ sub-evaluations) — correct to first order and standard for environment forcing
 
 ## GCS — SimWorker
 
-`software/src/vsim/SimWorker.{h,cpp}`, mirror `sendNoise` (lines ~205–224):
+`navigator/src/vsim/SimWorker.{h,cpp}`, mirror `sendNoise` (lines ~205–224):
 
 ```cpp
 void sendWind(const WindConfig& w);   // builds VSIM_CTL_SET_WIND frame, ::write(ctl_fd_, …)
@@ -126,7 +126,7 @@ void sendWind(const WindConfig& w);   // builds VSIM_CTL_SET_WIND frame, ::write
 
 ## GCS — UI (World tab)
 
-`software/src/ui/widgets/SimulatorWidget.cpp`, a new "Wind & Turbulence" group box in
+`navigator/src/ui/widgets/SimulatorWidget.cpp`, a new "Wind & Turbulence" group box in
 the World tab (~after the aerodynamics section, near line 533). Mirror the mockup
 (`app.js` `updateEnv()` ~705–736):
 

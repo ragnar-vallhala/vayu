@@ -2,7 +2,7 @@
  * Vayu Navigator — dark theme
  *
  * Single source of truth for widget styling. Colour tokens are
- * mirrored in software/src/core/Theme.h; keep them in sync.
+ * mirrored in navigator/src/core/Theme.h; keep them in sync.
  *
  * Token reference (must equal Theme.h):
  *   surfaces : #1A1D27 bg  · #21252B surface · #2C313A surfAlt · #13141B base

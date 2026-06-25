@@ -1,7 +1,7 @@
 # Navigator GCS & In-App Simulator — Changelog
 
-The ground-control station (`software/`, Qt6 — "Navigator") and the in-app
-software-in-the-loop simulator it hosts (`tools/vsim/` `vsim_d` physics daemon +
+The ground-control station (`navigator/`, Qt6 — "Navigator") and the in-app
+software-in-the-loop simulator it hosts (`sim/vsim/` `vsim_d` physics daemon +
 the firmware SITL harness). Newest first.
 
 Architecture in brief: Navigator embeds the firmware (`vayu_sitl_core`) and
@@ -21,7 +21,7 @@ CSV and `tools/sim_log_plot.py` renders the per-domain plots.
 - **Import huge worlds (`.glb`/`.gltf`/`.obj`/`.stl`/`.blend`) with rigid
   triangle-mesh collision**, delivered in phases (plan:
   `docs/roadmap/huge-world-import.md`):
-  - **P0 — shared BVH module** `tools/vsim/include/trimesh_bvh.h`: a
+  - **P0 — shared BVH module** `sim/vsim/include/trimesh_bvh.h`: a
     header-only, dependency-free triangle-mesh BVH (median split, flat node
     array) with a self-describing serialized blob format, `Bvh::fromBytes`,
     `querySphere`, and Ericson `closestPointOnTriangle`. Unit test 12/12.

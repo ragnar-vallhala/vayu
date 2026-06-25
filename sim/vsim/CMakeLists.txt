@@ -5,7 +5,7 @@ project(vsim_d CXX)
 # POSIX (FIFOs, signals, threads). Talks to Navigator + the firmware
 # host via the four FIFOs defined in include/vsim_proto.h.
 #
-# Configure:  cmake -S tools/vsim -B build_vsim
+# Configure:  cmake -S sim/vsim -B build_vsim
 # Build:      cmake --build build_vsim
 # Run:        ./build_vsim/vsim_d
 

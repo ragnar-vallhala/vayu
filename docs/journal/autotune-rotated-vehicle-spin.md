@@ -51,7 +51,7 @@ layout, so the default mix is already correct even when the command is rejected.
 - Debug-tool fixes (python harness, not the app): `sitl.py::sync_clock`, and
   `protocol.py::ctl_geometry` now packs the motor `tau` field (see false alarm #6).
 
-**Verification.** `software/tests/tst_sitl_stack` runs the app's *actual*
+**Verification.** `navigator/tests/tst_sitl_stack` runs the app's *actual*
 autotune objects (`SitlStack` + `runRollout`, the same ones the GUI's
 `AutotuneWorker` drives) headlessly against the live geometry. Before: rollout
 diverges / `nullopt`. After: holds level, arms, excites, scores **cost ~28**.

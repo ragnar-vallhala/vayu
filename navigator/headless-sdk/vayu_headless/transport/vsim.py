@@ -1,8 +1,8 @@
 """vsim_d wire protocol: control-frame builders + pose decoding.
 
-Mirrors tools/vsim/include/vsim_proto.h. These are pure functions (no I/O), so
+Mirrors sim/vsim/include/vsim_proto.h. These are pure functions (no I/O), so
 they unit-test without booting anything. Frame layout (carved verbatim from the
-original tools/sim_host/sitl_lab.py so behaviour is identical):
+original sim/host/sitl_lab.py so behaviour is identical):
 
     16-byte header (vsim_hdr_t)  +  payload
     CTL frames: subtype(u32) + reserved(u32) + body[256]

@@ -117,7 +117,7 @@ never responds → GCS shows "unsynced".
 
 ## GCS changes
 
-- **New `software/src/protocol/TimeSyncEstimator.{h,cpp}`** (pure, headless-testable):
+- **New `navigator/src/protocol/TimeSyncEstimator.{h,cpp}`** (pure, headless-testable):
   - `addSample({t1,t2,t3,t4})` → per-sample offset/delay; reject `delay<0`,
     implausible, or stale/duplicate `seq`.
   - **Jitter filter:** sliding window (~8); adopt the **minimum-delay** sample's offset
@@ -126,11 +126,11 @@ never responds → GCS shows "unsynced".
   - `fcToGcs(fcMs, gcsNow)` projects FC time onto the GCS timeline (offset + skew);
     guards a ±2^32 ms FC-wrap jump.
   - `synced()` after ≈3 consistent samples; `offsetMs()`, `delayMs()`, `reset()`.
-- **`software/src/protocol/DroneProtocol.{h,cpp}`** — add a `0xB` branch in
+- **`navigator/src/protocol/DroneProtocol.{h,cpp}`** — add a `0xB` branch in
   `parseBuffer()` (near `:111-117`); capture `t4` in the parser (worker thread → less
   jitter); emit `timeSyncResponse(seq, t1,t2,t3, t4)`. Add `0xB → "TIME_SYNC"` to the
   analyzer's type-string map. Keep `heartbeatReceived` for liveness.
-- **`software/src/ui/main/MainWindow.{h,cpp}`**:
+- **`navigator/src/ui/main/MainWindow.{h,cpp}`**:
   - Own `TimeSyncEstimator m_tsEst;` and `quint8 m_syncSeq;`.
   - Rewrite `onTimeSyncRequested()` (`:1499-1521`) to send a `0xB` REQUEST
     (`role=0, seq++, t1=now, commanded_offset_ms = synced() ? -offsetMs() : INT32_MIN`)
@@ -141,7 +141,7 @@ never responds → GCS shows "unsynced".
     `m_lastHbTime`.
   - Wire the new signal near `:146`; fix hardcoded `m_syncTimer->start(5000)` (`:1296`)
     → `start(m_settings.syncPeriodMs)`; `m_tsEst.reset()` on disconnect (`:1300`).
-- **`software/src/ui/main/MainStatusBar.{h,cpp}`** — change the readout to a filtered
+- **`navigator/src/ui/main/MainStatusBar.{h,cpp}`** — change the readout to a filtered
   one: primary = one-way latency (`delayMs`), residual offset on the tooltip; rebase
   color bands (e.g. <5 green / <20 amber / else red); "--" greyed when `!synced()`.
 - **Settings** — `syncPeriodMs` already exists (`SettingsWidget.cpp:362-372`, applied
@@ -152,7 +152,7 @@ never responds → GCS shows "unsynced".
 ## Corrected timeline (graphs / logging / replay)
 
 `TimeSyncEstimator::fcToGcs()` is the single conversion point, applied in
-`software/src/protocol/TelemetryEngine.cpp` where packets are recorded (today it stamps
+`navigator/src/protocol/TelemetryEngine.cpp` where packets are recorded (today it stamps
 `lastImuMs = currentMSecsSinceEpoch()` and discards the FC `DecodedPacket.timestamp`,
 `:75-109`). Add a queued `setTimeSync(offsetMs, skewPpm, synced)` setter, store a
 corrected `fcTimeMs` on `VehicleState` for graph x-axes. **Replay:** gate the estimator
@@ -162,8 +162,8 @@ unchanged.
 
 ## Tests
 
-Add under `software/tests/` (mirror `navigator_test(...)`, see `tst_command_codec`,
-`software/tests/CMakeLists.txt:26-30`):
+Add under `navigator/tests/` (mirror `navigator_test(...)`, see `tst_command_codec`,
+`navigator/tests/CMakeLists.txt:26-30`):
 
 1. **`tst_time_sync_estimator.cpp`** — textbook NTP vectors → exact offset/delay;
    min-delay selection under asymmetric jitter; skew recovery + `fcToGcs` projection;
@@ -171,10 +171,10 @@ Add under `software/tests/` (mirror `navigator_test(...)`, see `tst_command_code
 2. **`tst_time_sync_codec.cpp`** (optional) — round-trip the REQUEST/RESPONSE byte
    layout to lock the wire format.
 
-Register `TimeSyncEstimator.cpp` in `software/CMakeLists.txt` (after
+Register `TimeSyncEstimator.cpp` in `navigator/CMakeLists.txt` (after
 `src/protocol/PacketDecoder.cpp`) and in the new test targets. Build:
-`cmake --build software/build -j"$(nproc)"`; run:
-`ctest --test-dir software/build/tests -R tst_time_sync`.
+`cmake --build navigator/build -j"$(nproc)"`; run:
+`ctest --test-dir navigator/build/tests -R tst_time_sync`.
 
 ## Risks / edge cases
 

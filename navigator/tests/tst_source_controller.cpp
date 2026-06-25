@@ -5,7 +5,7 @@
 // SourceController: the telemetry-source FSM. Driven with spy hooks so the full
 // transition matrix (any state -> any state), the teardown-before-setup ordering,
 // tx-gating, setup-failure fallback, and forceIdle are all verified headless.
-// (software/docs/roadmap/gcs-source-state-machine.md)
+// (navigator/docs/roadmap/gcs-source-state-machine.md)
 class TstSourceController : public QObject {
   Q_OBJECT
 

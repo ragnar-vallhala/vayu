@@ -11,8 +11,8 @@ Four components, two shared contracts:
 |-----------|----------|------------|-----------|
 | **FC** (firmware) | `src/`, `include/` | STM32F401 @ 84 MHz, vaios RTOS: sensors → EKF → cascade control → motors | [docs/reference/software-flow.md](docs/reference/software-flow.md) |
 | **NavLink** (wire) | `navlink/` | The message dialect; one spec generates C / C++ / Python codecs | [navlink/docs/reference/navlink-v2-spec.md](navlink/docs/reference/navlink-v2-spec.md) |
-| **GCS** (Navigator) | `software/src/` | Qt6 ground station: telemetry, plots, calibration, replay, autotune | [software/docs/reference/gcs-architecture.md](software/docs/reference/gcs-architecture.md) |
-| **Sim + Pilot** | `tools/vsim/`, `tools/sim_host/`, `software/headless-sdk/` | `vsim_d` physics daemon, the SITL host, and the `vayu_headless` Pilot scripting API | [tools/vsim/docs/reference/sim-architecture.md](tools/vsim/docs/reference/sim-architecture.md) |
+| **GCS** (Navigator) | `navigator/src/` | Qt6 ground station: telemetry, plots, calibration, replay, autotune | [navigator/docs/reference/gcs-architecture.md](navigator/docs/reference/gcs-architecture.md) |
+| **Sim + Pilot** | `sim/vsim/`, `sim/host/`, `navigator/headless-sdk/` | `vsim_d` physics daemon, the SITL host, and the `vayu_headless` Pilot scripting API | [sim/vsim/docs/reference/sim-architecture.md](sim/vsim/docs/reference/sim-architecture.md) |
 
 The two contracts are the seams that keep components decoupled: **NavLink** (the
 FC↔GCS↔Pilot wire) and **vsim_proto** (the FC↔sim transport).
@@ -29,14 +29,14 @@ flowchart TB
 
     OP[("operator<br/>human at the GCS, or a Python script")]:::ext
 
-    GCS["GCS — Navigator (software/src/)<br/>telemetry · plots · calibration · replay · autotune"]:::comp
+    GCS["GCS — Navigator (navigator/src/)<br/>telemetry · plots · calibration · replay · autotune"]:::comp
     FC["FC — firmware (src/, include/)<br/>STM32F401 · vaios · sensors→EKF→control→motors"]:::comp
-    VSIM["vsim_d — physics daemon (tools/vsim/)<br/>rigid-body dynamics · wind · sensor models"]:::comp
-    SITL["vayu_sitl — the real firmware on host (tools/sim_host/)<br/>same code as FC, sensors-in / PWM-out"]:::comp
-    PILOT["Pilot — vayu_headless (software/headless-sdk/)<br/>arm · goto · truth() · fidelity scoring"]:::comp
+    VSIM["vsim_d — physics daemon (sim/vsim/)<br/>rigid-body dynamics · wind · sensor models"]:::comp
+    SITL["vayu_sitl — the real firmware on host (sim/host/)<br/>same code as FC, sensors-in / PWM-out"]:::comp
+    PILOT["Pilot — vayu_headless (navigator/headless-sdk/)<br/>arm · goto · truth() · fidelity scoring"]:::comp
 
     NAV[["NavLink dialect (navlink/dialect.json)<br/>→ C · C++ · Python codecs"]]:::contract
-    VP[["vsim_proto (tools/vsim/include)<br/>pwm · imu · pose · ctl"]]:::contract
+    VP[["vsim_proto (sim/vsim/include)<br/>pwm · imu · pose · ctl"]]:::contract
 
     OP --> GCS
     OP --> PILOT
@@ -136,10 +136,10 @@ default and the one the GCS hosts in-process. Build/run commands for both are in
 |------|------|
 | `src/`, `include/` | FC firmware (control, estimation, sensors, comm, RTOS glue) |
 | `navlink/` | NavLink dialect (`dialect.json`), code generator, ABI, integration notes |
-| `software/src/` | GCS Navigator (Qt6) |
-| `software/headless-sdk/` | `vayu_headless` — the Pilot scripting SDK + fidelity scoring |
-| `tools/vsim/` | `vsim_d` physics daemon + `vsim_proto.h` |
-| `tools/sim_host/` | the SITL host seam — pthread backend (`vayu_sitl`) + opt-in real-RTOS in-process backend (`vayu_sitl_rtos`, `host_rtos_*`), IMU/RC feeders, PWM/UART shims, virtual clock |
+| `navigator/src/` | GCS Navigator (Qt6) |
+| `navigator/headless-sdk/` | `vayu_headless` — the Pilot scripting SDK + fidelity scoring |
+| `sim/vsim/` | `vsim_d` physics daemon + `vsim_proto.h` |
+| `sim/host/` | the SITL host seam — pthread backend (`vayu_sitl`) + opt-in real-RTOS in-process backend (`vayu_sitl_rtos`, `host_rtos_*`), IMU/RC feeders, PWM/UART shims, virtual clock |
 | `tools/autotune/` | PID autotuner (drives `vsim_d` directly) |
 | `docs/` | documentation, organized per component into reference / plans / journal / scratch |
 
@@ -153,9 +153,9 @@ Each component is its own CMake project (or a Python package). All builds are
 out-of-source into a `build*` dir. `-j$(nproc)` parallelises.
 
 ### 1. FC firmware (the board target)
-ARM cross-build; the `arm-none-eabi-` toolchain is pinned in the root `CMakeLists.txt`.
+ARM cross-build; the `arm-none-eabi-` toolchain is pinned in the firmware `CMakeLists.txt`.
 ```sh
-cmake -S . -B build_flash                 # configure (ARM)
+cmake -S firmware -B build_flash                 # configure (ARM)
 cmake --build build_flash -j$(nproc)      # -> build_flash/main(.elf), prints size
 cmake --build build_flash --target flash  # objcopy -> .bin, flash via st-flash
 ```
@@ -164,12 +164,12 @@ boot), `-DUSE_STANDARD_MATH=OFF` (use the firmware math backend; default ON).
 
 ### 2. vsim_d — physics daemon
 ```sh
-cmake -S tools/vsim -B build_vsim && cmake --build build_vsim -j$(nproc)   # -> build_vsim/vsim_d
+cmake -S sim/vsim -B build_vsim && cmake --build build_vsim -j$(nproc)   # -> build_vsim/vsim_d
 ```
 
 ### 3. SITL host A — pthread (default backend)
 ```sh
-cmake -S tools/sim_host -B build_sitl && cmake --build build_sitl -j$(nproc)  # -> build_sitl/vayu_sitl + tests
+cmake -S sim/host -B build_sitl && cmake --build build_sitl -j$(nproc)  # -> build_sitl/vayu_sitl + tests
 ctest --test-dir build_sitl --output-on-failure                              # host unit tests
 ```
 Options: `-DVAYU_SANITIZE=ON` (ASan+UBSan), `-DVAYU_COVERAGE=ON` (gcov; then
@@ -177,7 +177,7 @@ Options: `-DVAYU_SANITIZE=ON` (ASan+UBSan), `-DVAYU_COVERAGE=ON` (gcov; then
 
 ### 4. SITL host B — real vaios scheduler, in-process (opt-in)
 ```sh
-cmake -S tools/sim_host -B build_sitl_rtos -DVAYU_SITL_RTOS_BUILD=ON
+cmake -S sim/host -B build_sitl_rtos -DVAYU_SITL_RTOS_BUILD=ON
 cmake --build build_sitl_rtos --target vayu_sitl_rtos -j$(nproc)   # -> build_sitl_rtos/vayu_sitl_rtos
 ./build_sitl_rtos/vayu_sitl_rtos                                   # self-contained: physics in-process, ~57x, deterministic
 ```
@@ -185,7 +185,7 @@ Self-contained — it does **not** need a separate `vsim_d` (physics is linked i
 
 ### 5. GCS — Navigator (Qt6)
 ```sh
-cmake -S software -B software/build && cmake --build software/build -j$(nproc)
+cmake -S navigator -B navigator/build && cmake --build navigator/build -j$(nproc)
 ```
 Requires Qt6 (Core, Widgets, SerialPort, Network, OpenGL/Widgets). The GCS can host the
 pthread SITL in-process and spawn `vsim_d` for in-app simulation.
@@ -193,7 +193,7 @@ pthread SITL in-process and spawn `vsim_d` for in-app simulation.
 ### 6. Headless SDK — the Pilot scripting API
 ```sh
 python3 -m venv .venv
-./.venv/bin/pip install -e "software/headless-sdk[test]"
+./.venv/bin/pip install -e "navigator/headless-sdk[test]"
 # point it at the binaries from steps 2 + 3:
 export VSIM_BIN=$PWD/build_vsim/vsim_d VAYU_SITL_BIN=$PWD/build_sitl/vayu_sitl
 ```
@@ -236,5 +236,5 @@ sim time in both host backends.
 
 - New to the firmware? → [docs/reference/software-flow.md](docs/reference/software-flow.md)
 - Wire format / adding a message? → [navlink/docs/reference/navlink-v2-spec.md](navlink/docs/reference/navlink-v2-spec.md)
-- Hacking the ground station? → [software/docs/reference/gcs-architecture.md](software/docs/reference/gcs-architecture.md)
-- Scripting a SITL flight? → [tools/vsim/docs/reference/sim-architecture.md](tools/vsim/docs/reference/sim-architecture.md) (§5, the Pilot API)
+- Hacking the ground station? → [navigator/docs/reference/gcs-architecture.md](navigator/docs/reference/gcs-architecture.md)
+- Scripting a SITL flight? → [sim/vsim/docs/reference/sim-architecture.md](sim/vsim/docs/reference/sim-architecture.md) (§5, the Pilot API)

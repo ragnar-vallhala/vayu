@@ -1,6 +1,6 @@
 /* =====================================================================
  * Navigator — native desktop application mockup
- * Palette mirrors software/src/core/Theme.h + resources/styles/dark.qss.
+ * Palette mirrors navigator/src/core/Theme.h + resources/styles/dark.qss.
  * Goal: read as a dense Qt/QWidget application, NOT a web dashboard —
  * window chrome, menu bar, flat toolbar, docked panels with splitter
  * handles, titled group frames, sunken status bar. No rounded cards,

@@ -2,7 +2,7 @@
 
 Spawns vsim_d + the real firmware host, streams RC, decodes FC telemetry, reads
 ground truth, and (optionally) bridges pose + telemetry to the GCS. Carved
-verbatim from tools/sim_host/sitl_lab.py; the pure helpers it uses live in the
+verbatim from sim/host/sitl_lab.py; the pure helpers it uses live in the
 sibling modules.
 """
 import os

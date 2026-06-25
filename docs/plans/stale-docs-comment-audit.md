@@ -14,13 +14,13 @@ code no longer has:
    SD→RAM, plus a few dead declarations.
 
 A codebase-wide audit (Explore agents over `src/`, `include/`, `tools/`, `docs/`,
-`navlink/docs/`, `software/`; `extern/` excluded) surfaced the items below. Goal:
+`navlink/docs/`, `navigator/`; `extern/` excluded) surfaced the items below. Goal:
 make every comment/doc match the current code. These are doc/comment edits + a few
 trivial dead-symbol cleanups + one dialect-enum addition; **no behavioral code
 change**.
 
 Scope note: historical `docs/journal/log-analysis/2026*` archives are
-point-in-time records and are NOT edited. `software/src/vsim/**`
+point-in-time records and are NOT edited. `navigator/src/vsim/**`
 (renderer/procgen) excluded.
 
 ## Guiding principle — clean overwrite (no backward notes), except versioned systems
@@ -64,7 +64,7 @@ residue.
 ### A2. `docs/reference/trace.md`
 - Update `SYS-CAL-002` and `SNS-CAL-101` row titles to match A1 (IDs unchanged).
 
-### A3. `software/docs/reference/requirements.md`
+### A3. `navigator/docs/reference/requirements.md`
 - **FR-RX-08** note "Bias-only + 6-axis + mag axis coverage" → accel 12-pose
   (faces+edges) + gyro + mag, pose/axis-coverage progress.
 
@@ -85,9 +85,9 @@ residue.
   offset+scale) and gyro applies bias subtraction, alongside the mag iron step.
 
 ### A7. GCS calibration comments/strings
-- `software/src/ui/widgets/CalibrationWidget.cpp:35` gyro tooltip "bias-only
+- `navigator/src/ui/widgets/CalibrationWidget.cpp:35` gyro tooltip "bias-only
   zeroing" → "stillness-gated bias".
-- `software/src/ui/widgets/CalibrationWidget.h:68` `// Axis Status (for 6-axis)` →
+- `navigator/src/ui/widgets/CalibrationWidget.h:68` `// Axis Status (for 6-axis)` →
   reflect 3×3 / 12-pose.
 - `CalibrationWidget.cpp:330-331` mode-nibble comment overstates → note firmware
   ignores it for accel/mag.
@@ -142,19 +142,19 @@ residue.
 ## Part C — GCS app
 
 ### C1. Clear factual fixes
-- `software/src/protocol/DroneProtocol.h:9-19` — top comment still describes a
+- `navigator/src/protocol/DroneProtocol.h:9-19` — top comment still describes a
   newline-terminated **ASCII** `$IMU,...` parser; the parser is **binary NavLink
   v2** only. Replace with the v2-frame description. (`gcs-architecture.md:247`
   already flags this as known-stale.)
-- `software/src/protocol/DroneProtocol.cpp:52` — ack string `"TEMP_REJECTED"` →
+- `navigator/src/protocol/DroneProtocol.cpp:52` — ack string `"TEMP_REJECTED"` →
   `"TEMPORARILY_REJECTED"` to match the `command_result` enum (value 1).
-- `software/docs/reference/requirements.md:151` (FR-SIM-04) — marked ❌/"no UI yet"
+- `navigator/docs/reference/requirements.md:151` (FR-SIM-04) — marked ❌/"no UI yet"
   but the **Sensor Models panel** is implemented (`SimulatorWidget` buildSensorPanel
   → `sendNoise()` / `VSIM_CTL_SET_NOISE`). Mark ✅; and `:327` drop the
   "still pending" clause.
 
 ### C2. Low-priority / judgment items (confirm before changing)
-- **Phase-label breadcrumbs** in `software/src/ui/main/MainWindow.cpp:403,414,430`
+- **Phase-label breadcrumbs** in `navigator/src/ui/main/MainWindow.cpp:403,414,430`
   and `MainWindow.h:115` cite wrong phase numbers (e.g. "Phase-2 2E/2C/2A",
   "Phase-1 1C") vs the requirements phase plan. Concrete but low-value developer
   comments; fix the labels.
@@ -184,10 +184,10 @@ markers — all accurate.
 - **NavLink**: `navlink/docs/reference/messages/command.md`,
   `.../messages/system_status.md`, `navlink/docs/reference/navlink-v2-spec.md`,
   `navlink/dialect.json` (+ regenerated `navlink/generated/**`)
-- **GCS**: `software/docs/reference/requirements.md`,
-  `software/src/ui/widgets/CalibrationWidget.{cpp,h}`,
-  `software/src/protocol/DroneProtocol.{h,cpp}`,
-  `software/src/ui/main/MainWindow.{cpp,h}` (C2 breadcrumbs only)
+- **GCS**: `navigator/docs/reference/requirements.md`,
+  `navigator/src/ui/widgets/CalibrationWidget.{cpp,h}`,
+  `navigator/src/protocol/DroneProtocol.{h,cpp}`,
+  `navigator/src/ui/main/MainWindow.{cpp,h}` (C2 breadcrumbs only)
 
 ## Verification
 - `python3 navlink/tests/run_tests.py` passes after the dialect/codec regen
@@ -196,7 +196,7 @@ markers — all accurate.
 - Build firmware (`cmake --build build`) + SITL tests + GCS `tst_calibration_wizard`
   to confirm the dead-decl/header-guard cleanups don't break compilation.
 - Re-run the audit greps (`6-point|6-axis|166 ?Hz|512 ?B|acc_scale|two modes|
-  min/max|wait_for_orientation|0:sysid.bin`) over `src include docs software/docs
+  min/max|wait_for_orientation|0:sysid.bin`) over `src include docs navigator/docs
   navlink/docs` → clean (excluding the historical journal archives + the legit
   RX-ring 512 B references).
 - Spot-read each edited comment against the code it now describes.

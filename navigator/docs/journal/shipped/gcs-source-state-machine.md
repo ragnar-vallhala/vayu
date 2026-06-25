@@ -204,7 +204,7 @@ reach the parser once Sim is torn down. Autotune remains a **no-source** state
   setup-of-`to`; `activeSource()` gets the right pointer); setup-failure → Idle;
   `forceIdle()` from every state. Uses a fake `ITelemetrySource` — no engine/widget.
 - Remove `LiveSource.{h,cpp}` + `tst_live_source` (vestigial; role now `setLiveFeed`).
-- CMake (`software/CMakeLists.txt`, `software/tests/CMakeLists.txt` — hand-maintained):
+- CMake (`navigator/CMakeLists.txt`, `navigator/tests/CMakeLists.txt` — hand-maintained):
   add `SourceController.cpp`/`SourceState.h`/`SimSource.{h,cpp}` and the new test
   (drop `tst_session_state`, `tst_live_source`), mirroring the `navigator_test` helper.
   Build `cmake --build build`; run `ctest --test-dir build/tests -R tst_source_controller`.

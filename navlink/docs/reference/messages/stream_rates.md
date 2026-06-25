@@ -27,7 +27,7 @@ fixed cadence — the gates are `packet_counter % N == 0` literals in
 - lower a stream's rate to free headroom (e.g. drop IMU_COMPRESSED 27 → 5 Hz).
 
 The GCS Settings page already ships a **disabled placeholder** for exactly this
-(`software/src/ui/main/SettingsWidget.cpp`, "Telemetry Streams … needs
+(`navigator/src/ui/main/SettingsWidget.cpp`, "Telemetry Streams … needs
 SET_STREAM_RATE", columns *Stream / Type / Rate (Hz) / On*). This feature wires it
 up and persists the choice **on the FC's SD card**, so bandwidth is controlled
 from power-on, before any GCS connects.
@@ -106,21 +106,21 @@ stream (skip when rate 0, else derive its report period from the rate).
 Routing: `src/comm/navlink_router.c` adds `on_cmd_set_stream_rate`
 (`build_cmd` → `telemetry_config_apply_command`) and registers it;
 `src/comm/comm_processor.c` adds the dispatch branch (mirroring `CMD_SET_GYRO_LPF`).
-SITL: add `telemetry_config.c` to `tools/sim_host/CMakeLists.txt`.
+SITL: add `telemetry_config.c` to `sim/host/CMakeLists.txt`.
 
 ## GCS behaviour
 
-- `software/src/protocol/CommandCodec.{h,cpp}`: `encodeSetStreamRate(streamId,
+- `navigator/src/protocol/CommandCodec.{h,cpp}`: `encodeSetStreamRate(streamId,
   rateHz, devId=42)` (follows `encodeCalibrate`).
-- `software/src/core/SettingsManager.h`: add `quint16 streamRateHz[11]` to
+- `navigator/src/core/SettingsManager.h`: add `quint16 streamRateHz[11]` to
   `GcsSettings` (defaults = current rates), appended to the versioned
   `operator<</>>` with an `atEnd()` sentinel (back-compat).
-- `software/src/ui/main/SettingsWidget.{h,cpp}`: make the existing "Telemetry
+- `navigator/src/ui/main/SettingsWidget.{h,cpp}`: make the existing "Telemetry
   Streams" table live — "On" → `QCheckBox`, "Rate (Hz)" → `QSpinBox` (disabled
   when off; unchecking sets rate 0), add CONTROL_TRACE + EST_PERF rows, drop the
   `setEnabled(false)`/"coming soon". The bandwidth-estimate label becomes live
   (Σ rate × frame-size).
-- `software/src/ui/main/MainWindow.cpp`: in `applyAllSettings`, send one
+- `navigator/src/ui/main/MainWindow.cpp`: in `applyAllSettings`, send one
   `CMD_SET_STREAM_RATE` per changed row via `sendToFc`; also push the saved config
   once **after time-sync locks** on connect (reuse the `m_tsEst.synced()` gate) so
   a fresh GCS imposes its view. FC SD-persistence covers the pre-connect window.

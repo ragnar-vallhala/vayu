@@ -1,5 +1,5 @@
 /**
- * @file tools/sim_host/tests/test_xfer_e2e.c
+ * @file sim/host/tests/test_xfer_e2e.c
  * @brief End-to-end SITL test of the xfer substrate through the REAL codec seam.
  *
  * Where test_xfer_sm.c captures the SM's abstract emit ops, this drives a full

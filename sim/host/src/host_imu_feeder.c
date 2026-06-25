@@ -42,7 +42,7 @@
 #include "task.h"  /* v_delay */
 #include "utils.h" /* v_get_ticks */
 
-/* vsim emits IMU at this rate (tools/vsim/src/main.cpp kImuHz). Each sample
+/* vsim emits IMU at this rate (sim/vsim/src/main.cpp kImuHz). Each sample
  * therefore represents 1/SITL_IMU_FEED_HZ of SIM time — used to stamp a fixed
  * sensor cadence so the firmware estimator's dt is correct regardless of how
  * the host/FIFO is scheduled in wall-clock. Must track vsim's emit rate. */

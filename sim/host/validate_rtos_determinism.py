@@ -14,10 +14,10 @@ across two firmware-derived fingerprints emitted on the binary's
 estimator's attitude trajectory). It also reports the wall-clock speedup.
 
 Build first:
-  cmake -S tools/sim_host -B build_sitl_rtos -DVAYU_SITL_RTOS_BUILD=ON
+  cmake -S sim/host -B build_sitl_rtos -DVAYU_SITL_RTOS_BUILD=ON
   cmake --build build_sitl_rtos --target vayu_sitl_rtos -j$(nproc)
 Run:
-  python3 tools/sim_host/validate_rtos_determinism.py
+  python3 sim/host/validate_rtos_determinism.py
 """
 
 import os

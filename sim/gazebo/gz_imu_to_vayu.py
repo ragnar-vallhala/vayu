@@ -15,9 +15,9 @@ reported "No subscribers"). The `gz topic -e` CLI works reliably; we
 spawn one per topic and parse the streaming text-proto output.
 
 Closed-loop usage:
-    Terminal 1:  gz sim -s -r --headless-rendering tools/sim_gazebo/worlds/vayu_quad.sdf
+    Terminal 1:  gz sim -s -r --headless-rendering sim/gazebo/worlds/vayu_quad.sdf
     Terminal 2:  ./build_sitl/vayu_sitl
-    Terminal 3:  python3 tools/sim_gazebo/gz_imu_to_vayu.py
+    Terminal 3:  python3 sim/gazebo/gz_imu_to_vayu.py
 
 bmx160_all_converted_reading_t layout (76 B, little-endian):
     float[3] acc             m/s^2 (calibrated)
@@ -295,4 +295,4 @@ if __name__ == "__main__":
 # ---------------------------------------------------------------------
 # Phase 4b sketch (motor PWM out -> Gazebo)
 # ---------------------------------------------------------------------
-# See tools/sim_gazebo/vayu_pwm_to_gz.py.
+# See sim/gazebo/vayu_pwm_to_gz.py.

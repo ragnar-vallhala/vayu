@@ -9,7 +9,7 @@ import sys
 
 import pytest
 
-# repo root = .../vayu (this file is software/headless-sdk/tests/conftest.py)
+# repo root = .../vayu (this file is navigator/headless-sdk/tests/conftest.py)
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
 VSIM_BIN = os.environ.get("VSIM_BIN_PATH",

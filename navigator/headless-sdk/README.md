@@ -15,14 +15,14 @@ memory `sitl-test-harness`.
 PEP 668 systems need a venv:
 
 ```bash
-cd software/headless-sdk
+cd navigator/headless-sdk
 python3 -m venv .venv
 ./.venv/bin/pip install -e ".[test]"
 ```
 
 Needs the SITL binaries built (resolved from the repo, or via `VSIM_BIN_PATH` /
-`VAYU_SITL_BIN`): `tools/vsim/build/vsim_d` and
-`tools/sim_host/build_sitl/vayu_sitl`. For world collision, build the mesh tool:
+`VAYU_SITL_BIN`): `sim/vsim/build/vsim_d` and
+`sim/host/build_sitl/vayu_sitl`. For world collision, build the mesh tool:
 `cmake -B cpp/worldmesh/build -S cpp/worldmesh && cmake --build cpp/worldmesh/build`.
 
 ## Library API

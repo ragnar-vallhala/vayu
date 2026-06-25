@@ -34,7 +34,7 @@ namespace {
 //   2. $VSIM_BIN_PATH env var.
 //   3. <NavigatorDir>/../../build_vsim/vsim_d  (in-tree layout: a sibling
 //      build_vsim/ at the repo root, while Navigator runs from
-//      software/build/.)
+//      navigator/build/.)
 //   4. "vsim_d" (relies on $PATH).
 QString resolveBinary(const QString& override_path) {
     if (!override_path.isEmpty()) return override_path;

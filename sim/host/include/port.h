@@ -1,5 +1,5 @@
 /*
- * tools/sim_host/include/port.h
+ * sim/host/include/port.h
  *
  * Host port for vaios primitives. Shadows
  * extern/vaios/portable/cortex-m4/port.h on the SITL build. Replaces

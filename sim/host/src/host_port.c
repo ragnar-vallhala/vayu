@@ -1,6 +1,6 @@
 /*
  * host_port.c -- definitions for the vaios host port globals declared in
- * tools/sim_host/include/port.h.
+ * sim/host/include/port.h.
  */
 #include "port.h"
 

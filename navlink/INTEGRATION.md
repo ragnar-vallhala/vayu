@@ -2,7 +2,7 @@
 
 This is the migration study: how the generated NavLink v2 codec lands in the two
 trees that ship today — the **FC firmware** (`src/comm/`, C11) and the
-**Navigator / GCS** (`software/src/protocol/`, C++17 / Qt6). [`ABI.md`](ABI.md)
+**Navigator / GCS** (`navigator/src/protocol/`, C++17 / Qt6). [`ABI.md`](ABI.md)
 is the *contract* (generated API + rules); this document is the *plan* (what to
 replace, in what order, and the decisions it forces).
 
@@ -39,7 +39,7 @@ is a 4-state machine; `comm_processor.c::comm_processor_dispatch()` is the
 UART ping-pong/DMA transport; `telemetry_task.c` / `perf_telemetry.c` are the TX
 producers.
 
-**GCS** (`software/src/protocol/`): `DroneProtocol::parseBuffer()` does sync +
+**GCS** (`navigator/src/protocol/`): `DroneProtocol::parseBuffer()` does sync +
 CRC32 + dispatch and emits Qt signals; `PacketDecoder` unpacks payloads into a
 `std::variant`; `CommandCodec` builds outbound `0x3` frames; `PacketDissector`
 is the analyzer GUI's hand-coded field map; `TelemetryEngine` owns the parser +

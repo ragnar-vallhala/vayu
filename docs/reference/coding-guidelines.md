@@ -183,7 +183,7 @@ that don't exist in the codebase yet. They become tracked work items.
 | CONV-02 | `include/vayu_assert.h`             | ✅ landed. `VAYU_ASSERT(cond)` macro forwarding to `vayu_assert_fail()` in `src/sys/assert.c`. Debug: log + `v_panic` trap. Release (`NDEBUG`): log + request `SYSTEM_STATE_FAILSAFE` + halt calling task. Distinct from `TEST_ASSERT`. |
 | CONV-03 | `tools/trace.py`                    | ✅ landed (warn-only mode, per Phase 1). Walks `src/`, `extern/vaios/`, `extern/vaios/extern/NavHAL/`, parses `@implements` / `@verifies`, produces `docs/firmware/trace.md`. `--check` fails on unknown ID; missing implementer / verifier currently warn. Flip to fail-on-missing lands in Phase 5 (R12.5). |
 | CONV-04 | `.clang-tidy` baseline              | ✅ landed. `.clang-tidy` (bugprone-* + cert-* + readability-*, noisy checks disabled); CI `clang-tidy` job report-only until the baseline is burned down (R12.3), then flips to failing. |
-| CONV-05 | Host SITL coverage build            | ✅ landed. `tools/sim_host` `VAYU_COVERAGE` option + `coverage` target run the unit suite under gcov and print a gcovr summary; CI `coverage` job. |
+| CONV-05 | Host SITL coverage build            | ✅ landed. `sim/host` `VAYU_COVERAGE` option + `coverage` target run the unit suite under gcov and print a gcovr summary; CI `coverage` job. |
 | CONV-06 | Compiler-flag widening rollout      | ✅ Phase 4 complete. All 7 owned modules flipped to the full R1.2 warning set with `-Werror`. |
 
 ---
@@ -200,7 +200,7 @@ that don't exist in the codebase yet. They become tracked work items.
 | Fuzzing          | libFuzzer, AFL++                                      |
 | Formal methods   | CBMC (PID anti-windup), Frama-C (EVA, WP)             |
 | MCU emulation    | Renode (already used) |
-| Simulation       | In-app C++/OpenGL sim (current — see [`software/docs/requirements.md`](../../software/docs/reference/requirements.md) FR-SIM-*); legacy Gazebo/JSBSim if needed |
+| Simulation       | In-app C++/OpenGL sim (current — see [`navigator/docs/requirements.md`](../../navigator/docs/reference/requirements.md) FR-SIM-*); legacy Gazebo/JSBSim if needed |
 | Requirements     | Plain Markdown today; consider Doorstop / StrictDoc / OpenFastTrace if scale demands |
 | CI               | GitHub Actions (host build + unit tests + trace gate); target-arch builds run in containers |
 

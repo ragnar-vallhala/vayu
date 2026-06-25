@@ -1,5 +1,5 @@
 // physics_core.h — single-rigid-body RK4 integrator. Ported from
-// software/src/vsim/PhysicsCore.h with Qt math types swapped for the
+// navigator/src/vsim/PhysicsCore.h with Qt math types swapped for the
 // Qt-free Vec3 / Quat in vsim_math.h. Behavior is bit-equivalent.
 #ifndef VSIM_PHYSICS_CORE_H
 #define VSIM_PHYSICS_CORE_H

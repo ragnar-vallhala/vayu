@@ -2,11 +2,11 @@
 
 A complete map of the Navigator ground station (Qt6): how telemetry sources are
 arbitrated, how bytes become UI state across two threads, how commands go out, and
-how it hosts the in-app simulator, autotune, and replay. Verified against `software/src/`.
+how it hosts the in-app simulator, autotune, and replay. Verified against `navigator/src/`.
 
 > Companion docs: wire protocol → [`../../../navlink/docs/reference/navlink-v2-spec.md`](../../../navlink/docs/reference/navlink-v2-spec.md);
 > firmware internals → [`../../../docs/reference/software-flow.md`](../../../docs/reference/software-flow.md);
-> the sim it hosts → [`../../../tools/vsim/docs/reference/sim-architecture.md`](../../../tools/vsim/docs/reference/sim-architecture.md).
+> the sim it hosts → [`../../../sim/vsim/docs/reference/sim-architecture.md`](../../../sim/vsim/docs/reference/sim-architecture.md).
 
 **Entry:** `app/main.cpp` → `MainWindow`, which owns everything: a worker-thread
 `TelemetryEngine`, the source FSM, the ~30 Hz render clock, the menus, and the single

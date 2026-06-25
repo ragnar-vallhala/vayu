@@ -48,7 +48,7 @@ The current `vsim_ctl_noise_t` is too small. Add a richer per-sensor message; ke
 `SET_NOISE` working for back-compat (or migrate the existing fields into the new
 struct and retire it).
 
-`tools/vsim/include/vsim_proto.h`:
+`sim/vsim/include/vsim_proto.h`:
 
 ```c
 VSIM_CTL_SET_SENSOR_ERR = 18,     // body: vsim_ctl_sensor_err_t
@@ -80,7 +80,7 @@ VSIM_CTL_SENSOR_CSV = 19,   // body: { int32 sensor; int32 seq; int32 n; float r
 
 ## Daemon
 
-`tools/vsim/src/main.cpp` — replace/extend the `SET_NOISE` case (~388) with a
+`sim/vsim/src/main.cpp` — replace/extend the `SET_NOISE` case (~388) with a
 `SET_SENSOR_ERR` case that stores a full `SensorErrModel` per sensor on the
 controller; add a `SENSOR_CSV` case that appends rows to that sensor's replay buffer.
 The synthesis path (where samples are currently built with `mag_sigma` etc.) runs the

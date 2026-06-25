@@ -2,7 +2,7 @@
 
 > **Largely shipped.** The headline goal — a stable **arm → fly** SITL loop
 > (clean takeoff, altitude-hold, waypoint) — is delivered via the **headless SDK**
-> (`software/headless-sdk/`) and the daemonised in-app sim. Living record:
+> (`navigator/headless-sdk/`) and the daemonised in-app sim. Living record:
 > `docs/changelog/gcs-in-app-simulator-and-world-collision.md` and the headless
 > SDK's own `README.md`/`PLAN.md`. The referenced `build/HANDOFF.md` no longer
 > exists, and the in-process `vayu_sitl_start` / `vsim_iface` UART2-callback notes
@@ -13,7 +13,7 @@
 **Goal (delivered):** a stable, reproducible SITL loop you can **arm and fly**:
 `vsim_d` physics ↔ firmware ↔ Navigator (telemetry, render, RC, commands).
 The current wire is the standalone `vsim_d` daemon over
-`/tmp/vsim_{pwm,imu,pose,ctl}` FIFOs spawned by `software/src/vsim/SimWorker`.
+`/tmp/vsim_{pwm,imu,pose,ctl}` FIFOs spawned by `navigator/src/vsim/SimWorker`.
 
 Status: ⬜ todo · 🟡 in progress · ✅ done · ⛔ blocked
 
@@ -31,7 +31,7 @@ Status: ⬜ todo · 🟡 in progress · ✅ done · ⛔ blocked
 - ✅ Firmware ↔ GCS **bidirectional NavLink** over the UART2 pty: telemetry
   out (all packet types, heartbeat ~1 Hz) + commands in (raw pty, RX reader
   thread, `comm_processor_task`). `vayu_sitl` reaches STANDDBY.
-- ✅ SITL harness committed (`tools/sim_host`, `d97b80d`); rebuilds against
+- ✅ SITL harness committed (`sim/host`, `d97b80d`); rebuilds against
   the GCS instance's `vsim_proto.h` (HANDOFF §5.5).
 - ✅ **GCS software-arm** (`CMD_ARM`/`CMD_DISARM`): a `g_sw_arm_request` latch
   OR'd with the physical arm switch via `rc_arm_engaged()`, so a 4-channel

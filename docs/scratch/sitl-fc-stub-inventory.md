@@ -4,7 +4,7 @@
 flight-controller firmware are *stubbed* (replaced by host shims) when the FC is
 built for software-in-the-loop simulation, what mechanism each stub uses, and at
 what data rate it moves data. Generated 2026-06-23 from
-`tools/sim_host/` against the current tree.
+`sim/host/` against the current tree.
 
 ## The seam, in one sentence
 
@@ -17,7 +17,7 @@ crosses into the firmware.
 
 ### What is REAL (compiled from `src/`, not stubbed)
 
-From `tools/sim_host/CMakeLists.txt` `VAYU_SOURCES`:
+From `sim/host/CMakeLists.txt` `VAYU_SOURCES`:
 
 - Estimators: `attitude_task.c` (EKF/Mahony), `ekf.c`, `sensor_fusion.c`,
   `vertical_estimator.c` + `vertical_task.c`, `flight_phase.c`.
@@ -37,7 +37,7 @@ Everything below is the part that is **NOT** real — the stubs.
 
 ## Stub inventory
 
-All shims live in `tools/sim_host/src/`. FIFOs/pty paths are suffixed with
+All shims live in `sim/host/src/`. FIFOs/pty paths are suffixed with
 `$VSIM_FIFO_SUFFIX` so concurrent runs don't cross-feed.
 
 ### 1. IMU sensor — `host_imu_feeder.c`
@@ -145,7 +145,7 @@ All shims live in `tools/sim_host/src/`. FIFOs/pty paths are suffixed with
 
 ## Producer side (`vsim_d`) emit rates — for reference
 
-The physics daemon (`tools/vsim/src/main.cpp`, single thread, three rates) is the
+The physics daemon (`sim/vsim/src/main.cpp`, single thread, three rates) is the
 *producer* the sensor stubs read from:
 
 - **8000 Hz** — physics RK4 tick + drain PWM FIFO + drain ctl FIFO (`kPhysicsHz`)
@@ -155,7 +155,7 @@ The physics daemon (`tools/vsim/src/main.cpp`, single thread, three rates) is th
 - Baro frames emitted on the baro FIFO (physical pressure)
 - All runtime-tunable via `VSIM_CTL_SET_RATES`
 
-Wire protocol: `tools/vsim/include/vsim_proto.h`, `VSIM_PROTO_VERSION 3`,
+Wire protocol: `sim/vsim/include/vsim_proto.h`, `VSIM_PROTO_VERSION 3`,
 little-endian, 16 B `vsim_hdr_t` (magic/version/type/payload_bytes/seq_no) on
 every frame. Rebuild both `vsim_d` and the SITL on any wire change.
 
@@ -178,4 +178,4 @@ every frame. Rebuild both `vsim_d` and the SITL on any wire change.
 ## Related
 - [[sitl-architecture]] · [[sitl-seam-contract]] · [[sitl-test-harness]]
 - `docs/plans/sitl-lockstep-sim.md` (virtual clock / lockstep)
-- `software/headless-sdk/docs/FINDINGS.md` (open estimator/rate-fidelity gaps)
+- `navigator/headless-sdk/docs/FINDINGS.md` (open estimator/rate-fidelity gaps)

@@ -8,7 +8,7 @@ arm+doublet rollout. Each eval is ~0.04 s wall (~70x realtime) and
 that took minutes on the realtime FIFO harness takes ~1 s here and is repeatable.
 
 Build the backend first:
-    cmake -S tools/sim_host -B build_sitl_rtos -DVAYU_SITL_RTOS_BUILD=ON
+    cmake -S sim/host -B build_sitl_rtos -DVAYU_SITL_RTOS_BUILD=ON
     cmake --build build_sitl_rtos --target vayu_sitl_rtos -j$(nproc)
 
 Use as a library:  from rtos_eval import rollout; rollout(rate_kp=0.002)

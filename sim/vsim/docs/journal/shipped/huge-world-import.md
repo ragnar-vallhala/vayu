@@ -32,7 +32,7 @@ Progress:
 
 ## Context
 The simulator's "world" is today a handful of analytic primitives (box/sphere/cylinder) with
-collision in `vsim_d` (`tools/vsim/src/physics_core.cpp::resolveObstacles`). We want to import a
+collision in `vsim_d` (`sim/vsim/src/physics_core.cpp::resolveObstacles`). We want to import a
 whole **huge** world mesh and have the drone physically collide with it as a **static rigid
 surface** — the drone's contact points vs the world's triangles (closest-point-on-triangle →
 impulse). assimp 5.3 (already linked) reads `.blend/.glb/.obj`, and the renderer already has a
@@ -46,22 +46,22 @@ the **existing** footprint-impulse contact model. Phased so visual import lands 
 dependency-free collision math is independently testable.
 
 ## Grounding (verified in code)
-- Daemon loop `tools/vsim/src/main.cpp`: single thread, 1 kHz (`kPhysicsHz`), `ctl.tick(duty,dt)`;
+- Daemon loop `sim/vsim/src/main.cpp`: single thread, 1 kHz (`kPhysicsHz`), `ctl.tick(duty,dt)`;
   IMU every `kImuDiv`(=5) ticks (the substep-cache window). ctl switch is where new subtypes slot in.
 - Collision `physics_core.cpp::resolveObstacles()`: 4-point footprint `fp[4]=(±0.13,±0.13,0)`,
   contact radius `rc=0.04`; the impulse block (≈ lines 167-203) is self-contained → extract to
   `applyContact()`.
-- Math `tools/vsim/include/vsim_math.h` (Vec3/Quat/Mat3, dep-free) — shared between GCS and daemon
+- Math `sim/vsim/include/vsim_math.h` (Vec3/Quat/Mat3, dep-free) — shared between GCS and daemon
   today; the new BVH header belongs alongside it.
-- Wire `tools/vsim/include/vsim_proto.h`: `vsim_ctl_frame_t` body is only **256 B** (subtypes to 8).
-- Mesh load `software/src/vsim/MeshLoader.cpp`: assimp → flat triangle soup `LoadedMesh{positions,
+- Wire `sim/vsim/include/vsim_proto.h`: `vsim_ctl_frame_t` body is only **256 B** (subtypes to 8).
+- Mesh load `navigator/src/vsim/MeshLoader.cpp`: assimp → flat triangle soup `LoadedMesh{positions,
   normals,bbox}`; `.blend` confirmed supported.
-- Renderer `software/src/vsim/SimRendererWidget.{h,cpp}`: lit path `setDroneMesh→uploadLitMesh→drawLit`;
+- Renderer `navigator/src/vsim/SimRendererWidget.{h,cpp}`: lit path `setDroneMesh→uploadLitMesh→drawLit`;
   world frame NED (up = −Z). No mmap mechanism exists yet.
-- Tests `tools/vsim/tests/*` are standalone `main()` 0/1; a pure-`vsim_math` BVH test needs no Qt.
+- Tests `sim/vsim/tests/*` are standalone `main()` 0/1; a pure-`vsim_math` BVH test needs no Qt.
 
 ## Phase 0 — Shared trimesh + BVH module (foundation)
-New header-only `tools/vsim/include/trimesh_bvh.h` (depends only on `vsim_math.h`), used by **both**
+New header-only `sim/vsim/include/trimesh_bvh.h` (depends only on `vsim_math.h`), used by **both**
 GCS (build+serialize) and `vsim_d` (mmap+traverse).
 - **POD file format** (LE, 4-byte fields, explicit offsets, 16-byte-aligned regions):
   `TrimeshHeader{magic 'VWLD', version, vertex_count, triangle_count, node_count, flags(double_sided),
@@ -72,15 +72,15 @@ GCS (build+serialize) and `vsim_d` (mmap+traverse).
 - **Query** (daemon, alloc-free, fixed stack): `Bvh::fromBytes(base,len)` (validate magic/version/offsets);
   `querySphere(bvh,center,r,out[],cap)->count`; `closestPointOnTriangle(p,a,b,c)` (Ericson barycentric).
   Add free `dot/length/normalized` (Vec3 lacks them).
-- **Test** `tools/vsim/tests/trimesh_bvh_test.cpp` (no Qt): floor+ramp → querySphere/closestPoint asserts,
+- **Test** `sim/vsim/tests/trimesh_bvh_test.cpp` (no Qt): floor+ramp → querySphere/closestPoint asserts,
   serialize→fromBytes round-trip.
 
 ## Phase 1 — Visual import (de-risk the pipeline first)
-- `software/src/vsim/MeshLoader.{h,cpp}`: bake a **Blender→NED + scale + up-axis** transform per vertex
+- `navigator/src/vsim/MeshLoader.{h,cpp}`: bake a **Blender→NED + scale + up-axis** transform per vertex
   (normals by rotation only); keep the airframe call site (identity) unchanged.
-- `software/src/vsim/SimRendererWidget.{h,cpp}`: `worldMesh_` + `setWorldMesh(pos,nrm)` mirroring the
+- `navigator/src/vsim/SimRendererWidget.{h,cpp}`: `worldMesh_` + `setWorldMesh(pos,nrm)` mirroring the
   `droneMesh_` deferred-upload machinery; draw `drawLit(worldMesh_, view, identity, color)`.
-- `software/src/vsim/VsimTypes.h` `WorldConfig`: add `worldMeshPath, worldScale, worldUpAxis,
+- `navigator/src/vsim/VsimTypes.h` `WorldConfig`: add `worldMeshPath, worldScale, worldUpAxis,
   worldRestitution, worldDoubleSided`. Import button + scale/up-axis controls in `WorldEditorWidget`;
   persist in `persistWorld/restoreWorld` (QSettings) + `.vworld` JSON.
 - Risk: `.blend` is best-effort in assimp (modifiers/instances may drop) — validate tri-count/bbox,
@@ -93,9 +93,9 @@ GCS (build+serialize) and `vsim_d` (mmap+traverse).
 - `vsim_proto.h`: `VSIM_CTL_SET_WORLD_MESH=9`, `VSIM_CTL_CLEAR_WORLD_MESH=10`, and
   `vsim_ctl_world_mesh_t{vertex_count,triangle_count,node_count,flags,world_restitution,path_len,char path[216]}`
   (static_assert ≤ 256; counts carried redundantly for cross-check).
-- `software/src/vsim/SimWorker.{h,cpp}`: `sendWorldMesh(...)` + `clearWorldMesh()` (same ctl boilerplate
+- `navigator/src/vsim/SimWorker.{h,cpp}`: `sendWorldMesh(...)` + `clearWorldMesh()` (same ctl boilerplate
   as `sendObstacles`).
-- `tools/vsim/src/main.cpp`: ctl cases → `open/fstat/mmap(PROT_READ)`, `Bvh::fromBytes` validate
+- `sim/vsim/src/main.cpp`: ctl cases → `open/fstat/mmap(PROT_READ)`, `Bvh::fromBytes` validate
   (counts match the frame), forward to `SimController::setWorldMesh(view,restitution)`; CLEAR → `munmap`.
   RAII holder unmaps on re-import/exit.
 - Lifecycle: `SimulatorWidget` `online()` re-pushes the world mesh on daemon respawn; re-import rewrites
@@ -116,7 +116,7 @@ GCS (build+serialize) and `vsim_d` (mmap+traverse).
   radius `rc + 0.5|motion|`; cache `Pw_prev`). True CCD (ray-vs-BVH) deferred.
 - **Perf/caching**: 1 kHz × ~5 pts × O(log N) is trivial at 1 M tris; cache `querySphere` candidates per
   point, re-query every `kImuDiv`(5) ticks or when the point moves > ~`0.5·rc`.
-- **Test** `tools/vsim/tests/world_collision_test.cpp` (no Qt): drop on floor → rests at surface, no
+- **Test** `sim/vsim/tests/world_collision_test.cpp` (no Qt): drop on floor → rests at surface, no
   fall-through; off-center ramp → acquires roll/pitch + slides; thin wall → stops below a documented speed.
 
 ## Phase 4 — Robustness / huge-world specifics
@@ -125,11 +125,11 @@ by **both** render VBO and BVH bytes; optional "show collision proxy" debug over
 decimate-on-import only if a real >2 M-tri asset is slow (else deferred).
 
 ## Critical files
-- New `tools/vsim/include/trimesh_bvh.h`.
-- `tools/vsim/src/physics_core.cpp` + `physics_core.h`; `tools/vsim/include/vsim_proto.h`;
-  `tools/vsim/src/main.cpp`; `tools/vsim/include/sim_controller.h`.
-- `software/src/vsim/SimWorker.{h,cpp}`, `SimRendererWidget.{h,cpp}`, `MeshLoader.{h,cpp}`, `VsimTypes.h`;
-  `software/src/ui/widgets/WorldEditorWidget.{h,cpp}`, `SimulatorWidget.cpp`.
+- New `sim/vsim/include/trimesh_bvh.h`.
+- `sim/vsim/src/physics_core.cpp` + `physics_core.h`; `sim/vsim/include/vsim_proto.h`;
+  `sim/vsim/src/main.cpp`; `sim/vsim/include/sim_controller.h`.
+- `navigator/src/vsim/SimWorker.{h,cpp}`, `SimRendererWidget.{h,cpp}`, `MeshLoader.{h,cpp}`, `VsimTypes.h`;
+  `navigator/src/ui/widgets/WorldEditorWidget.{h,cpp}`, `SimulatorWidget.cpp`.
 
 ## Verification
 1. **Unit (no deps, single g++ line, exit 0/1 like `massprops_test.cpp`):** `trimesh_bvh_test` (P0),
@@ -138,7 +138,7 @@ decimate-on-import only if a real >2 M-tri asset is slow (else deferred).
    `SET_WORLD_MESH`, PWM hover→descend, read pose, assert it rests on the imported floor.
 3. **In-app:** import `.glb` and `.blend` in the World tab, fly into geometry (bounce/tip/slide),
    re-import, clear → falls only to `ground_z`. Build: `cmake --build build_vsim --target vsim_d`,
-   `cmake --build software/build --target Navigator`.
+   `cmake --build navigator/build --target Navigator`.
 
 ## Top risks
 Tunnelling through thin geometry at speed (skin + swept query; CCD later) · `.blend` partial import

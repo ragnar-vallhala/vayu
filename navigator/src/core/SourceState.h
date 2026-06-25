@@ -3,7 +3,7 @@
 #include <QMetaType>
 
 // The active telemetry source — the single authority over which feed drives the
-// GCS (software/docs/roadmap/gcs-source-state-machine.md). Exactly one is active
+// GCS (navigator/docs/roadmap/gcs-source-state-machine.md). Exactly one is active
 // at a time (strict single source), plus Idle for "no source". The transition
 // graph is fully connected: any state can move to any other, and each move tears
 // down the current source before setting up the new one.

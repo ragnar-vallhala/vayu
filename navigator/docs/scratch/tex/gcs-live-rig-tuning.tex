@@ -132,7 +132,7 @@ GCS}\label{study-live-drone-pid-autotuning-in-a-rig-driven-by-the-gcs}}
 Status: 🔬 study / feasibility. Next phase of the autotuner: reuse the
 SITL tuning method to tune a \textbf{real} flight controller held in a
 physical test rig, driven over the live GCS link. Builds on the autotune
-stack (\texttt{software/src/autotune/}), the source state machine
+stack (\texttt{navigator/src/autotune/}), the source state machine
 (\url{gcs-source-state-machine.md}), and the
 \href{../../../docs/telemetry/time_sync.md}{time-sync} work.
 
@@ -732,7 +732,7 @@ all sequenced after NavLink v2 --- none is a study blocker:
 \tightlist
 \item
   Autotune:
-  \texttt{software/src/autotune/\{AutotuneEngine,Optimizer,Space,Cost,Rollout,SitlStack,AutotuneWorker\}.\{h,cpp\}}
+  \texttt{navigator/src/autotune/\{AutotuneEngine,Optimizer,Space,Cost,Rollout,SitlStack,AutotuneWorker\}.\{h,cpp\}}
 \item
   Excitation/RC path: \texttt{Rollout.cpp}
   (\texttt{exciteAxis}/\texttt{exciteOnce}), \texttt{SitlStack.cpp}
@@ -740,20 +740,20 @@ all sequenced after NavLink v2 --- none is a study blocker:
   \texttt{src/comm/rc\_task.c} (\texttt{VAYU\_SIM} override),
   \texttt{src/comm/rc\_safety.c}
 \item
-  Commands: \texttt{software/src/protocol/CommandCodec.\{h,cpp\}},
+  Commands: \texttt{navigator/src/protocol/CommandCodec.\{h,cpp\}},
   firmware \texttt{include/comm/comm\_types.h},
   \texttt{src/comm/comm\_processor.c},
   \texttt{src/control/pid\_config.c}
 \item
   Telemetry for cost: \texttt{control\_telemetry\_t}
   (\texttt{include/variables.h}) → \texttt{ControlLoopData}
-  (\texttt{software/src/core/Types.h})
+  (\texttt{navigator/src/core/Types.h})
 \item
-  Sim rig physics: \texttt{tools/vsim/src/physics\_core.cpp},
-  \texttt{tools/vsim/include/vsim\_proto.h}
+  Sim rig physics: \texttt{sim/vsim/src/physics\_core.cpp},
+  \texttt{sim/vsim/include/vsim\_proto.h}
   (\texttt{vsim\_ctl\_testrig\_t})
 \item
-  FSM: \texttt{software/src/core/SourceController.\{h,cpp\}},
+  FSM: \texttt{navigator/src/core/SourceController.\{h,cpp\}},
   \texttt{SourceState.h}
 \end{itemize}
 
