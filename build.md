@@ -157,16 +157,33 @@ tools. No standalone build step.
 
 ## 7. Scripts
 
-`tools/scripts/` holds the convenience wrappers (they cd to the repo root
-themselves, so run from anywhere):
+`tools/scripts/` holds the convenience wrappers (they locate the repo root
+themselves, so run from anywhere). **`vayu.sh` is the single dispatcher** for
+every component:
 
-| Script | Does |
+```sh
+tools/scripts/vayu.sh build  <firmware|sitl|vsim|gcs|rtos|all>   [opts]
+tools/scripts/vayu.sh test   <sitl|gcs|headless|all>            [opts]
+tools/scripts/vayu.sh flash                                     # firmware build + st-flash
+tools/scripts/vayu.sh clean                                     # remove all build trees
+```
+
+Options: `-j N` (jobs), `--release` / `--debug` (build type), `--no-sitl`
+(gcs: `-DNAVIGATOR_SITL=OFF`), `--sanitize` / `--coverage` (sitl). Examples:
+`vayu.sh build all`, `vayu.sh build gcs --no-sitl`, `vayu.sh test sitl --coverage`,
+`vayu.sh test all`.
+
+| Wrapper | Does |
 | --- | --- |
-| `build.sh` | firmware configure + build → `build/main` |
+| `vayu.sh` | dispatcher (above) — the main entry point |
+| `build.sh` | shim → `vayu.sh build firmware` |
 | `flash.sh` | firmware build + objcopy + `st-flash` |
 
-*(More per-component build/test wrappers are planned — see the task that follows
-this file.)*
+Notes: `test sitl` builds `build_sitl` if absent, then `ctest` (the 15-test host
+suite); `test gcs` builds the QtTest binaries and runs only the navigator `tst_*`
+tests (the host suite leaks in via `add_subdirectory(sim/host)` — run it through
+`test sitl`); `test headless` pip-installs the SDK (into `.venv` if present) and
+runs pytest; `build all` = firmware + sitl + vsim + gcs.
 
 Other entry points: `tools/docker/build.sh {image,firmware,sitl,gcs,all,shell,clean}`
 (containerised builds into `*-docker/`), and `tools/dev/trace.py --check` (the
