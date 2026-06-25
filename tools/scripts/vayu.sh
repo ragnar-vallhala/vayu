@@ -104,8 +104,15 @@ ensure_gcs_build() {
   cmake --build navigator/build -j"$JOBS"
 }
 ensure_headless_build() {
-  say "headless-sdk: install (editable)"
-  [ -x "$REPO_ROOT/.venv/bin/python" ] && HEADLESS_PY="$REPO_ROOT/.venv/bin/python"
+  # System Python is often externally managed (PEP 668), so install into a venv.
+  # Use $REPO_ROOT/.venv if present, otherwise create it.
+  if [ ! -x "$REPO_ROOT/.venv/bin/python" ]; then
+    say "headless-sdk: creating venv at .venv"
+    python3 -m venv "$REPO_ROOT/.venv"
+  fi
+  HEADLESS_PY="$REPO_ROOT/.venv/bin/python"
+  say "headless-sdk: install (editable, into .venv)"
+  "$HEADLESS_PY" -m pip install -q --upgrade pip
   "$HEADLESS_PY" -m pip install -q -e "navigator/headless-sdk[test]"
 }
 
