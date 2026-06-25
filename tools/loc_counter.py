@@ -4,7 +4,7 @@
 Reports source lines (blank- and comment-stripped) per component and a combined
 total:
 
-  - vayu      : the firmware / flight stack (src/, include/)            — C
+  - vayu      : the firmware / flight stack (firmware/src, firmware/include)            — C
   - navlink   : the wire-protocol codec + generator (navlink/)          — Python, JSON, C
   - navigator : the ground-control station (navigator/src, navigator/tests) — C++
 
@@ -29,7 +29,7 @@ import sys
 # and .git are pruned by EXCLUDE_DIRS, so vaios never double-counts NavHAL.
 CC = {".c", ".h", ".cpp", ".cc", ".cxx", ".hpp", ".hh"}
 COMPONENTS = [
-    ("vayu (firmware)",  ["src", "include"],                  {".c", ".h"},               "own"),
+    ("vayu (firmware)",  ["firmware/src", "firmware/include"],                  {".c", ".h"},               "own"),
     ("navlink (codec)",  ["navlink"],                         {".py", ".json", ".c", ".h"}, "own"),
     ("navigator (GCS)",  ["navigator/src", "navigator/tests"],  CC,                         "own"),
     ("vaios (RTOS)",     ["extern/vaios"],                    CC,                         "own"),
