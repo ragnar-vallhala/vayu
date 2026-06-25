@@ -91,33 +91,64 @@ build_gcs() {
   cmake --build navigator/build -j"$JOBS"
 }
 
-# ---- per-component test steps ----------------------------------------------
-test_sitl() {
-  [ -d build_sitl ] || build_sitl
-  say "ctest: sim/host"
-  ctest --test-dir build_sitl --output-on-failure
-  if [ "$COVERAGE" = 1 ]; then
-    say "coverage summary"
-    cmake --build build_sitl --target coverage
-  fi
-}
-test_gcs() {
-  # tests are ON by default; ensure a tests-enabled build exists
+# ---- test steps: split into "ensure built" (aborts on failure) and "run"
+#      (tolerant, returns status) so `test all` can build everything first and
+#      then run every suite, keeping the results together at the end. -----------
+HEADLESS_PY=python3   # resolved by ensure_headless_build, used by run_headless_tests
+
+ensure_sitl_build() { [ -d build_sitl ] || build_sitl; }
+ensure_gcs_build() {
   local type; type="$(bt_flag)"; [ -z "$type" ] && type="-DCMAKE_BUILD_TYPE=Release"
-  say "navigator: configure with tests"
+  say "navigator: configure + build with tests"
   cmake -S navigator -B navigator/build "$type" -DNAVIGATOR_BUILD_TESTS=ON
   cmake --build navigator/build -j"$JOBS"
-  say "ctest: navigator (offscreen)"
-  # Select only navigator's own QtTest binaries (tst_*); navigator add_subdirectory's
+}
+ensure_headless_build() {
+  say "headless-sdk: install (editable)"
+  [ -x "$REPO_ROOT/.venv/bin/python" ] && HEADLESS_PY="$REPO_ROOT/.venv/bin/python"
+  "$HEADLESS_PY" -m pip install -q -e "navigator/headless-sdk[test]"
+}
+
+run_sitl_tests() {
+  say "ctest: sim/host"
+  ctest --test-dir build_sitl --output-on-failure || return 1
+  if [ "$COVERAGE" = 1 ]; then say "coverage summary"; cmake --build build_sitl --target coverage; fi
+}
+run_gcs_tests() {
+  # Only navigator's own QtTest binaries (tst_*); navigator add_subdirectory's
   # sim/host, which registers the host ctest suite too — run that via `test sitl`.
+  say "ctest: navigator (offscreen, tst_*)"
   ctest --test-dir navigator/build -R '^tst_' --output-on-failure
 }
-test_headless() {
+run_headless_tests() {
   say "pytest: navigator/headless-sdk"
-  local py=python3
-  if [ -x "$REPO_ROOT/.venv/bin/python" ]; then py="$REPO_ROOT/.venv/bin/python"; fi
-  "$py" -m pip install -q -e "navigator/headless-sdk[test]"
-  "$py" -m pytest navigator/headless-sdk/tests
+  "$HEADLESS_PY" -m pytest navigator/headless-sdk/tests
+}
+
+# single-component: build then run (set -e aborts on a build failure)
+test_sitl()     { ensure_sitl_build;     run_sitl_tests; }
+test_gcs()      { ensure_gcs_build;      run_gcs_tests; }
+test_headless() { ensure_headless_build; run_headless_tests; }
+
+# everything: build all targets first, THEN run all suites, THEN one summary.
+test_all() {
+  say "PHASE 1/2 — building all test targets"
+  ensure_sitl_build
+  ensure_gcs_build
+  ensure_headless_build
+
+  say "PHASE 2/2 — running all suites"
+  local fail=0 r_sitl r_gcs r_hl
+  run_sitl_tests     && r_sitl=PASS || { r_sitl=FAIL; fail=1; }
+  run_gcs_tests      && r_gcs=PASS  || { r_gcs=FAIL;  fail=1; }
+  run_headless_tests && r_hl=PASS   || { r_hl=FAIL;   fail=1; }
+
+  printf '\n\033[1m==== test all — summary ====\033[0m\n'
+  printf '  sim/host (ctest)       %s\n' "$r_sitl"
+  printf '  navigator (tst_*)      %s\n' "$r_gcs"
+  printf '  headless-sdk (pytest)  %s\n' "$r_hl"
+  if [ "$fail" = 0 ]; then printf '  \033[1mALL GREEN\033[0m\n'; else printf '  \033[1mSOME FAILED\033[0m\n'; fi
+  return "$fail"
 }
 
 # ---- dispatch --------------------------------------------------------------
@@ -137,7 +168,7 @@ case "$CMD" in
       sitl)     test_sitl;;
       gcs)      test_gcs;;
       headless) test_headless;;
-      all)      test_sitl; test_gcs; test_headless;;
+      all)      test_all;;
       ""|*)     die "test: target must be one of sitl|gcs|headless|all";;
     esac;;
   flash)
