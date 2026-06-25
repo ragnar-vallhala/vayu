@@ -1636,19 +1636,19 @@ void SimulatorWidget::startAutotune() {
   const QString root = defaultRepoRoot();
 
   // Locate the SITL binaries the C++ stack spawns (no python3). Prefer the
-  // tools/sim_host build dir; fall back to a repo-root build_sitl.
+  // sim/host build dir; fall back to a repo-root build_sitl.
   AutotuneWorker::Params p;
-  // Prefer the canonical in-tree build (tools/vsim/build); fall back to the
+  // Prefer the canonical in-tree build (sim/vsim/build); fall back to the
   // legacy repo-root build_vsim. A stale build_vsim/vsim_d at the wrong
   // VSIM_PROTO_VERSION desyncs the IMU feed (consumer rejects every frame).
-  for (const QString &cand : {root + "/tools/vsim/build/vsim_d",
+  for (const QString &cand : {root + "/sim/vsim/build/vsim_d",
                               root + "/build_vsim/vsim_d"}) {
     if (QFileInfo::exists(cand)) {
       p.sitl.vsimBin = cand;
       break;
     }
   }
-  for (const QString &cand : {root + "/tools/sim_host/build_sitl/vayu_sitl",
+  for (const QString &cand : {root + "/sim/host/build_sitl/vayu_sitl",
                               root + "/build_sitl/vayu_sitl"}) {
     if (QFileInfo::exists(cand)) {
       p.sitl.sitlBin = cand;
@@ -1666,7 +1666,7 @@ void SimulatorWidget::startAutotune() {
   p.fastRtos = p.sysId || (m_tuneFast && m_tuneFast->isChecked());
   p.rtosRateCost = m_tuneCostFn && m_tuneCostFn->currentIndex() == 1;
   for (const QString &cand : {root + "/build_sitl_rtos/vayu_sitl_rtos",
-                              root + "/tools/sim_host/build_sitl_rtos/vayu_sitl_rtos"}) {
+                              root + "/sim/host/build_sitl_rtos/vayu_sitl_rtos"}) {
     if (QFileInfo::exists(cand)) {
       p.rtosBin = cand;
       break;
@@ -1676,7 +1676,7 @@ void SimulatorWidget::startAutotune() {
     if (p.rtosBin.isEmpty()) {
       m_tuneLog->appendPlainText(tr(
           "[error] fast backend not found. Build it with:\n"
-          "  cmake -S tools/sim_host -B build_sitl_rtos -DVAYU_SITL_RTOS_BUILD=ON\n"
+          "  cmake -S sim/host -B build_sitl_rtos -DVAYU_SITL_RTOS_BUILD=ON\n"
           "  cmake --build build_sitl_rtos --target vayu_sitl_rtos"));
       return;
     }
