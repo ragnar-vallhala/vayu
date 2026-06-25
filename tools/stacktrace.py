@@ -1,6 +1,15 @@
+import os
 import subprocess
+import sys
 
-ELF_FILE = "/home/ragnar/Documents/Drone/vayu/build/main"
+# ELF defaults to <repo>/build/main (this script lives in <repo>/tools/).
+# Override with the VAYU_ELF env var or a path argument:  stacktrace.py [elf].
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ELF_FILE = (
+    sys.argv[1]
+    if len(sys.argv) > 1
+    else os.environ.get("VAYU_ELF", os.path.join(_REPO_ROOT, "build", "main"))
+)
 
 # Paste your addresses here
 addresses = [
