@@ -7,7 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # (src/control, src/maths, src/utils, src/actuator/motor.c) and links them
 # against host shims for the vaios kernel + NavHAL.
 #
-# Configure:  cmake -S tools/sim_host -B build_sitl
+# Configure:  cmake -S sim/host -B build_sitl
 # Build:      cmake --build build_sitl
 # Run:        ./build_sitl/vayu_sitl
 
@@ -36,7 +36,7 @@ add_compile_definitions(
     VAYU_SIM=1
     VAYU_SITL=1
     CORTEX_M4=1   # bypass the architecture #error in vaios/task.h; we shim
-                  # the ARM-specific bits via tools/sim_host/include/port.h
+                  # the ARM-specific bits via sim/host/include/port.h
     NAVHAL=1
     VAIOS_CONFIG_FILE="${VAYU_ROOT}/include/vaios_app_config.h"
 )
@@ -48,7 +48,7 @@ include_directories(
     ${VAIOS_ROOT}/include
     ${NAVHAL_ROOT}/include
     ${NAVHAL_ROOT}/include/port/cortex-m4   # utility type-only headers
-    ${VAYU_ROOT}/tools/vsim/include         # vsim_proto.h (shared with vsim_d)
+    ${VAYU_ROOT}/sim/vsim/include         # vsim_proto.h (shared with vsim_d)
 )
 
 # Host shim sources -- everything that goes into the library.
@@ -188,7 +188,7 @@ message(STATUS "vayu_sitl: static library + standalone binary configured")
 # -DVAYU_SITL_RTOS and provided by the kernel; -DVAIOS_HOST_TEST drops the
 # kernel's target-SRAM pointer guards. See docs/plans/sitl-lockstep-sim.md.
 #
-#   cmake -S tools/sim_host -B build_sitl_rtos -DVAYU_SITL_RTOS_BUILD=ON
+#   cmake -S sim/host -B build_sitl_rtos -DVAYU_SITL_RTOS_BUILD=ON
 #   cmake --build build_sitl_rtos --target vayu_sitl_rtos
 # ----------------------------------------------------------------------------
 option(VAYU_SITL_RTOS_BUILD "Build the experimental real-vaios-scheduler SITL" OFF)
@@ -199,14 +199,14 @@ if(VAYU_SITL_RTOS_BUILD)
   # clean environment as the standalone build_vsim.
   add_library(vsim_phys STATIC
       src/vsim_inproc.cpp
-      ${VAYU_ROOT}/tools/vsim/src/sim_controller.cpp
-      ${VAYU_ROOT}/tools/vsim/src/physics_core.cpp
-      ${VAYU_ROOT}/tools/vsim/src/motor_model.cpp
-      ${VAYU_ROOT}/tools/vsim/src/sensor_models.cpp
+      ${VAYU_ROOT}/sim/vsim/src/sim_controller.cpp
+      ${VAYU_ROOT}/sim/vsim/src/physics_core.cpp
+      ${VAYU_ROOT}/sim/vsim/src/motor_model.cpp
+      ${VAYU_ROOT}/sim/vsim/src/sensor_models.cpp
   )
   set_target_properties(vsim_phys PROPERTIES
-      INCLUDE_DIRECTORIES "${VAYU_ROOT}/tools/vsim/include")
-  target_include_directories(vsim_phys INTERFACE ${VAYU_ROOT}/tools/vsim/include)
+      INCLUDE_DIRECTORIES "${VAYU_ROOT}/sim/vsim/include")
+  target_include_directories(vsim_phys INTERFACE ${VAYU_ROOT}/sim/vsim/include)
 
   add_executable(vayu_sitl_rtos
       src/host_rtos_port.c
@@ -333,7 +333,7 @@ add_test(NAME phase0_assert COMMAND test_phase0_assert)
 
 # ----------------------------------------------------------------------------
 # Coverage report (CONV-05 / R12.4)
-#   cmake -S tools/sim_host -B build_cov -DVAYU_COVERAGE=ON
+#   cmake -S sim/host -B build_cov -DVAYU_COVERAGE=ON
 #   cmake --build build_cov --target coverage
 # Prints a gcovr summary over src/ (vendored extern/ excluded).
 # ----------------------------------------------------------------------------

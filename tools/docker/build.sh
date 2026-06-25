@@ -29,7 +29,7 @@ J='-j"$(nproc)"'
 case "${1:-all}" in
   image)    $DC build ;;
   firmware) run "cmake -B build-docker && cmake --build build-docker $J" ;;
-  sitl)     run "cmake -S tools/sim_host -B build_sitl-docker && cmake --build build_sitl-docker $J && ctest --test-dir build_sitl-docker --output-on-failure" ;;
+  sitl)     run "cmake -S sim/host -B build_sitl-docker && cmake --build build_sitl-docker $J && ctest --test-dir build_sitl-docker --output-on-failure" ;;
   gcs)      run "cmake -S software -B software/build-docker && cmake --build software/build-docker $J" ;;
   all)      "$0" firmware && "$0" sitl && "$0" gcs ;;
   shell)    $DC run --rm vayu bash ;;

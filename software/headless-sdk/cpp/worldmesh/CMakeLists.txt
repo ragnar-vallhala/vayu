@@ -20,7 +20,7 @@ add_executable(vsim_worldmesh
 
 target_include_directories(vsim_worldmesh PRIVATE
     ${_root}/software/src/vsim
-    ${_root}/tools/vsim/include
+    ${_root}/sim/vsim/include
 )
 
 target_link_libraries(vsim_worldmesh PRIVATE Qt6::Core Qt6::Gui assimp::assimp)

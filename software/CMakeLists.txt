@@ -25,7 +25,7 @@ if(NOT NAVLINK_GEN_RC EQUAL 0)
 endif()
 # One shared static lib so Navigator and the host SITL core (which compiles the
 # firmware comm sources, incl. the v2-emitting telemetry_task.c) each link the
-# codec exactly once. Defined before add_subdirectory(tools/sim_host) so that
+# codec exactly once. Defined before add_subdirectory(sim/host) so that
 # subdir can link it too.
 add_library(navlink_codec STATIC ${NAVLINK_GEN}/c/navlink_msgs.c)
 target_include_directories(navlink_codec SYSTEM PUBLIC ${NAVLINK_GEN}/c)
@@ -39,7 +39,7 @@ set(CMAKE_COMPILE_COMMANDS_OUTPUT "${CMAKE_SOURCE_DIR}/compile_commands.json")
 
 # -------------------------------------------------------
 # In-app SITL simulator + autotune. These build the firmware host-sim
-# (tools/sim_host) and a pty/termios bridge to it, which need a POSIX host.
+# (sim/host) and a pty/termios bridge to it, which need a POSIX host.
 # Turn OFF to build a GCS-only binary on a non-POSIX host (e.g. Windows /
 # MinGW / MSVC): Navigator then drops the simulator + autotune tabs but keeps
 # all live-vehicle features (telemetry, calibration, commands, packet analyzer,
@@ -185,13 +185,13 @@ set(GCS_HEADERS
     src/audio/ChimeAudio.h
 )
 
-# SITL-only sources. These pull in vsim_iface.h from tools/sim_host and
+# SITL-only sources. These pull in vsim_iface.h from sim/host and
 # can't compile without it. Added to the target only when sim_host is
 # present (see the add_subdirectory check below).
 #
 # After the vsim_d split, Navigator no longer contains the physics
 # simulator -- PhysicsCore/MotorModel/SensorModels/SimController moved
-# to tools/vsim/. SimWorker became a thin process supervisor that
+# to sim/vsim/. SimWorker became a thin process supervisor that
 # spawns vsim_d and decodes pose frames off /tmp/vsim_pose.
 set(GCS_SITL_SOURCES
     src/autotune/Optimizer.cpp
@@ -284,7 +284,7 @@ target_include_directories(Navigator PRIVATE
     src/ui/main
     src/ui/widgets
     src/vsim
-    ${CMAKE_CURRENT_SOURCE_DIR}/../tools/vsim/include  # vsim_proto.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/../sim/vsim/include  # vsim_proto.h
 )
 
 target_link_libraries(Navigator PRIVATE
@@ -321,7 +321,7 @@ endif()
 # one process (the legacy /tmp/vayu_pwm.fifo + /tmp/vayu_imu.fifo
 # round-trip is gone for in-app simulation).
 # -------------------------------------------------------
-set(VAYU_SITL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../tools/sim_host")
+set(VAYU_SITL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../sim/host")
 if(NAVIGATOR_SITL AND EXISTS "${VAYU_SITL_DIR}/CMakeLists.txt")
     add_subdirectory("${VAYU_SITL_DIR}"
                      "${CMAKE_BINARY_DIR}/vayu_sitl"

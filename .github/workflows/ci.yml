@@ -5,7 +5,7 @@
 #       - build-target  : arm-none-eabi build, all modules under -Werror (R1.2)
 #       - trace-gate    : tools/trace.py --check, unknown-ID fails (R12.5)
 #       - cppcheck      : static analysis (report-only baseline, R12.3)
-#   * SITL host-harness jobs (tools/sim_host/tests/ is committed):
+#   * SITL host-harness jobs (sim/host/tests/ is committed):
 #       - sitl-tests    : host unit tests (R12.1)
 #       - sanitizers    : ASan + UBSan unit tests (R12.2)
 #       - coverage      : gcov/gcovr summary on CTRL/EST/COMM (R12.4)
@@ -71,7 +71,7 @@ jobs:
           submodules: recursive
       - run: sudo apt-get update && sudo apt-get install -y cmake
       - run: |
-          cmake -S tools/sim_host -B build_sitl
+          cmake -S sim/host -B build_sitl
           cmake --build build_sitl -j
           ctest --test-dir build_sitl --output-on-failure
 
@@ -84,7 +84,7 @@ jobs:
           submodules: recursive
       - run: sudo apt-get update && sudo apt-get install -y cmake
       - run: |
-          cmake -S tools/sim_host -B build_san -DVAYU_SANITIZE=ON
+          cmake -S sim/host -B build_san -DVAYU_SANITIZE=ON
           cmake --build build_san -j
           ctest --test-dir build_san --output-on-failure
 
@@ -100,7 +100,7 @@ jobs:
         # Threshold enforcement (initial 70% on CTRL/EST/COMM-PKT) lands
         # once the integration tests exercise those modules; report-only now.
         run: |
-          cmake -S tools/sim_host -B build_cov -DVAYU_COVERAGE=ON
+          cmake -S sim/host -B build_cov -DVAYU_COVERAGE=ON
           cmake --build build_cov -j
           cmake --build build_cov --target coverage
 
@@ -116,6 +116,6 @@ jobs:
         # Report-only until the baseline is burned down (R12.3).
         continue-on-error: true
         run: |
-          cmake -S tools/sim_host -B build_tidy -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+          cmake -S sim/host -B build_tidy -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
           cmake --build build_tidy -j --target vayu_sitl_core
           git ls-files 'src/*.c' | xargs -P4 -I{} clang-tidy -p build_tidy {}
