@@ -19,8 +19,8 @@ def test_default_paths_are_absolute_under_repo(monkeypatch):
     for v in ("VSIM_BIN_PATH", "VAYU_SITL_BIN"):
         monkeypatch.delenv(v, raising=False)
     assert os.path.isabs(paths.vsim_bin())
-    assert paths.vsim_bin().endswith("tools/vsim/build/vsim_d")
-    assert paths.sitl_bin().endswith("tools/sim_host/build_sitl/vayu_sitl")
+    assert paths.vsim_bin().endswith("sim/vsim/build/vsim_d")
+    assert paths.sitl_bin().endswith("sim/host/build_sitl/vayu_sitl")
 
 
 def test_suffix_isolation():

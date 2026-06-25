@@ -13,9 +13,9 @@ import pytest
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
 VSIM_BIN = os.environ.get("VSIM_BIN_PATH",
-                          os.path.join(ROOT, "tools/vsim/build/vsim_d"))
+                          os.path.join(ROOT, "sim/vsim/build/vsim_d"))
 SITL_BIN = os.environ.get("VAYU_SITL_BIN",
-                          os.path.join(ROOT, "tools/sim_host/build_sitl/vayu_sitl"))
+                          os.path.join(ROOT, "sim/host/build_sitl/vayu_sitl"))
 GCS_CONF = os.environ.get("VAYU_GCS_CONF",
                           os.path.expanduser("~/.config/Vayu/Vayu GCS.conf"))
 
