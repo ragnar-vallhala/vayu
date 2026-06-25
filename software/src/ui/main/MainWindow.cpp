@@ -1105,7 +1105,9 @@ void MainWindow::onLogReceived(const QString &msg) {
 // HUD. Render-clock driven: called from onUiTimer only when the snapshot's
 // vehicleState changes (the kStateNames filter already happened in the engine).
 void MainWindow::applyVehicleStatePill(const QString &msg) {
+#ifdef NAVIGATOR_HAS_SITL
   if (m_simulatorWidget) m_simulatorWidget->hudSetStatus(msg);
+#endif
 
   // Drive the dashboard graph state band (mockup .g-status SCOL).
   if (m_imuPanel) {
@@ -1476,7 +1478,9 @@ void MainWindow::onUiTimer() {
   } else {
     m_imuPanel->setVerticalState(0.0f, 0.0f, 0.0f, false);
   }
+#ifdef NAVIGATOR_HAS_SITL
   if (m_simulatorWidget) m_simulatorWidget->hudSetImu(s.imu.acc, s.imu.gyr);
+#endif
 
   // Attitude instruments (2D ADI + 3D airframe) render here at the timer rate
   // from the snapshot, decoupled from the packet rate.

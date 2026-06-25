@@ -2,7 +2,8 @@
 
 Everything needed to take a **clean Windows 10/11 (x64)** machine to a working
 Vayu workstation: cross-build the flight-controller firmware, flash it to the
-board over ST-Link, and monitor live telemetry over the ESP Wi-Fi bridge.
+board over ST-Link, monitor live telemetry over the ESP Wi-Fi bridge, and build
+the **GCS** (the `Navigator` Qt6 desktop app — see §8).
 
 Every step here was verified end-to-end (Windows 10 Pro 22H2 / 19045). The build
 target is natively Linux (`tools/build.sh`); Windows needs a few extra pieces and
@@ -193,6 +194,95 @@ Healthy link ≈ 250 packets/s of `5602…`-framed NavLink data.
 
 ---
 
+## 8. Building the GCS (Navigator desktop app)
+
+The firmware steps above cross-compile for the board. The **GCS** (`software/`,
+the `Navigator` Qt6 app) is instead a *native* Windows program — it needs a host
+C++ compiler **and Qt6 + assimp**, none of which the Arm toolchain provides. The
+cleanest fully-headless way to get all of them from one package manager is
+**MSYS2** (UCRT64).
+
+> **SITL / autotune is POSIX-only.** The in-app simulator and the autotune engine
+> talk to a firmware host-sim over a pty (`termios`/`poll`/pthread scheduling),
+> which MinGW doesn't provide. Build the GCS with `-DNAVIGATOR_SITL=OFF`: you get
+> a full live-vehicle GCS (telemetry, calibration, commands, packet analyzer,
+> replay, 3D attitude) — just without the Simulator and Autotune tabs.
+
+### 8.1 Install MSYS2 + the toolchain
+
+From an **elevated** PowerShell:
+
+```powershell
+# Download + silent-install MSYS2 into C:\msys64
+$u="https://github.com/msys2/msys2-installer/releases/download/2025-08-30/msys2-x86_64-20250830.exe"
+Invoke-WebRequest $u -OutFile C:\msys64-installer.exe
+C:\msys64-installer.exe in --confirm-command --accept-messages --root C:/msys64
+```
+
+Then, from `C:\msys64\usr\bin\bash.exe`, update and install the build deps.
+The first `pacman -Syuu` updates the core runtime and closes the shell — just run
+it again:
+
+```bash
+pacman -Syuu --noconfirm     # run twice (first pass updates msys2-runtime)
+pacman -Syuu --noconfirm
+pacman -S --needed --noconfirm \
+  mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-cmake \
+  mingw-w64-ucrt-x86_64-ninja mingw-w64-ucrt-x86_64-qt6-base \
+  mingw-w64-ucrt-x86_64-qt6-serialport mingw-w64-ucrt-x86_64-assimp \
+  mingw-w64-ucrt-x86_64-python python
+```
+
+`qt6-base` covers Core/Widgets/Network/OpenGL/Concurrent; `qt6-serialport` adds
+the serial link. `assimp` is only needed when SITL is ON.
+
+### 8.2 Build
+
+Everything below runs in the **UCRT64** environment (so the right gcc + Qt6 are
+on `PATH`). From a normal `bash.exe`:
+
+```bash
+export MSYSTEM=UCRT64; source /etc/profile
+cd /c/src/vayu/software
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+  -DNAVIGATOR_SITL=OFF -DNAVIGATOR_BUILD_TESTS=OFF
+cmake --build build
+```
+
+A good configure prints `navlink: 46 messages ... CRC-16 self-check OK` and
+`Navigator: SITL OFF (NAVIGATOR_SITL=OFF) -- GCS-only build`. The build ends with
+`Linking CXX executable Navigator.exe` (~2 MB). Deprecation warnings from Qt are
+benign.
+
+> Want the simulator/autotune too? Drop `-DNAVIGATOR_SITL=OFF` — but those
+> sources won't compile under MinGW (see the POSIX note above). SITL builds are
+> Linux/macOS only.
+
+### 8.3 Make it run anywhere (deploy)
+
+`Navigator.exe` needs its Qt + runtime DLLs next to it. MSYS2's `windeployqt6`
+copies the Qt DLLs/plugins but **not** the MinGW C++ runtime or Qt's third-party
+deps, so a bare deploy fails to start on a clean machine. The bundled script
+finishes the job (runs `windeployqt6`, adds the runtime DLLs, then resolves the
+full transitive DLL closure with `ldd`):
+
+```bash
+bash tools/windows/deploy-navigator-msys.sh
+# -> software/build/dist/  (Navigator.exe + ~30 DLLs, fully self-contained)
+```
+
+Smoke-test it headless (no display) from a clean shell:
+
+```bash
+cd /c/src/vayu/software/build/dist
+QT_QPA_PLATFORM=offscreen ./Navigator.exe   # event loop stays alive = OK
+```
+
+Ship the whole `dist\` folder, or run `dist\Navigator.exe` directly on the
+desktop.
+
+---
+
 ## Troubleshooting (every issue hit during bring-up)
 
 | Symptom | Cause | Fix |
@@ -206,6 +296,9 @@ Healthy link ≈ 250 packets/s of `5602…`-framed NavLink data.
 | `st-info --probe` finds 0 programmers | ST-Link not on WinUSB | run Zadig (§2) |
 | Telemetry probe returns 0 packets | not bound to port 14555, or wrong subnet | bind UDP **14555**; be on the `10.42.0.x` network |
 | Tools "not found" right after install | PATH is read at shell start | open a **new** terminal |
+| GCS build: `unknown type name 'pid_t'` / no `termios.h`/`poll.h` | SITL/autotune is POSIX-only and was left ON | configure the GCS with `-DNAVIGATOR_SITL=OFF` (§8.2) |
+| `Navigator.exe` exits instantly, no console error | missing MinGW runtime / Qt dep DLLs (windeployqt6 under-deploys) | run `tools/windows/deploy-navigator-msys.sh` and launch from `dist\` (§8.3) |
+| GCS: `Could not find Qt6` / `assimp` at configure | building outside UCRT64, or deps not installed | `export MSYSTEM=UCRT64; source /etc/profile`; `pacman -S` the qt6/assimp pkgs (§8.1) |
 
 ## Verified configuration
 
