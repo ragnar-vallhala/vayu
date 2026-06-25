@@ -19,6 +19,12 @@ Active plans for in-flight firmware work; a plan is deleted once its feature shi
 - [`procedural-world-generation.md`](procedural-world-generation.md) — pluggable
   biome architecture for the SITL renderer. Phase 0 (meadow terrain) shipped;
   further biomes/phases remain.
+- [`monorepo-restructure.md`](monorepo-restructure.md) — promote the three buried
+  components to top-level siblings: `software/`→`navigator/`, pull all simulators
+  (`sim_host`/`vsim`/`gazebo`/`renode`) out of `tools/` into `sim/`, and lift the
+  naked root firmware into `firmware/`. Measured blast radius + phased `git mv`
+  plan (sim → navigator → firmware), each phase green before the next. Design
+  stage; not yet executed.
 - [`stale-docs-comment-audit.md`](stale-docs-comment-audit.md) — codebase-wide
   sweep (excl. `extern/`) fixing docs/comments that drifted from the code: the
   calibration overhaul, telemetry 166→500 Hz, channel 512→2048 B, stale
