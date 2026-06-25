@@ -9,8 +9,8 @@ spawns a standalone **`vsim_d`** physics daemon; the two talk over `/tmp` FIFOs
 (pwm / imu / pose / ctl), isolated per Navigator instance by
 `$VSIM_FIFO_SUFFIX`. All coordinates are NED (Z down).
 
-Log-analysis tooling: `tools/sim_log_to_csv.py` converts a captured sim log to
-CSV and `tools/sim_log_plot.py` renders the per-domain plots.
+Log-analysis tooling: `tools/analysis/sim_log_to_csv.py` converts a captured sim log to
+CSV and `tools/analysis/sim_log_plot.py` renders the per-domain plots.
 
 ---
 

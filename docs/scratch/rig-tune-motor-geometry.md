@@ -10,7 +10,7 @@ mix. Generated 2026-06-23 against the current tree.
 There is one file, `docs/store/rig_tune.json` — an **operator artifact, not
 firmware**. It is the working on-hardware tune (captured 2026-06-22) for the
 X-quad-on-a-free-rotating-rig, re-applied each session via
-`tools/apply_tune.py` over NavLink/UDP. It bundles four things:
+`tools/sysid/apply_tune.py` over NavLink/UDP. It bundles four things:
 
 - `motor_geometry` — pos_x/pos_y/spin sign arrays (the subject here)
 - `rate_pid` — inner rate-loop gains (controller=1)
@@ -103,6 +103,6 @@ this case) over NavLink on every boot before flight.
 - `docs/store/rig_tune.json`
 - `src/control/angle_rate_controller.c:87-123` (default mix + geometry setter)
 - `src/comm/navlink_router.c:225-239` (CMD_SET_MOTOR_GEOMETRY handler)
-- `tools/apply_tune.py` (re-apply workflow)
+- `tools/sysid/apply_tune.py` (re-apply workflow)
 - Sibling report: `docs/scratch/sitl-fc-stub-inventory.md`
 - Memory: mixer-frame-vs-physics-frame, onhw-tune-logreport, onhw-sysid-phase0

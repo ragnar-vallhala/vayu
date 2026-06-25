@@ -1,5 +1,5 @@
 {
-  "_comment": "FREE-FLIGHT (rigless) tune — IN PROGRESS, converging by hand-flight. Started from the GCS autotune gains (too soft -> tipped), stiffening roll/pitch rate kp by binary search: 0.001 too soft, 0.004 flew but oscillated, now trying 0.0025. yaw needed its integral restored (default heading-hold). The geometry sign fix is REQUIRED (default spin-sign backwards -> yaw positive feedback). All live-only; re-apply after each battery cycle with tools/apply_tune.py.",
+  "_comment": "FREE-FLIGHT (rigless) tune — IN PROGRESS, converging by hand-flight. Started from the GCS autotune gains (too soft -> tipped), stiffening roll/pitch rate kp by binary search: 0.001 too soft, 0.004 flew but oscillated, now trying 0.0025. yaw needed its integral restored (default heading-hold). The geometry sign fix is REQUIRED (default spin-sign backwards -> yaw positive feedback). All live-only; re-apply after each battery cycle with tools/sysid/apply_tune.py.",
   "captured": "2026-06-22",
   "airframe": "X-quad free flight. M1,M3 CW, M2,M4 CCW. IMU aligned.",
 

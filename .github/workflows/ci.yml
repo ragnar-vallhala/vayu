@@ -3,7 +3,7 @@
 # Jobs:
 #   * Always-on gates on the committed tree:
 #       - build-target  : arm-none-eabi build, all modules under -Werror (R1.2)
-#       - trace-gate    : tools/trace.py --check, unknown-ID fails (R12.5)
+#       - trace-gate    : tools/dev/trace.py --check, unknown-ID fails (R12.5)
 #       - cppcheck      : static analysis (report-only baseline, R12.3)
 #   * SITL host-harness jobs (sim/host/tests/ is committed):
 #       - sitl-tests    : host unit tests (R12.1)
@@ -47,7 +47,7 @@ jobs:
         with:
           python-version: '3.x'
       - name: trace.py --check (unknown ID fails; R12.5)
-        run: python3 tools/trace.py --check
+        run: python3 tools/dev/trace.py --check
 
   cppcheck:
     name: cppcheck (baseline)

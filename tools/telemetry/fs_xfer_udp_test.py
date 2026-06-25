@@ -21,9 +21,9 @@ resume-by-rewind. We pace uploads with a sliding byte-window + token bucket
 that rewinds to the FC's acked cursor so a lost EOF chunk still finalises.
 
 Usage:
-    python3 tools/fs_xfer_udp_test.py                     # 16 KiB, 0:xtest.bin
-    python3 tools/fs_xfer_udp_test.py --size 65536 --rate 40000
-    python3 tools/fs_xfer_udp_test.py --port 14555 --path 0:xtest.bin --seed 7
+    python3 tools/telemetry/fs_xfer_udp_test.py                     # 16 KiB, 0:xtest.bin
+    python3 tools/telemetry/fs_xfer_udp_test.py --size 65536 --rate 40000
+    python3 tools/telemetry/fs_xfer_udp_test.py --port 14555 --path 0:xtest.bin --seed 7
 """
 import argparse
 import hashlib
@@ -33,7 +33,7 @@ import sys
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.dirname(HERE)
+ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, os.path.join(ROOT, "navlink", "sim"))
 sys.path.insert(0, os.path.join(ROOT, "navlink", "generated", "python"))
 

@@ -45,7 +45,7 @@ From the armed roll chirp (`data/sysid_roll_capture.csv`, `u` = rate-PID output,
 
 ![Roll system-ID chirp capture and fit](plots/05_sysid_capture.png)
 
-Loop-shaped (`tools/sysid_fit.py`): rate_kp = ωc/K, kd = kp·τ, ki = 0.1·ωc·kp,
+Loop-shaped (`tools/sysid/sysid_fit.py`): rate_kp = ωc/K, kd = kp·τ, ki = 0.1·ωc·kp,
 angle_kp = 0.25·ωc, ωc = 0.33/τ capped at rate_kp ≤ 0.012 → **rate kp 0.012,
 ki 0.0081, kd 0.00025; angle_kp 1.69** (`data/tune_rig.json`). The integral knee
 (0.68 rad/s) sits **well below** the 1.08 Hz crossover, so unlike the 06-17 default

@@ -2,13 +2,13 @@
 """Re-apply a saved sysid tune (gains + motor geometry) to the FC over NavLink/UDP.
 
 The FC does not persist gains/geometry across battery cycles, so after each boot
-run this to push the working tune from tools/sysid_tune.json (or another file).
+run this to push the working tune from tools/sysid/sysid_tune.json (or another file).
 It sends CMD_SET_MOTOR_GEOMETRY first (fixes the yaw sign), then CMD_SET_PID for
 every rate/angle axis present in the file.
 
-    python3 tools/apply_tune.py                       # uses tools/sysid_tune.json
-    python3 tools/apply_tune.py --file my_tune.json
-    python3 tools/apply_tune.py --dry-run             # print, don't send
+    python3 tools/sysid/apply_tune.py                       # uses tools/sysid/sysid_tune.json
+    python3 tools/sysid/apply_tune.py --file my_tune.json
+    python3 tools/sysid/apply_tune.py --dry-run             # print, don't send
 
 DISARM first. Close the Navigator GCS (UDP 14555 is single-owner).
 """
@@ -20,7 +20,7 @@ import sys
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.dirname(HERE)
+ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, os.path.join(ROOT, "navlink", "sim"))
 sys.path.insert(0, os.path.join(ROOT, "navlink", "generated", "python"))
 import frame                       # noqa: E402

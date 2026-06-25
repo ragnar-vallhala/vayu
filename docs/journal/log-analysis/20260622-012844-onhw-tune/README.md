@@ -1,7 +1,7 @@
 # On-hardware tuning session — 2026-06-21/22
 
 Real FC over the ESP/UDP bridge (port 14555), monitored/driven from the host with
-tools/sysid_excite.py, tools/sysid_fit.py, tools/apply_tune.py, and inline NavLink
+tools/sysid/sysid_excite.py, tools/sysid/sysid_fit.py, tools/sysid/apply_tune.py, and inline NavLink
 monitors. All gains/geometry are LIVE-only (not persisted) — see data/tune_*.json.
 
 ## Combined analysis (start here)

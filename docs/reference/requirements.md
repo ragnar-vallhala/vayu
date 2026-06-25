@@ -530,7 +530,7 @@ Multiple IDs per tag are comma-separated. IDs are case-sensitive.
 
 ### 5.2 CI gate
 
-A `tools/trace.py` script (to be written; placeholder requirement
+A `tools/dev/trace.py` script (to be written; placeholder requirement
 SYS-TEL-004 will reference the gate once it exists) shall:
 
 1. Parse every `*.h` / `*.c` for `@implements` / `@verifies` tags.
@@ -575,7 +575,7 @@ sections 3–4 collectively represent.
 ### Cleanup backlog (every 🟡 in this doc)
 
 These are the audit-derived gaps; each carries a requirement ID so the
-work is tracked in the trace matrix when `tools/trace.py` lands.
+work is tracked in the trace matrix when `tools/dev/trace.py` lands.
 
 - **Safety**
   - SYS-SAFE-002 — wire an elapsed-time RC watchdog (depend on COMM-RC-002).

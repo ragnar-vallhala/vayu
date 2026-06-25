@@ -8,13 +8,13 @@ method, then loop-shapes the rate+angle gains. Optionally applies them to the FC
 via CMD_SET_PID.
 
   # validate the fit math with no hardware (synthetic known plant):
-  python3 tools/sysid_fit.py --selftest
+  python3 tools/sysid/sysid_fit.py --selftest
 
   # fit a captured run (CSV columns: t_s, u/control/rate_sp, gyro_dps):
-  python3 tools/sysid_fit.py --csv /tmp/sysid_dump.csv --axis roll
+  python3 tools/sysid/sysid_fit.py --csv /tmp/sysid_dump.csv --axis roll
 
   # ... and push the designed gains to the FC:
-  python3 tools/sysid_fit.py --csv /tmp/sysid_dump.csv --axis roll --apply
+  python3 tools/sysid/sysid_fit.py --csv /tmp/sysid_dump.csv --axis roll --apply
 
 NOTE: the FC currently captures rate_sp in the first column. For a valid plant
 fit it must capture the rate-PID OUTPUT u (see sysid.c / the armed-run change);
@@ -197,7 +197,7 @@ def selftest():
 def apply_gains(port, axis, g):
     """Push rate + angle gains to the FC via CMD_SET_PID."""
     HERE = os.path.dirname(os.path.abspath(__file__))
-    ROOT = os.path.dirname(HERE)
+    ROOT = os.path.dirname(os.path.dirname(HERE))
     sys.path.insert(0, os.path.join(ROOT, "navlink", "sim"))
     sys.path.insert(0, os.path.join(ROOT, "navlink", "generated", "python"))
     import socket, time

@@ -23,7 +23,7 @@ vendor headers as `-isystem`.
 - **Phase 0 — foundations (CONV-01/02):** `vayu_status` unified return/result
   type and `vayu_assert` runtime-assertion facility, used as the base contract
   for every module below.
-- **Phase 1 — traceability gate (CONV-03):** `tools/trace.py`, which links
+- **Phase 1 — traceability gate (CONV-03):** `tools/dev/trace.py`, which links
   source to requirement tags so coverage of the requirements doc is checkable
   in CI.
 - **Phase 2 — safety cluster:** RC watchdog, estimator-degraded detection, and
