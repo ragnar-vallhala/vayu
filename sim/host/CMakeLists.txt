@@ -38,13 +38,13 @@ add_compile_definitions(
     CORTEX_M4=1   # bypass the architecture #error in vaios/task.h; we shim
                   # the ARM-specific bits via sim/host/include/port.h
     NAVHAL=1
-    VAIOS_CONFIG_FILE="${VAYU_ROOT}/include/vaios_app_config.h"
+    VAIOS_CONFIG_FILE="${VAYU_ROOT}/firmware/include/vaios_app_config.h"
 )
 
 # Shadow + firmware + vaios + NavHAL + vsim_proto headers, in priority order.
 include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${VAYU_ROOT}/include
+    ${VAYU_ROOT}/firmware/include
     ${VAIOS_ROOT}/include
     ${NAVHAL_ROOT}/include
     ${NAVHAL_ROOT}/include/port/cortex-m4   # utility type-only headers
@@ -70,51 +70,51 @@ set(HOST_MAIN_SOURCES
 
 # Firmware sources the host binary reuses verbatim.
 set(VAYU_SOURCES
-    ${VAYU_ROOT}/src/calib/calib_ellipsoid.c # shared sensor-agnostic ellipsoid fit
-    ${VAYU_ROOT}/src/calib/calib_engine.c    # calibration engine (acquire + fit + commit)
-    ${VAYU_ROOT}/src/actuator/esc.c
-    ${VAYU_ROOT}/src/actuator/motor.c
-    ${VAYU_ROOT}/src/control/angle_controller.c
-    ${VAYU_ROOT}/src/control/angle_rate_controller.c
-    ${VAYU_ROOT}/src/control/sysid.c        # rate-loop system-ID excite/capture (angle_rate_controller + navlink refs)
-    ${VAYU_ROOT}/src/control/pid_config.c   # CMD_SET_PID apply + SD persistence
-    ${VAYU_ROOT}/src/control/flight_mode.c  # stabilise/acro arbitration (RC + GCS)
-    ${VAYU_ROOT}/src/control/control_buffer.c
-    ${VAYU_ROOT}/src/est/lpf.c
-    ${VAYU_ROOT}/src/maths/maths_interface.c
-    ${VAYU_ROOT}/src/control/pid.c
-    ${VAYU_ROOT}/src/sys/math_utils.c
-    ${VAYU_ROOT}/src/sys/sys_utils.c
-    ${VAYU_ROOT}/src/est/sensor_fusion.c
-    ${VAYU_ROOT}/src/est/ekf.c
-    ${VAYU_ROOT}/src/est/attitude_task.c   # the REAL firmware estimator task (now run in SITL)
-    ${VAYU_ROOT}/src/est/vertical_estimator.c  # 2-state baro+accel vertical estimator (VERT)
-    ${VAYU_ROOT}/src/est/vertical_task.c       # VERT task I/O wrapper (sibling of attitude_task)
-    ${VAYU_ROOT}/src/est/flight_phase.c        # takeoff/landing detector + FC-owned AGL (IN_AIR)
-    ${VAYU_ROOT}/src/sensor/imu_buffer.c
-    ${VAYU_ROOT}/src/sensor/bme280.c   # real FC baro driver (altitude/publish/getters); host_baro.c feeds it
-    ${VAYU_ROOT}/src/storage/fs_owner.c # centralised FS owner (absorbs logger.c)
-    ${VAYU_ROOT}/src/logger/log_text.c  # vayu_log + queue (moved from utils.c)
-    ${VAYU_ROOT}/src/sys/state.c
-    ${VAYU_ROOT}/src/sys/assert.c
-    ${VAYU_ROOT}/src/comm/rc_buffer.c
-    ${VAYU_ROOT}/src/comm/rc_safety.c   # RC watchdog + arm gate (host-buildable)
+    ${VAYU_ROOT}/firmware/src/calib/calib_ellipsoid.c # shared sensor-agnostic ellipsoid fit
+    ${VAYU_ROOT}/firmware/src/calib/calib_engine.c    # calibration engine (acquire + fit + commit)
+    ${VAYU_ROOT}/firmware/src/actuator/esc.c
+    ${VAYU_ROOT}/firmware/src/actuator/motor.c
+    ${VAYU_ROOT}/firmware/src/control/angle_controller.c
+    ${VAYU_ROOT}/firmware/src/control/angle_rate_controller.c
+    ${VAYU_ROOT}/firmware/src/control/sysid.c        # rate-loop system-ID excite/capture (angle_rate_controller + navlink refs)
+    ${VAYU_ROOT}/firmware/src/control/pid_config.c   # CMD_SET_PID apply + SD persistence
+    ${VAYU_ROOT}/firmware/src/control/flight_mode.c  # stabilise/acro arbitration (RC + GCS)
+    ${VAYU_ROOT}/firmware/src/control/control_buffer.c
+    ${VAYU_ROOT}/firmware/src/est/lpf.c
+    ${VAYU_ROOT}/firmware/src/maths/maths_interface.c
+    ${VAYU_ROOT}/firmware/src/control/pid.c
+    ${VAYU_ROOT}/firmware/src/sys/math_utils.c
+    ${VAYU_ROOT}/firmware/src/sys/sys_utils.c
+    ${VAYU_ROOT}/firmware/src/est/sensor_fusion.c
+    ${VAYU_ROOT}/firmware/src/est/ekf.c
+    ${VAYU_ROOT}/firmware/src/est/attitude_task.c   # the REAL firmware estimator task (now run in SITL)
+    ${VAYU_ROOT}/firmware/src/est/vertical_estimator.c  # 2-state baro+accel vertical estimator (VERT)
+    ${VAYU_ROOT}/firmware/src/est/vertical_task.c       # VERT task I/O wrapper (sibling of attitude_task)
+    ${VAYU_ROOT}/firmware/src/est/flight_phase.c        # takeoff/landing detector + FC-owned AGL (IN_AIR)
+    ${VAYU_ROOT}/firmware/src/sensor/imu_buffer.c
+    ${VAYU_ROOT}/firmware/src/sensor/bme280.c   # real FC baro driver (altitude/publish/getters); host_baro.c feeds it
+    ${VAYU_ROOT}/firmware/src/storage/fs_owner.c # centralised FS owner (absorbs logger.c)
+    ${VAYU_ROOT}/firmware/src/logger/log_text.c  # vayu_log + queue (moved from utils.c)
+    ${VAYU_ROOT}/firmware/src/sys/state.c
+    ${VAYU_ROOT}/firmware/src/sys/assert.c
+    ${VAYU_ROOT}/firmware/src/comm/rc_buffer.c
+    ${VAYU_ROOT}/firmware/src/comm/rc_safety.c   # RC watchdog + arm gate (host-buildable)
     # Telemetry chain: produces DroneProtocol packets the GCS reads.
     # UART2 in host_navhal pipes them to a pty (for live GCS attach) and
     # tees a raw copy to /tmp/vayu_uart2.log (for post-sim analysis).
-    ${VAYU_ROOT}/src/comm/channel.c
-    ${VAYU_ROOT}/src/comm/perf_packet.c  # perf_fifo_fill_row (buffers link it)
-    ${VAYU_ROOT}/src/comm/serializer.c
-    ${VAYU_ROOT}/src/comm/comm_processor.c
-    ${VAYU_ROOT}/src/comm/navlink_router.c  # v2 RX handler table (uplink)
-    ${VAYU_ROOT}/src/comm/navlink_tx.c      # TX seam (telemetry/cmd-resp framing)
-    ${VAYU_ROOT}/src/comm/telemetry_task.c
-    ${VAYU_ROOT}/src/comm/xfer/navlink_xfer.c     # bulk-transfer (FTP) substrate core SM
-    ${VAYU_ROOT}/src/comm/xfer/navlink_xfer_tx.c  # xfer codec/channel seam (g_xfer_tx_ops)
-    ${VAYU_ROOT}/src/comm/xfer/fs_query.c         # filesystem navigation (list/stat)
-    ${VAYU_ROOT}/src/comm/xfer/providers/file_provider.c
-    ${VAYU_ROOT}/src/comm/xfer/providers/log_provider.c
-    ${VAYU_ROOT}/src/comm/xfer/providers/stream_provider.c
+    ${VAYU_ROOT}/firmware/src/comm/channel.c
+    ${VAYU_ROOT}/firmware/src/comm/perf_packet.c  # perf_fifo_fill_row (buffers link it)
+    ${VAYU_ROOT}/firmware/src/comm/serializer.c
+    ${VAYU_ROOT}/firmware/src/comm/comm_processor.c
+    ${VAYU_ROOT}/firmware/src/comm/navlink_router.c  # v2 RX handler table (uplink)
+    ${VAYU_ROOT}/firmware/src/comm/navlink_tx.c      # TX seam (telemetry/cmd-resp framing)
+    ${VAYU_ROOT}/firmware/src/comm/telemetry_task.c
+    ${VAYU_ROOT}/firmware/src/comm/xfer/navlink_xfer.c     # bulk-transfer (FTP) substrate core SM
+    ${VAYU_ROOT}/firmware/src/comm/xfer/navlink_xfer_tx.c  # xfer codec/channel seam (g_xfer_tx_ops)
+    ${VAYU_ROOT}/firmware/src/comm/xfer/fs_query.c         # filesystem navigation (list/stat)
+    ${VAYU_ROOT}/firmware/src/comm/xfer/providers/file_provider.c
+    ${VAYU_ROOT}/firmware/src/comm/xfer/providers/log_provider.c
+    ${VAYU_ROOT}/firmware/src/comm/xfer/providers/stream_provider.c
 )
 
 # vaios kernel pieces that are pure C and portable.
@@ -142,7 +142,7 @@ add_library(vayu_sitl_core STATIC
 )
 target_include_directories(vayu_sitl_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${VAYU_ROOT}/include
+    ${VAYU_ROOT}/firmware/include
     ${VAIOS_ROOT}/include
     ${NAVHAL_ROOT}/include
     ${NAVHAL_ROOT}/include/port/cortex-m4
@@ -305,7 +305,7 @@ add_test(NAME calib_engine COMMAND test_calib_engine)
 # core the firmware runs on target). ekf.c itself comes from vayu_sitl_core.
 add_executable(test_phase3_est_ekf
     tests/test_phase3_est_ekf.c
-    ${VAYU_ROOT}/src/est/ekf_selftest.c)
+    ${VAYU_ROOT}/firmware/src/est/ekf_selftest.c)
 target_compile_definitions(test_phase3_est_ekf PRIVATE EKF_SELFTEST)
 target_link_libraries(test_phase3_est_ekf PRIVATE vayu_sitl_core m)
 add_test(NAME phase3_est_ekf COMMAND test_phase3_est_ekf)
@@ -326,7 +326,7 @@ add_test(NAME flight_phase COMMAND test_flight_phase)
 
 add_executable(test_phase0_assert
     tests/test_phase0_assert.c
-    ${VAYU_ROOT}/src/sys/assert.c)
+    ${VAYU_ROOT}/firmware/src/sys/assert.c)
 target_compile_definitions(test_phase0_assert PRIVATE NDEBUG)
 target_link_libraries(test_phase0_assert PRIVATE Threads::Threads)
 add_test(NAME phase0_assert COMMAND test_phase0_assert)
@@ -339,7 +339,7 @@ add_test(NAME phase0_assert COMMAND test_phase0_assert)
 # ----------------------------------------------------------------------------
 add_custom_target(coverage
     COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure
-    COMMAND gcovr --root ${VAYU_ROOT} --filter "${VAYU_ROOT}/src/"
+    COMMAND gcovr --root ${VAYU_ROOT} --filter "${VAYU_ROOT}/firmware/src/"
             --print-summary --decisions
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
     COMMENT "Running unit tests + gcovr coverage summary")

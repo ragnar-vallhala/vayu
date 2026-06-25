@@ -28,7 +28,7 @@ J='-j"$(nproc)"'
 
 case "${1:-all}" in
   image)    $DC build ;;
-  firmware) run "cmake -B build-docker && cmake --build build-docker $J" ;;
+  firmware) run "cmake -S firmware -B build-docker && cmake --build build-docker $J" ;;
   sitl)     run "cmake -S sim/host -B build_sitl-docker && cmake --build build_sitl-docker $J && ctest --test-dir build_sitl-docker --output-on-failure" ;;
   gcs)      run "cmake -S navigator -B navigator/build-docker && cmake --build navigator/build-docker $J" ;;
   all)      "$0" firmware && "$0" sitl && "$0" gcs ;;
