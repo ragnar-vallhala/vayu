@@ -6,7 +6,7 @@ board over ST-Link, monitor live telemetry over the ESP Wi-Fi bridge, and build
 the **GCS** (the `Navigator` Qt6 desktop app — see §8).
 
 Every step here was verified end-to-end (Windows 10 Pro 22H2 / 19045). The build
-target is natively Linux (`tools/build.sh`); Windows needs a few extra pieces and
+target is natively Linux (`tools/scripts/build.sh`); Windows needs a few extra pieces and
 one CMake-invocation tweak, all covered below — none of it requires editing the
 repo.
 
@@ -155,7 +155,7 @@ Expected: `[94/94] Linking C executable main`, then `main` (ELF) + `main.bin`
 
 ## 6. Flash
 
-Same command the Linux `tools/flash.sh` uses:
+Same command the Linux `tools/scripts/flash.sh` uses:
 
 ```powershell
 st-flash --connect-under-reset --reset write C:\src\vayu\build\main.bin 0x8000000
