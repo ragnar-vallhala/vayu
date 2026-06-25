@@ -96,8 +96,12 @@ def fig_knee(path="/tmp/case_study.json"):
 
 
 def fig_flight(path=None):
-    path = path or os.path.expanduser(
-        "~/Documents/Drone/vayu/logs/sim-2026-06-04_03-26-58.bin")
+    # Optional flight overview. Point VAYU_FLIGHT_LOG at a capture, else look in
+    # the repo's logs/; skip silently if nothing is there (no personal paths).
+    _repo = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    path = path or os.environ.get(
+        "VAYU_FLIGHT_LOG",
+        os.path.join(_repo, "logs", "sim-2026-06-04_03-26-58.bin"))
     if not os.path.exists(path):
         return
     cts = P.NavlinkDecoder().feed(open(path, "rb").read())
