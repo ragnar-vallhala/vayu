@@ -112,7 +112,7 @@ private:
   void saveUiState();
   void restoreUiState();
   void persistPortBaud();
-  // Telemetry recording (Phase-1 1C): open a timestamped .bin and tee the
+  // Telemetry recording (FR-LOG-05): open a timestamped .bin and tee the
   // live stream while connected; close it on disconnect.
   void startRecording();
   void stopRecording();

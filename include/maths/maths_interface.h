@@ -1,5 +1,5 @@
-#ifndef MATHS_SENSOR_FUSION_H
-#define MATHS_SENSOR_FUSION_H
+#ifndef MATHS_INTERFACE_H
+#define MATHS_INTERFACE_H
 #define PI 3.14159265358979323846f
 
 float m_sin(float x);
@@ -37,4 +37,4 @@ void quaternion_multiply(const quaternion_t *qa, const quaternion_t *qb,
 void quaternion_conjugate(const quaternion_t *q, quaternion_t *out);
 void quaternion_from_euler(float roll, float pitch, float yaw, quaternion_t *q);
 
-#endif // !MATHS_SENSOR_FUSION_H
+#endif // !MATHS_INTERFACE_H

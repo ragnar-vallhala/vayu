@@ -30,18 +30,24 @@ graph TD
         ManagerDone --> BusRelease[Give _i2c_sema]
     end
 
-    subgraph "Shared Resources"
-        ProcessData -->|imu_buffer_push| IMUFifo[(SPSC FIFO: _imu_fifo)]
-        ProcessData -->|imu_distribution_queue_push| IMUQueue[(MPMC Queue: _imu_distribution_queue)]
-        ProcessData -->|m_mahony_filter| AttitudeData{{Attitude: _bmx_orientation}}
-        AttitudeMutex[[bmx160_attitude_mutex]] -.-> AttitudeData
+    subgraph "Shared Resources (SPSC rings, OVERWRITE)"
+        ProcessData -->|imu_queue_control_push| IMUCtrl[(imu_queue_control)]
+        ProcessData -->|imu_queue_telemetry_push| IMUTelem[(imu_queue_telemetry)]
+        ProcessData -->|imu_queue_attitude_push| IMUAtt[(imu_queue_attitude)]
+        ProcessData -->|imu_queue_calibration_push<br/>when CALIBRATING| IMUCal[(imu_queue_calibration)]
+    end
+
+    subgraph "Estimator (attitude_task)"
+        IMUAtt -->|imu_queue_attitude_pop| EKF[attitude_task: EKF fusion]
+        EKF -->|attitude_queue_control_push| AttCtrl[(attitude_queue_control)]
+        EKF -->|attitude_queue_telemetry_push| AttTelem[(attitude_queue_telemetry)]
     end
 
     subgraph "Processing Tasks"
-        IMUFifo -->|imu_buffer_peek| ControlTask[Control Task]
-        IMUQueue -->|imu_distribution_queue_peek| TelemetryTask[Telemetry Task]
-        AttitudeData -->|bmx160_get_attitude| ControlTask
-        AttitudeData -->|bmx160_get_attitude| TelemetryTask
+        IMUCtrl -->|imu_queue_control_pop| ControlTask[Control Task]
+        AttCtrl -->|attitude_queue_control_pop| ControlTask
+        IMUTelem -->|imu_queue_telemetry_pop| TelemetryTask[Telemetry Task]
+        AttTelem -->|attitude_queue_telemetry_pop| TelemetryTask
     end
 
     style TimerSema fill:#f9f,stroke:#333
@@ -49,8 +55,8 @@ graph TD
     style ManagerDMASema fill:#f9f,stroke:#333
     style DataReady fill:#f9f,stroke:#333
     style AttitudeMutex fill:#ff9,stroke:#333
-    style IMUFifo fill:#bbf,stroke:#333
-    style IMUQueue fill:#bbf,stroke:#333
+    style IMUCtrl fill:#bbf,stroke:#333
+    style IMUTelem fill:#bbf,stroke:#333
 ```
 ```mermaid
 sequenceDiagram
@@ -90,7 +96,7 @@ sequenceDiagram
     Note right of IMU: Wake latency ~100–300 µs
 
     IMU->>IMU: process_data()
-    Note right of IMU: ~200–300 µs (Mahony + LPF)
+    Note right of IMU: ~200–300 µs (convert + LPF + calibration)
 
     IMU->>CTRL: push IMU data
 ```
@@ -102,9 +108,10 @@ sequenceDiagram
 | **I2C Request Queue**| `i2c_queue_t` | `_queue_sema` + `_data_ready_sema` | BMX160 Task | I2C Manager Task | Queue for async I2C operations. |
 | **I2C DMA Buffer** | `_rx_data` in [i2c_manager.c](../../../src/sensor/i2c_manager.c) | `_dma_done_sema` (Binary Semaphore) | I2C DMA ISR | I2C Manager Task | Hardware buffer protected by task blocking. |
 | **Sensor DMA Done** | `bmx160_dma_sema` | Binary Semaphore | I2C Manager Callback | BMX160 Task | Signals sensor task to start processing. |
-| **IMU Buffer** | `_imu_fifo` (`spsc_fifo_t`) | Lock-free (Volatile head/tail) | BMX160 Task | Control Task | Overwrite policy; used for rate-loop PID feedback. |
-| **IMU Dist. Queue** | `_imu_distribution_queue` (`mpmc_queue_t`) | Mutex + 2 Semaphores | BMX160 Task | Telemetry Task | Used for logging and remote monitoring. |
-| **Attitude State** | `_bmx_orientation` (`attitude_t`) | `bmx160_attitude_mutex` (Mutex) | BMX160 Task | Control, Telemetry | Stores Euler angles/Quaternions from sensor fusion. |
+| **IMU control ring** | `imu_queue_control` (SPSC) | Lock-free + wake semaphore | BMX160 Task | Control Task | OVERWRITE policy; rate-loop PID feedback. |
+| **IMU telemetry ring** | `imu_queue_telemetry` (SPSC) | Lock-free + wake semaphore | BMX160 Task | Telemetry Task | OVERWRITE; logging / remote monitoring. |
+| **IMU attitude ring** | `imu_queue_attitude` (SPSC) | Lock-free + wake semaphore | BMX160 Task | `attitude_task` | OVERWRITE; feeds the estimator. |
+| **Attitude estimate** | `attitude_queue_{control,telemetry}` (SPSC) | Lock-free + wake semaphore | `attitude_task` (EKF) | Control, Telemetry | Euler/quaternion from the EKF fusion (not the driver). |
 
 ## Detailed Sequence
 
@@ -118,11 +125,9 @@ sequenceDiagram
 5.  **Task Resumption**:
     -   The **I2C Manager Task** unblocks and releases `_i2c_sema`.
     -   The **BMX160 Task** unblocks and calls [bmx160_process_data()](../../../src/sensor/bmx160.c).
-6.  **Processing**: The **BMX160 Task** converts raw values, applies Low-Pass Filters (LPF) and calibration, and runs the **Mahony Filter** for attitude estimation.
-7.  **Distribution**:
-    -   Filtered IMU data is pushed to `_imu_fifo`.
-    -   IMU data is pushed to `_imu_distribution_queue`.
-    -   Fused attitude is updated in `_bmx_orientation` under `bmx160_attitude_mutex`.
-8.  **Consumption**:
-    -   **Control Task** peeks at `_imu_fifo` and `_bmx_orientation`.
-    -   **Telemetry Task** pops from `_imu_distribution_queue` and peeks at `_bmx_orientation`.
+6.  **Processing**: The **BMX160 Task** converts raw values and applies Low-Pass Filters (LPF) + calibration. Attitude fusion is **not** done here — it runs in a separate `attitude_task` (see below).
+7.  **Distribution**: the processed sample is pushed to the per-consumer SPSC rings: `imu_queue_control`, `imu_queue_telemetry`, `imu_queue_attitude`, and (while CALIBRATING) `imu_queue_calibration`.
+8.  **Fusion**: `attitude_task` pops `imu_queue_attitude`, runs the **EKF** (`src/est/`), and publishes the estimate to `attitude_queue_control` and `attitude_queue_telemetry`.
+9.  **Consumption**:
+    -   **Control Task** pops `imu_queue_control` and `attitude_queue_control`.
+    -   **Telemetry Task** pops `imu_queue_telemetry` and `attitude_queue_telemetry`.

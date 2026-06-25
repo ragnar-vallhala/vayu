@@ -238,12 +238,10 @@ bmx160_err_type bmx160_write_mag_config(bmx160_config_t *config);
 // Config helpers
 float bmx160_raw_acc_to_mps2(int16_t raw);
 float bmx160_raw_gyr_to_dps(int16_t raw);
-float bmx160_raw_mag_to_uT(int16_t raw);
 
 // Getters and Setter for static variables
 bmx160_config_t bmx160_get_current_config(void);
 void bmx160_set_current_config(bmx160_config_t *cfg);
-void bmx160_get_attitude(attitude_t *att);
 
 // Calibration definitions
 #define IMU_CALIBRATION_SAMPLES 500

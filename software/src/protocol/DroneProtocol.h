@@ -7,15 +7,10 @@
 #include <QString>
 
 /**
- * Parses newline-terminated ASCII telemetry packets emitted by the Vayu
- * firmware over UART.
- *
- * Packet formats:
- *   $IMU,<ax>,<ay>,<az>,<gx>,<gy>,<gz>,<mx>,<my>,<mz>,<tempC>
- *   $ATT,<roll>,<pitch>,<yaw>
- *   $LOG,<message text>
- *
- * The firmware should send these using v_log or a direct uart_write call.
+ * Decodes the binary NavLink v2 telemetry stream emitted by the Vayu firmware
+ * (sync 0x56, version byte, length, payload, CRC). Frames are parsed by
+ * `NavlinkRouter` against the generated codec and surfaced as typed signals
+ * (attitude, IMU, motor, flight-mode, calibration, etc.). No ASCII framing.
  */
 class DroneProtocol : public QObject {
   Q_OBJECT

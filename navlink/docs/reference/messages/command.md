@@ -24,7 +24,7 @@ For the exact payload fields of each command, see `../../navlink/dialect.json` a
 
 ## CMD_CALIBRATE_IMU (8194)
 
-Manages the onboard sensor calibration procedures. The message selects the target sensor (accelerometer / gyroscope / magnetometer) and the calibration type (bias-only vs full; hard-iron / soft-iron / both for the magnetometer), or cancels an active calibration and returns the system to `STANDBY`. See the dialect for the exact field/enum encoding; live progress is reported back via `CALIBRATION_STATUS` (12320) — see [System Status](system_status.md).
+Manages the onboard sensor calibration procedures. The message selects the target sensor (accelerometer / gyroscope / magnetometer) via the `which` byte's high nibble, or cancels an active calibration and returns the system to `STANDBY`. Each sensor runs a single routine — accel a pose-tolerant full 3×3 ellipsoid fit, gyro a stillness-gated bias capture, mag a hard+soft-iron ellipsoid fit — so the low-nibble mode field is legacy and ignored by the firmware. See the dialect for the exact field/enum encoding; live progress is reported back via `CALIBRATION_STATUS` (12320) — see [System Status](system_status.md).
 
 > [!IMPORTANT]
 > The drone must remain stationary and level on a flat surface during calibration. Unexpected motion may produce invalid bias calculations.

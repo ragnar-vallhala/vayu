@@ -470,7 +470,8 @@ void angle_rate_controller_task(void *arg) {
         .outer_dt = angle_controller_outputs.dt,
         .inner_dt = dt};
     control_telemetry_queue_push(&telemetry);
-    /* CTRL-RATE-101: no v_delay() here — the loop blocks on
-     * imu_queue_control_wait() at the top instead of clock-polling. */
+    /* CTRL-RATE-101: no v_delay() here — task_delay_until() (above) drives a
+     * drift-free periodic schedule at INNER_LOOP_PERIOD_TICKS; the loop drains
+     * the freshest IMU sample each tick rather than blocking on queue arrival. */
   }
 }

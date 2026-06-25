@@ -8,10 +8,8 @@
 
 /* Per-buffer TX capacity. Must hold the largest single-shot write burst between
  * flushes: the 1 Hz perf report dumps global + up to 24 task + 16 fifo frames
- * back-to-back (~1336 B worst case). At 512 B that burst overflowed and dropped
- * ~65% of perf frames (PerfTask especially) and ~20% of PerfGlobals, so the GCS
- * saw perf "skip seconds". Sized to fit a full burst with margin; the DMA TX
- * (USART6) drains it without CPU cost. */
+ * back-to-back (~1336 B worst case). 2048 B fits a full burst with margin; the
+ * DMA TX (USART6) drains it without CPU cost. */
 #define CHANNEL_TX_BUF_SIZE 2048u
 
 typedef struct {
@@ -28,7 +26,7 @@ typedef struct {
 // Serial handlers
 static serial_channel_handle_t _serial_handlers[MAX_SERIAL_HANDLERS] = {0};
 
-/* COMM-CH-002: count of writes dropped because the active 512 B buffer
+/* COMM-CH-002: count of writes dropped because the active TX buffer
  * had no room. Monotonic; surfaced through telemetry (SYSTEM_ORIGIN_HEALTH).
  * Single 32-bit scalar — atomic load/store on Cortex-M4 (R8.6).
  * @implements COMM-CH-002 */

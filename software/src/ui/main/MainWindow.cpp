@@ -400,7 +400,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
           });
 #endif
 
-  // Recent-views (MRU) switcher (Phase-2 2C / FR-UX-21). Record every page
+  // Recent-views (MRU) switcher (FR-UX-21). Record every page
   // change centrally and build the index->label map the overlay displays.
   buildViewTitles();
   connect(m_stackedWidget, &QStackedWidget::currentChanged, this,
@@ -411,7 +411,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   connect(m_recentOverlay, &RecentViewsOverlay::activated, this,
           [this](int idx) { m_stackedWidget->setCurrentIndex(idx); });
 
-  // Replay transport bar (Phase-2 2E), docked at the bottom, shown only in
+  // Replay transport bar (FR-LOG-05), docked at the bottom, shown only in
   // replay. Exit returns to the live session.
   m_replayBar = new ReplayBar(this);
   connect(m_replayBar, &ReplayBar::exitRequested, this,
@@ -427,7 +427,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
 
   installShortcuts();
 
-  // Editable shortcut overrides on top of the registry defaults (Phase-2 2A).
+  // Editable shortcut overrides on top of the registry defaults (FR-UX-19–23).
   // Created after every command is registered, then load() applies any saved
   // overrides to the shared QActions.
   m_shortcuts = new ShortcutsManager(m_cmds, this);

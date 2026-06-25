@@ -65,7 +65,7 @@ private:
   QLabel *m_instructionText;
   QProgressBar *m_progressBar;
 
-  // Axis Status (for 6-axis)
+  // Axis-status pills (the 6 face poses of the accel calibration)
   QWidget *m_axisStatusArea;
   QLabel *m_axisLabelX;
   QLabel *m_axisLabelY;

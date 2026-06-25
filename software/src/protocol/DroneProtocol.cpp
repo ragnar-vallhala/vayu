@@ -49,7 +49,7 @@ DroneProtocol::DroneProtocol(QObject *parent) : QObject(parent) {
   };
   m_v2Router.onCommandAck = [this](uint32_t command, uint8_t reqSeq,
                                    uint8_t result) {
-    static const char *const kRes[] = {"ACCEPTED",    "TEMP_REJECTED",
+    static const char *const kRes[] = {"ACCEPTED",    "TEMPORARILY_REJECTED",
                                        "DENIED",      "UNSUPPORTED",
                                        "FAILED",      "IN_PROGRESS"};
     const QString res =
