@@ -58,7 +58,7 @@ deliberately omits flashing. Build in the container, then flash the host-visible
 artifact:
 
 - **Linux:** `st-flash --reset write build-docker/main.bin 0x08000000`
-  (or `tools/flash.sh`, which builds + flashes natively).
+  (or `tools/scripts/flash.sh`, which builds + flashes natively).
 - **Windows/macOS:** flash `build-docker/main` / `main.bin` with
   **STM32CubeProgrammer** (ST-LINK over USB).
 
