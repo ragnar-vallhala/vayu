@@ -1,6 +1,12 @@
 cmake_minimum_required(VERSION 3.20)
 project(vayu C ASM)
 
+# This firmware project lives in firmware/; the shared deps it reaches outward to
+# (extern/vaios submodule, navlink/ codec) stay at the repo root one level up.
+# Firmware-internal paths use ${CMAKE_CURRENT_SOURCE_DIR} (= firmware/) and need
+# no change; only the outward refs below use ${VAYU_REPO_ROOT}.
+get_filename_component(VAYU_REPO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.." ABSOLUTE)
+
 #-------------------------
 # Toolchain / basic config
 #-------------------------
@@ -47,8 +53,8 @@ set(VAIOS_CONFIG_FILE "${CMAKE_CURRENT_SOURCE_DIR}/include/vaios_app_config.h"
 # (mode_t/pid_t/off_t undefined). vayu's own targets pick up include/ from the
 # include_directories() call after add_subdirectory(extern/vaios).
 include_directories(
-    extern/vaios/include
-    extern/vaios/portable/cortex-m4
+    ${VAYU_REPO_ROOT}/extern/vaios/include
+    ${VAYU_REPO_ROOT}/extern/vaios/portable/cortex-m4
 )
 
 # NavHAL's driver set is owned by vayu (./navhal.config), NOT the vaios submodule.
@@ -67,9 +73,9 @@ set(NAVHAL_CONFIG_FILE "${CMAKE_CURRENT_SOURCE_DIR}/navhal.config"
 # here (inherited by the nested execute_process). Avoids editing the vaios /
 # NavHAL submodules. Without this, configure fails: "'samples/Kconfig' not
 # found ... $srctree ... is unset".
-set(ENV{srctree} "${CMAKE_CURRENT_SOURCE_DIR}/extern/vaios/extern/NavHAL")
+set(ENV{srctree} "${VAYU_REPO_ROOT}/extern/vaios/extern/NavHAL")
 
-add_subdirectory(extern/vaios)
+add_subdirectory(${VAYU_REPO_ROOT}/extern/vaios ${CMAKE_CURRENT_BINARY_DIR}/vaios)
 
 #-------------------------
 # Project sources
@@ -85,7 +91,7 @@ set(CMAKE_C_STANDARD 11)
 # drift from the dialect. Marked SYSTEM so the generated header never trips a
 # comm module's -Wconversion/-Werror build (the .c builds under the baseline
 # -Wall, not the strict set).
-set(NAVLINK_DIR ${CMAKE_CURRENT_SOURCE_DIR}/navlink)
+set(NAVLINK_DIR ${VAYU_REPO_ROOT}/navlink)
 set(NAVLINK_GEN ${CMAKE_CURRENT_BINARY_DIR}/navlink_gen)
 execute_process(COMMAND ${CMAKE_COMMAND} -E make_directory ${NAVLINK_GEN})
 execute_process(
@@ -116,10 +122,10 @@ set(VAYU_R12_WARN_FLAGS
     -Wfloat-equal -Werror
     # §5.3 vendor exemption: treat vaios/NavHAL headers as system so their
     # warnings never fail a vayu module's -Werror build.
-    -isystem ${CMAKE_CURRENT_SOURCE_DIR}/extern/vaios/include
-    -isystem ${CMAKE_CURRENT_SOURCE_DIR}/extern/vaios/extern/NavHAL/include
-    -isystem ${CMAKE_CURRENT_SOURCE_DIR}/extern/vaios/extern/NavHAL/include/port/cortex-m4
-    -isystem ${CMAKE_CURRENT_SOURCE_DIR}/extern/vaios/extern/NavHAL/src/vendor/stm32/family/stm32f4/include)
+    -isystem ${VAYU_REPO_ROOT}/extern/vaios/include
+    -isystem ${VAYU_REPO_ROOT}/extern/vaios/extern/NavHAL/include
+    -isystem ${VAYU_REPO_ROOT}/extern/vaios/extern/NavHAL/include/port/cortex-m4
+    -isystem ${VAYU_REPO_ROOT}/extern/vaios/extern/NavHAL/src/vendor/stm32/family/stm32f4/include)
 set(VAYU_R12_CLEAN_SOURCES
     # CALIB module (shared sensor-agnostic ellipsoid fit + engine)
     ${CMAKE_CURRENT_SOURCE_DIR}/src/calib/calib_ellipsoid.c

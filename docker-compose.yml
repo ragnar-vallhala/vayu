@@ -2,7 +2,7 @@
 # The image holds only toolchains; this repo is bind-mounted at /workspace so
 # host edits build immediately. Drive it with tools/docker/build.sh, or invoke
 # directly, e.g.:
-#   docker compose run --rm vayu cmake -B build-docker
+#   docker compose run --rm vayu cmake -S firmware -B build-docker
 #   docker compose run --rm vayu cmake --build build-docker -j
 #
 # Outputs go to *-docker build dirs so they never clash with host-native CMake
