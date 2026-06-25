@@ -44,9 +44,11 @@ navigator_test(tst_autotune_gains
 target_include_directories(tst_autotune_gains PRIVATE ${SRC}/ui/widgets)
 
 # ---- C++ autotune optimizer port ------------------------------------------
+# Space.cpp: the all-optimizer convergence test runs on the real param bounds.
 navigator_test(tst_optimizer
     tst_optimizer.cpp
-    ${SRC}/autotune/Optimizer.cpp)
+    ${SRC}/autotune/Optimizer.cpp
+    ${SRC}/autotune/Space.cpp)
 target_include_directories(tst_optimizer PRIVATE ${SRC}/autotune)
 
 # ---- C++ autotune cost functions ------------------------------------------
