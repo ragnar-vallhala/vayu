@@ -41,8 +41,8 @@ REQUIREMENTS_MD = REPO_ROOT / "docs" / "reference" / "requirements.md"
 TRACE_MD = REPO_ROOT / "docs" / "reference" / "trace.md"
 
 OWNED_ROOTS = [
-    REPO_ROOT / "src",
-    REPO_ROOT / "include",
+    REPO_ROOT / "firmware" / "src",
+    REPO_ROOT / "firmware" / "include",
     REPO_ROOT / "tools",
 ]
 VENDOR_ROOTS = [
