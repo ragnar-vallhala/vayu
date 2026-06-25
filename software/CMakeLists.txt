@@ -37,6 +37,16 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_COMPILE_COMMANDS_OUTPUT "${CMAKE_SOURCE_DIR}/compile_commands.json")
 
+# -------------------------------------------------------
+# In-app SITL simulator + autotune. These build the firmware host-sim
+# (tools/sim_host) and a pty/termios bridge to it, which need a POSIX host.
+# Turn OFF to build a GCS-only binary on a non-POSIX host (e.g. Windows /
+# MinGW / MSVC): Navigator then drops the simulator + autotune tabs but keeps
+# all live-vehicle features (telemetry, calibration, commands, packet analyzer,
+# replay). MainWindow already #ifdef's the SITL UI on NAVIGATOR_HAS_SITL.
+# -------------------------------------------------------
+option(NAVIGATOR_SITL "Build in-app SITL simulator + autotune (needs a POSIX host)" ON)
+
 # Qt6 required modules
 find_package(Qt6 REQUIRED COMPONENTS
     Core
@@ -96,15 +106,6 @@ set(GCS_SOURCES
     src/core/SourceController.cpp
     src/replay/RecordSink.cpp
     src/replay/ReplaySource.cpp
-    src/autotune/Optimizer.cpp
-    src/autotune/Cost.cpp
-    src/autotune/Space.cpp
-    src/autotune/AutotuneEngine.cpp
-    src/autotune/SitlStack.cpp
-    src/autotune/Rollout.cpp
-    src/autotune/RtosEval.cpp
-    src/autotune/SysId.cpp
-    src/autotune/AutotuneWorker.cpp
     src/ui/widgets/FrequencyRibbon.cpp
     src/ui/widgets/LinkStatsPanel.cpp
     src/ui/widgets/RcChannelsWidget.cpp
@@ -120,6 +121,7 @@ set(GCS_SOURCES
     src/ui/widgets/RecentViewsOverlay.cpp
     src/ui/widgets/ReplayBar.cpp
     src/ui/widgets/AboutDialog.cpp
+    src/audio/ChimeAudio.cpp   # UI notification chimes (silent stub w/o PulseAudio)
 )
 
 set(GCS_HEADERS
@@ -165,15 +167,6 @@ set(GCS_HEADERS
     src/replay/RecordFormat.h
     src/replay/RecordSink.h
     src/replay/ReplaySource.h
-    src/autotune/Optimizer.h
-    src/autotune/Cost.h
-    src/autotune/Space.h
-    src/autotune/AutotuneEngine.h
-    src/autotune/SitlStack.h
-    src/autotune/Rollout.h
-    src/autotune/RtosEval.h
-    src/autotune/SysId.h
-    src/autotune/AutotuneWorker.h
     src/ui/widgets/FrequencyRibbon.h
     src/ui/widgets/LinkStatsPanel.h
     src/ui/widgets/RcChannelsWidget.h
@@ -189,6 +182,7 @@ set(GCS_HEADERS
     src/ui/widgets/RecentViewsOverlay.h
     src/ui/widgets/ReplayBar.h
     src/ui/widgets/AboutDialog.h
+    src/audio/ChimeAudio.h
 )
 
 # SITL-only sources. These pull in vsim_iface.h from tools/sim_host and
@@ -200,6 +194,15 @@ set(GCS_HEADERS
 # to tools/vsim/. SimWorker became a thin process supervisor that
 # spawns vsim_d and decodes pose frames off /tmp/vsim_pose.
 set(GCS_SITL_SOURCES
+    src/autotune/Optimizer.cpp
+    src/autotune/Cost.cpp
+    src/autotune/Space.cpp
+    src/autotune/AutotuneEngine.cpp
+    src/autotune/SitlStack.cpp
+    src/autotune/Rollout.cpp
+    src/autotune/RtosEval.cpp
+    src/autotune/SysId.cpp
+    src/autotune/AutotuneWorker.cpp
     src/ui/widgets/SimulatorWidget.cpp
     src/ui/widgets/GeometryEditorWidget.cpp
     src/ui/widgets/WorldEditorWidget.cpp
@@ -221,9 +224,17 @@ set(GCS_SITL_SOURCES
     src/vsim/RcBridge.cpp
     src/vsim/TrainingCourse.cpp
     src/audio/PropAudio.cpp
-    src/audio/ChimeAudio.cpp
 )
 set(GCS_SITL_HEADERS
+    src/autotune/Optimizer.h
+    src/autotune/Cost.h
+    src/autotune/Space.h
+    src/autotune/AutotuneEngine.h
+    src/autotune/SitlStack.h
+    src/autotune/Rollout.h
+    src/autotune/RtosEval.h
+    src/autotune/SysId.h
+    src/autotune/AutotuneWorker.h
     src/ui/widgets/SimulatorWidget.h
     src/ui/widgets/GeometryEditorWidget.h
     src/ui/widgets/WorldEditorWidget.h
@@ -311,7 +322,7 @@ endif()
 # round-trip is gone for in-app simulation).
 # -------------------------------------------------------
 set(VAYU_SITL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../tools/sim_host")
-if(EXISTS "${VAYU_SITL_DIR}/CMakeLists.txt")
+if(NAVIGATOR_SITL AND EXISTS "${VAYU_SITL_DIR}/CMakeLists.txt")
     add_subdirectory("${VAYU_SITL_DIR}"
                      "${CMAKE_BINARY_DIR}/vayu_sitl"
                      EXCLUDE_FROM_ALL)
@@ -322,6 +333,8 @@ if(EXISTS "${VAYU_SITL_DIR}/CMakeLists.txt")
     target_link_libraries(Navigator PRIVATE vayu_sitl_core assimp::assimp)
     target_compile_definitions(Navigator PRIVATE NAVIGATOR_HAS_SITL=1)
     message(STATUS "Navigator: linking against vayu_sitl_core + assimp (SITL ON)")
+elseif(NOT NAVIGATOR_SITL)
+    message(STATUS "Navigator: SITL OFF (NAVIGATOR_SITL=OFF) -- GCS-only build")
 else()
     message(WARNING "Navigator: ${VAYU_SITL_DIR} not found; SITL features disabled")
 endif()
