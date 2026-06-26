@@ -316,13 +316,16 @@ else()
 endif()
 
 # -------------------------------------------------------
-# vayu_sitl_core: the firmware-side SITL built as a static library.
-# Navigator links it in directly so the simulator + firmware live in
-# one process (the legacy /tmp/vayu_pwm.fifo + /tmp/vayu_imu.fifo
-# round-trip is gone for in-app simulation).
+# vayu_sitl_rtos_core: the firmware-side SITL built as a static library,
+# running the REAL vaios scheduler + in-process vsim physics in ONE
+# deterministic stepper (no vsim_d daemon, no FIFO). Navigator links it
+# directly so the simulator + firmware + physics live in one process;
+# SimWorker drives it via the host_rtos_engine API.
 # -------------------------------------------------------
 set(VAYU_SITL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../sim/host")
 if(NAVIGATOR_SITL AND EXISTS "${VAYU_SITL_DIR}/CMakeLists.txt")
+    # Build the RTOS core (and its in-process physics) for the in-app sim.
+    set(VAYU_SITL_RTOS_BUILD ON CACHE BOOL "" FORCE)
     add_subdirectory("${VAYU_SITL_DIR}"
                      "${CMAKE_BINARY_DIR}/vayu_sitl"
                      EXCLUDE_FROM_ALL)
@@ -330,9 +333,10 @@ if(NAVIGATOR_SITL AND EXISTS "${VAYU_SITL_DIR}/CMakeLists.txt")
     # only needed on the SITL path, so it's found inside this gate.
     find_package(assimp REQUIRED)
     target_sources(Navigator PRIVATE ${GCS_SITL_SOURCES} ${GCS_SITL_HEADERS})
-    target_link_libraries(Navigator PRIVATE vayu_sitl_core assimp::assimp)
+    target_link_libraries(Navigator PRIVATE vayu_sitl_rtos_core assimp::assimp)
+    target_include_directories(Navigator PRIVATE "${VAYU_SITL_DIR}/src")  # host_rtos_engine_api.h
     target_compile_definitions(Navigator PRIVATE NAVIGATOR_HAS_SITL=1)
-    message(STATUS "Navigator: linking against vayu_sitl_core + assimp (SITL ON)")
+    message(STATUS "Navigator: linking against vayu_sitl_rtos_core + assimp (SITL ON, in-process RTOS)")
 elseif(NOT NAVIGATOR_SITL)
     message(STATUS "Navigator: SITL OFF (NAVIGATOR_SITL=OFF) -- GCS-only build")
 else()

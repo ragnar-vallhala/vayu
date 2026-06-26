@@ -214,8 +214,13 @@ if(VAYU_SITL_RTOS_BUILD)
   # drives it from a worker thread via the host_rtos_engine API (boot/step/
   # set_rc/get_pose + the vsim_inproc config surface), so the GCS runs the SAME
   # deterministic in-process engine the headless binary does — no vsim_d, no
-  # FIFO. Compile defs + includes are PUBLIC so consumers (the exe below, and
-  # Navigator) inherit the RTOS port wiring.
+  # FIFO.
+  #
+  # The firmware build defs (VAYU_SITL_RTOS etc.) and the firmware/vaios/navhal
+  # include dirs are PRIVATE: they wire the core's OWN .c files but must NOT leak
+  # into a Qt consumer (Navigator) where they could shadow system/Qt headers or
+  # flip firmware ifdefs. Consumers see only the slim, type-free surface — the
+  # src/ dir (host_rtos_engine_api.h) and vsim_proto.h (via vsim_phys) — PUBLIC.
   add_library(vayu_sitl_rtos_core STATIC
       src/host_rtos_port.c
       src/host_rtos_engine.c   # reusable in-process step engine (#11a)
@@ -237,23 +242,39 @@ if(VAYU_SITL_RTOS_BUILD)
       ${VAIOS_ROOT}/kernel/vaios.c
       ${VAIOS_ROOT}/kernel/perf.c
   )
-  target_compile_definitions(vayu_sitl_rtos_core PUBLIC
+  target_compile_definitions(vayu_sitl_rtos_core PRIVATE
       VAYU_SITL_RTOS=1 VAIOS_HOST_TEST=1
       _GNU_SOURCE           # glibc __USE_MISC (int32_t in <stdlib.h>) for the C++ TUs
       HEAP_SIZE=0x180000)   # 1.5 MB: room for the firmware tasks' 8KB stacks on host
-  target_include_directories(vayu_sitl_rtos_core PUBLIC
+  target_include_directories(vayu_sitl_rtos_core
+      PRIVATE
+        ${VAYU_ROOT}/firmware/include
+        ${VAIOS_ROOT}/include
+        ${NAVHAL_ROOT}/include
+        ${NAVHAL_ROOT}/include/port/cortex-m4
+      PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/src   # host_rtos_engine_api.h (the GCS surface)
+        ${VAYU_ROOT}/sim/vsim/include     # vsim_proto.h + trimesh_bvh.h
+  )
+  # navlink_codec/vsim_phys are linked PUBLIC (the engine API needs vsim types);
+  # the thread/m/rt system libs the consumer also needs at link time.
+  target_link_libraries(vayu_sitl_rtos_core PUBLIC Threads::Threads m rt navlink_codec vsim_phys)
+
+  # Standalone scenario binary = the core + the CLI main (hold/doublet/disturb/
+  # pose/cfg). main() lives ONLY here, never in the library Navigator links.
+  # host_rtos_main.c is firmware-side, so it needs the PRIVATE defs/includes the
+  # core uses (they don't propagate from a PRIVATE usage requirement).
+  add_executable(vayu_sitl_rtos src/host_rtos_main.c)
+  target_compile_definitions(vayu_sitl_rtos PRIVATE
+      VAYU_SITL_RTOS=1 VAIOS_HOST_TEST=1 _GNU_SOURCE HEAP_SIZE=0x180000)
+  target_include_directories(vayu_sitl_rtos PRIVATE
       ${CMAKE_CURRENT_SOURCE_DIR}/include
       ${VAYU_ROOT}/firmware/include
       ${VAIOS_ROOT}/include
       ${NAVHAL_ROOT}/include
       ${NAVHAL_ROOT}/include/port/cortex-m4
-      ${VAYU_ROOT}/sim/vsim/include   # vsim_proto.h + trimesh_bvh.h for the engine API
-  )
-  target_link_libraries(vayu_sitl_rtos_core PUBLIC Threads::Threads m rt navlink_codec vsim_phys)
-
-  # Standalone scenario binary = the core + the CLI main (hold/doublet/disturb/
-  # pose/cfg). main() lives ONLY here, never in the library Navigator links.
-  add_executable(vayu_sitl_rtos src/host_rtos_main.c)
+      ${VAYU_ROOT}/sim/vsim/include)
   target_link_libraries(vayu_sitl_rtos PRIVATE vayu_sitl_rtos_core)
   message(STATUS "vayu_sitl_rtos_core (lib) + vayu_sitl_rtos (bin) configured")
 endif()

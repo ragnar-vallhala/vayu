@@ -2824,31 +2824,21 @@ void SimulatorWidget::startInAppSim() {
   // Open a fresh per-run log file before the firmware starts emitting.
   openNewLogFile();
 
-  // First Start: also boot the firmware in-process. host_lifecycle.c
-  // spawns the vaios task pthreads (PID controllers, motor task,
-  // telemetry, IMU feeder, RC feeder). Subsequent Starts only
-  // resume the physics worker.
-  if (!m_sitlStarted) {
-    if (vayu_sitl_start(&m_iface) == 0) {
-      m_sitlStarted = true;
-      appendLog("sitl", "[vayu_sitl_start ok]");
-    } else {
-      appendLog("sitl", "[vayu_sitl_start failed - already running?]");
-    }
-  }
+  // The SINGLE in-process RTOS engine (libvayu_sitl_rtos_core) now runs BOTH
+  // the firmware and the vsim physics in one deterministic stepper — no vsim_d
+  // daemon, no FIFO. SimWorker owns that engine on its worker thread:
+  // rtos_engine_boot(&m_iface) boots the firmware once (idempotent across
+  // Stop/Re-Start). Telemetry rides the SAME in-process UART2 callback as
+  // before; RC arrives via the serial feeder reading the RcBridge pty.
+  m_sitlStarted = true;
 
-  // SimWorker spawns the vsim_d daemon and reads pose frames off
-  // /tmp/vsim_pose; the iface is no longer used for PWM/IMU transport
-  // (those went FIFO-only when we split the daemon out). The iface is
-  // still alive for the UART2 telemetry callback above.
-  // (Re)attach the firmware -> GCS telemetry callback so IMU / attitude /
-  // heartbeat flow to the home-screen panels while running. It's detached on
-  // Stop (below) — the in-process firmware threads can't actually be stopped,
-  // so without this they'd keep streaming heartbeats and the LIVE blinker
-  // would keep blinking after Stop.
+  // (Re)attach the firmware -> GCS telemetry callback BEFORE the worker boots,
+  // so IMU / attitude / heartbeat flow to the home-screen panels from frame one.
+  // Detached on Stop (the firmware can't truly stop) to silence the LIVE blinker.
   vsim_iface_set_uart2_callback(&m_iface, &uart2_to_widget_trampoline, this);
 
   m_sim = new vsim::SimWorker(this);
+  m_sim->setIface(&m_iface);   // boot the engine wired to our telemetry iface
   connect(m_sim, &vsim::SimWorker::stoppedCleanly, this,
           &SimulatorWidget::onSimWorkerExited);
   connect(m_sim, &vsim::SimWorker::poseUpdated,

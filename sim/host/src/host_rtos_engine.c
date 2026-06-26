@@ -161,6 +161,11 @@ void rtos_pacer_wait(rtos_pacer_t *p, double dt_s) {
 }
 
 int rtos_engine_boot(void *iface) {
+  static int booted = 0;
+  if (booted) return 0;   /* idempotent: the firmware/scheduler boot once per
+                           * process (GCS Stop/Re-Start resumes the loop, doesn't
+                           * re-init the kernel). */
+  booted = 1;
   fprintf(stderr, "vayu_sitl_rtos: booting the REAL vaios scheduler on host\n");
   vaios_init_config_t cfg = {0};
   v_system_init(&cfg);                /* heap + scheduler init */
@@ -179,4 +184,25 @@ int rtos_engine_boot(void *iface) {
 
 void rtos_engine_enable_serial_rc(void) {
   host_rc_feeder_start();   /* reads VAYU_UART_RC_PATH; pushes RC + arm SM */
+}
+
+/* ---- type-free interactive run facade (#12) --------------------------
+ * Lets the GCS worker thread drive the engine without ever seeing the firmware
+ * types (stepper_t / control_telemetry_t live only here). RC arrives via the
+ * serial feeder thread (rtos_engine_enable_serial_rc), so the loop is just
+ * step + pace; the worker reads pose via vsim_inproc_get_pose and pushes config
+ * via the vsim_inproc_set_* surface between steps. */
+static stepper_t   g_run_stepper;
+static rtos_pacer_t g_run_pacer;
+
+void rtos_engine_run_begin(void) {
+  stepper_init(&g_run_stepper);
+  rtos_pacer_init(&g_run_pacer);
+}
+
+void rtos_engine_run_step(void) {
+  control_telemetry_t ct;
+  int got;
+  step_once(&g_run_stepper, &ct, &got);
+  rtos_pacer_wait(&g_run_pacer, 0.001);   /* wall-clock pace to 1 ms/step */
 }
