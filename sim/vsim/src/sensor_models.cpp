@@ -51,13 +51,13 @@ ImuSample SensorModels::sample(const RigidBodyState& state,
     Vec3 acc_b = q_inv.rotatedVector(spec_w);
     Vec3 mag_b = q_inv.rotatedVector(magWorldNed());
 
+    // Thrust-scaled vibration: prop/motor imbalance the telemetry IMU aliases.
+    // vibe_*_std_ is set per-step from the motor command (0 = off, default).
+    const float av = noise_.acc_noise_std + vibe_acc_std_;
+    const float gv = noise_.gyr_noise_std + vibe_gyr_std_;
     ImuSample s;
-    s.acc = acc_b + acc_bias_ + Vec3(randn(noise_.acc_noise_std),
-                                     randn(noise_.acc_noise_std),
-                                     randn(noise_.acc_noise_std));
-    s.gyr = state.omega_b + gyr_bias_ + Vec3(randn(noise_.gyr_noise_std),
-                                             randn(noise_.gyr_noise_std),
-                                             randn(noise_.gyr_noise_std));
+    s.acc = acc_b + acc_bias_ + Vec3(randn(av), randn(av), randn(av));
+    s.gyr = state.omega_b + gyr_bias_ + Vec3(randn(gv), randn(gv), randn(gv));
     s.mag = mag_b + mag_bias_ + Vec3(randn(noise_.mag_noise_std),
                                      randn(noise_.mag_noise_std),
                                      randn(noise_.mag_noise_std));

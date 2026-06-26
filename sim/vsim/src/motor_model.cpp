@@ -1,11 +1,15 @@
 #include "motor_model.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace vsim {
 
 void MotorModel::reset() {
     omega_ = {0.0f, 0.0f, 0.0f, 0.0f};
+    for (auto& h : duty_hist_) h.fill(0.0f);
+    hist_pos_ = 0;
+    stalled_ = {false, false, false, false};
 }
 
 void MotorModel::update(const std::array<float, 4>& duty, float dt,
@@ -13,8 +17,34 @@ void MotorModel::update(const std::array<float, 4>& duty, float dt,
     Vec3 F(0.0f, 0.0f, 0.0f);
     Vec3 T(0.0f, 0.0f, 0.0f);
 
+    // Push this step's duty into the per-rotor delay line. The tap is read
+    // `delay` seconds back; with delay==0 it reads the just-written value, so
+    // the whole block is a no-op for the default (ideal) actuator.
+    int delay_n = 0;
+    if (params_.transport_delay > 0.0f && dt > 1e-9f) {
+        delay_n = static_cast<int>(std::lround(params_.transport_delay / dt));
+        if (delay_n >= kDelayBuf) delay_n = kDelayBuf - 1;
+    }
+    for (int i = 0; i < 4; ++i)
+        duty_hist_[i][hist_pos_] = std::clamp(duty[i], 0.0f, 1.0f);
+
     for (int i = 0; i < 4; ++i) {
-        float d = std::clamp(duty[i], 0.0f, 1.0f);
+        int tap = hist_pos_ - delay_n;
+        if (tap < 0) tap += kDelayBuf;
+        // The buffer is zero-initialised (reset()), so before it has filled the
+        // delay window the tap reads 0 = motor off — the correct startup value.
+        float d = duty_hist_[i][tap];
+
+        // Idle stall: a rotor driven below stall_duty produces no thrust and
+        // must re-spin from where it is with the slower respin_tau. Self-selects
+        // the saturating axis (the one whose mixer floors it), matching the real
+        // pitch-cycles / roll-stable asymmetry.
+        bool restalled = false;
+        if (params_.stall_duty > 0.0f) {
+            if (d < params_.stall_duty) { stalled_[i] = true; d = 0.0f; }
+            else if (stalled_[i])       { restalled = true; }   // re-spinning
+        }
+
         float target = d * params_.max_omega[i];
 
         // Asymmetric first-order tracking; pick tau by direction.
@@ -22,11 +52,13 @@ void MotorModel::update(const std::array<float, 4>& duty, float dt,
         // "exact" as the earlier comment claimed -- carrying behavior
         // forward verbatim, but the label is fixed.
         // Per-rotor spin-up constant; spin-down is 2x (legacy asymmetry).
-        const float tau_up = params_.tau[i];
+        const float tau_up = restalled ? params_.respin_tau : params_.tau[i];
         float tau = (target > omega_[i]) ? tau_up : (tau_up * 2.0f);
         if (tau < 1e-6f) tau = 1e-6f;
         float alpha = dt / (tau + dt);
         omega_[i] += (target - omega_[i]) * alpha;
+        // Clear the stall once the rotor has re-spun back near its command.
+        if (restalled && omega_[i] >= 0.95f * target) stalled_[i] = false;
 
         float w2 = omega_[i] * omega_[i];
         float thrust = params_.k_thrust[i] * w2;
@@ -50,6 +82,9 @@ void MotorModel::update(const std::array<float, 4>& duty, float dt,
         float tau_react = params_.k_moment[i] * w2 * static_cast<float>(params_.spin[i]);
         T -= axis * tau_react;
     }
+
+    // Advance the delay line.
+    hist_pos_ = (hist_pos_ + 1) % kDelayBuf;
 
     if (force_b)  *force_b  = F;
     if (torque_b) *torque_b = T;

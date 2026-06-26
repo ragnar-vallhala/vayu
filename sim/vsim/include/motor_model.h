@@ -27,6 +27,15 @@ public:
 private:
     MotorParams params_;
     std::array<float, 4> omega_ = {0.0f, 0.0f, 0.0f, 0.0f};
+
+    // Transport-delay line: per-rotor circular buffer of past duty commands.
+    // update() is called at the PHYSICS substep rate (8 kHz in the daemon), so
+    // the tap is round(delay/dt_sub); 2048 covers 256 ms @8 kHz (2 s @1 kHz).
+    static constexpr int kDelayBuf = 2048;
+    std::array<std::array<float, kDelayBuf>, 4> duty_hist_{};
+    int  hist_pos_ = 0;
+    
+    std::array<bool, 4> stalled_ = {false, false, false, false};
 };
 
 }  // namespace vsim

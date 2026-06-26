@@ -17,6 +17,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 namespace {
@@ -110,6 +111,17 @@ int vsim_inproc_load_geometry(const char *path, float out_x[4], float out_y[4],
     out_y[i] = g.motors[i].pos[1];
     out_spin[i] = motor.spin[i];
   }
+  // Higher-fidelity actuator imperfections (opt-in via env; mirrors vsim_d's
+  // main.cpp so the in-process twin carries the SAME identified model — the
+  // ~100 ms transport delay + idle-stall that reproduce the real failure).
+  if (const char *e = std::getenv("VSIM_MOTOR_DELAY_MS")) motor.transport_delay = std::atof(e) * 1e-3f;
+  if (const char *e = std::getenv("VSIM_STALL_DUTY"))     motor.stall_duty = std::atof(e);
+  if (const char *e = std::getenv("VSIM_RESPIN_TAU"))     motor.respin_tau = std::atof(e);
+  if (const char *e = std::getenv("VSIM_VIBE_G"))         g_ctl.setVibeGain(std::atof(e));
+  if (motor.transport_delay > 0.0f || motor.stall_duty > 0.0f)
+    std::fprintf(stderr, "vsim_inproc: actuator imperfections ON "
+                 "(delay=%.0fms stall_duty=%.3f respin=%.0fms)\n",
+                 motor.transport_delay * 1e3f, motor.stall_duty, motor.respin_tau * 1e3f);
   g_ctl.setDroneParams(drone);
   g_ctl.setMotorParams(motor);
   return 1;

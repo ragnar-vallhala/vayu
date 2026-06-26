@@ -26,6 +26,9 @@ public:
         phys_.setTestRig(on, pos, tether_k);
     }
     void seedSensors    (uint64_t s)            { sensors_.seed(s); }
+    // Thrust-scaled vibration gain [g per unit mean motor command], applied to
+    // the IMU each physics step from the live duty. 0 = off (default).
+    void setVibeGain    (float g_per_unit)      { vibe_gain_ = g_per_unit; }
     void setWind        (const WindConfig& w)   { wind_.setConfig(w); }
     void seedWind       (uint64_t s)            { wind_.seed(s); }
     // Last instantaneous world wind [m/s] NED, for the pose-frame telemetry.
@@ -58,6 +61,7 @@ private:
     // contact. Bridges the brief airborne phases of the resting-contact bounce
     // limit cycle so a parked airframe reads a steady -g, not impulse noise.
     float ground_hold_s_ = 0.0f;
+    float vibe_gain_ = 0.0f;   // g per unit mean motor cmd (0 = off)
 };
 
 }  // namespace vsim

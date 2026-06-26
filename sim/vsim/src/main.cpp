@@ -159,6 +159,39 @@ int main(int /*argc*/, char** /*argv*/) {
     vsim::MotorParams motor;
     std::vector<vsim::SimObstacle> obstacles;
 
+    // Higher-fidelity actuator imperfections, opt-in via env so default runs and
+    // CI are byte-identical. These persist across SET_GEOMETRY (the geometry
+    // frame does not carry them). Identified from real logs (plant_id): a
+    // ~0.10 s transport delay + idle-stall reproduce the real ~2 Hz pitch cycle.
+    if (const char* e = std::getenv("VSIM_MOTOR_DELAY_MS"))
+        motor.transport_delay = std::atof(e) * 1e-3f;
+    if (const char* e = std::getenv("VSIM_STALL_DUTY"))
+        motor.stall_duty = std::atof(e);
+    if (const char* e = std::getenv("VSIM_RESPIN_TAU"))
+        motor.respin_tau = std::atof(e);
+    if (motor.transport_delay > 0.0f || motor.stall_duty > 0.0f)
+        std::fprintf(stderr, "vsim_d: actuator imperfections ON "
+                     "(delay=%.0fms stall_duty=%.3f respin_tau=%.0fms)\n",
+                     motor.transport_delay * 1e3f, motor.stall_duty,
+                     motor.respin_tau * 1e3f);
+    if (const char* e = std::getenv("VSIM_VIBE_G")) {
+        float vg = std::atof(e);
+        ctl.setVibeGain(vg);
+        std::fprintf(stderr, "vsim_d: thrust-scaled vibration ON (%.2f g/full)\n", vg);
+    }
+    // Sim-cadence state log (env-gated): writes one row per IMU sample at the
+    // TRUE sim clock — immune to the harness's wall-clock polling/aliasing,
+    // which is what makes high-frequency dynamics unmeasurable in lockstep
+    // (sim runs faster than realtime). Columns: t_ms, wx,wy,wz [deg/s], m0..m3.
+    FILE* state_log = nullptr;
+    if (const char* e = std::getenv("VSIM_LOG_PATH")) {
+        state_log = std::fopen(e, "w");
+        if (state_log) {
+            std::fprintf(state_log, "t_ms,wx,wy,wz,m0,m1,m2,m3\n");
+            std::fprintf(stderr, "vsim_d: sim-cadence state log -> %s\n", e);
+        }
+    }
+
     // World mesh: SET_WORLD_MESH names a serialized BVH file the GCS wrote; we
     // mmap it read-only and hand SimController a non-owning trimesh::Bvh view,
     // so the mapping must outlive every physics step. munmap on replace/exit.
@@ -523,6 +556,15 @@ int main(int /*argc*/, char** /*argv*/) {
             if (!acc_enable) s.acc = vsim::Vec3(0.0f, 0.0f, 0.0f);
             if (!gyr_enable) s.gyr = vsim::Vec3(0.0f, 0.0f, 0.0f);
             if (!mag_enable) s.mag = vsim::Vec3(0.0f, 0.0f, 0.0f);
+            if (state_log) {
+                const vsim::Vec3& w = ctl.state().omega_b;   // true body rate
+                std::fprintf(state_log,
+                             "%.3f,%.3f,%.3f,%.3f,%.4f,%.4f,%.4f,%.4f\n",
+                             tick / 8.0,                       // tick @8kHz -> ms
+                             w.x() * 57.2958f, w.y() * 57.2958f, w.z() * 57.2958f,
+                             duty[0], duty[1], duty[2], duty[3]);
+                std::fflush(state_log);   // survive the harness SIGTERM/kill
+            }
         }
 
         // 4) Emit IMU once per sample (imu_hz == the firmware loop rate).
