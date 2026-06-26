@@ -276,7 +276,13 @@ if(VAYU_SITL_RTOS_BUILD)
       ${NAVHAL_ROOT}/include/port/cortex-m4
       ${VAYU_ROOT}/sim/vsim/include)
   target_link_libraries(vayu_sitl_rtos PRIVATE vayu_sitl_rtos_core)
-  message(STATUS "vayu_sitl_rtos_core (lib) + vayu_sitl_rtos (bin) configured")
+
+  # GCS-integration test (#12): drives the SAME slim engine API SimWorker uses,
+  # from a non-firmware C++ TU (only host_rtos_engine_api.h + vsim_iface.h) — no
+  # Qt, no display. Proves boot+telemetry+pose+config link and behave.
+  add_executable(test_gcs_engine_api test/test_gcs_engine_api.cpp)
+  target_link_libraries(test_gcs_engine_api PRIVATE vayu_sitl_rtos_core)
+  message(STATUS "vayu_sitl_rtos_core (lib) + vayu_sitl_rtos (bin) + test_gcs_engine_api configured")
 endif()
 
 # ----------------------------------------------------------------------------
