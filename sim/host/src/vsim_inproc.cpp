@@ -11,7 +11,8 @@
  * process, single thread, stepper owns the seed). C ABI for the C stepper.
  */
 #include "sim_controller.h"
-#include "vsim_proto.h"  // vsim_ctl_geometry_t (the GCS wire layout)
+#include "trimesh_bvh.h"  // vsim::trimesh::Bvh for VSIM_CTL_SET_WORLD_MESH
+#include "vsim_proto.h"   // vsim_ctl_* wire layouts (the GCS config surface)
 
 #include <array>
 #include <atomic>
@@ -20,6 +21,12 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <vector>
+
+#include <fcntl.h>     // open()        — world-mesh mmap
+#include <sys/mman.h>  // mmap/munmap
+#include <sys/stat.h>  // fstat
+#include <unistd.h>    // close
 
 namespace {
 constexpr float kRad2Deg = 57.29577951308232f;
@@ -34,6 +41,47 @@ std::atomic<uint32_t> g_pose_seq{0};
 vsim_pose_frame_t      g_pose_buf{};
 uint64_t               g_pose_tick = 0;   // physics steps since reset
 std::array<float, 4>   g_last_duty{0, 0, 0, 0};
+
+// ---- live config + fault state (#11d) -------------------------------------
+// Persistent params the config setters mutate then re-push (SET_WORLD keeps the
+// rotor layout; SET_GEOMETRY keeps drag/world — same split as vsim_d's locals).
+vsim::DroneParams g_drone;
+vsim::MotorParams g_motor;
+std::vector<vsim::SimObstacle> g_obstacles;
+// Faults / sensor enables / pause, applied in vsim_inproc_step exactly where
+// vsim_d applies them (motor-kill before stepping, dropout/enable after sampling).
+bool g_motor_kill[4] = {false, false, false, false};
+bool g_imu_dropout = false;
+bool g_acc_en = true, g_gyr_en = true, g_mag_en = true;
+bool g_paused = false;
+int  g_substeps = 8;        // physics_hz / imu_hz; SET_RATES overrides
+vsim::ImuSample g_imu_held; // last good sample, frozen during imu_dropout
+// World collision mesh: the mmap must outlive setWorldMesh (Bvh points into it).
+void  *g_world_map = nullptr;
+size_t g_world_map_size = 0;
+
+void dropWorldMesh() {
+  g_ctl.clearWorldMesh();
+  if (g_world_map) { ::munmap(g_world_map, g_world_map_size); g_world_map = nullptr; g_world_map_size = 0; }
+}
+
+// Shared geometry application (used by both the file loader and SET_GEOMETRY):
+// mass + full inertia + per-rotor layout onto g_drone/g_motor, then push.
+void applyGeometry(const vsim_ctl_geometry_t &g) {
+  g_drone.mass = g.mass;
+  for (int k = 0; k < 9; ++k) g_drone.inertia.m[k] = g.inertia[k];
+  for (int i = 0; i < 4; ++i) {
+    g_motor.pos_b[i]     = vsim::Vec3(g.motors[i].pos[0], g.motors[i].pos[1], g.motors[i].pos[2]);
+    g_motor.axis_b[i]    = vsim::Vec3(g.motors[i].axis[0], g.motors[i].axis[1], g.motors[i].axis[2]);
+    g_motor.spin[i]      = (g.motors[i].spin >= 0.0f) ? +1 : -1;
+    g_motor.k_thrust[i]  = g.motors[i].k_thrust;
+    g_motor.k_moment[i]  = g.motors[i].k_moment;
+    g_motor.max_omega[i] = g.motors[i].max_omega;
+    g_motor.tau[i]       = (g.motors[i].tau > 1e-6f) ? g.motors[i].tau : 0.0125f;
+  }
+  g_ctl.setDroneParams(g_drone);
+  g_ctl.setMotorParams(g_motor);
+}
 
 void publishPose() {
   const vsim::RigidBodyState &st = g_ctl.state();
@@ -156,28 +204,16 @@ int vsim_inproc_load_geometry(const char *path, float out_x[4], float out_y[4],
   if (n != sizeof g)
     return 0;
 
-  vsim::DroneParams drone;  // defaults; geometry overwrites mass + inertia only
-  vsim::MotorParams motor;  // defaults; geometry overwrites the rotor layout
-  drone.mass = g.mass;
-  for (int k = 0; k < 9; ++k)
-    drone.inertia.m[k] = g.inertia[k];
+  applyGeometry(g);   // mass + inertia + rotor layout onto g_drone/g_motor
+  // Higher-fidelity actuator imperfections (opt-in via env), on top of the
+  // geometry-derived rotor layout; re-push since applyActuatorEnv mutates g_motor.
+  if (applyActuatorEnv(g_motor))
+    g_ctl.setMotorParams(g_motor);
   for (int i = 0; i < 4; ++i) {
-    motor.pos_b[i] = vsim::Vec3(g.motors[i].pos[0], g.motors[i].pos[1], g.motors[i].pos[2]);
-    motor.axis_b[i] = vsim::Vec3(g.motors[i].axis[0], g.motors[i].axis[1], g.motors[i].axis[2]);
-    motor.spin[i] = (g.motors[i].spin >= 0.0f) ? +1 : -1;
-    motor.k_thrust[i] = g.motors[i].k_thrust;
-    motor.k_moment[i] = g.motors[i].k_moment;
-    motor.max_omega[i] = g.motors[i].max_omega;
-    motor.tau[i] = (g.motors[i].tau > 1e-6f) ? g.motors[i].tau : 0.0125f;
     out_x[i] = g.motors[i].pos[0];
     out_y[i] = g.motors[i].pos[1];
-    out_spin[i] = motor.spin[i];
+    out_spin[i] = g_motor.spin[i];
   }
-  // Higher-fidelity actuator imperfections (opt-in via env), on top of the
-  // geometry-derived rotor layout.
-  applyActuatorEnv(motor);
-  g_ctl.setDroneParams(drone);
-  g_ctl.setMotorParams(motor);
   return 1;
 }
 
@@ -197,11 +233,26 @@ void vsim_inproc_apply_actuator_env_default(void) {
  * sample the IMU, and write the 88-byte firmware payload. */
 void vsim_inproc_step(const float duty[4], float dt, uint8_t out_imu[88]) {
   std::array<float, 4> d{duty[0], duty[1], duty[2], duty[3]};
-  const int substeps = 8;
+  // Motor-kill faults: a dead ESC produces no thrust regardless of command
+  // (also reflected in the pose duty). Same point vsim_d applies it.
+  for (int i = 0; i < 4; ++i)
+    if (g_motor_kill[i]) d[i] = 0.0f;
+
+  const int substeps = g_substeps > 0 ? g_substeps : 8;
   const float dt_sub = dt / static_cast<float>(substeps);
-  for (int i = 0; i < substeps; ++i)
-    g_ctl.stepOnce(d, dt_sub);
-  const vsim::ImuSample s = g_ctl.sampleImu(dt_sub);
+  vsim::ImuSample s;
+  if (!g_paused) {
+    for (int i = 0; i < substeps; ++i)
+      g_ctl.stepOnce(d, dt_sub);
+    s = g_ctl.sampleImu(dt_sub);
+    if (g_imu_dropout) s = g_imu_held;   // freeze on the last good sample
+    else g_imu_held = s;
+    if (!g_acc_en) s.acc = vsim::Vec3(0.0f, 0.0f, 0.0f);  // disabled sensor -> 0
+    if (!g_gyr_en) s.gyr = vsim::Vec3(0.0f, 0.0f, 0.0f);
+    if (!g_mag_en) s.mag = vsim::Vec3(0.0f, 0.0f, 0.0f);
+  } else {
+    s = g_imu_held;   // paused: hold physics, keep feeding the last sample
+  }
   packImu(s, out_imu);
   g_last_duty = d;
   ++g_pose_tick;
@@ -222,5 +273,123 @@ void vsim_inproc_get_pose(vsim_pose_frame_t *out) {
     if (s1 == s2) return;                       // stable copy
   }
 }
+
+/* ===== in-process config surface (#11d) ===============================
+ * One function per VSIM_CTL_* message, reusing the vsim_proto.h wire structs as
+ * args. Each is a faithful port of vsim_d's dispatch switch (sim/vsim/src/main.cpp
+ * ~L313-537) onto the SAME SimController setters, so the GCS configures the
+ * in-process physics by direct call instead of writing the ctl FIFO. */
+
+void vsim_inproc_reset_to(const vsim_ctl_reset_t *b) {
+  vsim::RigidBodyState s;
+  s.pos_w   = vsim::Vec3(b->pos_w[0], b->pos_w[1], b->pos_w[2]);
+  s.att     = vsim::Quat(b->quat_wxyz[0], b->quat_wxyz[1], b->quat_wxyz[2], b->quat_wxyz[3]);
+  s.vel_w   = vsim::Vec3(b->vel_w[0], b->vel_w[1], b->vel_w[2]);
+  s.omega_b = vsim::Vec3(b->omega_b[0], b->omega_b[1], b->omega_b[2]);
+  g_ctl.resetState(s);
+  if (b->seed != 0) { g_ctl.seedSensors(b->seed); g_ctl.seedWind(b->seed); }
+  g_pose_tick = 0;
+  g_last_duty = {0, 0, 0, 0};
+}
+
+void vsim_inproc_set_testrig(const vsim_ctl_testrig_t *t) {
+  g_ctl.setTestRig(t->enable != 0, vsim::Vec3(t->pos[0], t->pos[1], t->pos[2]), t->tether_k);
+}
+
+void vsim_inproc_set_geometry(const vsim_ctl_geometry_t *g) {
+  applyGeometry(*g);
+  if (applyActuatorEnv(g_motor)) g_ctl.setMotorParams(g_motor);
+}
+
+void vsim_inproc_set_world(const vsim_ctl_world_t *w) {
+  g_drone.gravity            = w->gravity;
+  g_drone.ground_z           = w->ground_z;
+  g_drone.ground_restitution = w->restitution;
+  g_drone.linear_drag        = w->linear_drag;
+  g_drone.angular_drag       = w->angular_drag;
+  g_drone.ground_right_gain  = w->ground_right_gain;
+  g_drone.ground_right_damp  = w->ground_right_damp;
+  g_ctl.setDroneParams(g_drone);
+}
+
+void vsim_inproc_clear_obstacles(void) {
+  g_obstacles.clear();
+  g_ctl.setObstacles(g_obstacles);
+}
+
+void vsim_inproc_add_obstacle(const vsim_ctl_obstacle_t *b) {
+  vsim::SimObstacle ob;
+  ob.type        = b->type;
+  ob.pos         = vsim::Vec3(b->pos[0], b->pos[1], b->pos[2]);
+  ob.size        = vsim::Vec3(b->size[0], b->size[1], b->size[2]);
+  ob.rot_deg     = vsim::Vec3(b->rot_deg[0], b->rot_deg[1], b->rot_deg[2]);
+  ob.restitution = b->restitution;
+  g_obstacles.push_back(ob);
+  g_ctl.setObstacles(g_obstacles);
+}
+
+int vsim_inproc_set_world_mesh(const vsim_ctl_world_mesh_t *m) {
+  char path[sizeof m->path];
+  std::memcpy(path, m->path, sizeof path);
+  path[sizeof path - 1] = '\0';
+  dropWorldMesh();                          // release any previous mapping first
+  int fd = ::open(path, O_RDONLY);
+  if (fd < 0) { std::fprintf(stderr, "vsim_inproc: world mesh open(%s) failed\n", path); return 0; }
+  struct stat st {};
+  if (::fstat(fd, &st) != 0 || st.st_size <= 0) {
+    std::fprintf(stderr, "vsim_inproc: world mesh fstat failed\n"); ::close(fd); return 0;
+  }
+  void *base = ::mmap(nullptr, static_cast<size_t>(st.st_size), PROT_READ, MAP_PRIVATE, fd, 0);
+  ::close(fd);                              // mapping survives the fd
+  if (base == MAP_FAILED) { std::fprintf(stderr, "vsim_inproc: world mesh mmap failed\n"); return 0; }
+  vsim::trimesh::Bvh bvh = vsim::trimesh::Bvh::fromBytes(
+      static_cast<const uint8_t *>(base), static_cast<size_t>(st.st_size));
+  if (!bvh.valid() || bvh.h->triangle_count != m->triangle_count ||
+      bvh.h->vertex_count != m->vertex_count) {
+    std::fprintf(stderr, "vsim_inproc: world mesh invalid/mismatch\n");
+    ::munmap(base, static_cast<size_t>(st.st_size));
+    return 0;
+  }
+  g_world_map = base;
+  g_world_map_size = static_cast<size_t>(st.st_size);
+  g_ctl.setWorldMesh(bvh, m->restitution);
+  return 1;
+}
+
+void vsim_inproc_clear_world_mesh(void) { dropWorldMesh(); }
+
+void vsim_inproc_set_rates(const vsim_ctl_rates_t *r) {
+  int imu = static_cast<int>(r->imu_hz), phys = static_cast<int>(r->physics_hz);
+  g_substeps = (imu > 0 && phys >= imu) ? phys / imu : 8;   // physics substeps/sample
+}
+
+void vsim_inproc_set_noise(const vsim_ctl_noise_t *n) {
+  vsim::SensorNoise sn;   // start from defaults, override σ/clip
+  sn.acc_noise_std = n->acc_sigma; sn.acc_bias_clip = n->acc_bias_clip;
+  sn.gyr_noise_std = n->gyr_sigma; sn.gyr_bias_clip = n->gyr_bias_clip;
+  sn.mag_noise_std = n->mag_sigma; sn.mag_bias_clip = n->mag_bias_clip;
+  g_ctl.setNoise(sn);
+  g_acc_en = (n->acc_enable != 0);
+  g_gyr_en = (n->gyr_enable != 0);
+  g_mag_en = (n->mag_enable != 0);
+}
+
+void vsim_inproc_set_faults(const vsim_ctl_faults_t *f) {
+  for (int i = 0; i < 4; ++i) g_motor_kill[i] = (f->motor_kill[i] != 0);
+  g_imu_dropout = (f->imu_dropout != 0);
+}
+
+void vsim_inproc_set_wind(const vsim_ctl_wind_t *w) {
+  vsim::WindConfig wc;
+  wc.steady      = vsim::Vec3(w->steady[0], w->steady[1], w->steady[2]);
+  wc.gust_amp    = w->gust_amp;
+  wc.gust_period = w->gust_period;
+  wc.turb_sigma  = w->turb_sigma;
+  wc.turb_tau    = w->turb_tau;
+  wc.enable      = (w->enable != 0);
+  g_ctl.setWind(wc);
+}
+
+void vsim_inproc_set_pause(int paused) { g_paused = (paused != 0); }
 
 }  // extern "C"
