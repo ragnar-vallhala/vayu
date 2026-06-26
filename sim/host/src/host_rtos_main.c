@@ -300,6 +300,12 @@ static int run_hold(uint32_t seed, int N, double *out_wall, double *out_x) {
   attitude_t att = {0};
   control_telemetry_t ct;
   int got;
+  /* #11b smoke test: VAYU_RTOS_REALTIME paces the loop to wall-clock (1 ms/step)
+   * so a run takes ~N ms instead of ~N/40 ms. Pacing only sleeps — the
+   * fingerprints below must stay bit-identical to the free-run values. */
+  const int realtime = (int)env_f("VAYU_RTOS_REALTIME", 0);
+  rtos_pacer_t pacer;
+  if (realtime) rtos_pacer_init(&pacer);
   struct timespec t0, t1;
   clock_gettime(CLOCK_MONOTONIC, &t0);
   for (int n = 0; n < N; n++) {
@@ -309,6 +315,7 @@ static int run_hold(uint32_t seed, int N, double *out_wall, double *out_x) {
     imu_fp += (double)s.sample.converted.gyr[0] + s.sample.converted.mag[0];
     if (attitude_queue_telemetry_peek(&att))
       fp += (double)att.roll + att.pitch + att.yaw;
+    if (realtime) rtos_pacer_wait(&pacer, 0.001);
   }
   clock_gettime(CLOCK_MONOTONIC, &t1);
   double wall = (t1.tv_sec - t0.tv_sec) + (t1.tv_nsec - t0.tv_nsec) / 1e9;

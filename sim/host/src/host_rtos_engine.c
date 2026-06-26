@@ -135,6 +135,30 @@ void step_once(stepper_t *s, control_telemetry_t *ct, int *got) {
   }
 }
 
+/* ---- wall-clock pacer (#11b) ----------------------------------------- */
+void rtos_pacer_init(rtos_pacer_t *p) {
+  clock_gettime(CLOCK_MONOTONIC, &p->next);
+  p->behind = 0;
+}
+
+void rtos_pacer_wait(rtos_pacer_t *p, double dt_s) {
+  long ns = (long)(dt_s * 1e9 + 0.5);
+  p->next.tv_nsec += ns;
+  while (p->next.tv_nsec >= 1000000000L) {
+    p->next.tv_nsec -= 1000000000L;
+    p->next.tv_sec++;
+  }
+  struct timespec now;
+  clock_gettime(CLOCK_MONOTONIC, &now);
+  if (now.tv_sec > p->next.tv_sec ||
+      (now.tv_sec == p->next.tv_sec && now.tv_nsec > p->next.tv_nsec)) {
+    p->behind++;       /* fell behind — reset baseline so we don't busy-spiral */
+    p->next = now;
+    return;
+  }
+  clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &p->next, NULL);
+}
+
 int rtos_engine_boot(void) {
   fprintf(stderr, "vayu_sitl_rtos: booting the REAL vaios scheduler on host\n");
   vaios_init_config_t cfg = {0};
