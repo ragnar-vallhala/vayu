@@ -4,7 +4,9 @@
 
 /* Hard safety caps (the physical rig should also have soft-stops). These bound
  * what any CMD_SYSID_EXCITE can do regardless of the requested values. */
-#define SYSID_MAX_AMP_DPS 120.0f     // clamp commanded amplitude (deg/s)
+#define SYSID_MAX_AMP_DPS 120.0f     // clamp commanded amplitude, RATE_SP mode (deg/s)
+#define SYSID_MAX_AMP_U 0.30f        // clamp commanded amplitude, U mode (control effort,
+                                     // u ~O(1) full scale; this is ~30% authority — start lower)
 #define SYSID_MAX_F_HZ 40.0f         // clamp chirp frequencies
 #define SYSID_MAX_DURATION_S 12.0f   // clamp excitation length
 #define SYSID_ABORT_ANGLE_DEG 35.0f  // |angle| on the excited axis -> abort
@@ -21,12 +23,14 @@
 
 static volatile int s_active = 0;
 static uint8_t s_axis = 0;
+static uint8_t s_mode = SYSID_INJECT_RATE_SP;
 static float s_f0, s_f1, s_amp, s_dur;
 static float s_elapsed;
 static float s_phase; // chirp phase (rad)
 
-/* Interleaved (sp,gyro) i16, 0.1 deg/s. Written by the 1 kHz control loop, read
- * back by the telemetry task only AFTER the run ends (no concurrent access). */
+/* Interleaved (u, gyro) i16: slot 0 = rate-PID output u (x1000, SYSID_U_SCALE),
+ * slot 1 = gyro (0.1 deg/s, SYSID_W_SCALE). Written by the 1 kHz control loop,
+ * read back by the telemetry task only AFTER the run ends (no concurrent access). */
 static int16_t s_cap[SYSID_CAP_N * 2];
 static int s_cap_n = 0; // samples captured this run
 static int s_decim = 0;
@@ -53,9 +57,13 @@ void sysid_start(const sysid_request_t *req) {
   if (req == 0 || req->axis > 2)
     return;
   s_axis = req->axis;
+  s_mode = (req->mode == SYSID_INJECT_U) ? SYSID_INJECT_U : SYSID_INJECT_RATE_SP;
   s_f0 = clampf(req->f0_hz, 0.1f, SYSID_MAX_F_HZ);
   s_f1 = clampf(req->f1_hz, s_f0, SYSID_MAX_F_HZ);
-  s_amp = clampf(req->amp_dps, 0.0f, SYSID_MAX_AMP_DPS);
+  // Amplitude cap is mode-dependent: deg/s for the rate setpoint, control-effort
+  // for direct u-injection (which drives the motors far harder for the same number).
+  s_amp = clampf(req->amp_dps, 0.0f,
+                 s_mode == SYSID_INJECT_U ? SYSID_MAX_AMP_U : SYSID_MAX_AMP_DPS);
   s_dur = clampf(req->duration_s, 0.1f, SYSID_MAX_DURATION_S);
   s_elapsed = 0.0f;
   s_phase = 0.0f;
@@ -68,6 +76,8 @@ void sysid_start(const sysid_request_t *req) {
 void sysid_abort(void) { s_active = 0; }
 
 int sysid_active(void) { return s_active; }
+
+int sysid_inject_mode(void) { return s_mode; }
 
 void sysid_step(float dt, const float angles_deg[3], const float rates_dps[3],
                 float inject_out[3]) {
@@ -145,7 +155,7 @@ void sysid_dump_request(void) {
 
 int sysid_dump_active(void) { return s_dump_active; }
 
-int sysid_dump_next(uint16_t *start, int16_t *sp, int16_t *gyro, int cap) {
+int sysid_dump_next(uint16_t *start, int16_t *u, int16_t *gyro, int cap) {
   if (!s_dump_active || s_dump_pos >= s_cap_n) {
     s_dump_active = 0;
     return 0;
@@ -157,8 +167,8 @@ int sysid_dump_next(uint16_t *start, int16_t *sp, int16_t *gyro, int cap) {
     n = cap;
   *start = (uint16_t)s_dump_pos;
   for (int i = 0; i < n; i++) {
-    sp[i] = s_cap[(s_dump_pos + i) * 2];
-    gyro[i] = s_cap[(s_dump_pos + i) * 2 + 1];
+    u[i] = s_cap[(s_dump_pos + i) * 2];          // slot 0 = rate-PID output u (x1000)
+    gyro[i] = s_cap[(s_dump_pos + i) * 2 + 1];   // slot 1 = gyro (0.1 deg/s)
   }
   s_dump_pos += n;
   if (s_dump_pos >= s_cap_n)

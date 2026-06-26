@@ -41,7 +41,7 @@ void navlink_tx_log(const char *buf, uint8_t len) {
 }
 
 void navlink_tx_sysid_sample(uint16_t start, uint16_t total, uint16_t hz,
-                             uint8_t axis, uint8_t count, const int16_t *sp,
+                             uint8_t axis, uint8_t count, const int16_t *u,
                              const int16_t *gyro) {
   static uint8_t seq = 0;
   navlink_sysid_sample_t msg = {0};
@@ -51,7 +51,7 @@ void navlink_tx_sysid_sample(uint16_t start, uint16_t total, uint16_t hz,
   msg.axis = axis;
   msg.count = count;
   for (uint8_t i = 0; i < count && i < 10; i++) {
-    msg.sp[i] = sp[i];
+    msg.u[i] = u[i];
     msg.gyro[i] = gyro[i];
   }
   uint8_t frame[NAVLINK_MAX_FRAME];

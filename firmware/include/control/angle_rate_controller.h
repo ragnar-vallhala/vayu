@@ -45,6 +45,16 @@ bool angle_rate_controller_set_gyro_lpf(uint8_t axis, float rc);
 float angle_rate_controller_get_gyro_lpf(uint8_t axis);
 
 /**
+ * @brief Set the D-term low-pass time constant [s] for one rate axis
+ * (rc <= 0 = passthrough / raw derivative). Filters the PID's derivative
+ * path; co-tuned with Kd.
+ */
+bool angle_rate_controller_set_d_lpf(uint8_t axis, float rc);
+
+/** @brief Read the live D-term LPF time constant [s] for one rate axis. */
+float angle_rate_controller_get_d_lpf(uint8_t axis);
+
+/**
  * @brief Set the per-motor mix signs from the airframe geometry (motor body
  * positions [m] + spin +1/-1), so roll/pitch/yaw->motor mixing matches the
  * actual layout. Keeps the firmware mixer consistent with the sim/vehicle.

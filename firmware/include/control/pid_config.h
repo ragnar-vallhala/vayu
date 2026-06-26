@@ -36,6 +36,17 @@
  * --------------------------------------------------------------------------*/
 #define GYRO_LPF_ARGC 2
 
+/* ----------------------------------------------------------------------------
+ * CMD_SET_D_LPF (0x000E) — live rate-loop derivative (D-term) low-pass update.
+ * Same payload shape as CMD_SET_GYRO_LPF, but targets the rate PID's D filter.
+ *
+ *   payload[0..1]   cmd_id  = CMD_SET_D_LPF
+ *   payload[2]      argc    (must be >= D_LPF_ARGC)
+ *   payload[3..6]   arg0  axis  (float; 0 = roll, 1 = pitch, 2 = yaw)
+ *   payload[7..10]  arg1  rc    (float; D-term LPF time constant [s], <=0 = off)
+ * --------------------------------------------------------------------------*/
+#define D_LPF_ARGC 2
+
 typedef enum {
   PID_CTRL_ANGLE = 0,
   PID_CTRL_RATE  = 1,
@@ -92,5 +103,18 @@ bool pid_config_get_gyro_lpf(uint8_t axis, float *rc);
  */
 vayu_status_t pid_config_apply_gyro_lpf_command(const uint8_t *payload,
                                                 uint16_t payload_len);
+
+/**
+ * @brief Fetch the stored D-term LPF time constant for one rate axis, if any.
+ * @return true + fills *rc if a persisted value exists; false otherwise.
+ */
+bool pid_config_get_d_lpf(uint8_t axis, float *rc);
+
+/**
+ * @brief Validate and apply a CMD_SET_D_LPF payload: parse [axis, rc],
+ *        push to the live rate controller's D filter, and persist.
+ */
+vayu_status_t pid_config_apply_d_lpf_command(const uint8_t *payload,
+                                             uint16_t payload_len);
 
 #endif // VAYU_PID_CONFIG_H

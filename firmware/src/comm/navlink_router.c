@@ -145,6 +145,7 @@ static navlink_ack_t on_cmd_sysid_excite(void *ctx, const navlink_frame_hdr_t *h
   if (m->axis > 2u)
     return navlink_ack_result(ACK_BAD);
   sysid_request_t req = {.axis = m->axis,
+                         .mode = m->mode,    /* 0 rate-setpoint (default) / 1 u-injection */
                          .f0_hz = m->f0_hz,
                          .f1_hz = m->f1_hz,
                          .amp_dps = m->amp_dps,
@@ -295,6 +296,17 @@ on_cmd_set_gyro_lpf(void *ctx, const navlink_frame_hdr_t *hdr,
 }
 
 static navlink_ack_t
+on_cmd_set_d_lpf(void *ctx, const navlink_frame_hdr_t *hdr,
+                 const navlink_cmd_set_d_lpf_t *m) {
+  (void)ctx; (void)hdr;
+  uint8_t p[3 + 2 * 4];
+  float args[2] = {(float)m->axis, m->rc};
+  uint8_t len = build_cmd(p, (uint16_t)CMD_SET_D_LPF, args, 2);
+  return navlink_ack_result(pid_config_apply_d_lpf_command(p, len) == VAYU_OK ? ACK_OK
+                                                                   : ACK_BAD);
+}
+
+static navlink_ack_t
 on_cmd_set_motor_geometry(void *ctx, const navlink_frame_hdr_t *hdr,
                           const navlink_cmd_set_motor_geometry_t *m) {
   (void)ctx; (void)hdr;
@@ -381,6 +393,7 @@ void navlink_router_init(void) {
   s_handlers.on_cmd_disarm = on_cmd_disarm;
   s_handlers.on_cmd_calibrate_imu = on_cmd_calibrate_imu;
   s_handlers.on_cmd_set_gyro_lpf = on_cmd_set_gyro_lpf;
+  s_handlers.on_cmd_set_d_lpf = on_cmd_set_d_lpf;
   s_handlers.on_cmd_set_motor_geometry = on_cmd_set_motor_geometry;
   s_handlers.on_cmd_set_flight_mode = on_cmd_set_flight_mode;
   s_handlers.on_time_sync = on_time_sync;

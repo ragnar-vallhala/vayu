@@ -93,6 +93,13 @@ static inline float vayu_dt_from_cycles(uint32_t now_cyc, uint32_t prev_cyc) {
  * (6-state attitude + gyro bias), SF_EKF_ACCEL_BIAS (9-state, also accel
  * bias). EKF tunables live in include/est/ekf.h. */
 #define SF_FILTER_USED SF_EKF
+
+/* Active inner (rate) loop algorithm. One of: RATE_CTRL_PID (the shipped per-
+ * axis PID, default) or RATE_CTRL_INDI (incremental dynamic inversion; see
+ * include/control/rate_indi.h). Selected like SF_FILTER_USED — same compile-
+ * time token-substitution. INDI tunables (b/k/lpf) live in rate_indi.h. */
+#define RATE_CTRL_ALGO_USED RATE_CTRL_INDI
+
 #define RADIO_AVOID_BAND 10
 
 // PID
@@ -134,27 +141,33 @@ static inline float vayu_dt_from_cycles(uint32_t now_cyc, uint32_t prev_cyc) {
 // at runtime via VSIM_CTL_SET_GEOMETRY, so a build-divergent baseline only made
 // the SITL-tuned gains rest on a different fallback than hardware (a per-slot
 // footgun: any gain NOT in the persisted tune resolved 16x apart between
-// builds). These values are the flight-validated S500 autotune result. They are
-// only the FALLBACK: a persisted tune (0:pid.bin, loaded by pid_config_init()
-// before the controllers init) overrides any of them per slot — so the SAME
-// pid.bin now yields identical behaviour in sim and on the board.
-#define DEAFULT_ROLL_ANGLE_RATE_KP 0.0005f
-#define DEAFULT_ROLL_ANGLE_RATE_KI 0.01f
-#define DEAFULT_ROLL_ANGLE_RATE_KD 0.0f
+// builds). Roll/pitch are the on-hardware rig tune reconciled from
+// docs/store/rig_tune.json (captured 2026-06-22): roll is sysid-tuned, pitch is
+// seeded from roll (its own sysid still pending). Yaw stays the S500 autotune
+// seed. They are only the FALLBACK: a persisted tune (0:pid.bin, loaded by
+// pid_config_init() before the controllers init) overrides any of them per slot
+// — so the SAME pid.bin now yields identical behaviour in sim and on the board.
+#define DEAFULT_ROLL_ANGLE_RATE_KP 0.012f
+#define DEAFULT_ROLL_ANGLE_RATE_KI 0.00811f
+#define DEAFULT_ROLL_ANGLE_RATE_KD 0.00025f
 #define DEAFULT_ROLL_ANGLE_RATE_KFF 0.0f
 #define DEAFULT_ROLL_ANGLE_RATE_I_MAX 0.2f
 #define DEAFULT_ROLL_ANGLE_RATE_D_MAX 0.25f
-#define DEAFULT_ROLL_ANGLE_RATE_D_LPF_RC 0.3f
+// D-term LPF time constant. RC=0.3 puts the cutoff at 1/(2*pi*RC) ~= 0.5 Hz,
+// which filters the derivative path down to near-nothing — fine when Kd was 0,
+// but the rig tune added a real Kd, so the D action was being thrown away. 0.004
+// s ~= 40 Hz passes useful lead while still rejecting gyro noise.
+#define DEAFULT_ROLL_ANGLE_RATE_D_LPF_RC 0.004f
 #define DEAFULT_ROLL_ANGLE_RATE_OUT_MIN -1.0f
 #define DEAFULT_ROLL_ANGLE_RATE_OUT_MAX 1.0f
 
-#define DEAFULT_PITCH_ANGLE_RATE_KP 0.0005f
-#define DEAFULT_PITCH_ANGLE_RATE_KI 0.01f
-#define DEAFULT_PITCH_ANGLE_RATE_KD 0.0f
+#define DEAFULT_PITCH_ANGLE_RATE_KP 0.012f
+#define DEAFULT_PITCH_ANGLE_RATE_KI 0.005f
+#define DEAFULT_PITCH_ANGLE_RATE_KD 0.0001f
 #define DEAFULT_PITCH_ANGLE_RATE_KFF 0.0f
 #define DEAFULT_PITCH_ANGLE_RATE_I_MAX 0.2f
 #define DEAFULT_PITCH_ANGLE_RATE_D_MAX 0.25f
-#define DEAFULT_PITCH_ANGLE_RATE_D_LPF_RC 0.3f
+#define DEAFULT_PITCH_ANGLE_RATE_D_LPF_RC 0.004f  // see roll: ~40 Hz so the rig-tune Kd isn't filtered to zero
 #define DEAFULT_PITCH_ANGLE_RATE_OUT_MIN -1.0f
 #define DEAFULT_PITCH_ANGLE_RATE_OUT_MAX 1.0f
 
@@ -173,12 +186,15 @@ static inline float vayu_dt_from_cycles(uint32_t now_cyc, uint32_t prev_cyc) {
 #define DEAFULT_YAW_ANGLE_RATE_OUT_MIN -1.0f
 #define DEAFULT_YAW_ANGLE_RATE_OUT_MAX 1.0f
 
-// Angle controller
-#define DEAFULT_ROLL_ANGLE_KP 4.0f
+// Angle controller. Roll/pitch reconciled from the on-hardware rig tune
+// (docs/store/rig_tune.json, 2026-06-22): roll is sysid loop-shaped; pitch was
+// softened 4.0 -> 1.0 to break the cascade runaway the old 4.0 default drove
+// over the soft inner loop (its own sysid still pending).
+#define DEAFULT_ROLL_ANGLE_KP 1.6898f
 #define DEAFULT_ROLL_ANGLE_TARGET_MAX 100.0f
 #define DEAFULT_ROLL_ANGLE_OUT_MAX 100.0f
 
-#define DEAFULT_PITCH_ANGLE_KP 4.0f
+#define DEAFULT_PITCH_ANGLE_KP 1.6898f
 #define DEAFULT_PITCH_ANGLE_TARGET_MAX 100.0f
 #define DEAFULT_PITCH_ANGLE_OUT_MAX 100.0f
 

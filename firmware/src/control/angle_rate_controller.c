@@ -6,6 +6,7 @@
 #include "control/pid_config.h"
 #include "control/control_buffer.h"
 #include "control/pid.h"
+#include "control/rate_indi.h"   /* optional INDI inner loop (RATE_CTRL_ALGO_USED) */
 #include "control/sysid.h"
 #include "memory.h"   /* v_memcpy */
 #include "navhal.h"
@@ -72,6 +73,10 @@ static AngleRateController angle_rate_controller = {
 static float s_gyro_lpf_rc[NUM_AXES]    = {0.0f, 0.0f, 0.0f};
 static float s_gyro_lpf_state[NUM_AXES] = {0.0f, 0.0f, 0.0f};
 
+/* INDI inner-loop state (used only when RATE_CTRL_ALGO_USED == RATE_CTRL_INDI;
+ * a few floats per axis otherwise idle). Configured in angle_rate_controller_init. */
+static rate_indi_t s_indi[NUM_AXES];
+
 bool angle_rate_controller_set_gyro_lpf(uint8_t axis, float rc) {
   if (axis >= NUM_AXES) {
     return false;
@@ -84,17 +89,34 @@ float angle_rate_controller_get_gyro_lpf(uint8_t axis) {
   return (axis < NUM_AXES) ? s_gyro_lpf_rc[axis] : 0.0f;
 }
 
+bool angle_rate_controller_set_d_lpf(uint8_t axis, float rc) {
+  if (axis >= NUM_AXES) {
+    return false;
+  }
+  /* Single 32-bit field; a concurrent hot-loop read sees old-or-new RC, which
+   * is harmless (R8.6: no lock in the rate loop), same as the gain setter. */
+  v_pid_set_d_lpf_rc(&angle_rate_controller.pid[axis], rc);
+  return true;
+}
+
+float angle_rate_controller_get_d_lpf(uint8_t axis) {
+  return (axis < NUM_AXES) ? angle_rate_controller.pid[axis].d_lpf_rc : 0.0f;
+}
+
 /* Per-motor mix signs derived from the airframe geometry (position + spin), so
  * the roll/pitch/yaw -> motor mixing matches whatever motor layout the sim
  * physics / real airframe actually uses, instead of a hardcoded numbering.
  *   out_i = throttle + roll*(-sign y_i) + pitch*(sign x_i) + yaw*(spin_i)
- * Defaults reproduce the legacy X-quad mix exactly (FR=M1, RR=M2, RL=M3, FL=M4),
- * so behavior is unchanged until a vehicle geometry is pushed. ONE geometry
- * source (the GCS vehicle / loaded .vveh) drives both the sim physics and this
- * mix, keeping firmware + sim consistent and stable for any quad layout. */
+ * Defaults are the on-hardware rig geometry reconciled from
+ * docs/store/rig_tune.json (2026-06-22): pos_x/pos_y reproduce the legacy X-quad
+ * roll/pitch mix (FR=M1, RR=M2, RL=M3, FL=M4), but the yaw spin is INVERTED vs
+ * the old default — that default spin-sign was backwards, giving yaw positive
+ * feedback (M1,M3 CW / M2,M4 CCW). ONE geometry source (the GCS vehicle / loaded
+ * .vveh) drives both the sim physics and this mix, keeping firmware + sim
+ * consistent and stable for any quad layout. */
 static float s_mix_roll[4]  = {-1.f, -1.f, +1.f, +1.f};  /* -sign(y) */
 static float s_mix_pitch[4] = {+1.f, -1.f, -1.f, +1.f};  /*  sign(x) */
-static float s_mix_yaw[4]   = {+1.f, -1.f, +1.f, -1.f};  /*  spin    */
+static float s_mix_yaw[4]   = {-1.f, +1.f, -1.f, +1.f};  /*  spin    */
 
 void angle_rate_controller_set_motor_geometry(const float pos_x[4],
                                               const float pos_y[4],
@@ -144,6 +166,23 @@ void angle_rate_controller_init(void) {
     if (pid_config_get_gyro_lpf((uint8_t)i, &rc)) {
       s_gyro_lpf_rc[i] = (rc > 0.0f) ? rc : 0.0f;
     }
+    /* Restore any persisted D-term LPF time constant (overrides the compiled
+     * DEAFULT_*_RATE_D_LPF_RC for this axis). */
+    float d_rc;
+    if (pid_config_get_d_lpf((uint8_t)i, &d_rc)) {
+      v_pid_set_d_lpf_rc(&angle_rate_controller.pid[i], d_rc);
+    }
+  }
+
+  /* Configure the optional INDI inner loop. Always initialised (cheap) so the
+   * RATE_CTRL_ALGO_USED switch is the only thing that selects it; the PID is
+   * untouched. Effectiveness b is per-axis (sysid K); k/lpf are shared seeds. */
+  const float indi_b[NUM_AXES] = {DEAFULT_ROLL_INDI_B, DEAFULT_PITCH_INDI_B,
+                                  DEAFULT_YAW_INDI_B};
+  for (int i = 0; i < NUM_AXES; i++) {
+    rate_indi_init(&s_indi[i], indi_b[i], DEAFULT_RATE_INDI_K,
+                   DEAFULT_RATE_INDI_LPF, angle_rate_controller.pid[i].out_min,
+                   angle_rate_controller.pid[i].out_max);
   }
 }
 
@@ -249,15 +288,21 @@ void angle_rate_controller_task(void *arg) {
                                      imu_data.converted.gyr[1],
                                      imu_data.converted.gyr[2]};
 
-    /* SYS-ID (Phase 0): add the chirp excitation onto the rate setpoints. This
-     * is zero unless an on-hardware system-ID run is active. The closed rate
-     * loop tracks it and CONTROL_TRACE captures rate_sp (incl. the chirp) vs
-     * rate_curr (gyro). Motors move only via the ARMED-gated motor_set_outputs()
-     * below, so this is safe to exercise DISARMED (props off). */
-    {
-      float sysid_inject[NUM_AXES] = {0.0f, 0.0f, 0.0f};
-      sysid_step(dt, angle_controller_outputs.angle_curr, current_rates,
-                 sysid_inject);
+    /* SYS-ID (Phase 0): inject the chirp excitation. Zero unless a run is active.
+     * Two injection points (sysid_inject_mode()):
+     *   RATE_SP — add to the rate SETPOINT here, before the PID; the closed loop
+     *             tracks it (safe, self-stabilising, closed-loop ID).
+     *   U       — leave the setpoint untouched and add to the rate-PID OUTPUT
+     *             below, after the PID, i.e. straight onto the plant input
+     *             (cleaner near-open-loop excitation; more aggressive).
+     * Either way motors move only via the ARMED-gated motor_set_outputs() that
+     * runs downstream of the capture, so both modes are safe DISARMED (props off).
+     * sysid_inject persists to the post-PID block below for the U-mode add. */
+    float sysid_inject[NUM_AXES] = {0.0f, 0.0f, 0.0f};
+    sysid_step(dt, angle_controller_outputs.angle_curr, current_rates,
+               sysid_inject);
+    int sysid_mode = sysid_inject_mode();
+    if (sysid_mode == SYSID_INJECT_RATE_SP) {
       for (int i = 0; i < NUM_AXES; i++)
         target_rates[i] += sysid_inject[i];
     }
@@ -274,6 +319,7 @@ void angle_rate_controller_task(void *arg) {
     if (armed_now && !armed_prev) {
       for (int i = 0; i < NUM_AXES; i++) {
         v_pid_reset(&angle_rate_controller.pid[i]);
+        rate_indi_reset(&s_indi[i]);    /* re-seed INDI filters/feedback too */
         s_gyro_lpf_state[i] = 0.0f;     /* clear the input filter too */
       }
     }
@@ -305,11 +351,32 @@ void angle_rate_controller_task(void *arg) {
         v_pid_set_integral(&angle_rate_controller.pid[i], 0.0f);
     }
 
-    // Apply PID to each axis
+    // Inner rate loop. Algorithm selected by RATE_CTRL_ALGO_USED (variables.h),
+    // mirroring the SF_FILTER_USED estimator switch: a runtime compare on a
+    // compile-time constant, so -O2 drops the dead branch (enum values aren't
+    // preprocessor-visible, so #if can't be used here). Same per-axis contract
+    // either way: (rate_sp, rate_meas, dt) -> normalized u.
     float outputs[NUM_AXES] = {0};
-    for (int i = 0; i < NUM_AXES; i++) {
-      outputs[i] = v_pid_update(&angle_rate_controller.pid[i], target_rates[i],
-                                current_rates[i], 0, dt);
+    if (RATE_CTRL_ALGO_USED == RATE_CTRL_INDI) {
+      for (int i = 0; i < NUM_AXES; i++) {
+        outputs[i] = rate_indi_update(&s_indi[i], target_rates[i],
+                                      current_rates[i], dt);
+      }
+    } else {
+      for (int i = 0; i < NUM_AXES; i++) {
+        outputs[i] = v_pid_update(&angle_rate_controller.pid[i], target_rates[i],
+                                  current_rates[i], 0, dt);
+      }
+    }
+
+    /* SYS-ID U mode: add the chirp directly onto the control effort u (the plant
+     * input), AFTER the inner rate loop (PID or INDI). The captured u below is then
+     * the total command actually applied to the mixer — exactly the plant-fit
+     * input. Zero on the non-excited axes and when idle, so this is a no-op
+     * outside a U-mode run. */
+    if (sysid_mode == SYSID_INJECT_U) {
+      for (int i = 0; i < NUM_AXES; i++)
+        outputs[i] += sysid_inject[i];
     }
 
     /* SYS-ID capture: record the excited axis's rate-PID OUTPUT u (the control
@@ -434,6 +501,27 @@ void angle_rate_controller_task(void *arg) {
       if (motor_outputs.m3 < MOTOR_IDLE_FLOOR) motor_outputs.m3 = MOTOR_IDLE_FLOOR;
       if (motor_outputs.m4 < MOTOR_IDLE_FLOOR) motor_outputs.m4 = MOTOR_IDLE_FLOOR;
     }
+
+    /* INDI saturation-aware feedback: hand each axis the differential the motors
+     * ACTUALLY delivered after anti-sat clipping, not the demanded u. The mix is
+     * orthogonal (sum mix_a*mix_b = 0, sum mix_a^2 = 4), so the realized per-axis
+     * command is sum(m_i * mix_a_i)/4 and the common throttle/idle-floor cancels.
+     * This is what stops INDI from integrating against thrust it never got — the
+     * relay limit cycle the telem30s log showed at low throttle. No-op for PID. */
+    if (RATE_CTRL_ALGO_USED == RATE_CTRL_INDI) {
+      const float m[4] = {motor_outputs.m1, motor_outputs.m2, motor_outputs.m3,
+                          motor_outputs.m4};
+      float a_roll = 0.0f, a_pitch = 0.0f, a_yaw = 0.0f;
+      for (int i = 0; i < 4; i++) {
+        a_roll  += m[i] * s_mix_roll[i];
+        a_pitch += m[i] * s_mix_pitch[i];
+        a_yaw   += m[i] * s_mix_yaw[i];
+      }
+      rate_indi_set_applied(&s_indi[0], a_roll  * 0.25f);
+      rate_indi_set_applied(&s_indi[1], a_pitch * 0.25f);
+      rate_indi_set_applied(&s_indi[2], a_yaw   * 0.25f);
+    }
+
     /* Only feed the motor FIFO while the airframe is armed. The
      * motor_task already zero-overrides outputs in non-ARMED states, so
      * whatever it pulls from the queue is discarded. But the queue

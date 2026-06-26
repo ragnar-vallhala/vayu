@@ -118,6 +118,7 @@ typedef enum {
   CMD_SET_GYRO_LPF = 0x000B, // rate-loop gyro low-pass time constant
   CMD_SET_MOTOR_GEOMETRY = 0x000C, // per-motor x,y,spin -> mixer signs
   CMD_SET_FLIGHT_MODE = 0x000D, // arg0: 0=stabilise/angle, 1=acro, 2=release to RC
+  CMD_SET_D_LPF = 0x000E, // rate-loop derivative (D-term) low-pass time constant
 } packet_command_type_t;
 
 typedef struct __attribute__((packed)) {
