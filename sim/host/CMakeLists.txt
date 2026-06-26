@@ -211,6 +211,7 @@ if(VAYU_SITL_RTOS_BUILD)
 
   add_executable(vayu_sitl_rtos
       src/host_rtos_port.c
+      src/host_rtos_engine.c   # reusable in-process step engine (#11a)
       src/host_rtos_main.c
       src/host_vaios.c        # collisions compiled out by VAYU_SITL_RTOS
       src/host_navhal.c
