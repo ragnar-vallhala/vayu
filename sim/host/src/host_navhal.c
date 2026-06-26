@@ -270,6 +270,14 @@ static void uart2_ensure_open(void) {
     if (uart2_pty_master_fd < 0) {
         int fd = posix_openpt(O_RDWR | O_NOCTTY);
         if (fd >= 0 && grantpt(fd) == 0 && unlockpt(fd) == 0) {
+            /* Non-blocking master: a real UART/radio link is lossy and must
+             * NEVER stall the flight loop. With no GCS draining the slave the
+             * pty kernel buffer fills; a blocking write() would then freeze the
+             * cooperative RTOS scheduler forever (the armed-telemetry deadlock).
+             * O_NONBLOCK makes writes drop under backpressure (see
+             * uart2_write_bytes) and degrades the RX reader to a 2 ms poll. */
+            int fl = fcntl(fd, F_GETFL, 0);
+            if (fl >= 0) fcntl(fd, F_SETFL, fl | O_NONBLOCK);
             /* Raw mode: no echo / no canonical / no CR-NL translation, so
              * binary telemetry isn't echoed back to us (which would loop
              * into the RX path) and GCS command bytes pass through intact. */
@@ -349,8 +357,18 @@ static void uart2_write_bytes(const void *buf, size_t n) {
 
     uart2_ensure_open();
     if (uart2_pty_master_fd >= 0) {
-        ssize_t w = write(uart2_pty_master_fd, buf, n);
-        (void)w;
+        /* Best-effort, lossy: the master is O_NONBLOCK, so a full pty buffer
+         * (no GCS attached) returns EAGAIN — drop the remainder rather than
+         * block the flight loop, exactly as a real radio link drops frames
+         * under backpressure. NavLink framing (len+CRC) rejects any partial. */
+        const uint8_t *p = (const uint8_t *)buf;
+        size_t left = n;
+        while (left > 0) {
+            ssize_t w = write(uart2_pty_master_fd, p, left);
+            if (w > 0) { p += (size_t)w; left -= (size_t)w; continue; }
+            if (w < 0 && errno == EINTR) continue;
+            break;  /* EAGAIN (buffer full) or hard error -> drop remainder */
+        }
     }
     if (uart2_log_fd >= 0) {
         ssize_t w = write(uart2_log_fd, buf, n);
