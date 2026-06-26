@@ -53,6 +53,27 @@ void step_once(stepper_t *s, control_telemetry_t *ct, int *got);
 /* getenv-as-double with a default (shared by the CLI scenarios). */
 double env_f(const char *k, double dflt);
 
+/* ---- wall-clock pacer (#11b) -----------------------------------------
+ * FREE_RUN (the default — headless/CI/autotune) just calls step_once in a tight
+ * loop; the stepper owns the sim clock, so it runs ~40-60x realtime and stays
+ * deterministic. REALTIME paces that loop to wall time for the interactive GCS:
+ * the caller drives one step_once per pacer_wait(dt). Pacing only SLEEPS — it
+ * never touches the sim math, so determinism (the fingerprints) is unchanged;
+ * only how fast wall-time advances differs. clock_nanosleep(TIMER_ABSTIME) on a
+ * monotonic target, with catch-up-skip when behind (no busy spiral). */
+#include <time.h>
+typedef struct {
+  struct timespec next;  /* absolute monotonic target for the next step */
+  long behind;           /* count of steps the loop fell behind (diagnostic) */
+} rtos_pacer_t;
+
+/* Anchor the pacer at "now". Call once before the paced loop. */
+void rtos_pacer_init(rtos_pacer_t *p);
+
+/* Advance the target by dt_s and sleep until it. If already behind, reset the
+ * baseline to now (skip, don't spiral) and bump p->behind. */
+void rtos_pacer_wait(rtos_pacer_t *p, double dt_s);
+
 /* Apply roll/pitch/yaw PID gains from the VAYU_*_KP/KI/KD envs (no-op if unset). */
 void apply_gains_from_env(void);
 
