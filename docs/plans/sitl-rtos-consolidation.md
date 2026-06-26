@@ -117,19 +117,67 @@ FIFO write entirely in the RTOS path) so concurrent/abandoned runs can't share
 - **#12** point SimWorker at the engine (get_pose + config calls); migrate `vayu_headless`. Keep FIFO shims until proven.
 - **#13** parity audit (world mesh, obstacles, faults, baro, multi-instance), then delete `vsim_d` + pthread host.
 
-## 5. Open decisions (need user input)
-1. **GCS pose/config transport:** direct in-process API (cleanest, more
-   SimWorker change) vs keep the pose/ctl FIFOs as the interface (smaller
-   SimWorker diff, retains 2 FIFOs)? Recommend: in-process API, FIFO shims only
-   during migration.
-2. **Firmware host in the GCS:** commit to the ucontext RTOS port (full
-   determinism, the stated goal) vs interim "pthread firmware + in-process
-   physics" (smaller, drops the FIFO but keeps pthread nondeterminism)?
-   Recommend: ucontext (it's the whole point).
-3. **Realtime fidelity in the GCS:** is 1 ms `clock_nanosleep` pacing on a
-   single worker thread acceptable for the live render, or does the GUI need the
-   old 8 kHz physics / 60 Hz pose split? (The stepper is 1 kHz; pose can decimate
-   to 60 Hz for the renderer.)
+## 5. Decisions (locked 2026-06-26)
+1. **Firmware host in the GCS:** **ucontext RTOS port** everywhere — full
+   determinism, the single-engine end state. (Not the interim pthread+inproc.)
+2. **GCS pose/config transport:** **in-process API** (`get_pose()` + config
+   functions) is the end state — no FIFO. Pose/ctl FIFO shims bridge an
+   unmodified SimWorker only during the #12 migration, then deleted.
+3. **Realtime fidelity:** stepper is 1 kHz; pose decimates to 60 Hz for the
+   renderer. 1 ms `clock_nanosleep` pacing on the single stepper thread is the
+   starting point (revisit only if the render needs the old 8 kHz physics split).
+
+## 7. #12 migration plan (in-app sim) — grounded map
+
+**Current in-app sim** (SimulatorWidget::startInAppSim, SimulatorWidget.cpp:2832):
+the firmware runs **in-process via the pthread core** (`vayu_sitl_start(&m_iface)`,
+once per process), and SimWorker spawns a **separate `vsim_d`** for physics.
+- Telemetry: in-process — `vsim_iface` UART2 callback → trampoline → GUI
+  (host_navhal `uart2_write_bytes` calls the iface cb when set). No pty.
+- RC: RcBridge opens a pty, sets `VAYU_UART_RC_PATH`; the firmware's
+  `host_rc_feeder.c` reads CSV µs frames from it.
+- PWM/IMU: firmware ↔ vsim_d over `/tmp/vsim_{pwm,imu}<suffix>`.
+- Isolation: `VSIM_FIFO_SUFFIX=_nav<pid>`.
+- Navigator links `vayu_sitl_core` (pthread) — CMakeLists.txt:333.
+
+**Target in-app sim**: ONE RTOS engine on the SimWorker thread runs BOTH firmware
+and physics. No vsim_d, no PWM/IMU FIFO.
+- Worker `run()`: `rtos_engine_boot(iface)` → loop { apply queued config; read RC
+  latch → `rtos_engine_set_rc`; `step_once`; `rtos_pacer_wait(1ms)`;
+  `vsim_inproc_get_pose` → `emitFromFrame`/`poseUpdated` (decimate to ~60 Hz) }.
+- Telemetry: UNCHANGED — set the `vsim_iface` UART2 callback before boot; the RTOS
+  core's host_navhal calls it in-process exactly as the pthread core does.
+- RC: replace the RcBridge→pty→host_rc_feeder hop with a thread-safe RC latch the
+  GUI/joystick updates and the worker reads each step → `rtos_engine_set_rc`
+  (in-process, no pty). RcBridge becomes a latch producer.
+- Config: SimWorker `sendX()` runs on the GUI thread, but the engine is
+  single-threaded — so `sendX` enqueues a config op (the wire struct) onto a
+  mutex-guarded queue the worker drains between steps, calling the matching
+  `vsim_inproc_set_*`. (Reuse the existing GeometryConfig→vsim_ctl_geometry_t etc.
+  conversions already in SimWorker.)
+
+**Engine API addenda needed**: `rtos_engine_boot` must accept the `vsim_iface*`
+(or the GCS sets the global iface before boot) so telemetry flows; today it calls
+`vayu_sitl_start(NULL)`.
+
+**Build**: a CMake option (e.g. `NAVIGATOR_SITL_RTOS`, default OFF during
+migration) selects `vayu_sitl_rtos_core` instead of `vayu_sitl_core`. They define
+the SAME firmware symbols (`vayu_sitl_start`, …) so Navigator links exactly ONE.
+
+**Out of scope for #12 (deferred):**
+- **Autotune** (AutotuneWorker/SitlStack) hosts its OWN sim — it spawns `vsim_d` +
+  `vayu_sitl` subprocesses (realtime) or `vayu_sitl_rtos` (the `fastRtos` headless
+  backend, already vsim_d-free). It does NOT use the in-app firmware, so #12
+  doesn't touch it. Deleting `vsim_d` (#13) requires migrating SitlStack's
+  realtime path too — separate task.
+- **SimWorker attach-only mode** mirrors the tuner's `vsim_d` pose FIFO; keep it
+  FIFO-based until autotune is migrated. SimWorker thus supports both: in-process
+  engine for its OWN sim, FIFO attach for mirroring.
+
+**#12 sub-steps**: (a) engine `boot(iface)` + RC latch; (b) Navigator CMake option
+to link the RTOS core; (c) SimWorker engine-mode run loop + config queue (keep
+spawn path under the option for rollback); (d) RcBridge → latch; (e) verify
+render + telemetry + live config in-app; (f) flip the default once stable.
 
 ## 6. Risks
 - Linking the ucontext port into a Qt app: symbol/heap ownership
