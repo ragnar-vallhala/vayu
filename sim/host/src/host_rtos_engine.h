@@ -88,6 +88,24 @@ void vsim_inproc_set_tether(float tether_k);
  * decoupled vsim_d publishes, so SimWorker's consumer is unchanged. */
 void vsim_inproc_get_pose(vsim_pose_frame_t *out);
 
+/* ---- in-process config surface (#11d) --------------------------------
+ * One call per VSIM_CTL_* message (faithful port of vsim_d's dispatch), reusing
+ * the vsim_proto.h wire structs — the GCS configures the in-process physics by
+ * direct call instead of writing the ctl FIFO. */
+void vsim_inproc_reset_to(const vsim_ctl_reset_t *b);
+void vsim_inproc_set_testrig(const vsim_ctl_testrig_t *t);
+void vsim_inproc_set_geometry(const vsim_ctl_geometry_t *g);
+void vsim_inproc_set_world(const vsim_ctl_world_t *w);
+void vsim_inproc_clear_obstacles(void);
+void vsim_inproc_add_obstacle(const vsim_ctl_obstacle_t *b);
+int  vsim_inproc_set_world_mesh(const vsim_ctl_world_mesh_t *m);  /* 1 ok, 0 fail */
+void vsim_inproc_clear_world_mesh(void);
+void vsim_inproc_set_rates(const vsim_ctl_rates_t *r);
+void vsim_inproc_set_noise(const vsim_ctl_noise_t *n);
+void vsim_inproc_set_faults(const vsim_ctl_faults_t *f);
+void vsim_inproc_set_wind(const vsim_ctl_wind_t *w);
+void vsim_inproc_set_pause(int paused);
+
 #ifdef __cplusplus
 }
 #endif

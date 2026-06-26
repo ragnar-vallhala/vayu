@@ -359,6 +359,34 @@ static int run_pose(uint32_t seed) {
   return 0;
 }
 
+/* ---- config-surface smoke test (#11d): arm, spin up, kill motors ------- */
+static int run_cfg(uint32_t seed) {
+  vsim_inproc_reset(seed);
+  vsim_inproc_set_tether((float)env_f("VAYU_RTOS_TETHER", 30.0));
+  stepper_t s;
+  stepper_init(&s);
+  control_telemetry_t ct;
+  int got;
+  vsim_pose_frame_t p;
+  for (int i = 0; i < 200; i++) { set_rc(1500, 1500, 1000, 1500, 2000); step_once(&s, &ct, &got); }
+  for (int i = 0; i < 400; i++) { set_rc(1500, 1500, 1500, 1500, 2000); step_once(&s, &ct, &got); }
+  vsim_inproc_get_pose(&p);
+  float before = 0; for (int i = 0; i < 4; i++) before += fabsf(p.motor_omega[i]); before /= 4;
+  /* kill all four ESCs via the config surface */
+  vsim_ctl_faults_t f;
+  memset(&f, 0, sizeof f);
+  for (int i = 0; i < 4; i++) f.motor_kill[i] = 1;
+  vsim_inproc_set_faults(&f);
+  for (int i = 0; i < 300; i++) { set_rc(1500, 1500, 1500, 1500, 2000); step_once(&s, &ct, &got); }
+  vsim_inproc_get_pose(&p);
+  float after = 0; for (int i = 0; i < 4; i++) after += fabsf(p.motor_omega[i]); after /= 4;
+  int ok = after < 0.05f * before;
+  printf("#RTOS-CFG motor_kill mean_omega before=%.1f after=%.1f -> %s\n",
+         before, after, ok ? "KILLED ok" : "FAIL");
+  fflush(stdout);
+  return ok ? 0 : 1;
+}
+
 int main(void) {
   if (rtos_engine_boot() != 0)
     return 1;
@@ -376,5 +404,7 @@ int main(void) {
     return run_disturb(seed);
   if (scen && strcmp(scen, "pose") == 0)
     return run_pose(seed);
+  if (scen && strcmp(scen, "cfg") == 0)
+    return run_cfg(seed);
   return run_hold(seed, N, 0, 0);
 }
