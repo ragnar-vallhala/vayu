@@ -8,7 +8,9 @@
 #include <array>
 #include <atomic>
 #include <cstdint>
+#include <functional>
 #include <mutex>
+#include <vector>
 
 namespace vsim {
 
@@ -37,34 +39,39 @@ struct SimSnapshot {
   float batt_soc     = 0.0f;  // [0,1]                            (Phase 5)
 };
 
-// SimWorker -- vsim_d process supervisor + pose reader.
+// SimWorker -- in-process RTOS SITL engine driver (+ legacy FIFO attach).
 //
-// One-shot lifecycle:
-//   1. construct on the GUI thread.
-//   2. (optional) setVsimBinary("...path/to/vsim_d") if the daemon
-//      isn't in $PATH and isn't beside the Navigator binary.
-//   3. start() -- worker thread spawns vsim_d via posix_spawnp, opens
-//      /tmp/vsim_pose for reading + /tmp/vsim_ctl for writing, then
-//      pumps pose frames until requestStop().
-//   4. requestStop() -- worker sends SIGTERM to vsim_d and exits the
-//      read loop. wait() joins as usual.
+// Default (engine) lifecycle:
+//   1. construct on the GUI thread; setIface(&iface) so firmware telemetry
+//      reaches the GUI via the in-process UART2 callback.
+//   2. start() -- worker thread runs rtos_engine_boot(iface) (boots the REAL
+//      vaios firmware + in-process vsim physics, no vsim_d, no FIFO), enables
+//      the serial RC feeder (RcBridge pty / remote transmitter), then loops:
+//      drain queued config -> rtos_engine_run_step (1 ms, wall-clock paced) ->
+//      vsim_inproc_get_pose -> poseUpdated (~60 Hz), until requestStop().
+//   3. requestStop() -- sets the stop flag; the worker exits the loop. The
+//      firmware/scheduler stay booted (idempotent), so Re-Start just resumes.
 //
-// All physics + sensor simulation lives in the vsim_d binary now.
-// SimWorker no longer holds a SimController, no longer pushes IMU,
-// no longer pulls PWM -- those happen between vsim_d and the firmware
-// (whether the firmware is the standalone vayu_sitl binary or living
-// inside Navigator). SimWorker exists only to (a) own the daemon's
-// lifetime relative to the SimulatorWidget page, (b) decode pose
-// frames for the renderer, and (c) ferry control messages back.
+// The engine runs firmware AND physics in one deterministic stepper. sendX()
+// (GUI thread) enqueues a config op applied on the worker thread between steps
+// via the vsim_inproc_set_* surface (the engine is single-threaded).
+//
+// startAttach() keeps the LEGACY behaviour: read an existing pose FIFO (e.g. the
+// autotuner's own vsim_d) and emit poseUpdated, mirroring a sim we don't own.
+// No engine, no ctl; sendX() are no-ops in attach mode.
 class SimWorker : public QThread {
   Q_OBJECT
  public:
   explicit SimWorker(QObject* parent = nullptr);
   ~SimWorker() override;
 
-  // Path to the vsim_d binary. Default is whatever VSIM_BIN_PATH env
-  // var points at, falling back to "vsim_d" (PATH lookup).
+  // Retained for source compatibility; the engine runs in-process, so there is
+  // no daemon binary to resolve. No-op.
   void setVsimBinary(const QString& path) { vsim_bin_ = path; }
+
+  // The vsim_iface_t* whose UART2 callback receives firmware telemetry in
+  // process. Set before start() so rtos_engine_boot wires telemetry to the GUI.
+  void setIface(void* iface) { iface_ = iface; }
 
   // Snapshot getter for pull-style consumers.
   SimSnapshot snapshot() const;
@@ -139,26 +146,25 @@ class SimWorker : public QThread {
   void run() override;
 
  private:
-  bool spawnDaemon();
-  void killDaemon();
-  bool openFifos();
-  void closeFifos();
+  void runEngine();               // default: drive the in-process RTOS engine
+  void runAttach();               // legacy: read an existing pose FIFO
   void emitFromFrame(const void* frame_bytes);
+  // Queue a config op to run on the worker thread between steps (no-op in
+  // attach mode). The closure typically calls a vsim_inproc_set_* function.
+  void enqueue(std::function<void()> op);
 
-  QString vsim_bin_;
-  bool    attach_only_ = false;   // read an existing pose FIFO, don't spawn
+  QString vsim_bin_;              // retained, unused (engine is in-process)
+  void*   iface_ = nullptr;       // vsim_iface_t* for in-process telemetry
+  bool    attach_only_ = false;   // read an existing pose FIFO, don't run engine
   QString attach_pose_path_;      // pose FIFO to attach to in attach-only mode
 
-  // pid of the spawned vsim_d process; -1 if not running. Guarded by
-  // daemon_mtx_ because killDaemon() runs from both the GUI thread
-  // (requestStop) and the worker thread (end of run() / dtor).
-  int daemon_pid_ = -1;
-  std::mutex daemon_mtx_;
-
-  int pose_fd_ = -1;
-  int ctl_fd_  = -1;
+  int pose_fd_ = -1;              // attach-only: the pose FIFO read fd
 
   std::atomic<bool> stop_flag_{false};
+
+  // Config ops from the GUI thread, drained + applied on the worker thread.
+  std::mutex cmd_mtx_;
+  std::vector<std::function<void()>> cmds_;
 
   // Pose latch for snapshot() pull-style readers.
   mutable std::mutex snap_mtx_;

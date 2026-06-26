@@ -1,79 +1,19 @@
 #include "SimWorker.h"
 
+#include "host_rtos_engine_api.h"  // in-process RTOS engine (boot/run_step/get_pose/config)
 #include "vsim_proto.h"
 
 #include <QByteArray>
-#include <QCoreApplication>
-#include <QDir>
-#include <QElapsedTimer>
-#include <QFileInfo>
-#include <QProcessEnvironment>
 
 #include <cerrno>
 #include <cmath>
-#include <csignal>
-#include <cstdlib>
 #include <cstring>
-#include <string>
 #include <fcntl.h>
-#include <spawn.h>
 #include <sys/stat.h>
-#include <sys/types.h>
-#include <sys/wait.h>
 #include <thread>
 #include <unistd.h>
 
-extern char** environ;
-
 namespace vsim {
-
-namespace {
-
-// Resolve the vsim_d binary path. Priority:
-//   1. setVsimBinary("...") explicit override (handled in caller).
-//   2. $VSIM_BIN_PATH env var.
-//   3. <NavigatorDir>/../../build_vsim/vsim_d  (in-tree layout: a sibling
-//      build_vsim/ at the repo root, while Navigator runs from
-//      navigator/build/.)
-//   4. "vsim_d" (relies on $PATH).
-QString resolveBinary(const QString& override_path) {
-    if (!override_path.isEmpty()) return override_path;
-
-    const auto env = QProcessEnvironment::systemEnvironment();
-    if (env.contains("VSIM_BIN_PATH")) {
-        const QString p = env.value("VSIM_BIN_PATH");
-        if (!p.isEmpty()) return p;
-    }
-
-    const QString app_dir = QCoreApplication::applicationDirPath();
-    if (!app_dir.isEmpty()) {
-        // Prefer the canonical CMake build dir (sim/vsim/build); fall back to
-        // the legacy repo-root build_vsim. A stale binary in build_vsim built
-        // against an older VSIM_PROTO_VERSION desyncs the IMU feed -- the
-        // consumer rejects every frame ("bad frame ver=N"), so always pick the
-        // in-tree build first.
-        for (const char *rel : {"../../sim/vsim/build/vsim_d",
-                                "../../build_vsim/vsim_d"}) {
-            const QString guess = QDir(app_dir).absoluteFilePath(rel);
-            if (QFileInfo(guess).isExecutable()) {
-                return QFileInfo(guess).canonicalFilePath();
-            }
-        }
-    }
-    return QStringLiteral("vsim_d");
-}
-
-// Per-instance FIFO isolation (roadmap sim-integration #1): append
-// $VSIM_FIFO_SUFFIX to the shared /tmp base path. SimulatorWidget publishes
-// the suffix in the environment before vayu_sitl_start + spawning vsim_d, so
-// the in-process firmware shim, the spawned daemon, and this reader all agree
-// on /tmp/vsim_*<suffix>. Unset/empty == legacy shared paths.
-std::string fifoSuffixed(const char* base) {
-    const char* s = ::getenv("VSIM_FIFO_SUFFIX");
-    return std::string(base) + ((s && *s) ? s : "");
-}
-
-}  // namespace
 
 SimWorker::SimWorker(QObject* parent) : QThread(parent) {
     qRegisterMetaType<SimSnapshot>("vsim::SimSnapshot");
@@ -82,12 +22,18 @@ SimWorker::SimWorker(QObject* parent) : QThread(parent) {
 SimWorker::~SimWorker() {
     requestStop();
     if (isRunning()) wait(2000);
-    closeFifos();
+    if (pose_fd_ >= 0) { ::close(pose_fd_); pose_fd_ = -1; }
 }
 
 void SimWorker::requestStop() {
+    // The engine stays booted (idempotent); the worker just exits its loop.
     stop_flag_.store(true, std::memory_order_release);
-    killDaemon();
+}
+
+void SimWorker::enqueue(std::function<void()> op) {
+    if (attach_only_) return;   // mirroring someone else's sim — no ctl channel
+    std::lock_guard<std::mutex> lk(cmd_mtx_);
+    cmds_.push_back(std::move(op));
 }
 
 SimSnapshot SimWorker::snapshot() const {
@@ -98,80 +44,42 @@ SimSnapshot SimWorker::snapshot() const {
 void SimWorker::sendReset() { sendResetPose(0.0f, 0.0f, -0.05f); }
 
 void SimWorker::sendResetPose(float x, float y, float z) {
-    if (ctl_fd_ < 0) return;
-    vsim_ctl_frame_t f{};
-    f.hdr.magic         = VSIM_MAGIC;
-    f.hdr.version       = VSIM_PROTO_VERSION;
-    f.hdr.type          = VSIM_FRAME_CTL;
-    f.hdr.payload_bytes = sizeof(f) - sizeof(vsim_hdr_t);
-    f.hdr.seq_no        = 0;  // ctl is one-shot; the daemon doesn't dedupe by seq
-    f.subtype           = VSIM_CTL_RESET;
     vsim_ctl_reset_t body{};
-    body.pos_w[0]       = x;
-    body.pos_w[1]       = y;
-    body.pos_w[2]       = z;     // NED: more negative = higher above ground
-    body.quat_wxyz[0]   = 1.0f;  // identity (level)
-    std::memcpy(f.body, &body, sizeof(body));
-    ::write(ctl_fd_, &f, sizeof(f));
+    body.pos_w[0]     = x;
+    body.pos_w[1]     = y;
+    body.pos_w[2]     = z;     // NED: more negative = higher above ground
+    body.quat_wxyz[0] = 1.0f;  // identity (level)
+    enqueue([body] { vsim_inproc_reset_to(&body); });
 }
 
 void SimWorker::sendTestRig(bool on) {
-    if (ctl_fd_ < 0) return;
-    vsim_ctl_frame_t f{};
-    f.hdr.magic         = VSIM_MAGIC;
-    f.hdr.version       = VSIM_PROTO_VERSION;
-    f.hdr.type          = VSIM_FRAME_CTL;
-    f.hdr.payload_bytes = sizeof(f) - sizeof(vsim_hdr_t);
-    f.subtype           = VSIM_CTL_SET_TESTRIG;
     vsim_ctl_testrig_t body{};
     body.enable = on ? 1 : 0;
     body.pos[2] = -0.05f;
-    std::memcpy(f.body, &body, sizeof(body));
-    ::write(ctl_fd_, &f, sizeof(f));
-    emit logLine(QStringLiteral("vsim_d: test-rig %1").arg(on ? "ON" : "off"));
+    enqueue([body] { vsim_inproc_set_testrig(&body); });
+    emit logLine(QStringLiteral("rtos engine: test-rig %1").arg(on ? "ON" : "off"));
 }
 
 void SimWorker::sendRigPose(float rollDeg, float pitchDeg, float yawDeg) {
-    if (ctl_fd_ < 0) {
-        emit logLine(QStringLiteral("rig pose ignored — ctl channel closed "
-                                    "(is the sim running?)"));
-        return;
-    }
     // NED ZYX (yaw-pitch-roll) Euler -> body->world quaternion: the exact
     // inverse of quatToEulerNED() in VsimTypes.h.
     const double h = 0.017453292519943295 * 0.5;  // deg -> half-radians
     const double cr = std::cos(rollDeg * h),  sr = std::sin(rollDeg * h);
     const double cp = std::cos(pitchDeg * h), sp = std::sin(pitchDeg * h);
     const double cy = std::cos(yawDeg * h),   sy = std::sin(yawDeg * h);
-    vsim_ctl_frame_t f{};
-    f.hdr.magic         = VSIM_MAGIC;
-    f.hdr.version       = VSIM_PROTO_VERSION;
-    f.hdr.type          = VSIM_FRAME_CTL;
-    f.hdr.payload_bytes = sizeof(f) - sizeof(vsim_hdr_t);
-    f.subtype           = VSIM_CTL_RESET;
     vsim_ctl_reset_t body{};
     body.pos_w[2]     = -0.05f;
     body.quat_wxyz[0] = static_cast<float>(cr * cp * cy + sr * sp * sy);
     body.quat_wxyz[1] = static_cast<float>(sr * cp * cy - cr * sp * sy);
     body.quat_wxyz[2] = static_cast<float>(cr * sp * cy + sr * cp * sy);
     body.quat_wxyz[3] = static_cast<float>(cr * cp * sy - sr * sp * cy);
-    std::memcpy(f.body, &body, sizeof(body));
-    const ssize_t n = ::write(ctl_fd_, &f, sizeof(f));
-    emit logLine(QStringLiteral("rig pose sent: r=%1 p=%2 y=%3 (%4 B)")
+    enqueue([body] { vsim_inproc_reset_to(&body); });
+    emit logLine(QStringLiteral("rig pose sent: r=%1 p=%2 y=%3")
                      .arg(rollDeg, 0, 'f', 0).arg(pitchDeg, 0, 'f', 0)
-                     .arg(yawDeg, 0, 'f', 0).arg(static_cast<int>(n)));
+                     .arg(yawDeg, 0, 'f', 0));
 }
 
 void SimWorker::sendGeometry(const GeometryConfig& g) {
-    if (ctl_fd_ < 0) return;
-    vsim_ctl_frame_t f{};
-    f.hdr.magic         = VSIM_MAGIC;
-    f.hdr.version       = VSIM_PROTO_VERSION;
-    f.hdr.type          = VSIM_FRAME_CTL;
-    f.hdr.payload_bytes = sizeof(f) - sizeof(vsim_hdr_t);
-    f.hdr.seq_no        = 0;
-    f.subtype           = VSIM_CTL_SET_GEOMETRY;
-
     vsim_ctl_geometry_t body{};
     body.mass = g.mass;
     for (int i = 0; i < 9; ++i) body.inertia[i] = g.inertia[i];
@@ -189,61 +97,31 @@ void SimWorker::sendGeometry(const GeometryConfig& g) {
         body.motors[i].max_omega = m.max_omega;
         body.motors[i].tau       = m.tau;
     }
-    std::memcpy(f.body, &body, sizeof(body));  // 200 B into the 256 B body
-    ::write(ctl_fd_, &f, sizeof(f));
-    emit logLine("vsim_d: geometry pushed");
+    enqueue([body] { vsim_inproc_set_geometry(&body); });
+    emit logLine("rtos engine: geometry pushed");
 }
 
 void SimWorker::sendFaults(const std::array<bool, 4>& motorKill,
                            bool imuDropout) {
-    if (ctl_fd_ < 0) return;
-    vsim_ctl_frame_t f{};
-    f.hdr.magic         = VSIM_MAGIC;
-    f.hdr.version       = VSIM_PROTO_VERSION;
-    f.hdr.type          = VSIM_FRAME_CTL;
-    f.hdr.payload_bytes = sizeof(f) - sizeof(vsim_hdr_t);
-    f.hdr.seq_no        = 0;
-    f.subtype           = VSIM_CTL_SET_FAULTS;
-
     vsim_ctl_faults_t body{};
     for (int i = 0; i < 4; ++i) body.motor_kill[i] = motorKill[i] ? 1 : 0;
     body.imu_dropout = imuDropout ? 1 : 0;
-    std::memcpy(f.body, &body, sizeof(body));
-    ::write(ctl_fd_, &f, sizeof(f));
-    emit logLine("vsim_d: faults pushed");
+    enqueue([body] { vsim_inproc_set_faults(&body); });
+    emit logLine("rtos engine: faults pushed");
 }
 
 void SimWorker::sendNoise(float accSigma, float accBiasClip, bool accEn,
                           float gyrSigma, float gyrBiasClip, bool gyrEn,
                           float magSigma, float magBiasClip, bool magEn) {
-    if (ctl_fd_ < 0) return;
-    vsim_ctl_frame_t f{};
-    f.hdr.magic         = VSIM_MAGIC;
-    f.hdr.version       = VSIM_PROTO_VERSION;
-    f.hdr.type          = VSIM_FRAME_CTL;
-    f.hdr.payload_bytes = sizeof(f) - sizeof(vsim_hdr_t);
-    f.hdr.seq_no        = 0;
-    f.subtype           = VSIM_CTL_SET_NOISE;
-
     vsim_ctl_noise_t body{};
     body.acc_sigma = accSigma; body.acc_bias_clip = accBiasClip; body.acc_enable = accEn;
     body.gyr_sigma = gyrSigma; body.gyr_bias_clip = gyrBiasClip; body.gyr_enable = gyrEn;
     body.mag_sigma = magSigma; body.mag_bias_clip = magBiasClip; body.mag_enable = magEn;
-    std::memcpy(f.body, &body, sizeof(body));
-    ::write(ctl_fd_, &f, sizeof(f));
-    emit logLine("vsim_d: noise pushed");
+    enqueue([body] { vsim_inproc_set_noise(&body); });
+    emit logLine("rtos engine: noise pushed");
 }
 
 void SimWorker::sendWind(const WindConfig& w) {
-    if (ctl_fd_ < 0) return;
-    vsim_ctl_frame_t f{};
-    f.hdr.magic         = VSIM_MAGIC;
-    f.hdr.version       = VSIM_PROTO_VERSION;
-    f.hdr.type          = VSIM_FRAME_CTL;
-    f.hdr.payload_bytes = sizeof(f) - sizeof(vsim_hdr_t);
-    f.hdr.seq_no        = 0;
-    f.subtype           = VSIM_CTL_SET_WIND;
-
     vsim_ctl_wind_t body{};
     body.steady[0]   = w.steady.x();
     body.steady[1]   = w.steady.y();
@@ -253,21 +131,11 @@ void SimWorker::sendWind(const WindConfig& w) {
     body.turb_sigma  = w.turbSigma;
     body.turb_tau    = w.turbTau;
     body.enable      = w.enabled ? 1 : 0;
-    std::memcpy(f.body, &body, sizeof(body));
-    ::write(ctl_fd_, &f, sizeof(f));
-    emit logLine("vsim_d: wind pushed");
+    enqueue([body] { vsim_inproc_set_wind(&body); });
+    emit logLine("rtos engine: wind pushed");
 }
 
 void SimWorker::sendWorld(const WorldConfig& w) {
-    if (ctl_fd_ < 0) return;
-    vsim_ctl_frame_t f{};
-    f.hdr.magic         = VSIM_MAGIC;
-    f.hdr.version       = VSIM_PROTO_VERSION;
-    f.hdr.type          = VSIM_FRAME_CTL;
-    f.hdr.payload_bytes = sizeof(f) - sizeof(vsim_hdr_t);
-    f.hdr.seq_no        = 0;
-    f.subtype           = VSIM_CTL_SET_WORLD;
-
     vsim_ctl_world_t body{};
     body.gravity      = w.gravity;
     body.ground_z     = w.ground_z;
@@ -276,174 +144,90 @@ void SimWorker::sendWorld(const WorldConfig& w) {
     body.angular_drag = w.angular_drag;
     body.ground_right_gain = w.ground_right_gain;
     body.ground_right_damp = w.ground_right_damp;
-    std::memcpy(f.body, &body, sizeof(body));
-    ::write(ctl_fd_, &f, sizeof(f));
-    emit logLine("vsim_d: world pushed");
+    enqueue([body] { vsim_inproc_set_world(&body); });
+    emit logLine("rtos engine: world pushed");
 }
 
 void SimWorker::sendObstacles(const QVector<Obstacle>& obs) {
-    if (ctl_fd_ < 0) return;
-    auto frame = [&](uint32_t subtype) {
-        vsim_ctl_frame_t f{};
-        f.hdr.magic         = VSIM_MAGIC;
-        f.hdr.version       = VSIM_PROTO_VERSION;
-        f.hdr.type          = VSIM_FRAME_CTL;
-        f.hdr.payload_bytes = sizeof(f) - sizeof(vsim_hdr_t);
-        f.subtype           = subtype;
-        return f;
-    };
-    // Clear, then append each shape.
-    { vsim_ctl_frame_t f = frame(VSIM_CTL_CLEAR_OBSTACLES); ::write(ctl_fd_, &f, sizeof(f)); }
+    // Clear, then append each shape — as separate queued ops so they apply in
+    // order on the worker thread (CLEAR before each ADD).
+    enqueue([] { vsim_inproc_clear_obstacles(); });
     for (const Obstacle& o : obs) {
-        vsim_ctl_frame_t f = frame(VSIM_CTL_ADD_OBSTACLE);
         vsim_ctl_obstacle_t b{};
         b.type = o.type;
         b.pos[0] = o.pos.x();    b.pos[1] = o.pos.y();    b.pos[2] = o.pos.z();
         b.size[0] = o.size.x();  b.size[1] = o.size.y();  b.size[2] = o.size.z();
         b.rot_deg[0] = o.rotate.x(); b.rot_deg[1] = o.rotate.y(); b.rot_deg[2] = o.rotate.z();
         b.restitution = o.restitution;
-        std::memcpy(f.body, &b, sizeof(b));
-        ::write(ctl_fd_, &f, sizeof(f));
+        enqueue([b] { vsim_inproc_add_obstacle(&b); });
     }
-    emit logLine(QString("vsim_d: %1 obstacles pushed").arg(obs.size()));
+    emit logLine(QString("rtos engine: %1 obstacles pushed").arg(obs.size()));
 }
 
 void SimWorker::sendRates(int imuHz, int physicsHz, int poseHz) {
-    if (ctl_fd_ < 0) return;
-    vsim_ctl_frame_t f{};
-    f.hdr.magic         = VSIM_MAGIC;
-    f.hdr.version       = VSIM_PROTO_VERSION;
-    f.hdr.type          = VSIM_FRAME_CTL;
-    f.hdr.payload_bytes = sizeof(f) - sizeof(vsim_hdr_t);
-    f.subtype           = VSIM_CTL_SET_RATES;
     vsim_ctl_rates_t b{};
     b.imu_hz     = static_cast<uint32_t>(imuHz);
     b.physics_hz = static_cast<uint32_t>(physicsHz);
     b.pose_hz    = static_cast<uint32_t>(poseHz);
-    std::memcpy(f.body, &b, sizeof(b));
-    ::write(ctl_fd_, &f, sizeof(f));
-    emit logLine(QString("vsim_d: rates imu=%1 physics=%2 pose=%3 Hz")
+    enqueue([b] { vsim_inproc_set_rates(&b); });
+    emit logLine(QString("rtos engine: rates imu=%1 physics=%2 pose=%3 Hz")
                      .arg(imuHz).arg(physicsHz).arg(poseHz));
 }
 
 void SimWorker::sendWorldMesh(const QString& path, quint32 verts, quint32 tris,
                               quint32 nodes, float restitution, bool doubleSided) {
-    if (ctl_fd_ < 0) return;
     const QByteArray pb = path.toLocal8Bit();
     vsim_ctl_world_mesh_t b{};
     if (pb.size() >= int(sizeof(b.path))) {
-        emit logLine("vsim_d: world-mesh path too long");
+        emit logLine("rtos engine: world-mesh path too long");
         return;
     }
-    vsim_ctl_frame_t f{};
-    f.hdr.magic         = VSIM_MAGIC;
-    f.hdr.version       = VSIM_PROTO_VERSION;
-    f.hdr.type          = VSIM_FRAME_CTL;
-    f.hdr.payload_bytes = sizeof(f) - sizeof(vsim_hdr_t);
-    f.subtype           = VSIM_CTL_SET_WORLD_MESH;
     b.vertex_count = verts; b.triangle_count = tris; b.node_count = nodes;
     b.flags = doubleSided ? 1u : 0u;
     b.restitution = restitution;
     b.path_len = static_cast<uint32_t>(pb.size());
     std::memcpy(b.path, pb.constData(), pb.size());
-    std::memcpy(f.body, &b, sizeof(b));
-    ::write(ctl_fd_, &f, sizeof(f));
-    emit logLine(QString("vsim_d: world mesh -> %1 (%2 tris)").arg(path).arg(tris));
+    enqueue([b] { vsim_inproc_set_world_mesh(&b); });
+    emit logLine(QString("rtos engine: world mesh -> %1 (%2 tris)").arg(path).arg(tris));
 }
 
 void SimWorker::clearWorldMesh() {
-    if (ctl_fd_ < 0) return;
-    vsim_ctl_frame_t f{};
-    f.hdr.magic = VSIM_MAGIC;
-    f.hdr.version = VSIM_PROTO_VERSION;
-    f.hdr.type = VSIM_FRAME_CTL;
-    f.hdr.payload_bytes = sizeof(f) - sizeof(vsim_hdr_t);
-    f.subtype = VSIM_CTL_CLEAR_WORLD_MESH;
-    ::write(ctl_fd_, &f, sizeof(f));
-    emit logLine("vsim_d: world mesh cleared");
+    enqueue([] { vsim_inproc_clear_world_mesh(); });
+    emit logLine("rtos engine: world mesh cleared");
 }
 
-bool SimWorker::spawnDaemon() {
-    const QString bin_q = resolveBinary(vsim_bin_);
-    const QByteArray bin_b = bin_q.toLocal8Bit();
-    char* const argv[] = { const_cast<char*>(bin_b.constData()), nullptr };
-
-    pid_t pid = -1;
-    int rc = posix_spawnp(&pid, argv[0], nullptr, nullptr, argv, environ);
-    if (rc != 0) {
-        emit logLine(QString("vsim_d spawn failed (%1): %2")
-                         .arg(bin_q, ::strerror(rc)));
-        return false;
+// Drive the in-process RTOS engine: boot the firmware + physics, enable the
+// serial RC feeder, then loop applying queued config, stepping (1 ms paced),
+// and publishing pose at ~60 Hz. The engine stays booted across Stop/Re-Start
+// (boot is idempotent), so this just resumes the loop.
+void SimWorker::runEngine() {
+    if (rtos_engine_boot(iface_) != 0) {
+        emit logLine("rtos engine: boot failed");
+        emit stoppedCleanly();
+        return;
     }
-    {
-        // Publish under the lock: a requestStop() racing with start-up must
-        // either see -1 (and the worker tears down right after spawn) or this
-        // pid (and kills it) — never miss it and leak the daemon.
-        std::lock_guard<std::mutex> lk(daemon_mtx_);
-        daemon_pid_ = pid;
-    }
-    emit logLine(QString("vsim_d spawned pid=%1 (%2)").arg(pid).arg(bin_q));
-    return true;
-}
+    rtos_engine_enable_serial_rc();   // RC from RcBridge pty / remote transmitter
+    rtos_engine_run_begin();
+    emit logLine("rtos engine: online");
+    emit online();
 
-void SimWorker::killDaemon() {
-    // killDaemon() is called from BOTH the GUI thread (requestStop) and the
-    // worker thread (end of run() / the dtor). Atomically *claim* the pid
-    // under the lock — set daemon_pid_ = -1 before releasing — so exactly one
-    // caller runs the SIGTERM->reap->SIGKILL sequence and the other sees -1
-    // and returns. Without this the two raced: after one waitpid() reaped the
-    // pid, the loser could waitpid()-miss for 1.5 s and then SIGKILL a pid the
-    // OS had already recycled onto an unrelated process.
-    pid_t pid;
-    {
-        std::lock_guard<std::mutex> lk(daemon_mtx_);
-        pid = daemon_pid_;
-        daemon_pid_ = -1;
-    }
-    if (pid <= 0) return;
-
-    ::kill(pid, SIGTERM);
-    // Bounded wait: poll for up to ~1.5 s before SIGKILL. The lock is NOT held
-    // across the wait — only this caller owns `pid` now, so there's no race.
-    int status = 0;
-    for (int i = 0; i < 30; ++i) {
-        pid_t r = ::waitpid(pid, &status, WNOHANG);
-        if (r == pid || (r < 0 && errno == ECHILD)) return;  // reaped / gone
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
-    }
-    ::kill(pid, SIGKILL);
-    ::waitpid(pid, &status, 0);
-}
-
-bool SimWorker::openFifos() {
-    // Wait briefly for vsim_d to mkfifo the paths. It does so very
-    // quickly (millisecond range) after startup.
-    auto wait_for = [](const char* path) {
-        for (int i = 0; i < 50; ++i) {
-            struct stat st;
-            if (::stat(path, &st) == 0) return true;
-            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    vsim_pose_frame_t pose;
+    int n = 0;
+    while (!stop_flag_.load(std::memory_order_acquire)) {
+        // Apply config queued from the GUI thread (engine is single-threaded).
+        {
+            std::vector<std::function<void()>> batch;
+            { std::lock_guard<std::mutex> lk(cmd_mtx_); batch.swap(cmds_); }
+            for (auto& op : batch) op();
         }
-        return false;
-    };
-    const std::string pose_path = fifoSuffixed(VSIM_FIFO_POSE);
-    const std::string ctl_path  = fifoSuffixed(VSIM_FIFO_CTL);
-    if (!wait_for(pose_path.c_str()) || !wait_for(ctl_path.c_str())) {
-        emit logLine("vsim_d: timed out waiting for FIFOs");
-        return false;
+        rtos_engine_run_step();                 // one 1 ms step, wall-clock paced
+        if ((++n & 15) == 0) {                  // ~62.5 Hz to the renderer
+            vsim_inproc_get_pose(&pose);
+            emitFromFrame(&pose);
+        }
     }
-    pose_fd_ = ::open(pose_path.c_str(), O_RDONLY | O_NONBLOCK);
-    ctl_fd_  = ::open(ctl_path.c_str(),  O_RDWR   | O_NONBLOCK);
-    if (pose_fd_ < 0 || ctl_fd_ < 0) {
-        emit logLine(QString("vsim_d: FIFO open failed: %1").arg(::strerror(errno)));
-        return false;
-    }
-    return true;
-}
-
-void SimWorker::closeFifos() {
-    if (pose_fd_ >= 0) { ::close(pose_fd_); pose_fd_ = -1; }
-    if (ctl_fd_  >= 0) { ::close(ctl_fd_);  ctl_fd_  = -1; }
+    emit logLine("rtos engine: stopped");
+    emit stoppedCleanly();
 }
 
 void SimWorker::emitFromFrame(const void* bytes) {
@@ -481,46 +265,35 @@ void SimWorker::startAttach(const QString& posePath) {
 
 void SimWorker::run() {
     stop_flag_.store(false, std::memory_order_release);
+    if (attach_only_) runAttach();   // mirror an external sim's pose FIFO
+    else              runEngine();   // drive the in-process RTOS engine
+}
 
-    if (attach_only_) {
-        // Don't own a daemon: just read the existing pose FIFO. Wait briefly for
-        // the file to appear (the tuner spawns its vsim_d a moment after launch).
-        const auto deadline =
-            std::chrono::steady_clock::now() + std::chrono::seconds(20);
-        const QByteArray p = attach_pose_path_.toLocal8Bit();
-        while (!stop_flag_.load(std::memory_order_acquire)) {
-            pose_fd_ = ::open(p.constData(), O_RDONLY | O_NONBLOCK);
-            if (pose_fd_ >= 0) break;
-            if (std::chrono::steady_clock::now() > deadline) {
-                emit logLine("attach: tuner pose FIFO never appeared");
-                emit stoppedCleanly();
-                return;
-            }
-            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+// Legacy mirror mode: read an EXISTING pose FIFO (e.g. the autotuner's vsim_d)
+// and emit poseUpdated. Kept until autotune migrates off vsim_d (#13).
+void SimWorker::runAttach() {
+    // Wait briefly for the file to appear (the tuner spawns its vsim_d a moment
+    // after launch).
+    const auto deadline =
+        std::chrono::steady_clock::now() + std::chrono::seconds(20);
+    const QByteArray p = attach_pose_path_.toLocal8Bit();
+    while (!stop_flag_.load(std::memory_order_acquire)) {
+        pose_fd_ = ::open(p.constData(), O_RDONLY | O_NONBLOCK);
+        if (pose_fd_ >= 0) break;
+        if (std::chrono::steady_clock::now() > deadline) {
+            emit logLine("attach: tuner pose FIFO never appeared");
+            emit stoppedCleanly();
+            return;
         }
-        if (pose_fd_ < 0) { emit stoppedCleanly(); return; }
-        emit logLine("attached to tuner sim: " + attach_pose_path_);
-        emit online();
-    } else {
-        if (!spawnDaemon())  { emit stoppedCleanly(); return; }
-        if (!openFifos())    { killDaemon(); emit stoppedCleanly(); return; }
-
-        emit logLine("vsim_d: pose reader online");
-        emit online();
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
+    if (pose_fd_ < 0) { emit stoppedCleanly(); return; }
+    emit logLine("attached to tuner sim: " + attach_pose_path_);
+    emit online();
 
-    // Magic-resync buffer. vsim_d writes complete frames per write(),
-    // but if we connect mid-stream we may need to walk to the next
-    // boundary. Also handles short reads.
-    //
-    // Startup EOF tolerance: openFifos() only waits for the pose FIFO *file*
-    // to exist. On a restart the file is a leftover from the previous run, so
-    // it exists immediately — before the freshly spawned vsim_d has opened it
-    // for writing. A read() on a writer-less FIFO returns 0 (EOF); treating
-    // that as "daemon died" here would break the loop and killDaemon() the
-    // daemon we just spawned (the restart-freeze bug). So tolerate EOF until
-    // the producer connects — bounded by a grace window — and only treat a
-    // *later* EOF (after we've seen the producer) as a real disconnect.
+    // Magic-resync buffer: walk to the next frame boundary on a mid-stream
+    // connect / short read. Tolerate startup EOF (writer-less FIFO returns 0)
+    // until the producer connects, bounded by a grace window.
     std::string buf;
     bool producer_seen = false;
     const auto startup_deadline =
@@ -532,33 +305,25 @@ void SimWorker::run() {
             producer_seen = true;
             buf.append(chunk, static_cast<size_t>(r));
         } else if (r == 0) {
-            // No writer on the FIFO right now.
             if (producer_seen) break;  // producer connected, then went away
             if (std::chrono::steady_clock::now() > startup_deadline) {
-                emit logLine("vsim_d: no pose producer within startup grace");
+                emit logLine("attach: no pose producer within startup grace");
                 break;
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
         } else if (r < 0 && errno != EAGAIN) {
             break;  // hard error
         } else {
-            // EAGAIN: a writer is present but no data yet.
             producer_seen = true;
             std::this_thread::sleep_for(std::chrono::milliseconds(8));
         }
 
-        // Dispatch as many complete pose frames as we have. Only emit
-        // the LATEST one per loop iteration (latest-wins; the renderer
-        // doesn't need every 60 Hz frame if we're behind).
+        // Emit only the LATEST complete pose frame per iteration (latest-wins).
         size_t pos = 0;
         const void* last_good = nullptr;
         while (pos + sizeof(vsim_hdr_t) <= buf.size()) {
             const auto* hdr = reinterpret_cast<const vsim_hdr_t*>(buf.data() + pos);
-            if (hdr->magic != VSIM_MAGIC) {
-                // Walk forward one byte and try again.
-                ++pos;
-                continue;
-            }
+            if (hdr->magic != VSIM_MAGIC) { ++pos; continue; }
             const size_t need = sizeof(vsim_hdr_t) + hdr->payload_bytes;
             if (pos + need > buf.size()) break;  // incomplete tail
             if (hdr->version == VSIM_PROTO_VERSION &&
@@ -572,14 +337,8 @@ void SimWorker::run() {
         if (pos > 0)   buf.erase(0, pos);
     }
 
-    if (attach_only_) {
-        if (pose_fd_ >= 0) { ::close(pose_fd_); pose_fd_ = -1; }
-        emit logLine("detached from tuner sim");
-    } else {
-        closeFifos();
-        killDaemon();
-        emit logLine("vsim_d: stopped");
-    }
+    if (pose_fd_ >= 0) { ::close(pose_fd_); pose_fd_ = -1; }
+    emit logLine("detached from tuner sim");
     emit stoppedCleanly();
 }
 

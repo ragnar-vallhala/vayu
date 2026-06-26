@@ -49,6 +49,13 @@ int rtos_engine_boot(void *iface);
  * they inject RC deterministically via set_rc, so determinism is preserved. */
 void rtos_engine_enable_serial_rc(void);
 
+/* Type-free interactive run facade (#12): the GCS worker drives the engine
+ * without seeing the firmware types. run_begin resets the internal stepper +
+ * pacer (call on (re)start); run_step advances one 1 ms step and paces to
+ * wall-clock. RC arrives via the serial feeder; pose via vsim_inproc_get_pose. */
+void rtos_engine_run_begin(void);
+void rtos_engine_run_step(void);
+
 /* Zero a stepper. The IMU struct MUST start zeroed: garbage in the fields
  * packImu doesn't write breaks determinism (found the hard way). */
 void stepper_init(stepper_t *s);
