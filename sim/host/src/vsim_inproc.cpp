@@ -45,6 +45,23 @@ void packImu(const vsim::ImuSample &s, uint8_t out[88]) {
   f[21] = s.temp;
   std::memcpy(out, f, 88);
 }
+
+// Read the opt-in actuator-imperfection envs into `motor` (mirrors vsim_d's
+// main.cpp so the in-process twin carries the SAME identified model — the
+// ~100 ms transport delay + idle-stall that reproduce the real failure).
+// Returns true if any imperfection was enabled. Defaults (unset) = ideal no-op.
+bool applyActuatorEnv(vsim::MotorParams &motor) {
+  if (const char *e = std::getenv("VSIM_MOTOR_DELAY_MS")) motor.transport_delay = std::atof(e) * 1e-3f;
+  if (const char *e = std::getenv("VSIM_STALL_DUTY"))     motor.stall_duty = std::atof(e);
+  if (const char *e = std::getenv("VSIM_RESPIN_TAU"))     motor.respin_tau = std::atof(e);
+  if (const char *e = std::getenv("VSIM_VIBE_G"))         g_ctl.setVibeGain(std::atof(e));
+  bool on = motor.transport_delay > 0.0f || motor.stall_duty > 0.0f;
+  if (on)
+    std::fprintf(stderr, "vsim_inproc: actuator imperfections ON "
+                 "(delay=%.0fms stall_duty=%.3f respin=%.0fms)\n",
+                 motor.transport_delay * 1e3f, motor.stall_duty, motor.respin_tau * 1e3f);
+  return on;
+}
 }  // namespace
 
 extern "C" {
@@ -111,20 +128,24 @@ int vsim_inproc_load_geometry(const char *path, float out_x[4], float out_y[4],
     out_y[i] = g.motors[i].pos[1];
     out_spin[i] = motor.spin[i];
   }
-  // Higher-fidelity actuator imperfections (opt-in via env; mirrors vsim_d's
-  // main.cpp so the in-process twin carries the SAME identified model — the
-  // ~100 ms transport delay + idle-stall that reproduce the real failure).
-  if (const char *e = std::getenv("VSIM_MOTOR_DELAY_MS")) motor.transport_delay = std::atof(e) * 1e-3f;
-  if (const char *e = std::getenv("VSIM_STALL_DUTY"))     motor.stall_duty = std::atof(e);
-  if (const char *e = std::getenv("VSIM_RESPIN_TAU"))     motor.respin_tau = std::atof(e);
-  if (const char *e = std::getenv("VSIM_VIBE_G"))         g_ctl.setVibeGain(std::atof(e));
-  if (motor.transport_delay > 0.0f || motor.stall_duty > 0.0f)
-    std::fprintf(stderr, "vsim_inproc: actuator imperfections ON "
-                 "(delay=%.0fms stall_duty=%.3f respin=%.0fms)\n",
-                 motor.transport_delay * 1e3f, motor.stall_duty, motor.respin_tau * 1e3f);
+  // Higher-fidelity actuator imperfections (opt-in via env), on top of the
+  // geometry-derived rotor layout.
+  applyActuatorEnv(motor);
   g_ctl.setDroneParams(drone);
   g_ctl.setMotorParams(motor);
   return 1;
+}
+
+/* Apply the actuator-imperfection envs (VSIM_MOTOR_DELAY_MS / VSIM_STALL_DUTY /
+ * VSIM_RESPIN_TAU / VSIM_VIBE_G) on top of the DEFAULT reference-quad motor
+ * params — for runs with no VAYU_RTOS_GEOMETRY file, where load_geometry (which
+ * otherwise carries these envs) never runs. Call ONLY when geometry was not
+ * loaded; otherwise it would clobber the geometry-derived rotor layout. No-op
+ * if none of the envs are set. */
+void vsim_inproc_apply_actuator_env_default(void) {
+  vsim::MotorParams motor;  // reference-quad defaults
+  if (applyActuatorEnv(motor))
+    g_ctl.setMotorParams(motor);
 }
 
 /* Advance physics by dt (8 RK4 substeps, matching vsim_d's physics_hz/imu_hz),

@@ -11,6 +11,9 @@
  *                      gains; scores rate-loop tracking corr(rate_sp,rate_curr)
  *                      — a fast, deterministic autotune-style eval. Sim-time
  *                      paced (the stepper owns the clock; no wall-clock sleeps).
+ *   disturb            arm + hover + kick one axis, then capture the rate
+ *                      ring-down at full sim cadence (1 ms) to a CSV — the
+ *                      limit-cycle / robustness study the FIFO path aliased.
  */
 #define _GNU_SOURCE
 #include <math.h>
@@ -43,26 +46,31 @@ extern void vsim_inproc_set_tether(float tether_k);
 extern void vsim_inproc_step(const float duty[4], float dt, uint8_t out_imu[88]);
 extern int  vsim_inproc_load_geometry(const char *path, float out_x[4],
                                       float out_y[4], int out_spin[4]);
+extern void vsim_inproc_apply_actuator_env_default(void);
 extern void host_pwm_get_latest(float out[4]);
 
 /* If VAYU_RTOS_GEOMETRY points at a serialized vsim_ctl_geometry_t, drive BOTH
  * the in-process physics and the firmware mix from it (one geometry source, as
  * on the realtime stack) — so the fast tuner flies the loaded airframe, not the
  * compiled reference quad. No-op (reference quad) when unset/unreadable. */
-static void apply_geometry_from_env(void) {
+/* Returns 1 if a geometry file was loaded (which also carried the actuator-
+ * imperfection envs), 0 otherwise — so the caller can apply those envs against
+ * the reference quad when no geometry is present. */
+static int apply_geometry_from_env(void) {
   const char *path = getenv("VAYU_RTOS_GEOMETRY");
   if (!path || !*path)
-    return;
+    return 0;
   float gx[4], gy[4];
   int gs[4];
   if (vsim_inproc_load_geometry(path, gx, gy, gs)) {
     angle_rate_controller_set_motor_geometry(gx, gy, gs);
     fprintf(stderr, "vayu_sitl_rtos: geometry from %s applied (physics + firmware mix)\n",
             path);
-  } else {
-    fprintf(stderr, "vayu_sitl_rtos: WARN could not read geometry %s — using reference quad\n",
-            path);
+    return 1;
   }
+  fprintf(stderr, "vayu_sitl_rtos: WARN could not read geometry %s — using reference quad\n",
+          path);
+  return 0;
 }
 
 #define HF_PER_SAMPLE 10   /* HIGH_FREQ_TIMER_FREQ(10k) / SITL_IMU_FEED_HZ(1k) */
@@ -306,6 +314,114 @@ static int run_doublet(uint32_t seed) {
   return 0;
 }
 
+/* ---- disturbance rollout: arm, hover, kick one axis, capture the rate
+ * ring-down at FULL sim cadence (1 ms/step) -----------------------------
+ * The limit-cycle / robustness study the FIFO path could never do cleanly:
+ * wall-clock polling aliased the fast lockstep sim, so a sustained ~2 Hz cycle
+ * was indistinguishable from a decaying one. In-process there is no FIFO and
+ * the stepper owns the clock, so EVERY control sample is captured. Commands an
+ * angle step on VAYU_RTOS_DIST_AXIS (0 roll, 1 pitch, 2 yaw) of VAYU_RTOS_DIST_US
+ * about centre for VAYU_RTOS_DIST_MS, returns to centre, and traces
+ * VAYU_RTOS_CAPTURE_MS of ring-down to VAYU_RTOS_TRACE_CSV. Reports a decay ratio
+ * (late-RMS/peak): >~0.5 ⇒ the rate never settled = a sustained limit cycle. To
+ * reproduce the REAL plant, run with VAYU_RTOS_GEOMETRY + the VSIM_MOTOR_DELAY_MS
+ * / VSIM_STALL_DUTY actuator-imperfection envs (carried by load_geometry). */
+static int run_disturb(uint32_t seed) {
+  vsim_inproc_reset(seed);
+  vsim_inproc_set_tether((float)env_f("VAYU_RTOS_TETHER", 30.0));
+  apply_gains_from_env();
+  stepper_t s;
+  stepper_init(&s);
+  control_telemetry_t ct;
+  int got;
+
+  const int settle  = (int)env_f("VAYU_RTOS_SETTLE_MS", 600);
+  const int hover   = (int)env_f("VAYU_RTOS_HOVER_US", 1500);
+  const int dist_ms = (int)env_f("VAYU_RTOS_DIST_MS", 60);
+  const int dist_us = (int)env_f("VAYU_RTOS_DIST_US", 1800);   /* ~21 deg cmd */
+  const int cap_ms  = (int)env_f("VAYU_RTOS_CAPTURE_MS", 3000);
+  const int axis    = (int)env_f("VAYU_RTOS_DIST_AXIS", 1);    /* pitch */
+
+  FILE *csv = NULL;
+  const char *cp = getenv("VAYU_RTOS_TRACE_CSV");
+  if (cp && *cp) {
+    csv = fopen(cp, "w");
+    if (csv)
+      fprintf(csv, "t_ms,phase,roll_rate_sp,roll_rate_curr,pitch_rate_sp,"
+                   "pitch_rate_curr,yaw_rate_sp,yaw_rate_curr,roll_ang,"
+                   "pitch_ang,d0,d1,d2,d3\n");
+  }
+#define DIST_TRACE(ph)                                                          \
+  if (got && csv)                                                              \
+    fprintf(csv, "%d,%s,%g,%g,%g,%g,%g,%g,%g,%g,%g,%g,%g,%g\n", t, ph,         \
+            ct.roll_rate_sp, ct.roll_rate_curr, ct.pitch_rate_sp,             \
+            ct.pitch_rate_curr, ct.yaw_rate_sp, ct.yaw_rate_curr,             \
+            ct.roll_angle_curr, ct.pitch_angle_curr, s.duty[0], s.duty[1],    \
+            s.duty[2], s.duty[3])
+#define DIST_RATE(c)                                                           \
+  (axis == 0 ? (c).roll_rate_curr : axis == 1 ? (c).pitch_rate_curr           \
+                                              : (c).yaw_rate_curr)
+
+  /* arm (throttle low + arm high), then settle at hover */
+  for (int i = 0; i < 200; i++) { set_rc(1500, 1500, 1000, 1500, 2000); step_once(&s, &ct, &got); }
+  for (int i = 0; i < settle; i++) { set_rc(1500, 1500, hover, 1500, 2000); step_once(&s, &ct, &got); }
+
+  /* Envelope decay: compare the oscillation amplitude just after the kick
+   * transient (early window 10–30% of the capture) to the tail (late window,
+   * final 40%). late/early ≈ 1 (or rising) ⇒ a sustained limit cycle; ≪1 ⇒ it
+   * rang down. Using an early RMS — not the single peak spike — as the baseline
+   * makes the ratio a true decay measure. (FFT the CSV for the cycle frequency.) */
+  double peak = 0.0, late_sxx = 0.0, early_sxx = 0.0;
+  long late_n = 0, early_n = 0;
+  const int early_lo = (int)(cap_ms * 0.1), early_hi = (int)(cap_ms * 0.3);
+  const int late_start = (int)(cap_ms * 0.6);  /* RMS over the final 40% */
+  int t = 0;
+
+  /* kick: hold the angle step on the chosen axis */
+  for (int i = 0; i < dist_ms; i++, t++) {
+    int r = 1500, p = 1500, y = 1500;
+    if (axis == 0) r = dist_us; else if (axis == 1) p = dist_us; else y = dist_us;
+    set_rc(r, p, hover, y, 2000);
+    step_once(&s, &ct, &got);
+    DIST_TRACE("kick");
+  }
+  /* release: back to centre, capture the ring-down */
+  for (int i = 0; i < cap_ms; i++, t++) {
+    set_rc(1500, 1500, hover, 1500, 2000);
+    step_once(&s, &ct, &got);
+    if (got) {
+      double rr = DIST_RATE(ct);
+      if (fabs(rr) > peak) peak = fabs(rr);
+      if (i >= early_lo && i < early_hi) { early_sxx += rr * rr; early_n++; }
+      if (i >= late_start) { late_sxx += rr * rr; late_n++; }
+    }
+    DIST_TRACE("ring");
+  }
+  if (csv) fclose(csv);
+
+  /* disarm: exercise the armed→standby transition before we exit */
+  for (int i = 0; i < 50; i++) { set_rc(1500, 1500, 1000, 1500, 1000); step_once(&s, &ct, &got); }
+
+  double late_rms  = late_n  ? sqrt(late_sxx  / (double)late_n)  : 0.0;
+  double early_rms = early_n ? sqrt(early_sxx / (double)early_n) : 0.0;
+  double decay = early_rms > 1e-6 ? late_rms / early_rms : 0.0;
+  const char *axn = axis == 0 ? "roll" : axis == 1 ? "pitch" : "yaw";
+  fprintf(stderr,
+          "vayu_sitl_rtos: disturb axis=%s peak=%.1f early_rms=%.1f late_rms=%.1f "
+          "deg/s decay=%.3f -> %s (end state=0x%x)\n",
+          axn, peak, early_rms, late_rms, decay,
+          decay > 0.7 ? "SUSTAINED (limit cycle)" : "decays",
+          (unsigned)system_state_get());
+  printf("#RTOS-DISTURB seed=%u axis=%s peak=%.4f early_rms=%.4f late_rms=%.4f "
+         "decay=%.4f rate_kp=%.6g angle_kp=%.4g\n",
+         seed, axn, peak, early_rms, late_rms, decay, env_f("VAYU_RATE_KP", 5e-4),
+         env_f("VAYU_ANGLE_KP", 4.0));
+  fflush(stdout);
+#undef DIST_TRACE
+#undef DIST_RATE
+  return 0;
+}
+
 /* ---- hold rollout: determinism fingerprints (default) ---------------- */
 static int run_hold(uint32_t seed, int N, double *out_wall, double *out_x) {
   vsim_inproc_reset(seed);
@@ -348,7 +464,11 @@ int main(void) {
     return 1;
   }
   scheduler_start();                  /* run boot tasks to idle */
-  apply_geometry_from_env();          /* after boot so the mix isn't re-init'd */
+  /* after boot so the mix isn't re-init'd. With no geometry file, still honour
+   * the actuator-imperfection envs against the reference quad (otherwise they'd
+   * only apply on the geometry path) — so `disturb` can fly the identified plant. */
+  if (!apply_geometry_from_env())
+    vsim_inproc_apply_actuator_env_default();
 
   const char *seed_env = getenv("VAYU_RTOS_SEED");
   const char *nenv = getenv("VAYU_RTOS_SAMPLES");
@@ -359,5 +479,7 @@ int main(void) {
 
   if (scen && strcmp(scen, "doublet") == 0)
     return run_doublet(seed);
+  if (scen && strcmp(scen, "disturb") == 0)
+    return run_disturb(seed);
   return run_hold(seed, N, 0, 0);
 }
