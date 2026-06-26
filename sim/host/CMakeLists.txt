@@ -209,10 +209,16 @@ if(VAYU_SITL_RTOS_BUILD)
       INCLUDE_DIRECTORIES "${VAYU_ROOT}/sim/vsim/include")
   target_include_directories(vsim_phys INTERFACE ${VAYU_ROOT}/sim/vsim/include)
 
-  add_executable(vayu_sitl_rtos
+  # The RTOS SITL as a CORE static library (#11e): everything EXCEPT
+  # host_rtos_main.c (the CLI scenarios + main()). Navigator links this and
+  # drives it from a worker thread via the host_rtos_engine API (boot/step/
+  # set_rc/get_pose + the vsim_inproc config surface), so the GCS runs the SAME
+  # deterministic in-process engine the headless binary does — no vsim_d, no
+  # FIFO. Compile defs + includes are PUBLIC so consumers (the exe below, and
+  # Navigator) inherit the RTOS port wiring.
+  add_library(vayu_sitl_rtos_core STATIC
       src/host_rtos_port.c
       src/host_rtos_engine.c   # reusable in-process step engine (#11a)
-      src/host_rtos_main.c
       src/host_vaios.c        # collisions compiled out by VAYU_SITL_RTOS
       src/host_navhal.c
       src/host_vfs.c
@@ -230,12 +236,25 @@ if(VAYU_SITL_RTOS_BUILD)
       ${VAIOS_ROOT}/kernel/vaios.c
       ${VAIOS_ROOT}/kernel/perf.c
   )
-  target_compile_definitions(vayu_sitl_rtos PRIVATE
+  target_compile_definitions(vayu_sitl_rtos_core PUBLIC
       VAYU_SITL_RTOS=1 VAIOS_HOST_TEST=1
       _GNU_SOURCE           # glibc __USE_MISC (int32_t in <stdlib.h>) for the C++ TUs
       HEAP_SIZE=0x180000)   # 1.5 MB: room for the firmware tasks' 8KB stacks on host
-  target_link_libraries(vayu_sitl_rtos PRIVATE Threads::Threads m rt navlink_codec vsim_phys)
-  message(STATUS "vayu_sitl_rtos (Phase 4, experimental) configured")
+  target_include_directories(vayu_sitl_rtos_core PUBLIC
+      ${CMAKE_CURRENT_SOURCE_DIR}/include
+      ${VAYU_ROOT}/firmware/include
+      ${VAIOS_ROOT}/include
+      ${NAVHAL_ROOT}/include
+      ${NAVHAL_ROOT}/include/port/cortex-m4
+      ${VAYU_ROOT}/sim/vsim/include   # vsim_proto.h + trimesh_bvh.h for the engine API
+  )
+  target_link_libraries(vayu_sitl_rtos_core PUBLIC Threads::Threads m rt navlink_codec vsim_phys)
+
+  # Standalone scenario binary = the core + the CLI main (hold/doublet/disturb/
+  # pose/cfg). main() lives ONLY here, never in the library Navigator links.
+  add_executable(vayu_sitl_rtos src/host_rtos_main.c)
+  target_link_libraries(vayu_sitl_rtos PRIVATE vayu_sitl_rtos_core)
+  message(STATUS "vayu_sitl_rtos_core (lib) + vayu_sitl_rtos (bin) configured")
 endif()
 
 # ----------------------------------------------------------------------------
