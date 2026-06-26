@@ -23,6 +23,18 @@ void SimController::stepOnce(const std::array<float, 4>& duty, float dt) {
     Vec3 F_b, T_b;
     motors_.update(duty, dt, &F_b, &T_b);
 
+    // Thrust-scaled IMU vibration: scale the per-step injection by the mean
+    // motor command so it rises from the noise floor at idle to ~vibe_gain g
+    // at full throttle (real: ~0.06 g idle -> ~1.5 g active). No-op when off.
+    if (vibe_gain_ > 0.0f) {
+        float mean_cmd = 0.25f * (std::clamp(duty[0], 0.0f, 1.0f) +
+                                  std::clamp(duty[1], 0.0f, 1.0f) +
+                                  std::clamp(duty[2], 0.0f, 1.0f) +
+                                  std::clamp(duty[3], 0.0f, 1.0f));
+        float acc_std = vibe_gain_ * 9.81f * mean_cmd;     // m/s^2
+        sensors_.setVibe(acc_std, acc_std * 0.05f);        // gyr ~ small frac
+    }
+
     // Advance the wind field and hand the physics integrator this step's
     // air-relative wind (still air -> zero -> original drag behaviour).
     phys_.setWind(wind_.step(dt));

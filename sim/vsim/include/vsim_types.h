@@ -68,6 +68,25 @@ struct MotorParams {
     // (the old shared 0.0125/0.025 asymmetry), so one editable value per rotor
     // maps to the mockup's per-motor "time constant τ".
     std::array<float, 4> tau = {0.0125f, 0.0125f, 0.0125f, 0.0125f};
+
+    // --- Higher-fidelity actuator imperfections (default OFF = no-op) ---------
+    // Identified on real hardware (docs/journal/log-analysis/.../plant_id): the
+    // real pitch limit cycle is a ~100 ms ACTUATOR TRANSPORT DELAY the ideal
+    // first-order model above cannot produce (a pole adds phase but also cuts
+    // magnitude, so it self-stabilises; a pure delay adds phase with no
+    // magnitude loss -> it drives the -180 deg crossover down to ~2 Hz).
+
+    // Pure transport delay [s] applied to the duty command before the spin
+    // filter. Models ESC/comms latency + (with stall) re-spin lag. 0 = off.
+    float transport_delay = 0.0f;
+
+    // Idle-stall: a rotor commanded below `stall_duty` is treated as STALLED
+    // (produces no thrust); on re-command above it, it must re-spin from rest
+    // with the slower `respin_tau`. This is the physical SOURCE of the delay and
+    // self-selects the saturating axis (real: pitch floors -> stalls -> cycles;
+    // roll keeps authority -> stable). 0 = off.
+    float stall_duty  = 0.0f;
+    float respin_tau  = 0.060f;   // [s] re-spin time constant out of stall
 };
 
 struct ImuSample {

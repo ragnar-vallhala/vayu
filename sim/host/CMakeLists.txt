@@ -83,6 +83,7 @@ set(VAYU_SOURCES
     ${VAYU_ROOT}/firmware/src/est/lpf.c
     ${VAYU_ROOT}/firmware/src/maths/maths_interface.c
     ${VAYU_ROOT}/firmware/src/control/pid.c
+    ${VAYU_ROOT}/firmware/src/control/rate_indi.c   # optional INDI inner loop (RATE_CTRL_ALGO_USED)
     ${VAYU_ROOT}/firmware/src/sys/math_utils.c
     ${VAYU_ROOT}/firmware/src/sys/sys_utils.c
     ${VAYU_ROOT}/firmware/src/est/sensor_fusion.c

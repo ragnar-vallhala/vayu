@@ -36,6 +36,13 @@ public:
     void setNoise(const SensorNoise& n) { noise_ = n; }
     const SensorNoise& noise() const { return noise_; }
 
+    // Per-step thrust-scaled vibration std added on top of the noise floor
+    // (acc in m/s^2, gyr in rad/s). 0 = off (default). Set from the motor
+    // command each physics step by SimController.
+    void setVibe(float acc_std, float gyr_std) {
+        vibe_acc_std_ = acc_std; vibe_gyr_std_ = gyr_std;
+    }
+
     void seed(uint64_t s);
 
     // Build one IMU sample from current rigid-body state + the world
@@ -57,6 +64,9 @@ private:
     Vec3 acc_bias_{0.0f, 0.0f, 0.0f};
     Vec3 gyr_bias_{0.0f, 0.0f, 0.0f};
     Vec3 mag_bias_{0.0f, 0.0f, 0.0f};
+
+    float vibe_acc_std_ = 0.0f;   // m/s^2, thrust-scaled (0 = off)
+    float vibe_gyr_std_ = 0.0f;   // rad/s, thrust-scaled (0 = off)
 };
 
 }  // namespace vsim
