@@ -172,11 +172,11 @@ void imu_telemetry_task(void *args) {
       uint8_t axis = (uint8_t)sysid_capture_axis();
       for (int b = 0; b < 2 && sysid_dump_active(); b++) {
         uint16_t start = 0;
-        int16_t sp[10], gyro[10];
-        int n = sysid_dump_next(&start, sp, gyro, 10);
+        int16_t u[10], gyro[10];
+        int n = sysid_dump_next(&start, u, gyro, 10);
         if (n <= 0)
           break;
-        navlink_tx_sysid_sample(start, total, hz, axis, (uint8_t)n, sp, gyro);
+        navlink_tx_sysid_sample(start, total, hz, axis, (uint8_t)n, u, gyro);
       }
     }
     /* Estimator cost probe (~1 Hz): peak/mean per-update cost + cadence. */

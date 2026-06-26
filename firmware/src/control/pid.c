@@ -86,6 +86,11 @@ void v_pid_set_limits(struct PID *pid, float out_min, float out_max) {
 
 void v_pid_set_i_max(struct PID *pid, float i_max) { pid->i_max = i_max; }
 
+void v_pid_set_d_lpf_rc(struct PID *pid, float d_lpf_rc) {
+  pid->d_lpf_rc = (d_lpf_rc > 0.0f) ? d_lpf_rc : 0.0f;
+  pid->d_filtered = 0; /* reset the filter state so the new RC starts clean */
+}
+
 void v_pid_set_prev_meas(struct PID *pid, float prev_meas) {
   pid->prev_meas = prev_meas;
   pid->initialized = false;

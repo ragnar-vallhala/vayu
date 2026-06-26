@@ -25,6 +25,7 @@ void v_pid_reset(struct PID *pid);
 void v_pid_set_gains(struct PID *pid, float Kp, float Ki, float Kd, float Kff);
 void v_pid_set_limits(struct PID *pid, float out_min, float out_max);
 void v_pid_set_i_max(struct PID *pid, float i_max);
+void v_pid_set_d_lpf_rc(struct PID *pid, float d_lpf_rc);
 void v_pid_set_prev_meas(struct PID *pid, float prev_meas);
 void v_pid_set_integral(struct PID *pid, float integral);
 #endif // VAYU_PID_H

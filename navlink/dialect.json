@@ -409,14 +409,14 @@
     },
     {
       "msgid": 1041, "name": "SYSID_SAMPLE",
-      "doc": "One chunk of the on-hardware system-ID capture, streamed in response to CMD_SYSID_DUMP. sp/gyro are the rate setpoint (incl. chirp) and the measured gyro rate, in 0.1 deg/s units (i16). start_index is this chunk's first sample; total/capture_hz/axis are repeated in every chunk so a dropped first chunk doesn't lose the metadata.",
+      "doc": "One chunk of the on-hardware system-ID capture, streamed in response to CMD_SYSID_DUMP. u/gyro are the rate-PID OUTPUT (control effort u, incl. the chirp response — this is the plant-fit input, NOT the setpoint) and the measured gyro rate. u is i16 scaled x1000 (recover native u by /1000); gyro is i16 in 0.1 deg/s. start_index is this chunk's first sample; total/capture_hz/axis are repeated in every chunk so a dropped first chunk doesn't lose the metadata.",
       "fields": [
         { "index": 0, "name": "start_index", "type": "u16" },
         { "index": 1, "name": "total",       "type": "u16" },
         { "index": 2, "name": "capture_hz",  "type": "u16" },
         { "index": 3, "name": "axis",        "type": "u8" },
         { "index": 4, "name": "count",       "type": "u8" },
-        { "index": 5, "name": "sp",          "type": "i16", "len": 10, "unit": "0.1 deg/s" },
+        { "index": 5, "name": "u",           "type": "i16", "len": 10, "unit": "1e-3 u (rate-PID output)" },
         { "index": 6, "name": "gyro",        "type": "i16", "len": 10, "unit": "0.1 deg/s" }
       ]
     },
@@ -536,6 +536,17 @@
       ]
     },
     {
+      "msgid": 8205, "name": "CMD_SET_D_LPF", "replaces": "0x3/cmd 0x000E",
+      "doc": "Set rate-loop derivative (D-term) low-pass time constant per axis. v1: rc (seconds); <=0 disables filtering (raw D).",
+      "fields": [
+        { "index": 0, "name": "target_sys",  "type": "u8" },
+        { "index": 1, "name": "target_comp", "type": "u8" },
+        { "index": 2, "name": "req_seq",     "type": "u8" },
+        { "index": 3, "name": "axis",        "type": "u8", "enum": "pid_axis" },
+        { "index": 4, "name": "rc",          "type": "f32", "unit": "s", "doc": "time constant; <=0 = passthrough" }
+      ]
+    },
+    {
       "msgid": 8197, "name": "CMD_SET_MOTOR_GEOMETRY", "replaces": "0x3/cmd 0x000C",
       "doc": "Reconfigure the 4-motor mixer from per-motor position and spin direction.",
       "fields": [
@@ -561,7 +572,7 @@
     },
     {
       "msgid": 8199, "name": "CMD_SYSID_EXCITE",
-      "doc": "On-hardware system-ID: inject a linear chirp into one rate-loop setpoint (deg/s) for `duration_s`, for plant identification on a rig. axis 0=roll/1=pitch/2=yaw; axis 0xFF aborts. The FC self-aborts on angle/rate limits. Phase 0: testable disarmed (motors stay off; the chirp shows in CONTROL_TRACE rate_sp).",
+      "doc": "On-hardware system-ID: inject a linear chirp into one rate axis for `duration_s`, for plant identification on a rig. axis 0=roll/1=pitch/2=yaw; axis 0xFF aborts. `mode` selects the injection point: 0=rate SETPOINT (amp in deg/s; closed-loop, default) or 1=rate-PID OUTPUT u (amp in control-effort units; near-open-loop, more aggressive, tighter amp cap). The FC self-aborts on angle/rate limits. Phase 0: testable disarmed (motors stay off). `mode` is appended last so a sender that omits it (trailing-zero-truncated) gets mode 0.",
       "fields": [
         { "index": 0, "name": "target_sys",  "type": "u8" },
         { "index": 1, "name": "target_comp", "type": "u8" },
@@ -570,7 +581,8 @@
         { "index": 4, "name": "f0_hz",       "type": "f32" },
         { "index": 5, "name": "f1_hz",       "type": "f32" },
         { "index": 6, "name": "amp_dps",     "type": "f32" },
-        { "index": 7, "name": "duration_s",  "type": "f32" }
+        { "index": 7, "name": "duration_s",  "type": "f32" },
+        { "index": 8, "name": "mode",        "type": "u8" }
       ]
     },
     {

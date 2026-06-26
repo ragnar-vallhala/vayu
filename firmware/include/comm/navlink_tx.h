@@ -31,7 +31,7 @@ void navlink_tx_est_perf(const est_perf_telemetry_t *e);      /* v2 EST_PERF */
 void navlink_tx_imu_full(const float floats10[10]);           /* v2 IMU_RAW */
 /* v2 SYSID_SAMPLE: one chunk (<=10 samples) of the system-ID capture dump. */
 void navlink_tx_sysid_sample(uint16_t start, uint16_t total, uint16_t hz,
-                             uint8_t axis, uint8_t count, const int16_t *sp,
+                             uint8_t axis, uint8_t count, const int16_t *u,
                              const int16_t *gyro);
 void navlink_tx_imu_compressed(const uint16_t delta_f16[10]); /* v2 IMU_COMPRESSED */
 void navlink_tx_attitude(const attitude_t *att_deg);          /* v2 ATTITUDE_EULER */
