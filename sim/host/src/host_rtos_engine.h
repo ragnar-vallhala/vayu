@@ -35,8 +35,19 @@ typedef struct {
 /* Boot the REAL vaios scheduler + in-process vsim physics, then apply the
  * VAYU_RTOS_GEOMETRY airframe (and its actuator-imperfection envs), or — with
  * no geometry file — the actuator-imperfection envs against the reference quad.
- * Call once before stepping. Returns 0 on success, 1 on vayu_sitl_start failure. */
-int rtos_engine_boot(void);
+ * `iface` is the vsim_iface_t* whose UART2 callback receives firmware telemetry
+ * in-process (the GCS passes its iface so telemetry reaches the GUI exactly as
+ * the legacy in-process firmware did); NULL for the headless scenarios (telemetry
+ * falls back to the pty). Call once before stepping. Returns 0 on success, 1 on
+ * vayu_sitl_start failure. */
+int rtos_engine_boot(void *iface);
+
+/* Start the serial RC feeder thread (host_rc_feeder): it reads RC µs frames from
+ * VAYU_UART_RC_PATH (a pty/serial — RcBridge in the GCS, or a remote transmitter)
+ * and pushes them + the arm/disarm state machine into the firmware. For the
+ * INTERACTIVE GCS only — call after boot. The headless scenarios DON'T call this;
+ * they inject RC deterministically via set_rc, so determinism is preserved. */
+void rtos_engine_enable_serial_rc(void);
 
 /* Zero a stepper. The IMU struct MUST start zeroed: garbage in the fields
  * packImu doesn't write breaks determinism (found the hard way). */
