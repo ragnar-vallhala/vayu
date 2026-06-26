@@ -1,0 +1,22 @@
+{
+  "_comment": "Pitch tune v3 (2026-06-25). v1 sysid auto-design angle_kp=4.14 -> 1.5 Hz cascade. v2 capped angle_kp=2.0 but kept rate_kp=0.012 and STILL oscillated at ~2.6 Hz — that was the INNER rate loop: pitch K=1381 is 2.45x roll's 563, so rate_kp 0.012 put the pitch inner-loop crossover at 16.6 rad/s (2.64 Hz) vs roll's stable 6.8 (1.08 Hz). v3 caps the crossover (sysid_fit.choose_crossover wc_max=7.0) so pitch is tuned to the SAME inner-loop bandwidth as the proven-stable roll axis: rate_kp 0.00507, angle_kp 1.75. See docs/journal/log-analysis/20260625-231706-pitch-osc/. Re-apply after each boot: tools/sysid/apply_tune.py --file tools/sysid/pitch_tune.json. NOT persisted on the FC. UNTESTED: first hover low/brief, ready to disarm.",
+  "captured": "2026-06-25",
+  "airframe": "X-quad. M1,M3 CW, M2,M4 CCW. IMU aligned. Inverted spin vs firmware default (yaw-sign fix).",
+
+  "motor_geometry": {
+    "_comment": "Inverted spin vs firmware default -> flips s_mix_yaw only (default spin-sign was backwards -> yaw positive feedback). Roll/pitch mix unchanged. REQUIRED.",
+    "pos_x": [1.0, -1.0, -1.0, 1.0],
+    "pos_y": [1.0, 1.0, -1.0, -1.0],
+    "spin":  [-1, 1, -1, 1]
+  },
+
+  "rate_pid": {
+    "_comment": "controller=1 (rate). pitch crossover capped to roll's proven 1.1 Hz (was 0.012 -> 2.64 Hz inner-loop oscillation).",
+    "pitch": { "kp": 0.00507, "ki": 0.00355, "kd": 0.00010, "kff": 0.0, "status": "sysid wc-capped 2026-06-25" }
+  },
+
+  "angle_pid": {
+    "_comment": "controller=0 (angle). pitch = 0.25*wc with the capped wc=7.0 -> 1.75, matching roll's proven 1.69.",
+    "pitch": { "kp": 1.75, "ki": 0.0, "kd": 0.0, "kff": 0.0, "status": "sysid wc-capped (was 4.14)" }
+  }
+}

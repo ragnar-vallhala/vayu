@@ -1,0 +1,75 @@
+{
+  "_comment": "Setup + PID configuration reference for this capture, added retrospectively (2026-06-26) for future reference. The captured .bin is the v3 (wc-capped) run; the analysis compares it against the prior v1/v2 runs as a gain sweep (gain_sweep_context below). Pitch gains verbatim from README.md and pitch_tune.json; roll/yaw are the concurrently-active rig tune (not the focus).",
+  "session": "20260625-233852-pitch-verify",
+  "captured": "2026-06-25T23:38 (FC local clock)",
+  "capture_type": "armed verification hover after the wc-capped pitch tune v3 (concludes the pitch fault is physical, not tuning)",
+  "armed": true,
+
+  "hardware": {
+    "platform": "real flight controller",
+    "link": "ESP/UDP bridge 10.42.0.30:14555 (NavLink v2 over UDP)",
+    "airframe": "X-quad. M1,M3 CW / M2,M4 CCW. IMU aligned. A motor was already burned out earlier this session; pitch axis suspected physically asymmetric.",
+    "motor_geometry": {
+      "_comment": "Inverted spin vs firmware default (flips s_mix_yaw only). Roll/pitch mix unchanged. REQUIRED.",
+      "pos_x": [1.0, -1.0, -1.0, 1.0],
+      "pos_y": [1.0, 1.0, -1.0, -1.0],
+      "spin":  [-1, 1, -1, 1]
+    }
+  },
+
+  "firmware": {
+    "rate_controller_algo": "PID cascade (RATE_CTRL_PID). INDI (firmware/src/control/rate_indi.c) did not exist until 2026-06-26 — it was NOT running here.",
+    "gains_persisted": false,
+    "tune_applied": "pitch tune v3 (tools/sysid/pitch_tune.json) over the rig tune for roll/yaw; re-applied each boot via tools/sysid/apply_tune.py",
+    "note": "FC does not persist tunes across power cycles."
+  },
+
+  "pid": {
+    "_units": "rate: controller=1; angle: controller=0, kp in (deg/s)/deg. These are the gains ACTIVE for the captured pitch-verify.bin (v3).",
+    "rate": {
+      "roll":  { "kp": 0.01200, "ki": 0.00811, "kd": 0.00025, "kff": 0.0, "status": "sysid-tuned roll (rock-stable this run; the control)" },
+      "pitch": { "kp": 0.00507, "ki": 0.00355, "kd": 0.00010, "kff": 0.0, "status": "sysid wc-capped v3 (pitch inner loop matched to roll's 1.1 Hz crossover)" },
+      "yaw":   { "kp": 0.01800, "ki": 0.00800, "kd": 0.0,     "kff": 0.0, "status": "firmware default + integral (heading hold)" }
+    },
+    "angle": {
+      "roll":  { "kp": 1.6898, "ki": 0.0, "kd": 0.0, "kff": 0.0, "status": "sysid-tuned roll (stable)" },
+      "pitch": { "kp": 1.75,   "ki": 0.0, "kd": 0.0, "kff": 0.0, "status": "sysid wc-capped v3 (0.25*wc with wc=7.0; matches roll's proven 1.69)" },
+      "yaw":   { "kp": null,   "ki": 0.0, "kd": 0.0, "kff": 0.0, "status": "firmware default (not re-pushed)" }
+    }
+  },
+
+  "gain_sweep_context": {
+    "_comment": "Three pitch gain sets compared across the 2026-06-25 pitch sessions. Gain-invariant limit cycle + worsening saturation => authority-limited, NOT a linear-gain problem.",
+    "runs": [
+      { "label": "v1 (sysid raw)",  "rate_kp": 0.012,   "angle_kp": 4.14, "osc_hz": 1.5,  "pitch_out_saturated_pct": 19, "source": "../20260625-231706-pitch-osc/" },
+      { "label": "v2 (angle cap)",  "rate_kp": 0.012,   "angle_kp": 2.0,  "osc_hz": 2.6,  "pitch_out_saturated_pct": 19, "source": "prior run (not separately archived)" },
+      { "label": "v3 (wc cap)",     "rate_kp": 0.00507, "angle_kp": 1.75, "osc_hz": 1.76, "pitch_out_saturated_pct": 37, "source": "THIS capture (pitch-verify.bin)" }
+    ]
+  },
+
+  "identified_plant": {
+    "_comment": "Pitch K is 2.45x roll's on a symmetric X-quad — a red flag the pitch axis was already asymmetric when identified.",
+    "roll":  { "K": 563,  "note": "reference (stable axis)" },
+    "pitch": { "K": 1381, "ratio_vs_roll": 2.45, "note": "suspect — fit on an asymmetric axis" }
+  },
+
+  "physical_evidence": {
+    "_comment": "Motor command means this run (X-quad, 0-indexed; pitch = front M0,M3 vs back M1,M2).",
+    "front_M0_M3_mean": 0.341,
+    "back_M1_M2_mean": 0.285,
+    "left_M2_M3_mean": 0.323,
+    "right_M0_M1_mean": 0.303,
+    "interpretation": "front pair ~20 % harder than back (left/right balanced) -> pitch imbalance; craft trims nose-up (pitch mean -13 deg); loop runs out of authority on one side and bang-bangs."
+  },
+
+  "headline": "NOT a tuning problem. Across 3 gain sets (rate_kp 0.005-0.012, angle_kp 1.75-4.14) pitch limit-cycles at 1.5-2.6 Hz while roll is rock-stable, and pitch_out saturates 19->37 % (gain-invariant => authority-limited). Likely physical pitch-axis fault (CG forward / degraded back motor-ESC / prop). Stop tuning gains; fix the hardware, then re-sysid. Safe parking config: revert pitch to firmware-default soft pure-P seed (rate_kp 0.0005, ki 0).",
+  "result_metrics": {
+    "limit_cycle_hz": 1.76,
+    "pitch_out_saturated_pct": 37,
+    "pitch_mean_deg": -13,
+    "duration_s": 30,
+    "loss_pct": 0.1
+  },
+
+  "references": ["README.md", "../20260625-231706-pitch-osc/", "../../../../tools/sysid/pitch_tune.json"]
+}

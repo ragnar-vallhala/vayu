@@ -1,0 +1,62 @@
+{
+  "_comment": "Setup + controller configuration reference for this capture, added retrospectively (2026-06-26) to match the existing log-analysis setup.json convention. Captured by tools/telemetry/udp_telem_sniff.py --raw-bin (VREC). Decoders: tools/telemetry/{analyze_pitch_osc,pitch_verify,pitch_lag}.py.",
+  "session": "20260626-010112-indi-test",
+  "captured": "2026-06-26T01:01:12 (FC local clock)",
+  "capture_type": "First INDI (k=20) telemetry snippet, right after flashing the INDI build. Open-ended, stopped early to restart as the 60 s run.",
+  "armed": "briefly",
+  "hardware": {
+    "platform": "real flight controller",
+    "link": "ESP/UDP bridge 10.42.0.30:14555 (NavLink v2 over UDP)",
+    "airframe": "X-quad. M1,M3 CW / M2,M4 CCW. IMU aligned. A motor was burned earlier in the 2026-06-25 session; pitch axis suspected physically asymmetric.",
+    "conditions": "tethered/bench",
+    "motor_geometry": {
+      "_comment": "Inverted spin vs firmware default (flips s_mix_yaw only). Roll/pitch mix unchanged. REQUIRED.",
+      "pos_x": [
+        1.0,
+        -1.0,
+        -1.0,
+        1.0
+      ],
+      "pos_y": [
+        1.0,
+        1.0,
+        -1.0,
+        -1.0
+      ],
+      "spin": [
+        -1,
+        1,
+        -1,
+        1
+      ]
+    }
+  },
+  "firmware": {
+    "rate_controller_algo": "INDI (RATE_CTRL_INDI), firmware/src/control/rate_indi.c \u2014 FIRST on-hardware INDI build.",
+    "gains_persisted": false,
+    "tune_applied": "NONE \u2014 compiled rate_indi.h defaults. INDI uses b/k/lpf, not the PID gains (PID struct still holds defaults but is INACTIVE).",
+    "note": "k=20 seed was too hot \u2014 hunts at ~3.3 Hz (= its own bandwidth). Retuned to k=6/lpf=0.010 AFTER these captures (2026-06-26)."
+  },
+  "indi": {
+    "_units": "b = effectiveness wdot/u [deg/s^2 per unit u] (sysid plant K); k = outer bandwidth [1/s]; lpf_rc = synchronized filter [s].",
+    "b": {
+      "roll": 563.0,
+      "pitch": 1381.0,
+      "yaw": 400.0
+    },
+    "k": 20.0,
+    "lpf_rc": 0.005,
+    "status": "UNFIT placeholders (b yaw is a guess). k=20 caused the broadband hunt."
+  },
+  "result_metrics": {
+    "note": "preliminary snippet; superseded by 20260626-010249-indi-test (clean 60 s).",
+    "duration_s": null
+  },
+  "headline": "First-light INDI capture; see 20260626-010249 for the analyzed 60 s run.",
+  "references": [
+    "../../../../firmware/include/control/rate_indi.h",
+    "../../../../firmware/include/variables.h",
+    "../20260626-001343-telem30s/",
+    "~/vayu-logs/ (Navigator open-air logs)"
+  ]
+}

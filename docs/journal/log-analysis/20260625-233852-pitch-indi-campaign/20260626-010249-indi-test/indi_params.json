@@ -1,0 +1,15 @@
+{
+  "_comment": "INDI per-axis effectiveness b (=sysid plant K) + suggested k/lpf. Paste b into firmware/include/control/rate_indi.h (DEAFULT_*_INDI_B); k/lpf are shared DEAFULT_RATE_INDI_*.",
+  "axes": {
+    "roll": {
+      "b": 255.651,
+      "k": 3.068,
+      "lpf_rc": 0.008,
+      "from": {
+        "K": 255.651,
+        "tau_ms": 10.484,
+        "r2": 0.676
+      }
+    }
+  }
+}

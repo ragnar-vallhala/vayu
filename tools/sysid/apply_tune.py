@@ -50,11 +50,20 @@ def main():
         for ax_name, gains in block.items():
             if ax_name in AXES and isinstance(gains, dict):
                 cmds.append((f"{ctrl_name}.{ax_name}", (ctrl_id, AXES[ax_name], gains)))
+    # Optional D-term LPF block: { "roll": 0.004, "pitch": 0.004 } (rc seconds).
+    # The compiled DEAFULT_*_RATE_D_LPF_RC kills the derivative path unless set;
+    # CMD_SET_D_LPF makes it tunable live like the gains.
+    for ax_name, rc in tune.get("d_lpf", {}).items():
+        if ax_name in AXES:
+            cmds.append((f"d_lpf.{ax_name}", ("dlpf", AXES[ax_name], float(rc))))
 
     print(f"[tune] {args.file}  ({tune.get('captured','?')}, {tune.get('airframe','')[:40]})")
     for name, payload in cmds:
         if name == "geometry":
             print(f"  GEOMETRY  spin={payload['spin']}")
+        elif name.startswith("d_lpf."):
+            _, ax, rc = payload
+            print(f"  D-LPF {list(AXES)[ax]:5s}  rc={rc} s")
         else:
             ctrl, ax, gg = payload
             print(f"  {'RATE ' if ctrl==1 else 'ANGLE'} {list(AXES)[ax]:5s}  "
@@ -107,6 +116,10 @@ def main():
             m = nl.CmdSetMotorGeometry(target_sys=42, target_comp=1, req_seq=req,
                                        layout=0, pos_x=payload["pos_x"],
                                        pos_y=payload["pos_y"], spin=payload["spin"])
+        elif name.startswith("d_lpf."):
+            _, ax, rc = payload
+            m = nl.CmdSetDLpf(target_sys=42, target_comp=1, req_seq=req,
+                              axis=ax, rc=rc)
         else:
             ctrl, ax, gg = payload
             m = nl.CmdSetPid(target_sys=42, target_comp=1, req_seq=req, controller=ctrl,

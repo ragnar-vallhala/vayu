@@ -1,0 +1,94 @@
+{
+  "_comment": "Setup + controller configuration reference for this capture, added retrospectively (2026-06-26) to match the existing log-analysis setup.json convention. Captured by tools/telemetry/udp_telem_sniff.py --raw-bin (VREC). Decoders: tools/telemetry/{analyze_pitch_osc,pitch_verify,pitch_lag}.py.",
+  "session": "20260626-000838-throttle-up",
+  "captured": "2026-06-26T00:08:38 (FC local clock)",
+  "capture_type": "Initial throttle-up telemetry. SPANS A REFLASH: started on the pre-D-LPF firmware, then the FC was reflashed to the D-LPF PID build and rebooted MID-CAPTURE \u2014 so this .bin contains a config change + reboot gap and is NOT a clean single-config run.",
+  "armed": "partial (throttle raised; nav_state transitions across the reboot)",
+  "hardware": {
+    "platform": "real flight controller",
+    "link": "ESP/UDP bridge 10.42.0.30:14555 (NavLink v2 over UDP)",
+    "airframe": "X-quad. M1,M3 CW / M2,M4 CCW. IMU aligned. A motor was burned earlier in the 2026-06-25 session; pitch axis suspected physically asymmetric.",
+    "conditions": "tethered/bench",
+    "motor_geometry": {
+      "_comment": "Inverted spin vs firmware default (flips s_mix_yaw only). Roll/pitch mix unchanged. REQUIRED.",
+      "pos_x": [
+        1.0,
+        -1.0,
+        -1.0,
+        1.0
+      ],
+      "pos_y": [
+        1.0,
+        1.0,
+        -1.0,
+        -1.0
+      ],
+      "spin": [
+        -1,
+        1,
+        -1,
+        1
+      ]
+    }
+  },
+  "firmware": {
+    "rate_controller_algo": "PID cascade (RATE_CTRL_PID), D-LPF fix build (d_lpf_rc 0.004 on roll/pitch so the rig-tune Kd is no longer filtered out).",
+    "gains_persisted": false,
+    "tune_applied": "NONE \u2014 running compiled variables.h defaults. The pid.bin magic was bumped PID2->PID3 (added CMD_SET_D_LPF persistence), invalidating any prior persisted tune; operator confirmed no tune re-applied post-boot.",
+    "note": "FC does not persist tunes across power cycles."
+  },
+  "pid": {
+    "_units": "rate: controller=1; angle: controller=0 (kp in (deg/s)/deg). Compiled variables.h defaults, ACTIVE this capture.",
+    "rate": {
+      "roll": {
+        "kp": 0.012,
+        "ki": 0.00811,
+        "kd": 0.00025,
+        "kff": 0.0,
+        "d_lpf_rc": 0.004,
+        "status": "sysid-tuned roll (stable axis)"
+      },
+      "pitch": {
+        "kp": 0.012,
+        "ki": 0.005,
+        "kd": 0.0001,
+        "kff": 0.0,
+        "d_lpf_rc": 0.004,
+        "status": "seeded from roll; own sysid pending (limit-cycles)"
+      },
+      "yaw": {
+        "kp": 0.018,
+        "ki": 0.008,
+        "kd": 0.0,
+        "kff": 0.0,
+        "d_lpf_rc": 0.3,
+        "status": "firmware default (heading hold)"
+      }
+    },
+    "angle": {
+      "roll": {
+        "kp": 1.6898,
+        "status": "sysid-tuned roll"
+      },
+      "pitch": {
+        "kp": 1.6898,
+        "status": "= roll (softened from old 4.0)"
+      },
+      "yaw": {
+        "kp": 1.2,
+        "status": "unused (yaw is rate-controlled)"
+      }
+    }
+  },
+  "result_metrics": {
+    "note": "not separately analyzed \u2014 mixed firmware across a reflash; kept for completeness.",
+    "duration_s": null
+  },
+  "headline": "Throttle-up capture straddling the D-LPF reflash; superseded by the clean 20260626-001343-telem30s run.",
+  "references": [
+    "../../../../firmware/include/control/rate_indi.h",
+    "../../../../firmware/include/variables.h",
+    "../20260626-001343-telem30s/",
+    "~/vayu-logs/ (Navigator open-air logs)"
+  ]
+}

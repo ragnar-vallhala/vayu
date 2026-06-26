@@ -16,12 +16,20 @@ via CMD_SET_PID.
   # ... and push the designed gains to the FC:
   python3 tools/sysid/sysid_fit.py --csv /tmp/sysid_dump.csv --axis roll --apply
 
-NOTE: the FC currently captures rate_sp in the first column. For a valid plant
-fit it must capture the rate-PID OUTPUT u (see sysid.c / the armed-run change);
-rate_sp gives a meaningless K. --selftest validates the math regardless.
+  # identify the INDI effectiveness b (=plant K) for rate_indi.h, accumulate
+  # all three axes into one JSON (run per axis):
+  python3 tools/sysid/sysid_fit.py --csv roll.csv  --axis roll  --indi-json indi_params.json
+  python3 tools/sysid/sysid_fit.py --csv pitch.csv --axis pitch --indi-json indi_params.json
+
+NOTE: the FC captures the rate-PID OUTPUT u in the first column (sysid_capture()
+is fed the PID `outputs`, scaled x1000; the host writes it as the `u` column).
+That control effort is exactly the plant-fit input, so K is meaningful — provided
+the run was ARMED so the gyro actually responded. --selftest validates the math
+regardless. (For a fit that is far more robust to gyro noise, see sysid_fit_oe.py.)
 """
 import argparse
 import csv
+import json
 import math
 import os
 import sys
@@ -100,25 +108,131 @@ def identify_plant(u, omega, dt):
     return p
 
 
-def choose_crossover(p, bw_frac=0.33, kp_max=0.012):
+# Absolute ceiling on the rate-loop crossover. The kp_max clamp bounds rate_kp,
+# but for a high plant-gain K it leaves wc = kp_max*K large, so the inner loop
+# ends up faster than the un-modeled delays (ESC lag, gyro filter, ~1 ms loop
+# discretization — none captured by the single-pole fit) can tolerate, and it
+# limit-cycles. On 2026-06-25 pitch (K=1381) got wc=16.6 rad/s (2.64 Hz) and
+# oscillated at ~2.6 Hz, while roll (K=563, wc=6.8 rad/s = 1.08 Hz) was rock
+# stable on the same kp. Cap wc at the proven-stable roll bandwidth so a high-K
+# axis is tuned to the same inner-loop speed, not a faster one. Tunable: --wc-max.
+WC_MAX = 7.0
+
+
+def choose_crossover(p, bw_frac=0.33, kp_max=0.012, wc_max=WC_MAX):
     if not p.ok or p.tau <= 1e-9 or p.K <= 0.0:
         return 0.0
     wc = bw_frac / p.tau
     if wc / p.K > kp_max:
         wc = kp_max * p.K
-    return wc
+    return min(wc, wc_max)
 
 
-def design_gains(p, wc):
-    g = {"rate_kp": 0.0, "rate_ki": 0.0, "rate_kd": 0.0, "angle_kp": 0.0, "wc": 0.0}
+# Empirical ceiling on the outer (angle) proportional gain. The analytic design
+# sets angle_kp = 0.25*wc, but for a high-gain plant choose_crossover() clamps
+# rate_kp (good) while leaving wc = kp_max*K large — so angle_kp scales up with
+# the plant gain K and the outer loop out-runs what the real inner loop can
+# follow. On 2026-06-25 a pitch fit (K=1381) designed angle_kp=4.14 and the FC
+# went into a 1.5 Hz cascade limit cycle (railed motor output -> burned a motor;
+# see docs/journal/log-analysis/20260625-231706-pitch-osc/). Proven-stable values
+# on this airframe: roll 1.69, free-flight 1.0. Cap at 2.0 so the design can
+# never again hand back an outer gain that re-excites the cascade; the operator
+# can still soften further. Tunable via --angle-kp-max.
+ANGLE_KP_MAX = 2.0
+
+
+def design_gains(p, wc, angle_kp_max=ANGLE_KP_MAX):
+    g = {"rate_kp": 0.0, "rate_ki": 0.0, "rate_kd": 0.0, "angle_kp": 0.0,
+         "wc": 0.0, "angle_kp_capped": False}
     if not p.ok or p.K <= 0.0 or wc <= 0.0:
         return g
     g["wc"] = wc
     g["rate_kp"] = wc / p.K
     g["rate_kd"] = g["rate_kp"] * p.tau
     g["rate_ki"] = 0.1 * wc * g["rate_kp"]
-    g["angle_kp"] = 0.25 * wc
+    raw_angle_kp = 0.25 * wc
+    g["angle_kp"] = min(raw_angle_kp, angle_kp_max)
+    g["angle_kp_capped"] = raw_angle_kp > angle_kp_max
+    g["angle_kp_raw"] = raw_angle_kp
     return g
+
+
+# ----------------------------------------------------------------------------
+# INDI effectiveness identification.
+#
+# The INDI rate loop (firmware/src/control/rate_indi.c) needs ONE number per
+# axis: b = control effectiveness = d(omega_dot)/d(u), the angular accel per
+# unit command. The plant fit already produces it — p.K is the DC gain
+# u -> angular accel, i.e. b == K (same deg/s^2-per-unit-u units rate_indi.h
+# expects). So "identifying b" is just surfacing K in INDI-ready form; the
+# differenced-ARX fit and its --selftest already validate the number.
+#
+# Alongside b we suggest the two shared INDI tunables:
+#   k      outer bandwidth gain [1/s]: omega_dot_des = k*(rate_sp - rate). Set
+#          to the same loop crossover the PID design targets (choose_crossover),
+#          so INDI and PID aim at one closed-loop bandwidth (wc-capped for high-K
+#          axes, same guard as the PID path).
+#   lpf_rc synchronized filter time constant [s]: anchor near the actuator lag
+#          tau so the gyro-derivative and command feedback share one delay (the
+#          core INDI requirement), clamped to a sane fast range.
+# ----------------------------------------------------------------------------
+def design_indi(p, wc, lpf_lo=0.003, lpf_hi=0.008):
+    d = {"ok": False, "b": 0.0, "k": 0.0, "lpf_rc": 0.0}
+    if not p.ok or p.K <= 0.0:
+        return d
+    d["ok"] = True
+    d["b"] = p.K                                   # effectiveness == plant DC gain
+    d["k"] = wc                                    # outer bandwidth = PID crossover
+    d["lpf_rc"] = max(lpf_lo, min(p.tau, lpf_hi))  # sync filter ~ actuator lag
+    return d
+
+
+# Per-axis -> the rate_indi.h #define that carries b (k/lpf are shared defines).
+INDI_B_DEFINE = {"roll": "DEAFULT_ROLL_INDI_B", "pitch": "DEAFULT_PITCH_INDI_B",
+                 "yaw": "DEAFULT_YAW_INDI_B"}
+
+
+def report_indi(p, d, axis_name):
+    if not d["ok"]:
+        print("[indi] no effectiveness — plant fit failed (see [fit] note).")
+        return False
+    print(f"[indi] axis={axis_name}  b={d['b']:.4g} deg/s^2 per unit u  (= plant K)")
+    print(f"       k={d['k']:.3f} 1/s   lpf_rc={d['lpf_rc']*1000:.1f} ms   "
+          f"(R^2={p.r2:.3f})")
+    bdef = INDI_B_DEFINE.get(axis_name, f"DEAFULT_{axis_name.upper()}_INDI_B")
+    print(f"  rate_indi.h:  #define {bdef:<22s} {d['b']:.1f}f")
+    print(f"     (shared)   #define DEAFULT_RATE_INDI_K    {d['k']:.1f}f")
+    print(f"     (shared)   #define DEAFULT_RATE_INDI_LPF  {d['lpf_rc']:.4f}f")
+    if p.r2 < 0.5:
+        print("  WARNING: low R^2 — b is unreliable; re-capture before trusting it.")
+    return True
+
+
+def write_indi_json(path, axis_name, p, d):
+    """Merge this axis's identified b/k/lpf into a per-axis INDI params JSON
+    (created if absent), so all three axes accumulate into one file across runs."""
+    doc = {}
+    if os.path.exists(path):
+        try:
+            with open(path) as f:
+                doc = json.load(f)
+        except (OSError, ValueError):
+            doc = {}
+    doc.setdefault("_comment",
+                   "INDI per-axis effectiveness b (=sysid plant K) + suggested "
+                   "k/lpf. Paste b into firmware/include/control/rate_indi.h "
+                   "(DEAFULT_*_INDI_B); k/lpf are shared DEAFULT_RATE_INDI_*.")
+    doc.setdefault("axes", {})
+    doc["axes"][axis_name] = {
+        "b": round(d["b"], 3), "k": round(d["k"], 3),
+        "lpf_rc": round(d["lpf_rc"], 4),
+        "from": {"K": round(p.K, 3), "tau_ms": round(p.tau * 1000, 3),
+                 "r2": round(p.r2, 3)},
+    }
+    with open(path, "w") as f:
+        json.dump(doc, f, indent=2)
+        f.write("\n")
+    print(f"[indi] wrote {axis_name} -> {path}")
 
 
 def load_csv(path):
@@ -152,12 +266,16 @@ def report(p, g, axis_name):
     print(f"  design: wc={g['wc']:.3f} rad/s ({g['wc']/(2*math.pi):.2f} Hz)")
     print(f"  rate_kp={g['rate_kp']:.5f}  rate_ki={g['rate_ki']:.5f}  "
           f"rate_kd={g['rate_kd']:.5f}  angle_kp={g['angle_kp']:.4f}")
+    if g.get("angle_kp_capped"):
+        print(f"  NOTE: angle_kp capped {g['angle_kp_raw']:.4f} -> {g['angle_kp']:.4f} "
+              f"(outer-loop ceiling; raw 0.25*wc would re-excite the ~1.5 Hz "
+              f"cascade — see the 2026-06-25 pitch-osc analysis).")
     if p.r2 < 0.5:
         print("  WARNING: low R^2 — fit is poor; do not apply these gains.")
     return True
 
 
-def selftest():
+def selftest(show_indi=False):
     """Simulate a known plant driven by the same chirp the FC injects, fit it,
     and check the recovery is within the method's inherent accuracy. (This is a
     faithful port of SysId.cpp's differenced-ARX fit; with a chirp the lagged
@@ -179,9 +297,12 @@ def selftest():
         omega.append(w + 0.02 * random.gauss(0, 1))     # realistic gyro noise
         u.append(ui)
     p = identify_plant(u, smooth(omega, 5), dt)
-    g = design_gains(p, choose_crossover(p))
+    wc = choose_crossover(p)
+    g = design_gains(p, wc)
     print(f"[selftest] true plant: K={K_true} tau={tau_true*1000:.1f}ms")
     ok = report(p, g, "synthetic")
+    if ok and show_indi:
+        report_indi(p, design_indi(p, wc), "synthetic")
     if ok:
         eK = abs(p.K - K_true) / K_true * 100
         eT = abs(p.tau - tau_true) / tau_true * 100
@@ -242,23 +363,45 @@ def main():
     ap.add_argument("--axis", choices=list(AXES), default="roll")
     ap.add_argument("--rate-hz", type=float, default=500.0, help="capture rate")
     ap.add_argument("--bw-frac", type=float, default=0.33)
+    ap.add_argument("--wc-max", type=float, default=WC_MAX,
+                    help="ceiling on the rate-loop crossover rad/s (default "
+                         f"{WC_MAX}); guards a high-K plant from a too-fast inner "
+                         "loop (2026-06-25 pitch limit cycle).")
+    ap.add_argument("--angle-kp-max", type=float, default=ANGLE_KP_MAX,
+                    help="ceiling on the designed outer angle_kp (default "
+                         f"{ANGLE_KP_MAX}); guards against the high-K cascade "
+                         "(2026-06-25 pitch). Lower for a softer outer loop.")
     ap.add_argument("--smooth", type=int, default=5,
                     help="omega pre-smoothing window (odd; cuts gyro-noise bias)")
     ap.add_argument("--apply", action="store_true", help="push gains via CMD_SET_PID")
     ap.add_argument("--port", type=int, default=14555)
     ap.add_argument("--selftest", action="store_true")
+    ap.add_argument("--indi", action="store_true",
+                    help="also identify the INDI effectiveness b (=plant K) and "
+                         "suggest k/lpf for firmware/include/control/rate_indi.h")
+    ap.add_argument("--indi-json", metavar="PATH",
+                    help="merge the identified INDI b/k/lpf for this axis into a "
+                         "per-axis JSON (implies --indi); accumulates all 3 axes")
     args = ap.parse_args()
+    if args.indi_json:
+        args.indi = True
 
     if args.selftest:
-        return selftest()
+        return selftest(args.indi)
     if not args.csv:
         ap.error("provide --csv (or --selftest)")
 
     t, u, omega = load_csv(args.csv)
     dt = 1.0 / args.rate_hz
     p = identify_plant(u, smooth(omega, args.smooth), dt)
-    g = design_gains(p, choose_crossover(p, args.bw_frac))
+    wc = choose_crossover(p, args.bw_frac, wc_max=args.wc_max)
+    g = design_gains(p, wc, args.angle_kp_max)
     ok = report(p, g, args.axis)
+    if ok and args.indi:
+        ind = design_indi(p, wc)
+        report_indi(p, ind, args.axis)
+        if args.indi_json and ind["ok"]:
+            write_indi_json(args.indi_json, args.axis, p, ind)
     if ok and args.apply:
         if p.r2 < 0.5:
             print("[apply] refusing: R^2 too low.")

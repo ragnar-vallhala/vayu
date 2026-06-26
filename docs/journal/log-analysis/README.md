@@ -96,3 +96,35 @@ timestamp) holding the raw `.bin` plus all analysis of it.
   - [`session-analysis.md`](20260621-053142/session-analysis.md) — the run, timeline, before/after vs 021352
   - [`estimator-analysis.md`](20260621-053142/estimator-analysis.md) — **the headline**: the accel-trust effect + the residual
   - [`recommendations.md`](20260621-053142/recommendations.md) — fault statuses + the commit / real-HW decision
+
+- [`20260625-230911-mag-spread/`](20260625-230911-mag-spread/) — **2026-06-25
+  23:09**, **real FC** magnetometer spread spot-check: a 45 s dense hand rotation
+  (2240 pts @50 Hz, 0 % loss) reduced to the XY/YZ/XZ spread, mean, and per-sample
+  % off the mean field. **Headline: mag stays heading-grade — `‖m‖` 40.5 µT at
+  CoV 4.95 %, LS-sphere hard-iron residual 0.41 µT (centred on origin).** The
+  sample-mean centre lands ~19 µT off origin (coverage bias, not a fault — judge
+  by the LS fit). Verifies the `20260625-032526-imu-calib-verify` calibration
+  from a fresh capture; no re-cal needed.
+  - [`README`](20260625-230911-mag-spread/README.md) — provenance, data, plot list
+  - [`mag-analysis.md`](20260625-230911-mag-spread/mag-analysis.md) — spread/mean/%-off, LS-vs-mean centre, method
+
+- [`20260625-231706-pitch-osc/`](20260625-231706-pitch-osc/) — **2026-06-25
+  23:17**, **real FC** raw capture of the violent pitch oscillation right after
+  applying the sysid-designed pitch gains. **Headline: `angle_kp = 4.14` (sysid
+  `0.25·wc`) is too fast for the inner rate loop → a 1.50 Hz cascade limit cycle
+  — pitch ±~50° (102° pk-pk) with stick centred, `pitch_out` railed ±1.0 for
+  19 % of samples.** The same mode `freeflight_tune.json` fixed by softening the
+  outer loop to 1.0; the rate gains are fine. Fix: keep sysid rate gains, drop
+  `angle_kp` to ~1.0–2.0 (and cap it in `sysid_fit.design_gains`).
+  - [`README`](20260625-231706-pitch-osc/README.md) — provenance, data, plot list
+  - [`pitch-oscillation-analysis.md`](20260625-231706-pitch-osc/pitch-oscillation-analysis.md) — the 1.5 Hz cascade diagnosis + fix
+
+- [`20260625-233852-pitch-verify/`](20260625-233852-pitch-verify/) — **2026-06-25
+  23:38**, **real FC** verification after the wc-capped pitch tune v3. **Headline:
+  NOT a tuning problem — across 3 gain sets (rate_kp 0.005–0.012, angle_kp
+  1.75–4.14) pitch limit-cycles at 1.5–2.6 Hz while roll is rock-stable, and
+  pitch_out saturates 19→37 % (gain-invariant ⇒ authority-limited).** Front motors
+  run ~20 % harder than back (pitch imbalance); pitch sysid K=1381 is 2.45× roll's
+  563. Points to a physical pitch-axis fault (CG forward / burned motor-ESC / prop).
+  Fix the hardware, then re-sysid.
+  - [`README`](20260625-233852-pitch-verify/README.md) — verdict, gain-sweep table, motor asymmetry, causes

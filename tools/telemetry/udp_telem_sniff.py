@@ -18,8 +18,10 @@ peek at AttitudeEuler / FlightMode / Heartbeat so you can eyeball live attitude.
 """
 import argparse
 import collections
+import csv
 import os
 import socket
+import struct
 import sys
 import time
 
@@ -80,13 +82,70 @@ def main():
     ap.add_argument("--hello-hz", type=float, default=1.0, help="GCS-HELLO broadcast rate")
     ap.add_argument("--raw", action="store_true", help="print every frame's peek line")
     ap.add_argument("--no-hello", action="store_true", help="don't broadcast GCS-HELLO")
+    ap.add_argument("--raw-bin", metavar="PATH", default="",
+                    help="record every inbound datagram verbatim to a VREC .bin "
+                         "(navigator RecordFormat) so the whole stream replays / "
+                         "decodes like a Navigator export.")
+    ap.add_argument("--mag-csv", metavar="PATH", default="",
+                    help="record IMU (incl. mag) to CSV, reconstructed to the full "
+                         "~50 Hz rate from ImuRaw keyframes + ImuCompressed f16 "
+                         "deltas. Columns: t,ax,ay,az,gx,gy,gz,mx,my,mz,temp.")
     args = ap.parse_args()
+
+    # Optional IMU/mag recorder. ImuRaw (full snapshot, ~1.7 Hz) re-anchors a
+    # running 10-vector [acc xyz, gyr xyz, mag xyz, temp]; each ImuCompressed
+    # carries that vector's frame-to-frame f16 deltas (same field order), so
+    # `vec += f16(delta)` reconstructs the 50 Hz stream (drop-free here: loss 0%).
+    rec = None
+    if args.mag_csv:
+        import numpy as np  # only needed for the f16 decode
+
+        def _f16(u):
+            return float(np.array([u & 0xFFFF], dtype=np.uint16).view(np.float16)[0])
+
+        _f = open(args.mag_csv, "w", newline="")
+        _w = csv.writer(_f)
+        _w.writerow(["t", "ax", "ay", "az", "gx", "gy", "gz",
+                     "mx", "my", "mz", "temp"])
+        rec = {"f": _f, "w": _w, "vec": None, "t0": None, "n": 0, "f16": _f16}
+
+    def record(msgid, payload, now):
+        if rec is None:
+            return
+        cls = MSG_BY_ID.get(msgid)
+        if cls is None:
+            return
+        nm = cls.__name__
+        if nm == "ImuRaw":
+            m = cls.unpack(payload)
+            rec["vec"] = [*m.acc, *m.gyr, *m.mag, m.temp]   # re-anchor
+        elif nm == "ImuCompressed" and rec["vec"] is not None:
+            m = cls.unpack(payload)
+            d = [rec["f16"](x) for x in m.delta]            # 10 f16 deltas
+            rec["vec"] = [rec["vec"][i] + d[i] for i in range(10)]
+        else:
+            return
+        if rec["t0"] is None:
+            rec["t0"] = now
+        v = rec["vec"]
+        rec["w"].writerow([f"{now - rec['t0']:.4f}"] + [f"{x:.4f}" for x in v])
+        rec["n"] += 1
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
     sock.bind(("0.0.0.0", args.port))
     sock.settimeout(0.2)
+
+    # Optional raw VREC recorder (navigator/src/replay/RecordFormat.h):
+    # header [magic u32][fmtVer u32][protoVer u32][startWallMs u64], then per
+    # datagram [t_us u64][len u32][bytes]. Each datagram is one "raw chunk".
+    raw_f = None
+    raw_t0 = None
+    raw_n = 0
+    if args.raw_bin:
+        raw_f = open(args.raw_bin, "wb")
+        raw_f.write(struct.pack("<IIIQ", 0x56524543, 1, 1, int(time.time() * 1000)))
 
     print(f"[sniff] bound 0.0.0.0:{args.port}  "
           f"({'broadcasting GCS-HELLO' if not args.no_hello else 'no hello'})")
@@ -133,6 +192,13 @@ def main():
                     total_bytes += len(data)
                     win_bytes += len(data)
                     win_dgrams += 1
+                    if raw_f is not None:
+                        if raw_t0 is None:
+                            raw_t0 = now
+                        raw_f.write(struct.pack("<QI", int((now - raw_t0) * 1e6),
+                                                len(data)))
+                        raw_f.write(data)
+                        raw_n += 1
                     # One UDP datagram carries N coalesced NavLink frames (the ESP bridge
                     # packs whole frames up to the MTU). Walk them ALL — frame.decode()
                     # only parses the first, which silently undercounts under coalescing.
@@ -164,6 +230,7 @@ def main():
                                 win_lost += gap
                                 lost_total += gap
                         last_seq[d.msgid] = d.seq
+                        record(d.msgid, d.payload, now)
                         peek = fmt_peek(d.msgid, d.payload)
                         if peek:
                             last_peek[d.msgid] = peek
@@ -199,6 +266,12 @@ def main():
         pass
     finally:
         sock.close()
+        if raw_f is not None:
+            raw_f.close()
+            print(f"[sniff] raw VREC: {raw_n} datagrams -> {args.raw_bin}")
+        if rec is not None:
+            rec["f"].close()
+            print(f"[sniff] mag CSV: {rec['n']} IMU rows -> {args.mag_csv}")
         dur = time.monotonic() - t0
         agg_loss = 100.0 * lost_total / max(1, frames_total + lost_total)
         print(f"\n[sniff] stopped after {dur:.1f}s. "

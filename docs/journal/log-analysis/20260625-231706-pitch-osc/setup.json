@@ -1,0 +1,59 @@
+{
+  "_comment": "Setup + PID configuration reference for this capture, added retrospectively (2026-06-26) for future reference. Pitch gains are quoted verbatim from pitch-oscillation-analysis.md ('applied (caused this)' table); roll/yaw are the concurrently-active rig tune (rig_tune.json / sysid_tune.json) and were not the focus. This is sysid pitch tune v1 (raw auto-design) — the UNSTABLE set that caused the cascade.",
+  "session": "20260625-231706-pitch-osc",
+  "captured": "2026-06-25T23:17 (FC local clock)",
+  "capture_type": "armed flight capture of a pitch cascade limit cycle (stick centred)",
+  "armed": true,
+
+  "hardware": {
+    "platform": "real flight controller",
+    "link": "ESP/UDP bridge 10.42.0.30:14555 (NavLink v2 over UDP)",
+    "airframe": "X-quad. M1,M3 CW / M2,M4 CCW. IMU aligned. A motor was already burned out earlier this session.",
+    "motor_geometry": {
+      "_comment": "Inverted spin vs firmware default (flips s_mix_yaw only; default spin-sign was backwards -> yaw positive feedback). Roll/pitch mix unchanged. REQUIRED.",
+      "pos_x": [1.0, -1.0, -1.0, 1.0],
+      "pos_y": [1.0, 1.0, -1.0, -1.0],
+      "spin":  [-1, 1, -1, 1]
+    }
+  },
+
+  "firmware": {
+    "rate_controller_algo": "PID cascade (RATE_CTRL_PID). INDI (firmware/src/control/rate_indi.c) did not exist until 2026-06-26 — it was NOT running here.",
+    "gains_persisted": false,
+    "tune_applied": "rig tune (roll sysid-tuned, yaw default+integral) + freshly-pushed sysid pitch v1; re-applied each boot via tools/sysid/apply_tune.py",
+    "note": "FC does not persist tunes across power cycles."
+  },
+
+  "pid": {
+    "_units": "rate: controller=1, gains in (command)/(deg/s) family; angle: controller=0, kp in (deg/s)/deg.",
+    "rate": {
+      "roll":  { "kp": 0.01200, "ki": 0.00811, "kd": 0.00025, "kff": 0.0, "status": "sysid-tuned roll (rig tune active; stable; not the focus)" },
+      "pitch": { "kp": 0.01200, "ki": 0.01988, "kd": 0.00023, "kff": 0.0, "status": "sysid v1 raw design — fine on its own; verbatim from analysis 'applied' table" },
+      "yaw":   { "kp": 0.01800, "ki": 0.00800, "kd": 0.0,     "kff": 0.0, "status": "firmware default + integral (heading hold, stable with geometry fix)" }
+    },
+    "angle": {
+      "roll":  { "kp": 1.6898, "ki": 0.0, "kd": 0.0, "kff": 0.0, "status": "sysid-tuned roll (stable)" },
+      "pitch": { "kp": 4.1424, "ki": 0.0, "kd": 0.0, "kff": 0.0, "status": "sysid 0.25*wc (wc=16.57 rad/s) — TOO FAST; root cause of the 1.5 Hz cascade" },
+      "yaw":   { "kp": null,   "ki": 0.0, "kd": 0.0, "kff": 0.0, "status": "firmware default (not re-pushed)" }
+    }
+  },
+
+  "identified_plant": {
+    "_comment": "Pitch rate plant omega/u = K/(s(tau s + 1)), fitted from a 0.5->12 Hz chirp at ~0.25 throttle earlier this session; these gains are its loop-shaped output.",
+    "pitch": { "K": 1381, "tau_ms": 19.2, "tau_note": "derived from rate_kd/rate_kp = 0.00023/0.012; K stated in analysis", "throttle": 0.25 }
+  },
+
+  "headline": "angle_kp = 4.14 is too fast for the inner rate loop -> 1.50 Hz cascade limit cycle; pitch +/-~50 deg (102 deg pk-pk) with stick centred, pitch_out railed +/-1.0 for 19 % of samples. Rate gains are fine; the OUTER angle gain must come down. Fix: keep sysid rate gains, drop angle_kp to ~1.0-2.0 (and cap it in sysid_fit.design_gains -> ANGLE_KP_MAX=2.0).",
+  "result_metrics": {
+    "limit_cycle_hz": 1.50,
+    "pitch_angle_sp_deg": 0.0,
+    "pitch_angle_curr_deg_range": [-64, 38],
+    "pitch_angle_pkpk_deg": 102,
+    "pitch_rate_curr_dps_peak": 327,
+    "pitch_out_railed_pct": 19,
+    "control_trace_samples": 4534,
+    "control_trace_hz": 50
+  },
+
+  "references": ["README.md", "pitch-oscillation-analysis.md", "../20260625-233852-pitch-verify/", "../../../../tools/sysid/pitch_tune.json"]
+}

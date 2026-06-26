@@ -1,0 +1,46 @@
+{
+  "_comment": "Setup + configuration reference for this capture, added retrospectively (2026-06-26) for future reference. Values are grounded in this folder's README.md / mag-analysis.md and the session's active config — not inferred. This was a SENSOR capture (disarmed hand rotation), so no control loop / PID was exercised; pid is null by design.",
+  "session": "20260625-230911-mag-spread",
+  "captured": "2026-06-25T23:09 (FC local clock)",
+  "capture_type": "magnetometer spread / hard-iron spot-check (hand rotation through all orientations)",
+  "armed": false,
+
+  "hardware": {
+    "platform": "real flight controller",
+    "link": "ESP/UDP bridge 10.42.0.30:14555 (NavLink v2 over UDP)",
+    "airframe": "X-quad (same build as the 2026-06-25 pitch sessions); board hand-held for the rotation",
+    "imu": "BMX160 (accel/gyro/mag); mag is the device under test here",
+    "motor_geometry": "N/A — motors disarmed/off for this capture"
+  },
+
+  "firmware": {
+    "rate_controller_algo": "PID cascade (RATE_CTRL_PID). INDI (firmware/src/control/rate_indi.c) did not exist until 2026-06-26 — it was NOT running here.",
+    "gains_persisted": false,
+    "tune_applied": "irrelevant (disarmed sensor capture)",
+    "calibration_in_effect": "IMU/mag calibration from 20260625-032526-imu-calib-verify (this run verifies it from a fresh capture)"
+  },
+
+  "pid": null,
+  "pid_note": "No PID/control loop active — disarmed magnetometer capture. Documented here so a future reader does not look for gains that were never exercised.",
+
+  "capture_params": {
+    "duration_s": 45,
+    "samples": 2240,
+    "rate_hz": 50,
+    "loss_pct": 0.0,
+    "csv": "mag_rotation_50hz.csv",
+    "columns": "t,ax,ay,az,gx,gy,gz,mx,my,mz,temp (accel m/s^2, gyro dps, mag uT, temp C)",
+    "reconstruction": "ImuRaw keyframes (~1.7 Hz) + ImuCompressed f16 deltas, resampled to 50 Hz by the sniffer recorder"
+  },
+
+  "headline": "Mag stays heading-grade: ||m|| mean 40.5 uT at CoV 4.95 %, LS-sphere hard-iron residual 0.41 uT (centred on origin). No re-calibration needed.",
+  "result_metrics": {
+    "field_mean_uT": 40.5,
+    "cov_pct": 4.95,
+    "hard_iron_residual_LS_uT": 0.41,
+    "sample_mean_centre_offset_uT": 19.0,
+    "sample_mean_offset_note": "coverage bias, not a fault — judge centring by the LS-sphere fit, not the sample mean"
+  },
+
+  "references": ["README.md", "mag-analysis.md", "../20260625-032526-imu-calib-verify/"]
+}
