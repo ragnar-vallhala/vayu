@@ -14,6 +14,7 @@
 #include "vsim_proto.h"  // vsim_ctl_geometry_t (the GCS wire layout)
 
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -23,6 +24,48 @@
 namespace {
 constexpr float kRad2Deg = 57.29577951308232f;
 vsim::SimController g_ctl;
+
+// ---- pose snapshot (#11c) -------------------------------------------------
+// The stepper thread publishes a pose frame after each step; the GCS GUI thread
+// reads it via vsim_inproc_get_pose(). A seqlock keeps the read lock-free and
+// torn-write-free: the reader retries while the sequence is odd (write in
+// progress) or changed across the copy. Headless runs simply never read it.
+std::atomic<uint32_t> g_pose_seq{0};
+vsim_pose_frame_t      g_pose_buf{};
+uint64_t               g_pose_tick = 0;   // physics steps since reset
+std::array<float, 4>   g_last_duty{0, 0, 0, 0};
+
+void publishPose() {
+  const vsim::RigidBodyState &st = g_ctl.state();
+  const std::array<float, 4> &wm = g_ctl.motorOmegas();
+  const vsim::Vec3 &vw = g_ctl.windWorld();
+
+  uint32_t s = g_pose_seq.load(std::memory_order_relaxed);
+  g_pose_seq.store(s + 1, std::memory_order_release);            // odd: writing
+  std::atomic_thread_fence(std::memory_order_release);
+
+  vsim_pose_frame_t &f = g_pose_buf;
+  f.hdr.magic         = VSIM_MAGIC;
+  f.hdr.version       = VSIM_PROTO_VERSION;
+  f.hdr.type          = VSIM_FRAME_POSE;
+  f.hdr.payload_bytes = sizeof(vsim_pose_frame_t) - sizeof(vsim_hdr_t);
+  f.hdr.seq_no        = static_cast<uint32_t>(g_pose_tick);
+  f.tick_lo           = static_cast<uint32_t>(g_pose_tick & 0xFFFFFFFFu);
+  f.tick_hi           = static_cast<uint32_t>(g_pose_tick >> 32);
+  f.pos_w[0] = st.pos_w.x(); f.pos_w[1] = st.pos_w.y(); f.pos_w[2] = st.pos_w.z();
+  f.quat_wxyz[0] = st.att.scalar();
+  f.quat_wxyz[1] = st.att.x();
+  f.quat_wxyz[2] = st.att.y();
+  f.quat_wxyz[3] = st.att.z();
+  f.vel_w[0] = st.vel_w.x(); f.vel_w[1] = st.vel_w.y(); f.vel_w[2] = st.vel_w.z();
+  f.omega_b[0] = st.omega_b.x(); f.omega_b[1] = st.omega_b.y(); f.omega_b[2] = st.omega_b.z();
+  for (int i = 0; i < 4; ++i) { f.motor_omega[i] = wm[i]; f.motor_duty[i] = g_last_duty[i]; }
+  f.wind_w[0] = vw.x(); f.wind_w[1] = vw.y(); f.wind_w[2] = vw.z();
+  // airspeed/ge_factor/battery (proto v3) left zero until those models are wired.
+
+  std::atomic_thread_fence(std::memory_order_release);
+  g_pose_seq.store(s + 2, std::memory_order_release);            // even: stable
+}
 
 // Identical to vsim_d's packImu (sim/vsim/src/main.cpp): 22 floats = 88 B,
 // matching the firmware's bmx160_all_converted_reading_t layout (acc, gyr, mag,
@@ -78,6 +121,8 @@ void vsim_inproc_reset(uint32_t seed) {
     g_ctl.seedWind(seed);
   }
   g_ctl.setTestRig(true, vsim::Vec3(0.0f, 0.0f, -2.0f), 0.0f);
+  g_pose_tick = 0;
+  g_last_duty = {0, 0, 0, 0};
 }
 
 /* Soft-rig stiffness for the attitude doublet. tether_k > 0 spring-tethers
@@ -158,6 +203,24 @@ void vsim_inproc_step(const float duty[4], float dt, uint8_t out_imu[88]) {
     g_ctl.stepOnce(d, dt_sub);
   const vsim::ImuSample s = g_ctl.sampleImu(dt_sub);
   packImu(s, out_imu);
+  g_last_duty = d;
+  ++g_pose_tick;
+  publishPose();   // refresh the GUI snapshot (cheap; no RNG, determinism-safe)
+}
+
+/* Latest pose snapshot for the GCS renderer — lock-free seqlock read, safe to
+ * call from a different thread than the stepper. Format is the SAME
+ * vsim_pose_frame_t the decoupled vsim_d publishes, so SimWorker's consumer is
+ * unchanged. Reads all-zero before the first step. */
+void vsim_inproc_get_pose(vsim_pose_frame_t *out) {
+  for (;;) {
+    uint32_t s1 = g_pose_seq.load(std::memory_order_acquire);
+    if (s1 & 1u) continue;                     // writer mid-update — retry
+    *out = g_pose_buf;
+    std::atomic_thread_fence(std::memory_order_acquire);
+    uint32_t s2 = g_pose_seq.load(std::memory_order_acquire);
+    if (s1 == s2) return;                       // stable copy
+  }
 }
 
 }  // extern "C"

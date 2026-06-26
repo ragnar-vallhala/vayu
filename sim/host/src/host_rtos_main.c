@@ -331,6 +331,34 @@ static int run_hold(uint32_t seed, int N, double *out_wall, double *out_x) {
   return 0;
 }
 
+/* ---- pose smoke test (#11c): arm, kick pitch, dump the pose snapshot ---- */
+static int run_pose(uint32_t seed) {
+  vsim_inproc_reset(seed);
+  vsim_inproc_set_tether((float)env_f("VAYU_RTOS_TETHER", 30.0));
+  stepper_t s;
+  stepper_init(&s);
+  control_telemetry_t ct;
+  int got;
+  vsim_pose_frame_t p;
+  for (int i = 0; i < 200; i++) { set_rc(1500, 1500, 1000, 1500, 2000); step_once(&s, &ct, &got); }
+  for (int i = 0; i < 400; i++) { set_rc(1500, 1500, 1500, 1500, 2000); step_once(&s, &ct, &got); }
+  vsim_inproc_get_pose(&p);
+  printf("#RTOS-POSE pre-kick  tick=%u quat=[%.4f %.4f %.4f %.4f] omega_b=[%.2f %.2f %.2f] pos=[%.3f %.3f %.3f]\n",
+         p.hdr.seq_no, p.quat_wxyz[0], p.quat_wxyz[1], p.quat_wxyz[2], p.quat_wxyz[3],
+         p.omega_b[0], p.omega_b[1], p.omega_b[2], p.pos_w[0], p.pos_w[1], p.pos_w[2]);
+  for (int i = 0; i < 120; i++) { set_rc(1500, 1850, 1500, 1500, 2000); step_once(&s, &ct, &got); }
+  vsim_inproc_get_pose(&p);
+  printf("#RTOS-POSE post-kick tick=%u quat=[%.4f %.4f %.4f %.4f] omega_b=[%.2f %.2f %.2f] pos=[%.3f %.3f %.3f]\n",
+         p.hdr.seq_no, p.quat_wxyz[0], p.quat_wxyz[1], p.quat_wxyz[2], p.quat_wxyz[3],
+         p.omega_b[0], p.omega_b[1], p.omega_b[2], p.pos_w[0], p.pos_w[1], p.pos_w[2]);
+  fflush(stdout);
+  fprintf(stderr, "vayu_sitl_rtos: pose — magic=0x%x ver=%u type=%u payload=%u (expect 0x%x/%u/%u/%zu)\n",
+          p.hdr.magic, p.hdr.version, p.hdr.type, p.hdr.payload_bytes,
+          VSIM_MAGIC, VSIM_PROTO_VERSION, (unsigned)VSIM_FRAME_POSE,
+          sizeof(vsim_pose_frame_t) - sizeof(vsim_hdr_t));
+  return 0;
+}
+
 int main(void) {
   if (rtos_engine_boot() != 0)
     return 1;
@@ -346,5 +374,7 @@ int main(void) {
     return run_doublet(seed);
   if (scen && strcmp(scen, "disturb") == 0)
     return run_disturb(seed);
+  if (scen && strcmp(scen, "pose") == 0)
+    return run_pose(seed);
   return run_hold(seed, N, 0, 0);
 }

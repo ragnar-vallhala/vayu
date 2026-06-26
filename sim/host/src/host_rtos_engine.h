@@ -18,6 +18,7 @@
 
 #include "control/control_buffer.h" /* control_telemetry_t */
 #include "sensor/sensor.h"          /* bmx160_all_reading_t, imu_queue_*_push */
+#include "vsim_proto.h"             /* vsim_pose_frame_t (the GCS wire layout) */
 
 #ifdef __cplusplus
 extern "C" {
@@ -81,6 +82,11 @@ void apply_gains_from_env(void);
  * by the scenarios to set up the rig before a rollout. */
 void vsim_inproc_reset(uint32_t seed);
 void vsim_inproc_set_tether(float tether_k);
+
+/* Latest pose snapshot for the GCS renderer (#11c) — lock-free seqlock read,
+ * safe from a thread other than the stepper. Same vsim_pose_frame_t the
+ * decoupled vsim_d publishes, so SimWorker's consumer is unchanged. */
+void vsim_inproc_get_pose(vsim_pose_frame_t *out);
 
 #ifdef __cplusplus
 }
