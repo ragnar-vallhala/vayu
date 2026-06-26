@@ -12,6 +12,8 @@ captures the input path with props still. Only arm on the rig after the dump,
 waveform, and abort all check out at low amplitude.
 
     python3 tools/sysid/sysid_excite.py --axis roll --f0 0.5 --f1 12 --amp 30 --dur 6
+    # near-open-loop excitation (perturb the PID OUTPUT u directly; cleaner fit):
+    python3 tools/sysid/sysid_excite.py --axis roll --inject u --amp 0.1 --dur 6
     python3 tools/sysid/sysid_excite.py --abort                 # stop a run now
 
 Close the Navigator GCS first (UDP 14555 is single-owner).
@@ -88,7 +90,16 @@ def main():
     ap.add_argument("--axis", choices=list(AXES), default="roll")
     ap.add_argument("--f0", type=float, default=0.5)
     ap.add_argument("--f1", type=float, default=12.0)
-    ap.add_argument("--amp", type=float, default=30.0)
+    ap.add_argument("--amp", type=float, default=None,
+                    help="chirp amplitude. Units depend on --inject: deg/s for "
+                         "'sp' (default 30), control-effort u for 'u' (default "
+                         "0.10; FC hard-caps at 0.30). u-injection drives the "
+                         "motors directly — start small.")
+    ap.add_argument("--inject", choices=("sp", "u"), default="sp",
+                    help="excitation point: 'sp' perturbs the rate SETPOINT "
+                         "(closed-loop, safe, default); 'u' perturbs the rate-PID "
+                         "OUTPUT directly (near-open-loop, cleaner plant fit, more "
+                         "aggressive — prefer a stable rig/hover).")
     ap.add_argument("--dur", type=float, default=6.0)
     ap.add_argument("--abort", action="store_true")
     ap.add_argument("--csv", default="/tmp/sysid_dump.csv")
@@ -98,6 +109,10 @@ def main():
     ap.add_argument("--trigger-timeout", type=float, default=30.0)
     args = ap.parse_args()
     axis = AXES[args.axis]
+    mode = 1 if args.inject == "u" else 0
+    # Mode-dependent amplitude default (deg/s for setpoint, control-effort for u).
+    if args.amp is None:
+        args.amp = 0.10 if mode == 1 else 30.0
 
     try:
         link = Link(args.port)
@@ -118,7 +133,7 @@ def main():
         link.send(nl.CmdSysidExcite.MSGID,
                   nl.CmdSysidExcite(target_sys=42, target_comp=1, req_seq=link.seq,
                                     axis=0xFF, f0_hz=0, f1_hz=0, amp_dps=0,
-                                    duration_s=0).pack())
+                                    duration_s=0, mode=0).pack())
         print("[sysid] ABORT sent")
         time.sleep(0.3)
         return 0
@@ -160,9 +175,10 @@ def main():
     link.send(nl.CmdSysidExcite.MSGID,
               nl.CmdSysidExcite(target_sys=42, target_comp=1, req_seq=link.seq,
                                 axis=axis, f0_hz=args.f0, f1_hz=args.f1,
-                                amp_dps=args.amp, duration_s=args.dur).pack())
-    print(f"[sysid] EXCITE {args.axis} f0={args.f0} f1={args.f1} amp={args.amp}dps "
-          f"dur={args.dur}s")
+                                amp_dps=args.amp, duration_s=args.dur, mode=mode).pack())
+    amp_unit = "u" if mode == 1 else "dps"
+    print(f"[sysid] EXCITE {args.axis} inject={args.inject} f0={args.f0} f1={args.f1} "
+          f"amp={args.amp}{amp_unit} dur={args.dur}s")
 
     # Wait out the run (the FC captures to RAM at ~500 Hz), keeping the bridge warm.
     t_end = time.monotonic() + args.dur + 0.8
@@ -194,7 +210,7 @@ def main():
             for i in range(m.count):
                 idx = m.start_index + i
                 # slot scales: u (PID output) x1000, gyro (deg/s) x10.
-                samples[idx] = (m.sp[i] / 1000.0, m.gyro[i] / 10.0)
+                samples[idx] = (m.u[i] / 1000.0, m.gyro[i] / 10.0)
             if len(samples) > before:
                 last_new = now
         total = meta.get("total", 0)
