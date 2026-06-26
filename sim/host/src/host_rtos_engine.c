@@ -13,6 +13,7 @@
 #include "comm/comm.h"        /* ibus_data_t, rc_queue_control_push, rc_arm_engaged */
 #include "control/angle_controller.h"      /* angle_controller_set_gains */
 #include "control/angle_rate_controller.h" /* angle_rate_controller_set_gains, _set_motor_geometry */
+#include "host_rc_feeder.h"   /* host_rc_feeder_start (serial RC for the GCS) */
 #include "host_rtos.h"        /* host_rtos_tick, host_rtos_run_until_idle */
 #include "sys/state.h"        /* system_state_get/_set, SYSTEM_STATE_* */
 #include "sys/sys_utils.h"    /* VAYU_DISCARD */
@@ -159,11 +160,11 @@ void rtos_pacer_wait(rtos_pacer_t *p, double dt_s) {
   clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &p->next, NULL);
 }
 
-int rtos_engine_boot(void) {
+int rtos_engine_boot(void *iface) {
   fprintf(stderr, "vayu_sitl_rtos: booting the REAL vaios scheduler on host\n");
   vaios_init_config_t cfg = {0};
   v_system_init(&cfg);                /* heap + scheduler init */
-  if (vayu_sitl_start(NULL) != 0) {
+  if (vayu_sitl_start(iface) != 0) {  /* iface != NULL: telemetry via its UART2 cb */
     fprintf(stderr, "vayu_sitl_rtos: vayu_sitl_start failed\n");
     return 1;
   }
@@ -174,4 +175,8 @@ int rtos_engine_boot(void) {
   if (!apply_geometry_from_env())
     vsim_inproc_apply_actuator_env_default();
   return 0;
+}
+
+void rtos_engine_enable_serial_rc(void) {
+  host_rc_feeder_start();   /* reads VAYU_UART_RC_PATH; pushes RC + arm SM */
 }

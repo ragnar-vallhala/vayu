@@ -388,7 +388,7 @@ static int run_cfg(uint32_t seed) {
 }
 
 int main(void) {
-  if (rtos_engine_boot() != 0)
+  if (rtos_engine_boot(NULL) != 0)   /* headless: telemetry via the pty, RC via set_rc */
     return 1;
 
   const char *seed_env = getenv("VAYU_RTOS_SEED");
