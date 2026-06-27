@@ -11,50 +11,8 @@
  * is preserved.
  */
 #include "control/mixer.h"
-#include <math.h>
+#include "maths/linalg.h"   /* m_mat4_inv, m_fabsf, m_isnan — the math backend */
 #include <stddef.h>
-
-/* ---- small fixed-size linear algebra (4x4 only) -------------------------- */
-
-/* Invert a 4x4 matrix by Gauss-Jordan with partial pivoting.
- * Returns false if singular. a is row-major [4][4] (read-only in practice, but
- * non-const to avoid the ISO-C array-pointer-qualifier conversion warning);
- * out may not alias a. */
-static bool invert4(float a[4][4], float out[4][4]) {
-  float m[4][8];
-  for (int i = 0; i < 4; i++) {
-    for (int j = 0; j < 4; j++) {
-      m[i][j] = a[i][j];
-      m[i][j + 4] = (i == j) ? 1.0f : 0.0f;
-    }
-  }
-  for (int col = 0; col < 4; col++) {
-    /* partial pivot */
-    int piv = col;
-    float best = fabsf(m[col][col]);
-    for (int r = col + 1; r < 4; r++) {
-      float v = fabsf(m[r][col]);
-      if (v > best) { best = v; piv = r; }
-    }
-    if (best < 1e-9f) return false; /* singular */
-    if (piv != col) {
-      for (int j = 0; j < 8; j++) {
-        float t = m[col][j]; m[col][j] = m[piv][j]; m[piv][j] = t;
-      }
-    }
-    float inv = 1.0f / m[col][col];
-    for (int j = 0; j < 8; j++) m[col][j] *= inv;
-    for (int r = 0; r < 4; r++) {
-      if (r == col) continue;
-      float f = m[r][col];
-      if (fabsf(f) < 1e-20f) continue;
-      for (int j = 0; j < 8; j++) m[r][j] -= f * m[col][j];
-    }
-  }
-  for (int i = 0; i < 4; i++)
-    for (int j = 0; j < 4; j++) out[i][j] = m[i][j + 4];
-  return true;
-}
 
 /* ---- geometry / pseudo-inverse ------------------------------------------- */
 
@@ -84,7 +42,7 @@ bool mixer_set_geometry(mixer_t *mx, const float *pos_x, const float *pos_y,
     }
 
   float Ginv[4][4];
-  if (!invert4(G, Ginv)) return false;
+  if (!m_mat4_inv(&G[0][0], &Ginv[0][0])) return false;
 
   /* Bpinv = B^T Ginv   (n x 4) */
   for (uint8_t i = 0; i < n; i++)
@@ -100,7 +58,7 @@ bool mixer_set_geometry(mixer_t *mx, const float *pos_x, const float *pos_y,
    * i.e. unit per-axis gain. */
   float thr_sum = 0.0f;
   for (uint8_t i = 0; i < n; i++) thr_sum += mx->Bpinv[i][MIX_THRUST];
-  if (fabsf(thr_sum) < 1e-9f) return false;
+  if (m_fabsf(thr_sum) < 1e-9f) return false;
   float g = (float)n / thr_sum;
   for (uint8_t i = 0; i < n; i++)
     for (int a = 0; a < MIX_NW; a++) mx->Bpinv[i][a] *= g;
@@ -126,7 +84,7 @@ static float desat_gain(const float *motor, const float *dir, uint8_t n,
                         float mn, float mx_) {
   float k_min = 0.0f, k_max = 0.0f;
   for (uint8_t i = 0; i < n; i++) {
-    if (fabsf(dir[i]) < 1e-6f) continue;
+    if (m_fabsf(dir[i]) < 1e-6f) continue;
     float k = 0.0f;
     if (motor[i] < mn)      k = (mn - motor[i]) / dir[i];
     else if (motor[i] > mx_) k = (mx_ - motor[i]) / dir[i];
@@ -187,7 +145,7 @@ void mixer_allocate(const mixer_t *mx, const float w[MIX_NW],
   /* clamp + idle floor + NaN guard */
   for (uint8_t i = 0; i < n; i++) {
     float v = motor[i];
-    if (isnan(v)) v = lo;
+    if (m_isnan(v)) v = lo;
     if (v < lo) v = lo;
     if (v > hi) v = hi;
     motor[i] = v;

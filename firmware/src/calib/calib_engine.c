@@ -6,7 +6,7 @@
 #include "calib/calib_engine.h"
 #include "calib/calib_ellipsoid.h"
 #include "vaios.h"  /* v_delay */
-#include <math.h>   /* sqrtf */
+#include "maths/maths_interface.h"   /* m_sqrt */
 #include <stddef.h> /* NULL */
 
 /* Accumulate one raw 3-vector (scaled by 1/radius) into the normal equations. */
@@ -50,7 +50,7 @@ static int finalize(const calib_target_t *t, float S[81], float t9[9], int nvali
       float c0 = soft[0] * d[0] + soft[1] * d[1] + soft[2] * d[2];
       float c1 = soft[3] * d[0] + soft[4] * d[1] + soft[5] * d[2];
       float c2 = soft[6] * d[0] + soft[7] * d[1] + soft[8] * d[2];
-      msum += sqrtf(c0 * c0 + c1 * c1 + c2 * c2);
+      msum += m_sqrt(c0 * c0 + c1 * c1 + c2 * c2);
     }
     float mean = msum / (float)npts;
     if (mean > 1e-6f)

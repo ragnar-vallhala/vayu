@@ -5,10 +5,10 @@
  * See include/calib/calib_ellipsoid.h. */
 
 #include "calib/calib_ellipsoid.h"
-#include <math.h>
+#include "maths/maths_interface.h"
 
 #define FABS_F(x) ((x) < 0.0f ? -(x) : (x))
-#define SQRT_F(x) sqrtf(x)
+#define SQRT_F(x) m_sqrt(x)
 
 /* Positive cube root via range reduction (cbrt(8x)=2 cbrt(x)) + Newton.
  * Uses only multiply/compare so it is independent of libm extras. */

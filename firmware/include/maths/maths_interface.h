@@ -10,6 +10,11 @@ float m_sqrt(float x);
 float m_pow(float base, float exp);
 float m_clamp(float val, float min, float max);
 float m_fabsf(float x);
+/* Non-zero iff x is NaN. Lets consumers guard against NaN without pulling in
+ * <math.h> themselves (this module is the single owner of libm). */
+int m_isnan(float x);
+/* Non-zero iff x is finite (not NaN or +/-inf). */
+int m_isfinite(float x);
 #define to_radians(degrees) (degrees * (PI / 180.0f))
 #define to_degrees(radians) (radians * (180.0f / PI))
 typedef struct {

@@ -1,6 +1,6 @@
 #include "control/sysid.h"
 
-#include <math.h>
+#include "maths/maths_interface.h"
 
 /* Hard safety caps (the physical rig should also have soft-stops). These bound
  * what any CMD_SYSID_EXCITE can do regardless of the requested values. */
@@ -122,7 +122,7 @@ void sysid_step(float dt, const float angles_deg[3], const float rates_dps[3],
     env = (s_dur - s_elapsed) / SYSID_TAPER_S;
   env = clampf(env, 0.0f, 1.0f);
 
-  inject_out[s_axis] = s_amp * env * sinf(s_phase);
+  inject_out[s_axis] = s_amp * env * m_sin(s_phase);
 }
 
 /* --- capture: RAM ring, called from the 1 kHz control loop. `u` is the rate-PID

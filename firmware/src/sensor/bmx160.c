@@ -16,14 +16,14 @@
 #include "variables.h"
 #include "vayu_tasks.h"
 #include "vfs.h"
-#include <math.h>
+#include "maths/maths_interface.h"
 #include <stdint.h>
 
-extern float sqrtf(float x);
-extern float fabsf(float x);
+extern float m_sqrt(float x);
+extern float m_fabsf(float x);
 
 #define FABS_F(x) ((x) < 0.0f ? -(x) : (x))
-#define SQRT_F(x) sqrtf(x)
+#define SQRT_F(x) m_sqrt(x)
 
 /* Gyro-bias "still" detector thresholds, pre-squared at compile time so the
  * per-sample check compares squared magnitudes (no sqrt, no per-loop compute).
@@ -37,7 +37,7 @@ extern float fabsf(float x);
   ((ACC_STILL_G + ACC_STILL_TOL_G) * (ACC_STILL_G + ACC_STILL_TOL_G)) /* 10.01^2 */
 #define GYRO_STILL_SQ (GYRO_STILL_DPS * GYRO_STILL_DPS)               /* 0.04 */
 static int in_init = 1;
-#define IS_FINITE(x) (isfinite(x))
+#define IS_FINITE(x) (m_isfinite(x))
 uint8_t tx_buf[2];
 uint8_t rx_buf[14]; // sized for safe multi-byte reads
 
@@ -1083,8 +1083,8 @@ static void bmx160_process_mag(int16_t mx, int16_t my, int16_t mz,
 
     // Disturbance detection (dot product with previous valid reading)
     if (mag_fusion_valid &&
-        (fabsf(last_mag[0]) > 0.0f || fabsf(last_mag[1]) > 0.0f ||
-         fabsf(last_mag[2]) > 0.0f)) {
+        (m_fabsf(last_mag[0]) > 0.0f || m_fabsf(last_mag[1]) > 0.0f ||
+         m_fabsf(last_mag[2]) > 0.0f)) {
       // Calculate dot product of current reading and last valid reading
       float dot = _bmx_data.converted.mag[0] * last_mag[0] +
                   _bmx_data.converted.mag[1] * last_mag[1] +

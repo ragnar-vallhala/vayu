@@ -142,6 +142,65 @@ static inline bool m_mat3_inv(const float *m, float *inv) {
   return true;
 }
 
+/**
+ * @brief 4x4 inverse via Gauss-Jordan elimination with partial pivoting.
+ *        Returns false (leaving @p inv untouched) if the matrix is numerically
+ *        singular. @p m and @p inv are row-major [16]; @p inv may alias nothing
+ *        that is read after the call (the input is fully copied up front).
+ */
+static inline bool m_mat4_inv(const float *m, float *inv) {
+  float a[4][8];
+  for (int i = 0; i < 4; i++)
+    for (int j = 0; j < 4; j++) {
+      a[i][j] = m[i * 4 + j];
+      a[i][j + 4] = (i == j) ? 1.0f : 0.0f;
+    }
+  /* Relative singularity floor, same rationale as m_mat3_inv: reference the
+   * largest element magnitude so the guard is scale-invariant. */
+  float scale = m_fabsf(m[0]);
+  for (int i = 1; i < 16; i++) {
+    float v = m_fabsf(m[i]);
+    if (v > scale)
+      scale = v;
+  }
+  float eps = 1e-6f * (scale > 0.0f ? scale : 1.0f);
+  for (int col = 0; col < 4; col++) {
+    int piv = col;
+    float best = m_fabsf(a[col][col]);
+    for (int r = col + 1; r < 4; r++) {
+      float v = m_fabsf(a[r][col]);
+      if (v > best) {
+        best = v;
+        piv = r;
+      }
+    }
+    if (best <= eps)
+      return false;
+    if (piv != col)
+      for (int j = 0; j < 8; j++) {
+        float t = a[col][j];
+        a[col][j] = a[piv][j];
+        a[piv][j] = t;
+      }
+    float invp = 1.0f / a[col][col];
+    for (int j = 0; j < 8; j++)
+      a[col][j] *= invp;
+    for (int r = 0; r < 4; r++) {
+      if (r == col)
+        continue;
+      float f = a[r][col];
+      if (m_fabsf(f) < 1e-20f)
+        continue;
+      for (int j = 0; j < 8; j++)
+        a[r][j] -= f * a[col][j];
+    }
+  }
+  for (int i = 0; i < 4; i++)
+    for (int j = 0; j < 4; j++)
+      inv[i * 4 + j] = a[i][j + 4];
+  return true;
+}
+
 /* ----------------------------------------------------------------------------
  * 3-vector helpers
  * --------------------------------------------------------------------------*/

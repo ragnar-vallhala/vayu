@@ -46,6 +46,16 @@ float m_clamp(float val, float min, float max) {
 float m_fabsf(float x) { return fabsf(x); }
 
 // -------------------------
+// NaN test
+// -------------------------
+int m_isnan(float x) { return isnan(x); }
+
+// -------------------------
+// finite test
+// -------------------------
+int m_isfinite(float x) { return isfinite(x); }
+
+// -------------------------
 // normalize vector
 // -------------------------
 void normalize_vector(vector_t *v) {

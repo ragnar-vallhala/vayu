@@ -18,7 +18,7 @@
 #include "storage/fs_owner.h"              /* vayu_log */
 #include "variables.h"                /* NUM_AXES */
 #include "vfs.h"
-#include <math.h>
+#include "maths/maths_interface.h"
 
 #define PID_CONFIG_MAGIC     0x50494433u /* 'P''I''D''3' */
 #define PID_CONFIG_FILE_PATH "0:pid.bin"
@@ -147,7 +147,7 @@ vayu_status_t pid_config_apply_command(const uint8_t *payload,
   if (ctrl < 0 || ctrl >= PID_CTRL_COUNT || axis < 0 || axis >= NUM_AXES) {
     return VAYU_ERR_INVALID;
   }
-  if (!isfinite(kp) || !isfinite(ki) || !isfinite(kd) || !isfinite(kff)) {
+  if (!m_isfinite(kp) || !m_isfinite(ki) || !m_isfinite(kd) || !m_isfinite(kff)) {
     return VAYU_ERR_INVALID; /* reject NaN/Inf gains outright */
   }
 
@@ -185,7 +185,7 @@ vayu_status_t pid_config_apply_gyro_lpf_command(const uint8_t *payload,
   float faxis = arg_f(payload, 0);
   float rc = arg_f(payload, 1);
   int axis = (int)(faxis + 0.5f);
-  if (axis < 0 || axis >= NUM_AXES || !isfinite(rc) || rc < 0.0f) {
+  if (axis < 0 || axis >= NUM_AXES || !m_isfinite(rc) || rc < 0.0f) {
     return VAYU_ERR_INVALID;
   }
   if (!angle_rate_controller_set_gyro_lpf((uint8_t)axis, rc)) {
@@ -210,7 +210,7 @@ vayu_status_t pid_config_apply_d_lpf_command(const uint8_t *payload,
   float faxis = arg_f(payload, 0);
   float rc = arg_f(payload, 1);
   int axis = (int)(faxis + 0.5f);
-  if (axis < 0 || axis >= NUM_AXES || !isfinite(rc) || rc < 0.0f) {
+  if (axis < 0 || axis >= NUM_AXES || !m_isfinite(rc) || rc < 0.0f) {
     return VAYU_ERR_INVALID;
   }
   if (!angle_rate_controller_set_d_lpf((uint8_t)axis, rc)) {

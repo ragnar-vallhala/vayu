@@ -1,5 +1,4 @@
 #include "control/angle_rate_controller.h"
-#include <math.h>
 #include "actuator/actuator.h"
 #include "comm/comm.h"
 #include "control/angle_controller.h"
