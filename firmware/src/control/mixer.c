@@ -16,6 +16,14 @@
 
 /* ---- geometry / pseudo-inverse ------------------------------------------- */
 
+/**
+ * Build the effectiveness matrix B from the airframe geometry sign convention
+ * (roll = -sign(y), pitch = +sign(x), yaw = +spin, thrust = 1) and the
+ * normalised pseudo-inverse used to map a wrench to per-motor commands — the
+ * X-configuration layout of CTRL-MIX-001.
+ *
+ * @implements CTRL-MIX-001
+ */
 bool mixer_set_geometry(mixer_t *mx, const float *pos_x, const float *pos_y,
                         const int *spin, uint8_t n) {
   if (mx == NULL || n == 0 || n > MIXER_MAX_MOTORS) return false;
@@ -68,9 +76,11 @@ bool mixer_set_geometry(mixer_t *mx, const float *pos_x, const float *pos_y,
   return true;
 }
 
+/** @noreq trivial airmode setter. */
 void mixer_set_airmode(mixer_t *mx, mixer_airmode_t mode) {
   if (mx) mx->airmode = mode;
 }
+/** @noreq trivial idle-floor setter. */
 void mixer_set_idle_floor(mixer_t *mx, float idle) {
   if (mx) mx->idle_floor = idle;
 }
@@ -95,6 +105,17 @@ static float desat_gain(const float *motor, const float *dir, uint8_t n,
   return k_min + k_max;
 }
 
+/**
+ * Map a desired wrench to per-motor commands: nominal allocation motor =
+ * Bpinv·w (CTRL-MIX-001); airmode-DISABLED preserves the commanded collective
+ * by scaling only the differential, motor = thr + scale·(motor − thr)
+ * (CTRL-MIX-002); the final pass clamps to [idle_floor, 1] enforcing the armed
+ * idle floor (CTRL-MIX-003) and replaces any NaN before it reaches the motors
+ * (CTRL-MIX-101). The airmode RP/RPY sequential-desaturation branch is not yet
+ * covered by a requirement (see proposed CTRL-MIX-102).
+ *
+ * @implements CTRL-MIX-001, CTRL-MIX-002, CTRL-MIX-003, CTRL-MIX-101
+ */
 void mixer_allocate(const mixer_t *mx, const float w[MIX_NW],
                     float *motor, float realized[MIX_NW]) {
   const uint8_t n = mx->n;

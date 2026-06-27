@@ -10,6 +10,7 @@ static ibus_data_t _rc_control_buffer[RC_BUFFER_INTERNAL_CAPACITY];
 static spsc_fifo_t _rc_telemetry_queue;
 static spsc_fifo_t _rc_control_queue;
 
+/** @noreq SPSC RC queue construction (OVERWRITE policy) */
 void rc_buffer_init(void) {
   spsc_init(&_rc_telemetry_queue, _rc_telemetry_buffer,
             RC_BUFFER_INTERNAL_CAPACITY, sizeof(ibus_data_t));
@@ -20,6 +21,7 @@ void rc_buffer_init(void) {
   spsc_set_policy(&_rc_control_queue, SPSC_POLICY_OVERWRITE);
 }
 
+/** @noreq perf-row gather for the RC FIFOs (observability glue) */
 int rc_buffer_perf_fifos(perf_fifo_row_t *rows, int max) {
   int n = 0;
   if (n < max)
@@ -29,18 +31,22 @@ int rc_buffer_perf_fifos(perf_fifo_row_t *rows, int max) {
   return n;
 }
 
+/** @noreq trivial SPSC accessor */
 bool rc_queue_telemetry_push(const ibus_data_t *data) {
   return spsc_write(&_rc_telemetry_queue, data, 1) == 1;
 }
 
+/** @noreq trivial SPSC accessor */
 bool rc_queue_telemetry_pop(ibus_data_t *out_data) {
   return spsc_read(&_rc_telemetry_queue, out_data, 1) == 1;
 }
 
+/** @noreq trivial SPSC accessor */
 bool rc_queue_control_push(const ibus_data_t *data) {
   return spsc_write(&_rc_control_queue, data, 1) == 1;
 }
 
+/** @noreq trivial SPSC accessor */
 bool rc_queue_control_pop(ibus_data_t *out_data) {
   return spsc_read(&_rc_control_queue, out_data, 1) == 1;
 }

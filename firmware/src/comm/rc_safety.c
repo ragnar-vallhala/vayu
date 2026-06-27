@@ -77,6 +77,7 @@ static uint16_t s_prev_throttle = RC_THROTTLE_MIN_RAW;
 static uint8_t  s_throttle_high_frames = 0;
 static bool     s_throttle_failsafe = false;
 
+/** @noreq throttle-failsafe detector state reset (boot/tests) */
 void rc_throttle_failsafe_reset(void) {
   s_prev_throttle = RC_THROTTLE_MIN_RAW;
   s_throttle_high_frames = 0;
@@ -114,6 +115,7 @@ bool rc_throttle_failsafe_step(uint16_t throttle_raw) {
 /* States in which RC loss should drive a FAILSAFE transition. INIT and
  * CALIBRATING are excluded by design: the vehicle is on the bench and
  * the operator may legitimately have the transmitter off. */
+/** @noreq state-set predicate helper for rc_watchdog_step (SYS-SAFE-002) */
 static bool rc_watchdog_active_for(sys_state_t s) {
   return s == SYSTEM_STATE_STANDBY || s == SYSTEM_STATE_PREARM ||
          s == SYSTEM_STATE_ARMED   || s == SYSTEM_STATE_IN_AIR;

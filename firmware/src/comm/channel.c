@@ -34,6 +34,7 @@ static volatile uint32_t _tx_overflow_count = 0;
 
 uint32_t channel_tx_overflow_count(void) { return _tx_overflow_count; }
 
+/** @noreq TX-DMA completion ISR: releases the channel busy flag */
 static void _dma_complete_callback(void) {
   // Handles only USART2/DMA1_S6; a generic impl would need to know which
   // handler triggered this.
@@ -55,6 +56,7 @@ static void _dma_complete_callback(void) {
  * permanently strand `busy=1` here (flush then always returns ERROR -> telemetry
  * dies after the first SD write, e.g. saving calibration). USART6_TX's alternate
  * mapping is Stream7/Ch5, free of SDIO — see _get_uart_dma_params in NavHAL. */
+/** @noreq telemetry-UART TX-DMA completion ISR: releases the channel */
 static void _dma_complete_callback_u6(void) {
   for (int i = 0; i < MAX_SERIAL_HANDLERS; i++) {
     if (_serial_handlers[i].uart == HAL_UART_6) {
@@ -64,6 +66,7 @@ static void _dma_complete_callback_u6(void) {
   }
 }
 
+/** @noreq UART channel allocation + peripheral/DMA init glue */
 static err_t get_handler_serial(channel_t *handler, void *args,
                                 void (*callback)(void)) {
   if (args == NULL || handler == NULL) {
@@ -159,6 +162,7 @@ static err_t get_handler_serial(channel_t *handler, void *args,
 
 // Shared core: `cap` is the highest fill level this writer may reach. Normal
 // writers pass the reserved cap; xfer passes the full buffer.
+/** @implements COMM-CH-002 */
 static err_t _write_channel(channel_t channel, byte *data, uint16_t length,
                             uint16_t cap) {
   // This function is not thread safe
@@ -198,15 +202,18 @@ static err_t _write_channel(channel_t channel, byte *data, uint16_t length,
   return USAGE;
 }
 
+/** @noreq thin wrapper over _write_channel (normal-writer cap) */
 err_t write_channel(channel_t channel, byte *data, uint16_t length) {
   return _write_channel(channel, data, length,
                         CHANNEL_TX_BUF_SIZE - CHANNEL_TX_XFER_RESERVE);
 }
 
+/** @noreq thin wrapper over _write_channel (full cap for bulk xfer) */
 err_t write_channel_xfer(channel_t channel, byte *data, uint16_t length) {
   return _write_channel(channel, data, length, CHANNEL_TX_BUF_SIZE);
 }
 
+/** @implements COMM-CH-001, COMM-FLUSH-001 */
 err_t flush_channel(channel_t channel) {
   if (channel.handle == NULL) {
     return USAGE;
@@ -276,12 +283,14 @@ err_t flush_channel(channel_t channel) {
 // Active handlers linked list head
 static channel_t *active_handlers = NULL;
 
+/** @noreq unsupported-channel-type stub */
 static err_t get_handler_default(channel_t *handler, void *args) {
   (void)handler;
   (void)args;
   return USAGE;
 }
 
+/** @noreq channel-handler registry/dispatch glue */
 err_t get_handler(channel_type_t channel_type, channel_t *handler, void *args,
                   void (*onRecieve)(void)) {
   err_t status = USAGE;
@@ -309,6 +318,7 @@ err_t get_handler(channel_type_t channel_type, channel_t *handler, void *args,
   return status;
 }
 
+/** @noreq channel teardown glue (unlink + detach IRQ + free slot) */
 err_t del_handler(channel_t *handler) {
   if (handler == NULL) {
     return USAGE;
@@ -347,6 +357,7 @@ err_t del_handler(channel_t *handler) {
   return NONE;
 }
 
+/** @implements COMM-FLUSH-001 */
 void flush_task(void *args) {
   (void)args;
   while (1) {

@@ -79,14 +79,18 @@ void ekf_init(bool estimate_accel_bias) {
   E.initialized = true;
 }
 
+/* ekf_reset(): zero bias + covariance, preserving the configured 6/9 dimension.
+ * @implements EST-EKF-101 */
 void ekf_reset(void) { ekf_init(E.initialized ? E.est_accel_bias : false); }
 
+/* @noreq trivial accessor (estimated gyro bias). */
 void ekf_get_gyro_bias(float out[3]) {
   out[0] = E.bg[0];
   out[1] = E.bg[1];
   out[2] = E.bg[2];
 }
 
+/* @noreq trivial accessor (estimated accel bias). */
 void ekf_get_accel_bias(float out[3]) {
   out[0] = E.ba[0];
   out[1] = E.ba[1];
@@ -95,6 +99,8 @@ void ekf_get_accel_bias(float out[3]) {
 
 /* --------------------------------------------------------------------------
  * Error-state injection: fold dx into the nominal state, reset error to 0.
+ *
+ * @noreq internal MEKF error-state injection helper.
  * ------------------------------------------------------------------------*/
 static void ekf_inject(const float *dx) {
   float dtheta[3] = {dx[0], dx[1], dx[2]};
@@ -338,6 +344,8 @@ static void ekf_update_mag(float mx, float my, float mz) {
 
 /* --------------------------------------------------------------------------
  * Public filter entry — same signature as m_mahony_filter().
+ *
+ * @implements EST-EKF-001, EST-EKF-002
  * ------------------------------------------------------------------------*/
 void m_ekf_filter(const float ax, const float ay, const float az, const float gx,
                   const float gy, const float gz, const float mx, const float my,

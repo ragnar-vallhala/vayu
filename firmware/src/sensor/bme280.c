@@ -38,6 +38,7 @@ static bme280_reading_t _last;
 
 /* ---- low-level register access (boot only; blocking, bounded retry) ---- */
 
+/** @noreq Low-level I2C register read helper (boot only). */
 static hal_status_t bme280_read_regs(uint8_t reg, uint8_t *buf, uint16_t len) {
   for (int i = 0; i < BME280_I2C_RETRIES; i++) {
     if (i2c_manager_write_read(BME280_I2C_ADDR, &reg, 1, buf, len) == HAL_OK) {
@@ -48,6 +49,7 @@ static hal_status_t bme280_read_regs(uint8_t reg, uint8_t *buf, uint16_t len) {
   return HAL_ERR_TIMEOUT;
 }
 
+/** @noreq Low-level I2C register write helper (boot only). */
 static hal_status_t bme280_write_reg(uint8_t reg, uint8_t val) {
   uint8_t tx[2] = {reg, val};
   for (int i = 0; i < BME280_I2C_RETRIES; i++) {
@@ -59,6 +61,7 @@ static hal_status_t bme280_write_reg(uint8_t reg, uint8_t val) {
   return HAL_ERR_TIMEOUT;
 }
 
+/** @noreq Single-register chip-ID read. */
 uint8_t bme280_get_chip_id(void) {
   uint8_t id = 0xFF;
   if (bme280_read_regs(BME280_REG_CHIP_ID, &id, 1) != HAL_OK) {
@@ -67,6 +70,7 @@ uint8_t bme280_get_chip_id(void) {
   return id;
 }
 
+/** @noreq Trivial presence accessor. */
 uint8_t bme280_is_present(void) { return _initialized; }
 
 /* ---- calibration ---- */
@@ -172,6 +176,7 @@ static float bme280_compensate_humidity(int32_t adc_h) {
 
 /* ---- runtime data path (fed by the IMU DMA loop) ---- */
 
+/** @noreq ISR copy of raw baro bytes; glue into the shared IMU DMA loop. */
 void bme280_ingest_raw(const uint8_t *data) {
   /* ISR context: copy the 8 bytes and flag fresh. Cheap on purpose. */
   for (int i = 0; i < BME280_DATA_LEN; i++) {
@@ -213,6 +218,7 @@ static void bme280_compensate_and_publish(const uint8_t *d) {
 
 /* ---- public API ---- */
 
+/** @noreq Trivial QNH (sea-level reference) setter. */
 void bme280_set_sea_level_pa(float pa) {
   if (pa > 1.0f) {
     _sea_level_pa = pa;
@@ -278,6 +284,7 @@ void bme280_read_task(void *args) {
   }
 }
 
+/** @noreq Trivial published-value accessor. */
 hal_status_t bme280_read_temperature(float *celsius) {
   if (celsius == NULL)
     return HAL_ERR_INVALID_ARG;
@@ -287,6 +294,7 @@ hal_status_t bme280_read_temperature(float *celsius) {
   return HAL_OK;
 }
 
+/** @noreq Trivial published-value accessor. */
 hal_status_t bme280_read_pressure(float *pascals) {
   if (pascals == NULL)
     return HAL_ERR_INVALID_ARG;
@@ -296,6 +304,7 @@ hal_status_t bme280_read_pressure(float *pascals) {
   return HAL_OK;
 }
 
+/** @noreq Trivial published-value accessor. */
 hal_status_t bme280_read_humidity(float *percent_rh) {
   if (percent_rh == NULL)
     return HAL_ERR_INVALID_ARG;
@@ -305,6 +314,7 @@ hal_status_t bme280_read_humidity(float *percent_rh) {
   return HAL_OK;
 }
 
+/** @noreq Trivial published-value accessor. */
 hal_status_t bme280_read_altitude(float *meters) {
   if (meters == NULL)
     return HAL_ERR_INVALID_ARG;
@@ -314,6 +324,7 @@ hal_status_t bme280_read_altitude(float *meters) {
   return HAL_OK;
 }
 
+/** @noreq Trivial published-value accessor. */
 hal_status_t bme280_read_all(bme280_reading_t *out) {
   if (out == NULL)
     return HAL_ERR_INVALID_ARG;

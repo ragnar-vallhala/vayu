@@ -9,7 +9,8 @@
 #include "maths/maths_interface.h"   /* m_sqrt */
 #include <stddef.h> /* NULL */
 
-/* Accumulate one raw 3-vector (scaled by 1/radius) into the normal equations. */
+/* Accumulate one raw 3-vector (scaled by 1/radius) into the normal equations.
+ * @noreq Internal normal-equation accumulation helper for the ellipsoid fit. */
 static void accum(float S[81], float t9[9], const float m[3], float inv_r) {
   float x = m[0] * inv_r, y = m[1] * inv_r, z = m[2] * inv_r;
   float r[9] = {x * x,     y * y, z * z, 2 * y * z, 2 * x * z,
@@ -23,7 +24,9 @@ static void accum(float S[81], float t9[9], const float m[3], float inv_r) {
 
 /* Solve the accumulated system, optionally rescale to an absolute radius, and
  * commit. `pts`/`npts` are needed only when normalize_radius is set (to measure
- * the common corrected magnitude). Returns 0 (committed) or -1. */
+ * the common corrected magnitude). Returns 0 (committed) or -1.
+ * @noreq Shared fit solve + optional radius-normalisation + commit; the
+ * per-sensor behaviour is carried by the SNS-CAL reqs on the callers. */
 static int finalize(const calib_target_t *t, float S[81], float t9[9], int nvalid,
                     const float (*pts)[3], int npts) {
   if (nvalid < (int)t->min_samples)
@@ -64,7 +67,8 @@ static int finalize(const calib_target_t *t, float S[81], float t9[9], int nvali
 
 /* Sphere-constrained fit (accel, mag): accumulate the 9x9 normal equations over
  * the acquisition window, tracking per-axis raw-component coverage, then fit the
- * ellipsoid and commit offset (in raw units) + the 3x3 shape matrix. */
+ * ellipsoid and commit offset (in raw units) + the 3x3 shape matrix.
+ * @implements SNS-CAL-103 */
 static int run_ellipsoid(const calib_target_t *t) {
   float S[81] = {0};
   float t9[9] = {0};
@@ -116,7 +120,8 @@ static int run_ellipsoid(const calib_target_t *t) {
 /* Zero-rate bias (gyro): average raw samples that the provider only returns when
  * the board is still, then commit the mean as the offset (matrix = identity).
  * Fails (keeps the old offset) if too few still samples are gathered within the
- * tick budget, or if the accepted samples are too noisy. */
+ * tick budget, or if the accepted samples are too noisy.
+ * @implements SNS-CAL-102 */
 static int run_bias(const calib_target_t *t) {
   float sum[3] = {0.0f, 0.0f, 0.0f};
   float sumsq[3] = {0.0f, 0.0f, 0.0f};
@@ -164,6 +169,7 @@ static int run_bias(const calib_target_t *t) {
   return 0;
 }
 
+/** @implements SNS-CAL-102, SNS-CAL-103 */
 int calib_engine_run(const calib_target_t *t) {
   switch (t->fit) {
   case CALIB_FIT_ELLIPSOID:
@@ -175,6 +181,7 @@ int calib_engine_run(const calib_target_t *t) {
   }
 }
 
+/** @implements SNS-CAL-101 */
 int calib_engine_fit_points(const calib_target_t *t, const float (*pts)[3],
                             int npts) {
   float S[81] = {0};

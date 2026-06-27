@@ -115,6 +115,7 @@ static volatile int _calib_cancel = 0;
  * written by the calibration task, read by the sensor task. */
 static volatile int _calib_active = 0;
 
+/** @noreq Calibration-cancel flag setter; dispatched by COMM-CMD-001. */
 void bmx160_calib_request_cancel(void) { _calib_cancel = 1; }
 
 // LPFs for sensors
@@ -133,6 +134,7 @@ static float bmx160_range_code_to_dps(uint8_t range_code);
 static void bmx160_process_data(void);
 static bmx160_err_type bmx160_wait_mag_manual_op(void);
 
+/** @noreq BMM150 manual-op completion poll; low-level mag-init helper. */
 static bmx160_err_type bmx160_wait_mag_manual_op(void) {
   uint8_t status_reg = 0x1B; // STATUS register
   uint8_t status;
@@ -161,6 +163,7 @@ static bmx160_err_type bmx160_wait_mag_manual_op(void) {
   return ERR1;
 }
 
+/** @implements SNS-BMX-101 */
 static bmx160_err_type bmx160_verify_pmu(uint8_t mask, uint8_t expected) {
   uint8_t reg = BMX160_PMU_STAT_ADDR;
 
@@ -177,6 +180,7 @@ static bmx160_err_type bmx160_verify_pmu(uint8_t mask, uint8_t expected) {
   return ERR1;
 }
 
+/** @implements SNS-BMX-101, SNS-CAL-001 */
 hal_status_t bmx160_init(void) {
 
   // Create I2C bus semaphore early. Ensure it starts "given"
@@ -299,6 +303,7 @@ hal_status_t bmx160_init(void) {
   return HAL_OK;
 }
 
+/** @noreq BMM150 indirect register write via the BMX160 mag interface. */
 static bmx160_err_type bmx160_write_bmm150_reg(uint8_t reg, uint8_t data) {
   tx_buf[0] = BMX160_MAG_IF_3_DATA_ADDR;
   tx_buf[1] = data;
@@ -322,6 +327,7 @@ static bmx160_err_type bmx160_write_bmm150_reg(uint8_t reg, uint8_t data) {
   return NO_ERR;
 }
 
+/** @noreq BMM150 indirect register read via the BMX160 mag interface. */
 static bmx160_err_type bmx160_read_bmm150_reg(uint8_t reg, uint8_t *data) {
   tx_buf[0] = BMX160_MAG_IF_1_READ_ADDR;
   tx_buf[1] = reg;
@@ -342,6 +348,7 @@ static bmx160_err_type bmx160_read_bmm150_reg(uint8_t reg, uint8_t *data) {
   return NO_ERR;
 }
 
+/** @implements SNS-MAG-101 */
 static void bmx160_read_mag_trim_data(void) {
   uint8_t tmp[2];
 
@@ -372,6 +379,7 @@ static void bmx160_read_mag_trim_data(void) {
   _mag_trim.dig_xyz1 = (uint16_t)(tmp[1] << 8 | tmp[0]);
 }
 
+/** @implements SNS-BMX-101 */
 static bmx160_err_type bmx160_set_mag_conf(void) {
   // 1. Route secondary I2C interface to Magnetometer (0x6B = 0x20)
   tx_buf[0] = BMX160_IF_CONF_ADDR;
@@ -443,6 +451,7 @@ static bmx160_err_type bmx160_set_mag_conf(void) {
   return NO_ERR;
 }
 
+/** @noreq Single-register CHIP_ID read; init verify carries SNS-BMX-101. */
 uint16_t bmx160_get_chip_id(void) {
   uint8_t reg = BMX160_CHIP_ID_ADDR;
   hal_status_t ret;
@@ -455,8 +464,10 @@ uint16_t bmx160_get_chip_id(void) {
   return (uint16_t)chip_id;
 }
 
+/** @noreq Trivial raw accessor. */
 int16_t bmx160_read_temp_raw(void) { return _bmx_data.raw.temp; }
 
+/** @implements SNS-MAG-101 */
 static float bmm150_compensate_x(int16_t mag_data_x, uint16_t data_rhall) {
   if (data_rhall < 50)
     return 0.0f;
@@ -488,6 +499,7 @@ static float bmm150_compensate_x(int16_t mag_data_x, uint16_t data_rhall) {
   return retval;
 }
 
+/** @implements SNS-MAG-101 */
 static float bmm150_compensate_y(int16_t mag_data_y, uint16_t data_rhall) {
   if (data_rhall < 50)
     return 0.0f;
@@ -519,6 +531,7 @@ static float bmm150_compensate_y(int16_t mag_data_y, uint16_t data_rhall) {
   return retval;
 }
 
+/** @implements SNS-MAG-101 */
 static float bmm150_compensate_z(int16_t mag_data_z, uint16_t data_rhall) {
   if (data_rhall < 50)
     return 0.0f;
@@ -549,6 +562,7 @@ static float bmm150_compensate_z(int16_t mag_data_z, uint16_t data_rhall) {
   return retval;
 }
 
+/** @noreq Temperature unit conversion; no temperature requirement. */
 static bmx160_err_type bmx160_convert_raw_temp_to_celcius(int16_t raw_temp,
                                                           float *celcius) {
   if ((uint16_t)raw_temp == 0x8000)
@@ -560,6 +574,7 @@ static bmx160_err_type bmx160_convert_raw_temp_to_celcius(int16_t raw_temp,
   return NO_ERR;
 }
 
+/** @noreq Trivial converted-value accessor. */
 bmx160_err_type bmx160_read_temp_celcius(float *celcius) {
   if (celcius == NULL)
     return ERR0;
@@ -567,6 +582,7 @@ bmx160_err_type bmx160_read_temp_celcius(float *celcius) {
   return NO_ERR;
 }
 
+/** @noreq Trivial raw accessor. */
 bmx160_err_type bmx160_read_acc_raw(int16_t *raw) {
   if (raw == NULL)
     return ERR0;
@@ -575,6 +591,7 @@ bmx160_err_type bmx160_read_acc_raw(int16_t *raw) {
   raw[2] = _bmx_data.raw.acc[2];
   return NO_ERR;
 }
+/** @noreq Trivial raw accessor. */
 bmx160_err_type bmx160_read_gyr_raw(int16_t *raw) {
   if (raw == NULL)
     return ERR0;
@@ -584,6 +601,7 @@ bmx160_err_type bmx160_read_gyr_raw(int16_t *raw) {
   return NO_ERR;
 }
 
+/** @noreq Trivial raw accessor. */
 bmx160_err_type bmx160_read_mag_raw(int16_t *raw) {
   if (raw == NULL)
     return ERR0;
@@ -593,6 +611,7 @@ bmx160_err_type bmx160_read_mag_raw(int16_t *raw) {
   return NO_ERR;
 }
 
+/** @noreq Trivial raw accessor. */
 bmx160_err_type bmx160_read_all_raw(bmx160_all_reading_t *raw) {
   if (raw == NULL)
     return ERR0;
@@ -600,6 +619,7 @@ bmx160_err_type bmx160_read_all_raw(bmx160_all_reading_t *raw) {
   return NO_ERR;
 }
 
+/** @noreq Trivial converted-value accessor. */
 bmx160_err_type bmx160_read_acc_mps2(float *data) {
   if (data == NULL)
     return ERR0;
@@ -609,6 +629,7 @@ bmx160_err_type bmx160_read_acc_mps2(float *data) {
   return NO_ERR;
 }
 
+/** @noreq Trivial converted-value accessor. */
 bmx160_err_type bmx160_read_gyr_dps(float *data) {
   if (data == NULL)
     return ERR0;
@@ -618,6 +639,7 @@ bmx160_err_type bmx160_read_gyr_dps(float *data) {
   return NO_ERR;
 }
 
+/** @noreq Trivial converted-value accessor. */
 bmx160_err_type bmx160_read_mag_uT(float *data) {
   if (data == NULL)
     return ERR0;
@@ -627,6 +649,7 @@ bmx160_err_type bmx160_read_mag_uT(float *data) {
   return NO_ERR;
 }
 
+/** @noreq Trivial converted-value accessor. */
 bmx160_err_type bmx160_read_all_converted(bmx160_all_reading_t *data) {
   if (data == NULL)
     return ERR0;
@@ -646,6 +669,7 @@ bmx160_err_type bmx160_read_all_converted(bmx160_all_reading_t *data) {
 
 #define GET_MAG_ODR(x) ((x >> 0U) & 15U) // bits <3:0>
 
+/** @noreq Config-register readback helper. */
 bmx160_err_type bmx160_read_acc_config(bmx160_config_t *config) {
   // Reading ACC conf
   tx_buf[0] = BMX160_ACC_CONF_ADDR;
@@ -666,6 +690,7 @@ bmx160_err_type bmx160_read_acc_config(bmx160_config_t *config) {
   return NO_ERR;
 }
 
+/** @noreq Config-register readback helper. */
 bmx160_err_type bmx160_read_gyr_config(bmx160_config_t *config) {
   // Reading GYR conf
   tx_buf[0] = BMX160_GYR_CONF_ADDR;
@@ -685,6 +710,7 @@ bmx160_err_type bmx160_read_gyr_config(bmx160_config_t *config) {
   return NO_ERR;
 }
 
+/** @noreq Config-register readback helper. */
 bmx160_err_type bmx160_read_mag_config(bmx160_config_t *config) {
   // Reading MAG conf
   tx_buf[0] = BMX160_MAG_CONF_ADDR;
@@ -696,6 +722,7 @@ bmx160_err_type bmx160_read_mag_config(bmx160_config_t *config) {
   return NO_ERR;
 }
 
+/** @noreq Config-register readback helper. */
 bmx160_err_type bmx160_read_config(bmx160_config_t *config) {
   if (bmx160_read_acc_config(config) != NO_ERR)
     return ERR0;
@@ -709,6 +736,7 @@ bmx160_err_type bmx160_read_config(bmx160_config_t *config) {
   return NO_ERR;
 }
 
+/** @implements SNS-BMX-102, SNS-BMX-103 */
 bmx160_err_type bmx160_write_config(bmx160_config_t *config) {
   if (bmx160_write_acc_config(config) != NO_ERR)
     return ERR0;
@@ -728,6 +756,7 @@ bmx160_err_type bmx160_write_config(bmx160_config_t *config) {
   return NO_ERR;
 }
 
+/** @noreq Register-field packing helper. */
 static uint8_t bmx160_get_acc_conf(bmx160_config_t *config) {
   uint8_t val =
       (((config->bmx160_acc_us & 1U) << 7U) |
@@ -735,27 +764,32 @@ static uint8_t bmx160_get_acc_conf(bmx160_config_t *config) {
   return val;
 }
 
+/** @noreq Register-field packing helper. */
 static uint8_t bmx160_get_acc_range(bmx160_config_t *config) {
   uint8_t val = (config->bmx160_acc_range & 15U);
   return val;
 }
 
+/** @noreq Register-field packing helper. */
 static uint8_t bmx160_get_gyr_conf(bmx160_config_t *config) {
   uint8_t val =
       (((config->bmx160_gyr_bwp & 3U) << 4U) | (config->bmx160_gyr_odr & 15U));
   return val;
 }
 
+/** @noreq Register-field packing helper. */
 static uint8_t bmx160_get_gyr_range(bmx160_config_t *config) {
   uint8_t val = (config->bmx160_gyr_range & 7U);
   return val;
 }
 
+/** @noreq Register-field packing helper. */
 static uint8_t bmx160_get_mag_conf(bmx160_config_t *config) {
   uint8_t val = (config->bmx160_mag_odr & 15U);
   return val;
 }
 
+/** @implements SNS-BMX-102 */
 bmx160_err_type bmx160_write_acc_config(bmx160_config_t *config) {
   uint8_t val;
 
@@ -776,6 +810,7 @@ bmx160_err_type bmx160_write_acc_config(bmx160_config_t *config) {
   return NO_ERR;
 }
 
+/** @implements SNS-BMX-102 */
 bmx160_err_type bmx160_write_gyr_config(bmx160_config_t *config) {
   uint8_t val;
 
@@ -796,6 +831,7 @@ bmx160_err_type bmx160_write_gyr_config(bmx160_config_t *config) {
   return NO_ERR;
 }
 
+/** @implements SNS-BMX-102 */
 bmx160_err_type bmx160_write_mag_config(bmx160_config_t *config) {
   uint8_t val;
 
@@ -808,6 +844,7 @@ bmx160_err_type bmx160_write_mag_config(bmx160_config_t *config) {
 
   return NO_ERR;
 }
+/** @noreq Range-code -> full-scale (g) lookup. */
 static float bmx160_range_code_to_g(uint8_t range_code) {
   switch (range_code) {
   case 3:
@@ -823,10 +860,12 @@ static float bmx160_range_code_to_g(uint8_t range_code) {
   }
 }
 
+/** @implements SNS-BMX-103 */
 float bmx160_raw_acc_to_mps2(int16_t raw) {
   // Convert raw → g → m/s² using pre-calculated scale
   return (float)raw * acc_scale;
 }
+/** @noreq Range-code -> full-scale (dps) lookup. */
 static float bmx160_range_code_to_dps(uint8_t range_code) {
   switch (range_code) {
   case 0:
@@ -844,17 +883,21 @@ static float bmx160_range_code_to_dps(uint8_t range_code) {
   }
 }
 
+/** @implements SNS-BMX-103 */
 float bmx160_raw_gyr_to_dps(int16_t raw) {
   // Convert raw → dps using pre-calculated scale
   return (float)raw * gyr_scale;
 }
 
+/** @noreq Trivial config-cache accessor. */
 bmx160_config_t bmx160_get_current_config(void) { return bmx160_cfg; }
+/** @noreq Trivial config-cache accessor. */
 void bmx160_set_current_config(bmx160_config_t *cfg) { bmx160_cfg = *cfg; }
 
 // Run from ISR
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 
+/** @implements SNS-BMX-104, SNS-BMX-105 */
 void bmx160_initiate_read(void *args) {
   (void)args;
   static uint32_t last_tick = 0;
@@ -935,6 +978,7 @@ void bmx160_initiate_read(void *args) {
   }
 }
 
+/** @implements SNS-BMX-104, SNS-BMX-105 */
 void bmx160_dma_callback_fast(void *args) {
   static uint32_t slow_counter = 0;
   isr_count++;
@@ -957,6 +1001,7 @@ void bmx160_dma_callback_fast(void *args) {
   }
 }
 
+/** @implements SNS-BMX-104, SNS-BMX-105 */
 static void bmx160_dma_callback_mag(void *args) {
   if (args != NULL) {
     v_memcpy(&_bmx_dma_rx_buffer_double[0], args, 8);
@@ -972,6 +1017,7 @@ static void bmx160_dma_callback_mag(void *args) {
   }
 }
 
+/** @implements SNS-BMX-104, SNS-BMX-105 */
 static void bmx160_dma_callback_temp(void *args) {
   static uint32_t baro_counter = 0;
   if (args != NULL) {
@@ -999,6 +1045,7 @@ static void bmx160_dma_callback_temp(void *args) {
 /* BME280 data-register burst complete: hand the 8 raw bytes to the baro driver
  * (cheap copy + flag; compensation runs in bme280_read_task) and return the
  * acquisition chain to FAST. Mirrors the mag/temp callbacks. */
+/** @implements SNS-BMX-105 */
 static void bmx160_dma_callback_baro(void *args) {
   if (args != NULL) {
     bme280_ingest_raw((const uint8_t *)args);
@@ -1014,12 +1061,14 @@ static void bmx160_dma_callback_baro(void *args) {
 }
 
 // Keep the old callback for compatibility if needed, but it's now unused
+/** @noreq Legacy compatibility wrapper (unused). */
 void bmx160_dma_callback(void *args) { bmx160_dma_callback_fast(args); }
 
 /* HIGH_FREQ_TIMER tick (registered at IMU_FAST_PERIOD_US): releases the read
  * task to start one FAST (accel/gyro) read, pacing the IMU to
  * IMU_SAMPLE_FREQ_HZ instead of free-running at I2C speed. Binary sema, so
  * ticks that arrive while the task is mid-cycle coalesce (caps, never queues). */
+/** @implements SNS-IMU-001 */
 void bmx160_fast_tick_isr(void) {
   if (bmx160_fast_tick_sema == NULL)
     return;
@@ -1040,6 +1089,7 @@ static uint32_t _read_count = 0;
  * Split out of bmx160_process_data so it can run only when fresh mag data
  * arrived (see _mag_fresh). Writes the converted mag[] and mag_fusion[] fields
  * and updates last_mag for the next disturbance comparison. */
+/** @implements SNS-MAG-002, SNS-MAG-101 */
 static void bmx160_process_mag(int16_t mx, int16_t my, int16_t mz,
                                uint16_t rhall, uint8_t is_mag_invalid) {
   // Align BMM150 axes to BMX160 body frame: [-Y, X, Z]
@@ -1130,6 +1180,7 @@ static void bmx160_process_mag(int16_t mx, int16_t my, int16_t mz,
   }
 }
 
+/** @implements SNS-IMU-001, SNS-IMU-002, SNS-BMX-106, SNS-LPF-101, SNS-CAL-002 */
 void bmx160_process_data(void) {
   /* Stamp the sample at acquisition (DWT cycles). All downstream dt is derived
    * from deltas of this stamp, not a DWT read at consume time — see
@@ -1318,6 +1369,7 @@ void bmx160_process_data(void) {
  * (calib_fit_ellipsoid). */
 
 /* Push a calibration telemetry packet [origin][nargs=1][code][float]. */
+/** @noreq Calibration telemetry packet helper. */
 static void calib_telemetry(uint8_t code, float value) {
   imu_calibration_telemetry_t t;
   t.buffer[0] = SYSTEM_ORIGIN_CALIBRATION;
@@ -1331,6 +1383,7 @@ static void calib_telemetry(uint8_t code, float value) {
 /* Per-axis mag coverage (step 8): three floats in buffer[3],[7],[11], size 15 —
  * the layout navlink_tx_calibration unpacks into CALIBRATION_STATUS.coverage[3].
  * The GCS renders it as "COVERAGE: X.. Y.. Z..". */
+/** @implements SYS-CAL-003 */
 static void calib_coverage(float cx, float cy, float cz) {
   imu_calibration_telemetry_t t;
   t.buffer[0] = SYSTEM_ORIGIN_CALIBRATION;
@@ -1346,6 +1399,7 @@ static void calib_coverage(float cx, float cy, float cz) {
 /* ---- calib_engine descriptor callbacks (shared cancel + mag target) ------- */
 
 /* Operator-cancel poll for the calib engine (every target uses this). */
+/** @noreq Calib-engine cancel-poll callback (glue). */
 static bool calib_cancelled(void *ctx) {
   (void)ctx;
   return _calib_cancel != 0;
@@ -1353,6 +1407,7 @@ static bool calib_cancelled(void *ctx) {
 
 /* Mag: pop one compensated sample (uT), gated on a sane rhall + finite values.
  * False = nothing usable this tick (the engine skips it). */
+/** @implements SNS-CAL-103 */
 static bool mag_read_raw(float v[3], void *ctx) {
   (void)ctx;
   bmx160_all_reading_t s;
@@ -1371,12 +1426,14 @@ static bool mag_read_raw(float v[3], void *ctx) {
   return true;
 }
 
+/** @noreq Coverage-callback forwarder (glue). */
 static void mag_on_coverage(float cx, float cy, float cz, void *ctx) {
   (void)ctx;
   calib_coverage(cx, cy, cz);
 }
 
 /* Commit a successful mag fit: hard iron in uT, soft iron used as-is. */
+/** @implements SNS-CAL-103 */
 static void mag_commit(const float offset[3], const float mat[9], void *ctx) {
   (void)ctx;
   for (int i = 0; i < 3; i++)
@@ -1391,6 +1448,7 @@ static void mag_commit(const float offset[3], const float mat[9], void *ctx) {
 }
 
 /* Commit a successful accel fit: bias (m/s^2) + full 3x3 (scale+misalignment). */
+/** @implements SNS-CAL-101 */
 static void acc_commit(const float offset[3], const float mat[9], void *ctx) {
   (void)ctx;
   for (int i = 0; i < 3; i++)
@@ -1585,6 +1643,7 @@ static int wait_for_static_pose(uint8_t code, pose_kind_t kind,
  * the board is still (same gyro+|a| gate as the accel capture) — a moving board
  * yields no accepted samples, so the engine times out and keeps the old offset
  * instead of latching a bad bias (the old routine averaged 500 samples blindly). */
+/** @implements SNS-CAL-102 */
 static bool gyr_read_raw_still(float v[3], void *ctx) {
   (void)ctx;
   bmx160_all_reading_t s;
@@ -1607,11 +1666,13 @@ static bool gyr_read_raw_still(float v[3], void *ctx) {
   return true;
 }
 
+/** @noreq Progress-callback forwarder (glue). */
 static void gyr_on_progress(float pct, void *ctx) {
   (void)ctx;
   calib_telemetry(CALIB_UPDATE_PROGRESS, pct);
 }
 
+/** @implements SNS-CAL-102 */
 static void gyr_commit(const float offset[3], const float mat[9], void *ctx) {
   (void)mat; // identity for a bias fit
   (void)ctx;
@@ -1621,6 +1682,7 @@ static void gyr_commit(const float offset[3], const float mat[9], void *ctx) {
            bmx160_calib.gyr_offset[1], bmx160_calib.gyr_offset[2]);
 }
 
+/** @implements SYS-CAL-001, SYS-CAL-002, SYS-CAL-003, SYS-CAL-004, SNS-CAL-001 */
 void calibration_task(void *args) {
   calibration_args_t *cal_args = (calibration_args_t *)args;
   /* Set once the calibration is computed and persisted; drives the terminal

@@ -162,6 +162,7 @@ static volatile bool s_logs_suppressed = false;
  * Boot-time file setup — direct vfs_*, scheduler off.
  * Preallocate + size the 3 circular files, then CLOSE them: no fd is held.
  * =========================================================================== */
+/** @implements LOG-SD-001 — extend each ring file to its preallocated size. */
 static void ensure_file_size(const char *path, uint32_t file_size) {
   vfs_fd_t fd = vfs_open(path, VFS_O_RDWR | VFS_O_CREAT);
   if (fd < 0) {
@@ -177,6 +178,7 @@ static void ensure_file_size(const char *path, uint32_t file_size) {
   vfs_close(fd);
 }
 
+/** @implements LOG-SD-001 — preallocate + size the 3 circular blackbox files. */
 void fs_owner_boot_init(void) {
   if (vfs_preallocate(NAVLINK_LOGGING_FILENAME, NAVLINK_LOGGING_FILE_SIZE) != 0) {
     PANIC("Navlink prealloc failed");
@@ -203,7 +205,8 @@ void fs_owner_boot_init(void) {
 
 /* Circular blackbox write, open-on-demand. LOG-SD-002: wrapping discards the
  * oldest records, counted so the loss is accountable rather than silent. No mutex
- * — single consumer. Logs are best-effort: a failed open just drops the record. */
+ * — single consumer. Logs are best-effort: a failed open just drops the record.
+ * @implements LOG-SD-002, LOG-SD-102 */
 static void fs_circular_write(const char *path, uint32_t *write_pos,
                               volatile uint32_t *wrap_count, uint32_t file_size,
                               const uint8_t *data, uint32_t len) {
@@ -230,6 +233,7 @@ static void fs_circular_write(const char *path, uint32_t *write_pos,
   }
 }
 
+/** @noreq routes a blackbox log record to its per-type ring file. */
 static void fs_do_log_req(const fs_log_req_t *req) {
   switch ((logger_type_t)req->logger_type) {
   case NAVLINK_LOGGER:
@@ -286,7 +290,7 @@ static void fs_drain_saves(void) {
 static bool rpath_is(const char *path);
 static void read_fd_close(void);
 
-/* True if the cached write fd is open for `path`. */
+/* True if the cached write fd is open for `path`. @noreq fd-cache helper. */
 static bool wpath_is(const char *path) {
   if (s_wfd < 0)
     return false;
@@ -298,7 +302,7 @@ static bool wpath_is(const char *path) {
   }
 }
 
-/* Flush + close the cached write fd (if any). */
+/* Flush + close the cached write fd (if any). @noreq fd-cache helper. */
 static void writeat_fd_close(void) {
   if (s_wfd >= 0) {
     vfs_sync(s_wfd);
@@ -309,7 +313,7 @@ static void writeat_fd_close(void) {
 }
 
 /* Return the cached write fd for `path`, opening it (and closing any other cached
- * file) on a miss. <0 on open failure. */
+ * file) on a miss. <0 on open failure. @noreq fd-cache helper. */
 static vfs_fd_t writeat_fd(const char *path) {
   if (wpath_is(path))
     return s_wfd;
@@ -328,7 +332,7 @@ static vfs_fd_t writeat_fd(const char *path) {
   return s_wfd;
 }
 
-/* True if the cached read fd is open for `path`. */
+/* True if the cached read fd is open for `path`. @noreq fd-cache helper. */
 static bool rpath_is(const char *path) {
   if (s_rfd < 0)
     return false;
@@ -340,7 +344,7 @@ static bool rpath_is(const char *path) {
   }
 }
 
-/* Close the cached read fd (if any). */
+/* Close the cached read fd (if any). @noreq fd-cache helper. */
 static void read_fd_close(void) {
   if (s_rfd >= 0) {
     vfs_close(s_rfd);
@@ -351,7 +355,7 @@ static void read_fd_close(void) {
 }
 
 /* Return the cached read fd for `path`, opening it RDONLY (and closing any other
- * cached read file) on a miss. <0 on open failure. */
+ * cached read file) on a miss. <0 on open failure. @noreq fd-cache helper. */
 static vfs_fd_t read_fd(const char *path) {
   if (rpath_is(path))
     return s_rfd;
@@ -558,7 +562,8 @@ static int fs_exec_sync(const fs_sync_req_t *req) {
 }
 
 /* Caller side: hand `req` to the FS task and block for its result. Serialised so
- * only one cross-task FS request is in flight at a time. */
+ * only one cross-task FS request is in flight at a time. @noreq cross-task
+ * request/response plumbing for the single-FS-owner funnel. */
 static int fs_sync_call(const fs_sync_req_t *req) {
   uint8_t tok;
   if (!mpmc_pop_timeout(&s_sync_lock_q, &tok, FS_SYNC_TIMEOUT_TICKS)) {
@@ -578,6 +583,7 @@ static int fs_sync_call(const fs_sync_req_t *req) {
 /* ===========================================================================
  * Lifecycle
  * =========================================================================== */
+/** @noreq queue/lane construction (lifecycle); idempotent. */
 void fs_owner_init(void) {
   if (s_ready) {
     return;
@@ -619,6 +625,7 @@ void fs_owner_init(void) {
   s_ready = true;
 }
 
+/** @noreq test-only synchronous drain of all lanes in the caller's context. */
 void fs_owner_pump(void) {
   if (!s_ready) {
     return;
@@ -673,11 +680,13 @@ void fs_owner_task(void *args) {
   }
 }
 
+/** @noreq trivial setter for the log-suppression flag. */
 void fs_owner_suppress_logs(bool suppress) { s_logs_suppressed = suppress; }
 
 /* ===========================================================================
  * Producers — snapshot and return immediately.
  * =========================================================================== */
+/** @noreq blackbox log producer; thin snapshot-and-enqueue onto the log lane. */
 bool fs_owner_enqueue_log(logger_type_t type, const void *data, uint32_t len) {
   if (!s_ready || data == NULL || len == 0u || len > FS_LOG_PAYLOAD_MAX) {
     s_dropped_logs++;
@@ -763,6 +772,7 @@ bool fs_owner_enqueue_write_at(uint8_t session, const char *path, uint32_t offse
   return true;
 }
 
+/** @noreq trivial reset of a session's write-at bookkeeping counters. */
 void fs_owner_writeat_reset(uint8_t session) {
   if (session >= FS_WA_SESSIONS) {
     return;
@@ -772,14 +782,17 @@ void fs_owner_writeat_reset(uint8_t session) {
   s_wa_failed[session] = 0;
 }
 
+/** @noreq trivial write-at status accessor. */
 uint32_t fs_owner_writeat_pending(uint8_t session) {
   return (session < FS_WA_SESSIONS) ? s_wa_pending[session] : 0u;
 }
 
+/** @noreq trivial write-at status accessor. */
 uint32_t fs_owner_writeat_committed(uint8_t session) {
   return (session < FS_WA_SESSIONS) ? s_wa_committed[session] : 0u;
 }
 
+/** @noreq trivial write-at status accessor. */
 bool fs_owner_writeat_failed(uint8_t session) {
   return (session < FS_WA_SESSIONS) ? (s_wa_failed[session] != 0u) : false;
 }
@@ -845,6 +858,7 @@ int fs_owner_closedir(vfs_dir_t d) {
 /* ===========================================================================
  * Accounting
  * =========================================================================== */
+/** @implements LOG-SD-002 — per-log wrap counter surfaced to HEALTH status. */
 uint32_t fs_owner_log_wrap_count(logger_type_t type) {
   switch (type) {
   case NAVLINK_LOGGER:
@@ -857,10 +871,14 @@ uint32_t fs_owner_log_wrap_count(logger_type_t type) {
   }
 }
 
+/** @implements LOG-SD-002 — aggregate wrap counter across the 3 ring logs. */
 uint32_t fs_owner_log_wrap_count_total(void) {
   return navlink_wrap_count + system_wrap_count + general_wrap_count;
 }
 
+/** @noreq drop-count accessor. */
 uint32_t fs_owner_dropped_logs(void) { return s_dropped_logs; }
+/** @noreq drop-count accessor. */
 uint32_t fs_owner_dropped_saves(void) { return s_dropped_saves; }
+/** @noreq drop-count accessor. */
 uint32_t fs_owner_dropped_writeats(void) { return s_dropped_writeats; }

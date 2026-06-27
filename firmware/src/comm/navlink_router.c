@@ -30,6 +30,7 @@ static uint32_t s_blink_end;  /* 0 = idle, else v_get_ticks() at which to stop *
 static uint32_t s_blink_last; /* last toggle time */
 static uint8_t s_blink_on;
 
+/** @noreq blue-LED activity feedback */
 static void blink_start(void) {
   if (s_blink_end != 0u) {
     return; /* already blinking — a consecutive trigger just expires */
@@ -44,6 +45,7 @@ static void blink_start(void) {
   hal_gpio_write(_BLUE_LED_PIN, HAL_GPIO_HIGH);
 }
 
+/** @noreq blue-LED activity feedback service */
 static void blink_service(void) {
   if (s_blink_end == 0u) {
     return;
@@ -62,6 +64,7 @@ static void blink_service(void) {
   }
 }
 
+/** @noreq unhandled-leaf default handler (LED blink) */
 static void on_default(void *ctx, const navlink_frame_hdr_t *hdr, uint32_t msgid,
                        const uint8_t *payload, size_t len) {
   (void)ctx;
@@ -93,6 +96,7 @@ static uint32_t s_arm_ack_deadline;
 #define ARM_ACK_TIMEOUT_MS 800u
 
 /* Rebuild a v1 [cmd_id:2][argc:1][argc x f32] apply payload from typed args. */
+/** @noreq v1 apply-payload builder helper */
 static uint8_t build_cmd(uint8_t *p, uint16_t cmd_id, const float *args,
                          uint8_t argc) {
   v_memcpy(&p[0], &cmd_id, 2);
@@ -107,6 +111,7 @@ static uint8_t build_cmd(uint8_t *p, uint16_t cmd_id, const float *args,
  * engine via the internal packet_t (just the in-memory apply representation, not
  * a wire format). TIME_SYNC / PERF_TASKNAME replies (non-ack) also route here and
  * go back out as v2 through navlink_tx. */
+/** @noreq v2->v1 apply-engine bridge glue (reuses comm_processor_dispatch) */
 static void dispatch_v1(uint8_t packet_type, const uint8_t *payload,
                         uint8_t length) {
   packet_t pkt = {0};
@@ -120,6 +125,7 @@ static void dispatch_v1(uint8_t packet_type, const uint8_t *payload,
   comm_processor_dispatch(&pkt);
 }
 
+/** @implements COMM-CMD-003 */
 static navlink_ack_t on_cmd_set_pid(void *ctx, const navlink_frame_hdr_t *hdr,
                                     const navlink_cmd_set_pid_t *m) {
   (void)ctx; (void)hdr;
@@ -130,6 +136,7 @@ static navlink_ack_t on_cmd_set_pid(void *ctx, const navlink_frame_hdr_t *hdr,
   return navlink_ack_result(pid_config_apply_command(p, len) == VAYU_OK ? ACK_OK : ACK_BAD);
 }
 
+/** @noreq sysid excitation command adapter (bench/diagnostic tooling) */
 static navlink_ack_t on_cmd_sysid_excite(void *ctx, const navlink_frame_hdr_t *hdr,
                                          const navlink_cmd_sysid_excite_t *m) {
   (void)ctx; (void)hdr;
@@ -154,6 +161,7 @@ static navlink_ack_t on_cmd_sysid_excite(void *ctx, const navlink_frame_hdr_t *h
   return navlink_ack_result(ACK_OK);
 }
 
+/** @noreq sysid dump command adapter (bench/diagnostic tooling) */
 static navlink_ack_t on_cmd_sysid_dump(void *ctx, const navlink_frame_hdr_t *hdr,
                                        const navlink_cmd_sysid_dump_t *m) {
   (void)ctx; (void)hdr; (void)m;
@@ -169,6 +177,7 @@ static navlink_ack_t on_cmd_sysid_dump(void *ctx, const navlink_frame_hdr_t *hdr
  * emits COMMAND_ACK + XFER_INFO (off the comm task — the C1->C3 invariant).
  * xfer_result_t mirrors command_result by value, so an immediate disposition
  * passes straight to navlink_ack_result(). */
+/** @noreq xfer-substrate codec adapter (behavior in navlink_xfer.c) */
 static navlink_ack_t on_xfer_open(void *ctx, const navlink_frame_hdr_t *hdr,
                                   const navlink_xfer_open_t *m) {
   (void)ctx;
@@ -190,6 +199,7 @@ static navlink_ack_t on_xfer_open(void *ctx, const navlink_frame_hdr_t *hdr,
   return navlink_ack_result((uint8_t)d);
 }
 
+/** @noreq xfer-substrate codec adapter (behavior in navlink_xfer.c) */
 static navlink_ack_t on_xfer_close(void *ctx, const navlink_frame_hdr_t *hdr,
                                    const navlink_xfer_close_t *m) {
   (void)ctx; (void)hdr;
@@ -199,12 +209,14 @@ static navlink_ack_t on_xfer_close(void *ctx, const navlink_frame_hdr_t *hdr,
   return navlink_ack_result((uint8_t)d);
 }
 
+/** @noreq xfer-substrate codec adapter (behavior in navlink_xfer.c) */
 static void on_xfer_data(void *ctx, const navlink_frame_hdr_t *hdr,
                          const navlink_xfer_data_t *m) {
   (void)ctx; (void)hdr;
   xfer_on_data(m->session, m->offset, m->data, m->len, m->flags);
 }
 
+/** @noreq xfer-substrate codec adapter (behavior in navlink_xfer.c) */
 static void on_xfer_ack(void *ctx, const navlink_frame_hdr_t *hdr,
                         const navlink_xfer_ack_t *m) {
   (void)ctx; (void)hdr;
@@ -214,6 +226,7 @@ static void on_xfer_ack(void *ctx, const navlink_frame_hdr_t *hdr,
 /* ---- filesystem navigation: list a dir / stat a path ---------------------
  * Deferred like xfer-open: stash on the comm task, do the VFS walk + emit on
  * the xfer task. fs_query results mirror command_result by value. */
+/** @noreq fs-navigation codec adapter (behavior in fs_query.c) */
 static navlink_ack_t on_fs_list(void *ctx, const navlink_frame_hdr_t *hdr,
                                 const navlink_fs_list_t *m) {
   (void)ctx;
@@ -224,6 +237,7 @@ static navlink_ack_t on_fs_list(void *ctx, const navlink_frame_hdr_t *hdr,
   return navlink_ack_result((uint8_t)d);
 }
 
+/** @noreq fs-navigation codec adapter (behavior in fs_query.c) */
 static navlink_ack_t on_fs_info(void *ctx, const navlink_frame_hdr_t *hdr,
                                 const navlink_fs_info_t *m) {
   (void)ctx;
@@ -255,6 +269,7 @@ static navlink_ack_t on_cmd_disarm(void *ctx, const navlink_frame_hdr_t *hdr,
   return navlink_ack_result(ACK_OK);
 }
 
+/** @implements COMM-CMD-001 */
 static navlink_ack_t on_cmd_calibrate_imu(void *ctx,
                                           const navlink_frame_hdr_t *hdr,
                                           const navlink_cmd_calibrate_imu_t *m) {
@@ -361,6 +376,7 @@ static navlink_handlers_t s_handlers;
 
 /* Transport the dispatch uses to emit the COMMAND_ACK it builds for every
  * ack-requiring command (codegen-enforced). */
+/** @noreq COMMAND_ACK TX transport callback */
 static void router_send(void *ctx, const uint8_t *frame, uint16_t len) {
   (void)ctx;
   write_channel(g_telemetry_channel, (uint8_t *)frame, len);
@@ -378,6 +394,7 @@ static navlink_ack_t router_command_gate(void *ctx, uint32_t command) {
   return navlink_ack_result(time_sync_is_synced() ? ACK_OK : ACK_BUSY);
 }
 
+/** @noreq handler-table registration */
 void navlink_router_init(void) {
   navlink_parser_init(&s_parser);
   s_handlers = (navlink_handlers_t){0};
@@ -408,6 +425,7 @@ void navlink_router_init(void) {
 
 /* Resolve a deferred CMD_ARM ack from the flight-state machine: ACCEPTED once it
  * actually armed, TEMPORARILY_REJECTED if the gates kept it from arming in time. */
+/** @noreq deferred CMD_ARM ack resolver glue */
 static void arm_ack_service(void) {
   if (!s_arm_ack_pending) {
     return;
@@ -423,6 +441,7 @@ static void arm_ack_service(void) {
   }
 }
 
+/** @noreq inbound parse pump (CRC + dispatch in the generated codec) */
 void navlink_router_poll(void) {
   uint8_t buf[256];
   uint16_t n = comm_rx_raw_drain(buf, (uint16_t)sizeof(buf));

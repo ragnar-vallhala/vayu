@@ -6,6 +6,7 @@ static uint8_t buffer[IBUS_PACKET_SIZE];
 static uint8_t idx = 0;
 static uint16_t checksum = 0xFFFF;
 
+/** @noreq parser state reset; no behavioral requirement */
 void ibus_init(ibus_data_t *data) {
   if (data) {
     memset(data, 0, sizeof(ibus_data_t));
@@ -14,6 +15,7 @@ void ibus_init(ibus_data_t *data) {
   idx = 0;
 }
 
+/** @implements COMM-RC-001 */
 bool ibus_parse_byte(uint8_t b, ibus_data_t *data) {
   switch (state) {
   case IBUS_STATE_WAIT_START:

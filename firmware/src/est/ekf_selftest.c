@@ -32,7 +32,8 @@
 
 /* Body-frame accel (m/s^2) and unit mag synthesized from a true attitude.
  * Matches the driver convention: the accelerometer reports the GRAVITY vector
- * (points down), so a level board reads ~ -g on its vertical axis. */
+ * (points down), so a level board reads ~ -g on its vertical axis.
+ * @noreq EKF self-test fixture (synthesise accel/mag from a truth attitude). */
 static void st_synth(float roll, float pitch, float yaw, float acc[3],
                      float mag[3]) {
   quaternion_t qt;
@@ -43,6 +44,7 @@ static void st_synth(float roll, float pitch, float yaw, float acc[3],
   m_quat_rotate_inv(&qt, north, mag);
 }
 
+/* @noreq EKF self-test helper (angle wrap). */
 static float st_wrap180(float d) {
   while (d > 180.0f)
     d -= 360.0f;
@@ -51,6 +53,7 @@ static float st_wrap180(float d) {
   return d;
 }
 
+/* @noreq EKF self-test helper (quaternion finite + unit-norm check). */
 static bool st_quat_finite_unit(const quaternion_t *q) {
   float n = q->w * q->w + q->x * q->x + q->y * q->y + q->z * q->z;
   /* finite check via self-equality bound; NaN fails both comparisons */
@@ -58,6 +61,8 @@ static bool st_quat_finite_unit(const quaternion_t *q) {
   return finite && (n > 0.9f) && (n < 1.1f);
 }
 
+/* On-target EKF correctness self-test: exercises the EST-EKF-001..106 scenarios.
+ * @noreq verification harness, not flight behaviour. */
 int ekf_selftest_run(ekf_selftest_report_fn report, void *ctx) {
   int fails = 0;
 #define REPORT(pass, name)                                                     \

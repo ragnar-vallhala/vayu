@@ -73,6 +73,7 @@ void pid_config_init(void);
  */
 bool pid_config_get_rate(uint8_t axis, float *kp, float *ki, float *kd,
                          float *kff);
+/** @implements COMM-CMD-003 */
 bool pid_config_get_angle(uint8_t axis, float *kp, float *ki, float *kd,
                           float *kff);
 

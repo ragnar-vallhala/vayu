@@ -10,6 +10,7 @@
 
 #include "comm/perf_telemetry.h" /* prototype + perf_packet.h + structure.h */
 
+/** @noreq perf-row fill helper (observability glue) */
 void perf_fifo_fill_row(perf_fifo_row_t *row, uint8_t fifo_id,
                         const spsc_fifo_t *f) {
   uint32_t d = spsc_drops(f);

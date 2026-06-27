@@ -17,6 +17,7 @@ static uint8_t _rx_data[I2C_MAX_RX_LEN]; // current transaction's rx data
 static void i2c_manager_callback(void);
 
 // Atomic bus acquisition (returns 1 if successful, 0 if busy)
+// @noreq Internal bus-ownership primitive for the I2C manager.
 static inline int i2c_manager_acquire_bus(void) {
   int acquired = 0;
   ENTER_CRITICAL();
@@ -29,8 +30,10 @@ static inline int i2c_manager_acquire_bus(void) {
 }
 
 // Atomic bus release
+// @noreq Internal bus-ownership primitive for the I2C manager.
 static inline void i2c_manager_release_bus(void) { atomic_set(&_bus_busy, 0); }
 
+/** @implements SNS-I2C-102 */
 void i2c_manager_unstick(void) {
   hal_gpio_set_mode(I2C_PIN_1, HAL_GPIO_MODE_OUTPUT, HAL_GPIO_PULL_UP);
   hal_gpio_set_mode(I2C_PIN_2, HAL_GPIO_MODE_OUTPUT, HAL_GPIO_PULL_UP);
@@ -61,6 +64,7 @@ void i2c_manager_unstick(void) {
     ;
 }
 
+/** @implements SNS-I2C-001 */
 hal_status_t init_i2c_manager(hal_i2c_config_t *cfg) {
   i2c_config = *cfg;
 
@@ -118,6 +122,7 @@ i2c_init:
 
 static uint32_t _consecutive_errors = 0;
 
+/** @implements SNS-I2C-001, SNS-I2C-101 */
 hal_status_t i2c_manager_write(uint8_t addr, uint8_t *data, uint16_t len) {
   if (v_mutex_lock(_i2c_sema, MS_TO_TICKS(5)) != VA_PASS) {
     return HAL_ERR_TIMEOUT;
@@ -132,6 +137,7 @@ hal_status_t i2c_manager_write(uint8_t addr, uint8_t *data, uint16_t len) {
   return ts;
 }
 
+/** @implements SNS-I2C-001, SNS-I2C-101 */
 hal_status_t i2c_manager_read(uint8_t addr, uint8_t *data, uint16_t len) {
   if (v_mutex_lock(_i2c_sema, MS_TO_TICKS(5)) != VA_PASS) {
     return HAL_ERR_TIMEOUT;
@@ -146,6 +152,7 @@ hal_status_t i2c_manager_read(uint8_t addr, uint8_t *data, uint16_t len) {
   return ts;
 }
 
+/** @implements SNS-I2C-001, SNS-I2C-101 */
 hal_status_t i2c_manager_write_read(uint8_t addr, uint8_t *tx_data,
                                         uint16_t tx_len, uint8_t *rx_data,
                                         uint16_t rx_len) {
@@ -163,6 +170,7 @@ hal_status_t i2c_manager_write_read(uint8_t addr, uint8_t *tx_data,
   return ts;
 }
 
+/** @implements SNS-I2C-001 */
 hal_status_t i2c_manager_read_async(uint8_t addr, uint8_t reg_addr,
                                         uint16_t len,
                                         void (*callback)(void *)) {
@@ -214,6 +222,7 @@ hal_status_t i2c_manager_read_async(uint8_t addr, uint8_t reg_addr,
 }
 
 // Called from DMA IRQ handler (ISR context)
+// @implements SNS-I2C-001
 void i2c_manager_callback(void) {
   // Idempotent against duplicate/spurious DMA completion IRQs. Only the first
   // call for a given transaction (state still BUSY) processes it; we clear the

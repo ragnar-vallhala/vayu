@@ -6,6 +6,7 @@
 #include "control/rate_indi.h"
 #include "maths/maths_interface.h"
 
+/** @noreq INDI per-axis config init (glue; see proposed CTRL-RATE-104). */
 void rate_indi_init(rate_indi_t *c, float b, float k, float lpf_rc,
                     float out_min, float out_max) {
   /* b must be non-zero (we divide by it); guard a misconfig so the loop
@@ -18,6 +19,7 @@ void rate_indi_init(rate_indi_t *c, float b, float k, float lpf_rc,
   rate_indi_reset(c);
 }
 
+/** @noreq INDI filter/feedback state reset (glue). */
 void rate_indi_reset(rate_indi_t *c) {
   c->gyr_f       = 0.0f;
   c->wdot_f      = 0.0f;

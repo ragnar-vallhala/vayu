@@ -5,6 +5,7 @@
 #include "variables.h"
 #include "vfs.h"
 int write_pos = 0;
+/** @noreq scratch logger test task */
 void test_task(void *args) {
   while (1) {
     // send_packet(&g_telemetry_channel, PACKET_TYPE_LOG, (byte *)"Hello", 5);

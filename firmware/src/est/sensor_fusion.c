@@ -53,7 +53,8 @@ bool estimator_is_degraded(void) {
 
 /* States in which an estimator failure should drive FAILSAFE. Mirrors
  * the RC watchdog gating in src/comm/rc_task.c — INIT and CALIBRATING
- * are spared. */
+ * are spared.
+ * @noreq internal predicate for estimator_safety_step (SYS-SAFE-003). */
 static bool estimator_safety_state_active(sys_state_t s) {
   return s == SYSTEM_STATE_STANDBY || s == SYSTEM_STATE_PREARM ||
          s == SYSTEM_STATE_ARMED   || s == SYSTEM_STATE_IN_AIR;
@@ -72,6 +73,12 @@ void estimator_safety_step(void) {
   }
 }
 
+/**
+ * Accel + tilt-compensated mag -> Euler attitude. Internal helper for the
+ * complementary fallback path; no behavioural requirement of its own.
+ *
+ * @noreq attitude helper for the unused complementary path (EST-MAH-003)
+ */
 void m_acc_mag(const float ax, const float ay, const float az, const float mx,
                const float my, const float mz, attitude_t *ori) {
   float ax_n = ax;
@@ -113,6 +120,12 @@ void m_acc_mag(const float ax, const float ay, const float az, const float mx,
   ori->yaw = to_degrees(m_atan2(-my2, mx2));
 }
 
+/**
+ * Complementary fusion of gyro with the accel/mag attitude (fallback path,
+ * unused at runtime unless SF_COMPLEMENTARY is selected).
+ *
+ * @implements EST-COMP-101
+ */
 void m_complementary_filter(const float ax, const float ay, const float az,
                             const float gx, const float gy, const float gz,
                             const float mx, const float my, const float mz,
@@ -157,6 +170,7 @@ void m_complementary_filter(const float ax, const float ay, const float az,
     ori->yaw += 360.0f;
 }
 
+/* @noreq trivial quaternion->Euler output conversion (EST-MAH-101 output path). */
 static void m_quat_to_euler(const quaternion_t *q, attitude_t *ori) {
   // Roll (X-axis rotation)
   ori->roll = to_degrees(m_atan2(2.0f * (q->w * q->x + q->y * q->z),
@@ -209,6 +223,16 @@ void estimator_reset(void) {
   ekf_reset();
 }
 
+/**
+ * Mahony complementary attitude filter (the active filter when SF_MAHONY is
+ * selected): gyro integration corrected by the accel gravity vector
+ * (roll/pitch) plus a tilt-compensated, yaw-only mag term, with per-axis
+ * bounded integral feedback. The quaternion is normalised every iteration and
+ * Euler is output-only; `dt` is supplied by the caller (sample-stamp delta),
+ * not read from DWT here.
+ *
+ * @implements EST-MAH-001, EST-MAH-101, EST-MAH-102, EST-MAH-104, EST-MAH-105
+ */
 void m_mahony_filter(const float ax, const float ay, const float az,
                      const float gx, const float gy, const float gz,
                      const float mx, const float my, const float mz,

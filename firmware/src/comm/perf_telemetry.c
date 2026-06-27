@@ -43,6 +43,7 @@
 
 static uint32_t _seq;
 
+/** @noreq perf snapshot gather glue */
 static void send_global(uint8_t total_tasks, uint8_t total_fifos) {
   perf_global_body_t g;
   v_perf_snapshot_t s;
@@ -76,6 +77,7 @@ static void send_global(uint8_t total_tasks, uint8_t total_fifos) {
   navlink_tx_perf_global(&g, _seq);
 }
 
+/** @noreq per-task perf gather glue */
 static void send_tasks(TCB **list, int n) {
   for (int i = 0; i < n; i++) {
     TCB *t = list[i];
@@ -96,6 +98,7 @@ static void send_tasks(TCB **list, int n) {
   }
 }
 
+/** @noreq per-fifo perf gather glue */
 static void send_fifos(const perf_fifo_row_t *rows, int n) {
   for (int i = 0; i < n; i++) {
     navlink_tx_perf_fifo(&rows[i], _seq);

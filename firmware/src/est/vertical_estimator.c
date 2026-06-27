@@ -12,6 +12,7 @@
 #include "est/vertical_estimator.h"
 #include "maths/linalg.h"
 
+/* @noreq trivial init (explicit gains). */
 void vert_est_init(vertical_estimator_t *ve, float k_alt, float k_vel) {
   ve->altitude = 0.0f;
   ve->climb_rate = 0.0f;
@@ -21,10 +22,12 @@ void vert_est_init(vertical_estimator_t *ve, float k_alt, float k_vel) {
   ve->initialized = false;
 }
 
+/* @noreq trivial init (default gains). */
 void vert_est_init_default(vertical_estimator_t *ve) {
   vert_est_init(ve, VERT_DEFAULT_K_ALT, VERT_DEFAULT_K_VEL);
 }
 
+/* @noreq trivial state reset (keeps gains). */
 void vert_est_reset(vertical_estimator_t *ve) {
   ve->altitude = 0.0f;
   ve->climb_rate = 0.0f;

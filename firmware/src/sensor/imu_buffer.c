@@ -64,6 +64,7 @@ static vert_input_t _vert_input_buffer[IMU_BUFFER_INTERNAL_CAPACITY];
 static spsc_fifo_t _vert_input_queue;
 static SemaphoreHandle_t _vert_input_sema = NULL;
 
+/** @implements SNS-BUF-001 */
 void imu_buffer_init(void) {
   spsc_init(&_imu_telemetry_queue, _imu_telemetry_buffer,
             IMU_BUFFER_INTERNAL_CAPACITY, sizeof(bmx160_all_reading_t));
@@ -113,6 +114,7 @@ void imu_buffer_init(void) {
   _vert_input_sema = v_semaphore_create_binary();
 }
 
+/** @implements SNS-BUF-002 */
 int imu_buffer_perf_fifos(perf_fifo_row_t *rows, int max) {
   const struct {
     uint8_t id;
@@ -132,18 +134,22 @@ int imu_buffer_perf_fifos(perf_fifo_row_t *rows, int max) {
 }
 
 
+/** @noreq Thin SPSC ring accessor. */
 bool imu_queue_telemetry_push(const bmx160_all_reading_t *sample) {
   return spsc_write(&_imu_telemetry_queue, sample, 1) == 1;
 }
 
+/** @noreq Thin SPSC ring accessor. */
 bool imu_queue_telemetry_pop(bmx160_all_reading_t *out_sample) {
   return spsc_read(&_imu_telemetry_queue, out_sample, 1) == 1;
 }
 
+/** @noreq Thin SPSC ring accessor. */
 bool imu_queue_telemetry_peek(bmx160_all_reading_t *out_sample) {
   return spsc_peek(&_imu_telemetry_queue, out_sample, 1) == 1;
 }
 
+/** @implements CTRL-RATE-101 */
 bool imu_queue_control_push(const bmx160_all_reading_t *sample) {
   bool ok = spsc_write(&_imu_control_queue, sample, 1) == 1;
   /* CTRL-RATE-101: wake the rate loop on every arrival. Runs in the
@@ -156,10 +162,12 @@ bool imu_queue_control_push(const bmx160_all_reading_t *sample) {
   return ok;
 }
 
+/** @noreq Thin SPSC ring accessor. */
 bool imu_queue_control_pop(bmx160_all_reading_t *out_sample) {
   return spsc_read(&_imu_control_queue, out_sample, 1) == 1;
 }
 
+/** @noreq Thin SPSC ring accessor. */
 bool imu_queue_control_peek(bmx160_all_reading_t *out_sample) {
   return spsc_peek(&_imu_control_queue, out_sample, 1) == 1;
 }
@@ -173,6 +181,7 @@ bool imu_queue_control_wait(uint32_t ticks_to_wait) {
 
 /* IMU -> attitude task: feeds the estimator. Same event-driven pattern as the
  * control queue; the OVERWRITE ring keeps only the latest sample on overrun. */
+/** @noreq Thin SPSC ring push (+ event wake). */
 bool imu_queue_attitude_push(const bmx160_all_reading_t *sample) {
   bool ok = spsc_write(&_imu_attitude_queue, sample, 1) == 1;
   if (_imu_attitude_sema != NULL) {
@@ -181,10 +190,12 @@ bool imu_queue_attitude_push(const bmx160_all_reading_t *sample) {
   return ok;
 }
 
+/** @noreq Thin SPSC ring accessor. */
 bool imu_queue_attitude_pop(bmx160_all_reading_t *out_sample) {
   return spsc_read(&_imu_attitude_queue, out_sample, 1) == 1;
 }
 
+/** @noreq Thin SPSC ring wait (event-driven). */
 bool imu_queue_attitude_wait(uint32_t ticks_to_wait) {
   if (_imu_attitude_sema == NULL) {
     return false;
@@ -192,15 +203,19 @@ bool imu_queue_attitude_wait(uint32_t ticks_to_wait) {
   return v_semaphore_take(_imu_attitude_sema, ticks_to_wait) == VA_PASS;
 }
 
+/** @noreq Thin SPSC ring accessor. */
 bool attitude_queue_telemetry_push(const attitude_t *attitude) {
   return spsc_write(&_attitude_telemetry_queue, attitude, 1);
 }
+/** @noreq Thin SPSC ring accessor. */
 bool attitude_queue_telemetry_pop(attitude_t *out_attitude) {
   return spsc_read(&_attitude_telemetry_queue, out_attitude, 1);
 }
+/** @noreq Thin SPSC ring accessor. */
 bool attitude_queue_telemetry_peek(attitude_t *out_attitude) {
   return spsc_peek(&_attitude_telemetry_queue, out_attitude, 1);
 }
+/** @noreq Thin SPSC ring push (+ event wake). */
 bool attitude_queue_control_push(const attitude_t *attitude) {
   bool ok = spsc_write(&_attitude_control_queue, attitude, 1);
   /* Wake the outer (angle) loop on every attitude arrival; it decimates
@@ -211,12 +226,15 @@ bool attitude_queue_control_push(const attitude_t *attitude) {
   }
   return ok;
 }
+/** @noreq Thin SPSC ring accessor. */
 bool attitude_queue_control_pop(attitude_t *out_attitude) {
   return spsc_read(&_attitude_control_queue, out_attitude, 1);
 }
+/** @noreq Thin SPSC ring accessor. */
 bool attitude_queue_control_peek(attitude_t *out_attitude) {
   return spsc_peek(&_attitude_control_queue, out_attitude, 1);
 }
+/** @noreq Thin SPSC ring wait (event-driven). */
 bool attitude_queue_control_wait(uint32_t ticks_to_wait) {
   if (_attitude_control_sema == NULL) {
     return false;
@@ -224,23 +242,29 @@ bool attitude_queue_control_wait(uint32_t ticks_to_wait) {
   return v_semaphore_take(_attitude_control_sema, ticks_to_wait) == VA_PASS;
 }
 
+/** @noreq Thin SPSC ring accessor. */
 bool est_perf_queue_push(const est_perf_telemetry_t *perf) {
   return spsc_write(&_est_perf_queue, perf, 1) == 1;
 }
+/** @noreq Thin SPSC ring accessor. */
 bool est_perf_queue_pop(est_perf_telemetry_t *out_perf) {
   return spsc_read(&_est_perf_queue, out_perf, 1) == 1;
 }
 
+/** @noreq Thin SPSC ring accessor. */
 bool vertical_state_queue_push(const vertical_state_t *vs) {
   return spsc_write(&_vertical_state_queue, vs, 1) == 1;
 }
+/** @noreq Thin SPSC ring accessor. */
 bool vertical_state_queue_pop(vertical_state_t *out_vs) {
   return spsc_read(&_vertical_state_queue, out_vs, 1) == 1;
 }
+/** @noreq Thin SPSC ring accessor. */
 bool vertical_state_queue_peek(vertical_state_t *out_vs) {
   return spsc_peek(&_vertical_state_queue, out_vs, 1) == 1;
 }
 
+/** @noreq Thin SPSC ring push (+ event wake). */
 bool vert_input_queue_push(const vert_input_t *in) {
   bool ok = spsc_write(&_vert_input_queue, in, 1) == 1;
   if (_vert_input_sema != NULL) {
@@ -248,9 +272,11 @@ bool vert_input_queue_push(const vert_input_t *in) {
   }
   return ok;
 }
+/** @noreq Thin SPSC ring accessor. */
 bool vert_input_queue_pop(vert_input_t *out_in) {
   return spsc_read(&_vert_input_queue, out_in, 1) == 1;
 }
+/** @noreq Thin SPSC ring wait (event-driven). */
 bool vert_input_queue_wait(uint32_t ticks_to_wait) {
   if (_vert_input_sema == NULL) {
     return false;
@@ -258,22 +284,28 @@ bool vert_input_queue_wait(uint32_t ticks_to_wait) {
   return v_semaphore_take(_vert_input_sema, ticks_to_wait) == VA_PASS;
 }
 
+/** @noreq Thin SPSC ring accessor. */
 bool imu_queue_calibration_telemetry_push(const imu_calibration_telemetry_t *sample) {
   return spsc_write(&_imu_calibration_telemetry_queue, sample, 1);
 }
+/** @noreq Thin SPSC ring accessor. */
 bool imu_queue_calibration_telemetry_pop(imu_calibration_telemetry_t *out_sample) {
   return spsc_read(&_imu_calibration_telemetry_queue, out_sample, 1);
 }
+/** @noreq Thin SPSC ring accessor. */
 bool imu_queue_calibration_telemetry_peek(imu_calibration_telemetry_t *out_sample) {
   return spsc_peek(&_imu_calibration_telemetry_queue, out_sample, 1);
 }
 
+/** @noreq Thin SPSC ring accessor. */
 bool imu_queue_calibration_push(const bmx160_all_reading_t *sample) {
   return spsc_write(&_imu_calibration_queue, sample, 1) == 1;
 }
+/** @noreq Thin SPSC ring accessor. */
 bool imu_queue_calibration_pop(bmx160_all_reading_t *out_sample) {
   return spsc_read(&_imu_calibration_queue, out_sample, 1) == 1;
 }
+/** @noreq Thin SPSC ring accessor. */
 bool imu_queue_calibration_peek(bmx160_all_reading_t *out_sample) {
   return spsc_peek(&_imu_calibration_queue, out_sample, 1) == 1;
 }

@@ -25,6 +25,7 @@ static uint8_t s_source_count;
  * pointer in s->user (which is a void*; that cast is non-portable). */
 static xfer_stream_source_fn s_bound[XFER_MAX_SESSIONS];
 
+/** @noreq bounded string-compare helper */
 static bool name_eq(const char *a, const char *b) {
   for (uint16_t i = 0; i < XFER_ARG_MAX; i++) {
     if (a[i] != b[i])
@@ -35,6 +36,7 @@ static bool name_eq(const char *a, const char *b) {
   return true;
 }
 
+/** @noreq stream-source registration glue */
 int xfer_stream_register_source(const char *name, xfer_stream_source_fn poll) {
   if (name == NULL || poll == NULL || s_source_count >= XFER_STREAM_MAX_SOURCES)
     return -1;
@@ -44,6 +46,7 @@ int xfer_stream_register_source(const char *name, xfer_stream_source_fn poll) {
   return 0;
 }
 
+/** @noreq STREAM provider open (binds the named source) */
 static int stream_open(xfer_session_t *s, const xfer_open_args_t *a,
                        uint32_t *total_out) {
   (void)a;
@@ -60,12 +63,14 @@ static int stream_open(xfer_session_t *s, const xfer_open_args_t *a,
   return -2; /* unknown stream name -> FAILED */
 }
 
+/** @noreq bound-source poll adapter */
 static int stream_poll(xfer_session_t *s, uint8_t *buf, uint16_t max) {
   if (s->session >= XFER_MAX_SESSIONS || s_bound[s->session] == NULL)
     return 0;
   return s_bound[s->session](buf, max);
 }
 
+/** @noreq source-unbind teardown */
 static void stream_close(xfer_session_t *s, int result) {
   (void)result;
   if (s->session < XFER_MAX_SESSIONS)
@@ -82,6 +87,7 @@ static const xfer_provider_t STREAM_PROVIDER = {
     .close = stream_close,
 };
 
+/** @noreq provider registration */
 int stream_provider_register(void) {
   return xfer_register_provider(&STREAM_PROVIDER);
 }
