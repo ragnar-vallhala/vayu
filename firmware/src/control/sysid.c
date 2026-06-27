@@ -55,6 +55,7 @@ static int16_t to_i16(float v, float scale) { // v*scale, clamped to i16
 #define SYSID_U_SCALE 1000.0f
 #define SYSID_W_SCALE 10.0f
 
+/* @implements CTRL-SID-001, CTRL-SID-101 */
 void sysid_start(const sysid_request_t *req) {
   if (req == 0 || req->axis > 2)
     return;
@@ -84,6 +85,7 @@ int sysid_active(void) { return s_active; }
 /** @noreq inject-mode accessor. */
 int sysid_inject_mode(void) { return s_mode; }
 
+/* @implements CTRL-SID-001, CTRL-SID-101 */
 void sysid_step(float dt, const float angles_deg[3], const float rates_dps[3],
                 float inject_out[3]) {
   inject_out[0] = inject_out[1] = inject_out[2] = 0.0f;
@@ -131,7 +133,8 @@ void sysid_step(float dt, const float angles_deg[3], const float rates_dps[3],
 }
 
 /* --- capture: RAM ring, called from the 1 kHz control loop. `u` is the rate-PID
- * output (control effort); `gyro` the measured body rate (deg/s). --- */
+ * output (control effort); `gyro` the measured body rate (deg/s). ---
+ * @implements CTRL-SID-102 */
 void sysid_capture(const float u[3], const float gyro[3]) {
   if (!s_active)
     return;
@@ -167,6 +170,7 @@ void sysid_dump_request(void) {
 /** @noreq dump-in-progress accessor. */
 int sysid_dump_active(void) { return s_dump_active; }
 
+/* @implements CTRL-SID-102 */
 int sysid_dump_next(uint16_t *start, int16_t *u, int16_t *gyro, int cap) {
   if (!s_dump_active || s_dump_pos >= s_cap_n) {
     s_dump_active = 0;

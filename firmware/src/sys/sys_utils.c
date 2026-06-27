@@ -27,6 +27,7 @@ static uint64_t _last_discipline_ticks = 0;
  * inside time_sync_set_offset — the one point where the clock is actually
  * aligned to GCS time — so a completed-but-uncorrected round trip doesn't count. */
 static volatile uint8_t _clock_synced = 0;
+/* @implements SYS-SAFE-007 */
 uint8_t time_sync_is_synced(void) { return _clock_synced; }
 
 /* Max slew (ms per second). Kept far below the 1000 ms/s tick rate so
@@ -50,6 +51,7 @@ static uint64_t timestamp_raw_ms(void) {
   return _time_stamp_high_freq / (HIGH_FREQ_TIMER_FREQ / 1000);
 }
 
+/* @implements SYS-TIM-006 disciplined wall clock = monotonic ms + GCS offset. */
 uint64_t get_timestamp_unix(void) {
   return (uint64_t)((int64_t)timestamp_raw_ms() + (int64_t)_offset_applied);
 }
@@ -57,7 +59,8 @@ uint64_t get_timestamp_unix(void) {
 /* Apply a GCS clock correction — the measured FC-GCS error to remove. Large
  * errors step immediately (cold start / resync / post-reboot); small residuals
  * slew. Either way the new applied offset converges to GCS time and a
- * disciplined clock reports correction ~= 0 (windup-free). */
+ * disciplined clock reports correction ~= 0 (windup-free).
+ * @implements SYS-TIM-006 */
 void time_sync_set_offset64(int64_t correction_ms) {
   _clock_synced = 1; /* GCS has disciplined our clock — FC is now synchronised (§10.5) */
   if (correction_ms > TIME_SYNC_STEP_MS || correction_ms < -TIME_SYNC_STEP_MS) {
@@ -68,10 +71,12 @@ void time_sync_set_offset64(int64_t correction_ms) {
   }
 }
 
+/* @implements SYS-TIM-006 32-bit offset path (delegates to the 64-bit setter). */
 void time_sync_set_offset(int32_t correction_ms) {
   time_sync_set_offset64((int64_t)correction_ms);
 }
 
+/* @implements SYS-TIM-106 slew-limited clock discipline tick. */
 void time_sync_discipline_tick(void) {
   uint64_t now = _time_stamp_high_freq;
   if (_last_discipline_ticks == 0) {
@@ -93,7 +98,8 @@ void time_sync_discipline_tick(void) {
 }
 
 /* One-shot setter: a thin wrapper that jams the offset absolutely. The time-sync
- * handshake drives clock discipline instead. */
+ * handshake drives clock discipline instead.
+ * @implements SYS-TIM-006 */
 void set_timestamp(uint64_t timestamp) {
   _offset_target = (int64_t)timestamp - (int64_t)timestamp_raw_ms();
   _offset_applied = (double)_offset_target;

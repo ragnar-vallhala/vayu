@@ -36,6 +36,7 @@ void vert_est_reset(vertical_estimator_t *ve) {
   /* gains preserved */
 }
 
+/* @implements EST-ALT-101 */
 float vert_world_up_accel(const quaternion_t *q, const float a_body[3]) {
   /* Rotate body specific force into the world frame (FRD: +Z down). For a
    * stationary, level craft the IMU reads a_body ~ (0,0,-g), which rotates to
@@ -47,6 +48,7 @@ float vert_world_up_accel(const quaternion_t *q, const float a_body[3]) {
   return -a_down_inertial;                           /* up-positive */
 }
 
+/* @implements EST-ALT-001, EST-ALT-101 */
 void vert_est_predict(vertical_estimator_t *ve, float a_up, float dt) {
   ve->vertical_accel = a_up;
   if (!ve->initialized)
@@ -59,6 +61,7 @@ void vert_est_predict(vertical_estimator_t *ve, float a_up, float dt) {
   ve->climb_rate += a_up * dt;
 }
 
+/* @implements EST-ALT-001, EST-ALT-101 */
 void vert_est_correct(vertical_estimator_t *ve, float baro_alt) {
   if (!ve->initialized) {
     /* Seed bumplessly: trust the first baro reading, assume level hover. */

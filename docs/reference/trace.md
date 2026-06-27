@@ -5,12 +5,12 @@
 
 ## Summary
 
-- Total requirements: **141**
-- Active: **135** (of which 1 carry an inline 🟡 gap marker)
+- Total requirements: **174**
+- Active: **168** (of which 1 carry an inline 🟡 gap marker)
 - Dropped: **4**
 - Deferred: **2**
-- Active with implementer: **97 / 135**
-- Active with verifier (or verified-upstream): **0 / 135**
+- Active with implementer: **130 / 168**
+- Active with verifier (or verified-upstream): **0 / 168**
 
 ## Trace
 
@@ -27,7 +27,10 @@
 | `COMM-CMD-001` | active | Calibration commands | `firmware/src/comm/comm_processor.c`<br>`firmware/src/comm/navlink_router.c` | — |
 | `COMM-CMD-002` | active | Command payload validation | `firmware/include/control/pid_config.h`<br>`firmware/src/comm/comm_processor.c`<br>`firmware/src/control/angle_rate_controller.c`<br>`firmware/src/control/flight_mode.c`<br>`firmware/src/control/pid_config.c` | — |
 | `COMM-CMD-003` | active | CMD_SET_PID | `firmware/include/control/angle_controller.h`<br>`firmware/include/control/angle_rate_controller.h`<br>`firmware/include/control/pid_config.h`<br>`firmware/src/comm/comm_processor.c`<br>`firmware/src/comm/navlink_router.c`<br>`firmware/src/control/angle_controller.c`<br>`firmware/src/control/angle_rate_controller.c`<br>`firmware/src/control/pid_config.c` | — |
+| `COMM-CMD-004` | active | Live tuning command set | `firmware/src/comm/navlink_router.c` | — |
+| `COMM-CMD-006` | active | GCS software arm/disarm command | `firmware/src/comm/navlink_router.c` | — |
 | `COMM-FLUSH-001` | active | Flush task | `firmware/src/comm/channel.c` | — |
+| `COMM-FS-001` | active | Filesystem navigation | `firmware/src/comm/xfer/fs_query.c` | — |
 | `COMM-HB-001` | active | Heartbeat handshake | `firmware/src/comm/comm_processor.c` | — |
 | `COMM-PKT-001` | active | Outbound frame format | — | — |
 | `COMM-PKT-002` | active | Inbound frame parsing | — | — |
@@ -36,10 +39,15 @@
 | `COMM-RC-002` | active | RC loss detection | `firmware/include/comm/ibus.h`<br>`firmware/src/comm/rc_safety.c` | — |
 | `COMM-RC-003` | active | RC arming logic | `firmware/src/comm/rc_task.c` | — |
 | `COMM-RC-004` | active | iBUS transport | `firmware/src/comm/rc_task.c` | — |
+| `COMM-SYNC-001` | active | Time-synchronisation handshake | `firmware/src/comm/navlink_router.c`<br>`firmware/src/comm/navlink_tx.c` | — |
 | `COMM-TEL-001` | active | Telemetry task cadence | — | — |
 | `COMM-TEL-002` | active | Heartbeat cadence | `firmware/src/comm/navlink_tx.c`<br>`firmware/src/comm/telemetry_task.c` | — |
 | `COMM-TEL-003` | active | Per-packet emission rates | `firmware/src/comm/navlink_tx.c` | — |
 | `COMM-TEL-004` | active | Conditional emission | — | — |
+| `COMM-TEL-005` | active | Observability / performance telemetry | `firmware/src/comm/navlink_router.c`<br>`firmware/src/comm/navlink_tx.c`<br>`firmware/src/comm/perf_telemetry.c` | — |
+| `COMM-TEL-006` | active | Auxiliary sensor / mode telemetry | `firmware/src/comm/navlink_tx.c` | — |
+| `COMM-XFER-001` | active | Bulk file transfer | `firmware/src/comm/xfer/navlink_xfer.c`<br>`firmware/src/comm/xfer/xfer_service_task.c` | — |
+| `COMM-XFER-002` | active | Live stream transfer | `firmware/src/comm/xfer/navlink_xfer.c` | — |
 | `CTRL-ANGLE-001` | active | Angle hold accuracy | — | — |
 | `CTRL-ANGLE-101` | active | Angle-loop trigger | `firmware/src/control/angle_controller.c` | — |
 | `CTRL-ANGLE-102` | active | Angle PID gains | `firmware/src/control/angle_controller.c` | — |
@@ -53,6 +61,7 @@
 | `CTRL-MIX-003` | active | Motor idle floor | `firmware/src/control/mixer.c` | — |
 | `CTRL-MIX-004` | active | Output gating by state | `firmware/src/control/angle_rate_controller.c` | — |
 | `CTRL-MIX-101` | active | NaN guard | `firmware/src/control/mixer.c` | — |
+| `CTRL-MIX-102` | active | Airmode sequential desaturation | `firmware/src/control/mixer.c` | — |
 | `CTRL-NUM-001` | active | Float-only arithmetic | — | — |
 | `CTRL-NUM-101` | active | No double-precision in loop | `firmware/src/maths/maths_interface.c` | — |
 | `CTRL-PID-101` | active | Parallel-form PID | `firmware/src/control/pid.c` | — |
@@ -62,6 +71,13 @@
 | `CTRL-RATE-101` | active | Rate-loop trigger | `firmware/include/sensor/imu_buffer.h`<br>`firmware/src/sensor/imu_buffer.c` | — |
 | `CTRL-RATE-102` | active | Rate PID gains (hardware) | — | — |
 | `CTRL-RATE-103` | active | Rate PID gains (SITL) | — | — |
+| `CTRL-RATE-104` | active | Optional INDI inner loop | `firmware/src/control/rate_indi.c` | — |
+| `CTRL-RATE-105` | active | Configurable gyro-measurement low-pass | `firmware/src/control/angle_rate_controller.c`<br>`firmware/src/control/pid_config.c` | — |
+| `CTRL-SID-001` | active | On-hardware system-ID excitation | `firmware/src/comm/navlink_router.c`<br>`firmware/src/control/sysid.c` | — |
+| `CTRL-SID-101` | active | Chirp generation and self-abort | `firmware/src/control/sysid.c` | — |
+| `CTRL-SID-102` | active | Excitation capture and dump | `firmware/src/comm/navlink_router.c`<br>`firmware/src/comm/navlink_tx.c`<br>`firmware/src/control/sysid.c` | — |
+| `EST-ALT-001` | active | Vertical state estimate | `firmware/src/est/vertical_estimator.c`<br>`firmware/src/est/vertical_task.c` | — |
+| `EST-ALT-101` | active | Two-state complementary fusion | `firmware/src/est/vertical_estimator.c` | — |
 | `EST-COMP-101` | active | Complementary parameters | `firmware/src/est/sensor_fusion.c` | — |
 | `EST-COV-001` | active | Estimator output queues | `firmware/src/est/attitude_task.c` | — |
 | `EST-EKF-001` | active | EKF attitude estimator | `firmware/src/est/ekf.c` | — |
@@ -81,6 +97,8 @@
 | `EST-MAH-104` | active | Mag conditional update | `firmware/src/est/sensor_fusion.c` | — |
 | `EST-MAH-105` | active | Integral feedback bound | `firmware/include/est/est.h`<br>`firmware/src/est/sensor_fusion.c` | — |
 | `EST-MAH-106` | active | Init quaternion | — | — |
+| `EST-PHS-001` | active | Takeoff / landing detection and AGL reference | `firmware/src/est/flight_phase.c` | — |
+| `EST-PHS-101` | active | Detection gating and debounce | `firmware/src/est/flight_phase.c` | — |
 | `HAL-API-001` | active | Host-stub portability | — | — |
 | `HAL-API-101` | active | Header-only API | — | — |
 | `HAL-CRC-001` | active | Hardware CRC32 | — | — |
@@ -92,6 +110,9 @@
 | `HAL-IMU-102` | dropped | ❌ (dropped: vayu does not use a DRDY interrupt and does n… | — | — |
 | `HAL-PWM-001` | active | ESC output sync | — | — |
 | `HAL-TIME-001` | active | Monotonic time | — | — |
+| `LOG-FS-001` | active | Filesystem navigation (stat / directory browse) | `firmware/src/storage/fs_owner.c` | — |
+| `LOG-OWN-001` | active | Single runtime filesystem owner | `firmware/src/storage/fs_owner.c` | — |
+| `LOG-PERSIST-001` | active | Off-critical-path PID/calib persistence | `firmware/src/storage/fs_owner.c` | — |
 | `LOG-RATE-001` | active | Bounded log rate | — | — |
 | `LOG-SD-001` | active | SD-card ring-buffer logs | `firmware/src/storage/fs_owner.c` | — |
 | `LOG-SD-002` | active | Wrap-on-full | `firmware/src/comm/navlink_tx.c`<br>`firmware/src/storage/fs_owner.c` | — |
@@ -99,6 +120,11 @@
 | `LOG-SD-102` | active | Sync on every write | `firmware/src/storage/fs_owner.c` | — |
 | `LOG-TXT-001` | active | Log line emission | `firmware/include/storage/fs_owner.h`<br>`firmware/src/comm/navlink_tx.c`<br>`firmware/src/logger/log_text.c` | — |
 | `LOG-TXT-002` | active | Log queue drain | — | — |
+| `LOG-XFER-001` | active | Bulk file upload (positioned async writes) | `firmware/src/storage/fs_owner.c` | — |
+| `LOG-XFER-002` | active | Bulk file download (held-open positioned reads) | `firmware/src/storage/fs_owner.c` | — |
+| `SNS-BARO-001` | active | Baro acquisition and publish | `firmware/src/sensor/bme280.c` | — |
+| `SNS-BARO-101` | active | Datasheet compensation | `firmware/src/sensor/bme280.c` | — |
+| `SNS-BARO-102` | active | Altitude derivation | `firmware/src/sensor/bme280.c` | — |
 | `SNS-BMX-101` | active | Init sequence | `firmware/src/sensor/bmx160.c` | — |
 | `SNS-BMX-102` | active | Sensor ranges | `firmware/src/sensor/bmx160.c` | — |
 | `SNS-BMX-103` | active | Scale factors | `firmware/src/sensor/bmx160.c` | — |
@@ -112,6 +138,7 @@
 | `SNS-CAL-101` | active | Accel ellipsoid calibration | `firmware/src/calib/calib_ellipsoid.c`<br>`firmware/src/calib/calib_engine.c`<br>`firmware/src/sensor/bmx160.c` | — |
 | `SNS-CAL-102` | active | Gyro bias calibration | `firmware/src/calib/calib_engine.c`<br>`firmware/src/sensor/bmx160.c` | — |
 | `SNS-CAL-103` | active | Mag free-rotation calibration | `firmware/src/calib/calib_ellipsoid.c`<br>`firmware/src/calib/calib_engine.c`<br>`firmware/src/sensor/bmx160.c` | — |
+| `SNS-CAL-104` | active | Accel pose-coverage gate | `firmware/src/sensor/bmx160.c` | — |
 | `SNS-I2C-001` | active | I2C bus contract | `firmware/src/sensor/i2c_manager.c` | — |
 | `SNS-I2C-101` | active | Bus-acquire timeout | `firmware/src/sensor/i2c_manager.c` | — |
 | `SNS-I2C-102` | active | Unstick procedure | `firmware/src/sensor/i2c_manager.c` | — |
@@ -128,6 +155,9 @@
 | `SYS-CTRL-001` | active | Manual rate mode (acro) | `firmware/src/control/angle_controller.c` | — |
 | `SYS-CTRL-002` | active | Stabilised angle mode | `firmware/src/control/angle_controller.c` | — |
 | `SYS-CTRL-003` | active | Mode selection via RC | `firmware/src/control/angle_controller.c` | — |
+| `SYS-CTRL-004` | active | GCS flight-mode override | `firmware/src/control/flight_mode.c` | — |
+| `SYS-HMI-001` | active | Visual state annunciation | `firmware/src/sys/heartbeat.c` | — |
+| `SYS-HMI-101` | active | Boot-fault annunciation codes | `firmware/src/sys/heartbeat.c` | — |
 | `SYS-PWR-001` | deferred | Battery monitor input | — | — |
 | `SYS-PWR-002` | deferred | Low-battery failsafe | — | — |
 | `SYS-SAFE-001` | active | Emergency disarm | — | — |
@@ -136,6 +166,7 @@
 | `SYS-SAFE-004` | active | Max attitude failsafe | `firmware/src/control/angle_controller.c` | — |
 | `SYS-SAFE-005` | active | Arming preconditions | `firmware/include/comm/ibus.h`<br>`firmware/src/comm/rc_safety.c` | — |
 | `SYS-SAFE-006` | active | State-transition validation | `firmware/include/sys/state.h`<br>`firmware/src/sys/state.c` | — |
+| `SYS-SAFE-007` | active | Time-sync command gate | `firmware/src/comm/navlink_router.c`<br>`firmware/src/sys/sys_utils.c` | — |
 | `SYS-STATE-001` | active | State enumeration | `firmware/src/sys/state.c` | — |
 | `SYS-STATE-002` | active | Read accessor | `firmware/include/sys/state.h`<br>`firmware/src/sys/state.c` | — |
 | `SYS-STATE-003` | active | Boot start state | `firmware/src/sys/boot.c` | — |
@@ -148,6 +179,8 @@
 | `SYS-TIM-003` | active | Outer-loop closure | — | — |
 | `SYS-TIM-004` | active | System clock | `firmware/src/main.c` | — |
 | `SYS-TIM-005` | active | High-frequency timer | `firmware/include/sys/timer_callbacks.h`<br>`firmware/src/main.c`<br>`firmware/src/sys/timer_callbacks.c` | — |
+| `SYS-TIM-006` | active | Disciplined wall clock | `firmware/src/sys/sys_utils.c` | — |
+| `SYS-TIM-106` | active | Slew-limited clock discipline | `firmware/src/sys/sys_utils.c` | — |
 | `VOS-IPC-001` | active | Message queue API | — | — |
 | `VOS-IPC-101` | active | Queue post-from-ISR | — | — |
 | `VOS-ISR-001` | active | ISR-safe API subset | — | — |

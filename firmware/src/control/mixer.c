@@ -89,7 +89,8 @@ void mixer_set_idle_floor(mixer_t *mx, float idle) {
 
 /* The gain k such that motor += k*dir best removes the [min,max] saturation
  * along desaturation direction dir. The symmetric form (k_min+k_max) re-centres
- * the saturation, allowing the axis to move either way (used for thrust). */
+ * the saturation, allowing the axis to move either way (used for thrust).
+ * @implements CTRL-MIX-102 */
 static float desat_gain(const float *motor, const float *dir, uint8_t n,
                         float mn, float mx_) {
   float k_min = 0.0f, k_max = 0.0f;
@@ -111,10 +112,10 @@ static float desat_gain(const float *motor, const float *dir, uint8_t n,
  * by scaling only the differential, motor = thr + scale·(motor − thr)
  * (CTRL-MIX-002); the final pass clamps to [idle_floor, 1] enforcing the armed
  * idle floor (CTRL-MIX-003) and replaces any NaN before it reaches the motors
- * (CTRL-MIX-101). The airmode RP/RPY sequential-desaturation branch is not yet
- * covered by a requirement (see proposed CTRL-MIX-102).
+ * (CTRL-MIX-101). The airmode RP/RPY sequential-desaturation branch implements
+ * CTRL-MIX-102.
  *
- * @implements CTRL-MIX-001, CTRL-MIX-002, CTRL-MIX-003, CTRL-MIX-101
+ * @implements CTRL-MIX-001, CTRL-MIX-002, CTRL-MIX-003, CTRL-MIX-101, CTRL-MIX-102
  */
 void mixer_allocate(const mixer_t *mx, const float w[MIX_NW],
                     float *motor, float realized[MIX_NW]) {

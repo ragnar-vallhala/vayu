@@ -105,6 +105,7 @@ static void send_fifos(const perf_fifo_row_t *rows, int n) {
   }
 }
 
+/** @implements COMM-TEL-005 */
 void perf_telemetry_task(void *args) {
   (void)args;
   static perf_fifo_row_t fifos[PERF_FIFO_CAP];

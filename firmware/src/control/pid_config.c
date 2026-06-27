@@ -181,9 +181,9 @@ vayu_status_t pid_config_apply_command(const uint8_t *payload,
 /**
  * Validate and apply a CMD_SET_GYRO_LPF payload: argc/length checked before any
  * arg read (COMM-CMD-002), then pushed live and persisted. The gyro-LPF feature
- * itself is not yet covered by a requirement (see proposed CTRL-RATE-105).
+ * itself is covered by CTRL-RATE-105.
  *
- * @implements COMM-CMD-002
+ * @implements COMM-CMD-002, CTRL-RATE-105
  */
 vayu_status_t pid_config_apply_gyro_lpf_command(const uint8_t *payload,
                                                 uint16_t payload_len) {

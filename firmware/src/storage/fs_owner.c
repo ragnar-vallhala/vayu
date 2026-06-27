@@ -254,7 +254,8 @@ static void fs_do_log_req(const fs_log_req_t *req) {
   }
 }
 
-/* @return true on success, false on open/write failure (caller retries). */
+/* @return true on success, false on open/write failure (caller retries).
+ * @implements LOG-PERSIST-001 */
 static bool fs_do_save(const fs_save_req_t *req) {
   const char *path = ((fs_save_type_t)req->type == FS_SAVE_PID)
                          ? FS_PID_FILE_PATH
@@ -269,6 +270,7 @@ static bool fs_do_save(const fs_save_req_t *req) {
   return (w == (int)req->len && sync_res >= 0);
 }
 
+/* @implements LOG-PERSIST-001 */
 static void fs_drain_saves(void) {
   fs_save_req_t req;
   while (mpmc_try_pop(&s_save_q, &req)) {
@@ -380,7 +382,8 @@ static vfs_fd_t read_fd(const char *path) {
 
 /* Positioned write onto the lazily-held fd: seek, write, sync (the fd stays open
  * across chunks — see s_wfd). Writes at different offsets accumulate into one
- * file (an upload). @return true if the bytes were durably written. */
+ * file (an upload). @return true if the bytes were durably written.
+ * @implements LOG-XFER-001 */
 static bool fs_do_write_at(const fs_writeat_req_t *req) {
   vfs_fd_t fd = writeat_fd(req->path);
   if (fd < 0) {
@@ -395,7 +398,8 @@ static bool fs_do_write_at(const fs_writeat_req_t *req) {
 /* Run one write-at, updating per-session bookkeeping. On failure the request is
  * re-queued onto the retry lane (up to FS_WRITEAT_MAX_TRIES); a permanent failure
  * (budget spent or the retry lane is full) marks the session failed so the xfer
- * upload reports FAILED to the GCS instead of hanging. */
+ * upload reports FAILED to the GCS instead of hanging.
+ * @implements LOG-XFER-001 */
 static void fs_process_writeat(fs_writeat_req_t *req) {
   uint8_t sess = (req->session < FS_WA_SESSIONS) ? req->session : 0u;
   if (fs_do_write_at(req)) {
@@ -418,6 +422,7 @@ static void fs_process_writeat(fs_writeat_req_t *req) {
   s_dropped_writeats++;
 }
 
+/* @implements LOG-XFER-001 */
 static void fs_drain_writeats(void) {
   if (!s_writeat_buf) {
     return;
@@ -498,7 +503,8 @@ static fs_sync_req_t s_sync_req_buf[1];
 static fs_sync_res_t s_sync_res_buf[1];
 
 /* Execute one filesystem op directly (runs on the FS task via fs_owner_task,
- * OR inline on the caller in pump/boot mode). */
+ * OR inline on the caller in pump/boot mode).
+ * @implements LOG-OWN-001 */
 static int fs_exec_sync(const fs_sync_req_t *req) {
   switch ((fs_sync_op_t)req->op) {
   case FS_SYNC_READ: {
@@ -638,6 +644,7 @@ void fs_owner_pump(void) {
   }
 }
 
+/** @implements LOG-OWN-001 */
 void fs_owner_task(void *args) {
   (void)args;
   fs_owner_init();
@@ -703,6 +710,7 @@ bool fs_owner_enqueue_log(logger_type_t type, const void *data, uint32_t len) {
   return true;
 }
 
+/** @implements LOG-PERSIST-001 */
 bool fs_owner_enqueue_pid_save(const void *store, uint32_t len) {
   if (!s_ready || store == NULL || len == 0u || len > FS_SAVE_PAYLOAD_MAX) {
     s_dropped_saves++;
@@ -720,6 +728,7 @@ bool fs_owner_enqueue_pid_save(const void *store, uint32_t len) {
   return true;
 }
 
+/** @implements LOG-PERSIST-001 */
 bool fs_owner_enqueue_calib_save(const void *header, uint32_t hlen,
                                  const void *payload, uint32_t plen) {
   uint32_t total = hlen + plen;
@@ -741,6 +750,7 @@ bool fs_owner_enqueue_calib_save(const void *header, uint32_t hlen,
   return true;
 }
 
+/** @implements LOG-XFER-001 */
 bool fs_owner_enqueue_write_at(uint8_t session, const char *path, uint32_t offset,
                                const void *data, uint32_t len) {
   if (!s_ready || s_writeat_buf == NULL || path == NULL || data == NULL ||
@@ -802,6 +812,7 @@ bool fs_owner_writeat_failed(uint8_t session) {
  * context. Before the task starts and in SITL (s_task_mode == false) they execute
  * the op inline (direct vfs_*). */
 
+/** @implements LOG-XFER-002 */
 int fs_owner_truncate(const char *path) {
   if (path == NULL) {
     return -1;
@@ -813,6 +824,7 @@ int fs_owner_truncate(const char *path) {
   return fs_exec_sync(&req);
 }
 
+/** @implements LOG-XFER-002 */
 int fs_owner_read_at(const char *path, uint32_t offset, void *buf,
                      uint32_t len) {
   if (path == NULL || buf == NULL || len == 0u) {
@@ -826,6 +838,7 @@ int fs_owner_read_at(const char *path, uint32_t offset, void *buf,
   return fs_exec_sync(&req);
 }
 
+/** @implements LOG-FS-001 */
 int fs_owner_stat(const char *path, vfs_stat_t *st) {
   fs_sync_req_t req = {.op = FS_SYNC_STAT, .path = path, .buf = st};
   if (s_task_mode) {
@@ -834,11 +847,13 @@ int fs_owner_stat(const char *path, vfs_stat_t *st) {
   return fs_exec_sync(&req);
 }
 
+/** @implements LOG-FS-001 */
 vfs_dir_t fs_owner_opendir(const char *path) {
   fs_sync_req_t req = {.op = FS_SYNC_OPENDIR, .path = path};
   return (vfs_dir_t)(s_task_mode ? fs_sync_call(&req) : fs_exec_sync(&req));
 }
 
+/** @implements LOG-FS-001 */
 int fs_owner_readdir(vfs_dir_t d, vfs_dirent_t *ent) {
   fs_sync_req_t req = {.op = FS_SYNC_READDIR, .dir = d, .buf = ent};
   if (s_task_mode) {
@@ -847,6 +862,7 @@ int fs_owner_readdir(vfs_dir_t d, vfs_dirent_t *ent) {
   return fs_exec_sync(&req);
 }
 
+/** @implements LOG-FS-001 */
 int fs_owner_closedir(vfs_dir_t d) {
   fs_sync_req_t req = {.op = FS_SYNC_CLOSEDIR, .dir = d};
   if (s_task_mode) {
