@@ -9,7 +9,7 @@
  */
 #include "est/flight_phase.h"
 
-#include <math.h>
+#include "maths/maths_interface.h"
 
 void flight_phase_init(flight_phase_t *fp) {
   fp->ground_ref = 0.0f;
@@ -35,7 +35,7 @@ flight_phase_event_t flight_phase_update(flight_phase_t *fp, bool armed,
      * the craft is at rest on the ground". This rejects a pre-arm handling bump
      * or a fall transient (e.g. the SITL respawn) freezing a bogus reference;
      * the last settled value is kept instead. */
-    if (!fp->have_ref || fabsf(climb_rate) < FLIGHT_PHASE_LAND_RATE_MS) {
+    if (!fp->have_ref || m_fabsf(climb_rate) < FLIGHT_PHASE_LAND_RATE_MS) {
       fp->ground_ref = baro_alt;
       fp->have_ref = true;
     }
@@ -78,7 +78,7 @@ flight_phase_event_t flight_phase_update(flight_phase_t *fp, bool armed,
   /* In air -> touchdown: settled near the ground, near-zero motion, throttle
    * backed off, sustained past the (longer) landing debounce. */
   bool gate = fp->agl < FLIGHT_PHASE_LAND_ALT_M &&
-              fabsf(climb_rate) < FLIGHT_PHASE_LAND_RATE_MS &&
+              m_fabsf(climb_rate) < FLIGHT_PHASE_LAND_RATE_MS &&
               throttle < FLIGHT_PHASE_LAND_THROTTLE;
   fp->takeoff_timer = 0.0f;
   if (!gate) {

@@ -4,13 +4,13 @@
  *        free, no locks — safe in the rate-loop hot path like the PID.
  */
 #include "control/rate_indi.h"
-#include <math.h>
+#include "maths/maths_interface.h"
 
 void rate_indi_init(rate_indi_t *c, float b, float k, float lpf_rc,
                     float out_min, float out_max) {
   /* b must be non-zero (we divide by it); guard a misconfig so the loop
    * degrades to "no command" rather than producing NaN that poisons the mix. */
-  c->b      = (fabsf(b) > 1e-6f) ? b : 1e-6f;
+  c->b      = (m_fabsf(b) > 1e-6f) ? b : 1e-6f;
   c->k      = k;
   c->lpf_rc = (lpf_rc > 0.0f) ? lpf_rc : 0.0f;
   c->out_min = (out_min < out_max) ? out_min : out_max;
@@ -72,7 +72,7 @@ void rate_indi_set_applied(rate_indi_t *c, float u_applied) {
   /* Replace the synchronized feedback with the actually-applied command. Use
    * the same alpha-blend semantics as update()'s step 5 would have, but anchor
    * on the realized value. Kept simple: snap u_f toward the applied command. */
-  if (!isfinite(u_applied)) return;
+  if (!m_isfinite(u_applied)) return;
   const float a = (c->lpf_rc > 1e-6f) ? 0.5f : 1.0f; /* light blend if filtering */
   c->u_f += a * (u_applied - c->u_f);
 }
