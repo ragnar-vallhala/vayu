@@ -295,6 +295,25 @@ typedef struct __attribute__((packed)) {
   100 // contiguous static samples averaged per pose (~2 s at the 50 Hz cal poll)
 #define ACCEL_CAL_GYRO_STILL_DPS                                               \
   3.0f // |gyro| below this (per axis sum-of-squares) counts the board as still
+#define ACCEL_CAL_FACE_POSES                                                    \
+  6 // first N of the prompt list are the 6 faces; the rest are edges/corners
+
+/* Pose-coverage gate (full-3x3 accel). A still hold is banked only if it ADVANCES
+ * coverage, so the same orientation can't be recorded twice and the 9-DOF
+ * ellipsoid always sees directions spanning the sphere. A "face" hold must have
+ * one body axis clearly dominate (|a_dom|/|a| >= FACE_DOMINANCE) and land on a
+ * signed body axis no prior face used — there are exactly six, so the six face
+ * prompts must cover all six. An "edge/corner" hold must instead SHARE gravity
+ * (no axis dominates, second-largest component >= EDGE_MIN_SECOND) and sit at
+ * least acos(MIN_SEP_COS) from every direction already banked. Matching is by
+ * geometric distinctness, not the prompted code, so it is independent of how the
+ * board's axes are signed/mounted. */
+#define ACCEL_POSE_FACE_DOMINANCE                                              \
+  0.85f // |a_dom|/|a| for a hold to count as a clean face (~32 deg cone)
+#define ACCEL_POSE_EDGE_MIN_SECOND                                            \
+  0.40f // 2nd-largest |a_i|/|a| required for a shared-gravity edge/corner
+#define ACCEL_POSE_MIN_SEP_COS                                                \
+  0.866f // edge holds must sit > 30 deg apart (cos 30) to count as distinct
 
 /* Stillness-gated gyro bias capture (calib engine, bias fit). */
 #define GYRO_CAL_STILL_SAMPLES                                                 \
