@@ -96,8 +96,13 @@ void init_tasks(void) {
   // handlers here, building large aligned message structs on-stack (XFER_DATA
   // ~254 B for data[247]) atop navlink_router_poll's buf[256], and runs the
   // mixer geometry solve (m_mat4_inv, ~0.5 KiB frame) on a SET_GEOMETRY command.
-  task_create_named(comm_processor_task, NULL, 2496, 0,
-                    "comm_processor"); // peak 1884
+  // 4096: the "peak 1884" was measured WITHOUT an active bulk transfer. An xfer
+  // UPLOAD dispatches XFER_DATA on this task — a ~254 B aligned struct + the
+  // write-at hop on top of the router's buf[256] — which overflowed the
+  // right-sized 2496 and wedged the FC. Restored to the known-good size from
+  // feat/centralised-fs-owner (byte-perfect 64 KB round-trips).
+  task_create_named(comm_processor_task, NULL, 4096, 0,
+                    "comm_processor"); // peak 1884 idle; xfer-upload path deeper
   bmx160_task_id =
       task_create_named(bmx160_initiate_read, NULL, 768, 2,
                         "imu_read"); // peak 332
@@ -122,13 +127,21 @@ void init_tasks(void) {
   // Centralised FS owner: sole runtime SD/VFS writer (blackbox logger + PID/calib
   // saves). Lowest band (prio 0); blocks on its queue so it only runs when there
   // is work and never preempts control. Queues are created lazily on first run.
-  task_create_named(fs_owner_task, NULL, 1152, 0, "fs_owner"); // peak 732
+  // 2048 (was right-sized to 1152, peak 732 idle): the write-at lane during an
+  // xfer upload + the blocking FatFS read during a download run deeper than the
+  // idle peak. Restored to the known-good feat/centralised-fs-owner size.
+  task_create_named(fs_owner_task, NULL, 2048, 0, "fs_owner"); // peak 732 idle
   // Bulk-transfer (FTP) substrate: runs the xfer SM off the comm + control
   // tasks (prio 0). Blocking SD reads + paced emission live here; the comm-task
   // handlers only touch session state (the C1->C3 invariant). fs_query_tick /
   // xfer_tick do the blocking FatFS dir-walk (FILINFO on-stack) plus a 247 B
   // chunk buffer (RAM budget: docs/plans/xfer-memory-budget.md).
-  task_create_named(xfer_service_task, NULL, 832, 0, "xfer"); // peak 404
+  // 3072: the download EMIT path runs here — blocking FatFS read + 247 B chunk
+  // buffer + XFER_DATA encode per chunk. "peak 404" was measured idle; a real
+  // multi-chunk download overflowed the right-sized 832 and froze the FC
+  // (heartbeat LED stopped). Restored to the known-good feat/centralised-fs-owner
+  // size that did byte-perfect 64 KB downloads.
+  task_create_named(xfer_service_task, NULL, 3072, 0, "xfer"); // peak 404 idle
 }
 /**
  * Bring up the 10 kHz high-frequency timer (TIM5) and register its periodic
