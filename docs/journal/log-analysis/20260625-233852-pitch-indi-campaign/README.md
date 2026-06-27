@@ -21,15 +21,17 @@ an actuator limit cycle whose frequency is owned by the controller (hence PID-
 | [`control-loop-analysis.md`](control-loop-analysis.md) | the closed limit cycle, controller-owned frequency, why PID **and** INDI both fail |
 | [`motor-analysis.md`](motor-analysis.md) | the actuator bottleneck — idle floor, anti-sat scaler, **saturation flips with throttle**, authority vs demand |
 | [`sensor-analysis.md`](sensor-analysis.md) | IMU timing (clean), gyro (clean), accel **vibration** (5–20× under power, secondary) |
-| [`recommendations.md`](recommendations.md) | ranked P0–P3 fixes (power/weight, idle floor, air-mode, then tune) |
 | [`sim_parity/`](sim_parity/README.md) | **fresh headless SITL runs**: why the sim flies (plant 3–7× too weak, over-powered) + modeled parity parameters |
+| [`reference-autopilots-comparison.md`](reference-autopilots-comparison.md) | **sensor→PWM timing trace of vayu vs PX4 vs ArduPilot** (time base, filtering, estimator, mixer/airmode, output, latency budgets); **§9** how PX4/ArduPilot solve each problem (with file:line); **§10** resource (CPU/RAM) analysis + FFT feasibility & a self-contained FFT design |
+| [`recommendations.md`](recommendations.md) | **ranked P0–P3 action plan** drawn from the comparison (power/weight, idle floor, airmode mixer, measured-dt, sim-cal, FFT notch, output) — *the report's conclusion* |
 
 Printable PDF: **`20260625-233852-pitch-indi-campaign-analysis.pdf`**. Regenerate
 the figures + report:
 ```sh
-python3 make_plots.py        # -> plots/*.png
-python3 analyze_campaign.py  # the segmented per-window numbers
-python3 ../build_pdf.py .    # combine docs -> PDF (needs pandoc, xelatex, mmdc)
+python3 make_plots.py             # -> plots/*.png (campaign figures)
+python3 make_comparison_plots.py  # -> plots/cmp_*.png (the 4 comparison visuals; needs matplotlib + graphviz `dot`)
+python3 analyze_campaign.py       # the segmented per-window numbers
+python3 ../build_pdf.py .         # combine docs -> PDF (needs pandoc, xelatex)
 ```
 
 Common rig across all captures: real flight controller over the ESP/UDP NavLink-v2

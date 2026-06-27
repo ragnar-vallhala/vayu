@@ -31,6 +31,7 @@ ORDER = [
     ("kernel-analysis.md", "Kernel / RTOS analysis"),
     ("sensor-analysis.md", "Sensor & fusion analysis"),
     ("vertical-analysis.md", "Vertical-channel analysis"),
+    ("reference-autopilots-comparison.md", "Reference autopilots — control-loop comparison, per-problem solutions & resource analysis"),
     ("recommendations.md", "Recommendations & next-run plan"),
 ]
 
