@@ -1404,13 +1404,102 @@ static void acc_commit(const float offset[3], const float mat[9], void *ctx) {
            bmx160_calib.acc_soft_iron[8]);
 }
 
+/* A captured hold is one of two structural kinds: a FACE (one body axis points
+ * along gravity) or an EDGE/corner (gravity shared between axes, which is what
+ * makes the 3x3 off-diagonal/misalignment terms observable). */
+typedef enum { POSE_KIND_FACE, POSE_KIND_EDGE } pose_kind_t;
+/* Coverage-gate outcomes: 0 banks the hold, negatives say why it was refused. */
+enum { POSE_OK = 0, POSE_REJ_SHAPE = -1, POSE_REJ_DUP = -2 };
+
+/* Dominant signed body axis of a direction: index 0..2 of the largest |component|,
+ * with *sign set to +1/-1. Identifies which of the six signed axes a face lands on
+ * without assuming any particular board mounting. */
+static int dom_axis(const float v[3], int *sign) {
+  int k = 0;
+  if (m_fabsf(v[1]) > m_fabsf(v[k]))
+    k = 1;
+  if (m_fabsf(v[2]) > m_fabsf(v[k]))
+    k = 2;
+  *sign = (v[k] >= 0.0f) ? 1 : -1;
+  return k;
+}
+
+/* Pose-coverage gate: decide whether a still hold `avg` (m/s^2) ADVANCES coverage
+ * given the directions already banked. A FACE must have one axis clearly dominate
+ * and land on a signed axis no prior face used; an EDGE must share gravity between
+ * axes and sit far enough from every banked direction. This is what stops the same
+ * orientation being recorded twice and keeps the 9-DOF fit well-conditioned.
+ * `banked[0..n_banked)` are the accepted directions. Matching is geometric (not by
+ * the prompted code), so it is independent of how the board axes are signed. */
+static int pose_advances_coverage(const float avg[3], pose_kind_t kind,
+                                  const float banked[][3], int n_banked) {
+  float mag = m_sqrt(avg[0] * avg[0] + avg[1] * avg[1] + avg[2] * avg[2]);
+  if (mag < 1.0f)
+    return POSE_REJ_SHAPE; // degenerate; the stillness gate should preclude this
+  float u[3] = {avg[0] / mag, avg[1] / mag, avg[2] / mag};
+  float a0 = m_fabsf(u[0]), a1 = m_fabsf(u[1]), a2 = m_fabsf(u[2]);
+  float amax = a0 > a1 ? a0 : a1;
+  amax = amax > a2 ? amax : a2;
+  float amin = a0 < a1 ? a0 : a1;
+  amin = amin < a2 ? amin : a2;
+  float amid = (a0 + a1 + a2) - amax - amin; // the middle |component|
+
+  if (kind == POSE_KIND_FACE) {
+    if (amax < ACCEL_POSE_FACE_DOMINANCE)
+      return POSE_REJ_SHAPE; // no axis points along gravity -> not a clean face
+    int sign, axis = dom_axis(u, &sign);
+    for (int i = 0; i < n_banked; i++) {
+      float bm = m_sqrt(banked[i][0] * banked[i][0] +
+                        banked[i][1] * banked[i][1] +
+                        banked[i][2] * banked[i][2]);
+      if (bm < 1.0f)
+        continue;
+      float bu[3] = {banked[i][0] / bm, banked[i][1] / bm, banked[i][2] / bm};
+      float bmax = m_fabsf(bu[0]);
+      if (m_fabsf(bu[1]) > bmax)
+        bmax = m_fabsf(bu[1]);
+      if (m_fabsf(bu[2]) > bmax)
+        bmax = m_fabsf(bu[2]);
+      if (bmax < ACCEL_POSE_FACE_DOMINANCE)
+        continue; // a prior edge hold, not a face
+      int bsign, baxis = dom_axis(bu, &bsign);
+      if (baxis == axis && bsign == sign)
+        return POSE_REJ_DUP; // this signed face is already banked
+    }
+    return POSE_OK;
+  }
+
+  // EDGE/corner: gravity must be shared, and the hold must be distinct.
+  if (amax >= ACCEL_POSE_FACE_DOMINANCE)
+    return POSE_REJ_SHAPE; // too face-like to add off-diagonal information
+  if (amid < ACCEL_POSE_EDGE_MIN_SECOND)
+    return POSE_REJ_SHAPE; // only one axis loaded -> not a shared-gravity edge
+  for (int i = 0; i < n_banked; i++) {
+    float bm = m_sqrt(banked[i][0] * banked[i][0] +
+                      banked[i][1] * banked[i][1] +
+                      banked[i][2] * banked[i][2]);
+    if (bm < 1.0f)
+      continue;
+    float dot = (u[0] * banked[i][0] + u[1] * banked[i][1] +
+                 u[2] * banked[i][2]) /
+                bm;
+    if (dot > ACCEL_POSE_MIN_SEP_COS)
+      return POSE_REJ_DUP; // within ~30 deg of a pose already taken
+  }
+  return POSE_OK;
+}
+
 /* Pose-tolerant static capture for the full-3x3 accel calibration. Prompts the
  * given pose code, then averages ACCEL_POSE_STILL_SAMPLES contiguous STILL raw
  * accel samples — "still" = gyro near zero AND |a| in a WIDE 1 g band (so a
- * grossly mis-scaled sensor still qualifies) — with NO axis-dominance gate, so
- * the operator's pose only has to be roughly right. Averages acc_raw into
- * accel_out (m/s^2). Returns 1 on success, -1 on cancel. */
-static int wait_for_static_pose(uint8_t code, float accel_out[3]) {
+ * grossly mis-scaled sensor still qualifies). The averaged hold must then pass the
+ * pose-coverage gate (the right face/edge shape AND distinct from `banked[0..
+ * n_banked)`); a hold that duplicates a prior orientation is refused and re-
+ * prompted instead of banked. Averages acc_raw into accel_out (m/s^2). Returns 1
+ * on success, -1 on cancel/starvation. */
+static int wait_for_static_pose(uint8_t code, pose_kind_t kind,
+                                const float banked[][3], int n_banked,
+                                float accel_out[3]) {
   calib_telemetry(code, 0.0f); // prompt the operator (advisory)
   v_delay(CALIBRATION_WAIT_USER_TIME_PRE_CALIBRATION);
 
@@ -1420,58 +1509,76 @@ static int wait_for_static_pose(uint8_t code, float accel_out[3]) {
   const float gyro_still2 = ACCEL_CAL_GYRO_STILL_DPS * ACCEL_CAL_GYRO_STILL_DPS;
 
   const int target = ACCEL_POSE_STILL_SAMPLES;
-  float sum[3] = {0.0f, 0.0f, 0.0f};
-  int count = 0;
-  int reprompt = 0;
   const int reprompt_period = 50; // ~1 s; re-announce a dropped prompt
-  int starve = 0;
-  const int starve_limit = 2500; // ~5 s of empty queue -> abort cleanly
+  const int starve_limit = 2500;  // ~5 s of empty queue -> abort cleanly
 
-  while (count < target) {
-    if (_calib_cancel)
-      return -1;
-    bmx160_all_reading_t s;
-    if (!imu_queue_calibration_pop(&s)) {
-      if (++starve >= starve_limit) {
-        vayu_log("[CALIB] sample stream starved; aborting pose %d", code);
+  /* Outer loop re-runs whenever a still hold fails the coverage gate (duplicate /
+   * wrong shape): we discard it, re-prompt, and wait for a NEW orientation. */
+  for (;;) {
+    float sum[3] = {0.0f, 0.0f, 0.0f};
+    int count = 0;
+    int reprompt = 0;
+    int starve = 0;
+
+    while (count < target) {
+      if (_calib_cancel)
         return -1;
+      bmx160_all_reading_t s;
+      if (!imu_queue_calibration_pop(&s)) {
+        if (++starve >= starve_limit) {
+          vayu_log("[CALIB] sample stream starved; aborting pose %d", code);
+          return -1;
+        }
+        v_delay(2);
+        continue;
       }
-      v_delay(2);
-      continue;
-    }
-    starve = 0;
-    float ax = s.converted.acc_raw[0], ay = s.converted.acc_raw[1],
-          az = s.converted.acc_raw[2];
-    float mag2 = ax * ax + ay * ay + az * az;
-    float gx = s.converted.gyr_raw[0], gy = s.converted.gyr_raw[1],
-          gz = s.converted.gyr_raw[2];
-    float gyro2 = gx * gx + gy * gy + gz * gz;
+      starve = 0;
+      float ax = s.converted.acc_raw[0], ay = s.converted.acc_raw[1],
+            az = s.converted.acc_raw[2];
+      float mag2 = ax * ax + ay * ay + az * az;
+      float gx = s.converted.gyr_raw[0], gy = s.converted.gyr_raw[1],
+            gz = s.converted.gyr_raw[2];
+      float gyro2 = gx * gx + gy * gy + gz * gz;
 
-    if (mag2 > mag_min2 && mag2 < mag_max2 && gyro2 < gyro_still2) {
-      sum[0] += ax;
-      sum[1] += ay;
-      sum[2] += az;
-      count++;
-      if (count % (target / 20) == 0)
-        calib_telemetry(CALIB_UPDATE_PROGRESS,
-                        (100.0f * (float)count) / (float)target);
-    } else {
-      // Disturbed: require a contiguous still window, and re-prompt periodically.
-      count = 0;
-      sum[0] = sum[1] = sum[2] = 0.0f;
-      if (++reprompt >= reprompt_period) {
-        reprompt = 0;
-        calib_telemetry(code, 0.0f);
+      if (mag2 > mag_min2 && mag2 < mag_max2 && gyro2 < gyro_still2) {
+        sum[0] += ax;
+        sum[1] += ay;
+        sum[2] += az;
+        count++;
+        if (count % (target / 20) == 0)
+          calib_telemetry(CALIB_UPDATE_PROGRESS,
+                          (100.0f * (float)count) / (float)target);
+      } else {
+        // Disturbed: require a contiguous still window, re-prompt periodically.
+        count = 0;
+        sum[0] = sum[1] = sum[2] = 0.0f;
+        if (++reprompt >= reprompt_period) {
+          reprompt = 0;
+          calib_telemetry(code, 0.0f);
+        }
       }
+      v_delay(20);
     }
-    v_delay(20);
+
+    float inv = 1.0f / (float)target;
+    float avg[3] = {sum[0] * inv, sum[1] * inv, sum[2] * inv};
+
+    /* Stillness passed; now the COVERAGE gate. Bank only an orientation that is
+     * the right shape (face vs edge) AND distinct from every pose already taken —
+     * otherwise re-prompt so the operator moves somewhere new. This is what stops
+     * the same hold being recorded twice and keeps the ellipsoid well-posed. */
+    int cov = pose_advances_coverage(avg, kind, banked, n_banked);
+    if (cov == POSE_OK) {
+      accel_out[0] = avg[0];
+      accel_out[1] = avg[1];
+      accel_out[2] = avg[2];
+      return 1;
+    }
+    vayu_log("[CALIB] pose %d not banked (%s); hold a new orientation.", code,
+             cov == POSE_REJ_DUP ? "duplicate" : "wrong shape");
+    calib_telemetry(code, 0.0f); // re-show the target pose
+    v_delay(CALIBRATION_WAIT_USER_TIME_PRE_CALIBRATION);
   }
-
-  float inv = 1.0f / (float)target;
-  accel_out[0] = sum[0] * inv;
-  accel_out[1] = sum[1] * inv;
-  accel_out[2] = sum[2] * inv;
-  return 1;
 }
 
 /* Gyro bias capture (calib engine BIAS path). read_raw returns gyr_raw ONLY when
@@ -1562,7 +1669,13 @@ void calibration_task(void *args) {
 
     vayu_log("[CALIB] Accel Calibration (full 3x3, %d poses)...", ACCEL_CAL_POSES);
     for (int i = 0; i < ACCEL_CAL_POSES; i++) {
-      if (wait_for_static_pose(accel_poses[i], pts[npts]) < 0) {
+      /* First ACCEL_CAL_FACE_POSES prompts are the 6 faces; the rest are the
+       * edge/corner holds. The kind drives the coverage gate's shape test, and
+       * pts[0..npts) are the directions already banked (so a repeat is refused). */
+      pose_kind_t kind =
+          (i < ACCEL_CAL_FACE_POSES) ? POSE_KIND_FACE : POSE_KIND_EDGE;
+      if (wait_for_static_pose(accel_poses[i], kind, (const float (*)[3])pts,
+                               npts, pts[npts]) < 0) {
         vayu_log("[CALIB] Accel calibration cancelled.");
         goto done;
       }
