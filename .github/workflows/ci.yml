@@ -95,14 +95,15 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-      - run: sudo apt-get update && sudo apt-get install -y cmake gcovr
-      - name: Build + coverage summary
-        # Threshold enforcement (initial 70% on CTRL/EST/COMM-PKT) lands
-        # once the integration tests exercise those modules; report-only now.
+      - run: sudo apt-get update && sudo apt-get install -y cmake gcovr python3
+      - name: Build + coverage ratchet gate
+        # Enforcing: tools/coverage_gate.py fails the build if any component's
+        # line coverage drops below its committed floor (set at the 2026-06-28
+        # baseline). Raise a floor in the same PR that raises its coverage.
         run: |
           cmake -S sim/host -B build_cov -DVAYU_COVERAGE=ON
           cmake --build build_cov -j
-          cmake --build build_cov --target coverage
+          cmake --build build_cov --target coverage-gate
 
   clang-tidy:
     name: clang-tidy (.clang-tidy, baseline)

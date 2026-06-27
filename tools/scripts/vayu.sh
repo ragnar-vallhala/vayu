@@ -14,7 +14,8 @@
 #   --debug       CMAKE_BUILD_TYPE=Debug
 #   --no-sitl     gcs only: configure -DNAVIGATOR_SITL=OFF (GCS-only, no sim/autotune)
 #   --sanitize    sitl only: -DVAYU_SANITIZE=ON
-#   --coverage    sitl only: -DVAYU_COVERAGE=ON (then runs the coverage target)
+#   --coverage    sitl only: -DVAYU_COVERAGE=ON, then runs the coverage-gate
+#                 target (per-component floor ratchet; fails on a regression)
 #
 # Examples:
 #   vayu.sh build all
@@ -165,7 +166,10 @@ run_sitl_tests() {
   local log="$LOGDIR/sitl.log" rc=0
   if ctest --test-dir build_sitl --output-on-failure 2>&1 | tee "$log"; then rc=0; else rc=1; fi
   read -r SITL_PASS SITL_FAIL SITL_SKIP < <(parse_ctest "$log")
-  if [ "$COVERAGE" = 1 ] && [ "$rc" = 0 ]; then say "coverage summary"; cmake --build build_sitl --target coverage; fi
+  if [ "$COVERAGE" = 1 ] && [ "$rc" = 0 ]; then
+    say "coverage ratchet gate"
+    cmake --build build_sitl --target coverage-gate || rc=1
+  fi
   return "$rc"
 }
 run_gcs_tests() {

@@ -393,3 +393,15 @@ add_custom_target(coverage
             --print-summary --decisions
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
     COMMENT "Running unit tests + gcovr coverage summary")
+
+# coverage-gate: same run, but emits a gcovr json-summary and enforces the
+# per-component floor ratchet (tools/coverage_gate.py) — fails on a regression.
+# This is the CI-enforcing target; `coverage` stays the human-readable report.
+#   cmake --build build_cov --target coverage-gate
+add_custom_target(coverage-gate
+    COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure
+    COMMAND gcovr --root ${VAYU_ROOT} --filter "${VAYU_ROOT}/firmware/src/"
+            --json-summary -o cov.json
+    COMMAND python3 ${VAYU_ROOT}/tools/coverage_gate.py firmware cov.json
+    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+    COMMENT "Unit tests + per-component coverage ratchet gate")
