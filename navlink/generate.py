@@ -158,7 +158,13 @@ def validate(d):
         if name in seen_names:
             errs.append(f"duplicate message name {name}")
         seen_names[name] = True
-        if not (0 <= mid <= 0x7FFFFF):
+        # Core messages live in the core half (spec §9); test-flagged messages
+        # (present only under --profile test) live in the vendor/test half.
+        if m.get("test"):
+            if not (0x800000 <= mid <= 0xFFFFFF):
+                errs.append(f"{name}: test msgid {mid} must be in the vendor/test "
+                            f"half 0x800000-0xFFFFFF")
+        elif not (0 <= mid <= 0x7FFFFF):
             errs.append(f"{name}: msgid {mid} outside core half 0x000000-0x7FFFFF (spec §9)")
         # contiguous, unique indices across non-extension fields
         nonext = [f["index"] for f in m["fields"] if not f.get("extension")]
@@ -1061,10 +1067,20 @@ def main():
     ap.add_argument("--out", default=os.path.join(here, "generated"))
     ap.add_argument("--lang", choices=["c", "py", "html", "both", "all"], default="both",
                     help="c/py code, html interactive tree, both=c+py, all=c+py+html")
+    ap.add_argument("--profile", choices=["prod", "test"], default="prod",
+                    help='prod (default) omits messages flagged "test": true, so '
+                         "the production codec carries no test code; test includes "
+                         "them (for the hwtest firmware + its host runner only)")
     args = ap.parse_args()
 
     with open(args.dialect) as fh:
         d = json.load(fh)
+
+    # Profile filter: test-flagged messages live in the same dialect.json but are
+    # emitted only under --profile test. Filtering here (before validate + every
+    # downstream table) keeps the prod codec byte-for-byte free of test code.
+    if args.profile == "prod":
+        d["messages"] = [m for m in d["messages"] if not m.get("test")]
 
     errs = validate(d)
     if errs:

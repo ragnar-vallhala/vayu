@@ -692,6 +692,33 @@
         { "index": 1, "name": "progress", "type": "u8",  "doc": "0..100 percent for PROGRESS; reason code for FAILED; 0 otherwise" },
         { "index": 2, "name": "coverage", "type": "f32", "len": 3, "doc": "mag axis coverage x/y/z for MAG_AXIS_COVERAGE; 0 otherwise" }
       ]
+    },
+    {
+      "msgid": 8388608, "name": "HW_TEST_BEGIN", "test": true,
+      "doc": "On-hardware bench suite starting. Test-only (hwtest firmware); vendor/test msgid range 0x800000+, emitted only under generate.py --profile test. See docs/plans/on-hardware-test-and-coverage.md.",
+      "fields": [
+        { "index": 0, "name": "total", "type": "u16", "doc": "number of checks to run" }
+      ]
+    },
+    {
+      "msgid": 8388609, "name": "HW_TEST_RESULT", "test": true,
+      "doc": "One on-hardware bench check result. Test-only (hwtest firmware).",
+      "fields": [
+        { "index": 0, "name": "id",    "type": "u16", "doc": "0-based check index" },
+        { "index": 1, "name": "name",  "type": "char", "len": 24 },
+        { "index": 2, "name": "pass",  "type": "u8",  "doc": "1=pass, 0=fail, 2=skip" },
+        { "index": 3, "name": "value", "type": "f32", "doc": "measured value (MHz, bytes, sigma, ...)" },
+        { "index": 4, "name": "units", "type": "char", "len": 8 }
+      ]
+    },
+    {
+      "msgid": 8388610, "name": "HW_TEST_DONE", "test": true,
+      "doc": "On-hardware bench suite finished. Test-only (hwtest firmware).",
+      "fields": [
+        { "index": 0, "name": "passed",  "type": "u16" },
+        { "index": 1, "name": "failed",  "type": "u16" },
+        { "index": 2, "name": "skipped", "type": "u16" }
+      ]
     }
   ]
 }

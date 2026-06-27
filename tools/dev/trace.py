@@ -43,6 +43,8 @@ TRACE_MD = REPO_ROOT / "docs" / "reference" / "trace.md"
 OWNED_ROOTS = [
     REPO_ROOT / "firmware" / "src",
     REPO_ROOT / "firmware" / "include",
+    REPO_ROOT / "firmware" / "tests",      # on-hardware bench checks (@verifies)
+    REPO_ROOT / "sim" / "host" / "tests",  # host unit tests (@verifies)
     REPO_ROOT / "tools",
 ]
 VENDOR_ROOTS = [
