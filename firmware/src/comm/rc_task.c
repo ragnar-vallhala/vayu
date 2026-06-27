@@ -27,6 +27,7 @@ static SemaphoreHandle_t _ibus_frame_sema = NULL;
 /* Runs in USART2 IRQ context at a maskable priority (set by NavHAL), so the
  * ISR-safe give is correct. Coalesces to a single wake; the OVERWRITE-free
  * circular DMA keeps filling regardless. */
+/** @noreq idle-line ISR glue: wakes the RC task; transport in rc_ibus_task */
 static void ibus_idle_isr(void) {
   if (_ibus_frame_sema != NULL) {
     int woken = 0;
@@ -38,6 +39,7 @@ static void ibus_idle_isr(void) {
 /* Apply the per-frame policy to a freshly parsed iBus frame: centre-deadband
  * the roll/pitch/yaw sticks, run the arm/disarm state machine, and publish to
  * the control + telemetry queues. Runs once per COMPLETE frame, not per byte. */
+/** @implements COMM-RC-003 */
 static void rc_apply_frame(void) {
   rc_mark_frame_valid();
 
@@ -96,6 +98,7 @@ volatile uint16_t sim_rc_channels[14] = {1500, 1500, 1000, 1500, 1000,
 volatile uint8_t sim_rc_force_loss = 0;
 #endif
 
+/** @implements COMM-RC-004 */
 void rc_ibus_task(void *args) {
   (void)args;
 

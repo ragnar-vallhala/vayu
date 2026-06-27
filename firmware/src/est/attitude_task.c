@@ -58,6 +58,13 @@
 #define ATTITUDE_CYCLE_PROBE 1
 #endif
 
+/**
+ * Attitude-estimation task: selects the single active fusion filter at runtime
+ * (SF_FILTER_USED) and publishes each estimate to the telemetry and control
+ * SPSC queues every step.
+ *
+ * @implements EST-MAH-003, EST-COV-001
+ */
 void attitude_task(void *args) {
   (void)args;
   static bmx160_all_reading_t sample;

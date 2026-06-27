@@ -4,36 +4,49 @@
 // -------------------------
 // sin(x)
 // -------------------------
+/** Single-precision sinf wrapper; keeps the control path off double libm.
+ * @implements CTRL-NUM-101 */
 float m_sin(float x) { return sinf(x); }
 
 // -------------------------
 // cos(x)
 // -------------------------
+/** Single-precision cosf wrapper; keeps the control path off double libm.
+ * @implements CTRL-NUM-101 */
 float m_cos(float x) { return cosf(x); }
 
 // -------------------------
 // asin(x)
 // -------------------------
+/** Single-precision asinf wrapper; keeps the control path off double libm.
+ * @implements CTRL-NUM-101 */
 float m_asin(float x) { return asinf(x); }
 
 // -------------------------
 // atan2(y, x)
 // -------------------------
+/** Single-precision atan2f wrapper; keeps the control path off double libm.
+ * @implements CTRL-NUM-101 */
 float m_atan2(float y, float x) { return atan2f(y, x); }
 
 // -------------------------
 // sqrt(x)
 // -------------------------
+/** Single-precision sqrtf wrapper; keeps the control path off double libm.
+ * @implements CTRL-NUM-101 */
 float m_sqrt(float x) { return sqrtf(x); }
 
 // -------------------------
 // pow(base, exp)
 // -------------------------
+/** Single-precision powf wrapper; keeps the control path off double libm.
+ * @implements CTRL-NUM-101 */
 float m_pow(float base, float exp) { return powf(base, exp); }
 
 // -------------------------
 // clamp(val, min, max)
 // -------------------------
+/** @noreq pure scalar clamp utility */
 float m_clamp(float val, float min, float max) {
   if (val < min) return min;
   if (val > max) return max;
@@ -43,21 +56,26 @@ float m_clamp(float val, float min, float max) {
 // -------------------------
 // absolute value
 // -------------------------
+/** Single-precision fabsf wrapper; keeps the control path off double libm.
+ * @implements CTRL-NUM-101 */
 float m_fabsf(float x) { return fabsf(x); }
 
 // -------------------------
 // NaN test
 // -------------------------
+/** @noreq NaN classification helper */
 int m_isnan(float x) { return isnan(x); }
 
 // -------------------------
 // finite test
 // -------------------------
+/** @noreq finite-value classification helper */
 int m_isfinite(float x) { return isfinite(x); }
 
 // -------------------------
 // normalize vector
 // -------------------------
+/** @noreq pure vector-math helper */
 void normalize_vector(vector_t *v) {
   if (!v || !v->values || v->length <= 0)
     return;
@@ -75,6 +93,7 @@ void normalize_vector(vector_t *v) {
   }
 }
 
+/** @noreq pure quaternion-math helper */
 void normalize_quaternion(quaternion_t *q) {
   float norm = m_sqrt(q->w * q->w + q->x * q->x + q->y * q->y + q->z * q->z);
   if (norm > 0.0f) {
@@ -85,6 +104,7 @@ void normalize_quaternion(quaternion_t *q) {
   }
 }
 
+/** @noreq pure quaternion-math helper */
 void quaternion_multiply(const quaternion_t *qa, const quaternion_t *qb,
                          quaternion_t *out) {
   out->w = qa->w * qb->w - qa->x * qb->x - qa->y * qb->y - qa->z * qb->z;
@@ -92,6 +112,7 @@ void quaternion_multiply(const quaternion_t *qa, const quaternion_t *qb,
   out->y = qa->w * qb->y - qa->x * qb->z + qa->y * qb->w + qa->z * qb->x;
   out->z = qa->w * qb->z + qa->x * qb->y - qa->y * qb->x + qa->z * qb->w;
 }
+/** @noreq pure quaternion-math helper */
 void quaternion_conjugate(const quaternion_t *q, quaternion_t *out) {
   out->w = q->w;
   out->x = -q->x;
@@ -99,6 +120,7 @@ void quaternion_conjugate(const quaternion_t *q, quaternion_t *out) {
   out->z = -q->z;
 }
 
+/** @noreq pure quaternion-math helper */
 void quaternion_from_euler(float roll, float pitch, float yaw,
                            quaternion_t *q) {
   float cr = m_cos(to_radians(roll) * 0.5f);

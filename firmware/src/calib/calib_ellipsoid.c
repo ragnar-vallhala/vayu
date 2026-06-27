@@ -11,7 +11,8 @@
 #define SQRT_F(x) m_sqrt(x)
 
 /* Positive cube root via range reduction (cbrt(8x)=2 cbrt(x)) + Newton.
- * Uses only multiply/compare so it is independent of libm extras. */
+ * Uses only multiply/compare so it is independent of libm extras.
+ * @noreq Math primitive (cube root) for the ellipsoid fit. */
 static float cbrt_pos(float x) {
   if (x <= 0.0f)
     return 0.0f;
@@ -31,7 +32,8 @@ static float cbrt_pos(float x) {
 }
 
 /* Solve A x = b for a 9x9 system via Gauss-Jordan with partial pivoting.
- * A (row-major) and b are destroyed. Returns 0 on success, -1 if singular. */
+ * A (row-major) and b are destroyed. Returns 0 on success, -1 if singular.
+ * @noreq Math primitive (9x9 linear solver) for the ellipsoid fit. */
 static int solve9x9(float A[81], float b[9], float x[9]) {
   const int n = 9;
   for (int col = 0; col < n; col++) {
@@ -75,7 +77,8 @@ static int solve9x9(float A[81], float b[9], float x[9]) {
 }
 
 /* Symmetric 3x3 eigen-decomposition via cyclic Jacobi rotations.
- * Eigenvalues -> w[3]; eigenvectors as columns of V (row-major 3x3). */
+ * Eigenvalues -> w[3]; eigenvectors as columns of V (row-major 3x3).
+ * @noreq Math primitive (symmetric 3x3 eigen-decomposition) for the fit. */
 static void jacobi_eig3(const float Ain[9], float w[3], float V[9]) {
   float a[9];
   for (int i = 0; i < 9; i++)
@@ -119,7 +122,8 @@ static void jacobi_eig3(const float Ain[9], float w[3], float V[9]) {
   w[2] = a[8];
 }
 
-/* Inverse of a 3x3 (row-major). Returns 0 on success, -1 if singular. */
+/* Inverse of a 3x3 (row-major). Returns 0 on success, -1 if singular.
+ * @noreq Math primitive (3x3 inverse) for the ellipsoid fit. */
 static int inv3x3(const float m[9], float out[9]) {
   float c00 = m[4] * m[8] - m[5] * m[7];
   float c01 = m[5] * m[6] - m[3] * m[8];
@@ -149,7 +153,9 @@ static int inv3x3(const float m[9], float out[9]) {
  *           of radius = geometric-mean semi-axis, so corrected |v| stays in the
  *           physical range)
  * Returns 0 on success; -1 if the system is singular or Q is not
- * positive-definite (degenerate / planar data). */
+ * positive-definite (degenerate / planar data).
+ *
+ * @implements SNS-CAL-101, SNS-CAL-103 */
 int calib_fit_ellipsoid(float S[81], float t[9], float offset[3], float soft[9]) {
   float p[9];
   if (solve9x9(S, t, p) != 0)

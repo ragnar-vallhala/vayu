@@ -8,6 +8,8 @@
  *
  * @param f The 32-bit float to convert.
  * @return uint16_t The 16-bit float representation.
+ *
+ * @noreq numeric conversion helper (telemetry payload compression).
  */
 uint16_t float32_to_float16(float f);
 

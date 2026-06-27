@@ -7,6 +7,13 @@
 #include <stddef.h> // For NULL
 #include <stdint.h>
 
+/**
+ * One-shot boot self-test sequence: enters INIT, runs the startup / system-clock
+ * (== SYS_CLOCK_FREQ) / SD-card checks, then transitions to STANDBY if all pass
+ * or FAILSAFE otherwise, and exits.
+ *
+ * @implements SYS-STATE-003
+ */
 void boot_task(void *args) {
   (void)args;
 

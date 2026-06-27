@@ -24,6 +24,7 @@ static bool s_ready;
 #define XFER_DONE_LINGER_MS 1000u
 
 /* ---- helpers ------------------------------------------------------------- */
+/** @noreq provider-registry lookup helper */
 static const xfer_provider_t *find_provider(uint16_t service_id) {
   for (uint8_t i = 0; i < s_provider_count; i++)
     if (s_providers[i]->service_id == service_id)
@@ -31,6 +32,7 @@ static const xfer_provider_t *find_provider(uint16_t service_id) {
   return NULL;
 }
 
+/** @noreq session-state reset helper */
 static void session_free(xfer_session_t *s) {
   uint8_t id = s->session;
   for (uint32_t i = 0; i < sizeof(*s); i++)
@@ -39,11 +41,13 @@ static void session_free(xfer_session_t *s) {
   s->state = XFER_ST_FREE;
 }
 
+/** @noreq trivial predicate */
 static bool is_stream(const xfer_session_t *s) {
   return s->total_size == XFER_SIZE_STREAM;
 }
 
 /* ---- lifecycle ----------------------------------------------------------- */
+/** @noreq substrate init + session-pool allocation glue */
 void xfer_init(const xfer_tx_ops_t *tx) {
   s_tx = tx;
   if (!s_sessions) {
@@ -59,6 +63,7 @@ void xfer_init(const xfer_tx_ops_t *tx) {
   s_ready = (s_sessions != NULL);
 }
 
+/** @noreq provider registration glue */
 int xfer_register_provider(const xfer_provider_t *p) {
   if (p == NULL || s_provider_count >= XFER_MAX_PROVIDERS)
     return -1;
@@ -68,6 +73,7 @@ int xfer_register_provider(const xfer_provider_t *p) {
   return 0;
 }
 
+/** @noreq session-pool reset helper */
 void xfer_reset_all(void) {
   if (!s_sessions)
     return;
@@ -77,6 +83,7 @@ void xfer_reset_all(void) {
   }
 }
 
+/** @noreq state predicate (log-suppression gate) */
 bool xfer_download_active(void) {
   if (!s_ready)
     return false;
@@ -89,12 +96,14 @@ bool xfer_download_active(void) {
   return false;
 }
 
+/** @noreq state predicate */
 bool xfer_session_active(uint8_t session) {
   if (!s_ready || session >= XFER_MAX_SESSIONS)
     return false;
   return s_sessions[session].state != XFER_ST_FREE;
 }
 
+/** @noreq state predicate (transfer-window log-suppression gate) */
 bool xfer_active(void) {
   if (!s_ready)
     return false;
@@ -108,6 +117,7 @@ bool xfer_active(void) {
   return false;
 }
 
+/** @noreq trivial accessor */
 const xfer_session_t *xfer_session_get(uint8_t session) {
   if (!s_ready || session >= XFER_MAX_SESSIONS)
     return NULL;

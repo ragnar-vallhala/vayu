@@ -36,6 +36,7 @@ typedef struct {
 static fs_list_t s_list;
 static fs_info_t s_info;
 
+/** @noreq bounded string-copy helper */
 static void copy_path(char *dst, const char *src) {
   uint32_t i = 0;
   for (; i < FS_QUERY_PATH_MAX - 1u && src[i] != '\0'; i++)
@@ -43,12 +44,14 @@ static void copy_path(char *dst, const char *src) {
   dst[i] = '\0';
 }
 
+/** @noreq init glue (binds the emitter, clears slots) */
 void fs_query_init(const fs_query_tx_ops_t *tx) {
   s_tx = tx;
   s_list.active = false;
   s_info.active = false;
 }
 
+/** @noreq state predicate */
 bool fs_query_busy(void) { return s_list.active || s_info.active; }
 
 int fs_query_on_list(uint8_t req_seq, uint8_t gcs_sys, uint8_t gcs_comp,

@@ -9,61 +9,61 @@
 - Active: **135** (of which 1 carry an inline 🟡 gap marker)
 - Dropped: **4**
 - Deferred: **2**
-- Active with implementer: **24 / 135**
+- Active with implementer: **97 / 135**
 - Active with verifier (or verified-upstream): **0 / 135**
 
 ## Trace
 
 | ID | Status | Title | Implementers | Verifiers |
 |----|--------|-------|--------------|-----------|
-| `ACT-ESC-001` | active | ESC PWM frequency | — | — |
-| `ACT-ESC-002` | active | ESC arming sequence | — | — |
-| `ACT-FAIL-001` | active | Disarm output | — | — |
-| `ACT-MOT-001` | active | Motor output range | — | — |
-| `ACT-MOT-002` | active | Motor task period | — | — |
-| `ACT-MOT-003` | active | Per-motor channel mapping | — | — |
-| `COMM-CH-001` | active | UART TX ping-pong buffer | — | — |
-| `COMM-CH-002` | active | UART backpressure | `firmware/include/comm/channel.h`<br>`firmware/src/comm/channel.c` | — |
-| `COMM-CMD-001` | active | Calibration commands | — | — |
-| `COMM-CMD-002` | active | Command payload validation | `firmware/include/control/pid_config.h`<br>`firmware/src/comm/comm_processor.c` | — |
-| `COMM-CMD-003` | active | CMD_SET_PID | `firmware/include/control/angle_controller.h`<br>`firmware/include/control/angle_rate_controller.h`<br>`firmware/include/control/pid_config.h`<br>`firmware/src/control/pid_config.c` | — |
-| `COMM-FLUSH-001` | active | Flush task | — | — |
-| `COMM-HB-001` | active | Heartbeat handshake | — | — |
+| `ACT-ESC-001` | active | ESC PWM frequency | `firmware/include/actuator/actuator.h` | — |
+| `ACT-ESC-002` | active | ESC arming sequence | `firmware/include/actuator/actuator.h` | — |
+| `ACT-FAIL-001` | active | Disarm output | `firmware/include/actuator/actuator.h` | — |
+| `ACT-MOT-001` | active | Motor output range | `firmware/include/actuator/actuator.h` | — |
+| `ACT-MOT-002` | active | Motor task period | `firmware/include/actuator/actuator.h` | — |
+| `ACT-MOT-003` | active | Per-motor channel mapping | `firmware/include/actuator/actuator.h` | — |
+| `COMM-CH-001` | active | UART TX ping-pong buffer | `firmware/src/comm/channel.c` | — |
+| `COMM-CH-002` | active | UART backpressure | `firmware/include/comm/channel.h`<br>`firmware/src/comm/channel.c`<br>`firmware/src/comm/navlink_tx.c` | — |
+| `COMM-CMD-001` | active | Calibration commands | `firmware/src/comm/comm_processor.c`<br>`firmware/src/comm/navlink_router.c` | — |
+| `COMM-CMD-002` | active | Command payload validation | `firmware/include/control/pid_config.h`<br>`firmware/src/comm/comm_processor.c`<br>`firmware/src/control/angle_rate_controller.c`<br>`firmware/src/control/flight_mode.c`<br>`firmware/src/control/pid_config.c` | — |
+| `COMM-CMD-003` | active | CMD_SET_PID | `firmware/include/control/angle_controller.h`<br>`firmware/include/control/angle_rate_controller.h`<br>`firmware/include/control/pid_config.h`<br>`firmware/src/comm/comm_processor.c`<br>`firmware/src/comm/navlink_router.c`<br>`firmware/src/control/angle_controller.c`<br>`firmware/src/control/angle_rate_controller.c`<br>`firmware/src/control/pid_config.c` | — |
+| `COMM-FLUSH-001` | active | Flush task | `firmware/src/comm/channel.c` | — |
+| `COMM-HB-001` | active | Heartbeat handshake | `firmware/src/comm/comm_processor.c` | — |
 | `COMM-PKT-001` | active | Outbound frame format | — | — |
 | `COMM-PKT-002` | active | Inbound frame parsing | — | — |
 | `COMM-PKT-003` | active | Inbound packet buffer | — | — |
-| `COMM-RC-001` | active | iBUS frame validity | — | — |
+| `COMM-RC-001` | active | iBUS frame validity | `firmware/src/comm/ibus.c` | — |
 | `COMM-RC-002` | active | RC loss detection | `firmware/include/comm/ibus.h`<br>`firmware/src/comm/rc_safety.c` | — |
-| `COMM-RC-003` | active | RC arming logic | — | — |
-| `COMM-RC-004` | active | iBUS transport | — | — |
+| `COMM-RC-003` | active | RC arming logic | `firmware/src/comm/rc_task.c` | — |
+| `COMM-RC-004` | active | iBUS transport | `firmware/src/comm/rc_task.c` | — |
 | `COMM-TEL-001` | active | Telemetry task cadence | — | — |
-| `COMM-TEL-002` | active | Heartbeat cadence | `firmware/src/comm/telemetry_task.c` | — |
-| `COMM-TEL-003` | active | Per-packet emission rates | — | — |
+| `COMM-TEL-002` | active | Heartbeat cadence | `firmware/src/comm/navlink_tx.c`<br>`firmware/src/comm/telemetry_task.c` | — |
+| `COMM-TEL-003` | active | Per-packet emission rates | `firmware/src/comm/navlink_tx.c` | — |
 | `COMM-TEL-004` | active | Conditional emission | — | — |
 | `CTRL-ANGLE-001` | active | Angle hold accuracy | — | — |
-| `CTRL-ANGLE-101` | active | Angle-loop trigger | — | — |
-| `CTRL-ANGLE-102` | active | Angle PID gains | — | — |
-| `CTRL-ANGLE-103` | active | RC stick mapping | — | — |
+| `CTRL-ANGLE-101` | active | Angle-loop trigger | `firmware/src/control/angle_controller.c` | — |
+| `CTRL-ANGLE-102` | active | Angle PID gains | `firmware/src/control/angle_controller.c` | — |
+| `CTRL-ANGLE-103` | active | RC stick mapping | `firmware/src/control/angle_controller.c` | — |
 | `CTRL-ARM-001` | active | Arming preconditions | `firmware/include/comm/ibus.h`<br>`firmware/src/comm/rc_safety.c` | — |
-| `CTRL-ARM-002` | active | Authority ramp | — | — |
-| `CTRL-FAIL-001` | active | Failsafe entry on attitude | — | — |
+| `CTRL-ARM-002` | active | Authority ramp | `firmware/src/control/angle_rate_controller.c` | — |
+| `CTRL-FAIL-001` | active | Failsafe entry on attitude | `firmware/src/control/angle_controller.c` | — |
 | `CTRL-FAIL-101` | active | Failsafe path | — | — |
-| `CTRL-MIX-001` | active | Motor mixing layout | — | — |
-| `CTRL-MIX-002` | active | Saturation-preserving scaling | — | — |
-| `CTRL-MIX-003` | active | Motor idle floor | — | — |
-| `CTRL-MIX-004` | active | Output gating by state | — | — |
-| `CTRL-MIX-101` | active | NaN guard | — | — |
+| `CTRL-MIX-001` | active | Motor mixing layout | `firmware/src/control/mixer.c` | — |
+| `CTRL-MIX-002` | active | Saturation-preserving scaling | `firmware/src/control/mixer.c` | — |
+| `CTRL-MIX-003` | active | Motor idle floor | `firmware/src/control/mixer.c` | — |
+| `CTRL-MIX-004` | active | Output gating by state | `firmware/src/control/angle_rate_controller.c` | — |
+| `CTRL-MIX-101` | active | NaN guard | `firmware/src/control/mixer.c` | — |
 | `CTRL-NUM-001` | active | Float-only arithmetic | — | — |
-| `CTRL-NUM-101` | active | No double-precision in loop | — | — |
-| `CTRL-PID-101` | active | Parallel-form PID | — | — |
-| `CTRL-PID-102` | active | PID reset on ARM transition | — | — |
-| `CTRL-PID-103` | active | PID integrator gating | — | — |
-| `CTRL-RATE-001` | active | Rate-loop frequency | — | — |
-| `CTRL-RATE-101` | active | Rate-loop trigger | `firmware/include/sensor/imu_buffer.h` | — |
+| `CTRL-NUM-101` | active | No double-precision in loop | `firmware/src/maths/maths_interface.c` | — |
+| `CTRL-PID-101` | active | Parallel-form PID | `firmware/src/control/pid.c` | — |
+| `CTRL-PID-102` | active | PID reset on ARM transition | `firmware/src/control/angle_rate_controller.c` | — |
+| `CTRL-PID-103` | active | PID integrator gating | `firmware/src/control/angle_rate_controller.c` | — |
+| `CTRL-RATE-001` | active | Rate-loop frequency | `firmware/src/control/angle_rate_controller.c` | — |
+| `CTRL-RATE-101` | active | Rate-loop trigger | `firmware/include/sensor/imu_buffer.h`<br>`firmware/src/sensor/imu_buffer.c` | — |
 | `CTRL-RATE-102` | active | Rate PID gains (hardware) | — | — |
 | `CTRL-RATE-103` | active | Rate PID gains (SITL) | — | — |
-| `EST-COMP-101` | active | Complementary parameters | — | — |
-| `EST-COV-001` | active | Estimator output queues | — | — |
+| `EST-COMP-101` | active | Complementary parameters | `firmware/src/est/sensor_fusion.c` | — |
+| `EST-COV-001` | active | Estimator output queues | `firmware/src/est/attitude_task.c` | — |
 | `EST-EKF-001` | active | EKF attitude estimator | `firmware/src/est/ekf.c` | — |
 | `EST-EKF-002` | active | Accel-bias variant | `firmware/src/est/ekf.c` | — |
 | `EST-EKF-101` | active | Init / reset / state selection | `firmware/src/est/ekf.c` | — |
@@ -72,13 +72,13 @@
 | `EST-EKF-104` | active | Accel-bias update (9-state) | `firmware/src/est/ekf.c` | — |
 | `EST-EKF-105` | active | Measurement gating | `firmware/src/est/ekf.c` | — |
 | `EST-EKF-106` | active | Covariance / quaternion health | `firmware/src/est/ekf.c` | — |
-| `EST-MAH-001` | active | Attitude convergence | — | — |
+| `EST-MAH-001` | active | Attitude convergence | `firmware/src/est/sensor_fusion.c` | — |
 | `EST-MAH-002` | active | Fault-sample rejection | `firmware/include/est/est.h`<br>`firmware/src/est/sensor_fusion.c` | — |
-| `EST-MAH-003` | active | Filter selection | — | — |
-| `EST-MAH-101` | active | Quaternion representation | — | — |
-| `EST-MAH-102` | active | Mahony gains | — | — |
+| `EST-MAH-003` | active | Filter selection | `firmware/src/est/attitude_task.c` | — |
+| `EST-MAH-101` | active | Quaternion representation | `firmware/src/est/sensor_fusion.c` | — |
+| `EST-MAH-102` | active | Mahony gains | `firmware/src/est/sensor_fusion.c` | — |
 | `EST-MAH-103` | active | dt source | — | — |
-| `EST-MAH-104` | active | Mag conditional update | — | — |
+| `EST-MAH-104` | active | Mag conditional update | `firmware/src/est/sensor_fusion.c` | — |
 | `EST-MAH-105` | active | Integral feedback bound | `firmware/include/est/est.h`<br>`firmware/src/est/sensor_fusion.c` | — |
 | `EST-MAH-106` | active | Init quaternion | — | — |
 | `HAL-API-001` | active | Host-stub portability | — | — |
@@ -93,61 +93,61 @@
 | `HAL-PWM-001` | active | ESC output sync | — | — |
 | `HAL-TIME-001` | active | Monotonic time | — | — |
 | `LOG-RATE-001` | active | Bounded log rate | — | — |
-| `LOG-SD-001` | active | SD-card ring-buffer logs | — | — |
-| `LOG-SD-002` | active | Wrap-on-full | — | — |
+| `LOG-SD-001` | active | SD-card ring-buffer logs | `firmware/src/storage/fs_owner.c` | — |
+| `LOG-SD-002` | active | Wrap-on-full | `firmware/src/comm/navlink_tx.c`<br>`firmware/src/storage/fs_owner.c` | — |
 | `LOG-SD-101` | active | Per-file mutex | — | — |
-| `LOG-SD-102` | active | Sync on every write | — | — |
-| `LOG-TXT-001` | active | Log line emission | `firmware/include/storage/fs_owner.h`<br>`firmware/src/logger/log_text.c` | — |
+| `LOG-SD-102` | active | Sync on every write | `firmware/src/storage/fs_owner.c` | — |
+| `LOG-TXT-001` | active | Log line emission | `firmware/include/storage/fs_owner.h`<br>`firmware/src/comm/navlink_tx.c`<br>`firmware/src/logger/log_text.c` | — |
 | `LOG-TXT-002` | active | Log queue drain | — | — |
-| `SNS-BMX-101` | active | Init sequence | — | — |
-| `SNS-BMX-102` | active | Sensor ranges | — | — |
-| `SNS-BMX-103` | active | Scale factors | — | — |
-| `SNS-BMX-104` | active | Read state machine | — | — |
-| `SNS-BMX-105` | active | DMA + semaphore handshake | — | — |
-| `SNS-BMX-106` | active | Axis-frame remap | — | — |
-| `SNS-BUF-001` | active | IMU buffer SPSC ring | — | — |
-| `SNS-BUF-002` | active | Drop accounting | — | — |
-| `SNS-CAL-001` | active | Persistent calibration store | — | — |
-| `SNS-CAL-002` | active | Online gyro bias estimator | — | — |
-| `SNS-CAL-101` | active | Accel ellipsoid calibration | — | — |
-| `SNS-CAL-102` | active | Gyro bias calibration | — | — |
-| `SNS-CAL-103` | active | Mag free-rotation calibration | — | — |
-| `SNS-I2C-001` | active | I2C bus contract | — | — |
-| `SNS-I2C-101` | active | Bus-acquire timeout | — | — |
-| `SNS-I2C-102` | active | Unstick procedure | — | — |
-| `SNS-IMU-001` | active | IMU sample availability | — | — |
-| `SNS-IMU-002` | active | Sample validity | — | — |
-| `SNS-LPF-101` | active | First-order LPF | — | — |
+| `SNS-BMX-101` | active | Init sequence | `firmware/src/sensor/bmx160.c` | — |
+| `SNS-BMX-102` | active | Sensor ranges | `firmware/src/sensor/bmx160.c` | — |
+| `SNS-BMX-103` | active | Scale factors | `firmware/src/sensor/bmx160.c` | — |
+| `SNS-BMX-104` | active | Read state machine | `firmware/src/sensor/bmx160.c` | — |
+| `SNS-BMX-105` | active | DMA + semaphore handshake | `firmware/src/sensor/bmx160.c` | — |
+| `SNS-BMX-106` | active | Axis-frame remap | `firmware/src/sensor/bmx160.c` | — |
+| `SNS-BUF-001` | active | IMU buffer SPSC ring | `firmware/src/sensor/imu_buffer.c` | — |
+| `SNS-BUF-002` | active | Drop accounting | `firmware/src/comm/navlink_tx.c`<br>`firmware/src/sensor/imu_buffer.c` | — |
+| `SNS-CAL-001` | active | Persistent calibration store | `firmware/src/sensor/bmx160.c` | — |
+| `SNS-CAL-002` | active | Online gyro bias estimator | `firmware/src/sensor/bmx160.c` | — |
+| `SNS-CAL-101` | active | Accel ellipsoid calibration | `firmware/src/calib/calib_ellipsoid.c`<br>`firmware/src/calib/calib_engine.c`<br>`firmware/src/sensor/bmx160.c` | — |
+| `SNS-CAL-102` | active | Gyro bias calibration | `firmware/src/calib/calib_engine.c`<br>`firmware/src/sensor/bmx160.c` | — |
+| `SNS-CAL-103` | active | Mag free-rotation calibration | `firmware/src/calib/calib_ellipsoid.c`<br>`firmware/src/calib/calib_engine.c`<br>`firmware/src/sensor/bmx160.c` | — |
+| `SNS-I2C-001` | active | I2C bus contract | `firmware/src/sensor/i2c_manager.c` | — |
+| `SNS-I2C-101` | active | Bus-acquire timeout | `firmware/src/sensor/i2c_manager.c` | — |
+| `SNS-I2C-102` | active | Unstick procedure | `firmware/src/sensor/i2c_manager.c` | — |
+| `SNS-IMU-001` | active | IMU sample availability | `firmware/src/sensor/bmx160.c` | — |
+| `SNS-IMU-002` | active | Sample validity | `firmware/src/sensor/bmx160.c` | — |
+| `SNS-LPF-101` | active | First-order LPF | `firmware/src/sensor/bmx160.c` | — |
 | `SNS-MAG-001` | active | Mag sample availability | — | — |
-| `SNS-MAG-002` | active | Mag disturbance rejection | — | — |
-| `SNS-MAG-101` | active | Trim-data compensation | — | — |
-| `SYS-CAL-001` | active | Gyro bias calibration | — | — |
-| `SYS-CAL-002` | active | Accel calibration | — | — |
-| `SYS-CAL-003` | active | Magnetometer axis coverage | — | — |
-| `SYS-CAL-004` | active | Calibration persistence | — | — |
-| `SYS-CTRL-001` | active | Manual rate mode (acro) | — | — |
-| `SYS-CTRL-002` | active | Stabilised angle mode | — | — |
-| `SYS-CTRL-003` | active | Mode selection via RC | — | — |
+| `SNS-MAG-002` | active | Mag disturbance rejection | `firmware/src/sensor/bmx160.c` | — |
+| `SNS-MAG-101` | active | Trim-data compensation | `firmware/src/sensor/bmx160.c` | — |
+| `SYS-CAL-001` | active | Gyro bias calibration | `firmware/src/sensor/bmx160.c` | — |
+| `SYS-CAL-002` | active | Accel calibration | `firmware/src/comm/navlink_tx.c`<br>`firmware/src/sensor/bmx160.c` | — |
+| `SYS-CAL-003` | active | Magnetometer axis coverage | `firmware/src/comm/navlink_tx.c`<br>`firmware/src/sensor/bmx160.c` | — |
+| `SYS-CAL-004` | active | Calibration persistence | `firmware/src/sensor/bmx160.c` | — |
+| `SYS-CTRL-001` | active | Manual rate mode (acro) | `firmware/src/control/angle_controller.c` | — |
+| `SYS-CTRL-002` | active | Stabilised angle mode | `firmware/src/control/angle_controller.c` | — |
+| `SYS-CTRL-003` | active | Mode selection via RC | `firmware/src/control/angle_controller.c` | — |
 | `SYS-PWR-001` | deferred | Battery monitor input | — | — |
 | `SYS-PWR-002` | deferred | Low-battery failsafe | — | — |
 | `SYS-SAFE-001` | active | Emergency disarm | — | — |
 | `SYS-SAFE-002` | active | RC loss behaviour | `firmware/include/comm/ibus.h`<br>`firmware/src/comm/rc_safety.c` | — |
 | `SYS-SAFE-003` | active | Sensor-fault failsafe | `firmware/include/est/est.h`<br>`firmware/src/est/sensor_fusion.c` | — |
-| `SYS-SAFE-004` | active | Max attitude failsafe | — | — |
+| `SYS-SAFE-004` | active | Max attitude failsafe | `firmware/src/control/angle_controller.c` | — |
 | `SYS-SAFE-005` | active | Arming preconditions | `firmware/include/comm/ibus.h`<br>`firmware/src/comm/rc_safety.c` | — |
 | `SYS-SAFE-006` | active | State-transition validation | `firmware/include/sys/state.h`<br>`firmware/src/sys/state.c` | — |
 | `SYS-STATE-001` | active | State enumeration | `firmware/src/sys/state.c` | — |
 | `SYS-STATE-002` | active | Read accessor | `firmware/include/sys/state.h`<br>`firmware/src/sys/state.c` | — |
-| `SYS-STATE-003` | active | Boot start state | — | — |
-| `SYS-TEL-001` | active | Heartbeat cadence | — | — |
-| `SYS-TEL-002` | active | IMU stream | — | — |
+| `SYS-STATE-003` | active | Boot start state | `firmware/src/sys/boot.c` | — |
+| `SYS-TEL-001` | active | Heartbeat cadence | `firmware/src/comm/navlink_tx.c` | — |
+| `SYS-TEL-002` | active | IMU stream | `firmware/src/comm/navlink_tx.c` | — |
 | `SYS-TEL-003` | active | System-state announcement | — | — |
 | `SYS-TEL-004` | active | Wire framing | — | — |
 | `SYS-TIM-001` | active | Cold-boot time | — | — |
 | `SYS-TIM-002` | 🟡 active (gap) | Rate-loop closure | — | — |
 | `SYS-TIM-003` | active | Outer-loop closure | — | — |
-| `SYS-TIM-004` | active | System clock | — | — |
-| `SYS-TIM-005` | active | High-frequency timer | — | — |
+| `SYS-TIM-004` | active | System clock | `firmware/src/main.c` | — |
+| `SYS-TIM-005` | active | High-frequency timer | `firmware/include/sys/timer_callbacks.h`<br>`firmware/src/main.c`<br>`firmware/src/sys/timer_callbacks.c` | — |
 | `VOS-IPC-001` | active | Message queue API | — | — |
 | `VOS-IPC-101` | active | Queue post-from-ISR | — | — |
 | `VOS-ISR-001` | active | ISR-safe API subset | — | — |

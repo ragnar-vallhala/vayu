@@ -18,6 +18,10 @@ static hal_timer_t _timer_inst = TIM5;
 static uint32_t _timer_interrupt_freq = 0;
 static volatile uint64_t _interrupt_count = 0;
 
+/* TIM5 update ISR: dispatches each registered callback at its requested
+ * sub-millisecond period.
+ *
+ * @implements SYS-TIM-005 */
 static void _timer_isr_handler(void) {
   _interrupt_count++;
   uint32_t us_per_interrupt = 1000000 / _timer_interrupt_freq;
@@ -45,6 +49,7 @@ void timer_callback_init(uint32_t freq_hz) {
   hal_timer_attach_callback(_timer_inst, _timer_isr_handler);
   hal_timer_enable_interrupt(_timer_inst);
 }
+/* @noreq trivial accessor: returns the configured HF timer frequency. */
 uint32_t timer_get_callback_frequency(void) { return _timer_interrupt_freq; }
 
 int timer_callback_register(void (*fn)(void), uint32_t us_delay) {

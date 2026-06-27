@@ -13,6 +13,7 @@
 #include "storage/fs_owner.h"
 #include "vfs.h"
 
+/** @noreq file-size helper */
 static long file_size_of(const char *path) {
   vfs_fd_t fd = vfs_open(path, VFS_O_RDONLY);
   if (fd < 0)
@@ -22,6 +23,7 @@ static long file_size_of(const char *path) {
   return sz;
 }
 
+/** @noreq FILE provider open (fs_owner-backed adapter) */
 static int file_open(xfer_session_t *s, const xfer_open_args_t *a,
                      uint32_t *total_out) {
   (void)a;
@@ -45,11 +47,13 @@ static int file_open(xfer_session_t *s, const xfer_open_args_t *a,
   return 0;
 }
 
+/** @noreq fs_owner_read_at adapter */
 static int file_read(xfer_session_t *s, uint32_t off, uint8_t *buf,
                      uint16_t max) {
   return fs_owner_read_at(s->arg, off, buf, max);
 }
 
+/** @noreq fs_owner write-at adapter */
 static int file_write(xfer_session_t *s, uint32_t off, const uint8_t *buf,
                       uint16_t len) {
   /* true => accepted (return len); false => write-at lane full => 0 = backpressure
@@ -65,6 +69,7 @@ static int file_write(xfer_session_t *s, uint32_t off, const uint8_t *buf,
  * flushing (fs_owner draining/retrying), <0 = a write permanently failed
  * (-> FAILED). The xfer SM polls this after EOF before the terminal ack, so the
  * GCS's DONE means the bytes are on the SD card, not merely enqueued. */
+/** @noreq fs_owner persistence-poll adapter */
 static int file_flush(xfer_session_t *s) {
   if (fs_owner_writeat_failed(s->session))
     return -1;
@@ -82,10 +87,12 @@ static const xfer_provider_t FILE_PROVIDER = {
     .flush = file_flush,
 };
 
+/** @noreq provider registration */
 int file_provider_register(void) {
   return xfer_register_provider(&FILE_PROVIDER);
 }
 
+/** @noreq provider registration glue */
 int xfer_providers_register_all(void) {
   int rc = 0;
   rc |= file_provider_register();

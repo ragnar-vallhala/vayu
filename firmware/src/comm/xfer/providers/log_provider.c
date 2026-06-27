@@ -15,6 +15,7 @@
 #include "vfs.h"
 
 /* Resolve the arg name to a blackbox path (default: general). */
+/** @noreq blackbox-name to path resolver helper */
 static const char *log_path_for(const char *name) {
   if (name[0] == 'n' || name[0] == 'N')
     return NAVLINK_LOGGING_FILENAME;
@@ -23,6 +24,7 @@ static const char *log_path_for(const char *name) {
   return GENERAL_LOGGING_FILENAME;
 }
 
+/** @noreq LOG provider open (fs_owner-backed adapter) */
 static int log_open(xfer_session_t *s, const xfer_open_args_t *a,
                     uint32_t *total_out) {
   (void)a;
@@ -40,6 +42,7 @@ static int log_open(xfer_session_t *s, const xfer_open_args_t *a,
   return 0;
 }
 
+/** @noreq fs_owner_read_at adapter */
 static int log_read(xfer_session_t *s, uint32_t off, uint8_t *buf,
                     uint16_t max) {
   return fs_owner_read_at((const char *)s->user, off, buf, max);
@@ -55,4 +58,5 @@ static const xfer_provider_t LOG_PROVIDER = {
     .close = NULL,
 };
 
+/** @noreq provider registration */
 int log_provider_register(void) { return xfer_register_provider(&LOG_PROVIDER); }

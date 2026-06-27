@@ -39,6 +39,7 @@ static bool command_payload_valid(uint16_t len, uint8_t argc,
  * comm_processor_task's loop so the GCS -> FC command path can be exercised
  * end-to-end in SITL (deserialize a real GCS frame -> dispatch), independent
  * of the blocking RX queue. */
+/** @implements COMM-CMD-001, COMM-CMD-003, COMM-HB-001 */
 void comm_processor_dispatch(const packet_t *pkt) {
   uint8_t packet_type = (pkt->protocol_packet_type >> 4) & 0x0F;
 
@@ -141,6 +142,7 @@ void comm_processor_dispatch(const packet_t *pkt) {
   }
 }
 
+/** @noreq comm RX task loop wrapper (drives navlink_router_poll) */
 void comm_processor_task(void *args) {
   (void)args;
   packet_t pkt;

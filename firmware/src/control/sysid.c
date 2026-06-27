@@ -38,10 +38,12 @@ static int s_decim = 0;
 static int s_dump_active = 0;
 static int s_dump_pos = 0; // next sample index to stream
 
+/** @noreq scalar clamp helper. */
 static float clampf(float v, float lo, float hi) {
   return v < lo ? lo : (v > hi ? hi : v);
 }
 
+/** @noreq i16 quantise helper. */
 static int16_t to_i16(float v, float scale) { // v*scale, clamped to i16
   float s = v * scale;
   s = clampf(s, -32768.0f, 32767.0f);
@@ -73,10 +75,13 @@ void sysid_start(const sysid_request_t *req) {
   s_active = 1;
 }
 
+/** @noreq abort-flag setter. */
 void sysid_abort(void) { s_active = 0; }
 
+/** @noreq active-flag accessor. */
 int sysid_active(void) { return s_active; }
 
+/** @noreq inject-mode accessor. */
 int sysid_inject_mode(void) { return s_mode; }
 
 void sysid_step(float dt, const float angles_deg[3], const float rates_dps[3],
@@ -140,20 +145,26 @@ void sysid_capture(const float u[3], const float gyro[3]) {
   s_cap_n++;
 }
 
+/** @noreq capture-count accessor. */
 int sysid_capture_count(void) { return s_cap_n; }
+/** @noreq capture-rate accessor. */
 int sysid_capture_hz(void) { return SYSID_CAP_HZ; }
+/** @noreq excited-axis accessor. */
 int sysid_capture_axis(void) { return s_axis; }
 
 /* No-op: capture is RAM-only, so there is nothing to flush. Present so the
- * telemetry task has a stable call site. */
+ * telemetry task has a stable call site.
+ * @noreq no-op stub (stable call site). */
 void sysid_flush_poll(void) {}
 
 /* --- dump: stream the RAM buffer back, called from the telemetry task --- */
+/** @noreq dump-cursor init (glue for the proposed CTRL-SID-102 readout). */
 void sysid_dump_request(void) {
   s_dump_pos = 0;
   s_dump_active = (s_cap_n > 0);
 }
 
+/** @noreq dump-in-progress accessor. */
 int sysid_dump_active(void) { return s_dump_active; }
 
 int sysid_dump_next(uint16_t *start, int16_t *u, int16_t *gyro, int cap) {

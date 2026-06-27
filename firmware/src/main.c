@@ -28,17 +28,26 @@ uint32_t bmx160_task_id = 0;
 #ifdef EKF_SELFTEST
 /* On-target EKF self-test: run the shared branch-coverage scenarios and report
  * each check + the total over the telemetry UART (via vayu_log). Built only
- * with -DEKF_SELFTEST; see CMake option of the same name. */
+ * with -DEKF_SELFTEST; see CMake option of the same name.
+ *
+ * @noreq build-gated diagnostic: self-test result log callback. */
 static void ekf_selftest_log_report(void *ctx, bool pass, const char *name) {
   (void)ctx;
   vayu_log("[EKF-SELFTEST] %s %s", pass ? "ok  " : "FAIL", name);
 }
+/* @noreq build-gated diagnostic: runs the EKF self-test scenarios at boot. */
 static void run_ekf_selftest(void) {
   int fails = ekf_selftest_run(ekf_selftest_log_report, NULL);
   vayu_log("[EKF-SELFTEST] total failures: %d", fails);
 }
 #endif
 
+/**
+ * Configure the system clock: HSE 8 MHz crystal → PLL (M=8 N=336 P=4 Q=7)
+ * → 84 MHz SYSCLK on the STM32F401RE.
+ *
+ * @implements SYS-TIM-004
+ */
 void clock_setup(void) {
   hal_pll_config_t pll_cfg_hse = {
       .input_src = HAL_CLOCK_SOURCE_HSE, /**< External 8 MHz crystal */
@@ -53,6 +62,8 @@ void clock_setup(void) {
   hal_clock_init(&cfg, &pll_cfg_hse);
 }
 
+/* @noreq boot plumbing: brings up sensor buffers + drivers and opens the
+ * telemetry UART channel. No standalone behavioural requirement. */
 void init_sensors(void) {
   imu_buffer_init();
   control_telemetry_buffer_init();
@@ -77,7 +88,9 @@ void init_sensors(void) {
  * rounded up to a multiple of 64 (so >=8-byte aligned for AAPCS / v_malloc).
  * Net: every task keeps >=400 B below its peak. Re-check the Kernel Perf view
  * after exercising worst-case paths (arm, calibrate, failsafe) before tightening
- * further. Peak at last measurement noted per line. */
+ * further. Peak at last measurement noted per line.
+ *
+ * @noreq boot plumbing: creates the steady-state RTOS task set. */
 void init_tasks(void) {
   // Deepest dispatch on the system: the NavLink router runs the xfer + fs_query
   // handlers here, building large aligned message structs on-stack (XFER_DATA
@@ -117,6 +130,12 @@ void init_tasks(void) {
   // chunk buffer (RAM budget: docs/plans/xfer-memory-budget.md).
   task_create_named(xfer_service_task, NULL, 832, 0, "xfer"); // peak 404
 }
+/**
+ * Bring up the 10 kHz high-frequency timer (TIM5) and register its periodic
+ * callbacks (HF tick counter + IMU fast-sample tick).
+ *
+ * @implements SYS-TIM-005
+ */
 void init_timer_callbacks(void) {
   timer_callback_init(HIGH_FREQ_TIMER_FREQ);
   if (timer_callback_register(increment_high_freq_timer, 1) != 0) {
@@ -130,6 +149,7 @@ void init_timer_callbacks(void) {
     return;
   };
 }
+/* @noreq boot plumbing: spawns the heartbeat task + one-shot boot task. */
 void system_init_tasks(void) {
   task_create_named(heartbeat_task, NULL, 576, 0, "heartbeat"); // peak 124
   // boot_task runs the one-shot boot sequence then exits (stack freed); left at
@@ -141,6 +161,9 @@ hal_i2c_config_t i2c_config = {
     .own_address = I2C_MASTER,
     .acknowledge = true};
 
+/* @noreq top-level boot orchestration: runs the init sequence and starts the
+ * scheduler. Cold-boot timing (SYS-TIM-001) is a system-level property
+ * verified at bench, not implemented by this entry point. */
 int main() {
   /* CONV-01 / CONV-02 canary: forces vayu_status.h and vayu_assert.h
    * into the link; doubles as a real check that the state machine

@@ -11,6 +11,7 @@
 
 #include "maths/maths_interface.h"
 
+/* @noreq trivial flight-phase detector struct init. */
 void flight_phase_init(flight_phase_t *fp) {
   fp->ground_ref = 0.0f;
   fp->have_ref = false;

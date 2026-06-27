@@ -14,6 +14,7 @@ extern channel_t g_telemetry_channel; /* defined in telemetry_task.c */
 
 /* --- periodic telemetry --------------------------------------------------- */
 
+/** @implements LOG-TXT-001 */
 void navlink_tx_log(const char *buf, uint8_t len) {
   /* v2 STATUSTEXT (msgid 4). buf is a bulk drain of newline-delimited log lines;
    * emit one STATUSTEXT per line. Each NavLink text field holds up to 50 chars; a
@@ -40,6 +41,7 @@ void navlink_tx_log(const char *buf, uint8_t len) {
   }
 }
 
+/** @noreq sysid capture dump (bench/diagnostic tooling) */
 void navlink_tx_sysid_sample(uint16_t start, uint16_t total, uint16_t hz,
                              uint8_t axis, uint8_t count, const int16_t *u,
                              const int16_t *gyro) {
@@ -59,6 +61,7 @@ void navlink_tx_sysid_sample(uint16_t start, uint16_t total, uint16_t hz,
   write_channel(g_telemetry_channel, frame, (uint16_t)n);
 }
 
+/** @implements SYS-TEL-001, COMM-TEL-002 */
 void navlink_tx_heartbeat(void) {
   /* v2 HEARTBEAT (msgid 0); carries liveness + the flight-state in nav_state.
    * The firmware flight-state machine is a one-hot bitmask (sys/state.h:
@@ -90,6 +93,7 @@ void navlink_tx_flight_mode(uint8_t mode, uint8_t source) {
   write_channel(g_telemetry_channel, frame, (uint16_t)n);
 }
 
+/** @implements COMM-CH-002, SNS-BUF-002, LOG-SD-002 */
 void navlink_tx_health(uint32_t tx_overflow, uint32_t imu_drop,
                        uint32_t log_wrap) {
   /* v2 SYSTEM_HEALTH (msgid 2). The cpu_load field has no firmware source
@@ -106,6 +110,7 @@ void navlink_tx_health(uint32_t tx_overflow, uint32_t imu_drop,
   write_channel(g_telemetry_channel, frame, (uint16_t)n);
 }
 
+/** @implements COMM-TEL-003 */
 void navlink_tx_pid_error(const control_telemetry_t *c) {
   /* v2 CONTROL_TRACE (msgid 1030). control_telemetry_t and navlink_control_trace_t
    * are both 18 contiguous f32 in identical field order, so a straight copy
@@ -132,6 +137,7 @@ void navlink_tx_est_perf(const est_perf_telemetry_t *e) {
   write_channel(g_telemetry_channel, frame, (uint16_t)n);
 }
 
+/** @implements SYS-TEL-002, COMM-TEL-003 */
 void navlink_tx_imu_full(const float floats10[10]) {
   /* v2 IMU_RAW (msgid 1024). floats10 is acc[3], gyr[3], mag[3], temp.
    * sample_time_us has no source here -> 0. */
@@ -153,6 +159,7 @@ void navlink_tx_imu_full(const float floats10[10]) {
   write_channel(g_telemetry_channel, frame, (uint16_t)n);
 }
 
+/** @implements SYS-TEL-002, COMM-TEL-003 */
 void navlink_tx_imu_compressed(const uint16_t delta_f16[10]) {
   /* v2 IMU_COMPRESSED (msgid 1025). The 10 binary16 delta bit patterns ride as
    * u16 (delta vs the last IMU_RAW; the GCS reconstructs). ref_seq is unused by
@@ -169,6 +176,7 @@ void navlink_tx_imu_compressed(const uint16_t delta_f16[10]) {
   write_channel(g_telemetry_channel, frame, (uint16_t)n);
 }
 
+/** @implements COMM-TEL-003 */
 void navlink_tx_attitude(const attitude_t *att_deg) {
   /* v2 ATTITUDE_EULER; angles converted from degrees to radians. */
   static uint8_t s_att_tx_seq = 0;
@@ -211,6 +219,7 @@ void navlink_tx_vertical_state(const vertical_state_t *vs) {
   write_channel(g_telemetry_channel, frame, (uint16_t)n);
 }
 
+/** @implements COMM-TEL-003 */
 void navlink_tx_rc_channels(const ibus_data_t *rc) {
   /* v2 RC_CHANNELS (msgid 1028). Carries IBUS_MAX_CHANNELS (14) u16 into an 18-wide
    * field, so the tail stays 0. rssi has no source -> 0; count reports how many
@@ -226,6 +235,7 @@ void navlink_tx_rc_channels(const ibus_data_t *rc) {
   write_channel(g_telemetry_channel, frame, (uint16_t)n);
 }
 
+/** @implements COMM-TEL-003 */
 void navlink_tx_motor(const motor_outputs_t *m) {
   /* v2 MOTOR_TELEMETRY (msgid 1029). 4 motors populated into an up-to-8 field, so
    * motors 4..7 stay 0. */
@@ -241,6 +251,7 @@ void navlink_tx_motor(const motor_outputs_t *m) {
   write_channel(g_telemetry_channel, frame, (uint16_t)n);
 }
 
+/** @implements SYS-CAL-002, SYS-CAL-003 */
 void navlink_tx_calibration(const uint8_t *buf, uint8_t len) {
   /* v2 CALIBRATION_STATUS (msgid 12320). Input buffer layout: [0]=origin
    * [1]=nargs [2]=step [3..]=float payload. For the MAG_AXIS_COVERAGE step

@@ -11,11 +11,13 @@ static volatile flight_mode_t s_override_mode = FLIGHT_MODE_ANGLE;
 static volatile flight_mode_t s_effective = FLIGHT_MODE_ANGLE;
 static volatile flight_mode_src_t s_source = FLIGHT_MODE_SRC_RC;
 
+/** @noreq GCS flight-mode override setter (see proposed SYS-CTRL-004). */
 void flight_mode_set_override(flight_mode_t mode) {
   s_override_mode = mode;
   s_override_active = true;
 }
 
+/** @noreq clears the GCS flight-mode override (see proposed SYS-CTRL-004). */
 void flight_mode_release(void) { s_override_active = false; }
 
 bool flight_mode_resolve_acro(bool rc_acro) {
@@ -33,9 +35,18 @@ bool flight_mode_resolve_acro(bool rc_acro) {
   return mode == FLIGHT_MODE_ACRO;
 }
 
+/** @noreq trivial effective-mode accessor. */
 flight_mode_t flight_mode_get(void) { return s_effective; }
+/** @noreq trivial mode-source accessor. */
 flight_mode_src_t flight_mode_get_source(void) { return s_source; }
 
+/**
+ * Parse a CMD_SET_FLIGHT_MODE payload, validating argc/length before reading
+ * the float arg (COMM-CMD-002). The override behaviour it drives is not yet
+ * covered by a requirement (see proposed SYS-CTRL-004).
+ *
+ * @implements COMM-CMD-002
+ */
 bool flight_mode_apply_command(const uint8_t *payload, uint8_t length) {
   /* [cmd_id:2][argc:1][arg0:f32] — need at least one float arg. */
   if (length < 7) {

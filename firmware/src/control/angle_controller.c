@@ -18,16 +18,19 @@ static angle_controller_outputs_t
     angle_controller_out_buf[ANGLE_CONTROLLER_2_RATE_CONTROLLER_BUFFER_SIZE] = {
         0};
 static spsc_fifo_t angle_controller_fifo;
+/** @noreq static outputs-FIFO init (infrastructure). */
 static void init_fifo(void) {
   spsc_init(&angle_controller_fifo, angle_controller_out_buf,
             ANGLE_CONTROLLER_2_RATE_CONTROLLER_BUFFER_SIZE,
             sizeof(angle_controller_outputs_t));
   spsc_set_policy(&angle_controller_fifo, SPSC_POLICY_OVERWRITE);
 }
+/** @noreq static outputs-FIFO push (infrastructure). */
 static void fifo_push(angle_controller_outputs_t *outputs) {
   spsc_write(&angle_controller_fifo, outputs, 1);
 }
 
+/** @noreq outputs-FIFO read (infrastructure). */
 bool angle_controller_get_outputs(angle_controller_outputs_t *outputs) {
   return spsc_read(&angle_controller_fifo, outputs, 1);
 }
@@ -35,6 +38,7 @@ bool angle_controller_get_outputs(angle_controller_outputs_t *outputs) {
 /* Latest commanded throttle, mirrored out-of-band so non-consuming observers
  * (the takeoff/landing detector) don't steal from the rate-controller FIFO. */
 static volatile float _last_throttle = 0.0f;
+/** @noreq latest-throttle accessor (non-destructive observer). */
 float angle_controller_last_throttle(void) { return _last_throttle; }
 
 static angle_controller_t angle_controller = {
@@ -86,6 +90,12 @@ static angle_controller_t angle_controller = {
         },
     }};
 
+/**
+ * Init the angle-loop PIDs from the compiled defaults, then override each axis
+ * with any tune persisted to SD and restored at boot (pid_config_get_angle).
+ *
+ * @implements COMM-CMD-003
+ */
 void angle_controller_init(void) {
   init_fifo();
   for (int i = 0; i < NUM_AXES; i++) {
@@ -118,6 +128,14 @@ typedef struct {
   float channels[4];
 } rc_data_t;
 
+/**
+ * Normalise the RC sticks: a ±PID_RC_DEADBAND deadband around 1500, linear map
+ * to the normalised range (throttle 0..1, others ±1) with a pre-shape clamp,
+ * then the PID_RC2ANGLE_RATE_MODE expo curve (CUBIC default) — the stick
+ * mapping of CTRL-ANGLE-103 (per-axis ° scaling is applied by the caller).
+ *
+ * @implements CTRL-ANGLE-103
+ */
 static inline rc_data_t normalize_rc_data(ibus_data_t rc_data) {
   rc_data_t normalized_rc_data;
   for (int i = 0; i < 4; i++) {
@@ -168,6 +186,17 @@ static inline rc_data_t normalize_rc_data(ibus_data_t rc_data) {
   return normalized_rc_data;
 }
 
+/**
+ * Outer angle/stabilise loop: a drift-free ~500 Hz periodic task that reads the
+ * latest RC sticks and attitude estimate and writes rate setpoints to the rate
+ * loop (CTRL-ANGLE-101). Roll/pitch are pure-P attitude-controlled with the
+ * output saturated (CTRL-ANGLE-102); the RC ACRO switch selects acro (rate,
+ * SYS-CTRL-001) vs stabilise (angle, SYS-CTRL-002) mode (SYS-CTRL-003). In
+ * angle mode |roll|/|pitch| beyond MAX_ANGLE_CUTOFF requests FAILSAFE
+ * (CTRL-FAIL-001 / SYS-SAFE-004); yaw is excluded by design.
+ *
+ * @implements CTRL-ANGLE-101, CTRL-ANGLE-102, SYS-CTRL-001, SYS-CTRL-002, SYS-CTRL-003, CTRL-FAIL-001, SYS-SAFE-004
+ */
 void angle_controller_task(void *arg) {
   (void)arg;
   angle_controller_init();

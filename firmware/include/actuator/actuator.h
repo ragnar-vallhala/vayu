@@ -35,19 +35,25 @@ typedef struct {
  * @param timer Hardware timer.
  * @param channel PWM channel.
  * @param pin GPIO pin for PWM output.
+ *
+ * @implements ACT-ESC-001
  */
 void esc_init(ESC_Handle *esc, hal_timer_t timer, uint32_t channel,
               hal_gpio_pin_t pin);
 
-/** @brief Arm the ESC (sends min throttle for a period). */
+/** @brief Arm the ESC (sends min throttle for a period).
+ *  @noreq thin hal_pwm_start primitive; the boot arming sequence is ACT-ESC-002. */
 void esc_arm(ESC_Handle *esc);
 
-/** @brief Disarm the ESC (stops PWM or sends a safe signal). */
+/** @brief Disarm the ESC (stops PWM or sends a safe signal).
+ *  @noreq thin hal_pwm_stop primitive (not the failsafe path; see ACT-FAIL-001). */
 void esc_disarm(ESC_Handle *esc);
 
 /**
  * @brief Set the throttle level for the ESC.
  * @param throttle Throttle value from 0.0 to 1.0.
+ *
+ * @implements ACT-MOT-001
  */
 void esc_set_throttle(ESC_Handle *esc, float throttle);
 
@@ -65,11 +71,17 @@ typedef struct {
   float m4;
 } motor_outputs_t;
 
+/** @implements ACT-ESC-002, ACT-MOT-003 */
 void motor_init(void);
+/** @noreq trivial motor-ready flag setter */
 void set_motor_ready(bool ready);
+/** @noreq trivial motor-ready flag getter */
 bool get_motor_ready(void);
+/** @noreq motor-output FIFO producer; thin spsc_write wrapper */
 void motor_set_outputs(motor_outputs_t motor_outputs);
+/** @implements ACT-MOT-002, ACT-FAIL-001 */
 void motor_task(void *arg);
+/** @noreq motor-telemetry FIFO accessor; thin spsc_read wrapper */
 bool motor_telemetry_queue_pop(motor_outputs_t *out_data);
 
 #endif // VAYU_ACTUATOR_H

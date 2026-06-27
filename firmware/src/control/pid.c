@@ -2,6 +2,7 @@
 #include "maths/maths_interface.h"
 #include <stdbool.h>
 
+/** @noreq PID struct field initialiser (infrastructure). */
 void v_pid_init(struct PID *pid, float Kp, float Ki, float Kd, float Kff,
                 float i_max, float d_max, float d_lpf_rc, float out_min,
                 float out_max) {
@@ -20,6 +21,13 @@ void v_pid_init(struct PID *pid, float Kp, float Ki, float Kd, float Kff,
   pid->initialized = false;
 }
 
+/**
+ * Parallel-form P+I+D+FF step: integrator clamped to ±i_max during accumulation
+ * and frozen when P+I saturates (anti-windup), derivative-on-measurement with a
+ * first-order LPF (α = dt/(dt+d_lpf_rc)), output clamped to [out_min, out_max].
+ *
+ * @implements CTRL-PID-101
+ */
 float v_pid_update(struct PID *pid, float sp, float meas, float sp_dot,
                    float dt) {
   if (dt <= 1e-6f) {
@@ -65,6 +73,7 @@ float v_pid_update(struct PID *pid, float sp, float meas, float sp_dot,
   return m_clamp(output_full, pid->out_min, pid->out_max);
 }
 
+/** @noreq PID state-reset primitive (zeroes integrator + derivative state). */
 void v_pid_reset(struct PID *pid) {
   pid->integral = 0;
   pid->prev_meas = 0;
@@ -72,6 +81,7 @@ void v_pid_reset(struct PID *pid) {
   pid->initialized = false;
 }
 
+/** @noreq trivial gain setter. */
 void v_pid_set_gains(struct PID *pid, float Kp, float Ki, float Kd, float Kff) {
   pid->Kp = Kp;
   pid->Ki = Ki;
@@ -79,23 +89,28 @@ void v_pid_set_gains(struct PID *pid, float Kp, float Ki, float Kd, float Kff) {
   pid->Kff = Kff;
 }
 
+/** @noreq trivial output-limit setter. */
 void v_pid_set_limits(struct PID *pid, float out_min, float out_max) {
   pid->out_min = out_min < out_max ? out_min : out_max;
   pid->out_max = out_min < out_max ? out_max : out_min;
 }
 
+/** @noreq trivial i_max setter. */
 void v_pid_set_i_max(struct PID *pid, float i_max) { pid->i_max = i_max; }
 
+/** @noreq trivial D-term LPF time-constant setter. */
 void v_pid_set_d_lpf_rc(struct PID *pid, float d_lpf_rc) {
   pid->d_lpf_rc = (d_lpf_rc > 0.0f) ? d_lpf_rc : 0.0f;
   pid->d_filtered = 0; /* reset the filter state so the new RC starts clean */
 }
 
+/** @noreq trivial prev-measurement setter. */
 void v_pid_set_prev_meas(struct PID *pid, float prev_meas) {
   pid->prev_meas = prev_meas;
   pid->initialized = false;
 }
 
+/** @noreq integral setter (clamped to ±i_max). */
 void v_pid_set_integral(struct PID *pid, float integral) {
   pid->integral = m_clamp(integral, -pid->i_max, pid->i_max);
 }

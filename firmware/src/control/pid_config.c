@@ -58,6 +58,7 @@ void pid_config_init(void) {
 }
 
 /* ------------------------------------------------------------------- get */
+/** @noreq static store-slot accessor (infrastructure). */
 static bool get_slot(pid_ctrl_sel_t ctrl, uint8_t axis, float *kp, float *ki,
                      float *kd, float *kff) {
   if (ctrl >= PID_CTRL_COUNT || axis >= NUM_AXES) {
@@ -84,6 +85,7 @@ bool pid_config_get_angle(uint8_t axis, float *kp, float *ki, float *kd,
   return get_slot(PID_CTRL_ANGLE, axis, kp, ki, kd, kff);
 }
 
+/** @noreq gyro-LPF store getter (CMD_SET_GYRO_LPF persistence; see CTRL-RATE-105). */
 bool pid_config_get_gyro_lpf(uint8_t axis, float *rc) {
   if (axis >= NUM_AXES || rc == NULL || !s_store.gyro_lpf_valid[axis]) {
     return false;
@@ -92,6 +94,7 @@ bool pid_config_get_gyro_lpf(uint8_t axis, float *rc) {
   return true;
 }
 
+/** @noreq D-term LPF store getter (CMD_SET_D_LPF persistence). */
 bool pid_config_get_d_lpf(uint8_t axis, float *rc) {
   if (axis >= NUM_AXES || rc == NULL || !s_store.d_lpf_valid[axis]) {
     return false;
@@ -106,12 +109,14 @@ bool pid_config_get_d_lpf(uint8_t axis, float *rc) {
  * asynchronous (off the comm task, so a slow SD write can't stall RX) and
  * best-effort. Snapshotting is what makes the async write safe against a
  * concurrent CMD_SET_PID mutating s_store before the FS task runs. */
+/** @noreq async store-snapshot persist to SD (glue for COMM-CMD-003). */
 static void pid_config_save(void) {
   s_store.magic = PID_CONFIG_MAGIC;
   fs_owner_enqueue_pid_save(&s_store, sizeof s_store);
 }
 
 /* --------------------------------------------------------------- command */
+/** @noreq payload float-arg extractor (infrastructure). */
 static float arg_f(const uint8_t *payload, int idx) {
   float f;
   v_memcpy(&f, &payload[3 + idx * 4], 4); /* args start at payload[3] */
@@ -173,6 +178,13 @@ vayu_status_t pid_config_apply_command(const uint8_t *payload,
   return VAYU_OK;
 }
 
+/**
+ * Validate and apply a CMD_SET_GYRO_LPF payload: argc/length checked before any
+ * arg read (COMM-CMD-002), then pushed live and persisted. The gyro-LPF feature
+ * itself is not yet covered by a requirement (see proposed CTRL-RATE-105).
+ *
+ * @implements COMM-CMD-002
+ */
 vayu_status_t pid_config_apply_gyro_lpf_command(const uint8_t *payload,
                                                 uint16_t payload_len) {
   if (payload == NULL || payload_len < 3) {
@@ -198,6 +210,13 @@ vayu_status_t pid_config_apply_gyro_lpf_command(const uint8_t *payload,
   return VAYU_OK;
 }
 
+/**
+ * Validate and apply a CMD_SET_D_LPF payload: argc/length checked before any
+ * arg read (COMM-CMD-002), then pushed live to the rate PID's D filter
+ * (the D-LPF behaviour is CTRL-PID-101) and persisted.
+ *
+ * @implements COMM-CMD-002
+ */
 vayu_status_t pid_config_apply_d_lpf_command(const uint8_t *payload,
                                              uint16_t payload_len) {
   if (payload == NULL || payload_len < 3) {

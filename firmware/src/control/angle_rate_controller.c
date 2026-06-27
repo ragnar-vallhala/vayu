@@ -77,6 +77,7 @@ static float s_gyro_lpf_state[NUM_AXES] = {0.0f, 0.0f, 0.0f};
  * a few floats per axis otherwise idle). Configured in angle_rate_controller_init. */
 static rate_indi_t s_indi[NUM_AXES];
 
+/** @noreq gyro-LPF tuning setter (see proposed CTRL-RATE-105). */
 bool angle_rate_controller_set_gyro_lpf(uint8_t axis, float rc) {
   if (axis >= NUM_AXES) {
     return false;
@@ -85,10 +86,12 @@ bool angle_rate_controller_set_gyro_lpf(uint8_t axis, float rc) {
   return true;
 }
 
+/** @noreq gyro-LPF getter. */
 float angle_rate_controller_get_gyro_lpf(uint8_t axis) {
   return (axis < NUM_AXES) ? s_gyro_lpf_rc[axis] : 0.0f;
 }
 
+/** @noreq D-term LPF tuning setter (the D-LPF behaviour is CTRL-PID-101). */
 bool angle_rate_controller_set_d_lpf(uint8_t axis, float rc) {
   if (axis >= NUM_AXES) {
     return false;
@@ -99,6 +102,7 @@ bool angle_rate_controller_set_d_lpf(uint8_t axis, float rc) {
   return true;
 }
 
+/** @noreq D-term LPF getter. */
 float angle_rate_controller_get_d_lpf(uint8_t axis) {
   return (axis < NUM_AXES) ? angle_rate_controller.pid[axis].d_lpf_rc : 0.0f;
 }
@@ -128,6 +132,7 @@ static mixer_airmode_t s_airmode = MIXER_AIRMODE_DISABLED;
 /* (Re)build the mixer from the current sign arrays + idle floor. The mixer only
  * needs the geometry sign, so we recover valid pos/spin inputs from s_mix_*
  * (their single source of truth) -- they can never drift apart. */
+/** @noreq rebuilds the control-allocation mixer from the mix-sign arrays (glue). */
 static void mixer_sync(void) {
   float px[4], py[4];
   int sp[4];
@@ -141,6 +146,8 @@ static void mixer_sync(void) {
   mixer_set_idle_floor(&s_mixer, MOTOR_IDLE_FLOOR);
 }
 
+/** @noreq derives per-motor mix signs from geometry, then rebuilds the mixer
+ *  (glue; the mixing layout itself is owned by mixer_set_geometry / CTRL-MIX-001). */
 void angle_rate_controller_set_motor_geometry(const float pos_x[4],
                                               const float pos_y[4],
                                               const int spin[4]) {
@@ -152,6 +159,12 @@ void angle_rate_controller_set_motor_geometry(const float pos_x[4],
   mixer_sync(); /* rebuild the allocator for the new geometry */
 }
 
+/**
+ * Parse a CMD_SET_MOTOR_GEOMETRY payload, validating argc/length before reading
+ * the 12 float args (COMM-CMD-002), then apply the geometry.
+ *
+ * @implements COMM-CMD-002
+ */
 bool angle_rate_controller_apply_geometry_command(const uint8_t *payload,
                                                   uint16_t len) {
   /* payload: [cmd:2][argc:1][x0..x3, y0..y3, spin0..spin3] (12 floats). */
@@ -168,6 +181,13 @@ bool angle_rate_controller_apply_geometry_command(const uint8_t *payload,
   return true;
 }
 
+/**
+ * Init the rate-loop PIDs from the compiled defaults, then override each axis
+ * with any gains / gyro-LPF / D-LPF tune persisted to SD and restored at boot
+ * (pid_config_get_*). Also seeds the optional INDI state and builds the mixer.
+ *
+ * @implements COMM-CMD-003
+ */
 void angle_rate_controller_init(void) {
   for (int i = 0; i < NUM_AXES; i++) {
     v_pid_init(&angle_rate_controller.pid[i], angle_rate_controller.pid[i].Kp,
@@ -238,6 +258,18 @@ bool angle_rate_controller_get_gains(uint8_t axis, float *kp, float *ki,
   return true;
 }
 
+/**
+ * Inner body-rate loop: a drift-free 1 kHz periodic task (CTRL-RATE-001) that
+ * drives the per-axis rate PID. On the disarmed->ARMED edge it resets the PID
+ * state (CTRL-PID-102); it holds the integrator at zero below
+ * RATE_PID_INTEGRATE_THROTTLE (CTRL-PID-103); it ramps PID authority from
+ * MIN_ARMED_THROTTLE to PID_FULL_AUTHORITY_THROTTLE (CTRL-ARM-002); and it
+ * feeds the motor FIFO only while ARMED/IN_AIR (CTRL-MIX-004). The chirp
+ * injection (sysid) and optional INDI inner loop are not yet covered by
+ * requirements (see proposed CTRL-SID-* and CTRL-RATE-104).
+ *
+ * @implements CTRL-RATE-001, CTRL-PID-102, CTRL-PID-103, CTRL-ARM-002, CTRL-MIX-004
+ */
 void angle_rate_controller_task(void *arg) {
   (void)arg;
   angle_rate_controller_init();

@@ -24,6 +24,9 @@ mpmc_queue_t vayu_log_queue;
 static uint8_t log_queue_buffer[VAYU_LOG_QUEUE_SIZE];
 static char log_buf[128];
 
+/**
+ * @implements LOG-TXT-001
+ */
 void vayu_log(const char *fmt, ...) {
   if (first_log) {
     mpmc_init(&vayu_log_queue, log_queue_buffer, VAYU_LOG_QUEUE_SIZE,

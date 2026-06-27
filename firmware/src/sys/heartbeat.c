@@ -13,6 +13,7 @@ static uint8_t _green_led_state = 0;
 static uint8_t _red_led_state = 0;
 static uint8_t _buzzer_state = 0;
 
+/* @noreq GPIO toggle helper (tracks LED/buzzer pin state in software). */
 static inline void _toggle_pin(hal_gpio_pin_t pin) {
   if (pin == _BLUE_LED_PIN) {
     _blue_led_state = !_blue_led_state;
@@ -28,6 +29,7 @@ static inline void _toggle_pin(hal_gpio_pin_t pin) {
     hal_gpio_write(pin, _buzzer_state ? HAL_GPIO_HIGH : HAL_GPIO_LOW);
   }
 }
+/* @noreq GPIO mode init for the LED/buzzer annunciator pins. */
 static inline void _heartbeat_peripheral_init(void) {
   hal_gpio_set_mode(_BLUE_LED_PIN, HAL_GPIO_MODE_OUTPUT, HAL_GPIO_PULL_NONE);
   hal_gpio_set_mode(_GREEN_LED_PIN, HAL_GPIO_MODE_OUTPUT, HAL_GPIO_PULL_NONE);
