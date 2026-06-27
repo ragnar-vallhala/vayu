@@ -124,7 +124,7 @@ void mixer_allocate(const mixer_t *mx, const float w[MIX_NW],
   } else {
     /* Sequential desaturation: shift collective thrust to make room for
      * roll/pitch, then desaturate yaw. Roll/pitch are never scaled. */
-    float dthr[MIXER_MAX_MOTORS], dyaw[MIXER_MAX_MOTORS];
+    float dthr[MIXER_MAX_MOTORS] = {0}, dyaw[MIXER_MAX_MOTORS] = {0};
     for (uint8_t i = 0; i < n; i++) {
       dthr[i] = mx->Bpinv[i][MIX_THRUST];
       dyaw[i] = mx->Bpinv[i][MIX_YAW];

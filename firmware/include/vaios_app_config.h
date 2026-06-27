@@ -51,12 +51,12 @@
 // pulls in this app config ahead of the #ifndef-guarded kernel default), so this
 // value reaches the heap sizing directly — no -DHEAP_SIZE override needed.
 //
-// Sized to the heap high-water (~19.5KB of task stacks + IPC; see
-// docs/journal/memory_report.md) plus headroom, leaving ~16-20KB free heap. The
-// kernel memsets HEAP_SIZE bytes from heap_start at boot, so the rest of the 96KB
-// SRAM is free for .data/.bss under the hard constraint
+// Holds the boot task stacks + IPC (~18.6KB, right-sized to per-task stack
+// high-water in init_tasks) plus the heaviest post-boot allocation, the
+// calibration task's 8KB stack v_malloc'd on CMD_CALIBRATE_IMU — leaving ~21KB
+// free post-boot. The kernel reserves HEAP_WATERMARK_THRESHOLD (1KB) and memsets
+// HEAP_SIZE bytes from heap_start at boot, under the hard constraint
 //     heap_start + HEAP_SIZE <= 0x20018000   (top of RAM)
-// and the slack below that limit is the margin for static growth.
 // HEAP_WATERMARK_ENABLE (below) reports the free-heap high-water at runtime.
 //
 // #ifndef-guarded so the host SITL (no 96KB SRAM limit, and needs room for many

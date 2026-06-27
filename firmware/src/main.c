@@ -47,13 +47,6 @@ void clock_setup(void) {
       .pll_p = 4,                        /**< PLLP division factor */
       .pll_q = 7                         /**< PLLQ division factor */
   };
-  hal_pll_config_t pll_cfg_hsi = {
-      .input_src = HAL_CLOCK_SOURCE_HSI, /**< Internal 16 MHz crystal */
-      .pll_m = 16,                       /**< PLLM divider */
-      .pll_n = 336,                      /**< PLLN multiplier */
-      .pll_p = 4,                        /**< PLLP division factor */
-      .pll_q = 7                         /**< PLLQ division factor */
-  };
   hal_clock_config_t cfg = {
       .source = HAL_CLOCK_SOURCE_PLL /**< Use PLL as system clock */
   };
@@ -77,55 +70,52 @@ void init_sensors(void) {
   }
 }
 
-/* Stack sizes right-sized from the perf high-water telemetry (peak bytes used,
- * observed on-target) with a ~2.5x+ safety margin and a 1 KiB floor; control /
- * actuator tasks kept more generous. Re-check via the Kernel Perf view after
- * exercising worst-case paths (arm, calibrate, failsafe) before trusting the
- * tightest values. Peaks at last measurement noted per line. */
+/* Stack sizes right-sized to each task's on-target high-water (peak bytes used,
+ * from the Kernel Perf view). Each size is peak + the 256 B kernel guard band
+ * (TASK_STACK_OVERFLOW_THRESHOLD — the scheduler panics if SP comes within this
+ * of the base) + ~150 B buffer for un-observed depth / an FPU exception frame,
+ * rounded up to a multiple of 64 (so >=8-byte aligned for AAPCS / v_malloc).
+ * Net: every task keeps >=400 B below its peak. Re-check the Kernel Perf view
+ * after exercising worst-case paths (arm, calibrate, failsafe) before tightening
+ * further. Peak at last measurement noted per line. */
 void init_tasks(void) {
-  // 4 KiB: the NavLink router dispatches the xfer + fs_query handlers on this
-  // task, and the generated dispatch builds large aligned message structs
-  // on-stack (XFER_DATA alone is ~254 B for data[247]) on top of
-  // navlink_router_poll's buf[256] — the dispatch depth needs the headroom (a
-  // 2 KiB stack overflows it at ~1884 B). Right-size from the perf high-water view.
-  task_create_named(comm_processor_task, NULL, 4096, 0,
-                    "comm_processor"); // peak ~748
+  // Deepest dispatch on the system: the NavLink router runs the xfer + fs_query
+  // handlers here, building large aligned message structs on-stack (XFER_DATA
+  // ~254 B for data[247]) atop navlink_router_poll's buf[256], and runs the
+  // mixer geometry solve (m_mat4_inv, ~0.5 KiB frame) on a SET_GEOMETRY command.
+  task_create_named(comm_processor_task, NULL, 2496, 0,
+                    "comm_processor"); // peak 1884
   bmx160_task_id =
-      task_create_named(bmx160_initiate_read, NULL, 1536, 2,
-                        "imu_read"); // peak ~404
-  // Attitude estimation (fusion), split out of the IMU driver. Consumes
-  // timestamped IMU samples, publishes timestamped attitude. Stack TBD via
-  // the perf high-water view.
-  task_create_named(attitude_task, NULL, 2048, 1, "attitude");
+      task_create_named(bmx160_initiate_read, NULL, 768, 2,
+                        "imu_read"); // peak 332
+  // Attitude estimation (fusion), split out of the IMU driver.
+  task_create_named(attitude_task, NULL, 1152, 1, "attitude"); // peak 700
   // Vertical estimator (VERT): fuses baro + accel into altitude/climb_rate.
-  // Sibling of the attitude task (decision D2); same priority. Stack TBD via
-  // the perf high-water view.
-  task_create_named(vertical_estimator_task, NULL, 2048, 1, "vertical");
-  task_create_named(rc_ibus_task, NULL, 1024, 0, "rc_ibus"); // peak ~120
-  task_create_named(angle_controller_task, NULL, 2048, 1,
-                    "angle_ctl"); // peak ~396, control
-  task_create_named(angle_rate_controller_task, NULL, 2048, 1,
-                    "rate_ctl"); // peak ~484, control
-  task_create_named(motor_task, NULL, 1024, 1, "motor"); // peak ~252, actuator
-  task_create_named(imu_telemetry_task, NULL, 2048, 0,
-                    "imu_telemetry"); // peak ~748
-  task_create_named(bme280_read_task, NULL, 1024, 0,
-                    "baro_read"); // low-rate baro/humidity sampler (~20 Hz)
-  task_create_named(flush_task, NULL, 1024, 0, "flush"); // peak ~124
-  task_create_named(perf_telemetry_task, NULL, 2048, 0,
-                    "perf_telemetry"); // peak ~796
+  task_create_named(vertical_estimator_task, NULL, 832, 1,
+                    "vertical"); // peak 428
+  task_create_named(rc_ibus_task, NULL, 576, 0, "rc_ibus"); // peak 132
+  task_create_named(angle_controller_task, NULL, 832, 1,
+                    "angle_ctl"); // peak 404, control
+  task_create_named(angle_rate_controller_task, NULL, 1088, 1,
+                    "rate_ctl"); // peak 632, control
+  task_create_named(motor_task, NULL, 704, 1, "motor"); // peak 284, actuator
+  task_create_named(imu_telemetry_task, NULL, 1344, 0,
+                    "imu_telemetry"); // peak 908
+  task_create_named(bme280_read_task, NULL, 768, 0,
+                    "baro_read"); // peak 316, ~20 Hz baro/humidity sampler
+  task_create_named(flush_task, NULL, 640, 0, "flush"); // peak 188
+  task_create_named(perf_telemetry_task, NULL, 1216, 0,
+                    "perf_telemetry"); // peak 804
   // Centralised FS owner: sole runtime SD/VFS writer (blackbox logger + PID/calib
   // saves). Lowest band (prio 0); blocks on its queue so it only runs when there
   // is work and never preempts control. Queues are created lazily on first run.
-  task_create_named(fs_owner_task, NULL, 2048, 0, "fs_owner");
+  task_create_named(fs_owner_task, NULL, 1152, 0, "fs_owner"); // peak 732
   // Bulk-transfer (FTP) substrate: runs the xfer SM off the comm + control
   // tasks (prio 0). Blocking SD reads + paced emission live here; the comm-task
-  // handlers only touch session state (the C1->C3 invariant). 2 KiB stack from
-  // the heap (RAM budget: docs/plans/xfer-memory-budget.md). 3 KiB:
-  // fs_query_tick / xfer_tick do the blocking FatFS dir-walk (FILINFO on-stack)
-  // plus a 247 B chunk buffer and the XFER_DATA encode struct; same dispatch-depth
-  // risk as comm_processor. Right-size from the perf high-water view.
-  task_create_named(xfer_service_task, NULL, 3072, 0, "xfer");
+  // handlers only touch session state (the C1->C3 invariant). fs_query_tick /
+  // xfer_tick do the blocking FatFS dir-walk (FILINFO on-stack) plus a 247 B
+  // chunk buffer (RAM budget: docs/plans/xfer-memory-budget.md).
+  task_create_named(xfer_service_task, NULL, 832, 0, "xfer"); // peak 404
 }
 void init_timer_callbacks(void) {
   timer_callback_init(HIGH_FREQ_TIMER_FREQ);
@@ -141,7 +131,9 @@ void init_timer_callbacks(void) {
   };
 }
 void system_init_tasks(void) {
-  task_create_named(heartbeat_task, NULL, 1024, 0, "heartbeat"); // peak ~124
+  task_create_named(heartbeat_task, NULL, 576, 0, "heartbeat"); // peak 124
+  // boot_task runs the one-shot boot sequence then exits (stack freed); left at
+  // 1 KiB since it is not in the steady-state perf view (no measured high-water).
   task_create_named(boot_task, NULL, 1024, 0, "boot");
 }
 hal_i2c_config_t i2c_config = {
