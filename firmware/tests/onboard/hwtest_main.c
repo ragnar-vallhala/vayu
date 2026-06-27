@@ -25,22 +25,30 @@
 /* ---- check registry (functions live in checks/) -------------------------- */
 hw_result_t check_system_clock(void);
 hw_result_t check_state_machine(void);
+hw_result_t check_heap_free(void);
 hw_result_t check_imu_whoami(void);
 hw_result_t check_baro_whoami(void);
+hw_result_t check_baro_present(void);
+hw_result_t check_imu_gyro_still(void);
+hw_result_t check_imu_accel(void);
+hw_result_t check_sd_readback(void);
 hw_result_t check_ekf_selftest(void);
 
+/* Sensor reads are direct + bus-timeout-bounded (no IMU read task here, so the
+ * bus is free); ekf_selftest is last as it is the most stack-heavy. */
 const hw_check_t hwtest_registry[] = {
     {"system_clock", check_system_clock},
     {"state_machine", check_state_machine},
-    /* TODO(C2): the sensor WHO_AM_I reads and ekf_selftest are temporarily out
-     * of the live registry — a blocking sensor I2C read hangs the bench task on
-     * this bring-up. Re-add with a bus timeout / proper sequencing in C2. */
+    {"heap_free", check_heap_free},
+    {"imu_whoami", check_imu_whoami},
+    {"baro_whoami", check_baro_whoami},
+    {"baro_present", check_baro_present},
+    {"imu_gyro_still", check_imu_gyro_still},
+    {"imu_accel", check_imu_accel},
+    {"sd_readback", check_sd_readback},
+    {"ekf_selftest", check_ekf_selftest},
     {0, 0},
 };
-
-/* Referenced so -Wunused doesn't fire while they're out of the registry. */
-hw_result_t (*const hwtest_deferred_checks[])(void) = {
-    check_imu_whoami, check_baro_whoami, check_ekf_selftest};
 
 /* ---- boot helpers (mirrors src/main.c; kept local to the test image) ------ */
 static void clock_setup(void) {

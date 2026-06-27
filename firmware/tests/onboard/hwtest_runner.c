@@ -77,15 +77,19 @@ void hwtest_run_all(void) {
   while (hwtest_registry[total].fn) {
     total++;
   }
-  report_line("vayu on-hardware bench: %u checks\n", total);
+  /* Compact, single-chunk-sized report (<=247 B) — the FC's multi-chunk xfer
+   * download path hangs the board (LED freeze; 1-chunk C1 file downloaded fine,
+   * 2-chunk C2 file wedged it), so keep the whole report inside one XFER_DATA
+   * chunk until that multi-chunk download bug is fixed. Format per check:
+   * "name=value<P|F|S> ". */
+  report_line("vayu bench %u:\n", total);
+  write_report_sd(); /* mark start; rewritten after every check below */
 
   uint16_t passed = 0, failed = 0, skipped = 0;
   for (uint16_t i = 0; i < total; i++) {
     hw_result_t r = hwtest_registry[i].fn();
-    const char *tag =
-        r.status == HW_PASS ? "PASS" : r.status == HW_SKIP ? "SKIP" : "FAIL";
-    report_line("[%s] %s value=%d %s\n", tag, hwtest_registry[i].name,
-                (int)r.value, r.units ? r.units : "");
+    char tag = r.status == HW_PASS ? 'P' : r.status == HW_SKIP ? 'S' : 'F';
+    report_line("%s=%d%c ", hwtest_registry[i].name, (int)r.value, tag);
     if (r.status == HW_PASS) {
       passed++;
     } else if (r.status == HW_SKIP) {
@@ -93,10 +97,12 @@ void hwtest_run_all(void) {
     } else {
       failed++;
     }
+    /* Rewrite after every check so a check that wedges/crashes still leaves the
+     * results up to that point on SD — the file names exactly where it stopped. */
+    write_report_sd();
   }
-  report_line("DONE: %u passed, %u failed, %u skipped\n", passed, failed,
-              skipped);
+  report_line("\nDONE %u/%u/%u\n", passed, failed, skipped);
 
-  write_report_sd();         /* durable results on SD */
+  write_report_sd();
   emit_done(passed, failed, skipped); /* one-shot status over the link */
 }
