@@ -19,7 +19,7 @@ void motor_init(void) {
   spsc_init(&motor_telemetry_queue, motor_telemetry_buffer, MOTOR_QUEUE_SIZE,
             sizeof(motor_outputs_t));
   spsc_set_policy(&motor_telemetry_queue, SPSC_POLICY_OVERWRITE);
-  // Setup ESCs (Mapping from motor_task.c)
+  // Setup ESCs
   esc_init(&motors[0], TIM1, 1, GPIO_PA08); // Motor 1
   esc_init(&motors[1], TIM1, 2, GPIO_PA09); // Motor 2
   esc_init(&motors[2], TIM1, 3, GPIO_PA10); // Motor 3

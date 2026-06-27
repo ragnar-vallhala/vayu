@@ -28,8 +28,8 @@ channel_t g_telemetry_channel = {0};
 /* Telemetry stream gating expressed in MILLISECONDS, decoupled from the loop tick
  * (TELEM_BASE_MS). Lowering TELEM_BASE_MS runs the loop faster and spreads
  * emissions over more, smaller iterations — smaller channel-buffer bursts ->
- * smoother/faster flushing — WITHOUT changing any stream's effective rate (at the
- * old 6 ms tick these reproduce the original tick periods exactly).
+ * smoother/faster flushing — WITHOUT changing any stream's effective rate (the
+ * per-stream period in ms is independent of TELEM_BASE_MS).
  *   TELEM_TICKS(ms)              : period in ticks, floored at 1.
  *   TELEM_GATE(cnt, ms, phase_ms): true once per `ms`, phase-shifted by `phase_ms`
  *     so streams that share a period don't all fire on the same tick. */
@@ -72,10 +72,10 @@ void imu_telemetry_task(void *args) {
       current_floats[9] = (float)samples.converted.temp;
     }
 
-    /* Per-stream emission gating in ms (see TELEM_GATE above). Effective rates
-     * match the historical tick periods; same-period streams are phase-staggered
-     * (the phase_ms arg) so a faster loop yields smaller per-tick bursts. Heartbeat
-     * rides send_status (>= 1 Hz, COMM-TEL-002 / SYS-TEL-001). */
+    /* Per-stream emission gating in ms (see TELEM_GATE above). Same-period streams
+     * are phase-staggered (the phase_ms arg) so a faster loop yields smaller
+     * per-tick bursts. Heartbeat rides send_status (>= 1 Hz, COMM-TEL-002 /
+     * SYS-TEL-001). */
     bool send_full    = TELEM_GATE(packet_counter, 600, 0);  // ~1.7 Hz
     bool send_comp    = TELEM_GATE(packet_counter, 20, 0);   // 50 Hz
     bool send_att     = TELEM_GATE(packet_counter, 20, 5);   // 50 Hz (staggered)
@@ -118,8 +118,8 @@ void imu_telemetry_task(void *args) {
       /* stabilise/acro + RC/GCS source so the GCS can reflect the mode. */
       navlink_tx_flight_mode((uint8_t)flight_mode_get(),
                              (uint8_t)flight_mode_get_source());
-      /* Health counters (COMM-CH-002, SNS-BUF-002, LOG-SD-002). The legacy IMU
-       * averaging ring was removed; imu_drop stays 0 to preserve the layout. */
+      /* Health counters (COMM-CH-002, SNS-BUF-002, LOG-SD-002). imu_drop is
+       * unused; it stays 0 to hold its slot in the wire layout. */
       navlink_tx_health(channel_tx_overflow_count(), 0u,
                         fs_owner_log_wrap_count_total());
     }

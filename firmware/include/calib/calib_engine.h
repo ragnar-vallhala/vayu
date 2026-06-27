@@ -13,7 +13,7 @@
 
 typedef enum {
   CALIB_FIT_ELLIPSOID, /* sphere-constrained: offset + 3x3 (accel, mag) */
-  CALIB_FIT_BIAS,      /* zero-rate bias: mean of still samples (gyro, Phase 5) */
+  CALIB_FIT_BIAS,      /* zero-rate bias: mean of still samples (gyro) */
 } calib_fit_t;
 
 typedef struct calib_target {

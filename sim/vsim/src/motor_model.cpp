@@ -48,10 +48,8 @@ void MotorModel::update(const std::array<float, 4>& duty, float dt,
         float target = d * params_.max_omega[i];
 
         // Asymmetric first-order tracking; pick tau by direction.
-        // Note: the alpha formula is backward-Euler discretization, not
-        // "exact" as the earlier comment claimed -- carrying behavior
-        // forward verbatim, but the label is fixed.
-        // Per-rotor spin-up constant; spin-down is 2x (legacy asymmetry).
+        // The alpha formula is a backward-Euler discretization.
+        // Per-rotor spin-up constant; spin-down is 2x.
         const float tau_up = restalled ? params_.respin_tau : params_.tau[i];
         float tau = (target > omega_[i]) ? tau_up : (tau_up * 2.0f);
         if (tau < 1e-6f) tau = 1e-6f;

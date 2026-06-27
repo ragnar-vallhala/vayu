@@ -7,9 +7,6 @@
  * Single public entry point for the control subsystem: the angle and
  * angle-rate controllers, live PID-gain configuration, the PID core, and
  * the control-telemetry buffer. External modules include only this header.
- *
- * The PID core (`pid.h`) and control-telemetry buffer (`control_buffer.h`)
- * were moved here from `maths/` per Phase 4 R2.6.
  */
 #ifndef VAYU_CONTROL_H
 #define VAYU_CONTROL_H

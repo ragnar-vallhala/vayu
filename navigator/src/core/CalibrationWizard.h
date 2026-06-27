@@ -13,7 +13,7 @@
 // (no widgets) so the flow logic is unit-tested headless.
 enum class CalibMode {
   Gyro,        // hold still
-  AccelBias,   // single level placement (legacy; firmware no longer bias-only)
+  AccelBias,   // single level placement (legacy bias-only mode)
   Accel6Axis,  // full 3x3: six faces + six edges/corners (pose-tolerant)
   Mag,         // free figure-8 rotation
 };

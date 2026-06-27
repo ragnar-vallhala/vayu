@@ -253,11 +253,6 @@ static void *rc_feeder_thread(void *arg) {
 
     uint32_t now = v_get_ticks();
     if (now - last_log_t >= 1000) {
-      //  fprintf(stderr, "host_rc_feeder: real=%u synth=%u "
-      //                 "ch[0..4]=%u,%u,%u,%u,%u\n",
-      //        pushed_real, pushed_synth,
-      //       rc.channels[0], rc.channels[1], rc.channels[2],
-      //      rc.channels[3], rc.channels[4]);
       last_log_t = now;
     }
   }

@@ -118,7 +118,7 @@ void load_next_task_from_isr(void) { task_yield(); }
 /* Start the scheduler: pick the first task and jump into it. Returns to the
  * stepper when the system goes idle (idle's cpu_relax swaps back). */
 void scheduler_start(void) {
-  scheduler_running = 1;                /* vaios.c v_delay now uses task_delay */
+  scheduler_running = 1;                /* gates v_delay onto cooperative task_delay */
   set_next_task();
   in_scheduler = 1;
   swapcontext(&stepper_ctx, ctx_of(current_task));

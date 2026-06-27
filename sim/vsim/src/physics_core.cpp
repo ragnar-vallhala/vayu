@@ -309,10 +309,8 @@ void PhysicsCore::groundClamp(float dt) {
         }
         // Light tangential friction, frame-rate-independent: decay lateral
         // velocity at a fixed per-second rate so the damping is identical
-        // whatever the substep size. (The legacy in-process sim scaled by a
-        // flat 0.99 per tick, which made friction stronger the finer the
-        // tick; kFrictionDecayPerSec reproduces that 0.99/ms behavior at
-        // dt -> 1 ms but no longer depends on the rate.)
+        // whatever the substep size. kFrictionDecayPerSec is chosen so that
+        // dt -> 1 ms yields a 0.99/ms decay without depending on the rate.
         constexpr float kFrictionDecayPerSec = 10.0536f;  // -ln(0.99) * 1000
         const float fric = std::exp(-kFrictionDecayPerSec * dt);
         state_.vel_w.setX(state_.vel_w.x() * fric);

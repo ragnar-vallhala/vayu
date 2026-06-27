@@ -122,13 +122,13 @@ typedef struct {
     // ---- sim-fidelity telemetry (proto v3) -------------------------------
     // Reserved here so the wire breaks once; each block is populated by its
     // own phase and reads zero until then (see docs/sim-fidelity/00-phasing.md).
-    float wind_w[3];         // instantaneous world-frame wind [m/s] NED (Phase 1)
-    float airspeed;          // air-relative speed ‖v_rel‖ [m/s]      (Phase 2)
-    float ge_factor;         // live ground-effect thrust multiplier  (Phase 2)
-    float batt_voltage;      // terminal voltage [V]                  (Phase 5)
-    float batt_current;      // pack current [A]                      (Phase 5)
-    float batt_mah_used;     // consumed charge [mAh]                 (Phase 5)
-    float batt_soc;          // state of charge [0,1]                 (Phase 5)
+    float wind_w[3];         // instantaneous world-frame wind [m/s] NED
+    float airspeed;          // air-relative speed ‖v_rel‖ [m/s]
+    float ge_factor;         // live ground-effect thrust multiplier
+    float batt_voltage;      // terminal voltage [V]
+    float batt_current;      // pack current [A]
+    float batt_mah_used;     // consumed charge [mAh]
+    float batt_soc;          // state of charge [0,1]
 } vsim_pose_frame_t;
 
 // Ctl message types. Body interpretation varies; readers should

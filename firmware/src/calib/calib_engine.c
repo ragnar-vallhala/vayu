@@ -1,7 +1,7 @@
 /* Sensor-agnostic calibration engine — runs the acquisition loop + fit for a
  * calib_target_t and commits only on success. The ellipsoid path here is the
- * generalised form of the magnetometer free-rotation fit that used to live
- * inline in bmx160.c. See include/calib/calib_engine.h. */
+ * generalised form of a magnetometer free-rotation fit, shared across sensors.
+ * See include/calib/calib_engine.h. */
 
 #include "calib/calib_engine.h"
 #include "calib/calib_ellipsoid.h"

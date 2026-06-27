@@ -64,9 +64,9 @@ void i2c_manager_unstick(void) {
 hal_status_t init_i2c_manager(hal_i2c_config_t *cfg) {
   i2c_config = *cfg;
 
-  // NavHAL's I2C driver now enables DMA1 stream 0/5 at HAL_IRQ_PRIORITY_DEFAULT
+  // NavHAL's I2C driver enables DMA1 stream 0/5 at HAL_IRQ_PRIORITY_DEFAULT
   // (a BASEPRI-maskable level), so the v_semaphore_give_from_isr in the DMA
-  // completion ISR can no longer preempt a kernel critical section. No app-side
+  // completion ISR cannot preempt a kernel critical section. No app-side
   // priority pin is needed.
 
   // Create the bus mutex ONCE. init_i2c_manager is also a recovery entry point

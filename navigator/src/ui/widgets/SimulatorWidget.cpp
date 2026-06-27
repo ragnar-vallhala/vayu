@@ -2916,7 +2916,7 @@ void SimulatorWidget::startInAppSim() {
   m_simStartBtn->setEnabled(false);
   m_simStopBtn->setEnabled(true);
   if (m_simResetBtn) m_simResetBtn->setEnabled(true);
-  if (m_fpvCheck) m_fpvCheck->setEnabled(true);  // FPV usable now we ride the drone
+  if (m_fpvCheck) m_fpvCheck->setEnabled(true);  // FPV needs the drone-attached camera
   m_simStatusLabel->setText(tr("● Running"));
   m_simStatusLabel->setStyleSheet(
       QString("color: %1;").arg(Theme::hex(Theme::kOk)));

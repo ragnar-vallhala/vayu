@@ -5,8 +5,7 @@
  * @implements R2.1
  *
  * Single public surface for the attitude estimator and its support
- * filters (R2.1). Consolidates the former `maths/sensor_fusion.h` and
- * `maths/lpf.h`; the sources live in `src/est/` (R2.6).
+ * filters (R2.1). The sources live in `src/est/`.
  */
 #ifndef VAYU_EST_H
 #define VAYU_EST_H

@@ -5,8 +5,7 @@
  * @implements R2.1
  *
  * Single public surface for the module per R2.1 — external code includes
- * only this header, never the per-type sources. Consolidates the former
- * `actuator/esc.h` and `actuator/motor.h`.
+ * only this header, never the per-type sources.
  *
  * @copyright © NAVROBOTEC PVT. LTD.
  */

@@ -411,9 +411,8 @@ class SitlLab:
         """Re-spawn the airframe at pos (NED) with zero velocity."""
         os.write(self.ctl_fd, _reset(pos=tuple(pos)))
 
-    # NOTE: the legacy takeoff()/fly_course() helpers were removed — the
-    # continuous outer-loop guidance now lives in vayu_headless.autopilot.Pilot
-    # (takeoff/goto/land), which all callers use.
+    # Continuous outer-loop guidance (takeoff/goto/land) lives in
+    # vayu_headless.autopilot.Pilot, which all callers use.
 
 # Canonical name; SitlLab kept as a back-compat alias.
 SitlSession = SitlLab

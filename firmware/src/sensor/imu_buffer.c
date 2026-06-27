@@ -19,12 +19,12 @@ static SemaphoreHandle_t _attitude_control_sema = NULL;
 static SemaphoreHandle_t _imu_attitude_sema = NULL;
 
 #define IMU_BUFFER_INTERNAL_CAPACITY (IMU_BUFFER_SIZE + 1)
-/* Want 2 usable slots. spsc_init() costs one slot to the ring's empty marker
+/* Need 2 usable slots. spsc_init() costs one slot to the ring's empty marker
  * (usable = capacity-1) and, because imu_calibration_telemetry_t is 21 B (not a
  * power of two), another to buffer-start alignment (capacity-1 again when the
  * static array isn't on a 21-byte boundary, which it never is). 2 + 1 + 1 = 4 —
- * declaring exactly 2 here left ZERO usable slots, so calibration progress was
- * pushed into a dead queue and CALIBRATION_STATUS never went out. */
+ * a smaller capacity leaves ZERO usable slots, so calibration progress lands in
+ * a dead queue and CALIBRATION_STATUS never goes out. */
 #define IMU_CALIBRATION_TELEMETRY_CAPACITY 4
 #define EST_PERF_TELEMETRY_CAPACITY 4
 static bmx160_all_reading_t _imu_telemetry_buffer[IMU_BUFFER_INTERNAL_CAPACITY];
@@ -32,7 +32,7 @@ static bmx160_all_reading_t _imu_calibration_buffer[IMU_BUFFER_INTERNAL_CAPACITY
 static bmx160_all_reading_t _imu_control_buffer[IMU_BUFFER_INTERNAL_CAPACITY];
 static attitude_t _attitude_telemetry_buffer[IMU_BUFFER_INTERNAL_CAPACITY];
 static attitude_t _attitude_control_buffer[IMU_BUFFER_INTERNAL_CAPACITY];
-static imu_calibration_telemetry_t _imu_calibration_telemetry_buffer[IMU_CALIBRATION_TELEMETRY_CAPACITY]; // Keep just two
+static imu_calibration_telemetry_t _imu_calibration_telemetry_buffer[IMU_CALIBRATION_TELEMETRY_CAPACITY];
 static bmx160_all_reading_t _imu_attitude_buffer[IMU_BUFFER_INTERNAL_CAPACITY];
 static spsc_fifo_t _imu_telemetry_queue;
 static spsc_fifo_t _imu_calibration_queue;

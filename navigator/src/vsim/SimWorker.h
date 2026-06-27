@@ -30,13 +30,13 @@ struct SimSnapshot {
   std::array<float, 4> motor_duty  = {0, 0, 0, 0};
   uint64_t tick_count = 0;
   // sim-fidelity telemetry (pose proto v3); zero until each phase populates it.
-  Vec3  wind_w  = {0, 0, 0};  // instantaneous world wind [m/s] NED (Phase 1)
-  float airspeed     = 0.0f;  // ‖v_rel‖ [m/s]                    (Phase 2)
-  float ge_factor    = 1.0f;  // ground-effect multiplier         (Phase 2)
-  float batt_voltage = 0.0f;  // [V]                              (Phase 5)
-  float batt_current = 0.0f;  // [A]                              (Phase 5)
-  float batt_mah_used= 0.0f;  // [mAh]                            (Phase 5)
-  float batt_soc     = 0.0f;  // [0,1]                            (Phase 5)
+  Vec3  wind_w  = {0, 0, 0};  // instantaneous world wind [m/s] NED
+  float airspeed     = 0.0f;  // ‖v_rel‖ [m/s]
+  float ge_factor    = 1.0f;  // ground-effect multiplier
+  float batt_voltage = 0.0f;  // [V]
+  float batt_current = 0.0f;  // [A]
+  float batt_mah_used= 0.0f;  // [mAh]
+  float batt_soc     = 0.0f;  // [0,1]
 };
 
 // SimWorker -- in-process RTOS SITL engine driver (+ legacy FIFO attach).

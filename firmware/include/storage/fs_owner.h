@@ -4,12 +4,12 @@
 /**
  * @file include/storage/fs_owner.h
  * @brief Centralised filesystem owner — the sole runtime owner of all SD/VFS
- *        writes, plus the logging declarations that used to live in logger.h.
+ *        writes, plus the logging declarations.
  *
  * Fixes the C1->C3 contention chain (docs/scratch/resource-ownership-map.md):
- * PID/calib saves and blackbox log writes used to run synchronously in the
- * caller's task context under the global vfs_mutex. A save in comm_processor_task
- * would stall the UART6 RX-ring drain and silently drop GCS commands. Here a
+ * PID/calib saves and blackbox log writes must NOT run synchronously in the
+ * caller's task context under the global vfs_mutex — a save in comm_processor_task
+ * would stall the UART6 RX-ring drain and silently drop GCS commands. Instead a
  * single low-priority task drains a queue and performs vfs_open/write/sync/close
  * off the critical path; producers snapshot their payload and return immediately.
  *
@@ -17,9 +17,9 @@
  * drops-and-counts, and a small dedicated save lane that logging can never
  * starve. The FS task drains saves first.
  *
- * This header absorbs the former logger.h verbatim: the text-log producer
- * (vayu_log, impl in src/logger/log_text.c — streams over telemetry, never SD)
- * and the binary blackbox API (the 3 circular SD files).
+ * This header also declares the text-log producer (vayu_log, impl in
+ * src/logger/log_text.c — streams over telemetry, never SD) and the binary
+ * blackbox API (the 3 circular SD files).
  */
 
 #include "structure.h" /* mpmc_queue_t (for vayu_log_queue) */
@@ -195,9 +195,9 @@ int fs_owner_closedir(vfs_dir_t d);
  * Accounting.
  * =========================================================================== */
 
-/* Wrap accounting (LOG-SD-002), moved here from logger.c: incremented each
- * time a log's circular write position wraps, i.e. the oldest records are
- * overwritten — so the loss is accountable rather than silent. */
+/* Wrap accounting (LOG-SD-002): incremented each time a log's circular write
+ * position wraps, i.e. the oldest records are overwritten — so the loss is
+ * accountable rather than silent. */
 uint32_t fs_owner_log_wrap_count(logger_type_t type);
 uint32_t fs_owner_log_wrap_count_total(void);
 

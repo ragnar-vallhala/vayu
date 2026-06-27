@@ -270,7 +270,7 @@ void SimWorker::run() {
 }
 
 // Legacy mirror mode: read an EXISTING pose FIFO (e.g. the autotuner's vsim_d)
-// and emit poseUpdated. Kept until autotune migrates off vsim_d (#13).
+// and emit poseUpdated. Kept until autotune migrates off vsim_d.
 void SimWorker::runAttach() {
     // Wait briefly for the file to appear (the tuner spawns its vsim_d a moment
     // after launch).

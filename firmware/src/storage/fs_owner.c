@@ -2,17 +2,17 @@
  * @file src/storage/fs_owner.c
  * @brief Centralised filesystem owner — sole runtime owner of all SD/VFS writes.
  *
- * Absorbs the former binary blackbox logger and serialises PID/calib persistence
- * plus xfer uploads behind queues, so the blocking SD I/O never runs in the
- * producer's task context. See docs/plans/centralised-fs-owner.md and
+ * Owns the binary blackbox logger and serialises PID/calib persistence plus xfer
+ * uploads behind queues, so the blocking SD I/O never runs in the producer's task
+ * context. See docs/plans/centralised-fs-owner.md and
  * docs/scratch/resource-ownership-map.md (the C1->C3 chain this fixes).
  *
  * fd-frugal by design: the underlying FatFS exposes only MAX_OPEN_FILES (4)
  * file slots, so this owner NEVER holds a file open across calls. Every handler
  * (log, save, write-at, read-at) does open -> seek -> write/read -> sync ->
  * close and releases the slot immediately. Holding the 3 blackbox files open for
- * the whole run (the old design) consumed 3 of the 4 slots and starved uploads /
- * saves of a slot, so their opens failed silently and produced 0-byte files.
+ * the whole run would consume 3 of the 4 slots and starve uploads / saves of a
+ * slot, so their opens fail silently and produce 0-byte files.
  *
  * Resilient writes: a write whose open/write fails (e.g. all 4 slots momentarily
  * busy) is re-queued onto a retry lane and re-attempted whenever no fresh write
@@ -41,7 +41,7 @@
  * _heap_start up until the kernel heap's HEAP_SIZE memset runs off the top of RAM
  * (silent: the linker can't see it), corrupting memory at boot -> HardFault. 4 is
  * ample; do NOT raise without checking _heap_start + HEAP_SIZE <= top-of-RAM. */
-#define FS_LOG_QUEUE_CAP 4u      /* ~1 KiB. Was 32 (8.3 KiB) — overflowed F401 SRAM. */
+#define FS_LOG_QUEUE_CAP 4u      /* ~1 KiB; a 32-deep lane (8.3 KiB) overflows F401 SRAM. */
 #define FS_SAVE_QUEUE_CAP 4u     /* reserved — logs can never occupy this lane */
 #define FS_POLL_TICKS 5u         /* save/write-at latency bound while blocked on logs */
 
@@ -159,7 +159,7 @@ static volatile uint32_t s_dropped_writeats = 0;
 static volatile bool s_logs_suppressed = false;
 
 /* ===========================================================================
- * Boot-time file setup (formerly logger_init) — direct vfs_*, scheduler off.
+ * Boot-time file setup — direct vfs_*, scheduler off.
  * Preallocate + size the 3 circular files, then CLOSE them: no fd is held.
  * =========================================================================== */
 static void ensure_file_size(const char *path, uint32_t file_size) {
@@ -358,9 +358,8 @@ static vfs_fd_t read_fd(const char *path) {
   read_fd_close(); /* a different file was cached */
   /* Never hold a read AND write fd open on the SAME file: two FatFS FILs sharing
    * the volume's single FAT/dir window (FATFS.win) corrupt each other's cluster-
-   * chain reads — this is the download-after-upload-of-same-path case the FC hits
-   * (sz4096 etc. MISMATCH@247) that single-task sample 22 never exercised. Flush +
-   * close the writer so the reader sees one consistent FIL on the file. */
+   * chain reads — the download-after-upload-of-same-path case. Flush + close the
+   * writer so the reader sees one consistent FIL on the file. */
   if (wpath_is(path))
     writeat_fd_close();
   vfs_fd_t fd = vfs_open(path, VFS_O_RDONLY);
@@ -447,10 +446,10 @@ static void fs_drain_writeats(void) {
  * Synchronous READ/STAT/DIR/TRUNCATE routing (single-FS-task safety)
  *
  * The non-reentrant FatFS + the shared global v_fs descriptor table tolerate SD
- * access from only ONE task context. Uploads/saves/logs already run on the FS
- * task via the async lanes above, but reads/stat/dir/truncate used to call vfs_*
- * directly on the *producer's* task (xfer/comm) — two task contexts driving SDIO
- * with context switches between their ops corrupts FatFS (verified on hardware:
+ * access from only ONE task context. Uploads/saves/logs run on the FS task via
+ * the async lanes above; reads/stat/dir/truncate must NOT call vfs_* directly on
+ * the *producer's* task (xfer/comm) — two task contexts driving SDIO with context
+ * switches between their ops corrupts FatFS (verified on hardware:
  * FR_INVALID_OBJECT under load). These ops are therefore funnelled to the FS task
  * too: the caller fills a request, hands it over, and blocks until the FS task
  * has executed the vfs_* call in its own context.
@@ -522,15 +521,15 @@ static int fs_exec_sync(const fs_sync_req_t *req) {
     }
     /* Read shortfall/error. A FatFS FIL LATCHES a disk error — every later read on
      * the same handle then returns 0, permanently stalling a download. The error
-     * is transient on this SD (a fresh handle re-reads the same offset fine, which
-     * is why the old open-per-chunk path tolerated it), so drop the handle here and
-     * let the SM retry next tick on a freshly reopened fd. */
+     * is transient on this SD (a fresh handle re-reads the same offset fine), so
+     * drop the handle here and let the SM retry next tick on a freshly reopened
+     * fd. */
     read_fd_close();
     return n;
   }
   case FS_SYNC_TRUNCATE: {
     /* Drop a lingering lazy-write cache for this path so the truncate doesn't
-     * race a stale held handle (s_wfd is FS-task-owned, so this is now safe). */
+     * race a stale held handle (s_wfd is FS-task-owned, so this is safe). */
     if (wpath_is(req->path)) {
       writeat_fd_close();
     }
@@ -635,7 +634,7 @@ void fs_owner_pump(void) {
 void fs_owner_task(void *args) {
   (void)args;
   fs_owner_init();
-  /* This task is now the SOLE context that touches SD/VFS at runtime, so reads/
+  /* This task is the SOLE context that touches SD/VFS at runtime, so reads/
    * stat/dir/truncate from other tasks route here (see fs_sync_call). Must be set
    * only here — in SITL the FS task never runs and those ops stay direct. */
   s_task_mode = true;
@@ -788,7 +787,7 @@ bool fs_owner_writeat_failed(uint8_t session) {
 /* The read/stat/dir/truncate entry points below all funnel through the FS task
  * (fs_sync_call) once it is running, so SD/VFS is touched from exactly one task
  * context. Before the task starts and in SITL (s_task_mode == false) they execute
- * the op inline — identical to the previous direct-vfs behaviour. */
+ * the op inline (direct vfs_*). */
 
 int fs_owner_truncate(const char *path) {
   if (path == NULL) {

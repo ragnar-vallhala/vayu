@@ -20,7 +20,7 @@
 #include "vfs.h"
 #include <math.h>
 
-#define PID_CONFIG_MAGIC     0x50494433u /* 'P''I''D''3' (bumped: + D-term LPF) */
+#define PID_CONFIG_MAGIC     0x50494433u /* 'P''I''D''3' */
 #define PID_CONFIG_FILE_PATH "0:pid.bin"
 
 typedef struct {
@@ -103,7 +103,7 @@ bool pid_config_get_d_lpf(uint8_t axis, float *rc) {
 /* ------------------------------------------------------------------ save */
 /* Hand a snapshot of the store to the centralised FS owner. The live-controller
  * apply at the call site already happened and is authoritative; persistence is
- * asynchronous (off the comm task — this is the C1->C3 RX-drop fix) and
+ * asynchronous (off the comm task, so a slow SD write can't stall RX) and
  * best-effort. Snapshotting is what makes the async write safe against a
  * concurrent CMD_SET_PID mutating s_store before the FS task runs. */
 static void pid_config_save(void) {

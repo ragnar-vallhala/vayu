@@ -186,7 +186,7 @@ void rtos_engine_enable_serial_rc(void) {
   host_rc_feeder_start();   /* reads VAYU_UART_RC_PATH; pushes RC + arm SM */
 }
 
-/* ---- type-free interactive run facade (#12) --------------------------
+/* ---- type-free interactive run facade --------------------------------
  * Lets the GCS worker thread drive the engine without ever seeing the firmware
  * types (stepper_t / control_telemetry_t live only here). RC arrives via the
  * serial feeder thread (rtos_engine_enable_serial_rc), so the loop is just

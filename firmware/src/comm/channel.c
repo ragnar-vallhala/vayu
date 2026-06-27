@@ -35,8 +35,8 @@ static volatile uint32_t _tx_overflow_count = 0;
 uint32_t channel_tx_overflow_count(void) { return _tx_overflow_count; }
 
 static void _dma_complete_callback(void) {
-  // For now, specifically handle USART2/DMA1_S6
-  // In a more generic impl, we'd need to know which handler triggered this
+  // Handles only USART2/DMA1_S6; a generic impl would need to know which
+  // handler triggered this.
   for (int i = 0; i < MAX_SERIAL_HANDLERS; i++) {
     if (_serial_handlers[i].uart == HAL_UART_2) {
       _serial_handlers[i].busy = 0;
@@ -103,9 +103,7 @@ static err_t get_handler_serial(channel_t *handler, void *args,
 
   if (callback) {
     if (_serial_handlers[slot].is_interrupt_attached) {
-      // Slot already has an interrupt attached.
-      // We should either detach it first or return an error if it's different.
-      // For now, let's just update the list but be VERY careful.
+      // Slot already has an interrupt attached; reattaching overwrites it.
     }
     hal_irq_t usart_irq = s_args->uart == HAL_UART_1   ? USART1_IRQn
                           : s_args->uart == HAL_UART_6 ? USART6_IRQn

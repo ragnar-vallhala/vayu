@@ -7,9 +7,8 @@
  * navlink_router.c are the only TUs that include the generated codec or call
  * send_packet()/write_channel(). Telemetry producers (telemetry_task.c,
  * comm_processor.c) hand domain data to the navlink_tx_* publishers below and
- * stay codec-blind. The firmware now emits NavLink v2 exclusively — every
- * telemetry and command-response message goes out as a typed v2 frame; the v1
- * wire path is retired. See navlink/INTEGRATION.md. */
+ * stay codec-blind. Every telemetry and command-response message goes out as a
+ * typed NavLink v2 frame. See navlink/INTEGRATION.md. */
 
 #include "comm/comm_types.h"    /* time_sync_payload_t, PACKET_TYPE_*, origins */
 #include "comm/ibus.h"          /* ibus_data_t */

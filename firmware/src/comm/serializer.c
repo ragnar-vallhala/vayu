@@ -2,13 +2,11 @@
 #include "navhal.h" /* hal_uart_read_char, HAL_UART_6 */
 #include <stdint.h>
 
-/* Telemetry-UART RX path for NavLink v2. The v1 framed TX (send_packet) and the
- * v1 deserializer RX are retired; the firmware now speaks only v2 (encoded in
- * navlink_tx.c, decoded by navlink_router.c). This TU keeps just the RX byte
- * pipe: a lock-free SPSC ring the ISR mirrors every received byte into, drained
- * in task context by comm_processor_task (the v2 parser's handlers apply
- * commands / send frames and are not ISR-safe). Size is a power of two so the
- * mask wraps cheaply. */
+/* Telemetry-UART RX path for NavLink v2 (encoded in navlink_tx.c, decoded by
+ * navlink_router.c). This TU is the RX byte pipe: a lock-free SPSC ring the ISR
+ * mirrors every received byte into, drained in task context by
+ * comm_processor_task (the v2 parser's handlers apply commands / send frames and
+ * are not ISR-safe). Size is a power of two so the mask wraps cheaply. */
 #define RX_RAW_RING_SZ 512u
 static volatile uint8_t _rx_raw_buf[RX_RAW_RING_SZ];
 static volatile uint16_t _rx_raw_head; /* producer (ISR) */

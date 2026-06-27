@@ -144,7 +144,8 @@ int sysid_capture_count(void) { return s_cap_n; }
 int sysid_capture_hz(void) { return SYSID_CAP_HZ; }
 int sysid_capture_axis(void) { return s_axis; }
 
-/* No SD I/O — kept as a no-op so the telemetry task call site is unchanged. */
+/* No-op: capture is RAM-only, so there is nothing to flush. Present so the
+ * telemetry task has a stable call site. */
 void sysid_flush_poll(void) {}
 
 /* --- dump: stream the RAM buffer back, called from the telemetry task --- */

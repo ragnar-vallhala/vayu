@@ -15,10 +15,10 @@ extern channel_t g_telemetry_channel; /* defined in telemetry_task.c */
 /* --- periodic telemetry --------------------------------------------------- */
 
 void navlink_tx_log(const char *buf, uint8_t len) {
-  /* v2 STATUSTEXT (msgid 4); replaces v1 PACKET_TYPE_LOG. The v1 payload is a
-   * bulk drain of newline-delimited log lines; emit one STATUSTEXT per line.
-   * Each NavLink text field holds up to 50 chars; a longer line spills into the
-   * next frame. The GCS renders one log line per STATUSTEXT. */
+  /* v2 STATUSTEXT (msgid 4). buf is a bulk drain of newline-delimited log lines;
+   * emit one STATUSTEXT per line. Each NavLink text field holds up to 50 chars; a
+   * longer line spills into the next frame. The GCS renders one log line per
+   * STATUSTEXT. */
   static uint8_t seq = 0;
   uint8_t i = 0;
   while (i < len) {
@@ -60,10 +60,10 @@ void navlink_tx_sysid_sample(uint16_t start, uint16_t total, uint16_t hz,
 }
 
 void navlink_tx_heartbeat(void) {
-  /* v2 HEARTBEAT (msgid 0); replaces the v1 empty heartbeat AND folds in the
-   * former SYSTEM_STATUS SYS_STATE origin. The firmware flight-state machine is
-   * a one-hot bitmask (sys/state.h: 0x1..0x100); the v2 nav_state enum is its
-   * sequential index, so the set-bit position (ctz) maps one to the other. */
+  /* v2 HEARTBEAT (msgid 0); carries liveness + the flight-state in nav_state.
+   * The firmware flight-state machine is a one-hot bitmask (sys/state.h:
+   * 0x1..0x100); the v2 nav_state enum is its sequential index, so the set-bit
+   * position (ctz) maps one to the other. */
   static uint8_t seq = 0;
   navlink_heartbeat_t msg = {0};
   msg.type = 0;          /* vehicle type — unused by the GCS today */
@@ -80,7 +80,7 @@ void navlink_tx_heartbeat(void) {
 }
 
 void navlink_tx_flight_mode(uint8_t mode, uint8_t source) {
-  /* v2 FLIGHT_MODE (msgid 3); replaces v1 SYSTEM_STATUS origin FLIGHT_MODE. */
+  /* v2 FLIGHT_MODE (msgid 3). */
   static uint8_t seq = 0;
   navlink_flight_mode_t msg = {0};
   msg.mode = mode;
@@ -92,8 +92,8 @@ void navlink_tx_flight_mode(uint8_t mode, uint8_t source) {
 
 void navlink_tx_health(uint32_t tx_overflow, uint32_t imu_drop,
                        uint32_t log_wrap) {
-  /* v2 SYSTEM_HEALTH (msgid 2); replaces v1 SYSTEM_STATUS origin HEALTH. The
-   * new cpu_load field has no firmware source yet -> 0. */
+  /* v2 SYSTEM_HEALTH (msgid 2). The cpu_load field has no firmware source
+   * yet -> 0. */
   static uint8_t seq = 0;
   navlink_system_health_t msg = {0};
   msg.tx_overflow = tx_overflow;
@@ -107,9 +107,9 @@ void navlink_tx_health(uint32_t tx_overflow, uint32_t imu_drop,
 }
 
 void navlink_tx_pid_error(const control_telemetry_t *c) {
-  /* v2 CONTROL_TRACE (msgid 1030); replaces v1 SYSTEM_STATUS origin PID_ERROR.
-   * control_telemetry_t and navlink_control_trace_t are both 18 contiguous f32
-   * in identical field order, so a straight copy reproduces the wire payload. */
+  /* v2 CONTROL_TRACE (msgid 1030). control_telemetry_t and navlink_control_trace_t
+   * are both 18 contiguous f32 in identical field order, so a straight copy
+   * reproduces the wire payload. */
   static uint8_t seq = 0;
   navlink_control_trace_t msg;
   v_memcpy(&msg, c, sizeof(msg));
@@ -120,7 +120,7 @@ void navlink_tx_pid_error(const control_telemetry_t *c) {
 }
 
 void navlink_tx_est_perf(const est_perf_telemetry_t *e) {
-  /* v2 EST_PERF (msgid 1033); replaces v1 SYSTEM_STATUS origin EST_PERF. */
+  /* v2 EST_PERF (msgid 1033). */
   static uint8_t seq = 0;
   navlink_est_perf_t msg;
   msg.peak_us = e->peak_us;
@@ -133,8 +133,8 @@ void navlink_tx_est_perf(const est_perf_telemetry_t *e) {
 }
 
 void navlink_tx_imu_full(const float floats10[10]) {
-  /* v2 IMU_RAW (msgid 1024); replaces v1 PACKET_TYPE_IMU_DATA_FULL. floats10 is
-   * acc[3], gyr[3], mag[3], temp. sample_time_us has no source here -> 0. */
+  /* v2 IMU_RAW (msgid 1024). floats10 is acc[3], gyr[3], mag[3], temp.
+   * sample_time_us has no source here -> 0. */
   static uint8_t seq = 0;
   navlink_imu_raw_t msg = {0};
   msg.acc[0] = floats10[0];
@@ -154,9 +154,9 @@ void navlink_tx_imu_full(const float floats10[10]) {
 }
 
 void navlink_tx_imu_compressed(const uint16_t delta_f16[10]) {
-  /* v2 IMU_COMPRESSED (msgid 1025); replaces v1 PACKET_TYPE_IMU_DATA_COMPRESSED.
-   * The 10 binary16 delta bit patterns ride as u16 (delta vs the last IMU_RAW;
-   * the GCS reconstructs). ref_seq is unused by the GCS today -> 0. */
+  /* v2 IMU_COMPRESSED (msgid 1025). The 10 binary16 delta bit patterns ride as
+   * u16 (delta vs the last IMU_RAW; the GCS reconstructs). ref_seq is unused by
+   * the GCS today -> 0. */
   static uint8_t seq = 0;
   navlink_imu_compressed_t msg = {0};
   msg.ref_seq = 0;
@@ -170,8 +170,7 @@ void navlink_tx_imu_compressed(const uint16_t delta_f16[10]) {
 }
 
 void navlink_tx_attitude(const attitude_t *att_deg) {
-  /* The single v2-encoded message today; the v1->v2 migration replicates this
-   * shape for the others (navlink/INTEGRATION.md). */
+  /* v2 ATTITUDE_EULER; angles converted from degrees to radians. */
   static uint8_t s_att_tx_seq = 0;
   navlink_attitude_euler_t a = {0};
   a.roll = att_deg->roll * ATT_DEG2RAD;
@@ -185,7 +184,7 @@ void navlink_tx_attitude(const attitude_t *att_deg) {
 
 void navlink_tx_baro(float pressure_pa, float temperature_c, float humidity_rh,
                      float altitude_m) {
-  /* v2 BARO (msgid 1039); BME280 baro/humidity. No v1 equivalent. */
+  /* v2 BARO (msgid 1039); BME280 baro/humidity. */
   static uint8_t seq = 0;
   navlink_baro_t b = {0};
   b.pressure = pressure_pa;
@@ -213,9 +212,9 @@ void navlink_tx_vertical_state(const vertical_state_t *vs) {
 }
 
 void navlink_tx_rc_channels(const ibus_data_t *rc) {
-  /* v2 RC_CHANNELS (msgid 1028); replaces v1 PACKET_TYPE_RC_CHANNELS. v1 carried
-   * IBUS_MAX_CHANNELS (14) u16; v2 widens to 18, so the tail stays 0. rssi has
-   * no source -> 0; count reports how many channels are populated. */
+  /* v2 RC_CHANNELS (msgid 1028). Carries IBUS_MAX_CHANNELS (14) u16 into an 18-wide
+   * field, so the tail stays 0. rssi has no source -> 0; count reports how many
+   * channels are populated. */
   static uint8_t seq = 0;
   navlink_rc_channels_t msg = {0};
   for (int i = 0; i < IBUS_MAX_CHANNELS && i < 18; i++)
@@ -228,8 +227,8 @@ void navlink_tx_rc_channels(const ibus_data_t *rc) {
 }
 
 void navlink_tx_motor(const motor_outputs_t *m) {
-  /* v2 MOTOR_TELEMETRY (msgid 1029); replaces v1 PACKET_TYPE_MOTOR_TELEMETRY.
-   * v1 carried 4 f32; v2 allows up to 8, so motors 4..7 stay 0. */
+  /* v2 MOTOR_TELEMETRY (msgid 1029). 4 motors populated into an up-to-8 field, so
+   * motors 4..7 stay 0. */
   static uint8_t seq = 0;
   navlink_motor_telemetry_t msg = {0};
   msg.cmd[0] = m->m1;
@@ -243,11 +242,11 @@ void navlink_tx_motor(const motor_outputs_t *m) {
 }
 
 void navlink_tx_calibration(const uint8_t *buf, uint8_t len) {
-  /* v2 CALIBRATION_STATUS (msgid 12320); replaces v1 SYSTEM_STATUS origin 0x01.
-   * v1 buffer layout: [0]=origin [1]=nargs [2]=step [3..]=float payload. For
-   * the MAG_AXIS_COVERAGE step (8, len>=15) the payload is coverage x/y/z (3
-   * f32); otherwise [3..6] is a progress float (0..100 for the PROGRESS step,
-   * 0 for the orientation-instruction steps). */
+  /* v2 CALIBRATION_STATUS (msgid 12320). Input buffer layout: [0]=origin
+   * [1]=nargs [2]=step [3..]=float payload. For the MAG_AXIS_COVERAGE step
+   * (8, len>=15) the payload is coverage x/y/z (3 f32); otherwise [3..6] is a
+   * progress float (0..100 for the PROGRESS step, 0 for the
+   * orientation-instruction steps). */
   static uint8_t seq = 0;
   if (len < 3) {
     return;

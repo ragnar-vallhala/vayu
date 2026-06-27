@@ -116,7 +116,6 @@ bool angle_controller_set_gains(uint8_t axis, float kp, float ki, float kd,
 typedef struct {
   // normal rc channels
   float channels[4];
-  //
 } rc_data_t;
 
 static inline rc_data_t normalize_rc_data(ibus_data_t rc_data) {
@@ -124,8 +123,7 @@ static inline rc_data_t normalize_rc_data(ibus_data_t rc_data) {
   for (int i = 0; i < 4; i++) {
     if (i != 2) {
       // Apply deadband: linear outside the ±PID_RC_DEADBAND band around
-      // centre (1500), zero inside. (Both sides map identically, so the
-      // former separate if/else-if branches are merged — bugprone-branch-clone.)
+      // centre (1500), zero inside. Both sides of centre map identically.
       if (rc_data.channels[i] > 1500 + PID_RC_DEADBAND ||
           rc_data.channels[i] < 1500 - PID_RC_DEADBAND) {
         normalized_rc_data.channels[i] =

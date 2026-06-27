@@ -4,10 +4,9 @@
  *
  * @implements LOG-TXT-001
  *
- * Moved here from src/utils/utils.c per Phase 4 R2.6 — the text-logging
- * concern belongs to the LOG module. The telemetry task drains
+ * The text-logging concern of the LOG module. The telemetry task drains
  * vayu_log_queue to the LOG channel (LOG-TXT-002). Declarations live in
- * utils/utils.h for now (consolidated into the SYS pass).
+ * utils/utils.h.
  */
 #include "storage/fs_owner.h"
 

@@ -2,22 +2,22 @@
  * @file flight_phase.h
  * @brief Takeoff / landing detector and FC-owned AGL ground reference.
  *
- * Closes the gap the barometer finally unblocks (plan §5): driving the
- * SYSTEM_STATE_IN_AIR transition, which nothing could do before because the FC
- * had no vertical observability. This is a pure state machine — no HAL, no
+ * Drives the SYSTEM_STATE_IN_AIR transition from the vertical observability the
+ * barometer provides (without it the FC cannot detect liftoff/touchdown). This
+ * is a pure state machine — no HAL, no
  * queues, no globals — fed the fused vertical estimate (VERT), the commanded
  * throttle, and the armed/in-air flags; it returns a transition event and caches
  * the authoritative AGL. The VERT task owns one instance and applies the event
  * via system_state_set() (src/est/vertical_task.c).
  *
- * Ground reference (decision D4): the FC captures the ground altitude
+ * Ground reference: the FC captures the ground altitude
  * continuously while disarmed (so it absorbs slow baro drift) and FREEZES it at
  * arm; AGL = fused_altitude - ground_ref. The reference is anchored to the RAW
  * baro altitude, not the fused estimate: baro is instantaneous (no accel
  * integration), so an arming transient can't poison the ground level. The GCS
  * consumes this authoritative AGL instead of computing its own.
  *
- * Detection (plan §5) requires altitude AND climb rate AND throttle to agree —
+ * Detection requires altitude AND climb rate AND throttle to agree —
  * so baro noise, prop-wash, or a bench throttle blip can't false-trip it:
  *   - ARMED -> IN_AIR (takeoff):  agl > TAKEOFF, climb > +rate, AND lift was
  *     commanded since arm (throttle crossed the gate — a LATCH, not an

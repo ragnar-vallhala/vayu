@@ -1,9 +1,6 @@
 /**
  * @file src/sys/sys_utils.c
  * @brief System utilities — timestamp, device id, CRC32.
- *
- * Moved here from src/utils/utils.c per Phase 4 R2.6 (the text-logging
- * half went to src/logger/log_text.c).
  */
 #include "sys/sys_utils.h"
 
@@ -92,8 +89,8 @@ void time_sync_discipline_tick(void) {
   _offset_applied += slew * dt;
 }
 
-/* Legacy one-shot setter kept as a thin wrapper (absolute jam). The heartbeat
- * path no longer calls this; the time-sync handshake drives discipline instead. */
+/* One-shot setter: a thin wrapper that jams the offset absolutely. The time-sync
+ * handshake drives clock discipline instead. */
 void set_timestamp(uint64_t timestamp) {
   _offset_target = (int64_t)timestamp - (int64_t)timestamp_raw_ms();
   _offset_applied = (double)_offset_target;

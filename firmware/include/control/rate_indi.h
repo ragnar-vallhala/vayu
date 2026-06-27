@@ -27,10 +27,10 @@
  * Because it works in INCREMENTS around the *measured* acceleration, slowly-
  * varying model error (mass, battery sag, a chipped prop, a wrong b) cancels;
  * only the relative accuracy of b matters. There is one bandwidth gain k per
- * axis instead of a Kp/Ki/Kd/LPF set, and the per-axis difference that made
- * pitch (K~1381) oscillate while roll (K~563) stayed calm is absorbed into b,
- * not re-tuned. See docs/journal/log-analysis/.../telem30s for the pitch
- * relay-limit-cycle this is meant to structurally avoid.
+ * axis instead of a Kp/Ki/Kd/LPF set, and the per-axis difference that makes
+ * pitch (K~1381) oscillate while roll (K~563) stays calm is absorbed into b,
+ * not re-tuned. This structurally avoids the pitch relay-limit-cycle the PID
+ * inner loop is prone to.
  *
  * NOTE this does NOT manufacture authority: at low throttle the mixer still
  * clips the differential at the motor floor. INDI removes the tuning fragility;
@@ -106,13 +106,12 @@ void rate_indi_set_applied(rate_indi_t *c, float u_applied);
 #define DEAFULT_ROLL_INDI_B   563.0f
 #define DEAFULT_PITCH_INDI_B  1381.0f
 #define DEAFULT_YAW_INDI_B    400.0f   /* placeholder: identify before relying */
-/* SEED tune (2026-06-26): the k=20 build hunted at ~3.3 Hz = exactly its own
- * bandwidth (k=20 1/s = 3.18 Hz) -> no phase margin at crossover against the
- * motor/filter lags. Dropped k to ~1 Hz (3x below the hunt) and filtered the
- * derivative harder; b kept HIGH on purpose so INDI under-actuates (sluggish
- * but stable) rather than over-drives. Stable enough to fly a clean sysid chirp
- * and fit the real b. See docs/journal/log-analysis/20260626-013249 (INDI). */
-#define DEAFULT_RATE_INDI_K   6.0f     /* [1/s] was 20; ~1 Hz bandwidth seed */
-#define DEAFULT_RATE_INDI_LPF 0.010f   /* [s] was 0.005; ~16 Hz, denoise deriv */
+/* Conservative seed. k is held ~3x below the rate-loop crossover so there is
+ * phase margin against the motor/filter lags (a k set near its own bandwidth
+ * has none and hunts at that frequency). b is kept HIGH on purpose so INDI
+ * under-actuates (sluggish but stable) rather than over-drives — stable enough
+ * to fly a clean sysid chirp and fit the real b. */
+#define DEAFULT_RATE_INDI_K   6.0f     /* [1/s] ~1 Hz bandwidth seed */
+#define DEAFULT_RATE_INDI_LPF 0.010f   /* [s] ~16 Hz, denoise the gyro derivative */
 
 #endif /* VAYU_RATE_INDI_H */

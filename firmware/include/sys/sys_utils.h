@@ -2,9 +2,7 @@
  * @file sys/sys_utils.h
  * @brief System utilities: monotonic timestamp, device id, CRC32.
  *
- * Moved here from utils/utils.h per Phase 4 R2.6 — these are
- * system-level services, distinct from the text logging that moved to
- * the LOG module.
+ * System-level services, distinct from the text logging in the LOG module.
  */
 #ifndef VAYU_SYS_UTILS_H
 #define VAYU_SYS_UTILS_H
