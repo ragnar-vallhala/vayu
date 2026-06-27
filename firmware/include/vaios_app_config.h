@@ -47,16 +47,23 @@
 // Memory
 #define MAIN_STACK_SIZE 10240 // 10KB
 
-// 56KB. vaios kernel/memory.c now includes the vaios_config.h aggregator
-// (which pulls in this app config ahead of the #ifndef-guarded kernel default),
-// so this value reaches the heap sizing directly — no -DHEAP_SIZE override
-// needed. Sized to fit the 96KB SRAM; the old 0x16000 kernel default overran it
-// once .bss grew past ~8KB (heap_start + 0x16000 > top of RAM) -> boot HardFault.
-// #ifndef-guarded so the host SITL (which has no 96KB SRAM limit and needs room
-// for many 8KB task stacks under the real scheduler) can pass -DHEAP_SIZE; the
-// target build sets no override and keeps 0xE000.
+// 40KB. vaios kernel/memory.c includes the vaios_config.h aggregator (which
+// pulls in this app config ahead of the #ifndef-guarded kernel default), so this
+// value reaches the heap sizing directly — no -DHEAP_SIZE override needed.
+//
+// Sized to the heap high-water (~19.5KB of task stacks + IPC; see
+// docs/journal/memory_report.md) plus headroom, leaving ~16-20KB free heap. The
+// kernel memsets HEAP_SIZE bytes from heap_start at boot, so the rest of the 96KB
+// SRAM is free for .data/.bss under the hard constraint
+//     heap_start + HEAP_SIZE <= 0x20018000   (top of RAM)
+// and the slack below that limit is the margin for static growth.
+// HEAP_WATERMARK_ENABLE (below) reports the free-heap high-water at runtime.
+//
+// #ifndef-guarded so the host SITL (no 96KB SRAM limit, and needs room for many
+// 8KB task stacks under the real scheduler) can pass -DHEAP_SIZE; the target
+// build sets no override and keeps 0xA000.
 #ifndef HEAP_SIZE
-#define HEAP_SIZE 0xE000
+#define HEAP_SIZE 0xA000
 #endif
 
 #define STACK_ALIGN_SIZE 8
