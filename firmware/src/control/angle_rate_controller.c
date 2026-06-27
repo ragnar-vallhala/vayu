@@ -6,6 +6,7 @@
 #include "control/pid_config.h"
 #include "control/control_buffer.h"
 #include "control/pid.h"
+#include "control/mixer.h"       /* dedicated control-allocation mixer */
 #include "control/rate_indi.h"   /* optional INDI inner loop (RATE_CTRL_ALGO_USED) */
 #include "control/sysid.h"
 #include "memory.h"   /* v_memcpy */
@@ -108,15 +109,38 @@ float angle_rate_controller_get_d_lpf(uint8_t axis) {
  * physics / real airframe actually uses, instead of a hardcoded numbering.
  *   out_i = throttle + roll*(-sign y_i) + pitch*(sign x_i) + yaw*(spin_i)
  * Defaults are the on-hardware rig geometry reconciled from
- * docs/store/rig_tune.json (2026-06-22): pos_x/pos_y reproduce the legacy X-quad
- * roll/pitch mix (FR=M1, RR=M2, RL=M3, FL=M4), but the yaw spin is INVERTED vs
- * the old default — that default spin-sign was backwards, giving yaw positive
- * feedback (M1,M3 CW / M2,M4 CCW). ONE geometry source (the GCS vehicle / loaded
- * .vveh) drives both the sim physics and this mix, keeping firmware + sim
- * consistent and stable for any quad layout. */
+ * docs/store/rig_tune.json (2026-06-22): pos_x/pos_y give the X-quad roll/pitch
+ * mix (FR=M1, RR=M2, RL=M3, FL=M4), and the yaw spin signs give negative (stable)
+ * yaw feedback. ONE geometry source (the GCS vehicle / loaded .vveh) drives both
+ * the sim physics and this mix, keeping firmware + sim consistent and stable for
+ * any quad layout. */
 static float s_mix_roll[4]  = {-1.f, -1.f, +1.f, +1.f};  /* -sign(y) */
 static float s_mix_pitch[4] = {+1.f, -1.f, -1.f, +1.f};  /*  sign(x) */
 static float s_mix_yaw[4]   = {-1.f, +1.f, -1.f, +1.f};  /*  spin    */
+
+/* Control-allocation mixer (firmware/src/control/mixer.c): pseudo-inverse mix +
+ * airmode desaturation + clamp + idle floor. Kept in sync with the s_mix_* signs
+ * by mixer_sync(). Airmode DISABLED applies the uniform anti-saturation scaler
+ * (hold throttle, scale attitude to fit); MIXER_AIRMODE_RP preserves roll/pitch
+ * authority instead. */
+static mixer_t s_mixer;
+static mixer_airmode_t s_airmode = MIXER_AIRMODE_DISABLED;
+
+/* (Re)build the mixer from the current sign arrays + idle floor. The mixer only
+ * needs the geometry sign, so we recover valid pos/spin inputs from s_mix_*
+ * (their single source of truth) -- they can never drift apart. */
+static void mixer_sync(void) {
+  float px[4], py[4];
+  int sp[4];
+  for (int i = 0; i < 4; i++) {
+    px[i] = s_mix_pitch[i];                      /* sign(x)            */
+    py[i] = -s_mix_roll[i];                      /* sign(y) = -(-sign y) */
+    sp[i] = (s_mix_yaw[i] >= 0.0f) ? 1 : -1;     /* spin               */
+  }
+  mixer_set_geometry(&s_mixer, px, py, sp, 4);
+  mixer_set_airmode(&s_mixer, s_airmode);
+  mixer_set_idle_floor(&s_mixer, MOTOR_IDLE_FLOOR);
+}
 
 void angle_rate_controller_set_motor_geometry(const float pos_x[4],
                                               const float pos_y[4],
@@ -126,6 +150,7 @@ void angle_rate_controller_set_motor_geometry(const float pos_x[4],
     s_mix_pitch[i] = (pos_x[i] >= 0.0f) ? +1.0f : -1.0f;
     s_mix_yaw[i]   = (spin[i] >= 0)     ? +1.0f : -1.0f;
   }
+  mixer_sync(); /* rebuild the allocator for the new geometry */
 }
 
 bool angle_rate_controller_apply_geometry_command(const uint8_t *payload,
@@ -184,6 +209,9 @@ void angle_rate_controller_init(void) {
                    DEAFULT_RATE_INDI_LPF, angle_rate_controller.pid[i].out_min,
                    angle_rate_controller.pid[i].out_max);
   }
+
+  /* Build the control-allocation mixer from the default geometry. */
+  mixer_sync();
 }
 
 bool angle_rate_controller_set_gains(uint8_t axis, float kp, float ki, float kd,
@@ -288,7 +316,7 @@ void angle_rate_controller_task(void *arg) {
                                      imu_data.converted.gyr[1],
                                      imu_data.converted.gyr[2]};
 
-    /* SYS-ID (Phase 0): inject the chirp excitation. Zero unless a run is active.
+    /* SYS-ID: inject the chirp excitation. Zero unless a run is active.
      * Two injection points (sysid_inject_mode()):
      *   RATE_SP — add to the rate SETPOINT here, before the PID; the closed loop
      *             tracks it (safe, self-stabilising, closed-loop ID).
@@ -393,14 +421,11 @@ void angle_rate_controller_task(void *arg) {
      * holding the drone down, which creates a feedback loop with the
      * mahony filter (drone wobbles a degree -> PID asks for big rate ->
      * motors deflect -> drone tips further against the ground
-     * constraint -> filter sees more rotation -> ...). The original
-     * piecewise that only ramped between 0 and MIN_ARMED_THROTTLE left
-     * the PID at full authority for any pilot throttle above 10%, which
-     * is well below the X3's ~0.55 hover point in sim. Ramp from
+     * constraint -> filter sees more rotation -> ...). Ramp from
      * MIN_ARMED_THROTTLE up to PID_FULL_AUTHORITY_THROTTLE so the loop
-     * is fully gated until the pilot is nearly at hover, at which point
-     * the drone is light on the ground or already lifting and the PID
-     * actually has authority over attitude. */
+     * is fully gated until the pilot is nearly at hover (the SITL X3
+     * hovers at ~0.55), at which point the drone is light on the ground
+     * or already lifting and the PID actually has authority over attitude. */
     if (target_throttle < MIN_ARMED_THROTTLE) {
       for (int i = 0; i < NUM_AXES; i++) outputs[i] = 0.0f;
     } else if (target_throttle < PID_FULL_AUTHORITY_THROTTLE) {
@@ -408,98 +433,25 @@ void angle_rate_controller_task(void *arg) {
                    (PID_FULL_AUTHORITY_THROTTLE - MIN_ARMED_THROTTLE);
       for (int i = 0; i < NUM_AXES; i++) outputs[i] *= ramp;
     }
-    // Geometry-derived X-quad mix: out_i = throttle + roll*(-sign y_i) +
-    // pitch*(sign x_i) + yaw*spin_i, with the per-motor signs set from the
-    // airframe geometry (angle_rate_controller_set_motor_geometry). Defaults
-    // match the legacy layout (FR=M1, RR=M2, RL=M3, FL=M4).
-    float* const mo[4] = {&motor_outputs.m1, &motor_outputs.m2,
-                          &motor_outputs.m3, &motor_outputs.m4};
-    for (int i = 0; i < 4; i++) {
-      *mo[i] = target_throttle + s_mix_roll[i] * outputs[0] +
-               s_mix_pitch[i] * outputs[1] + s_mix_yaw[i] * outputs[2];
-    }
-
-    // Saturation handling: scale the PID differential (deviation from
-    // target_throttle) so every motor fits in [0, 1] WITHOUT changing
-    // the pilot's commanded throttle.
-    //
-    // The previous "shift-all-up-by-|min|" pattern silently added thrust
-    // the pilot never asked for: e.g. at target_throttle=0.14 with a
-    // PID asking for a big roll torque, m4 would come out at -0.30; the
-    // shift then added +0.30 to all four motors, average thrust jumped
-    // from 14% to 44%, drone took off uncommanded ("shot up") with the
-    // residual differential still tilting it ("rolled down"). The
-    // subsequent divide-by-max for positives further re-scaled, but the
-    // total energy bump from the lift step had already happened.
-    //
-    // Correct anti-saturation: find the worst-violating PID excursion
-    // and scale ALL PID outputs by the same factor (<=1) so the worst
-    // motor sits exactly at the limit (0 or 1) while throttle stays
-    // intact. Authority over attitude is reduced when limits bite, but
-    // the pilot keeps the throttle they asked for.
+    /* Control allocation. The mixer (firmware/src/control/mixer.c) owns the
+     * per-motor mix (pseudo-inverse of the airframe geometry), saturation
+     * handling, the [0,1] clamp, the NaN guard and the idle floor.
+     *
+     * With airmode DISABLED (the default) the worst-violating PID excursion is
+     * scaled so every motor fits in [0,1] without changing the commanded
+     * throttle. MIXER_AIRMODE_RP instead preserves roll/pitch authority under
+     * saturation (moves collective / sacrifices yaw). The realised differential
+     * the INDI block below reads back from these motor commands is the same
+     * either way. */
     {
-      /* cppcheck-suppress duplicateAssignExpression
-       * (min_m and max_m intentionally both seed from m1 for the min/max scan) */
-      float min_m = motor_outputs.m1, max_m = motor_outputs.m1;
-      if (motor_outputs.m2 < min_m) min_m = motor_outputs.m2;
-      if (motor_outputs.m3 < min_m) min_m = motor_outputs.m3;
-      if (motor_outputs.m4 < min_m) min_m = motor_outputs.m4;
-      if (motor_outputs.m2 > max_m) max_m = motor_outputs.m2;
-      if (motor_outputs.m3 > max_m) max_m = motor_outputs.m3;
-      if (motor_outputs.m4 > max_m) max_m = motor_outputs.m4;
-
-      float scale = 1.0f;
-      if (min_m < 0.0f) {
-        // need to shrink (target_throttle - min_m) to (target_throttle - 0)
-        float k = (target_throttle) / (target_throttle - min_m);
-        if (k < scale) scale = k;
-      }
-      if (max_m > 1.0f) {
-        float k = (1.0f - target_throttle) / (max_m - target_throttle);
-        if (k < scale) scale = k;
-      }
-      if (scale < 1.0f) {
-        motor_outputs.m1 = target_throttle + scale * (motor_outputs.m1 - target_throttle);
-        motor_outputs.m2 = target_throttle + scale * (motor_outputs.m2 - target_throttle);
-        motor_outputs.m3 = target_throttle + scale * (motor_outputs.m3 - target_throttle);
-        motor_outputs.m4 = target_throttle + scale * (motor_outputs.m4 - target_throttle);
-      }
-      // Final clip in case throttle itself is out of range (shouldn't be
-      // - normalized RC is [0, 1] - but cheap insurance).
-      if (motor_outputs.m1 < 0) motor_outputs.m1 = 0;
-      if (motor_outputs.m2 < 0) motor_outputs.m2 = 0;
-      if (motor_outputs.m3 < 0) motor_outputs.m3 = 0;
-      if (motor_outputs.m4 < 0) motor_outputs.m4 = 0;
-      if (motor_outputs.m1 > 1) motor_outputs.m1 = 1;
-      if (motor_outputs.m2 > 1) motor_outputs.m2 = 1;
-      if (motor_outputs.m3 > 1) motor_outputs.m3 = 1;
-      if (motor_outputs.m4 > 1) motor_outputs.m4 = 1;
-      /* NaN guard. The clamps above use ordered comparisons (`< 0`,
-       * `> 1`), which return false for NaN -- so a stray NaN slips
-       * through unchanged. Force NaN to a safe 0 via isnan(). */
-      if (isnan(motor_outputs.m1)) motor_outputs.m1 = 0;
-      if (isnan(motor_outputs.m2)) motor_outputs.m2 = 0;
-      if (isnan(motor_outputs.m3)) motor_outputs.m3 = 0;
-      if (isnan(motor_outputs.m4)) motor_outputs.m4 = 0;
-
-      /* Idle thrust floor. Every motor is held at >= MOTOR_IDLE_FLOOR
-       * while armed. Two reasons:
-       *   1. It matches what a real ESC does in modern flight stacks
-       *      ("MOTOR_STOP=false"): the props keep spinning slowly while
-       *      armed, so the next throttle command doesn't have to cold-
-       *      start the motor.
-       *   2. In SITL it's how we signal "armed-and-alive" to the
-       *      bridge. With the floor at 0 the FIFO produces
-       *      indistinguishable motors=0 in two cases (disarmed, and
-       *      armed-at-idle-throttle); the bridge's gravity-
-       *      cancellation logic needs to tell them apart so it knows
-       *      whether to hold the drone in mid-air or let it fall onto
-       *      the skid. motor_task still zeros the outputs in non-ARMED
-       *      states, so the floor only takes effect when armed. */
-      if (motor_outputs.m1 < MOTOR_IDLE_FLOOR) motor_outputs.m1 = MOTOR_IDLE_FLOOR;
-      if (motor_outputs.m2 < MOTOR_IDLE_FLOOR) motor_outputs.m2 = MOTOR_IDLE_FLOOR;
-      if (motor_outputs.m3 < MOTOR_IDLE_FLOOR) motor_outputs.m3 = MOTOR_IDLE_FLOOR;
-      if (motor_outputs.m4 < MOTOR_IDLE_FLOOR) motor_outputs.m4 = MOTOR_IDLE_FLOOR;
+      const float w[MIX_NW] = {outputs[0], outputs[1], outputs[2],
+                               target_throttle};
+      float m[4];
+      mixer_allocate(&s_mixer, w, m, NULL);
+      motor_outputs.m1 = m[0];
+      motor_outputs.m2 = m[1];
+      motor_outputs.m3 = m[2];
+      motor_outputs.m4 = m[3];
     }
 
     /* INDI saturation-aware feedback: hand each axis the differential the motors
@@ -507,7 +459,7 @@ void angle_rate_controller_task(void *arg) {
      * orthogonal (sum mix_a*mix_b = 0, sum mix_a^2 = 4), so the realized per-axis
      * command is sum(m_i * mix_a_i)/4 and the common throttle/idle-floor cancels.
      * This is what stops INDI from integrating against thrust it never got — the
-     * relay limit cycle the telem30s log showed at low throttle. No-op for PID. */
+     * relay limit cycle it otherwise hits at low throttle. No-op for PID. */
     if (RATE_CTRL_ALGO_USED == RATE_CTRL_INDI) {
       const float m[4] = {motor_outputs.m1, motor_outputs.m2, motor_outputs.m3,
                           motor_outputs.m4};

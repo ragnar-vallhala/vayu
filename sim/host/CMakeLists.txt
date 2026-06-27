@@ -76,6 +76,7 @@ set(VAYU_SOURCES
     ${VAYU_ROOT}/firmware/src/actuator/motor.c
     ${VAYU_ROOT}/firmware/src/control/angle_controller.c
     ${VAYU_ROOT}/firmware/src/control/angle_rate_controller.c
+    ${VAYU_ROOT}/firmware/src/control/mixer.c        # control allocation (mix + airmode desaturation)
     ${VAYU_ROOT}/firmware/src/control/sysid.c        # rate-loop system-ID excite/capture (angle_rate_controller + navlink refs)
     ${VAYU_ROOT}/firmware/src/control/pid_config.c   # CMD_SET_PID apply + SD persistence
     ${VAYU_ROOT}/firmware/src/control/flight_mode.c  # stabilise/acro arbitration (RC + GCS)
