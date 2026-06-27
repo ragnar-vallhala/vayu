@@ -98,7 +98,7 @@ static inline float vayu_dt_from_cycles(uint32_t now_cyc, uint32_t prev_cyc) {
  * axis PID, default) or RATE_CTRL_INDI (incremental dynamic inversion; see
  * include/control/rate_indi.h). Selected like SF_FILTER_USED — same compile-
  * time token-substitution. INDI tunables (b/k/lpf) live in rate_indi.h. */
-#define RATE_CTRL_ALGO_USED RATE_CTRL_INDI
+#define RATE_CTRL_ALGO_USED RATE_CTRL_PID
 
 #define RADIO_AVOID_BAND 10
 
@@ -111,15 +111,14 @@ static inline float vayu_dt_from_cycles(uint32_t now_cyc, uint32_t prev_cyc) {
 #define PID_RC_DEADBAND 10     // in PWM
 #define PID_RC2ANGLE_RATE_MODE NORMALIZED_RC2ANGLE_RATE_CUBIC
 #define MIN_ARMED_THROTTLE 0.1f
-/* Per-motor "alive" thrust floor applied while ARMED. Below this
- * level the motors are held at the floor instead of going to zero.
- * Matches what a real ESC does when MOTOR_STOP=false (props keep
- * spinning slowly so the next throttle command doesn't have to
- * cold-start the motor), and -- in SITL -- gives the Gazebo bridge
- * a non-zero motor signal to detect "armed and alive" vs the
- * disarmed motors=0 condition (the bridge gravity-cancellation
- * floor keys off this). */
-#define MOTOR_IDLE_FLOOR 0.005f
+/* Per-motor minimum-spin thrust held while ARMED (~15%, as a real ESC
+ * does with MOTOR_STOP=false). The props keep turning so an ESC never
+ * stalls/desyncs and the next command doesn't cold-start the motor, and
+ * the low side keeps bidirectional authority instead of clipping against
+ * zero. In SITL the non-zero value also distinguishes "armed and alive"
+ * from the disarmed motors=0 condition the bridge gravity-cancellation
+ * floor keys off (any value > 0 suffices). */
+#define MOTOR_IDLE_FLOOR 0.15f
 /* Below this throttle the rate-PID outputs are ramped from 0 (at
  * MIN_ARMED_THROTTLE) to full authority. The point is to keep the PID
  * silent while the drone is still ground-bound: an attitude correction
@@ -159,9 +158,14 @@ static inline float vayu_dt_from_cycles(uint32_t now_cyc, uint32_t prev_cyc) {
 #define DEAFULT_ROLL_ANGLE_RATE_OUT_MIN -1.0f
 #define DEAFULT_ROLL_ANGLE_RATE_OUT_MAX 1.0f
 
-#define DEAFULT_PITCH_ANGLE_RATE_KP 0.012f
-#define DEAFULT_PITCH_ANGLE_RATE_KI 0.005f
-#define DEAFULT_PITCH_ANGLE_RATE_KD 0.0001f
+/* Pitch rate: a deliberately damped set. The pitch plant is soft with a long
+ * ESC/transport delay, so a high Kp drives the output into its ±1 clamp and
+ * sustains a saturation (relay) limit cycle. A modest Kp held off the rails by
+ * Kd lead (worked by the 0.004 s D-LPF below) damps the oscillation while still
+ * holding angle. Validated on a single-axis rig under throttle. */
+#define DEAFULT_PITCH_ANGLE_RATE_KP 0.008f
+#define DEAFULT_PITCH_ANGLE_RATE_KI 0.003f
+#define DEAFULT_PITCH_ANGLE_RATE_KD 0.0008f
 #define DEAFULT_PITCH_ANGLE_RATE_KFF 0.0f
 #define DEAFULT_PITCH_ANGLE_RATE_I_MAX 0.2f
 #define DEAFULT_PITCH_ANGLE_RATE_D_MAX 0.25f
