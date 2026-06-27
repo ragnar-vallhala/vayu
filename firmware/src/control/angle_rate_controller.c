@@ -77,7 +77,7 @@ static float s_gyro_lpf_state[NUM_AXES] = {0.0f, 0.0f, 0.0f};
  * a few floats per axis otherwise idle). Configured in angle_rate_controller_init. */
 static rate_indi_t s_indi[NUM_AXES];
 
-/** @noreq gyro-LPF tuning setter (see proposed CTRL-RATE-105). */
+/** @implements CTRL-RATE-105 gyro-LPF tuning setter. */
 bool angle_rate_controller_set_gyro_lpf(uint8_t axis, float rc) {
   if (axis >= NUM_AXES) {
     return false;

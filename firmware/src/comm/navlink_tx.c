@@ -41,7 +41,7 @@ void navlink_tx_log(const char *buf, uint8_t len) {
   }
 }
 
-/** @noreq sysid capture dump (bench/diagnostic tooling) */
+/** @implements CTRL-SID-102 sysid capture dump (bench/diagnostic tooling) */
 void navlink_tx_sysid_sample(uint16_t start, uint16_t total, uint16_t hz,
                              uint8_t axis, uint8_t count, const int16_t *u,
                              const int16_t *gyro) {
@@ -82,6 +82,7 @@ void navlink_tx_heartbeat(void) {
   write_channel(g_telemetry_channel, frame, (uint16_t)n);
 }
 
+/** @implements COMM-TEL-006 */
 void navlink_tx_flight_mode(uint8_t mode, uint8_t source) {
   /* v2 FLIGHT_MODE (msgid 3). */
   static uint8_t seq = 0;
@@ -124,6 +125,7 @@ void navlink_tx_pid_error(const control_telemetry_t *c) {
   write_channel(g_telemetry_channel, frame, (uint16_t)n);
 }
 
+/** @implements COMM-TEL-005 */
 void navlink_tx_est_perf(const est_perf_telemetry_t *e) {
   /* v2 EST_PERF (msgid 1033). */
   static uint8_t seq = 0;
@@ -190,6 +192,7 @@ void navlink_tx_attitude(const attitude_t *att_deg) {
   write_channel(g_telemetry_channel, frame, (uint16_t)n);
 }
 
+/** @implements COMM-TEL-006 */
 void navlink_tx_baro(float pressure_pa, float temperature_c, float humidity_rh,
                      float altitude_m) {
   /* v2 BARO (msgid 1039); BME280 baro/humidity. */
@@ -204,6 +207,7 @@ void navlink_tx_baro(float pressure_pa, float temperature_c, float humidity_rh,
   write_channel(g_telemetry_channel, frame, (uint16_t)n);
 }
 
+/** @implements COMM-TEL-006 */
 void navlink_tx_vertical_state(const vertical_state_t *vs) {
   /* v2 VERTICAL_STATE (msgid 1040); fused vertical estimate + raw baro alt. */
   static uint8_t seq = 0;
@@ -281,6 +285,7 @@ void navlink_tx_calibration(const uint8_t *buf, uint8_t len) {
 
 /* --- PERF (one v2 message per row; seq ties a report together) ------------- */
 
+/** @implements COMM-TEL-005 */
 void navlink_tx_perf_global(const perf_global_body_t *g, uint32_t seq) {
   static uint8_t s = 0;
   navlink_perf_global_t m = {0};
@@ -310,6 +315,7 @@ void navlink_tx_perf_global(const perf_global_body_t *g, uint32_t seq) {
   write_channel(g_telemetry_channel, frame, (uint16_t)n);
 }
 
+/** @implements COMM-TEL-005 */
 void navlink_tx_perf_task(const perf_task_row_t *row, uint32_t seq) {
   static uint8_t s = 0;
   navlink_perf_task_t m = {0};
@@ -327,6 +333,7 @@ void navlink_tx_perf_task(const perf_task_row_t *row, uint32_t seq) {
   write_channel(g_telemetry_channel, frame, (uint16_t)n);
 }
 
+/** @implements COMM-TEL-005 */
 void navlink_tx_perf_fifo(const perf_fifo_row_t *row, uint32_t seq) {
   static uint8_t s = 0;
   navlink_perf_fifo_t m = {0};
@@ -342,6 +349,7 @@ void navlink_tx_perf_fifo(const perf_fifo_row_t *row, uint32_t seq) {
 
 /* --- command responses ---------------------------------------------------- */
 
+/** @implements COMM-SYNC-001 */
 void navlink_tx_time_sync_response(const time_sync_payload_t *out) {
   /* v2 TIME_SYNC (msgid 10); the payload is byte-identical to time_sync_payload_t
    * (dialect note), so copy field-by-field into the aligned struct. */
@@ -359,6 +367,7 @@ void navlink_tx_time_sync_response(const time_sync_payload_t *out) {
   write_channel(g_telemetry_channel, frame, (uint16_t)n);
 }
 
+/** @implements COMM-TEL-005 */
 void navlink_tx_perf_taskname(uint8_t id, const char *name) {
   /* v2 PERF_TASKNAME (msgid 1038); name is a NUL-padded char[32]. */
   static uint8_t seq = 0;

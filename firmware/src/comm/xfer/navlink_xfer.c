@@ -125,6 +125,7 @@ const xfer_session_t *xfer_session_get(uint8_t session) {
 }
 
 /* ---- COMM-task handlers (state only; no blocking I/O) -------------------- */
+/** @implements COMM-XFER-001 */
 int xfer_on_open(const xfer_open_args_t *a) {
   if (!s_ready || a == NULL)
     return XFER_RES_TEMPORARILY_REJECTED;
@@ -172,6 +173,7 @@ int xfer_on_open(const xfer_open_args_t *a) {
   return XFER_OPEN_DEFERRED;
 }
 
+/** @implements COMM-XFER-001 */
 void xfer_on_data(uint8_t session, uint32_t offset, const uint8_t *buf,
                   uint8_t len, uint8_t flags) {
   if (!s_ready || session >= XFER_MAX_SESSIONS)
@@ -205,6 +207,7 @@ void xfer_on_data(uint8_t session, uint32_t offset, const uint8_t *buf,
   }
 }
 
+/** @implements COMM-XFER-001 */
 void xfer_on_ack(uint8_t session, uint32_t next_offset, uint8_t flags) {
   if (!s_ready || session >= XFER_MAX_SESSIONS)
     return;
@@ -244,6 +247,7 @@ void xfer_on_ack(uint8_t session, uint32_t next_offset, uint8_t flags) {
   }
 }
 
+/** @implements COMM-XFER-001 */
 int xfer_on_close(uint8_t session, uint8_t req_seq, uint8_t result) {
   if (!s_ready || session >= XFER_MAX_SESSIONS)
     return XFER_RES_TEMPORARILY_REJECTED;
@@ -257,7 +261,8 @@ int xfer_on_close(uint8_t session, uint8_t req_seq, uint8_t result) {
 }
 
 /* ---- XFER-task tick ------------------------------------------------------ */
-/* Run the deferred provider->open and emit COMMAND_ACK + XFER_INFO. */
+/* Run the deferred provider->open and emit COMMAND_ACK + XFER_INFO.
+ * @implements COMM-XFER-001 */
 static void tick_pending_open(xfer_session_t *s, uint32_t now_ms) {
   uint32_t total = 0;
   int rc = s->provider->open ? s->provider->open(s, NULL, &total) : -1;
@@ -286,7 +291,8 @@ static void tick_pending_open(xfer_session_t *s, uint32_t now_ms) {
     s_tx->info(s, XFER_RES_ACCEPTED, s->chunk_size, s->total_size, 0);
 }
 
-/* Download: emit up to `budget` chunks from the cursor; returns chunks emitted. */
+/* Download: emit up to `budget` chunks from the cursor; returns chunks emitted.
+ * @implements COMM-XFER-001 */
 static int tick_download(xfer_session_t *s, uint32_t now_ms, int budget,
                          uint32_t tx_overflow) {
   /* Channel-paced: XFER_DATA shares the telemetry channel, so emitting flat-out
@@ -350,7 +356,8 @@ static int tick_download(xfer_session_t *s, uint32_t now_ms, int budget,
   return emitted;
 }
 
-/* Stream: emit one due sample (best-effort, never rewinds). */
+/* Stream: emit one due sample (best-effort, never rewinds).
+ * @implements COMM-XFER-002 */
 static int tick_stream(xfer_session_t *s, uint32_t now_ms, uint32_t tx_overflow) {
   static uint32_t s_last_overflow;
   if (s->rate_hz == 0)
@@ -376,7 +383,8 @@ static int tick_stream(xfer_session_t *s, uint32_t now_ms, uint32_t tx_overflow)
   return 1;
 }
 
-/* Upload: periodic cumulative XFER_ACK so the GCS knows where to resume. */
+/* Upload: periodic cumulative XFER_ACK so the GCS knows where to resume.
+ * @implements COMM-XFER-001 */
 static void tick_upload(xfer_session_t *s, uint32_t now_ms) {
   if (s->rx_activity) { /* refresh liveness only when chunks are still arriving,
                          * so a vanished GCS is reaped by the idle timeout */
@@ -407,6 +415,7 @@ static void tick_upload(xfer_session_t *s, uint32_t now_ms) {
   }
 }
 
+/** @implements COMM-XFER-001 */
 int xfer_tick(uint32_t now_ms, uint32_t tx_overflow, int chunk_budget) {
   if (!s_ready)
     return 0;

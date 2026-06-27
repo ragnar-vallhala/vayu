@@ -21,6 +21,7 @@ void flight_phase_init(flight_phase_t *fp) {
   fp->land_timer = 0.0f;
 }
 
+/* @implements EST-PHS-001, EST-PHS-101 */
 flight_phase_event_t flight_phase_update(flight_phase_t *fp, bool armed,
                                          bool in_air, float fused_alt,
                                          float baro_alt, float climb_rate,

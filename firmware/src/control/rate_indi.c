@@ -27,6 +27,7 @@ void rate_indi_reset(rate_indi_t *c) {
   c->initialized = false;
 }
 
+/* @implements CTRL-RATE-104 */
 float rate_indi_update(rate_indi_t *c, float rate_sp, float rate_meas,
                        float dt) {
   /* First valid sample after a reset: seed the filters from the current state
@@ -70,6 +71,7 @@ float rate_indi_update(rate_indi_t *c, float rate_sp, float rate_meas,
   return u;
 }
 
+/* @implements CTRL-RATE-104 */
 void rate_indi_set_applied(rate_indi_t *c, float u_applied) {
   /* Replace the synchronized feedback with the actually-applied command. Use
    * the same alpha-blend semantics as update()'s step 5 would have, but anchor

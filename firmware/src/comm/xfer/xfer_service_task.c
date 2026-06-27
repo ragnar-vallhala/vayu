@@ -29,6 +29,7 @@
  * still sustains the link's chunk rate. */
 #define XFER_CHUNK_BUDGET 4
 
+/** @implements COMM-XFER-001 */
 void xfer_service_task(void *args) {
   (void)args;
   xfer_init(&g_xfer_tx_ops);

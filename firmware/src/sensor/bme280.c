@@ -75,6 +75,7 @@ uint8_t bme280_is_present(void) { return _initialized; }
 
 /* ---- calibration ---- */
 
+/** @implements SNS-BARO-101 */
 static hal_status_t bme280_read_calibration(void) {
   uint8_t tp[BME280_CALIB_TP_LEN];
   uint8_t h[BME280_CALIB_H_LEN];
@@ -118,7 +119,8 @@ static hal_status_t bme280_read_calibration(void) {
 
 /* ---- compensation (BME280 datasheet §4.2.3, fixed-point reference code) ---- */
 
-/* Returns temperature in deg C, and updates _t_fine for pressure/humidity. */
+/* Returns temperature in deg C, and updates _t_fine for pressure/humidity.
+ * @implements SNS-BARO-101 */
 static float bme280_compensate_temp(int32_t adc_t) {
   int32_t var1 = ((((adc_t >> 3) - ((int32_t)_calib.dig_t1 << 1))) *
                   ((int32_t)_calib.dig_t2)) >>
@@ -133,7 +135,8 @@ static float bme280_compensate_temp(int32_t adc_t) {
   return (float)t * 0.01f;
 }
 
-/* Returns pressure in Pa (64-bit path; result is Q24.8, i.e. p/256 = Pa). */
+/* Returns pressure in Pa (64-bit path; result is Q24.8, i.e. p/256 = Pa).
+ * @implements SNS-BARO-101 */
 static float bme280_compensate_pressure(int32_t adc_p) {
   int64_t var1, var2, p;
   var1 = ((int64_t)_t_fine) - 128000;
@@ -154,7 +157,8 @@ static float bme280_compensate_pressure(int32_t adc_p) {
   return (float)p / 256.0f;
 }
 
-/* Returns relative humidity in %RH (32-bit path; result is Q22.10, /1024). */
+/* Returns relative humidity in %RH (32-bit path; result is Q22.10, /1024).
+ * @implements SNS-BARO-101 */
 static float bme280_compensate_humidity(int32_t adc_h) {
   int32_t v = (_t_fine - ((int32_t)76800));
   v = (((((adc_h << 14) - (((int32_t)_calib.dig_h4) << 20) -
@@ -185,6 +189,7 @@ void bme280_ingest_raw(const uint8_t *data) {
   _raw_fresh = 1;
 }
 
+/** @implements SNS-BARO-001, SNS-BARO-102 */
 void bme280_publish(float pressure_pa, float temperature_c, float humidity_rh) {
   /* Derive altitude from physical pressure and publish. The real-hardware path
    * calls this after compensating raw ADC; SITL calls it directly with vsim_d's
@@ -202,6 +207,7 @@ void bme280_publish(float pressure_pa, float temperature_c, float humidity_rh) {
   _have_sample = 1;
 }
 
+/** @implements SNS-BARO-001 */
 static void bme280_compensate_and_publish(const uint8_t *d) {
   int32_t adc_p = (int32_t)(((uint32_t)d[0] << 12) | ((uint32_t)d[1] << 4) |
                             ((uint32_t)d[2] >> 4));
@@ -218,13 +224,14 @@ static void bme280_compensate_and_publish(const uint8_t *d) {
 
 /* ---- public API ---- */
 
-/** @noreq Trivial QNH (sea-level reference) setter. */
+/** @implements SNS-BARO-102 QNH (sea-level reference) setter. */
 void bme280_set_sea_level_pa(float pa) {
   if (pa > 1.0f) {
     _sea_level_pa = pa;
   }
 }
 
+/** @implements SNS-BARO-001 */
 hal_status_t bme280_init(void) {
   _initialized = 0;
   _have_sample = 0;
@@ -266,6 +273,7 @@ hal_status_t bme280_init(void) {
   return HAL_OK;
 }
 
+/** @implements SNS-BARO-001 */
 void bme280_read_task(void *args) {
   (void)args;
   while (1) {

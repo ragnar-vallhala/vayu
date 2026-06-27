@@ -1471,7 +1471,8 @@ enum { POSE_OK = 0, POSE_REJ_SHAPE = -1, POSE_REJ_DUP = -2 };
 
 /* Dominant signed body axis of a direction: index 0..2 of the largest |component|,
  * with *sign set to +1/-1. Identifies which of the six signed axes a face lands on
- * without assuming any particular board mounting. */
+ * without assuming any particular board mounting.
+ * @implements SNS-CAL-104 */
 static int dom_axis(const float v[3], int *sign) {
   int k = 0;
   if (m_fabsf(v[1]) > m_fabsf(v[k]))
@@ -1488,7 +1489,8 @@ static int dom_axis(const float v[3], int *sign) {
  * axes and sit far enough from every banked direction. This is what stops the same
  * orientation being recorded twice and keeps the 9-DOF fit well-conditioned.
  * `banked[0..n_banked)` are the accepted directions. Matching is geometric (not by
- * the prompted code), so it is independent of how the board axes are signed. */
+ * the prompted code), so it is independent of how the board axes are signed.
+ * @implements SNS-CAL-104 */
 static int pose_advances_coverage(const float avg[3], pose_kind_t kind,
                                   const float banked[][3], int n_banked) {
   float mag = m_sqrt(avg[0] * avg[0] + avg[1] * avg[1] + avg[2] * avg[2]);
@@ -1554,7 +1556,8 @@ static int pose_advances_coverage(const float avg[3], pose_kind_t kind,
  * pose-coverage gate (the right face/edge shape AND distinct from `banked[0..
  * n_banked)`); a hold that duplicates a prior orientation is refused and re-
  * prompted instead of banked. Averages acc_raw into accel_out (m/s^2). Returns 1
- * on success, -1 on cancel/starvation. */
+ * on success, -1 on cancel/starvation.
+ * @implements SNS-CAL-104 */
 static int wait_for_static_pose(uint8_t code, pose_kind_t kind,
                                 const float banked[][3], int n_banked,
                                 float accel_out[3]) {

@@ -37,6 +37,7 @@ static inline void _heartbeat_peripheral_init(void) {
   hal_gpio_set_mode(_BUZZER_PIN, HAL_GPIO_MODE_OUTPUT, HAL_GPIO_PULL_NONE);
 }
 
+/* @implements SYS-HMI-001 */
 static inline void _system_init(void) {
   static uint8_t _first_time = 1;
   if (_first_time) {
@@ -48,23 +49,28 @@ static inline void _system_init(void) {
   _toggle_pin(_BLUE_LED_PIN);
 }
 
+/* @implements SYS-HMI-001 */
 static inline void _system_standby(void) { _toggle_pin(_GREEN_LED_PIN); }
 
+/* @implements SYS-HMI-001 */
 static inline void _system_prearm(void) {
   _toggle_pin(_GREEN_LED_PIN);
   _toggle_pin(_BLUE_LED_PIN);
 }
 
+/* @implements SYS-HMI-001 */
 static inline void _system_armed(void) {
   _toggle_pin(_GREEN_LED_PIN);
   hal_gpio_write(_RED_LED_PIN, HAL_GPIO_HIGH);
 }
 
+/* @implements SYS-HMI-001 */
 static inline void _system_in_air(void) {
   _toggle_pin(_GREEN_LED_PIN);
   _toggle_pin(_RED_LED_PIN);
 }
 
+/* @implements SYS-HMI-101 */
 static inline void _system_failsafe(void) {
   uint32_t boot_flags = (uint32_t)system_boot_check_state_get();
 
@@ -90,11 +96,13 @@ static inline void _system_failsafe(void) {
   }
 }
 
+/* @implements SYS-HMI-001 */
 static inline void _system_terminated(void) {
   hal_gpio_write(_RED_LED_PIN, HAL_GPIO_HIGH);
   hal_gpio_write(_BUZZER_PIN, HAL_GPIO_HIGH);
 }
 
+/* @implements SYS-HMI-001 */
 static inline void _run_heartbeat(channel_t *channel, uint32_t period) {
   (void)channel; /* LED heartbeat is state-driven; channel unused */
   static uint32_t last_time = 0;
@@ -152,6 +160,7 @@ static inline void _run_heartbeat(channel_t *channel, uint32_t period) {
     break;
   }
 }
+/* @implements SYS-HMI-001 */
 void heartbeat_task(void *args) {
 
   // Configure Physical Heartbeat

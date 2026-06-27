@@ -136,7 +136,7 @@ static navlink_ack_t on_cmd_set_pid(void *ctx, const navlink_frame_hdr_t *hdr,
   return navlink_ack_result(pid_config_apply_command(p, len) == VAYU_OK ? ACK_OK : ACK_BAD);
 }
 
-/** @noreq sysid excitation command adapter (bench/diagnostic tooling) */
+/** @implements CTRL-SID-001 sysid excitation command adapter (bench/diagnostic tooling) */
 static navlink_ack_t on_cmd_sysid_excite(void *ctx, const navlink_frame_hdr_t *hdr,
                                          const navlink_cmd_sysid_excite_t *m) {
   (void)ctx; (void)hdr;
@@ -161,7 +161,7 @@ static navlink_ack_t on_cmd_sysid_excite(void *ctx, const navlink_frame_hdr_t *h
   return navlink_ack_result(ACK_OK);
 }
 
-/** @noreq sysid dump command adapter (bench/diagnostic tooling) */
+/** @implements CTRL-SID-102 sysid dump command adapter (bench/diagnostic tooling) */
 static navlink_ack_t on_cmd_sysid_dump(void *ctx, const navlink_frame_hdr_t *hdr,
                                        const navlink_cmd_sysid_dump_t *m) {
   (void)ctx; (void)hdr; (void)m;
@@ -247,6 +247,7 @@ static navlink_ack_t on_fs_info(void *ctx, const navlink_frame_hdr_t *hdr,
   return navlink_ack_result((uint8_t)d);
 }
 
+/** @implements COMM-CMD-006 */
 static navlink_ack_t on_cmd_arm(void *ctx, const navlink_frame_hdr_t *hdr,
                                 const navlink_cmd_arm_t *m) {
   (void)ctx; (void)hdr;
@@ -261,6 +262,7 @@ static navlink_ack_t on_cmd_arm(void *ctx, const navlink_frame_hdr_t *hdr,
   return navlink_ack_deferred();
 }
 
+/** @implements COMM-CMD-006 */
 static navlink_ack_t on_cmd_disarm(void *ctx, const navlink_frame_hdr_t *hdr,
                                    const navlink_cmd_disarm_t *m) {
   (void)ctx; (void)hdr; (void)m;
@@ -300,6 +302,7 @@ static navlink_ack_t on_cmd_calibrate_imu(void *ctx,
 }
 
 static navlink_ack_t
+/** @implements COMM-CMD-004 */
 on_cmd_set_gyro_lpf(void *ctx, const navlink_frame_hdr_t *hdr,
                     const navlink_cmd_set_gyro_lpf_t *m) {
   (void)ctx; (void)hdr;
@@ -311,6 +314,7 @@ on_cmd_set_gyro_lpf(void *ctx, const navlink_frame_hdr_t *hdr,
 }
 
 static navlink_ack_t
+/** @implements COMM-CMD-004 */
 on_cmd_set_d_lpf(void *ctx, const navlink_frame_hdr_t *hdr,
                  const navlink_cmd_set_d_lpf_t *m) {
   (void)ctx; (void)hdr;
@@ -322,6 +326,7 @@ on_cmd_set_d_lpf(void *ctx, const navlink_frame_hdr_t *hdr,
 }
 
 static navlink_ack_t
+/** @implements COMM-CMD-004 */
 on_cmd_set_motor_geometry(void *ctx, const navlink_frame_hdr_t *hdr,
                           const navlink_cmd_set_motor_geometry_t *m) {
   (void)ctx; (void)hdr;
@@ -338,6 +343,7 @@ on_cmd_set_motor_geometry(void *ctx, const navlink_frame_hdr_t *hdr,
 }
 
 static navlink_ack_t
+/** @implements COMM-CMD-004 */
 on_cmd_set_flight_mode(void *ctx, const navlink_frame_hdr_t *hdr,
                        const navlink_cmd_set_flight_mode_t *m) {
   (void)ctx; (void)hdr;
@@ -347,6 +353,7 @@ on_cmd_set_flight_mode(void *ctx, const navlink_frame_hdr_t *hdr,
   return navlink_ack_result(flight_mode_apply_command(p, len) ? ACK_OK : ACK_BAD);
 }
 
+/** @implements COMM-SYNC-001 */
 static void on_time_sync(void *ctx, const navlink_frame_hdr_t *hdr,
                          const navlink_time_sync_t *m) {
   (void)ctx; (void)hdr;
@@ -361,6 +368,7 @@ static void on_time_sync(void *ctx, const navlink_frame_hdr_t *hdr,
   dispatch_v1(PACKET_TYPE_TIME_SYNC, (const uint8_t *)&in, (uint8_t)sizeof(in));
 }
 
+/** @implements COMM-TEL-005 */
 static void on_perf_taskname_request(void *ctx, const navlink_frame_hdr_t *hdr,
                                      const navlink_perf_taskname_request_t *m) {
   (void)ctx; (void)hdr;
@@ -387,7 +395,8 @@ static void router_send(void *ctx, const uint8_t *frame, uint16_t len) {
  * rule holds for current and future commands without per-handler checks. Until
  * the GCS has disciplined our clock (time-sync handshake, §10), commands are
  * TEMPORARILY_REJECTED — a soft "retry after sync", not a hard failure — so the
- * GCS re-issues once synced rather than surfacing a permanent error. */
+ * GCS re-issues once synced rather than surfacing a permanent error.
+ * @implements SYS-SAFE-007 */
 static navlink_ack_t router_command_gate(void *ctx, uint32_t command) {
   (void)ctx;
   (void)command;

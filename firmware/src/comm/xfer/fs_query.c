@@ -54,6 +54,7 @@ void fs_query_init(const fs_query_tx_ops_t *tx) {
 /** @noreq state predicate */
 bool fs_query_busy(void) { return s_list.active || s_info.active; }
 
+/** @implements COMM-FS-001 */
 int fs_query_on_list(uint8_t req_seq, uint8_t gcs_sys, uint8_t gcs_comp,
                      const char *path, uint16_t start_index) {
   if (path == NULL)
@@ -76,6 +77,7 @@ int fs_query_on_list(uint8_t req_seq, uint8_t gcs_sys, uint8_t gcs_comp,
   return FS_QUERY_DEFERRED;
 }
 
+/** @implements COMM-FS-001 */
 int fs_query_on_info(uint8_t req_seq, uint8_t gcs_sys, uint8_t gcs_comp,
                      const char *path) {
   if (path == NULL)
@@ -94,6 +96,7 @@ int fs_query_on_info(uint8_t req_seq, uint8_t gcs_sys, uint8_t gcs_comp,
 }
 
 /* ---- tick: do the blocking VFS work + emit ------------------------------- */
+/** @implements COMM-FS-001 */
 static int tick_list(int budget) {
   if (!s_list.active)
     return 0;
@@ -146,6 +149,7 @@ static int tick_list(int budget) {
   return emitted;
 }
 
+/** @implements COMM-FS-001 */
 static int tick_info(void) {
   if (!s_info.active)
     return 0;
@@ -168,6 +172,7 @@ static int tick_info(void) {
   return 1;
 }
 
+/** @implements COMM-FS-001 */
 int fs_query_tick(int budget) {
   int emitted = tick_list(budget);
   emitted += tick_info();

@@ -32,6 +32,7 @@
  * correcting) even if attitude input stalls; normally it is sample-driven. */
 #define VERT_MAX_PERIOD_MS 50u
 
+/* @implements EST-ALT-001 */
 void vertical_estimator_task(void *args) {
   (void)args;
   vertical_estimator_t ve;
