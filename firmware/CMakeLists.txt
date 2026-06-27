@@ -93,9 +93,19 @@ set(CMAKE_C_STANDARD 11)
 # -Wall, not the strict set).
 set(NAVLINK_DIR ${VAYU_REPO_ROOT}/navlink)
 set(NAVLINK_GEN ${CMAKE_CURRENT_BINARY_DIR}/navlink_gen)
+# On-hardware bench firmware (Suite B / C1): the hwtest image gets the
+# test-profile codec (adds the HW_TEST_* dialect messages); production builds use
+# the prod profile so the real FC carries zero test code. See
+# docs/plans/on-hardware-test-and-coverage.md.
+option(VAYU_HW_TEST "Build the on-hardware bench firmware (hwtest) in place of production main" OFF)
+if(VAYU_HW_TEST)
+  set(NAVLINK_PROFILE test)
+else()
+  set(NAVLINK_PROFILE prod)
+endif()
 execute_process(COMMAND ${CMAKE_COMMAND} -E make_directory ${NAVLINK_GEN})
 execute_process(
-  COMMAND python3 ${NAVLINK_DIR}/generate.py --lang c --out ${NAVLINK_GEN}
+  COMMAND python3 ${NAVLINK_DIR}/generate.py --lang c --profile ${NAVLINK_PROFILE} --out ${NAVLINK_GEN}
   RESULT_VARIABLE NAVLINK_GEN_RC)
 if(NOT NAVLINK_GEN_RC EQUAL 0)
   message(FATAL_ERROR "navlink codegen failed (rc=${NAVLINK_GEN_RC})")
@@ -104,9 +114,22 @@ include_directories(SYSTEM ${NAVLINK_GEN}/c)
 set(NAVLINK_SOURCES ${NAVLINK_GEN}/c/navlink_msgs.c)
 
 FILE(GLOB_RECURSE VAYU_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/*.c)
+if(VAYU_HW_TEST)
+  # Swap the production entry (src/main.c) for the bench harness
+  # (tests/onboard/*.c, which provides its own main()).
+  list(REMOVE_ITEM VAYU_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/main.c)
+  FILE(GLOB_RECURSE HWTEST_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/tests/onboard/*.c)
+  list(APPEND VAYU_SOURCES ${HWTEST_SOURCES})
+  add_compile_definitions(VAYU_HW_TEST)
+  message(STATUS "VAYU_HW_TEST: building on-hardware bench firmware (hwtest)")
+endif()
 add_executable(main ${STARTUP_FILE} ${VAYU_SOURCES} ${NAVLINK_SOURCES})
 target_compile_options(main PRIVATE ${BASE_C_FLAGS})
 set_target_properties(main PROPERTIES COMPILE_FLAGS "${BASE_C_FLAGS}")
+if(VAYU_HW_TEST)
+  set_target_properties(main PROPERTIES OUTPUT_NAME hwtest)
+  target_include_directories(main PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests/onboard)
+endif()
 
 #-------------------------
 # Phase 4 — per-module warning rollout (CONV-06 / R1.2)
