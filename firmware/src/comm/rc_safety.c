@@ -124,14 +124,14 @@ static bool rc_watchdog_active_for(sys_state_t s) {
  *
  * STANDBY → ARMED is gated on every condition the spec lists *that we
  * can currently measure*:
- *   - throttle stick at minimum   (existing check, kept here)
- *   - RC link healthy             (Phase 2a — rc_has_signal)
- *   - estimator not degraded      (Phase 2b — estimator_is_degraded)
+ *   - throttle stick at minimum   (rc->channels[2])
+ *   - RC link healthy             (rc_has_signal)
+ *   - estimator not degraded      (estimator_is_degraded)
  *
  * Calibration-freshness is in the spec text (SYS-SAFE-005) but has no
  * implementable predicate today — no calibration timestamp persists
- * across the boot. Picked up by Phase 3-SLOG when the persistence
- * layer grows the timestamp; the row stays 🟡 until then.
+ * across the boot, so it cannot be gated on until the persistence layer
+ * grows the timestamp.
  * --------------------------------------------------------------------------*/
 #define ARM_THROTTLE_MAX_RAW 1100U
 

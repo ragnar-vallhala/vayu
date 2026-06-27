@@ -10,10 +10,9 @@
 // the one QAction, so rebinding or context-gating it updates everywhere for
 // free (FR-UX-19; see docs/roadmap/command-registry-and-shortcuts.md).
 //
-// Phase 1A migrates the previously scattered QShortcuts/menu actions into
-// registered Commands with no behaviour change. The `when` contexts below
-// are defined now but every migrated command is `Always`; the gating becomes
-// load-bearing in Phase 1D (SessionMode) and later phases.
+// QShortcuts and menu/toolbar actions are registered here as Commands. The
+// `when` contexts below are defined but every command is currently `Always`;
+// context-gating (SessionMode) is wired but not yet load-bearing.
 enum class CmdContext {
   Always,     // enabled unconditionally
   Connected,  // a live link (serial/UDP) is up

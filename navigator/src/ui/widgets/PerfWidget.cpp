@@ -15,7 +15,7 @@ QString cyclesToUs(uint32_t cyc) {
   return QString::number(cyc / (kCpuHz / 1e6), 'f', 1) + " µs";
 }
 
-// Roles used to carry a bar percent + colour into BarDelegate.
+// Roles carrying a bar percent + colour into BarDelegate.
 constexpr int kPctRole = Qt::UserRole;
 constexpr int kBarColorRole = Qt::UserRole + 1;
 constexpr int kIdRole = Qt::UserRole + 2;

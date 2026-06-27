@@ -25,7 +25,7 @@ flight_phase_event_t flight_phase_update(flight_phase_t *fp, bool armed,
                                          float baro_alt, float climb_rate,
                                          float throttle, float dt) {
   /* Ground reference: recapture continuously while disarmed (absorbs slow baro
-   * drift), freeze the moment the craft commits to arm (D4). Anchored to the
+   * drift), freeze the moment the craft commits to arm. Anchored to the
    * raw baro — instantaneous, so an arming/teleport transient in the fused
    * estimate can't poison it. On the ground AGL is 0 by construction, the
    * timers stay cleared, and the throttle latch resets. */

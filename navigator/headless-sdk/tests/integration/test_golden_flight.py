@@ -2,8 +2,7 @@
 
 This drives the CURRENT sim/host/sitl_lab.py code path (via the
 legacy_sitl_lab fixture). Phase 1 carves that logic into the package and this
-same test must stay green — it is the no-regression anchor for the hard-cut
-(PLAN.md decision #3, Phase 6).
+same test must stay green — it is the no-regression anchor for the hard-cut.
 
 Runs the real firmware-in-the-loop, so it is marked `integration` and skips if
 the binaries aren't built. No GCS bridges (gcs=False) so it never touches the

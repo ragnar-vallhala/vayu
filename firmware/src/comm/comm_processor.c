@@ -43,8 +43,8 @@ void comm_processor_dispatch(const packet_t *pkt) {
   uint8_t packet_type = (pkt->protocol_packet_type >> 4) & 0x0F;
 
   if (packet_type == PACKET_TYPE_HEARTBEAT) {
-    /* Heartbeat is now liveness + device-id only; clock alignment moved to the
-     * time-sync handshake below (no more one-shot offset jam). */
+    /* Heartbeat carries liveness + device-id only; clock alignment is handled
+     * by the time-sync handshake below. */
     set_device_id(pkt->device_id);
   } else if (packet_type == PACKET_TYPE_TIME_SYNC &&
              pkt->length >= sizeof(time_sync_payload_t)) {
@@ -147,10 +147,8 @@ void comm_processor_task(void *args) {
 
   /* Pure NavLink v2 uplink (GCS -> FC): the RX ISR mirrors every byte into a raw
    * ring (serializer.c) which navlink_router_poll() drains through the generated
-   * parser + handler table in task context. The v1 wire path is retired — the
-   * legacy deserializer / get_next_rx_packet() is no longer drained.
-   * comm_processor_dispatch() remains as the in-memory command apply engine that
-   * navlink_router.c reuses. */
+   * parser + handler table in task context. comm_processor_dispatch() is the
+   * in-memory command apply engine that navlink_router.c reuses. */
   (void)pkt;
   navlink_router_init();
 

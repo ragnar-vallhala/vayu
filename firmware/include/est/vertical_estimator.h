@@ -41,7 +41,7 @@
 #endif
 
 /* Default baro-correction gains (per baro sample), a starting point for a
- * ~16 Hz baro + ~250 Hz predict; re-tuned in SITL (plan §6 Phase 4).
+ * ~16 Hz baro + ~250 Hz predict; re-tuned in SITL.
  *
  * Position gain (k_alt) pulls altitude toward baro; velocity gain (k_vel) is
  * the cross-term that bounds accel drift. NOTE: a constant accel bias `b`

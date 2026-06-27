@@ -1,10 +1,10 @@
 #ifndef VAIOS_ATOMIC_H
 #define VAIOS_ATOMIC_H
-// Host-native atomic_t for the SITL build. vaios moved atomic_t into the port
-// layer (portable/<arch>/atomic.h) and removed the generic include/atomic.h,
-// so the host port must supply its own — same plain-ops shape the host test
-// stub uses. The SITL scheduler drives the firmware tasks cooperatively, so a
-// plain volatile counter is sufficient (no LDREX/STREX, which is Cortex-M only).
+// Host-native atomic_t for the SITL build. vaios keeps atomic_t in the port
+// layer (portable/<arch>/atomic.h), so the host port supplies its own — same
+// plain-ops shape the host test stub uses. The SITL scheduler drives the
+// firmware tasks cooperatively, so a plain volatile counter is sufficient
+// (no LDREX/STREX, which is Cortex-M only).
 #include <stdint.h>
 
 typedef struct atomic {

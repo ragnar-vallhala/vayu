@@ -45,8 +45,8 @@
 
 /* Stable FIFO ids so the GCS can label rows regardless of send order. */
 typedef enum {
-  PERF_FIFO_IMU_RAW = 0, /* reserved: the legacy imu.raw ring was removed and
-                            is no longer emitted; id kept stable for old GCS */
+  PERF_FIFO_IMU_RAW = 0, /* reserved + not emitted; id kept stable for wire
+                            compatibility with older GCS builds */
   PERF_FIFO_IMU_TELEMETRY = 1,
   PERF_FIFO_IMU_CONTROL = 2,
   PERF_FIFO_IMU_CALIB = 3,

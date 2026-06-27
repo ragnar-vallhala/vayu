@@ -8,7 +8,7 @@
  * C1->C3 "no blocking SD on the comm task" invariant (see the centralised FS
  * owner). Body: bind the emitter, register providers, then loop xfer_tick().
  *
- * Providers (Phase E): FILE (any SD path, up+down), LOG (blackbox download),
+ * Providers: FILE (any SD path, up+down), LOG (blackbox download),
  * STREAM (named live source). All SD I/O goes through fs_owner; the STREAM
  * provider is registered but carries no source until one is wired via
  * xfer_stream_register_source().

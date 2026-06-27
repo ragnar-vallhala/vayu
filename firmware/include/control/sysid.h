@@ -1,7 +1,7 @@
 #pragma once
 #include <stdint.h>
 
-/* On-hardware system identification — Phase 0 skeleton.
+/* On-hardware system identification.
  *
  * Injects a tapered linear chirp so a host can fit the rate plant from the
  * measured (control effort u, gyro) response. Two injection points are offered:
@@ -67,18 +67,18 @@ void sysid_step(float dt, const float angles_deg[3], const float rates_dps[3],
  * setpoint (before the PID) or to the control effort u (after the PID). */
 int sysid_inject_mode(void);
 
-/* High-rate capture (Phase 1). Call once per control tick AFTER the rate PID:
+/* High-rate capture. Call once per control tick AFTER the rate PID:
  * while a run is active it records the excited axis's (u, gyro) — u is the
  * rate-PID OUTPUT (the control effort the plant fit needs), gyro the measured
  * body rate — decimated to ~500 Hz into a bounded RAM buffer. No-op when idle.
  * Reset at each sysid_start(). */
 void sysid_capture(const float u[3], const float gyro[3]);
 
-/* No-op (kept so the telemetry-task call site is unchanged). Capture is RAM-only;
- * SD streaming was abandoned as too fragile on this stack. */
+/* No-op: capture is RAM-only, so there is nothing to flush. Present so the
+ * telemetry-task call site is stable. */
 void sysid_flush_poll(void);
 
-int sysid_capture_count(void); // total samples written to SD for the last run
+int sysid_capture_count(void); // total samples captured to RAM for the last run
 int sysid_capture_hz(void);    // capture rate (Hz)
 int sysid_capture_axis(void);  // excited axis of the last run
 

@@ -2,9 +2,9 @@
  * @file vertical_task.c
  * @brief Vertical estimator (VERT) task — sibling of the attitude task.
  *
- * Decision D2 (plan §3, §7): the vertical estimate runs in its own task rather
- * than inside attitude_task, so vertical estimation is decoupled from the
- * attitude loop's timing. It drains the synchronized {q, body specific force,
+ * The vertical estimate runs in its own task rather than inside attitude_task,
+ * so vertical estimation is decoupled from the attitude loop's timing. It drains
+ * the synchronized {q, body specific force,
  * dt} triple the attitude task publishes (vert_input_queue) — same sample the
  * EKF ran on, so attitude and accel are self-consistent — and integrates that
  * into climb_rate/altitude (predict). It corrects against the latest BME280
@@ -72,7 +72,7 @@ void vertical_estimator_task(void *args) {
       }
     }
 
-    /* Takeoff / landing detector + FC-owned AGL ground reference (plan §5, D4).
+    /* Takeoff / landing detector + FC-owned AGL ground reference.
      * Only meaningful once the filter is seeded; until then the ground reference
      * has no absolute altitude to anchor to. `armed` (ARMED or IN_AIR) freezes
      * the ground reference; `in_air` selects the landing vs takeoff test. */

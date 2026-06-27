@@ -134,8 +134,7 @@ TelemetryEngine::TelemetryEngine(QObject *parent)
             // PACKET_TYPE_SYSTEM_STATUS is multiplexed across origins; only the
             // SYS_STATE origin decodes to a real state name. Ignore anything
             // that isn't a recognised state (the binary HEALTH counters get
-            // stringified to non-printable bytes upstream). Mirrors the filter
-            // that used to live in MainWindow::onStatusReceived.
+            // stringified to non-printable bytes upstream).
             static const QStringList kStateNames = {
                 "UNINITIALIZED", "INIT",     "STANDBY",    "PREARM",
                 "ARMED",         "IN_AIR",   "FAILSAFE",   "TERMINATED",

@@ -104,9 +104,9 @@ static uint8_t build_cmd(uint8_t *p, uint16_t cmd_id, const float *args,
 }
 
 /* The side-effect-only commands (arm/disarm/calibrate) reuse the tested apply
- * engine via the internal packet_t; the v1 *wire* is gone (packet_t is just the
- * in-memory apply representation). TIME_SYNC / PERF_TASKNAME replies (non-ack)
- * also route here and go back out as v2 through navlink_tx. */
+ * engine via the internal packet_t (just the in-memory apply representation, not
+ * a wire format). TIME_SYNC / PERF_TASKNAME replies (non-ack) also route here and
+ * go back out as v2 through navlink_tx. */
 static void dispatch_v1(uint8_t packet_type, const uint8_t *payload,
                         uint8_t length) {
   packet_t pkt = {0};

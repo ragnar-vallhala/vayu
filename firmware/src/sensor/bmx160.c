@@ -39,12 +39,11 @@ extern float fabsf(float x);
 static int in_init = 1;
 #define IS_FINITE(x) (isfinite(x))
 uint8_t tx_buf[2];
-uint8_t rx_buf[14]; // Increased for safer multi-byte reads
+uint8_t rx_buf[14]; // sized for safe multi-byte reads
 
 static float last_mag[3] = {0}; // last valid mag readings
 static int stable_count = 0;    // is platform stable
 
-// static MutexHandle_t bmx160_attitude_mutex; // Mutex for attitude data
 static SemaphoreHandle_t bmx160_ready_sema; // Semaphore for data ready
 /* Given at IMU_SAMPLE_FREQ_HZ by the HIGH_FREQ_TIMER (bmx160_fast_tick_isr);
  * the read task waits on it before each FAST (accel/gyro) read to pace the IMU
@@ -54,8 +53,8 @@ static SemaphoreHandle_t bmx160_fast_tick_sema = NULL;
 static bmx160_config_t bmx160_cfg;
 // DMA storage buffers
 static uint8_t _bmx_dma_rx_buffer_double[32] __attribute__((aligned(4)));
-/* Attitude/fusion state now lives in the attitude task (attitude_task.c);
- * this driver only acquires, converts, timestamps and fans out samples. */
+/* Attitude/fusion state lives in the attitude task (attitude_task.c); this
+ * driver only acquires, converts, timestamps and fans out samples. */
 static bmx160_all_reading_t _bmx_data;
 
 /* Set by the MAG DMA callback, consumed (and cleared) by bmx160_process_data:
@@ -204,11 +203,6 @@ hal_status_t bmx160_init(void) {
       vayu_log("[CALIB] Calibration file invalid/old; using identity defaults.");
     }
   }
-  // Create attitude mutex
-  // if (bmx160_attitude_mutex == NULL) {
-  //   bmx160_attitude_mutex = v_mutex_create();
-  // }
-  // Reading PTR
   // 1. Verify Chip ID
   uint16_t chip_id = bmx160_get_chip_id();
   if (chip_id != BMX160_CHIP_ID) {
@@ -916,12 +910,9 @@ void bmx160_initiate_read(void *args) {
 
       task_count++;
       if (task_count % 1000 == 0) {
-        // vayu_log("ISR: %d TASK: %d", isr_count, task_count);
       }
     } else {
       if (v_get_ticks() - last_tick > 50) {
-        // vayu_log("IMU STALL -> HARD RESTART");
-
         // FULL RECOVERY
         i2c_manager_unstick();
         init_i2c_manager(&i2c_config);
@@ -1146,12 +1137,9 @@ void bmx160_process_data(void) {
   uint32_t _sample_cyc = hal_cycle_counter_get();
   _read_count++;
   if (_read_count % 1000 == 0) {
-    // vayu_log("IMU data processing frequency: %f Hz",
-    //          (1000.0f * 1000.0f) / (v_get_ticks() - _last_read_time));
     _last_read_time = v_get_ticks();
     _read_count = 0;
   }
-  // static int diag_printed = 0;
   // 1. Extract mag (0-5)
   // X/Y are 13-bit, Z is 15-bit. Status bits are in the LSB.
   // We assemble as signed 16-bit and then arithmetic shift to preserve sign.
@@ -1300,9 +1288,6 @@ void bmx160_process_data(void) {
   // Tag the converted sample with its acquisition cycle stamp and fan it out.
   _bmx_data.converted.timestamp = _sample_cyc;
 
-  // (Removed: imu_buffer_push to the legacy _imu_fifo "100 Hz averaging" ring —
-  // it had no consumers, so it just burned a memcpy/sample and overflowed,
-  // showing as bogus drops on imu.raw in the perf view.)
   imu_queue_telemetry_push(&_bmx_data);
   imu_queue_control_push(&_bmx_data);
 

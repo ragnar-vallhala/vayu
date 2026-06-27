@@ -6,8 +6,7 @@
  *
  * Single public entry point for the system subsystem: the state machine,
  * boot/assert vocabulary, system utilities (timestamp/device/CRC), and
- * the low-level helpers folded in from the old utils/ catch-all
- * (math helpers, timer callbacks, shared scalar types) per Phase 4 R2.6.
+ * the low-level helpers (math helpers, timer callbacks, shared scalar types).
  */
 #ifndef VAYU_SYS_H
 #define VAYU_SYS_H

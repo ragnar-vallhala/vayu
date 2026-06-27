@@ -135,28 +135,26 @@ static inline float vayu_dt_from_cycles(uint32_t now_cyc, uint32_t prev_cyc) {
 #else
 #define PID_FULL_AUTHORITY_THROTTLE 0.30f
 #endif
-// PID gain defaults — UNIFIED across the SITL and hardware builds. The old
-// `#ifdef VAYU_SIM` split dated to the Gazebo X3 era, when the sim flew a
-// different, lower-inertia airframe; the sim now flies the REAL geometry pushed
-// at runtime via VSIM_CTL_SET_GEOMETRY, so a build-divergent baseline only made
-// the SITL-tuned gains rest on a different fallback than hardware (a per-slot
-// footgun: any gain NOT in the persisted tune resolved 16x apart between
-// builds). Roll/pitch are the on-hardware rig tune reconciled from
+// PID gain defaults — UNIFIED across the SITL and hardware builds. The sim flies
+// the REAL geometry pushed at runtime via VSIM_CTL_SET_GEOMETRY, so a single
+// baseline keeps SITL and hardware on the same fallback (a build-divergent
+// baseline would let any gain NOT in the persisted tune resolve far apart
+// between builds). Roll/pitch are the on-hardware rig tune reconciled from
 // docs/store/rig_tune.json (captured 2026-06-22): roll is sysid-tuned, pitch is
 // seeded from roll (its own sysid still pending). Yaw stays the S500 autotune
 // seed. They are only the FALLBACK: a persisted tune (0:pid.bin, loaded by
 // pid_config_init() before the controllers init) overrides any of them per slot
-// — so the SAME pid.bin now yields identical behaviour in sim and on the board.
+// — so the SAME pid.bin yields identical behaviour in sim and on the board.
 #define DEAFULT_ROLL_ANGLE_RATE_KP 0.012f
 #define DEAFULT_ROLL_ANGLE_RATE_KI 0.00811f
 #define DEAFULT_ROLL_ANGLE_RATE_KD 0.00025f
 #define DEAFULT_ROLL_ANGLE_RATE_KFF 0.0f
 #define DEAFULT_ROLL_ANGLE_RATE_I_MAX 0.2f
 #define DEAFULT_ROLL_ANGLE_RATE_D_MAX 0.25f
-// D-term LPF time constant. RC=0.3 puts the cutoff at 1/(2*pi*RC) ~= 0.5 Hz,
-// which filters the derivative path down to near-nothing — fine when Kd was 0,
-// but the rig tune added a real Kd, so the D action was being thrown away. 0.004
-// s ~= 40 Hz passes useful lead while still rejecting gyro noise.
+// D-term LPF time constant. An RC of 0.3 puts the cutoff at 1/(2*pi*RC) ~= 0.5 Hz,
+// which filters the derivative path down to near-nothing — too aggressive once
+// Kd is non-zero. 0.004 s ~= 40 Hz passes useful lead while still rejecting
+// gyro noise.
 #define DEAFULT_ROLL_ANGLE_RATE_D_LPF_RC 0.004f
 #define DEAFULT_ROLL_ANGLE_RATE_OUT_MIN -1.0f
 #define DEAFULT_ROLL_ANGLE_RATE_OUT_MAX 1.0f
@@ -171,7 +169,7 @@ static inline float vayu_dt_from_cycles(uint32_t now_cyc, uint32_t prev_cyc) {
 #define DEAFULT_PITCH_ANGLE_RATE_OUT_MIN -1.0f
 #define DEAFULT_PITCH_ANGLE_RATE_OUT_MAX 1.0f
 
-// Yaw enabled (was fully zeroed = disabled). Quad yaw authority comes from
+// Yaw rate gains. Quad yaw authority comes from
 // rotor reaction torque (k_moment << k_thrust) so it's weaker than roll/pitch;
 // these mirror the roll/pitch seeds as a starting point — retune (e.g. via the
 // SITL autotuner) for the actual airframe. Output limits MUST be non-zero or
@@ -187,9 +185,9 @@ static inline float vayu_dt_from_cycles(uint32_t now_cyc, uint32_t prev_cyc) {
 #define DEAFULT_YAW_ANGLE_RATE_OUT_MAX 1.0f
 
 // Angle controller. Roll/pitch reconciled from the on-hardware rig tune
-// (docs/store/rig_tune.json, 2026-06-22): roll is sysid loop-shaped; pitch was
-// softened 4.0 -> 1.0 to break the cascade runaway the old 4.0 default drove
-// over the soft inner loop (its own sysid still pending).
+// (docs/store/rig_tune.json, 2026-06-22): roll is sysid loop-shaped; pitch is
+// kept low to avoid a cascade runaway against the soft inner loop (its own
+// sysid still pending).
 #define DEAFULT_ROLL_ANGLE_KP 1.6898f
 #define DEAFULT_ROLL_ANGLE_TARGET_MAX 100.0f
 #define DEAFULT_ROLL_ANGLE_OUT_MAX 100.0f
@@ -198,11 +196,9 @@ static inline float vayu_dt_from_cycles(uint32_t now_cyc, uint32_t prev_cyc) {
 #define DEAFULT_PITCH_ANGLE_TARGET_MAX 100.0f
 #define DEAFULT_PITCH_ANGLE_OUT_MAX 100.0f
 
-// Yaw angle loop: superseded. Yaw is RATE-controlled in both stabilise and
-// acro (a centered stick holds the current heading; see angle_controller.c),
-// and the Mahony estimate is now mag-fused, so this angle gain is unused.
-// Yaw angle gain is unused in flight (yaw is rate-controlled in both modes —
-// see angle_controller.c); kept only so the angle PID slot is well-defined.
+// Yaw angle gain is unused in flight: yaw is RATE-controlled in both stabilise
+// and acro (a centered stick holds the current heading; see angle_controller.c).
+// Kept only so the angle PID slot is well-defined.
 #define DEAFULT_YAW_ANGLE_KP 1.2f
 #define DEAFULT_YAW_ANGLE_TARGET_MAX 100.0f
 #define DEAFULT_YAW_ANGLE_OUT_MAX 100.0f

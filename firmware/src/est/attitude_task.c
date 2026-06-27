@@ -170,7 +170,7 @@ void attitude_task(void *args) {
     vert_input_queue_push(&vin);
 
     /* SYS-SAFE-003: if degraded persists in a flight-relevant state, request
-     * FAILSAFE. Same one-IMU-period latency as before the task split. */
+     * FAILSAFE, at one-IMU-period latency. */
     estimator_safety_step();
   }
 }

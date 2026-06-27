@@ -1,7 +1,7 @@
 /* Sensor-agnostic ellipsoid fit — small fixed-size float linear algebra used to
  * recover an offset (ellipsoid centre) and full 3x3 shape matrix from samples
- * that should lie on a sphere. Extracted verbatim from the magnetometer fit in
- * bmx160.c so the accelerometer (and any future sensor) reuses the same math.
+ * that should lie on a sphere. Shared by the magnetometer and accelerometer (and
+ * any future sensor) so they reuse the same math.
  * See include/calib/calib_ellipsoid.h. */
 
 #include "calib/calib_ellipsoid.h"

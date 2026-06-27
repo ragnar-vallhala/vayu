@@ -53,8 +53,8 @@ void TstCalibrationWizard::advancesByArrivalOrderNotCatalog() {
 
   // The firmware owns the pose sequence; whatever it prompts first is step 0 of
   // the run with nothing yet done — regardless of where that pose sits in the
-  // GCS catalog. (The old code used the catalog index, which made e.g. an early
-  // pose look "almost done" and the next prompt move the bar backwards.)
+  // GCS catalog. Progress must track the firmware's run order, not the catalog
+  // index, so the bar never moves backwards.
   w.onInstruction(CalibUpdateType::RightDown);
   QCOMPARE(w.currentIndex(), 0);
   QCOMPARE(w.doneCount(), 0);
