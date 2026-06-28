@@ -389,7 +389,7 @@ add_test(NAME phase0_assert COMMAND test_phase0_assert)
 # ----------------------------------------------------------------------------
 add_custom_target(coverage
     COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure
-    COMMAND gcovr --root ${VAYU_ROOT} --filter "${VAYU_ROOT}/firmware/src/"
+    COMMAND gcovr ${CMAKE_CURRENT_BINARY_DIR} --root ${VAYU_ROOT} --filter "${VAYU_ROOT}/firmware/src/"
             --print-summary --decisions
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
     COMMENT "Running unit tests + gcovr coverage summary")
@@ -400,7 +400,7 @@ add_custom_target(coverage
 #   cmake --build build_cov --target coverage-gate
 add_custom_target(coverage-gate
     COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure
-    COMMAND gcovr --root ${VAYU_ROOT} --filter "${VAYU_ROOT}/firmware/src/"
+    COMMAND gcovr ${CMAKE_CURRENT_BINARY_DIR} --root ${VAYU_ROOT} --filter "${VAYU_ROOT}/firmware/src/"
             --json-summary -o cov.json
     COMMAND python3 ${VAYU_ROOT}/tools/coverage_gate.py firmware cov.json
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
