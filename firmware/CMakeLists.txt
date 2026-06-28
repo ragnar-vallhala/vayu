@@ -204,6 +204,30 @@ set(VAYU_R12_CLEAN_SOURCES
 set_source_files_properties(${VAYU_R12_CLEAN_SOURCES}
     PROPERTIES COMPILE_OPTIONS "${VAYU_R12_WARN_FLAGS}")
 
+#-------------------------
+# On-target gcov (C3) — tier 2 coverage
+#-------------------------
+# Instrument the selected firmware modules with freestanding gcov: each TU's
+# gcov_info goes into the .gcov_info linker section (firmware/linker.ld), counters
+# into .bss; coverage_dump.c streams the .gcda to SD. -Og keeps line mapping
+# faithful; atomic counters because the IMU read task samples concurrently.
+# MUST run AFTER the VAYU_R12 set_source_files_properties so these flags win on
+# bmx160.c / bme280.c (which are also in VAYU_R12_CLEAN_SOURCES).
+#   cmake -S firmware -B build_hwtest_cov -DVAYU_HW_TEST=ON -DVAYU_HW_TEST_COV=ON
+option(VAYU_HW_TEST_COV "Instrument selected modules with on-target gcov (needs VAYU_HW_TEST)" OFF)
+set(VAYU_HW_TEST_COV_MODULES "sensor/bmx160.c;sensor/bme280.c"
+    CACHE STRING "Sources (relative to src/) compiled with --coverage in the hwtest image")
+if(VAYU_HW_TEST AND VAYU_HW_TEST_COV)
+  add_compile_definitions(VAYU_HW_TEST_COV)
+  set(COV_FLAGS -fprofile-arcs -ftest-coverage -fprofile-info-section
+                -fprofile-update=atomic -Og)
+  foreach(m ${VAYU_HW_TEST_COV_MODULES})
+    set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/src/${m}
+        PROPERTIES COMPILE_OPTIONS "${COV_FLAGS}")
+  endforeach()
+  message(STATUS "VAYU_HW_TEST_COV: instrumenting ${VAYU_HW_TEST_COV_MODULES}")
+endif()
+
 
 #-------------------------
 # Math backend options
@@ -273,6 +297,11 @@ endif()
 #-------------------------
 # Do NOT link -lm globally (it pulls in bulky libm implementations).
 target_link_libraries(main PRIVATE hal vaios -lgcc -lm)
+# libgcov provides __gcov_info_to_gcda / __gcov_filename_to_gcfn + the counter
+# merge helpers the instrumented TUs reference (on-target coverage, C3).
+if(VAYU_HW_TEST AND VAYU_HW_TEST_COV)
+  target_link_libraries(main PRIVATE -lgcov)
+endif()
 
 
 #-------------------------

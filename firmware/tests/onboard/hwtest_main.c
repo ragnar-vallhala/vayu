@@ -20,6 +20,7 @@
 #include "variables.h"
 #include "vayu_tasks.h"
 
+#include "coverage_dump.h"
 #include "hwtest_runner.h"
 
 /* ---- check registry (functions live in checks/) -------------------------- */
@@ -93,6 +94,7 @@ static void hwtest_task(void *arg) {
    * over the link. No streaming. Then idle in STANDBY; never arm. */
   v_delay(800);
   hwtest_run_all();
+  coverage_dump(); /* C3: dump on-target gcov to 0:cov.gcda (no-op unless -DVAYU_HW_TEST_COV) */
   for (;;) {
     v_delay(1000);
   }
@@ -117,10 +119,14 @@ int main(void) {
   /* flush_task DMAs buffered telemetry out of UART6; without it write_channel()
    * only fills the TX buffer and nothing is transmitted. */
   task_create_named(flush_task, NULL, 640, 0, "flush");
+  /* NOTE: the IMU read task is intentionally NOT run here. The sensor checks do
+   * direct I2C reads, which conflict with the read task's single-owner DMA loop
+   * (i2c-bus-sharing) and wedge the bench. Accel/gyro therefore read 0 (a known
+   * finding) — but the driver code still executes, so its coverage is captured.
+   * Reading live samples from imu_buffer instead of direct I2C is a follow-up. */
   /* fs_owner persists 0:hwtest.txt to SD. The bench does NOT run comm/xfer
-   * itself (they regressed the boot here); the results file is recovered by
-   * reflashing production firmware (proven comm+xfer) and downloading it — the
-   * SD file survives the reflash. */
+   * itself; the results file is recovered by reflashing production firmware
+   * (proven comm+xfer) and downloading it — the SD file survives the reflash. */
   task_create_named(fs_owner_task, NULL, 1152, 0, "fs_owner");
   /* Priority 0 (co-equal), 8 KiB stack (ekf_selftest builds matrices on-stack). */
   task_create_named(hwtest_task, NULL, 8192, 0, "hwtest");
