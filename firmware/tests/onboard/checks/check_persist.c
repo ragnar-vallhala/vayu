@@ -13,8 +13,10 @@
  * @verifies LOG-SD-001, LOG-OWN-001 */
 hw_result_t check_sd_readback(void) {
 #ifdef VAYU_HW_TEST_COV
-  /* Coverage build: don't touch the write-at lane — coverage_dump must be the
-   * sole/first write-at user so 0:cov.gcda lands (fs_owner path-switch bug). */
+  /* Coverage build: keep coverage_dump the sole write-at user so 0:cov.gcd lands.
+   * (The empty-dump bug was actually an invalid 8.3 name, ".gcda" 4-char ext ->
+   * FR_INVALID_NAME; fixed in coverage_dump.c. A separate path-switch bug is
+   * unverified, so this stays single-file for now.) */
   return hw_skip();
 #endif
   static const uint8_t pat[16] = {0xA5, 0x5A, 0x01, 0x02, 0x03, 0x04, 0xDE, 0xAD,

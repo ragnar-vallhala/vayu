@@ -25,7 +25,11 @@ extern void __gcov_filename_to_gcfn(const char *filename,
                                     void (*dump_fn)(const void *, unsigned, void *),
                                     void *arg);
 
-#define COV_PATH "0:cov.gcda"
+/* 8.3 name only: FatFS here is FF_USE_LFN=0, so the extension must be <=3 chars.
+ * ".gcda" (4 chars) makes f_open return FR_INVALID_NAME (-6) and every write-at
+ * fails -> empty file. Dump to "cov.gcd" on the card; the host renames it back to
+ * cov.gcda (or feeds it straight to arm-none-eabi-gcov-tool merge-stream). */
+#define COV_PATH "0:cov.gcd"
 #define COV_STAGE 512u
 
 static uint8_t s_stage[COV_STAGE];
