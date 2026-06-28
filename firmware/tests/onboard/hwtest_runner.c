@@ -43,10 +43,13 @@ static void report_line(const char *fmt, ...) {
  * (session 0 = non-xfer caller). Truncate, write in chunks, wait for commit. */
 static void write_report_sd(void) {
 #ifdef VAYU_HW_TEST_COV
-  /* Coverage build: coverage_dump owns the single working write-at file
-   * (0:cov.gcda). The fs_owner write-at lane only writes the FIRST distinct
-   * path reliably per boot (a path-switch bug), so the report is NOT written to
-   * SD here — the verbose results come from the non-coverage run. */
+  /* Coverage build: coverage_dump owns the sole write-at file (0:cov.gcd) and the
+   * verbose results come from the non-coverage run, so the report is NOT written
+   * here. NOTE: the real reason early dumps came back empty was an invalid 8.3
+   * name (".gcda" is a 4-char ext; FatFS FF_USE_LFN=0 -> f_open FR_INVALID_NAME
+   * -6), now fixed in coverage_dump.c. Whether a genuine path-switch bug also
+   * exists is UNVERIFIED (the name bug masked it); keeping this single-file path
+   * until a same-boot two-file write is tested. */
   return;
 #endif
   fs_owner_writeat_reset(0);
