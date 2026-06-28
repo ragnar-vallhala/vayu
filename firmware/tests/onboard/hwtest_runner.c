@@ -42,6 +42,13 @@ static void report_line(const char *fmt, ...) {
 /* Persist the accumulated report to SD via the FS owner's write-at lane
  * (session 0 = non-xfer caller). Truncate, write in chunks, wait for commit. */
 static void write_report_sd(void) {
+#ifdef VAYU_HW_TEST_COV
+  /* Coverage build: coverage_dump owns the single working write-at file
+   * (0:cov.gcda). The fs_owner write-at lane only writes the FIRST distinct
+   * path reliably per boot (a path-switch bug), so the report is NOT written to
+   * SD here — the verbose results come from the non-coverage run. */
+  return;
+#endif
   fs_owner_writeat_reset(0);
   if (fs_owner_truncate(HWTEST_REPORT_PATH) != 0) {
     return;
@@ -77,19 +84,18 @@ void hwtest_run_all(void) {
   while (hwtest_registry[total].fn) {
     total++;
   }
-  /* Compact, single-chunk-sized report (<=247 B) — the FC's multi-chunk xfer
-   * download path hangs the board (LED freeze; 1-chunk C1 file downloaded fine,
-   * 2-chunk C2 file wedged it), so keep the whole report inside one XFER_DATA
-   * chunk until that multi-chunk download bug is fixed. Format per check:
-   * "name=value<P|F|S> ". */
-  report_line("vayu bench %u:\n", total);
+  /* Verbose report — the multi-chunk xfer download hang is fixed (the comm/xfer
+   * task stacks were restored), so the report no longer has to fit one chunk. */
+  report_line("vayu on-hardware bench: %u checks\n", total);
   write_report_sd(); /* mark start; rewritten after every check below */
 
   uint16_t passed = 0, failed = 0, skipped = 0;
   for (uint16_t i = 0; i < total; i++) {
     hw_result_t r = hwtest_registry[i].fn();
-    char tag = r.status == HW_PASS ? 'P' : r.status == HW_SKIP ? 'S' : 'F';
-    report_line("%s=%d%c ", hwtest_registry[i].name, (int)r.value, tag);
+    const char *tag =
+        r.status == HW_PASS ? "PASS" : r.status == HW_SKIP ? "SKIP" : "FAIL";
+    report_line("[%s] %s = %d %s\n", tag, hwtest_registry[i].name, (int)r.value,
+                r.units ? r.units : "");
     if (r.status == HW_PASS) {
       passed++;
     } else if (r.status == HW_SKIP) {
@@ -101,7 +107,8 @@ void hwtest_run_all(void) {
      * results up to that point on SD — the file names exactly where it stopped. */
     write_report_sd();
   }
-  report_line("\nDONE %u/%u/%u\n", passed, failed, skipped);
+  report_line("DONE: %u passed, %u failed, %u skipped\n", passed, failed,
+              skipped);
 
   write_report_sd();
   emit_done(passed, failed, skipped); /* one-shot status over the link */

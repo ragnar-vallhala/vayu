@@ -14,11 +14,23 @@ SECTIONS {
   } > FLASH
   
   .text : {
-    
+
     *(.text*)
-    
+
     *(.rodata*)
-    
+
+  } > FLASH
+
+  /* gcov (on-target coverage, C3): -fprofile-info-section emits each
+   * instrumented TU's `struct gcov_info` here; coverage_dump.c walks the list
+   * between these symbols. Empty (start == end) for non-coverage builds, so this
+   * costs production nothing. The 64-bit counters are zero-init -> .bss/RAM. */
+  .gcov_info : {
+    . = ALIGN(4);
+    PROVIDE(__gcov_info_start = .);
+    KEEP(*(.gcov_info))
+    PROVIDE(__gcov_info_end = .);
+    . = ALIGN(4);
   } > FLASH
 
   __exidx_start = .;
