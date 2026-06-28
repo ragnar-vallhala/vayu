@@ -538,19 +538,15 @@ static int fs_exec_sync(const fs_sync_req_t *req) {
     return n;
   }
   case FS_SYNC_TRUNCATE: {
-    /* Close ANY held write/read handle first, not just one on this path. A
-     * truncate frees the file's clusters and rewrites the shared FAT; a write
-     * FIL left open on a DIFFERENT file then holds a stale cluster chain, and its
-     * next write/sync corrupts the volume. This is what wedged the on-hardware
-     * bench: the report's write-at fd stayed open on 0:hwtest.txt while the next
-     * check truncated 0:hwtest_sd.bin, after which that file's write silently
-     * failed (0 bytes). FatFS keeps a single FAT/dir window per volume, so only
-     * one FIL may be open across a FAT-mutating op. (s_wfd/s_rfd are FS-task-
-     * owned, so closing them here is safe; both close calls are no-ops if none
-     * is held. Host VFS doesn't model the shared window, so this is verified on
-     * target, not in the host suite.) */
-    writeat_fd_close();
-    read_fd_close();
+    /* Drop a lingering lazy-write cache for this path so the truncate doesn't
+     * race a stale held handle (s_wfd is FS-task-owned, so this is safe). */
+    if (wpath_is(req->path)) {
+      writeat_fd_close();
+    }
+    /* Same for a stale read handle on the file being replaced. */
+    if (rpath_is(req->path)) {
+      read_fd_close();
+    }
     vfs_fd_t fd = vfs_open(req->path, VFS_O_WRONLY | VFS_O_CREAT | VFS_O_TRUNC);
     if (fd < 0) {
       return -1;
