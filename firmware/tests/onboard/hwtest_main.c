@@ -32,6 +32,8 @@ hw_result_t check_baro_whoami(void);
 hw_result_t check_baro_present(void);
 hw_result_t check_imu_gyro_still(void);
 hw_result_t check_imu_accel(void);
+hw_result_t check_imu_driver_api(void);
+hw_result_t check_baro_driver_api(void);
 hw_result_t check_sd_readback(void);
 hw_result_t check_ekf_selftest(void);
 
@@ -46,6 +48,8 @@ const hw_check_t hwtest_registry[] = {
     {"baro_present", check_baro_present},
     {"imu_gyro_still", check_imu_gyro_still},
     {"imu_accel", check_imu_accel},
+    {"imu_driver_api", check_imu_driver_api},
+    {"baro_driver_api", check_baro_driver_api},
     {"sd_readback", check_sd_readback},
     {"ekf_selftest", check_ekf_selftest},
     {0, 0},
@@ -94,7 +98,12 @@ static void hwtest_task(void *arg) {
    * over the link. No streaming. Then idle in STANDBY; never arm. */
   v_delay(800);
   hwtest_run_all();
-  coverage_dump(); /* C3: dump on-target gcov to 0:cov.gcda (no-op unless -DVAYU_HW_TEST_COV) */
+  /* NOTE: spinning up the DMA-driven IMU read task here (to cover the read/
+   * process/dma-callback path) was tried and WEDGES the dump (0-byte cov.gcd) —
+   * even after the direct-read checks finish, the async I2C DMA chain interferes
+   * with the coverage write-out. That ~340-line path stays uncovered on the
+   * static bench by design (i2c-bus-sharing); cover it in SITL/HIL instead. */
+  coverage_dump(); /* C3: dump on-target gcov to 0:cov.gcd (no-op unless -DVAYU_HW_TEST_COV) */
   for (;;) {
     v_delay(1000);
   }

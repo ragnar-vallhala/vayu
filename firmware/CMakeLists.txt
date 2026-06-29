@@ -215,7 +215,7 @@ set_source_files_properties(${VAYU_R12_CLEAN_SOURCES}
 # bmx160.c / bme280.c (which are also in VAYU_R12_CLEAN_SOURCES).
 #   cmake -S firmware -B build_hwtest_cov -DVAYU_HW_TEST=ON -DVAYU_HW_TEST_COV=ON
 option(VAYU_HW_TEST_COV "Instrument selected modules with on-target gcov (needs VAYU_HW_TEST)" OFF)
-set(VAYU_HW_TEST_COV_MODULES "sensor/bmx160.c;sensor/bme280.c"
+set(VAYU_HW_TEST_COV_MODULES "sensor/bmx160.c;sensor/bme280.c;sensor/i2c_manager.c"
     CACHE STRING "Sources (relative to src/) compiled with --coverage in the hwtest image")
 if(VAYU_HW_TEST AND VAYU_HW_TEST_COV)
   add_compile_definitions(VAYU_HW_TEST_COV)
