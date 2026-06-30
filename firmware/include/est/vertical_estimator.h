@@ -20,7 +20,7 @@
  *
  * The IMU/driver reports the gravity vector (a level board reads ~ -g on its
  * body-down Z axis; see src/est/ekf.c accel-update note and
- * docs/reference/coordinate_ref.md — FRD, +Z down). vert_world_up_accel()
+ * firmware/docs/reference/coordinate_ref.md — FRD, +Z down). vert_world_up_accel()
  * rotates body specific force into the world frame and removes gravity, so the
  * sign bookkeeping lives in one place.
  *

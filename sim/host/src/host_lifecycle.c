@@ -83,7 +83,7 @@ void vayu_sitl_set_passthrough(int enabled) {
  *
  * In SITL this is now driven by the IMU feeder off the VIRTUAL sim clock
  * (host_imu_feeder.c bumps it HIGH_FREQ_TIMER_FREQ/SITL_IMU_FEED_HZ ticks per
- * sample) — Phase 1 of docs/plans/sitl-lockstep-sim.md. The old wall-clock
+ * sample) — Phase 1 of firmware/docs/plans/sitl-lockstep-sim.md. The old wall-clock
  * hf_timer_thread that lived here is gone: telemetry timestamps and firmware
  * delays now share one sim-time base, so they stay correct at any sim speed
  * (and the wall-clock-wraparound bug it once carried can't recur). */

@@ -258,7 +258,7 @@ auto-skip) is unchanged from the parent plan.
 ## 7. Traceability hook
 
 This directly closes the `@verifies` gap from the just-landed traceability work
-(`docs/reference/trace.md` shows 0/168 requirements verified). Each bench check
+(`firmware/docs/reference/trace.md` shows 0/168 requirements verified). Each bench check
 and each host test carries `@verifies <MOD-SUB-NNN>`; `tools/dev/trace.py` already
 parses `@verifies` and will populate the Verifiers column. Natural first targets:
 the HW-only requirements that *only* a bench test can verify — `SNS-BMX-*`,

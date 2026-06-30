@@ -8,7 +8,7 @@
  * deterministically, so the queue/snapshot/save/log paths are testable without
  * a scheduler.
  *
- *   @verifies the C1->C3 fix design properties (docs/plans/centralised-fs-owner.md):
+ *   @verifies the C1->C3 fix design properties (firmware/docs/plans/centralised-fs-owner.md):
  *     - copy-into-queue snapshot is safe against post-enqueue mutation
  *     - reserved save lane is never starved by a full log lane
  *     - overflow logs are dropped-and-counted (mirrors COMM-CH-002)

@@ -7,7 +7,7 @@
 // RtosEval — C++ port of tools/autotune/rtos_eval.py.
 //
 // Drives the in-process real-vaios SITL backend `vayu_sitl_rtos` (Phase 4,
-// docs/plans/sitl-lockstep-sim.md) as a one-shot subprocess per gain set: it
+// firmware/docs/plans/sitl-lockstep-sim.md) as a one-shot subprocess per gain set: it
 // arms + flies a seeded roll/pitch/yaw step-doublet with the env-set PID gains
 // and prints a `#RTOS-TUNE` line scoring each axis's rate-loop tracking
 // correlation corr(rate_sp, rate_curr). Each rollout is ~0.04 s wall (~70x

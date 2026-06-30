@@ -1,6 +1,6 @@
 # SITL consolidation — one in-process RTOS engine
 
-**Status:** design (Phase 5, follows `docs/plans/sitl-lockstep-sim.md`).
+**Status:** design (Phase 5, follows `firmware/docs/plans/sitl-lockstep-sim.md`).
 **Goal:** collapse the two SITL paths into ONE faithful, fast, deterministic,
 single-binary engine built on the in-process RTOS stepper (`vayu_sitl_rtos`),
 and retire the decoupled `vsim_d` + legacy pthread host.

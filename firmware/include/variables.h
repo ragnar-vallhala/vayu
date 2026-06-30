@@ -139,7 +139,7 @@ static inline float vayu_dt_from_cycles(uint32_t now_cyc, uint32_t prev_cyc) {
 // baseline keeps SITL and hardware on the same fallback (a build-divergent
 // baseline would let any gain NOT in the persisted tune resolve far apart
 // between builds). Roll/pitch are the on-hardware rig tune reconciled from
-// docs/store/rig_tune.json (captured 2026-06-22): roll is sysid-tuned, pitch is
+// firmware/docs/store/rig_tune.json (captured 2026-06-22): roll is sysid-tuned, pitch is
 // seeded from roll (its own sysid still pending). Yaw stays the S500 autotune
 // seed. They are only the FALLBACK: a persisted tune (0:pid.bin, loaded by
 // pid_config_init() before the controllers init) overrides any of them per slot
@@ -189,7 +189,7 @@ static inline float vayu_dt_from_cycles(uint32_t now_cyc, uint32_t prev_cyc) {
 #define DEAFULT_YAW_ANGLE_RATE_OUT_MAX 1.0f
 
 // Angle controller. Roll/pitch reconciled from the on-hardware rig tune
-// (docs/store/rig_tune.json, 2026-06-22): roll is sysid loop-shaped; pitch is
+// (firmware/docs/store/rig_tune.json, 2026-06-22): roll is sysid loop-shaped; pitch is
 // kept low to avoid a cascade runaway against the soft inner loop (its own
 // sysid still pending).
 #define DEAFULT_ROLL_ANGLE_KP 1.6898f

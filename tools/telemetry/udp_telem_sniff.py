@@ -158,7 +158,7 @@ def main():
     bad = collections.Counter()            # reason -> count
     peer = None
     total_bytes = 0
-    # Knee/throughput accounting (link bandwidth boost — docs/plans/link-bandwidth-boost.md).
+    # Knee/throughput accounting (link bandwidth boost — firmware/docs/plans/link-bandwidth-boost.md).
     win_bytes = 0          # payload bytes received this second (effective KB/s)
     win_dgrams = 0         # UDP datagrams this second (ESP coalesces frames into these)
     win_lost = 0           # frames inferred dropped this second (per-msgid seq gaps)

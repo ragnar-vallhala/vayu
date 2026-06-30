@@ -1,7 +1,7 @@
 /*
  * host_clock.h -- the SITL virtual sim clock + a wall-clock escape hatch.
  *
- * Phase 1 of the lockstep-sim plan (docs/plans/sitl-lockstep-sim.md). The
+ * Phase 1 of the lockstep-sim plan (firmware/docs/plans/sitl-lockstep-sim.md). The
  * firmware's vaios delay primitives (v_delay / task_delay / task_delay_until /
  * v_get_ticks, implemented in host_vaios.c) now block on / read THIS clock
  * instead of CLOCK_MONOTONIC. The clock advances only when the IMU feeder

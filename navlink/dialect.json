@@ -695,7 +695,7 @@
     },
     {
       "msgid": 8388608, "name": "HW_TEST_BEGIN", "test": true,
-      "doc": "On-hardware bench suite starting. Test-only (hwtest firmware); vendor/test msgid range 0x800000+, emitted only under generate.py --profile test. See docs/plans/on-hardware-test-and-coverage.md.",
+      "doc": "On-hardware bench suite starting. Test-only (hwtest firmware); vendor/test msgid range 0x800000+, emitted only under generate.py --profile test. See firmware/docs/plans/on-hardware-test-and-coverage.md.",
       "fields": [
         { "index": 0, "name": "total", "type": "u16", "doc": "number of checks to run" }
       ]

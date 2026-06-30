@@ -19,7 +19,7 @@
 
 #define UART_BAUDRATE 460800 // ~45 KiB/s. Raised from 230400 (the old ESP8266 cap);
 // the bridge now has a 4 KiB RX ring to absorb WiFi-TX stalls at this rate. The ESP's
-// FC_BAUD must match. See docs/plans/link-bandwidth-boost.md.
+// FC_BAUD must match. See firmware/docs/plans/link-bandwidth-boost.md.
 
 /* Telemetry base tick (ms) for imu_telemetry_task's main loop. The per-stream gates are
  * expressed in MILLISECONDS (TELEM_GATE in telemetry_task.c), so this sets the loop/flush

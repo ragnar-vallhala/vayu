@@ -2,7 +2,7 @@
 #define VAYU_HWTEST_RUNNER_H
 /* On-hardware bench test harness (Suite B / C1).
  * Built only into the `hwtest` image (-DVAYU_HW_TEST=ON); never in production.
- * See docs/plans/on-hardware-test-and-coverage.md. */
+ * See firmware/docs/plans/on-hardware-test-and-coverage.md. */
 #include <stdint.h>
 
 typedef enum { HW_FAIL = 0, HW_PASS = 1, HW_SKIP = 2 } hw_status_t;

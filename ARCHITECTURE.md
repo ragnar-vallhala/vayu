@@ -9,7 +9,7 @@ Four components, two shared contracts:
 
 | Component | Lives in | What it is | Deep dive |
 |-----------|----------|------------|-----------|
-| **FC** (firmware) | `src/`, `include/` | STM32F401 @ 84 MHz, vaios RTOS: sensors → EKF → cascade control → motors | [docs/reference/software-flow.md](docs/reference/software-flow.md) |
+| **FC** (firmware) | `src/`, `include/` | STM32F401 @ 84 MHz, vaios RTOS: sensors → EKF → cascade control → motors | [firmware/docs/reference/software-flow.md](firmware/docs/reference/software-flow.md) |
 | **NavLink** (wire) | `navlink/` | The message dialect; one spec generates C / C++ / Python codecs | [navlink/docs/reference/navlink-v2-spec.md](navlink/docs/reference/navlink-v2-spec.md) |
 | **GCS** (Navigator) | `navigator/src/` | Qt6 ground station: telemetry, plots, calibration, replay, autotune | [navigator/docs/reference/gcs-architecture.md](navigator/docs/reference/gcs-architecture.md) |
 | **Sim + Pilot** | `sim/vsim/`, `sim/host/`, `navigator/headless-sdk/` | `vsim_d` physics daemon, the SITL host, and the `vayu_headless` Pilot scripting API | [sim/vsim/docs/reference/sim-architecture.md](sim/vsim/docs/reference/sim-architecture.md) |
@@ -82,7 +82,7 @@ enforced at runtime (see the sim doc).
 
 How the host SITL is *clocked* matters as much as what it runs. There are two host
 backends and a shared virtual-clock foundation. See
-[docs/plans/sitl-lockstep-sim.md](docs/plans/sitl-lockstep-sim.md) for the full design.
+[firmware/docs/plans/sitl-lockstep-sim.md](firmware/docs/plans/sitl-lockstep-sim.md) for the full design.
 
 **Shared foundation — the virtual sim clock (always on in SITL).** The firmware's
 timing (`v_get_ticks`, control-loop cadence, telemetry timestamps) is slaved to **sim
@@ -145,7 +145,7 @@ default and the one the GCS hosts in-process. Build/run commands for both are in
 
 Documentation is organized **per component**, each with the same four lifecycle layers
 (reference / plans / journal / scratch). Start at the
-[documentation index](docs/README.md) for the taxonomy and the component map.
+[documentation index](firmware/docs/README.md) for the taxonomy and the component map.
 
 ## Building and running
 
@@ -234,7 +234,7 @@ sim time in both host backends.
 
 ## Where to go next
 
-- New to the firmware? → [docs/reference/software-flow.md](docs/reference/software-flow.md)
+- New to the firmware? → [firmware/docs/reference/software-flow.md](firmware/docs/reference/software-flow.md)
 - Wire format / adding a message? → [navlink/docs/reference/navlink-v2-spec.md](navlink/docs/reference/navlink-v2-spec.md)
 - Hacking the ground station? → [navigator/docs/reference/gcs-architecture.md](navigator/docs/reference/gcs-architecture.md)
 - Scripting a SITL flight? → [sim/vsim/docs/reference/sim-architecture.md](sim/vsim/docs/reference/sim-architecture.md) (§5, the Pilot API)

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Determinism validation for SITL lockstep (docs/plans/sitl-lockstep-sim.md).
+"""Determinism validation for SITL lockstep (firmware/docs/plans/sitl-lockstep-sim.md).
 
 Does running the sim faster than realtime (VSIM_LOCKSTEP) preserve the firmware's
 behaviour? We can't fairly compare a *time-varying* input across speeds while the

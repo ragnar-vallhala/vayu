@@ -70,7 +70,7 @@ uint8_t acc[4096];  // writer side: raw UART bytes awaiting framing. 4 KiB (was 
                     // to absorb a WiFi-TX stall at the higher baud without overflow:
                     // at 460800 (~46 B/ms) 4 KiB buffers ~89 ms of stall (cf. ~22 ms for
                     // 2 KiB at the old 230400). This + the matching RX ring below is what
-                    // lets us raise baud past the old ESP cap. docs/plans/link-bandwidth-boost.md
+                    // lets us raise baud past the old ESP cap. firmware/docs/plans/link-bandwidth-boost.md
 int accLen = 0;
 uint8_t out[MAX_UDP]; // reader side: whole frames packed for one datagram
 int outLen = 0;

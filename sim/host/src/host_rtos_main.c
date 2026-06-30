@@ -1,6 +1,6 @@
 /*
  * host_rtos_main.c -- entry point for vayu_sitl_rtos (Phase 4,
- * docs/plans/sitl-lockstep-sim.md). Runs the REAL vaios scheduler on the host
+ * firmware/docs/plans/sitl-lockstep-sim.md). Runs the REAL vaios scheduler on the host
  * via the ucontext port, with vsim physics linked in-process, stepped from one
  * thread — so SITL is deterministic and ~60x realtime.
  *

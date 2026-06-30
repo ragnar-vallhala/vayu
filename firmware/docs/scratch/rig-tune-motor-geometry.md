@@ -1,4 +1,4 @@
-# `docs/store/rig_tune.json` — Why a Separate Motor Geometry?
+# `firmware/docs/store/rig_tune.json` — Why a Separate Motor Geometry?
 
 **What this is:** analysis of the `docs/store/*.json` tune store, specifically why
 the tune carries a `motor_geometry` block that must be pushed to the FC
@@ -7,7 +7,7 @@ mix. Generated 2026-06-23 against the current tree.
 
 ## The file
 
-There is one file, `docs/store/rig_tune.json` — an **operator artifact, not
+There is one file, `firmware/docs/store/rig_tune.json` — an **operator artifact, not
 firmware**. It is the working on-hardware tune (captured 2026-06-22) for the
 X-quad-on-a-free-rotating-rig, re-applied each session via
 `tools/sysid/apply_tune.py` over NavLink/UDP. It bundles four things:
@@ -100,9 +100,9 @@ geometry has no persistence, so it must be re-pushed (sign-only, a yaw-flip in
 this case) over NavLink on every boot before flight.
 
 ## References
-- `docs/store/rig_tune.json`
+- `firmware/docs/store/rig_tune.json`
 - `src/control/angle_rate_controller.c:87-123` (default mix + geometry setter)
 - `src/comm/navlink_router.c:225-239` (CMD_SET_MOTOR_GEOMETRY handler)
 - `tools/sysid/apply_tune.py` (re-apply workflow)
-- Sibling report: `docs/scratch/sitl-fc-stub-inventory.md`
+- Sibling report: `firmware/docs/scratch/sitl-fc-stub-inventory.md`
 - Memory: mixer-frame-vs-physics-frame, onhw-tune-logreport, onhw-sysid-phase0

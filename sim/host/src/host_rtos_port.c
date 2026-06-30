@@ -1,6 +1,6 @@
 /*
  * host_rtos_port.c -- ucontext host port for the REAL vaios scheduler (Phase 4
- * of docs/plans/sitl-lockstep-sim.md).
+ * of firmware/docs/plans/sitl-lockstep-sim.md).
  *
  * Instead of stubbing the vaios scheduler and running each task as a free pthread
  * (the legacy host_vaios.c path — nondeterministic, never exercises the real

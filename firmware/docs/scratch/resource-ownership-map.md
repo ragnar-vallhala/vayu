@@ -451,4 +451,4 @@ ownership:
 - Actuator/GPIO: `src/actuator/{esc,motor}.c`, `src/sys/{heartbeat,timer_callbacks,sys_utils}.c`
 - Storage: `extern/vaios/kernel/vfs.c`, `extern/.../utils/v_fs.c`, `extern/.../stm32/sdio/`,
   `src/control/pid_config.c`, `src/logger/logger.c`
-- Memory: [[i2c-bus-sharing]] · Sibling: `docs/scratch/sitl-fc-stub-inventory.md`
+- Memory: [[i2c-bus-sharing]] · Sibling: `firmware/docs/scratch/sitl-fc-stub-inventory.md`

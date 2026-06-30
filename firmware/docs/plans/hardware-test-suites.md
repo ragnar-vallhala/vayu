@@ -1,7 +1,7 @@
 # Hardware test suites — HIL comms + on-hardware bench
 
 Two new test categories that, unlike everything in `vayu.sh test` today, need a
-real flight controller (see [build.md §test](../../build.md) for the existing
+real flight controller (see [build.md §test](../../../build.md) for the existing
 host/SITL suites). Both are **opt-in and auto-skip** when no FC is present, so CI
 and laptop runs stay green.
 

@@ -246,7 +246,7 @@ int main(int /*argc*/, char** /*argv*/) {
     recompute_rates();
     auto next = clock::now();
 
-    // Phase 2 lockstep (docs/plans/sitl-lockstep-sim.md): when VSIM_LOCKSTEP is
+    // Phase 2 lockstep (firmware/docs/plans/sitl-lockstep-sim.md): when VSIM_LOCKSTEP is
     // set, pace the loop on the firmware's PWM round-trip instead of the wall
     // clock, so the sim runs as fast as the firmware can consume it (faster than
     // realtime). A credit window lets vsim emit up to N IMU samples ahead of the
@@ -269,7 +269,7 @@ int main(int /*argc*/, char** /*argv*/) {
         // that a marginal roll/pitch loop tumbles at credit>=4 while credit=2
         // tracks realtime to within its run-to-run jitter. Raise it only for a
         // well-damped plant that tolerates the extra latency (more speed); see
-        // docs/plans/sitl-lockstep-sim.md.
+        // firmware/docs/plans/sitl-lockstep-sim.md.
         return v > 0 ? v : 2;           // IMU samples vsim may run ahead of PWM
     }();
     const auto ls_watchdog = std::chrono::milliseconds(100);

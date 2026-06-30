@@ -177,5 +177,5 @@ every frame. Rebuild both `vsim_d` and the SITL on any wire change.
 
 ## Related
 - [[sitl-architecture]] · [[sitl-seam-contract]] · [[sitl-test-harness]]
-- `docs/plans/sitl-lockstep-sim.md` (virtual clock / lockstep)
+- `firmware/docs/plans/sitl-lockstep-sim.md` (virtual clock / lockstep)
 - `navigator/headless-sdk/docs/FINDINGS.md` (open estimator/rate-fidelity gaps)

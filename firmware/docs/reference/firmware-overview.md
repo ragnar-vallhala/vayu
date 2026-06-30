@@ -5,7 +5,7 @@ flight-control firmware: what the firmware must do, how it is allowed
 to be coded, and how the two trace to each other.
 
 A separate companion lives at
-[`navigator/docs/requirements.md`](../../navigator/docs/reference/requirements.md)
+[`navigator/docs/requirements.md`](../../../navigator/docs/reference/requirements.md)
 for the Navigator GCS.
 
 ## Contents
@@ -58,7 +58,7 @@ content:
 
 - [`sensor-fusion/`](sensor-fusion/) — Mahony filter derivation
   and tuning. Owns the math behind `EST-MAH-*` requirements.
-- [`navlink messages`](../../navlink/docs/reference/messages/) — wire format authority. Owns the
+- [`navlink messages`](../../../navlink/docs/reference/messages/) — wire format authority. Owns the
   packet layout referenced by `SYS-TEL-004` and `COMM-PKT-*`.
 - [`state-machine/`](state-machine/) — high-level system states
   and transitions. Owns the diagrams referenced by `SYS-SAFE-005` and
@@ -67,7 +67,7 @@ content:
   referenced by `VOS-*` and the `CTRL-RATE-101` trigger contract.
 - [`coordinate_ref.md`](coordinate_ref.md) — NED conventions.
   Owns the axis definitions referenced by `EST-*` and `CTRL-MIX-*`.
-- [`gcs-in-app-simulator-and-world-collision.md`](../../navigator/docs/journal/changelog/gcs-in-app-simulator-and-world-collision.md) — SITL architecture (`vsim_d` daemon).
+- [`gcs-in-app-simulator-and-world-collision.md`](../../../navigator/docs/journal/changelog/gcs-in-app-simulator-and-world-collision.md) — SITL architecture (`vsim_d` daemon).
   Verification target for any `Test (SITL)` row.
 - [`journal/changelog/`](../journal/changelog/) — historical record of firmware
   changes.

@@ -1,7 +1,7 @@
 /*
  * host_rtos_engine.h -- the reusable in-process RTOS SITL step engine.
  *
- * Factored out of host_rtos_main.c (Phase 5, docs/plans/sitl-rtos-consolidation.md)
+ * Factored out of host_rtos_main.c (Phase 5, firmware/docs/plans/sitl-rtos-consolidation.md)
  * so BOTH the standalone scenarios (host_rtos_main.c) and the GCS worker thread
  * drive the SAME loop: advance in-process vsim physics under the last PWM,
  * sample the IMU, inject it, tick the real vaios scheduler to idle, read PWM

@@ -135,7 +135,7 @@ void init_tasks(void) {
   // tasks (prio 0). Blocking SD reads + paced emission live here; the comm-task
   // handlers only touch session state (the C1->C3 invariant). fs_query_tick /
   // xfer_tick do the blocking FatFS dir-walk (FILINFO on-stack) plus a 247 B
-  // chunk buffer (RAM budget: docs/plans/xfer-memory-budget.md).
+  // chunk buffer (RAM budget: firmware/docs/plans/xfer-memory-budget.md).
   // 3072: the download EMIT path runs here — blocking FatFS read + 247 B chunk
   // buffer + XFER_DATA encode per chunk. "peak 404" was measured idle; a real
   // multi-chunk download overflowed the right-sized 832 and froze the FC

@@ -1,6 +1,6 @@
 /*
  * vsim_inproc.cpp -- in-process vsim physics for the RTOS SITL stepper
- * (Phase 4 step 2a, docs/plans/sitl-lockstep-sim.md).
+ * (Phase 4 step 2a, firmware/docs/plans/sitl-lockstep-sim.md).
  *
  * The two-process FIFO handshake (vsim_d <-> firmware) was measured at ~98% of
  * the stepper's wall time — pure process round-trip latency, not compute (the

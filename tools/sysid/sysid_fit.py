@@ -134,7 +134,7 @@ def choose_crossover(p, bw_frac=0.33, kp_max=0.012, wc_max=WC_MAX):
 # the plant gain K and the outer loop out-runs what the real inner loop can
 # follow. On 2026-06-25 a pitch fit (K=1381) designed angle_kp=4.14 and the FC
 # went into a 1.5 Hz cascade limit cycle (railed motor output -> burned a motor;
-# see docs/journal/log-analysis/20260625-231706-pitch-osc/). Proven-stable values
+# see firmware/docs/journal/log-analysis/20260625-231706-pitch-osc/). Proven-stable values
 # on this airframe: roll 1.69, free-flight 1.0. Cap at 2.0 so the design can
 # never again hand back an outer gain that re-excites the cascade; the operator
 # can still soften further. Tunable via --angle-kp-max.

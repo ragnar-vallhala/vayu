@@ -87,7 +87,7 @@ arduino-cli upload  -p /dev/ttyUSB0 --fqbn esp8266:esp8266:nodemcuv2 tools/ardui
 
 | Constant | Default | When to change |
 |----------|---------|----------------|
-| `FC_BAUD` | `460800` | Must equal the FC's `UART_BAUDRATE`. Raised from 230400 with the 4 KiB RX ring + `acc[]` (below) to absorb WiFi-TX stalls at the higher byte rate. See `docs/plans/link-bandwidth-boost.md`. |
+| `FC_BAUD` | `460800` | Must equal the FC's `UART_BAUDRATE`. Raised from 230400 with the 4 KiB RX ring + `acc[]` (below) to absorb WiFi-TX stalls at the higher byte rate. See `firmware/docs/plans/link-bandwidth-boost.md`. |
 | `UDP_PORT` | `14555` | Must match the GCS UDP port. |
 | `MAX_UDP` | `1472` | Datagram size cap = MTU − IP/UDP headers. **Do not raise past ~1472** — above MTU lwIP fragments (no airtime saved; one lost fragment drops the whole datagram). |
 | `FLUSH_MS` | `8` | Flush interval (ms). Latency-for-coalescing knob: longer = more frames/datagram = fewer datagrams/s (further under the ESP ceiling). Drop to `2` for low-latency stick-feel data. `FLUSH_TICKS` derives from this (5000 ticks/ms @ TIM_DIV16). |

@@ -8,7 +8,7 @@ drawn from the source (`src/`, `include/`); see the per-section file pointers.
 > Supersedes the legacy hand-drawn `journal/legacy-soft-flow.drawio` (pre-NavLink-v2,
 > pre-modular-refactor, Mahony-era). For prose detail see
 > [firmware-control.md](firmware-control.md) and [pipeline-overview.md](pipeline-overview.md);
-> for the wire format see [navlink-v2-spec.md](../../navlink/docs/reference/navlink-v2-spec.md).
+> for the wire format see [navlink-v2-spec.md](../../../navlink/docs/reference/navlink-v2-spec.md).
 
 **Platform:** STM32F401RE @ 84 MHz, **vaios** in-house RTOS (`task_create_named`,
 `v_semaphore_*`, `task_delay_until`). Higher numeric priority = more urgent.
@@ -319,7 +319,7 @@ disciplined clock between sync handshakes.
 
 *Source: `src/comm/telemetry_task.c:26-135`, `src/comm/navlink_tx.c`,
 `src/comm/perf_telemetry.c`, `src/comm/channel.c`. Msgids per
-[`navlink/dialect.json`](../../navlink/dialect.json).*
+[`navlink/dialect.json`](../../../navlink/dialect.json).*
 
 ---
 

@@ -6,7 +6,7 @@
  * chunked transfer (download FC->GCS, upload GCS->FC) plus open-ended streams,
  * with a provider registry so future apps (file transfer, blackbox download,
  * config/tune export, live data streams) plug in without rebuilding transport.
- * Design: docs/plans/navlink-xfer-substrate.md; RAM: docs/plans/xfer-memory-budget.md.
+ * Design: docs/plans/navlink-xfer-substrate.md; RAM: firmware/docs/plans/xfer-memory-budget.md.
  *
  * Reliability model (NOT a sliding window): cumulative-ack + resume-by-rewind.
  *   - download: FC streams XFER_DATA by offset, paced against channel backpressure;
@@ -33,7 +33,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/* ---- tunables (RAM budget: docs/plans/xfer-memory-budget.md) ------------- */
+/* ---- tunables (RAM budget: firmware/docs/plans/xfer-memory-budget.md) ------------- */
 #ifndef XFER_MAX_SESSIONS
 #define XFER_MAX_SESSIONS 2u
 #endif

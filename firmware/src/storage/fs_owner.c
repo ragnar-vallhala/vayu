@@ -4,8 +4,8 @@
  *
  * Owns the binary blackbox logger and serialises PID/calib persistence plus xfer
  * uploads behind queues, so the blocking SD I/O never runs in the producer's task
- * context. See docs/plans/centralised-fs-owner.md and
- * docs/scratch/resource-ownership-map.md (the C1->C3 chain this fixes).
+ * context. See firmware/docs/plans/centralised-fs-owner.md and
+ * firmware/docs/scratch/resource-ownership-map.md (the C1->C3 chain this fixes).
  *
  * fd-frugal by design: the underlying FatFS exposes only MAX_OPEN_FILES (4)
  * file slots, so this owner NEVER holds a file open across calls. Every handler
@@ -47,7 +47,7 @@
 
 /* Upload write-at lane (xfer substrate). The backing buffers are HEAP-allocated
  * (v_malloc) not static, so adding these lanes keeps .bss flat and doesn't shrink
- * the F401 MSP margin (docs/plans/xfer-memory-budget.md). */
+ * the F401 MSP margin (firmware/docs/plans/xfer-memory-budget.md). */
 #define FS_WRITEAT_PAYLOAD_MAX 247u /* = XFER_CHUNK_MAX (one XFER_DATA chunk)     */
 #define FS_WRITEAT_PATH_MAX 40u     /* >= XFER_ARG_MAX(32) SD path                */
 #define FS_WRITEAT_QUEUE_CAP 2u     /* fresh-request lane (one chunk of pipelining)*/

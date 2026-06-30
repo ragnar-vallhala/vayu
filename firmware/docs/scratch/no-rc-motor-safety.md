@@ -116,4 +116,4 @@ With no RC you cannot *arm* on real hardware, but:
 - `src/comm/comm_processor.c`, `src/comm/navlink_router.c` (CMD_ARM latch path)
 - `src/sys/state.c` (transition table — no FAILSAFE→ARMED)
 - `include/comm/ibus.h` (RC_LOSS_* constants)
-- Sibling: `docs/scratch/resource-ownership-map.md` (C5 bus stall, C1 VFS)
+- Sibling: `firmware/docs/scratch/resource-ownership-map.md` (C5 bus stall, C1 VFS)
