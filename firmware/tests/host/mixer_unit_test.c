@@ -1,7 +1,7 @@
 /* mixer_unit_test.c — standalone host test for the control-allocation mixer.
  *
  * Build/run (from firmware/):
- *   gcc -std=c11 -Iinclude test/mixer_unit_test.c src/control/mixer.c \
+ *   gcc -std=c11 -Iinclude tests/host/mixer_unit_test.c src/control/mixer.c \
  *       src/maths/maths_interface.c -lm -o /tmp/mt && /tmp/mt
  *
  * Proves: (1) the symmetric quad-X allocation has unit per-axis gain
