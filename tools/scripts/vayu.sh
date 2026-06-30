@@ -3,8 +3,8 @@
 # root itself. One entry point for every component (see build.md for the full map).
 #
 # Usage:
-#   vayu.sh build <firmware|sitl|vsim|gcs|rtos|all>   [opts]
-#   vayu.sh test  <sitl|gcs|headless|all>             [opts]
+#   vayu.sh build <firmware|sitl|vsim|gcs|rtos|vtest|all>  [opts]
+#   vayu.sh test  [sitl|gcs|headless|all|vtest]       [opts]   # no target -> vtest TUI
 #   vayu.sh flash                                     [opts]   # firmware build + st-flash
 #   vayu.sh clean                                              # remove all build trees
 #
@@ -90,6 +90,11 @@ build_gcs() {
   say "navigator -> navigator/build (SITL $sitl)"
   cmake -S navigator -B navigator/build "$type" -DNAVIGATOR_SITL=$sitl
   cmake --build navigator/build -j"$JOBS"
+}
+build_vtest() {
+  say "vtest -> build_vtest/vtest (host C orchestrator)"
+  mkdir -p build_vtest
+  cc -std=c11 -O2 -Wall -Wextra vtest/vtest.c -o build_vtest/vtest
 }
 
 # ---- test steps: split into "ensure built" (aborts on failure) and "run"
@@ -200,6 +205,19 @@ test_sitl()     { ensure_sitl_build;     run_sitl_tests; }
 test_gcs()      { ensure_gcs_build;      run_gcs_tests; }
 test_headless() { ensure_headless_build; run_headless_tests; }
 
+# The vtest orchestrator (vtest/) is a host C binary that discovers + drives the
+# ctest suites itself. `vayu.sh test` with no target builds it and launches it:
+# the interactive TUI on a terminal, or `--run` (batch + exit code) under CI.
+# The ctest build dirs are ensured best-effort first — vtest shows a "not built"
+# note for any that are missing rather than aborting.
+run_vtest() {
+  say "vtest orchestrator: ensuring ctest build dirs, then launching"
+  ensure_sitl_build || say "sitl build unavailable — vtest will flag it"
+  ensure_gcs_build  || say "gcs build unavailable — vtest will flag it"
+  build_vtest
+  if [ -t 1 ]; then ./build_vtest/vtest; else ./build_vtest/vtest --run; fi
+}
+
 # Consolidated table: static source counts (Files/Asserts) + dynamic case
 # tallies (Pass/Fail/Skip) collected by the run_* steps.
 test_table() {
@@ -254,16 +272,18 @@ case "$CMD" in
       vsim)     build_vsim;;
       rtos)     build_rtos;;
       gcs)      build_gcs;;
+      vtest)    build_vtest;;
       all)      build_firmware; build_sitl; build_vsim; build_gcs;;
-      ""|*)     die "build: target must be one of firmware|sitl|vsim|gcs|rtos|all";;
+      ""|*)     die "build: target must be one of firmware|sitl|vsim|gcs|rtos|vtest|all";;
     esac;;
   test)
     case "$TARGET" in
-      sitl)     test_sitl;;
-      gcs)      test_gcs;;
-      headless) test_headless;;
-      all)      test_all;;
-      ""|*)     die "test: target must be one of sitl|gcs|headless|all";;
+      sitl)        test_sitl;;
+      gcs)         test_gcs;;
+      headless)    test_headless;;
+      all)         test_all;;
+      vtest|ui|"") run_vtest;;
+      *)           die "test: target must be one of sitl|gcs|headless|all|vtest (none = vtest TUI)";;
     esac;;
   flash)
     build_firmware
@@ -273,7 +293,7 @@ case "$CMD" in
   clean)
     say "removing build trees"
     rm -rf build build_sitl build_san build_cov build_tidy build_sitl_rtos \
-           build_vsim navigator/build navigator/build-gcsonly
+           build_vsim build_vtest navigator/build navigator/build-gcsonly
     echo "clean.";;
   ""|-h|--help)
     sed -n '2,40p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//';;
