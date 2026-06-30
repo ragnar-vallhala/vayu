@@ -387,12 +387,23 @@ add_test(NAME phase0_assert COMMAND test_phase0_assert)
 #   cmake --build build_cov --target coverage
 # Prints a gcovr summary over src/ (vendored extern/ excluded).
 # ----------------------------------------------------------------------------
+# The firmware host UNIT tests (firmware/tests/host: pid/mixer/maths/fft) are a
+# separate CTest project; build+run them instrumented and merge their coverage
+# with this sim/host (integration) run so the per-file/-component numbers reflect
+# both. gcovr accepts multiple search paths and unions the line hits.
+set(VAYU_FWTEST_COV_STEPS
+    COMMAND ${CMAKE_COMMAND} -S ${VAYU_ROOT}/firmware/tests/host -B fwtest_cov
+            -DCMAKE_C_FLAGS=--coverage -DCMAKE_EXE_LINKER_FLAGS=--coverage
+    COMMAND ${CMAKE_COMMAND} --build fwtest_cov
+    COMMAND ${CMAKE_CTEST_COMMAND} --test-dir fwtest_cov --output-on-failure)
+
 add_custom_target(coverage
     COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure
-    COMMAND gcovr ${CMAKE_CURRENT_BINARY_DIR} --root ${VAYU_ROOT} --filter "${VAYU_ROOT}/firmware/src/"
-            --print-summary --decisions
+    ${VAYU_FWTEST_COV_STEPS}
+    COMMAND gcovr ${CMAKE_CURRENT_BINARY_DIR} fwtest_cov --root ${VAYU_ROOT}
+            --filter "${VAYU_ROOT}/firmware/src/" --print-summary --decisions
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
-    COMMENT "Running unit tests + gcovr coverage summary")
+    COMMENT "Running unit tests (sim/host + firmware host) + gcovr summary")
 
 # coverage-gate: same run, but emits a gcovr json-summary and enforces the
 # per-component floor ratchet (tools/coverage_gate.py) — fails on a regression.
@@ -400,8 +411,9 @@ add_custom_target(coverage
 #   cmake --build build_cov --target coverage-gate
 add_custom_target(coverage-gate
     COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure
-    COMMAND gcovr ${CMAKE_CURRENT_BINARY_DIR} --root ${VAYU_ROOT} --filter "${VAYU_ROOT}/firmware/src/"
-            --json-summary -o cov.json
+    ${VAYU_FWTEST_COV_STEPS}
+    COMMAND gcovr ${CMAKE_CURRENT_BINARY_DIR} fwtest_cov --root ${VAYU_ROOT}
+            --filter "${VAYU_ROOT}/firmware/src/" --json-summary -o cov.json
     COMMAND python3 ${VAYU_ROOT}/tools/coverage_gate.py firmware cov.json
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
-    COMMENT "Unit tests + per-component coverage ratchet gate")
+    COMMENT "Unit tests (sim/host + firmware host) + per-component coverage ratchet gate")

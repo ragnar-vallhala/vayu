@@ -31,3 +31,26 @@ add_executable(test_mixer mixer_unit_test.c
     ${FW}/src/maths/maths_interface.c)
 target_link_libraries(test_mixer m)
 add_test(NAME mixer COMMAND test_mixer)
+
+# Rate/attitude PID core (P/I/D/FF, anti-windup, D-on-measurement, LPF, clamp).
+add_executable(test_pid pid_unit_test.c
+    ${FW}/src/control/pid.c
+    ${FW}/src/maths/maths_interface.c)
+target_link_libraries(test_pid m)
+add_test(NAME pid COMMAND test_pid)
+
+# maths_interface: quaternion / vector / scalar helpers.
+add_executable(test_maths maths_unit_test.c ${FW}/src/maths/maths_interface.c)
+target_link_libraries(test_maths m)
+add_test(NAME maths COMMAND test_maths)
+
+# float32 -> float16 telemetry packing (sys/math_utils.c).
+add_executable(test_math_utils math_utils_unit_test.c ${FW}/src/sys/math_utils.c)
+add_test(NAME math_utils COMMAND test_math_utils)
+
+# On-hardware system-ID chirp: excite / capture / self-abort (control/sysid.c).
+add_executable(test_sysid sysid_unit_test.c
+    ${FW}/src/control/sysid.c
+    ${FW}/src/maths/maths_interface.c)
+target_link_libraries(test_sysid m)
+add_test(NAME sysid COMMAND test_sysid)
