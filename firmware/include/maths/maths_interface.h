@@ -94,4 +94,58 @@ static inline float m_fft_bin_power(fft_complex_t b) {
   return b.re * b.re + b.im * b.im;
 }
 
+// -------------------------
+// Biquad notch / band-stop (src/maths/biquad.c)
+// -------------------------
+// One second-order section, the evaluator half of the FFT-driven gyro notch
+// (design ref as above, §10.5-10.6): the FFT analysis front-end picks the prop
+// peak; this filters it out of the gyro stream. Same constraints as the FFT —
+// portable float, no CMSIS, no static/heap state (.bss stays flat): the caller
+// owns the coeffs and the per-channel state. libm (sinf/cosf) is touched only by
+// the coefficient designer, which runs at the gated coeff-update cadence, never
+// per sample; m_biquad_step is plain arithmetic (~5 mul + 4 add).
+
+// Transfer-function coefficients, a0 normalized to 1 (so it drops out of the
+// recurrence). One set per notch; const after design until the center frequency
+// is re-estimated.
+typedef struct {
+  float b0, b1, b2; // feedforward
+  float a1, a2;     // feedback
+} biquad_coeffs_t;
+
+// Direct-Form II Transposed delay state. One per filtered channel (e.g. per gyro
+// axis), zeroed by m_biquad_reset before first use. df2t is the canonical choice
+// for time-varying coeffs: the state holds filtered history, not raw input, so
+// retuning the center frequency mid-stream stays bump-free and well-conditioned.
+typedef struct {
+  float s1, s2;
+} biquad_state_t;
+
+// Design an RBJ band-stop (notch): unity gain everywhere except a null at
+// `f0_hz`, width set by quality factor `q` (higher q == narrower). `fs_hz` is the
+// sample rate the filter runs at. Out-of-range args (f0 not in (0, fs/2),
+// q <= 0, fs <= 0) fail safe to a bypass (identity) section rather than emitting
+// unstable coeffs — flight code must never get a blowing-up filter from a bad
+// peak estimate.
+void m_biquad_notch_design(biquad_coeffs_t *c, float f0_hz, float q,
+                           float fs_hz);
+
+// Identity section: y == x. Used as the fail-safe and to disable a notch slot.
+void m_biquad_bypass(biquad_coeffs_t *c);
+
+// Zero the delay state (call once before the first sample on a channel).
+static inline void m_biquad_reset(biquad_state_t *st) {
+  st->s1 = 0.0f;
+  st->s2 = 0.0f;
+}
+
+// Filter one sample (Direct-Form II Transposed). Hot path — inline, no libm.
+static inline float m_biquad_step(const biquad_coeffs_t *c, biquad_state_t *st,
+                                  float x) {
+  float y = c->b0 * x + st->s1;
+  st->s1 = c->b1 * x - c->a1 * y + st->s2;
+  st->s2 = c->b2 * x - c->a2 * y;
+  return y;
+}
+
 #endif // !MATHS_INTERFACE_H

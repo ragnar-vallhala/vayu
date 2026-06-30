@@ -39,6 +39,11 @@ add_executable(test_pid pid_unit_test.c
 target_link_libraries(test_pid m)
 add_test(NAME pid COMMAND test_pid)
 
+# Notch (band-stop) biquad: center-tone kill, passband unity, fail-safe bypass.
+add_executable(test_biquad biquad_unit_test.c ${FW}/src/maths/biquad.c)
+target_link_libraries(test_biquad m)
+add_test(NAME biquad COMMAND test_biquad)
+
 # maths_interface: quaternion / vector / scalar helpers.
 add_executable(test_maths maths_unit_test.c ${FW}/src/maths/maths_interface.c)
 target_link_libraries(test_maths m)
