@@ -1,7 +1,7 @@
 /*
  * host_rtos_engine.c -- the reusable in-process RTOS SITL step engine.
  * See host_rtos_engine.h. Factored out of host_rtos_main.c (Phase 5,
- * docs/plans/sitl-rtos-consolidation.md) — pure refactor, no behaviour change.
+ * firmware/docs/plans/sitl-rtos-consolidation.md) — pure refactor, no behaviour change.
  */
 #define _GNU_SOURCE
 #include "host_rtos_engine.h"

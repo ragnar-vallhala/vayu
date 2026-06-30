@@ -100,7 +100,7 @@ void rate_indi_set_applied(rate_indi_t *c, float u_applied);
 
 /* ---- Per-axis defaults (seed from sysid; confirm b on a thrust stand) ------
  * b: rate-plant DC gain K from the sysid fit wdot/u (deg/s^2 per unit u).
- *    roll/pitch from docs/store + pitch_tune.json; yaw is a placeholder.
+ *    roll/pitch from firmware/docs/store + pitch_tune.json; yaw is a placeholder.
  * k: outer bandwidth ~ desired rate-loop crossover [1/s] (start conservative).
  * lpf_rc: ~30-50 Hz to tame the gyro derivative without killing INDI's lead. */
 #define DEAFULT_ROLL_INDI_B   563.0f

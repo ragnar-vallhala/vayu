@@ -70,7 +70,7 @@ struct MotorParams {
     std::array<float, 4> tau = {0.0125f, 0.0125f, 0.0125f, 0.0125f};
 
     // --- Higher-fidelity actuator imperfections (default OFF = no-op) ---------
-    // Identified on real hardware (docs/journal/log-analysis/.../plant_id): the
+    // Identified on real hardware (firmware/docs/journal/log-analysis/.../plant_id): the
     // real pitch limit cycle is a ~100 ms ACTUATOR TRANSPORT DELAY the ideal
     // first-order model above cannot produce (a pole adds phase but also cuts
     // magnitude, so it self-stabilises; a pure delay adds phase with no

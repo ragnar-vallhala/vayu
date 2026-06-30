@@ -5,7 +5,7 @@ component into **four layers by lifecycle**. This page defines both, then
 indexes the Flight Controller (FC) docs, which live in this directory.
 
 > For the whole-system picture — how the four components fit together and the
-> runtime topologies — see [`../ARCHITECTURE.md`](../ARCHITECTURE.md).
+> runtime topologies — see [`../../ARCHITECTURE.md`](../../ARCHITECTURE.md).
 
 ## Components
 
@@ -14,10 +14,10 @@ minimal — components may *refer* to each other, but each owns its own contract
 
 | Component | What it is | Docs root |
 |-----------|------------|-----------|
-| **FC** | Flight-controller firmware (this repo's `src/`, `include/`) | `docs/` *(here)* |
-| **NavLink** | Wire protocol / generated codec | [`navlink/docs/`](../navlink/docs/README.md) |
-| **GCS** | Navigator ground-control station (`navigator/`) | [`navigator/docs/`](../navigator/docs/README.md) |
-| **Sim** | `vsim_d` physics daemon + SITL harness | [`sim/vsim/docs/`](../sim/vsim/docs/README.md) |
+| **FC** | Flight-controller firmware (`firmware/src/`, `firmware/include/`) | `firmware/docs/` *(here)* |
+| **NavLink** | Wire protocol / generated codec | [`navlink/docs/`](../../navlink/docs/README.md) |
+| **GCS** | Navigator ground-control station (`navigator/`) | [`navigator/docs/`](../../navigator/docs/README.md) |
+| **Sim** | `vsim_d` physics daemon + SITL harness | [`sim/vsim/docs/`](../../sim/vsim/docs/README.md) |
 
 ## The four layers (lifecycle)
 

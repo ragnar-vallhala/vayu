@@ -96,7 +96,7 @@ set(NAVLINK_GEN ${CMAKE_CURRENT_BINARY_DIR}/navlink_gen)
 # On-hardware bench firmware (Suite B / C1): the hwtest image gets the
 # test-profile codec (adds the HW_TEST_* dialect messages); production builds use
 # the prod profile so the real FC carries zero test code. See
-# docs/plans/on-hardware-test-and-coverage.md.
+# firmware/docs/plans/on-hardware-test-and-coverage.md.
 option(VAYU_HW_TEST "Build the on-hardware bench firmware (hwtest) in place of production main" OFF)
 if(VAYU_HW_TEST)
   set(NAVLINK_PROFILE test)

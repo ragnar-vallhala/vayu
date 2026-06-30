@@ -21,16 +21,16 @@ Seven sections:
 7. **Maintenance rules** — how the doc stays honest.
 
 The GCS-side companion lives at
-[`navigator/docs/requirements.md`](../../navigator/docs/reference/requirements.md);
+[`navigator/docs/requirements.md`](../../../navigator/docs/reference/requirements.md);
 SYS-level requirements that span firmware ↔ GCS are owned here, with the
 GCS doc referring back to them.
 
 Cross-references:
 - [`sensor-fusion/`](sensor-fusion/) — attitude estimator math.
-- [`navlink messages`](../../navlink/docs/reference/messages/) — wire format authority.
+- [`navlink messages`](../../../navlink/docs/reference/messages/) — wire format authority.
 - [`state-machine/`](state-machine/) — system state diagrams.
 - [`coordinate_ref.md`](coordinate_ref.md) — NED conventions.
-- [`gcs-in-app-simulator-and-world-collision.md`](../../navigator/docs/journal/changelog/gcs-in-app-simulator-and-world-collision.md) — SITL design (`vsim_d` daemon).
+- [`gcs-in-app-simulator-and-world-collision.md`](../../../navigator/docs/journal/changelog/gcs-in-app-simulator-and-world-collision.md) — SITL design (`vsim_d` daemon).
 
 ---
 
@@ -184,7 +184,7 @@ for compact transmission.
 
 ### 3.4 Telemetry contract (SYS-TEL)
 
-Authoritative wire spec lives in [`navlink messages`](../../navlink/docs/reference/messages/);
+Authoritative wire spec lives in [`navlink messages`](../../../navlink/docs/reference/messages/);
 these SYS entries pin the cadence and reliability contract.
 
 | ID           | Title                              | Statement                                                                                                                            | Parent       | Verification         |

@@ -113,4 +113,4 @@ foreach ($b in $bins) { if ($parts -notcontains $b) { $parts += $b } }
 
 Write-Host "`nAdded to Machine PATH:`n  $($bins -join "`n  ")"
 Write-Host "`nDONE. Open a NEW terminal to pick up PATH. Then run Zadig once for the"
-Write-Host "ST-Link (WinUSB) and build/flash per docs/reference/windows-setup.md."
+Write-Host "ST-Link (WinUSB) and build/flash per firmware/docs/reference/windows-setup.md."

@@ -189,7 +189,7 @@ class SimulatorWidget : public QWidget {
   // telemetry — that is captured separately via Export. So a run yields both the
   // FC's estimated view (export *.bin, VREC) and the true physics state
   // (gt-*.bin), making estimate-vs-truth an offline overlay. Format: see
-  // docs/journal/log-analysis/parse_gt.py.
+  // firmware/docs/journal/log-analysis/parse_gt.py.
   void openNewLogFile();
   void closeLogFile();
   // Append one ground-truth record for this pose snapshot (no-op if no log open).

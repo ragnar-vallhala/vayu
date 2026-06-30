@@ -32,7 +32,7 @@
 #include <unistd.h>
 
 /* ---- virtual sim clock (1 tick = 1 ms) -------------------------------- */
-/* See host_clock.h / docs/plans/sitl-lockstep-sim.md. Time advances ONLY via
+/* See host_clock.h / firmware/docs/plans/sitl-lockstep-sim.md. Time advances ONLY via
  * host_clock_advance_us() (the IMU feeder, one step per sample); the firmware's
  * vaios delay primitives below block on this clock, not the wall clock, so
  * firmware timing is slaved to sim time and runs as fast as samples arrive. */

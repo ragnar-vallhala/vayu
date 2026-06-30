@@ -164,8 +164,8 @@ Then the GCS SITL build (Phase 2 will re-verify after the rename).
 ### Soft sweep (~100 refs, non-breaking)
 `ARCHITECTURE.md`, `AUTOTUNE-ROLLPITCH-ANALYSIS.md` (gitignored — skip), the moved
 `sim/vsim/docs/**` (sim-architecture.md, journal, sim-fidelity plans),
-`docs/reference/{firmware-control,trace}.md`, `docs/plans/sitl-lockstep-sim.md`,
-`docs/scratch/sitl-fc-stub-inventory.md`, `software/docs/reference/requirements.md`,
+`docs/reference/{firmware-control,trace}.md`, `firmware/docs/plans/sitl-lockstep-sim.md`,
+`firmware/docs/scratch/sitl-fc-stub-inventory.md`, `software/docs/reference/requirements.md`,
 `software/headless-sdk/PLAN.md`, `sim/gazebo/README.md`, plus CMake comment blocks
 in the moved files. Bulk `tools/sim_host→sim/host`, `tools/vsim→sim/vsim` then
 manual review.

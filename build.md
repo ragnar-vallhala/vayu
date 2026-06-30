@@ -29,7 +29,7 @@ extern/vaios git submodule (RTOS kernel + NavHAL drivers)
 The `extern/vaios` submodule must be present: `git submodule update --init --recursive`.
 
 > **Windows:** the GCS builds via MSYS2/UCRT64 with `-DNAVIGATOR_SITL=OFF` (SITL +
-> autotune are POSIX-only). See `docs/reference/windows-setup.md`.
+> autotune are POSIX-only). See `firmware/docs/reference/windows-setup.md`.
 
 ---
 

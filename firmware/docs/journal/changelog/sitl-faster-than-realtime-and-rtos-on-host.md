@@ -5,8 +5,8 @@ to a virtual sim clock, pacing the sim faster than realtime, and ultimately
 running the **real vaios scheduler on the host** with physics in-process —
 deterministic and ~60× realtime. Newest first.
 
-Design + rationale: [`docs/plans/sitl-lockstep-sim.md`](../../plans/sitl-lockstep-sim.md).
-System view + build/run commands: [`ARCHITECTURE.md`](../../../ARCHITECTURE.md)
+Design + rationale: [`firmware/docs/plans/sitl-lockstep-sim.md`](../../plans/sitl-lockstep-sim.md).
+System view + build/run commands: [`ARCHITECTURE.md`](../../../../ARCHITECTURE.md)
 (§ "SITL execution model", § "Building and running"). The motivating
 soft-rate-loop analysis is summarised under "Why" below.
 

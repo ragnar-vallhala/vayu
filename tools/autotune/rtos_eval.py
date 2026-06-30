@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Fast, deterministic autotune eval backend on `vayu_sitl_rtos`.
 
-Runs the real-vaios in-process SITL (Phase 4, docs/plans/sitl-lockstep-sim.md)
+Runs the real-vaios in-process SITL (Phase 4, firmware/docs/plans/sitl-lockstep-sim.md)
 for one gain set and returns the rate-loop tracking metric from a seeded
 arm+doublet rollout. Each eval is ~0.04 s wall (~70x realtime) and
 **bit-deterministic** — same (seed, gains) -> identical corr — so a gain sweep

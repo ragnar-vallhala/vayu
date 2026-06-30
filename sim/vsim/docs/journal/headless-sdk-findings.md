@@ -2,7 +2,7 @@
 
 > **Open issue:** the ~12× attitude under-read in powered, translating flight is
 > the one thread still unresolved here. It is tracked separately in
-> [`docs/journal/deferred/01-attitude-estimate-underread.md`](../../../../docs/journal/deferred/01-attitude-estimate-underread.md);
+> [`firmware/docs/journal/deferred/01-attitude-estimate-underread.md`](../../../../docs/journal/deferred/01-attitude-estimate-underread.md);
 > the analysis below (UPDATEs pt 2/3 + appendix) is its working record. Bugs 1 & 2
 > below are also still open; only Gap 3 (guidance) has landed.
 
@@ -111,7 +111,7 @@ actual 1000 Hz for now; reconcile via `SET_RATES` or a config).
 Added a SITL-only diagnostic (`attitude_task.c`, guarded by `VAYU_SITL`) that logs,
 per estimator step, the predict INPUT (`step_dt`, `|gyro|`) and the accumulating
 state (EKF gyro bias / Mahony integral). NB: that shim was reverted out of the FC
-code afterwards — re-add it per `docs/journal/deferred/01-attitude-estimate-underread.md`
+code afterwards — re-add it per `firmware/docs/journal/deferred/01-attitude-estimate-underread.md`
 to reproduce. One rig run + one free-flight figure-8:
 
 - **Test 1 (dt/scale) — RULED OUT.** `step_dt = 0.0075–0.008 s` with `decim=8`

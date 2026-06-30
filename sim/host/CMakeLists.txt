@@ -188,7 +188,7 @@ message(STATUS "vayu_sitl: static library + standalone binary configured")
 # maximally faithful (the flight scheduler itself is under test). The host_vaios
 # collision set (task/delay/sema/mutex/heap/scheduler/v_init) is compiled out by
 # -DVAYU_SITL_RTOS and provided by the kernel; -DVAIOS_HOST_TEST drops the
-# kernel's target-SRAM pointer guards. See docs/plans/sitl-lockstep-sim.md.
+# kernel's target-SRAM pointer guards. See firmware/docs/plans/sitl-lockstep-sim.md.
 #
 #   cmake -S sim/host -B build_sitl_rtos -DVAYU_SITL_RTOS_BUILD=ON
 #   cmake --build build_sitl_rtos --target vayu_sitl_rtos

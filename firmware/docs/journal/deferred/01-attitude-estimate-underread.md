@@ -92,7 +92,7 @@ firmware. SITL routes the FC's stderr to `/tmp/sitl.err` when `SITL_LAB_DEBUG=1`
 cd sim/host && cmake --build build_sitl --target vayu_sitl
 
 # 2. Healthy case (rig, translation pinned) — estimate TRACKS truth
-cd ../../navigator/headless-sdk
+cd ../../../navigator/headless-sdk
 rm -f /tmp/sitl.err
 SITL_LAB_DEBUG=1 PYTHONPATH="$PWD:$PWD/examples" \
   python3 examples/step_response.py --axis pitch --amp 0.4 --csv /tmp/step.csv

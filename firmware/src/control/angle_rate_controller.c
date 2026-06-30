@@ -112,7 +112,7 @@ float angle_rate_controller_get_d_lpf(uint8_t axis) {
  * physics / real airframe actually uses, instead of a hardcoded numbering.
  *   out_i = throttle + roll*(-sign y_i) + pitch*(sign x_i) + yaw*(spin_i)
  * Defaults are the on-hardware rig geometry reconciled from
- * docs/store/rig_tune.json (2026-06-22): pos_x/pos_y give the X-quad roll/pitch
+ * firmware/docs/store/rig_tune.json (2026-06-22): pos_x/pos_y give the X-quad roll/pitch
  * mix (FR=M1, RR=M2, RL=M3, FL=M4), and the yaw spin signs give negative (stable)
  * yaw feedback. ONE geometry source (the GCS vehicle / loaded .vveh) drives both
  * the sim physics and this mix, keeping firmware + sim consistent and stable for

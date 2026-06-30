@@ -14,7 +14,7 @@ start low on purpose. A single global number would let a regression in `est`
 hide behind an improvement in, say, parser scaffolding.
 
 This is tier 1 (host) of the two-tier coverage plan
-(`docs/plans/on-hardware-test-and-coverage.md`); driver/bus/RTOS code that can
+(`firmware/docs/plans/on-hardware-test-and-coverage.md`); driver/bus/RTOS code that can
 only run on the metal is covered by tier 2 (on-target gcov) and is expected to
 stay low here — hence the low `sensor`/`actuator` floors.
 
@@ -41,7 +41,7 @@ import sys
 # Baseline measured 2026-06-28 on chore/monorepo-restructure: the sim/host
 # suite (15 ctest cases), gcovr line coverage over firmware/src/. Floors are
 # rounded down from the measured value to a small jitter band; raise them as
-# coverage improves (see docs/testing/coverage.md).
+# coverage improves (see firmware/docs/testing/coverage.md).
 FLOORS = {
     "firmware": {
         "calib": 92.0,      # ellipsoid + engine math — keep high

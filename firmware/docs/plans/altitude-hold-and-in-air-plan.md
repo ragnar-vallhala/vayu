@@ -112,7 +112,7 @@ the minimal version of that: a **2-state filter** `[altitude_agl, climb_rate]`.
 - **Predict** (at IMU/attitude rate, fast): compute world-vertical inertial
   acceleration `a_z_world = (R(q)·a_body) + g` in NED (down-positive; mind the
   estimator's gravity sign — `ekf.c` notes a level board reads ≈ `−g` on its
-  vertical axis; see `docs/reference/coordinate_ref.md`). Integrate `a_z_world` into
+  vertical axis; see `firmware/docs/reference/coordinate_ref.md`). Integrate `a_z_world` into
   `climb_rate`, integrate `climb_rate` into `altitude`.
 - **Correct** (at baro rate, slow, latest-wins): nudge `altitude` toward the baro
   reading and let the cross-term correct accel bias — i.e. a complementary

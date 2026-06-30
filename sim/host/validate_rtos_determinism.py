@@ -2,7 +2,7 @@
 """Determinism validator for the real-vaios in-process SITL (vayu_sitl_rtos).
 
 vayu_sitl_rtos runs the real RTOS scheduler single-threaded with physics linked
-in-process (Phase 4, docs/plans/sitl-lockstep-sim.md), so a run is a pure
+in-process (Phase 4, firmware/docs/plans/sitl-lockstep-sim.md), so a run is a pure
 function of its seed. This checks that:
 
   1. same seed   -> bit-identical fingerprints   (determinism), and

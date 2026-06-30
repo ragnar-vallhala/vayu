@@ -6,7 +6,7 @@
  * @brief Centralised filesystem owner — the sole runtime owner of all SD/VFS
  *        writes, plus the logging declarations.
  *
- * Fixes the C1->C3 contention chain (docs/scratch/resource-ownership-map.md):
+ * Fixes the C1->C3 contention chain (firmware/docs/scratch/resource-ownership-map.md):
  * PID/calib saves and blackbox log writes must NOT run synchronously in the
  * caller's task context under the global vfs_mutex — a save in comm_processor_task
  * would stall the UART6 RX-ring drain and silently drop GCS commands. Instead a
@@ -117,7 +117,7 @@ bool fs_owner_enqueue_calib_save(const void *header, uint32_t hlen,
  * priority over best-effort blackbox logging. Snapshots the payload like the
  * other producers (the caller — an xfer upload handler on the comm task — may
  * reuse its buffer immediately). Backing store is heap-allocated in
- * fs_owner_init (docs/plans/xfer-memory-budget.md), so .bss stays flat.
+ * fs_owner_init (firmware/docs/plans/xfer-memory-budget.md), so .bss stays flat.
  *
  * A write whose vfs_open/write fails (e.g. all 4 FatFS slots momentarily busy)
  * is NOT lost: fs_do_write_at re-queues it onto a separate retry lane that the

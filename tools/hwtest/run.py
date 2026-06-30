@@ -18,7 +18,7 @@ Env:
     VAYU_HW_ALLOW_FLASH = 1            (required to flash)
     VAYU_HW_PROPS_OFF   = 1            (required before any PWM/ESC check; C2+)
 
-See docs/plans/on-hardware-test-and-coverage.md (C1).
+See firmware/docs/plans/on-hardware-test-and-coverage.md (C1).
 """
 import argparse
 import os

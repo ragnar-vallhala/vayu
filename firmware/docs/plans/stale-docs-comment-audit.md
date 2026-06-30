@@ -46,7 +46,7 @@ residue.
 
 ## Part A — Calibration
 
-### A1. `docs/reference/requirements.md` (rewrite stale algorithms)
+### A1. `firmware/docs/reference/requirements.md` (rewrite stale algorithms)
 - **SYS-CAL-002** "Accel 6-axis calibration" → pose-tolerant full-3×3 accel cal
   over ~12 holds (6 faces + 6 edges/corners), per-pose GCS progress.
 - **SNS-CAL-001** "Accel offset+scale …" → accel **offset + 3×3** (`acc_soft_iron`)
@@ -61,7 +61,7 @@ residue.
 - (SYS-CAL-001 title "bias-only" → "Gyro bias calibration"; SNS-CAL-002 auto-trim
   row is accurate, leave.)
 
-### A2. `docs/reference/trace.md`
+### A2. `firmware/docs/reference/trace.md`
 - Update `SYS-CAL-002` and `SNS-CAL-101` row titles to match A1 (IDs unchanged).
 
 ### A3. `navigator/docs/reference/requirements.md`
@@ -80,7 +80,7 @@ residue.
 - `navlink/docs/reference/messages/system_status.md` + `navlink-v2-spec.md` (§14.8):
   extend the step tables to include 9 COMPLETE, 10 FAILED, 11–16 EDGE_1..6.
 
-### A6. `docs/reference/pipeline-overview.md`
+### A6. `firmware/docs/reference/pipeline-overview.md`
 - Filtering step (line ~92): note accel now applies **offset + 3×3** (not
   offset+scale) and gyro applies bias subtraction, alongside the mag iron step.
 
@@ -97,9 +97,9 @@ residue.
 ## Part B — Codebase-wide drift (firmware)
 
 ### B1. Telemetry base loop rate: docs say ~166/150 Hz; code is **500 Hz** (`TELEM_BASE_MS=2`, `telemetry_task.c:207`)
-- `docs/reference/tasks/imu_telemetry_task.md:6` "150 Hz (6 ms)" → ~500 Hz (2 ms).
-- `docs/reference/software-flow.md` lines 58, 290, 299, 338 ("@166 Hz") → ~500 Hz.
-- `docs/reference/requirements.md:455` COMM-TEL-001 "~166 Hz (`v_delay(6)`)" →
+- `firmware/docs/reference/tasks/imu_telemetry_task.md:6` "150 Hz (6 ms)" → ~500 Hz (2 ms).
+- `firmware/docs/reference/software-flow.md` lines 58, 290, 299, 338 ("@166 Hz") → ~500 Hz.
+- `firmware/docs/reference/requirements.md:455` COMM-TEL-001 "~166 Hz (`v_delay(6)`)" →
   ~500 Hz (`v_delay(TELEM_BASE_MS)`, =2).
 - In each, add: per-stream effective rates are set by the ms-based `TELEM_GATE`,
   independent of the base loop.
@@ -108,8 +108,8 @@ residue.
 - `src/comm/channel.c:24` "active 512 B buffer" → 2048 B (1280 B telemetry cap).
   Line 4's rationale stays but reframed as the *current* justification ("2048 B
   holds the worst-case ~1336 B perf burst"), dropping the "was 512 B" framing.
-- `docs/reference/requirements.md:448` COMM-CH-002 "512 B capacity" → 2048 B.
-- `docs/reference/software-flow.md:67` and `:312` "ping-pong 512 B" → 2048 B.
+- `firmware/docs/reference/requirements.md:448` COMM-CH-002 "512 B capacity" → 2048 B.
+- `firmware/docs/reference/software-flow.md:67` and `:312` "ping-pong 512 B" → 2048 B.
   **Do NOT touch `software-flow.md:260` `rx_raw_buf 512 B`** — the RX ring is
   genuinely 512 (`serializer.c`).
 
@@ -173,9 +173,9 @@ markers — all accurate.
 ---
 
 ## Critical files
-- **Firmware docs**: `docs/reference/requirements.md`, `docs/reference/trace.md`,
-  `docs/reference/software-flow.md`, `docs/reference/pipeline-overview.md`,
-  `docs/reference/tasks/imu_telemetry_task.md`
+- **Firmware docs**: `firmware/docs/reference/requirements.md`, `firmware/docs/reference/trace.md`,
+  `firmware/docs/reference/software-flow.md`, `firmware/docs/reference/pipeline-overview.md`,
+  `firmware/docs/reference/tasks/imu_telemetry_task.md`
 - **Firmware code/comments**: `src/comm/channel.c`,
   `src/control/angle_controller.c`, `src/control/angle_rate_controller.c`,
   `src/est/attitude_task.c`, `include/control/sysid.h`,

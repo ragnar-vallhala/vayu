@@ -3273,7 +3273,7 @@ void SimulatorWidget::openNewLogFile() {
   m_runLogBytes = 0;
   // Header (little-endian, 20 bytes): magic "VGT1", version, record size,
   // start wall-clock ms. Per-record layout documented in logGroundTruth /
-  // docs/journal/log-analysis/parse_gt.py.
+  // firmware/docs/journal/log-analysis/parse_gt.py.
   {
     QDataStream hs(m_runLog.get());
     hs.setByteOrder(QDataStream::LittleEndian);
