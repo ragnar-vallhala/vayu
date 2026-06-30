@@ -38,10 +38,11 @@ import collections
 import json
 import sys
 
-# Baseline measured 2026-06-28 on chore/monorepo-restructure: the sim/host
-# suite (15 ctest cases), gcovr line coverage over firmware/src/. Floors are
-# rounded down from the measured value to a small jitter band; raise them as
-# coverage improves (see firmware/docs/testing/coverage.md).
+# Baseline: the sim/host integration suite (15 ctest cases) MERGED with the
+# firmware host UNIT tests (firmware/tests/host: pid/mixer/maths/fft) — gcovr
+# unions both over firmware/src/. The coverage-gate target (sim/host/
+# CMakeLists.txt) builds + runs both before gcovr. Floors are rounded down from
+# the measured value to a small jitter band; raise them as coverage improves.
 FLOORS = {
     "firmware": {
         "calib": 92.0,      # ellipsoid + engine math — keep high
@@ -49,10 +50,11 @@ FLOORS = {
         "logger": 90.0,     # tiny (11 lines); band tolerates one new line
         "storage": 69.0,    # fs owner / xfer state machine
         "comm": 40.0,
-        "sys": 21.0,
+        "sys": 36.0,        # + float32_to_float16 unit test (math_utils)
         "sensor": 14.0,     # driver code — bulk needs tier-2 (on-target gcov)
-        "maths": 12.0,
-        "control": 10.0,    # P1 target: raise as pid/angle/rate/mixer get tests
+        "maths": 92.0,      # maths_interface + fft unit tests (firmware/tests/host)
+        "control": 40.0,    # pid + mixer + sysid unit-tested; angle/rate are tasks
+                            # (integration-tested in sim/host, not host-unit-testable)
         "actuator": 0.0,    # P1 target: motor/esc mixing currently 0% on host
     },
 }
