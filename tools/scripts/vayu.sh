@@ -208,13 +208,25 @@ test_headless() { ensure_headless_build; run_headless_tests; }
 # The vtest orchestrator (vtest/) is a host C binary that discovers + drives the
 # ctest suites itself. `vayu.sh test` with no target builds it and launches it:
 # the interactive TUI on a terminal, or `--run` (batch + exit code) under CI.
-# The ctest build dirs are ensured best-effort first — vtest shows a "not built"
-# note for any that are missing rather than aborting.
+#
+# We only CONFIGURE the ctest suites here (cheap) so discovery (`ctest -N`)
+# works — vtest builds each test binary on demand when it is selected for run,
+# streaming the build log into its log pane. A suite that can't be configured is
+# flagged in-TUI rather than aborting the launch.
 run_vtest() {
-  say "vtest orchestrator: ensuring ctest build dirs, then launching"
-  ensure_sitl_build || say "sitl build unavailable — vtest will flag it"
-  ensure_gcs_build  || say "gcs build unavailable — vtest will flag it"
+  say "vtest orchestrator: configuring suites (lazy build on run), launching"
   build_vtest
+  [ -f build_sitl/CTestTestfile.cmake ] || cmake -S sim/host -B build_sitl \
+    $(bt_flag) >/dev/null 2>&1 || say "sitl configure failed — vtest will flag it"
+  [ -f navigator/build/CTestTestfile.cmake ] || cmake -S navigator \
+    -B navigator/build -DNAVIGATOR_BUILD_TESTS=ON >/dev/null 2>&1 \
+    || say "gcs configure failed — vtest will flag it"
+  [ -f build_fwtest/CTestTestfile.cmake ] || cmake -S firmware/tests/host \
+    -B build_fwtest >/dev/null 2>&1 || say "fw-host configure failed — vtest will flag it"
+  # build_vsim: the headless integration tests drive vsim_d + vayu_sitl; vtest
+  # builds those on demand, so just ensure the dir is configured.
+  [ -f build_vsim/CMakeCache.txt ] || cmake -S sim/vsim -B build_vsim \
+    >/dev/null 2>&1 || say "vsim configure failed — headless integration may skip"
   if [ -t 1 ]; then ./build_vtest/vtest; else ./build_vtest/vtest --run; fi
 }
 
@@ -293,7 +305,7 @@ case "$CMD" in
   clean)
     say "removing build trees"
     rm -rf build build_sitl build_san build_cov build_tidy build_sitl_rtos \
-           build_vsim build_vtest navigator/build navigator/build-gcsonly
+           build_vsim build_vtest build_fwtest navigator/build navigator/build-gcsonly
     echo "clean.";;
   ""|-h|--help)
     sed -n '2,40p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//';;
