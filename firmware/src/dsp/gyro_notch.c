@@ -141,6 +141,16 @@ void gyro_notch_service(void) {
   }
 }
 
+void gyro_notch_set_params(float q, float fmin_hz, float fmax_hz,
+                           float min_ratio) {
+  if (!s_bank) {
+    return;
+  }
+  for (unsigned i = 0; i < NUM_AXES; i++) {
+    notch_bank_set_detection(&s_bank[i], q, fmin_hz, fmax_hz, min_ratio);
+  }
+}
+
 float gyro_notch_center_hz(uint8_t axis, uint8_t idx) {
   if (!s_bank || axis >= NUM_AXES || idx >= NOTCH_BANK_MAX_NOTCHES) {
     return 0.0f;
@@ -159,6 +169,13 @@ float gyro_notch_apply(uint8_t axis, float gyro) {
   return gyro;
 }
 void gyro_notch_service(void) {}
+void gyro_notch_set_params(float q, float fmin_hz, float fmax_hz,
+                           float min_ratio) {
+  (void)q;
+  (void)fmin_hz;
+  (void)fmax_hz;
+  (void)min_ratio;
+}
 float gyro_notch_center_hz(uint8_t axis, uint8_t idx) {
   (void)axis;
   (void)idx;

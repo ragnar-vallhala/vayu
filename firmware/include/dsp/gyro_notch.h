@@ -52,6 +52,13 @@ float gyro_notch_apply(uint8_t axis, float gyro);
  * is amortised across ticks and never blocks the loop for more than one FFT. */
 void gyro_notch_service(void);
 
+/* Live-tune the detection parameters across all axes (applied at the next
+ * retune): notch Q, the analysis band [fmin_hz, fmax_hz], and the peak
+ * prominence gate min_ratio. A non-positive argument leaves that field
+ * unchanged, so a caller can set one field at a time. No-op if uninitialised. */
+void gyro_notch_set_params(float q, float fmin_hz, float fmax_hz,
+                           float min_ratio);
+
 /* Telemetry: the idx-th tuned notch center frequency [Hz] for an axis, or 0 if
  * that slot is currently bypassed / out of range. */
 float gyro_notch_center_hz(uint8_t axis, uint8_t idx);

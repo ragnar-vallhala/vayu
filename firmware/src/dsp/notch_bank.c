@@ -36,6 +36,22 @@ void notch_bank_set_hold(notch_bank_t *nb, int hold_on_miss) {
   nb->hold_on_miss = hold_on_miss;
 }
 
+void notch_bank_set_detection(notch_bank_t *nb, float q, float fmin_hz,
+                              float fmax_hz, float min_ratio) {
+  if (q > 0.0f) {
+    nb->q = q;
+  }
+  if (fmin_hz > 0.0f) {
+    nb->fft.cfg.fmin_hz = fmin_hz;
+  }
+  if (fmax_hz > 0.0f) {
+    nb->fft.cfg.fmax_hz = fmax_hz;
+  }
+  if (min_ratio > 0.0f) {
+    nb->fft.cfg.min_peak_ratio = min_ratio;
+  }
+}
+
 void notch_bank_reset(notch_bank_t *nb) {
   for (unsigned i = 0; i < NOTCH_BANK_MAX_NOTCHES; i++) {
     m_biquad_bypass(&nb->coeffs[i]);
