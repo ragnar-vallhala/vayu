@@ -53,7 +53,7 @@ FLOORS = {
         "sys": 36.0,        # + float32_to_float16 unit test (math_utils)
         "sensor": 14.0,     # driver code — bulk needs tier-2 (on-target gcov)
         "maths": 92.0,      # maths_interface + fft + biquad unit tests (firmware/tests/host)
-        "dsp": 92.0,        # FFT notch analysis front-end (notch_fft) unit-tested
+        "dsp": 94.0,        # FFT notch front-end + dynamic notch bank, unit-tested
         "control": 40.0,    # pid + mixer + sysid unit-tested; angle/rate are tasks
                             # (integration-tested in sim/host, not host-unit-testable)
         "actuator": 0.0,    # P1 target: motor/esc mixing currently 0% on host
