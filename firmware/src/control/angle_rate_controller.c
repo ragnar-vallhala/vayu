@@ -8,6 +8,7 @@
 #include "control/mixer.h"       /* dedicated control-allocation mixer */
 #include "control/rate_indi.h"   /* optional INDI inner loop (RATE_CTRL_ALGO_USED) */
 #include "control/sysid.h"
+#include "dsp/gyro_notch.h"      /* FFT-driven dynamic gyro notch (off by default) */
 #include "memory.h"   /* v_memcpy */
 #include "navhal.h"
 #include "sensor/sensor.h"
@@ -231,6 +232,10 @@ void angle_rate_controller_init(void) {
 
   /* Build the control-allocation mixer from the default geometry. */
   mixer_sync();
+
+  /* Allocate the FFT dynamic-notch banks on the heap (keeps .bss flat). Stays
+   * disabled until explicitly enabled, so the gyro stream is untouched here. */
+  gyro_notch_init();
 }
 
 bool angle_rate_controller_set_gains(uint8_t axis, float kp, float ki, float kd,
@@ -333,6 +338,17 @@ void angle_rate_controller_task(void *arg) {
         s_gyro_lpf_state[i] = imu_data.converted.gyr[i];
       }
     }
+
+    // FFT-driven dynamic notch on the rate measurement, after the LPF and just
+    // before the rate is handed to the PID. Observes the (post-LPF) gyro and,
+    // when enabled, notches out the tracked prop peaks; a no-op passthrough
+    // until gyro_notch_set_enabled(true). The heavy FFT retune is amortised to
+    // one axis per tick by the gyro_notch_service() call below.
+    for (int i = 0; i < NUM_AXES; i++) {
+      imu_data.converted.gyr[i] =
+          gyro_notch_apply((uint8_t)i, imu_data.converted.gyr[i]);
+    }
+    gyro_notch_service();
 
     // Get rates from the angle controller
     if (angle_controller_get_outputs(&angle_controller_outputs)) {

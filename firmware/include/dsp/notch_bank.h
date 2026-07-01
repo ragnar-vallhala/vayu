@@ -40,6 +40,7 @@ typedef struct {
   unsigned active;        /* notches currently tuned to a peak (0..num_notches) */
   biquad_coeffs_t coeffs[NOTCH_BANK_MAX_NOTCHES];
   biquad_state_t state[NOTCH_BANK_MAX_NOTCHES];
+  float freqs[NOTCH_BANK_MAX_NOTCHES]; /* last tuned center Hz per slot; 0 if bypassed */
 } notch_bank_t;
 
 /* Wire up a bank. `fft_cfg`/`window`/`tw`/`ring`/`frame`/`bins`/`scratch` are
