@@ -53,6 +53,13 @@ add_test(NAME maths COMMAND test_maths)
 add_executable(test_math_utils math_utils_unit_test.c ${FW}/src/sys/math_utils.c)
 add_test(NAME math_utils COMMAND test_math_utils)
 
+# FFT notch analysis front-end: tone recovery, peak-pick, band gating (dsp/).
+add_executable(test_notch_fft notch_fft_unit_test.c
+    ${FW}/src/dsp/notch_fft.c
+    ${FW}/src/maths/fft.c)
+target_link_libraries(test_notch_fft m)
+add_test(NAME notch_fft COMMAND test_notch_fft)
+
 # On-hardware system-ID chirp: excite / capture / self-abort (control/sysid.c).
 add_executable(test_sysid sysid_unit_test.c
     ${FW}/src/control/sysid.c
