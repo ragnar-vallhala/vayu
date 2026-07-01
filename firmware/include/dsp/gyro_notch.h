@@ -35,6 +35,12 @@ bool gyro_notch_init(void);
 void gyro_notch_set_enabled(bool enabled);
 bool gyro_notch_enabled(void);
 
+/* Feed the current throttle (0..1) each tick. The notch only engages (filters +
+ * analyses) above an internal throttle threshold, where the prop vibration it
+ * targets actually exists; below it the filter passes the gyro through and the
+ * banks are reset on the disengage edge. */
+void gyro_notch_set_throttle(float throttle01);
+
 /* Hot path: call once per axis (0..NUM_AXES-1) per rate-loop tick with the raw
  * gyro rate. Feeds the analyzer and, when enabled, returns the notch-filtered
  * rate. Returns the input unchanged when disabled, uninitialised, or axis is out

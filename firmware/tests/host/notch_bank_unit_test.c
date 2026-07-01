@@ -142,6 +142,41 @@ int main(void) {
     check("filter is identity", fabsf(g - 1.0f) < 0.02f);
   }
 
+  /* 5b. Hold-on-miss fallback: a tuned notch survives a silent update; the
+   *     default (bypass) drops it. */
+  printf("Test 5b: hold-on-miss keeps the notch through a dropout\n");
+  {
+    tone_t tone[] = {{200.0f, 1.0f}};
+    /* Default (no hold): silence after tuning bypasses the slot. */
+    setup(&nb, FS, 3u, 8.0f, 50.0f, 400.0f, 4.0f);
+    tune(&nb, tone, 1);
+    for (unsigned k = 0; k < 4u * N; k++)      /* feed silence, retune */
+      if (notch_bank_observe(&nb, 0.0f)) notch_bank_update(&nb);
+    check("without hold, silence bypasses the notch", nb.active == 0);
+    /* With hold: the same silence keeps the notch tuned. */
+    setup(&nb, FS, 3u, 8.0f, 50.0f, 400.0f, 4.0f);
+    notch_bank_set_hold(&nb, 1);
+    tune(&nb, tone, 1);
+    for (unsigned k = 0; k < 4u * N; k++)
+      if (notch_bank_observe(&nb, 0.0f)) notch_bank_update(&nb);
+    check("with hold, notch stays active on silence", nb.active == 1);
+    check("held center freq retained (~200 Hz)", fabsf(nb.freqs[0] - 200.0f) < 3.0f);
+  }
+
+  /* 5c. Reset drops all tuning: bank goes back to identity passthrough. */
+  printf("Test 5c: reset clears the tuning\n");
+  {
+    setup(&nb, FS, 3u, 8.0f, 50.0f, 400.0f, 4.0f);
+    tone_t tone[] = {{200.0f, 1.0f}};
+    unsigned active = tune(&nb, tone, 1);
+    check("tuned before reset", active == 1);
+    notch_bank_reset(&nb);
+    check("no notches active after reset", nb.active == 0);
+    check("center freq cleared after reset", nb.freqs[0] == 0.0f);
+    float g = filtered_gain(&nb, 200.0f, FS);
+    check("filter is identity after reset", fabsf(g - 1.0f) < 0.02f);
+  }
+
   /* 6. Distinct filter rate: biquads designed/run at 2 kHz still notch. */
   printf("Test 6: filter rate != analyzer rate\n");
   {

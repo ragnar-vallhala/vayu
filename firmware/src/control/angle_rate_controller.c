@@ -416,6 +416,11 @@ void angle_rate_controller_task(void *arg) {
     if (target_throttle < 0.0f) target_throttle = 0.0f;
     if (target_throttle > 1.0f) target_throttle = 1.0f;
 
+    /* Feed throttle to the dynamic notch: it only engages above an idle gate
+     * (where prop vibration exists). Consumed by next tick's gyro_notch_apply /
+     * _service — a 1 ms lag on a slowly-moving signal, harmless. */
+    gyro_notch_set_throttle(target_throttle);
+
     /* (A) Hold the integrator at zero while throttle is below the
      * gate. This prevents windup-on-the-ground: the drone can't rotate
      * with motors at idle, so a non-zero rate setpoint would otherwise

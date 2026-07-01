@@ -32,6 +32,16 @@ set(VENDOR stm32 CACHE STRING "Vendor")
 # External deps
 #-------------------------
 add_compile_definitions(VAIOS)
+
+# FFT-driven dynamic gyro notch (dsp/gyro_notch). Needs the FPU (float-heavy
+# biquad + FFT), so it is gated behind this switch — ON by default for the
+# cortex-m4F target. Turning it OFF stubs gyro_notch to passthrough and lets
+# --gc-sections drop the notch/FFT code, reclaiming the flash on a size-tight
+# build. Runtime is still off until gyro_notch_set_enabled(true).
+option(VAYU_FFT_NOTCH "Compile the FFT dynamic gyro notch" ON)
+if(VAYU_FFT_NOTCH)
+  add_compile_definitions(VAYU_FFT_NOTCH)
+endif()
 # vaios defaults the VAIOS_MODULE_VFS option off (opt-in) since VFS couples the
 # build to NavHAL's FatFs/SDIO layer. vayu uses VFS (logger, pid_config, bmx160
 # calibration), so force the cache option ON before add_subdirectory(extern/vaios)
