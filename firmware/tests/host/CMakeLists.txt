@@ -60,6 +60,15 @@ add_executable(test_notch_fft notch_fft_unit_test.c
 target_link_libraries(test_notch_fft m)
 add_test(NAME notch_fft COMMAND test_notch_fft)
 
+# Dynamic notch bank: tune onto a tone, attenuate it, pass the passband (dsp/).
+add_executable(test_notch_bank notch_bank_unit_test.c
+    ${FW}/src/dsp/notch_bank.c
+    ${FW}/src/dsp/notch_fft.c
+    ${FW}/src/maths/fft.c
+    ${FW}/src/maths/biquad.c)
+target_link_libraries(test_notch_bank m)
+add_test(NAME notch_bank COMMAND test_notch_bank)
+
 # On-hardware system-ID chirp: excite / capture / self-abort (control/sysid.c).
 add_executable(test_sysid sysid_unit_test.c
     ${FW}/src/control/sysid.c
