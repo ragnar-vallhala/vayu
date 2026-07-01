@@ -105,6 +105,8 @@ int main(void) {
     check("one notch active", active == 1);
     check("tone at notch strongly attenuated (< -12 dB)", notch_g < 0.25f);
     check("far passband tone near unity", pass_g > 0.85f);
+    check("tuned center freq recorded (~200 Hz)", fabsf(nb.freqs[0] - 200.0f) < 3.0f);
+    check("bypassed slot reports 0 Hz", nb.freqs[2] == 0.0f);
   }
 
   /* 3. num_notches is clamped into [1, MAX]. */

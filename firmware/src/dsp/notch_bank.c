@@ -27,6 +27,7 @@ void notch_bank_init(notch_bank_t *nb, const notch_fft_cfg_t *fft_cfg,
   for (unsigned i = 0; i < NOTCH_BANK_MAX_NOTCHES; i++) {
     m_biquad_bypass(&nb->coeffs[i]);
     m_biquad_reset(&nb->state[i]);
+    nb->freqs[i] = 0.0f;
   }
 }
 
@@ -46,9 +47,11 @@ unsigned notch_bank_update(notch_bank_t *nb) {
        * alone — the coeff swap is transient-free. */
       m_biquad_notch_design(&nb->coeffs[i], peaks[i].freq_hz, nb->q,
                             nb->filter_fs_hz);
+      nb->freqs[i] = peaks[i].freq_hz;
     } else {
       /* No peak for this slot this round — pass the signal straight through. */
       m_biquad_bypass(&nb->coeffs[i]);
+      nb->freqs[i] = 0.0f;
     }
   }
   nb->active = found < nb->num_notches ? found : nb->num_notches;
