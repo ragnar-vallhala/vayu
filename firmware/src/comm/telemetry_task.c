@@ -84,6 +84,7 @@ void imu_telemetry_task(void *args) {
     bool send_rc      = TELEM_GATE(packet_counter, 90, 22);  // ~11 Hz
     bool send_baro    = TELEM_GATE(packet_counter, 200, 0);  // 5 Hz
     bool send_vert    = TELEM_GATE(packet_counter, 200, 100);// 5 Hz (staggered)
+    bool send_notch   = TELEM_GATE(packet_counter, 200, 150);// 5 Hz (staggered, NOTCH_STATUS)
     bool send_status  = TELEM_GATE(packet_counter, 300, 12); // ~3.3 Hz
     bool send_log     = TELEM_GATE(packet_counter, 60, 30);  // ~17 Hz
 
@@ -92,7 +93,7 @@ void imu_telemetry_task(void *args) {
      * crowded out and dropped (this is a deliberate post-run, bench-only op). */
     if (sysid_dump_active()) {
       send_full = send_comp = send_att = send_rc = send_motor = send_pid_err =
-          send_baro = send_vert = false;
+          send_baro = send_vert = send_notch = false;
     }
     /* A big file download is a deliberate ground op; hand it the link by
      * suppressing the heaviest tuning streams (keep attitude/RC/baro/status/
@@ -198,6 +199,10 @@ void imu_telemetry_task(void *args) {
      * the VERT task has published. */
     if (send_vert && vertical_state_queue_pop(&vert_data)) {
       navlink_tx_vertical_state(&vert_data);
+    }
+    if (send_notch) {
+      /* No queue: the seam reads the live gyro_notch center freqs directly. */
+      navlink_tx_notch_status();
     }
     packet_counter++;
     /* Loop/flush granularity (~500 Hz at TELEM_BASE_MS=2). Per-stream rates are set by

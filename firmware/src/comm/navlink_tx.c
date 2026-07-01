@@ -1,5 +1,6 @@
 #include "comm/navlink_tx.h"
 #include "comm/channel.h"     /* write_channel, channel_t */
+#include "dsp/gyro_notch.h"   /* gyro_notch_enabled / _center_hz (NOTCH_STATUS) */
 #include "sys/state.h"        /* system_state_get, sys_state_t */
 #include "sys/sys_utils.h"    /* get_device_id */
 #include "utils.h"            /* v_memcpy, v_get_ticks */
@@ -91,6 +92,27 @@ void navlink_tx_flight_mode(uint8_t mode, uint8_t source) {
   msg.source = source;
   uint8_t frame[NAVLINK_MAX_FRAME];
   size_t n = navlink_flight_mode_encode(frame, &msg, seq++, get_device_id(), 1);
+  write_channel(g_telemetry_channel, frame, (uint16_t)n);
+}
+
+void navlink_tx_notch_status(void) {
+  /* v2 NOTCH_STATUS (msgid 1047); live dynamic-notch center freqs per axis. Reads
+   * the gyro_notch getters directly (0 Hz = bypassed slot). Inert-safe: with the
+   * notch compiled out (VAYU_FFT_NOTCH off) the getters return 0. */
+  static uint8_t seq = 0;
+  navlink_notch_status_t s = {0};
+  s.enabled = gyro_notch_enabled() ? 1u : 0u;
+  s.roll_hz0 = gyro_notch_center_hz(0, 0);
+  s.roll_hz1 = gyro_notch_center_hz(0, 1);
+  s.roll_hz2 = gyro_notch_center_hz(0, 2);
+  s.pitch_hz0 = gyro_notch_center_hz(1, 0);
+  s.pitch_hz1 = gyro_notch_center_hz(1, 1);
+  s.pitch_hz2 = gyro_notch_center_hz(1, 2);
+  s.yaw_hz0 = gyro_notch_center_hz(2, 0);
+  s.yaw_hz1 = gyro_notch_center_hz(2, 1);
+  s.yaw_hz2 = gyro_notch_center_hz(2, 2);
+  uint8_t frame[NAVLINK_MAX_FRAME];
+  size_t n = navlink_notch_status_encode(frame, &s, seq++, get_device_id(), 1);
   write_channel(g_telemetry_channel, frame, (uint16_t)n);
 }
 

@@ -6,6 +6,7 @@
 #include "control/flight_mode.h"           /* flight_mode_apply_command */
 #include "control/angle_rate_controller.h" /* geometry apply */
 #include "control/sysid.h"                  /* sysid_start/abort (CMD_SYSID_EXCITE) */
+#include "dsp/gyro_notch.h"                 /* dynamic gyro-notch tuning (CMD_SET_GYRO_NOTCH) */
 #include "sys/state.h"                      /* system_state_get, SYSTEM_STATE_* */
 #include "navhal.h"           /* hal_gpio_write, HAL_GPIO_HIGH/LOW */
 #include "sys/sys_utils.h"    /* get_device_id */
@@ -327,6 +328,19 @@ on_cmd_set_d_lpf(void *ctx, const navlink_frame_hdr_t *hdr,
 
 static navlink_ack_t
 /** @implements COMM-CMD-004 */
+on_cmd_set_gyro_notch(void *ctx, const navlink_frame_hdr_t *hdr,
+                      const navlink_cmd_set_gyro_notch_t *m) {
+  (void)ctx; (void)hdr;
+  /* Apply detection params first (a <=0 field is a no-op), then the master gate,
+   * so an enable takes effect with the freshly-set band/Q. Live-only — not
+   * persisted to SD. */
+  gyro_notch_set_params(m->q, m->fmin_hz, m->fmax_hz, m->min_ratio);
+  gyro_notch_set_enabled(m->enabled != 0);
+  return navlink_ack_result(ACK_OK);
+}
+
+static navlink_ack_t
+/** @implements COMM-CMD-004 */
 on_cmd_set_motor_geometry(void *ctx, const navlink_frame_hdr_t *hdr,
                           const navlink_cmd_set_motor_geometry_t *m) {
   (void)ctx; (void)hdr;
@@ -420,6 +434,7 @@ void navlink_router_init(void) {
   s_handlers.on_cmd_calibrate_imu = on_cmd_calibrate_imu;
   s_handlers.on_cmd_set_gyro_lpf = on_cmd_set_gyro_lpf;
   s_handlers.on_cmd_set_d_lpf = on_cmd_set_d_lpf;
+  s_handlers.on_cmd_set_gyro_notch = on_cmd_set_gyro_notch;
   s_handlers.on_cmd_set_motor_geometry = on_cmd_set_motor_geometry;
   s_handlers.on_cmd_set_flight_mode = on_cmd_set_flight_mode;
   s_handlers.on_time_sync = on_time_sync;
