@@ -177,6 +177,26 @@ int main(void) {
     check("filter is identity after reset", fabsf(g - 1.0f) < 0.02f);
   }
 
+  /* 5d. Live detection params: raising fmin above a tone excludes it. */
+  printf("Test 5d: set_detection retunes the analysis band\n");
+  {
+    tone_t tone[] = {{120.0f, 1.0f}};
+    setup(&nb, FS, 3u, 8.0f, 50.0f, 400.0f, 4.0f);
+    check("120 Hz tone detected in-band", tune(&nb, tone, 1) == 1);
+    /* Push fmin above 120 Hz; the tone now falls outside the band. */
+    setup(&nb, FS, 3u, 8.0f, 50.0f, 400.0f, 4.0f);
+    notch_bank_set_detection(&nb, 0.0f, 200.0f, 0.0f, 0.0f); /* only fmin */
+    check("Q left unchanged by zero arg", nb.q == 8.0f);
+    check("fmin updated", nb.fft.cfg.fmin_hz == 200.0f);
+    check("120 Hz excluded after raising fmin", tune(&nb, tone, 1) == 0);
+    /* All four fields at once exercises every set_detection branch. */
+    notch_bank_set_detection(&nb, 5.0f, 40.0f, 350.0f, 3.0f);
+    check("Q updated", nb.q == 5.0f);
+    check("fmin updated", nb.fft.cfg.fmin_hz == 40.0f);
+    check("fmax updated", nb.fft.cfg.fmax_hz == 350.0f);
+    check("min_ratio updated", nb.fft.cfg.min_peak_ratio == 3.0f);
+  }
+
   /* 6. Distinct filter rate: biquads designed/run at 2 kHz still notch. */
   printf("Test 6: filter rate != analyzer rate\n");
   {

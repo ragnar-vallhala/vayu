@@ -71,6 +71,14 @@ int notch_bank_observe(notch_bank_t *nb, float sample);
  * call when notch_bank_observe returned 1 (otherwise a no-op returning 0). */
 unsigned notch_bank_update(notch_bank_t *nb);
 
+/* Live-update the detection parameters: notch Q (band-stop width, applied at the
+ * next retune) and the analyzer's band / prominence gate (fmin_hz, fmax_hz,
+ * min_peak_ratio). Non-positive arguments are ignored so a caller can set just
+ * one field by passing 0 for the rest. Scalar writes — safe to call from another
+ * task; a concurrent retune sees at worst a one-frame mix of old/new. */
+void notch_bank_set_detection(notch_bank_t *nb, float q, float fmin_hz,
+                              float fmax_hz, float min_ratio);
+
 /* Fallback policy for a slot that finds no peak in an update: 0 (default) =
  * bypass it (pass through), non-zero = HOLD its previous coefficients, so a peak
  * that momentarily dips below threshold doesn't make the notch flicker off. A
