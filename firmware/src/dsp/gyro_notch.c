@@ -2,9 +2,14 @@
  *
  * Allocates every DSP working buffer on the heap at init (keeps .bss flat),
  * drives one notch_bank per gyro axis, and staggers the FFT retune to one axis
- * per tick. See dsp/gyro_notch.h for the contract and the single-task /
+ * per tick. Two gates guard it: the VAYU_FFT_NOTCH COMPILE switch (below —
+ * needs the FPU) and a runtime throttle gate (the notch only engages once the
+ * props spin up past GYRO_NOTCH_THROTTLE_MIN, where the vibration it targets
+ * actually exists). See dsp/gyro_notch.h for the contract and the single-task /
  * disabled-by-default constraints. Design ref §9.3 / §10. */
 #include "dsp/gyro_notch.h"
+
+#ifdef VAYU_FFT_NOTCH
 
 #include "dsp/notch_bank.h"
 #include "maths/fft_tables_N128.h" /* const FFT_HANN_N128 / FFT_TWIDDLE_N128 */
@@ -22,11 +27,24 @@
 #define GYRO_NOTCH_FMAX_HZ 450.0f /* < INNER_LOOP_FREQ_HZ/2 = 500 Hz Nyquist */
 #define GYRO_NOTCH_MIN_RATIO 4.0f
 
+/* Throttle (0..1) below which the notch stays disengaged: props effectively
+ * idle, so there is no prop-wash line to track and analysing sensor noise would
+ * only mistune. */
+#define GYRO_NOTCH_THROTTLE_MIN 0.10f
+
 /* All heap-owned so nothing here grows .bss. NULL until a successful init. */
 static notch_bank_t *s_bank;       /* [NUM_AXES] */
-static bool s_enabled;             /* runtime gate on the filter output */
+static bool s_enabled;             /* master (user/param) gate */
+static float s_throttle;           /* latest throttle 0..1, from the rate loop */
+static bool s_engaged;             /* enabled AND above the throttle gate */
 static bool s_ready[NUM_AXES];     /* axis has a frame awaiting retune */
 static uint8_t s_service_turn;     /* round-robin cursor for gyro_notch_service */
+
+/* Master AND throttle gate: the condition under which the notch actually filters
+ * and analyses. */
+static bool engaged(void) {
+  return s_bank && s_enabled && s_throttle >= GYRO_NOTCH_THROTTLE_MIN;
+}
 
 /* Allocate one axis's analyzer buffers and wire up its bank. Returns false if
  * any allocation fails (caller aborts the whole init). */
@@ -48,6 +66,8 @@ static bool init_axis(unsigned axis) {
   notch_bank_init(&s_bank[axis], &cfg, (float)INNER_LOOP_FREQ_HZ,
                   GYRO_NOTCH_NOTCHES, GYRO_NOTCH_Q, FFT_HANN_N128,
                   FFT_TWIDDLE_N128, ring, frame, bins, scratch);
+  /* Hold a tuned notch through a brief peak dropout instead of unfiltering. */
+  notch_bank_set_hold(&s_bank[axis], 1);
   return true;
 }
 
@@ -67,24 +87,24 @@ bool gyro_notch_init(void) {
     s_ready[i] = false;
   }
   s_enabled = false;
+  s_throttle = 0.0f;
+  s_engaged = false;
   s_service_turn = 0;
   return true;
 }
 
 void gyro_notch_set_enabled(bool enabled) { s_enabled = enabled; }
 bool gyro_notch_enabled(void) { return s_enabled; }
+void gyro_notch_set_throttle(float throttle01) { s_throttle = throttle01; }
 
 float gyro_notch_apply(uint8_t axis, float gyro) {
-  if (!s_bank || axis >= NUM_AXES) {
+  if (!engaged() || axis >= NUM_AXES) {
     return gyro;
   }
   /* Observe the RAW (pre-notch) gyro so the analyzer keeps seeing the peaks it
    * is removing; latch a retune when a frame goes ready. */
   if (notch_bank_observe(&s_bank[axis], gyro)) {
     s_ready[axis] = true;
-  }
-  if (!s_enabled) {
-    return gyro;
   }
   return notch_bank_filter(&s_bank[axis], gyro);
 }
@@ -93,6 +113,20 @@ void gyro_notch_service(void) {
   if (!s_bank) {
     return;
   }
+  bool now = engaged();
+  /* Disengage edge (throttle chopped / master off): drop all tuning so no stale
+   * notch is applied on the next spool-up, and clear any pending retunes. */
+  if (s_engaged && !now) {
+    for (unsigned i = 0; i < NUM_AXES; i++) {
+      notch_bank_reset(&s_bank[i]);
+      s_ready[i] = false;
+    }
+  }
+  s_engaged = now;
+  if (!now) {
+    return;
+  }
+
   /* At most one FFT/retune per tick: scan axes round-robin for a pending frame,
    * service the first, and advance the cursor. Bounds the worst-case tick cost
    * to a single N=128 transform regardless of how many axes went ready. */
@@ -113,3 +147,22 @@ float gyro_notch_center_hz(uint8_t axis, uint8_t idx) {
   }
   return s_bank[axis].freqs[idx];
 }
+
+#else /* !VAYU_FFT_NOTCH — compile the notch out; every entry point is inert. */
+
+bool gyro_notch_init(void) { return false; }
+void gyro_notch_set_enabled(bool enabled) { (void)enabled; }
+bool gyro_notch_enabled(void) { return false; }
+void gyro_notch_set_throttle(float throttle01) { (void)throttle01; }
+float gyro_notch_apply(uint8_t axis, float gyro) {
+  (void)axis;
+  return gyro;
+}
+void gyro_notch_service(void) {}
+float gyro_notch_center_hz(uint8_t axis, uint8_t idx) {
+  (void)axis;
+  (void)idx;
+  return 0.0f;
+}
+
+#endif /* VAYU_FFT_NOTCH */

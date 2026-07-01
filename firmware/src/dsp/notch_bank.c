@@ -24,11 +24,25 @@ void notch_bank_init(notch_bank_t *nb, const notch_fft_cfg_t *fft_cfg,
   }
   nb->num_notches = num_notches;
   nb->active = 0;
+  nb->hold_on_miss = 0;
   for (unsigned i = 0; i < NOTCH_BANK_MAX_NOTCHES; i++) {
     m_biquad_bypass(&nb->coeffs[i]);
     m_biquad_reset(&nb->state[i]);
     nb->freqs[i] = 0.0f;
   }
+}
+
+void notch_bank_set_hold(notch_bank_t *nb, int hold_on_miss) {
+  nb->hold_on_miss = hold_on_miss;
+}
+
+void notch_bank_reset(notch_bank_t *nb) {
+  for (unsigned i = 0; i < NOTCH_BANK_MAX_NOTCHES; i++) {
+    m_biquad_bypass(&nb->coeffs[i]);
+    m_biquad_reset(&nb->state[i]);
+    nb->freqs[i] = 0.0f;
+  }
+  nb->active = 0;
 }
 
 int notch_bank_observe(notch_bank_t *nb, float sample) {
@@ -39,6 +53,7 @@ unsigned notch_bank_update(notch_bank_t *nb) {
   notch_peak_t peaks[NOTCH_BANK_MAX_NOTCHES];
   unsigned found = notch_fft_analyze(&nb->fft, peaks, nb->num_notches);
 
+  unsigned active = 0;
   for (unsigned i = 0; i < nb->num_notches; i++) {
     if (i < found) {
       /* Design at the FILTER rate (not the analyzer's fs): the biquad runs on
@@ -48,14 +63,19 @@ unsigned notch_bank_update(notch_bank_t *nb) {
       m_biquad_notch_design(&nb->coeffs[i], peaks[i].freq_hz, nb->q,
                             nb->filter_fs_hz);
       nb->freqs[i] = peaks[i].freq_hz;
+      active++;
+    } else if (nb->hold_on_miss && nb->freqs[i] != 0.0f) {
+      /* No peak this round but hold is on and the slot was tuned before: keep
+       * the last coefficients so the notch doesn't flicker off on a brief dip. */
+      active++;
     } else {
-      /* No peak for this slot this round — pass the signal straight through. */
+      /* No peak (and nothing to hold) — pass the signal straight through. */
       m_biquad_bypass(&nb->coeffs[i]);
       nb->freqs[i] = 0.0f;
     }
   }
-  nb->active = found < nb->num_notches ? found : nb->num_notches;
-  return nb->active;
+  nb->active = active;
+  return active;
 }
 
 float notch_bank_filter(notch_bank_t *nb, float sample) {

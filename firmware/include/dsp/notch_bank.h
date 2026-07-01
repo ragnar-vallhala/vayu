@@ -41,6 +41,7 @@ typedef struct {
   biquad_coeffs_t coeffs[NOTCH_BANK_MAX_NOTCHES];
   biquad_state_t state[NOTCH_BANK_MAX_NOTCHES];
   float freqs[NOTCH_BANK_MAX_NOTCHES]; /* last tuned center Hz per slot; 0 if bypassed */
+  int hold_on_miss;       /* if set, a slot with no peak keeps its last coeffs */
 } notch_bank_t;
 
 /* Wire up a bank. `fft_cfg`/`window`/`tw`/`ring`/`frame`/`bins`/`scratch` are
@@ -53,6 +54,12 @@ void notch_bank_init(notch_bank_t *nb, const notch_fft_cfg_t *fft_cfg,
                      const float *window, const fft_complex_t *tw, float *ring,
                      float *frame, fft_complex_t *bins, fft_complex_t *scratch);
 
+/* Drop all tuning: bypass every biquad, clear the recorded center freqs, and
+ * zero the filter state. Keeps the config/buffers/analyzer wiring intact. Use on
+ * a disengage edge (e.g. throttle idle) so no stale notch is applied on the next
+ * spool-up. */
+void notch_bank_reset(notch_bank_t *nb);
+
 /* Feed one (decimated) sample to the analyzer. Returns 1 when a frame is ready
  * — the caller should then call notch_bank_update — and 0 otherwise. This does
  * NOT filter; it only observes the spectrum. */
@@ -63,6 +70,12 @@ int notch_bank_observe(notch_bank_t *nb, float sample);
  * state is preserved (bump-free). Returns the number of notches now active. Only
  * call when notch_bank_observe returned 1 (otherwise a no-op returning 0). */
 unsigned notch_bank_update(notch_bank_t *nb);
+
+/* Fallback policy for a slot that finds no peak in an update: 0 (default) =
+ * bypass it (pass through), non-zero = HOLD its previous coefficients, so a peak
+ * that momentarily dips below threshold doesn't make the notch flicker off. A
+ * slot that has never been tuned still passes through under hold. */
+void notch_bank_set_hold(notch_bank_t *nb, int hold_on_miss);
 
 /* Filter one gyro sample through the active biquad cascade, at filter_fs_hz.
  * Bypassed sections pass through unchanged, so this is safe to call before the
