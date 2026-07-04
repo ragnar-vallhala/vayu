@@ -28,9 +28,10 @@ Active plans for in-flight firmware work; a plan is deleted once its feature shi
 - [`fft-dynamic-gyro-notch.md`](fft-dynamic-gyro-notch.md) — adaptive band-stop on
   the gyro that FFT-tracks the analog-ESC prop vibration (no RPM telemetry). Full
   chain built bottom-up (FFT engine → biquad → analysis front-end → notch bank →
-  rate-loop glue → NavLink tuning surface), host-tested and F401-cross-compiled,
-  but **OFF by default and not flight-tested**. Remaining: flight test, SD
-  persistence, GCS UI, default auto-tuning.
+  rate-loop glue → NavLink tuning surface), plus SD persistence (`pid.bin` PID4),
+  a GCS tuning page, spectrum-derived auto-band, and the >1 kHz decimation seam.
+  Host/SITL-tested and F401-cross-compiled, but **OFF by default and not
+  flight-tested** — the flight test is the one remaining substantive gap.
 - [`stale-docs-comment-audit.md`](stale-docs-comment-audit.md) — codebase-wide
   sweep (excl. `extern/`) fixing docs/comments that drifted from the code: the
   calibration overhaul, telemetry 166→500 Hz, channel 512→2048 B, stale

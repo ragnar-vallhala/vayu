@@ -11,8 +11,10 @@ Design reference: [`reference-autopilots-comparison.md`](../journal/log-analysis
 evaluator → analysis front-end → notch bank → firmware glue → tuning surface.
 
 **Status: the full chain is BUILT, host-tested, F401-cross-compiled, and wired
-into the rate loop — but OFF by default and never flight-tested.** It sits behind
-the §9.1/§9.2 control-authority fixes in priority (P3).
+into the rate loop — plus SD persistence, a GCS tuning page, spectrum-derived
+auto-band, and the >1 kHz decimation seam. Still OFF by default and never
+flight-tested** — the flight test is the one remaining gap. It sits behind the
+§9.1/§9.2 control-authority fixes in priority (P3).
 
 ---
 
@@ -33,9 +35,11 @@ gyro (1 kHz, post-LPF)
 - The **analysis** (FFT + peak-pick + coeff redesign) is the expensive part; it is
   amortised to **at most one axis per tick** so the worst-case tick cost is a
   single N=128 transform.
-- Because `INNER_LOOP_FREQ_HZ = 1000`, the analyzer and the biquads share the same
-  sample rate (decimation factor 1). The decimation seam stays in the glue for
-  when the loop rate later rises above the band of interest.
+- The biquads always run at the full loop rate; the analyzer runs at a decimated
+  rate `D = floor(loop / ~1 kHz)` so its Nyquist stays above the 450 Hz band no
+  matter how fast the loop ticks. At the current 1 kHz loop `D = 1` and the two
+  rates coincide; raising `INNER_LOOP_FREQ_HZ` transparently engages decimation
+  (observe every Dth sample). `gyro_notch_decimation()` reports the active D.
 
 ---
 
@@ -54,7 +58,11 @@ must stay under the top of SRAM; adding static BSS here would break boot).
 | **Notch bank** | `src/dsp/notch_bank.c`, `include/dsp/notch_bank.h` | Composes fft + biquad into a per-channel N-section cascade. `observe`/`update`/`filter`; records tuned `freqs[]`; `set_hold` (hold-last-good on a peak dropout), `reset`, `set_detection` (live Q/band/prominence). |
 | **Firmware glue** | `src/dsp/gyro_notch.c`, `include/dsp/gyro_notch.h` | `v_malloc`s the per-axis banks + FFT scratch (~6.2 KB heap). Wired into `angle_rate_controller.c` after the gyro-LPF, before the rate PID. Staggers retune to one axis/tick. |
 | **Gating** | `gyro_notch.c` + `CMakeLists.txt` | Compile gate `VAYU_FFT_NOTCH` (default **on**; off → passthrough stubs and `--gc-sections` reclaims **~56 KB flash**). Runtime **throttle gate** (engages >10 % throttle where prop vibration exists; resets the banks on the disengage edge so no stale notch at spool-up). |
-| **Tuning surface** | `navlink/dialect.json`, `navlink_router.c`, `navlink_tx.c`, `telemetry_task.c` | `CMD_SET_GYRO_NOTCH` (msgid 8206): master enable + Q / fmin / fmax / min_ratio, applied live to all axes. `NOTCH_STATUS` (msgid 1047): 9 per-axis center freqs streamed at 5 Hz. |
+| **Tuning surface** | `navlink/dialect.json`, `navlink_router.c`, `navlink_tx.c`, `telemetry_task.c` | `CMD_SET_GYRO_NOTCH` (msgid 8206): master enable + Q / fmin / fmax / min_ratio + `autoband`, applied live to all axes. `NOTCH_STATUS` (msgid 1047): 9 per-axis center freqs streamed at 5 Hz. |
+| **SD persistence** | `pid_config.c` (`pid.bin` **PID4**), `fs_owner.c` | The tune (enable + band/Q, the *effective* set read back from the notch) persists across reboot; restored in the rate-controller init. Magic bumped PID3→PID4 (resets old files); `FS_SAVE_PAYLOAD_MAX` 160→192. |
+| **Auto-band** | `gyro_notch.c` | One-shot spectrum-derived band: while engaged, watch the tracked peaks then tighten `[fmin,fmax]` around the observed min/max (±20 Hz, floored at 40 Hz, clamped below Nyquist). Armed by the `autoband` command flag; live-only. |
+| **Decimation seam** | `gyro_notch.c` | Analyzer decimates to a ~1 kHz effective rate above a 1 kHz loop (`D = floor(loop/1 kHz)`); biquads stay at the full rate. `D = 1` today (no change), real for `D > 1`. |
+| **GCS page** | `navigator/…/GyroNotchWidget`, `CommandCodec`, `NavlinkRouter`, `DroneProtocol` | Tools-menu page (Ctrl+9): enable + auto-band + Q/band/min_ratio tuning form emitting `CMD_SET_GYRO_NOTCH`, over a live 3×3 `NOTCH_STATUS` center-frequency readout. |
 
 ### Defaults (compile-time, in `gyro_notch.c`)
 
@@ -72,30 +80,35 @@ must stay under the top of SRAM; adding static BSS here would break boot).
 - Host unit tests (ctest): `firmware/tests/host/{biquad,notch_fft,notch_bank}_unit_test.c`
   — sub-bin tone recovery, multi-peak ranking, band gating, hold/reset/params,
   fail-safe bypass. **All pass.**
+- SITL integration (`sim/host/tests/test_phase3_comm.c`, COMM-CMD-004): the notch
+  command applies + persists (save→reload round-trip), the filter tracks a 200 Hz
+  tone end-to-end, and the auto-band pass narrows the band to bracket it.
 - ARM cross-compile clean on cortex-m4F; **`.bss` stays flat**, boot invariant
-  holds (`_heap_start` + 0xE000 ≤ 0x20018000).
-- New `dsp` component in `tools/coverage_gate.py`, floor **95.0** (measured 95.7 %).
+  holds (`_heap_start` + 0xE000 ≤ 0x20018000, ~360 B margin with PID4).
+- `dsp` coverage floor in `tools/coverage_gate.py` retuned **95.0→92.0** now that
+  `gyro_notch.c` glue is measured (SITL-driven; its `v_malloc`-failure aborts are
+  not host-coverable). Gate green (dsp ~93 %).
 - NavLink codec regenerates from `dialect.json` at build; generated C compiles
-  `-Werror` clean and the wire round-trips (parity test).
+  `-Werror` clean and the wire round-trips (firmware + navigator parity tests).
 
 ---
 
 ## What's left
 
-1. **Flight test** — the whole point. Enable with `CMD_SET_GYRO_NOTCH` (or a
-   temporary boot default), arm, and fly at throttle. Confirm the notches track a
-   real prop line and that gyro noise / motor heat drops without adding rate-loop
-   phase lag. Nothing downstream is validated until this happens.
-2. **SD persistence** — the tune is currently **live-only**. Persisting Q / band /
-   enable would need a `pid_config` store field + a `pid.bin` magic bump (which
-   resets existing tunes, like the D-LPF `PID3` bump). Deliberately deferred.
-3. **GCS UI** — the navigator side has no widget for `CMD_SET_GYRO_NOTCH` or a
-   readout for `NOTCH_STATUS` yet; today it's driveable only via a raw command.
-4. **Auto-tuning of the defaults** — Q, band, and `min_ratio` are hand-picked
-   guesses; a short bench characterisation (hover spectrum) should set them.
-5. **Higher loop rates / decimation** — if the rate loop ever exceeds ~1 kHz the
-   glue's decimation factor must move off 1 so the analyzer stays in-band; the seam
-   exists but is untested for factor > 1.
+1. **Flight test** — the whole point, and the only substantive gap. Enable with
+   `CMD_SET_GYRO_NOTCH` (or the GCS Gyro-Notch page), arm, and fly at throttle.
+   Confirm the notches track a real prop line and that gyro noise / motor heat
+   drops without adding rate-loop phase lag. Nothing downstream is validated until
+   this happens. Auto-band should be exercised in the same session (arm it, fly to
+   a hover, confirm the learned band is sane).
+2. **Persist the learned auto-band** — an auto-band pass sets the band live but
+   does **not** auto-persist it (no synchronous save mid-flight); the operator must
+   re-issue an explicit `CMD_SET_GYRO_NOTCH` with the discovered values to save.
+   A "save current" path (or reporting the live band in `NOTCH_STATUS`) would close
+   this.
+3. **Decimation for factor > 1** — the seam is real and unit-reasoned but only
+   exercised at `D = 1` (the 1 kHz loop); a loop rate > ~2 kHz would engage `D > 1`
+   for the first time and wants a dedicated test.
 
 ### Known, unrelated
 
