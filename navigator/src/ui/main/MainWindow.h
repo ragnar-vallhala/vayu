@@ -11,6 +11,7 @@
 
 #include "../widgets/CalibrationWidget.h"
 #include "../widgets/ControlLoopPlot.h"
+#include "../widgets/GyroNotchWidget.h"
 #include "../../audio/ChimeAudio.h"
 #include "../widgets/PerfWidget.h"
 #include "AttitudeWidget.h"
@@ -60,6 +61,7 @@ private slots:
   void showCalibration();
   void showMotorStatus();
   void showControlLoopPlot();
+  void showGyroNotch();
   void showPerf();
   // Send a PERF_TASKNAME request for one task id (FC replies with the name).
   void sendTaskNameRequest(int taskId);
@@ -165,6 +167,7 @@ private:
   CalibrationWidget *m_calibrationWidget = nullptr;
   MotorStatusWidget *m_motorWidget = nullptr;
   ControlLoopPlot *m_controlLoopWidget = nullptr;
+  GyroNotchWidget *m_gyroNotchWidget = nullptr;
   PerfWidget *m_perfWidget = nullptr;
 #ifdef NAVIGATOR_HAS_SITL
   SimulatorWidget *m_simulatorWidget = nullptr;

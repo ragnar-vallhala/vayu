@@ -134,6 +134,25 @@ void thunkBaro(void *ctx, const navlink_frame_hdr_t *,
   r->onBaro(d);
 }
 
+void thunkNotchStatus(void *ctx, const navlink_frame_hdr_t *,
+                      const navlink_notch_status_t *m) {
+  auto *r = static_cast<NavlinkRouter *>(ctx);
+  if (!r->onNotchStatus)
+    return;
+  NotchStatusData d;
+  d.enabled = m->enabled != 0;
+  d.centerHz[0][0] = m->roll_hz0;
+  d.centerHz[0][1] = m->roll_hz1;
+  d.centerHz[0][2] = m->roll_hz2;
+  d.centerHz[1][0] = m->pitch_hz0;
+  d.centerHz[1][1] = m->pitch_hz1;
+  d.centerHz[1][2] = m->pitch_hz2;
+  d.centerHz[2][0] = m->yaw_hz0;
+  d.centerHz[2][1] = m->yaw_hz1;
+  d.centerHz[2][2] = m->yaw_hz2;
+  r->onNotchStatus(d);
+}
+
 void thunkVerticalState(void *ctx, const navlink_frame_hdr_t *,
                         const navlink_vertical_state_t *m) {
   auto *r = static_cast<NavlinkRouter *>(ctx);
@@ -323,6 +342,7 @@ NavlinkRouter::NavlinkRouter() : d_(new Impl) {
   d_->handlers.on_est_perf = thunkEstPerf;
   d_->handlers.on_baro = thunkBaro;
   d_->handlers.on_vertical_state = thunkVerticalState;
+  d_->handlers.on_notch_status = thunkNotchStatus;
   d_->handlers.on_flight_mode = thunkFlightMode;
   d_->handlers.on_heartbeat = thunkHeartbeat;
   d_->handlers.on_system_health = thunkSystemHealth;

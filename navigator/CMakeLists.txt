@@ -115,6 +115,7 @@ set(GCS_SOURCES
     src/ui/widgets/MotorStatusWidget.cpp
     src/ui/widgets/Drone3DWidget.cpp
     src/ui/widgets/ControlLoopPlot.cpp
+    src/ui/widgets/GyroNotchWidget.cpp
     src/ui/widgets/PerfWidget.cpp
     src/ui/widgets/ShortcutsEditorDialog.cpp
     src/ui/widgets/CommandPalette.cpp

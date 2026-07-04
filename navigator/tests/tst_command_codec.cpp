@@ -22,6 +22,7 @@ private slots:
   void crcRejectsCorruptedFrame();
   void setPidGainsRoundTrip();
   void gyroLpfAndFlightModeIds();
+  void setGyroNotchRoundTrip();
 };
 
 namespace {
@@ -160,6 +161,33 @@ void TstCommandCodec::gyroLpfAndFlightModeIds() {
   QCOMPARE(g_geo.pos_x[0], 0.1f);
   QCOMPARE(int(g_geo.spin[0]), 1);
   QCOMPARE(int(g_geo.spin[1]), -1);
+}
+
+namespace {
+navlink_cmd_set_gyro_notch_t g_notch;
+bool g_notchGot;
+navlink_ack_t onNotch(void *, const navlink_frame_hdr_t *,
+                      const navlink_cmd_set_gyro_notch_t *m) {
+  g_notch = *m;
+  g_notchGot = true;
+  return navlink_ack_t{};
+}
+}  // namespace
+
+void TstCommandCodec::setGyroNotchRoundTrip() {
+  navlink_handlers_t h{};
+  g_notchGot = false;
+  h.on_cmd_set_gyro_notch = onNotch;
+
+  QVERIFY(decodesAs(
+      CommandCodec::encodeSetGyroNotch(true, 8.0f, 60.0f, 450.0f, 4.0f),
+      NAVLINK_MSGID_CMD_SET_GYRO_NOTCH, h));
+  QVERIFY(g_notchGot);
+  QCOMPARE(quint8(g_notch.enabled), quint8(1));
+  QCOMPARE(g_notch.q, 8.0f);
+  QCOMPARE(g_notch.fmin_hz, 60.0f);
+  QCOMPARE(g_notch.fmax_hz, 450.0f);
+  QCOMPARE(g_notch.min_ratio, 4.0f);
 }
 
 QTEST_APPLESS_MAIN(TstCommandCodec)
