@@ -236,6 +236,18 @@ void angle_rate_controller_init(void) {
   /* Allocate the FFT dynamic-notch banks on the heap (keeps .bss flat). Stays
    * disabled until explicitly enabled, so the gyro stream is untouched here. */
   gyro_notch_init();
+  /* COMM-CMD-004: restore any notch tune persisted to SD (loaded by
+   * pid_config_init() at boot). Params are global, so this is a single apply
+   * rather than the per-axis loop above. Absent a stored tune the notch keeps
+   * its compiled defaults and stays disabled. */
+  {
+    float nq, nfmin, nfmax, nratio;
+    bool nen;
+    if (pid_config_get_gyro_notch(&nq, &nfmin, &nfmax, &nratio, &nen)) {
+      gyro_notch_set_params(nq, nfmin, nfmax, nratio);
+      gyro_notch_set_enabled(nen);
+    }
+  }
 }
 
 bool angle_rate_controller_set_gains(uint8_t axis, float kp, float ki, float kd,

@@ -8,6 +8,7 @@
  *   @verifies COMM-CH-002   TX-buffer overflow counter
  *   @verifies COMM-CMD-002  command payload length / argc validation
  *   @verifies COMM-CMD-003  CMD_SET_PID apply + SD persistence
+ *   @verifies COMM-CMD-004  CMD_SET_GYRO_NOTCH apply + SD persistence
  *
  * The GCS software-arm path is exercised through the command apply engine: a
  * CMD_ARM / CMD_DISARM packet_t (as navlink_router.c reconstructs it from the
@@ -32,9 +33,13 @@
 #include <stdio.h>
 #include <string.h>
 
+#include <math.h>
+
 #include "comm/comm.h"
 #include "comm/ibus.h"
 #include "control/control.h"
+#include "control/pid_config.h"
+#include "dsp/gyro_notch.h"
 #include "storage/fs_owner.h"
 #include "sys/sys_utils.h"
 #include "vayu_status.h"
@@ -223,12 +228,99 @@ static void test_tx_overflow(void) {
         "xfer write uses the reserved tail past the normal cap");
 }
 
+/* ----------------------------------------------------------------------------
+ * COMM-CMD-004 — CMD_SET_GYRO_NOTCH applies live and persists. Drives the typed
+ * apply contract (as navlink_router.c's handler does) rather than a byte payload.
+ * --------------------------------------------------------------------------*/
+static void test_set_gyro_notch_apply(void) {
+  printf("  test_set_gyro_notch_apply (COMM-CMD-004)\n");
+
+  fs_owner_init(); /* save lane must be up to enqueue (see test_set_pid_apply) */
+  /* Allocate the per-axis banks so the live notch actually holds params. Returns
+   * false when the notch is compiled out (VAYU_FFT_NOTCH off) — the persistence
+   * store is independent of that, so only the live read-backs are gated on it. */
+  bool notch_live = gyro_notch_init();
+
+  const float q = 10.0f, fmin = 80.0f, fmax = 400.0f, ratio = 5.0f;
+  CHECK(pid_config_apply_gyro_notch(true, q, fmin, fmax, ratio) == VAYU_OK,
+        "valid SET_GYRO_NOTCH accepted");
+  CHECK(pid_config_apply_gyro_notch(true, NAN, fmin, fmax, ratio) ==
+            VAYU_ERR_INVALID,
+        "NaN detection field rejected");
+
+  if (notch_live) {
+    float gq, gf, gx, gr;
+    CHECK(gyro_notch_get_params(&gq, &gf, &gx, &gr) && feq(gq, q) &&
+              feq(gf, fmin) && feq(gx, fmax) && feq(gr, ratio),
+          "live notch detection params updated to commanded values");
+    CHECK(gyro_notch_enabled(), "notch master gate enabled live");
+
+    /* Partial command (all detection fields <=0 = unchanged): the store must
+     * still capture the full EFFECTIVE tune via the read-back path. */
+    CHECK(pid_config_apply_gyro_notch(true, -1.0f, -1.0f, -1.0f, -1.0f) ==
+              VAYU_OK,
+          "partial (unchanged) SET_GYRO_NOTCH accepted");
+  }
+
+  /* Persistence round-trip: drain the enqueued save, reload, and confirm the
+   * tune (and enable) survive — proves the PID4 store field wrote and read. */
+  fs_owner_pump();
+  pid_config_init();
+  float sq, sf, sx, sr;
+  bool sen = false;
+  CHECK(pid_config_get_gyro_notch(&sq, &sf, &sx, &sr, &sen),
+        "stored notch tune present after reload");
+  CHECK(feq(sq, q) && feq(sf, fmin) && feq(sx, fmax) && feq(sr, ratio) && sen,
+        "notch tune + enable survive a save -> reload round-trip");
+}
+
+/* ----------------------------------------------------------------------------
+ * Dynamic notch runtime: engaged above the throttle gate, the analyzer tracks a
+ * pure tone and the retune lands the notch center on it; a disengage edge clears
+ * the tuning. Exercises the hot filter path + staggered service on the host.
+ * --------------------------------------------------------------------------*/
+static void test_gyro_notch_runtime(void) {
+  printf("  test_gyro_notch_runtime (dynamic notch tracks a tone)\n");
+
+  if (!gyro_notch_init()) {
+    printf("    (notch compiled out; skipping runtime drive)\n");
+    return;
+  }
+  CHECK(gyro_notch_decimation() == 1u,
+        "decimation factor is 1 at the 1 kHz loop");
+
+  /* Enable with a band that brackets a 200 Hz test tone, then push throttle past
+   * the engage gate. */
+  pid_config_apply_gyro_notch(true, 8.0f, 60.0f, 450.0f, 4.0f);
+  gyro_notch_set_throttle(0.5f);
+
+  const float fs = 1000.0f, ftone = 200.0f;
+  const float w = 6.283185307f * ftone / fs; /* -std=c11: no M_PI */
+  /* One axis: apply() every tick (observes raw + filters), service() once a tick
+   * runs at most one FFT retune. A few hops (N/2 = 64) in, the peak is found. */
+  for (int t = 0; t < 600; t++) {
+    float s = 50.0f * sinf(w * (float)t);
+    (void)gyro_notch_apply(0, s);
+    gyro_notch_service();
+  }
+  float c = gyro_notch_center_hz(0, 0);
+  CHECK(c > 150.0f && c < 250.0f, "notch center tracks the 200 Hz tone");
+
+  /* Disengage edge (throttle chopped): the banks reset so no stale notch is left
+   * for the next spool-up. */
+  gyro_notch_set_throttle(0.0f);
+  gyro_notch_service();
+  CHECK(gyro_notch_center_hz(0, 0) == 0.0f, "disengage clears the tuned center");
+}
+
 int main(void) {
   printf("== Phase-3 COMM SITL verification ==\n");
 
   test_tx_overflow();
   test_payload_validation();
   test_set_pid_apply();
+  test_set_gyro_notch_apply();
+  test_gyro_notch_runtime();
   test_arm_command_wire();
 
   printf("\n%d checks, %d failures\n", g_checks, g_fails);

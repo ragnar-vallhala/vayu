@@ -14,13 +14,17 @@
 #include "control/pid_config.h"
 #include "control/angle_controller.h"
 #include "control/angle_rate_controller.h"
+#include "dsp/gyro_notch.h"           /* gyro_notch set/get params (notch persist) */
 #include "memory.h"                   /* v_memcpy */
 #include "storage/fs_owner.h"              /* vayu_log */
 #include "variables.h"                /* NUM_AXES */
 #include "vfs.h"
 #include "maths/maths_interface.h"
 
-#define PID_CONFIG_MAGIC     0x50494433u /* 'P''I''D''3' */
+/* Bumped PID3 -> PID4 for the gyro-notch fields below. Any older file fails the
+ * exact-size/magic check in pid_config_init and resets to defaults (same policy
+ * as the PID2 -> PID3 D-LPF bump). */
+#define PID_CONFIG_MAGIC     0x50494434u /* 'P''I''D''4' */
 #define PID_CONFIG_FILE_PATH "0:pid.bin"
 
 typedef struct {
@@ -35,7 +39,21 @@ typedef struct {
   uint8_t gyro_lpf_valid[NUM_AXES];
   float   d_lpf[NUM_AXES];           /* rate-loop D-term LPF time constant [s] */
   uint8_t d_lpf_valid[NUM_AXES];
+  /* Dynamic gyro-notch tune. Global (not per-axis): the notch applies the same
+   * detection band/Q to every axis. Stores the EFFECTIVE param set (read back
+   * from gyro_notch after apply) so a partial command persists a full tune. */
+  float   notch_q;
+  float   notch_fmin_hz;
+  float   notch_fmax_hz;
+  float   notch_min_ratio;
+  uint8_t notch_enabled;             /* master enable persisted across boots */
+  uint8_t notch_valid;               /* 0 until a notch command has been stored */
 } pid_store_t;
+
+/* The store is written verbatim as one FS-owner save payload; keep it within the
+ * queue's per-request buffer (FS_SAVE_PAYLOAD_MAX in fs_owner.c). Bump both together. */
+_Static_assert(sizeof(pid_store_t) <= 192u,
+               "pid_store_t exceeds FS_SAVE_PAYLOAD_MAX (raise it in fs_owner.c)");
 
 /* Zero-init: magic 0, every slot valid == 0 → controllers keep defaults
  * until either a load restores values or a command sets them. */
@@ -100,6 +118,31 @@ bool pid_config_get_d_lpf(uint8_t axis, float *rc) {
     return false;
   }
   *rc = s_store.d_lpf[axis];
+  return true;
+}
+
+/** @noreq gyro-notch store getter (CMD_SET_GYRO_NOTCH persistence). Fills the
+ * effective tune + enable if one was ever stored; false leaves out-params. */
+bool pid_config_get_gyro_notch(float *q, float *fmin_hz, float *fmax_hz,
+                               float *min_ratio, bool *enabled) {
+  if (!s_store.notch_valid) {
+    return false;
+  }
+  if (q) {
+    *q = s_store.notch_q;
+  }
+  if (fmin_hz) {
+    *fmin_hz = s_store.notch_fmin_hz;
+  }
+  if (fmax_hz) {
+    *fmax_hz = s_store.notch_fmax_hz;
+  }
+  if (min_ratio) {
+    *min_ratio = s_store.notch_min_ratio;
+  }
+  if (enabled) {
+    *enabled = s_store.notch_enabled != 0;
+  }
   return true;
 }
 
@@ -239,5 +282,42 @@ vayu_status_t pid_config_apply_d_lpf_command(const uint8_t *payload,
   s_store.d_lpf_valid[axis] = 1;
   pid_config_save();
   vayu_log("[PID] set d_lpf axis=%d rc=%.4f", axis, (double)rc);
+  return VAYU_OK;
+}
+
+/**
+ * Apply and persist a gyro-notch tune. Unlike the byte-payload commands above,
+ * the notch command carries typed fields, so this takes them directly. A <=0
+ * detection field means "leave unchanged" (gyro_notch_set_params ignores it);
+ * we then read the EFFECTIVE param set back so the store always holds a complete
+ * tune. NaN/Inf are rejected outright.
+ */
+vayu_status_t pid_config_apply_gyro_notch(bool enabled, float q, float fmin_hz,
+                                          float fmax_hz, float min_ratio) {
+  if (!m_isfinite(q) || !m_isfinite(fmin_hz) || !m_isfinite(fmax_hz) ||
+      !m_isfinite(min_ratio)) {
+    return VAYU_ERR_INVALID;
+  }
+  /* Live apply first (partial: non-positive fields are left as-is), then the
+   * master gate so an enable takes effect with the freshly-set band/Q. */
+  gyro_notch_set_params(q, fmin_hz, fmax_hz, min_ratio);
+  gyro_notch_set_enabled(enabled);
+
+  /* Persist the effective set: seed with the command values, then overwrite with
+   * whatever the notch is actually running (covers the <=0 "unchanged" fields).
+   * If the notch never initialised, the seeds stand and enabling is a harmless
+   * no-op on the next boot. */
+  float eq = q, efmin = fmin_hz, efmax = fmax_hz, eratio = min_ratio;
+  gyro_notch_get_params(&eq, &efmin, &efmax, &eratio);
+  s_store.notch_q = eq;
+  s_store.notch_fmin_hz = efmin;
+  s_store.notch_fmax_hz = efmax;
+  s_store.notch_min_ratio = eratio;
+  s_store.notch_enabled = enabled ? 1u : 0u;
+  s_store.notch_valid = 1;
+  pid_config_save();
+  vayu_log("[PID] set notch en=%d Q=%.2f band=%.0f-%.0f ratio=%.2f",
+           (int)enabled, (double)eq, (double)efmin, (double)efmax,
+           (double)eratio);
   return VAYU_OK;
 }
