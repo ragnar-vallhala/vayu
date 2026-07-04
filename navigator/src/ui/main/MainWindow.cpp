@@ -268,6 +268,18 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   connect(m_controlLoopWidget, &ControlLoopPlot::backToHomeRequested, this,
           &MainWindow::showHome);
 
+  // Build Gyro Notch tuning
+  m_gyroNotchWidget = new GyroNotchWidget(this);
+  m_gyroNotchWidget->setProtocol(m_engine->protocol());
+  m_stackedWidget->addWidget(m_gyroNotchWidget);
+  connect(m_gyroNotchWidget, &GyroNotchWidget::backToHomeRequested, this,
+          &MainWindow::showHome);
+  connect(m_gyroNotchWidget, &GyroNotchWidget::commandRequested,
+          [this](const QByteArray &data) {
+            if (m_source.txAllowed())
+              sendToFc(data);
+          });
+
   // Build Kernel Observability (vaios perf telemetry)
   m_perfWidget = new PerfWidget(this);
   m_stackedWidget->addWidget(m_perfWidget);
@@ -500,6 +512,10 @@ void MainWindow::showCalibration() {
 
 void MainWindow::showMotorStatus() {
   m_stackedWidget->setCurrentWidget(m_motorWidget);
+}
+
+void MainWindow::showGyroNotch() {
+  m_stackedWidget->setCurrentWidget(m_gyroNotchWidget);
 }
 
 void MainWindow::showControlLoopPlot() {
@@ -783,6 +799,8 @@ void MainWindow::buildMenuBar() {
   QMenu *toolsMenu = menu->addMenu("&Tools");
   addNav(toolsMenu, "nav.calibration", "&Calibration", QKeySequence("Ctrl+7"),
          ui::Icon::Calib, [this] { showCalibration(); });
+  addNav(toolsMenu, "nav.gyronotch", "&Gyro Notch", QKeySequence("Ctrl+9"),
+         ui::Icon::Control, [this] { showGyroNotch(); });
 
   // ---- Settings (a bare menu-bar action — clicking it opens the page
   // directly, no submenu) ----
@@ -1331,6 +1349,7 @@ void MainWindow::setConnected(bool on) {
   // Read-only display pages (Motor / ControlLoop) are intentionally
   // left interactive so the last known data stays visible.
   if (m_calibrationWidget) m_calibrationWidget->setConnected(on);
+  if (m_gyroNotchWidget) m_gyroNotchWidget->setConnected(on);
 
   if (m_toolbar)   m_toolbar->setConnected(on, m_currentPort);
   refreshConnectionPill();
@@ -1749,6 +1768,7 @@ void MainWindow::buildViewTitles() {
   put(m_calibrationWidget, tr("Calibration"));
   put(m_motorWidget, tr("Motor Status"));
   put(m_controlLoopWidget, tr("Control Loop"));
+  put(m_gyroNotchWidget, tr("Gyro Notch"));
   put(m_perfWidget, tr("Kernel Perf"));
 #ifdef NAVIGATOR_HAS_SITL
   put(m_simulatorWidget, tr("Simulator"));

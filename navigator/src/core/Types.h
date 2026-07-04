@@ -52,6 +52,19 @@ struct VerticalStateData {
 };
 
 // -----------------------------------------------------------
+// Dynamic gyro notch – mirrors NavLink NOTCH_STATUS (msgid 1047). The FFT notch
+// tracks up to 3 center frequencies per axis; 0 Hz means that slot is currently
+// bypassed. enabled reflects the master gate (the notch may still be idle below
+// the throttle engage threshold even when enabled).
+// -----------------------------------------------------------
+struct NotchStatusData {
+  bool enabled = false;
+  // [axis][slot], axis 0=roll 1=pitch 2=yaw; Hz, 0 = bypassed.
+  float centerHz[3][3] = {{0}};
+  uint64_t timestamp = 0;
+};
+
+// -----------------------------------------------------------
 // RC Channels – raw values (us)
 // -----------------------------------------------------------
 struct RcData {
