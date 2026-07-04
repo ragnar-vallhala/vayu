@@ -10,10 +10,12 @@
  * per-tick cost: notch_bank_filter runs on every sample, but the expensive FFT
  * analysis + retune is staggered to at most one axis per rate-loop tick.
  *
- * Both the analyzer and the biquads run at INNER_LOOP_FREQ_HZ (the 1 kHz rate
- * loop), so the decimation factor is 1 and the filter/analyzer sample rates are
- * equal; the decimation seam stays here for when the loop rate rises above the
- * band of interest. Disabled by default: no effect on the gyro stream until
+ * The biquads always run at INNER_LOOP_FREQ_HZ (the rate loop); the FFT analyzer
+ * runs at a decimated rate D = floor(loop / ~1 kHz) so its Nyquist stays safely
+ * above the analysis band no matter how fast the loop ticks. At the current 1 kHz
+ * loop D == 1 and the two rates are equal; raising INNER_LOOP_FREQ_HZ above ~2 kHz
+ * transparently engages decimation (observe every Dth sample, analyzer fs = loop/D).
+ * Disabled by default: no effect on the gyro stream until
  * gyro_notch_set_enabled(true), mirroring the gyro-LPF's "off until tuned"
  * policy so flight behaviour is unchanged until validated.
  *
@@ -62,5 +64,9 @@ void gyro_notch_set_params(float q, float fmin_hz, float fmax_hz,
 /* Telemetry: the idx-th tuned notch center frequency [Hz] for an axis, or 0 if
  * that slot is currently bypassed / out of range. */
 float gyro_notch_center_hz(uint8_t axis, uint8_t idx);
+
+/* The analyzer decimation factor D actually in use (analyzer fs = loop rate / D),
+ * or 0 if uninitialised. 1 at the current 1 kHz loop; observability / diagnostics. */
+unsigned gyro_notch_decimation(void);
 
 #endif /* VAYU_DSP_GYRO_NOTCH_H */
