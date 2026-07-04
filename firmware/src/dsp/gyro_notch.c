@@ -32,6 +32,15 @@
  * only mistune. */
 #define GYRO_NOTCH_THROTTLE_MIN 0.10f
 
+/* Target analyzer sample rate. The biquads always run at the full loop rate
+ * (INNER_LOOP_FREQ_HZ); the FFT front-end only needs a Nyquist comfortably above
+ * the analysis band (fmax = 450 Hz), so once the loop rate climbs past ~1 kHz we
+ * DECIMATE the observe path — feeding the analyzer every Dth sample — to keep its
+ * bin resolution in-band and its per-frame cost bounded. D = floor(loop / this),
+ * clamped >= 1. At the current 1 kHz loop D == 1 and nothing changes. Keep this
+ * strictly above 2*fmax so the decimated Nyquist never falls into the band. */
+#define GYRO_NOTCH_ANALYZER_FS_HZ 1000.0f
+
 /* All heap-owned so nothing here grows .bss. NULL until a successful init. */
 static notch_bank_t *s_bank;       /* [NUM_AXES] */
 static bool s_enabled;             /* master (user/param) gate */
@@ -39,6 +48,8 @@ static float s_throttle;           /* latest throttle 0..1, from the rate loop *
 static bool s_engaged;             /* enabled AND above the throttle gate */
 static bool s_ready[NUM_AXES];     /* axis has a frame awaiting retune */
 static uint8_t s_service_turn;     /* round-robin cursor for gyro_notch_service */
+static unsigned s_decim;           /* analyzer decimation factor D (>= 1) */
+static uint8_t s_decim_phase[NUM_AXES]; /* per-axis observe phase, 0..D-1 */
 
 /* Master AND throttle gate: the condition under which the notch actually filters
  * and analyses. */
@@ -58,8 +69,11 @@ static bool init_axis(unsigned axis) {
     return false; /* leaked on failure, but init failure is a boot-time abort */
   }
 
+  /* Analyzer runs at the decimated rate; the biquads run/are designed at the
+   * full loop rate (filter_fs_hz below), so a peak Hz stays correctly centred
+   * regardless of D. */
   notch_fft_cfg_t cfg = {.n = n,
-                         .fs_hz = (float)INNER_LOOP_FREQ_HZ,
+                         .fs_hz = (float)INNER_LOOP_FREQ_HZ / (float)s_decim,
                          .fmin_hz = GYRO_NOTCH_FMIN_HZ,
                          .fmax_hz = GYRO_NOTCH_FMAX_HZ,
                          .min_peak_ratio = GYRO_NOTCH_MIN_RATIO};
@@ -75,6 +89,13 @@ bool gyro_notch_init(void) {
   if (s_bank) {
     return true; /* already initialised */
   }
+  /* Fix the decimation factor from the loop rate before wiring any analyzer
+   * (init_axis reads s_decim). floor keeps the decimated Nyquist >= the target;
+   * clamp to 1 so a sub-target loop rate never decimates. */
+  s_decim = (unsigned)((float)INNER_LOOP_FREQ_HZ / GYRO_NOTCH_ANALYZER_FS_HZ);
+  if (s_decim < 1u) {
+    s_decim = 1u;
+  }
   s_bank = (notch_bank_t *)v_malloc(sizeof(notch_bank_t) * NUM_AXES);
   if (!s_bank) {
     return false;
@@ -85,6 +106,7 @@ bool gyro_notch_init(void) {
       return false;
     }
     s_ready[i] = false;
+    s_decim_phase[i] = 0;
   }
   s_enabled = false;
   s_throttle = 0.0f;
@@ -102,9 +124,14 @@ float gyro_notch_apply(uint8_t axis, float gyro) {
     return gyro;
   }
   /* Observe the RAW (pre-notch) gyro so the analyzer keeps seeing the peaks it
-   * is removing; latch a retune when a frame goes ready. */
-  if (notch_bank_observe(&s_bank[axis], gyro)) {
-    s_ready[axis] = true;
+   * is removing; latch a retune when a frame goes ready. Decimate to the analyzer
+   * rate: feed only every Dth sample (per-axis phase, since apply is called once
+   * per axis per tick). At D == 1 this observes every sample. */
+  if (++s_decim_phase[axis] >= s_decim) {
+    s_decim_phase[axis] = 0;
+    if (notch_bank_observe(&s_bank[axis], gyro)) {
+      s_ready[axis] = true;
+    }
   }
   return notch_bank_filter(&s_bank[axis], gyro);
 }
@@ -120,6 +147,7 @@ void gyro_notch_service(void) {
     for (unsigned i = 0; i < NUM_AXES; i++) {
       notch_bank_reset(&s_bank[i]);
       s_ready[i] = false;
+      s_decim_phase[i] = 0;
     }
   }
   s_engaged = now;
@@ -158,6 +186,8 @@ float gyro_notch_center_hz(uint8_t axis, uint8_t idx) {
   return s_bank[axis].freqs[idx];
 }
 
+unsigned gyro_notch_decimation(void) { return s_bank ? s_decim : 0u; }
+
 #else /* !VAYU_FFT_NOTCH — compile the notch out; every entry point is inert. */
 
 bool gyro_notch_init(void) { return false; }
@@ -181,5 +211,6 @@ float gyro_notch_center_hz(uint8_t axis, uint8_t idx) {
   (void)idx;
   return 0.0f;
 }
+unsigned gyro_notch_decimation(void) { return 0u; }
 
 #endif /* VAYU_FFT_NOTCH */
