@@ -334,11 +334,15 @@ on_cmd_set_gyro_notch(void *ctx, const navlink_frame_hdr_t *hdr,
   /* Apply live (a <=0 detection field is left unchanged) AND persist to SD, so
    * the tune survives a reboot. pid_config owns the store and reads the effective
    * param set back after applying. */
-  return navlink_ack_result(
+  vayu_status_t rc =
       pid_config_apply_gyro_notch(m->enabled != 0, m->q, m->fmin_hz, m->fmax_hz,
-                                  m->min_ratio) == VAYU_OK
-          ? ACK_OK
-          : ACK_BAD);
+                                  m->min_ratio);
+  /* autoband is a transient one-shot trigger (not a stored param): arm the learn
+   * pass, which characterises the hover spectrum on the next engaged window. */
+  if (m->autoband) {
+    gyro_notch_start_autoband();
+  }
+  return navlink_ack_result(rc == VAYU_OK ? ACK_OK : ACK_BAD);
 }
 
 static navlink_ack_t

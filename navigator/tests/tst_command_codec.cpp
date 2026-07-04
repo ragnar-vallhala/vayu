@@ -179,15 +179,16 @@ void TstCommandCodec::setGyroNotchRoundTrip() {
   g_notchGot = false;
   h.on_cmd_set_gyro_notch = onNotch;
 
-  QVERIFY(decodesAs(
-      CommandCodec::encodeSetGyroNotch(true, 8.0f, 60.0f, 450.0f, 4.0f),
-      NAVLINK_MSGID_CMD_SET_GYRO_NOTCH, h));
+  QVERIFY(decodesAs(CommandCodec::encodeSetGyroNotch(true, 8.0f, 60.0f, 450.0f,
+                                                     4.0f, /*autoband*/ true),
+                    NAVLINK_MSGID_CMD_SET_GYRO_NOTCH, h));
   QVERIFY(g_notchGot);
   QCOMPARE(quint8(g_notch.enabled), quint8(1));
   QCOMPARE(g_notch.q, 8.0f);
   QCOMPARE(g_notch.fmin_hz, 60.0f);
   QCOMPARE(g_notch.fmax_hz, 450.0f);
   QCOMPARE(g_notch.min_ratio, 4.0f);
+  QCOMPARE(quint8(g_notch.autoband), quint8(1));
 }
 
 QTEST_APPLESS_MAIN(TstCommandCodec)

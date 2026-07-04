@@ -52,7 +52,8 @@ QByteArray encodeSetGyroLpf(int axis, float rc, quint8 devId, quint32 tsMs) {
 }
 
 QByteArray encodeSetGyroNotch(bool enabled, float q, float fminHz, float fmaxHz,
-                              float minRatio, quint8 devId, quint32 tsMs) {
+                              float minRatio, bool autoband, quint8 devId,
+                              quint32 tsMs) {
   Q_UNUSED(tsMs);
   navlink_cmd_set_gyro_notch_t m{};
   m.target_sys = devId;
@@ -63,6 +64,7 @@ QByteArray encodeSetGyroNotch(bool enabled, float q, float fminHz, float fmaxHz,
   m.fmin_hz = fminHz;
   m.fmax_hz = fmaxHz;
   m.min_ratio = minRatio;
+  m.autoband = autoband ? 1 : 0;
   uint8_t buf[NAVLINK_MAX_FRAME];
   size_t n = navlink_cmd_set_gyro_notch_encode(buf, &m, m.req_seq, 0xFF, 1);
   return frame(buf, n);

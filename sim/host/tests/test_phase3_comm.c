@@ -313,6 +313,38 @@ static void test_gyro_notch_runtime(void) {
   CHECK(gyro_notch_center_hz(0, 0) == 0.0f, "disengage clears the tuned center");
 }
 
+/* ----------------------------------------------------------------------------
+ * Auto-band learn: armed while engaged, it watches the tracked peaks and then
+ * tightens the detection band around them — replacing the wide hand-picked
+ * default with the observed signature.
+ * --------------------------------------------------------------------------*/
+static void test_gyro_notch_autoband(void) {
+  printf("  test_gyro_notch_autoband (learns the band from the spectrum)\n");
+
+  if (!gyro_notch_init()) {
+    printf("    (notch compiled out; skipping)\n");
+    return;
+  }
+  /* Start from the wide default band, enable, throttle up, then arm the learn. */
+  pid_config_apply_gyro_notch(true, 8.0f, 60.0f, 450.0f, 4.0f);
+  gyro_notch_set_throttle(0.5f);
+  gyro_notch_start_autoband();
+  CHECK(gyro_notch_autoband_active(), "auto-band armed");
+
+  const float fs = 1000.0f, ftone = 200.0f;
+  const float w = 6.283185307f * ftone / fs;
+  for (int t = 0; t < 6000 && gyro_notch_autoband_active(); t++) {
+    (void)gyro_notch_apply(0, 50.0f * sinf(w * (float)t));
+    gyro_notch_service();
+  }
+  CHECK(!gyro_notch_autoband_active(), "auto-band completes within the window");
+
+  float q, fmin, fmax, ratio;
+  gyro_notch_get_params(&q, &fmin, &fmax, &ratio);
+  CHECK(fmin > 60.0f && fmax < 450.0f, "band narrowed from the wide default");
+  CHECK(fmin < 200.0f && fmax > 200.0f, "learned band brackets the 200 Hz tone");
+}
+
 int main(void) {
   printf("== Phase-3 COMM SITL verification ==\n");
 
@@ -321,6 +353,7 @@ int main(void) {
   test_set_pid_apply();
   test_set_gyro_notch_apply();
   test_gyro_notch_runtime();
+  test_gyro_notch_autoband();
   test_arm_command_wire();
 
   printf("\n%d checks, %d failures\n", g_checks, g_fails);

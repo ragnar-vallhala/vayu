@@ -72,6 +72,16 @@ bool gyro_notch_get_params(float *q, float *fmin_hz, float *fmax_hz,
  * that slot is currently bypassed / out of range. */
 float gyro_notch_center_hz(uint8_t axis, uint8_t idx);
 
+/* Arm a one-shot auto-band learn: while engaged, watch the peaks the analyzer
+ * finds and, after a short window, tighten the detection band [fmin,fmax] around
+ * the craft's real vibration signature (replacing the hand-picked default). Waits
+ * for an engaged (throttle-up) window, so on the bench send this then fly to a
+ * hover. The learned band is live-only (not auto-persisted). No-op if uninitialised. */
+void gyro_notch_start_autoband(void);
+
+/* True while an auto-band learn pass is armed or in progress. */
+bool gyro_notch_autoband_active(void);
+
 /* The analyzer decimation factor D actually in use (analyzer fs = loop rate / D),
  * or 0 if uninitialised. 1 at the current 1 kHz loop; observability / diagnostics. */
 unsigned gyro_notch_decimation(void);

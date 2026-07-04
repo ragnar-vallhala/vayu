@@ -40,6 +40,7 @@ private:
   bool m_connected = false;
 
   QCheckBox *m_enable = nullptr;
+  QCheckBox *m_autoband = nullptr;
   QDoubleSpinBox *m_q = nullptr;
   QDoubleSpinBox *m_fmin = nullptr;
   QDoubleSpinBox *m_fmax = nullptr;
