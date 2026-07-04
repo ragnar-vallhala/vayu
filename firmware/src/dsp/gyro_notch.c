@@ -41,6 +41,16 @@
  * strictly above 2*fmax so the decimated Nyquist never falls into the band. */
 #define GYRO_NOTCH_ANALYZER_FS_HZ 1000.0f
 
+/* Auto-band: a one-shot pass that watches the peaks the analyzer actually finds
+ * (while engaged) and then tightens the detection band around them, replacing
+ * the hand-picked default with the craft's real vibration signature. Learns over
+ * this many retunes, brackets the observed min/max peak by this margin, and never
+ * drops the lower edge below the floor. Live-only (the learned band isn't
+ * auto-persisted; re-issue an explicit tune to save it). */
+#define GYRO_NOTCH_AUTOBAND_FRAMES 40u
+#define GYRO_NOTCH_AUTOBAND_MARGIN_HZ 20.0f
+#define GYRO_NOTCH_FMIN_FLOOR 40.0f
+
 /* All heap-owned so nothing here grows .bss. NULL until a successful init. */
 static notch_bank_t *s_bank;       /* [NUM_AXES] */
 static bool s_enabled;             /* master (user/param) gate */
@@ -50,6 +60,9 @@ static bool s_ready[NUM_AXES];     /* axis has a frame awaiting retune */
 static uint8_t s_service_turn;     /* round-robin cursor for gyro_notch_service */
 static unsigned s_decim;           /* analyzer decimation factor D (>= 1) */
 static uint8_t s_decim_phase[NUM_AXES]; /* per-axis observe phase, 0..D-1 */
+static bool s_autoband;            /* auto-band learn pass armed / in progress */
+static float s_ab_min, s_ab_max;   /* running peak-freq bounds during a learn */
+static unsigned s_ab_frames;       /* retunes observed so far this learn */
 
 /* Master AND throttle gate: the condition under which the notch actually filters
  * and analyses. */
@@ -136,19 +149,59 @@ float gyro_notch_apply(uint8_t axis, float gyro) {
   return notch_bank_filter(&s_bank[axis], gyro);
 }
 
+/* Fold one axis's freshly-tuned peaks into the running auto-band bounds, and once
+ * enough retunes have been seen, replace the detection band with a tight bracket
+ * around what was actually observed. */
+static void autoband_step(unsigned axis) {
+  for (unsigned i = 0; i < s_bank[axis].num_notches; i++) {
+    float f = s_bank[axis].freqs[i];
+    if (f > 0.0f) {
+      if (f < s_ab_min) {
+        s_ab_min = f;
+      }
+      if (f > s_ab_max) {
+        s_ab_max = f;
+      }
+    }
+  }
+  if (++s_ab_frames < GYRO_NOTCH_AUTOBAND_FRAMES) {
+    return;
+  }
+  s_autoband = false; /* learn window elapsed */
+  if (s_ab_max <= 0.0f || s_ab_max < s_ab_min) {
+    return; /* never saw a peak — leave the band as-is */
+  }
+  float lo = s_ab_min - GYRO_NOTCH_AUTOBAND_MARGIN_HZ;
+  float hi = s_ab_max + GYRO_NOTCH_AUTOBAND_MARGIN_HZ;
+  if (lo < GYRO_NOTCH_FMIN_FLOOR) {
+    lo = GYRO_NOTCH_FMIN_FLOOR;
+  }
+  float nyq = 0.5f * (float)INNER_LOOP_FREQ_HZ / (float)s_decim;
+  if (hi > nyq - 10.0f) {
+    hi = nyq - 10.0f;
+  }
+  if (hi > lo) {
+    for (unsigned a = 0; a < NUM_AXES; a++) {
+      notch_bank_set_detection(&s_bank[a], 0.0f, lo, hi, 0.0f);
+    }
+  }
+}
+
 void gyro_notch_service(void) {
   if (!s_bank) {
     return;
   }
   bool now = engaged();
   /* Disengage edge (throttle chopped / master off): drop all tuning so no stale
-   * notch is applied on the next spool-up, and clear any pending retunes. */
+   * notch is applied on the next spool-up, clear any pending retunes, and abort
+   * an in-flight auto-band learn (it must see a continuous engaged window). */
   if (s_engaged && !now) {
     for (unsigned i = 0; i < NUM_AXES; i++) {
       notch_bank_reset(&s_bank[i]);
       s_ready[i] = false;
       s_decim_phase[i] = 0;
     }
+    s_autoband = false;
   }
   s_engaged = now;
   if (!now) {
@@ -163,6 +216,9 @@ void gyro_notch_service(void) {
     if (s_ready[axis]) {
       s_ready[axis] = false;
       notch_bank_update(&s_bank[axis]);
+      if (s_autoband) {
+        autoband_step(axis);
+      }
       s_service_turn = (uint8_t)((axis + 1u) % NUM_AXES);
       return;
     }
@@ -209,6 +265,20 @@ bool gyro_notch_get_params(float *q, float *fmin_hz, float *fmax_hz,
   return true;
 }
 
+void gyro_notch_start_autoband(void) {
+  if (!s_bank) {
+    return;
+  }
+  /* Arm the learn. It only accumulates while engaged, so on the bench this waits
+   * for the next spool-up and then characterises the hover spectrum. */
+  s_autoband = true;
+  s_ab_min = 1.0e9f;
+  s_ab_max = 0.0f;
+  s_ab_frames = 0;
+}
+
+bool gyro_notch_autoband_active(void) { return s_bank && s_autoband; }
+
 unsigned gyro_notch_decimation(void) { return s_bank ? s_decim : 0u; }
 
 #else /* !VAYU_FFT_NOTCH — compile the notch out; every entry point is inert. */
@@ -242,6 +312,8 @@ bool gyro_notch_get_params(float *q, float *fmin_hz, float *fmax_hz,
   (void)min_ratio;
   return false;
 }
+void gyro_notch_start_autoband(void) {}
+bool gyro_notch_autoband_active(void) { return false; }
 unsigned gyro_notch_decimation(void) { return 0u; }
 
 #endif /* VAYU_FFT_NOTCH */

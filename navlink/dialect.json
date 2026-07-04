@@ -566,7 +566,7 @@
     },
     {
       "msgid": 8206, "name": "CMD_SET_GYRO_NOTCH",
-      "doc": "Configure the FFT-driven dynamic gyro notch (dsp/gyro_notch): master enable plus the detection parameters, applied to all axes. A detection field <=0 leaves that parameter unchanged. Not persisted to SD.",
+      "doc": "Configure the FFT-driven dynamic gyro notch (dsp/gyro_notch): master enable plus the detection parameters, applied to all axes. A detection field <=0 leaves that parameter unchanged. Persisted to SD (pid.bin).",
       "fields": [
         { "index": 0, "name": "target_sys",  "type": "u8" },
         { "index": 1, "name": "target_comp", "type": "u8" },
@@ -575,7 +575,8 @@
         { "index": 4, "name": "q",           "type": "f32", "doc": "band-stop Q (width); <=0 = unchanged" },
         { "index": 5, "name": "fmin_hz",     "type": "f32", "unit": "Hz", "doc": "analysis band lower bound; <=0 = unchanged" },
         { "index": 6, "name": "fmax_hz",     "type": "f32", "unit": "Hz", "doc": "analysis band upper bound; <=0 = unchanged" },
-        { "index": 7, "name": "min_ratio",   "type": "f32", "doc": "peak prominence gate (x mean power); <=0 = unchanged" }
+        { "index": 7, "name": "min_ratio",   "type": "f32", "doc": "peak prominence gate (x mean power); <=0 = unchanged" },
+        { "index": 8, "name": "autoband",    "type": "u8", "doc": "1 = arm a one-shot auto-band learn: characterise the hover spectrum and tighten [fmin,fmax] around it (live-only). 0 = no-op" }
       ]
     },
     {

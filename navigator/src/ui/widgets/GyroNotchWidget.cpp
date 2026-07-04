@@ -43,6 +43,12 @@ GyroNotchWidget::GyroNotchWidget(QWidget *parent) : QWidget(parent) {
   m_enable = new QCheckBox(tr("Enabled"));
   form->addRow(m_enable);
 
+  m_autoband = new QCheckBox(tr("Auto-band (learn on next hover)"));
+  m_autoband->setToolTip(
+      tr("One-shot: the FC characterises the hover spectrum and tightens the "
+         "band around it. Cleared after it is sent."));
+  form->addRow(m_autoband);
+
   m_q = mkSpin(0.5, 30.0, 0.5, kDefQ, QString());
   m_fmin = mkSpin(10.0, 490.0, 5.0, kDefFmin, tr(" Hz"));
   m_fmax = mkSpin(10.0, 490.0, 5.0, kDefFmax, tr(" Hz"));
@@ -109,7 +115,9 @@ void GyroNotchWidget::onApplyClicked() {
   emit commandRequested(CommandCodec::encodeSetGyroNotch(
       m_enable->isChecked(), static_cast<float>(m_q->value()),
       static_cast<float>(m_fmin->value()), static_cast<float>(m_fmax->value()),
-      static_cast<float>(m_minRatio->value())));
+      static_cast<float>(m_minRatio->value()), m_autoband->isChecked()));
+  // Auto-band is a one-shot trigger; untick so it isn't re-armed on the next Apply.
+  m_autoband->setChecked(false);
 }
 
 void GyroNotchWidget::onNotchStatus(const NotchStatusData &d) {

@@ -21,10 +21,11 @@ QByteArray encodeSetGyroLpf(int axis, float rc, quint8 devId = 42,
 
 // CMD_SET_GYRO_NOTCH: master enable + FFT dynamic-notch detection params applied
 // live to every axis. Each of q / fmin / fmax / minRatio is <= 0 => leave that
-// field unchanged on the FC (partial tune).
+// field unchanged on the FC (partial tune). autoband arms a one-shot auto-band
+// learn that tightens [fmin,fmax] around the observed hover spectrum.
 QByteArray encodeSetGyroNotch(bool enabled, float q, float fminHz, float fmaxHz,
-                              float minRatio, quint8 devId = 42,
-                              quint32 tsMs = 0);
+                              float minRatio, bool autoband = false,
+                              quint8 devId = 42, quint32 tsMs = 0);
 
 // CMD_SET_FLIGHT_MODE: 0=angle, 1=acro, 2=release to RC (source = GCS).
 QByteArray encodeSetFlightMode(int mode, quint8 devId = 42, quint32 tsMs = 0);
