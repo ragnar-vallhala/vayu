@@ -61,6 +61,13 @@ void gyro_notch_service(void);
 void gyro_notch_set_params(float q, float fmin_hz, float fmax_hz,
                            float min_ratio);
 
+/* Read back the current effective detection params (global across axes), for
+ * persistence: lets a store capture the full tune even after a partial command
+ * (a <=0 field left a value unchanged). Returns false and leaves the out-params
+ * untouched if uninitialised; NULL out-params are skipped. */
+bool gyro_notch_get_params(float *q, float *fmin_hz, float *fmax_hz,
+                           float *min_ratio);
+
 /* Telemetry: the idx-th tuned notch center frequency [Hz] for an axis, or 0 if
  * that slot is currently bypassed / out of range. */
 float gyro_notch_center_hz(uint8_t axis, uint8_t idx);

@@ -331,12 +331,14 @@ static navlink_ack_t
 on_cmd_set_gyro_notch(void *ctx, const navlink_frame_hdr_t *hdr,
                       const navlink_cmd_set_gyro_notch_t *m) {
   (void)ctx; (void)hdr;
-  /* Apply detection params first (a <=0 field is a no-op), then the master gate,
-   * so an enable takes effect with the freshly-set band/Q. Live-only — not
-   * persisted to SD. */
-  gyro_notch_set_params(m->q, m->fmin_hz, m->fmax_hz, m->min_ratio);
-  gyro_notch_set_enabled(m->enabled != 0);
-  return navlink_ack_result(ACK_OK);
+  /* Apply live (a <=0 detection field is left unchanged) AND persist to SD, so
+   * the tune survives a reboot. pid_config owns the store and reads the effective
+   * param set back after applying. */
+  return navlink_ack_result(
+      pid_config_apply_gyro_notch(m->enabled != 0, m->q, m->fmin_hz, m->fmax_hz,
+                                  m->min_ratio) == VAYU_OK
+          ? ACK_OK
+          : ACK_BAD);
 }
 
 static navlink_ack_t

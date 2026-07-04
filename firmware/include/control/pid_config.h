@@ -118,4 +118,21 @@ bool pid_config_get_d_lpf(uint8_t axis, float *rc);
 vayu_status_t pid_config_apply_d_lpf_command(const uint8_t *payload,
                                              uint16_t payload_len);
 
+/**
+ * @brief Fetch the persisted gyro-notch tune (global, not per-axis), if any.
+ * @return true + fills the requested out-params if a notch tune was stored;
+ *         false (out-params untouched) otherwise. NULL out-params are skipped.
+ */
+bool pid_config_get_gyro_notch(float *q, float *fmin_hz, float *fmax_hz,
+                               float *min_ratio, bool *enabled);
+
+/**
+ * @brief Apply and persist a CMD_SET_GYRO_NOTCH tune. Typed args (not the
+ *        legacy byte payload): a <=0 detection field is left unchanged; the
+ *        effective set is read back and persisted so the store stays complete.
+ * @return VAYU_OK on apply; VAYU_ERR_INVALID on a NaN/Inf field.
+ */
+vayu_status_t pid_config_apply_gyro_notch(bool enabled, float q, float fmin_hz,
+                                          float fmax_hz, float min_ratio);
+
 #endif // VAYU_PID_CONFIG_H

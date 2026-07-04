@@ -186,6 +186,29 @@ float gyro_notch_center_hz(uint8_t axis, uint8_t idx) {
   return s_bank[axis].freqs[idx];
 }
 
+bool gyro_notch_get_params(float *q, float *fmin_hz, float *fmax_hz,
+                           float *min_ratio) {
+  if (!s_bank) {
+    return false; /* uninitialised: leave the caller's values untouched */
+  }
+  /* Params are global (applied identically to every axis), so axis 0 is
+   * authoritative. */
+  const notch_bank_t *b = &s_bank[0];
+  if (q) {
+    *q = b->q;
+  }
+  if (fmin_hz) {
+    *fmin_hz = b->fft.cfg.fmin_hz;
+  }
+  if (fmax_hz) {
+    *fmax_hz = b->fft.cfg.fmax_hz;
+  }
+  if (min_ratio) {
+    *min_ratio = b->fft.cfg.min_peak_ratio;
+  }
+  return true;
+}
+
 unsigned gyro_notch_decimation(void) { return s_bank ? s_decim : 0u; }
 
 #else /* !VAYU_FFT_NOTCH — compile the notch out; every entry point is inert. */
@@ -210,6 +233,14 @@ float gyro_notch_center_hz(uint8_t axis, uint8_t idx) {
   (void)axis;
   (void)idx;
   return 0.0f;
+}
+bool gyro_notch_get_params(float *q, float *fmin_hz, float *fmax_hz,
+                           float *min_ratio) {
+  (void)q;
+  (void)fmin_hz;
+  (void)fmax_hz;
+  (void)min_ratio;
+  return false;
 }
 unsigned gyro_notch_decimation(void) { return 0u; }
 
