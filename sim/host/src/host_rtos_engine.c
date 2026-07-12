@@ -15,6 +15,7 @@
 #include "control/angle_rate_controller.h" /* angle_rate_controller_set_gains, _set_motor_geometry */
 #include "host_rc_feeder.h"   /* host_rc_feeder_start (serial RC for the GCS) */
 #include "host_rtos.h"        /* host_rtos_tick, host_rtos_run_until_idle */
+#include "sensor/bme280.h"    /* bme280_publish (in-process baro injection) */
 #include "sys/state.h"        /* system_state_get/_set, SYSTEM_STATE_* */
 #include "sys/sys_utils.h"    /* VAYU_DISCARD */
 #include "vaios.h"            /* v_system_init, scheduler_start, vaios_init_config_t */
@@ -28,9 +29,12 @@ extern void vsim_inproc_step(const float duty[4], float dt, uint8_t out_imu[88])
 extern int  vsim_inproc_load_geometry(const char *path, float out_x[4],
                                       float out_y[4], int out_spin[4]);
 extern void vsim_inproc_apply_actuator_env_default(void);
+extern void vsim_inproc_get_baro(float *pressure_pa, float *temperature_c,
+                                 float *humidity_rh);
 extern void host_pwm_get_latest(float out[4]);
 
 #define HF_PER_SAMPLE 10   /* HIGH_FREQ_TIMER_FREQ(10k) / SITL_IMU_FEED_HZ(1k) */
+#define BARO_DECIM    20   /* 1 kHz step / 20 -> ~50 Hz baro (BME280-realistic) */
 
 double env_f(const char *k, double dflt) {
   const char *v = getenv(k);
@@ -120,6 +124,18 @@ void step_once(stepper_t *s, control_telemetry_t *ct, int *got) {
   imu_queue_control_push(&s->sample);
   imu_queue_telemetry_push(&s->sample);
   imu_queue_attitude_push(&s->sample);
+  /* Feed the modelled barometer at ~50 Hz (mirrors the old host_baro FIFO
+   * feeder, which is compiled out in this in-process build) so the firmware's
+   * vertical estimator has altitude — otherwise VERT/climb telemetry is dead.
+   * The attitude/rate loops don't read baro, so this leaves their determinism
+   * fingerprints untouched. */
+  static uint32_t baro_ctr = 0;
+  if (++baro_ctr >= BARO_DECIM) {
+    baro_ctr = 0;
+    float pressure_pa, temp_c, hum_rh;
+    vsim_inproc_get_baro(&pressure_pa, &temp_c, &hum_rh);
+    bme280_publish(pressure_pa, temp_c, hum_rh);
+  }
   host_rtos_tick(1);
   for (int h = 0; h < HF_PER_SAMPLE; h++)
     increment_high_freq_timer();

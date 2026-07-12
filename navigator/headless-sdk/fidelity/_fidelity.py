@@ -3,13 +3,13 @@
 Two jobs:
   1. verify_frame() — PROVE the plant is flying the loaded frame's geometry
      (motor positions from the GCS conf / a .vveh), NOT vsim's compiled-in X3
-     defaults. It reads vsim_d's own geometry-set echo and asserts the applied
-     motor positions match what the harness pushed.
+     defaults. It reads the engine's own geometry-set echo and asserts the
+     applied motor positions match what the harness pushed.
   2. metric helpers + a per-maneuver 0-100 fidelity score, written as a JSON
      sidecar next to each CSV so rate_fidelity.py can aggregate the suite.
 
-Importing this module forces SITL_LAB_DEBUG=1 so vsim_d's stderr (the geometry
-echo) is captured to /tmp/vsim_d.err.
+Importing this module forces SITL_LAB_DEBUG=1 so the engine's stderr (the
+geometry echo, "vsim_inproc: motor...") is captured to /tmp/sitl.err.
 """
 import json
 import math
@@ -17,10 +17,10 @@ import os
 import re
 import time
 
-# vsim_d stderr (geometry echo) lands here when SITL_LAB_DEBUG is set; force it
-# on for every fidelity run so verify_frame() has something to read.
+# The engine's stderr (geometry echo) lands here when SITL_LAB_DEBUG is set;
+# force it on for every fidelity run so verify_frame() has something to read.
 os.environ.setdefault("SITL_LAB_DEBUG", "1")
-VSIM_ERR = "/tmp/vsim_d.err"
+VSIM_ERR = "/tmp/sitl.err"
 
 from vayu_headless.paths import gcs_conf_default  # noqa: E402
 
@@ -45,7 +45,7 @@ _MOTOR_RE = re.compile(
 
 
 def _read_vsim_motor_echo(err_path=VSIM_ERR):
-    """Return the LAST set of 4 echoed motor positions vsim_d applied, or None."""
+    """Return the LAST set of 4 echoed motor positions the engine applied, or None."""
     try:
         txt = open(err_path).read()
     except OSError:
@@ -60,13 +60,13 @@ def _read_vsim_motor_echo(err_path=VSIM_ERR):
 
 
 def verify_frame(sess, label="frame", tol=2e-3, wait=2.0):
-    """Assert vsim_d applied the geometry the harness pushed (sess.geometry),
+    """Assert the engine applied the geometry the harness pushed (sess.geometry),
     not the compiled-in defaults. Raises AssertionError on mismatch. Returns a
     dict describing the verified frame (for the scorecard)."""
     expected = getattr(sess, "geometry", {}) or {}
     if not expected:
         raise AssertionError(
-            "verify_frame: NO geometry was pushed — vsim_d is running its "
+            "verify_frame: NO geometry was pushed — the engine is running its "
             "compiled-in X3 defaults. Pass conf=gcs_conf() or vveh=<file>.")
     exp = [(float(expected["m%d_px" % i]), float(expected["m%d_py" % i]),
             float(expected["m%d_pz" % i])) for i in range(4)]
@@ -80,7 +80,7 @@ def verify_frame(sess, label="frame", tol=2e-3, wait=2.0):
         time.sleep(0.1)
     if not echo:
         raise AssertionError(
-            f"verify_frame: vsim_d printed no geometry echo in {VSIM_ERR}; "
+            f"verify_frame: the engine printed no geometry echo in {VSIM_ERR}; "
             "cannot confirm the frame (is SITL_LAB_DEBUG set?).")
 
     worst = max(math.hypot(echo[i][0] - exp[i][0], echo[i][1] - exp[i][1])

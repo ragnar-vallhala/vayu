@@ -1,4 +1,4 @@
-"""vsim_d wire protocol: control-frame builders + pose decoding.
+"""vsim wire protocol: control-frame builders + pose decoding.
 
 Mirrors sim/vsim/include/vsim_proto.h. These are pure functions (no I/O), so
 they unit-test without booting anything. Frame layout (carved verbatim from the

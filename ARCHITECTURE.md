@@ -12,10 +12,11 @@ Four components, two shared contracts:
 | **FC** (firmware) | `src/`, `include/` | STM32F401 @ 84 MHz, vaios RTOS: sensors → EKF → cascade control → motors | [firmware/docs/reference/software-flow.md](firmware/docs/reference/software-flow.md) |
 | **NavLink** (wire) | `navlink/` | The message dialect; one spec generates C / C++ / Python codecs | [navlink/docs/reference/navlink-v2-spec.md](navlink/docs/reference/navlink-v2-spec.md) |
 | **GCS** (Navigator) | `navigator/src/` | Qt6 ground station: telemetry, plots, calibration, replay, autotune | [navigator/docs/reference/gcs-architecture.md](navigator/docs/reference/gcs-architecture.md) |
-| **Sim + Pilot** | `sim/vsim/`, `sim/host/`, `navigator/headless-sdk/` | `vsim_d` physics daemon, the SITL host, and the `vayu_headless` Pilot scripting API | [sim/vsim/docs/reference/sim-architecture.md](sim/vsim/docs/reference/sim-architecture.md) |
+| **Sim + Pilot** | `sim/vsim/`, `sim/host/`, `navigator/headless-sdk/` | `vayu_sitl_rtos` — the real firmware **and** the vsim physics fused into one in-process binary — plus the `vayu_headless` Pilot scripting API | [sim/vsim/docs/reference/sim-architecture.md](sim/vsim/docs/reference/sim-architecture.md) |
 
 The two contracts are the seams that keep components decoupled: **NavLink** (the
-FC↔GCS↔Pilot wire) and **vsim_proto** (the FC↔sim transport).
+FC↔GCS↔Pilot wire) and **vsim_proto** (the physics↔operator transport; the
+FC↔physics hop is now in-process, not a wire).
 
 ---
 
@@ -31,89 +32,86 @@ flowchart TB
 
     GCS["GCS — Navigator (navigator/src/)<br/>telemetry · plots · calibration · replay · autotune"]:::comp
     FC["FC — firmware (src/, include/)<br/>STM32F401 · vaios · sensors→EKF→control→motors"]:::comp
-    VSIM["vsim_d — physics daemon (sim/vsim/)<br/>rigid-body dynamics · wind · sensor models"]:::comp
-    SITL["vayu_sitl — the real firmware on host (sim/host/)<br/>same code as FC, sensors-in / PWM-out"]:::comp
     PILOT["Pilot — vayu_headless (navigator/headless-sdk/)<br/>arm · goto · truth() · fidelity scoring"]:::comp
 
+    subgraph SITL_BIN ["vayu_sitl_rtos — ONE in-process SITL binary (sim/host/)"]
+        SITL["real firmware on host<br/>same code as FC, sensors-in / PWM-out"]:::comp
+        VSIM["vsim physics (sim/vsim/), linked in<br/>rigid-body dynamics · wind · sensor models"]:::comp
+        SITL <-->|"in-process (no FIFO)<br/>PWM out / IMU in"| VSIM
+    end
+
     NAV[["NavLink dialect (navlink/dialect.json)<br/>→ C · C++ · Python codecs"]]:::contract
-    VP[["vsim_proto (sim/vsim/include)<br/>pwm · imu · pose · ctl"]]:::contract
+    VP[["vsim_proto (sim/vsim/include)<br/>pose (truth, out) · ctl (config, in)"]]:::contract
 
     OP --> GCS
     OP --> PILOT
     GCS <-->|"NavLink v2 · serial / UDP"| FC
-    FC <-->|"vsim FIFOs (SITL only)"| VSIM
-    SITL <-->|"vsim FIFOs"| VSIM
-    GCS -.->|"hosts in-process + spawns vsim_d"| SITL
-    PILOT -.->|"spawns + scripts"| SITL
-    PILOT -.->|"ctl / pose"| VSIM
+    GCS -.->|"links vayu_sitl_rtos_core in-process"| SITL_BIN
+    PILOT -.->|"spawns vayu_sitl_rtos (driver mode) + scripts"| SITL_BIN
+    PILOT -.->|"ctl / pose (ground truth)"| VSIM
 
     NAV -.->|"defines the wire"| FC
     NAV -.->|"defines the wire"| GCS
     NAV -.->|"defines the wire"| PILOT
     SITL -.->|"is the FC code, host-compiled"| FC
-    VP -.->|"defines the transport"| VSIM
+    VP -.->|"defines the operator transport"| VSIM
 ```
 
 The same firmware control logic runs in all paths: on the board as **FC**, and on the
-host as **vayu_sitl**. NavLink is generated from a single dialect, so the FC, the GCS,
+host inside **vayu_sitl_rtos** (which fuses that firmware with the vsim physics in one
+deterministic process). NavLink is generated from a single dialect, so the FC, the GCS,
 and the Python SDK can never drift on the wire format.
 
 ---
 
 ## Runtime topologies
 
-The pieces compose into three ways to fly, plus the tuner:
+All three ways to fly drive the **one** SITL binary, `vayu_sitl_rtos` (firmware +
+physics fused in-process); plus the tuner:
 
 | Topology | Who runs | Link | Use |
 |----------|----------|------|-----|
 | **Hardware flight** | FC board + GCS | NavLink v2 over serial/UDP | real flying; GCS shows telemetry, sends commands |
-| **In-app SITL** | GCS hosts the firmware **in-process** + spawns `vsim_d` | vsim FIFOs (PWM/IMU/pose) + in-process UART2 telemetry | fly the real firmware from the UI / a joystick, no hardware |
-| **Headless SITL** | `vayu_headless` spawns `vayu_sitl` + `vsim_d` | vsim FIFOs + RC/UART PTYs | scripted missions, CI, fidelity tests — `Pilot.arm_takeoff` / `goto` |
-| **Autotune** | an isolated `vayu_sitl` + `vsim_d` pair | vsim `ctl` test-rig + NavLink telemetry | search PID gains against step responses |
+| **In-app SITL** | GCS links `vayu_sitl_rtos_core` **in-process** (no subprocess) | in-process; UART2 telemetry via callback | fly the real firmware from the UI / a joystick, no hardware |
+| **Headless SITL** | `vayu_headless` spawns `vayu_sitl_rtos` in driver mode | `pose`/`ctl` FIFOs + RC/UART2 PTYs | scripted missions, CI, fidelity tests — `Pilot.arm_takeoff` / `goto` |
+| **Autotune** | `tools/autotune` spawns `vayu_sitl_rtos` in driver mode (or the faster in-process `rtos_eval.py` batch backend) | `ctl` test-rig + NavLink telemetry / `#RTOS-TUNE` | search / analytically place PID gains against step responses |
 
-The **SITL seam** is a hard contract: the firmware only ever consumes sensors (IMU FIFO)
-and RC, and emits PWM + telemetry — it never reads ground truth. The operator/Pilot *may*
+The **SITL seam** is a hard contract: the firmware only ever consumes sensors (IMU) and
+RC, and emits PWM + telemetry — it never reads ground truth. The operator/Pilot *may*
 read ground truth (the `pose` FIFO). This is what makes a SITL result trustworthy; it is
 enforced at runtime (see the sim doc).
 
 ---
 
-## SITL execution model (timing, pacing, determinism)
+## SITL execution model (timing, determinism)
 
-How the host SITL is *clocked* matters as much as what it runs. There are two host
-backends and a shared virtual-clock foundation. See
+How the host SITL is *clocked* matters as much as what it runs. SITL is a **single
+in-process binary**, `vayu_sitl_rtos`, that runs the **actual vaios scheduler** on the
+host (ucontext port) with the **vsim physics linked in** — one deterministic process, no
+FIFO round-trip, no second process. See
 [firmware/docs/plans/sitl-lockstep-sim.md](firmware/docs/plans/sitl-lockstep-sim.md) for the full design.
 
-**Shared foundation — the virtual sim clock (always on in SITL).** The firmware's
-timing (`v_get_ticks`, control-loop cadence, telemetry timestamps) is slaved to **sim
-time**, not the wall clock — one tick per IMU sample. So sim time is exactly the sample
-count, independent of how fast the host runs. This removes wall-clock `dt` jitter and is
-the basis for running faster than realtime.
+**The virtual sim clock (always on in SITL).** The firmware's timing (`v_get_ticks`,
+control-loop cadence, telemetry timestamps) is slaved to **sim time**, not the wall clock
+— one tick per IMU sample. So sim time is exactly the sample count, independent of how
+fast the host runs. This removes wall-clock `dt` jitter and is the basis for running
+faster than realtime.
 
-**Backend A — pthread SITL (`vayu_sitl`, default).** Each vaios task is a host pthread;
-the virtual clock is a mutex/condvar driven by the IMU feeder. Faithful and battle-tested.
-Pace it with vsim:
+**The stepper.** A single-threaded loop drives the whole stack. Per sample: step physics
+→ inject IMU → SysTick+1 → run the scheduler to idle (firmware writes PWM) → read PWM back
+inline. Properties:
 
-| vsim pacing | how | speed | fidelity |
-|---|---|---|---|
-| realtime (default) | `vsim_d` sleeps to `imu_hz` | 1× | full |
-| lockstep (opt-in env `VSIM_LOCKSTEP=1`) | vsim runs as fast as the firmware returns PWM, bounded by a credit window (`VSIM_LOCKSTEP_CREDIT`, default **2**) | ~3× | faithful at credit≤2; higher credit is faster but adds control latency that can destabilise a *marginal* loop (validated — see `tools/autotune/validate_lockstep_determinism.py`) |
-
-**Backend B — real vaios scheduler, in-process (`vayu_sitl_rtos`, opt-in build).** Runs
-the **actual RTOS scheduler** on the host (ucontext port) instead of free pthreads, driven
-by a single-threaded stepper, with **vsim physics linked in-process** (no FIFO, no second
-process). Per sample: step physics → inject IMU → SysTick+1 → run the scheduler to idle
-(firmware writes PWM) → read PWM back inline. Properties:
-
-- **~57× realtime** — the two-process FIFO round-trip (which was ~98% of wall time) is gone.
-- **Faithful** — PWM is read inline, never stale (no credit-window latency).
+- **~57× realtime** — the old two-process FIFO round-trip (which was ~98% of wall time) is gone.
+- **Faithful** — PWM is read inline, never stale.
 - **Deterministic** — single-threaded + seeded ⇒ **bit-identical** across runs.
 - **Maximum fidelity** — the real scheduler (priorities, delays, semaphores) is under test,
   not a pthread approximation.
 
-Backend B is the path to fast, reproducible autotune/regression; Backend A remains the
-default and the one the GCS hosts in-process. Build/run commands for both are in
-[Building and running](#building-and-running) below.
+This is the path to fast, reproducible autotune/regression, and it is also what the GCS
+links in-process for in-app SITL. (The former pthread host `vayu_sitl` and the standalone
+`vsim_d` physics daemon have been retired; the `vayu_sitl_core` static library survives
+only as the link target for the firmware **unit-test** suite, not as a runnable SITL.)
+Build/run commands are in [Building and running](#building-and-running) below.
 
 ---
 
@@ -122,9 +120,11 @@ default and the one the GCS hosts in-process. Build/run commands for both are in
 - **FC ↔ GCS (NavLink v2):** telemetry down (attitude, IMU, RC, motors, health, control
   trace…) and commands up (arm, calibrate, set-PID, set-mode, time-sync). Sync `0x56`,
   version `0x02`, 24-bit msgids, CRC-16. Decoded identically for live, sim, and replay.
-- **FC ↔ Sim (vsim_proto):** four `/tmp` FIFOs — `pwm` (FC→sim duty), `imu` (sim→FC
-  sample), `pose` (sim→operator ground truth), `ctl` (operator→sim: reset/world/wind/
-  rates/rig/faults). Per-session `VSIM_FIFO_SUFFIX` isolation.
+- **FC ↔ physics:** now **in-process** inside `vayu_sitl_rtos` — PWM out / IMU in are
+  direct calls, no FIFO. Only the **operator** transport remains on the wire (vsim_proto):
+  `pose` (physics→operator ground truth, out) and `ctl` (operator→physics: reset/world/
+  wind/rates/rig/faults, in), plus the UART2 telemetry PTY. Per-session `VSIM_FIFO_SUFFIX`
+  isolation. (The old `pwm`/`imu`/`baro` FIFOs are gone — that hop is fused.)
 - **Pilot ↔ SITL (scripting):** Python reads telemetry (`lab.telem`) and ground truth
   (`lab.truth()`), and actuates **only via RC sticks** — the same seam a human pilot uses.
 
@@ -138,9 +138,9 @@ default and the one the GCS hosts in-process. Build/run commands for both are in
 | `navlink/` | NavLink dialect (`dialect.json`), code generator, ABI, integration notes |
 | `navigator/src/` | GCS Navigator (Qt6) |
 | `navigator/headless-sdk/` | `vayu_headless` — the Pilot scripting SDK + fidelity scoring |
-| `sim/vsim/` | `vsim_d` physics daemon + `vsim_proto.h` |
-| `sim/host/` | the SITL host seam — pthread backend (`vayu_sitl`) + opt-in real-RTOS in-process backend (`vayu_sitl_rtos`, `host_rtos_*`), IMU/RC feeders, PWM/UART shims, virtual clock |
-| `tools/autotune/` | PID autotuner (drives `vsim_d` directly) |
+| `sim/vsim/` | vsim physics sources (`sim_controller`/`physics_core`/`motor_model`/`sensor_models`) + `vsim_proto.h` — linked in-process into `vayu_sitl_rtos`, not a standalone daemon |
+| `sim/host/` | the SITL host seam — builds `vayu_sitl_rtos` (real vaios scheduler + vsim physics fused, `host_rtos_*`), IMU/RC feeders, PWM/UART shims, virtual clock; also the `vayu_sitl_core` unit-test link lib |
+| `tools/autotune/` | PID autotuner (spawns `vayu_sitl_rtos` in driver mode; `rtos_eval.py` is the in-process batch backend) |
 | `docs/` | documentation, organized per component into reference / plans / journal / scratch |
 
 Documentation is organized **per component**, each with the same four lifecycle layers
@@ -162,73 +162,73 @@ cmake --build build_flash --target flash  # objcopy -> .bin, flash via st-flash
 Firmware options (append to the configure line): `-DEKF_SELFTEST=ON` (EKF self-test at
 boot), `-DUSE_STANDARD_MATH=OFF` (use the firmware math backend; default ON).
 
-### 2. vsim_d — physics daemon
+### 2. SITL — the one in-process binary (`vayu_sitl_rtos`)
+The real firmware and the vsim physics fused into one deterministic process (real vaios
+scheduler + physics linked in, ~57× realtime). This is the SITL binary all consumers drive.
 ```sh
-cmake -S sim/vsim -B build_vsim && cmake --build build_vsim -j$(nproc)   # -> build_vsim/vsim_d
+cmake -S sim/host -B build_sitl_rtos -DVAYU_SITL_RTOS_BUILD=ON
+cmake --build build_sitl_rtos --target vayu_sitl_rtos -j$(nproc)   # -> build_sitl_rtos/vayu_sitl_rtos
+./build_sitl_rtos/vayu_sitl_rtos                                   # self-contained: physics in-process, deterministic
 ```
+Self-contained — it does **not** need a separate physics daemon (physics is linked in).
 
-### 3. SITL host A — pthread (default backend)
+### 3. Firmware host unit tests
+The `vayu_sitl_core` static library survives only as the link target for the host
+unit-test suite (**not** a runnable SITL):
 ```sh
-cmake -S sim/host -B build_sitl && cmake --build build_sitl -j$(nproc)  # -> build_sitl/vayu_sitl + tests
-ctest --test-dir build_sitl --output-on-failure                              # host unit tests
+cmake -S sim/host -B build_sitl && cmake --build build_sitl -j$(nproc)  # -> unit tests
+ctest --test-dir build_sitl --output-on-failure
 ```
 Options: `-DVAYU_SANITIZE=ON` (ASan+UBSan), `-DVAYU_COVERAGE=ON` (gcov; then
 `cmake --build build_sitl --target coverage`).
 
-### 4. SITL host B — real vaios scheduler, in-process (opt-in)
-```sh
-cmake -S sim/host -B build_sitl_rtos -DVAYU_SITL_RTOS_BUILD=ON
-cmake --build build_sitl_rtos --target vayu_sitl_rtos -j$(nproc)   # -> build_sitl_rtos/vayu_sitl_rtos
-./build_sitl_rtos/vayu_sitl_rtos                                   # self-contained: physics in-process, ~57x, deterministic
-```
-Self-contained — it does **not** need a separate `vsim_d` (physics is linked in).
-
-### 5. GCS — Navigator (Qt6)
+### 4. GCS — Navigator (Qt6)
 ```sh
 cmake -S navigator -B navigator/build && cmake --build navigator/build -j$(nproc)
 ```
-Requires Qt6 (Core, Widgets, SerialPort, Network, OpenGL/Widgets). The GCS can host the
-pthread SITL in-process and spawn `vsim_d` for in-app simulation.
+Requires Qt6 (Core, Widgets, SerialPort, Network, OpenGL/Widgets). The GCS links
+`vayu_sitl_rtos_core` **in-process** for in-app simulation — no subprocess.
 
-### 6. Headless SDK — the Pilot scripting API
+### 5. Headless SDK — the Pilot scripting API
 ```sh
 python3 -m venv .venv
 ./.venv/bin/pip install -e "navigator/headless-sdk[test]"
-# point it at the binaries from steps 2 + 3:
-export VSIM_BIN=$PWD/build_vsim/vsim_d VAYU_SITL_BIN=$PWD/build_sitl/vayu_sitl
+# point it at the SITL binary from step 2:
+export VAYU_SITL_RTOS_BIN=$PWD/build_sitl_rtos/vayu_sitl_rtos
 ```
+The SDK spawns `vayu_sitl_rtos` in **driver mode** (`VAYU_RTOS_SCENARIO=driver`).
 
-### 7. Autotune (Python; drives `vsim_d` + `vayu_sitl` directly)
-Needs steps 2 + 3 built, then:
+### 6. Autotune (Python; spawns `vayu_sitl_rtos`)
+Needs step 2 built, then:
 ```sh
 cd tools/autotune && python3 autotune.py --optimizer spsa --budget 50 --apply
-python3 validate_lockstep_determinism.py          # lockstep fidelity/credit sweep
+python3 rtos_eval.py                              # in-process batch eval backend
 ```
 
-### Running standalone SITL (backend A)
-Start `vsim_d`, then `vayu_sitl`, sharing one `VSIM_FIFO_SUFFIX`:
+### Running standalone SITL (driver mode)
+`vayu_sitl_rtos` in driver mode is a drop-in for the old daemon+host pair over the same
+wire contract: it creates the `pose` (ground-truth, out) + `ctl` (config, in) FIFOs,
+advertises the UART2 telemetry PTY, and reads RC over `VAYU_UART_RC_PATH`:
 ```sh
 export VSIM_FIFO_SUFFIX=_s1
-./build_vsim/vsim_d &                  # realtime by default
-VSIM_LOCKSTEP=1 ./build_vsim/vsim_d &  # OR: ~3x faster-than-realtime pacing
-./build_sitl/vayu_sitl
+VAYU_RTOS_SCENARIO=driver ./build_sitl_rtos/vayu_sitl_rtos
 ```
 
 ### Opt-in flags reference
 | Flag | Kind | Default | Effect |
 |---|---|---|---|
-| `VAYU_SITL_RTOS_BUILD` | CMake (`-D…=ON`) | OFF | build the real-RTOS in-process SITL (`vayu_sitl_rtos`, backend B) |
-| `VAYU_SANITIZE` | CMake | OFF | ASan + UBSan on SITL + tests |
+| `VAYU_SITL_RTOS_BUILD` | CMake (`-D…=ON`) | OFF | build the in-process SITL binary (`vayu_sitl_rtos`) |
+| `VAYU_SANITIZE` | CMake | OFF | ASan + UBSan on the host tests |
 | `VAYU_COVERAGE` | CMake | OFF | gcov instrumentation + `coverage` target |
 | `EKF_SELFTEST` | CMake (firmware) | OFF | run the EKF self-test at boot |
 | `USE_STANDARD_MATH` | CMake (firmware) | ON | `math.h` backend vs the firmware's |
-| `VSIM_LOCKSTEP` | env (runtime) | unset (realtime) | `vsim_d` runs faster than realtime via PWM-backpressure pacing (backend A) |
-| `VSIM_LOCKSTEP_CREDIT` | env | 2 | lockstep credit window; ≤2 faithful, higher = faster but risks desync on a marginal loop |
-| `VSIM_FIFO_SUFFIX` | env | empty | per-session FIFO/pty isolation (run many SITL stacks at once) |
+| `VAYU_SITL_RTOS_BIN` | env (runtime) | — | path to the `vayu_sitl_rtos` binary (SDK / autotune / harness spawn it) |
+| `VAYU_RTOS_SCENARIO` | env | built-in | `driver` = interactive/headless driver mode (pose/ctl FIFOs + UART2/RC PTYs) |
+| `VSIM_FIFO_SUFFIX` | env | empty | per-session FIFO/pty isolation (run many SITL sessions at once) |
 | `VAYU_UART_RC_PATH`, `VAYU_VFS_DIR` | env | pty / `/tmp/vayu_vfs` | RC serial path; on-disk backing for the host VFS (persisted `pid.bin`) |
 
 Not opt-in (always on in SITL): the **virtual sim clock** — firmware timing is slaved to
-sim time in both host backends.
+sim time.
 
 ---
 

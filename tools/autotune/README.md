@@ -1,18 +1,19 @@
 # SITL PID Autotuner (MVP)
 
 Closed-loop PID gain search against the headless SITL stack. Launches the
-physics daemon (`vsim_d`) + the firmware (`vayu_sitl`) in **test-rig mode**
-(translation pinned, rotation free — a frictionless attitude gimbal), excites
-roll/pitch attitude step doublets, reads the firmware's control-telemetry
-(setpoint vs. measured for every loop) and minimizes a tracking cost.
+single in-process SITL binary (`vayu_sitl_rtos`, driver mode: real firmware +
+physics in one process) in **test-rig mode** (translation pinned, rotation free
+— a frictionless attitude gimbal), excites roll/pitch attitude step doublets,
+reads the firmware's control-telemetry (setpoint vs. measured for every loop)
+and minimizes a tracking cost.
 
 The firmware control code is identical to hardware; only the HAL is stubbed.
 
-## Prerequisites (build the two binaries once)
+## Prerequisites (build the binary once)
 
 ```bash
-cmake --build build_vsim  --target vsim_d     -j$(nproc)
-cmake --build build_sitl  --target vayu_sitl  -j$(nproc)
+cmake -S sim/host -B build_sitl_rtos -DVAYU_SITL_RTOS_BUILD=ON
+cmake --build build_sitl_rtos --target vayu_sitl_rtos -j$(nproc)
 ```
 
 ## Run
@@ -69,21 +70,22 @@ the stable region. See `_axis_cost` in `autotune.py`.
 autotune.py ── cost / excitation / CLI / multi-optimizer compare
    optimizers.py ── SPSA, FDGD, coordinate, Nelder-Mead, hybrid, portfolio
    sitl.py ──────── launches & drives the headless stack:
-        vsim_d  ←ctl(reset/testrig/rates)──  RC over a PTY ──→ vayu_sitl
-        vayu_sitl ──control-telemetry + CMD_SET_PID over the UART2 PTY──→ here
+        engine  ←ctl(reset/testrig/rates)── + RC over a PTY ──→ engine
+        engine ──control-telemetry + CMD_SET_PID over the UART2 PTY──→ here
+        (firmware + physics run in ONE process, vayu_sitl_rtos driver mode)
    protocol.py ──── NavLink (CRC32, decode control-telemetry, encode SET_PID/ARM)
                     + vsim ctl/pose frame (de)serialization
 ```
 
 ## Notes & limitations (MVP)
 
-- **Test-rig mode** is a new `vsim_d` control message (`VSIM_CTL_SET_TESTRIG`,
+- **Test-rig mode** is a `vsim` control message (`VSIM_CTL_SET_TESTRIG`,
   opcode 12). It pins the 3 translational DOF and leaves rotation free.
 - RC is fed over a **PTY** (not a FIFO) because the firmware calls `tcgetattr`
   on `VAYU_UART_RC_PATH`; a plain FIFO makes it fall back to synthetic hover.
-- Rollouts run in **real time** (vsim_d is wall-clock paced) — ~5 s each. A
-  faster-than-real-time "turbo" mode for `vsim_d` would speed this up a lot.
-- The sim uses `vsim_d`'s default mass/inertia, not your airframe geometry yet.
+- Rollouts run in **real time** (the engine is wall-clock paced) — ~5 s each.
+  The in-process backend (`rtos_eval.py`) runs the same doublet far faster.
+- The sim uses the engine's default mass/inertia unless a geometry is pushed.
   For hardware-transferable gains, push real geometry (`VSIM_CTL_SET_GEOMETRY`)
   and validate on a tethered bench — **never auto-tune on hardware unattended.**
 - RC stick→angle has strong (cubic) expo, so the step uses ~1800 µs (~21°).

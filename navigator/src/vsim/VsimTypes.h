@@ -13,9 +13,9 @@
 
 // Navigator-side type aliases for SimSnapshot fields. The full physics
 // state structures (RigidBodyState, DroneParams, MotorParams,
-// SensorNoise, ImuSample) live in sim/vsim/include/vsim_types.h on the
-// daemon side. Navigator only consumes pose snapshots, so all it needs
-// is the Qt-typed Vec3 / Quat the renderer reads off SimSnapshot.
+// SensorNoise, ImuSample) live in sim/vsim/include/vsim_types.h, linked into
+// the in-process engine. Navigator only consumes pose snapshots, so all it
+// needs is the Qt-typed Vec3 / Quat the renderer reads off SimSnapshot.
 namespace vsim {
 
 using Vec3 = QVector3D;
@@ -40,7 +40,7 @@ inline void quatToEulerNED(const Quat& q, float* rollDeg, float* pitchDeg,
 }
 
 // Per-rotor configuration as edited in the GeometryEditorWidget. Mirrors
-// (a subset of) the daemon-side MotorParams; pushed to vsim_d via
+// (a subset of) the physics-side MotorParams; pushed to the engine via
 // SimWorker::sendGeometry -> VSIM_CTL_SET_GEOMETRY.
 struct MotorConfig {
   QVector3D pos{0, 0, 0};        // body-frame [m]
@@ -54,7 +54,7 @@ struct MotorConfig {
 
 // The full airframe geometry the editor produces: a mesh (GCS-side only,
 // for rendering + inertia computation) plus the mass properties and motor
-// layout pushed to the daemon. meshPath/scale/com never cross the wire.
+// layout pushed to the engine. meshPath/scale/com never cross the wire.
 struct GeometryConfig {
   QString meshPath;
   float scale = 1.0f;            // meters per mesh unit
@@ -73,10 +73,10 @@ struct GeometryConfig {
   }};
 };
 
-// Environment + aerodynamics edited in the World tab; pushed to vsim_d via
+// Environment + aerodynamics edited in the World tab; pushed to the engine via
 // SimWorker::sendWorld -> VSIM_CTL_SET_WORLD. NED: +Z is down, so gravity
 // is positive and the ground plane sits at ground_z.
-// A static world obstacle. Rendered GCS-side now; collision in vsim_d is a
+// A static world obstacle. Rendered GCS-side now; collision in the physics is a
 // later phase (restitution carried so the wire format won't change then).
 // All in the NED world frame the drone pose uses (z down → on-ground center
 // sits at z = -size.z/2). size: box = full extents; sphere = x is radius;
@@ -125,7 +125,7 @@ struct WorldConfig {
 };
 
 // World-frame wind field (VSIM_CTL_SET_WIND): steady + gust + turbulence.
-// enabled=false is a fast bypass on the daemon (no wind, no RNG draw).
+// enabled=false is a fast bypass in the physics (no wind, no RNG draw).
 struct WindConfig {
   QVector3D steady{0, 0, 0};   // NED [m/s]  (windN, windE, windD)
   float gustAmp    = 0.0f;     // peak gust [m/s]

@@ -1,6 +1,6 @@
 """World collision-mesh build + push.
 
-vsim_d collides the body against a BVH it mmaps (VSIM_CTL_SET_WORLD_MESH). The
+The engine collides the body against a BVH it mmaps (VSIM_CTL_SET_WORLD_MESH). The
 GCS builds that BVH from the loaded world mesh; headless runs must do the same
 or the craft flies through everything. We shell out to the `vsim_worldmesh` CLI
 (reuses the GCS's own vsim::loadMesh + buildWorldBvh) so collision is identical

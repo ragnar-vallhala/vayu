@@ -38,6 +38,10 @@ add_compile_definitions(
     CORTEX_M4=1   # bypass the architecture #error in vaios/task.h; we shim
                   # the ARM-specific bits via sim/host/include/port.h
     NAVHAL=1
+    VAYU_FFT_NOTCH=1   # compile the REAL FFT dynamic gyro notch (default-ON on
+                       # the FC), so SITL runs the same code as hardware — not
+                       # the inert stub. Runtime-disabled until the NOTCH command
+                       # enables it + props pass the throttle gate.
     VAIOS_CONFIG_FILE="${VAYU_ROOT}/firmware/include/vaios_app_config.h"
 )
 
@@ -64,10 +68,6 @@ set(HOST_SOURCES
     src/host_vfs.c
     src/vsim_iface.c
 )
-set(HOST_MAIN_SOURCES
-    src/host_main.c
-)
-
 # Firmware sources the host binary reuses verbatim.
 set(VAYU_SOURCES
     ${VAYU_ROOT}/firmware/src/calib/calib_ellipsoid.c # shared sensor-agnostic ellipsoid fit
@@ -83,6 +83,11 @@ set(VAYU_SOURCES
     ${VAYU_ROOT}/firmware/src/control/control_buffer.c
     ${VAYU_ROOT}/firmware/src/est/lpf.c
     ${VAYU_ROOT}/firmware/src/maths/maths_interface.c
+    ${VAYU_ROOT}/firmware/src/maths/fft.c              # m_rfft_* (dynamic-notch FFT analysis)
+    ${VAYU_ROOT}/firmware/src/maths/biquad.c           # m_biquad_* (notch bank design/apply)
+    ${VAYU_ROOT}/firmware/src/dsp/notch_fft.c          # FFT peak-tracking front-end
+    ${VAYU_ROOT}/firmware/src/dsp/notch_bank.c         # per-axis biquad notch bank
+    ${VAYU_ROOT}/firmware/src/dsp/gyro_notch.c         # FFT-driven dynamic gyro notch (angle_rate_controller dep)
     ${VAYU_ROOT}/firmware/src/control/pid.c
     ${VAYU_ROOT}/firmware/src/control/rate_indi.c   # optional INDI inner loop (RATE_CTRL_ALGO_USED)
     ${VAYU_ROOT}/firmware/src/sys/math_utils.c
@@ -127,18 +132,15 @@ set(VAIOS_HOST_SOURCES
 # ----------------------------------------------------------------------------
 # Targets
 #
-# libvayu_sitl_core.a (static): firmware sources + host shims + vsim_iface +
-# the vayu_sitl_start / vayu_sitl_stop API. The Navigator GCS links this in
-# directly so it can spawn the firmware threads inside its own process.
-#
-# vayu_sitl (executable): thin wrapper around the library that calls
-# vayu_sitl_start(NULL) so the standalone binary still works for offline
-# tests with the legacy /tmp FIFOs.
+# libvayu_sitl_core.a (static): firmware sources + host shims, compiled for the
+# host. It exists as the link target for the firmware UNIT-TEST suite below
+# (each test provides its own main() and pulls the firmware objects it needs).
+# The interactive SITL now runs on vayu_sitl_rtos (the in-process engine); the
+# legacy standalone vayu_sitl binary + its vsim_d FIFO peer were removed.
 # ----------------------------------------------------------------------------
 
 add_library(vayu_sitl_core STATIC
     ${HOST_SOURCES}
-    ${HOST_MAIN_SOURCES}
     ${VAYU_SOURCES}
     ${VAIOS_HOST_SOURCES}
 )
@@ -172,13 +174,7 @@ endif()
 find_package(Threads REQUIRED)
 target_link_libraries(vayu_sitl_core PUBLIC Threads::Threads m rt navlink_codec)
 
-add_executable(vayu_sitl ${HOST_MAIN_SOURCES})
-# main() is also in the library, so the executable picks the library's
-# definition. Linker uses the .o from the explicit source. Same code,
-# same behavior as before.
-target_link_libraries(vayu_sitl PRIVATE vayu_sitl_core)
-
-message(STATUS "vayu_sitl: static library + standalone binary configured")
+message(STATUS "vayu_sitl_core: firmware host test library configured")
 
 # ----------------------------------------------------------------------------
 # Phase 4 (experimental, opt-in): vayu_sitl_rtos

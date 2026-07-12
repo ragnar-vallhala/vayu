@@ -1,24 +1,34 @@
 # Sim & SITL architecture (with the Pilot scripting API)
 
-A complete map of the simulation stack: the `vsim_d` physics daemon, how the
-**real firmware** runs headlessly against it (SITL), the seam that keeps the FC
-honest, and the **`vayu_headless` Pilot** — the Python API you script flights with.
-Verified against `sim/vsim/`, `sim/host/`, and `navigator/headless-sdk/`.
+A complete map of the simulation stack: `vayu_sitl_rtos` — the **real firmware** and the
+vsim physics **fused into one in-process binary** — how it runs headlessly (SITL), the
+seam that keeps the FC honest, and the **`vayu_headless` Pilot**, the Python API you
+script flights with. Verified against `sim/vsim/`, `sim/host/`, and
+`navigator/headless-sdk/`.
 
 > Companion docs: firmware internals → [`../../../../docs/reference/software-flow.md`](../../../../docs/reference/software-flow.md);
 > wire protocol → [`../../include/vsim_proto.h`](../../include/vsim_proto.h);
 > the GCS that also hosts this sim in-process → [`../../../../navigator/docs/reference/gcs-architecture.md`](../../../../navigator/docs/reference/gcs-architecture.md).
 
-## The three processes
+## One binary, two processes at run time
 
-| Process | Binary / package | Role |
+SITL is a **single binary**, `vayu_sitl_rtos`: it runs the real firmware on the actual
+vaios scheduler (ucontext port) with the vsim physics **linked in**, so the FC↔physics
+loop closes with direct calls — no FIFO, no second process. The standalone `vsim_d`
+physics daemon and the old pthread `vayu_sitl` host have been retired; the vsim physics
+now lives as the `vsim_phys` static lib (`sim/vsim/src/{sim_controller,physics_core,
+motor_model,sensor_models}.cpp`) linked into `vayu_sitl_rtos` via `sim/host/`.
+
+| Component | Where | Role |
 |---|---|---|
-| **vsim_d** | `sim/vsim` → `vsim_d` | Rigid-body physics, sensor synthesis, world/wind. The *plant*. |
-| **vayu_sitl** | `sim/host` → `vayu_sitl` (links `libvayu_sitl_core.a`) | The **real firmware** control logic compiled for the host. The *flight controller*. |
-| **driver / Pilot** | `navigator/headless-sdk` → `vayu_headless` | Orchestration: spawns both, injects RC, reads telemetry + ground truth, flies trajectories, scores fidelity. |
+| **vayu_sitl_rtos** | `sim/host` → `vayu_sitl_rtos` (real firmware + `vsim_phys`) | The FC **and** the plant fused: rigid-body physics, sensor synthesis, world/wind, run against the real control logic in one deterministic process. |
+| **driver / Pilot** | `navigator/headless-sdk` → `vayu_headless` | Orchestration: spawns `vayu_sitl_rtos` in **driver mode**, injects RC, reads telemetry + ground truth, flies trajectories, scores fidelity. |
 
-They connect over four `/tmp` **FIFOs** plus two **PTYs**, isolated per session by
-`VSIM_FIFO_SUFFIX` (e.g. `_lab<pid>`) so concurrent runs never collide.
+In **driver mode** (`VAYU_RTOS_SCENARIO=driver`) the binary is a drop-in for the old
+daemon+host pair over the **same wire contract**: two `/tmp` **FIFOs** (`pose` out, `ctl`
+in) plus two **PTYs** (UART2 telemetry advert, RC), isolated per session by
+`VSIM_FIFO_SUFFIX` (e.g. `_lab<pid>`) so concurrent runs never collide. The former
+`pwm`/`imu` FIFOs are gone — that hop is now in-process.
 
 ---
 
@@ -30,49 +40,58 @@ flowchart LR
     classDef pipe fill:#f3e8fd,stroke:#7b2cbf,color:#111;
 
     PY["Python driver / Pilot<br/>vayu_headless"]:::proc
-    FW["vayu_sitl<br/>real firmware (libvayu_sitl_core)"]:::proc
-    SIM["vsim_d<br/>physics daemon"]:::proc
 
-    FW -->|"vsim_pwm — duty[4], ~1 kHz"| SIM
-    SIM -->|"vsim_imu — 88 B sample, ~1 kHz"| FW
+    subgraph BIN ["vayu_sitl_rtos — one process"]
+        FW["real firmware<br/>(vaios scheduler, ucontext)"]:::proc
+        SIM["vsim physics<br/>(vsim_phys, linked in)"]:::proc
+        FW -->|"PWM duty[4] (in-process call)"| SIM
+        SIM -->|"88 B IMU sample (in-process call)"| FW
+    end
+
     SIM -->|"vsim_pose — 60 Hz GROUND TRUTH"| PY
     PY -->|"vsim_ctl — reset/world/wind/rates (lossless)"| SIM
     PY -->|"RC µs CSV over PTY (VAYU_UART_RC_PATH)"| FW
     FW -->|"UART2 NavLink v2 telemetry over PTY"| PY
 ```
 
-All `/tmp/vsim_*` paths carry the `VSIM_FIFO_SUFFIX`. PWM/IMU/POSE are **latest-wins**
-(a slow reader just drops stale frames); **CTL is lossless** (`pollNext`) because the
-startup burst — rates, geometry, world, wind — must all apply.
+The PWM/IMU exchange is now a direct in-process call every sample. On the wire, only
+`vsim_pose` (**latest-wins** — a slow reader drops stale frames) and `vsim_ctl`
+(**lossless**, `pollNext`, because the startup burst — rates, geometry, world, wind —
+must all apply) remain; both carry the `VSIM_FIFO_SUFFIX`.
 
-> **GCS in-process variant:** when the firmware is linked *inside* Navigator instead of
-> run as `vayu_sitl`, PWM/IMU/pose still ride the FIFOs, but UART2 telemetry is delivered
-> by an in-process callback rather than a PTY. See the GCS doc, "In-app sim hosting".
+> **GCS in-process variant:** when Navigator links `vayu_sitl_rtos_core` *inside* itself
+> instead of spawning the binary, there are no FIFOs/PTYs at all — pose and UART2
+> telemetry are delivered by in-process callbacks. See the GCS doc, "In-app sim hosting".
 
-*Source: `sim/vsim/include/vsim_proto.h:305-308`, `navigator/headless-sdk/vayu_headless/session.py:44-154`, `vayu_headless/paths.py`.*
+*Source: `sim/host/src/host_rtos_main.c` (`run_driver`, `driver_dispatch_ctl`),
+`sim/host/src/vsim_inproc.cpp`, `sim/vsim/include/vsim_proto.h`,
+`navigator/headless-sdk/vayu_headless/session.py`, `vayu_headless/paths.py`.*
 
 ---
 
-## 2. `vsim_d` per-tick loop
+## 2. The in-process physics step (per IMU sample)
 
-Single thread paced by `clock_nanosleep` at `imu_hz` (default 1 kHz; physics 8 kHz,
-pose 60 Hz — all live-reconfigurable via `SET_RATES`).
+The physics (`vsim_inproc.cpp`, wrapping `sim_controller`/`physics_core`) is stepped once
+per IMU sample by the RTOS stepper — not by a free-running daemon thread. Sim time is the
+sample count, so there is no `clock_nanosleep` pacing inside the loop (rates default 1 kHz
+IMU / 8 kHz physics / 60 Hz pose, still live-reconfigurable via `SET_RATES`). In **driver
+mode** the outer loop drains the `ctl` FIFO and emits the `pose` FIFO around each step.
 
 ```mermaid
 flowchart TD
     classDef step fill:#fff,stroke:#444,color:#111;
-    A["tick @imu_hz (default 1 kHz)"]:::step
-    A --> B["drain vsim_pwm — latest duty[4]<br/>(reject NaN, clamp 0..1)"]:::step
-    B --> C["drain ALL vsim_ctl frames (lossless)<br/>reset / rates / geometry / world / wind / faults / testrig"]:::step
+    A["stepper: next IMU sample"]:::step
+    A --> B["firmware wrote PWM inline — latest duty[4]<br/>(reject NaN, clamp 0..1)"]:::step
+    B --> C["driver mode: drain ALL vsim_ctl frames (lossless)<br/>reset / rates / geometry / world / wind / faults / testrig"]:::step
     C --> D["apply motor-kill faults"]:::step
     D --> E["physics: substeps = physics_hz / imu_hz<br/>motor_model → wind_model.step → RK4 rigid body"]:::step
-    E --> F["sampleImu: acc/gyr/mag + noise (gyro deg/s on wire)"]:::step
-    F --> G["emit 1× vsim_imu frame (88 B)"]:::step
-    G --> H["every pose_div samples: emit vsim_pose<br/>(pos, quat, vel, omega, wind_w)"]:::step
+    E --> F["sampleImu: acc/gyr/mag + noise (gyro deg/s)"]:::step
+    F --> G["inject 88 B IMU sample in-process → firmware"]:::step
+    G --> H["driver mode, every pose_div samples: emit vsim_pose<br/>(pos, quat, vel, omega, wind_w)"]:::step
     H --> A
 ```
 
-### CTL opcodes (driver/viewer → sim, `vsim_proto.h:123-138`)
+### CTL opcodes (driver/viewer → physics; `vsim_proto.h`)
 
 | # | Opcode | Effect |
 |--:|--------|--------|
@@ -87,16 +106,20 @@ flowchart TD
 | 13 | `SET_FAULTS` | per-motor kill + imu dropout |
 | **14** | **`SET_WIND`** | steady + gust + Dryden turbulence |
 
-*Source: `sim/vsim/src/main.cpp:205-520`, `sim_controller.cpp`, `physics_core.cpp`.*
+*Source: `sim/host/src/vsim_inproc.cpp`, `sim/vsim/src/{sim_controller,physics_core}.cpp`,
+`sim/host/src/host_rtos_main.c`.*
 
 ---
 
 ## 3. The SITL seam (what keeps the FC honest)
 
-The contract: **the FC is sensors-in / PWM-out only and must behave exactly as on real
-hardware**; the operator/Pilot *may* use ground truth. So the firmware host opens the
-**IMU** FIFO and the **RC/UART** PTYs — but **never** the **pose** (ground-truth) FIFO.
-A runtime test enforces it by inspecting the FC process's open file descriptors.
+The contract still holds even though the FC and the physics now share one process: **the
+FC is sensors-in / PWM-out only and must behave exactly as on real hardware**; the
+operator/Pilot *may* use ground truth. The firmware code paths only ever receive the
+**IMU** sample (injected in-process) and **RC** (over PTY / queue), and write **PWM** back
+inline — they **never** touch the **pose** ground truth. Pose is produced on the physics
+side and handed only to the operator/driver loop; the firmware has no path to it, so the
+seam is enforced by construction.
 
 ```mermaid
 flowchart TD
@@ -108,23 +131,23 @@ flowchart TD
         FEED["host_imu_feeder<br/>fixed sim-dt stamp → imu_queue_*"]:::fc
         RCF["host_rc_feeder<br/>RC µs → rc_queue_control"]:::fc
         TASKS["real firmware tasks<br/>attitude (EKF) · angle · rate · motor"]:::fc
-        PWMO["host_navhal<br/>PWM → vsim_pwm (ESC band stripped)"]:::fc
+        PWMO["host_navhal<br/>PWM (ESC band stripped)"]:::fc
     end
     subgraph OPSIDE ["Operator / Pilot — MAY use ground truth"]
         PILOT["Pilot guidance<br/>reads pose, writes RC sticks only"]:::op
     end
 
-    IMU[["vsim_imu"]]:::pipe --> FEED
-    PWMO --> PWM[["vsim_pwm"]]:::pipe
+    IMU[["IMU sample (in-process)"]]:::pipe --> FEED
+    PWMO --> PWM[["PWM duty (in-process)"]]:::pipe
     POSE[["vsim_pose (truth)"]]:::pipe -->|allowed| PILOT
-    POSE -. "FC never opens pose<br/>(asserted by test_seam.py)" .-x TASKS
+    POSE -. "FC has no path to pose<br/>(enforced by construction)" .-x TASKS
     FEED --> TASKS --> PWMO
     RCF --> TASKS
     PILOT -->|"RC sticks (µs)"| RCF
 ```
 
-*Source: `sim/host/src/host_imu_feeder.c`, `host_navhal.c`, `host_lifecycle.c:179-191`,
-`navigator/headless-sdk/tests/integration/test_seam.py:29-62`.*
+*Source: `sim/host/src/host_imu_feeder.c`, `host_navhal.c`, `host_rtos_main.c`,
+`sim/host/src/vsim_inproc.cpp`.*
 
 ---
 
@@ -138,11 +161,9 @@ flowchart TD
     G["Pilot._loop @50 Hz<br/>tr = lab.truth() (GROUND TRUTH)<br/>guidance_outputs → sticks"]:::proc
     G -->|"RC µs CSV / PTY"| RCF["host_rc_feeder → rc_queue_control"]:::proc
     RCF --> FCT["firmware: attitude(EKF) → angle → rate → motor"]:::proc
-    FCT -->|"PWM duty (ESC band stripped)"| PWM[["vsim_pwm"]]:::pipe
-    PWM --> PHYS["vsim_d: motor → wind → RK4 physics → sampleImu"]:::proc
-    PHYS -->|"88 B IMU (mag_fusion=0)"| IMUP[["vsim_imu"]]:::pipe
+    FCT -->|"PWM duty in-process (ESC band stripped)"| PHYS["vsim physics: motor → wind → RK4 → sampleImu"]:::proc
+    PHYS -->|"88 B IMU in-process (mag_fusion=0)"| FEED["host_imu_feeder (fixed dt) → imu_queue_*"]:::proc --> FCT
     PHYS -->|"pose @60 Hz"| POSEP[["vsim_pose"]]:::pipe
-    IMUP --> FEED["host_imu_feeder (fixed dt) → imu_queue_*"]:::proc --> FCT
     POSEP --> G
     FCT -->|"UART2 NavLink telemetry / PTY"| TEL["lab.telem / telem_counts"]:::proc
 ```
@@ -164,12 +185,10 @@ sequenceDiagram
     participant S as your script
     participant L as SitlLab (session)
     participant P as Pilot
-    participant FC as vayu_sitl (firmware)
-    participant D as vsim_d
+    participant FC as vayu_sitl_rtos (firmware + physics)
 
     S->>L: SitlLab(gcs=False, wind=..., rig=False)
-    L->>D: spawn vsim_d + push reset/geometry/world/wind (ctl)
-    L->>FC: spawn vayu_sitl, wire RC + UART2 PTYs
+    L->>FC: spawn vayu_sitl_rtos (driver mode); push reset/geometry/world/wind (ctl); wire RC + UART2 PTYs
     S->>P: Pilot(lab, alt=-5.0)
     S->>P: arm_takeoff(alt=-5.0)
     P->>L: disarm → reset_pose → arm → climb
@@ -177,10 +196,9 @@ sequenceDiagram
         P->>L: tr = truth() (ground truth)
         P->>L: stick + set_rc(swa=2000)
         L->>FC: RC µs over PTY
-        FC->>D: PWM duty
-        D->>FC: IMU sample
-        D-->>L: pose (ground truth)
-        FC-->>L: NavLink telemetry
+        Note over FC: firmware ↔ physics<br/>PWM/IMU in-process
+        FC-->>L: pose (ground truth) over FIFO
+        FC-->>L: NavLink telemetry over PTY
     end
     S->>P: goto(waypoints), wait reached_last
     S->>L: read truth() and telem
@@ -192,7 +210,7 @@ Minimal mission (`examples/box_mission.py`):
 ```python
 from vayu_headless import SitlSession, Pilot
 
-with SitlSession(gcs=False) as lab:        # spawns vsim_d + vayu_sitl
+with SitlSession(gcs=False) as lab:        # spawns vayu_sitl_rtos (driver mode)
     pilot = Pilot(lab, alt=-5.0)
     pilot.arm_takeoff(alt=-5.0)
     pilot.goto([(s,0),(s,s),(0,s),(0,0)], alt=-5.0)
@@ -207,7 +225,7 @@ with SitlSession(gcs=False) as lab:        # spawns vsim_d + vayu_sitl
 
 | Call | What it does |
 |------|--------------|
-| `SitlLab(rig, wind, turb, rc_hz, gcs, attach, vveh)` | start a session (spawns both binaries, wires FIFOs/PTYs) |
+| `SitlLab(rig, wind, turb, rc_hz, gcs, attach, vveh)` | start a session (spawns `vayu_sitl_rtos` in driver mode, wires FIFOs/PTYs) |
 | `arm(settle)` / `disarm()` | arm / disarm the FC |
 | `set_rc(roll,pitch,thr,yaw,swa)` / `stick(...)` | inject RC (raw µs / normalized) |
 | `lab.telem`, `lab.telem_counts` | decoded **FC telemetry** (NavLink) + per-message counts |
@@ -226,42 +244,46 @@ The CLI wraps the same: `vayu-headless serve | do | run` (`cli.py`). Trajectory 
 
 ## 6. Autotune over sim (brief)
 
-`tools/autotune` drives `vsim_d` **directly over the raw FIFO/PTY protocol** (not the SDK):
-it spawns its own `vsim_d` + `vayu_sitl` under an isolated suffix, sends `SET_TESTRIG`
-(opcode 12, a *soft* tether so the accelerometer still sees thrust-tilt — a hard pin
-over-tunes), runs per-axis step doublets, scores the captured `CONTROL_TRACE` telemetry,
-and pushes gains via `CMD_SET_PID`. See [`autotune-methodology.md`](autotune-methodology.md).
+`tools/autotune` drives `vayu_sitl_rtos` **directly over the raw ctl/PTY protocol** (not
+the SDK): it spawns its own `vayu_sitl_rtos` in driver mode under an isolated suffix, sends
+`SET_TESTRIG` (opcode 12, a *soft* tether so the accelerometer still sees thrust-tilt — a
+hard pin over-tunes), runs per-axis step doublets, scores the captured `CONTROL_TRACE`
+telemetry, and pushes gains via `CMD_SET_PID`. A faster in-process batch backend
+(`rtos_eval.py`, scoring the `#RTOS-TUNE` line) drives the same binary without the wire.
+See [`autotune-methodology.md`](autotune-methodology.md).
 
 ---
 
-## Reference: FIFOs & key files
+## Reference: transports & key files
 
-| FIFO | Dir | Frame | Rate |
+The FC↔physics PWM/IMU exchange is **in-process** (direct calls, ~1 kHz). Only the
+operator-facing transports remain on the wire in driver mode:
+
+| Transport | Dir | Frame | Rate |
 |------|-----|-------|------|
-| `vsim_pwm` | FC → sim | `duty[4]` | ~1 kHz latest-wins |
-| `vsim_imu` | sim → FC | 88 B sample | ~1 kHz latest-wins |
-| `vsim_pose` | sim → driver/GCS | pos/quat/vel/omega/wind | 60 Hz latest-wins |
-| `vsim_ctl` | driver → sim | opcode + body | async lossless |
+| PWM / IMU | FC ↔ physics | `duty[4]` / 88 B sample | ~1 kHz, in-process (no FIFO) |
+| `vsim_pose` FIFO | physics → driver/GCS | pos/quat/vel/omega/wind | 60 Hz latest-wins |
+| `vsim_ctl` FIFO | driver → physics | opcode + body | async lossless |
 
 | File | Role |
 |------|------|
 | `sim/vsim/include/vsim_proto.h` | wire protocol: FIFOs, header, opcodes, payloads |
-| `sim/vsim/src/main.cpp` | daemon loop, CTL dispatch, physics/IMU/pose emit |
-| `sim/vsim/src/{sim_controller,physics_core}.cpp` | per-tick orchestration + RK4 integrator |
+| `sim/vsim/src/{sim_controller,physics_core}.cpp` | per-step orchestration + RK4 integrator (the `vsim_phys` lib) |
+| `sim/host/src/vsim_inproc.cpp` | in-process physics wrapper (`packImu`, ctl config calls, pose emit) |
+| `sim/host/src/host_rtos_main.c` | the RTOS stepper + driver-mode ctl/pose FIFO loop |
 | `sim/host/src/host_lifecycle.c` | boots the real firmware tasks on the host |
-| `sim/host/src/host_imu_feeder.c` | IMU FIFO → imu queues (fixed sim-dt) |
-| `sim/host/src/host_navhal.c` | PWM → FIFO; UART2 telemetry PTY |
+| `sim/host/src/host_imu_feeder.c` | IMU sample → imu queues (fixed sim-dt) |
+| `sim/host/src/host_navhal.c` | PWM sink; UART2 telemetry PTY |
 | `navigator/headless-sdk/vayu_headless/{session,autopilot,server,cli}.py` | the scripting SDK + Pilot |
 | `navigator/headless-sdk/fidelity/*` | maneuver metrics + FC-vs-operator fidelity scoring |
 
 ## Notes & caveats (verified)
 
-- **`mag_fusion` is zero on the SITL wire:** `vsim_d`'s `packImu` writes 76 of the 88 IMU
+- **`mag_fusion` is zero in SITL:** `vsim_inproc.cpp`'s `packImu` writes 76 of the 88 IMU
   payload bytes (acc/gyr/mag/raw/temp); the estimator-input `mag_fusion[3]` is left
   zero-filled, so the FC's estimator sees a zeroed fusion-mag in SITL.
-  (`sim/vsim/src/main.cpp:100-116`, `vsim_types.h:73-77`.) The host feeder validates the
-  full 88-byte frame and now bails after 64 consecutive mismatched frames — a stale `vsim_d`
-  at the wrong `VSIM_PROTO_VERSION` is diagnosed rather than spun on (`host_imu_feeder.c`).
+  (`sim/host/src/vsim_inproc.cpp`, `vsim_types.h:73-77`.) The host feeder still validates
+  the full 88-byte frame layout.
 - **Pose v3 fields `airspeed` / `ge_factor` / `batt_*` emit zero** — only `wind_w` is filled.
 - The firmware-host I/O comments still mention host-side Mahony; that was **removed** as a
   fidelity violation — the host injects raw IMU only and the firmware's own EKF runs.

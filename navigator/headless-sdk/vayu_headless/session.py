@@ -1,9 +1,9 @@
 """SitlSession — process lifecycle + I/O for headless SITL.
 
-Spawns vsim_d + the real firmware host, streams RC, decodes FC telemetry, reads
-ground truth, and (optionally) bridges pose + telemetry to the GCS. Carved
-verbatim from sim/host/sitl_lab.py; the pure helpers it uses live in the
-sibling modules.
+Spawns the single in-process SITL binary (vayu_sitl_rtos, driver mode: real
+firmware + physics in one process), streams RC, decodes FC telemetry, reads
+ground truth, and (optionally) bridges pose + telemetry to the GCS. The pure
+helpers it uses live in the sibling modules.
 """
 import os
 import struct
@@ -35,7 +35,7 @@ _build_world_mesh = _world_mod.build_world_mesh
 
 
 class SitlLab:
-    """Spawns vsim_d + vayu_sitl, streams RC, reads truth + FC telemetry."""
+    """Spawns vayu_sitl_rtos (driver), streams RC, reads truth + FC telemetry."""
 
     # GCS-facing singletons (resolved in paths.py).
     GCS_ADVERT = _paths.GCS_ADVERT      # Navigator auto-offers this as "SITL UART2"
@@ -43,7 +43,7 @@ class SitlLab:
 
     def __init__(self, rig=False, wind=None, turb=0.0, rc_hz=50, gcs=False,
                  attach=False, conf=None, vveh=None):
-        # ALWAYS run vsim_d/vayu_sitl on PRIVATE (suffixed) FIFOs+advert: the
+        # ALWAYS run the engine on PRIVATE (suffixed) FIFOs+advert: the
         # harness must be the sole reader of the pose FIFO and the FC pty. When
         # gcs=True it re-broadcasts pose to the DEFAULT /tmp/vsim_pose (a fan-out
         # FIFO the harness owns) so the GCS "Attach Ext" renders it — the same
@@ -70,24 +70,40 @@ class SitlLab:
         self.telem_counts = {}
         self._truth = None
 
-        vsim_bin = _paths.vsim_bin()
-        sitl_bin = _paths.sitl_bin()
-        for b in (vsim_bin, sitl_bin):
-            if not os.path.exists(b):
-                raise FileNotFoundError(f"missing binary: {b}")
+        rtos_bin = _paths.rtos_bin()
+        if not os.path.exists(rtos_bin):
+            raise FileNotFoundError(
+                f"missing binary: {rtos_bin}\n(build it with "
+                "-DVAYU_SITL_RTOS_BUILD=ON --target vayu_sitl_rtos)")
 
-        # 1) physics daemon
-        _vsim_err = (open("/tmp/vsim_d.err", "w")
-                     if os.environ.get("SITL_LAB_DEBUG") else subprocess.DEVNULL)
-        self.vsim = subprocess.Popen([vsim_bin], env=self.env, stderr=_vsim_err)
+        # 1) The single in-process SITL binary in driver mode: it runs BOTH the
+        # firmware and the physics in one process, publishing pose/ctl FIFOs and
+        # a UART2 telemetry pty + reading RC over VAYU_UART_RC_PATH — a drop-in
+        # for the old vsim_d + vayu_sitl pair over the same wire contract.
+        #
+        # The RC pty must exist BEFORE the spawn (the driver's serial RC feeder
+        # opens VAYU_UART_RC_PATH at boot). A stale UART2 advert points at a
+        # now-deleted /dev/pts/N, so delete it FIRST and only accept the path the
+        # driver writes THIS run.
+        try:
+            os.unlink(self.uart_advert)
+        except OSError:
+            pass
+        self.rc_master, rc_slave = os.openpty()
+        self.env["VAYU_UART_RC_PATH"] = os.ttyname(rc_slave)
+        self.env["VAYU_RTOS_SCENARIO"] = "driver"
+        _errto = (open("/tmp/sitl.err", "w") if os.environ.get("SITL_LAB_DEBUG")
+                  else subprocess.DEVNULL)
+        self.sitl = subprocess.Popen([rtos_bin], env=self.env, stderr=_errto)
         self._await(lambda: all(os.path.exists(p) for p in self.paths.values()),
-                    "vsim_d FIFOs")
+                    "driver FIFOs")
         self.ctl_fd = os.open(self.paths["ctl"], os.O_RDWR | os.O_NONBLOCK)
         self.pose_fd = os.open(self.paths["pose"], os.O_RDWR | os.O_NONBLOCK)
 
-        # configure plant before the FC boots (spawn just above ground; the
-        # ground-clamp fix in physics_core holds the airframe level while
-        # resting so it now takes off upright instead of tumbling).
+        # Configure the plant. The engine applies these ctl frames within its
+        # first steps — well before the FC can arm (arming needs the ~1.2 s RC
+        # settle) — so the airframe is on its real geometry/world by lift-off.
+        # Spawn just above ground; the ground-clamp holds it level while resting.
         os.write(self.ctl_fd, _reset(pos=(0, 0, -0.05)))
         # Match the GCS's selected vehicle + world (vveh/vworld) if given.
         # An explicit vveh= overrides the conf as the geometry source (the .vveh
@@ -113,29 +129,15 @@ class SitlLab:
         wm = _build_world_mesh(w, self.world_mesh_bin) if w else None
         if wm:
             os.write(self.ctl_fd, _world_mesh(*wm))
-            print(f"  [world-mesh] {wm[2]} tris, {wm[3]} nodes → vsim_d "
+            print(f"  [world-mesh] {wm[2]} tris, {wm[3]} nodes → engine "
                   f"(rest={wm[4]}, 2-sided={wm[5]})")
         if rig:
             os.write(self.ctl_fd, _testrig(True))
         if wind or turb:
             os.write(self.ctl_fd, _wind(wind or (0, 0, 0), turb, True))
 
-        # 2) RC pty + real firmware host.
-        # In attach mode the FC advert path (where vayu_sitl writes its UART2
-        # slave) is the SAME file the GCS bridge later advertises itself at.
-        # A stale advert from a previous run points at a now-deleted /dev/pts/N,
-        # so delete it FIRST and only accept the path vayu_sitl writes THIS run
-        # — otherwise we open a dead pty and never drain the FC's UART2 (the FC's
-        # blocking pty write then backs up and all telemetry stalls).
-        try:
-            os.unlink(self.uart_advert)
-        except OSError:
-            pass
-        self.rc_master, rc_slave = os.openpty()
-        self.env["VAYU_UART_RC_PATH"] = os.ttyname(rc_slave)
-        _errto = (open("/tmp/sitl.err", "w") if os.environ.get("SITL_LAB_DEBUG")
-                  else subprocess.DEVNULL)
-        self.sitl = subprocess.Popen([sitl_bin], env=self.env, stderr=_errto)
+        # 2) Start streaming RC (the driver's serial feeder reads it and runs the
+        # real arm/disarm state machine).
         threading.Thread(target=self._rc_thread, daemon=True).start()
 
         # 3) FC telemetry: wait for the (fresh) advertised UART2 pty slave path,
@@ -199,7 +201,7 @@ class SitlLab:
             except OSError:
                 self.gcs_pose_fd = None
 
-        # Pose relay: the SOLE reader of vsim_d's (private) pose FIFO. Updates
+        # Pose relay: the SOLE reader of the engine's (private) pose FIFO. Updates
         # the cached ground truth for guidance AND fans frames out to the GCS.
         threading.Thread(target=self._pose_thread, daemon=True).start()
 
@@ -217,7 +219,7 @@ class SitlLab:
     def close(self):
         self._stop.set()
         # Remove our advert only if it still points at us (don't clobber a real
-        # vayu_sitl's advert written after ours).
+        # a real engine's advert written after ours).
         if self._advertised:
             try:
                 with open(self.GCS_ADVERT) as f:
@@ -225,13 +227,13 @@ class SitlLab:
                         os.unlink(self.GCS_ADVERT)
             except OSError:
                 pass
-        for p in (getattr(self, "sitl", None), getattr(self, "vsim", None)):
-            if p:
-                p.terminate()
-                try:
-                    p.wait(timeout=2)
-                except subprocess.TimeoutExpired:
-                    p.kill()
+        p = getattr(self, "sitl", None)
+        if p:
+            p.terminate()
+            try:
+                p.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                p.kill()
         for p in self.paths.values():
             try:
                 os.unlink(p)
@@ -242,7 +244,7 @@ class SitlLab:
                 os.unlink(self.GCS_POSE)
             except OSError:
                 pass
-        wmb = getattr(self, "world_mesh_bin", None)   # remove the BVH blob (vsim_d gone)
+        wmb = getattr(self, "world_mesh_bin", None)   # remove the BVH blob (engine gone)
         if wmb:
             try:
                 os.unlink(wmb)
@@ -352,15 +354,15 @@ class SitlLab:
     def _parse_frames(self, buf):
         _navlink.parse_frames(buf, self.telem, self.telem_counts)
 
-    # -- read physics ground truth (vsim_d pose) + fan out to the GCS --------
+    # -- read physics ground truth (engine pose) + fan out to the GCS --------
     def _pose_thread(self):
-        """CRITICAL PATH: the SOLE reader of vsim_d's (private) pose FIFO.
+        """CRITICAL PATH: the SOLE reader of the engine's (private) pose FIFO.
         Parses the latest frame into the cached ground truth and QUEUES raw
         bytes for the GCS relay — it NEVER writes to the GCS FIFO itself. The
         relay is a separate thread (_pose_tx_thread) precisely so a slow,
         detaching or reconnecting GCS reader can't stall this drain: if it did,
-        vsim_d's blocking pose write would back up and FREEZE the physics step
-        (observed: attaching then detaching 'Attach Ext' wedged the whole sim)."""
+        the engine's lossy pose write would drop frames rather than block, but a
+        stalled drain would still starve guidance."""
         pbuf = bytearray()
         while not self._stop.is_set():
             try:

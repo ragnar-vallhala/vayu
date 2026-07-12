@@ -5,28 +5,24 @@ from vayu_headless import paths
 
 
 def test_env_override_wins(monkeypatch):
-    monkeypatch.setenv("VSIM_BIN_PATH", "/custom/vsim_d")
-    monkeypatch.setenv("VAYU_SITL_BIN", "/custom/vayu_sitl")
+    monkeypatch.setenv("VAYU_SITL_RTOS_BIN", "/custom/vayu_sitl_rtos")
     monkeypatch.setenv("VSIM_WORLDMESH_BIN", "/custom/wm")
     monkeypatch.setenv("VAYU_GCS_CONF", "/custom/x.conf")
-    assert paths.vsim_bin() == "/custom/vsim_d"
-    assert paths.sitl_bin() == "/custom/vayu_sitl"
+    assert paths.rtos_bin() == "/custom/vayu_sitl_rtos"
     assert paths.worldmesh_bin() == "/custom/wm"
     assert paths.gcs_conf_default() == "/custom/x.conf"
 
 
 def test_default_paths_are_absolute_under_repo(monkeypatch):
-    for v in ("VSIM_BIN_PATH", "VAYU_SITL_BIN"):
-        monkeypatch.delenv(v, raising=False)
-    assert os.path.isabs(paths.vsim_bin())
-    assert paths.vsim_bin().endswith("sim/vsim/build/vsim_d")
-    assert paths.sitl_bin().endswith("sim/host/build_sitl/vayu_sitl")
+    monkeypatch.delenv("VAYU_SITL_RTOS_BIN", raising=False)
+    assert os.path.isabs(paths.rtos_bin())
+    assert paths.rtos_bin().endswith("sim/host/build_sitl_rtos/vayu_sitl_rtos")
 
 
 def test_suffix_isolation():
     p = paths.fifo_paths("_lab42")
     assert p["pose"] == "/tmp/vsim_pose_lab42"
-    assert set(p) == {"pwm", "imu", "pose", "ctl"}
+    assert set(p) == {"pose", "ctl"}
     assert paths.uart_advert("_lab42") == "/tmp/vayu_uart2_pty_lab42"
     assert paths.world_mesh_bin("_lab42") == "/tmp/vsim_world_lab42.bin"
 

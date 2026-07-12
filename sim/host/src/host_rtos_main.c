@@ -16,12 +16,17 @@
  *                      limit-cycle / robustness study the FIFO path aliased.
  */
 #define _GNU_SOURCE
+#include <errno.h>
+#include <fcntl.h>
 #include <math.h>
+#include <signal.h>
 #include <stdint.h>   /* before <stdlib.h>: glibc stdlib.h uses int32_t */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <time.h>
+#include <unistd.h>
 
 #include "control/control_buffer.h" /* control_telemetry_t */
 #include "est/est.h"                /* attitude_t */
@@ -387,6 +392,154 @@ static int run_cfg(uint32_t seed) {
   return ok ? 0 : 1;
 }
 
+/* ---- interactive headless driver (VAYU_RTOS_SCENARIO=driver) -------------
+ * Turns the standalone binary into a drop-in replacement for the old
+ * vsim_d + vayu_sitl FIFO pair: an external (Python) driver streams RC over the
+ * VAYU_UART_RC_PATH pty and config over the ctl FIFO, and reads FC telemetry off
+ * the UART2 pty advert + ground-truth pose off the pose FIFO. One process now
+ * runs BOTH firmware and physics; the pwm/imu/baro FIFOs (the old firmware<->
+ * physics boundary) are gone — that hop is in-process.
+ *
+ * Wire contract unchanged: same /tmp/vsim_{pose,ctl}<suffix> FIFOs, same
+ * vsim_pose_frame_t / vsim_ctl_frame_t framing (sim/vsim/include/vsim_proto.h),
+ * same UART2 advert (/tmp/vayu_uart2_pty<suffix>) and RC CSV pty as before. */
+
+static volatile sig_atomic_t g_driver_stop = 0;
+static void driver_on_signal(int sig) { (void)sig; g_driver_stop = 1; }
+
+/* Append $VSIM_FIFO_SUFFIX to a /tmp base path (mirrors host_navhal + the
+ * suffix the external driver publishes). Unset/empty == legacy shared path. */
+static void driver_suffixed(char *out, size_t n, const char *base) {
+  const char *s = getenv("VSIM_FIFO_SUFFIX");
+  snprintf(out, n, "%s%s", base, (s && *s) ? s : "");
+}
+
+/* mkfifo (tolerating EEXIST) then open. O_RDWR keeps the FIFO open across a
+ * peer's connect/disconnect and makes writes non-blocking-lossy rather than
+ * ENXIO when no reader is attached yet. */
+static int driver_open_fifo(const char *path, int flags) {
+  if (mkfifo(path, 0666) != 0 && errno != EEXIST)
+    return -1;
+  return open(path, flags);
+}
+
+/* One ctl frame -> the matching in-process config call (faithful port of
+ * vsim_d's dispatch; the vsim_inproc_* surface reuses the same wire structs). */
+static void driver_dispatch_ctl(const vsim_ctl_frame_t *f) {
+  switch (f->subtype) {
+    case VSIM_CTL_RESET: {
+      vsim_ctl_reset_t b; memcpy(&b, f->body, sizeof b); vsim_inproc_reset_to(&b); break;
+    }
+    case VSIM_CTL_PAUSE: {
+      int32_t p; memcpy(&p, f->body, sizeof p); vsim_inproc_set_pause(p != 0); break;
+    }
+    case VSIM_CTL_SET_TESTRIG: {
+      vsim_ctl_testrig_t b; memcpy(&b, f->body, sizeof b); vsim_inproc_set_testrig(&b); break;
+    }
+    case VSIM_CTL_SET_GEOMETRY: {
+      vsim_ctl_geometry_t b; memcpy(&b, f->body, sizeof b); vsim_inproc_set_geometry(&b); break;
+    }
+    case VSIM_CTL_SET_WORLD: {
+      vsim_ctl_world_t b; memcpy(&b, f->body, sizeof b); vsim_inproc_set_world(&b); break;
+    }
+    case VSIM_CTL_CLEAR_OBSTACLES: vsim_inproc_clear_obstacles(); break;
+    case VSIM_CTL_ADD_OBSTACLE: {
+      vsim_ctl_obstacle_t b; memcpy(&b, f->body, sizeof b); vsim_inproc_add_obstacle(&b); break;
+    }
+    case VSIM_CTL_SET_WORLD_MESH: {
+      vsim_ctl_world_mesh_t b; memcpy(&b, f->body, sizeof b); vsim_inproc_set_world_mesh(&b); break;
+    }
+    case VSIM_CTL_CLEAR_WORLD_MESH: vsim_inproc_clear_world_mesh(); break;
+    case VSIM_CTL_SET_RATES: {
+      vsim_ctl_rates_t b; memcpy(&b, f->body, sizeof b); vsim_inproc_set_rates(&b); break;
+    }
+    case VSIM_CTL_SET_NOISE: {
+      vsim_ctl_noise_t b; memcpy(&b, f->body, sizeof b); vsim_inproc_set_noise(&b); break;
+    }
+    case VSIM_CTL_SET_FAULTS: {
+      vsim_ctl_faults_t b; memcpy(&b, f->body, sizeof b); vsim_inproc_set_faults(&b); break;
+    }
+    case VSIM_CTL_SET_WIND: {
+      vsim_ctl_wind_t b; memcpy(&b, f->body, sizeof b); vsim_inproc_set_wind(&b); break;
+    }
+    case VSIM_CTL_PING:
+    default:
+      break;
+  }
+}
+
+static int run_driver(void) {
+  signal(SIGINT, driver_on_signal);
+  signal(SIGTERM, driver_on_signal);
+  signal(SIGPIPE, SIG_IGN);  /* a closed pose reader must not kill us mid-write */
+
+  char pose_path[256], ctl_path[256];
+  driver_suffixed(pose_path, sizeof pose_path, VSIM_FIFO_POSE);
+  driver_suffixed(ctl_path, sizeof ctl_path, VSIM_FIFO_CTL);
+  int pose_fd = driver_open_fifo(pose_path, O_RDWR | O_NONBLOCK);
+  int ctl_fd = driver_open_fifo(ctl_path, O_RDWR | O_NONBLOCK);
+  if (pose_fd < 0 || ctl_fd < 0) {
+    fprintf(stderr, "rtos driver: FIFO setup failed (pose=%s ctl=%s)\n", pose_path, ctl_path);
+    if (pose_fd >= 0) close(pose_fd);
+    if (ctl_fd >= 0) close(ctl_fd);
+    return 1;
+  }
+
+  /* RC streams in over VAYU_UART_RC_PATH (the external driver's pty); telemetry
+   * already flows out the UART2 pty advert (rtos_engine_boot(NULL) wired it). */
+  rtos_engine_enable_serial_rc();
+  fprintf(stderr,
+          "rtos driver: online — pose=%s ctl=%s, telemetry on the UART2 pty advert, "
+          "RC on VAYU_UART_RC_PATH\n",
+          pose_path, ctl_path);
+
+  /* run_step advances 1 ms (wall-clock paced); publish pose every ~16 ms → 60 Hz. */
+  const int pose_div = 16;
+  int pose_ctr = 0;
+  uint8_t buf[4096];
+  size_t buflen = 0;
+
+  rtos_engine_run_begin();
+  while (!g_driver_stop) {
+    /* 1) Drain queued ctl frames (a startup burst — rates/geometry/world/mesh/
+     * wind — must ALL apply, so parse every complete frame, not just the last). */
+    ssize_t r = read(ctl_fd, buf + buflen, sizeof buf - buflen);
+    if (r > 0) {
+      buflen += (size_t)r;
+      size_t pos = 0;
+      while (pos + sizeof(vsim_hdr_t) <= buflen) {
+        const vsim_hdr_t *h = (const vsim_hdr_t *)(buf + pos);
+        if (h->magic != VSIM_MAGIC) { pos++; continue; }  /* resync after a torn write */
+        const size_t need = sizeof(vsim_hdr_t) + h->payload_bytes;
+        if (pos + need > buflen) break;  /* incomplete tail — wait for more */
+        if (h->type == VSIM_FRAME_CTL && need == sizeof(vsim_ctl_frame_t))
+          driver_dispatch_ctl((const vsim_ctl_frame_t *)(buf + pos));
+        pos += need;
+      }
+      if (pos > 0) { memmove(buf, buf + pos, buflen - pos); buflen -= pos; }
+      if (buflen == sizeof buf) buflen = 0;  /* no frame boundary in a full buffer → resync */
+    }
+
+    /* 2) Advance one paced step (firmware + physics in lockstep, in-process). */
+    rtos_engine_run_step();
+
+    /* 3) Publish the latest ground-truth pose at ~60 Hz. Lossy write: no reader
+     * yet or a full pipe just drops the frame, exactly like the old link. */
+    if (++pose_ctr >= pose_div) {
+      pose_ctr = 0;
+      vsim_pose_frame_t p;
+      vsim_inproc_get_pose(&p);
+      ssize_t w = write(pose_fd, &p, sizeof p);
+      (void)w;
+    }
+  }
+
+  close(pose_fd);
+  close(ctl_fd);
+  fprintf(stderr, "rtos driver: stopping\n");
+  return 0;
+}
+
 int main(void) {
   if (rtos_engine_boot(NULL) != 0)   /* headless: telemetry via the pty, RC via set_rc */
     return 1;
@@ -398,6 +551,8 @@ int main(void) {
       seed_env && *seed_env ? (uint32_t)strtoul(seed_env, 0, 10) : STEP_SEED;
   const int N = nenv && *nenv ? atoi(nenv) : 5000;
 
+  if (scen && strcmp(scen, "driver") == 0)
+    return run_driver();
   if (scen && strcmp(scen, "doublet") == 0)
     return run_doublet(seed);
   if (scen && strcmp(scen, "disturb") == 0)

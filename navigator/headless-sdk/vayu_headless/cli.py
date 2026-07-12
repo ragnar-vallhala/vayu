@@ -27,7 +27,7 @@ def _cmd_serve(args):
     lab = SitlSession(attach=True, gcs=True, conf=conf,
                       wind=tuple(args.wind), turb=args.turb)
     pilot = Pilot(lab, alt=args.alt)
-    print("vsim_d on DEFAULT /tmp/vsim_* (pose=/tmp/vsim_pose)")
+    print("engine on DEFAULT /tmp/vsim_* (pose=/tmp/vsim_pose)")
     print("  ▶ In Navigator (ONCE): click 'Attach Ext' to render, and "
           "Connect → 'SITL UART2' for telemetry.")
     print(f"    (telemetry bridge pty: {lab.gcs_path})")

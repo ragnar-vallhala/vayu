@@ -269,11 +269,11 @@ void SimWorker::run() {
     else              runEngine();   // drive the in-process RTOS engine
 }
 
-// Legacy mirror mode: read an EXISTING pose FIFO (e.g. the autotuner's vsim_d)
-// and emit poseUpdated. Kept until autotune migrates off vsim_d.
+// Viewer-only mode: read an EXISTING pose FIFO published by an external sim
+// (e.g. a headless vayu_sitl_rtos run) and emit poseUpdated.
 void SimWorker::runAttach() {
-    // Wait briefly for the file to appear (the tuner spawns its vsim_d a moment
-    // after launch).
+    // Wait briefly for the file to appear (the external sim may publish it a
+    // moment after launch).
     const auto deadline =
         std::chrono::steady_clock::now() + std::chrono::seconds(20);
     const QByteArray p = attach_pose_path_.toLocal8Bit();
@@ -281,14 +281,14 @@ void SimWorker::runAttach() {
         pose_fd_ = ::open(p.constData(), O_RDONLY | O_NONBLOCK);
         if (pose_fd_ >= 0) break;
         if (std::chrono::steady_clock::now() > deadline) {
-            emit logLine("attach: tuner pose FIFO never appeared");
+            emit logLine("attach: external pose FIFO never appeared");
             emit stoppedCleanly();
             return;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
     if (pose_fd_ < 0) { emit stoppedCleanly(); return; }
-    emit logLine("attached to tuner sim: " + attach_pose_path_);
+    emit logLine("attached to external sim: " + attach_pose_path_);
     emit online();
 
     // Magic-resync buffer: walk to the next frame boundary on a mid-stream
@@ -338,7 +338,7 @@ void SimWorker::runAttach() {
     }
 
     if (pose_fd_ >= 0) { ::close(pose_fd_); pose_fd_ = -1; }
-    emit logLine("detached from tuner sim");
+    emit logLine("detached from external sim");
     emit stoppedCleanly();
 }
 

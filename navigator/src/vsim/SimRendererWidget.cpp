@@ -242,6 +242,7 @@ float shadowFactor(vec3 wpos, vec3 nrm, vec3 lightDir) {
 }
 )GLSL";
 
+#ifdef VAYU_SIM_GRASS
 // Instanced grass/flora. A shared unit-blade mesh (crossed tapered quads, local
 // z in [-1,0] = up) is drawn once per scattered instance: the vertex shader
 // rotates it by the instance yaw, scales to its height, bends the tip with a
@@ -334,6 +335,7 @@ void main() {
   o_color = vec4(mix(col, skyColor(vdir), clamp(fog, 0.0, 1.0)), 1.0);
 }
 )GLSL";
+#endif  // VAYU_SIM_GRASS
 
 }  // namespace
 
@@ -459,6 +461,7 @@ void SimRendererWidget::initializeGL() {
   us_time_ = progSky_.uniformLocation("u_time");
   skyVao_.create();   // core profile needs a bound VAO even with no attributes
 
+#ifdef VAYU_SIM_GRASS
   progFlora_.addShaderFromSourceCode(QOpenGLShader::Vertex, kFloraVertexShader);
   progFlora_.addShaderFromSourceCode(
       QOpenGLShader::Fragment,
@@ -474,6 +477,7 @@ void SimRendererWidget::initializeGL() {
   uf_fogstart_  = progFlora_.uniformLocation("u_fogstart");
   buildGrassBlade();
   gpuGrass_.init(this);  // GPU grass if the context supports compute (4.3+)
+#endif
 
   buildGroundGrid();
   buildObstacleMeshes();
@@ -594,8 +598,10 @@ void SimRendererWidget::paintGL() {
   if (meshDirty_) uploadDroneMesh();
   if (worldMeshDirty_) uploadWorldMesh();
   if (chunksDirty_) flushChunkUpdates();
+#ifdef VAYU_SIM_GRASS
   if (floraDirty_) flushFloraUpdates();
-  floraTime_ += 0.016f;   // ~60 Hz wind clock
+#endif
+  floraTime_ += 0.016f;   // ~60 Hz wind + sky clock
 
   QMatrix4x4 view = cameraView();
   camEye_ = view.inverted().map(QVector3D(0.0f, 0.0f, 0.0f));  // world eye for fog
@@ -643,6 +649,7 @@ void SimRendererWidget::paintGL() {
       if (kv.second->vertex_count)
         drawLit(*kv.second, view, QMatrix4x4(), QVector3D(1.0f, 1.0f, 1.0f));
 
+#ifdef VAYU_SIM_GRASS
   // Grass over the terrain (after the ground so depth works). GPU-generated when
   // available + selected; otherwise the CPU chunk-instanced path.
   if (worldVisible_ && !training && floraVisible_) {
@@ -652,6 +659,7 @@ void SimRendererWidget::paintGL() {
     else
       drawFlora(view);
   }
+#endif
 
   // Static world obstacles (lit solids), each scaled/rotated/placed.
   for (int oi = 0; worldVisible_ && !training && oi < obstacles_.size(); ++oi) {
@@ -1185,6 +1193,7 @@ void SimRendererWidget::flushChunkUpdates() {
   pendingChunkUploads_.clear();
 }
 
+#ifdef VAYU_SIM_GRASS
 void SimRendererWidget::buildGrassBlade() {
   // A single curved blade (UE5-style): a quadratic Bezier spine swept into a
   // tapered strip with a real surface (ribbon) normal per cross-section. Built
@@ -1340,6 +1349,7 @@ void SimRendererWidget::drawFlora(const QMatrix4x4& view) {
   floraVao_.release();
   progFlora_.release();
 }
+#endif  // VAYU_SIM_GRASS
 
 void SimRendererWidget::buildGroundGrid() {
   std::vector<float> verts;

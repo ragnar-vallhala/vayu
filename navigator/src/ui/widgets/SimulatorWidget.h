@@ -30,8 +30,11 @@ extern "C" {
 #include <QWidget>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <set>
 #include <unordered_map>
+
+#include <QByteArray>
 
 class QGridLayout;
 class QStackedWidget;
@@ -48,20 +51,19 @@ namespace vsim { struct LoadedMesh; }
 /**
  * SimulatorWidget - control + monitor page for the SITL.
  *
- * Two-process architecture: this widget owns
- *   - a vsim_iface_t (used only for the UART2 telemetry callback;
- *     PWM and IMU no longer ride through it)
- *   - a vsim::SimWorker, which spawns the standalone vsim_d physics
- *     daemon on Start and reads pose frames off /tmp/vsim_pose
+ * In-process architecture: this widget owns
+ *   - a vsim_iface_t (the UART2 telemetry callback that carries firmware
+ *     telemetry to the GUI)
+ *   - a vsim::SimWorker, which boots the REAL vaios firmware + in-process
+ *     vsim physics in one deterministic stepper (no external daemon, no
+ *     FIFO) and emits pose snapshots to the renderer
  *   - a vsim::SimRendererWidget (OpenGL view of the airframe)
- * and calls vayu_sitl_start(&iface) to boot the firmware threads
- * inside Navigator. The firmware's host shims (host_navhal +
- * host_imu_feeder) talk to vsim_d via /tmp/vsim_{pwm,imu}.
  *
- * vayu_sitl_start can be called at most ONCE per Navigator process
- * (see host_lifecycle.c comments); the Stop button only tears down
- * the vsim_d process and pose reader. A Navigator restart fully
- * resets the firmware state.
+ * The engine's firmware side boots at most ONCE per Navigator process (see
+ * host_lifecycle.c comments); the Stop button only halts the worker's step
+ * loop (the firmware stays booted, so Re-Start resumes). A separate
+ * viewer-only "Attach Ext" mode renders a pose FIFO published by an external
+ * headless run — see attachExternalSim().
  */
 // Result of an off-thread terrain-chunk build: the collision/render mesh and the
 // grass/flower instances scattered on it. Carried back to the UI thread via a
@@ -116,11 +118,19 @@ class SimulatorWidget : public QWidget {
   bool eventFilter(QObject* obj, QEvent* ev) override;
 
  public slots:
-  // Called from the C UART2 callback via QMetaObject::invokeMethod
-  // (Qt::QueuedConnection) so the firmware thread crossing the
-  // boundary is safe. Public so the static C trampoline can find it
-  // by name through the meta-object system.
-  void onUartBytes(QByteArray bytes);
+  // Drains the coalesced UART2 RX buffer on the GUI thread and re-emits it as
+  // dataReceived. Invoked via QMetaObject::invokeMethod(Qt::QueuedConnection)
+  // from queueUartBytes — AT MOST ONE drain is ever queued at a time, so a
+  // high-rate byte-by-byte firmware telemetry flush collapses into one GUI
+  // event per event-loop pass instead of thousands (the sim-running slowdown).
+  // Public + no-arg so the static C trampoline can post it through the
+  // meta-object system.
+  void onUartBytes();
+
+  // Append firmware UART2 bytes to the coalescing buffer (called from the C
+  // trampoline on the sim worker thread) and queue at most one onUartBytes()
+  // drain. Public so the trampoline can reach it.
+  void queueUartBytes(const uint8_t* data, size_t n);
 
   // Forward telemetry-decoded values (parsed in MainWindow) into the HUD
   // overlay: the flight-state name and the latest IMU accel/gyro sample.
@@ -147,8 +157,8 @@ class SimulatorWidget : public QWidget {
   void appendLog(const QString& tag, const QString& text);
 
   void startInAppSim();
-  // Attach the 3D view to an EXTERNAL vsim_d pose stream (/tmp/vsim_pose) —
-  // e.g. a headless sitl_lab.py run — without spawning a daemon or firmware.
+  // Attach the 3D view to an EXTERNAL pose stream (/tmp/vsim_pose) — e.g. a
+  // headless vayu_sitl_rtos run — without booting the in-process engine.
   void attachExternalSim();
   void pushRatesToSim();   // read persisted rates → m_sim->sendRates
   // Load the configured world mesh (baking up-axis/scale into NED) and push
@@ -233,6 +243,16 @@ class SimulatorWidget : public QWidget {
   // ---- shared iface + in-app sim ----
   vsim_iface_t m_iface{};
   bool m_ifaceInit = false;
+
+  // Coalescing buffer for the firmware's UART2 telemetry. The in-process
+  // callback fires once per hal_uart_write_char — i.e. PER BYTE in SITL (the
+  // channel flushes UART2 without DMA) — so instead of posting a queued GUI
+  // event per byte we accumulate here and post a single drain event when none
+  // is already pending. Filled on the sim worker thread, drained on the GUI
+  // thread (onUartBytes).
+  std::mutex m_uartRxMtx;
+  QByteArray m_uartRxBuf;
+  bool m_uartRxDrainPending = false;
   bool m_sitlStarted = false;
   vsim::SimWorker* m_sim = nullptr;
 
@@ -350,8 +370,7 @@ class SimulatorWidget : public QWidget {
   QSpinBox* m_tuneSeed = nullptr;        // optimizer RNG seed (--seed)
   QSpinBox* m_tuneSimSeed = nullptr;     // sensor-noise base seed (--sim-seed)
   QCheckBox* m_tuneYaw = nullptr;
-  QCheckBox* m_tuneFast = nullptr;       // fast in-process RTOS backend (~70x realtime)
-  QCheckBox* m_tuneSysId = nullptr;      // analytic plant-fit design (implies fast)
+  QCheckBox* m_tuneSysId = nullptr;      // analytic plant-fit design
   QDoubleSpinBox* m_tuneSysIdBw = nullptr;  // sys-ID crossover as a fraction of actuator BW
   QComboBox* m_tuneCostFn = nullptr;     // fast-backend cost: angle vs angle+rate
   QCheckBox* m_tunePlot = nullptr;
@@ -388,17 +407,14 @@ class SimulatorWidget : public QWidget {
   void onTuneFinished(const QVector<double>& bestX, const QStringList& names,
                       double bestCost);
   void onTuneDone();
-  vsim::SimWorker* m_tuneSim = nullptr;   // attach-only: renders the tuner's sim
   void buildAutotunePage(QWidget* page);
-  void attachTuneSim(const QString& suffix);   // mirror the tuner's drone in 3D
-  void detachTuneSim();                         // stop mirroring, restore UI
   void startAutotune();
   QString exportVehicleGeometryJson();
   QString exportWorldJson();   // env (gravity/drag) so the tuner flies the same plant
   QPushButton* m_simStartBtn = nullptr;
   QPushButton* m_simStopBtn = nullptr;
   QPushButton* m_simResetBtn = nullptr;
-  QPushButton* m_simAttachBtn = nullptr;   // attach 3D view to an external vsim_d
+  QPushButton* m_simAttachBtn = nullptr;   // attach 3D view to an external pose stream
   bool m_attached = false;                 // true while mirroring an external sim
   QCheckBox*   m_fpvCheck = nullptr;   // onboard FPV (only meaningful running)
   QLabel* m_simStatusLabel = nullptr;
