@@ -35,7 +35,7 @@
  * Sizing
  * =========================================================================== */
 #define FS_LOG_PAYLOAD_MAX 256u  /* >= max navlink blackbox record           */
-#define FS_SAVE_PAYLOAD_MAX 192u /* pid_store ~176B (PID4 + notch); calib hdr(8)+payload(84) */
+#define FS_SAVE_PAYLOAD_MAX 216u /* pid_store 216B (PID5 + notch + motor geom); calib hdr(8)+payload(84) */
 /* Log lane depth. KEEP SMALL: each slot is FS_LOG_PAYLOAD_MAX+ bytes of static
  * BSS, and the STM32F401 (96 KiB SRAM) is RAM-starved — a too-large queue pushes
  * _heap_start up until the kernel heap's HEAP_SIZE memset runs off the top of RAM

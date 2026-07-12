@@ -179,6 +179,10 @@ bool angle_rate_controller_apply_geometry_command(const uint8_t *payload,
   const int spin[4] = {a[8] >= 0 ? 1 : -1, a[9] >= 0 ? 1 : -1,
                        a[10] >= 0 ? 1 : -1, a[11] >= 0 ? 1 : -1};
   angle_rate_controller_set_motor_geometry(x, y, spin);
+  /* Persist so the mixer layout survives a reboot (COMM-CMD-004), instead of
+   * falling back to the compiled default. Best-effort: a failed store still
+   * leaves the geometry applied live. */
+  VAYU_DISCARD(pid_config_store_motor_geometry(x, y, spin));
   return true;
 }
 
@@ -230,8 +234,17 @@ void angle_rate_controller_init(void) {
                    angle_rate_controller.pid[i].out_max);
   }
 
-  /* Build the control-allocation mixer from the default geometry. */
+  /* Build the control-allocation mixer from the default geometry, then override
+   * with any airframe geometry persisted to SD (COMM-CMD-004) — restored here so
+   * the mixer signs survive a reboot. set_motor_geometry re-syncs the mixer. */
   mixer_sync();
+  {
+    float gpx[4], gpy[4];
+    int gspin[4];
+    if (pid_config_get_motor_geometry(gpx, gpy, gspin)) {
+      angle_rate_controller_set_motor_geometry(gpx, gpy, gspin);
+    }
+  }
 
   /* Allocate the FFT dynamic-notch banks on the heap (keeps .bss flat). Stays
    * disabled until explicitly enabled, so the gyro stream is untouched here. */

@@ -135,4 +135,20 @@ bool pid_config_get_gyro_notch(float *q, float *fmin_hz, float *fmax_hz,
 vayu_status_t pid_config_apply_gyro_notch(bool enabled, float q, float fmin_hz,
                                           float fmax_hz, float min_ratio);
 
+/**
+ * @brief Fetch the persisted airframe motor geometry, if any.
+ * @return true + fills the out-params (pos_x[4], pos_y[4], spin[4]) if a geometry
+ *         was stored; false (out-params untouched) otherwise. NULL args skipped.
+ */
+bool pid_config_get_motor_geometry(float pos_x[4], float pos_y[4], int spin[4]);
+
+/**
+ * @brief Persist an already-applied CMD_SET_MOTOR_GEOMETRY (positions + spin) to
+ *        SD. Persist-only: the caller applies it live first.
+ * @return VAYU_OK on store; VAYU_ERR_INVALID on a NULL/non-finite input.
+ */
+vayu_status_t pid_config_store_motor_geometry(const float pos_x[4],
+                                              const float pos_y[4],
+                                              const int spin[4]);
+
 #endif // VAYU_PID_CONFIG_H
