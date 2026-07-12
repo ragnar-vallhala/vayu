@@ -345,12 +345,59 @@ static void test_gyro_notch_autoband(void) {
   CHECK(fmin < 200.0f && fmax > 200.0f, "learned band brackets the 200 Hz tone");
 }
 
+/* ----------------------------------------------------------------------------
+ * COMM-CMD-004 — CMD_SET_MOTOR_GEOMETRY applies to the live mixer AND persists,
+ * so the airframe layout survives a reboot instead of falling back to default.
+ * --------------------------------------------------------------------------*/
+static uint16_t build_set_geometry(uint8_t *p, const float x[4], const float y[4],
+                                   const float spin[4]) {
+  uint16_t cmd = (uint16_t)CMD_SET_MOTOR_GEOMETRY;
+  memcpy(&p[0], &cmd, 2);
+  p[2] = 12; /* argc */
+  float a[12] = {x[0], x[1], x[2], x[3], y[0], y[1], y[2], y[3],
+                 spin[0], spin[1], spin[2], spin[3]};
+  for (int i = 0; i < 12; i++) memcpy(&p[3 + i * 4], &a[i], 4);
+  return (uint16_t)(3 + 12 * 4);
+}
+
+static void test_motor_geometry_persist(void) {
+  printf("  test_motor_geometry_persist (COMM-CMD-004)\n");
+  fs_owner_init();
+
+  /* X-quad with the fixed yaw spins {-1,+1,-1,+1}. */
+  const float x[4] = {1.f, -1.f, -1.f, 1.f};
+  const float y[4] = {1.f, 1.f, -1.f, -1.f};
+  const float spin[4] = {-1.f, 1.f, -1.f, 1.f};
+
+  uint8_t p[64];
+  uint16_t len = build_set_geometry(p, x, y, spin);
+  CHECK(angle_rate_controller_apply_geometry_command(p, len),
+        "valid SET_MOTOR_GEOMETRY accepted");
+
+  /* Persistence round-trip: drain the save, reload, and confirm the geometry
+   * (positions + spin signs) survives. */
+  fs_owner_pump();
+  pid_config_init();
+  float sx[4], sy[4];
+  int ss[4];
+  CHECK(pid_config_get_motor_geometry(sx, sy, ss),
+        "stored geometry present after reload");
+  int spin_ok = 1, pos_ok = 1;
+  for (int i = 0; i < 4; i++) {
+    if (ss[i] != (spin[i] >= 0 ? 1 : -1)) spin_ok = 0;
+    if (!feq(sx[i], x[i]) || !feq(sy[i], y[i])) pos_ok = 0;
+  }
+  CHECK(spin_ok, "persisted spin signs match commanded {-1,+1,-1,+1}");
+  CHECK(pos_ok, "persisted motor positions match commanded");
+}
+
 int main(void) {
   printf("== Phase-3 COMM SITL verification ==\n");
 
   test_tx_overflow();
   test_payload_validation();
   test_set_pid_apply();
+  test_motor_geometry_persist();
   test_set_gyro_notch_apply();
   test_gyro_notch_runtime();
   test_gyro_notch_autoband();

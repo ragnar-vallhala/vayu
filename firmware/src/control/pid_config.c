@@ -21,10 +21,10 @@
 #include "vfs.h"
 #include "maths/maths_interface.h"
 
-/* Bumped PID3 -> PID4 for the gyro-notch fields below. Any older file fails the
- * exact-size/magic check in pid_config_init and resets to defaults (same policy
- * as the PID2 -> PID3 D-LPF bump). */
-#define PID_CONFIG_MAGIC     0x50494434u /* 'P''I''D''4' */
+/* Bumped PID4 -> PID5 for the motor-geometry fields below (was PID3 -> PID4 for
+ * the gyro notch). Any older file fails the exact-size/magic check in
+ * pid_config_init and resets to defaults (same policy as the earlier bumps). */
+#define PID_CONFIG_MAGIC     0x50494435u /* 'P''I''D''5' */
 #define PID_CONFIG_FILE_PATH "0:pid.bin"
 
 typedef struct {
@@ -48,11 +48,18 @@ typedef struct {
   float   notch_min_ratio;
   uint8_t notch_enabled;             /* master enable persisted across boots */
   uint8_t notch_valid;               /* 0 until a notch command has been stored */
+  /* Airframe motor geometry (CMD_SET_MOTOR_GEOMETRY): per-motor body position
+   * [m] + spin (+1/-1). Persisted so the mixer signs survive a reboot instead of
+   * falling back to the compiled default layout. */
+  float   motor_pos_x[4];
+  float   motor_pos_y[4];
+  int8_t  motor_spin[4];             /* +1 CW-sign / -1 per motor */
+  uint8_t motor_geom_valid;          /* 0 until a geometry has been stored */
 } pid_store_t;
 
 /* The store is written verbatim as one FS-owner save payload; keep it within the
  * queue's per-request buffer (FS_SAVE_PAYLOAD_MAX in fs_owner.c). Bump both together. */
-_Static_assert(sizeof(pid_store_t) <= 192u,
+_Static_assert(sizeof(pid_store_t) <= 216u,
                "pid_store_t exceeds FS_SAVE_PAYLOAD_MAX (raise it in fs_owner.c)");
 
 /* Zero-init: magic 0, every slot valid == 0 → controllers keep defaults
@@ -142,6 +149,26 @@ bool pid_config_get_gyro_notch(float *q, float *fmin_hz, float *fmax_hz,
   }
   if (enabled) {
     *enabled = s_store.notch_enabled != 0;
+  }
+  return true;
+}
+
+/** @noreq motor-geometry store getter (CMD_SET_MOTOR_GEOMETRY persistence). Fills
+ * the persisted layout if one was ever stored; false leaves the out-params. */
+bool pid_config_get_motor_geometry(float pos_x[4], float pos_y[4], int spin[4]) {
+  if (!s_store.motor_geom_valid) {
+    return false;
+  }
+  for (int i = 0; i < 4; i++) {
+    if (pos_x) {
+      pos_x[i] = s_store.motor_pos_x[i];
+    }
+    if (pos_y) {
+      pos_y[i] = s_store.motor_pos_y[i];
+    }
+    if (spin) {
+      spin[i] = s_store.motor_spin[i];
+    }
   }
   return true;
 }
@@ -319,5 +346,35 @@ vayu_status_t pid_config_apply_gyro_notch(bool enabled, float q, float fmin_hz,
   vayu_log("[PID] set notch en=%d Q=%.2f band=%.0f-%.0f ratio=%.2f",
            (int)enabled, (double)eq, (double)efmin, (double)efmax,
            (double)eratio);
+  return VAYU_OK;
+}
+
+/**
+ * Persist an already-applied motor geometry. The caller
+ * (angle_rate_controller_apply_geometry_command) has already pushed it to the
+ * live mixer; this only snapshots it to SD so the layout survives a reboot. Skips
+ * the write (returns VAYU_ERR_INVALID) on a non-finite position so a bad command
+ * can't poison the store.
+ */
+vayu_status_t pid_config_store_motor_geometry(const float pos_x[4],
+                                              const float pos_y[4],
+                                              const int spin[4]) {
+  if (pos_x == NULL || pos_y == NULL || spin == NULL) {
+    return VAYU_ERR_INVALID;
+  }
+  for (int i = 0; i < 4; i++) {
+    if (!m_isfinite(pos_x[i]) || !m_isfinite(pos_y[i])) {
+      return VAYU_ERR_INVALID;
+    }
+  }
+  for (int i = 0; i < 4; i++) {
+    s_store.motor_pos_x[i] = pos_x[i];
+    s_store.motor_pos_y[i] = pos_y[i];
+    s_store.motor_spin[i] = (int8_t)(spin[i] >= 0 ? 1 : -1);
+  }
+  s_store.motor_geom_valid = 1;
+  pid_config_save();
+  vayu_log("[PID] store motor geometry (spin %d %d %d %d)", spin[0], spin[1],
+           spin[2], spin[3]);
   return VAYU_OK;
 }
