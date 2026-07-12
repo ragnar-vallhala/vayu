@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """SITL PID autotuner (MVP).
 
-Launches a headless physics-in-the-loop stack (vsim_d + vayu_sitl) in test-rig
+Launches a headless physics-in-the-loop stack (vayu_sitl_rtos driver) in test-rig
 mode (translation pinned, rotation free), excites attitude step doublets, reads
 the firmware's control-telemetry (setpoint vs measured) and searches the PID
 gains that minimize a tracking cost.
@@ -32,7 +32,7 @@ import optimizers as OPT        # noqa: E402
 
 BIG = 1.0e6
 
-# Default base seed for the deterministic sensor-noise reset (matches vsim_d's
+# Default base seed for the deterministic sensor-noise reset (matches the engine's
 # built-in default 0xC0FFEE). Repeat i of an eval uses sim_seed+i, so eval(x) is
 # reproducible AND --repeats still averages distinct noise realizations.
 DEFAULT_SIM_SEED = 0xC0FFEE
@@ -561,7 +561,7 @@ def main():
                          "marginal seed doesn't flip — see methodology §8.5.")
     ap.add_argument("--seed", type=int, default=1, help="optimizer RNG seed")
     ap.add_argument("--sim-seed", type=int, default=DEFAULT_SIM_SEED,
-                    help="base seed for vsim_d's sensor-noise reset; repeat i "
+                    help="base seed for the engine's sensor-noise reset; repeat i "
                          "uses sim_seed+i. Makes eval(x) reproducible. 0 = "
                          "free-running noise (legacy).")
     ap.add_argument("--apply", action="store_true",
@@ -621,7 +621,7 @@ def main():
     stack.tether_k = args.rig_tether
     print(f"rig: {'soft tether k=%.0f' % args.rig_tether if args.rig_tether > 0 else 'hard pin'}"
           f"  ·  free-flight validation: {'on' if args.validate else 'off'}")
-    print("launching SITL stack (vsim_d + vayu_sitl, test-rig mode) ...")
+    print("launching SITL stack (vayu_sitl_rtos driver, test-rig mode) ...")
     stack.start()
     try:
         if args.plot:

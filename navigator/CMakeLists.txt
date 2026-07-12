@@ -47,6 +47,12 @@ set(CMAKE_COMPILE_COMMANDS_OUTPUT "${CMAKE_SOURCE_DIR}/compile_commands.json")
 # -------------------------------------------------------
 option(NAVIGATOR_SITL "Build in-app SITL simulator + autotune (needs a POSIX host)" ON)
 
+# The procedural grass/flora renderer (GpuGrass compute path + CPU flora scatter)
+# is OFF by default: GpuGrass.cpp + procgen/Flora.cpp are not compiled and the
+# renderer/UI grass code is #ifdef'd out (VAYU_SIM_GRASS). The source stays
+# in-tree; turn it back on with -DNAVIGATOR_SIM_GRASS=ON.
+option(NAVIGATOR_SIM_GRASS "Build the SITL renderer grass/flora" OFF)
+
 # Qt6 required modules
 find_package(Qt6 REQUIRED COMPONENTS
     Core
@@ -199,8 +205,6 @@ set(GCS_SITL_SOURCES
     src/autotune/Cost.cpp
     src/autotune/Space.cpp
     src/autotune/AutotuneEngine.cpp
-    src/autotune/SitlStack.cpp
-    src/autotune/Rollout.cpp
     src/autotune/RtosEval.cpp
     src/autotune/SysId.cpp
     src/autotune/AutotuneWorker.cpp
@@ -216,11 +220,9 @@ set(GCS_SITL_SOURCES
     src/vsim/WorldMeshBuilder.cpp
     src/vsim/ProceduralWorld.cpp
     src/vsim/ChunkStreamer.cpp
-    src/vsim/GpuGrass.cpp
     src/vsim/procgen/Noise.cpp
     src/vsim/procgen/TerrainGen.cpp
     src/vsim/procgen/TerrainField.cpp
-    src/vsim/procgen/Flora.cpp
     src/vsim/MassProperties.cpp
     src/vsim/RcBridge.cpp
     src/vsim/TrainingCourse.cpp
@@ -231,7 +233,6 @@ set(GCS_SITL_HEADERS
     src/autotune/Cost.h
     src/autotune/Space.h
     src/autotune/AutotuneEngine.h
-    src/autotune/SitlStack.h
     src/autotune/Rollout.h
     src/autotune/RtosEval.h
     src/autotune/SysId.h
@@ -249,7 +250,6 @@ set(GCS_SITL_HEADERS
     src/vsim/WorldMeshBuilder.h
     src/vsim/ProceduralWorld.h
     src/vsim/ChunkStreamer.h
-    src/vsim/GpuGrass.h
     src/vsim/procgen/ProcgenTypes.h
     src/vsim/procgen/Noise.h
     src/vsim/procgen/Heightfield.h
@@ -337,6 +337,16 @@ if(NAVIGATOR_SITL AND EXISTS "${VAYU_SITL_DIR}/CMakeLists.txt")
     target_link_libraries(Navigator PRIVATE vayu_sitl_rtos_core assimp::assimp)
     target_include_directories(Navigator PRIVATE "${VAYU_SITL_DIR}/src")  # host_rtos_engine_api.h
     target_compile_definitions(Navigator PRIVATE NAVIGATOR_HAS_SITL=1)
+    # Grass/flora is opt-in: only then compile GpuGrass + the CPU flora scatter
+    # and define the guard so the renderer/UI grass code is live (see the
+    # NAVIGATOR_SIM_GRASS option). Off by default -> terrain renders grass-free.
+    if(NAVIGATOR_SIM_GRASS)
+        target_sources(Navigator PRIVATE
+            src/vsim/GpuGrass.cpp
+            src/vsim/procgen/Flora.cpp)
+        target_compile_definitions(Navigator PRIVATE VAYU_SIM_GRASS=1)
+        message(STATUS "Navigator: SITL grass/flora ON (VAYU_SIM_GRASS)")
+    endif()
     message(STATUS "Navigator: linking against vayu_sitl_rtos_core + assimp (SITL ON, in-process RTOS)")
 elseif(NOT NAVIGATOR_SITL)
     message(STATUS "Navigator: SITL OFF (NAVIGATOR_SITL=OFF) -- GCS-only build")

@@ -487,6 +487,7 @@ void WorldEditorWidget::buildProceduralTuningSection(QVBoxLayout* root) {
     knob(f, tr("Slope→rock:"), 0, 1, 2, 0.02, &cfg_.field.colSlopeT, {});
     col->addLayout(f);
   }
+#ifdef VAYU_SIM_GRASS
   group(tr("Grass — flatness 1=flat, 0=vertical"));
   {
     auto* f = new QFormLayout();
@@ -514,6 +515,7 @@ void WorldEditorWidget::buildProceduralTuningSection(QVBoxLayout* root) {
     knob(f, tr("Face-camera fraction:"), 0, 1, 2, 0.05, &cfg_.look.faceCameraFrac, {});
     col->addLayout(f);
   }
+#endif  // VAYU_SIM_GRASS
 
   sec->setContentWidget(body);
   root->addWidget(sec);

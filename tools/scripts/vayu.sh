@@ -74,11 +74,6 @@ build_sitl() {
   cmake -S sim/host -B build_sitl $(bt_flag) $extra
   cmake --build build_sitl -j"$JOBS"
 }
-build_vsim() {
-  say "sim/vsim -> build_vsim/vsim_d"
-  cmake -S sim/vsim -B build_vsim $(bt_flag)
-  cmake --build build_vsim -j"$JOBS"
-}
 build_rtos() {
   say "sim/host RTOS -> build_sitl_rtos/vayu_sitl_rtos"
   cmake -S sim/host -B build_sitl_rtos -DVAYU_SITL_RTOS_BUILD=ON
@@ -107,8 +102,10 @@ HEADLESS_PY=python3   # resolved by ensure_headless_build, used by run_headless_
 ensure_sitl_build() {
   if [ -d build_sitl ]; then cmake --build build_sitl -j"$JOBS"; else build_sitl; fi
 }
-ensure_vsim_build() {
-  if [ -d build_vsim ]; then cmake --build build_vsim -j"$JOBS"; else build_vsim; fi
+ensure_rtos_build() {
+  if [ -d build_sitl_rtos ]; then
+    cmake --build build_sitl_rtos -j"$JOBS" --target vayu_sitl_rtos
+  else build_rtos; fi
 }
 ensure_gcs_build() {
   local type; type="$(bt_flag)"; [ -z "$type" ] && type="-DCMAKE_BUILD_TYPE=Release"
@@ -117,11 +114,10 @@ ensure_gcs_build() {
   cmake --build navigator/build -j"$JOBS"
 }
 ensure_headless_build() {
-  # The integration tests drive the REAL SITL stack, so they need fresh vsim_d
-  # + vayu_sitl; without them conftest SILENTLY skips (false green). Build both
-  # (run_headless_tests points the SDK at these via VSIM_BIN_PATH/VAYU_SITL_BIN).
-  ensure_vsim_build
-  ensure_sitl_build
+  # The integration tests drive the REAL SITL stack, so they need a fresh
+  # vayu_sitl_rtos; without it conftest SILENTLY skips (false green). Build it
+  # (run_headless_tests points the SDK at it via VAYU_SITL_RTOS_BIN).
+  ensure_rtos_build
   # System Python is often externally managed (PEP 668), so install into a venv.
   # Use $REPO_ROOT/.venv if present, otherwise create it.
   if [ ! -x "$REPO_ROOT/.venv/bin/python" ]; then
@@ -189,12 +185,11 @@ run_gcs_tests() {
 }
 run_headless_tests() {
   _ensure_logdir
-  # Point the SDK at the binaries vayu.sh just built (its root-convention build
-  # dirs), so the integration tests never resolve to a stale sim/*/build copy.
-  say "pytest: navigator/headless-sdk (binaries: build_vsim + build_sitl)"
+  # Point the SDK at the binary vayu.sh just built (its root-convention build
+  # dir), so the integration tests never resolve to a stale sim/*/build copy.
+  say "pytest: navigator/headless-sdk (binary: build_sitl_rtos)"
   local log="$LOGDIR/headless.log" rc=0
-  if VSIM_BIN_PATH="$REPO_ROOT/build_vsim/vsim_d" \
-     VAYU_SITL_BIN="$REPO_ROOT/build_sitl/vayu_sitl" \
+  if VAYU_SITL_RTOS_BIN="$REPO_ROOT/build_sitl_rtos/vayu_sitl_rtos" \
      "$HEADLESS_PY" -m pytest navigator/headless-sdk/tests 2>&1 | tee "$log"; then rc=0; else rc=1; fi
   read -r HL_PASS HL_FAIL HL_SKIP < <(parse_pytest "$log")
   return "$rc"
@@ -223,10 +218,11 @@ run_vtest() {
     || say "gcs configure failed — vtest will flag it"
   [ -f build_fwtest/CTestTestfile.cmake ] || cmake -S firmware/tests/host \
     -B build_fwtest >/dev/null 2>&1 || say "fw-host configure failed — vtest will flag it"
-  # build_vsim: the headless integration tests drive vsim_d + vayu_sitl; vtest
-  # builds those on demand, so just ensure the dir is configured.
-  [ -f build_vsim/CMakeCache.txt ] || cmake -S sim/vsim -B build_vsim \
-    >/dev/null 2>&1 || say "vsim configure failed — headless integration may skip"
+  # build_sitl_rtos: the headless integration tests drive the in-process
+  # vayu_sitl_rtos; vtest builds it on demand, so just ensure the dir is configured.
+  [ -f build_sitl_rtos/CMakeCache.txt ] || cmake -S sim/host -B build_sitl_rtos \
+    -DVAYU_SITL_RTOS_BUILD=ON >/dev/null 2>&1 \
+    || say "rtos configure failed — headless integration may skip"
   if [ -t 1 ]; then ./build_vtest/vtest; else ./build_vtest/vtest --run; fi
 }
 
@@ -281,12 +277,11 @@ case "$CMD" in
     case "$TARGET" in
       firmware) build_firmware;;
       sitl)     build_sitl;;
-      vsim)     build_vsim;;
       rtos)     build_rtos;;
       gcs)      build_gcs;;
       vtest)    build_vtest;;
-      all)      build_firmware; build_sitl; build_vsim; build_gcs;;
-      ""|*)     die "build: target must be one of firmware|sitl|vsim|gcs|rtos|vtest|all";;
+      all)      build_firmware; build_sitl; build_rtos; build_gcs;;
+      ""|*)     die "build: target must be one of firmware|sitl|gcs|rtos|vtest|all";;
     esac;;
   test)
     case "$TARGET" in

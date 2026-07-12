@@ -1,6 +1,13 @@
 #pragma once
 
+// The procedural grass/flora renderer is gated behind VAYU_SIM_GRASS (a CMake
+// option, OFF by default). When off, GpuGrass.cpp + procgen/Flora.cpp are not
+// compiled and every grass/flora entry point below is stubbed to a no-op, so
+// the SITL view renders terrain without grass. The code is retained in-tree for
+// later re-enable (cmake -DNAVIGATOR_SIM_GRASS=ON).
+#ifdef VAYU_SIM_GRASS
 #include "GpuGrass.h"
+#endif
 #include "SimWorker.h"
 #include "TrainingCourse.h"
 
@@ -94,6 +101,8 @@ class SimRendererWidget : public QOpenGLWidget, protected QOpenGLExtraFunctions 
   // Per-chunk instanced flora. `interleaved` is `count` blades of 9 floats each:
   // [posx,posy,posz, yaw,height,flower, tintr,tintg,tintb]. Deferred upload like
   // the chunk meshes; keyed the same so it loads/unloads with its chunk.
+  // Grass OFF (default): these are inline no-ops so callers need no #ifdef.
+#ifdef VAYU_SIM_GRASS
   void setChunkFlora(qint64 key, const std::vector<float>& interleaved,
                      int count, float centerX, float centerY, float halfExtent);
   void removeChunkFlora(qint64 key);
@@ -107,6 +116,17 @@ class SimRendererWidget : public QOpenGLWidget, protected QOpenGLExtraFunctions 
     gpuGrass_.setParams(p);
   }
   void setGpuGrassActive(bool on) { gpuGrassActive_ = on; update(); }
+#else
+  void setChunkFlora(qint64, const std::vector<float>&, int, float, float,
+                     float) {}
+  void removeChunkFlora(qint64) {}
+  void clearChunkFlora() {}
+  void setFloraVisible(bool) {}
+  bool gpuGrassReady() const { return false; }
+  void setGpuGrassActive(bool) {}
+  // setGpuGrassParams omitted: its signature needs GpuGrass::Params (a guarded
+  // type). Callers guard the call under VAYU_SIM_GRASS.
+#endif
   // Terrain lighting look knobs — kept in sync with the grass GrassLook so the
   // ground and grass warm/brighten together. Applied live in drawLit.
   void setTerrainLook(float sunIntensity, float ambientStrength) {
@@ -203,11 +223,15 @@ class SimRendererWidget : public QOpenGLWidget, protected QOpenGLExtraFunctions 
   void uploadDroneMesh();   // flushes pending_* into droneMesh_ (GL-current)
   void uploadWorldMesh();   // flushes pendingWorld_* into worldMesh_
   void flushChunkUpdates(); // applies queued chunk uploads/removals (GL-current)
+#ifdef VAYU_SIM_GRASS
   void buildGrassBlade();   // shared unit-blade geometry (crossed tapered quads)
+#endif
   void buildShadowMap();    // create the directional shadow-map FBO + depth texture
   void renderShadowPass(bool showWorld, bool showChunks);  // terrain depth from the sun
+#ifdef VAYU_SIM_GRASS
   void flushFloraUpdates(); // applies queued flora uploads/removals (GL-current)
   void drawFlora(const QMatrix4x4& view);  // instanced blades over the chunks
+#endif
   // Upload an interleaved [px,py,pz,nx,ny,nz] array into a lit-shader mesh.
   void uploadLitMesh(Mesh& m, const std::vector<float>& interleaved);
   // As uploadLitMesh, but the array is [px,py,pz,nx,ny,nz,r,g,b] and vertex
@@ -291,6 +315,11 @@ class SimRendererWidget : public QOpenGLWidget, protected QOpenGLExtraFunctions 
   int us_time_   = -1;
   QOpenGLVertexArrayObject skyVao_;
 
+  // Animation clock (advances per paint); drives the sky glow AND, when built,
+  // the grass wind — kept general so it survives with grass compiled out.
+  float floraTime_ = 0.0f;
+
+#ifdef VAYU_SIM_GRASS
   // Flora shader: instanced grass/flower blades, wind + distance fade + fog.
   QOpenGLShaderProgram progFlora_;
   int uf_vp_ = -1, uf_campos_ = -1, uf_time_ = -1;
@@ -299,13 +328,13 @@ class SimRendererWidget : public QOpenGLWidget, protected QOpenGLExtraFunctions 
   QOpenGLBuffer grassVbo_[3];   // shared blade geometry at 3 LODs (24/12/6 verts)
   int grassVerts_[3] = {0, 0, 0};
   QOpenGLVertexArrayObject floraVao_;  // shared; geometry+instance bound per draw
-  float floraTime_ = 0.0f;     // advances per paint to drive the wind
   bool floraVisible_ = true;
 
   // GPU grass (compute-generated each frame). Inactive unless the endless biome
   // selects it and the context supports compute.
   GpuGrass gpuGrass_;
   bool gpuGrassActive_ = false;
+#endif
 
   // Camera world position (NED), refreshed each paintGL; fed to the lit shader
   // for distance fog.
@@ -367,6 +396,7 @@ class SimRendererWidget : public QOpenGLWidget, protected QOpenGLExtraFunctions 
   bool chunksDirty_ = false;
   bool clearAllChunks_ = false;
 
+#ifdef VAYU_SIM_GRASS
   // Per-chunk instanced flora (grass/flowers), keyed like worldChunks_. Each
   // holds a VAO binding the shared blade geometry + this chunk's instance VBO.
   struct FloraChunk {
@@ -382,6 +412,7 @@ class SimRendererWidget : public QOpenGLWidget, protected QOpenGLExtraFunctions 
   std::vector<qint64> pendingFloraRemovals_;
   bool floraDirty_ = false;
   bool clearAllFlora_ = false;
+#endif
 
   // Editable motor layout (defaults mirror the firmware quad geometry).
   std::array<QVector3D, 4> motorPos_ = {

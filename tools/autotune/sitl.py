@@ -1,13 +1,14 @@
 """Headless SITL stack manager for the PID autotuner.
 
-Launches vsim_d (physics) + vayu_sitl (firmware) sharing one VSIM_FIFO_SUFFIX,
-drives RC over a FIFO, reads control-telemetry off the firmware's UART2 pty,
-sends CMD_SET_PID / ARM, and runs the vsim_d ctl channel (reset / test-rig /
-rates). One stack is launched once and reused across many rollouts.
+Launches the single in-process SITL binary (vayu_sitl_rtos, driver mode: real
+firmware + physics in one process), drives RC over a pty, reads control-
+telemetry off the firmware's UART2 pty, sends CMD_SET_PID / ARM, and runs the
+ctl channel (reset / test-rig / rates). One stack is launched once and reused
+across many rollouts.
 
 Wiring (all paths suffixed with VSIM_FIFO_SUFFIX):
-  /tmp/vsim_ctl<sfx>        autotuner -> vsim_d   (reset/testrig/rates)
-  /tmp/vsim_pose<sfx>       vsim_d   -> autotuner (pose, optional)
+  /tmp/vsim_ctl<sfx>        autotuner -> engine   (reset/testrig/rates)
+  /tmp/vsim_pose<sfx>       engine   -> autotuner (pose, optional)
   /tmp/vayu_uart2_pty<sfx>  advert file -> the firmware telemetry/command pty
   $VAYU_UART_RC_PATH        autotuner -> firmware (RC CSV frames)
 """
@@ -41,8 +42,11 @@ class SitlStack:
         self.mixer_geometry = mixer_geometry
         self.world = world                      # dict: gravity/drag/..., or None
         self.tether_k = 0.0                     # >0: soft rig (estimator-aware)
-        self.vsim_bin = os.path.join(self.root, "build_vsim", "vsim_d")
-        self.sitl_bin = os.path.join(self.root, "build_sitl", "vayu_sitl")
+        # One in-process binary (firmware + physics), driven over the same
+        # pose/ctl FIFOs + UART2/RC ptys the old vsim_d+vayu_sitl pair used.
+        self.rtos_bin = os.environ.get(
+            "VAYU_SITL_RTOS_BIN",
+            os.path.join(self.root, "build_sitl_rtos", "vayu_sitl_rtos"))
         self.rc_path = f"/tmp/vayu_at_rc{self.suffix}"
         self.ctl_path = f"/tmp/vsim_ctl{self.suffix}"
         self.advert_path = f"/tmp/vayu_uart2_pty{self.suffix}"
@@ -67,12 +71,14 @@ class SitlStack:
 
     # -- lifecycle ----------------------------------------------------------
     def start(self):
-        for p in (self.vsim_bin, self.sitl_bin):
-            if not os.path.exists(p):
-                raise FileNotFoundError(f"missing binary: {p} (build it first)")
+        if not os.path.exists(self.rtos_bin):
+            raise FileNotFoundError(
+                f"missing binary: {self.rtos_bin} (build it with "
+                "-DVAYU_SITL_RTOS_BUILD=ON --target vayu_sitl_rtos)")
         # RC must look like a serial tty: the firmware calls tcgetattr() on it,
         # which fails on a plain FIFO. Use a PTY — firmware opens the slave, we
-        # write RC frames to the master.
+        # write RC frames to the master. The pty must exist BEFORE the spawn
+        # (the driver's serial RC feeder opens VAYU_UART_RC_PATH at boot).
         self._rc_master, self._rc_slave = os.openpty()
         rc_slave = os.ttyname(self._rc_slave)     # path the firmware opens
         self._make_raw(self._rc_master)
@@ -81,10 +87,12 @@ class SitlStack:
         env = dict(os.environ)
         env["VSIM_FIFO_SUFFIX"] = self.suffix
         env["VAYU_UART_RC_PATH"] = rc_slave
+        env["VAYU_RTOS_SCENARIO"] = "driver"
         out = subprocess.DEVNULL if self.quiet else None
 
-        # vsim_d first so it creates the pwm/imu/pose/ctl FIFOs the firmware opens.
-        self._procs.append(subprocess.Popen([self.vsim_bin], env=env, stderr=out, stdout=out))
+        # The single in-process binary: runs BOTH firmware and physics, creates
+        # the pose/ctl FIFOs + the UART2 pty advert, reads RC over the pty above.
+        self._procs.append(subprocess.Popen([self.rtos_bin], env=env, stderr=out, stdout=out))
         self._wait_path(self.ctl_path, 5.0)
         self._ctl_fd = os.open(self.ctl_path, os.O_RDWR | os.O_NONBLOCK)
         self.send_ctl(P.ctl_rates(*self.rates))
@@ -100,9 +108,6 @@ class SitlStack:
                 angular_drag=w.get("angular_drag", 0.005),
                 ground_right_gain=w.get("ground_right_gain", 8.0),
                 ground_right_damp=w.get("ground_right_damp", 3.0)))
-
-        # firmware host: opens RC FIFO, creates the UART2 pty, boots to STANDBY.
-        self._procs.append(subprocess.Popen([self.sitl_bin], env=env, stderr=out, stdout=out))
 
         self._start_rc_writer()
         self._open_pty()
@@ -145,13 +150,13 @@ class SitlStack:
     def __enter__(self): return self.start()
     def __exit__(self, *a): self.stop()
 
-    # -- vsim_d ctl ---------------------------------------------------------
+    # -- engine ctl ---------------------------------------------------------
     def send_ctl(self, frame: bytes):
         if self._ctl_fd >= 0:
             self._write_all(self._ctl_fd, frame)
 
     def reset(self, pos=(0, 0, -0.05), seed=0):
-        # seed!=0 => deterministic sensor-noise reset in vsim_d (repeatable cost).
+        # seed!=0 => deterministic sensor-noise reset in the engine (repeatable cost).
         self.send_ctl(P.ctl_reset(pos=pos, seed=seed))
 
     def set_testrig(self, on, pos=(0, 0, -0.05), tether_k=0.0):

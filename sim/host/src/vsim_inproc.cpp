@@ -259,6 +259,21 @@ void vsim_inproc_step(const float duty[4], float dt, uint8_t out_imu[88]) {
   publishPose();   // refresh the GUI snapshot (cheap; no RNG, determinism-safe)
 }
 
+/* Modelled barometer (BME280 analog): derive static pressure from the true
+ * altitude via the ISA formula — the EXACT inverse of the firmware's altitude
+ * derivation, so the FC's own bme280 path recovers this altitude. Same values
+ * vsim_d wrote on the /tmp/vsim_baro FIFO; the firmware-aware step engine feeds
+ * them into bme280_publish (this TU can't see the firmware headers). */
+void vsim_inproc_get_baro(float *pressure_pa, float *temperature_c,
+                          float *humidity_rh) {
+  const double altitude_up = -static_cast<double>(g_ctl.state().pos_w.z());
+  double ratio = 1.0 - altitude_up / 44330.0;
+  if (ratio < 0.0) ratio = 0.0;  // guard absurd altitudes
+  if (pressure_pa)   *pressure_pa   = static_cast<float>(101325.0 * std::pow(ratio, 5.255));
+  if (temperature_c) *temperature_c = 25.0f;   // modelled cabin/air temperature
+  if (humidity_rh)   *humidity_rh   = 50.0f;   // modelled relative humidity
+}
+
 /* Latest pose snapshot for the GCS renderer — lock-free seqlock read, safe to
  * call from a different thread than the stepper. Format is the SAME
  * vsim_pose_frame_t the decoupled vsim_d publishes, so SimWorker's consumer is
@@ -299,6 +314,20 @@ void vsim_inproc_set_testrig(const vsim_ctl_testrig_t *t) {
 void vsim_inproc_set_geometry(const vsim_ctl_geometry_t *g) {
   applyGeometry(*g);
   if (applyActuatorEnv(g_motor)) g_ctl.setMotorParams(g_motor);
+  // Echo the applied per-rotor layout (mirrors vsim_d's SET_GEOMETRY echo) so a
+  // headless harness can assert it is flying the loaded frame's geometry, not
+  // the compiled-in defaults (see fidelity verify_frame). Prefixed
+  // "vsim_inproc:" and emitted on stderr, which the driver routes to the
+  // harness's captured log.
+  std::fprintf(stderr,
+               "vsim_inproc: geometry set (m=%.3f kg, Idiag=%.4g/%.4g/%.4g)\n",
+               g_drone.mass, g_drone.inertia.at(0, 0), g_drone.inertia.at(1, 1),
+               g_drone.inertia.at(2, 2));
+  for (int i = 0; i < 4; ++i)
+    std::fprintf(stderr,
+                 "vsim_inproc:   motor%d pos=(%.5f, %.5f, %.5f) spin=%d kt=%.4g\n",
+                 i, g_motor.pos_b[i].x(), g_motor.pos_b[i].y(),
+                 g_motor.pos_b[i].z(), g_motor.spin[i], g_motor.k_thrust[i]);
 }
 
 void vsim_inproc_set_world(const vsim_ctl_world_t *w) {

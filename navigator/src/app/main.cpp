@@ -7,9 +7,9 @@
 
 int main(int argc, char *argv[]) {
   // Request OpenGL 4.6 Core (with a graceful drop to whatever the driver gives).
-  // 4.3+ unlocks compute shaders + indirect draw, which the GPU grass uses; the
-  // rest of the renderer is 3.3-core code that runs unchanged on a 4.x core
-  // context. On a driver that can't give 4.3 the grass falls back to the CPU path.
+  // 4.3+ unlocks compute shaders + indirect draw, which the optional GPU grass
+  // uses (NAVIGATOR_SIM_GRASS, off by default); the rest of the renderer is
+  // 3.3-core code that runs unchanged on a 4.x core context.
   QSurfaceFormat fmt;
   fmt.setVersion(4, 6);
   fmt.setProfile(QSurfaceFormat::CoreProfile);

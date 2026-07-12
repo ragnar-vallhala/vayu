@@ -12,13 +12,12 @@
 // and prints a `#RTOS-TUNE` line scoring each axis's rate-loop tracking
 // correlation corr(rate_sp, rate_curr). Each rollout is ~0.04 s wall (~70x
 // realtime) and **bit-deterministic** for a given (seed, gains) — so the GCS
-// autotune search can use it as a fast, reproducible `eval(x)` instead of the
-// realtime FIFO SitlStack.
+// autotune search uses it as a fast, reproducible `eval(x)`.
 //
-// Unlike SitlStack this backend has NO geometry input: it tunes the firmware's
-// reference quad (the binary links its own in-process vsim physics). The gain
-// knobs it honours are rate_kp/ki/kd, angle_kp and yaw_rate_kp; any other Space
-// param (gyro_lpf, yaw_rate_ki/kd, ...) has no env hook and is ignored.
+// The gain knobs it honours are rate_kp/ki/kd, angle_kp and yaw_rate_kp; any
+// other Space param (gyro_lpf, yaw_rate_ki/kd, ...) has no env hook and is
+// ignored. setGeometry() tunes the loaded airframe; without it the binary's
+// in-process vsim physics runs the firmware's reference quad.
 namespace autotune {
 
 struct RtosResult {
@@ -70,8 +69,8 @@ public:
   void setCostMode(CostMode m) { m_costMode = m; }
 
   // Tune the loaded airframe instead of the reference quad: serialize a
-  // vsim_ctl_geometry_t blob (mass + inertia + per-rotor layout, exactly the
-  // bytes SitlStack pushes to vsim_d) to a temp file that every rollout points
+  // vsim_ctl_geometry_t blob (mass + inertia + per-rotor layout) to a temp file
+  // that every rollout points
   // the binary at via VAYU_RTOS_GEOMETRY. The backend applies it to both the
   // in-process physics and the firmware mix. Call once before rollout().
   // Returns false (and leaves the reference quad active) if the file can't be

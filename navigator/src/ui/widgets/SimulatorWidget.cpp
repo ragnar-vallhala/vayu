@@ -283,9 +283,10 @@ QString defaultLogDir() {
 void uart2_to_widget_trampoline(void* user, const uint8_t* data, size_t n) {
   auto* w = static_cast<SimulatorWidget*>(user);
   if (!w || n == 0) return;
-  QByteArray ba(reinterpret_cast<const char*>(data), static_cast<int>(n));
-  QMetaObject::invokeMethod(w, "onUartBytes", Qt::QueuedConnection,
-                            Q_ARG(QByteArray, ba));
+  // Called once per firmware UART write — PER BYTE in SITL. Coalesce instead of
+  // posting a queued GUI event each time (that flooded the event loop and made
+  // the whole app sluggish while the sim ran).
+  w->queueUartBytes(data, n);
 }
 
 }  // namespace
@@ -386,10 +387,9 @@ SimulatorWidget::~SimulatorWidget() {
   // Tear down the autotune machinery synchronously. Normally a tune is stopped
   // via stopAutotune() -> cancel() -> queued done -> onTuneDone(), but at app
   // exit the event loop is already gone, so that queued signal never arrives.
-  // m_tuneThread and m_tuneSim are both QThread-derived children of this widget;
-  // if left running they'd be "destroyed while still running" by ~QObject,
-  // which qFatal()s (the abort seen on exit) AND orphans m_tuneSim's vsim_d
-  // daemon (which keeps spinning, dragging the system). Join them here.
+  // m_tuneThread is a QThread-derived child of this widget; if left running it'd
+  // be "destroyed while still running" by ~QObject, which qFatal()s (the abort
+  // seen on exit). Join it here.
   if (m_tuneWorker) m_tuneWorker->cancel();  // break the blocking engine.run()
   if (m_tuneThread) {
     m_tuneThread->quit();
@@ -404,7 +404,6 @@ SimulatorWidget::~SimulatorWidget() {
     delete m_tuneWorker;
     m_tuneWorker = nullptr;
   }
-  detachTuneSim();             // joins m_tuneSim -> ~SimWorker kills its vsim_d
 
   closeLogFile();    // belt-and-suspenders: stopInAppSim already does this
   // We do NOT call vayu_sitl_stop()'s teardown completely; the firmware
@@ -673,9 +672,9 @@ void SimulatorWidget::buildUi() {
       }
     });
     m_simAttachBtn = new ui::GhostButton(tr("Attach Ext"), simBody);
-    m_simAttachBtn->setToolTip(tr("Render an EXTERNAL vsim_d's pose stream "
-        "(/tmp/vsim_pose) over the loaded world — e.g. a headless sitl_lab.py "
-        "run. No firmware/daemon is started here; this view just mirrors it."));
+    m_simAttachBtn->setToolTip(tr("Render an EXTERNAL pose stream "
+        "(/tmp/vsim_pose) over the loaded world — e.g. a headless vayu_sitl_rtos "
+        "run. No engine is started here; this view just mirrors it."));
     connect(m_simAttachBtn, &QPushButton::clicked, this,
             &SimulatorWidget::attachExternalSim);
     runRow->addWidget(m_simStartBtn);
@@ -718,6 +717,7 @@ void SimulatorWidget::buildUi() {
     });
     runRow->addWidget(contourChk);
 
+#ifdef VAYU_SIM_GRASS
     auto* grassChk = new QCheckBox(tr("Grass"), simBody);
     grassChk->setChecked(false);   // off by default
     grassChk->setToolTip(tr("Render instanced grass + flowers on procedural "
@@ -739,6 +739,7 @@ void SimulatorWidget::buildUi() {
     // no toggled signal at startup).
     if (m_renderer) m_renderer->setFloraVisible(false);
     if (m_downRenderer) m_downRenderer->setFloraVisible(false);
+#endif  // VAYU_SIM_GRASS
 
     m_propAudioChk = new QCheckBox(tr("Prop audio"), simBody);
     m_propAudioChk->setToolTip(tr("Propeller sound synthesized from motor rpm "
@@ -1271,18 +1272,6 @@ void SimulatorWidget::buildAutotunePage(QWidget* page) {
                            "+ gyro LPF, excited by a yaw-rate doublet. Yaw is "
                            "rate-controlled, so there is no yaw angle gain to tune."));
   form->addWidget(m_tuneYaw, r++, 1);
-  m_tuneFast = new QCheckBox(tr("Fast sim (~70× realtime)"), page);
-  m_tuneFast->setToolTip(tr(
-      "Run the search on the in-process real-vaios backend (vayu_sitl_rtos): a "
-      "seeded arm+doublet, ~70× realtime and deterministic — a full sweep "
-      "finishes in seconds. It uses the SAME cost as the realtime tuner (angle "
-      "IAE + overshoot + chatter, with a large divergence penalty), so a "
-      "tumbling tune scores high, never low. The current vehicle geometry is "
-      "applied (physics + firmware mix).\n"
-      "Scope: tunes rate kp/ki/kd, angle_kp and yaw_rate_kp — the gains this "
-      "backend can set; gyro_lpf and the yaw ki/kd/lpf are left out of the "
-      "search.\nThe World tab sim is unaffected and always runs realtime."));
-  form->addWidget(m_tuneFast, r++, 1);
 
   m_tuneSysId = new QCheckBox(tr("System ID (analytic design)"), page);
   m_tuneSysId->setToolTip(tr(
@@ -1398,7 +1387,6 @@ void SimulatorWidget::buildAutotunePage(QWidget* page) {
     m_tuneSeed->setValue(st.value(QStringLiteral("seed"), m_tuneSeed->value()).toInt());
     m_tuneSimSeed->setValue(st.value(QStringLiteral("simSeed"), m_tuneSimSeed->value()).toInt());
     m_tuneYaw->setChecked(st.value(QStringLiteral("yaw"), m_tuneYaw->isChecked()).toBool());
-    m_tuneFast->setChecked(st.value(QStringLiteral("fast"), m_tuneFast->isChecked()).toBool());
     m_tuneSysId->setChecked(st.value(QStringLiteral("sysid"), m_tuneSysId->isChecked()).toBool());
     m_tuneSysIdBw->setValue(st.value(QStringLiteral("sysidBw"), m_tuneSysIdBw->value()).toDouble());
     m_tuneCostFn->setCurrentIndex(st.value(QStringLiteral("costFn"), m_tuneCostFn->currentIndex()).toInt());
@@ -1431,14 +1419,9 @@ void SimulatorWidget::buildAutotunePage(QWidget* page) {
           [saveTune](int v) { saveTune(QStringLiteral("simSeed"), v); });
   connect(m_tuneYaw, &QCheckBox::toggled, this,
           [saveTune](bool v) { saveTune(QStringLiteral("yaw"), v); });
-  connect(m_tuneFast, &QCheckBox::toggled, this,
-          [saveTune](bool v) { saveTune(QStringLiteral("fast"), v); });
-  // System-ID implies the fast backend; auto-check Fast so the UI state is honest.
   connect(m_tuneSysId, &QCheckBox::toggled, this,
           [this, saveTune](bool v) {
             saveTune(QStringLiteral("sysid"), v);
-            if (v && m_tuneFast)
-              m_tuneFast->setChecked(true);
             if (m_tuneSysIdBw)
               m_tuneSysIdBw->setEnabled(v);
           });
@@ -1499,7 +1482,7 @@ void SimulatorWidget::buildAutotunePage(QWidget* page) {
   });
   // Apply the pose ONCE per change, not on every intermediate drag value: each
   // sendRigPose is a full CTL_RESET, so streaming them while dragging floods the
-  // daemon (vsim_d: reset spam), spikes the synthetic accel (gravity re-projected
+  // engine (reset spam), spikes the synthetic accel (gravity re-projected
   // at each tilt), and pegs the CPU. While dragging we only preview the numbers;
   // the reset fires on release (or immediately for a keyboard/click step).
   auto previewRig = [this] {
@@ -1635,35 +1618,13 @@ void SimulatorWidget::startAutotune() {
   if (m_tuneThread || !m_geomEditor) return;
   const QString root = defaultRepoRoot();
 
-  // Locate the SITL binaries the C++ stack spawns (no python3). Prefer the
-  // sim/host build dir; fall back to a repo-root build_sitl.
+  // The autotune search runs on the single in-process `vayu_sitl_rtos` backend
+  // (deterministic, ~70× realtime). System-ID is an analytic design path that
+  // runs on the same binary; the optimizer/cost settings are ignored for it.
   AutotuneWorker::Params p;
-  // Prefer the canonical in-tree build (sim/vsim/build); fall back to the
-  // legacy repo-root build_vsim. A stale build_vsim/vsim_d at the wrong
-  // VSIM_PROTO_VERSION desyncs the IMU feed (consumer rejects every frame).
-  for (const QString &cand : {root + "/sim/vsim/build/vsim_d",
-                              root + "/build_vsim/vsim_d"}) {
-    if (QFileInfo::exists(cand)) {
-      p.sitl.vsimBin = cand;
-      break;
-    }
-  }
-  for (const QString &cand : {root + "/sim/host/build_sitl/vayu_sitl",
-                              root + "/build_sitl/vayu_sitl"}) {
-    if (QFileInfo::exists(cand)) {
-      p.sitl.sitlBin = cand;
-      break;
-    }
-  }
-
-  // Fast backend: the single in-process binary replaces the vsim_d+vayu_sitl
-  // pair. Locate it and validate the right binary set for the chosen engine.
-  // System-ID is an analytic design path that also runs on the fast binary, so
-  // it implies fastRtos (the optimizer/cost settings are ignored for it).
   p.sysId = m_tuneSysId && m_tuneSysId->isChecked();
   if (m_tuneSysIdBw)
     p.sysIdBwFrac = m_tuneSysIdBw->value();
-  p.fastRtos = p.sysId || (m_tuneFast && m_tuneFast->isChecked());
   p.rtosRateCost = m_tuneCostFn && m_tuneCostFn->currentIndex() == 1;
   for (const QString &cand : {root + "/build_sitl_rtos/vayu_sitl_rtos",
                               root + "/sim/host/build_sitl_rtos/vayu_sitl_rtos"}) {
@@ -1672,31 +1633,23 @@ void SimulatorWidget::startAutotune() {
       break;
     }
   }
-  if (p.fastRtos) {
-    if (p.rtosBin.isEmpty()) {
-      m_tuneLog->appendPlainText(tr(
-          "[error] fast backend not found. Build it with:\n"
-          "  cmake -S sim/host -B build_sitl_rtos -DVAYU_SITL_RTOS_BUILD=ON\n"
-          "  cmake --build build_sitl_rtos --target vayu_sitl_rtos"));
-      return;
-    }
-  } else if (!QFileInfo::exists(p.sitl.vsimBin) || p.sitl.sitlBin.isEmpty() ||
-             !QFileInfo::exists(p.sitl.sitlBin)) {
-    m_tuneLog->appendPlainText(
-        tr("[error] SITL binaries not found (build vsim_d + vayu_sitl):\n  %1\n  %2")
-            .arg(p.sitl.vsimBin, p.sitl.sitlBin));
+  if (p.rtosBin.isEmpty()) {
+    m_tuneLog->appendPlainText(tr(
+        "[error] autotune backend not found. Build it with:\n"
+        "  cmake -S sim/host -B build_sitl_rtos -DVAYU_SITL_RTOS_BUILD=ON\n"
+        "  cmake --build build_sitl_rtos --target vayu_sitl_rtos"));
     return;
   }
 
-  // Stop the interactive sim (frees vsim_d/firmware) and lock Vehicle/World so
-  // the airframe can't change mid-search.
+  // Stop the interactive sim and lock Vehicle/World so the airframe can't
+  // change mid-search.
   if (m_sim) stopInAppSim();
   if (m_vehicleTab) m_vehicleTab->setEnabled(false);
   if (m_worldTab) m_worldTab->setEnabled(false);
 
   const QString tuneSuffix =
       QStringLiteral("_attune%1").arg(QCoreApplication::applicationPid());
-  p.sitl.suffix = tuneSuffix;
+  p.suffix = tuneSuffix;
 
   // Tune the actual airframe + environment (mirrors the Python --geometry/
   // --world). Build the vsim_ctl bodies from the editors.
@@ -1719,26 +1672,14 @@ void SimulatorWidget::startAutotune() {
       gb.motors[i].max_omega = m.max_omega;
       gb.motors[i].tau = m.tau;
     }
-    p.sitl.geometry = gb;
-    p.sitl.hasGeometry = true;
-    // Firmware mixer uses the SAME (physics-frame) layout as vsim: the roll/
-    // pitch torque is generated in the rotated physics frame, so the mix signs
-    // must match it. SitlStack derives the mix from geometry (no separate
-    // mixer layout). The real fix for the rotated-vehicle spin was the §10.5
-    // time-sync handshake (SitlStack::start) — without it set_motor_geometry
-    // was rejected and the firmware ran its default mix, which is wrong here.
-
-    const vsim::WorldConfig w = m_worldEditor->config();
-    vsim_ctl_world_t wb{};
-    wb.gravity = w.gravity;
-    wb.ground_z = w.ground_z;
-    wb.restitution = w.restitution;
-    wb.linear_drag = w.linear_drag;
-    wb.angular_drag = w.angular_drag;
-    wb.ground_right_gain = w.ground_right_gain;
-    wb.ground_right_damp = w.ground_right_damp;
-    p.sitl.world = wb;
-    p.sitl.hasWorld = true;
+    p.geometry = gb;
+    p.hasGeometry = true;
+    // Firmware mixer uses the SAME (physics-frame) layout as the in-process
+    // physics: the roll/pitch torque is generated in the rotated physics frame,
+    // so the mix signs must match it. The backend derives the mix from the
+    // geometry blob (no separate mixer layout) after a §10.5 time-sync
+    // handshake — without it set_motor_geometry is rejected and the firmware
+    // runs its default mix, which is wrong for a rotated vehicle.
 
     m_tuneLog->clear();
     m_tuneLog->appendPlainText(
@@ -1766,10 +1707,10 @@ void SimulatorWidget::startAutotune() {
   p.rollout.chirpF1 = m_tuneChirpF1->value();
 
   m_tuneChart->reset();
-  // Seed the current-vs-best table with this run's param rows (AT-2). The fast
+  // Seed the current-vs-best table with this run's param rows (AT-2). The
   // backend tunes a restricted set, so the table must match it.
   {
-    const autotune::Space space(p.tuneYaw, p.fastRtos);
+    const autotune::Space space(p.tuneYaw, /*fastRtos=*/true);
     const auto names = space.names();
     m_tuneGainsTable->setRowCount(int(names.size()));
     for (int i = 0; i < int(names.size()); ++i) {
@@ -1805,7 +1746,6 @@ void SimulatorWidget::startAutotune() {
   connect(m_tuneWorker, &AutotuneWorker::done, this,
           &SimulatorWidget::onTuneDone);
 
-  attachTuneSim(tuneSuffix);  // mirror the tuner's drone in the 3D view
   m_tuneThread->start();
   emit autotuneRunningChanged(true);  // drives the source FSM → Autotune state
 }
@@ -1871,7 +1811,9 @@ void SimulatorWidget::onTuneDone() {
   }
   if (m_tuneStart) m_tuneStart->setEnabled(true);
   if (m_tuneStop) m_tuneStop->setEnabled(false);
-  detachTuneSim();  // stop mirroring, unlock Vehicle/World
+  // Unlock Vehicle/World now the search (which locked them) has ended.
+  if (m_vehicleTab) m_vehicleTab->setEnabled(true);
+  if (m_worldTab) m_worldTab->setEnabled(true);
   emit autotuneRunningChanged(false);  // source FSM → Idle
 }
 
@@ -1921,35 +1863,6 @@ void SimulatorWidget::applyProposedGains() {
   m_tuneLog->appendPlainText(
       tr("[apply] requested firmware gain update — %1 PID slot(s)")
           .arg(cmds.size()));
-}
-
-// Attach the renderer to the tuner's own SITL sim (pose FIFO at the agreed
-// suffix), so the 3D view shows the live excitation while the search runs.
-void SimulatorWidget::attachTuneSim(const QString& suffix) {
-  if (m_tuneSim) return;
-  const QString posePath = QStringLiteral("/tmp/vsim_pose%1").arg(suffix);
-  m_tuneSim = new vsim::SimWorker(this);
-  connect(m_tuneSim, &vsim::SimWorker::poseUpdated,
-          m_renderer, &vsim::SimRendererWidget::setSnapshot);
-  connect(m_tuneSim, &vsim::SimWorker::poseUpdated, this,
-          [this](vsim::SimSnapshot snap) { updateHud(snap); });
-  connect(m_tuneSim, &vsim::SimWorker::logLine, this,
-          [this](const QString& s) { appendLog("tune-sim", s); });
-  m_tuneSim->startAttach(posePath);
-  if (m_hud) { m_hud->setGeometry(m_renderer->rect()); m_hud->raise(); m_hud->show(); }
-  if (m_horizonPip) m_horizonPip->raise();
-  if (m_downPip) m_downPip->raise();
-}
-
-void SimulatorWidget::detachTuneSim() {
-  if (m_tuneSim) {
-    m_tuneSim->requestStop();
-    if (!m_tuneSim->wait(2000)) { m_tuneSim->terminate(); m_tuneSim->wait(1000); }
-    m_tuneSim->deleteLater();
-    m_tuneSim = nullptr;
-  }
-  if (m_vehicleTab) m_vehicleTab->setEnabled(true);
-  if (m_worldTab) m_worldTab->setEnabled(true);
 }
 
 void SimulatorWidget::updateHud(const vsim::SimSnapshot& s) {
@@ -2115,6 +2028,7 @@ void SimulatorWidget::loadWorldMeshToRenderer() {
     m_floraParams = w.flora;  // user-tuned grass density / slope / height
     m_floraParams.seed = static_cast<uint32_t>(w.proceduralSeed);
 
+#ifdef VAYU_SIM_GRASS
     // Prefer GPU-generated grass when the context supports compute (GL 4.3+):
     // it regenerates around the camera each frame, so we skip the CPU flora.
     vsim::GpuGrass::Params gp;
@@ -2143,12 +2057,14 @@ void SimulatorWidget::loadWorldMeshToRenderer() {
     const float radius = gp.grid * gp.cell * 0.5f;
     gp.falloffEnd = radius * 0.9f;
     gp.falloffStart = gp.falloffEnd * 0.6f;
+#endif  // VAYU_SIM_GRASS
 
     // Terrain lighting tracks the same look knobs so ground + grass warm together.
     m_renderer->setTerrainLook(w.look.sunIntensity, w.look.ambientStrength);
     if (m_downRenderer)
       m_downRenderer->setTerrainLook(w.look.sunIntensity, w.look.ambientStrength);
 
+#ifdef VAYU_SIM_GRASS
     m_useGpuGrass = m_renderer->gpuGrassReady();
     if (m_useGpuGrass) {
       // Params are always pushed so a later toggle-on renders immediately, but
@@ -2168,6 +2084,7 @@ void SimulatorWidget::loadWorldMeshToRenderer() {
       m_renderer->setGpuGrassActive(false);
       if (m_downRenderer) m_downRenderer->setGpuGrassActive(false);
     }
+#endif  // VAYU_SIM_GRASS
 
     if (!m_streamTimer) {
       m_streamTimer = new QTimer(this);
@@ -2274,7 +2191,9 @@ void SimulatorWidget::onStreamTick() {
     m_colCx = p.colCx;
     m_colCy = p.colCy;
     // CPU grass follows the centre — only when enabled and GPU grass isn't used.
+#ifdef VAYU_SIM_GRASS
     if (m_grassEnabled && !m_useGpuGrass) streamFlora(p.colCx, p.colCy);
+#endif
   }
 
   // Mesh the requested chunks OFF the UI thread; apply the results on the main
@@ -2328,6 +2247,7 @@ void SimulatorWidget::onChunkMeshed(qint64 key, const BuiltChunk& built) {
   tryBuildCollision();
 }
 
+#ifdef VAYU_SIM_GRASS
 void SimulatorWidget::uploadFloraChunk(qint64 key) {
   auto it = m_floraCache.find(key);
   if (it == m_floraCache.end()) return;
@@ -2397,6 +2317,7 @@ void SimulatorWidget::onFloraScattered(qint64 key,
       std::abs(vsim::ChunkStreamer::cyOf(key) - m_colCy) <= kFloraRadius)
     uploadFloraChunk(key);
 }
+#endif  // VAYU_SIM_GRASS
 
 void SimulatorWidget::tryBuildCollision() {
   if (!m_collisionPending) return;
@@ -2810,12 +2731,10 @@ bool SimulatorWidget::eventFilter(QObject* obj, QEvent* ev) {
 void SimulatorWidget::startInAppSim() {
   if (m_sim) return;
 
-  // Per-instance FIFO isolation (roadmap sim-integration #1): publish a
-  // suffix for this Navigator process in the environment BEFORE vayu_sitl_start
-  // (the firmware shim caches its FIFO/pty paths on first use) and before
-  // SimWorker spawns vsim_d (which inherits it via environ). All three then
-  // agree on /tmp/vsim_*<suffix>; without this the firmware can wait on a FIFO
-  // nobody feeds -> frozen IMU, 0 Hz attitude. Respect an externally-set value.
+  // Per-instance path isolation: publish a suffix for this Navigator process in
+  // the environment BEFORE the engine boots (the firmware shim caches its
+  // pty/advert paths on first use), so a second Navigator can't collide on the
+  // UART2 advert (/tmp/vayu_uart2_pty<suffix>). Respect an externally-set value.
   if (qEnvironmentVariableIsEmpty("VSIM_FIFO_SUFFIX")) {
     qputenv("VSIM_FIFO_SUFFIX",
             QByteArrayLiteral("_nav") + QByteArray::number(::getpid()));
@@ -2824,8 +2743,8 @@ void SimulatorWidget::startInAppSim() {
   // Open a fresh per-run log file before the firmware starts emitting.
   openNewLogFile();
 
-  // The SINGLE in-process RTOS engine (libvayu_sitl_rtos_core) now runs BOTH
-  // the firmware and the vsim physics in one deterministic stepper — no vsim_d
+  // The SINGLE in-process RTOS engine (libvayu_sitl_rtos_core) runs BOTH the
+  // firmware and the vsim physics in one deterministic stepper — no external
   // daemon, no FIFO. SimWorker owns that engine on its worker thread:
   // rtos_engine_boot(&m_iface) boots the firmware once (idempotent across
   // Stop/Re-Start). Telemetry rides the SAME in-process UART2 callback as
@@ -2881,7 +2800,7 @@ void SimulatorWidget::startInAppSim() {
     const auto cfg = m_geomEditor->physicsConfig();
     pushRatesToSim();   // apply configured loop rates before geometry/world
     pushFirmwareMotorGeometry(cfg);   // firmware roll/pitch/yaw mix signs (physics frame)
-    m_sim->sendGeometry(cfg);          // vsim_d physics motor layout
+    m_sim->sendGeometry(cfg);          // in-process physics motor layout
     m_sim->sendWorld(m_worldEditor->config());
     m_sim->sendObstacles(m_worldEditor->config().obstacles);
     m_sim->sendWind(m_worldEditor->windConfig());   // restore wind across restart
@@ -2895,9 +2814,9 @@ void SimulatorWidget::startInAppSim() {
       updateTrainingProgress();
     }
     appendLog("geom", tr("firmware roll-mix %1 (default -+ ; mismatch = inverted "
-                          "roll). pushed to firmware + vsim_d.")
+                          "roll). pushed to firmware + physics.")
                           .arg(rollMixString(cfg)));
-    // Belt-and-suspenders: re-assert BOTH the firmware mix AND the vsim_d layout
+    // Belt-and-suspenders: re-assert BOTH the firmware mix AND the physics layout
     // shortly after start. If a restart race left one side on its default while
     // the other had the real (possibly Y-mirrored) geometry, roll inverts and
     // the craft topples at lift-off; this guarantees they agree before arming.
@@ -2933,11 +2852,11 @@ void SimulatorWidget::startInAppSim() {
 
 void SimulatorWidget::attachExternalSim() {
   if (m_sim) return;
-  // Mirror an EXTERNAL vsim_d (default /tmp/vsim_pose) — e.g. a headless
-  // sitl_lab.py run driving the real firmware. We spawn no daemon and boot no
-  // in-process firmware; this view only renders the external pose stream over
-  // the already-loaded vehicle + world meshes. Telemetry (dashboards) still
-  // comes via the normal serial connection (the harness's --gcs bridge).
+  // Mirror an EXTERNAL sim's pose stream (default /tmp/vsim_pose) — e.g. a
+  // headless vayu_sitl_rtos run driving the real firmware. We boot no in-process
+  // engine; this view only renders the external pose stream over the
+  // already-loaded vehicle + world meshes. Telemetry (dashboards) still comes
+  // via the normal serial connection (the harness's --gcs bridge).
   m_attached = true;
   m_sim = new vsim::SimWorker(this);
   connect(m_sim, &vsim::SimWorker::stoppedCleanly, this,
@@ -3239,12 +3158,42 @@ vsim::WindConfig SimulatorWidget::restoreWind() {
   return w;
 }
 
-void SimulatorWidget::onUartBytes(QByteArray bytes) {
+// Worker/firmware thread: append the just-written UART2 bytes to the coalescing
+// buffer and, only if a drain isn't already queued, post ONE onUartBytes()
+// event to the GUI thread. So no matter how many per-byte writes land between
+// event-loop passes, the GUI processes them in a single batch.
+void SimulatorWidget::queueUartBytes(const uint8_t* data, size_t n) {
+  bool post = false;
+  {
+    std::lock_guard<std::mutex> lk(m_uartRxMtx);
+    m_uartRxBuf.append(reinterpret_cast<const char*>(data), static_cast<int>(n));
+    if (!m_uartRxDrainPending) {
+      m_uartRxDrainPending = true;
+      post = true;
+    }
+  }
+  if (post)
+    QMetaObject::invokeMethod(this, "onUartBytes", Qt::QueuedConnection);
+}
+
+void SimulatorWidget::onUartBytes() {
+  // GUI thread: take the whole accumulated batch and clear the pending flag so a
+  // fresh producer post can be queued. Bytes appended after the swap simply
+  // trigger the next drain — nothing is lost.
+  QByteArray batch;
+  {
+    std::lock_guard<std::mutex> lk(m_uartRxMtx);
+    batch.swap(m_uartRxBuf);
+    m_uartRxDrainPending = false;
+  }
+  if (batch.isEmpty())
+    return;
+
   // Forward the firmware's telemetry downlink to anything connected to
   // dataReceived (MainWindow's DroneProtocol parser typically). The FC view is
   // NOT logged here — that would just duplicate the Export; the per-run log
   // records the physics ground truth instead (see logGroundTruth).
-  emit dataReceived(bytes);
+  emit dataReceived(batch);
 }
 
 // Ground-truth record size: 2 x u64 (tick, t_us) + 27 x f32 (pose/vel/rates/

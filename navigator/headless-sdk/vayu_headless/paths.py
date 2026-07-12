@@ -15,18 +15,15 @@ GCS_POSE = "/tmp/vsim_pose"            # SimWorker "Attach Ext" reads this
 SOCK_PATH = "/tmp/sitl_lab.sock"       # serve/do control socket
 
 
-def vsim_bin():
-    env = os.environ.get("VSIM_BIN_PATH")
+def rtos_bin():
+    """The single in-process SITL binary (firmware + physics in one process,
+    driven over the same pose/ctl FIFOs + UART2/RC ptys the old vsim_d+vayu_sitl
+    pair used). Run it with VAYU_RTOS_SCENARIO=driver."""
+    env = os.environ.get("VAYU_SITL_RTOS_BIN")
     if env:
         return env
-    return os.path.join(repo_root(), "sim", "vsim", "build", "vsim_d")
-
-
-def sitl_bin():
-    env = os.environ.get("VAYU_SITL_BIN")
-    if env:
-        return env
-    return os.path.join(repo_root(), "sim", "host", "build_sitl", "vayu_sitl")
+    return os.path.join(repo_root(), "sim", "host", "build_sitl_rtos",
+                        "vayu_sitl_rtos")
 
 
 def worldmesh_bin():
@@ -54,7 +51,10 @@ def gcs_conf_default():
 
 
 def fifo_paths(suffix):
-    return {n: f"/tmp/vsim_{n}{suffix}" for n in ("pwm", "imu", "pose", "ctl")}
+    # The driver publishes exactly two FIFOs: ground-truth pose (out) and the
+    # config channel (in). The old pwm/imu/baro FIFOs were the firmware<->physics
+    # boundary — that hop is now in-process, so they no longer exist.
+    return {n: f"/tmp/vsim_{n}{suffix}" for n in ("pose", "ctl")}
 
 
 def uart_advert(suffix):

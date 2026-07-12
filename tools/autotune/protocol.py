@@ -11,7 +11,7 @@ Two protocols are spoken here:
    the dialect — the firmware RX is v2-only (navlink_parser_push), so the old
    hand-rolled v1 framing here silently applied NOTHING.
 
-2. vsim ctl frames (autotuner -> vsim_d over the /tmp/vsim_ctl FIFO): a
+2. vsim ctl frames (autotuner -> the engine over the /tmp/vsim_ctl FIFO): a
    16-byte header + subtype + reserved + 256-byte body. We build RESET,
    SET_TESTRIG, SET_RATES and parse the pose frame. This is the vsim daemon
    protocol, NOT NavLink — left untouched.
@@ -230,7 +230,7 @@ def _ctl_frame(subtype: int, body: bytes) -> bytes:
 
 def ctl_reset(pos=(0, 0, -0.05), quat=(1, 0, 0, 0), vel=(0, 0, 0), omega=(0, 0, 0),
               seed=0) -> bytes:
-    # Trailing u32 seed (vsim_ctl_reset_t.seed): non-zero => vsim_d re-seeds the
+    # Trailing u32 seed (vsim_ctl_reset_t.seed): non-zero => the engine re-seeds the
     # sensor-noise RNG + zeroes biases for a reproducible rollout; 0 => legacy
     # free-running noise.
     body = struct.pack("<3f4f3f3f", *pos, *quat, *vel, *omega) + struct.pack("<I", int(seed) & 0xFFFFFFFF)

@@ -39,16 +39,16 @@ struct SimSnapshot {
   float batt_soc     = 0.0f;  // [0,1]
 };
 
-// SimWorker -- in-process RTOS SITL engine driver (+ legacy FIFO attach).
+// SimWorker -- in-process RTOS SITL engine driver (+ external pose-stream attach).
 //
 // Default (engine) lifecycle:
 //   1. construct on the GUI thread; setIface(&iface) so firmware telemetry
 //      reaches the GUI via the in-process UART2 callback.
 //   2. start() -- worker thread runs rtos_engine_boot(iface) (boots the REAL
-//      vaios firmware + in-process vsim physics, no vsim_d, no FIFO), enables
-//      the serial RC feeder (RcBridge pty / remote transmitter), then loops:
-//      drain queued config -> rtos_engine_run_step (1 ms, wall-clock paced) ->
-//      vsim_inproc_get_pose -> poseUpdated (~60 Hz), until requestStop().
+//      vaios firmware + in-process vsim physics, no external daemon, no FIFO),
+//      enables the serial RC feeder (RcBridge pty / remote transmitter), then
+//      loops: drain queued config -> rtos_engine_run_step (1 ms, wall-clock
+//      paced) -> vsim_inproc_get_pose -> poseUpdated (~60 Hz), until requestStop().
 //   3. requestStop() -- sets the stop flag; the worker exits the loop. The
 //      firmware/scheduler stay booted (idempotent), so Re-Start just resumes.
 //
@@ -56,9 +56,9 @@ struct SimSnapshot {
 // (GUI thread) enqueues a config op applied on the worker thread between steps
 // via the vsim_inproc_set_* surface (the engine is single-threaded).
 //
-// startAttach() keeps the LEGACY behaviour: read an existing pose FIFO (e.g. the
-// autotuner's own vsim_d) and emit poseUpdated, mirroring a sim we don't own.
-// No engine, no ctl; sendX() are no-ops in attach mode.
+// startAttach() is a viewer-only mode: read an existing pose FIFO published by
+// an EXTERNAL sim (e.g. a headless vayu_sitl_rtos run) and emit poseUpdated,
+// mirroring a sim we don't own. No engine, no config; sendX() are no-ops.
 class SimWorker : public QThread {
   Q_OBJECT
  public:
@@ -66,7 +66,7 @@ class SimWorker : public QThread {
   ~SimWorker() override;
 
   // Retained for source compatibility; the engine runs in-process, so there is
-  // no daemon binary to resolve. No-op.
+  // no external binary to resolve. No-op.
   void setVsimBinary(const QString& path) { vsim_bin_ = path; }
 
   // The vsim_iface_t* whose UART2 callback receives firmware telemetry in
@@ -76,17 +76,17 @@ class SimWorker : public QThread {
   // Snapshot getter for pull-style consumers.
   SimSnapshot snapshot() const;
 
-  // Attach-only mode: instead of spawning a daemon, read an EXISTING pose FIFO
-  // (e.g. the autotuner's own vsim_d) and emit poseUpdated, so the GCS renderer
-  // can mirror a sim it doesn't own. No ctl channel; sendX() are no-ops.
+  // Viewer-only mode: read an EXISTING pose FIFO published by an external sim
+  // (e.g. a headless vayu_sitl_rtos run) and emit poseUpdated, so the GCS
+  // renderer can mirror a sim it doesn't own. No config channel; sendX() no-op.
   void startAttach(const QString& posePath);
 
-  // Tell the worker to shut down (also called from destructor). Kills
-  // the spawned vsim_d via SIGTERM.
+  // Tell the worker to shut down (also called from destructor). The engine
+  // stays booted (idempotent); attach mode just closes the pose FIFO.
   void requestStop();
 
-  // Send a CTL_RESET to vsim_d. With no args, re-spawns at level pose
-  // slightly above ground (matches the daemon's own initial state).
+  // Reset the in-process physics. With no args, respawns at level pose slightly
+  // above ground (matches the engine's own initial state).
   void sendReset();
   // Re-spawn at a specific NED world position, level attitude, zero velocity.
   // Used to lift the drone onto the terrain surface when a world loads.
@@ -108,7 +108,7 @@ class SimWorker : public QThread {
   // Push environment + aerodynamics (VSIM_CTL_SET_WORLD).
   void sendWorld(const WorldConfig& w);
 
-  // Replace the daemon's obstacle set: a CLEAR frame then one ADD per shape
+  // Replace the physics obstacle set: a CLEAR frame then one ADD per shape
   // (VSIM_CTL_CLEAR_OBSTACLES / VSIM_CTL_ADD_OBSTACLE).
   void sendObstacles(const QVector<Obstacle>& obs);
 
@@ -116,7 +116,7 @@ class SimWorker : public QThread {
   // physicsHz/imuHz RK4 substeps run per sample; poseHz = render rate.
   void sendRates(int imuHz, int physicsHz, int poseHz);
 
-  // Point the daemon at a serialized BVH world-mesh file to mmap, or clear it
+  // Point the physics at a serialized BVH world-mesh file to mmap, or clear it
   // (VSIM_CTL_SET_WORLD_MESH / VSIM_CTL_CLEAR_WORLD_MESH).
   void sendWorldMesh(const QString& path, quint32 verts, quint32 tris,
                      quint32 nodes, float restitution, bool doubleSided);
@@ -138,8 +138,8 @@ class SimWorker : public QThread {
   void poseUpdated(SimSnapshot snap);
   void logLine(QString line);
   void stoppedCleanly();
-  // Emitted once the daemon is spawned and the ctl/pose FIFOs are open,
-  // so callers can safely push initial control (e.g. geometry).
+  // Emitted once the engine is booted (or the attach FIFO is open), so callers
+  // can safely push initial config (e.g. geometry).
   void online();
 
  protected:
