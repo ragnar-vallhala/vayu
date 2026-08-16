@@ -124,11 +124,26 @@ static float s_mix_yaw[4]   = {-1.f, +1.f, -1.f, +1.f};  /*  spin    */
 
 /* Control-allocation mixer (firmware/src/control/mixer.c): pseudo-inverse mix +
  * airmode desaturation + clamp + idle floor. Kept in sync with the s_mix_* signs
- * by mixer_sync(). Airmode DISABLED applies the uniform anti-saturation scaler
- * (hold throttle, scale attitude to fit); MIXER_AIRMODE_RP preserves roll/pitch
- * authority instead. */
+ * by mixer_sync().
+ *
+ * RP, not DISABLED. The uniform anti-saturation scaler (DISABLED) holds the
+ * commanded collective and shrinks the attitude differential to fit, which makes
+ * delivered roll/pitch torque a TENT function of throttle -- measured, for a 0.30
+ * roll demand: 8% of it at throttle 0.1, 42% at 0.2, 75% at 0.3, 100% only across
+ * 0.5-0.7, then back down to 67% at 0.8 and ZERO at full stick. Liftoff and
+ * punch-outs are exactly the two places it collapses, so the airframe left the
+ * ground with a fraction of its stabilisation and flew off sideways. RP instead
+ * shifts collective to make room and keeps roll/pitch whole at every throttle
+ * (flat 100% across the sweep; see tests/host/mixer_unit_test.c test 5).
+ * The reference Carbon-Aeronautics controller has no desaturation code at all --
+ * it just clips per-motor. It gets away with that because its authority budget is
+ * closer to its headroom (3x400us of PID clamp against ~320us of room at hover)
+ * and its 1180..1800us throttle band pins hover mid-band where headroom is
+ * maximal. vayu's budget is ~6x its headroom (per axis P 0.30 + I_MAX 0.20 +
+ * D_MAX 0.25 = 0.75, three axes, against ~0.35 of room at hover), so vayu does
+ * need the desaturator -- it just has to be one that keeps roll/pitch. */
 static mixer_t s_mixer;
-static mixer_airmode_t s_airmode = MIXER_AIRMODE_DISABLED;
+static mixer_airmode_t s_airmode = MIXER_AIRMODE_RP;
 
 /* (Re)build the mixer from the current sign arrays + idle floor. The mixer only
  * needs the geometry sign, so we recover valid pos/spin inputs from s_mix_*

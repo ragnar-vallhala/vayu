@@ -128,11 +128,19 @@ static inline float vayu_dt_from_cycles(uint32_t now_cyc, uint32_t prev_cyc) {
  * SITL X3 hovers around ~0.55 throttle, so the gate sits a bit below
  * that; on real vayu hardware TWR is high and hover is closer to 0.5,
  * but we also want the SAFE behavior of "PID quiet until you commit
- * to taking off". */
+ * to taking off".
+ *
+ * The hardware endpoint was 0.30, which on a high-TWR airframe is barely below
+ * hover — so the whole liftoff transient ran on a fraction of the rate loop
+ * (50% at throttle 0.2) and the drone left the ground before it could hold
+ * attitude. 0.20 keeps the ramp's actual purpose (quiet while sitting on the
+ * gear at idle, MOTOR_IDLE_FLOOR = 0.15) and reaches full authority well before
+ * the airframe is light. The reference Carbon-Aeronautics controller has no
+ * ramp at all: full PID above its cutoff, motors floored at 18%. */
 #ifdef VAYU_SIM
 #define PID_FULL_AUTHORITY_THROTTLE 0.45f
 #else
-#define PID_FULL_AUTHORITY_THROTTLE 0.30f
+#define PID_FULL_AUTHORITY_THROTTLE 0.20f
 #endif
 // PID gain defaults — UNIFIED across the SITL and hardware builds. The sim flies
 // the REAL geometry pushed at runtime via VSIM_CTL_SET_GEOMETRY, so a single
@@ -144,9 +152,16 @@ static inline float vayu_dt_from_cycles(uint32_t now_cyc, uint32_t prev_cyc) {
 // seed. They are only the FALLBACK: a persisted tune (0:pid.bin, loaded by
 // pid_config_init() before the controllers init) overrides any of them per slot
 // — so the SAME pid.bin yields identical behaviour in sim and on the board.
-#define DEAFULT_ROLL_ANGLE_RATE_KP 0.012f
+// Rate-loop seeds retuned 2026-07-14 against PX4's multicopter defaults (see
+// firmware/docs/store/px4-gain-comparison.md). Converting vayu's deg/s gains to
+// PX4's rad/s convention (x57.3) showed the old inner loop running 3-5x PX4 on P
+// and 5-15x on D — which drove the ~8 Hz saturation/relay limit cycle seen in the
+// 20260713 hand-test log (roll/yaw out slamming +-1). These land the rate P/D
+// within ~1x of PX4; the outer (angle) loop is raised to compensate. I-gains left
+// as-is (they don't drive the limit cycle) pending a flight-test trim.
+#define DEAFULT_ROLL_ANGLE_RATE_KP 0.003f
 #define DEAFULT_ROLL_ANGLE_RATE_KI 0.00811f
-#define DEAFULT_ROLL_ANGLE_RATE_KD 0.00025f
+#define DEAFULT_ROLL_ANGLE_RATE_KD 0.00005f
 #define DEAFULT_ROLL_ANGLE_RATE_KFF 0.0f
 #define DEAFULT_ROLL_ANGLE_RATE_I_MAX 0.2f
 #define DEAFULT_ROLL_ANGLE_RATE_D_MAX 0.25f
@@ -158,14 +173,13 @@ static inline float vayu_dt_from_cycles(uint32_t now_cyc, uint32_t prev_cyc) {
 #define DEAFULT_ROLL_ANGLE_RATE_OUT_MIN -1.0f
 #define DEAFULT_ROLL_ANGLE_RATE_OUT_MAX 1.0f
 
-/* Pitch rate: a deliberately damped set. The pitch plant is soft with a long
- * ESC/transport delay, so a high Kp drives the output into its ±1 clamp and
- * sustains a saturation (relay) limit cycle. A modest Kp held off the rails by
- * Kd lead (worked by the 0.004 s D-LPF below) damps the oscillation while still
- * holding angle. Validated on a single-axis rig under throttle. */
-#define DEAFULT_PITCH_ANGLE_RATE_KP 0.008f
+/* Pitch rate: retuned toward PX4 (see the roll block). The previous set (Kp 0.008,
+ * Kd 0.0008 == ~3x / ~15x PX4) did NOT damp the oscillation as its old comment
+ * claimed — the 20260713 log shows it still limit-cycling once the D-LPF was opened
+ * to 40 Hz (which un-inerted that oversized Kd). Kp/Kd now ~1x PX4. */
+#define DEAFULT_PITCH_ANGLE_RATE_KP 0.0025f
 #define DEAFULT_PITCH_ANGLE_RATE_KI 0.003f
-#define DEAFULT_PITCH_ANGLE_RATE_KD 0.0008f
+#define DEAFULT_PITCH_ANGLE_RATE_KD 0.00005f
 #define DEAFULT_PITCH_ANGLE_RATE_KFF 0.0f
 #define DEAFULT_PITCH_ANGLE_RATE_I_MAX 0.2f
 #define DEAFULT_PITCH_ANGLE_RATE_D_MAX 0.25f
@@ -178,7 +192,7 @@ static inline float vayu_dt_from_cycles(uint32_t now_cyc, uint32_t prev_cyc) {
 // these mirror the roll/pitch seeds as a starting point — retune (e.g. via the
 // SITL autotuner) for the actual airframe. Output limits MUST be non-zero or
 // the PID clamps yaw to 0 regardless of gain.
-#define DEAFULT_YAW_ANGLE_RATE_KP 0.018f
+#define DEAFULT_YAW_ANGLE_RATE_KP 0.004f
 #define DEAFULT_YAW_ANGLE_RATE_KI 0.008f
 #define DEAFULT_YAW_ANGLE_RATE_KD 0.0f
 #define DEAFULT_YAW_ANGLE_RATE_KFF 0.0f
@@ -188,15 +202,17 @@ static inline float vayu_dt_from_cycles(uint32_t now_cyc, uint32_t prev_cyc) {
 #define DEAFULT_YAW_ANGLE_RATE_OUT_MIN -1.0f
 #define DEAFULT_YAW_ANGLE_RATE_OUT_MAX 1.0f
 
-// Angle controller. Roll/pitch reconciled from the on-hardware rig tune
-// (firmware/docs/store/rig_tune.json, 2026-06-22): roll is sysid loop-shaped; pitch is
-// kept low to avoid a cascade runaway against the soft inner loop (its own
-// sysid still pending).
-#define DEAFULT_ROLL_ANGLE_KP 1.6898f
+// Angle (outer) controller, retuned 2026-07-14. Raised from 1.6898 toward PX4's
+// MC_ROLL_P/MC_PITCH_P = 4.0 (both are rate-setpoint-per-angle-error, unit 1/s, so
+// directly comparable). The old value was ~0.42x PX4 — sluggish leveling — and was
+// only kept low to avoid a cascade against the OLD hot inner loop; now that the rate
+// loop is calmed to ~PX4 levels, the outer loop can be assertive. 3.0 leaves margin
+// under PX4's 4.0 for this rig.
+#define DEAFULT_ROLL_ANGLE_KP 3.0f
 #define DEAFULT_ROLL_ANGLE_TARGET_MAX 100.0f
 #define DEAFULT_ROLL_ANGLE_OUT_MAX 100.0f
 
-#define DEAFULT_PITCH_ANGLE_KP 1.6898f
+#define DEAFULT_PITCH_ANGLE_KP 3.0f
 #define DEAFULT_PITCH_ANGLE_TARGET_MAX 100.0f
 #define DEAFULT_PITCH_ANGLE_OUT_MAX 100.0f
 
@@ -289,6 +305,21 @@ typedef struct __attribute__((packed)) {
   500 // Number of samples to take for calibration
 #define MAG_FIT_MIN_SAMPLES                                                    \
   400 // minimum valid samples required to attempt the mag ellipsoid fit
+
+/* Accel calibration fit method (SNS-CAL). Optional switch between the two fits:
+ *   ELLIPSOID — pose-tolerant full-3x3 least-squares over 6 faces + 6 edges
+ *               (captures misalignment, needs coverage, can reject degenerate
+ *               data). This is the historical default.
+ *   SIXPOINT  — PX4-style exact closed form over the 6 faces only
+ *               (deterministic, simpler "lay it on each side" UX, cannot land on
+ *               a degenerate fit; still recovers the full 3x3 in vayu since the
+ *               soft-iron store is 3x3). See docs/plans/imu-calib-improvements.md.
+ * The capture flow adapts to the choice (SIXPOINT prompts the 6 faces only). */
+#define ACCEL_CALIB_ELLIPSOID 0
+#define ACCEL_CALIB_SIXPOINT 1
+#ifndef ACCEL_CALIB_METHOD
+#define ACCEL_CALIB_METHOD ACCEL_CALIB_SIXPOINT /* 6-side closed-form accel fit */
+#endif
 
 /* Pose-tolerant full-3x3 accel calibration (calib engine, point-set fit). */
 #define ACCEL_CAL_POSES                                                        \

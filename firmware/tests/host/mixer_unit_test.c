@@ -107,6 +107,36 @@ int main(void) {
     check("every motor held at idle floor", floored);
   }
 
+  /* (5) THE FLIGHT-CRITICAL ONE: delivered roll must not depend on throttle.
+   * With the uniform scaler, authority is a tent function of throttle — near
+   * zero at the bottom (liftoff) and exactly zero at full stick (punch-out) —
+   * which is why the airframe left the ground sideways. Sweep the whole stick
+   * range at the production idle floor and demand flat authority. */
+  printf("Test 5: roll authority is flat across the throttle sweep\n");
+  {
+    const float MOTOR_IDLE_FLOOR = 0.15f; /* variables.h */
+    const float demand = 0.30f;
+    mixer_set_idle_floor(&mx, MOTOR_IDLE_FLOOR);
+    for (int mode = 0; mode < 2; mode++) {
+      mixer_set_airmode(&mx, mode ? MIXER_AIRMODE_RP : MIXER_AIRMODE_DISABLED);
+      float worst = 1.0f;
+      printf("    %-8s:", mode ? "RP" : "DISABLED");
+      for (int k = 1; k <= 10; k++) {
+        float thr = 0.1f * (float)k;
+        float w[MIX_NW] = { demand, 0.0f, 0.0f, thr }, m[4], r[MIX_NW];
+        mixer_allocate(&mx, w, m, r);
+        float frac = r[MIX_ROLL] / demand;
+        printf(" %.1f:%.2f", (double)thr, (double)frac);
+        if (frac < worst) worst = frac;
+      }
+      printf("   worst = %.2f\n", (double)worst);
+      if (mode)
+        check("RP keeps >=95% of the demanded roll at EVERY throttle", worst >= 0.95f);
+      else
+        check("(baseline) uniform scaler collapses somewhere in the sweep", worst < 0.5f);
+    }
+  }
+
   printf("\n%s (%d failure%s)\n", fails ? "FAILED" : "ALL PASS", fails, fails == 1 ? "" : "s");
   return fails ? 1 : 0;
 }
