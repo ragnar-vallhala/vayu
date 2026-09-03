@@ -15,6 +15,7 @@
 #include <stdio.h>
 
 #include "calib/calib_engine.h"
+#include "calib/calib_ellipsoid.h"
 
 static int g_checks = 0, g_fails = 0;
 #define CHECK(cond, msg)                                                        \
@@ -282,6 +283,71 @@ int main(void) {
   rc = calib_engine_run(&t);
   CHECK(rc == -1, "noisy window rejected");
   CHECK(s_commits == 0, "no commit when variance too high");
+
+  printf("  [8] six-point closed-form accel fit (offset + misalignment)\n");
+  {
+    const float g = 9.80665f;
+    const float b_true[3] = {0.30f, -0.20f, 0.15f};
+    /* sensor forward model: raw = A_sens * true_accel + b_true (mild scale +
+     * cross-axis misalignment). The fit must recover soft == A_sens^-1. */
+    const float A_sens[9] = {1.02f,  0.01f, -0.02f,
+                             0.015f, 0.98f,  0.010f,
+                             -0.01f, 0.02f,  1.04f};
+    /* 6 faces in shuffled order (order-independence of the classifier). */
+    const float axes[6][3] = {{0, 0, 1}, {1, 0, 0},  {0, -1, 0},
+                              {-1, 0, 0}, {0, 0, -1}, {0, 1, 0}};
+    float pts8[6][3];
+    for (int p = 0; p < 6; p++) {
+      float ta[3] = {g * axes[p][0], g * axes[p][1], g * axes[p][2]};
+      float r[3];
+      mat3_vec(A_sens, ta, r);
+      for (int k = 0; k < 3; k++)
+        pts8[p][k] = r[k] + b_true[k];
+    }
+    float offset[3], soft[9];
+    int rc8 = calib_fit_sixpoint((const float (*)[3])pts8, 6, g, offset, soft);
+    CHECK(rc8 == 0, "six-point fit succeeds");
+    for (int i = 0; i < 3; i++) {
+      char bb[48];
+      snprintf(bb, sizeof bb, "offset[%d] ~= true bias", i);
+      CHECK(fabsf(offset[i] - b_true[i]) < 0.02f, bb);
+    }
+    /* corrected = soft*(raw-offset) must equal g*axis on every face. */
+    int corr_ok = 1;
+    for (int p = 0; p < 6; p++) {
+      float d[3] = {pts8[p][0] - offset[0], pts8[p][1] - offset[1],
+                    pts8[p][2] - offset[2]};
+      float c[3];
+      mat3_vec(soft, d, c);
+      float want[3] = {g * axes[p][0], g * axes[p][1], g * axes[p][2]};
+      for (int k = 0; k < 3; k++)
+        if (fabsf(c[k] - want[k]) > 0.02f)
+          corr_ok = 0;
+    }
+    CHECK(corr_ok, "corrected faces == g*axis (offset + misalignment removed)");
+
+    /* dispatch through the engine with CALIB_FIT_SIXPOINT. */
+    calib_target_t ts = {.name = "accel",
+                         .fit = CALIB_FIT_SIXPOINT,
+                         .radius = g,
+                         .min_samples = 6,
+                         .commit = fake_commit,
+                         .ctx = NULL};
+    s_commits = 0;
+    int rc8b = calib_engine_fit_points(&ts, (const float (*)[3])pts8, 6);
+    CHECK(rc8b == 0 && s_commits == 1, "engine dispatches six-point + commits once");
+  }
+
+  printf("  [9] six-point rejects a missing side\n");
+  {
+    const float g = 9.80665f;
+    /* five real faces + a duplicate +x, so -y is absent. */
+    float pts9[6][3] = {{g, 0, 0},  {-g, 0, 0}, {0, g, 0},
+                        {0, 0, g},  {0, 0, -g}, {g, 0, 0}};
+    float offset[3], soft[9];
+    int rc9 = calib_fit_sixpoint((const float (*)[3])pts9, 6, g, offset, soft);
+    CHECK(rc9 == -1, "missing/duplicate side -> fit rejected");
+  }
 
   printf("\n  %d checks, %d failures\n", g_checks, g_fails);
   return g_fails ? 1 : 0;

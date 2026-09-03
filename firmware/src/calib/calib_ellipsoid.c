@@ -6,6 +6,7 @@
 
 #include "calib/calib_ellipsoid.h"
 #include "maths/maths_interface.h"
+#include <stddef.h> /* NULL */
 
 #define FABS_F(x) ((x) < 0.0f ? -(x) : (x))
 #define SQRT_F(x) m_sqrt(x)
@@ -187,5 +188,91 @@ int calib_fit_ellipsoid(float S[81], float t[9], float offset[3], float soft[9])
       soft[i * 3 + j] = scale * acc;
     }
   }
+  return 0;
+}
+
+/* See include/calib/calib_ellipsoid.h. Closed-form 6-side accel fit. */
+int calib_fit_sixpoint(const float (*pts)[3], int npts, float g,
+                       float offset[3], float soft[9]) {
+  if (pts == NULL || npts < 6)
+    return -1;
+
+  /* Select the best-aligned pose for each side (axis a, sign s: 0=+,1=-) by the
+   * cosine between the pose direction and the axis. A missing side leaves a low
+   * best-cosine (caught by COS_MIN); classify by direction so pose order and the
+   * exact hold angle don't matter. */
+  const float COS_MIN = 0.80f; /* ~37deg: a genuine face hold clears this easily */
+  int sel[3][2];
+  float bestcos[3][2];
+  for (int a = 0; a < 3; a++)
+    for (int s = 0; s < 2; s++) {
+      sel[a][s] = -1;
+      bestcos[a][s] = COS_MIN;
+    }
+  for (int p = 0; p < npts; p++) {
+    float n2 = pts[p][0] * pts[p][0] + pts[p][1] * pts[p][1] + pts[p][2] * pts[p][2];
+    if (n2 < 1e-6f)
+      continue;
+    float inv_n = 1.0f / SQRT_F(n2);
+    for (int a = 0; a < 3; a++) {
+      float c = pts[p][a] * inv_n; /* cosine with +a axis */
+      if (c > bestcos[a][0]) { bestcos[a][0] = c; sel[a][0] = p; }
+      if (-c > bestcos[a][1]) { bestcos[a][1] = -c; sel[a][1] = p; }
+    }
+  }
+
+  /* Every side must be present and each pose used at most once. */
+  int used[6], nu = 0;
+  for (int a = 0; a < 3; a++)
+    for (int s = 0; s < 2; s++) {
+      if (sel[a][s] < 0)
+        return -1; /* a side is missing */
+      for (int u = 0; u < nu; u++)
+        if (used[u] == sel[a][s])
+          return -1; /* same pose claimed two sides -> not a 6-side set */
+      used[nu++] = sel[a][s];
+    }
+
+  const float *Pp[3][2];
+  for (int a = 0; a < 3; a++) {
+    Pp[a][0] = pts[sel[a][0]];
+    Pp[a][1] = pts[sel[a][1]];
+  }
+
+  /* offset = midpoint of opposing sides, per axis. */
+  for (int k = 0; k < 3; k++)
+    offset[k] = 0.5f * (Pp[k][0][k] + Pp[k][1][k]);
+
+  /* A = the three +g poses minus offset (row k = +k pose). */
+  float A[9];
+  for (int k = 0; k < 3; k++)
+    for (int j = 0; j < 3; j++)
+      A[k * 3 + j] = Pp[k][0][j] - offset[j];
+
+  /* We need accel_T with  accel_T * (pose_+k - offset) = g*e_k for each axis k,
+   * i.e. accel_T * A^T = g*I  ->  accel_T = g * (A^-1)^T = g/det * cofactor(A).
+   * (PX4 forms g*A^-1 and keeps only its diagonal, where the transpose is a
+   * no-op; vayu applies the full matrix so we keep the cofactor form.) */
+  float c00 = A[4] * A[8] - A[5] * A[7]; /* C00 */
+  float c01 = A[5] * A[6] - A[3] * A[8]; /* C01 */
+  float c02 = A[3] * A[7] - A[4] * A[6]; /* C02 */
+  float det = A[0] * c00 + A[1] * c01 + A[2] * c02;
+  if (FABS_F(det) < 1e-9f)
+    return -1;
+  float inv = g / det; /* fold the *g into the inverse scaling */
+  soft[0] = c00 * inv;
+  soft[1] = c01 * inv;
+  soft[2] = c02 * inv;
+  soft[3] = (A[2] * A[7] - A[1] * A[8]) * inv; /* C10 */
+  soft[4] = (A[0] * A[8] - A[2] * A[6]) * inv; /* C11 */
+  soft[5] = (A[1] * A[6] - A[0] * A[7]) * inv; /* C12 */
+  soft[6] = (A[1] * A[5] - A[2] * A[4]) * inv; /* C20 */
+  soft[7] = (A[2] * A[3] - A[0] * A[5]) * inv; /* C21 */
+  soft[8] = (A[0] * A[4] - A[1] * A[3]) * inv; /* C22 */
+
+#ifdef CALIB_SIXPOINT_DIAG_ONLY
+  /* PX4-faithful: keep only the per-axis scale, discard misalignment. */
+  soft[1] = soft[2] = soft[3] = soft[5] = soft[6] = soft[7] = 0.0f;
+#endif
   return 0;
 }

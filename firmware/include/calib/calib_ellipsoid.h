@@ -27,4 +27,25 @@
  * which case the caller should keep the previous calibration. */
 int calib_fit_ellipsoid(float S[81], float t[9], float offset[3], float soft[9]);
 
+/* Closed-form 6-side accelerometer fit (PX4-style). Given a set of averaged
+ * static poses `pts` (raw m/s^2, any order — poses are classified by their
+ * dominant axis), it selects the best-aligned pose for each of the six
+ * axis-aligned sides (+/-x, +/-y, +/-z) and solves in closed form:
+ *   offset[k] = (pose[+k][k] + pose[-k][k]) / 2          (opposing-side midpoint)
+ *   accel_T   = inv([+x;+y;+z] - offset) * g             (exact: b = g*I)
+ * The corrected vector is  soft * (raw - offset), matching the ellipsoid path's
+ * commit contract, so downstream apply is unchanged. Unlike the ellipsoid fit
+ * this needs no coverage sweep and cannot land on a degenerate solution, but it
+ * requires all six sides to be present.
+ *
+ * Because vayu's soft-iron store is a full 3x3, the ENTIRE accel_T is kept by
+ * default (recovers cross-axis misalignment — one better than PX4, which stores
+ * only the diagonal); define CALIB_SIXPOINT_DIAG_ONLY to zero the off-diagonals.
+ *
+ * `g` is the target magnitude (9.80665). offset[3] + soft[9] (row-major 3x3)
+ * receive the result. Returns 0 on success; -1 if a side is missing/duplicated
+ * or the 3x3 is singular (caller keeps the previous calibration). */
+int calib_fit_sixpoint(const float (*pts)[3], int npts, float g,
+                       float offset[3], float soft[9]);
+
 #endif /* CALIB_ELLIPSOID_H */
