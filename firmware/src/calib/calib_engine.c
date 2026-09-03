@@ -184,6 +184,20 @@ int calib_engine_run(const calib_target_t *t) {
 /** @implements SNS-CAL-101 */
 int calib_engine_fit_points(const calib_target_t *t, const float (*pts)[3],
                             int npts) {
+  /* Closed-form 6-side accel fit: classify the collected poses into the six
+   * axis-aligned sides and solve directly (no normal equations). Selected via
+   * the target's fit type so the caller can pick it in place of the ellipsoid
+   * LSQ with no other change. */
+  if (t->fit == CALIB_FIT_SIXPOINT) {
+    if (npts < (int)t->min_samples)
+      return -1;
+    float offset[3], soft[9];
+    if (calib_fit_sixpoint(pts, npts, t->radius, offset, soft) != 0)
+      return -1;
+    t->commit(offset, soft, t->ctx);
+    return 0;
+  }
+
   float S[81] = {0};
   float t9[9] = {0};
   const float inv_r = 1.0f / t->radius;

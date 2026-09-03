@@ -12,8 +12,9 @@
  * itself lives in calib_ellipsoid.{c,h}. */
 
 typedef enum {
-  CALIB_FIT_ELLIPSOID, /* sphere-constrained: offset + 3x3 (accel, mag) */
+  CALIB_FIT_ELLIPSOID, /* sphere-constrained LSQ: offset + 3x3 (accel, mag) */
   CALIB_FIT_BIAS,      /* zero-rate bias: mean of still samples (gyro) */
+  CALIB_FIT_SIXPOINT,  /* closed-form 6-side accel: offset + 3x3 (point-set only) */
 } calib_fit_t;
 
 typedef struct calib_target {
