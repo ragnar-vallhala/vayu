@@ -499,6 +499,14 @@ void calibration_task(void *args) { (void)args; }
  * since the host SITL has no calibration flow. */
 void bmx160_calib_request_cancel(void) {}
 
+/* Board-level / trim (hardware definition in src/sensor/bmx160.c). The sim IMU
+ * is perfectly aligned with the airframe, so there is no mounting tilt: always
+ * report zero trim. Keeps attitude_task.c's estimator-output trim a no-op in SITL. */
+void bmx160_get_board_trim(float *roll_deg, float *pitch_deg) {
+  if (roll_deg) *roll_deg = 0.0f;
+  if (pitch_deg) *pitch_deg = 0.0f;
+}
+
 /* ---- Timer HAL: stubs (heartbeat uses it via task delays, not real timers) */
 hal_status_t hal_timer_init_freq(hal_timer_t t, uint32_t freq_hz) {
     (void)t; (void)freq_hz; return HAL_OK;

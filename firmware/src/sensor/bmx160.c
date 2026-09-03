@@ -100,7 +100,17 @@ static bmx160_calibration_t bmx160_calib = {
     .acc_soft_iron = {1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f},
     .gyr_offset = {0.0f, 0.0f, 0.0f},
     .mag_offset = {0.0f, 0.0f, 0.0f},
-    .mag_soft_iron = {1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f}};
+    .mag_soft_iron = {1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f},
+    .board_trim = {0.0f, 0.0f}};
+
+/* Board-level / trim accessor (see bmx160.h). Read live so a fresh board-level
+ * calibration takes effect without a reboot; two float reads, no lock (the
+ * estimator reads while the calibration task may write — a torn read is
+ * harmless, same R8.6 rationale as the gyro-bias offset). */
+void bmx160_get_board_trim(float *roll_deg, float *pitch_deg) {
+  if (roll_deg) *roll_deg = bmx160_calib.board_trim[0];
+  if (pitch_deg) *pitch_deg = bmx160_calib.board_trim[1];
+}
 
 /* Set by bmx160_calib_request_cancel() (CMD_CANCEL_CALIBRATION), polled and
  * cleared by calibration_task. volatile: written from the comm task, read from
@@ -1732,8 +1742,19 @@ void calibration_task(void *args) {
     float pts[ACCEL_CAL_POSES][3];
     int npts = 0;
 
-    vayu_log("[CALIB] Accel Calibration (full 3x3, %d poses)...", ACCEL_CAL_POSES);
-    for (int i = 0; i < ACCEL_CAL_POSES; i++) {
+    /* SIXPOINT prompts only the 6 faces (the closed form needs nothing else);
+     * ELLIPSOID prompts the faces + edges so its 3x3 misalignment terms become
+     * observable. Both capture into the same pts[] and commit the same way. */
+#if ACCEL_CALIB_METHOD == ACCEL_CALIB_SIXPOINT
+    const int accel_n_prompt = ACCEL_CAL_FACE_POSES;
+    vayu_log("[CALIB] Accel Calibration (6-side closed form, %d poses)...",
+             accel_n_prompt);
+#else
+    const int accel_n_prompt = ACCEL_CAL_POSES;
+    vayu_log("[CALIB] Accel Calibration (full 3x3 LSQ, %d poses)...",
+             accel_n_prompt);
+#endif
+    for (int i = 0; i < accel_n_prompt; i++) {
       /* First ACCEL_CAL_FACE_POSES prompts are the 6 faces; the rest are the
        * edge/corner holds. The kind drives the coverage gate's shape test, and
        * pts[0..npts) are the directions already banked (so a repeat is refused). */
@@ -1751,10 +1772,15 @@ void calibration_task(void *args) {
 
     calib_target_t acc_target = {
         .name = "accel",
-        .fit = CALIB_FIT_ELLIPSOID,
         .radius = 9.80665f,              // gravity (m/s^2) — absolute target
+#if ACCEL_CALIB_METHOD == ACCEL_CALIB_SIXPOINT
+        .fit = CALIB_FIT_SIXPOINT,
+        .min_samples = ACCEL_CAL_FACE_POSES, // needs all 6 sides
+#else
+        .fit = CALIB_FIT_ELLIPSOID,
         .min_samples = ACCEL_CAL_MIN_POSES,
         .normalize_radius = true,        // rescale so |a_cal| == g exactly
+#endif
         .commit = acc_commit,
         .ctx = NULL,
     };
@@ -1815,6 +1841,82 @@ void calibration_task(void *args) {
       vayu_log("[CALIB] Mag calibration not committed; keeping old calibration.");
       goto done;
     }
+
+  } else if ((int)imu_id == 4) { // BOARD LEVEL / TRIM (mounting-tilt offset)
+    /* Capture the gravity-derived roll/pitch while the FRAME is held level, and
+     * store it as board_trim. The estimator subtracts this from its euler output
+     * (attitude_task), so a cushion-tilted FC whose level != the prop plane still
+     * reports and holds true level. Uses CALIBRATED accel (post accel-cal). */
+    vayu_log("[CALIB] Board-level (trim) calibration — hold the FRAME level...");
+    calib_telemetry(CALIB_UPDATE_BOARD_LEVEL, 0.0f);
+    v_delay(CALIBRATION_WAIT_USER_TIME_PRE_CALIBRATION);
+
+    const int target = ACCEL_POSE_STILL_SAMPLES; /* contiguous still samples */
+    const int max_ticks = 1500;                  /* generous cap (~15 s) */
+    const float gg = 9.81f;
+    const float gyro_still2 = ACCEL_CAL_GYRO_STILL_DPS * ACCEL_CAL_GYRO_STILL_DPS;
+    const float amin2 = (0.6f * gg) * (0.6f * gg);
+    const float amax2 = (1.4f * gg) * (1.4f * gg);
+    float sum[3] = {0.0f, 0.0f, 0.0f};
+    int count = 0, ticks = 0, reprompt = 0;
+    while (count < target && ticks < max_ticks) {
+      if (_calib_cancel) {
+        vayu_log("[CALIB] Board-level cancelled.");
+        goto done;
+      }
+      ticks++;
+      bmx160_all_reading_t s;
+      if (!imu_queue_calibration_pop(&s)) {
+        v_delay(5);
+        continue;
+      }
+      float ax = s.converted.acc[0], ay = s.converted.acc[1],
+            az = s.converted.acc[2];
+      float a2 = ax * ax + ay * ay + az * az;
+      float gx = s.converted.gyr_raw[0], gy = s.converted.gyr_raw[1],
+            gz = s.converted.gyr_raw[2];
+      float g2 = gx * gx + gy * gy + gz * gz;
+      if (a2 > amin2 && a2 < amax2 && g2 < gyro_still2) {
+        sum[0] += ax;
+        sum[1] += ay;
+        sum[2] += az;
+        count++;
+        if (count % (target / 20 > 0 ? target / 20 : 1) == 0)
+          calib_telemetry(CALIB_UPDATE_PROGRESS,
+                          (100.0f * (float)count) / (float)target);
+      } else {
+        /* require a CONTIGUOUS still window; re-prompt periodically. */
+        count = 0;
+        sum[0] = sum[1] = sum[2] = 0.0f;
+        if (++reprompt >= 50) {
+          reprompt = 0;
+          calib_telemetry(CALIB_UPDATE_BOARD_LEVEL, 0.0f);
+        }
+      }
+      v_delay(10);
+    }
+    if (count < target) {
+      vayu_log("[CALIB] Board-level: never settled; keeping old trim.");
+      goto done;
+    }
+    float inv = 1.0f / (float)count;
+    float ax = sum[0] * inv, ay = sum[1] * inv, az = sum[2] * inv;
+    /* Gravity-derived tilt in the SAME ZYX convention the estimator uses
+     * (roll = atan2(ay,az), pitch = atan2(-ax, hypot(ay,az))): the roll/pitch
+     * the estimate settles to when the frame is level IS the mount tilt. */
+    float roll = to_degrees(m_atan2(ay, az));
+    float pitch = to_degrees(m_atan2(-ax, m_sqrt(ay * ay + az * az)));
+    /* Sanity: a real mount tilt is small; reject an absurd capture (frame wasn't
+     * actually level) so we never latch a huge trim. */
+    if (FABS_F(roll) > 30.0f || FABS_F(pitch) > 30.0f) {
+      vayu_log("[CALIB] Board-level: %.1f/%.1f deg too large (not level?); kept old.",
+               roll, pitch);
+      goto done;
+    }
+    bmx160_calib.board_trim[0] = roll;
+    bmx160_calib.board_trim[1] = pitch;
+    vayu_log("[CALIB] Board trim: roll %.2f, pitch %.2f deg", roll, pitch);
+
   } else {
     vayu_log("[CALIB] Unknown IMU ID %d; nothing to do.", (int)imu_id);
     goto done;

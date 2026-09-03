@@ -24,9 +24,10 @@ CalibrationWidget::CalibrationWidget(QWidget *parent) : QWidget(parent) {
   m_accBtn = new QPushButton("ACCELEROMETER", this);
   m_gyrBtn = new QPushButton("GYROSCOPE", this);
   m_magBtn = new QPushButton("MAGNETOMETER", this);
+  m_lvlBtn = new QPushButton("BOARD LEVEL", this);
 
   // Big checkable cards — styling lives in dark.qss under #SensorCard.
-  for (auto *btn : {m_accBtn, m_gyrBtn, m_magBtn}) {
+  for (auto *btn : {m_accBtn, m_gyrBtn, m_magBtn, m_lvlBtn}) {
     btn->setObjectName("SensorCard");
     btn->setCheckable(true);
     sensorLayout->addWidget(btn);
@@ -34,11 +35,14 @@ CalibrationWidget::CalibrationWidget(QWidget *parent) : QWidget(parent) {
   m_accBtn->setToolTip(tr("Accelerometer — pose-tolerant full 3×3 (12 holds)"));
   m_gyrBtn->setToolTip(tr("Gyroscope — stillness-gated bias zeroing"));
   m_magBtn->setToolTip(tr("Magnetometer — rotate the airframe for axis coverage"));
+  m_lvlBtn->setToolTip(tr("Board Level — one level hold; trims a tilted FC mount "
+                          "so 'level' matches the prop plane"));
 
   m_typeGroup = new QButtonGroup(this);
   m_typeGroup->addButton(m_accBtn, 1);
   m_typeGroup->addButton(m_gyrBtn, 2);
   m_typeGroup->addButton(m_magBtn, 3);
+  m_typeGroup->addButton(m_lvlBtn, 4);
   m_gyrBtn->setChecked(true); // Default
   connect(m_typeGroup, &QButtonGroup::idClicked, this,
           &CalibrationWidget::onSensorSelected);
@@ -232,7 +236,8 @@ void CalibrationWidget::onSensorSelected(int id) {
   m_statusLabel->setText(QString("SENSOR SELECTED: %1")
                              .arg(id == 1   ? "ACCEL"
                                   : id == 2 ? "GYRO"
-                                            : "MAG"));
+                                  : id == 3 ? "MAG"
+                                            : "BOARD LEVEL"));
 
   // Reset to defaults
   m_biasOnlyRadio->setText("Bias-Only (Zeroing)");
@@ -254,6 +259,13 @@ void CalibrationWidget::onSensorSelected(int id) {
     // Mag has a single routine (hard + soft iron ellipsoid fit); the firmware
     // ignores the mode arg, so don't offer a misleading second option.
     m_biasOnlyRadio->setText("Hard + Soft Iron (Ellipsoid)");
+    m_biasOnlyRadio->setChecked(true);
+    m_fullCalibRadio->setEnabled(false);
+    m_axisStatusArea->setVisible(false);
+  } else if (id == 4) {
+    // Board level: a single level hold captures the mounting-tilt trim. One
+    // routine, no axis sweep — hide the axis pills like gyro/mag.
+    m_biasOnlyRadio->setText("Level Hold (Mounting Trim)");
     m_biasOnlyRadio->setChecked(true);
     m_fullCalibRadio->setEnabled(false);
     m_axisStatusArea->setVisible(false);
@@ -296,6 +308,8 @@ CalibMode CalibrationWidget::currentMode() const {
       return CalibMode::Accel6Axis;
     case 3:  // magnetometer
       return CalibMode::Mag;
+    case 4:  // board level / mounting-tilt trim
+      return CalibMode::BoardLevel;
     case 2:  // gyroscope
     default:
       return CalibMode::Gyro;
@@ -412,6 +426,9 @@ void CalibrationWidget::onInstructionReceived(int type) {
     break;
   case CalibUpdateType::Edge6:
     msg = "TILT ONTO BACK-LEFT CORNER";
+    break;
+  case CalibUpdateType::BoardLevel:
+    msg = "SET THE FRAME LEVEL & HOLD STILL";
     break;
   default:
     msg = "STAY STILL...";

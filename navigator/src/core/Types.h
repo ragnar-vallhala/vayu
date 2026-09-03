@@ -105,7 +105,11 @@ enum class CalibUpdateType : uint8_t {
   Edge3 = 0x0D,
   Edge4 = 0x0E,
   Edge5 = 0x0F,
-  Edge6 = 0x10
+  Edge6 = 0x10,
+  // Board-level / trim: "hold the frame level" prompt for the mounting-tilt
+  // calibration (imu_id 4). Mirrors the firmware CALIB_UPDATE_BOARD_LEVEL and
+  // navlink calib_step BOARD_LEVEL (17).
+  BoardLevel = 0x11
 };
 
 struct CalibrationUpdate {

@@ -46,6 +46,10 @@ QVector<CalibStep> CalibrationWizard::stepsFor(CalibMode mode) {
       return {{CalibUpdateType::FreeRot, QStringLiteral("Figure-8"),
                QStringLiteral("Rotate the vehicle slowly through a figure-8, "
                               "covering every axis.")}};
+    case CalibMode::BoardLevel:
+      return {{CalibUpdateType::BoardLevel, QStringLiteral("Frame level"),
+               QStringLiteral("Set the FRAME level (props plane horizontal) and "
+                              "hold still — corrects a tilted FC mount.")}};
   }
   return {};
 }

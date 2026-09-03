@@ -105,6 +105,11 @@ typedef enum {
   CALIB_UPDATE_EDGE_4 = 0x0E,
   CALIB_UPDATE_EDGE_5 = 0x0F,
   CALIB_UPDATE_EDGE_6 = 0x10,
+  /* Board-level / trim (FC -> GCS): "hold the frame level and still" prompt for
+   * the mounting-tilt calibration (imu_id 4). One level hold; the FC records the
+   * gravity-derived roll/pitch as board_trim. Keep aligned with navlink
+   * calib_step BOARD_LEVEL (17) and the GCS CalibUpdateType::BoardLevel. */
+  CALIB_UPDATE_BOARD_LEVEL = 0x11,
 } calib_update_type_t;
 
 /**

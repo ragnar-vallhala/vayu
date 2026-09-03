@@ -163,6 +163,18 @@ void attitude_task(void *args) {
     ori.degraded = estimator_is_degraded();
     ori.timestamp = now_cyc; /* propagate source-sample stamp for loop dt */
 
+    /* Board-level / trim: subtract the mounting-tilt offset (board-level
+     * calibration, imu_id 4) so a cushion-tilted FC reports and holds the TRUE
+     * frame level. Applied to the published euler only — the filter keeps
+     * tracking the IMU's actual orientation internally (no feedback). Roll/pitch
+     * only; yaw is unaffected. 0,0 until a board-level calibration is run. */
+    {
+      float trim_roll, trim_pitch;
+      bmx160_get_board_trim(&trim_roll, &trim_pitch);
+      ori.roll -= trim_roll;
+      ori.pitch -= trim_pitch;
+    }
+
     attitude_queue_telemetry_push(&ori);
     attitude_queue_control_push(&ori);
 

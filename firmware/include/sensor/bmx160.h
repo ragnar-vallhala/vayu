@@ -252,6 +252,10 @@ typedef struct {
   float gyr_offset[3];
   float mag_offset[3];   // hard-iron bias (uT)
   float mag_soft_iron[9]; // row-major 3x3 soft-iron matrix, identity default
+  float board_trim[2];   // [roll,pitch] mounting tilt (deg) — subtracted from the
+                         // attitude estimate so "frame level" reads 0 (board-level
+                         // / trim calibration; corrects a cushion-mounted FC whose
+                         // level doesn't match the prop plane). 0,0 default.
 } bmx160_calibration_t;
 
 /* On-disk calibration file (0:cal.bin) layout: a small header for
@@ -260,7 +264,7 @@ typedef struct {
  * layout) is rejected on load and the compiled-in identity defaults are kept.
  * v3 replaced acc_scale[3] with the full acc_soft_iron[9]. */
 #define CALIB_FILE_MAGIC 0x4C414356u /* 'VCAL' */
-#define CALIB_FILE_VERSION 3u
+#define CALIB_FILE_VERSION 4u /* v4 adds board_trim[2]; v3 files reset to defaults */
 
 typedef struct {
   uint32_t magic;
@@ -272,6 +276,12 @@ typedef struct {
  * calibration task polls at each loop boundary so it can tear down cleanly
  * (restore STANDBY, free args) instead of being killed mid-run. */
 void bmx160_calib_request_cancel(void);
+
+/* Board-level / trim (deg): the mounting-tilt offset captured by the board-level
+ * calibration (imu_id 4). The estimator subtracts these from its roll/pitch so a
+ * cushion-tilted FC still reports (and holds) the true frame level. Returns 0,0
+ * until a board-level calibration has been run. Cheap: two float reads. */
+void bmx160_get_board_trim(float *roll_deg, float *pitch_deg);
 
 typedef struct {
   float imu_id;
