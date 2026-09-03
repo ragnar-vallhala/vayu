@@ -112,7 +112,8 @@
         { "name": "EDGE_3",            "value": 13 },
         { "name": "EDGE_4",            "value": 14 },
         { "name": "EDGE_5",            "value": 15 },
-        { "name": "EDGE_6",            "value": 16 }
+        { "name": "EDGE_6",            "value": 16 },
+        { "name": "BOARD_LEVEL",       "value": 17 }
       ]
     },
     "perf_fifo_id": {

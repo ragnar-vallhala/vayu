@@ -16,6 +16,7 @@ enum class CalibMode {
   AccelBias,   // single level placement (legacy bias-only mode)
   Accel6Axis,  // full 3x3: six faces + six edges/corners (pose-tolerant)
   Mag,         // free figure-8 rotation
+  BoardLevel,  // single level hold -> mounting-tilt trim (imu_id 4)
 };
 
 struct CalibStep {

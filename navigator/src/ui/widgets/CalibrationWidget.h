@@ -52,6 +52,7 @@ private:
   QPushButton *m_accBtn;
   QPushButton *m_gyrBtn;
   QPushButton *m_magBtn;
+  QPushButton *m_lvlBtn;  // board-level / mounting-tilt trim (imu_id 4)
   int m_selectedImuId = 2; // Default to Gyro
 
   // Configuration Area

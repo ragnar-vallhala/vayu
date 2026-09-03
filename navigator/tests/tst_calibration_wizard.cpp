@@ -26,6 +26,9 @@ void TstCalibrationWizard::modesHaveExpectedSteps() {
   w.begin(CalibMode::Mag);
   QCOMPARE(w.stepCount(), 1);
   QCOMPARE(w.steps().first().orient, CalibUpdateType::FreeRot);
+  w.begin(CalibMode::BoardLevel);
+  QCOMPARE(w.stepCount(), 1);
+  QCOMPARE(w.steps().first().orient, CalibUpdateType::BoardLevel);
 }
 
 void TstCalibrationWizard::sixAxisAdvancesAndCompletes() {
