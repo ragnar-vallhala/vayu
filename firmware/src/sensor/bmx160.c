@@ -1901,11 +1901,18 @@ void calibration_task(void *args) {
     }
     float inv = 1.0f / (float)count;
     float ax = sum[0] * inv, ay = sum[1] * inv, az = sum[2] * inv;
-    /* Gravity-derived tilt in the SAME ZYX convention the estimator uses
-     * (roll = atan2(ay,az), pitch = atan2(-ax, hypot(ay,az))): the roll/pitch
-     * the estimate settles to when the frame is level IS the mount tilt. */
-    float roll = to_degrees(m_atan2(ay, az));
-    float pitch = to_degrees(m_atan2(-ax, m_sqrt(ay * ay + az * az)));
+    /* Gravity-derived tilt in the SAME ZYX convention the EKF uses. The driver
+     * reports the GRAVITY vector, so a level board reads ~-g on Z (bmx160.c
+     * negates X and Z at conversion) and the EKF models world-DOWN in body,
+     * gb = R^T(0,0,-1) (see ekf.c: "using world-up here flips the estimate
+     * 180deg"). World-UP in body is therefore -a/|a|, and for ZYX
+     *   roll  = atan2(-ay, -az)
+     *   pitch = atan2( ax, hypot(ay, az))
+     * Deriving this from +a instead put a LEVEL board at roll ~180deg (az < 0),
+     * which the sanity gate below then rejected — pitch looked fine throughout
+     * because its hypot() term is sign-blind. */
+    float roll = to_degrees(m_atan2(-ay, -az));
+    float pitch = to_degrees(m_atan2(ax, m_sqrt(ay * ay + az * az)));
     /* Sanity: a real mount tilt is small; reject an absurd capture (frame wasn't
      * actually level) so we never latch a huge trim. */
     if (FABS_F(roll) > 30.0f || FABS_F(pitch) > 30.0f) {
