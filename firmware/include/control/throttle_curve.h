@@ -37,17 +37,27 @@
  * work) and stick 1 gives full. Only the shape between them changes.
  */
 
-/* Expo applied about mid-stick: 0 = none, ->1 = increasingly flat near hover. */
-#ifndef THROTTLE_EXPO
-#define THROTTLE_EXPO 0.30f
-#endif
+/* Expo is DERIVED from hover, not hand-tuned — ArduPilot's construction
+ * (Mode::get_pilot_desired_throttle, mode.cpp):
+ *
+ *     expo = constrain(-(hover - 0.5) / 0.375, -0.5, 1.0)
+ *
+ * The lower the hover, the more of the stick sits above it and the steeper the
+ * upper half becomes, so the more flattening is wanted around centre. A craft
+ * that hovers at exactly mid-stick needs none, and one that hovers HIGH gets
+ * negative expo (steeper near centre, finer at the extremes). For this airframe
+ * (hover 0.38) it yields 0.32 — which is what had been picked by feel, so the
+ * formula reproduces the hand-tuned value while also tracking hover when the
+ * estimator moves it. */
+float throttle_curve_expo(float hover_duty);
 
 /* Map collective stick [0,1] -> commanded collective [0,1].
  *   stick       pilot input, clamped
- *   hover_duty  collective that hovers this airframe (0..1); <=0 or >=1 makes
- *               this a pass-through, so a bad constant degrades to the old
- *               linear behaviour rather than to something surprising
- *   expo        0..1, flattening about centre */
-float throttle_curve(float stick, float hover_duty, float expo);
+ *   hover_duty  collective that hovers this airframe RIGHT NOW (0..1) — the
+ *               in-flight estimate when there is one, else the airframe
+ *               constant. <=0 or >=1 makes this a pass-through, so a bad value
+ *               degrades to the old linear map rather than to something
+ *               surprising. */
+float throttle_curve(float stick, float hover_duty);
 
 #endif /* VAYU_THROTTLE_CURVE_H */

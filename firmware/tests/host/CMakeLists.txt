@@ -69,6 +69,14 @@ add_executable(test_notch_bank notch_bank_unit_test.c
 target_link_libraries(test_notch_bank m)
 add_test(NAME notch_bank COMMAND test_notch_bank)
 
+# In-flight hover-collective estimate: learns hover, refuses to learn from
+# climbing / banked / accelerating / implausible samples.
+add_executable(test_hover_estimate hover_estimate_unit_test.c
+    ${FW}/src/est/hover_estimate.c
+    ${FW}/src/maths/maths_interface.c)
+target_link_libraries(test_hover_estimate m)
+add_test(NAME hover_estimate COMMAND test_hover_estimate)
+
 # Collective stick shaping: hover at mid-stick, linear in thrust, expo.
 add_executable(test_throttle_curve throttle_curve_unit_test.c
     ${FW}/src/control/throttle_curve.c
