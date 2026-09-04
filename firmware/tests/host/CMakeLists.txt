@@ -69,6 +69,13 @@ add_executable(test_notch_bank notch_bank_unit_test.c
 target_link_libraries(test_notch_bank m)
 add_test(NAME notch_bank COMMAND test_notch_bank)
 
+# Collective stick shaping: hover at mid-stick, linear in thrust, expo.
+add_executable(test_throttle_curve throttle_curve_unit_test.c
+    ${FW}/src/control/throttle_curve.c
+    ${FW}/src/maths/maths_interface.c)
+target_link_libraries(test_throttle_curve m)
+add_test(NAME throttle_curve COMMAND test_throttle_curve)
+
 # Height hold: the authority-floor clamp, setpoint handling, source handoff.
 add_executable(test_height_ctrl height_ctrl_unit_test.c
     ${FW}/src/control/height_controller.c)

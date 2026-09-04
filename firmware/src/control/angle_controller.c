@@ -3,6 +3,7 @@
 #include "control/angle_rate_controller.h"
 #include "control/flight_mode.h"
 #include "control/height_controller.h"
+#include "control/throttle_curve.h"
 #include "est/vertical_estimator.h"
 #include "control/pid_config.h"
 #include "maths/maths_interface.h"
@@ -256,7 +257,13 @@ void angle_controller_task(void *arg) {
         DEAFULT_PITCH_ANGLE_TARGET_MAX; // Forward push if acieved by tilting
                                         // back motors up which is negative
                                         // pitch
-    float target_throttle = normalized_rc_data.channels[2];
+    /* Collective stick shaping: hover at mid-stick, linear in THRUST. The raw
+     * map put hover at 38% of travel on this airframe and made mid-stick a
+     * +0.7 g climb; see control/throttle_curve.h. Roll/pitch/yaw are untouched.
+     * HEIGHT_HOVER_GUESS is the single airframe hover constant, shared with the
+     * height mode so the two cannot disagree. */
+    float target_throttle = throttle_curve(normalized_rc_data.channels[2],
+                                           HEIGHT_HOVER_GUESS, THROTTLE_EXPO);
     target_angles[2] =
         normalized_rc_data.channels[3] * DEAFULT_YAW_ANGLE_TARGET_MAX;
 
