@@ -82,6 +82,12 @@ typedef struct {
   float baro_altitude;  /**< raw baro altitude, m (same reference as altitude). */
   float agl;            /**< FC-authoritative height above the ground reference
                          *   (captured while disarmed, frozen at arm), m. */
+  float agl_tof;        /**< tilt-compensated rangefinder height, m. Only
+                         *   meaningful while tof_valid. Kept SEPARATE from
+                         *   `agl` on purpose: different zero, different failure
+                         *   modes, and the takeoff/landing detector must keep
+                         *   running on the baro reference it was tuned against. */
+  bool tof_valid;       /**< agl_tof is fresh, in range, and near-level. */
   bool valid;           /**< filter seeded. */
   uint32_t timestamp;   /**< DWT cycle stamp of the driving sample. */
 } vertical_state_t;

@@ -19,7 +19,9 @@
 #include "control/angle_controller.h" /* angle_controller_last_throttle */
 #include "est/flight_phase.h"
 #include "est/vertical_estimator.h"
+#include "maths/linalg.h" /* m_quat_rotate */
 #include "sensor/bme280.h"
+#include "sensor/vl53l0x.h"
 #include "sensor/imu_buffer.h"
 #include "sys/state.h" /* system_state_get/set, SYSTEM_STATE_* */
 #include "vaios.h"
@@ -32,6 +34,21 @@
  * correcting) even if attitude input stalls; normally it is sample-driven. */
 #define VERT_MAX_PERIOD_MS 50u
 
+/* Rangefinder acceptance. The VL53L0X measures along the body-down axis, so its
+ * reading is the VERTICAL height only after multiplying by cos(tilt); past ~30
+ * deg both that correction and the beam footprint stop being trustworthy (the
+ * cone is looking sideways at whatever the craft is banked toward). */
+#define VERT_TOF_MAX_TILT_COS 0.866f /* cos(30 deg) */
+/* Usable band. Below the device floor the reading is unreliable; the ceiling is
+ * kept under the sensor's own limit so we hand back to baro before it starts
+ * reporting its out-of-range sentinel. */
+#define VERT_TOF_MIN_M 0.05f
+#define VERT_TOF_MAX_M 1.50f
+/* Consecutive predict steps (~250 Hz) tolerated without a fresh in-window
+ * range before the ToF is declared stale. ~50 steps ~= 200 ms, an order above
+ * the ~21 Hz ride-along cadence. */
+#define VERT_TOF_STALE_STEPS 50u
+
 /* @implements EST-ALT-001 */
 void vertical_estimator_task(void *args) {
   (void)args;
@@ -43,6 +60,12 @@ void vertical_estimator_task(void *args) {
 
   uint32_t last_baro_stamp = 0;
   bool have_baro_stamp = false;
+
+  uint32_t last_tof_stamp = 0;
+  bool have_tof_stamp = false;
+  uint32_t tof_age_steps = VERT_TOF_STALE_STEPS;
+  float agl_tof = 0.0f;
+  bool tof_valid = false;
 
   while (1) {
     /* Block until the attitude task hands over the next synchronized triple
@@ -73,6 +96,36 @@ void vertical_estimator_task(void *args) {
       }
     }
 
+    /* Rangefinder AGL. Deliberately NOT fused into the estimator: the ToF is an
+     * AGL reference over whatever is directly below (it steps when the ground
+     * does), while the filter tracks a baro reference. Folding one into the
+     * other makes the fused altitude jump on every terrain step and every
+     * in/out-of-range transition. Instead it is published alongside, and the
+     * height controller picks the better source and re-biases on handoff. */
+    vl53l0x_reading_t tof;
+    if (vl53l0x_read_all(&tof) == HAL_OK) {
+      if (!have_tof_stamp || tof.timestamp != last_tof_stamp) {
+        last_tof_stamp = tof.timestamp;
+        have_tof_stamp = true;
+        tof_age_steps = 0;
+      } else if (tof_age_steps < VERT_TOF_STALE_STEPS) {
+        tof_age_steps++;
+      }
+      /* Tilt compensation: rotate the body-down axis into the world; its
+       * world-down component IS cos(tilt), so it both scales the slant range to
+       * a vertical height and gates on how far off level we are. */
+      const float body_down[3] = {0.0f, 0.0f, 1.0f};
+      float w_down[3];
+      m_quat_rotate(&in.q, body_down, w_down);
+      float cos_tilt = w_down[2];
+      agl_tof = tof.range_m * cos_tilt;
+      tof_valid = (tof_age_steps < VERT_TOF_STALE_STEPS) &&
+                  (cos_tilt > VERT_TOF_MAX_TILT_COS) &&
+                  (agl_tof >= VERT_TOF_MIN_M) && (agl_tof <= VERT_TOF_MAX_M);
+    } else {
+      tof_valid = false;
+    }
+
     /* Takeoff / landing detector + FC-owned AGL ground reference.
      * Only meaningful once the filter is seeded; until then the ground reference
      * has no absolute altitude to anchor to. `armed` (ARMED or IN_AIR) freezes
@@ -99,6 +152,8 @@ void vertical_estimator_task(void *args) {
         .vertical_accel = ve.vertical_accel,
         .baro_altitude = baro_alt,
         .agl = fp.agl,
+        .agl_tof = agl_tof,
+        .tof_valid = tof_valid,
         .valid = ve.initialized,
         .timestamp = in.timestamp,
     };
