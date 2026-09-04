@@ -11,9 +11,63 @@ mechanism, what PX4 and ArduPilot do about it, and the fix order.
 This is a design plan. No code is written here. File:line references are pointers
 to the tree at the time of writing, not contracts.
 
+> **CORRECTION (2026-09-05, after reading the prior campaign).** An earlier draft
+> of this plan framed the authority budget as the root cause and cited SITL as
+> reproducing the problem. Both are wrong, and the 2026-06-25 pitch/INDI campaign
+> had already established why — see §0. Saturation is the **lock-in** mechanism;
+> the **trigger** is a plant gap plus ~109 ms of transport delay. And SITL is
+> **not a valid surrogate** for this work as configured.
+
 **Blocking:** the ch6 height mode
 ([`altitude-hold-and-in-air-plan.md`](altitude-hold-and-in-air-plan.md)) must not
 be flown again until at least items 1 and 2 of §4 land.
+
+---
+
+## 0. Prior art — read this first
+
+The 2026-06-25 **pitch/INDI campaign**
+(`firmware/docs/journal/log-analysis/20260625-233852-pitch-indi-campaign/`)
+already identified this failure, measured sim-vs-real parity, and ranked the
+fixes. Its conclusions, which this plan defers to:
+
+- The cycle is **gain-invariant across a 2.4x sweep** — "structural, not a tuning
+  bug". `recommendations.md` explicitly lists *"gain tuning of the existing PID"*
+  and *"INDI bandwidth alone"* under **what NOT to keep chasing**.
+- Causal chain: *the real plant does not respond as the tuning assumes -> large
+  persistent rate error -> the loop over-commands -> motors rail -> the anti-sat
+  scaler clips authority -> the cycle locks in.* Saturation is the lock-in; the
+  trigger is the plant gap.
+- Full plant ID from the limit cycle puts the real pitch plant at **-175 deg at
+  1.9 Hz** — about **109 ms of transport delay** beyond a rigid-body integrator
+  plus a 21 ms actuator. The delay is physically **ESC stall / re-spin at the
+  then-0.005 idle floor**, which floors pitch ~95% of the cycle but rarely floors
+  roll — *that* is why roll was always rock-solid.
+- Ranked sequencing (`recommendations.md`): **P0** power/weight margin (hardware:
+  re-weigh, bench-test static thrust *especially the previously burned arm*,
+  target hover <= 0.4) and the idle floor; **P1** make the mixer preserve attitude
+  under saturation; **P2b** calibrate the simulator as the validation gate; only
+  then re-tune.
+
+### What has changed since that campaign
+
+| item | during the campaign | now | status |
+|---|---|---|---|
+| `MOTOR_IDLE_FLOOR` | 0.005 | **0.15** | P0#2 done, beyond the recommended 0.05-0.08 |
+| airmode | `MIXER_AIRMODE_DISABLED` | **`MIXER_AIRMODE_RP`** | P1 done |
+| hover throttle | ~0.45 measured | unmeasured since | P0#1 open |
+
+Two consequences, both new since the campaign and neither covered by it:
+
+1. **The flyaway is a new behaviour.** With airmode DISABLED, saturation clipped
+   attitude and held collective. With RP it *shifts collective to preserve
+   roll/pitch*, so saturation now produces climb (section 2). P1 fixed the
+   attitude half and introduced an altitude half.
+2. **The delay trigger may already be gone.** The idle floor was raised to 0.15
+   specifically to remove the ESC-stall delay
+   (`20260627-200523-idle-floor-015/`), but that entry contains a protocol and no
+   results — the test appears never to have been written up. Whether the ~2 Hz
+   cycle survives at 0.15 is **unknown, and cheap to determine**.
 
 ---
 
@@ -41,7 +95,10 @@ MotorTelemetry.cmd peaks = [1.00, 0.88, 0.40, 0.53]
 One motor pinned at full with a wide asymmetric spread, while the airframe sat
 still. That is an attitude fight, not a collective command.
 
-### Reproduced in SITL, on clean HEAD with the feature stashed
+### What SITL showed — and why it does not count
+
+*(See section 6a: SITL is not a valid surrogate. The run below establishes that
+the flyaway is not a regression from this branch, and nothing more.)*
 
 ```
 cmd=[0.15, 1.0, 1.0, 0.15]  ->  [1.0, 0.15, 0.15, 1.0]  (flipping every sample)
@@ -49,10 +106,16 @@ cmd=[0.15, 1.0, 1.0, 0.15]  ->  [1.0, 0.15, 0.15, 1.0]  (flipping every sample)
 
 Pure pitch under `s_mix_pitch = {+1,-1,-1,+1}`. Reported roll/pitch stay at
 ~0.0° throughout — **an attitude-only check looks healthy**; the tell is in the
-motor commands. Altitude ran away to 157 m in 3.3 s at any commanded throttle
-(157.05 m on clean HEAD vs 157.31 m on the feature branch — identical, so this is
-not a regression from recent work). See
-`memory/sitl-pitch-limit-cycle-blocks-testing.md`.
+motor commands. Altitude ran away to 157 m in 3.3 s (157.05 m on clean HEAD vs
+157.31 m on the feature branch — identical, so **not** a regression from recent
+work; that is the only thing this run establishes).
+
+This is **not** the real limit cycle. It was a climbing transient at commanded
+throttle 0.30 against a sim hover of 0.252, on an over-powered vehicle. The
+parity study measured **0% pitch saturation at sim hover** — the sim is stable by
+construction because it has no transport delay (section 6a). Do not treat sim
+saturation as a stand-in for the airframe's.
+See `memory/sitl-pitch-limit-cycle-blocks-testing.md`.
 
 ---
 
@@ -179,25 +242,70 @@ than derived from the ~0.35 of room.
 
 ---
 
+## 6a. SITL is not a valid surrogate — measured
+
+Parity was measured directly (fresh headless runs, GCS-conf geometry, the sim
+plant excited the same way the real sysid was), in
+`20260625-233852-pitch-indi-campaign/sim_parity/` (scripts + CSVs + plot):
+
+| quantity | SIM | REAL | gap |
+|---|---:|---:|---|
+| control effectiveness `K_roll` | 187 | 563 | sim **0.33x** |
+| control effectiveness `K_pitch` | 199 | 1381 | sim **0.14x** |
+| hover throttle | 0.252 | ~0.45 | sim over-powered ~1.8x |
+| pitch saturation at hover | 0% | 26-83% | — |
+| pitch-rate RMS at hover | 6 dps | 50-194 dps | — |
+
+**"The sim flies because its plant is 3-7x too weak and over-powered."** The
+controller is effectively tuned for a plant 3-7x weaker than reality, so on the
+real airframe the loop gain is 3-7x too high.
+
+The decisive missing physics is **transport delay**. With 0 ms the loop never
+reaches -180 deg, so the sim is stable *by construction*. Giving the sim the real
+*gain alone* oscillates at the wrong 18 Hz mode; a bigger tau pole
+self-stabilises. Only a true transport-delay element — which vsim lacks —
+reproduces the real 2 Hz cycle.
+
+A digital-twin parameter set, the exact vsim code changes, and validation
+acceptance tests already exist in that campaign's `plant_id/README.md`, with the
+parity values in `session-analysis.md` (inertia `I_xx x0.33`, `I_yy x0.14`,
+`k_thrust x0.31` for hover 0.45, actuator tau ~21 ms, stall deadband, vibration
+injection).
+
+**Therefore: calibrate the twin before developing any fix against it.** That is
+P2b in the campaign's ranking, and it is the validation gate for everything
+below.
+
+---
+
 ## 5. Fix order
 
-1. **Saturation feedback into the integrator.** Smallest change, biggest effect,
-   and both references converge on it. `mixer_allocate` already computes
-   everything needed — have it report which axes it could not satisfy (and in
-   which direction), and gate integration in `v_pid_update` on that.
-2. **Bound the airmode collective shift** so desaturation cannot produce a climb
-   (ArduPilot's rule, §4.2). This is the specific fix for the flyaway. A clamp on
-   the existing `kt` shift in `mixer.c`.
-3. **PD sum cap** (`_kpdmax` equivalent), then the slew-limiter detune.
-4. **Re-derive `I_MAX`/`D_MAX` from measured headroom** rather than leaving them
-   at 0.2/0.25 against 0.35 of room.
-5. **Then** revisit the optional INDI inner loop (`RATE_CTRL_ALGO_USED`,
-   `memory/indi-rate-loop.md`) — it needs its `b` identified on the bench, and
-   items 1–2 may make it unnecessary.
+Ordered to respect the campaign's ranking (authority before everything), with
+the two genuinely new items folded in.
 
-Note this supersedes an earlier instinct to simply cut `I_MAX`/`D_MAX` first:
-that treats the symptom by weakening the controller everywhere, whereas 1 and 2
-close the structural gaps and keep authority where it is usable.
+0. **Re-run the idle-floor test and write up the result**
+   (`20260627-200523-idle-floor-015/`). The floor is already at 0.15; if the
+   ~2 Hz cycle is gone, the transport-delay trigger is solved and the remaining
+   work is far smaller. Cheapest possible step, and it gates the rest.
+1. **P0#1, hardware — power/weight margin.** Re-weigh; bench static thrust per
+   motor, especially the previously burned arm; target hover <= 0.4. No software
+   change gives symmetric authority on a craft that hovers at ~0.45 with a
+   degraded arm. Still the campaign's root cause, still open.
+2. **Bound the airmode collective shift** so desaturation cannot produce a climb
+   (ArduPilot's rule, section 4.2). NEW since the campaign — airmode RP did not
+   exist then, and this is the specific cause of the flyaway. A clamp on the
+   existing `kt` shift in `mixer.c`.
+3. **Saturation feedback into the integrator** (section 4.1). NEW — not covered
+   by the campaign, and both references converge on it. `mixer_allocate` already
+   computes what is needed: report which axes it could not satisfy and in which
+   direction, and gate integration in `v_pid_update` on that.
+4. **Calibrate the twin** (P2b) and re-verify 2-3 against it before flying.
+5. Only then re-tune, and only on a craft that can hover.
+
+**Explicitly NOT on this list**, per the campaign's "what not to keep chasing":
+re-deriving `I_MAX`/`D_MAX`, or any gain tuning of the existing PID — the cycle
+is gain-invariant across a 2.4x sweep. An earlier draft of this plan had that as
+item 4; it was wrong.
 
 ---
 
