@@ -263,8 +263,23 @@ real airframe the loop gain is 3-7x too high.
 The decisive missing physics is **transport delay**. With 0 ms the loop never
 reaches -180 deg, so the sim is stable *by construction*. Giving the sim the real
 *gain alone* oscillates at the wrong 18 Hz mode; a bigger tau pole
-self-stabilises. Only a true transport-delay element — which vsim lacks —
-reproduces the real 2 Hz cycle.
+self-stabilises. Only a true transport-delay element reproduces the real 2 Hz
+cycle.
+
+> **UPDATE 2026-09-05: vsim now HAS that element.** The campaign wrote that the
+> sim lacked it, and this plan repeated the claim — both are out of date. The
+> knobs exist today as `VSIM_MOTOR_DELAY_MS` and `VSIM_STALL_DUTY`, applied
+> alongside `VAYU_RTOS_GEOMETRY` (which drives BOTH the physics and the firmware
+> mix from one source, so the sim cannot silently fly a different mix than the
+> vehicle). There is also a purpose-built `VAYU_RTOS_SCENARIO=disturb` rollout
+> that kicks one axis and reports an envelope decay ratio at full 1 ms cadence —
+> `>~0.5` meaning the rate never settled, i.e. a sustained limit cycle — with a
+> per-sample CSV trace. So the twin is buildable and the limit-cycle question is
+> directly measurable in sim; the parity gap in the table above is a matter of
+> *setting* these knobs, not of missing capability. What sim still cannot do is
+> tell you the REAL plant's parameters: it returns what you model, so it gives a
+> defensible STARTING tune and a limit-cycle check, not a substitute for bench
+> sysid on the airframe.
 
 A digital-twin parameter set, the exact vsim code changes, and validation
 acceptance tests already exist in that campaign's `plant_id/README.md`, with the
