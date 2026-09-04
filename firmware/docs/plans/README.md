@@ -2,11 +2,19 @@
 
 Active plans for in-flight firmware work; a plan is deleted once its feature ships.
 
+- [`rate-loop-saturation.md`](rate-loop-saturation.md) — the rate PID can demand
+  ~2× the differential thrust the airframe can deliver at hover, so the mixer
+  saturates, airmode shifts collective to preserve roll/pitch, and the aircraft
+  climbs away. Records the measured mechanism, what PX4 and ArduPilot do about it
+  (saturation fed back into the integrator; a bounded collective shift), and the
+  fix order. **Blocks the height mode.** Design stage.
 - [`altitude-hold-and-in-air-plan.md`](altitude-hold-and-in-air-plan.md) — barometer-driven
   vertical estimation, an `ALT_HOLD` flight mode, and finally driving the dormant
   `SYSTEM_STATE_IN_AIR` transition. Phased, SITL-first. Phases 1–2 (estimator +
-  baro-driven IN_AIR) shipped; Phases 3–5 (mode plumbing, ALT_HOLD controller,
-  hardware bring-up) remain.
+  baro-driven IN_AIR) shipped. Phases 3–5 were then implemented by a **different**
+  design — a ch6 takeoff/hold/land mode on a VL53L0X rangefinder, plus two
+  pre-existing safety bugs fixed — and are now **blocked** after the first flight
+  hit the ceiling; see the status box above Phase 3 and `rate-loop-saturation.md`.
 - [`imu-i2c-scheduler-redesign.md`](imu-i2c-scheduler-redesign.md) — move all I2C
   access + the acquisition scheduler out of `bmx160.c` into `i2c_manager`,
   multi-rate phase-offset scheduling, and recovery hardening for the ~320 s bus
