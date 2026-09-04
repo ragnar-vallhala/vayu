@@ -17,7 +17,7 @@ Five sections:
 Cross-references:
 - [`journal/changelog/gcs-in-app-simulator-and-world-collision.md`](../journal/changelog/gcs-in-app-simulator-and-world-collision.md) — the embedded SITL design (`vsim_d` daemon).
 - [`navlink/docs/reference/messages/`](../../../navlink/docs/reference/messages/) — wire format authority.
-- [`firmware/docs/reference/coordinate_ref.md`](../../../docs/reference/coordinate_ref.md) — NED conventions.
+- [`firmware/docs/reference/coordinate_ref.md`](../../../firmware/docs/reference/coordinate_ref.md) — NED conventions.
 - [`journal/shipped/`](../journal/shipped/) — design records of shipped GCS features.
 
 ---

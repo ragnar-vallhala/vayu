@@ -6,7 +6,7 @@ seam that keeps the FC honest, and the **`vayu_headless` Pilot**, the Python API
 script flights with. Verified against `sim/vsim/`, `sim/host/`, and
 `navigator/headless-sdk/`.
 
-> Companion docs: firmware internals → [`../../../../docs/reference/software-flow.md`](../../../../docs/reference/software-flow.md);
+> Companion docs: firmware internals → [`firmware/docs/reference/software-flow.md`](../../../../firmware/docs/reference/software-flow.md);
 > wire protocol → [`../../include/vsim_proto.h`](../../include/vsim_proto.h);
 > the GCS that also hosts this sim in-process → [`../../../../navigator/docs/reference/gcs-architecture.md`](../../../../navigator/docs/reference/gcs-architecture.md).
 

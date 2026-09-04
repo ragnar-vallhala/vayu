@@ -10,7 +10,7 @@ this docs tree at the repository root:
 - [`../generate.py`](../generate.py) — emits the codec (`generated/`) from the dialect.
 
 The docs here are organized into four lifecycle layers, matching the global
-documentation taxonomy in [`../../docs/README.md`](../../docs/README.md):
+documentation taxonomy in [`firmware/docs/README.md`](../../firmware/docs/README.md):
 
 - **[reference/](reference/)** — architecture explainers and the formal,
   normative wire spec. A living contract: edited in place, never deleted.

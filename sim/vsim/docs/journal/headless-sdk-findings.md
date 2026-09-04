@@ -2,7 +2,7 @@
 
 > **Open issue:** the ~12× attitude under-read in powered, translating flight is
 > the one thread still unresolved here. It is tracked separately in
-> [`firmware/docs/journal/deferred/01-attitude-estimate-underread.md`](../../../../docs/journal/deferred/01-attitude-estimate-underread.md);
+> [`firmware/docs/journal/deferred/01-attitude-estimate-underread.md`](../../../../firmware/docs/journal/deferred/01-attitude-estimate-underread.md);
 > the analysis below (UPDATEs pt 2/3 + appendix) is its working record. Bugs 1 & 2
 > below are also still open; only Gap 3 (guidance) has landed.
 
