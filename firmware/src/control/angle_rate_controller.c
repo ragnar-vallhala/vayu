@@ -518,10 +518,26 @@ void angle_rate_controller_task(void *arg) {
      * is fully gated until the pilot is nearly at hover (the SITL X3
      * hovers at ~0.55), at which point the drone is light on the ground
      * or already lifting and the PID actually has authority over attitude. */
-    if (target_throttle < MIN_ARMED_THROTTLE) {
+    /* ...but ONLY on the ground. That ground-contact reasoning does not hold in
+     * flight, where fading the loop out is simply "switch the stabiliser off":
+     * a pilot chopping the stick (or a height controller commanding a descent)
+     * would silently disarm attitude control mid-air. That is what crashed the
+     * airframe on 2026-09-04 — stick to the bottom, authority to zero, the
+     * thrust bias rolled it, the bank failsafe cut the motors.
+     *
+     * While IN_AIR the ramp input is floored at full authority. Note this scales
+     * only the PID OUTPUT: target_throttle itself still goes to the mixer
+     * untouched below, so the craft descends normally — it just keeps its
+     * stabilisation while doing it. */
+    float ramp_throttle = target_throttle;
+    if (system_state_get() == SYSTEM_STATE_IN_AIR &&
+        ramp_throttle < PID_FULL_AUTHORITY_THROTTLE) {
+      ramp_throttle = PID_FULL_AUTHORITY_THROTTLE;
+    }
+    if (ramp_throttle < MIN_ARMED_THROTTLE) {
       for (int i = 0; i < NUM_AXES; i++) outputs[i] = 0.0f;
-    } else if (target_throttle < PID_FULL_AUTHORITY_THROTTLE) {
-      float ramp = (target_throttle - MIN_ARMED_THROTTLE) /
+    } else if (ramp_throttle < PID_FULL_AUTHORITY_THROTTLE) {
+      float ramp = (ramp_throttle - MIN_ARMED_THROTTLE) /
                    (PID_FULL_AUTHORITY_THROTTLE - MIN_ARMED_THROTTLE);
       for (int i = 0; i < NUM_AXES; i++) outputs[i] *= ramp;
     }
