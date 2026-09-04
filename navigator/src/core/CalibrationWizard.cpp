@@ -9,12 +9,23 @@ QVector<CalibStep> CalibrationWizard::stepsFor(CalibMode mode) {
       return {{CalibUpdateType::Upright, QStringLiteral("Level"),
                QStringLiteral("Place the vehicle level and still.")}};
     case CalibMode::Accel6Axis:
-      // Full-3x3 pose-tolerant accel: 6 faces + 6 edges/corners. Listed in the
-      // firmware's emission order so the initial (all-pending) checklist reads in
-      // the real sequence. Advancement is order-agnostic regardless (see
-      // onInstruction), so this order is display-only — the two can never drift
-      // into the wrong-phase bug again. The edge/corner holds share gravity
-      // between axes; poses are advisory (the fit is magnitude-only), so "roughly
+      // The SIX FACES — matching the firmware's active accel fit, the closed-form
+      // 6-side solve (ACCEL_CALIB_METHOD == ACCEL_CALIB_SIXPOINT in
+      // firmware/include/variables.h), which prompts the faces only. The edge /
+      // corner holds are NOT listed: they are prompted solely by the ELLIPSOID
+      // fit, whose off-diagonal misalignment terms need the shared-gravity poses
+      // to become observable. Listing them under SIXPOINT stranded six rows
+      // permanently pending and stalled the bar at 50% until the firmware's
+      // terminal COMPLETE snapped it to 100%.
+      //
+      // The firmware does not advertise its fit method on the wire, so this list
+      // tracks that compile-time switch by hand: flipping variables.h back to
+      // ELLIPSOID means restoring the six Edge1..Edge6 steps here.
+      //
+      // Listed in the firmware's emission order so the initial (all-pending)
+      // checklist reads in the real sequence. Advancement is order-agnostic
+      // regardless (see onInstruction), so this order is display-only. Poses are
+      // advisory (the fit classifies each hold by its dominant axis), so "roughly
       // this orientation, held still" is all the operator needs.
       return {
           {CalibUpdateType::Upright, QStringLiteral("Level"),
@@ -29,18 +40,6 @@ QVector<CalibStep> CalibrationWizard::stepsFor(CalibMode mode) {
            QStringLiteral("Roll onto the right side.")},
           {CalibUpdateType::LeftDown, QStringLiteral("Left side down"),
            QStringLiteral("Roll onto the left side.")},
-          {CalibUpdateType::Edge1, QStringLiteral("Front edge"),
-           QStringLiteral("Tilt nose-up ~45°, resting on the front edge.")},
-          {CalibUpdateType::Edge2, QStringLiteral("Back edge"),
-           QStringLiteral("Tilt nose-down ~45°, resting on the back edge.")},
-          {CalibUpdateType::Edge3, QStringLiteral("Right edge"),
-           QStringLiteral("Roll ~45° onto the right edge.")},
-          {CalibUpdateType::Edge4, QStringLiteral("Left edge"),
-           QStringLiteral("Roll ~45° onto the left edge.")},
-          {CalibUpdateType::Edge5, QStringLiteral("Front-right corner"),
-           QStringLiteral("Tilt onto the front-right corner.")},
-          {CalibUpdateType::Edge6, QStringLiteral("Back-left corner"),
-           QStringLiteral("Tilt onto the back-left corner.")},
       };
     case CalibMode::Mag:
       return {{CalibUpdateType::FreeRot, QStringLiteral("Figure-8"),
