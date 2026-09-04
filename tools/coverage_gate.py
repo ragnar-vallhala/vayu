@@ -49,14 +49,14 @@ FLOORS = {
         "est": 77.0,        # ekf / fusion / vertical — protected high-water
         "logger": 90.0,     # tiny (11 lines); band tolerates one new line
         "storage": 69.0,    # fs owner / xfer state machine
-        "comm": 40.0,
-        "sys": 36.0,        # + float32_to_float16 unit test (math_utils)
+        "comm": 55.0,
+        "sys": 50.0,        # + float32_to_float16 unit test (math_utils)
         "sensor": 14.0,     # driver code — bulk needs tier-2 (on-target gcov)
         "maths": 92.0,      # maths_interface + fft + biquad unit tests (firmware/tests/host)
         "dsp": 92.0,        # notch front-end + bank unit-tested; gyro_notch.c glue
                             # is SITL-driven (test_phase3_comm), bar its v_malloc-
                             # failure aborts (not host-coverable) -> measured ~93%
-        "control": 40.0,    # pid + mixer + sysid unit-tested; angle/rate are tasks
+        "control": 50.0,    # pid + mixer + sysid unit-tested; angle/rate are tasks
                             # (integration-tested in sim/host, not host-unit-testable)
         "actuator": 0.0,    # P1 target: motor/esc mixing currently 0% on host
     },

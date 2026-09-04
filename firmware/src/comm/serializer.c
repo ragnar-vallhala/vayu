@@ -34,6 +34,21 @@ uint16_t comm_rx_raw_drain(uint8_t *out, uint16_t max) {
   return n;
 }
 
+#ifdef VAYU_SIM
+/* Test-only RX injection seam. The host navhal keeps its received byte in a
+ * file-static that uart2_packet_recv_callback() reads through the HAL, so a
+ * host test has no way to feed the parser without a pty and a sleep. This
+ * pushes bytes straight into the same ring the ISR fills, making the router
+ * deterministically testable. Compiled ONLY under VAYU_SIM — it is not present
+ * in firmware builds.
+ *
+ * @noreq test seam (sim builds only) */
+void comm_rx_raw_inject(const uint8_t *data, uint16_t n) {
+  for (uint16_t i = 0; i < n; i++)
+    rx_raw_push(data[i]);
+}
+#endif /* VAYU_SIM */
+
 /* Telemetry-UART (USART6) RX ISR: read the byte that triggered the interrupt
  * and mirror it into the raw ring for the v2 parser. */
 /** @noreq telemetry-UART RX ISR: mirrors the received byte into the ring */

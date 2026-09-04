@@ -363,6 +363,19 @@ add_test(NAME phase3_est_ekf COMMAND test_phase3_est_ekf)
 # vayu_sitl_core); the test feeds synthetic accel/baro and checks tracking.
 # first-order LPF (src/est/lpf.c): pure math, no RTOS — recurrence, alpha
 # end-cases and step response.
+# RX seam (src/comm/navlink_router.c): dispatch + the 10.5 command gate,
+# driven through the sim-only comm_rx_raw_inject() seam.
+add_executable(test_navlink_router tests/test_navlink_router.c)
+target_link_libraries(test_navlink_router PRIVATE vayu_sitl_core navlink_codec m)
+add_test(NAME navlink_router COMMAND test_navlink_router)
+
+# TX seam (src/comm/navlink_tx.c): framing + field mapping, captured through
+# the in-process vsim_iface UART2 hook. NOT the generated codec — that is
+# navlink/generated/c/navlink_msgs.c.
+add_executable(test_navlink_tx tests/test_navlink_tx.c)
+target_link_libraries(test_navlink_tx PRIVATE vayu_sitl_core m)
+add_test(NAME navlink_tx COMMAND test_navlink_tx)
+
 # accel/mag -> Euler helper (src/est/sensor_fusion.c): pure, no RTOS.
 add_executable(test_sensor_fusion tests/test_sensor_fusion.c)
 target_link_libraries(test_sensor_fusion PRIVATE vayu_sitl_core m)
