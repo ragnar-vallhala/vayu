@@ -171,6 +171,7 @@ set(VAYU_R12_CLEAN_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/est/ekf.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/est/lpf.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/est/hover_estimate.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/storage/hover_store.c
     # SNS module (Phase 4)
     ${CMAKE_CURRENT_SOURCE_DIR}/src/sensor/bmx160.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/sensor/bme280.c

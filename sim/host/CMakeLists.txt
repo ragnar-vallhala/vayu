@@ -85,6 +85,7 @@ set(VAYU_SOURCES
     ${VAYU_ROOT}/firmware/src/control/control_buffer.c
     ${VAYU_ROOT}/firmware/src/est/lpf.c
     ${VAYU_ROOT}/firmware/src/est/hover_estimate.c
+    ${VAYU_ROOT}/firmware/src/storage/hover_store.c
     ${VAYU_ROOT}/firmware/src/maths/maths_interface.c
     ${VAYU_ROOT}/firmware/src/maths/fft.c              # m_rfft_* (dynamic-notch FFT analysis)
     ${VAYU_ROOT}/firmware/src/maths/biquad.c           # m_biquad_* (notch bank design/apply)
