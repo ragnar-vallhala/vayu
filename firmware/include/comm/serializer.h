@@ -14,4 +14,10 @@ void uart2_packet_recv_callback(void);
  * can run in task context — its handlers apply commands / send frames, which is
  * not ISR-safe. Single consumer only (comm_processor_task). */
 uint16_t comm_rx_raw_drain(uint8_t *out, uint16_t max);
+
+#ifdef VAYU_SIM
+/* Test-only: push bytes into the RX ring as if the ISR had received them.
+ * Sim builds only (see serializer.c). */
+void comm_rx_raw_inject(const uint8_t *data, uint16_t n);
+#endif
 #endif // !VAYU_SERIALIZER_H
