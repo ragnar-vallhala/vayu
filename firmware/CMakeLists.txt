@@ -183,6 +183,7 @@ set(VAYU_R12_CLEAN_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/sysid.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/pid_config.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/pid.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/throttle_curve.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/height_controller.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/control_buffer.c
     # COMM module (Phase 4)
