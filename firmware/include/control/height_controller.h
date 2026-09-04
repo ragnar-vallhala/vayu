@@ -113,9 +113,13 @@
  * because by then we are on the ground and no longer IN_AIR. */
 #define HEIGHT_IDLE_THROTTLE 0.0f
 
-/* Starting hover estimate for a lift-off, where there is no pilot stick to learn
- * from. The integrator trims the rest, but only within +/-HEIGHT_I_MAX -- so a
- * badly wrong guess is not recoverable, it just flies.
+/* Compiled-in FALLBACK hover for a lift-off. Callers pass the live measured
+ * hover to height_ctrl_update() instead (est/hover_estimate.h, persisted across
+ * reboots by storage/hover_store.h); this is only what the estimator itself is
+ * seeded with the very first time an airframe flies.
+ *
+ * The integrator trims a wrong value, but only within +/-HEIGHT_I_MAX -- so a
+ * badly wrong one is not recoverable, it just flies.
  *
  * 0.38 for the 5in racer (650 g AUW, 220 mm wheelbase, 2400KV on 3S, 5x4.3x3):
  * ~1.10 kg static thrust per motor gives TWR ~6.8, and since thrust goes as
@@ -166,9 +170,13 @@ void height_ctrl_reset(height_ctrl_t *h);
  *   alt_is_tof  true when alt_m came from the rangefinder
  *   climb_rate  fused climb rate (m/s, up-positive)
  *   dt          step (s)
+ *   hover_ref   collective that hovers this airframe RIGHT NOW -- the measured
+ *               estimate when there is one, else HEIGHT_HOVER_GUESS. Used as
+ *               the lift-off baseline, where there is no pilot stick to learn
+ *               hover from. Out-of-band values fall back to the constant.
  */
 float height_ctrl_update(height_ctrl_t *h, height_mode_t mode, bool in_air,
                          float stick, float alt_m, bool alt_is_tof,
-                         float climb_rate, float dt);
+                         float climb_rate, float dt, float hover_ref);
 
 #endif // VAYU_HEIGHT_CONTROLLER_H

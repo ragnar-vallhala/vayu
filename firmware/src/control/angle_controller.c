@@ -398,14 +398,14 @@ void angle_controller_task(void *arg) {
       float alt = vs.tof_valid ? vs.agl_tof : vs.agl;
       target_throttle =
           height_ctrl_update(&s_height, hmode, in_air, target_throttle, alt,
-                             vs.tof_valid, vs.climb_rate, dt);
+                             vs.tof_valid, vs.climb_rate, dt, hover_now);
     } else {
       /* No usable vertical estimate — the pilot gets the collective back, but
        * through the same OFF path (and so the same throttle re-sync) rather
        * than a cold reset that would dump it on a possibly-idle stick. */
       target_throttle =
           height_ctrl_update(&s_height, HEIGHT_MODE_OFF, in_air, target_throttle,
-                             0.0f, false, 0.0f, dt);
+                             0.0f, false, 0.0f, dt, hover_now);
     }
 
     /* Publish what the mode is doing, so "I flipped the switch and nothing

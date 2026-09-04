@@ -20,6 +20,7 @@
 #include "control/height_controller.h" /* HEIGHT_HOVER_GUESS (initial seed) */
 #include "est/flight_phase.h"
 #include "est/hover_estimate.h"
+#include "storage/hover_store.h"
 #include "est/vertical_estimator.h"
 #include "maths/linalg.h" /* m_quat_rotate */
 #include "sensor/bme280.h"
@@ -72,7 +73,12 @@ void vertical_estimator_task(void *args) {
   /* Hover estimate: seeded from the airframe constant, then measured in steady
    * level flight. Everything vertical keys off this number. */
   hover_est_t hov;
-  hover_est_init(&hov, HEIGHT_HOVER_GUESS);
+  /* Seed from SD when a previous flight measured one, so the FIRST lift-off
+   * after a reboot already uses what was learned rather than the compiled
+   * guess. Degrades to the guess if the card, file or value is missing/bad. */
+  hover_est_init(&hov, hover_store_load(HEIGHT_HOVER_GUESS));
+  bool hov_was_armed = false;
+  float hov_saved = hov.estimate;
 
   uint32_t last_baro_stamp = 0;
   bool have_baro_stamp = false;
@@ -118,6 +124,24 @@ void vertical_estimator_task(void *args) {
     hover_est_update(&hov, system_state_get() == SYSTEM_STATE_IN_AIR,
                      angle_controller_last_throttle(), ve.climb_rate,
                      ve.vertical_accel, _cos_tilt, in.dt);
+
+    /* Persist on the disarm edge: the flight's learned value is final by then,
+     * it is naturally rare, and it costs one SD write per flight rather than
+     * one per loop. Only when it actually moved — rewriting an unchanged value
+     * is pure wear. */
+    {
+      sys_state_t hst = system_state_get();
+      bool armed_now =
+          (hst == SYSTEM_STATE_ARMED) || (hst == SYSTEM_STATE_IN_AIR);
+      if (hov_was_armed && !armed_now && hov.measured &&
+          m_fabsf(hov.estimate - hov_saved) > 0.005f) {
+        if (hover_store_save(hov.estimate)) {
+          hov_saved = hov.estimate;
+          vayu_log("hover: saved %d/1000", (int)(hov.estimate * 1000));
+        }
+      }
+      hov_was_armed = armed_now;
+    }
 
     /* Rangefinder AGL. Deliberately NOT fused into the estimator: the ToF is an
      * AGL reference over whatever is directly below (it steps when the ground

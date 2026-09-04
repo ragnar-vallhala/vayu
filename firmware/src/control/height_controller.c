@@ -72,7 +72,11 @@ static float climb_rate_pi(height_ctrl_t *h, float climb_sp, float climb_rate,
 /** @noreq Height-mode step; see height_controller.h. */
 float height_ctrl_update(height_ctrl_t *h, height_mode_t mode, bool in_air,
                          float stick, float alt_m, bool alt_is_tof,
-                         float climb_rate, float dt) {
+                         float climb_rate, float dt, float hover_ref) {
+  /* A caller with no estimate (or a nonsense one) gets the compiled fallback. */
+  if (!(hover_ref > HEIGHT_BASE_MIN) || !(hover_ref < HEIGHT_BASE_MAX)) {
+    hover_ref = HEIGHT_HOVER_GUESS;
+  }
   if (mode == HEIGHT_MODE_OFF) {
     /* State is dropped so the next engage re-captures a fresh baseline rather
      * than resuming a stale integrator, and centring the switch is what clears
@@ -124,9 +128,11 @@ float height_ctrl_update(height_ctrl_t *h, height_mode_t mode, bool in_air,
       h->base = clampf(stick, HEIGHT_BASE_MIN, HEIGHT_BASE_MAX);
     } else {
       /* Lifting off: no stick reference to learn from (it is at the bottom),
-       * so start from the airframe's nominal hover and let the PI trim. */
+       * so start from the airframe's MEASURED hover (persisted across reboots)
+       * and let the PI trim from there. Opening at a guess 1.7x too high is
+       * what put this airframe into the ceiling. */
       h->alt_sp = HEIGHT_TARGET_M;
-      h->base = HEIGHT_HOVER_GUESS;
+      h->base = hover_ref;
     }
   }
 
