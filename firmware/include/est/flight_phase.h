@@ -17,6 +17,20 @@
  * integration), so an arming transient can't poison the ground level. The GCS
  * consumes this authoritative AGL instead of computing its own.
  *
+ * Rangefinder: near the ground the ToF is far more accurate than the baro (cm vs
+ * the +/-0.5-2 m the baro carries), and BOTH phase thresholds sit inside its
+ * band — so when a fresh, near-level, in-range reading is available it supplies
+ * AGL directly and the tighter FLIGHT_PHASE_TOF_* gates apply. It gets its own
+ * ground reference on exactly the same terms as the baro one, which is what
+ * makes the sensor's mounting height self-calibrating (it reads ~45 mm sitting
+ * on its feet; that is mount height, not altitude).
+ *
+ * The two are SELECTED between, never blended: they disagree structurally (the
+ * ToF steps with terrain, the baro does not), so averaging them yields a number
+ * that is wrong in a new way. On the way up, when the ToF leaves its band, the
+ * baro ground reference is re-anchored so AGL stays continuous rather than
+ * stepping by whatever the baro had drifted.
+ *
  * Detection requires altitude AND climb rate AND throttle to agree —
  * so baro noise, prop-wash, or a bench throttle blip can't false-trip it:
  *   - ARMED -> IN_AIR (takeoff):  agl > TAKEOFF, climb > +rate, AND lift was
@@ -65,6 +79,17 @@
 #define FLIGHT_PHASE_LAND_DEBOUNCE_S 0.7f
 #endif
 
+/* Tighter altitude gates used while the RANGEFINDER is supplying AGL. The gates
+ * above are sized for baro noise (+/-0.5-2 m); the ToF resolves centimetres, so
+ * both transitions can fire sooner and more reliably — which also shortens the
+ * window in which the FC believes it is grounded while actually flying. */
+#ifndef FLIGHT_PHASE_TOF_TAKEOFF_ALT_M
+#define FLIGHT_PHASE_TOF_TAKEOFF_ALT_M 0.15f
+#endif
+#ifndef FLIGHT_PHASE_TOF_LAND_ALT_M
+#define FLIGHT_PHASE_TOF_LAND_ALT_M 0.08f
+#endif
+
 typedef enum {
   FLIGHT_PHASE_EVENT_NONE = 0,
   FLIGHT_PHASE_EVENT_TAKEOFF, /**< request ARMED -> IN_AIR */
@@ -77,6 +102,13 @@ typedef struct {
   float agl;           /**< last computed AGL (m) — cached for telemetry. */
   bool powered;        /**< latched true once throttle crossed the takeoff gate
                         *   since arming; cleared on disarm. */
+  float tof_ground_ref; /**< rangefinder reading with the craft on its feet —
+                         *   i.e. the sensor's mounting height. Captured on the
+                         *   same terms as ground_ref, so it self-calibrates
+                         *   across gear/prop-guard/battery changes. */
+  bool have_tof_ref;    /**< false until a settled grounded ToF sample seeds it. */
+  bool tof_active;      /**< the ToF supplied AGL on the previous step — drives
+                         *   the one-shot baro re-anchor when it drops out. */
   float takeoff_timer; /**< s the takeoff gates have held continuously. */
   float land_timer;    /**< s the landing gates have held continuously. */
 } flight_phase_t;
@@ -95,6 +127,10 @@ void flight_phase_init(flight_phase_t *fp);
  *                    AGL numerator.
  * @param baro_alt    raw baro altitude (m, up-positive) — the ground-reference
  *                    anchor (instantaneous, no integration transient).
+ * @param tof_range   tilt-compensated rangefinder height (m), RAW: the mounting
+ *                    offset is removed here, not by the caller.
+ * @param tof_valid   the reading is fresh, in range and near level. False falls
+ *                    back to the baro path (and re-anchors it).
  * @param climb_rate  fused climb rate (m/s, up-positive) from VERT.
  * @param throttle    commanded throttle (0..1).
  * @param dt          step interval (s).
@@ -103,7 +139,11 @@ void flight_phase_init(flight_phase_t *fp);
  */
 flight_phase_event_t flight_phase_update(flight_phase_t *fp, bool armed,
                                          bool in_air, float fused_alt,
-                                         float baro_alt, float climb_rate,
+                                         float baro_alt, float tof_range,
+                                         bool tof_valid, float climb_rate,
                                          float throttle, float dt);
+
+/** True while the rangefinder is the AGL source (tighter gates in force). */
+bool flight_phase_tof_active(const flight_phase_t *fp);
 
 #endif /* VAYU_FLIGHT_PHASE_H */

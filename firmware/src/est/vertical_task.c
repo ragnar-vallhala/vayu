@@ -39,10 +39,15 @@
  * deg both that correction and the beam footprint stop being trustworthy (the
  * cone is looking sideways at whatever the craft is banked toward). */
 #define VERT_TOF_MAX_TILT_COS 0.866f /* cos(30 deg) */
-/* Usable band. Below the device floor the reading is unreliable; the ceiling is
- * kept under the sensor's own limit so we hand back to baro before it starts
- * reporting its out-of-range sentinel. */
-#define VERT_TOF_MIN_M 0.05f
+/* Usable band. The floor is the DEVICE floor (VL53L0X_RANGE_MIN_MM, 30 mm) and
+ * not a comfort margin above it: the sensor sits ~45 mm off the ground on its
+ * feet, so a floor of 0.05 made tof_valid go false exactly when the craft was
+ * landed — blinding the touchdown detector at the one moment it needs the ToF
+ * most. The mounting offset is removed downstream by flight_phase's own ToF
+ * ground reference, so a low reading here is data, not noise. The ceiling stays
+ * under the sensor's limit so we hand back to baro before it starts reporting
+ * its out-of-range sentinel. */
+#define VERT_TOF_MIN_M 0.03f
 #define VERT_TOF_MAX_M 1.50f
 /* Consecutive predict steps (~250 Hz) tolerated without a fresh in-window
  * range before the ToF is declared stale. ~50 steps ~= 200 ms, an order above
@@ -134,10 +139,9 @@ void vertical_estimator_task(void *args) {
     bool in_air = (st == SYSTEM_STATE_IN_AIR);
     bool armed = (st == SYSTEM_STATE_ARMED) || in_air;
     if (ve.initialized) {
-      flight_phase_event_t ev =
-          flight_phase_update(&fp, armed, in_air, ve.altitude, baro_alt,
-                              ve.climb_rate, angle_controller_last_throttle(),
-                              in.dt);
+      flight_phase_event_t ev = flight_phase_update(
+          &fp, armed, in_air, ve.altitude, baro_alt, agl_tof, tof_valid,
+          ve.climb_rate, angle_controller_last_throttle(), in.dt);
       if (ev == FLIGHT_PHASE_EVENT_TAKEOFF) {
         VAYU_DISCARD(system_state_set(SYSTEM_STATE_IN_AIR));
       } else if (ev == FLIGHT_PHASE_EVENT_LAND) {
