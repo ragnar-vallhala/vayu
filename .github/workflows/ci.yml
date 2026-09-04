@@ -4,6 +4,7 @@
 #   * Always-on gates on the committed tree:
 #       - build-target  : arm-none-eabi build, all modules under -Werror (R1.2)
 #       - trace-gate    : tools/dev/trace.py --check, unknown-ID fails (R12.5)
+#       - docs-links    : tools/dev/docs_html.py --check, dangling doc link fails
 #       - cppcheck      : static analysis (report-only baseline, R12.3)
 #   * SITL host-harness jobs (sim/host/tests/ is committed):
 #       - sitl-tests    : host unit tests (R12.1)
@@ -48,6 +49,21 @@ jobs:
           python-version: '3.x'
       - name: trace.py --check (unknown ID fails; R12.5)
         run: python3 tools/dev/trace.py --check
+
+  docs-links:
+    name: docs link gate (--check)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      # pandoc is the only dependency: mermaid and KaTeX are fetched by the
+      # browser at view time and are not needed to build or check the site.
+      - name: Install pandoc
+        run: sudo apt-get update && sudo apt-get install -y pandoc
+      - name: docs_html.py --check (a dangling doc-to-doc link fails)
+        run: python3 tools/dev/docs_html.py --check
 
   cppcheck:
     name: cppcheck (baseline)
