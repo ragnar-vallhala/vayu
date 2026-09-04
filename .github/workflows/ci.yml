@@ -5,6 +5,7 @@
 #       - build-target  : arm-none-eabi build, all modules under -Werror (R1.2)
 #       - trace-gate    : tools/dev/trace.py --check, unknown-ID fails (R12.5)
 #       - docs-links    : tools/dev/docs_html.py --check, dangling doc link fails
+#       - commit-msgs   : no AI attribution trailers in new commit messages
 #       - cppcheck      : static analysis (report-only baseline, R12.3)
 #   * SITL host-harness jobs (sim/host/tests/ is committed):
 #       - sitl-tests    : host unit tests (R12.1)
@@ -49,6 +50,46 @@ jobs:
           python-version: '3.x'
       - name: trace.py --check (unknown ID fails; R12.5)
         run: python3 tools/dev/trace.py --check
+
+  commit-msgs:
+    name: commit message gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # need history to diff against the base
+      - name: No AI attribution trailers
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          set -eu
+          ZERO=0000000000000000000000000000000000000000
+          if [ "$EVENT" = pull_request ]; then
+            BASE="$PR_BASE"
+          else
+            BASE="$PUSH_BEFORE"
+          fi
+          # A new branch or a force push reports an unusable base; fall back to
+          # the tip rather than silently checking nothing.
+          if [ -n "$BASE" ] && [ "$BASE" != "$ZERO" ] && git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            COMMITS=$(git rev-list "$BASE..HEAD")
+          else
+            COMMITS=$(git rev-list -1 HEAD)
+          fi
+          # Anchored on the trailer syntax, so prose that merely mentions Claude
+          # and a genuine human Co-Authored-By both pass.
+          PAT='co-authored-by:.*(claude|anthropic)|generated with .*claude'
+          RC=0
+          for C in $COMMITS; do
+            if git log -1 --format=%B "$C" | grep -Eqi "$PAT"; then
+              echo "::error::$(git log -1 --format='%h %s' "$C") carries an AI attribution trailer"
+              RC=1
+            fi
+          done
+          [ "$RC" = 0 ] && echo "checked $(echo "$COMMITS" | wc -w) commit(s): no AI attribution trailers"
+          exit $RC
 
   docs-links:
     name: docs link gate (--check)
