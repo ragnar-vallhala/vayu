@@ -28,7 +28,7 @@ jobs:
     name: build (arm-none-eabi, -Werror)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: recursive
       - name: Install toolchain
@@ -44,8 +44,8 @@ jobs:
     name: trace gate (--check)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.x'
       - name: trace.py --check (unknown ID fails; R12.5)
@@ -55,7 +55,7 @@ jobs:
     name: commit message gate
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0          # need history to diff against the base
       - name: No AI attribution trailers
@@ -95,8 +95,8 @@ jobs:
     name: docs link gate (--check)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.x'
       # pandoc is the only dependency: mermaid and KaTeX are fetched by the
@@ -110,7 +110,7 @@ jobs:
     name: cppcheck (baseline)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - run: sudo apt-get update && sudo apt-get install -y cppcheck
       - name: cppcheck over src/ (vendored extern/ excluded)
         # Report-only until the baseline is burned down (R12.3); flip to
@@ -123,7 +123,7 @@ jobs:
     name: SITL unit tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: recursive
       - run: sudo apt-get update && sudo apt-get install -y cmake
@@ -136,7 +136,7 @@ jobs:
     name: SITL ASan + UBSan (R12.2)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: recursive
       - run: sudo apt-get update && sudo apt-get install -y cmake
@@ -149,7 +149,7 @@ jobs:
     name: SITL coverage (R12.4)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: recursive
       - run: sudo apt-get update && sudo apt-get install -y cmake gcovr python3
@@ -166,7 +166,7 @@ jobs:
     name: clang-tidy (.clang-tidy, baseline)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: recursive
       - run: sudo apt-get update && sudo apt-get install -y cmake clang-tidy
