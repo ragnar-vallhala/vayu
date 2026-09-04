@@ -380,6 +380,65 @@ per-task notes) as each item completes; note the commit/PR where relevant.
   known-wobbly hover band; all green. Target firmware (`build_flash`), SITL, and
   GCS all build clean.
 
+> **STATUS 2026-09-05 — Phases 3-5 were implemented, but by a DIFFERENT design
+> than §2/§4 below, and the feature is now BLOCKED. Read this box before the
+> phase checklists, which are left as originally written for comparison.**
+>
+> **What shipped** (uncommitted working tree, flashed to the bench FC):
+> - A **VL53L0X ToF rangefinder** as a third device on I2C1, riding the IMU's
+>   single-owner DMA loop (`sensor/vl53l0x.{c,h}`, slot in `bmx160.c`). Gives
+>   tilt-compensated AGL below ~1.5 m, published as `agl_tof`/`tof_valid` on
+>   `VERTICAL_STATE`. Bench-verified: 397-414 mm at device status 11.
+>   Continuous-mode polling needs **no** per-sample interrupt clear — the async
+>   i2c path is read-only, so this was the open design question and it is
+>   settled. See `memory/tof-vl53l0x-ride-along.md`.
+> - A **height controller** (`control/height_controller.{c,h}`, pure +
+>   host-tested, 41 checks in `tests/host/height_ctrl_unit_test.c`).
+> - Two **safety fixes** that the work exposed, both pre-existing bugs:
+>   the rate-loop authority ramp now floors at full authority while `IN_AIR`
+>   (chopping the stick in flight used to switch the stabiliser OFF), and the
+>   70° bank failsafe now recovers in flight instead of cutting all four motors
+>   irrecoverably. See `memory/lowthrottle-authority-crash.md`.
+>
+> **Divergence from §2.** The pilot interface is takeoff/hold/land, not
+> stabilise/acro/alt-hold. The user's transmitter has only 6 channels with 5
+> essential, so ch6 is the sole spare:
+>
+> | `ch6` µs | This implementation | §2 as designed |
+> |---|---|---|
+> | ~1000 | `HOLD` — lift to 1 m and hold, or hold current height in flight | `ALT_HOLD` |
+> | ~1500 | off — pilot's stick passes through | `STABILISE` |
+> | ~2000 | `LAND` — descend, settle, idle, latch | `ACRO` |
+>
+> Acro therefore has **no RC binding** (`ACRO_SWITCH_CH = 0xFF`); it remains
+> reachable via GCS `CMD_SET_FLIGHT_MODE`, which outranks the RC source anyway.
+> Acro and the height mode must never share a channel — the acro threshold
+> (>1500) and the height-mode thresholds overlap, and acro force-disengages the
+> height mode. Note also this radio's SwC is **inverted** (up reads ~1000), so
+> `ALT_MODE_HOLD_US`/`ALT_MODE_LAND_US` are named for what the switch does, not
+> for µs direction.
+>
+> Also unlike §4: the sticks are untouched (no stick-as-climb-rate map), engage
+> is edge-interlocked (the switch must be seen centred while armed, so arming
+> with it already up cannot fly the craft off the ground), and disengage does a
+> **throttle re-sync** — holding the last commanded collective, capped at the
+> hover baseline, until the pilot's stick rises to meet it. That cap matters: an
+> uncapped hand-back would latch whatever collective it was last commanding.
+>
+> **BLOCKED — do not fly again until
+> [`rate-loop-saturation.md`](rate-loop-saturation.md) items 1-2 land.** First
+> flight (2026-09-04) climbed fast into the ceiling and broke several props. The
+> height controller was not the cause: under rate-loop saturation the mixer
+> shifts collective to preserve roll/pitch, so commanded 0.25 leaves the mixer as
+> mean duty 0.575, and the height loop's output is discarded. Nothing inside the
+> height controller can counter that.
+>
+> **Still open on this feature:** hover baseline `HEIGHT_HOVER_GUESS = 0.50` is
+> an unverified guess for this airframe; all gains are unflown first guesses;
+> SITL cannot validate any of it (`memory/sitl-pitch-limit-cycle-blocks-testing.md`);
+> a status whitelist for the ToF (currently gated on the 30-2400 mm value window)
+> is not yet derived from bench data.
+
 ### Phase 3 — `ch6` 3-position + `FLIGHT_MODE_ALT_HOLD` plumbing (§2, D6)
 - [ ] `variables.h`: 3-position thresholds + hysteresis constants.
 - [ ] `flight_mode.{h,c}`: add `FLIGHT_MODE_ALT_HOLD`; 3-way resolve from raw
