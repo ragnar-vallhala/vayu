@@ -113,9 +113,21 @@
  * because by then we are on the ground and no longer IN_AIR. */
 #define HEIGHT_IDLE_THROTTLE 0.0f
 
-/* Starting hover estimate for a lift-off, where there is no pilot stick to
- * learn from. Roughly hover for this airframe; the integrator trims the rest. */
-#define HEIGHT_HOVER_GUESS 0.50f
+/* Starting hover estimate for a lift-off, where there is no pilot stick to learn
+ * from. The integrator trims the rest, but only within +/-HEIGHT_I_MAX -- so a
+ * badly wrong guess is not recoverable, it just flies.
+ *
+ * 0.38 for the 5in racer (650 g AUW, 220 mm wheelbase, 2400KV on 3S, 5x4.3x3):
+ * ~1.10 kg static thrust per motor gives TWR ~6.8, and since thrust goes as
+ * duty^2, hover duty = sqrt(1/6.8) = 0.384.
+ *
+ * This was 0.50, carried over from the 10in S500 airframe, and that is the
+ * likeliest single cause of the 2026-09-04 ceiling climb: (0.50/0.384)^2 = 1.69x
+ * hover thrust, i.e. ~6.8 m/s^2 of net climb from the guess alone, before any
+ * mixer or saturation effect. RE-DERIVE THIS WHENEVER THE AIRFRAME CHANGES.
+ * Measured hover throttle beats the estimate -- thrust per motor is the least
+ * certain input (0.9-1.3 kg/motor moves hover to 0.43-0.35). */
+#define HEIGHT_HOVER_GUESS 0.38f
 
 /* In-flight engage captures the stick, clamped to this sane band so engaging
  * with the stick parked somewhere absurd cannot inject a step. */
