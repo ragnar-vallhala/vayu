@@ -14,7 +14,7 @@ The attitude is represented as a unit quaternion $\mathbf{q} = [w, x, y, z]$.
 
 The gravity vector $\mathbf{v}$ and magnetic vector $\mathbf{w}$ in the **earth frame** are known. We rotate these into the **body frame** using the current quaternion $\mathbf{q}$:
 
-$$ \mathbf{v}\_{est} = \begin{bmatrix} 2(q_1q_3 - q_0q_2) \\ 2(q_0q_1 + q_2q_3) \\ q_0^2 - q_1^2 - q_2^2 + q_3^2 \end{bmatrix} $$
+$$ \mathbf{v}_{est} = \begin{bmatrix} 2(q_1q_3 - q_0q_2) \\ 2(q_0q_1 + q_2q_3) \\ q_0^2 - q_1^2 - q_2^2 + q_3^2 \end{bmatrix} $$
 
 ### 3. Error Calculation
 
@@ -28,15 +28,15 @@ This error represents the rotation needed to align the estimated orientation wit
 
 The error is used to adjust the gyroscope rates $(\omega_{meas})$. The integral term $(\Omega_{bias})$ accounts for constant gyroscope bias over time.
 
-$$ \Omega*{bias} = \Omega*{bias} + K*i \cdot \mathbf{e} \cdot dt $$
-$$ \omega*{corr} = \omega*{meas} + K_p \cdot \mathbf{e} + \Omega*{bias} $$
+$$ \Omega_{bias} = \Omega_{bias} + K_i \cdot \mathbf{e} \cdot dt $$
+$$ \omega_{corr} = \omega_{meas} + K_p \cdot \mathbf{e} + \Omega_{bias} $$
 
 ### 5. Quaternion Integration
 
 The orientation is updated by integrating the rate of change:
 
-$$ \dot{\mathbf{q}} = \frac{1}{2} \mathbf{q} \otimes \omega*{corr} $$
-$$ q*{t+dt} = q_t + \dot{\mathbf{q}} \cdot dt $$
+$$ \dot{\mathbf{q}} = \frac{1}{2} \mathbf{q} \otimes \omega_{corr} $$
+$$ q_{t+dt} = q_t + \dot{\mathbf{q}} \cdot dt $$
 The resulting quaternion is normalized to maintain unit length.
 
 ## Implementation Details
