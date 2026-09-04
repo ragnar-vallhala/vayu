@@ -69,6 +69,7 @@ void init_sensors(void) {
   control_telemetry_buffer_init();
   bmx160_init();
   bme280_init(); /* baro/humidity on the shared I2C1 bus; logs + degrades if absent */
+  vl53l0x_init(); /* ToF rangefinder, same shared bus; logs + degrades if absent */
   rc_buffer_init();
 
   // Initialize global telemetry — USART6 (PC6 TX / PC7 RX) per Vayu PCB wiring.
@@ -109,18 +110,33 @@ void init_tasks(void) {
   // Attitude estimation (fusion), split out of the IMU driver.
   task_create_named(attitude_task, NULL, 1152, 1, "attitude"); // peak 700
   // Vertical estimator (VERT): fuses baro + accel into altitude/climb_rate.
-  task_create_named(vertical_estimator_task, NULL, 832, 1,
-                    "vertical"); // peak 428
+  /* 1024 not 832: the ToF ride-along (range read + quaternion tilt projection)
+   * pushed this task's measured peak 428 -> 484 B, leaving 348 B free against a
+   * 256 B guard band — under one FP exception frame (132 B) of true headroom.
+   * See the rate_ctl note above for what that costs when it runs out. */
+  task_create_named(vertical_estimator_task, NULL, 1024, 1,
+                    "vertical"); // peak 484 measured (was 428 pre-ToF)
   task_create_named(rc_ibus_task, NULL, 576, 0, "rc_ibus"); // peak 132
   task_create_named(angle_controller_task, NULL, 832, 1,
                     "angle_ctl"); // peak 404, control
-  task_create_named(angle_rate_controller_task, NULL, 1088, 1,
-                    "rate_ctl"); // peak 632, control
+  /* 1088 was marginal: a live SWD dump caught rate_ctl 956 B deep with a full
+   * FP exception context (EXC_RETURN 0xFFFFFFED, S0-S31 = +132 B) on its stack,
+   * inside the 256 B TASK_STACK_OVERFLOW_THRESHOLD guard band -> kernel panic
+   * (task.c:304). It only shows when preemption rises (adding the tof_read task
+   * was enough to expose it); the depth itself is pre-existing. Measured peak
+   * on hardware 2026-09-04: 956 B — at 1088 that left 132 B free, inside the
+   * guard band; 1536 leaves 580 B. */
+  task_create_named(angle_rate_controller_task, NULL, 1536, 1,
+                    "rate_ctl"); // peak 956 measured, control
   task_create_named(motor_task, NULL, 704, 1, "motor"); // peak 284, actuator
   task_create_named(imu_telemetry_task, NULL, 1344, 0,
                     "imu_telemetry"); // peak 908
   task_create_named(bme280_read_task, NULL, 768, 0,
                     "baro_read"); // peak 316, ~20 Hz baro/humidity sampler
+  task_create_named(vl53l0x_read_task, NULL, 1024, 0,
+                    "tof_read"); // peak 468 measured on hardware; 640 would
+                                 // leave 172 B free, inside the 256 B
+                                 // TASK_STACK_OVERFLOW_THRESHOLD guard band.
   task_create_named(flush_task, NULL, 640, 0, "flush"); // peak 188
   task_create_named(perf_telemetry_task, NULL, 1216, 0,
                     "perf_telemetry"); // peak 804

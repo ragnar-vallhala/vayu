@@ -240,6 +240,9 @@ void navlink_tx_vertical_state(const vertical_state_t *vs) {
   m.baro_altitude = vs->baro_altitude;
   m.agl = vs->agl;
   m.valid = vs->valid ? 1u : 0u;
+  m.agl_tof = vs->agl_tof;
+  m.tof_valid = vs->tof_valid ? 1u : 0u;
+  m.height_state = angle_controller_height_state();
   uint8_t frame[NAVLINK_MAX_FRAME];
   size_t n = navlink_vertical_state_encode(frame, &m, seq++, get_device_id(), 1);
   write_channel(g_telemetry_channel, frame, (uint16_t)n);

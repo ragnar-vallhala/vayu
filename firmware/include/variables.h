@@ -224,6 +224,31 @@ static inline float vayu_dt_from_cycles(uint32_t now_cyc, uint32_t prev_cyc) {
 #define DEAFULT_YAW_ANGLE_OUT_MAX 100.0f
 
 #define MAX_ANGLE_CUTOFF 70.0f
+/* Bank-angle upset handling, angle mode only.
+ *
+ * This USED to call system_state_set(FAILSAFE), which motor.c turns into "all
+ * four motors to zero" — and the state table has no path from FAILSAFE back to
+ * IN_AIR, so it was a one-way trip. A single sample past 70 deg permanently
+ * killed thrust in mid-air, turning any recoverable upset into a crash (it did
+ * exactly that on 2026-09-04: pilot chopped throttle -> the rate loop's own
+ * authority ramp faded the stabiliser out -> the airframe tipped -> failsafe ->
+ * it fell inverted).
+ *
+ * In flight the FC now takes over and flies out of it: level attitude demand at
+ * hover collective until the craft is back inside MAX_ANGLE_RECOVER. On the
+ * ground (any state but IN_AIR) the old cut is kept — there, stopping the props
+ * IS the right answer.
+ *
+ * RECOVERY_TIMEOUT_MS bounds the attempt. If the craft is still past the limit
+ * after that, it is not coming back (inverted, broken prop, lost a motor) and
+ * holding hover thrust would only drive it into the ground harder — so the cut
+ * happens after all. */
+#define MAX_ANGLE_RECOVER 45.0f  /* hysteresis: exit recovery below this tilt */
+#define RECOVERY_TIMEOUT_MS 2000u
+/* Collective held during recovery. Roughly hover for this airframe — enough to
+ * keep the rate loop at full authority (well above PID_FULL_AUTHORITY_THROTTLE)
+ * without climbing away while the FC sorts the attitude out. */
+#define RECOVERY_THROTTLE 0.50f
 
 /* Control-loop rates. The inner (rate) loop is hard-pinned to INNER_LOOP_FREQ_HZ
  * with a drift-free periodic wait (task_delay_until); the outer (angle) loop
@@ -266,8 +291,60 @@ static inline float vayu_dt_from_cycles(uint32_t now_cyc, uint32_t prev_cyc) {
  * loop is bypassed and the sticks command body rate directly (deg/s at full
  * stick) — no bank-angle limit, and the MAX_ANGLE_CUTOFF failsafe is suppressed
  * so the airframe can flip/roll continuously. */
-#define ACRO_SWITCH_CH 5
+/* DISABLED on this airframe: the transmitter only has 6 channels, 5 of which are
+ * essential (roll/pitch/throttle/yaw/arm), so the one spare — channel 6 — is
+ * given to the height mode below instead. Acro is still fully reachable from the
+ * GCS via CMD_SET_FLIGHT_MODE, which outranks the RC source anyway
+ * (control/flight_mode.h); only the physical switch binding is gone.
+ *
+ * Setting the channel out of range (>= IBUS_MAX_CHANNELS) is what disables it —
+ * angle_controller.c already guards the read with that test. Restore this to 5
+ * (or any free channel) on a transmitter with a spare, but NOT while the height
+ * mode also lives on it: the acro threshold (>1500) and the height-mode UP
+ * threshold (>1700) would both fire on the same stick position, and acro
+ * force-disengages the height mode, so they must never share a channel. */
+#define ACRO_SWITCH_CH 0xFF
 #define ACRO_SWITCH_US 1500
+
+/* Height mode on a 3-POSITION RC switch, ALT_MODE_CH (0-based; 5 == channel 6).
+ * If your mode switch is on a different channel, this define is the only thing
+ * to change.
+ *
+ * Channel 6 is this transmitter's only spare, so it is shared with nothing —
+ * see the ACRO_SWITCH_CH note above for why the two cannot coexist here.
+ * It MUST be a 3-position switch (on a FlySky i6, SwC): with a 2-position
+ * switch there is no centre detent, so the mode could never be armed (the
+ * interlock needs to see centre) and the low position would read as LAND.
+ *
+ *   centre  -> OFF   the sticks are entirely the pilot's, as they always were
+ *   up      -> HOLD  lift off to HEIGHT_TARGET_M (1 m) and hold, or hold the
+ *                    current height if already flying
+ *   down    -> LAND  descend and settle, then idle the motors
+ *
+ * The collective stick is only taken while a mode is selected; roll/pitch/yaw
+ * are never touched. See control/height_controller.h.
+ *
+ * A mode is armed only after the switch has been seen CENTRED since arming, so
+ * arming with the switch already up cannot fly the craft off the ground on its
+ * own — the pilot has to deliberately pass through centre. */
+#define ALT_MODE_CH 5
+
+/* THIS TRANSMITTER'S SwC IS INVERTED: switch UP reads ~1000 us and DOWN ~2000
+ * (measured on the bench 2026-09-04 — flipping SwC to the top drove ch6 to
+ * 1000, which the original "up = high us" mapping read as LAND; on the ground
+ * that engaged, instantly latched touchdown, and idled the motors, so the
+ * switch appeared to do nothing at all).
+ *
+ * The thresholds are therefore named for what the switch DOES, not for
+ * microsecond direction — the mapping below is the single place that knows the
+ * radio is reversed. If you ever reverse ch6 on the transmitter instead, swap
+ * these two values back. */
+#define ALT_MODE_HOLD_US 1300 /* BELOW this -> HOLD (SwC up on this radio)  */
+#define ALT_MODE_LAND_US 1700 /* ABOVE this -> LAND (SwC down)             */
+/* A channel reading below this is not a real RC value (no link, unmapped
+ * channel, decode gap). It MUST NOT be read as the low position, because the
+ * low position is now the one that commands a lift-off. */
+#define ALT_MODE_VALID_MIN_US 900
 #define DEAFULT_ROLL_ACRO_RATE_MAX  200.0f /* deg/s at full stick */
 #define DEAFULT_PITCH_ACRO_RATE_MAX 200.0f
 #define DEAFULT_YAW_ACRO_RATE_MAX   200.0f

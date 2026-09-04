@@ -69,6 +69,12 @@ add_executable(test_notch_bank notch_bank_unit_test.c
 target_link_libraries(test_notch_bank m)
 add_test(NAME notch_bank COMMAND test_notch_bank)
 
+# Height hold: the authority-floor clamp, setpoint handling, source handoff.
+add_executable(test_height_ctrl height_ctrl_unit_test.c
+    ${FW}/src/control/height_controller.c)
+target_link_libraries(test_height_ctrl m)
+add_test(NAME height_ctrl COMMAND test_height_ctrl)
+
 # On-hardware system-ID chirp: excite / capture / self-abort (control/sysid.c).
 add_executable(test_sysid sysid_unit_test.c
     ${FW}/src/control/sysid.c

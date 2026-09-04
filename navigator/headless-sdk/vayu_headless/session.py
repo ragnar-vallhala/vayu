@@ -62,7 +62,11 @@ class SitlLab:
         self.paths = _paths.fifo_paths(self.suffix)
         self.uart_advert = _paths.uart_advert(self.suffix)
         self._stop = threading.Event()
-        # RC frame: roll,pitch,throttle,yaw,SwA(arm),aux  (us; centres 1500)
+        # RC frame: roll,pitch,throttle,yaw,SwA(arm),mode  (us; centres 1500)
+        # ch6 (index 5) is the 3-position height-mode switch (ALT_MODE_CH):
+        # centre = off, >1700 = lift to 1 m and hold, <1300 = land. It is the
+        # only spare channel on the 6-channel transmitter, so the acro switch
+        # no longer has an RC binding (GCS CMD_SET_FLIGHT_MODE instead).
         self._rc = [1500, 1500, 1000, 1500, 1000, 1500]
         self._rc_lock = threading.Lock()
         self.rc_hz = rc_hz
@@ -269,9 +273,10 @@ class SitlLab:
                 pass
             time.sleep(period)
 
-    def set_rc(self, roll=None, pitch=None, thr=None, yaw=None, swa=None):
+    def set_rc(self, roll=None, pitch=None, thr=None, yaw=None, swa=None,
+               mode=None):
         with self._rc_lock:
-            for i, v in enumerate((roll, pitch, thr, yaw, swa)):
+            for i, v in enumerate((roll, pitch, thr, yaw, swa, mode)):
                 if v is not None:
                     self._rc[i] = v
 
