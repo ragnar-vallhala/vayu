@@ -165,14 +165,35 @@ int main(void) {
   }
 
   /* 10. A lift-off must NOT re-anchor to a mid-climb handoff — its setpoint is
-   *     the fixed target, not wherever it happens to be. */
+   *     the fixed target, not wherever it happens to be.
+   *
+   *     BOTH in_air states matter here. flight_phase declares IN_AIR at 0.15 m
+   *     (FLIGHT_PHASE_TOF_TAKEOFF_ALT_M), so the whole climb from there to the
+   *     1.0 m target runs airborne — testing only the grounded case exercises
+   *     the one path that was never broken. */
   {
     height_ctrl_t h;
     height_ctrl_reset(&h);
     height_ctrl_update(&h, HEIGHT_MODE_HOLD, false, 0.0f, GROUND, true, 0.0f, DT, HEIGHT_HOVER_GUESS);
     height_ctrl_update(&h, HEIGHT_MODE_HOLD, false, 0.0f, 0.30f, false, 0.4f, DT, HEIGHT_HOVER_GUESS);
-    check("lift-off keeps its target across a source change",
+    check("lift-off keeps its target across a source change (on the ground)",
           near(h.alt_sp, HEIGHT_TARGET_M, 1e-6f));
+
+    /* Same climb, now past the 0.15 m IN_AIR threshold: a ToF dropout at 0.30 m
+     * (tilt > 30 deg, a dark floor, 200 ms of staleness) must not abort the
+     * lift-off by adopting 0.30 m as the target. */
+    height_ctrl_reset(&h);
+    height_ctrl_update(&h, HEIGHT_MODE_HOLD, false, 0.0f, GROUND, true, 0.0f, DT, HEIGHT_HOVER_GUESS);
+    height_ctrl_update(&h, HEIGHT_MODE_HOLD, true, 0.0f, 0.20f, true, 0.5f, DT, HEIGHT_HOVER_GUESS);
+    height_ctrl_update(&h, HEIGHT_MODE_HOLD, true, 0.0f, 0.30f, false, 0.5f, DT, HEIGHT_HOVER_GUESS);
+    check("lift-off survives a ToF dropout AFTER IN_AIR is declared",
+          near(h.alt_sp, HEIGHT_TARGET_M, 1e-6f));
+
+    /* ...but once it HAS reached the target, it is holding, not lifting off —
+     * from then on a handoff must re-anchor as normal. */
+    height_ctrl_update(&h, HEIGHT_MODE_HOLD, true, 0.0f, 1.02f, false, 0.0f, DT, HEIGHT_HOVER_GUESS);
+    height_ctrl_update(&h, HEIGHT_MODE_HOLD, true, 0.0f, 1.40f, true, 0.0f, DT, HEIGHT_HOVER_GUESS);
+    check("after arriving, a handoff re-anchors normally", near(h.alt_sp, 1.40f, 1e-6f));
   }
 
   /* 11. Runaway guard: if the craft ends up well above the setpoint and STAYS

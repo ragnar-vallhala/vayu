@@ -1,2460 +1,760 @@
 {
   "dialect": "vayu-core",
   "version": 2,
+
   "enums": {
     "command_result": {
-      "doc": "COMMAND_ACK.result (spec \u00a717).",
+      "doc": "COMMAND_ACK.result (spec §17).",
       "entries": [
-        {
-          "name": "ACCEPTED",
-          "value": 0
-        },
-        {
-          "name": "TEMPORARILY_REJECTED",
-          "value": 1
-        },
-        {
-          "name": "DENIED",
-          "value": 2
-        },
-        {
-          "name": "UNSUPPORTED",
-          "value": 3
-        },
-        {
-          "name": "FAILED",
-          "value": 4
-        },
-        {
-          "name": "IN_PROGRESS",
-          "value": 5
-        }
+        { "name": "ACCEPTED",             "value": 0 },
+        { "name": "TEMPORARILY_REJECTED", "value": 1 },
+        { "name": "DENIED",               "value": 2 },
+        { "name": "UNSUPPORTED",          "value": 3 },
+        { "name": "FAILED",               "value": 4 },
+        { "name": "IN_PROGRESS",          "value": 5 }
       ]
     },
     "time_sync_role": {
-      "doc": "TIME_SYNC.role (spec \u00a710).",
+      "doc": "TIME_SYNC.role (spec §10).",
       "entries": [
-        {
-          "name": "REQUEST",
-          "value": 0
-        },
-        {
-          "name": "RESPONSE",
-          "value": 1
-        },
-        {
-          "name": "REQUEST_WIDE",
-          "value": 2
-        }
+        { "name": "REQUEST",      "value": 0 },
+        { "name": "RESPONSE",     "value": 1 },
+        { "name": "REQUEST_WIDE", "value": 2 }
       ]
     },
     "param_type": {
-      "doc": "PARAM_VALUE.type / PARAM_SET.type (spec \u00a717).",
+      "doc": "PARAM_VALUE.type / PARAM_SET.type (spec §17).",
       "entries": [
-        {
-          "name": "U8",
-          "value": 1
-        },
-        {
-          "name": "I8",
-          "value": 2
-        },
-        {
-          "name": "U16",
-          "value": 3
-        },
-        {
-          "name": "I16",
-          "value": 4
-        },
-        {
-          "name": "U32",
-          "value": 5
-        },
-        {
-          "name": "I32",
-          "value": 6
-        },
-        {
-          "name": "U64",
-          "value": 7
-        },
-        {
-          "name": "I64",
-          "value": 8
-        },
-        {
-          "name": "F32",
-          "value": 9
-        },
-        {
-          "name": "F64",
-          "value": 10
-        }
+        { "name": "U8",  "value": 1 },  { "name": "I8",  "value": 2 },
+        { "name": "U16", "value": 3 },  { "name": "I16", "value": 4 },
+        { "name": "U32", "value": 5 },  { "name": "I32", "value": 6 },
+        { "name": "U64", "value": 7 },  { "name": "I64", "value": 8 },
+        { "name": "F32", "value": 9 },  { "name": "F64", "value": 10 }
       ]
     },
     "sec_mode": {
-      "doc": "CAPABILITIES.sec_modes bitmask (spec \u00a717).",
+      "doc": "CAPABILITIES.sec_modes bitmask (spec §17).",
       "entries": [
-        {
-          "name": "NONE",
-          "value": 1
-        },
-        {
-          "name": "SIGN",
-          "value": 2
-        },
-        {
-          "name": "ENCRYPT",
-          "value": 4
-        }
+        { "name": "NONE",    "value": 1 },
+        { "name": "SIGN",    "value": 2 },
+        { "name": "ENCRYPT", "value": 4 }
       ]
     },
     "nav_state": {
       "doc": "HEARTBEAT.nav_state. Sequential v2 encoding of the firmware flight-state machine.",
       "entries": [
-        {
-          "name": "UNINITIALIZED",
-          "value": 0
-        },
-        {
-          "name": "INIT",
-          "value": 1
-        },
-        {
-          "name": "STANDBY",
-          "value": 2
-        },
-        {
-          "name": "PREARM",
-          "value": 3
-        },
-        {
-          "name": "ARMED",
-          "value": 4
-        },
-        {
-          "name": "IN_AIR",
-          "value": 5
-        },
-        {
-          "name": "FAILSAFE",
-          "value": 6
-        },
-        {
-          "name": "TERMINATED",
-          "value": 7
-        },
-        {
-          "name": "CALIBRATING",
-          "value": 8
-        }
+        { "name": "UNINITIALIZED", "value": 0 },
+        { "name": "INIT",          "value": 1 },
+        { "name": "STANDBY",       "value": 2 },
+        { "name": "PREARM",        "value": 3 },
+        { "name": "ARMED",         "value": 4 },
+        { "name": "IN_AIR",        "value": 5 },
+        { "name": "FAILSAFE",      "value": 6 },
+        { "name": "TERMINATED",    "value": 7 },
+        { "name": "CALIBRATING",   "value": 8 }
       ]
     },
     "flight_mode": {
       "doc": "FLIGHT_MODE.mode / CMD_SET_FLIGHT_MODE.mode.",
       "entries": [
-        {
-          "name": "ANGLE",
-          "value": 0
-        },
-        {
-          "name": "ACRO",
-          "value": 1
-        },
-        {
-          "name": "RELEASE_TO_RC",
-          "value": 2
-        }
+        { "name": "ANGLE",         "value": 0 },
+        { "name": "ACRO",          "value": 1 },
+        { "name": "RELEASE_TO_RC", "value": 2 }
       ]
     },
     "mode_source": {
       "doc": "Who selected the active flight mode.",
       "entries": [
-        {
-          "name": "RC",
-          "value": 0
-        },
-        {
-          "name": "GCS",
-          "value": 1
-        }
+        { "name": "RC",  "value": 0 },
+        { "name": "GCS", "value": 1 }
       ]
     },
     "pid_controller": {
-      "doc": "CMD_SET_PID.controller \u2014 which control loop.",
+      "doc": "CMD_SET_PID.controller — which control loop.",
       "entries": [
-        {
-          "name": "ANGLE",
-          "value": 0
-        },
-        {
-          "name": "RATE",
-          "value": 1
-        }
+        { "name": "ANGLE", "value": 0 },
+        { "name": "RATE",  "value": 1 }
       ]
     },
     "pid_axis": {
       "doc": "CMD_SET_PID.axis / CMD_SET_GYRO_LPF.axis.",
       "entries": [
-        {
-          "name": "ROLL",
-          "value": 0
-        },
-        {
-          "name": "PITCH",
-          "value": 1
-        },
-        {
-          "name": "YAW",
-          "value": 2
-        }
+        { "name": "ROLL",  "value": 0 },
+        { "name": "PITCH", "value": 1 },
+        { "name": "YAW",   "value": 2 }
       ]
     },
     "severity": {
       "doc": "STATUSTEXT.severity (syslog-style).",
       "entries": [
-        {
-          "name": "EMERGENCY",
-          "value": 0
-        },
-        {
-          "name": "ALERT",
-          "value": 1
-        },
-        {
-          "name": "CRITICAL",
-          "value": 2
-        },
-        {
-          "name": "ERROR",
-          "value": 3
-        },
-        {
-          "name": "WARNING",
-          "value": 4
-        },
-        {
-          "name": "NOTICE",
-          "value": 5
-        },
-        {
-          "name": "INFO",
-          "value": 6
-        },
-        {
-          "name": "DEBUG",
-          "value": 7
-        }
+        { "name": "EMERGENCY", "value": 0 }, { "name": "ALERT",  "value": 1 },
+        { "name": "CRITICAL",  "value": 2 }, { "name": "ERROR",  "value": 3 },
+        { "name": "WARNING",   "value": 4 }, { "name": "NOTICE", "value": 5 },
+        { "name": "INFO",      "value": 6 }, { "name": "DEBUG",  "value": 7 }
       ]
     },
     "calib_step": {
-      "doc": "CALIBRATION_STATUS.step \u2014 progress update or operator instruction (spec \u00a714.8).",
+      "doc": "CALIBRATION_STATUS.step — progress update or operator instruction (spec §14.8).",
       "entries": [
-        {
-          "name": "PROGRESS",
-          "value": 0
-        },
-        {
-          "name": "NOSE_UP",
-          "value": 1
-        },
-        {
-          "name": "NOSE_DOWN",
-          "value": 2
-        },
-        {
-          "name": "RIGHT_DOWN",
-          "value": 3
-        },
-        {
-          "name": "LEFT_DOWN",
-          "value": 4
-        },
-        {
-          "name": "UPRIGHT",
-          "value": 5
-        },
-        {
-          "name": "UPSIDE_DOWN",
-          "value": 6
-        },
-        {
-          "name": "FREE_ROT",
-          "value": 7
-        },
-        {
-          "name": "MAG_AXIS_COVERAGE",
-          "value": 8
-        },
-        {
-          "name": "COMPLETE",
-          "value": 9
-        },
-        {
-          "name": "FAILED",
-          "value": 10
-        },
-        {
-          "name": "EDGE_1",
-          "value": 11
-        },
-        {
-          "name": "EDGE_2",
-          "value": 12
-        },
-        {
-          "name": "EDGE_3",
-          "value": 13
-        },
-        {
-          "name": "EDGE_4",
-          "value": 14
-        },
-        {
-          "name": "EDGE_5",
-          "value": 15
-        },
-        {
-          "name": "EDGE_6",
-          "value": 16
-        },
-        {
-          "name": "BOARD_LEVEL",
-          "value": 17
-        }
+        { "name": "PROGRESS",          "value": 0 },
+        { "name": "NOSE_UP",           "value": 1 },
+        { "name": "NOSE_DOWN",         "value": 2 },
+        { "name": "RIGHT_DOWN",        "value": 3 },
+        { "name": "LEFT_DOWN",         "value": 4 },
+        { "name": "UPRIGHT",           "value": 5 },
+        { "name": "UPSIDE_DOWN",       "value": 6 },
+        { "name": "FREE_ROT",          "value": 7 },
+        { "name": "MAG_AXIS_COVERAGE", "value": 8 },
+        { "name": "COMPLETE",          "value": 9 },
+        { "name": "FAILED",            "value": 10 },
+        { "name": "EDGE_1",            "value": 11 },
+        { "name": "EDGE_2",            "value": 12 },
+        { "name": "EDGE_3",            "value": 13 },
+        { "name": "EDGE_4",            "value": 14 },
+        { "name": "EDGE_5",            "value": 15 },
+        { "name": "EDGE_6",            "value": 16 },
+        { "name": "BOARD_LEVEL",       "value": 17 }
       ]
     },
     "perf_fifo_id": {
-      "doc": "PERF_FIFO.fifo_id \u2014 stable ids so rows label regardless of send order (spec \u00a714.8).",
+      "doc": "PERF_FIFO.fifo_id — stable ids so rows label regardless of send order (spec §14.8).",
       "entries": [
-        {
-          "name": "IMU_RAW",
-          "value": 0
-        },
-        {
-          "name": "IMU_TELEMETRY",
-          "value": 1
-        },
-        {
-          "name": "IMU_CONTROL",
-          "value": 2
-        },
-        {
-          "name": "IMU_CALIB",
-          "value": 3
-        },
-        {
-          "name": "IMU_CALIB_TELEM",
-          "value": 4
-        },
-        {
-          "name": "ATTITUDE_TELEMETRY",
-          "value": 5
-        },
-        {
-          "name": "ATTITUDE_CONTROL",
-          "value": 6
-        },
-        {
-          "name": "RC_TELEMETRY",
-          "value": 7
-        },
-        {
-          "name": "RC_CONTROL",
-          "value": 8
-        },
-        {
-          "name": "TELEMETRY",
-          "value": 9
-        }
+        { "name": "IMU_RAW",            "value": 0 },
+        { "name": "IMU_TELEMETRY",      "value": 1 },
+        { "name": "IMU_CONTROL",        "value": 2 },
+        { "name": "IMU_CALIB",          "value": 3 },
+        { "name": "IMU_CALIB_TELEM",    "value": 4 },
+        { "name": "ATTITUDE_TELEMETRY", "value": 5 },
+        { "name": "ATTITUDE_CONTROL",   "value": 6 },
+        { "name": "RC_TELEMETRY",       "value": 7 },
+        { "name": "RC_CONTROL",         "value": 8 },
+        { "name": "TELEMETRY",          "value": 9 }
       ]
     },
     "xfer_flags": {
-      "doc": "XFER_DATA/XFER_ACK.flags \u2014 bitmask carried on the bulk-transfer substrate (docs/plans/navlink-xfer-substrate.md). DONE/ABORT terminate a session; NAK requests resend from XFER_ACK.next_offset; EOF marks the final XFER_DATA chunk.",
+      "doc": "XFER_DATA/XFER_ACK.flags — bitmask carried on the bulk-transfer substrate (docs/plans/navlink-xfer-substrate.md). DONE/ABORT terminate a session; NAK requests resend from XFER_ACK.next_offset; EOF marks the final XFER_DATA chunk.",
       "entries": [
-        {
-          "name": "NONE",
-          "value": 0
-        },
-        {
-          "name": "DONE",
-          "value": 1
-        },
-        {
-          "name": "NAK",
-          "value": 2
-        },
-        {
-          "name": "ABORT",
-          "value": 4
-        },
-        {
-          "name": "EOF",
-          "value": 8
-        }
+        { "name": "NONE",  "value": 0 },
+        { "name": "DONE",  "value": 1 },
+        { "name": "NAK",   "value": 2 },
+        { "name": "ABORT", "value": 4 },
+        { "name": "EOF",   "value": 8 }
       ]
     }
   },
+
   "messages": [
     {
-      "msgid": 0,
-      "name": "HEARTBEAT",
-      "replaces": "0x0",
+      "msgid": 0, "name": "HEARTBEAT", "replaces": "0x0",
       "doc": "~1 Hz liveness, mode, advertised capabilities, wall-clock stamp.",
       "fields": [
-        {
-          "index": 0,
-          "name": "type",
-          "type": "u8",
-          "doc": "vehicle type"
-        },
-        {
-          "index": 1,
-          "name": "autopilot",
-          "type": "u8"
-        },
-        {
-          "index": 2,
-          "name": "base_mode",
-          "type": "u8"
-        },
-        {
-          "index": 3,
-          "name": "system_status",
-          "type": "u8"
-        },
-        {
-          "index": 4,
-          "name": "nav_state",
-          "type": "u8",
-          "enum": "nav_state"
-        },
-        {
-          "index": 5,
-          "name": "capabilities",
-          "type": "u32",
-          "doc": "capability bitmask (spec \u00a713)"
-        },
-        {
-          "index": 6,
-          "name": "timestamp",
-          "type": "u32",
-          "doc": "wall-clock [s:20|ms:12] (spec \u00a76.1)"
-        }
+        { "index": 0, "name": "type",          "type": "u8",  "doc": "vehicle type" },
+        { "index": 1, "name": "autopilot",     "type": "u8" },
+        { "index": 2, "name": "base_mode",     "type": "u8" },
+        { "index": 3, "name": "system_status", "type": "u8" },
+        { "index": 4, "name": "nav_state",     "type": "u8",  "enum": "nav_state" },
+        { "index": 5, "name": "capabilities",  "type": "u32", "doc": "capability bitmask (spec §13)" },
+        { "index": 6, "name": "timestamp",     "type": "u32", "doc": "wall-clock [s:20|ms:12] (spec §6.1)" }
       ]
     },
     {
-      "msgid": 2,
-      "name": "SYSTEM_HEALTH",
-      "replaces": "0x6/0x02",
+      "msgid": 2, "name": "SYSTEM_HEALTH", "replaces": "0x6/0x02",
       "doc": "Firmware health counters. v1: SYSTEM_STATUS origin HEALTH.",
       "fields": [
-        {
-          "index": 0,
-          "name": "tx_overflow",
-          "type": "u32"
-        },
-        {
-          "index": 1,
-          "name": "imu_drop",
-          "type": "u32"
-        },
-        {
-          "index": 2,
-          "name": "log_wrap",
-          "type": "u32"
-        },
-        {
-          "index": 3,
-          "name": "cpu_load",
-          "type": "u8",
-          "unit": "%"
-        }
+        { "index": 0, "name": "tx_overflow", "type": "u32" },
+        { "index": 1, "name": "imu_drop",    "type": "u32" },
+        { "index": 2, "name": "log_wrap",    "type": "u32" },
+        { "index": 3, "name": "cpu_load",    "type": "u8", "unit": "%" }
       ]
     },
     {
-      "msgid": 3,
-      "name": "FLIGHT_MODE",
-      "replaces": "0x6/0x07",
+      "msgid": 3, "name": "FLIGHT_MODE", "replaces": "0x6/0x07",
       "doc": "Active flight mode and who selected it. v1: SYSTEM_STATUS origin FLIGHT_MODE.",
       "fields": [
-        {
-          "index": 0,
-          "name": "mode",
-          "type": "u8",
-          "enum": "flight_mode"
-        },
-        {
-          "index": 1,
-          "name": "source",
-          "type": "u8",
-          "enum": "mode_source"
-        }
+        { "index": 0, "name": "mode",   "type": "u8", "enum": "flight_mode" },
+        { "index": 1, "name": "source", "type": "u8", "enum": "mode_source" }
       ]
     },
     {
-      "msgid": 4,
-      "name": "STATUSTEXT",
-      "replaces": "0x7",
+      "msgid": 4, "name": "STATUSTEXT", "replaces": "0x7",
       "doc": "Human-readable status/log line. v1: PACKET_TYPE_LOG.",
       "fields": [
-        {
-          "index": 0,
-          "name": "severity",
-          "type": "u8",
-          "enum": "severity"
-        },
-        {
-          "index": 1,
-          "name": "text",
-          "type": "char",
-          "len": 50
-        },
-        {
-          "index": 2,
-          "name": "id",
-          "type": "u16",
-          "doc": "groups multi-chunk messages"
-        },
-        {
-          "index": 3,
-          "name": "chunk_seq",
-          "type": "u8"
-        }
+        { "index": 0, "name": "severity",  "type": "u8",   "enum": "severity" },
+        { "index": 1, "name": "text",      "type": "char", "len": 50 },
+        { "index": 2, "name": "id",        "type": "u16",  "doc": "groups multi-chunk messages" },
+        { "index": 3, "name": "chunk_seq", "type": "u8" }
       ]
     },
     {
-      "msgid": 5,
-      "name": "COMMAND_ACK",
-      "replaces": "0x3 (ack)",
+      "msgid": 5, "name": "COMMAND_ACK", "replaces": "0x3 (ack)",
       "doc": "Acknowledges any command, correlated by (command, req_seq).",
       "fields": [
-        {
-          "index": 0,
-          "name": "command",
-          "type": "u24",
-          "doc": "acked command's msgid"
-        },
-        {
-          "index": 1,
-          "name": "req_seq",
-          "type": "u8"
-        },
-        {
-          "index": 2,
-          "name": "result",
-          "type": "u8",
-          "enum": "command_result"
-        },
-        {
-          "index": 3,
-          "name": "progress",
-          "type": "u8",
-          "doc": "0..100 for IN_PROGRESS"
-        },
-        {
-          "index": 4,
-          "name": "result_param2",
-          "type": "i32"
-        }
+        { "index": 0, "name": "command",       "type": "u24", "doc": "acked command's msgid" },
+        { "index": 1, "name": "req_seq",       "type": "u8" },
+        { "index": 2, "name": "result",        "type": "u8",  "enum": "command_result" },
+        { "index": 3, "name": "progress",      "type": "u8",  "doc": "0..100 for IN_PROGRESS" },
+        { "index": 4, "name": "result_param2", "type": "i32" }
       ]
     },
     {
-      "msgid": 8,
-      "name": "PING",
+      "msgid": 8, "name": "PING",
       "doc": "Round-trip liveness probe.",
       "fields": [
-        {
-          "index": 0,
-          "name": "seq",
-          "type": "u32"
-        },
-        {
-          "index": 1,
-          "name": "target",
-          "type": "u8"
-        }
+        { "index": 0, "name": "seq",    "type": "u32" },
+        { "index": 1, "name": "target", "type": "u8" }
       ]
     },
     {
-      "msgid": 9,
-      "name": "CAPABILITIES",
-      "doc": "Full capability list, on request at connect (spec \u00a713). msgid_ranges omitted in this cut.",
+      "msgid": 9, "name": "CAPABILITIES",
+      "doc": "Full capability list, on request at connect (spec §13). msgid_ranges omitted in this cut.",
       "fields": [
-        {
-          "index": 0,
-          "name": "protocol_version",
-          "type": "u8"
-        },
-        {
-          "index": 1,
-          "name": "sec_modes",
-          "type": "u8",
-          "doc": "sec_mode bitmask"
-        },
-        {
-          "index": 2,
-          "name": "_pad",
-          "type": "u16"
-        },
-        {
-          "index": 3,
-          "name": "incompat_supported",
-          "type": "u32",
-          "doc": "incompat bits this peer implements"
-        },
-        {
-          "index": 4,
-          "name": "key_id",
-          "type": "u32",
-          "doc": "non-secret shared-key id (spec \u00a711.7)"
-        }
+        { "index": 0, "name": "protocol_version",   "type": "u8" },
+        { "index": 1, "name": "sec_modes",          "type": "u8",  "doc": "sec_mode bitmask" },
+        { "index": 2, "name": "_pad",               "type": "u16" },
+        { "index": 3, "name": "incompat_supported", "type": "u32", "doc": "incompat bits this peer implements" },
+        { "index": 4, "name": "key_id",             "type": "u32", "doc": "non-secret shared-key id (spec §11.7)" }
       ]
     },
     {
-      "msgid": 10,
-      "name": "TIME_SYNC",
-      "doc": "NTP-style FC<->GCS clock sync (spec \u00a710). The GCS sends role=REQUEST stamping t1_gcs_tx; the FC replies role=RESPONSE echoing t1 and adding t2_fc_rx (its receive time) and t3_fc_tx (its send time). The GCS captures t4 locally on receipt and computes offset=((t2-t1)+(t3-t4))/2, delay=(t4-t1)-(t3-t2). commanded_offset_ms carries the GCS's filtered correction back to the FC (INT32_MIN = none). For deviations beyond int32 ms (~24.8 days, e.g. a cold-start FC uptime clock vs GCS epoch) the GCS sends role=REQUEST_WIDE with the full 64-bit correction split across commanded_offset_ms (low word) and commanded_offset_hi_ms (high word); the high word trailing-zero-truncates away on the normal int32 path so it costs nothing there. Byte-identical to the firmware time_sync_payload_t; all stamps are milliseconds.",
+      "msgid": 10, "name": "TIME_SYNC",
+      "doc": "NTP-style FC<->GCS clock sync (spec §10). The GCS sends role=REQUEST stamping t1_gcs_tx; the FC replies role=RESPONSE echoing t1 and adding t2_fc_rx (its receive time) and t3_fc_tx (its send time). The GCS captures t4 locally on receipt and computes offset=((t2-t1)+(t3-t4))/2, delay=(t4-t1)-(t3-t2). commanded_offset_ms carries the GCS's filtered correction back to the FC (INT32_MIN = none). For deviations beyond int32 ms (~24.8 days, e.g. a cold-start FC uptime clock vs GCS epoch) the GCS sends role=REQUEST_WIDE with the full 64-bit correction split across commanded_offset_ms (low word) and commanded_offset_hi_ms (high word); the high word trailing-zero-truncates away on the normal int32 path so it costs nothing there. Byte-identical to the firmware time_sync_payload_t; all stamps are milliseconds.",
       "fields": [
-        {
-          "index": 0,
-          "name": "role",
-          "type": "u8",
-          "enum": "time_sync_role"
-        },
-        {
-          "index": 1,
-          "name": "seq",
-          "type": "u8",
-          "doc": "request sequence, echoed in the response"
-        },
-        {
-          "index": 2,
-          "name": "_pad",
-          "type": "u8",
-          "len": 2,
-          "doc": "reserved, zero"
-        },
-        {
-          "index": 3,
-          "name": "t1_gcs_tx",
-          "type": "u64",
-          "unit": "ms",
-          "doc": "GCS send (wall-clock ms)"
-        },
-        {
-          "index": 4,
-          "name": "t2_fc_rx",
-          "type": "u64",
-          "unit": "ms",
-          "doc": "FC receive (FC ms)"
-        },
-        {
-          "index": 5,
-          "name": "t3_fc_tx",
-          "type": "u64",
-          "unit": "ms",
-          "doc": "FC send (FC ms)"
-        },
-        {
-          "index": 6,
-          "name": "commanded_offset_ms",
-          "type": "i32",
-          "doc": "GCS->FC correction (low 32 bits if REQUEST_WIDE); INT32_MIN = none"
-        },
-        {
-          "index": 7,
-          "name": "commanded_offset_hi_ms",
-          "type": "i32",
-          "doc": "high 32 bits of the 64-bit correction; only meaningful when role=REQUEST_WIDE, else 0 (truncated off the wire)"
-        }
+        { "index": 0, "name": "role",                   "type": "u8",  "enum": "time_sync_role" },
+        { "index": 1, "name": "seq",                    "type": "u8",  "doc": "request sequence, echoed in the response" },
+        { "index": 2, "name": "_pad",                   "type": "u8",  "len": 2, "doc": "reserved, zero" },
+        { "index": 3, "name": "t1_gcs_tx",              "type": "u64", "unit": "ms", "doc": "GCS send (wall-clock ms)" },
+        { "index": 4, "name": "t2_fc_rx",               "type": "u64", "unit": "ms", "doc": "FC receive (FC ms)" },
+        { "index": 5, "name": "t3_fc_tx",               "type": "u64", "unit": "ms", "doc": "FC send (FC ms)" },
+        { "index": 6, "name": "commanded_offset_ms",    "type": "i32", "doc": "GCS->FC correction (low 32 bits if REQUEST_WIDE); INT32_MIN = none" },
+        { "index": 7, "name": "commanded_offset_hi_ms", "type": "i32", "doc": "high 32 bits of the 64-bit correction; only meaningful when role=REQUEST_WIDE, else 0 (truncated off the wire)" }
       ]
     },
+
     {
-      "msgid": 1024,
-      "name": "IMU_RAW",
-      "replaces": "0x1",
-      "doc": "Full IMU snapshot. v1: PACKET_TYPE_IMU_DATA_FULL (10\u00d7f32).",
+      "msgid": 1024, "name": "IMU_RAW", "replaces": "0x1",
+      "doc": "Full IMU snapshot. v1: PACKET_TYPE_IMU_DATA_FULL (10×f32).",
       "fields": [
-        {
-          "index": 0,
-          "name": "acc",
-          "type": "f32",
-          "len": 3,
-          "unit": "m/s/s"
-        },
-        {
-          "index": 1,
-          "name": "gyr",
-          "type": "f32",
-          "len": 3,
-          "unit": "deg/s"
-        },
-        {
-          "index": 2,
-          "name": "mag",
-          "type": "f32",
-          "len": 3,
-          "unit": "uT"
-        },
-        {
-          "index": 3,
-          "name": "temp",
-          "type": "f32",
-          "unit": "degC"
-        },
-        {
-          "index": 4,
-          "name": "sample_time_us",
-          "type": "u32",
-          "unit": "us",
-          "extension": true,
-          "doc": "added in v2; old peers ignore it (spec \u00a75.5)"
-        }
+        { "index": 0, "name": "acc",            "type": "f32", "len": 3, "unit": "m/s/s" },
+        { "index": 1, "name": "gyr",            "type": "f32", "len": 3, "unit": "deg/s" },
+        { "index": 2, "name": "mag",            "type": "f32", "len": 3, "unit": "uT" },
+        { "index": 3, "name": "temp",           "type": "f32", "unit": "degC" },
+        { "index": 4, "name": "sample_time_us", "type": "u32", "unit": "us", "extension": true,
+          "doc": "added in v2; old peers ignore it (spec §5.5)" }
       ]
     },
     {
-      "msgid": 1025,
-      "name": "IMU_COMPRESSED",
-      "replaces": "0x2",
-      "doc": "Delta IMU vs last IMU_RAW. v1: PACKET_TYPE_IMU_DATA_COMPRESSED (10\u00d7f16). NOTE: NavLink has no f16 type (spec \u00a75.1); the 10 half-float bit patterns are carried as u16 and decoded by the application.",
+      "msgid": 1025, "name": "IMU_COMPRESSED", "replaces": "0x2",
+      "doc": "Delta IMU vs last IMU_RAW. v1: PACKET_TYPE_IMU_DATA_COMPRESSED (10×f16). NOTE: NavLink has no f16 type (spec §5.1); the 10 half-float bit patterns are carried as u16 and decoded by the application.",
       "fields": [
-        {
-          "index": 0,
-          "name": "ref_seq",
-          "type": "u8",
-          "doc": "seq of the IMU_RAW this deltas against"
-        },
-        {
-          "index": 1,
-          "name": "_pad",
-          "type": "u8"
-        },
-        {
-          "index": 2,
-          "name": "delta",
-          "type": "u16",
-          "len": 10,
-          "doc": "IEEE-754 binary16 deltas: acc[3],gyr[3],mag[3],temp"
-        }
+        { "index": 0, "name": "ref_seq", "type": "u8",  "doc": "seq of the IMU_RAW this deltas against" },
+        { "index": 1, "name": "_pad",    "type": "u8" },
+        { "index": 2, "name": "delta",   "type": "u16", "len": 10, "doc": "IEEE-754 binary16 deltas: acc[3],gyr[3],mag[3],temp" }
       ]
     },
     {
-      "msgid": 1026,
-      "name": "ATTITUDE_EULER",
-      "replaces": "0x4",
+      "msgid": 1026, "name": "ATTITUDE_EULER", "replaces": "0x4",
       "doc": "Euler attitude + body rates, NED frame.",
       "fields": [
-        {
-          "index": 0,
-          "name": "roll",
-          "type": "f32",
-          "unit": "rad"
-        },
-        {
-          "index": 1,
-          "name": "pitch",
-          "type": "f32",
-          "unit": "rad"
-        },
-        {
-          "index": 2,
-          "name": "yaw",
-          "type": "f32",
-          "unit": "rad"
-        },
-        {
-          "index": 3,
-          "name": "rollspeed",
-          "type": "f32",
-          "unit": "rad/s"
-        },
-        {
-          "index": 4,
-          "name": "pitchspeed",
-          "type": "f32",
-          "unit": "rad/s"
-        },
-        {
-          "index": 5,
-          "name": "yawspeed",
-          "type": "f32",
-          "unit": "rad/s"
-        }
+        { "index": 0, "name": "roll",       "type": "f32", "unit": "rad" },
+        { "index": 1, "name": "pitch",      "type": "f32", "unit": "rad" },
+        { "index": 2, "name": "yaw",        "type": "f32", "unit": "rad" },
+        { "index": 3, "name": "rollspeed",  "type": "f32", "unit": "rad/s" },
+        { "index": 4, "name": "pitchspeed", "type": "f32", "unit": "rad/s" },
+        { "index": 5, "name": "yawspeed",   "type": "f32", "unit": "rad/s" }
       ]
     },
     {
-      "msgid": 1028,
-      "name": "RC_CHANNELS",
-      "replaces": "0x5",
-      "doc": "RC channel values. v1: PACKET_TYPE_RC_CHANNELS (14\u00d7u16); v2 widens to 18.",
+      "msgid": 1028, "name": "RC_CHANNELS", "replaces": "0x5",
+      "doc": "RC channel values. v1: PACKET_TYPE_RC_CHANNELS (14×u16); v2 widens to 18.",
       "fields": [
-        {
-          "index": 0,
-          "name": "chan",
-          "type": "u16",
-          "len": 18,
-          "unit": "us"
-        },
-        {
-          "index": 1,
-          "name": "rssi",
-          "type": "u8"
-        },
-        {
-          "index": 2,
-          "name": "count",
-          "type": "u8",
-          "doc": "number of valid channels"
-        }
+        { "index": 0, "name": "chan",  "type": "u16", "len": 18, "unit": "us" },
+        { "index": 1, "name": "rssi",  "type": "u8" },
+        { "index": 2, "name": "count", "type": "u8", "doc": "number of valid channels" }
       ]
     },
     {
-      "msgid": 1029,
-      "name": "MOTOR_TELEMETRY",
-      "replaces": "0x8",
-      "doc": "Per-motor output command. v1: PACKET_TYPE_MOTOR_TELEMETRY (4\u00d7f32); v2 allows up to 8.",
+      "msgid": 1029, "name": "MOTOR_TELEMETRY", "replaces": "0x8",
+      "doc": "Per-motor output command. v1: PACKET_TYPE_MOTOR_TELEMETRY (4×f32); v2 allows up to 8.",
       "fields": [
-        {
-          "index": 0,
-          "name": "cmd",
-          "type": "f32",
-          "len": 8,
-          "doc": "normalised motor command; unused motors = 0"
-        }
+        { "index": 0, "name": "cmd", "type": "f32", "len": 8, "doc": "normalised motor command; unused motors = 0" }
       ]
     },
     {
-      "msgid": 1030,
-      "name": "CONTROL_TRACE",
-      "replaces": "0x6/0x05",
-      "doc": "18\u00d7f32 PID/loop trace. v1: SYSTEM_STATUS origin PID_ERROR (control_telemetry_t).",
+      "msgid": 1030, "name": "CONTROL_TRACE", "replaces": "0x6/0x05",
+      "doc": "18×f32 PID/loop trace. v1: SYSTEM_STATUS origin PID_ERROR (control_telemetry_t).",
       "fields": [
-        {
-          "index": 0,
-          "name": "roll_angle_sp",
-          "type": "f32"
-        },
-        {
-          "index": 1,
-          "name": "pitch_angle_sp",
-          "type": "f32"
-        },
-        {
-          "index": 2,
-          "name": "yaw_angle_sp",
-          "type": "f32"
-        },
-        {
-          "index": 3,
-          "name": "roll_angle_curr",
-          "type": "f32"
-        },
-        {
-          "index": 4,
-          "name": "pitch_angle_curr",
-          "type": "f32"
-        },
-        {
-          "index": 5,
-          "name": "yaw_angle_curr",
-          "type": "f32"
-        },
-        {
-          "index": 6,
-          "name": "roll_rate_sp",
-          "type": "f32"
-        },
-        {
-          "index": 7,
-          "name": "pitch_rate_sp",
-          "type": "f32"
-        },
-        {
-          "index": 8,
-          "name": "yaw_rate_sp",
-          "type": "f32"
-        },
-        {
-          "index": 9,
-          "name": "roll_rate_curr",
-          "type": "f32"
-        },
-        {
-          "index": 10,
-          "name": "pitch_rate_curr",
-          "type": "f32"
-        },
-        {
-          "index": 11,
-          "name": "yaw_rate_curr",
-          "type": "f32"
-        },
-        {
-          "index": 12,
-          "name": "roll_out",
-          "type": "f32"
-        },
-        {
-          "index": 13,
-          "name": "pitch_out",
-          "type": "f32"
-        },
-        {
-          "index": 14,
-          "name": "yaw_out",
-          "type": "f32"
-        },
-        {
-          "index": 15,
-          "name": "thro_out",
-          "type": "f32"
-        },
-        {
-          "index": 16,
-          "name": "outer_dt",
-          "type": "f32",
-          "unit": "s"
-        },
-        {
-          "index": 17,
-          "name": "inner_dt",
-          "type": "f32",
-          "unit": "s"
-        }
+        { "index": 0,  "name": "roll_angle_sp",   "type": "f32" },
+        { "index": 1,  "name": "pitch_angle_sp",  "type": "f32" },
+        { "index": 2,  "name": "yaw_angle_sp",    "type": "f32" },
+        { "index": 3,  "name": "roll_angle_curr", "type": "f32" },
+        { "index": 4,  "name": "pitch_angle_curr","type": "f32" },
+        { "index": 5,  "name": "yaw_angle_curr",  "type": "f32" },
+        { "index": 6,  "name": "roll_rate_sp",    "type": "f32" },
+        { "index": 7,  "name": "pitch_rate_sp",   "type": "f32" },
+        { "index": 8,  "name": "yaw_rate_sp",     "type": "f32" },
+        { "index": 9,  "name": "roll_rate_curr",  "type": "f32" },
+        { "index": 10, "name": "pitch_rate_curr", "type": "f32" },
+        { "index": 11, "name": "yaw_rate_curr",   "type": "f32" },
+        { "index": 12, "name": "roll_out",        "type": "f32" },
+        { "index": 13, "name": "pitch_out",       "type": "f32" },
+        { "index": 14, "name": "yaw_out",         "type": "f32" },
+        { "index": 15, "name": "thro_out",        "type": "f32" },
+        { "index": 16, "name": "outer_dt",        "type": "f32", "unit": "s" },
+        { "index": 17, "name": "inner_dt",        "type": "f32", "unit": "s" }
       ]
     },
     {
-      "msgid": 1033,
-      "name": "EST_PERF",
-      "replaces": "0x6/0x08",
-      "doc": "Estimator loop timing. v1: SYSTEM_STATUS origin EST_PERF (spec \u00a714.8).",
+      "msgid": 1033, "name": "EST_PERF", "replaces": "0x6/0x08",
+      "doc": "Estimator loop timing. v1: SYSTEM_STATUS origin EST_PERF (spec §14.8).",
       "fields": [
-        {
-          "index": 0,
-          "name": "peak_us",
-          "type": "f32",
-          "unit": "us"
-        },
-        {
-          "index": 1,
-          "name": "mean_us",
-          "type": "f32",
-          "unit": "us"
-        },
-        {
-          "index": 2,
-          "name": "decimation",
-          "type": "f32"
-        },
-        {
-          "index": 3,
-          "name": "rate_hz",
-          "type": "f32",
-          "unit": "Hz"
-        }
+        { "index": 0, "name": "peak_us",    "type": "f32", "unit": "us" },
+        { "index": 1, "name": "mean_us",    "type": "f32", "unit": "us" },
+        { "index": 2, "name": "decimation", "type": "f32" },
+        { "index": 3, "name": "rate_hz",    "type": "f32", "unit": "Hz" }
       ]
     },
     {
-      "msgid": 1034,
-      "name": "PERF_GLOBAL",
-      "replaces": "0x9 (GLOBAL)",
-      "doc": "vaios PERF scheduler/ISR/IPC/heap snapshot. One per report; PERF_TASK/PERF_FIFO share `seq` (spec \u00a714.8).",
+      "msgid": 1034, "name": "PERF_GLOBAL", "replaces": "0x9 (GLOBAL)",
+      "doc": "vaios PERF scheduler/ISR/IPC/heap snapshot. One per report; PERF_TASK/PERF_FIFO share `seq` (spec §14.8).",
       "fields": [
-        {
-          "index": 0,
-          "name": "seq",
-          "type": "u32",
-          "doc": "report id shared by all fragments"
-        },
-        {
-          "index": 1,
-          "name": "flags",
-          "type": "u8",
-          "doc": "bit0 = PERF compiled-in & live"
-        },
-        {
-          "index": 2,
-          "name": "total_tasks",
-          "type": "u8"
-        },
-        {
-          "index": 3,
-          "name": "total_fifos",
-          "type": "u8"
-        },
-        {
-          "index": 4,
-          "name": "_pad",
-          "type": "u8"
-        },
-        {
-          "index": 5,
-          "name": "uptime_ticks",
-          "type": "u32"
-        },
-        {
-          "index": 6,
-          "name": "sched_switches",
-          "type": "u32"
-        },
-        {
-          "index": 7,
-          "name": "cpu_cycles_lo",
-          "type": "u32",
-          "doc": "low 32 bits of 64-bit cycle counter"
-        },
-        {
-          "index": 8,
-          "name": "idle_cycles_lo",
-          "type": "u32"
-        },
-        {
-          "index": 9,
-          "name": "systick_count",
-          "type": "u32"
-        },
-        {
-          "index": 10,
-          "name": "systick_last_cyc",
-          "type": "u32"
-        },
-        {
-          "index": 11,
-          "name": "systick_max_cyc",
-          "type": "u32"
-        },
-        {
-          "index": 12,
-          "name": "systick_preemptions",
-          "type": "u32"
-        },
-        {
-          "index": 13,
-          "name": "ipc_takes",
-          "type": "u32"
-        },
-        {
-          "index": 14,
-          "name": "ipc_takes_blocked",
-          "type": "u32"
-        },
-        {
-          "index": 15,
-          "name": "ipc_gives",
-          "type": "u32"
-        },
-        {
-          "index": 16,
-          "name": "ipc_timeouts",
-          "type": "u32"
-        },
-        {
-          "index": 17,
-          "name": "heap_allocs",
-          "type": "u32"
-        },
-        {
-          "index": 18,
-          "name": "heap_frees",
-          "type": "u32"
-        },
-        {
-          "index": 19,
-          "name": "heap_oom",
-          "type": "u32"
-        },
-        {
-          "index": 20,
-          "name": "heap_peak_bytes",
-          "type": "u32"
-        },
-        {
-          "index": 21,
-          "name": "heap_total_bytes",
-          "type": "u32"
-        }
+        { "index": 0,  "name": "seq",                 "type": "u32", "doc": "report id shared by all fragments" },
+        { "index": 1,  "name": "flags",               "type": "u8",  "doc": "bit0 = PERF compiled-in & live" },
+        { "index": 2,  "name": "total_tasks",         "type": "u8" },
+        { "index": 3,  "name": "total_fifos",         "type": "u8" },
+        { "index": 4,  "name": "_pad",                "type": "u8" },
+        { "index": 5,  "name": "uptime_ticks",        "type": "u32" },
+        { "index": 6,  "name": "sched_switches",      "type": "u32" },
+        { "index": 7,  "name": "cpu_cycles_lo",       "type": "u32", "doc": "low 32 bits of 64-bit cycle counter" },
+        { "index": 8,  "name": "idle_cycles_lo",      "type": "u32" },
+        { "index": 9,  "name": "systick_count",       "type": "u32" },
+        { "index": 10, "name": "systick_last_cyc",    "type": "u32" },
+        { "index": 11, "name": "systick_max_cyc",     "type": "u32" },
+        { "index": 12, "name": "systick_preemptions", "type": "u32" },
+        { "index": 13, "name": "ipc_takes",           "type": "u32" },
+        { "index": 14, "name": "ipc_takes_blocked",   "type": "u32" },
+        { "index": 15, "name": "ipc_gives",           "type": "u32" },
+        { "index": 16, "name": "ipc_timeouts",        "type": "u32" },
+        { "index": 17, "name": "heap_allocs",         "type": "u32" },
+        { "index": 18, "name": "heap_frees",          "type": "u32" },
+        { "index": 19, "name": "heap_oom",            "type": "u32" },
+        { "index": 20, "name": "heap_peak_bytes",     "type": "u32" },
+        { "index": 21, "name": "heap_total_bytes",    "type": "u32" }
       ]
     },
     {
-      "msgid": 1035,
-      "name": "PERF_TASK",
-      "replaces": "0x9 (TASKS row)",
-      "doc": "One task row; `seq` ties it to a PERF_GLOBAL report. Collect total_tasks of these per seq (spec \u00a714.8).",
+      "msgid": 1035, "name": "PERF_TASK", "replaces": "0x9 (TASKS row)",
+      "doc": "One task row; `seq` ties it to a PERF_GLOBAL report. Collect total_tasks of these per seq (spec §14.8).",
       "fields": [
-        {
-          "index": 0,
-          "name": "seq",
-          "type": "u32"
-        },
-        {
-          "index": 1,
-          "name": "task_id",
-          "type": "u8"
-        },
-        {
-          "index": 2,
-          "name": "priority",
-          "type": "u8"
-        },
-        {
-          "index": 3,
-          "name": "state",
-          "type": "u8",
-          "doc": "Task_Status"
-        },
-        {
-          "index": 4,
-          "name": "_pad",
-          "type": "u8"
-        },
-        {
-          "index": 5,
-          "name": "stack_peak",
-          "type": "u16",
-          "unit": "B",
-          "doc": "high-water bytes"
-        },
-        {
-          "index": 6,
-          "name": "stack_size",
-          "type": "u16",
-          "unit": "B"
-        },
-        {
-          "index": 7,
-          "name": "cycles_lo",
-          "type": "u32",
-          "doc": "low 32 bits of total cycles"
-        },
-        {
-          "index": 8,
-          "name": "switches_in",
-          "type": "u32"
-        },
-        {
-          "index": 9,
-          "name": "max_burst_cyc",
-          "type": "u32"
-        }
+        { "index": 0, "name": "seq",           "type": "u32" },
+        { "index": 1, "name": "task_id",       "type": "u8" },
+        { "index": 2, "name": "priority",      "type": "u8" },
+        { "index": 3, "name": "state",         "type": "u8",  "doc": "Task_Status" },
+        { "index": 4, "name": "_pad",          "type": "u8" },
+        { "index": 5, "name": "stack_peak",    "type": "u16", "unit": "B", "doc": "high-water bytes" },
+        { "index": 6, "name": "stack_size",    "type": "u16", "unit": "B" },
+        { "index": 7, "name": "cycles_lo",     "type": "u32", "doc": "low 32 bits of total cycles" },
+        { "index": 8, "name": "switches_in",   "type": "u32" },
+        { "index": 9, "name": "max_burst_cyc", "type": "u32" }
       ]
     },
     {
-      "msgid": 1036,
-      "name": "PERF_FIFO",
-      "replaces": "0x9 (FIFOS row)",
-      "doc": "One SPSC FIFO row; collect total_fifos per seq (spec \u00a714.8).",
+      "msgid": 1036, "name": "PERF_FIFO", "replaces": "0x9 (FIFOS row)",
+      "doc": "One SPSC FIFO row; collect total_fifos per seq (spec §14.8).",
       "fields": [
-        {
-          "index": 0,
-          "name": "seq",
-          "type": "u32"
-        },
-        {
-          "index": 1,
-          "name": "fifo_id",
-          "type": "u8",
-          "enum": "perf_fifo_id"
-        },
-        {
-          "index": 2,
-          "name": "_pad",
-          "type": "u8"
-        },
-        {
-          "index": 3,
-          "name": "peak",
-          "type": "u16",
-          "doc": "high-water fill (elements)"
-        },
-        {
-          "index": 4,
-          "name": "capacity",
-          "type": "u16",
-          "doc": "usable capacity (elements)"
-        },
-        {
-          "index": 5,
-          "name": "drops",
-          "type": "u16",
-          "doc": "items lost, saturating at 0xFFFF"
-        }
+        { "index": 0, "name": "seq",      "type": "u32" },
+        { "index": 1, "name": "fifo_id",  "type": "u8",  "enum": "perf_fifo_id" },
+        { "index": 2, "name": "_pad",     "type": "u8" },
+        { "index": 3, "name": "peak",     "type": "u16", "doc": "high-water fill (elements)" },
+        { "index": 4, "name": "capacity", "type": "u16", "doc": "usable capacity (elements)" },
+        { "index": 5, "name": "drops",    "type": "u16", "doc": "items lost, saturating at 0xFFFF" }
       ]
     },
     {
-      "msgid": 1037,
-      "name": "PERF_TASKNAME_REQUEST",
-      "doc": "GCS \u2192 FC: resolve one task id to its name (spec \u00a714.8).",
+      "msgid": 1037, "name": "PERF_TASKNAME_REQUEST",
+      "doc": "GCS → FC: resolve one task id to its name (spec §14.8).",
       "fields": [
-        {
-          "index": 0,
-          "name": "target_sys",
-          "type": "u8"
-        },
-        {
-          "index": 1,
-          "name": "target_comp",
-          "type": "u8"
-        },
-        {
-          "index": 2,
-          "name": "task_id",
-          "type": "u8"
-        }
+        { "index": 0, "name": "target_sys",  "type": "u8" },
+        { "index": 1, "name": "target_comp", "type": "u8" },
+        { "index": 2, "name": "task_id",     "type": "u8" }
       ]
     },
     {
-      "msgid": 1038,
-      "name": "PERF_TASKNAME",
-      "doc": "FC \u2192 GCS reply; name is NUL-padded char[32] (PERF_TASKNAME_MAX) (spec \u00a714.8).",
+      "msgid": 1038, "name": "PERF_TASKNAME",
+      "doc": "FC → GCS reply; name is NUL-padded char[32] (PERF_TASKNAME_MAX) (spec §14.8).",
       "fields": [
-        {
-          "index": 0,
-          "name": "task_id",
-          "type": "u8"
-        },
-        {
-          "index": 1,
-          "name": "name",
-          "type": "char",
-          "len": 32
-        }
+        { "index": 0, "name": "task_id", "type": "u8" },
+        { "index": 1, "name": "name",    "type": "char", "len": 32 }
       ]
     },
     {
-      "msgid": 1039,
-      "name": "BARO",
+      "msgid": 1039, "name": "BARO",
       "doc": "Barometric sensor (BME280): pressure/temperature/humidity + derived altitude.",
       "fields": [
-        {
-          "index": 0,
-          "name": "pressure",
-          "type": "f32",
-          "unit": "Pa"
-        },
-        {
-          "index": 1,
-          "name": "temperature",
-          "type": "f32",
-          "unit": "degC"
-        },
-        {
-          "index": 2,
-          "name": "humidity",
-          "type": "f32",
-          "unit": "%"
-        },
-        {
-          "index": 3,
-          "name": "altitude",
-          "type": "f32",
-          "unit": "m"
-        }
+        { "index": 0, "name": "pressure",    "type": "f32", "unit": "Pa" },
+        { "index": 1, "name": "temperature", "type": "f32", "unit": "degC" },
+        { "index": 2, "name": "humidity",    "type": "f32", "unit": "%" },
+        { "index": 3, "name": "altitude",    "type": "f32", "unit": "m" }
       ]
     },
     {
-      "msgid": 1040,
-      "name": "VERTICAL_STATE",
-      "doc": "Fused vertical estimate from the VERT 2-state filter (baro + accel). altitude/climb_rate are the fused outputs (altitude is absolute/MSL, same reference as BARO); agl is the FC-authoritative height above the ground reference (captured while disarmed, frozen at arm); baro_altitude is the raw sensor altitude carried alongside so the GCS can chart fused-vs-raw. valid=0 until the filter is seeded by the first baro fix. agl_tof is the tilt-compensated rangefinder height, valid only while tof_valid=1 (in range, near level, fresh) \u2014 it is the source the height-hold controller prefers below ~1.5 m; it is kept separate from agl because the two have different zeros and different failure modes.",
+      "msgid": 1040, "name": "VERTICAL_STATE",
+      "doc": "Fused vertical estimate from the VERT 2-state filter (baro + accel). altitude/climb_rate are the fused outputs (altitude is absolute/MSL, same reference as BARO); agl is the FC-authoritative height above the ground reference (captured while disarmed, frozen at arm); baro_altitude is the raw sensor altitude carried alongside so the GCS can chart fused-vs-raw. valid=0 until the filter is seeded by the first baro fix. agl_tof is the tilt-compensated rangefinder height, meaningful only while tof_valid=1 (fresh, in range, near level) - it is the AGL source flight_phase and the height mode prefer near the ground. height_state is the packed height-mode status (see control/angle_controller.h): bits0-1 requested mode 0=OFF 1=HOLD 2=LAND, bit2 engaged, bit3 runaway-failed, bit4 landed, bit5 handback, bit6 interlock armed, bit7 blocked.",
       "fields": [
-        {
-          "index": 0,
-          "name": "altitude",
-          "type": "f32",
-          "unit": "m"
-        },
-        {
-          "index": 1,
-          "name": "climb_rate",
-          "type": "f32",
-          "unit": "m/s"
-        },
-        {
-          "index": 2,
-          "name": "vertical_accel",
-          "type": "f32",
-          "unit": "m/s/s"
-        },
-        {
-          "index": 3,
-          "name": "baro_altitude",
-          "type": "f32",
-          "unit": "m"
-        },
-        {
-          "index": 4,
-          "name": "agl",
-          "type": "f32",
-          "unit": "m"
-        },
-        {
-          "index": 5,
-          "name": "valid",
-          "type": "u8"
-        },
-        {
-          "index": 6,
-          "name": "agl_tof",
-          "type": "f32",
-          "unit": "m"
-        },
-        {
-          "index": 7,
-          "name": "tof_valid",
-          "type": "u8"
-        },
-        {
-          "index": 8,
-          "name": "height_state",
-          "type": "u8",
-          "doc": "Packed height-mode status (control/angle_controller.h): bits0-1 requested mode 0=OFF 1=HOLD 2=LAND, bit2 engaged, bit3 runaway-failed, bit4 landed, bit5 handback, bit6 interlock armed (switch seen centred), bit7 blocked."
-        }
+        { "index": 0, "name": "altitude",      "type": "f32", "unit": "m" },
+        { "index": 1, "name": "climb_rate",    "type": "f32", "unit": "m/s" },
+        { "index": 2, "name": "vertical_accel","type": "f32", "unit": "m/s/s" },
+        { "index": 3, "name": "baro_altitude", "type": "f32", "unit": "m" },
+        { "index": 4, "name": "agl",           "type": "f32", "unit": "m" },
+        { "index": 5, "name": "valid",         "type": "u8" },
+        { "index": 6, "name": "agl_tof",       "type": "f32", "unit": "m" },
+        { "index": 7, "name": "tof_valid",     "type": "u8" },
+        { "index": 8, "name": "height_state",  "type": "u8" }
       ]
     },
     {
-      "msgid": 1041,
-      "name": "SYSID_SAMPLE",
-      "doc": "One chunk of the on-hardware system-ID capture, streamed in response to CMD_SYSID_DUMP. u/gyro are the rate-PID OUTPUT (control effort u, incl. the chirp response \u2014 this is the plant-fit input, NOT the setpoint) and the measured gyro rate. u is i16 scaled x1000 (recover native u by /1000); gyro is i16 in 0.1 deg/s. start_index is this chunk's first sample; total/capture_hz/axis are repeated in every chunk so a dropped first chunk doesn't lose the metadata.",
+      "msgid": 1041, "name": "SYSID_SAMPLE",
+      "doc": "One chunk of the on-hardware system-ID capture, streamed in response to CMD_SYSID_DUMP. u/gyro are the rate-PID OUTPUT (control effort u, incl. the chirp response — this is the plant-fit input, NOT the setpoint) and the measured gyro rate. u is i16 scaled x1000 (recover native u by /1000); gyro is i16 in 0.1 deg/s. start_index is this chunk's first sample; total/capture_hz/axis are repeated in every chunk so a dropped first chunk doesn't lose the metadata.",
       "fields": [
-        {
-          "index": 0,
-          "name": "start_index",
-          "type": "u16"
-        },
-        {
-          "index": 1,
-          "name": "total",
-          "type": "u16"
-        },
-        {
-          "index": 2,
-          "name": "capture_hz",
-          "type": "u16"
-        },
-        {
-          "index": 3,
-          "name": "axis",
-          "type": "u8"
-        },
-        {
-          "index": 4,
-          "name": "count",
-          "type": "u8"
-        },
-        {
-          "index": 5,
-          "name": "u",
-          "type": "i16",
-          "len": 10,
-          "unit": "1e-3 u (rate-PID output)"
-        },
-        {
-          "index": 6,
-          "name": "gyro",
-          "type": "i16",
-          "len": 10,
-          "unit": "0.1 deg/s"
-        }
+        { "index": 0, "name": "start_index", "type": "u16" },
+        { "index": 1, "name": "total",       "type": "u16" },
+        { "index": 2, "name": "capture_hz",  "type": "u16" },
+        { "index": 3, "name": "axis",        "type": "u8" },
+        { "index": 4, "name": "count",       "type": "u8" },
+        { "index": 5, "name": "u",           "type": "i16", "len": 10, "unit": "1e-3 u (rate-PID output)" },
+        { "index": 6, "name": "gyro",        "type": "i16", "len": 10, "unit": "0.1 deg/s" }
       ]
     },
+
     {
-      "msgid": 1042,
-      "name": "XFER_INFO",
+      "msgid": 1042, "name": "XFER_INFO",
       "doc": "Reply to XFER_OPEN once a session is accepted: advertises the negotiated chunk_size and total_size (0xFFFFFFFF = stream/unknown length). Carries no reliability of its own (the session SM owns that); retransmitted by the FC until the first XFER_ACK is seen. Part of the generic bulk-transfer substrate (docs/plans/navlink-xfer-substrate.md).",
       "fields": [
-        {
-          "index": 0,
-          "name": "session",
-          "type": "u8"
-        },
-        {
-          "index": 1,
-          "name": "result",
-          "type": "u8",
-          "enum": "command_result",
-          "doc": "open result; ACCEPTED means the rest is valid"
-        },
-        {
-          "index": 2,
-          "name": "chunk_size",
-          "type": "u16",
-          "doc": "max XFER_DATA payload bytes the FC will use (<= 247)"
-        },
-        {
-          "index": 3,
-          "name": "total_size",
-          "type": "u32",
-          "unit": "bytes",
-          "doc": "0xFFFFFFFF = stream/unknown"
-        },
-        {
-          "index": 4,
-          "name": "mtime",
-          "type": "u32",
-          "unit": "s",
-          "extension": true,
-          "doc": "file mtime (epoch s) if known, else 0; ABI-safe extension"
-        }
+        { "index": 0, "name": "session",    "type": "u8" },
+        { "index": 1, "name": "result",     "type": "u8",  "enum": "command_result", "doc": "open result; ACCEPTED means the rest is valid" },
+        { "index": 2, "name": "chunk_size", "type": "u16", "doc": "max XFER_DATA payload bytes the FC will use (<= 247)" },
+        { "index": 3, "name": "total_size", "type": "u32", "unit": "bytes", "doc": "0xFFFFFFFF = stream/unknown" },
+        { "index": 4, "name": "mtime",      "type": "u32", "unit": "s", "extension": true, "doc": "file mtime (epoch s) if known, else 0; ABI-safe extension" }
       ]
     },
     {
-      "msgid": 1043,
-      "name": "XFER_DATA",
-      "doc": "One offset-addressed chunk on a bulk-transfer session, in either direction (download FC->GCS, upload GCS->FC). The receiver trusts `len`, never the unpacked `data` tail \u2014 the final short chunk trailing-zero-truncates on the wire (like SYSID_SAMPLE). flags carries EOF on the last chunk. Wire size 254 B (1 B under the 255 cap). docs/plans/navlink-xfer-substrate.md.",
+      "msgid": 1043, "name": "XFER_DATA",
+      "doc": "One offset-addressed chunk on a bulk-transfer session, in either direction (download FC->GCS, upload GCS->FC). The receiver trusts `len`, never the unpacked `data` tail — the final short chunk trailing-zero-truncates on the wire (like SYSID_SAMPLE). flags carries EOF on the last chunk. Wire size 254 B (1 B under the 255 cap). docs/plans/navlink-xfer-substrate.md.",
       "fields": [
-        {
-          "index": 0,
-          "name": "session",
-          "type": "u8"
-        },
-        {
-          "index": 1,
-          "name": "flags",
-          "type": "u8",
-          "enum": "xfer_flags"
-        },
-        {
-          "index": 2,
-          "name": "len",
-          "type": "u8",
-          "doc": "valid bytes in data[] (authoritative; do not infer from the array)"
-        },
-        {
-          "index": 3,
-          "name": "offset",
-          "type": "u32",
-          "unit": "bytes",
-          "doc": "byte offset of data[0] within the transfer"
-        },
-        {
-          "index": 4,
-          "name": "data",
-          "type": "u8",
-          "len": 247
-        }
+        { "index": 0, "name": "session", "type": "u8" },
+        { "index": 1, "name": "flags",   "type": "u8", "enum": "xfer_flags" },
+        { "index": 2, "name": "len",     "type": "u8", "doc": "valid bytes in data[] (authoritative; do not infer from the array)" },
+        { "index": 3, "name": "offset",  "type": "u32", "unit": "bytes", "doc": "byte offset of data[0] within the transfer" },
+        { "index": 4, "name": "data",    "type": "u8", "len": 247 }
       ]
     },
     {
-      "msgid": 1044,
-      "name": "XFER_ACK",
+      "msgid": 1044, "name": "XFER_ACK",
       "doc": "Cumulative flow-control ack on a bulk-transfer session, in either direction. next_offset is the lowest byte offset NOT yet received (download: GCS->FC; upload: FC->GCS); the sender rewinds its cursor to next_offset to resume/refill (idempotent re-read). flags=NAK forces a rewind, DONE/ABORT terminate. docs/plans/navlink-xfer-substrate.md.",
       "fields": [
-        {
-          "index": 0,
-          "name": "session",
-          "type": "u8"
-        },
-        {
-          "index": 1,
-          "name": "flags",
-          "type": "u8",
-          "enum": "xfer_flags"
-        },
-        {
-          "index": 2,
-          "name": "result",
-          "type": "u8",
-          "enum": "command_result",
-          "doc": "terminal result on DONE/ABORT, else ACCEPTED"
-        },
-        {
-          "index": 3,
-          "name": "next_offset",
-          "type": "u32",
-          "unit": "bytes",
-          "doc": "lowest byte offset not yet received"
-        }
+        { "index": 0, "name": "session",     "type": "u8" },
+        { "index": 1, "name": "flags",       "type": "u8", "enum": "xfer_flags" },
+        { "index": 2, "name": "result",      "type": "u8", "enum": "command_result", "doc": "terminal result on DONE/ABORT, else ACCEPTED" },
+        { "index": 3, "name": "next_offset", "type": "u32", "unit": "bytes", "doc": "lowest byte offset not yet received" }
       ]
     },
     {
-      "msgid": 1045,
-      "name": "FS_ENTRY",
+      "msgid": 1045, "name": "FS_ENTRY",
       "doc": "One directory entry streamed in reply to FS_LIST (filesystem navigation). The FC emits one per entry (index 0..count-1) then a terminal entry with an empty name marking end-of-listing; on a bad/absent path it emits a single entry with result=DENIED and count=0. result=ACCEPTED on valid entries. docs/reference/messages/fs_nav.md.",
       "fields": [
-        {
-          "index": 0,
-          "name": "req_seq",
-          "type": "u8",
-          "doc": "correlates to the FS_LIST request"
-        },
-        {
-          "index": 1,
-          "name": "result",
-          "type": "u8",
-          "enum": "command_result",
-          "doc": "ACCEPTED ok; DENIED = path does not exist"
-        },
-        {
-          "index": 2,
-          "name": "index",
-          "type": "u16",
-          "doc": "this entry's index (0-based)"
-        },
-        {
-          "index": 3,
-          "name": "count",
-          "type": "u16",
-          "doc": "total entries (set on the terminal entry; 0 when not yet known)"
-        },
-        {
-          "index": 4,
-          "name": "type",
-          "type": "u8",
-          "doc": "0 = file, 1 = directory"
-        },
-        {
-          "index": 5,
-          "name": "size",
-          "type": "u32",
-          "unit": "bytes",
-          "doc": "file size (0 for directories)"
-        },
-        {
-          "index": 6,
-          "name": "name",
-          "type": "char",
-          "len": 16,
-          "doc": "entry name (8.3); empty marks end-of-listing"
-        }
+        { "index": 0, "name": "req_seq", "type": "u8", "doc": "correlates to the FS_LIST request" },
+        { "index": 1, "name": "result",  "type": "u8", "enum": "command_result", "doc": "ACCEPTED ok; DENIED = path does not exist" },
+        { "index": 2, "name": "index",   "type": "u16", "doc": "this entry's index (0-based)" },
+        { "index": 3, "name": "count",   "type": "u16", "doc": "total entries (set on the terminal entry; 0 when not yet known)" },
+        { "index": 4, "name": "type",    "type": "u8", "doc": "0 = file, 1 = directory" },
+        { "index": 5, "name": "size",    "type": "u32", "unit": "bytes", "doc": "file size (0 for directories)" },
+        { "index": 6, "name": "name",    "type": "char", "len": 16, "doc": "entry name (8.3); empty marks end-of-listing" }
       ]
     },
     {
-      "msgid": 1046,
-      "name": "FS_INFO_REPLY",
+      "msgid": 1046, "name": "FS_INFO_REPLY",
       "doc": "Status of one path, in reply to FS_INFO (filesystem navigation). result=ACCEPTED if the path exists (type/size/mtime valid), DENIED if it does not exist. docs/reference/messages/fs_nav.md.",
       "fields": [
-        {
-          "index": 0,
-          "name": "req_seq",
-          "type": "u8"
-        },
-        {
-          "index": 1,
-          "name": "result",
-          "type": "u8",
-          "enum": "command_result",
-          "doc": "ACCEPTED = exists; DENIED = does not exist"
-        },
-        {
-          "index": 2,
-          "name": "type",
-          "type": "u8",
-          "doc": "0 = file, 1 = directory"
-        },
-        {
-          "index": 3,
-          "name": "_pad",
-          "type": "u8"
-        },
-        {
-          "index": 4,
-          "name": "size",
-          "type": "u32",
-          "unit": "bytes"
-        },
-        {
-          "index": 5,
-          "name": "mtime",
-          "type": "u32",
-          "unit": "s",
-          "extension": true,
-          "doc": "FatFS packed mtime if known, else 0"
-        }
+        { "index": 0, "name": "req_seq", "type": "u8" },
+        { "index": 1, "name": "result",  "type": "u8", "enum": "command_result", "doc": "ACCEPTED = exists; DENIED = does not exist" },
+        { "index": 2, "name": "type",    "type": "u8", "doc": "0 = file, 1 = directory" },
+        { "index": 3, "name": "_pad",    "type": "u8" },
+        { "index": 4, "name": "size",    "type": "u32", "unit": "bytes" },
+        { "index": 5, "name": "mtime",   "type": "u32", "unit": "s", "extension": true, "doc": "FatFS packed mtime if known, else 0" }
       ]
     },
     {
-      "msgid": 1047,
-      "name": "NOTCH_STATUS",
+      "msgid": 1047, "name": "NOTCH_STATUS",
       "doc": "Live center frequencies of the FFT-driven dynamic gyro notch (dsp/gyro_notch), per axis, up to 3 notches each. 0 Hz = that slot is bypassed. enabled reflects the master gate (not the throttle gate).",
       "fields": [
-        {
-          "index": 0,
-          "name": "enabled",
-          "type": "u8",
-          "doc": "1 = notch master-enabled"
-        },
-        {
-          "index": 1,
-          "name": "_pad",
-          "type": "u8"
-        },
-        {
-          "index": 2,
-          "name": "_pad2",
-          "type": "u16"
-        },
-        {
-          "index": 3,
-          "name": "roll_hz0",
-          "type": "f32",
-          "unit": "Hz"
-        },
-        {
-          "index": 4,
-          "name": "roll_hz1",
-          "type": "f32",
-          "unit": "Hz"
-        },
-        {
-          "index": 5,
-          "name": "roll_hz2",
-          "type": "f32",
-          "unit": "Hz"
-        },
-        {
-          "index": 6,
-          "name": "pitch_hz0",
-          "type": "f32",
-          "unit": "Hz"
-        },
-        {
-          "index": 7,
-          "name": "pitch_hz1",
-          "type": "f32",
-          "unit": "Hz"
-        },
-        {
-          "index": 8,
-          "name": "pitch_hz2",
-          "type": "f32",
-          "unit": "Hz"
-        },
-        {
-          "index": 9,
-          "name": "yaw_hz0",
-          "type": "f32",
-          "unit": "Hz"
-        },
-        {
-          "index": 10,
-          "name": "yaw_hz1",
-          "type": "f32",
-          "unit": "Hz"
-        },
-        {
-          "index": 11,
-          "name": "yaw_hz2",
-          "type": "f32",
-          "unit": "Hz"
-        }
+        { "index": 0, "name": "enabled",   "type": "u8", "doc": "1 = notch master-enabled" },
+        { "index": 1, "name": "_pad",      "type": "u8" },
+        { "index": 2, "name": "_pad2",     "type": "u16" },
+        { "index": 3, "name": "roll_hz0",  "type": "f32", "unit": "Hz" },
+        { "index": 4, "name": "roll_hz1",  "type": "f32", "unit": "Hz" },
+        { "index": 5, "name": "roll_hz2",  "type": "f32", "unit": "Hz" },
+        { "index": 6, "name": "pitch_hz0", "type": "f32", "unit": "Hz" },
+        { "index": 7, "name": "pitch_hz1", "type": "f32", "unit": "Hz" },
+        { "index": 8, "name": "pitch_hz2", "type": "f32", "unit": "Hz" },
+        { "index": 9, "name": "yaw_hz0",   "type": "f32", "unit": "Hz" },
+        { "index": 10, "name": "yaw_hz1",  "type": "f32", "unit": "Hz" },
+        { "index": 11, "name": "yaw_hz2",  "type": "f32", "unit": "Hz" }
       ]
     },
+
     {
-      "msgid": 8192,
-      "name": "CMD_ARM",
-      "replaces": "0x3/cmd 0x0002",
-      "doc": "Set the software-arm latch. Opens with the standard command header (spec \u00a712.1).",
+      "msgid": 8192, "name": "CMD_ARM", "replaces": "0x3/cmd 0x0002",
+      "doc": "Set the software-arm latch. Opens with the standard command header (spec §12.1).",
       "fields": [
-        {
-          "index": 0,
-          "name": "target_sys",
-          "type": "u8"
-        },
-        {
-          "index": 1,
-          "name": "target_comp",
-          "type": "u8"
-        },
-        {
-          "index": 2,
-          "name": "req_seq",
-          "type": "u8"
-        },
-        {
-          "index": 3,
-          "name": "force",
-          "type": "u8"
-        }
+        { "index": 0, "name": "target_sys",  "type": "u8" },
+        { "index": 1, "name": "target_comp", "type": "u8" },
+        { "index": 2, "name": "req_seq",     "type": "u8" },
+        { "index": 3, "name": "force",       "type": "u8" }
       ]
     },
     {
-      "msgid": 8193,
-      "name": "CMD_DISARM",
-      "replaces": "0x3/cmd 0x0003",
+      "msgid": 8193, "name": "CMD_DISARM", "replaces": "0x3/cmd 0x0003",
       "doc": "Clear the software-arm latch.",
       "fields": [
-        {
-          "index": 0,
-          "name": "target_sys",
-          "type": "u8"
-        },
-        {
-          "index": 1,
-          "name": "target_comp",
-          "type": "u8"
-        },
-        {
-          "index": 2,
-          "name": "req_seq",
-          "type": "u8"
-        },
-        {
-          "index": 3,
-          "name": "force",
-          "type": "u8"
-        }
+        { "index": 0, "name": "target_sys",  "type": "u8" },
+        { "index": 1, "name": "target_comp", "type": "u8" },
+        { "index": 2, "name": "req_seq",     "type": "u8" },
+        { "index": 3, "name": "force",       "type": "u8" }
       ]
     },
     {
-      "msgid": 8194,
-      "name": "CMD_CALIBRATE_IMU",
-      "replaces": "0x3/cmd 0x0001",
+      "msgid": 8194, "name": "CMD_CALIBRATE_IMU", "replaces": "0x3/cmd 0x0001",
       "doc": "Start IMU calibration; progress streams back via CALIBRATION_STATUS.",
       "fields": [
-        {
-          "index": 0,
-          "name": "target_sys",
-          "type": "u8"
-        },
-        {
-          "index": 1,
-          "name": "target_comp",
-          "type": "u8"
-        },
-        {
-          "index": 2,
-          "name": "req_seq",
-          "type": "u8"
-        },
-        {
-          "index": 3,
-          "name": "which",
-          "type": "u8",
-          "doc": "which IMU/calibration routine"
-        }
+        { "index": 0, "name": "target_sys",  "type": "u8" },
+        { "index": 1, "name": "target_comp", "type": "u8" },
+        { "index": 2, "name": "req_seq",     "type": "u8" },
+        { "index": 3, "name": "which",       "type": "u8", "doc": "which IMU/calibration routine" }
       ]
     },
     {
-      "msgid": 8195,
-      "name": "CMD_SET_PID",
-      "replaces": "0x3/cmd 0x000A",
+      "msgid": 8195, "name": "CMD_SET_PID", "replaces": "0x3/cmd 0x000A",
       "doc": "Set a PID gain set. v1 carries controller+axis+kp+ki+kd+kff.",
       "fields": [
-        {
-          "index": 0,
-          "name": "target_sys",
-          "type": "u8"
-        },
-        {
-          "index": 1,
-          "name": "target_comp",
-          "type": "u8"
-        },
-        {
-          "index": 2,
-          "name": "req_seq",
-          "type": "u8"
-        },
-        {
-          "index": 3,
-          "name": "controller",
-          "type": "u8",
-          "enum": "pid_controller"
-        },
-        {
-          "index": 4,
-          "name": "axis",
-          "type": "u8",
-          "enum": "pid_axis"
-        },
-        {
-          "index": 5,
-          "name": "kp",
-          "type": "f32"
-        },
-        {
-          "index": 6,
-          "name": "ki",
-          "type": "f32"
-        },
-        {
-          "index": 7,
-          "name": "kd",
-          "type": "f32"
-        },
-        {
-          "index": 8,
-          "name": "kff",
-          "type": "f32"
-        }
+        { "index": 0, "name": "target_sys",  "type": "u8" },
+        { "index": 1, "name": "target_comp", "type": "u8" },
+        { "index": 2, "name": "req_seq",     "type": "u8" },
+        { "index": 3, "name": "controller",  "type": "u8", "enum": "pid_controller" },
+        { "index": 4, "name": "axis",        "type": "u8", "enum": "pid_axis" },
+        { "index": 5, "name": "kp",          "type": "f32" },
+        { "index": 6, "name": "ki",          "type": "f32" },
+        { "index": 7, "name": "kd",          "type": "f32" },
+        { "index": 8, "name": "kff",         "type": "f32" }
       ]
     },
     {
-      "msgid": 8196,
-      "name": "CMD_SET_GYRO_LPF",
-      "replaces": "0x3/cmd 0x000B",
+      "msgid": 8196, "name": "CMD_SET_GYRO_LPF", "replaces": "0x3/cmd 0x000B",
       "doc": "Set rate-loop gyro low-pass time constant per axis. v1: rc (seconds); <=0 disables.",
       "fields": [
-        {
-          "index": 0,
-          "name": "target_sys",
-          "type": "u8"
-        },
-        {
-          "index": 1,
-          "name": "target_comp",
-          "type": "u8"
-        },
-        {
-          "index": 2,
-          "name": "req_seq",
-          "type": "u8"
-        },
-        {
-          "index": 3,
-          "name": "axis",
-          "type": "u8",
-          "enum": "pid_axis"
-        },
-        {
-          "index": 4,
-          "name": "rc",
-          "type": "f32",
-          "unit": "s",
-          "doc": "time constant; <=0 = off"
-        }
+        { "index": 0, "name": "target_sys",  "type": "u8" },
+        { "index": 1, "name": "target_comp", "type": "u8" },
+        { "index": 2, "name": "req_seq",     "type": "u8" },
+        { "index": 3, "name": "axis",        "type": "u8", "enum": "pid_axis" },
+        { "index": 4, "name": "rc",          "type": "f32", "unit": "s", "doc": "time constant; <=0 = off" }
       ]
     },
     {
-      "msgid": 8205,
-      "name": "CMD_SET_D_LPF",
-      "replaces": "0x3/cmd 0x000E",
+      "msgid": 8205, "name": "CMD_SET_D_LPF", "replaces": "0x3/cmd 0x000E",
       "doc": "Set rate-loop derivative (D-term) low-pass time constant per axis. v1: rc (seconds); <=0 disables filtering (raw D).",
       "fields": [
-        {
-          "index": 0,
-          "name": "target_sys",
-          "type": "u8"
-        },
-        {
-          "index": 1,
-          "name": "target_comp",
-          "type": "u8"
-        },
-        {
-          "index": 2,
-          "name": "req_seq",
-          "type": "u8"
-        },
-        {
-          "index": 3,
-          "name": "axis",
-          "type": "u8",
-          "enum": "pid_axis"
-        },
-        {
-          "index": 4,
-          "name": "rc",
-          "type": "f32",
-          "unit": "s",
-          "doc": "time constant; <=0 = passthrough"
-        }
+        { "index": 0, "name": "target_sys",  "type": "u8" },
+        { "index": 1, "name": "target_comp", "type": "u8" },
+        { "index": 2, "name": "req_seq",     "type": "u8" },
+        { "index": 3, "name": "axis",        "type": "u8", "enum": "pid_axis" },
+        { "index": 4, "name": "rc",          "type": "f32", "unit": "s", "doc": "time constant; <=0 = passthrough" }
       ]
     },
     {
-      "msgid": 8206,
-      "name": "CMD_SET_GYRO_NOTCH",
+      "msgid": 8206, "name": "CMD_SET_GYRO_NOTCH",
       "doc": "Configure the FFT-driven dynamic gyro notch (dsp/gyro_notch): master enable plus the detection parameters, applied to all axes. A detection field <=0 leaves that parameter unchanged. Persisted to SD (pid.bin).",
       "fields": [
-        {
-          "index": 0,
-          "name": "target_sys",
-          "type": "u8"
-        },
-        {
-          "index": 1,
-          "name": "target_comp",
-          "type": "u8"
-        },
-        {
-          "index": 2,
-          "name": "req_seq",
-          "type": "u8"
-        },
-        {
-          "index": 3,
-          "name": "enabled",
-          "type": "u8",
-          "doc": "1 = master-enable the notch, 0 = disable"
-        },
-        {
-          "index": 4,
-          "name": "q",
-          "type": "f32",
-          "doc": "band-stop Q (width); <=0 = unchanged"
-        },
-        {
-          "index": 5,
-          "name": "fmin_hz",
-          "type": "f32",
-          "unit": "Hz",
-          "doc": "analysis band lower bound; <=0 = unchanged"
-        },
-        {
-          "index": 6,
-          "name": "fmax_hz",
-          "type": "f32",
-          "unit": "Hz",
-          "doc": "analysis band upper bound; <=0 = unchanged"
-        },
-        {
-          "index": 7,
-          "name": "min_ratio",
-          "type": "f32",
-          "doc": "peak prominence gate (x mean power); <=0 = unchanged"
-        },
-        {
-          "index": 8,
-          "name": "autoband",
-          "type": "u8",
-          "doc": "1 = arm a one-shot auto-band learn: characterise the hover spectrum and tighten [fmin,fmax] around it (live-only). 0 = no-op"
-        }
+        { "index": 0, "name": "target_sys",  "type": "u8" },
+        { "index": 1, "name": "target_comp", "type": "u8" },
+        { "index": 2, "name": "req_seq",     "type": "u8" },
+        { "index": 3, "name": "enabled",     "type": "u8", "doc": "1 = master-enable the notch, 0 = disable" },
+        { "index": 4, "name": "q",           "type": "f32", "doc": "band-stop Q (width); <=0 = unchanged" },
+        { "index": 5, "name": "fmin_hz",     "type": "f32", "unit": "Hz", "doc": "analysis band lower bound; <=0 = unchanged" },
+        { "index": 6, "name": "fmax_hz",     "type": "f32", "unit": "Hz", "doc": "analysis band upper bound; <=0 = unchanged" },
+        { "index": 7, "name": "min_ratio",   "type": "f32", "doc": "peak prominence gate (x mean power); <=0 = unchanged" },
+        { "index": 8, "name": "autoband",    "type": "u8", "doc": "1 = arm a one-shot auto-band learn: characterise the hover spectrum and tighten [fmin,fmax] around it (live-only). 0 = no-op" }
       ]
     },
     {
-      "msgid": 8197,
-      "name": "CMD_SET_MOTOR_GEOMETRY",
-      "replaces": "0x3/cmd 0x000C",
+      "msgid": 8197, "name": "CMD_SET_MOTOR_GEOMETRY", "replaces": "0x3/cmd 0x000C",
       "doc": "Reconfigure the 4-motor mixer from per-motor position and spin direction. Persisted to SD (pid.bin) so the mixer layout survives a reboot.",
       "fields": [
-        {
-          "index": 0,
-          "name": "target_sys",
-          "type": "u8"
-        },
-        {
-          "index": 1,
-          "name": "target_comp",
-          "type": "u8"
-        },
-        {
-          "index": 2,
-          "name": "req_seq",
-          "type": "u8"
-        },
-        {
-          "index": 3,
-          "name": "layout",
-          "type": "u8"
-        },
-        {
-          "index": 4,
-          "name": "pos_x",
-          "type": "f32",
-          "len": 4
-        },
-        {
-          "index": 5,
-          "name": "pos_y",
-          "type": "f32",
-          "len": 4
-        },
-        {
-          "index": 6,
-          "name": "spin",
-          "type": "i8",
-          "len": 4,
-          "doc": "+1 / -1 per motor"
-        }
+        { "index": 0, "name": "target_sys",  "type": "u8" },
+        { "index": 1, "name": "target_comp", "type": "u8" },
+        { "index": 2, "name": "req_seq",     "type": "u8" },
+        { "index": 3, "name": "layout",      "type": "u8" },
+        { "index": 4, "name": "pos_x",       "type": "f32", "len": 4 },
+        { "index": 5, "name": "pos_y",       "type": "f32", "len": 4 },
+        { "index": 6, "name": "spin",        "type": "i8",  "len": 4, "doc": "+1 / -1 per motor" }
       ]
     },
     {
-      "msgid": 8198,
-      "name": "CMD_SET_FLIGHT_MODE",
-      "replaces": "0x3/cmd 0x000D",
+      "msgid": 8198, "name": "CMD_SET_FLIGHT_MODE", "replaces": "0x3/cmd 0x000D",
       "doc": "Override the flight mode (sticky GCS control, or release back to RC).",
       "fields": [
-        {
-          "index": 0,
-          "name": "target_sys",
-          "type": "u8"
-        },
-        {
-          "index": 1,
-          "name": "target_comp",
-          "type": "u8"
-        },
-        {
-          "index": 2,
-          "name": "req_seq",
-          "type": "u8"
-        },
-        {
-          "index": 3,
-          "name": "mode",
-          "type": "u8",
-          "enum": "flight_mode"
-        },
-        {
-          "index": 4,
-          "name": "source",
-          "type": "u8",
-          "enum": "mode_source"
-        }
+        { "index": 0, "name": "target_sys",  "type": "u8" },
+        { "index": 1, "name": "target_comp", "type": "u8" },
+        { "index": 2, "name": "req_seq",     "type": "u8" },
+        { "index": 3, "name": "mode",        "type": "u8", "enum": "flight_mode" },
+        { "index": 4, "name": "source",      "type": "u8", "enum": "mode_source" }
       ]
     },
     {
-      "msgid": 8199,
-      "name": "CMD_SYSID_EXCITE",
+      "msgid": 8199, "name": "CMD_SYSID_EXCITE",
       "doc": "On-hardware system-ID: inject a linear chirp into one rate axis for `duration_s`, for plant identification on a rig. axis 0=roll/1=pitch/2=yaw; axis 0xFF aborts. `mode` selects the injection point: 0=rate SETPOINT (amp in deg/s; closed-loop, default) or 1=rate-PID OUTPUT u (amp in control-effort units; near-open-loop, more aggressive, tighter amp cap). The FC self-aborts on angle/rate limits. Phase 0: testable disarmed (motors stay off). `mode` is appended last so a sender that omits it (trailing-zero-truncated) gets mode 0.",
       "fields": [
-        {
-          "index": 0,
-          "name": "target_sys",
-          "type": "u8"
-        },
-        {
-          "index": 1,
-          "name": "target_comp",
-          "type": "u8"
-        },
-        {
-          "index": 2,
-          "name": "req_seq",
-          "type": "u8"
-        },
-        {
-          "index": 3,
-          "name": "axis",
-          "type": "u8"
-        },
-        {
-          "index": 4,
-          "name": "f0_hz",
-          "type": "f32"
-        },
-        {
-          "index": 5,
-          "name": "f1_hz",
-          "type": "f32"
-        },
-        {
-          "index": 6,
-          "name": "amp_dps",
-          "type": "f32"
-        },
-        {
-          "index": 7,
-          "name": "duration_s",
-          "type": "f32"
-        },
-        {
-          "index": 8,
-          "name": "mode",
-          "type": "u8"
-        }
+        { "index": 0, "name": "target_sys",  "type": "u8" },
+        { "index": 1, "name": "target_comp", "type": "u8" },
+        { "index": 2, "name": "req_seq",     "type": "u8" },
+        { "index": 3, "name": "axis",        "type": "u8" },
+        { "index": 4, "name": "f0_hz",       "type": "f32" },
+        { "index": 5, "name": "f1_hz",       "type": "f32" },
+        { "index": 6, "name": "amp_dps",     "type": "f32" },
+        { "index": 7, "name": "duration_s",  "type": "f32" },
+        { "index": 8, "name": "mode",        "type": "u8" }
       ]
     },
     {
-      "msgid": 8200,
-      "name": "CMD_SYSID_DUMP",
-      "doc": "Request the FC stream back the last CMD_SYSID_EXCITE capture buffer as SYSID_SAMPLE chunks. Idempotent \u2014 re-send to re-dump (e.g. to fill dropped chunks).",
+      "msgid": 8200, "name": "CMD_SYSID_DUMP",
+      "doc": "Request the FC stream back the last CMD_SYSID_EXCITE capture buffer as SYSID_SAMPLE chunks. Idempotent — re-send to re-dump (e.g. to fill dropped chunks).",
       "fields": [
-        {
-          "index": 0,
-          "name": "target_sys",
-          "type": "u8"
-        },
-        {
-          "index": 1,
-          "name": "target_comp",
-          "type": "u8"
-        },
-        {
-          "index": 2,
-          "name": "req_seq",
-          "type": "u8"
-        }
+        { "index": 0, "name": "target_sys",  "type": "u8" },
+        { "index": 1, "name": "target_comp", "type": "u8" },
+        { "index": 2, "name": "req_seq",     "type": "u8" }
       ]
     },
     {
-      "msgid": 8201,
-      "name": "XFER_OPEN",
+      "msgid": 8201, "name": "XFER_OPEN",
       "doc": "Open a bulk-transfer/stream session on the generic xfer substrate (docs/plans/navlink-xfer-substrate.md). The FC replies with COMMAND_ACK (deferred) then XFER_INFO. dir 0=download (FC->GCS), 1=upload (GCS->FC). mode 0=file, 1=stream (rate_hz applies; total_size advertised 0xFFFFFFFF). service_id selects the provider (0=file,1=log,2=stream); arg is the provider argument (e.g. SD path or stream name). Re-send with the same (session,req_seq) is idempotent.",
       "fields": [
-        {
-          "index": 0,
-          "name": "target_sys",
-          "type": "u8"
-        },
-        {
-          "index": 1,
-          "name": "target_comp",
-          "type": "u8"
-        },
-        {
-          "index": 2,
-          "name": "req_seq",
-          "type": "u8"
-        },
-        {
-          "index": 3,
-          "name": "session",
-          "type": "u8",
-          "doc": "GCS-chosen session slot (0..XFER_MAX_SESSIONS-1)"
-        },
-        {
-          "index": 4,
-          "name": "dir",
-          "type": "u8",
-          "doc": "0=download (FC->GCS), 1=upload (GCS->FC)"
-        },
-        {
-          "index": 5,
-          "name": "mode",
-          "type": "u8",
-          "doc": "0=file, 1=stream"
-        },
-        {
-          "index": 6,
-          "name": "service_id",
-          "type": "u16",
-          "doc": "provider id (0=file,1=log,2=stream)"
-        },
-        {
-          "index": 7,
-          "name": "offset_start",
-          "type": "u32",
-          "unit": "bytes",
-          "doc": "initial cursor (resume point)"
-        },
-        {
-          "index": 8,
-          "name": "rate_hz",
-          "type": "u16",
-          "unit": "Hz",
-          "doc": "stream mode emission rate; 0 in file mode"
-        },
-        {
-          "index": 9,
-          "name": "arg",
-          "type": "char",
-          "len": 32,
-          "doc": "provider argument (SD path / stream name)"
-        }
+        { "index": 0, "name": "target_sys",   "type": "u8" },
+        { "index": 1, "name": "target_comp",  "type": "u8" },
+        { "index": 2, "name": "req_seq",      "type": "u8" },
+        { "index": 3, "name": "session",      "type": "u8", "doc": "GCS-chosen session slot (0..XFER_MAX_SESSIONS-1)" },
+        { "index": 4, "name": "dir",          "type": "u8", "doc": "0=download (FC->GCS), 1=upload (GCS->FC)" },
+        { "index": 5, "name": "mode",         "type": "u8", "doc": "0=file, 1=stream" },
+        { "index": 6, "name": "service_id",   "type": "u16", "doc": "provider id (0=file,1=log,2=stream)" },
+        { "index": 7, "name": "offset_start", "type": "u32", "unit": "bytes", "doc": "initial cursor (resume point)" },
+        { "index": 8, "name": "rate_hz",      "type": "u16", "unit": "Hz", "doc": "stream mode emission rate; 0 in file mode" },
+        { "index": 9, "name": "arg",          "type": "char", "len": 32, "doc": "provider argument (SD path / stream name)" }
       ]
     },
     {
-      "msgid": 8202,
-      "name": "XFER_CLOSE",
+      "msgid": 8202, "name": "XFER_CLOSE",
       "doc": "Close/abort a bulk-transfer session (docs/plans/navlink-xfer-substrate.md). The FC tears down the session, calls provider close, and ACKs. result records the GCS-side reason (ACCEPTED = normal completion).",
       "fields": [
-        {
-          "index": 0,
-          "name": "target_sys",
-          "type": "u8"
-        },
-        {
-          "index": 1,
-          "name": "target_comp",
-          "type": "u8"
-        },
-        {
-          "index": 2,
-          "name": "req_seq",
-          "type": "u8"
-        },
-        {
-          "index": 3,
-          "name": "session",
-          "type": "u8"
-        },
-        {
-          "index": 4,
-          "name": "result",
-          "type": "u8",
-          "enum": "command_result"
-        }
+        { "index": 0, "name": "target_sys",  "type": "u8" },
+        { "index": 1, "name": "target_comp", "type": "u8" },
+        { "index": 2, "name": "req_seq",     "type": "u8" },
+        { "index": 3, "name": "session",     "type": "u8" },
+        { "index": 4, "name": "result",      "type": "u8", "enum": "command_result" }
       ]
     },
     {
-      "msgid": 8203,
-      "name": "FS_LIST",
+      "msgid": 8203, "name": "FS_LIST",
       "doc": "List the files/folders in a directory (filesystem navigation). The FC replies with COMMAND_ACK (deferred) then a stream of FS_ENTRY. If the path does not exist a single FS_ENTRY with result=DENIED is returned. start_index lets the GCS resume/refill from a given entry. docs/reference/messages/fs_nav.md.",
       "fields": [
-        {
-          "index": 0,
-          "name": "target_sys",
-          "type": "u8"
-        },
-        {
-          "index": 1,
-          "name": "target_comp",
-          "type": "u8"
-        },
-        {
-          "index": 2,
-          "name": "req_seq",
-          "type": "u8"
-        },
-        {
-          "index": 3,
-          "name": "start_index",
-          "type": "u16",
-          "doc": "first entry index to emit (resume point)"
-        },
-        {
-          "index": 4,
-          "name": "path",
-          "type": "char",
-          "len": 48,
-          "doc": "directory path, e.g. \"0:\" or \"0:logs\""
-        }
+        { "index": 0, "name": "target_sys",  "type": "u8" },
+        { "index": 1, "name": "target_comp", "type": "u8" },
+        { "index": 2, "name": "req_seq",     "type": "u8" },
+        { "index": 3, "name": "start_index", "type": "u16", "doc": "first entry index to emit (resume point)" },
+        { "index": 4, "name": "path",        "type": "char", "len": 48, "doc": "directory path, e.g. \"0:\" or \"0:logs\"" }
       ]
     },
     {
-      "msgid": 8204,
-      "name": "FS_INFO",
+      "msgid": 8204, "name": "FS_INFO",
       "doc": "Request the status of a single path (filesystem navigation). The FC replies with COMMAND_ACK (deferred) then FS_INFO_REPLY (result=DENIED if the path does not exist). docs/reference/messages/fs_nav.md.",
       "fields": [
-        {
-          "index": 0,
-          "name": "target_sys",
-          "type": "u8"
-        },
-        {
-          "index": 1,
-          "name": "target_comp",
-          "type": "u8"
-        },
-        {
-          "index": 2,
-          "name": "req_seq",
-          "type": "u8"
-        },
-        {
-          "index": 3,
-          "name": "path",
-          "type": "char",
-          "len": 48,
-          "doc": "file or directory path"
-        }
+        { "index": 0, "name": "target_sys",  "type": "u8" },
+        { "index": 1, "name": "target_comp", "type": "u8" },
+        { "index": 2, "name": "req_seq",     "type": "u8" },
+        { "index": 3, "name": "path",        "type": "char", "len": 48, "doc": "file or directory path" }
       ]
     },
+
     {
-      "msgid": 12288,
-      "name": "PARAM_REQUEST_LIST",
-      "doc": "Request a full parameter dump (spec \u00a712.2).",
+      "msgid": 12288, "name": "PARAM_REQUEST_LIST",
+      "doc": "Request a full parameter dump (spec §12.2).",
       "fields": [
-        {
-          "index": 0,
-          "name": "target_sys",
-          "type": "u8"
-        },
-        {
-          "index": 1,
-          "name": "target_comp",
-          "type": "u8"
-        }
+        { "index": 0, "name": "target_sys",  "type": "u8" },
+        { "index": 1, "name": "target_comp", "type": "u8" }
       ]
     },
     {
-      "msgid": 12289,
-      "name": "PARAM_REQUEST_READ",
-      "doc": "Request one parameter by name (index=-1) or by index (spec \u00a712.2).",
+      "msgid": 12289, "name": "PARAM_REQUEST_READ",
+      "doc": "Request one parameter by name (index=-1) or by index (spec §12.2).",
       "fields": [
-        {
-          "index": 0,
-          "name": "target_sys",
-          "type": "u8"
-        },
-        {
-          "index": 1,
-          "name": "target_comp",
-          "type": "u8"
-        },
-        {
-          "index": 2,
-          "name": "param_id",
-          "type": "char",
-          "len": 16
-        },
-        {
-          "index": 3,
-          "name": "index",
-          "type": "i16",
-          "doc": "-1 = use param_id"
-        }
+        { "index": 0, "name": "target_sys",  "type": "u8" },
+        { "index": 1, "name": "target_comp", "type": "u8" },
+        { "index": 2, "name": "param_id",    "type": "char", "len": 16 },
+        { "index": 3, "name": "index",       "type": "i16", "doc": "-1 = use param_id" }
       ]
     },
     {
-      "msgid": 12290,
-      "name": "PARAM_VALUE",
-      "doc": "Typed parameter value (spec \u00a712.2). 'value' is the real type, never a float bit-cast.",
+      "msgid": 12290, "name": "PARAM_VALUE",
+      "doc": "Typed parameter value (spec §12.2). 'value' is the real type, never a float bit-cast.",
       "fields": [
-        {
-          "index": 0,
-          "name": "param_id",
-          "type": "char",
-          "len": 16
-        },
-        {
-          "index": 1,
-          "name": "index",
-          "type": "u16"
-        },
-        {
-          "index": 2,
-          "name": "count",
-          "type": "u16"
-        },
-        {
-          "index": 3,
-          "name": "generation",
-          "type": "u32",
-          "doc": "bumped on every PARAM_SET"
-        },
-        {
-          "index": 4,
-          "name": "type",
-          "type": "u8",
-          "enum": "param_type"
-        },
-        {
-          "index": 5,
-          "name": "value",
-          "type": "u8",
-          "len": 8,
-          "doc": "real value, LE, in 'type', <=8 B"
-        }
+        { "index": 0, "name": "param_id",   "type": "char", "len": 16 },
+        { "index": 1, "name": "index",      "type": "u16" },
+        { "index": 2, "name": "count",      "type": "u16" },
+        { "index": 3, "name": "generation", "type": "u32", "doc": "bumped on every PARAM_SET" },
+        { "index": 4, "name": "type",       "type": "u8",  "enum": "param_type" },
+        { "index": 5, "name": "value",      "type": "u8",  "len": 8, "doc": "real value, LE, in 'type', <=8 B" }
       ]
     },
     {
-      "msgid": 12291,
-      "name": "PARAM_SET",
-      "doc": "Write one parameter; answered by the updated PARAM_VALUE (spec \u00a712.2).",
+      "msgid": 12291, "name": "PARAM_SET",
+      "doc": "Write one parameter; answered by the updated PARAM_VALUE (spec §12.2).",
       "fields": [
-        {
-          "index": 0,
-          "name": "target_sys",
-          "type": "u8"
-        },
-        {
-          "index": 1,
-          "name": "target_comp",
-          "type": "u8"
-        },
-        {
-          "index": 2,
-          "name": "param_id",
-          "type": "char",
-          "len": 16
-        },
-        {
-          "index": 3,
-          "name": "type",
-          "type": "u8",
-          "enum": "param_type"
-        },
-        {
-          "index": 4,
-          "name": "value",
-          "type": "u8",
-          "len": 8
-        }
+        { "index": 0, "name": "target_sys",  "type": "u8" },
+        { "index": 1, "name": "target_comp", "type": "u8" },
+        { "index": 2, "name": "param_id",    "type": "char", "len": 16 },
+        { "index": 3, "name": "type",        "type": "u8", "enum": "param_type" },
+        { "index": 4, "name": "value",       "type": "u8", "len": 8 }
       ]
     },
     {
-      "msgid": 12320,
-      "name": "CALIBRATION_STATUS",
-      "replaces": "0x6/0x01",
-      "doc": "IMU calibration progress + operator instruction. Drives the GCS calibration wizard (spec \u00a714.8). The terminal COMPLETE/FAILED steps tell the wizard the routine ended; it no longer infers completion from a STANDBY heartbeat (which never arrives if calibration legitimately ends in FAILSAFE).",
+      "msgid": 12320, "name": "CALIBRATION_STATUS", "replaces": "0x6/0x01",
+      "doc": "IMU calibration progress + operator instruction. Drives the GCS calibration wizard (spec §14.8). The terminal COMPLETE/FAILED steps tell the wizard the routine ended; it no longer infers completion from a STANDBY heartbeat (which never arrives if calibration legitimately ends in FAILSAFE).",
       "fields": [
-        {
-          "index": 0,
-          "name": "step",
-          "type": "u8",
-          "enum": "calib_step"
-        },
-        {
-          "index": 1,
-          "name": "progress",
-          "type": "u8",
-          "doc": "0..100 percent for PROGRESS; reason code for FAILED; 0 otherwise"
-        },
-        {
-          "index": 2,
-          "name": "coverage",
-          "type": "f32",
-          "len": 3,
-          "doc": "mag axis coverage x/y/z for MAG_AXIS_COVERAGE; 0 otherwise"
-        }
+        { "index": 0, "name": "step",     "type": "u8",  "enum": "calib_step" },
+        { "index": 1, "name": "progress", "type": "u8",  "doc": "0..100 percent for PROGRESS; reason code for FAILED; 0 otherwise" },
+        { "index": 2, "name": "coverage", "type": "f32", "len": 3, "doc": "mag axis coverage x/y/z for MAG_AXIS_COVERAGE; 0 otherwise" }
       ]
     },
     {
-      "msgid": 8388608,
-      "name": "HW_TEST_BEGIN",
-      "test": true,
+      "msgid": 8388608, "name": "HW_TEST_BEGIN", "test": true,
       "doc": "On-hardware bench suite starting. Test-only (hwtest firmware); vendor/test msgid range 0x800000+, emitted only under generate.py --profile test. See firmware/docs/plans/on-hardware-test-and-coverage.md.",
       "fields": [
-        {
-          "index": 0,
-          "name": "total",
-          "type": "u16",
-          "doc": "number of checks to run"
-        }
+        { "index": 0, "name": "total", "type": "u16", "doc": "number of checks to run" }
       ]
     },
     {
-      "msgid": 8388609,
-      "name": "HW_TEST_RESULT",
-      "test": true,
+      "msgid": 8388609, "name": "HW_TEST_RESULT", "test": true,
       "doc": "One on-hardware bench check result. Test-only (hwtest firmware).",
       "fields": [
-        {
-          "index": 0,
-          "name": "id",
-          "type": "u16",
-          "doc": "0-based check index"
-        },
-        {
-          "index": 1,
-          "name": "name",
-          "type": "char",
-          "len": 24
-        },
-        {
-          "index": 2,
-          "name": "pass",
-          "type": "u8",
-          "doc": "1=pass, 0=fail, 2=skip"
-        },
-        {
-          "index": 3,
-          "name": "value",
-          "type": "f32",
-          "doc": "measured value (MHz, bytes, sigma, ...)"
-        },
-        {
-          "index": 4,
-          "name": "units",
-          "type": "char",
-          "len": 8
-        }
+        { "index": 0, "name": "id",    "type": "u16", "doc": "0-based check index" },
+        { "index": 1, "name": "name",  "type": "char", "len": 24 },
+        { "index": 2, "name": "pass",  "type": "u8",  "doc": "1=pass, 0=fail, 2=skip" },
+        { "index": 3, "name": "value", "type": "f32", "doc": "measured value (MHz, bytes, sigma, ...)" },
+        { "index": 4, "name": "units", "type": "char", "len": 8 }
       ]
     },
     {
-      "msgid": 8388610,
-      "name": "HW_TEST_DONE",
-      "test": true,
+      "msgid": 8388610, "name": "HW_TEST_DONE", "test": true,
       "doc": "On-hardware bench suite finished. Test-only (hwtest firmware).",
       "fields": [
-        {
-          "index": 0,
-          "name": "passed",
-          "type": "u16"
-        },
-        {
-          "index": 1,
-          "name": "failed",
-          "type": "u16"
-        },
-        {
-          "index": 2,
-          "name": "skipped",
-          "type": "u16"
-        }
+        { "index": 0, "name": "passed",  "type": "u16" },
+        { "index": 1, "name": "failed",  "type": "u16" },
+        { "index": 2, "name": "skipped", "type": "u16" }
       ]
     }
   ]

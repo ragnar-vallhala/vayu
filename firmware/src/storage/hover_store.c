@@ -43,5 +43,8 @@ bool hover_store_save(float hover) {
     return false;
   }
   hover_store_t s = {HOVER_STORE_MAGIC, hover};
-  return fs_owner_enqueue_write_at(0, HOVER_STORE_PATH, 0, &s, sizeof s);
+  /* Internal slot, not session 0: a disarm during a GCS upload would otherwise
+   * corrupt that transfer's pending/committed accounting. */
+  return fs_owner_enqueue_write_at(FS_WA_SESSION_INTERNAL, HOVER_STORE_PATH, 0,
+                                   &s, sizeof s);
 }

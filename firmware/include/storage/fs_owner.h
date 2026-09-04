@@ -127,13 +127,19 @@ bool fs_owner_enqueue_calib_save(const void *header, uint32_t hlen,
  * upload report true persistence to the GCS (see fs_owner_writeat_* below).
  *
  * `session` tags the write to an xfer session (0..XFER_MAX_SESSIONS-1) for that
- * bookkeeping; non-xfer callers may pass 0.
+ * bookkeeping. Firmware-internal writers MUST pass FS_WA_SESSION_INTERNAL
+ * instead of borrowing 0 — sharing a slot with a live upload corrupts the
+ * per-session counters its flow control depends on.
  *
  * @return true if queued; false if the main lane is full (backpressure: the
  *         cursor stalls and the next XFER_ACK tells the GCS to pause/retransmit)
  *         or the request is malformed (path too long, len out of range, not
  *         ready) — drop-and-counted.
  */
+/* Reserved write-at slot for firmware-internal saves (never an xfer session),
+ * so their bookkeeping cannot collide with a GCS upload in flight. */
+#define FS_WA_SESSION_INTERNAL 2u
+
 bool fs_owner_enqueue_write_at(uint8_t session, const char *path,
                                uint32_t offset, const void *data, uint32_t len);
 

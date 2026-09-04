@@ -57,10 +57,6 @@
  * the ~21 Hz ride-along cadence. */
 #define VERT_TOF_STALE_STEPS 50u
 
-/* Latest cos(tilt) from the body-down rotation, shared between the ToF gate and
- * the hover-estimate gate (both need "is it level?"). */
-static float _cos_tilt = 1.0f;
-
 /* @implements EST-ALT-001 */
 void vertical_estimator_task(void *args) {
   (void)args;
@@ -118,12 +114,21 @@ void vertical_estimator_task(void *args) {
       }
     }
 
-    /* Hover-collective estimate. cos_tilt comes from the same body-down
-     * rotation the ToF uses, computed just below; on the first pass it is the
-     * previous step's value, which at 250 Hz is immaterial. */
+    /* Tilt, from the attitude alone. This MUST NOT live inside the rangefinder
+     * branch: vl53l0x_read_all() returns an error until the first in-window
+     * sample, so on a board with no working ToF (and in SITL, which has no
+     * feeder) cos_tilt would sit at 1.0 forever and the hover estimator's tilt
+     * gate would never reject anything — banked samples read high, biasing the
+     * persisted hover upward, which is exactly how a lift-off opens too hot. */
+    const float body_down[3] = {0.0f, 0.0f, 1.0f};
+    float w_down[3];
+    m_quat_rotate(&in.q, body_down, w_down);
+    const float cos_tilt = w_down[2];
+
+    /* Hover-collective estimate. */
     hover_est_update(&hov, system_state_get() == SYSTEM_STATE_IN_AIR,
                      angle_controller_last_throttle(), ve.climb_rate,
-                     ve.vertical_accel, _cos_tilt, in.dt);
+                     ve.vertical_accel, cos_tilt, in.dt);
 
     /* Persist on the disarm edge: the flight's learned value is final by then,
      * it is naturally rare, and it costs one SD write per flight rather than
@@ -158,14 +163,9 @@ void vertical_estimator_task(void *args) {
       } else if (tof_age_steps < VERT_TOF_STALE_STEPS) {
         tof_age_steps++;
       }
-      /* Tilt compensation: rotate the body-down axis into the world; its
-       * world-down component IS cos(tilt), so it both scales the slant range to
-       * a vertical height and gates on how far off level we are. */
-      const float body_down[3] = {0.0f, 0.0f, 1.0f};
-      float w_down[3];
-      m_quat_rotate(&in.q, body_down, w_down);
-      float cos_tilt = w_down[2];
-      _cos_tilt = cos_tilt;
+      /* Tilt compensation reuses the cos(tilt) computed above: the world-down
+       * component of the body-down axis both scales the slant range to a
+       * vertical height and gates on how far off level we are. */
       agl_tof = tof.range_m * cos_tilt;
       tof_valid = (tof_age_steps < VERT_TOF_STALE_STEPS) &&
                   (cos_tilt > VERT_TOF_MAX_TILT_COS) &&

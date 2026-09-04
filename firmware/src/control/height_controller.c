@@ -10,6 +10,7 @@ void height_ctrl_reset(height_ctrl_t *h) {
   h->engaged = false;
   h->src_is_tof = false;
   h->landed = false;
+  h->lifting_off = false;
   h->failed = false;
   h->runaway_t = 0.0f;
   h->handback = false;
@@ -124,6 +125,7 @@ float height_ctrl_update(height_ctrl_t *h, height_mode_t mode, bool in_air,
     if (in_air) {
       /* Engaging in flight: hold the height we are at, and trust the pilot's
        * stick as the hover reference — they were flying it level. */
+      h->lifting_off = false;
       h->alt_sp = alt_m;
       h->base = clampf(stick, HEIGHT_BASE_MIN, HEIGHT_BASE_MAX);
     } else {
@@ -133,16 +135,26 @@ float height_ctrl_update(height_ctrl_t *h, height_mode_t mode, bool in_air,
        * what put this airframe into the ceiling. */
       h->alt_sp = HEIGHT_TARGET_M;
       h->base = hover_ref;
+      h->lifting_off = true;
     }
+  }
+
+  /* A lift-off is over once the craft first reaches its target; from then on it
+   * is holding a height, and a handoff should re-anchor like any other hold. */
+  if (h->lifting_off && alt_m >= h->alt_sp) {
+    h->lifting_off = false;
   }
 
   /* Source handoff (ToF dropping in/out of range). The two references have
    * different zeros, so carrying the old setpoint across would step the
-   * throttle. Re-anchor to where we are now. Skipped while lifting off, where
-   * the setpoint is a fixed target rather than a captured height. */
+   * throttle. Re-anchor to where we are now — EXCEPT while lifting off, where
+   * the setpoint is a fixed target and adopting the current height would abort
+   * the climb partway up. `in_air` is not the predicate for that: flight_phase
+   * declares IN_AIR at 0.15 m, so a dropout anywhere in the 0.15-1.0 m climb
+   * would have stranded the craft at whatever height it had reached. */
   if (alt_is_tof != h->src_is_tof) {
     h->src_is_tof = alt_is_tof;
-    if (mode == HEIGHT_MODE_HOLD && in_air) {
+    if (mode == HEIGHT_MODE_HOLD && !h->lifting_off) {
       h->alt_sp = alt_m;
     }
   }
