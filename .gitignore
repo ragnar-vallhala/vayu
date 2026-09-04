@@ -38,3 +38,7 @@ navigator/docs/roadmap/tex/*.synctex.gz
 
 # Local scratch handoff (autotune optimiser next-session notes); not versioned
 AUTOTUNE-ROLLPITCH-ANALYSIS.md
+
+# Generated sim vehicle geometry (tools/autotune/plant_sweep.py builds these
+# from a .vveh; the .vveh itself is already ignored).
+*.geom

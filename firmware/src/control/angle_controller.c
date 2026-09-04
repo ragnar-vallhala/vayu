@@ -348,7 +348,8 @@ void angle_controller_task(void *arg) {
       target_angles[1] = 0.0f;
       target_angles[2] = 0.0f;
       normalized_rc_data.channels[3] = 0.0f;
-      target_throttle = RECOVERY_THROTTLE;
+      /* Hover, measured — see the note where RECOVERY_THROTTLE used to live. */
+      target_throttle = hover_now;
     }
 
     /* Height mode — 3-position switch, collective only. The sticks keep doing
@@ -406,6 +407,15 @@ void angle_controller_task(void *arg) {
       target_throttle =
           height_ctrl_update(&s_height, HEIGHT_MODE_OFF, in_air, target_throttle,
                              0.0f, false, 0.0f, dt, hover_now);
+    }
+
+    /* Recovery outranks everything, and has to be applied LAST to actually mean
+     * it. The height block above still runs (its state must stay coherent), but
+     * with the mode vetoed to OFF it can return an armed hand-back value of up
+     * to HEIGHT_BASE_MAX — which would quietly replace the recovery collective
+     * mid-upset. Re-assert it here so the override is final. */
+    if (s_recovering) {
+      target_throttle = hover_now;
     }
 
     /* Publish what the mode is doing, so "I flipped the switch and nothing

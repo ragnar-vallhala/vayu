@@ -245,10 +245,14 @@ static inline float vayu_dt_from_cycles(uint32_t now_cyc, uint32_t prev_cyc) {
  * happens after all. */
 #define MAX_ANGLE_RECOVER 45.0f  /* hysteresis: exit recovery below this tilt */
 #define RECOVERY_TIMEOUT_MS 2000u
-/* Collective held during recovery. Roughly hover for this airframe — enough to
- * keep the rate loop at full authority (well above PID_FULL_AUTHORITY_THROTTLE)
- * without climbing away while the FC sorts the attitude out. */
-#define RECOVERY_THROTTLE 0.50f
+/* Recovery holds the MEASURED hover (est/hover_estimate.h), not a constant.
+ * There used to be a RECOVERY_THROTTLE 0.50f here, described as "roughly hover
+ * for this airframe" — which it was for the 10in S500 and is not for the 5in
+ * racer: (0.50/0.38)^2 = 1.73x hover thrust, about +7 m/s^2, held for up to
+ * RECOVERY_TIMEOUT_MS. That is ~14 m of climb while the FC levels the craft,
+ * i.e. the same arithmetic and the same mistake as the hover guess that flew it
+ * into the ceiling. Anything that holds collective must key off the one live
+ * hover number. */
 
 /* Control-loop rates. The inner (rate) loop is hard-pinned to INNER_LOOP_FREQ_HZ
  * with a drift-free periodic wait (task_delay_until); the outer (angle) loop

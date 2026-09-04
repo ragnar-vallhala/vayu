@@ -63,8 +63,10 @@ class SitlLab:
         self.uart_advert = _paths.uart_advert(self.suffix)
         self._stop = threading.Event()
         # RC frame: roll,pitch,throttle,yaw,SwA(arm),mode  (us; centres 1500)
-        # ch6 (index 5) is the 3-position height-mode switch (ALT_MODE_CH):
-        # centre = off, >1700 = lift to 1 m and hold, <1300 = land. It is the
+        # ch6 (index 5) is the 3-position height-mode switch (ALT_MODE_CH).
+        # This radio's SwC is INVERTED, so: <1300 = HOLD (lift to 1 m), centre
+        # = off, >1700 = LAND. Matches ALT_MODE_HOLD_US / ALT_MODE_LAND_US in
+        # variables.h and US_HOLD/US_LAND in examples/height_mode_logic.py. It is the
         # only spare channel on the 6-channel transmitter, so the acro switch
         # no longer has an RC binding (GCS CMD_SET_FLIGHT_MODE instead).
         self._rc = [1500, 1500, 1000, 1500, 1000, 1500]

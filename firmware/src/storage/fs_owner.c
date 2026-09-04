@@ -66,7 +66,11 @@
 #define FS_READ_FD_MAX_HOLD_LOOPS 400u
 /* Per-session write-at bookkeeping. Must be >= XFER_MAX_SESSIONS (navlink_xfer.h);
  * kept as a local constant so fs_owner stays independent of the xfer headers. */
-#define FS_WA_SESSIONS 2u
+/* One slot per xfer session, PLUS one reserved for firmware-internal writers
+ * (FS_WA_SESSION_INTERNAL). Without the spare, an internal save had to borrow
+ * session 0 and would corrupt a concurrent GCS upload's pending/committed/
+ * failed accounting — the xfer flow control reads those to decide DONE. */
+#define FS_WA_SESSIONS 3u
 
 #define FS_SAVE_MAX_TRIES 8u         /* save retry budget (slots free quickly)     */
 
