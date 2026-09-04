@@ -2,6 +2,8 @@
 #include "comm/comm.h"
 #include "control/angle_rate_controller.h"
 #include "control/flight_mode.h"
+#include "control/height_controller.h"
+#include "est/vertical_estimator.h"
 #include "control/pid_config.h"
 #include "maths/maths_interface.h"
 #include "control/pid.h"
@@ -38,8 +40,12 @@ bool angle_controller_get_outputs(angle_controller_outputs_t *outputs) {
 /* Latest commanded throttle, mirrored out-of-band so non-consuming observers
  * (the takeoff/landing detector) don't steal from the rate-controller FIFO. */
 static volatile float _last_throttle = 0.0f;
+static volatile uint8_t _height_state = 0;
 /** @noreq latest-throttle accessor (non-destructive observer). */
 float angle_controller_last_throttle(void) { return _last_throttle; }
+
+/** @noreq Packed height-mode status for telemetry (see the header). */
+uint8_t angle_controller_height_state(void) { return _height_state; }
 
 static angle_controller_t angle_controller = {
     .pid = {
@@ -216,6 +222,12 @@ void angle_controller_task(void *arg) {
   static angle_controller_outputs_t angle_controller_outputs;
   static ibus_data_t rc_data;
   static ibus_data_t prev_rc_data;
+  /* Bank-angle recovery + height-hold state (task-local, single writer). */
+  static bool s_recovering = false;
+  static uint32_t s_recovery_ticks = 0;
+  static bool s_mode_seen_centre = false;
+  static height_ctrl_t s_height;
+  height_ctrl_reset(&s_height);
   /* Hard-pinned outer-loop rate (OUTER_LOOP_FREQ_HZ = INNER_LOOP_FREQ_HZ /
    * OUTER_LOOP_DECIM): drift-free periodic schedule, constant integration
    * timestep. The estimator runs faster, so each tick we take the freshest
@@ -266,21 +278,132 @@ void angle_controller_task(void *arg) {
       attitude = last_attitude; // estimator stalled — hold last estimate
     }
     last_attitude = attitude;
-    /* Bank-angle failsafe applies in angle mode only. In acro the airframe is
-     * meant to exceed MAX_ANGLE_CUTOFF (flips/rolls), so it must not trip. */
-    if (!acro_mode &&
-        (m_fabsf(attitude.roll) > MAX_ANGLE_CUTOFF ||
-         m_fabsf(attitude.pitch) > MAX_ANGLE_CUTOFF)) {
-      // Yaw is intentionally excluded from the failsafe condition:
-      // a drone can rotate freely around its vertical axis without
-      // being in danger, and on a sim build without working mag
-      // correction the mahony filter's yaw drifts past 45 deg over
-      // tens of seconds while the airframe is sitting still. That
-      // false-tripped FAILSAFE the moment the integrator's small
-      // bias accumulated. Real hardware with a calibrated mag would
-      // be largely immune, but the check is unnecessary either way.
-      VAYU_DISCARD(system_state_set(SYSTEM_STATE_FAILSAFE));
+    /* Bank-angle upset handling, angle mode only. In acro the airframe is
+     * meant to exceed MAX_ANGLE_CUTOFF (flips/rolls), so it must not trip.
+     *
+     * IN FLIGHT this recovers instead of cutting the motors: level demand at
+     * hover collective until the craft is back under MAX_ANGLE_RECOVER. Cutting
+     * thrust mid-air (what this did before) is unrecoverable by construction —
+     * motor.c zeroes all four motors outside ARMED/IN_AIR and the state table
+     * has no way back. ON THE GROUND the cut is kept: there, stopping the props
+     * is right. See the MAX_ANGLE_RECOVER block in variables.h for the incident
+     * this came from.
+     *
+     * Yaw is intentionally excluded from the condition: a drone can rotate
+     * freely around its vertical axis without being in danger, and on a sim
+     * build without working mag correction the mahony filter's yaw drifts past
+     * 45 deg over tens of seconds while the airframe is sitting still. That
+     * false-tripped FAILSAFE the moment the integrator's small bias
+     * accumulated. Real hardware with a calibrated mag would be largely immune,
+     * but the check is unnecessary either way. */
+    const uint32_t recovery_timeout_ticks =
+        (uint32_t)((RECOVERY_TIMEOUT_MS * 0.001f) / OUTER_LOOP_DT);
+    float abs_roll = m_fabsf(attitude.roll);
+    float abs_pitch = m_fabsf(attitude.pitch);
+    float tilt = (abs_roll > abs_pitch) ? abs_roll : abs_pitch;
+    bool in_air = (system_state_get() == SYSTEM_STATE_IN_AIR);
+    if (acro_mode) {
+      s_recovering = false;
+    } else if (in_air) {
+      if (!s_recovering) {
+        if (tilt > MAX_ANGLE_CUTOFF) {
+          s_recovering = true;
+          s_recovery_ticks = 0;
+        }
+      } else if (tilt < MAX_ANGLE_RECOVER) {
+        s_recovering = false; /* flown out of it */
+      } else if (++s_recovery_ticks > recovery_timeout_ticks) {
+        /* Not coming back (inverted, dead motor, broken prop). Holding hover
+         * thrust from here only drives it in harder — stop the props. */
+        s_recovering = false;
+        VAYU_DISCARD(system_state_set(SYSTEM_STATE_FAILSAFE));
+      }
+    } else {
+      s_recovering = false;
+      if (tilt > MAX_ANGLE_CUTOFF) {
+        VAYU_DISCARD(system_state_set(SYSTEM_STATE_FAILSAFE));
+      }
     }
+    if (s_recovering) {
+      /* FC flies it out: wings level, no yaw demand, hover collective. This
+       * overrides the pilot — including a chopped throttle stick, which is what
+       * removes the rate loop's authority in the first place. */
+      target_angles[0] = 0.0f;
+      target_angles[1] = 0.0f;
+      target_angles[2] = 0.0f;
+      normalized_rc_data.channels[3] = 0.0f;
+      target_throttle = RECOVERY_THROTTLE;
+    }
+
+    /* Height mode — 3-position switch, collective only. The sticks keep doing
+     * exactly what they always did; this takes the collective (and only the
+     * collective) while the switch is off centre:
+     *
+     *   centre -> OFF   pilot's stick passes through
+     *   up     -> HOLD  lift to 1 m and hold, or hold current height in flight
+     *   down   -> LAND  descend and settle, then idle
+     *
+     * Interlocks: angle mode only, never while recovering from an upset
+     * (recovery outranks it), and the switch must have been seen CENTRED since
+     * arming — otherwise arming with it already up would fly the craft off the
+     * ground unprompted.
+     *
+     * Height source: the tilt-compensated rangefinder AGL when it is in range
+     * and the craft is near level, else the baro-derived AGL. The controller
+     * re-anchors its setpoint across that handoff (height_controller.h). */
+    height_mode_t hmode = HEIGHT_MODE_OFF;
+    if (ALT_MODE_CH < IBUS_MAX_CHANNELS) {
+      uint16_t mode_us = rc_data.channels[ALT_MODE_CH];
+      /* Note the deliberate asymmetry: HOLD (the position that can fly the
+       * craft off the ground) additionally requires a PLAUSIBLE RC value, so a
+       * dead/unmapped channel reading 0 can never be mistaken for it. LAND
+       * needs no such guard — failing safe toward the ground is fine. */
+      if (mode_us >= ALT_MODE_VALID_MIN_US && mode_us < ALT_MODE_HOLD_US) {
+        hmode = HEIGHT_MODE_HOLD;
+      } else if (mode_us > ALT_MODE_LAND_US) {
+        hmode = HEIGHT_MODE_LAND;
+      }
+    }
+    /* Disarmed clears the interlock memory, so every flight has to pass through
+     * centre again before a mode can take the collective. */
+    sys_state_t hstate = system_state_get();
+    if (hstate != SYSTEM_STATE_ARMED && hstate != SYSTEM_STATE_IN_AIR) {
+      s_mode_seen_centre = false;
+    } else if (hmode == HEIGHT_MODE_OFF) {
+      s_mode_seen_centre = true;
+    }
+    bool hmode_vetoed = (acro_mode || s_recovering || !s_mode_seen_centre);
+    height_mode_t hmode_req = hmode;
+    if (hmode_vetoed) {
+      hmode = HEIGHT_MODE_OFF;
+    }
+
+    vertical_state_t vs;
+    if (vertical_state_queue_peek(&vs) && vs.valid) {
+      float alt = vs.tof_valid ? vs.agl_tof : vs.agl;
+      target_throttle =
+          height_ctrl_update(&s_height, hmode, in_air, target_throttle, alt,
+                             vs.tof_valid, vs.climb_rate, dt);
+    } else {
+      /* No usable vertical estimate — the pilot gets the collective back, but
+       * through the same OFF path (and so the same throttle re-sync) rather
+       * than a cold reset that would dump it on a possibly-idle stick. */
+      target_throttle =
+          height_ctrl_update(&s_height, HEIGHT_MODE_OFF, in_air, target_throttle,
+                             0.0f, false, 0.0f, dt);
+    }
+
+    /* Publish what the mode is doing, so "I flipped the switch and nothing
+     * happened" is answerable from telemetry instead of a log hunt. */
+    _height_state =
+        (uint8_t)(((uint8_t)hmode_req & HEIGHT_STATE_MODE_MASK) |
+                  (s_height.engaged ? HEIGHT_STATE_ENGAGED : 0u) |
+                  (s_height.failed ? HEIGHT_STATE_FAILED : 0u) |
+                  (s_height.landed ? HEIGHT_STATE_LANDED : 0u) |
+                  (s_height.handback ? HEIGHT_STATE_HANDBACK : 0u) |
+                  (s_mode_seen_centre ? HEIGHT_STATE_ARMED_OK : 0u) |
+                  ((hmode_vetoed && hmode_req != HEIGHT_MODE_OFF)
+                       ? HEIGHT_STATE_BLOCKED : 0u));
     // Calculate target rates
     float current_angles[NUM_AXES];
     current_angles[0] = attitude.roll;
