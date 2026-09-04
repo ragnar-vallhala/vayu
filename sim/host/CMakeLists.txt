@@ -361,6 +361,12 @@ add_test(NAME phase3_est_ekf COMMAND test_phase3_est_ekf)
 # build of assert.c (duplicate symbol + wrong branch).
 # VERT vertical estimator: pure 2-state baro+accel filter core (in
 # vayu_sitl_core); the test feeds synthetic accel/baro and checks tracking.
+# first-order LPF (src/est/lpf.c): pure math, no RTOS — recurrence, alpha
+# end-cases and step response.
+add_executable(test_lpf tests/test_lpf.c)
+target_link_libraries(test_lpf PRIVATE vayu_sitl_core m)
+add_test(NAME lpf COMMAND test_lpf)
+
 add_executable(test_vertical_est tests/test_vertical_est.c)
 target_link_libraries(test_vertical_est PRIVATE vayu_sitl_core m)
 add_test(NAME vertical_est COMMAND test_vertical_est)
