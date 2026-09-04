@@ -46,7 +46,7 @@ import sys
 FLOORS = {
     "firmware": {
         "calib": 92.0,      # ellipsoid + engine math — keep high
-        "est": 72.0,        # ekf / fusion / vertical — protected high-water
+        "est": 77.0,        # ekf / fusion / vertical — protected high-water
         "logger": 90.0,     # tiny (11 lines); band tolerates one new line
         "storage": 69.0,    # fs owner / xfer state machine
         "comm": 40.0,

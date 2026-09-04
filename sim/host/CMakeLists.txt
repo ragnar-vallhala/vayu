@@ -363,6 +363,11 @@ add_test(NAME phase3_est_ekf COMMAND test_phase3_est_ekf)
 # vayu_sitl_core); the test feeds synthetic accel/baro and checks tracking.
 # first-order LPF (src/est/lpf.c): pure math, no RTOS — recurrence, alpha
 # end-cases and step response.
+# accel/mag -> Euler helper (src/est/sensor_fusion.c): pure, no RTOS.
+add_executable(test_sensor_fusion tests/test_sensor_fusion.c)
+target_link_libraries(test_sensor_fusion PRIVATE vayu_sitl_core m)
+add_test(NAME sensor_fusion COMMAND test_sensor_fusion)
+
 add_executable(test_lpf tests/test_lpf.c)
 target_link_libraries(test_lpf PRIVATE vayu_sitl_core m)
 add_test(NAME lpf COMMAND test_lpf)

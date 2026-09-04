@@ -103,9 +103,14 @@ void m_acc_mag(const float ax, const float ay, const float az, const float mx,
     mz_n /= norm_m;
   }
 
-  // Roll and Pitch
-  ori->roll = to_degrees(m_atan2(-ay_n, az_n));
-  ori->pitch = -to_degrees(m_atan2(ax_n, m_sqrt(ay_n * ay_n + az_n * az_n)));
+  // Roll and Pitch. The driver reports the GRAVITY vector (bmx160_convert
+  // negates X and Z), so a level board reads ~-g on Z and world-UP in body is
+  // -a/|a|. This must match the EKF, which models world-DOWN as
+  // gb = R^T(0,0,-1) and warns that using world-up "flips the estimate 180deg".
+  // Deriving from +a instead put a LEVEL board at roll 180deg and inverted the
+  // pitch sign — see test_sensor_fusion.c.
+  ori->roll = to_degrees(m_atan2(-ay_n, -az_n));
+  ori->pitch = to_degrees(m_atan2(ax_n, m_sqrt(ay_n * ay_n + az_n * az_n)));
 
   float sin_roll = m_sin(to_radians(ori->roll));
   float cos_roll = m_cos(to_radians(ori->roll));
