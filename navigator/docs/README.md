@@ -25,4 +25,4 @@ tells you how long it lives and how it's maintained:
   research.
 
 For the project-wide documentation taxonomy across all components (fc, navlink,
-gcs, sim), see [`../../docs/README.md`](../../docs/README.md).
+gcs, sim), see [`firmware/docs/README.md`](../../firmware/docs/README.md).

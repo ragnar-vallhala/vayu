@@ -8,7 +8,7 @@ in, telemetry + ground truth out) — no standalone daemon. The operator-facing 
 protocol (pose/ctl FIFOs) is defined in [`../include/vsim_proto.h`](../include/vsim_proto.h).
 
 These docs follow the four-layer lifecycle taxonomy used across the repo
-(see the global index at [`../../../docs/README.md`](../../../docs/README.md)):
+(see the global index at [`firmware/docs/README.md`](../../../firmware/docs/README.md)):
 
 - **[reference/](reference/README.md)** — architecture explainers + formal
   requirements. The living contract: edited in place, never deleted. Start with

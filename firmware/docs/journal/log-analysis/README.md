@@ -119,7 +119,7 @@ timestamp) holding the raw `.bin` plus all analysis of it.
   - [`README`](20260625-231706-pitch-osc/README.md) — provenance, data, plot list
   - [`pitch-oscillation-analysis.md`](20260625-231706-pitch-osc/pitch-oscillation-analysis.md) — the 1.5 Hz cascade diagnosis + fix
 
-- [`20260625-233852-pitch-verify/`](20260625-233852-pitch-verify/) — **2026-06-25
+- [`20260625-233852-pitch-verify/`](20260625-233852-pitch-indi-campaign/20260625-233852-pitch-verify/) — **2026-06-25
   23:38**, **real FC** verification after the wc-capped pitch tune v3. **Headline:
   NOT a tuning problem — across 3 gain sets (rate_kp 0.005–0.012, angle_kp
   1.75–4.14) pitch limit-cycles at 1.5–2.6 Hz while roll is rock-stable, and
@@ -127,4 +127,4 @@ timestamp) holding the raw `.bin` plus all analysis of it.
   run ~20 % harder than back (pitch imbalance); pitch sysid K=1381 is 2.45× roll's
   563. Points to a physical pitch-axis fault (CG forward / burned motor-ESC / prop).
   Fix the hardware, then re-sysid.
-  - [`README`](20260625-233852-pitch-verify/README.md) — verdict, gain-sweep table, motor asymmetry, causes
+  - [`README`](20260625-233852-pitch-indi-campaign/20260625-233852-pitch-verify/README.md) — verdict, gain-sweep table, motor asymmetry, causes
