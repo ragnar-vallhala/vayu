@@ -7,8 +7,13 @@ static float clampf(float v, float lo, float hi) {
   return v < lo ? lo : (v > hi ? hi : v);
 }
 
+/** @noreq Expo derived from hover; see throttle_curve.h. */
+float throttle_curve_expo(float hover_duty) {
+  return clampf(-(hover_duty - 0.5f) / 0.375f, -0.5f, 1.0f);
+}
+
 /** @noreq Collective stick shaping; see throttle_curve.h. */
-float throttle_curve(float stick, float hover_duty, float expo) {
+float throttle_curve(float stick, float hover_duty) {
   stick = clampf(stick, 0.0f, 1.0f);
 
   /* A nonsensical hover constant must not produce surprising stick behaviour —
@@ -16,7 +21,7 @@ float throttle_curve(float stick, float hover_duty, float expo) {
   if (!(hover_duty > 0.0f) || !(hover_duty < 1.0f)) {
     return stick;
   }
-  expo = clampf(expo, 0.0f, 1.0f);
+  const float expo = throttle_curve_expo(hover_duty);
 
   /* Expo about mid-stick: x in [-1,1], y = (1-e)x + e x^3. Cubic keeps the
    * endpoints and the centre fixed while flattening the slope near centre. */

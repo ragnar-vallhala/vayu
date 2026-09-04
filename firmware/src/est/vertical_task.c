@@ -17,7 +17,9 @@
  * (sim/host/tests/test_vertical_est.c). This file is just the I/O wrapper.
  */
 #include "control/angle_controller.h" /* angle_controller_last_throttle */
+#include "control/height_controller.h" /* HEIGHT_HOVER_GUESS (initial seed) */
 #include "est/flight_phase.h"
+#include "est/hover_estimate.h"
 #include "est/vertical_estimator.h"
 #include "maths/linalg.h" /* m_quat_rotate */
 #include "sensor/bme280.h"
@@ -54,6 +56,10 @@
  * the ~21 Hz ride-along cadence. */
 #define VERT_TOF_STALE_STEPS 50u
 
+/* Latest cos(tilt) from the body-down rotation, shared between the ToF gate and
+ * the hover-estimate gate (both need "is it level?"). */
+static float _cos_tilt = 1.0f;
+
 /* @implements EST-ALT-001 */
 void vertical_estimator_task(void *args) {
   (void)args;
@@ -62,6 +68,11 @@ void vertical_estimator_task(void *args) {
 
   flight_phase_t fp;
   flight_phase_init(&fp);
+
+  /* Hover estimate: seeded from the airframe constant, then measured in steady
+   * level flight. Everything vertical keys off this number. */
+  hover_est_t hov;
+  hover_est_init(&hov, HEIGHT_HOVER_GUESS);
 
   uint32_t last_baro_stamp = 0;
   bool have_baro_stamp = false;
@@ -101,6 +112,13 @@ void vertical_estimator_task(void *args) {
       }
     }
 
+    /* Hover-collective estimate. cos_tilt comes from the same body-down
+     * rotation the ToF uses, computed just below; on the first pass it is the
+     * previous step's value, which at 250 Hz is immaterial. */
+    hover_est_update(&hov, system_state_get() == SYSTEM_STATE_IN_AIR,
+                     angle_controller_last_throttle(), ve.climb_rate,
+                     ve.vertical_accel, _cos_tilt, in.dt);
+
     /* Rangefinder AGL. Deliberately NOT fused into the estimator: the ToF is an
      * AGL reference over whatever is directly below (it steps when the ground
      * does), while the filter tracks a baro reference. Folding one into the
@@ -123,6 +141,7 @@ void vertical_estimator_task(void *args) {
       float w_down[3];
       m_quat_rotate(&in.q, body_down, w_down);
       float cos_tilt = w_down[2];
+      _cos_tilt = cos_tilt;
       agl_tof = tof.range_m * cos_tilt;
       tof_valid = (tof_age_steps < VERT_TOF_STALE_STEPS) &&
                   (cos_tilt > VERT_TOF_MAX_TILT_COS) &&
@@ -158,6 +177,8 @@ void vertical_estimator_task(void *args) {
         .agl = fp.agl,
         .agl_tof = agl_tof,
         .tof_valid = tof_valid,
+        .hover_est = hov.estimate,
+        .hover_measured = hov.measured,
         .valid = ve.initialized,
         .timestamp = in.timestamp,
     };

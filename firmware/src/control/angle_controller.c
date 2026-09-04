@@ -257,13 +257,22 @@ void angle_controller_task(void *arg) {
         DEAFULT_PITCH_ANGLE_TARGET_MAX; // Forward push if acieved by tilting
                                         // back motors up which is negative
                                         // pitch
-    /* Collective stick shaping: hover at mid-stick, linear in THRUST. The raw
-     * map put hover at 38% of travel on this airframe and made mid-stick a
-     * +0.7 g climb; see control/throttle_curve.h. Roll/pitch/yaw are untouched.
-     * HEIGHT_HOVER_GUESS is the single airframe hover constant, shared with the
-     * height mode so the two cannot disagree. */
-    float target_throttle = throttle_curve(normalized_rc_data.channels[2],
-                                           HEIGHT_HOVER_GUESS, THROTTLE_EXPO);
+    /* Collective stick shaping: hover at mid-stick, linear in THRUST, expo
+     * derived from hover. The raw map put hover at 38% of travel on this
+     * airframe and made mid-stick a +0.7 g climb; see control/throttle_curve.h.
+     * Roll/pitch/yaw are untouched.
+     *
+     * Centre the curve on the MEASURED hover once the estimator has one — both
+     * references do this (PX4 slews its curve centre to the hover-thrust
+     * estimate; ArduPilot learns MOT_THST_HOVER). HEIGHT_HOVER_GUESS is only
+     * the seed, so the stick re-centres itself on the airframe's real hover
+     * instead of trusting a number derived from assumed thrust. */
+    vertical_state_t vs;
+    bool have_vs = vertical_state_queue_peek(&vs) && vs.valid;
+    float hover_now =
+        (have_vs && vs.hover_measured) ? vs.hover_est : HEIGHT_HOVER_GUESS;
+    float target_throttle =
+        throttle_curve(normalized_rc_data.channels[2], hover_now);
     target_angles[2] =
         normalized_rc_data.channels[3] * DEAFULT_YAW_ANGLE_TARGET_MAX;
 
@@ -385,8 +394,7 @@ void angle_controller_task(void *arg) {
       hmode = HEIGHT_MODE_OFF;
     }
 
-    vertical_state_t vs;
-    if (vertical_state_queue_peek(&vs) && vs.valid) {
+    if (have_vs) {
       float alt = vs.tof_valid ? vs.agl_tof : vs.agl;
       target_throttle =
           height_ctrl_update(&s_height, hmode, in_air, target_throttle, alt,

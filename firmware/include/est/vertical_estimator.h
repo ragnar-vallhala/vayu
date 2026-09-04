@@ -88,6 +88,10 @@ typedef struct {
                          *   modes, and the takeoff/landing detector must keep
                          *   running on the baro reference it was tuned against. */
   bool tof_valid;       /**< agl_tof is fresh, in range, and near-level. */
+  float hover_est;      /**< measured hover collective (0..1). Seeded from the
+                         *   airframe constant, refined in steady level flight.
+                         *   The throttle curve centres the stick on this. */
+  bool hover_measured;  /**< true once a real in-flight sample moved it. */
   bool valid;           /**< filter seeded. */
   uint32_t timestamp;   /**< DWT cycle stamp of the driving sample. */
 } vertical_state_t;
