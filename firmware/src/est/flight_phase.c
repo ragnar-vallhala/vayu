@@ -16,15 +16,23 @@ void flight_phase_init(flight_phase_t *fp) {
   fp->ground_ref = 0.0f;
   fp->have_ref = false;
   fp->agl = 0.0f;
+  fp->tof_ground_ref = 0.0f;
+  fp->have_tof_ref = false;
+  fp->tof_active = false;
   fp->powered = false;
   fp->takeoff_timer = 0.0f;
   fp->land_timer = 0.0f;
 }
 
 /* @implements EST-PHS-001, EST-PHS-101 */
+/* @noreq trivial accessor. */
+bool flight_phase_tof_active(const flight_phase_t *fp) { return fp->tof_active; }
+
+/* @implements EST-PHS-001, EST-PHS-101 */
 flight_phase_event_t flight_phase_update(flight_phase_t *fp, bool armed,
                                          bool in_air, float fused_alt,
-                                         float baro_alt, float climb_rate,
+                                         float baro_alt, float tof_range,
+                                         bool tof_valid, float climb_rate,
                                          float throttle, float dt) {
   /* Ground reference: recapture continuously while disarmed (absorbs slow baro
    * drift), freeze the moment the craft commits to arm. Anchored to the
@@ -41,6 +49,16 @@ flight_phase_event_t flight_phase_update(flight_phase_t *fp, bool armed,
       fp->ground_ref = baro_alt;
       fp->have_ref = true;
     }
+    /* Same terms for the rangefinder: what it reads with the craft at rest on
+     * its feet IS the mounting height, so capturing it here is what makes the
+     * offset self-calibrating. Only while settled, and only from a valid
+     * reading — a dropout must not seed a zero reference. */
+    if (tof_valid &&
+        (!fp->have_tof_ref || m_fabsf(climb_rate) < FLIGHT_PHASE_LAND_RATE_MS)) {
+      fp->tof_ground_ref = tof_range;
+      fp->have_tof_ref = true;
+    }
+    fp->tof_active = false;
     fp->agl = 0.0f;
     fp->powered = false;
     fp->takeoff_timer = 0.0f;
@@ -48,7 +66,29 @@ flight_phase_event_t flight_phase_update(flight_phase_t *fp, bool armed,
     return FLIGHT_PHASE_EVENT_NONE;
   }
 
-  fp->agl = fp->have_ref ? (fused_alt - fp->ground_ref) : 0.0f;
+  /* AGL source. The ToF wins whenever it is trustworthy AND referenced; the two
+   * are selected between, never blended (see the header). */
+  bool use_tof = tof_valid && fp->have_tof_ref;
+  if (use_tof) {
+    fp->agl = tof_range - fp->tof_ground_ref;
+  } else {
+    /* Leaving the ToF band (climbing out, or a dropout): re-anchor the baro
+     * reference so AGL carries on from the ToF value instead of stepping by
+     * however far the baro has drifted since arm. One assignment, at the
+     * transition only. */
+    if (fp->tof_active && fp->have_ref) {
+      fp->ground_ref = fused_alt - fp->agl;
+    }
+    fp->agl = fp->have_ref ? (fused_alt - fp->ground_ref) : 0.0f;
+  }
+  fp->tof_active = use_tof;
+
+  /* Altitude gates tighten when the ToF is driving — it resolves centimetres
+   * where the baro gates had to allow for metres of noise. */
+  const float takeoff_alt =
+      use_tof ? FLIGHT_PHASE_TOF_TAKEOFF_ALT_M : FLIGHT_PHASE_TAKEOFF_ALT_M;
+  const float land_alt =
+      use_tof ? FLIGHT_PHASE_TOF_LAND_ALT_M : FLIGHT_PHASE_LAND_ALT_M;
 
   /* Latch that lift was commanded since arm. A real takeoff drives throttle past
    * the gate before/while rising; a chop mid-coast (wobbly outer loop) then
@@ -62,7 +102,7 @@ flight_phase_event_t flight_phase_update(flight_phase_t *fp, bool armed,
 
   if (!in_air) {
     /* Takeoff: altitude AND climb AND lift-was-commanded, sustained. */
-    bool gate = fp->agl > FLIGHT_PHASE_TAKEOFF_ALT_M &&
+    bool gate = fp->agl > takeoff_alt &&
                 climb_rate > FLIGHT_PHASE_TAKEOFF_RATE_MS && fp->powered;
     fp->land_timer = 0.0f;
     if (!gate) {
@@ -79,7 +119,7 @@ flight_phase_event_t flight_phase_update(flight_phase_t *fp, bool armed,
 
   /* In air -> touchdown: settled near the ground, near-zero motion, throttle
    * backed off, sustained past the (longer) landing debounce. */
-  bool gate = fp->agl < FLIGHT_PHASE_LAND_ALT_M &&
+  bool gate = fp->agl < land_alt &&
               m_fabsf(climb_rate) < FLIGHT_PHASE_LAND_RATE_MS &&
               throttle < FLIGHT_PHASE_LAND_THROTTLE;
   fp->takeoff_timer = 0.0f;
