@@ -15,13 +15,13 @@ The filter operates on the principle of frequency-domain complementarity.
 
 The filter combines these two sources using a single coefficient $\alpha$ (the low-pass filter factor):
 
-$$ \theta*{t} = \alpha \cdot (\theta*{t-1} + \omega \cdot dt) + (1 - \alpha) \cdot \theta\_{acc} $$
+$$ \theta_{t} = \alpha \cdot (\theta_{t-1} + \omega \cdot dt) + (1 - \alpha) \cdot \theta_{acc} $$
 
 - **High-pass part**: $\alpha \cdot (\theta_{t-1} + \omega \cdot dt)$ integrates the gyro and keeps high-frequency changes.
 - **Low-pass part**: $(1 - \alpha) \cdot \theta_{acc}$ uses the accelerometer and keeps the low-frequency stability.
 
 For **Yaw**, the filter uses the magnetometer-derived yaw $(\psi_{mag})$ instead of the accelerometer:
-$$ \psi*{t} = \alpha \cdot (\psi*{t-1} + \omega*z \cdot dt) + (1 - \alpha) \cdot \psi*{mag} $$
+$$ \psi_{t} = \alpha \cdot (\psi_{t-1} + \omega_z \cdot dt) + (1 - \alpha) \cdot \psi_{mag} $$
 
 ## Implementation Details
 
