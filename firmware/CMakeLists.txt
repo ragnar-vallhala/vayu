@@ -173,6 +173,7 @@ set(VAYU_R12_CLEAN_SOURCES
     # SNS module (Phase 4)
     ${CMAKE_CURRENT_SOURCE_DIR}/src/sensor/bmx160.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/sensor/bme280.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/sensor/vl53l0x.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/sensor/imu_buffer.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/sensor/i2c_manager.c
     # CTRL module (Phase 4)
@@ -182,6 +183,7 @@ set(VAYU_R12_CLEAN_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/sysid.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/pid_config.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/pid.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/height_controller.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/control_buffer.c
     # COMM module (Phase 4)
     ${CMAKE_CURRENT_SOURCE_DIR}/src/comm/channel.c

@@ -3,6 +3,7 @@
 #include "comm/comm.h"
 #include "sensor/bme280.h"
 #include "sensor/i2c_manager.h"
+#include "sensor/vl53l0x.h"
 #include "navhal.h"
 #include "ipc.h"
 #include "est/est.h"
@@ -73,12 +74,19 @@ typedef enum {
   IMU_OP_FAST, // Gyro + Accel
   IMU_OP_MAG,  // Magnetometer
   IMU_OP_TEMP, // Temperature
-  IMU_OP_BARO  // BME280 baro/humidity (shares this single-owner bus loop)
+  IMU_OP_BARO, // BME280 baro/humidity (shares this single-owner bus loop)
+  IMU_OP_TOF   // VL53L0X ToF rangefinder (ditto)
 } imu_op_t;
 
 /* Read the BME280 every Nth TEMP slot. TEMP runs ~1/13 of FAST (2 kHz) ~= 150
  * Hz, so /10 ~= 15 Hz — matched to the BME280's 62.5 ms normal-mode cadence. */
 #define BARO_READ_DECIM 10
+
+/* Read the VL53L0X every Nth TEMP slot. 150/7 ~= 21 Hz, comfortably under the
+ * device's ~30 Hz continuous cadence. 7 is coprime with BARO_READ_DECIM so the
+ * two ride-along slots almost never land on the same TEMP tick (when they do,
+ * the baro wins and the ToF read simply waits one cycle). */
+#define TOF_READ_DECIM 7
 
 extern hal_i2c_config_t i2c_config;
 static volatile imu_op_t _next_op = IMU_OP_FAST;
@@ -92,6 +100,7 @@ static void bmx160_dma_callback_fast(void *args);
 static void bmx160_dma_callback_mag(void *args);
 static void bmx160_dma_callback_temp(void *args);
 static void bmx160_dma_callback_baro(void *args);
+static void bmx160_dma_callback_tof(void *args);
 
 static float acc_scale = 0.0f;
 static float gyr_scale = 0.0f;
@@ -952,6 +961,14 @@ void bmx160_initiate_read(void *args) {
         ret = i2c_manager_read_async(BME280_I2C_ADDR, BME280_REG_DATA,
                                      BME280_DATA_LEN, bmx160_dma_callback_baro);
         break;
+      case IMU_OP_TOF:
+        /* Read the VL53L0X's 12-byte result block (0x14..0x1F) through the SAME
+         * single-owner DMA path. The device free-runs in continuous mode, so
+         * this is a pure read — no trigger, and no interrupt-clear write (the
+         * async path cannot write; see vl53l0x.h). */
+        ret = i2c_manager_read_async(VL53L0X_I2C_ADDR, VL53L0X_REG_RESULT_RANGE,
+                                     VL53L0X_DATA_LEN, bmx160_dma_callback_tof);
+        break;
       }
 
       if (ret != HAL_OK) {
@@ -1030,6 +1047,7 @@ static void bmx160_dma_callback_mag(void *args) {
 /** @implements SNS-BMX-104, SNS-BMX-105 */
 static void bmx160_dma_callback_temp(void *args) {
   static uint32_t baro_counter = 0;
+  static uint32_t tof_counter = 0;
   if (args != NULL) {
     v_memcpy(&_bmx_dma_rx_buffer_double[28], args, 2);
     _temp_fresh = 1; /* new temperature -> process_data will reconvert it */
@@ -1039,8 +1057,11 @@ static void bmx160_dma_callback_temp(void *args) {
    * only if the baro is present (else its DMA read would NACK and trip the
    * IMU recovery path). The baro callback returns the chain to FAST. */
   baro_counter++;
+  tof_counter++;
   if (bme280_is_present() && (baro_counter % BARO_READ_DECIM == 0)) {
     _next_op = IMU_OP_BARO;
+  } else if (vl53l0x_is_present() && (tof_counter % TOF_READ_DECIM == 0)) {
+    _next_op = IMU_OP_TOF;
   } else {
     _next_op = IMU_OP_FAST;
   }
@@ -1059,6 +1080,24 @@ static void bmx160_dma_callback_temp(void *args) {
 static void bmx160_dma_callback_baro(void *args) {
   if (args != NULL) {
     bme280_ingest_raw((const uint8_t *)args);
+  }
+  isr_count++;
+  _next_op = IMU_OP_FAST;
+
+  int higher_priority_task_woken = 0;
+  v_semaphore_give_from_isr(bmx160_ready_sema, &higher_priority_task_woken);
+  if (higher_priority_task_woken) {
+    task_yield();
+  }
+}
+
+/* VL53L0X result-block burst complete: hand the 12 raw bytes to the ToF driver
+ * (cheap copy + flag; decode runs in vl53l0x_read_task) and return the
+ * acquisition chain to FAST. Mirrors the baro callback. */
+/** @noreq ISR glue for the ToF ride-along slot. */
+static void bmx160_dma_callback_tof(void *args) {
+  if (args != NULL) {
+    vl53l0x_ingest_raw((const uint8_t *)args);
   }
   isr_count++;
   _next_op = IMU_OP_FAST;

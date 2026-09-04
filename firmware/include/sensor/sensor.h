@@ -21,5 +21,6 @@
 #include "sensor/bmx160.h"      /* IMU driver + reading/calibration types */
 #include "sensor/i2c_manager.h" /* shared I2C bus manager */
 #include "sensor/imu_buffer.h"  /* IMU sample + attitude queues */
+#include "sensor/vl53l0x.h"   /* ToF rangefinder (I2C1 ride-along) */
 
 #endif // VAYU_SENSOR_H

@@ -75,6 +75,7 @@ set(VAYU_SOURCES
     ${VAYU_ROOT}/firmware/src/actuator/esc.c
     ${VAYU_ROOT}/firmware/src/actuator/motor.c
     ${VAYU_ROOT}/firmware/src/control/angle_controller.c
+    ${VAYU_ROOT}/firmware/src/control/height_controller.c
     ${VAYU_ROOT}/firmware/src/control/angle_rate_controller.c
     ${VAYU_ROOT}/firmware/src/control/mixer.c        # control allocation (mix + airmode desaturation)
     ${VAYU_ROOT}/firmware/src/control/sysid.c        # rate-loop system-ID excite/capture (angle_rate_controller + navlink refs)
@@ -100,6 +101,7 @@ set(VAYU_SOURCES
     ${VAYU_ROOT}/firmware/src/est/flight_phase.c        # takeoff/landing detector + FC-owned AGL (IN_AIR)
     ${VAYU_ROOT}/firmware/src/sensor/imu_buffer.c
     ${VAYU_ROOT}/firmware/src/sensor/bme280.c   # real FC baro driver (altitude/publish/getters); host_baro.c feeds it
+    ${VAYU_ROOT}/firmware/src/sensor/vl53l0x.c  # real FC ToF driver; no host feeder, so its boot probe fails on the i2c stubs and it reports absent (tof_valid=0 -> the height loop falls back to baro AGL)
     ${VAYU_ROOT}/firmware/src/storage/fs_owner.c # centralised FS owner (absorbs logger.c)
     ${VAYU_ROOT}/firmware/src/logger/log_text.c  # vayu_log + queue (moved from utils.c)
     ${VAYU_ROOT}/firmware/src/sys/state.c
