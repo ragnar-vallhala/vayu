@@ -237,8 +237,12 @@ consequence.
 - `_kpdmax` (`AC_PID.cpp:287-295`) caps |P + D| combined, separately from the
   output clamp.
 
-**Vayu today:** `I_MAX 0.2` + `D_MAX 0.25` per axis, chosen arbitrarily rather
-than derived from the ~0.35 of room.
+**Vayu today:** `I_MAX 0.2` + `D_MAX 0.25` per axis. An earlier draft of this
+plan called these oversized; converted into ArduPilot's units that is **wrong**.
+AP's `AC_ATC_MULTI_RATE_RP_IMAX` 0.5 in normalised torque is 0.354 of per-motor
+duty on an X quad, so vayu's 0.2 is **0.57x ArduPilot's** — conservative, not
+excessive. What is genuinely unlike the references is the absence of a P+D sum
+cap (`_kpdmax`) and of any slew-rate detune; the clamps themselves are fine.
 
 ---
 

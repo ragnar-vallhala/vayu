@@ -114,8 +114,14 @@ void init_tasks(void) {
    * pushed this task's measured peak 428 -> 484 B, leaving 348 B free against a
    * 256 B guard band — under one FP exception frame (132 B) of true headroom.
    * See the rate_ctl note above for what that costs when it runs out. */
-  task_create_named(vertical_estimator_task, NULL, 1024, 1,
-                    "vertical"); // peak 484 measured (was 428 pre-ToF)
+  task_create_named(vertical_estimator_task, NULL, 1280, 1,
+                    "vertical"); // peak 708 measured
+                                 // 484 -> 708 when the hover estimator and its
+                                 // boot-time hover_store_load (vfs_open+read)
+                                 // landed here. At 1024 that left 316 B free
+                                 // against the 256 B guard band -- under one FP
+                                 // exception frame (132 B) of real margin, i.e.
+                                 // the same shape as the rate_ctl panic.
   task_create_named(rc_ibus_task, NULL, 576, 0, "rc_ibus"); // peak 132
   task_create_named(angle_controller_task, NULL, 832, 1,
                     "angle_ctl"); // peak 404, control
