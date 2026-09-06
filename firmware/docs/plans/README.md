@@ -4,9 +4,11 @@ Active plans for in-flight firmware work; a plan is deleted once its feature shi
 
 - [`vertical-velocity-vibration.md`](vertical-velocity-vibration.md) — with the
   motors running the accelerometer under-reads gravity by ~1 m/s^2, so the vertical
-  filter integrates a phantom -1 m/s descent and the height controller answers with
-  roughly double hover thrust. Measured on the bench; the CAUSE of the under-read is
-  not yet established. **Blocks the height mode.** Design stage.
+  filter integrated a phantom -1 m/s descent and the height controller answered with
+  roughly double hover thrust. FIXED by adding the estimator's third state (accel
+  bias) plus a health flag that vetoes the height mode; host-tested, NOT yet run on
+  hardware. The CAUSE of the under-read is still not established — the bench
+  measurement is the next step.
 - [`rate-loop-saturation.md`](rate-loop-saturation.md) — the rate PID can demand
   ~2× the differential thrust the airframe can deliver at hover, so the mixer
   saturates, airmode shifts collective to preserve roll/pitch, and the aircraft

@@ -21,6 +21,14 @@ back: the innovation runs at +0.55 m, which pushes climb UP at
 anyway, the accel path must be pushing down about as hard — and
 `vertical_accel` is indeed ~-0.7 sustained.
 
+**The estimator's own header predicted this number.** It documented that a
+2-state filter leaves a steady-state velocity offset of `(k_alt/k_vel)*b` under
+a constant accel bias `b`, and `test_vertical_est.c` VERT-006 asserted it. With
+b = -1.0 m/s^2 that is **-1.47 m/s**; the craft was genuinely rising ~0.5 m/s,
+giving the -1.0 observed. The predicted steady innovation, `-b*T/k_vel`, is
+0.625 m against 0.55 measured. So this was not a mystery in the filter — it was
+a documented limitation meeting a bias large enough to matter.
+
 Measured `|accel|` from the same log:
 
 | condition | mean | vs 9.807 | sd |
@@ -124,26 +132,87 @@ airframe needs soft-mounting rather than guessing.
 
 ## Fix order
 
-0. **Measure it properly** (above). Everything below is contingent on the effect
-   being real and reproducible on a clamped, stationary craft.
-1. **Port PX4's innovation test.** vayu already computes the exact signal it
-   needs: `vert_est_correct()`'s innovation is `baro_alt - ve.altitude`. And we
-   now have TWO sources of different reference type — baro (PRESSURE) and the
-   ToF AGL (GROUND) — which is precisely what PX4's HIGH-confidence case wants.
-   This defends against the failure **without needing to know its cause**, which
-   is the strongest argument for doing it first.
-2. **Respond to the declaration**: stop integrating accel into the velocity
-   state while `bad_vert_accel` holds, and lean on the height sources for
-   velocity. Persist it with a probation period.
-3. **Add ArduPilot's vibe metric** (5 Hz floor, diff, square, 2 Hz) to telemetry.
-   Cheap, and it turns "the airframe vibrates" from a hypothesis into a number.
-4. **Soft-mount the FC.** The hardware half; reduces the input rather than
-   compensating for it.
-5. **Rangefinder-derived climb rate** near the ground as a cross-check. The ToF
-   tracked this lift correctly while the accel path was lying, and
-   differentiating it is noisy but *unbiased* — which is the property that
-   matters here.
+**Step 1 is DONE** (commit below). The rest is unchanged.
 
-Note the ordering deliberately puts the detector before any filtering: a DC bias
-from rectification survives a low-pass, so filtering the input is not obviously
-sufficient, whereas the innovation test catches the symptom whatever its origin.
+### 1. Third state: estimate the bias and subtract it — SHIPPED
+
+The header named the fix while documenting the limitation: *"a 2-state filter
+cannot fully separate a DC accel bias from true velocity (that needs a 3rd bias
+state)"*. So the estimator now has one.
+
+```
+predict:  a_corr = a_up - accel_bias           /* subtract the DC error */
+correct:  accel_bias -= k_bias * (baro - alt)  /* learn it from the innovation */
+```
+
+That innovation is the same signal PX4's `checkVerticalAccelerationHealth()`
+watches — used here to CANCEL the error rather than merely to flag it.
+
+The gains turn out to be nearly free. A critically-damped 3rd-order
+complementary filter with poles at -w and gains applied at baro rate f wants
+K1 = 3w, K2 = 3w^2, K3 = w^3. The shipped `k_alt = 0.15` at f ~ 16 Hz is
+w ~ 0.8 rad/s, which asks for `k_vel = 0.12` (shipped: 0.10) and
+`k_bias = 0.032` (chosen: 0.03). **The third state completes the design the
+first two already implied.**
+
+Verified in `test_vertical_est.c` (25 checks): with b = -1 m/s^2 the bias state
+learns -1.0000 and `climb_rate` converges to zero, where the 2-state filter gave
+-1.4688. It settles in 7.6 s, does not absorb a real 1 m/s steady climb, and the
+extra ringing on an unphysical 5 m baro step is bounded and measured rather than
+assumed away (peak 2.87 m/s vs 2.44, settles by 12 s).
+
+Cost and residual risk:
+
+- **~7.6 s to converge.** The bias appears at throttle-up, so the first few
+  seconds of a flight are still partly corrupted. Steps 2-3 below cover that
+  window; a zero-velocity update while armed-on-ground would shorten it and is
+  the obvious next lever if 7.6 s proves too slow.
+- **The bias is not truly constant** — it tracks throttle. The state follows
+  slow changes, not fast transients.
+
+### 2. Health flag + veto — SHIPPED
+
+`accel_bias` is clamped to +/-3 m/s^2 (~3x the measured bias). Saturation means
+the mismatch exceeds what the filter can absorb, so `accel_unhealthy` latches,
+clearing only after 80 clean corrections (~5 s) — PX4's `BADACC_PROBATION` idea,
+so it cannot chatter at the clamp and strobe the height mode.
+
+`angle_controller` now vetoes the height mode on it, handing the collective back
+through the normal OFF path with its throttle re-sync. The height controller's
+inner loop IS `climb_rate`, so a corrupted one does not degrade the mode, it
+inverts it.
+
+### 3. Telemetry — SHIPPED
+
+`VERTICAL_STATE` (1040) gains `accel_bias` and `accel_unhealthy` as **extension**
+fields, so they are excluded from CRC_EXTRA and old peers are unaffected
+(navlink/ABI.md sec 2 rule 2).
+
+`accel_bias` is worth watching in its own right: it is the vibration read-out, in
+the units that matter, and it makes the "measure it properly" step below a matter
+of reading one number rather than post-processing a log.
+
+### 4. Still to do
+
+- **Measure it properly.** Clamped, stationary craft, throttle stepped 0 -> 0.2
+  -> 0.4 -> 0.6, props off then on, watching `accel_bias` converge at each step.
+  This is now a direct read-out. It answers whether the effect is real (the
+  original figures come from `ImuRaw` at ~1.7 Hz — 12 and 27 samples — taken
+  while the craft was being moved by hand), how it scales with throttle, and
+  whether 3 m/s^2 of authority is the right size.
+- **ArduPilot's vibe metric** (5 Hz floor filter, subtract, square, 2 Hz filter)
+  for the AC part. `accel_bias` captures the DC rectification; this captures the
+  vibration itself, which is what tells you the airframe needs soft-mounting.
+- **Soft-mount the FC.** Reduces the input rather than compensating for it. Still
+  the only fix that addresses the cause.
+- **Rangefinder-derived climb rate** near the ground as an independent check. The
+  ToF tracked the lift correctly while the accel path was lying; differentiating
+  it is noisy but *unbiased*, which is the property that matters here.
+
+## Status
+
+The estimator no longer converts this vibration into a phantom descent, and the
+height mode refuses to run when the error exceeds what it can cancel. **None of
+this has flown, or even run on hardware** — it is verified in host tests only.
+The bench measurement above is the next step, and the height mode stays grounded
+until `accel_bias` has been watched converge on the real airframe.

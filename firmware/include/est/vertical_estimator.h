@@ -44,17 +44,46 @@
  * ~16 Hz baro + ~250 Hz predict; re-tuned in SITL.
  *
  * Position gain (k_alt) pulls altitude toward baro; velocity gain (k_vel) is
- * the cross-term that bounds accel drift. NOTE: a constant accel bias `b`
- * leaves a steady-state velocity offset of (k_alt/k_vel)*b — a 2-state filter
- * cannot fully separate a DC accel bias from true velocity (that needs a 3rd
- * bias state). So the ratio is kept near 1 (not >> 1) to keep that offset
- * small; k_vel is not driven higher only because it also injects baro noise
- * into climb_rate. See test_vertical_est.c, which asserts this exact offset. */
+ * the cross-term that bounds accel drift; bias gain (k_bias) drives the third
+ * state.
+ *
+ * HISTORY: this filter used to have only two states, and a constant accel bias
+ * `b` then left a steady-state velocity offset of (k_alt/k_vel)*b. That is not
+ * academic — motor vibration makes the accelerometer under-report gravity by
+ * ~1 m/s^2 on this airframe, which produced a phantom -1.5 m/s descent while
+ * the craft was climbing, and the height controller answered that with roughly
+ * double hover thrust. See docs/plans/vertical-velocity-vibration.md. The third
+ * state is the fix: it estimates `b` and subtracts it, so the offset goes away
+ * rather than being tolerated.
+ *
+ * The three gains form a critically-damped 3rd-order complementary filter: with
+ * all poles at -w and gains applied at the baro rate f, K1 = 3w, K2 = 3w^2 and
+ * K3 = w^3. The pre-existing k_alt = 0.15 at f ~ 16 Hz is w ~ 0.8 rad/s, which
+ * puts k_vel at 3w^2/f = 0.12 (the shipped 0.10) and k_bias at w^3/f = 0.032 —
+ * so the third state completes the design the first two already implied. */
 #ifndef VERT_DEFAULT_K_ALT
 #define VERT_DEFAULT_K_ALT 0.15f
 #endif
 #ifndef VERT_DEFAULT_K_VEL
 #define VERT_DEFAULT_K_VEL 0.10f
+#endif
+#ifndef VERT_DEFAULT_K_BIAS
+#define VERT_DEFAULT_K_BIAS 0.03f
+#endif
+
+/* Authority limit on the bias state (m/s^2). Bounds how much mismatch the
+ * filter will quietly absorb, so a genuinely broken accelerometer (or a baro
+ * being blown around by prop wash) cannot wind the state into fiction. Sized
+ * ~3x the ~1 m/s^2 vibration bias actually measured on this airframe. */
+#ifndef VERT_ACCEL_BIAS_MAX
+#define VERT_ACCEL_BIAS_MAX 3.0f
+#endif
+
+/* Consecutive clean baro corrections needed to clear `accel_unhealthy` once it
+ * latches — PX4's BADACC_PROBATION idea, so the flag cannot chatter at the
+ * clamp and drop the height mode in and out. ~5 s at 16 Hz. */
+#ifndef VERT_ACCEL_PROBATION_SAMPLES
+#define VERT_ACCEL_PROBATION_SAMPLES 80u
 #endif
 
 typedef struct {
@@ -62,8 +91,18 @@ typedef struct {
   float climb_rate;     /**< m/s, up-positive. */
   float vertical_accel; /**< m/s^2, up-positive — last a_up fed to predict
                          *   (cached for telemetry / takeoff detection). */
+  float accel_bias;     /**< m/s^2, estimated DC error in a_up (third state),
+                         *   subtracted in predict. Positive means the accel
+                         *   reports MORE upward acceleration than is real. */
   float k_alt;          /**< baro position-correction gain (per sample). */
   float k_vel;          /**< baro velocity-correction gain (per sample). */
+  float k_bias;         /**< baro bias-correction gain (per sample). */
+  uint32_t clean_count; /**< consecutive corrections with the bias unsaturated. */
+  bool accel_unhealthy; /**< the bias hit its clamp: the accel disagrees with
+                         *   the height sources by more than the filter can
+                         *   absorb, so climb_rate is NOT trustworthy. Latches;
+                         *   clears after VERT_ACCEL_PROBATION_SAMPLES clean
+                         *   samples. */
   bool initialized;     /**< false until the first baro correction seeds it. */
 } vertical_estimator_t;
 
@@ -92,6 +131,12 @@ typedef struct {
                          *   airframe constant, refined in steady level flight.
                          *   The throttle curve centres the stick on this. */
   bool hover_measured;  /**< true once a real in-flight sample moved it. */
+  float accel_bias;     /**< m/s^2, the estimator's third state — its estimate
+                         *   of the DC error in the vertical accelerometer.
+                         *   Published because it is the most direct read-out
+                         *   of how badly vibration is corrupting the accel. */
+  bool accel_unhealthy; /**< the bias estimate saturated: climb_rate is not
+                         *   trustworthy and the height mode must not run. */
   bool valid;           /**< filter seeded. */
   uint32_t timestamp;   /**< DWT cycle stamp of the driving sample. */
 } vertical_state_t;
@@ -100,7 +145,8 @@ typedef struct {
  * @brief Initialise a vertical estimator with explicit correction gains.
  *        Clears the state; the first vert_est_correct() seeds altitude.
  */
-void vert_est_init(vertical_estimator_t *ve, float k_alt, float k_vel);
+void vert_est_init(vertical_estimator_t *ve, float k_alt, float k_vel,
+                   float k_bias);
 
 /** Initialise with the default VERT_DEFAULT_K_* gains. */
 void vert_est_init_default(vertical_estimator_t *ve);
@@ -126,7 +172,7 @@ float vert_world_up_accel(const quaternion_t *q, const float a_body[3]);
  * does not free-run from an unknown origin). Caches a_up in vertical_accel.
  *
  * @param a_up  world-up inertial acceleration (m/s^2), e.g. from
- *              vert_world_up_accel().
+ *              vert_world_up_accel(). The estimated bias is subtracted here.
  * @param dt    integration interval (s).
  */
 void vert_est_predict(vertical_estimator_t *ve, float a_up, float dt);
@@ -135,7 +181,8 @@ void vert_est_predict(vertical_estimator_t *ve, float a_up, float dt);
  * @brief Correct step (slow, baro rate): fuse an absolute baro altitude.
  *
  * The first call seeds altitude = baro_alt, climb_rate = 0 (bumpless start).
- * Subsequent calls apply the two-gain complementary correction.
+ * Subsequent calls apply the three-gain complementary correction, then update
+ * the accel-bias state and the health flag.
  *
  * @param baro_alt  baro altitude (m, up-positive), same reference as `altitude`.
  */

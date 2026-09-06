@@ -398,7 +398,7 @@
     },
     {
       "msgid": 1040, "name": "VERTICAL_STATE",
-      "doc": "Fused vertical estimate from the VERT 2-state filter (baro + accel). altitude/climb_rate are the fused outputs (altitude is absolute/MSL, same reference as BARO); agl is the FC-authoritative height above the ground reference (captured while disarmed, frozen at arm); baro_altitude is the raw sensor altitude carried alongside so the GCS can chart fused-vs-raw. valid=0 until the filter is seeded by the first baro fix. agl_tof is the tilt-compensated rangefinder height, meaningful only while tof_valid=1 (fresh, in range, near level) - it is the AGL source flight_phase and the height mode prefer near the ground. height_state is the packed height-mode status (see control/angle_controller.h): bits0-1 requested mode 0=OFF 1=HOLD 2=LAND, bit2 engaged, bit3 runaway-failed, bit4 landed, bit5 handback, bit6 interlock armed, bit7 blocked.",
+      "doc": "Fused vertical estimate from the VERT 3-state filter (baro + accel + accel bias). altitude/climb_rate are the fused outputs (altitude is absolute/MSL, same reference as BARO); agl is the FC-authoritative height above the ground reference (captured while disarmed, frozen at arm); baro_altitude is the raw sensor altitude carried alongside so the GCS can chart fused-vs-raw. valid=0 until the filter is seeded by the first baro fix. agl_tof is the tilt-compensated rangefinder height, meaningful only while tof_valid=1 (fresh, in range, near level) - it is the AGL source flight_phase and the height mode prefer near the ground. height_state is the packed height-mode status (see control/angle_controller.h): bits0-1 requested mode 0=OFF 1=HOLD 2=LAND, bit2 engaged, bit3 runaway-failed, bit4 landed, bit5 handback, bit6 interlock armed, bit7 blocked. accel_bias is the filter's estimate of the DC error in the vertical accelerometer (m/s/s, positive = reads more UP-acceleration than is real); motor vibration drives this to about -1 on this airframe, so it doubles as a vibration read-out. accel_unhealthy=1 means that estimate hit its authority clamp, so climb_rate is NOT trustworthy and the height mode is vetoed.",
       "fields": [
         { "index": 0, "name": "altitude",      "type": "f32", "unit": "m" },
         { "index": 1, "name": "climb_rate",    "type": "f32", "unit": "m/s" },
@@ -408,7 +408,11 @@
         { "index": 5, "name": "valid",         "type": "u8" },
         { "index": 6, "name": "agl_tof",       "type": "f32", "unit": "m" },
         { "index": 7, "name": "tof_valid",     "type": "u8" },
-        { "index": 8, "name": "height_state",  "type": "u8" }
+        { "index": 8, "name": "height_state",  "type": "u8" },
+        { "index": 9, "name": "accel_bias",    "type": "f32", "unit": "m/s/s",
+          "extension": true },
+        { "index": 10, "name": "accel_unhealthy", "type": "u8",
+          "extension": true }
       ]
     },
     {
