@@ -38,6 +38,8 @@ void vert_est_reset(vertical_estimator_t *ve) {
    * re-converges in a few seconds, and carrying a stale one into a fresh
    * reference is the failure that is hard to see. */
   ve->accel_bias = 0.0f;
+  ve->tof_prev = 0.0f;
+  ve->tof_have_prev = false;
   ve->clean_count = 0;
   ve->accel_unhealthy = false;
   ve->initialized = false;
@@ -115,4 +117,50 @@ void vert_est_correct(vertical_estimator_t *ve, float baro_alt) {
     ve->accel_unhealthy = false;
     ve->clean_count = 0;
   }
+}
+
+/* @noreq trivial history reset. */
+void vert_est_tof_gap(vertical_estimator_t *ve) { ve->tof_have_prev = false; }
+
+/* @implements EST-ALT-101 */
+void vert_est_correct_tof(vertical_estimator_t *ve, float agl_tof, float dt) {
+  /* An un-seeded filter has no climb_rate to innovate against, and a gap too
+   * long to differentiate across is not a velocity. Both drop the history so
+   * the next pair of samples starts clean rather than straddling the hole. */
+  if (!ve->initialized || dt <= 0.0f || dt > VERT_TOF_MAX_GAP_S) {
+    /* Not usable AS a velocity, but the reading itself is a perfectly good base
+     * for the NEXT difference — so keep it and just skip this update. */
+    ve->tof_prev = agl_tof;
+    ve->tof_have_prev = ve->initialized;
+    return;
+  }
+  if (!ve->tof_have_prev) {
+    ve->tof_prev = agl_tof;
+    ve->tof_have_prev = true;
+    return; /* need two samples to make a velocity */
+  }
+
+  float v_tof = (agl_tof - ve->tof_prev) / dt;
+  ve->tof_prev = agl_tof;
+
+  /* Reject the impossible: a terrain step, a mount change or a range glitch all
+   * look like a one-sample velocity no quadcopter reaches inside a 1.5 m band.
+   * Dropping the history too, because the sample AFTER a step would otherwise
+   * difference across it in the opposite direction. */
+  if (v_tof > VERT_TOF_VEL_GATE || v_tof < -VERT_TOF_VEL_GATE) {
+    ve->tof_have_prev = false;
+    return;
+  }
+
+  /* Same sign convention as the baro correction: a positive innovation (truth
+   * rising faster than the filter believes) means we have been integrating too
+   * little upward acceleration, so the accel reads LOW and the bias goes
+   * negative. Bias only — altitude and climb_rate are untouched by design. */
+  float innov = v_tof - ve->climb_rate;
+  ve->accel_bias -= VERT_K_TOF_BIAS * innov;
+
+  if (ve->accel_bias > VERT_ACCEL_BIAS_MAX)
+    ve->accel_bias = VERT_ACCEL_BIAS_MAX;
+  else if (ve->accel_bias < -VERT_ACCEL_BIAS_MAX)
+    ve->accel_bias = -VERT_ACCEL_BIAS_MAX;
 }

@@ -18,6 +18,9 @@
  *             phantom -1.5 m/s descent)
  *   VERT-007  reset: returns to the un-seeded state
  *   VERT-008  bias clamp + accel_unhealthy latch/probation
+ *   VERT-009  rangefinder bias aiding: converges the bias far faster than baro
+ *             alone (the takeoff window), touches nothing but the bias, and
+ *             rejects terrain steps / real motion
  *
  * Companion to test_phase3_est_ekf.c (attitude EKF). Run via ctest or directly.
  */
@@ -323,6 +326,134 @@ static void test_accel_unhealthy(void) {
   check(!ve.accel_unhealthy, "VERT-008 flag clears after sustained recovery");
 }
 
+/* --- VERT-009: rangefinder bias aiding ---------------------------------- */
+
+/* Craft on the ground under a rangefinder reading `agl`; at t=0 the motors
+ * spool and the accel starts under-reading by `b`. Returns seconds until
+ * |climb_rate| is back under 0.15, or -1. */
+static float tof_settle(bool use_tof, float b, float agl) {
+  const float dt = 1.0f / 250.0f;
+  const float H = 100.0f;
+  vertical_estimator_t ve;
+  vert_est_init_default(&ve);
+  vert_est_correct(&ve, H);
+  for (int i = 0; i < 250 * 3; i++) { /* settle before the step */
+    vert_est_predict(&ve, 0.0f, dt);
+    if (i % 16 == 0)
+      vert_est_correct(&ve, H);
+  }
+  float acc = 0.0f;
+  for (int i = 0; i < 250 * 16; i++) {
+    vert_est_predict(&ve, b, dt);
+    if (i % 16 == 0)
+      vert_est_correct(&ve, H + 0.3f * noise());
+    acc += dt;
+    if (use_tof && i % 12 == 0) { /* ~21 Hz, 10 mm noise */
+      vert_est_correct_tof(&ve, agl + 0.010f * noise(), acc);
+      acc = 0.0f;
+    }
+    if (i > 250 && fabsf(ve.climb_rate) < 0.15f)
+      return i / 250.0f;
+  }
+  return -1.0f;
+}
+
+static void test_tof_aiding(void) {
+  const float b = -1.0f, agl = 0.10f;
+  float t_baro = tof_settle(false, b, agl);
+  float t_tof = tof_settle(true, b, agl);
+  check(t_tof > 0.0f && t_baro > 0.0f && t_tof < 0.5f * t_baro,
+        "VERT-009 ToF aiding at least halves time-to-converge");
+  printf("         (baro only %.2f s -> with ToF %.2f s)\n", (double)t_baro,
+         (double)t_tof);
+
+  /* It must move the BIAS and NOTHING else — the whole reason it is safe to
+   * feed a terrain-referenced sensor into a baro-referenced filter. */
+  {
+    vertical_estimator_t ve;
+    vert_est_init_default(&ve);
+    vert_est_correct(&ve, 100.0f);
+    vert_est_correct_tof(&ve, 0.10f, 0.05f); /* seeds history */
+    float alt0 = ve.altitude, climb0 = ve.climb_rate, bias0 = ve.accel_bias;
+    vert_est_correct_tof(&ve, 0.20f, 0.05f); /* 2 m/s of apparent climb */
+    check(ve.altitude == alt0 && ve.climb_rate == climb0,
+          "VERT-009 aiding never moves altitude or climb_rate");
+    check(ve.accel_bias != bias0, "VERT-009 aiding does move the bias");
+  }
+
+  /* A terrain step (flying over a table) must be rejected, not integrated. */
+  {
+    vertical_estimator_t ve;
+    vert_est_init_default(&ve);
+    vert_est_correct(&ve, 100.0f);
+    const float dt = 1.0f / 250.0f;
+    float acc = 0.0f, ground = 0.0f;
+    for (int i = 0; i < 250 * 10; i++) {
+      vert_est_predict(&ve, 0.0f, dt);
+      if (i % 16 == 0)
+        vert_est_correct(&ve, 100.0f);
+      acc += dt;
+      if (i % 12 == 0) {
+        if (i == 250 * 5)
+          ground = 0.40f; /* the ground steps up 40 cm, instantly */
+        vert_est_correct_tof(&ve, 0.60f - ground, acc);
+        acc = 0.0f;
+      }
+    }
+    check(fabsf(ve.accel_bias) < 0.15f,
+          "VERT-009 a terrain step does not corrupt the bias");
+    check(fabsf(ve.climb_rate) < 0.15f,
+          "VERT-009 a terrain step does not corrupt climb_rate");
+    printf("         (after a 40 cm terrain step: bias %+.3f, climb %+.3f)\n",
+           (double)ve.accel_bias, (double)ve.climb_rate);
+  }
+
+  /* And a REAL climb must still be corrected: the ToF velocity is truth here,
+   * so the innovation goes to zero and the bias has nothing to feed on. This is
+   * the regression that would make the aiding worse than the bug.
+   *
+   * The filter is first brought UP TO SPEED on baro alone — after a seed,
+   * climb_rate starts at zero and a constant-velocity climb produces no accel
+   * to integrate, so it takes the baro cross-term several seconds to build the
+   * velocity. Aiding is then switched on for the stretch that is actually
+   * inside the rangefinder's band, which is the real scenario. */
+  {
+    vertical_estimator_t ve;
+    vert_est_init_default(&ve);
+    const float dt = 1.0f / 250.0f, vz = 0.5f;
+    float truth = 100.0f, acc = 0.0f;
+    vert_est_correct(&ve, truth);
+    for (int i = 0; i < 250 * 25; i++) { /* baro-only spin-up */
+      truth += vz * dt;
+      vert_est_predict(&ve, 0.0f, dt);
+      if (i % 16 == 0)
+        vert_est_correct(&ve, truth);
+    }
+    check(fabsf(ve.climb_rate - vz) < 0.10f,
+          "VERT-009 precondition: filter is tracking the climb");
+    float bias_before = ve.accel_bias;
+    float agl_now = 0.20f; /* now inside the ToF band, still climbing */
+    for (int i = 0; i < 250 * 2; i++) {
+      truth += vz * dt;
+      agl_now += vz * dt;
+      vert_est_predict(&ve, 0.0f, dt);
+      if (i % 16 == 0)
+        vert_est_correct(&ve, truth);
+      acc += dt;
+      if (i % 12 == 0) {
+        vert_est_correct_tof(&ve, agl_now + 0.010f * noise(), acc);
+        acc = 0.0f;
+      }
+    }
+    check(fabsf(ve.climb_rate - vz) < 0.10f,
+          "VERT-009 a real climb survives aiding being switched on");
+    check(fabsf(ve.accel_bias - bias_before) < 0.10f,
+          "VERT-009 aiding does not absorb real motion");
+    printf("         (real 0.50 m/s climb: filter %.3f m/s, bias drift %+.3f)\n",
+           (double)ve.climb_rate, (double)(ve.accel_bias - bias_before));
+  }
+}
+
 int main(void) {
   printf("== VERT vertical-estimator verification ==\n");
   test_gravity_removal();
@@ -332,6 +463,7 @@ int main(void) {
   test_accel_bias();
   test_reset();
   test_accel_unhealthy();
+  test_tof_aiding();
   printf("\n%d checks, %d failures\n", g_checks, g_fails);
   return g_fails == 0 ? 0 : 1;
 }

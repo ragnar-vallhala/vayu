@@ -86,6 +86,49 @@
 #define VERT_ACCEL_PROBATION_SAMPLES 80u
 #endif
 
+/* --- Rangefinder bias aiding -------------------------------------------
+ *
+ * The bias state learned from baro alone takes ~8 s to converge, and it is at
+ * its weakest exactly when it is needed most: the bias appears BECAUSE the
+ * motors spooled, so lift-off happens with the error at full strength and the
+ * correction at zero. The reason it is slow is structural — a POSITION
+ * measurement only reveals an accel bias after that bias has been integrated
+ * twice, so the evidence arrives two integrations late.
+ *
+ * A rangefinder differentiates into a VELOCITY measurement, which reveals the
+ * bias after ONE integration. It is exactly the takeoff window, too: the
+ * VL53L0X is in range below ~1.5 m.
+ *
+ * This aiding drives the BIAS STATE ONLY. It deliberately does not touch
+ * altitude or climb_rate, for two separate reasons:
+ *   - altitude: the ToF is an AGL reference over whatever is directly below and
+ *     steps when the ground does, while the filter tracks a baro reference.
+ *     Folding one into the other makes the fused altitude jump on every terrain
+ *     step (see the note in vertical_task.c — this preserves that decision).
+ *   - climb_rate: a differentiated ToF carries ~0.2-0.3 m/s of noise, and
+ *     climb_rate IS the height controller's inner loop. Feeding the bias
+ *     instead low-passes that noise through the bias integrator rather than
+ *     handing it to the controller. */
+
+/* Per-sample gain on the ToF velocity innovation. Applied at the rangefinder's
+ * ~21 Hz, so the effective rate is ~21x this. */
+#ifndef VERT_K_TOF_BIAS
+#define VERT_K_TOF_BIAS 0.10f
+#endif
+/* Innovation gate (m/s). A terrain step, a mount-height change or a range
+ * glitch all appear as an impossible one-sample velocity; reject rather than
+ * let one bad sample slam the bias. Sized well above any real vertical rate
+ * this airframe reaches inside the ToF's 1.5 m band. */
+#ifndef VERT_TOF_VEL_GATE
+#define VERT_TOF_VEL_GATE 3.0f
+#endif
+/* Longest gap (s) across which differencing two ToF samples is still
+ * meaningful. Beyond this the samples are unrelated (dropouts, out-of-range
+ * excursions) and the difference is not a velocity. */
+#ifndef VERT_TOF_MAX_GAP_S
+#define VERT_TOF_MAX_GAP_S 0.25f
+#endif
+
 typedef struct {
   float altitude;       /**< m, up-positive (see conventions above). */
   float climb_rate;     /**< m/s, up-positive. */
@@ -97,6 +140,8 @@ typedef struct {
   float k_alt;          /**< baro position-correction gain (per sample). */
   float k_vel;          /**< baro velocity-correction gain (per sample). */
   float k_bias;         /**< baro bias-correction gain (per sample). */
+  float tof_prev;       /**< previous accepted rangefinder AGL (m). */
+  bool tof_have_prev;   /**< tof_prev holds a usable sample. */
   uint32_t clean_count; /**< consecutive corrections with the bias unsaturated. */
   bool accel_unhealthy; /**< the bias hit its clamp: the accel disagrees with
                          *   the height sources by more than the filter can
@@ -187,5 +232,27 @@ void vert_est_predict(vertical_estimator_t *ve, float a_up, float dt);
  * @param baro_alt  baro altitude (m, up-positive), same reference as `altitude`.
  */
 void vert_est_correct(vertical_estimator_t *ve, float baro_alt);
+
+/**
+ * @brief Rangefinder aiding for the accel-bias state (see the block comment
+ *        above VERT_K_TOF_BIAS).
+ *
+ * Call ONLY on a fresh, in-range, near-level rangefinder sample — the same
+ * gating that qualifies `agl_tof` for publication. Differences it against the
+ * previous accepted sample to form a velocity, and drives the bias state with
+ * the resulting innovation. Touches NOTHING else: not altitude, not climb_rate.
+ *
+ * Self-gating: an implausible one-sample velocity, an over-long gap, or an
+ * un-seeded filter are all dropped, and the sample history resets so the next
+ * pair starts clean.
+ *
+ * @param agl_tof  tilt-compensated rangefinder height (m).
+ * @param dt       seconds since the previous accepted sample.
+ */
+void vert_est_correct_tof(vertical_estimator_t *ve, float agl_tof, float dt);
+
+/** Drop the rangefinder sample history (call when the ToF stops qualifying, so
+ *  the next valid sample is not differenced against a stale one). */
+void vert_est_tof_gap(vertical_estimator_t *ve);
 
 #endif /* VAYU_VERTICAL_ESTIMATOR_H */
