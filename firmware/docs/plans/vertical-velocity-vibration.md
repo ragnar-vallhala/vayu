@@ -254,12 +254,12 @@ of reading one number rather than post-processing a log.
   slow, but it is now the weaker option: a ZUPT learns the idle-throttle,
   resting-on-its-feet bias, which is not the hover bias, whereas the rangefinder
   measures the real thing at the real throttle.
-- **Measure it properly.** Clamped, stationary craft, throttle stepped 0 -> 0.2
-  -> 0.4 -> 0.6, props off then on, watching `accel_bias` converge at each step.
-  This is now a direct read-out. It answers whether the effect is real (the
-  original figures come from `ImuRaw` at ~1.7 Hz — 12 and 27 samples — taken
-  while the craft was being moved by hand), how it scales with throttle, and
-  whether 3 m/s^2 of authority is the right size.
+- **Measure it properly.** Clamped, STATIONARY craft (see the caveat below —
+  motion contaminates the reading), throttle stepped 0 -> 0.2 -> 0.4 -> 0.6,
+  props off then on, watching `accel_bias` settle at each step. The 2026-09-06
+  run establishes the effect is real and motor-driven; what it does NOT give is
+  a clean bias-vs-throttle curve, which is what sizes the clamp and says whether
+  a ground zero-velocity update would have been worth it.
 - **ArduPilot's vibe metric** (5 Hz floor filter, subtract, square, 2 Hz filter)
   for the AC part. `accel_bias` captures the DC rectification; this captures the
   vibration itself, which is what tells you the airframe needs soft-mounting.
@@ -269,11 +269,64 @@ of reading one number rather than post-processing a log.
   ToF tracked the lift correctly while the accel path was lying; differentiating
   it is noisy but *unbiased*, which is the property that matters here.
 
+## Hardware result, 2026-09-06
+
+Flashed to the real FC and run through a full hand-lift sequence: arm, HOLD,
+raise by hand to ~2 m, LAND, lower, disarm. Recorded with
+`tools/telemetry/handlift_record.py`
+(`~/vayu-logs/handlift-20260906-175648.bin`).
+
+**The phantom descent is gone.** Same manoeuvre, before and after:
+
+| | 2026-09-05 | 2026-09-06 |
+|---|---|---|
+| craft raised ~2 m by hand | climb_rate **-0.83 .. -0.86** | climb_rate **+0.66 .. +1.08** |
+
+Correct sign, and the magnitude matches the lift (0.18 -> 2.06 m in ~3 s).
+
+**The vibration bias is real and motor-driven** — measured directly for the
+first time, rather than inferred from 27 samples of raw accel:
+
+| phase | collective | accel_bias |
+|---|---|---|
+| disarmed, motors off | 0.01 | +0.05 |
+| armed, idle floor | 0.15 | -0.16 |
+| HOLD engaged, on ground | 0.49 | -0.25 |
+| hand lift, climbing | 0.29 | **-0.57 (min -0.71)** |
+| held at ~2 m | 0.26 | -0.22 |
+| landed, disarmed | 0.00 | +0.04 |
+
+It appears with motor power and returns to ~0 without it. `accel_unhealthy`
+never tripped; max |bias| was 0.71 against the 3.0 clamp, so the authority is
+generous — leave it until a second airframe says otherwise.
+
+The rest of the sequence behaved: collective backed off as the craft was raised
+(0.51 on the ground -> 0.25 at 2 m), `LANDED` latched at 0.115 m, disarm clean.
+
+### Two caveats from this run
+
+**`accel_bias` is only a clean vibration read-out when the craft is steady.** At
+2 m the collective was 0.26 with bias -0.22; during the lift it was 0.29 with
+bias -0.57 — nearly the same throttle, very different bias. The likely cause is
+that the ToF aiding was active below 1.5 m and drove the bias hard to make
+`climb_rate` catch up with a real hand acceleration, then relaxed once the ToF
+dropped out. The aiding did its job, but it can only reach `climb_rate` THROUGH
+the bias, so during fast genuine motion it transiently over-drives it. Harmless
+here (climb_rate came out more correct, not less), but it means the bench
+measurement must be done clamped and stationary to get the real number.
+
+**The aiding is verified only over its own band.** The ToF was valid for 34/99
+samples in the interesting window, because most of it was spent above the 1.5 m
+ceiling; the ~2 m hold ran on baro alone. So the 0-1.5 m path is exercised and
+works, and nothing above it is.
+
 ## Status
 
-The estimator no longer converts this vibration into a phantom descent; the
-rangefinder pulls convergence down to ~1.8 s so the takeoff window is covered;
-and the height mode refuses to run when the error exceeds what it can cancel. **None of
-this has flown, or even run on hardware** — it is verified in host tests only.
-The bench measurement above is the next step, and the height mode stays grounded
-until `accel_bias` has been watched converge on the real airframe.
+The estimator no longer converts this vibration into a phantom descent — now
+confirmed on hardware, not just in host tests. The rangefinder pulls convergence
+down to ~1.8 s so the takeoff window is covered, and the height mode refuses to
+run when the error exceeds what it can cancel.
+
+**Still not flown.** Everything so far is bench and hand-held with props off. The
+open items are the clamped throttle-step measurement (which now reads one
+telemetry field), the vibe metric, and soft-mounting.
