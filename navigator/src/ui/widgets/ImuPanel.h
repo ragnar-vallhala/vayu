@@ -34,7 +34,10 @@ public slots:
   // axis, m/s) — the fused-vs-raw validation chart. `available` = fresh
   // VERTICAL_STATE telemetry AND the filter is seeded (valid); when false the
   // graph stops getting samples and ages out to NA.
+  // accelBiasMs2 is the filter's accel-bias state (the vibration read-out);
+  // accelUnhealthy turns its trace red to say the FC no longer trusts climbRate.
   void setVerticalState(float fusedAltM, float baroAltM, float climbRateMs,
+                        float accelBiasMs2, bool accelUnhealthy,
                         bool available = true);
   void setSensor(const QString &name);  // updates the header (e.g. "IMU — BMX160")
   void setGraphWindow(int seconds);
@@ -56,6 +59,7 @@ private:
   RealTimeGraph *m_magG = nullptr;
   RealTimeGraph *m_baroG = nullptr;  // fed by BARO telemetry (setBaroAltitude)
   RealTimeGraph *m_vertG = nullptr;  // fed by VERTICAL_STATE (setVerticalState)
+  bool m_biasUnhealthy = false;      // last accel_unhealthy, to avoid re-penning
   RollingStats m_accStats[3];
   RollingStats m_gyrStats[3];
   RollingStats m_magStats[3];
