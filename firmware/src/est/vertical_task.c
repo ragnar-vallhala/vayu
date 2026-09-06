@@ -84,6 +84,8 @@ void vertical_estimator_task(void *args) {
   uint32_t tof_age_steps = VERT_TOF_STALE_STEPS;
   float agl_tof = 0.0f;
   bool tof_valid = false;
+  bool tof_fresh = false;    /* this iteration carries a NEW range sample */
+  float tof_dt = 0.0f;       /* seconds since the last sample fed to the aiding */
 
   while (1) {
     /* Block until the attitude task hands over the next synchronized triple
@@ -98,6 +100,7 @@ void vertical_estimator_task(void *args) {
     /* Predict: integrate world-up inertial acceleration over this step. */
     float a_up = vert_world_up_accel(&in.q, in.a_body);
     vert_est_predict(&ve, a_up, in.dt);
+    tof_dt += in.dt; /* age of the next range sample, for the aiding below */
 
     /* Correct: fold in the latest baro altitude when a new sample is ready.
      * bme280_read_all() returns the last published reading with its own
@@ -156,10 +159,12 @@ void vertical_estimator_task(void *args) {
      * height controller picks the better source and re-biases on handoff. */
     vl53l0x_reading_t tof;
     if (vl53l0x_read_all(&tof) == HAL_OK) {
+      tof_fresh = false;
       if (!have_tof_stamp || tof.timestamp != last_tof_stamp) {
         last_tof_stamp = tof.timestamp;
         have_tof_stamp = true;
         tof_age_steps = 0;
+        tof_fresh = true;
       } else if (tof_age_steps < VERT_TOF_STALE_STEPS) {
         tof_age_steps++;
       }
@@ -172,6 +177,24 @@ void vertical_estimator_task(void *args) {
                   (agl_tof >= VERT_TOF_MIN_M) && (agl_tof <= VERT_TOF_MAX_M);
     } else {
       tof_valid = false;
+      tof_fresh = false;
+    }
+
+    /* Rangefinder aiding for the accel-bias state. This is the ONLY place the
+     * ToF touches the filter, and it moves nothing but the bias — see the block
+     * comment in vertical_estimator.h. It matters because the bias appears at
+     * throttle-up: learned from baro alone it needs ~7 s, which is the whole
+     * lift-off, and a position measurement cannot do better because it only
+     * reveals an accel bias after two integrations. Differentiating the ToF
+     * gives a VELOCITY measurement, one integration closer, and the ToF is in
+     * range exactly over the takeoff band. Feed only fresh samples that already
+     * passed the publication gate; anything else breaks the chain so the next
+     * pair is not differenced across the hole. */
+    if (tof_valid && tof_fresh) {
+      vert_est_correct_tof(&ve, agl_tof, tof_dt);
+      tof_dt = 0.0f;
+    } else if (!tof_valid) {
+      vert_est_tof_gap(&ve);
     }
 
     /* Takeoff / landing detector + FC-owned AGL ground reference.

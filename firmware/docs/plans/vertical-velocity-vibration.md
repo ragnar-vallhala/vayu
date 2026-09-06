@@ -161,14 +161,70 @@ learns -1.0000 and `climb_rate` converges to zero, where the 2-state filter gave
 extra ringing on an unphysical 5 m baro step is bounded and measured rather than
 assumed away (peak 2.87 m/s vs 2.44, settles by 12 s).
 
-Cost and residual risk:
+Cost, before the rangefinder aiding below: **~7 s to converge**, and the bias
+appears at throttle-up, so lift-off happened with the error at full strength and
+the correction at zero. Measured, with the bias stepping in at t=0:
 
-- **~7.6 s to converge.** The bias appears at throttle-up, so the first few
-  seconds of a flight are still partly corrupted. Steps 2-3 below cover that
-  window; a zero-velocity update while armed-on-ground would shorten it and is
-  the obvious next lever if 7.6 s proves too slow.
-- **The bias is not truly constant** — it tracks throttle. The state follows
-  slow changes, not fast transients.
+| t (s) | climb_rate, 3-state | climb_rate, 2-state |
+|---|---|---|
+| 1.0 | -0.83 | -0.85 |
+| 2.0 | -1.14 | -1.25 |
+| 4.0 | -0.84 | -1.47 |
+| 7.0 | -0.17 | -1.49 |
+| 9.0 | +0.00 | -1.50 |
+
+For the first ~2.5 s the third state buys almost nothing. That is structural, not
+a gain choice: the bias is learned from a POSITION innovation, so it cannot be
+seen until it has been integrated twice — once into a velocity error, again into
+a position error large enough to show above baro noise. `climb_rate` is wrong
+immediately, because it sits downstream of the same accel with none of that lag.
+
+Residual: **the bias is not truly constant** — it tracks throttle. The state
+follows slow changes, not fast transients.
+
+### 1b. Rangefinder bias aiding — SHIPPED
+
+The fix for that window is to observe the bias one integration earlier. A
+rangefinder differences into a VELOCITY measurement, which reveals an accel bias
+after ONE integration instead of two — and the VL53L0X is in range below ~1.5 m,
+which is exactly the takeoff band.
+
+`vert_est_correct_tof()` differences consecutive in-range samples and drives
+**the bias state only**. It deliberately touches neither altitude nor
+climb_rate:
+
+- **altitude** — the ToF is an AGL reference over whatever is directly below and
+  steps when the ground does, while the filter tracks a baro reference. Folding
+  one into the other makes the fused altitude jump on every terrain step. This
+  preserves the decision already recorded in `vertical_task.c`.
+- **climb_rate** — a differentiated ToF carries ~0.2-0.3 m/s of noise, and
+  climb_rate IS the height controller's inner loop. Routing through the bias
+  integrator low-passes that instead of handing it to the controller.
+
+Gated on an implausible one-sample velocity (>3 m/s), an over-long gap (>0.25 s),
+and the same validity test that qualifies `agl_tof` for publication. A rejected
+sample also breaks the history, so the next pair is not differenced across the
+hole.
+
+Gain swept in simulation (1 m/s^2 bias, 0.3 m baro noise, ToF at 21 Hz):
+
+| k_tof | settle | peak abs climb | steady RMS |
+|---|---|---|---|
+| 0 (baro only) | 7.10 s | 1.23 | 0.057 |
+| 0.02 | 3.58 s | 0.92 | 0.033 |
+| 0.05 | 2.35 s | 0.72 | 0.033 |
+| **0.10** | **1.76 s** | **0.63** | **0.037** |
+| 0.20 | 1.24 s | 0.50 | 0.027 |
+
+0.10 halves the peak excursion and cuts convergence from ~7 s to ~1.8 s while
+holding up at 30 mm of ToF noise. 0.20 is faster still but leaves less margin for
+un-modelled rangefinder behaviour (multipath over grass, tilt error), so it is
+the obvious knob if the bench run says the sensor is cleaner than assumed.
+
+Crucially, this does NOT confuse real motion with bias the way a zero-velocity
+update would: during a genuine climb the ToF velocity is truth, so the innovation
+goes to zero on its own. VERT-009 asserts exactly that, plus rejection of a 40 cm
+terrain step and that the aiding moves nothing but `accel_bias`.
 
 ### 2. Health flag + veto — SHIPPED
 
@@ -194,6 +250,10 @@ of reading one number rather than post-processing a log.
 
 ### 4. Still to do
 
+- **A zero-velocity update on the ground** is still available if 1.8 s is too
+  slow, but it is now the weaker option: a ZUPT learns the idle-throttle,
+  resting-on-its-feet bias, which is not the hover bias, whereas the rangefinder
+  measures the real thing at the real throttle.
 - **Measure it properly.** Clamped, stationary craft, throttle stepped 0 -> 0.2
   -> 0.4 -> 0.6, props off then on, watching `accel_bias` converge at each step.
   This is now a direct read-out. It answers whether the effect is real (the
@@ -211,8 +271,9 @@ of reading one number rather than post-processing a log.
 
 ## Status
 
-The estimator no longer converts this vibration into a phantom descent, and the
-height mode refuses to run when the error exceeds what it can cancel. **None of
+The estimator no longer converts this vibration into a phantom descent; the
+rangefinder pulls convergence down to ~1.8 s so the takeoff window is covered;
+and the height mode refuses to run when the error exceeds what it can cancel. **None of
 this has flown, or even run on hardware** — it is verified in host tests only.
 The bench measurement above is the next step, and the height mode stays grounded
 until `accel_bias` has been watched converge on the real airframe.
