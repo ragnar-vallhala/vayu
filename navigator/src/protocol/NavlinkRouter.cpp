@@ -164,6 +164,8 @@ void thunkVerticalState(void *ctx, const navlink_frame_hdr_t *,
   d.verticalAccelMs2 = m->vertical_accel;
   d.baroAltitudeM = m->baro_altitude;
   d.aglM = m->agl;
+  d.accelBiasMs2 = m->accel_bias;
+  d.accelUnhealthy = m->accel_unhealthy != 0;
   d.valid = m->valid != 0;
   r->onVerticalState(d);
 }

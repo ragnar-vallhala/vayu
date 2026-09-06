@@ -1493,9 +1493,11 @@ void MainWindow::onUiTimer() {
   // stays NA until the filter is seeded.
   if (vertUsable) {
     m_imuPanel->setVerticalState(s.vertical.altitudeM, s.vertical.baroAltitudeM,
-                                 s.vertical.climbRateMs, true);
+                                 s.vertical.climbRateMs,
+                                 s.vertical.accelBiasMs2,
+                                 s.vertical.accelUnhealthy, true);
   } else {
-    m_imuPanel->setVerticalState(0.0f, 0.0f, 0.0f, false);
+    m_imuPanel->setVerticalState(0.0f, 0.0f, 0.0f, 0.0f, false, false);
   }
 #ifdef NAVIGATOR_HAS_SITL
   if (m_simulatorWidget) m_simulatorWidget->hudSetImu(s.imu.acc, s.imu.gyr);

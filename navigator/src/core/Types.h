@@ -47,6 +47,15 @@ struct VerticalStateData {
   float verticalAccelMs2 = 0.0f; // m/s² (up-positive)
   float baroAltitudeM = 0.0f;    // raw baro altitude, m
   float aglM = 0.0f;             // FC-authoritative height above ground ref, m
+  // The vertical filter's third state: its estimate of the DC error in the
+  // vertical accelerometer. Motor vibration drives this to about -1 m/s² on the
+  // 5" airframe, so it doubles as a vibration read-out — but only while the
+  // craft is STEADY (during real acceleration the ToF aiding transiently
+  // over-drives it). accelUnhealthy means that estimate hit its ±3 m/s² clamp,
+  // so climbRateMs is NOT trustworthy and the FC has vetoed the height mode.
+  // See firmware/docs/plans/vertical-velocity-vibration.md.
+  float accelBiasMs2 = 0.0f;
+  bool  accelUnhealthy = false;
   bool  valid = false;           // filter seeded
   uint64_t timestamp = 0;
 };
