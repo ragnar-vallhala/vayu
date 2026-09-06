@@ -80,11 +80,21 @@ void imu_telemetry_task(void *args) {
     bool send_comp    = TELEM_GATE(packet_counter, 20, 0);   // 50 Hz
     bool send_att     = TELEM_GATE(packet_counter, 20, 5);   // 50 Hz (staggered)
     bool send_motor   = TELEM_GATE(packet_counter, 20, 10);  // 50 Hz (staggered)
-    bool send_pid_err = TELEM_GATE(packet_counter, 20, 15);  // 50 Hz (staggered, CONTROL_TRACE)
+    /* CONTROL_TRACE is OFF. Measured on the bench (2026-09-06 hand-lift log) it
+     * was 42% of all telemetry BYTES and 19% of frames — 84 B/frame at 50 Hz,
+     * the single largest consumer by a wide margin — while the ESP bridge was
+     * dropping 26% of every stream from packet-rate saturation. It is a
+     * rate-PID tuning trace and nothing in the vertical-estimator work reads it.
+     * Turn it back on (and drop send_vert to 200 ms) before a tuning session:
+     * tools/telemetry/analyze_pitch_osc.py and pitch_*.py all need it. */
+    bool send_pid_err = false;                               // CONTROL_TRACE: off
     bool send_rc      = TELEM_GATE(packet_counter, 90, 22);  // ~11 Hz
     bool send_baro    = TELEM_GATE(packet_counter, 200, 0);  // 5 Hz
-    bool send_vert    = TELEM_GATE(packet_counter, 200, 100);// 5 Hz (staggered)
-    bool send_notch   = TELEM_GATE(packet_counter, 200, 150);// 5 Hz (staggered, NOTCH_STATUS)
+    /* 20 Hz: the vertical estimator is what the current bench/flight tests are
+     * measuring, and accel_bias converges in ~1.8 s — at the old 5 Hz that was
+     * ~7 samples across the whole transient, before 26% loss took its cut. */
+    bool send_vert    = TELEM_GATE(packet_counter, 50, 10);  // 20 Hz
+    bool send_notch   = TELEM_GATE(packet_counter, 1000, 150);// 1 Hz (NOTCH_STATUS)
     bool send_status  = TELEM_GATE(packet_counter, 300, 12); // ~3.3 Hz
     bool send_log     = TELEM_GATE(packet_counter, 60, 30);  // ~17 Hz
 
@@ -95,6 +105,7 @@ void imu_telemetry_task(void *args) {
       send_full = send_comp = send_att = send_rc = send_motor = send_pid_err =
           send_baro = send_vert = send_notch = false;
     }
+    (void)send_pid_err; /* constant false above; kept so re-enabling is one line */
     /* A big file download is a deliberate ground op; hand it the link by
      * suppressing the heaviest tuning streams (keep attitude/RC/baro/status/
      * heartbeat for situational awareness). Mirrors the sysid-dump case. */
