@@ -203,6 +203,8 @@ void vertical_estimator_task(void *args) {
         .tof_valid = tof_valid,
         .hover_est = hov.estimate,
         .hover_measured = hov.measured,
+        .accel_bias = ve.accel_bias,
+        .accel_unhealthy = ve.accel_unhealthy,
         .valid = ve.initialized,
         .timestamp = in.timestamp,
     };

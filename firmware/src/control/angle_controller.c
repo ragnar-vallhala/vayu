@@ -389,7 +389,15 @@ void angle_controller_task(void *arg) {
     } else if (hmode == HEIGHT_MODE_OFF) {
       s_mode_seen_centre = true;
     }
-    bool hmode_vetoed = (acro_mode || s_recovering || !s_mode_seen_centre);
+    /* ...and never on a climb_rate we know is wrong. The height controller's
+     * inner loop IS climb_rate, so a corrupted one does not degrade the mode,
+     * it inverts it: a phantom descent is answered with more collective, which
+     * makes more vibration, which deepens the phantom. The estimator raises
+     * this once its bias state runs out of authority to cancel the error
+     * (vertical_estimator.h). Vetoing hands the pilot back the collective
+     * through the normal OFF path, with its throttle re-sync. */
+    bool hmode_vetoed = (acro_mode || s_recovering || !s_mode_seen_centre ||
+                         (have_vs && vs.accel_unhealthy));
     height_mode_t hmode_req = hmode;
     if (hmode_vetoed) {
       hmode = HEIGHT_MODE_OFF;

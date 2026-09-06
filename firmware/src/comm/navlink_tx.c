@@ -243,6 +243,8 @@ void navlink_tx_vertical_state(const vertical_state_t *vs) {
   m.agl_tof = vs->agl_tof;
   m.tof_valid = vs->tof_valid ? 1u : 0u;
   m.height_state = angle_controller_height_state();
+  m.accel_bias = vs->accel_bias;
+  m.accel_unhealthy = vs->accel_unhealthy ? 1u : 0u;
   uint8_t frame[NAVLINK_MAX_FRAME];
   size_t n = navlink_vertical_state_encode(frame, &m, seq++, get_device_id(), 1);
   write_channel(g_telemetry_channel, frame, (uint16_t)n);
