@@ -6,9 +6,10 @@ Active plans for in-flight firmware work; a plan is deleted once its feature shi
   motors running the accelerometer under-reads gravity by ~1 m/s^2, so the vertical
   filter integrated a phantom -1 m/s descent and the height controller answered with
   roughly double hover thrust. FIXED by adding the estimator's third state (accel
-  bias) plus a health flag that vetoes the height mode; host-tested, NOT yet run on
-  hardware. The CAUSE of the under-read is still not established — the bench
-  measurement is the next step.
+  bias), rangefinder aiding to cover the takeoff window, and a health flag that
+  vetoes the height mode. CONFIRMED on hardware 2026-09-06: climb_rate went from
+  -0.85 to +0.9 on the same hand-lift, and the bias tracks motor power. Not flown.
+  The CAUSE of the under-read is still not established.
 - [`rate-loop-saturation.md`](rate-loop-saturation.md) — the rate PID can demand
   ~2× the differential thrust the airframe can deliver at hover, so the mixer
   saturates, airmode shifts collective to preserve roll/pitch, and the aircraft
