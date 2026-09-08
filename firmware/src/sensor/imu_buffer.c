@@ -19,6 +19,7 @@ static SemaphoreHandle_t _attitude_control_sema = NULL;
 static SemaphoreHandle_t _imu_attitude_sema = NULL;
 
 #define IMU_BUFFER_INTERNAL_CAPACITY (IMU_BUFFER_SIZE + 1)
+#define IMU_TELEMETRY_INTERNAL_CAPACITY (IMU_TELEMETRY_BUFFER_SIZE + 1)
 /* Need 2 usable slots. spsc_init() costs one slot to the ring's empty marker
  * (usable = capacity-1) and, because imu_calibration_telemetry_t is 21 B (not a
  * power of two), another to buffer-start alignment (capacity-1 again when the
@@ -27,10 +28,10 @@ static SemaphoreHandle_t _imu_attitude_sema = NULL;
  * a dead queue and CALIBRATION_STATUS never goes out. */
 #define IMU_CALIBRATION_TELEMETRY_CAPACITY 4
 #define EST_PERF_TELEMETRY_CAPACITY 4
-static bmx160_all_reading_t _imu_telemetry_buffer[IMU_BUFFER_INTERNAL_CAPACITY];
-static bmx160_all_reading_t _imu_calibration_buffer[IMU_BUFFER_INTERNAL_CAPACITY];
+static bmx160_all_reading_t _imu_telemetry_buffer[IMU_TELEMETRY_INTERNAL_CAPACITY];
+static bmx160_all_reading_t _imu_calibration_buffer[IMU_TELEMETRY_INTERNAL_CAPACITY];
 static bmx160_all_reading_t _imu_control_buffer[IMU_BUFFER_INTERNAL_CAPACITY];
-static attitude_t _attitude_telemetry_buffer[IMU_BUFFER_INTERNAL_CAPACITY];
+static attitude_t _attitude_telemetry_buffer[IMU_TELEMETRY_INTERNAL_CAPACITY];
 static attitude_t _attitude_control_buffer[IMU_BUFFER_INTERNAL_CAPACITY];
 static imu_calibration_telemetry_t _imu_calibration_telemetry_buffer[IMU_CALIBRATION_TELEMETRY_CAPACITY];
 static bmx160_all_reading_t _imu_attitude_buffer[IMU_BUFFER_INTERNAL_CAPACITY];
@@ -67,11 +68,11 @@ static SemaphoreHandle_t _vert_input_sema = NULL;
 /** @implements SNS-BUF-001 */
 void imu_buffer_init(void) {
   spsc_init(&_imu_telemetry_queue, _imu_telemetry_buffer,
-            IMU_BUFFER_INTERNAL_CAPACITY, sizeof(bmx160_all_reading_t));
+            IMU_TELEMETRY_INTERNAL_CAPACITY, sizeof(bmx160_all_reading_t));
   spsc_set_policy(&_imu_telemetry_queue, SPSC_POLICY_OVERWRITE);
 
   spsc_init(&_imu_calibration_queue, _imu_calibration_buffer,
-            IMU_BUFFER_INTERNAL_CAPACITY, sizeof(bmx160_all_reading_t));
+            IMU_TELEMETRY_INTERNAL_CAPACITY, sizeof(bmx160_all_reading_t));
   spsc_set_policy(&_imu_calibration_queue, SPSC_POLICY_OVERWRITE);
 
   spsc_init(&_imu_control_queue, _imu_control_buffer,
@@ -83,7 +84,7 @@ void imu_buffer_init(void) {
   spsc_set_policy(&_imu_attitude_queue, SPSC_POLICY_OVERWRITE);
 
   spsc_init(&_attitude_telemetry_queue, _attitude_telemetry_buffer,
-            IMU_BUFFER_INTERNAL_CAPACITY, sizeof(attitude_t));
+            IMU_TELEMETRY_INTERNAL_CAPACITY, sizeof(attitude_t));
   spsc_set_policy(&_attitude_telemetry_queue, SPSC_POLICY_OVERWRITE);
 
   spsc_init(&_attitude_control_queue, _attitude_control_buffer,
