@@ -36,6 +36,23 @@ the source of truth so old logs stay re-analysable.
 Each capture gets its own dated folder (`YYYYMMDD-hhmmss`, from the log's own
 timestamp) holding the raw `.bin` plus all analysis of it.
 
+- [`20260907-231254-vibration-flyaway/`](20260907-231254-vibration-flyaway/) —
+  **2026-09-07 23:12 + 23:17**, real drone, two bench/lift captures the evening
+  after the first hover: 124 s, 18 k frames. Never reached IN_AIR (the detector
+  keys off `climb_rate`, which read −9.7 m/s). **Headline: with the props
+  turning the accelerometer reads 2.5 m/s² where 9.81 is the answer — it loses
+  three quarters of gravity.** That single mechanical fault destroys the vertical
+  estimate through the accel path and, through the gyro path, saturates the rate
+  loop where `MIXER_AIRMODE_RP` turns saturation into collective: stick down
+  0.54 → 0.38 while mean motor command went up 0.44 → 0.64 — an **uncommanded
+  climb**. The `accel_unhealthy` veto caught the half it could see and kept the
+  height mode from engaging. Control FIFOs 0 drops, kernel healthy. Also: the FFT
+  notch was compiled out of the flown build; the attitude body-rate fields are
+  never populated; the ESP VCC jumper (not RF) was the telemetry loss.
+  - [`README`](20260907-231254-vibration-flyaway/README.md) — provenance, inventory, headline
+  - [`analysis.md`](20260907-231254-vibration-flyaway/analysis.md) — ten findings by severity
+  - [`recommendations.md`](20260907-231254-vibration-flyaway/recommendations.md) — fix order, and what not to try
+
 - [`20260617-124210/`](20260617-124210/) — **2026-06-17 12:42:10**, first
   hardware bring-up **bench-rig** session: 6.25 min, 38 k frames, 0 CRC errors.
   Never reached IN_AIR. **Headline: the roll/pitch attitude loop is unstable —
