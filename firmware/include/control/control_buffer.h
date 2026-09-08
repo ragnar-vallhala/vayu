@@ -5,7 +5,10 @@
 #include "variables.h"
 #include <stdbool.h>
 
-#define CONTROL_TELEMETRY_BUFFER_SIZE 10
+/* Mailbox, not a queue: the control loop pushes at loop rate and the telemetry
+ * task pops at most one per gate tick. 4 => 2 usable slots (see imu_buffer.h).
+ * Was 10, which sat permanently full and only served stale samples. */
+#define CONTROL_TELEMETRY_BUFFER_SIZE 4
 
 void control_telemetry_buffer_init(void);
 bool control_telemetry_queue_push(const control_telemetry_t *data);
