@@ -202,6 +202,27 @@ both are recorded so the 12 KB is not a surprise next time something needs RAM.
    stack from a heap with 4.4 KB free. `tools/dev/alloc_budget.py --fit N`
    answers that question directly.
 
+## P1e — settle the yaw axis
+
+Analysis §7d verifies the roll and pitch chain end to end — negative feedback
+and a clean torque → angular-acceleration response at 36–48 ms — but yaw shows
+no plant response at any lag and a **positive** `corr(u, rate)` of +0.77 across
+all eight usable runs. That is what an inverted sign looks like; it is also what
+a commanded yaw looks like, and what a bench-friction-locked airframe looks like.
+The recording cannot separate them because the `act` stream carries only the
+collective setpoint.
+
+1. **Log the rate setpoints.** ControlTrace already carries them and is one line
+   to re-enable (`telemetry_task.c`, `send_pid_err`), or add the RC channels to
+   the `act` stream. Either makes `u = K(sp − ω)` directly checkable and settles
+   this from the next capture, with no extra test.
+2. **Or run props-on suspended**, free to yaw, and confirm a commanded yaw
+   produces yaw acceleration in the commanded direction.
+
+Do this before the first free flight. The 2026-06-21/22 tune found the yaw sign
+backwards once already; a second occurrence would not be surprising and is
+cheap to rule out.
+
 ## P2 — recorder and tooling
 
 1. **Persist `s_session` in the HSL file header.** It is the one cursor field

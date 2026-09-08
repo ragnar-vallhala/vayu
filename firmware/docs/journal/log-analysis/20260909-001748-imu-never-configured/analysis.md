@@ -505,6 +505,93 @@ exceeded"* once a failed allocation finds usage past `HEAP_SIZE -
 HEAP_WATERMARK_THRESHOLD`, so that — not `task_create`'s panic — is the message
 on the wire.
 
+## 7d. End-to-end chain check: sensor -> controller -> mixer -> ESC -> physics
+
+The recording carries the gyro, the collective setpoint and all four motor
+commands, which is enough to close the loop on paper. The four mix vectors are
+orthogonal:
+
+```
+roll  [-1 -1 +1 +1]     pitch [+1 -1 -1 +1]
+yaw   [-1 +1 -1 +1]     collective [+1 +1 +1 +1]
+```
+
+so `M · mix / 4` inverts the mixer exactly and recovers the controller's own
+per-axis demand — **but only where no motor is clipped**. With 43% of powered
+ticks at a rail (§6d) the inversion is meaningless on those, so everything below
+is restricted to samples where all four motors sit strictly inside
+[0.1505, 0.9995].
+
+### Is the loop closing? (sign of the feedback)
+
+`corr(u, rate)` should be **negative**: with the sticks near centre the rate
+controller opposes measured rate.
+
+```
+  roll   -0.51    per-run  -0.65 -0.65 -0.39 -0.67 -0.56 -0.47 -0.09 -0.31
+  pitch  -0.45    per-run  -0.62 -0.32 -0.44 -0.20 -0.70 -0.71 -0.08 -0.46
+  yaw    +0.77    per-run  +0.59 +0.61 +0.71 +0.96 +0.57 +0.98 +0.83 +0.96
+```
+
+### Does the torque actually move the airframe? (sign of the plant)
+
+Cross-correlating the recovered demand against angular acceleration at
+increasing lag. This one is independent of what the setpoint was doing.
+
+```
+  lag(ms)   roll    pitch     yaw
+      0.0   -0.23   -0.15   -0.00
+     24.2   +0.22   +0.23   -0.08
+     36.3   +0.46   +0.29   -0.07
+     48.4   +0.53   +0.28   -0.02
+     60.5   +0.31   +0.19   -0.04
+    108.9   -0.31   -0.03   -0.00
+```
+
+**Roll and pitch: the whole chain is confirmed.** Negative feedback, a clean
+positive torque → angular-acceleration relationship, peaking at **48 ms (roll)**
+and **36 ms (pitch)**. The sensor's sign convention, the estimator, the mixer
+geometry, the ESC wiring and the physical rotor directions are all mutually
+consistent — if any one of them were inverted this correlation would be
+negative.
+
+Two things fall out of it:
+
+- The roll curve goes **negative at ~110 ms**, i.e. a half-period, so the loop
+  is oscillating at roughly **4.5 Hz**.
+- The 36–48 ms lag dwarfs the whole transport pipeline (4–6 ms of actuator path
+  plus ~10 ms of sensor staleness). The rest is motor and rotor spin-up — the
+  plant's own time constant. That is the honest reason the 1–2 ms of motor-queue
+  staleness in §6d is second-order: it is 3% of the delay that actually exists.
+
+### Yaw does not verify, and this data cannot settle why
+
+Yaw shows **no torque → acceleration relationship at any lag** (peak +0.03), and
+`corr(u, rate)` is **positive at +0.77, consistently across all eight usable
+runs**. Positive feedback is what an inverted sign looks like. But three
+explanations fit what is here and the recording cannot separate them:
+
+1. **The yaw mix sign is inverted.** Positive feedback would drive `u` and `ω`
+   to the same-signed extreme, which is exactly the observed +0.77 with no clean
+   plant response. Note the 2026-06-21/22 tune found the yaw sign backwards once
+   before, and it was fixed.
+2. **The pilot was commanding yaw.** `u = K(sp − ω)` with a moving `sp` makes
+   `u` and `ω` share a driver and correlate positively. **We do not log the yaw
+   stick** — the `act` stream carries the collective setpoint only.
+3. **Yaw is friction-locked on the bench.** A quad's yaw authority is reaction
+   torque, an order of magnitude weaker than thrust differential, and the
+   airframe was resting on a surface. Against that, roll and pitch responded
+   fine, so the airframe was not immobile.
+
+**What would settle it**, in order of cost: log the rate setpoints (ControlTrace
+is one line, currently off) or the full RC channels, which makes `u = K(sp − ω)`
+directly checkable; or run props-on with the airframe suspended so it is free to
+yaw, and confirm a commanded yaw produces yaw acceleration in the commanded
+direction.
+
+Until then, treat roll and pitch as verified and yaw as **unverified**, not as
+broken.
+
 ## 7. What this invalidates
 
 - **The FFT dynamic notch cannot work.** It analyses at

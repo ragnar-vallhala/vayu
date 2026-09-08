@@ -62,6 +62,7 @@ assumption nobody checked":
 | 6d | the output side: three rates, mixer saturation, airmode's 1.8× collective, and the ESC being served the older queued command |
 | 7b | driver audit — BME280 is fine, the VL53L0X publishes nothing on half of boots |
 | 7c | static memory: 8,224 B of serial-handler `.bss` never used; the heap arithmetic that killed calibration |
+| 7d | end-to-end chain check: roll/pitch verified sensor-to-physics; yaw unverified and why |
 
 ## Status
 
