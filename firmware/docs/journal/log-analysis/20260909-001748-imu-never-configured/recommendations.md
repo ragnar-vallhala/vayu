@@ -113,7 +113,53 @@ path is set up explicitly — but all of it was sized against the aliased plant.
    1600 Hz the actuator becomes the slowest link in the chain. OneShot/DShot is
    the eventual answer; at minimum, know that the loop rate above 400 Hz buys
    nothing today.
-4. **Do not read the FAILSAFEs as an accel-health problem.** The accel latch
+4. **Drain the motor queue instead of reading one item.** `motor_task` does
+   `spsc_read(&motor_angle_rate2motor_queue, &out, 1)` once per 2 ms tick while
+   the rate loop pushes at 1 kHz. The policy is `SPSC_POLICY_OVERWRITE`, which
+   drops the *oldest* and appends at the head (`structure.c:114`), and the
+   consumer reads from the tail — so the queue sits permanently full at 2 usable
+   slots and **the command reaching the ESC is always the older one**. The input
+   side already does this correctly: `while (imu_queue_control_pop(&imu_data))`
+   drains and keeps the freshest. Make the motor path match. Worth ~1–2 ms, and
+   it is a handful of lines.
+
+   Full actuator transport lag today, for reference:
+
+   ```
+   ~1-2 ms   reading the stale item out of the queue     <- avoidable, free
+   up to 2 ms  motor_task period (v_delay(2), 500 Hz)    <- avoidable
+   up to 2.5 ms PWM update granularity at 400 Hz         <- protocol-bound
+   ```
+
+   Second-order against a 98 Hz sensor, so do it after P0, not before.
+
+5. **DMA does not help here** (asked 2026-09-09; recording the reasoning so it
+   is not re-litigated). Setting a motor command is a single write to
+   `TIM1->CCRx` — there is nothing for a DMA engine to offload, and none of the
+   three lag terms above is CPU-bound. NavHAL does have DMA (`hal_dma.h`, used
+   by UART/I2C/SDIO) but no timer-DMA binding.
+
+   DMA only becomes relevant if the *protocol* changes, and it is the protocol
+   that would buy the time:
+
+   - Standard PWM cannot go much faster than it already does. A 1–2 ms pulse
+     needs a period ≥ 2 ms, so ~500 Hz is the hard ceiling and 400 Hz is
+     already near it. Raising `DEFAULT_PWM_FREQ` alone will break the pulse
+     encoding.
+   - **OneShot125** (125–250 µs pulses) allows several kHz and is a small change
+     to `esc_init`'s constants plus a timer reconfigure. No DMA needed.
+   - **DShot** encodes each command as a 16-bit frame and does need timer+DMA to
+     clock the bit pattern out — that is where DMA genuinely enters, but the
+     benefit comes from DShot, not from DMA.
+   - **Bidirectional DShot** additionally returns real motor RPM. That is the
+     interesting one: an RPM-driven notch needs no FFT at all, which would
+     retire the whole [[fft-dynamic-notch]] problem rather than fixing it.
+
+   Sequence if this is wanted: fix the ODR (P0), take the queue and task-period
+   wins (free), then evaluate OneShot125 before DShot, since DShot is new HAL
+   work on the timer path.
+
+6. **Do not read the FAILSAFEs as an accel-health problem.** The accel latch
    vetoes height mode and stops there; the failsafes are the 70 deg tilt cutoff
    firing after the airframe tips. Restrain the airframe for the next bench run
    so a tip does not truncate the capture.
