@@ -46,18 +46,28 @@ Do these *after* P0 and a fresh capture, not before.
 1. **Re-run accel calibration.** The stored offsets and soft-iron in `cal.bin`
    were fitted against a ±2 g sensor at 100 Hz. They are in m/s² so they carry
    over numerically, but they describe a different instrument.
-2. **Re-measure the vibration spectrum with props on.** For the first time
+2. **Re-check the rate-loop D term.** With the sensor at ~100 Hz the D term is
+   90% zeros and 10% impulses (analysis §6c). Once the gyro is fresh at 1600 Hz
+   this fixes itself — but the current Kd was tuned *against* the impulse train,
+   so it is very likely wrong for a continuous derivative. Re-tune, or at least
+   re-measure, before trusting it. The same applies to `*_D_LPF_RC = 0.004`.
+3. **Re-check `LPF_GYR_ALPHA` / `LPF_ACC_ALPHA`** (0.51 / 0.34). Applied once
+   per poll at 1827 Hz they sit near 300 Hz and 150 Hz, which did nothing to a
+   98 Hz staircase. Against a real 1600 Hz stream they become live filters with
+   real phase lag in the control path — pick them deliberately rather than
+   inheriting them.
+4. **Re-measure the vibration spectrum with props on.** For the first time
    there will be real content above 50 Hz. This is the capture the FFT notch
    needs, and it is the one thing this archive could not provide.
-3. **Re-size `VERT_ACCEL_BIAS_MAX` (currently 3.0).** It was chosen against
+5. **Re-size `VERT_ACCEL_BIAS_MAX` (currently 3.0).** It was chosen against
    rectified data. With a sensor that reports true specific force the bias it
    must absorb should be far smaller, and a tighter clamp makes the veto a
    sharper instrument.
-4. **Re-validate the FFT notch, or leave it off.** It has been force-enabled
+6. **Re-validate the FFT notch, or leave it off.** It has been force-enabled
    since 2026-09-07 and cannot have been doing anything useful. Consider
    flashing `firmware/build` (notch off) for the first post-fix run so the
    vibration is measured unfiltered.
-5. **Reconsider `IMU_SAMPLE_FREQ_HZ = 2000`.** Once the sensor runs at 1600 Hz,
+7. **Reconsider `IMU_SAMPLE_FREQ_HZ = 2000`.** Once the sensor runs at 1600 Hz,
    polling at 1827 Hz is roughly right; today it is 19× oversampling.
 
 ## P2 — recorder and tooling
@@ -77,11 +87,13 @@ Do these *after* P0 and a fresh capture, not before.
 
 ## Not doing
 
-- **Chasing a mechanical vibration fix first.** There may well be a balance or
-  mount problem — run 10 reached 0.98 throttle with only −2.15 of bias while
-  run 3 clamped at 0.49, which does not scale with throttle and is worth
-  understanding. But no mechanical measurement means anything while the sensor
-  cannot see above 50 Hz.
+- **Chasing a mechanical vibration fix first.** The run-to-run spread is now
+  explained without invoking a mechanical fault: at matched throttle the
+  *measured* vibration is identical across runs (`acc_sd` 1.01–1.36) while the
+  loss varies 4×, so what differs is where the prop tone folds, not how much
+  the airframe shakes (analysis §6b). There may still be a balance problem —
+  but no mechanical measurement means anything while the sensor cannot see
+  above 50 Hz. Fix P0, then measure.
 - **Touching the vertical estimator.** It behaved correctly throughout: it
   absorbed the error, clamped, latched, and vetoed. Six FAILSAFEs are six
   successful refusals to fly on bad data.

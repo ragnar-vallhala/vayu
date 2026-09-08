@@ -156,6 +156,91 @@ Note run 10: throttle reached 0.98 yet `abias` only −2.15 and it ended STANDBY
 Whatever sets the depth of the collapse is not throttle alone — worth a look
 before tomorrow's run.
 
+## 6b. The collapse is frequency folding, not vibration amplitude
+
+Three independent tests, all pointing the same way.
+
+**It does not scale with measured vibration.** Taking only the bins where mean
+motor command is 0.30–0.40, so throttle is held constant across runs:
+
+```
+ run    n   loss   acc_sd  az_sd  gyro_sd
+   3    34   5.73    1.30   1.39     4.4   ACCEL UNHEALTHY
+   5    31   5.33    1.34   1.41     5.9   ACCEL UNHEALTHY
+   9    38   4.62    1.21   1.26     4.7   ACCEL UNHEALTHY
+  14    53   3.06    1.12   1.07     3.0   ACCEL UNHEALTHY
+  15    13   2.13    1.36   1.35    15.7
+  17    28   1.93    1.01   1.09     6.9
+  10     3   1.56    1.27   1.30     1.3
+   7     5   1.49    1.19   1.52     4.9
+```
+
+`acc_sd` spans 1.01–1.36 — essentially flat — while loss spans **1.49 to 5.73,
+a factor of four**. Run 15 has 3.5× the gyro activity of run 3 and a third of
+the loss. Whatever drives the collapse is invisible to both sensors, which is
+the definition of out-of-band.
+
+**It is non-monotonic in throttle.** Binned across all arms, loss rises to
+~4.2 m/s² at motor 0.36–0.38 and then *falls* to 2.6–3.3 by 0.50–0.56. An
+amplitude mechanism (clipping, rectification of a growing signal) can only
+increase. Folding cannot: as prop RPM sweeps, the aliased image moves through
+DC and back out again.
+
+![loss is not amplitude](plots/loss-not-amplitude.png)
+
+**Physics forbids the alternative.** A sustained −5 m/s² for 8 s is 160 m of
+fall. The airframe was on a bench. The sensor is wrong, not the vehicle.
+
+Correlations over all 535 powered bins, for the record:
+
+```
+throttle  +0.708      acc_sd   +0.573      gyro_sd  +0.179
+motor mean+0.707      az_sd    +0.618      ax/ay_sd +0.16
+```
+
+`az_sd` leading the axis terms says the residual in-band energy is mostly on
+the thrust axis, as expected — but note it is the *residual*, not the cause.
+
+Measured ODR, to close it off:
+
+```
+run 9, ax repeat-run lengths: {16:8, 17:101, 18:273, 19:383, 20:118}
+1827.3 Hz / 18.569 = 98.41 Hz
+```
+
+## 6c. The rate loop's D-term is an impulse train
+
+The same staleness has a second victim nobody was looking at. The rate loop
+runs at 1 kHz and computes `D = (err - prev_err) / INNER_LOOP_DT` with
+`INNER_LOOP_DT = 1 ms`, but its input only changes every ~10 iterations. So the
+derivative is zero nine times out of ten and a spike on the tenth, and the
+spike is divided by 1 ms instead of the 10 ms over which the change actually
+happened.
+
+Reconstructed from the logged gyro on run 9 (t = 2–6 s), zero-order held onto
+the 1 kHz the loop really sees:
+
+```
+loop-rate derivative : rms 12375  peak 397461 dps/s   (90% of samples exactly 0)
+true-rate derivative : rms  5312  peak  79492 dps/s
+                    -> 2.3x rms, 5.0x peak inflation
+after the 40 Hz D LPF: rms  4290  peak  79492 dps/s
+```
+
+![D-term impulse train](plots/dterm-impulse-train.png)
+
+The D low-pass (`*_D_LPF_RC = 0.004` ≈ 40 Hz) rescues the *amplitude* — rms
+lands below the true value — but it cannot restore continuity: the D term is
+still delivering its authority as a 98 Hz impulse train rather than a signal.
+A derivative firing impulses into a mixer that saturates is exactly the shape
+of a relay, which is worth holding next to the "pitch oscillation is a
+saturation/relay limit cycle" conclusion from the 2026-06 campaign.
+
+The driver's own filters have the same problem by construction:
+`LPF_GYR_ALPHA = 0.51` and `LPF_ACC_ALPHA = 0.34` are applied once per poll at
+1827 Hz, giving corners near 300 Hz and 150 Hz. Against a 98 Hz staircase they
+do almost nothing — they were designed for an input that does not exist.
+
 ## 7. What this invalidates
 
 - **The FFT dynamic notch cannot work.** It analyses at
