@@ -46,7 +46,7 @@ run 9 powered    logged fs 1827 Hz
    gx  mean run of identical samples 18.89  -> effective new-data rate  96.7 Hz
 ```
 
-![sample staleness](plots/sample-staleness.png)
+![**Figure 1.** Vertical accelerometer over 100 ms of run 9. The trace is the value the firmware logs at 1827 Hz; the markers are the ~19x rarer instants at which the sensor actually produced a new reading. Every step is one real sample held for ~10 ms.](plots/fig01-sample-staleness.png)
 
 **Nyquist is 50 Hz, not 914 Hz.** A 5" prop at ~0.4 throttle turns somewhere in
 the low hundreds of Hz, and blade-pass is 2× that. None of it is resolved; it
@@ -56,7 +56,9 @@ folds down into the control band as something that looks like real motion.
 
 The clearest signature in the capture. Binned at 250 ms across all 20 arms:
 
-![accel vs throttle](plots/accel-vs-throttle.png)
+See Figure 2.
+
+![**Figure 2.** Mean measured acceleration magnitude against commanded collective, 250 ms bins, all 20 arms. A stationary body must sit on the dashed line at 9.807 m s$^{-2}$ whatever the motors do. Red marks arms in which the accel-health veto latched.](plots/fig02-accel-vs-throttle.png)
 
 Stationary on a bench, `|accel|` must read 9.81 whatever the motors do — a
 static body's specific force does not depend on thrust. It does not:
@@ -104,7 +106,7 @@ above it.
 
 ## 5. The failure chain
 
-![run 9 timeline](plots/run9-timeline.png)
+![**Figure 4.** Run 9 end to end. Throttle rises, the measured gravity magnitude collapses well below its true value, the estimator absorbs the error into `accel_bias` until it hits the -3.0 clamp, and the climb-rate estimate reads several m s$^{-1}$ of descent on a bench. The run ends in FAILSAFE - though via the tilt cutoff, not this veto (SS7d).](plots/fig04-run9-timeline.png)
 
 ```
 throttle up
@@ -233,7 +235,7 @@ amplitude mechanism (clipping, rectification of a growing signal) can only
 increase. Folding cannot: as prop RPM sweeps, the aliased image moves through
 DC and back out again.
 
-![loss is not amplitude](plots/loss-not-amplitude.png)
+![**Figure 3.** Two tests that the collapse is frequency folding rather than vibration amplitude. **(a)** Gravity lost against motor command: it peaks near 0.37 and falls again, which an amplitude mechanism cannot do. **(b)** Restricted to a single throttle band (motor 0.30-0.40) so throttle is held constant: the vibration actually measured is the same across runs while the loss varies four-fold.](plots/fig03-loss-not-amplitude.png)
 
 **Physics forbids the alternative.** A sustained −5 m/s² for 8 s is 160 m of
 fall. The airframe was on a bench. The sensor is wrong, not the vehicle.
@@ -274,7 +276,7 @@ true-rate derivative : rms  5312  peak  79492 dps/s
 after the 40 Hz D LPF: rms  4290  peak  79492 dps/s
 ```
 
-![D-term impulse train](plots/dterm-impulse-train.png)
+![**Figure 5.** Why a 1 kHz derivative of a ~98 Hz signal misbehaves. **(top)** the roll rate as the rate loop actually sees it - a staircase, one real sample per ~10 loop iterations. **(bottom)** the resulting D term: zero for nine iterations, then an impulse divided by a 1 ms `dt` instead of the 10 ms the change really took.](plots/fig05-dterm-impulse-train.png)
 
 The D low-pass (`*_D_LPF_RC = 0.004` ≈ 40 Hz) rescues the *amplitude* — rms
 lands below the true value — but it cannot restore continuity: the D term is
@@ -602,6 +604,10 @@ show plant direction at all: at zero lag `u` opposes `ω` and `ω̇` is dominate
 whatever disturbance the controller is fighting. Both problems disappear under
 the mask and the lag sweep.
 
+Figure 6 plots the whole sweep.
+
+![**Figure 6.** Cross-correlation between the controller's recovered per-axis torque demand and the angular acceleration that follows it, against the lag applied to the acceleration. Restricted to samples where no motor is clipped, since a saturated mixer cannot be inverted. Positive means the torque moves the airframe in the direction it asked for. Roll and pitch peak cleanly; yaw is flat at every lag.](plots/fig06-chain-lag-sweep.png)
+
 **Roll and pitch: the whole chain is confirmed.** Negative feedback, a clean
 positive torque → angular-acceleration relationship, peaking at **48 ms (roll)**
 and **36 ms (pitch)**. The sensor's sign convention, the estimator, the mixer
@@ -673,6 +679,8 @@ every axis, accel-derived tilt < 15°):
 
   m3 deficit: mean -0.1202, sd 0.0848, 6 of 7 runs negative
 ```
+
+![**Figure 7.** Mean command per motor for each arm with enough quasi-static samples - unsaturated, body rates under 20 deg s$^{-1}$, tilt under 15 deg - so the airframe is near level and near still. Motor 3 is held 30-45% below its neighbours in six of the seven runs. Run 10 inverts it, as it inverts several other measures in this capture.](plots/fig07-motor-asymmetry.png)
 
 It survives the filter and gets **stronger**: near level and near still, motor 3
 is commanded 30–45% below its neighbours. Decomposed through the mix that is
@@ -746,6 +754,8 @@ both cases, because the rangefinder dies on half of boots (§7b):
    15    0%     8.80s           --          -1.54
 ```
 
+![**Figure 8.** Estimator `accel_bias` from the moment of arming, one line per powered arm, coloured by whether the rangefinder was producing data. Arms with the ToF live reach the clamp within ~2 s; arms without it take 3-9 s and mostly never get there. Run 7 (13% valid) is the control - an early run that behaves like the dead group.](plots/fig08-tof-aiding.png)
+
 Bias convergence is **2–3× faster with the rangefinder live** (median 1.84 s
 against 3.90 s), and every ToF-aided run reaches the clamp while only one of the
 six unaided ones does. The obvious confound is run order — the ToF runs are the
@@ -778,6 +788,8 @@ per-axis demand:
   run 15   roll 1.2 Hz (0.007)   pitch 1.3 Hz   yaw 0.9 Hz
   run 17   roll 0.8 Hz (0.015)   pitch 0.8 Hz   yaw 4.1 Hz
 ```
+
+![**Figure 9.** Spectrum of the recovered roll demand, one line per arm. The `act` stream is sampled at ~330 Hz and is not subject to the gyro's aliasing, so this axis is trustworthy. Two populations separate cleanly, and neither sits at the 1.79 Hz limit cycle characterised in June.](plots/fig09-oscillation-spectra.png)
 
 Two clean groups: an early set oscillating at **4.6–7.6 Hz** and a later set at
 **0.8–1.3 Hz** with generally smaller amplitude. The 4.5 Hz half-period inferred
