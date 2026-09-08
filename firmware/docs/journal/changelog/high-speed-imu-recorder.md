@@ -50,20 +50,6 @@ Two more, from widening the same lens:
 
 ### Fixed
 
-- **`motor_task` drains its queue instead of serving the oldest entry.** The
-  rate loop pushes at 1 kHz, the task consumed one item per 2 ms tick, and
-  `SPSC_POLICY_OVERWRITE` drops the oldest while the consumer reads from the
-  tail — so the ring sat permanently full and every ESC command was ~1–2 ms
-  stale. Now `while (spsc_read(...))`, matching how the rate loop already
-  drains its own IMU input. (`src/actuator/motor.c`.)
-
-  Not done, and recorded as *not worth doing*: speeding `motor_task` up. At
-  `v_delay(2)` it already writes CCR more often than the 400 Hz timer latches
-  it. Output-compare preload is enabled (`CCMR1 |= TIMx_CCMRy_OCxPE`,
-  timer.c:541) so mid-period writes are glitch-free, but they still only take
-  effect once per 2.5 ms. The protocol binds, not the task rate — and DMA
-  changes none of it, since a motor command is one write to `TIM1->CCRx`.
-
 - **Calibration could not start.** `task_create(calibration_task, ..., 8192, 0)`
   asked for an 8 KB stack from a 40,960 B heap whose live peak is 34,456 B, so
   the allocation failed and tripped `v_panic` in `task.c:197`. Measured the
@@ -77,6 +63,25 @@ Two more, from widening the same lens:
   What consumed the headroom was the FFT notch: it allocates 6,832 B of FFT
   buffers per boot, and the 27,624 B heap peak recorded on 2026-09-07 was a
   `VAYU_FFT_NOTCH=OFF` build.
+
+### Considered and rejected
+
+- **Draining the motor queue.** `motor_task` reads one item per 2 ms tick from a
+  queue the rate loop fills at 1 kHz; `SPSC_POLICY_OVERWRITE` drops the oldest
+  while the consumer reads from the tail, so the ring sits permanently full and
+  every ESC command is ~1–2 ms stale. Changing the read to a drain loop was
+  tried and **reverted**: it makes the consumer's per-tick work depend on the
+  producer's rate, coupling two tasks that are independent today, and a bounded
+  fixed-cost consumer is worth more than 1–2 ms. If it is ever worth removing,
+  the shape is a single-slot latest-value cell, not a loop over a FIFO.
+
+- **Speeding `motor_task` up.** At `v_delay(2)` it already writes CCR more often
+  than the 400 Hz timer latches it. Output-compare preload is enabled
+  (`CCMR1 |= TIMx_CCMRy_OCxPE`, timer.c:541) so mid-period writes are
+  glitch-free, but they still only take effect once per 2.5 ms. The protocol
+  binds, not the task rate — and DMA changes none of it, since a motor command
+  is a single write to `TIM1->CCRx`. OneShot125 is the cheap protocol step;
+  bidirectional DShot would return real RPM and retire the notch problem.
 
 ### Changed
 
