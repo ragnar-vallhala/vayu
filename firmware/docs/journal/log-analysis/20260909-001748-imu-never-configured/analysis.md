@@ -109,12 +109,59 @@ above it.
 ```
 throttle up
   -> ~100 Hz sensor aliases prop-band energy
-  -> mean |accel| falls 10.2 -> 4.8
+  -> mean |accel| falls 10.2 -> 4.8  (while the airframe is still near level)
   -> vertical estimator sees a sustained downward specific force
   -> accel_bias absorbs it, hits the -3.0 clamp (VERT_ACCEL_BIAS_MAX)
   -> accel_unhealthy latches, climb_rate reads -3.7 .. -8.0 m/s on a bench
-  -> FAILSAFE
+  -> height mode vetoed  (this is where the accel-health guard's effect ENDS)
+
+meanwhile, on the output side
+  -> the rate PID is fed an aliased 98 Hz gyro and an impulse D term
+  -> 43% of powered ticks have a motor at a rail; airmode shifts collective
+  -> the unrestrained airframe tips
+  -> tilt > MAX_ANGLE_CUTOFF (70 deg) -> FAILSAFE
 ```
+
+**Correction to an earlier reading of this data:** the accel-health latch does
+*not* trigger the failsafe. It vetoes height mode and nothing more. Every one
+of the nine FAILSAFE arms ends with the airframe past 90 degrees — the
+terminating trigger is the tilt cutoff in `angle_controller.c:340`:
+
+```
+ run  ended     accel-bad   tilt at end (deg)
+   2  FAILSAFE  UNHEALTHY        99.2
+   3  FAILSAFE  UNHEALTHY       151.2
+   5  FAILSAFE  UNHEALTHY        98.0
+   6  FAILSAFE  -               105.2
+   8  FAILSAFE  UNHEALTHY       127.9
+   9  FAILSAFE  UNHEALTHY       145.8
+  11  FAILSAFE  -               103.4
+  14  FAILSAFE  UNHEALTHY        93.9
+  16  FAILSAFE  -               119.1
+```
+
+That also explains runs 6, 11 and 16, which failsafed with no accel latch at
+all: they simply tipped over.
+
+### Tumbling does not explain the collapse
+
+A rotating or bouncing body genuinely reads unusual specific force, so this had
+to be ruled out rather than assumed. Gyro-integrated rotation is independent of
+the accelerometer:
+
+```
+run 5:  t  | thr  | |acc| | gyro rotation (deg) | accel-tilt (deg)
+       0.0   0.07   10.15          2.0                4.3
+       0.5   0.23    6.77         12.3               11.6     <- already lost 3 m/s^2
+       1.0   0.29    5.51         15.6               12.2
+       1.5   0.32    4.73         18.8               14.7
+```
+
+`|accel|` is down by a third after 0.5 s, with **12 degrees** of accumulated
+rotation and the airframe sitting near level. Through the body of every run the
+instantaneous tilt stays around 8–14 degrees while `|accel|` reads 4.7. A level,
+near-stationary body must read 9.81. The >90 degree attitudes appear only in
+the final half-second, after the controller has already lost the plot.
 
 6 of 20 arms ended exactly this way (runs 2, 3, 5, 8, 9, 14 — all with
 `abias = -3.00` precisely, i.e. clamped). Three more reached FAILSAFE without
@@ -264,6 +311,63 @@ stamps, 26.418 s, against 26.42 s of accumulated block spans):
 per-sample dt: median 550.0 us -> 1818 Hz   (nominal 500 us / 2000 Hz)
                p05 537.5   p95 562.5 us
 ```
+
+## 6d. The output side: three rates, and the middle one is the only fast one
+
+The sensor is not the only rate mismatch in the loop.
+
+```
+sensor  ~98 Hz   (ODR, never configured)
+loop     1 kHz   (task_delay_until on INNER_LOOP_PERIOD_TICKS)
+ESC     400 Hz   (DEFAULT_PWM_FREQ, 1-2 ms pulse, TIM1 ch1-4)
+```
+
+The ESC path *is* properly configured — `esc_init()` sets frequency and pulse
+bounds explicitly and `esc_set_throttle()` computes duty from them. But at
+400 Hz PWM the actuator accepts a new command every 2.5 ms, so roughly 60% of
+what the 1 kHz rate loop computes is never delivered. The loop is bracketed by a
+98 Hz input and a 400 Hz output; the only fast number in the chain is the one in
+the middle, which is the one that does not touch hardware.
+
+### The mixer lives in saturation
+
+From the `act` stream, 23,493 powered motor-samples:
+
+```
+  at the 0.150 idle floor : 10.8%
+  at 1.000 (saturated hi) :  3.0%
+  powered ticks with >=1 motor at a rail: 42.9%
+  motor spread (max-min): mean 0.317  p95 0.840
+```
+
+**43% of powered ticks have at least one motor railed.** That is the
+relay/saturation regime the 2026-06 pitch-oscillation campaign identified, still
+present, and now with a plausible upstream cause (an aliased gyro and an impulse
+D term, §6c).
+
+### Airmode is modulating the collective by up to 1.8x
+
+`MIXER_AIRMODE_RP` preserves roll/pitch authority under saturation by moving
+collective. Measured, commanded throttle against realised mean motor:
+
+```
+    thr 0.05-0.20  n= 3506  mean motor 0.274  (x1.80)  rails 100%
+    thr 0.20-0.30  n= 4791  mean motor 0.315  (x1.25)  rails  59%
+    thr 0.30-0.40  n=11634  mean motor 0.379  (x1.10)  rails  21%
+    thr 0.40-0.50  n= 2549  mean motor 0.465  (x1.03)  rails  15%
+    thr 0.50-1.01  n= 1013  mean motor 0.528  (x0.65)  rails  94%
+```
+
+At low stick the mixer delivers **1.8x the commanded collective**, with a motor
+railed 100% of the time; above 0.5 it delivers 0.65x. The pilot's throttle is
+only loosely related to the thrust that results, and it is worst exactly in the
+0.05–0.20 band where `PID_FULL_AUTHORITY_THROTTLE` (0.20 on hardware) is still
+ramping authority in. This is the same mechanism as the 2026-09-07 flyaway's
+uncommanded climb, measured directly rather than inferred.
+
+`MOTOR_IDLE_FLOOR = 0.15` is also high for a 5" airframe (typical is 0.05–0.08).
+It costs authority range at the bottom and spins the props hard enough to
+produce the aliasing at zero stick.
 
 ## 7b. Driver audit — is the BMX160 the only one?
 

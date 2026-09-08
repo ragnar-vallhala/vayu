@@ -94,6 +94,30 @@ accident.
    for altimetry against exactly the kind of transient a prop makes. Measured
    effective rate today is 13.0 Hz.
 
+## P1c — the output side
+
+Measured in analysis §6d. None of this is a "never configured" bug — the ESC
+path is set up explicitly — but all of it was sized against the aliased plant.
+
+1. **Re-measure mixer saturation after P0.** 43% of powered ticks currently have
+   a motor at a rail, and airmode is modulating collective by 1.8x at low stick
+   and 0.65x above 0.5. Much of that differential demand comes from a rate PID
+   chasing an aliased gyro, so it should shrink on its own — check before
+   changing mixer behaviour, or a real fix gets papered over by a tuning change.
+2. **Reconsider `MOTOR_IDLE_FLOOR = 0.15`.** High for a 5" airframe (0.05-0.08
+   is typical). It eats authority range at the bottom, and it spins the props
+   hard enough to produce aliasing at zero stick — every idle arm in this
+   capture shows motors at exactly 0.150.
+3. **The ESC runs at 400 Hz PWM** while the rate loop runs at 1 kHz, so ~60% of
+   computed commands are never delivered. Not urgent, but once the sensor is at
+   1600 Hz the actuator becomes the slowest link in the chain. OneShot/DShot is
+   the eventual answer; at minimum, know that the loop rate above 400 Hz buys
+   nothing today.
+4. **Do not read the FAILSAFEs as an accel-health problem.** The accel latch
+   vetoes height mode and stops there; the failsafes are the 70 deg tilt cutoff
+   firing after the airframe tips. Restrain the airframe for the next bench run
+   so a tip does not truncate the capture.
+
 ## P2 — recorder and tooling
 
 1. **Persist `s_session` in the HSL file header.** It is the one cursor field
