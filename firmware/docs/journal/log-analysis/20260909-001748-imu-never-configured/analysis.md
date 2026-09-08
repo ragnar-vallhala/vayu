@@ -538,15 +538,69 @@ controller opposes measured rate.
 Cross-correlating the recovered demand against angular acceleration at
 increasing lag. This one is independent of what the setpoint was doing.
 
+Full sweep, `dt = 3.03 ms` (the `act` stream's measured interval), median over
+the eight runs with enough unsaturated samples:
+
 ```
   lag(ms)   roll    pitch     yaw
       0.0   -0.23   -0.15   -0.00
+     12.1   +0.04   +0.09   -0.05
      24.2   +0.22   +0.23   -0.08
      36.3   +0.46   +0.29   -0.07
-     48.4   +0.53   +0.28   -0.02
+     48.4   +0.53   +0.28   -0.02     <- roll peak
      60.5   +0.31   +0.19   -0.04
-    108.9   -0.31   -0.03   -0.00
+     72.6   +0.02   +0.06   -0.02
+     84.7   -0.12   +0.04   -0.00
+     96.8   -0.23   -0.01   -0.01
+    108.9   -0.31   -0.03   -0.00     <- roll half-period
+    121.0   -0.22   -0.00   +0.02
+    133.1   -0.05   -0.01   -0.00
+    145.2   +0.02   -0.00   +0.03
+    157.3   +0.16   +0.01   -0.01
+    169.4   +0.19   -0.02   +0.01
+    181.5   +0.13   +0.01   +0.03
+
+  roll  peak +0.53 at 48 ms     pitch peak +0.29 at 36 ms     yaw peak +0.03 (none)
 ```
+
+An earlier pass searched only to 30 ms and reported both roll and pitch peaking
+at exactly the search boundary — which is the signature of not having found the
+peak at all. Recorded here because the mistake is easy to repeat: always check
+whether an extremum sits on the edge of the range you swept.
+
+### Why the saturation mask matters
+
+Run without it, the same computation reports a **collective ratio** (realised
+mean motor / commanded throttle) and correlations that are partly artefacts of
+clipping rather than measurements of the controller:
+
+```
+ run   n     mean(m)/thr    corr(torque, rate)        corr(torque, drate/dt)
+                             roll   pitch    yaw       roll   pitch    yaw
+   2  3371   0.380/0.358=1.06  -0.75  -0.74  +0.63    -0.36  -0.30  -0.10
+   3  2602   0.395/0.356=1.11  -0.72  -0.75  +0.57    -0.18  -0.03  -0.14
+   5  2357   0.376/0.357=1.05  -0.16  -0.59  +0.29    -0.13  -0.21  +0.18
+   7   729   0.378/0.196=1.93  -0.47  -0.46  +0.89    -0.18  -0.17  +0.02
+   8  3092   0.330/0.295=1.12  -0.80  -0.73  +0.73    -0.24  -0.11  -0.03
+   9  2585   0.368/0.343=1.07  -0.80  -0.78  +0.52    -0.15  -0.14  -0.06
+  10  1357   0.477/0.683=0.70  +0.43  +0.06  +0.81    +0.00  -0.08  -0.03
+  11   257   0.383/0.302=1.27  -0.93  -0.80  +0.29    -0.23  -0.29  -0.20
+  14  2716   0.326/0.307=1.06  -0.68  -0.75  +0.67    -0.21  -0.13  +0.03
+  15  1017   0.330/0.193=1.71  -0.08  -0.33  +0.79    -0.17  +0.00  -0.06
+  16  1495   0.403/0.304=1.33  -0.46  -0.59  +0.66    -0.13  -0.21  -0.09
+  17  1681   0.319/0.169=1.89  -0.63  -0.51  +0.70    -0.27  -0.17  -0.14
+
+  median:  corr(torque,rate)   roll -0.66  pitch -0.66  yaw +0.66
+           corr(torque,accel)  roll -0.18  pitch -0.15  yaw -0.06
+```
+
+Note run 10, whose collective ratio is 0.70 and whose roll correlation flips to
+**+0.43** — a clipped mixer cannot be inverted, so that row measures the rails,
+not the controller. The `corr(torque, accel)` column is also negative for every
+axis here, which looks alarming until you realise a zero-lag correlation cannot
+show plant direction at all: at zero lag `u` opposes `ω` and `ω̇` is dominated by
+whatever disturbance the controller is fighting. Both problems disappear under
+the mask and the lag sweep.
 
 **Roll and pitch: the whole chain is confirmed.** Negative feedback, a clean
 positive torque → angular-acceleration relationship, peaking at **48 ms (roll)**
