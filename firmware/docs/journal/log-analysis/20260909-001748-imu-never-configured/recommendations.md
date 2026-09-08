@@ -113,7 +113,7 @@ path is set up explicitly — but all of it was sized against the aliased plant.
    1600 Hz the actuator becomes the slowest link in the chain. OneShot/DShot is
    the eventual answer; at minimum, know that the loop rate above 400 Hz buys
    nothing today.
-4. **Drain the motor queue instead of reading one item.** `motor_task` does
+4. **Motor-queue staleness — measured, and deliberately NOT fixed this way.** `motor_task` does
    `spsc_read(&motor_angle_rate2motor_queue, &out, 1)` once per 2 ms tick while
    the rate loop pushes at 1 kHz. The policy is `SPSC_POLICY_OVERWRITE`, which
    drops the *oldest* and appends at the head (`structure.c:114`), and the
@@ -131,7 +131,19 @@ path is set up explicitly — but all of it was sized against the aliased plant.
    up to 2.5 ms PWM update granularity at 400 Hz         <- protocol-bound
    ```
 
-   Second-order against a 98 Hz sensor, so do it after P0, not before.
+   **Decision (2026-09-09): rejected, reverted.** Draining makes the amount of
+   work the consumer does per tick a function of how fast the producer ran,
+   which couples two tasks that are deliberately independent today — a fixed
+   one-read-per-tick consumer has a bounded, rate-independent cost. The ~1–2 ms
+   is not worth trading that away for.
+
+   If the staleness is worth removing later, do it **without** coupling them:
+   a single-slot mailbox with a seqlock or a plain "latest value" cell has no
+   queue to drain and no producer-dependent work. That is a different change
+   from turning the FIFO read into a loop, and it is the one to make.
+
+   Second-order against a 98 Hz sensor either way — the real term is the 2.5 ms
+   PWM latch, which is protocol-bound (see item 5).
 
 5. **DMA does not help here** (asked 2026-09-09; recording the reasoning so it
    is not re-litigated). Setting a motor command is a single write to
