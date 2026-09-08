@@ -48,6 +48,21 @@ The decoder reconstructs arms from the ring's `seq` ordering; slot order is not
 time order once it has wrapped. Format spec:
 `firmware/include/storage/imu_hs_log.h`.
 
+## What is in here
+
+Everything found on 2026-09-09, in one place — the sensor findings that started
+it, and the audits that followed from asking "what else is running on an
+assumption nobody checked":
+
+| § | finding |
+|---|---|
+| 1–4 | the BMX160 has never been configured; ~98 Hz ODR and ±2 g; the collapse is aliasing, not clipping |
+| 5 | the failure chain, and what actually trips the failsafe (the 70° tilt cutoff, not the accel veto) |
+| 6b–6c | it is frequency folding, not amplitude; the rate loop's D term is an impulse train |
+| 6d | the output side: three rates, mixer saturation, airmode's 1.8× collective, and the ESC being served the older queued command |
+| 7b | driver audit — BME280 is fine, the VL53L0X publishes nothing on half of boots |
+| 7c | static memory: 8,224 B of serial-handler `.bss` never used; the heap arithmetic that killed calibration |
+
 ## Status
 
 Nothing here is fixed yet. **Do not fly on this firmware** — see

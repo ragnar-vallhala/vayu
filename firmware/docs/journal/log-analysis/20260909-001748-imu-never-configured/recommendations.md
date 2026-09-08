@@ -176,6 +176,32 @@ path is set up explicitly — but all of it was sized against the aliased plant.
    firing after the airframe tips. Restrain the airframe for the next bench run
    so a tip does not truncate the capture.
 
+## P1d — static memory
+
+Measured in analysis §7c by `tools/dev/alloc_budget.py`. Neither is urgent;
+both are recorded so the 12 KB is not a surprise next time something needs RAM.
+
+1. **`MAX_SERIAL_HANDLERS` is 3 and one slot is used.** 8,224 B of `.bss` is
+   permanently idle — 20% of the static footprint, on a part whose whole
+   MSP + slack region is 14.5 KB. The spare slots are plausibly deliberate
+   headroom (a second telemetry link, GPS or ESC telemetry would each want one,
+   and `get_handler()` returns `ERROR` when it runs out rather than degrading),
+   so **2 is probably the honest number rather than 1** — which still returns
+   4,112 B.
+2. **`CHANNEL_TX_BUF_SIZE = 2048` is sized against a comment, not a
+   measurement.** The rationale assumes a 1 Hz perf report with 24 tasks and 16
+   fifos; it runs at 5000 ms with 17 and 9, so the real worst burst is ~880 B
+   and `channel_tx_overflow_count()` reads 0. **Do not shrink it yet** — the
+   burst is about to change. Re-enabling ControlTrace, restoring the perf report
+   to 1 Hz, or raising the IMU ODR all push more frames per flush; shrinking now
+   and changing the telemetry mix next week is how you get an overflow nobody
+   can attribute. Re-measure after P0 and size against the number.
+3. **Regenerate memory figures, do not hand-maintain them.**
+   `journal/memory_report.md` had drifted to claiming `HEAP_SIZE = 0xE000` when
+   it is `0xA000`, which is the same class of mistake as asking for an 8 KB
+   stack from a heap with 4.4 KB free. `tools/dev/alloc_budget.py --fit N`
+   answers that question directly.
+
 ## P2 — recorder and tooling
 
 1. **Persist `s_session` in the HSL file header.** It is the one cursor field

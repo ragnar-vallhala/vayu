@@ -288,30 +288,6 @@ The driver's own filters have the same problem by construction:
 1827 Hz, giving corners near 300 Hz and 150 Hz. Against a 98 Hz staircase they
 do almost nothing — they were designed for an input that does not exist.
 
-## 7. What this invalidates
-
-- **The FFT dynamic notch cannot work.** It analyses at
-  `INNER_LOOP_FREQ_HZ/decim` looking for peaks up to `GYRO_NOTCH_FMAX_HZ =
-  450`. There is nothing real above 50 Hz in its input. Any peak it "finds" is
-  an alias. It has been force-enabled on this airframe since 2026-09-07.
-- **`IMU_SAMPLE_FREQ_HZ = 2000` is fiction twice over.** The task achieves 1827
-  Hz (550 µs period, measured; see below), and the sensor behind it produces
-  ~97 Hz. The rate loop at 1 kHz consumes ~10 duplicates per fresh sample.
-- **The control loops are not wrong about `dt`** — they derive it from DWT
-  cycle stamps, not the nominal rate — but they are being fed a 100 Hz signal
-  they believe is fresh at 1 kHz.
-- **The HSL stream is ~19× redundant.** 26.9 KB/s of which ~1.4 KB/s is new
-  information. Once the ODR is raised this becomes real data rather than a
-  compression opportunity.
-
-Measured task rate, independent of the sensor (from `ARM`→`DISARM` event
-stamps, 26.418 s, against 26.42 s of accumulated block spans):
-
-```
-per-sample dt: median 550.0 us -> 1818 Hz   (nominal 500 us / 2000 Hz)
-               p05 537.5   p95 562.5 us
-```
-
 ## 6d. The output side: three rates, and the middle one is the only fast one
 
 The sensor is not the only rate mismatch in the loop.
@@ -368,6 +344,49 @@ uncommanded climb, measured directly rather than inferred.
 `MOTOR_IDLE_FLOOR = 0.15` is also high for a 5" airframe (typical is 0.05–0.08).
 It costs authority range at the bottom and spins the props hard enough to
 produce the aliasing at zero stick.
+
+### The ESC is served the older of two queued commands
+
+`motor_task` reads exactly one item per tick from the queue the rate loop
+fills:
+
+```c
+if (!spsc_read(&motor_angle_rate2motor_queue, &motor_outputs, 1)) {
+  motor_outputs = prev_motor_outputs;
+}
+...
+v_delay(2);                                   /* 500 Hz */
+```
+
+The producer runs at 1 kHz, the consumer at 500 Hz, and the policy is
+`SPSC_POLICY_OVERWRITE` — which drops the **oldest** and appends at the head
+(`structure.c:114`, `spsc_skip`) while the consumer reads from the **tail**. So
+the ring sits permanently full at its 2 usable slots and the command reaching
+the ESC is always the older one: **~1–2 ms of pure transport lag for nothing**.
+
+The input side of the same loop handles the identical situation the other way —
+`while (imu_queue_control_pop(&imu_data))` drains and keeps the freshest. Same
+problem, opposite handling, in the same file's call graph.
+
+Full actuator lag, and the terms do **not** simply add:
+
+```
+~1-2 ms      the stale item out of the queue
+up to 2.5 ms PWM latches once per 400 Hz period
+(task period is NOT a separate term -- motor_task at v_delay(2) already
+ writes CCR more often than the timer latches it. Output-compare preload is
+ enabled, CCMR1 |= TIMx_CCMRy_OCxPE at timer.c:541, so a mid-period write
+ latches cleanly at the next update rather than glitching the pulse -- but it
+ still only takes effect once per 2.5 ms.)
+```
+
+Converting the read into a drain loop was tried on 2026-09-09 and **reverted**:
+it makes the consumer's per-tick work a function of how fast the producer ran,
+coupling two tasks that are independent today, and a bounded rate-independent
+consumer is worth more than 1–2 ms. If the staleness is ever worth removing,
+the shape is a single-slot latest-value cell — no queue to drain, no
+producer-dependent work — not a loop over a FIFO. DMA does not enter into it: a
+motor command is one write to `TIM1->CCRx`, so there is nothing to offload.
 
 ## 7b. Driver audit — is the BMX160 the only one?
 
@@ -432,6 +451,83 @@ vehicle is concerned.
 That matters more than it used to: the ToF velocity aiding added on 2026-09-08
 exists specifically to close the vertical estimator's takeoff-window
 convergence gap, and it is unavailable on roughly half of boots.
+
+## 7c. Static memory: two thirds of the largest object is never used
+
+Found by `tools/dev/alloc_budget.py` (written today, because `memory_report.md`
+is hand-maintained and had drifted — it still claimed `HEAP_SIZE = 0xE000` when
+it has been `0xA000`).
+
+`_serial_handlers` is **12,336 B of `.bss` — 30% of the firmware's entire static
+footprint**, and the largest single object in the image by a factor of three:
+
+```c
+#define CHANNEL_TX_BUF_SIZE 2048u                    /* channel.c:13   */
+byte buffers[2][CHANNEL_TX_BUF_SIZE];                /* ping-pong      */
+static serial_channel_handle_t _serial_handlers[MAX_SERIAL_HANDLERS];
+#define MAX_SERIAL_HANDLERS 3                        /* variables.h:65 */
+```
+
+**Only one slot is ever occupied.** `get_handler()` is called exactly once in
+the whole tree — `main.c:79`, for `HAL_UART_6` (telemetry). RC on UART2 does not
+use the channel layer at all; `rc_task.c:114` drives `hal_uart_init` +
+`hal_uart_init_dma_rx` directly.
+
+```
+slot 0   UART6 telemetry   4112 B   used
+slot 1   --                4112 B   never touched
+slot 2   --                4112 B   never touched
+                           8224 B   permanently idle
+```
+
+That is 20% of the static footprint doing nothing, on a part whose entire
+MSP + slack region is 14.5 KB.
+
+The buffer sizing is stale as well. Its comment justifies 2048 B against "the
+1 Hz perf report, up to 24 task + 16 fifo frames, ~1336 B worst case". The perf
+report now runs at **5000 ms** (changed 2026-09-08 to buy link budget for the
+vertical estimator) and the live counts are **17 tasks and 9 fifos**
+(`PerfGlobal`), so the real worst burst is ~880 B.
+`channel_tx_overflow_count()` reads **0** on hardware.
+
+Heap side, for completeness — the same tool, validated against the live
+`PerfGlobal.heap_peak_bytes` at **+2.8%, erring high**:
+
+```
+boot-time demand        35488 B      measured peak 34520 B
+usable (HEAP_SIZE 40960 less the 1024 watermark)   39936 B
+free after boot          4448 B
+```
+
+Which is exactly why calibration died: it asked for an 8192 B stack (8208 B with
+the header), short by 3760 B. `v_malloc` panics with *"Heap watermark
+exceeded"* once a failed allocation finds usage past `HEAP_SIZE -
+HEAP_WATERMARK_THRESHOLD`, so that — not `task_create`'s panic — is the message
+on the wire.
+
+## 7. What this invalidates
+
+- **The FFT dynamic notch cannot work.** It analyses at
+  `INNER_LOOP_FREQ_HZ/decim` looking for peaks up to `GYRO_NOTCH_FMAX_HZ =
+  450`. There is nothing real above 50 Hz in its input. Any peak it "finds" is
+  an alias. It has been force-enabled on this airframe since 2026-09-07.
+- **`IMU_SAMPLE_FREQ_HZ = 2000` is fiction twice over.** The task achieves 1827
+  Hz (550 µs period, measured; see below), and the sensor behind it produces
+  ~97 Hz. The rate loop at 1 kHz consumes ~10 duplicates per fresh sample.
+- **The control loops are not wrong about `dt`** — they derive it from DWT
+  cycle stamps, not the nominal rate — but they are being fed a 100 Hz signal
+  they believe is fresh at 1 kHz.
+- **The HSL stream is ~19× redundant.** 26.9 KB/s of which ~1.4 KB/s is new
+  information. Once the ODR is raised this becomes real data rather than a
+  compression opportunity.
+
+Measured task rate, independent of the sensor (from `ARM`→`DISARM` event
+stamps, 26.418 s, against 26.42 s of accumulated block spans):
+
+```
+per-sample dt: median 550.0 us -> 1818 Hz   (nominal 500 us / 2000 Hz)
+               p05 537.5   p95 562.5 us
+```
 
 ## 8. Instrumentation notes
 
