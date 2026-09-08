@@ -36,6 +36,21 @@ the source of truth so old logs stay re-analysable.
 Each capture gets its own dated folder (`YYYYMMDD-hhmmss`, from the log's own
 timestamp) holding the raw `.bin` plus all analysis of it.
 
+- [`20260909-001748-imu-never-configured/`](20260909-001748-imu-never-configured/) —
+  **2026-09-09 00:17**, real drone, 20 bench arms / 136.7 s, the FIRST archive
+  from the high-speed IMU-to-SD recorder (`storage/imu_hs_log`) rather than
+  telemetry — 248 k samples at the full sensor path. **Headline: the BMX160 has
+  never been configured.** `bmx160_init()` only ever *reads* its config back, so
+  the chip has run on power-on defaults forever: **~100 Hz ODR** (Nyquist 50 Hz,
+  so all prop energy aliases) and **±2 g range** (gravity alone is 50% of full
+  scale). Measured gravity collapses 10.2 → 4.8 m/s² with throttle on a
+  stationary bench; the vertical estimator's bias clamps at −3.0 and vetoes, and
+  6 of 20 arms end in FAILSAFE. Explains the 2026-09-07 flyaway's collapsing
+  `|accel|`, and why the FFT notch can never have worked.
+  - [`README`](20260909-001748-imu-never-configured/README.md) — provenance, inventory, headline
+  - [`analysis.md`](20260909-001748-imu-never-configured/analysis.md) — eight findings, per-arm table
+  - [`recommendations.md`](20260909-001748-imu-never-configured/recommendations.md) — P0 blocks flying; the enum trap in fixing it
+
 - [`20260907-231254-vibration-flyaway/`](20260907-231254-vibration-flyaway/) —
   **2026-09-07 23:12 + 23:17**, real drone, two bench/lift captures the evening
   after the first hover: 124 s, 18 k frames. Never reached IN_AIR (the detector
