@@ -63,6 +63,7 @@ assumption nobody checked":
 | 7b | driver audit — BME280 is fine, the VL53L0X publishes nothing on half of boots |
 | 7c | static memory: 8,224 B of serial-handler `.bss` never used; the heap arithmetic that killed calibration |
 | 7d | end-to-end chain check: roll/pitch verified sensor-to-physics; yaw unverified and why |
+| 7e | motor 3 holds a standing 30% deficit; the accelerometer reads 5.2% high at rest |
 
 ## Status
 

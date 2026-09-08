@@ -646,6 +646,82 @@ direction.
 Until then, treat roll and pitch as verified and yaw as **unverified**, not as
 broken.
 
+## 7e. Motor 3 holds a standing 30% deficit — mechanical, or a level reference?
+
+The `act` stream carries all four motors individually, which nothing above has
+used. Averaged over powered, unsaturated samples:
+
+```
+  mean per motor: m1 0.3999   m2 0.3585   m3 0.2527   m4 0.3603
+  deviation:         +0.0571     +0.0157     -0.0902     +0.0174
+```
+
+Most of these runs end with the airframe tipping, and a controller fighting a
+tip produces exactly this signature — so the same figure restricted to
+**quasi-static** samples only (all four motors unsaturated, `|ω| < 20 °/s` on
+every axis, accel-derived tilt < 15°):
+
+```
+  run     n     m1     m2     m3     m4    m3 - mean(m1,m2,m4)
+    2  1618  0.4325 0.4390 0.2519 0.3842      -0.1667
+    3   584  0.4161 0.4160 0.2242 0.3856      -0.1817
+    5   496  0.4269 0.3607 0.2232 0.3611      -0.1597
+    8   827  0.4548 0.2846 0.2012 0.3549      -0.1636
+    9  1034  0.4194 0.4076 0.2329 0.3777      -0.1687
+   10   179  0.2739 0.2612 0.3680 0.3581      +0.0703
+   14  1467  0.3759 0.3401 0.2671 0.3000      -0.0716
+
+  m3 deficit: mean -0.1202, sd 0.0848, 6 of 7 runs negative
+```
+
+It survives the filter and gets **stronger**: near level and near still, motor 3
+is commanded 30–45% below its neighbours. Decomposed through the mix that is
+roll −0.036 and pitch +0.037 — equal magnitudes, i.e. a trim along a **diagonal**,
+which is the signature of one corner differing rather than a CG shift along an
+axis. m3 sits at exactly one corner (−pitch, +roll).
+
+Run 10 inverts it (+0.07), as it has inverted several other measures in this
+capture (§6b collective ratio 0.70, and the unmasked roll correlation). Whatever
+was different about run 10 is not explained.
+
+### Two causes fit, and this data cannot separate them
+
+1. **Mechanical.** Motor 3 produces more thrust per unit command than its
+   neighbours — a stronger motor, a different or damaged prop, an ESC with a
+   different pulse→throttle mapping, or a tilted motor mount.
+2. **The level reference is wrong.** If the flight controller is mounted
+   tilted, the estimator's idea of level is off and the controller holds a
+   standing differential to correct an error that is not there. This looks
+   identical from the outside, and there is already an `imu_id = 4`
+   board-level trim calibration in the tree for exactly this.
+
+The idle arms are the natural place to check, but only one is clean enough:
+
+```
+  run     n      ax      ay      az     |a|     tilt
+    1  48275  +1.144  +0.202  -10.247  10.313   6.47°   (azimuth +10°, i.e. pitch)
+   19    704  -3.518  +1.634   -7.899   8.800  26.16°   (airframe lying tipped)
+```
+
+Run 1 shows a 6.5° tilt at rest — but **there is no guarantee the bench was
+level**, and run 19 at 26° shows the airframe was not always sitting flat. One
+sample against an unknown reference settles nothing.
+
+**A cheap experiment settles it.** Arm at idle on a known-level surface and
+record; then rotate the airframe 180° about its vertical axis and record again.
+A tilted *mount* stays in body frame and does not move. A tilted *bench* flips
+sign. A *motor* asymmetry stays with the motor. Ten minutes, and it separates
+all three.
+
+### Independently: the accelerometer is 5% out
+
+Run 1 is stationary, so `|a|` must read 9.807. It reads **10.313 — 5.2% high**.
+That is a calibration error in its own right, it feeds straight into the
+vertical estimator as a ~0.5 m/s² bias, and it is a further argument for the
+accel recalibration already listed in P1 — which has to happen after the ODR
+and range fix anyway, since the current calibration was fitted against a ±2 g
+sensor at 98 Hz.
+
 ## 7. What this invalidates
 
 - **The FFT dynamic notch cannot work.** It analyses at
