@@ -1,5 +1,4 @@
 #include "actuator/actuator.h"
-#include <stdbool.h>
 #include "structure.h"
 #include "sys/state.h"
 #include "vaios.h"
@@ -47,19 +46,8 @@ void motor_task(void *arg) {
       v_delay(3);
       continue;
     }
-    /* DRAIN and keep the freshest, exactly as the rate loop drains its IMU
-     * input. Reading a single item served the OLDEST one: the rate loop pushes
-     * at 1 kHz, this task consumes at 500 Hz, and the queue policy is
-     * SPSC_POLICY_OVERWRITE -- which drops the oldest and appends at the head
-     * while the consumer reads from the tail. The ring therefore sat
-     * permanently full at its 2 usable slots and every command reaching the
-     * ESC was ~1-2 ms stale for no reason. */
-    bool got_outputs = false;
-    while (spsc_read(&motor_angle_rate2motor_queue, &motor_outputs, 1)) {
-      got_outputs = true;
-    }
-    if (!got_outputs) {
-      motor_outputs = prev_motor_outputs; /* producer stalled -- hold last */
+    if (!spsc_read(&motor_angle_rate2motor_queue, &motor_outputs, 1)) {
+      motor_outputs = prev_motor_outputs;
     }
     /* Motors may spin while ARMED *or* IN_AIR — IN_AIR is armed-and-flying, not a
      * disarm. Anything else (STANDBY/FAILSAFE/...) forces them to zero. */

@@ -123,27 +123,15 @@ path is set up explicitly — but all of it was sized against the aliased plant.
    drains and keeps the freshest. Make the motor path match. Worth ~1–2 ms, and
    it is a handful of lines.
 
-   **DONE** — `motor_task` now drains and keeps the freshest.
-
-   Full actuator transport lag, corrected. The three terms do NOT simply add:
+   Full actuator transport lag today, for reference:
 
    ```
-   ~1-2 ms      the stale item out of the queue    <- FIXED, was free
-   up to 2.5 ms PWM latches once per 400 Hz period <- protocol-bound
-   (task period is NOT a separate term: motor_task
-    already runs at 500 Hz, faster than the PWM
-    latches, so writing more often changes nothing)
+   ~1-2 ms   reading the stale item out of the queue     <- avoidable, free
+   up to 2 ms  motor_task period (v_delay(2), 500 Hz)    <- avoidable
+   up to 2.5 ms PWM update granularity at 400 Hz         <- protocol-bound
    ```
 
-   An earlier version of this list said "speed up `motor_task`" as a second
-   free win. That was wrong — at `v_delay(2)` it already updates CCR more often
-   than the timer consumes it. Output-compare preload is enabled
-   (`CCMR1 |= TIMx_CCMRy_OCxPE`, timer.c:541), so a mid-period write latches
-   cleanly at the next update event rather than glitching the pulse — but it
-   still only takes effect once per 2.5 ms. Below 400 Hz PWM the task rate is
-   simply not the binding constraint; the protocol is.
-
-   Second-order against a 98 Hz sensor either way.
+   Second-order against a 98 Hz sensor, so do it after P0, not before.
 
 5. **DMA does not help here** (asked 2026-09-09; recording the reasoning so it
    is not re-litigated). Setting a motor command is a single write to
