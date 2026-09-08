@@ -265,6 +265,70 @@ per-sample dt: median 550.0 us -> 1818 Hz   (nominal 500 us / 2000 Hz)
                p05 537.5   p95 562.5 us
 ```
 
+## 7b. Driver audit — is the BMX160 the only one?
+
+Asked because the three I2C devices were written the same way, by the same
+hand, in the same period. They are not all the same.
+
+### BME280 — configured, but with the filter off
+
+Does it properly: reset, then `ctrl_hum`, then `config`, then `ctrl_meas`
+(in that order — the datasheet requires `ctrl_hum` first), normal free-running
+mode, `osrs_p = x8`, standby 62.5 ms. Nothing here is on a default by accident.
+
+One gap: `BME280_FILTER_OFF` is written, and it is the **only** filter constant
+defined in the header — the IIR alternatives were never wired up. Bosch
+recommends coefficient 16 for altimetry precisely to suppress the short-term
+pressure transients a propeller produces. Measured effective baro update in
+this capture: **13.0 Hz** (62.5 ms standby + x8 oversampling ≈ 13 Hz, so it is
+behaving exactly as configured).
+
+Not a bug. A tuning decision that was made once and never revisited, and worth
+revisiting now that the vertical estimator leans on it.
+
+### VL53L0X — untuned by choice, and dead half the time by accident
+
+`vl53l0x_init()` writes three registers: disable the GPIO interrupt, clear a
+latched one, start continuous ranging. No timing budget, no signal-rate limit,
+no VCSEL periods, none of the ST tuning blob. The code is honest about it — the
+boot log literally reads `init ok, continuous ranging (untuned defaults)`.
+
+The accidental part is worse than the deliberate part. **In 9 of the 20 arms
+the rangefinder published nothing at all:**
+
+```
+ run  tof_valid  agltof min..max   distinct   verdict
+   1     74%      0.030.. 0.036         7     ranging
+   2     75%      0.037.. 2.093       142     ranging
+  ...
+  10      0%      0.000.. 0.000         1     never published
+  11-18   0%      0.000.. 0.000         1     never published   (9 arms)
+  19      0%      0.622.. 0.688        60     ranging, all rejected
+  20     87%      0.000.. 1.299        84     ranging
+```
+
+A single distinct value of exactly 0.000 means the driver never published a
+sample, not that the validity gate rejected one. And it is **binary per power
+cycle**, not throttle-dependent: run 12 at idle (motors 0.150) reports 0%, run
+20 at the same idle reports 87%.
+
+```
+tof_valid vs motor command -- no trend:
+   motors 0.14-0.16  n=105  49%
+   motors 0.25-0.35  n= 57  22%
+   motors 0.45-1.01  n= 27  44%
+```
+
+The cause is structural: `vl53l0x_init()` runs **once** at boot, probes the
+model ID over an I2C1 bus it shares with the IMU, and on failure sets
+`_initialized = 0` permanently. There is no retry. So a boot-time bus race
+costs the rangefinder for the entire power cycle, silently as far as the
+vehicle is concerned.
+
+That matters more than it used to: the ToF velocity aiding added on 2026-09-08
+exists specifically to close the vertical estimator's takeoff-window
+convergence gap, and it is unavailable on roughly half of boots.
+
 ## 8. Instrumentation notes
 
 - `dropped_sectors = 0` across 136.7 s at 26.9 KB/s — the SD path sustains the

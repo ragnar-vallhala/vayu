@@ -70,6 +70,30 @@ Do these *after* P0 and a fresh capture, not before.
 7. **Reconsider `IMU_SAMPLE_FREQ_HZ = 2000`.** Once the sensor runs at 1600 Hz,
    polling at 1827 Hz is roughly right; today it is 19× oversampling.
 
+## P1b — the other two drivers
+
+Found by asking whether the BMX160 was the only device left on defaults. It was
+not the only one with a problem, though it is the only one left on defaults by
+accident.
+
+1. **Retry the VL53L0X probe.** `vl53l0x_init()` runs once at boot, shares I2C1
+   with the IMU, and on a failed model-ID read sets `_initialized = 0` forever.
+   The recording shows the rangefinder publishing nothing at all in **9 of 20
+   arms** — binary per power cycle, not throttle-related. Retry the probe a few
+   times with a delay, and re-probe periodically while it is absent; the ToF
+   velocity aiding added 2026-09-08 is unavailable on roughly half of boots as
+   things stand. Surface the state in telemetry so it is visible without a card
+   read.
+2. **Consider tuning the VL53L0X.** Timing budget, signal-rate limit and VCSEL
+   periods are all at ST defaults (~33 ms budget, ~1.2 m usable). The height
+   mode switches to baro above 1.5 m, which is beyond where the default
+   configuration is reliable — the two thresholds were never reconciled.
+3. **Revisit `BME280_FILTER_OFF`.** The BME280 is otherwise configured
+   correctly, but its IIR filter is off and `BME280_FILTER_OFF` is the only
+   filter constant that exists in the header. Bosch recommends coefficient 16
+   for altimetry against exactly the kind of transient a prop makes. Measured
+   effective rate today is 13.0 Hz.
+
 ## P2 — recorder and tooling
 
 1. **Persist `s_session` in the HSL file header.** It is the one cursor field
