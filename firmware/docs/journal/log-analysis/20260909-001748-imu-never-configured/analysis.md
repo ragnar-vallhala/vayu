@@ -722,6 +722,103 @@ accel recalibration already listed in P1 — which has to happen after the ODR
 and range fix anyway, since the current calibration was fitted against a ±2 g
 sensor at 98 Hz.
 
+## 7f. Four smaller questions the data can answer
+
+### The ToF velocity aiding works — measurably, and it is the only feature here that does
+
+`vert_est_correct_tof` (added 2026-09-08 to close the estimator's takeoff-window
+convergence gap) only acts while `tof_valid`. The recording happens to contain
+both cases, because the rangefinder dies on half of boots (§7b):
+
+```
+  run  tof%   t(abias<-1)   t(abias<-2.9)   final
+    3   70%     1.26s          1.47s        -3.00
+    8   62%     1.58s          3.15s        -3.00
+    2   75%     1.84s          2.10s        -3.00
+    9   47%     2.31s          2.47s        -3.00
+    5   48%     2.57s          2.73s        -3.00
+  ------------------------------------------------
+    7   13%     4.41s           --          -1.01
+   10    0%     3.28s           --          -2.13
+   16    0%     3.28s           --          -2.81
+   14    0%     3.90s          6.30s        -2.96
+   17    0%     4.58s           --          -1.76
+   15    0%     8.80s           --          -1.54
+```
+
+Bias convergence is **2–3× faster with the rangefinder live** (median 1.84 s
+against 3.90 s), and every ToF-aided run reaches the clamp while only one of the
+six unaided ones does. The obvious confound is run order — the ToF runs are the
+early ones — but **run 7 is the control**: it is an early run with only 13% ToF
+validity, and it behaves like the late group (4.41 s, never clamps). The effect
+tracks ToF availability, not chronology.
+
+This corroborates the 7.1 s → 1.76 s figure measured on the bench when the
+feature was written, now across independent flights.
+
+Worth being clear about what it means: the aiding is converging faster onto a
+*wrong* answer, because the bias it is chasing is an aliasing artefact (§1–4).
+The mechanism is verified; the thing it is measuring is not real yet.
+
+### The oscillation has two regimes, and neither is the 2026-06 one
+
+The `act` stream is sampled at ~330 Hz and — unlike the gyro — is **not**
+aliased, so its spectrum is trustworthy up to ~160 Hz. Peak of the recovered
+per-axis demand:
+
+```
+  run  2   roll 6.8 Hz (0.034)   pitch 4.1 Hz   yaw 0.8 Hz
+  run  3   roll 5.8 Hz (0.048)   pitch 4.8 Hz   yaw 4.5 Hz
+  run  5   roll 7.6 Hz (0.054)   pitch 4.8 Hz   yaw 7.6 Hz
+  run  8   roll 5.9 Hz (0.017)   pitch 3.9 Hz   yaw 7.9 Hz
+  run  9   roll 4.6 Hz (0.051)   pitch 3.7 Hz   yaw 5.6 Hz
+  ---------------------------------------------------------
+  run 10   roll 0.9 Hz (0.019)   pitch 1.2 Hz   yaw 0.9 Hz
+  run 14   roll 1.2 Hz (0.005)   pitch 1.2 Hz   yaw 2.8 Hz
+  run 15   roll 1.2 Hz (0.007)   pitch 1.3 Hz   yaw 0.9 Hz
+  run 17   roll 0.8 Hz (0.015)   pitch 0.8 Hz   yaw 4.1 Hz
+```
+
+Two clean groups: an early set oscillating at **4.6–7.6 Hz** and a later set at
+**0.8–1.3 Hz** with generally smaller amplitude. The 4.5 Hz half-period inferred
+from the roll cross-correlation in §7d belongs to the first group. Neither is
+the **1.79 Hz** pitch limit cycle characterised in the 2026-06-26 campaign.
+
+**Caveat on the frequency axis.** The measured `act` rate is 330 Hz for the
+early group and 289–294 Hz for the later one. That is most likely an artefact of
+how `samples()` steps across seq gaps (several late runs are "cut short"), not a
+real 12% slowdown of the rate loop — so treat the frequencies as ±12%. It does
+not touch the 5× separation between the groups.
+
+### The accelerometer calibration is orientation-dependent
+
+A stationary body reads `|a| = 9.807` in **every** orientation. Across the three
+arms with a clean quasi-static window:
+
+```
+  run   gyro bias x/y/z (dps)      |a|       note
+    1   +0.540 +0.424 -0.449     10.313     upright, 6.5 deg tilt
+   12   -0.117 +0.583 -1.034     10.047     upright
+   19   +0.194 +0.248 +1.173      8.800     lying tipped, 26 deg
+```
+
+`|a|` spans **8.800 to 10.313 — ±8% about a value that should be constant.**
+That is not noise and not tilt; it is the offset/soft-iron calibration failing
+to hold across orientations. Gyro bias also moves ~2 dps on z between arms.
+
+Both feed the vertical estimator directly, and both are further argument for the
+accel recalibration in P1 — which must happen *after* the range and ODR fix,
+since the stored calibration was fitted against a ±2 g sensor at 98 Hz.
+
+### Flight mode does not explain run 10
+
+Every one of the 20 arms runs `FLIGHT_MODE_ANGLE` (0) with the notch enabled;
+the 13 "mode change" events are all the first-time transition from the
+uninitialised sentinel at each boot. So the mode is constant across the whole
+capture, and run 10 — which has now inverted the collective ratio (§6b), the
+unmasked roll correlation (§7d) and the motor-3 deficit (§7e) — remains
+unexplained.
+
 ## 7. What this invalidates
 
 - **The FFT dynamic notch cannot work.** It analyses at
