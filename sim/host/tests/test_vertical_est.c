@@ -206,7 +206,8 @@ static void test_climb_tracking(void) {
     n++;
   }
   diff_v_rms = sqrtf(diff_v_rms / (float)n);
-  check(diff_v_rms > 5.0f, "VERT-005 naive baro-diff velocity is noisy (control)");
+  check(diff_v_rms > 5.0f,
+        "VERT-005 naive baro-diff velocity is noisy (control)");
   printf("         (naive baro-diff climb RMS %.2f m/s vs fused <0.4)\n",
          (double)diff_v_rms);
 }
@@ -222,8 +223,8 @@ static void test_accel_bias(void) {
   const float H = 100.0f;
   vert_est_correct(&ve, H);
 
-  const float dt = 1.0f / 16.0f; /* one predict per correct */
-  const float b = -1.0f;         /* constant accel bias, m/s^2 */
+  const float dt = 1.0f / 16.0f;      /* one predict per correct */
+  const float b = -1.0f;              /* constant accel bias, m/s^2 */
   for (int i = 0; i < 16 * 30; i++) { /* 30 s to steady state */
     vert_est_predict(&ve, b, dt);
     vert_est_correct(&ve, H);
@@ -232,8 +233,9 @@ static void test_accel_bias(void) {
   float old_offset = b * (ve.k_alt / ve.k_vel - 0.5f * dt);
   check(fabsf(ve.altitude - H) < 0.05f,
         "VERT-006 altitude converges to truth under a constant accel bias");
-  check(fabsf(ve.climb_rate) < 0.05f,
-        "VERT-006 climb_rate converges to ZERO (was the (k_alt/k_vel)*b offset)");
+  check(
+      fabsf(ve.climb_rate) < 0.05f,
+      "VERT-006 climb_rate converges to ZERO (was the (k_alt/k_vel)*b offset)");
   check(fabsf(ve.accel_bias - b) < 0.05f,
         "VERT-006 bias state learns the true bias");
   check(!ve.accel_unhealthy,
@@ -449,8 +451,9 @@ static void test_tof_aiding(void) {
           "VERT-009 a real climb survives aiding being switched on");
     check(fabsf(ve.accel_bias - bias_before) < 0.10f,
           "VERT-009 aiding does not absorb real motion");
-    printf("         (real 0.50 m/s climb: filter %.3f m/s, bias drift %+.3f)\n",
-           (double)ve.climb_rate, (double)(ve.accel_bias - bias_before));
+    printf(
+        "         (real 0.50 m/s climb: filter %.3f m/s, bias drift %+.3f)\n",
+        (double)ve.climb_rate, (double)(ve.accel_bias - bias_before));
   }
 }
 

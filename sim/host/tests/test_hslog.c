@@ -51,7 +51,9 @@ static int g_fails = 0;
     }                                                                          \
   } while (0)
 
-static uint16_t rd16(const uint8_t *p) { return (uint16_t)(p[0] | (p[1] << 8)); }
+static uint16_t rd16(const uint8_t *p) {
+  return (uint16_t)(p[0] | (p[1] << 8));
+}
 static uint32_t rd32(const uint8_t *p) {
   return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) |
          ((uint32_t)p[3] << 24);
@@ -187,14 +189,20 @@ int main(void) {
     seq[i] = rd32(&p[4]);
     tags[i] = p[1];
     switch (fr[0]) {
-    case HSL_TYPE_SESSION: n_sess++; break;
-    case HSL_TYPE_EVENT:   n_ev++;   break;
+    case HSL_TYPE_SESSION:
+      n_sess++;
+      break;
+    case HSL_TYPE_EVENT:
+      n_ev++;
+      break;
     case HSL_TYPE_BLOCK:
       if (p[0] < 4) {
         per_stream[p[0]]++;
       }
       break;
-    default: bad = (int)i; break;
+    default:
+      bad = (int)i;
+      break;
     }
     if (bad >= 0) {
       break;

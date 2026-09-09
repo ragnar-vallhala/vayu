@@ -12,29 +12,29 @@
 
 namespace vsim {
 
-constexpr float kG = 9.81f;    // m/s^2
+constexpr float kG = 9.81f; // m/s^2
 
 struct RigidBodyState {
-    Vec3 pos_w   = {0.0f, 0.0f, 0.0f};   // world position [m] (NED)
-    Vec3 vel_w   = {0.0f, 0.0f, 0.0f};   // world velocity [m/s] (NED)
-    Quat att     = Quat(1.0f, 0.0f, 0.0f, 0.0f);  // body->world, level
-    Vec3 omega_b = {0.0f, 0.0f, 0.0f};   // body angular vel [rad/s]
+  Vec3 pos_w = {0.0f, 0.0f, 0.0f};         // world position [m] (NED)
+  Vec3 vel_w = {0.0f, 0.0f, 0.0f};         // world velocity [m/s] (NED)
+  Quat att = Quat(1.0f, 0.0f, 0.0f, 0.0f); // body->world, level
+  Vec3 omega_b = {0.0f, 0.0f, 0.0f};       // body angular vel [rad/s]
 };
 
 // Quad params. Defaults are roughly X3-class.
 struct DroneParams {
-    float mass         = 1.0f;                              // kg
-    // Full body-frame inertia tensor [kg*m^2]. Default is the old
-    // diagonal X3 value; a mesh-derived tensor (with products of
-    // inertia) can be pushed in via VSIM_CTL_SET_GEOMETRY.
-    Mat3  inertia      = Mat3::diagonal(0.012f, 0.012f, 0.022f);
-    float linear_drag  = 0.10f;                             // N per (m/s)
-    float angular_drag = 0.005f;                            // N*m per (rad/s)
-    float ground_z     = 0.0f;                              // NED z of ground
-    float ground_restitution = 0.0f;                        // bounce factor
-    float gravity      = kG;                                // m/s^2 (world, +Z down)
-    float ground_right_gain = 40.0f;   // tipped-airframe righting gain
-    float ground_right_damp = 6.0f;    // righting angular damping [1/s]
+  float mass = 1.0f; // kg
+  // Full body-frame inertia tensor [kg*m^2]. Default is the old
+  // diagonal X3 value; a mesh-derived tensor (with products of
+  // inertia) can be pushed in via VSIM_CTL_SET_GEOMETRY.
+  Mat3 inertia = Mat3::diagonal(0.012f, 0.012f, 0.022f);
+  float linear_drag = 0.10f;       // N per (m/s)
+  float angular_drag = 0.005f;     // N*m per (rad/s)
+  float ground_z = 0.0f;           // NED z of ground
+  float ground_restitution = 0.0f; // bounce factor
+  float gravity = kG;              // m/s^2 (world, +Z down)
+  float ground_right_gain = 40.0f; // tipped-airframe righting gain
+  float ground_right_damp = 6.0f;  // righting angular damping [1/s]
 };
 
 // M1=FR, M2=RR, M3=RL, M4=FL — matches firmware motor mixing. Positions
@@ -42,58 +42,60 @@ struct DroneParams {
 // unit vectors (default body -Z, i.e. up in NED). All per-rotor so the
 // motor-mapping editor can drive each independently.
 struct MotorParams {
-    std::array<Vec3, 4> pos_b = {
-        Vec3{ 0.13f, +0.22f, 0.0f},   // M1 FR
-        Vec3{-0.13f, +0.20f, 0.0f},   // M2 RR
-        Vec3{-0.13f, -0.20f, 0.0f},   // M3 RL
-        Vec3{ 0.13f, -0.22f, 0.0f},   // M4 FL
-    };
-    // Per-rotor thrust axis (unit, body frame). Body +Z is DOWN in NED,
-    // so lift points body -Z.
-    std::array<Vec3, 4> axis_b = {
-        Vec3{0.0f, 0.0f, -1.0f}, Vec3{0.0f, 0.0f, -1.0f},
-        Vec3{0.0f, 0.0f, -1.0f}, Vec3{0.0f, 0.0f, -1.0f},
-    };
-    // +1 = CCW seen from above, -1 = CW. Vayu mixing: M1+M3 CCW, M2+M4 CW.
-    std::array<int, 4> spin = {+1, -1, +1, -1};
+  std::array<Vec3, 4> pos_b = {
+      Vec3{0.13f, +0.22f, 0.0f},  // M1 FR
+      Vec3{-0.13f, +0.20f, 0.0f}, // M2 RR
+      Vec3{-0.13f, -0.20f, 0.0f}, // M3 RL
+      Vec3{0.13f, -0.22f, 0.0f},  // M4 FL
+  };
+  // Per-rotor thrust axis (unit, body frame). Body +Z is DOWN in NED,
+  // so lift points body -Z.
+  std::array<Vec3, 4> axis_b = {
+      Vec3{0.0f, 0.0f, -1.0f},
+      Vec3{0.0f, 0.0f, -1.0f},
+      Vec3{0.0f, 0.0f, -1.0f},
+      Vec3{0.0f, 0.0f, -1.0f},
+  };
+  // +1 = CCW seen from above, -1 = CW. Vayu mixing: M1+M3 CCW, M2+M4 CW.
+  std::array<int, 4> spin = {+1, -1, +1, -1};
 
-    // thrust_N = k_thrust * omega^2 per rotor.
-    std::array<float, 4> k_thrust = {1.522e-5f, 1.522e-5f, 1.522e-5f, 1.522e-5f};
-    // reaction-torque magnitude per rotor.
-    std::array<float, 4> k_moment = {2.44e-7f, 2.44e-7f, 2.44e-7f, 2.44e-7f};
-    // duty=1 commands this omega [rad/s], per rotor.
-    std::array<float, 4> max_omega = {1200.0f, 1200.0f, 1200.0f, 1200.0f};
+  // thrust_N = k_thrust * omega^2 per rotor.
+  std::array<float, 4> k_thrust = {1.522e-5f, 1.522e-5f, 1.522e-5f, 1.522e-5f};
+  // reaction-torque magnitude per rotor.
+  std::array<float, 4> k_moment = {2.44e-7f, 2.44e-7f, 2.44e-7f, 2.44e-7f};
+  // duty=1 commands this omega [rad/s], per rotor.
+  std::array<float, 4> max_omega = {1200.0f, 1200.0f, 1200.0f, 1200.0f};
 
-    // Per-rotor first-order spin-up time constant [s]. Spin-down uses 2x this,
-    // so one editable value per rotor
-    // maps to the mockup's per-motor "time constant τ".
-    std::array<float, 4> tau = {0.0125f, 0.0125f, 0.0125f, 0.0125f};
+  // Per-rotor first-order spin-up time constant [s]. Spin-down uses 2x this,
+  // so one editable value per rotor
+  // maps to the mockup's per-motor "time constant τ".
+  std::array<float, 4> tau = {0.0125f, 0.0125f, 0.0125f, 0.0125f};
 
-    // --- Higher-fidelity actuator imperfections (default OFF = no-op) ---------
-    // Identified on real hardware (firmware/docs/journal/log-analysis/.../plant_id): the
-    // real pitch limit cycle is a ~100 ms ACTUATOR TRANSPORT DELAY the ideal
-    // first-order model above cannot produce (a pole adds phase but also cuts
-    // magnitude, so it self-stabilises; a pure delay adds phase with no
-    // magnitude loss -> it drives the -180 deg crossover down to ~2 Hz).
+  // --- Higher-fidelity actuator imperfections (default OFF = no-op) ---------
+  // Identified on real hardware (firmware/docs/journal/log-analysis/.../plant_id): the
+  // real pitch limit cycle is a ~100 ms ACTUATOR TRANSPORT DELAY the ideal
+  // first-order model above cannot produce (a pole adds phase but also cuts
+  // magnitude, so it self-stabilises; a pure delay adds phase with no
+  // magnitude loss -> it drives the -180 deg crossover down to ~2 Hz).
 
-    // Pure transport delay [s] applied to the duty command before the spin
-    // filter. Models ESC/comms latency + (with stall) re-spin lag. 0 = off.
-    float transport_delay = 0.0f;
+  // Pure transport delay [s] applied to the duty command before the spin
+  // filter. Models ESC/comms latency + (with stall) re-spin lag. 0 = off.
+  float transport_delay = 0.0f;
 
-    // Idle-stall: a rotor commanded below `stall_duty` is treated as STALLED
-    // (produces no thrust); on re-command above it, it must re-spin from rest
-    // with the slower `respin_tau`. This is the physical SOURCE of the delay and
-    // self-selects the saturating axis (real: pitch floors -> stalls -> cycles;
-    // roll keeps authority -> stable). 0 = off.
-    float stall_duty  = 0.0f;
-    float respin_tau  = 0.060f;   // [s] re-spin time constant out of stall
+  // Idle-stall: a rotor commanded below `stall_duty` is treated as STALLED
+  // (produces no thrust); on re-command above it, it must re-spin from rest
+  // with the slower `respin_tau`. This is the physical SOURCE of the delay and
+  // self-selects the saturating axis (real: pitch floors -> stalls -> cycles;
+  // roll keeps authority -> stable). 0 = off.
+  float stall_duty = 0.0f;
+  float respin_tau = 0.060f; // [s] re-spin time constant out of stall
 };
 
 struct ImuSample {
-    Vec3  acc;             // m/s^2 in body frame, specific force
-    Vec3  gyr;             // rad/s in body frame
-    Vec3  mag;             // microtesla in body frame
-    float temp;            // degC
+  Vec3 acc;   // m/s^2 in body frame, specific force
+  Vec3 gyr;   // rad/s in body frame
+  Vec3 mag;   // microtesla in body frame
+  float temp; // degC
 };
 
 // Bengaluru-area defaults: declination ~0 deg, inclination ~30 deg,
@@ -104,13 +106,13 @@ inline Vec3 magWorldNed() { return Vec3(38.0f, 0.0f, 22.0f); }
 // NED world frame. type: 0 box (size = full extents), 1 sphere (size.x is
 // radius), 2 cylinder (size.x radius, size.z height; axis = local z).
 struct SimObstacle {
-    int   type = 0;
-    Vec3  pos;
-    Vec3  size{1.0f, 1.0f, 1.0f};
-    Vec3  rot_deg;
-    float restitution = 0.3f;
+  int type = 0;
+  Vec3 pos;
+  Vec3 size{1.0f, 1.0f, 1.0f};
+  Vec3 rot_deg;
+  float restitution = 0.3f;
 };
 
-}  // namespace vsim
+} // namespace vsim
 
-#endif  // VSIM_TYPES_H
+#endif // VSIM_TYPES_H

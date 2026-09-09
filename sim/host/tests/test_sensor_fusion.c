@@ -65,14 +65,17 @@ int main(void) {
       attitude_t o = {0};
       m_acc_mag(a[0], a[1], a[2], mx, my, mz, &o);
       char b[80];
-      snprintf(b, sizeof b, "roll %.0f recovered (got %.2f)", poses[i][0], o.roll);
+      snprintf(b, sizeof b, "roll %.0f recovered (got %.2f)", poses[i][0],
+               o.roll);
       CHECK(CLOSE(o.roll, poses[i][0], 0.05f), b);
-      snprintf(b, sizeof b, "pitch %.0f recovered (got %.2f)", poses[i][1], o.pitch);
+      snprintf(b, sizeof b, "pitch %.0f recovered (got %.2f)", poses[i][1],
+               o.pitch);
       CHECK(CLOSE(o.pitch, poses[i][1], 0.05f), b);
     }
   }
 
-  printf("  [3] signs match the EKF: right-bank positive roll, nose-up positive pitch\n");
+  printf("  [3] signs match the EKF: right-bank positive roll, nose-up "
+         "positive pitch\n");
   {
     attitude_t o = {0};
     /* Bank right by 30deg: gravity leans onto -Y in this convention. */

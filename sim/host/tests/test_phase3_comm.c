@@ -46,7 +46,7 @@
 #include "vayu_tasks.h"
 
 static int g_checks = 0;
-static int g_fails  = 0;
+static int g_fails = 0;
 
 #define CHECK(cond, msg)                                                       \
   do {                                                                         \
@@ -75,7 +75,8 @@ static uint16_t build_set_pid(uint8_t *p, uint8_t argc, float ctrl, float axis,
 
 static bool feq(float a, float b) {
   float d = a - b;
-  if (d < 0) d = -d;
+  if (d < 0)
+    d = -d;
   return d < 1e-6f;
 }
 
@@ -150,9 +151,8 @@ static void test_set_pid_apply(void) {
   const float kp = 0.111f, ki = 0.022f, kd = 0.033f, kff = 0.044f;
 
   uint8_t p[64];
-  uint16_t len =
-      build_set_pid(p, PID_SET_ARGC, (float)PID_CTRL_RATE, (float)axis, kp, ki,
-                    kd, kff);
+  uint16_t len = build_set_pid(p, PID_SET_ARGC, (float)PID_CTRL_RATE,
+                               (float)axis, kp, ki, kd, kff);
 
   CHECK(pid_config_apply_command(p, len) == VAYU_OK, "valid SET_PID accepted");
 
@@ -202,7 +202,8 @@ static void test_tx_overflow(void) {
 
   channel_t ch;
   memset(&ch, 0, sizeof ch);
-  serial_args_t args = {.baud_rate = 115200, .uart = HAL_UART_1, .timeout = 100};
+  serial_args_t args = {
+      .baud_rate = 115200, .uart = HAL_UART_1, .timeout = 100};
   CHECK(get_handler(CHANNEL_TYPE_SERIAL, &ch, &args, NULL) == NONE,
         "serial channel opened");
 
@@ -216,7 +217,8 @@ static void test_tx_overflow(void) {
   for (int i = 0; i < 5; i++)
     CHECK(write_channel(ch, buf, 256) == NONE,
           "256 B normal write fills toward the 1280 reserved cap");
-  CHECK(write_channel(ch, buf, 1) == ERROR, "normal write past 1280 B returns ERROR");
+  CHECK(write_channel(ch, buf, 1) == ERROR,
+        "normal write past 1280 B returns ERROR");
   CHECK(channel_tx_overflow_count() == before + 1, "overflow counted once");
 
   write_channel(ch, buf, 1);
@@ -310,7 +312,8 @@ static void test_gyro_notch_runtime(void) {
    * for the next spool-up. */
   gyro_notch_set_throttle(0.0f);
   gyro_notch_service();
-  CHECK(gyro_notch_center_hz(0, 0) == 0.0f, "disengage clears the tuned center");
+  CHECK(gyro_notch_center_hz(0, 0) == 0.0f,
+        "disengage clears the tuned center");
 }
 
 /* ----------------------------------------------------------------------------
@@ -342,21 +345,23 @@ static void test_gyro_notch_autoband(void) {
   float q, fmin, fmax, ratio;
   gyro_notch_get_params(&q, &fmin, &fmax, &ratio);
   CHECK(fmin > 60.0f && fmax < 450.0f, "band narrowed from the wide default");
-  CHECK(fmin < 200.0f && fmax > 200.0f, "learned band brackets the 200 Hz tone");
+  CHECK(fmin < 200.0f && fmax > 200.0f,
+        "learned band brackets the 200 Hz tone");
 }
 
 /* ----------------------------------------------------------------------------
  * COMM-CMD-004 — CMD_SET_MOTOR_GEOMETRY applies to the live mixer AND persists,
  * so the airframe layout survives a reboot instead of falling back to default.
  * --------------------------------------------------------------------------*/
-static uint16_t build_set_geometry(uint8_t *p, const float x[4], const float y[4],
-                                   const float spin[4]) {
+static uint16_t build_set_geometry(uint8_t *p, const float x[4],
+                                   const float y[4], const float spin[4]) {
   uint16_t cmd = (uint16_t)CMD_SET_MOTOR_GEOMETRY;
   memcpy(&p[0], &cmd, 2);
   p[2] = 12; /* argc */
-  float a[12] = {x[0], x[1], x[2], x[3], y[0], y[1], y[2], y[3],
-                 spin[0], spin[1], spin[2], spin[3]};
-  for (int i = 0; i < 12; i++) memcpy(&p[3 + i * 4], &a[i], 4);
+  float a[12] = {x[0], x[1], x[2],    x[3],    y[0],    y[1],
+                 y[2], y[3], spin[0], spin[1], spin[2], spin[3]};
+  for (int i = 0; i < 12; i++)
+    memcpy(&p[3 + i * 4], &a[i], 4);
   return (uint16_t)(3 + 12 * 4);
 }
 
@@ -384,8 +389,10 @@ static void test_motor_geometry_persist(void) {
         "stored geometry present after reload");
   int spin_ok = 1, pos_ok = 1;
   for (int i = 0; i < 4; i++) {
-    if (ss[i] != (spin[i] >= 0 ? 1 : -1)) spin_ok = 0;
-    if (!feq(sx[i], x[i]) || !feq(sy[i], y[i])) pos_ok = 0;
+    if (ss[i] != (spin[i] >= 0 ? 1 : -1))
+      spin_ok = 0;
+    if (!feq(sx[i], x[i]) || !feq(sy[i], y[i]))
+      pos_ok = 0;
   }
   CHECK(spin_ok, "persisted spin signs match commanded {-1,+1,-1,+1}");
   CHECK(pos_ok, "persisted motor positions match commanded");
