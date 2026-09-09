@@ -153,6 +153,22 @@ void thunkNotchStatus(void *ctx, const navlink_frame_hdr_t *,
   r->onNotchStatus(d);
 }
 
+void thunkHslStatus(void *ctx, const navlink_frame_hdr_t *,
+                    const navlink_hsl_status_t *m) {
+  auto *r = static_cast<NavlinkRouter *>(ctx);
+  if (!r->onHslStatus)
+    return;
+  HslStatusData d;
+  d.recording = m->recording != 0;
+  d.session = m->session;
+  d.headSlot = m->head_slot;
+  d.ringSectors = m->ring_sectors;
+  d.wraps = m->wraps;
+  d.droppedSectors = m->dropped_sectors;
+  d.seq = m->seq;
+  r->onHslStatus(d);
+}
+
 void thunkVerticalState(void *ctx, const navlink_frame_hdr_t *,
                         const navlink_vertical_state_t *m) {
   auto *r = static_cast<NavlinkRouter *>(ctx);
@@ -345,6 +361,7 @@ NavlinkRouter::NavlinkRouter() : d_(new Impl) {
   d_->handlers.on_baro = thunkBaro;
   d_->handlers.on_vertical_state = thunkVerticalState;
   d_->handlers.on_notch_status = thunkNotchStatus;
+  d_->handlers.on_hsl_status = thunkHslStatus;
   d_->handlers.on_flight_mode = thunkFlightMode;
   d_->handlers.on_heartbeat = thunkHeartbeat;
   d_->handlers.on_system_health = thunkSystemHealth;

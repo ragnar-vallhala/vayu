@@ -172,6 +172,13 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
           &MainWindow::onTimeSyncResponse);
   connect(proto, &DroneProtocol::timeSyncRequested, this,
           &MainWindow::onTimeSyncRequested);
+  // HSL_STATUS arrives at 1 Hz -- low-rate and event-like, so it goes straight
+  // to the status bar rather than through the engine snapshot.
+  connect(proto, &DroneProtocol::hslStatusReceived, this,
+          [this](const HslStatusData &d) {
+            if (m_statusBar)
+              m_statusBar->setHslStatus(d);
+          });
 
   m_rcWidget = new RcChannelsWidget(this);
   m_stackedWidget->addWidget(m_rcWidget);

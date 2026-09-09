@@ -31,6 +31,7 @@ public:
   std::function<void(const BaroData &)> onBaro;
   std::function<void(const VerticalStateData &)> onVerticalState;
   std::function<void(const NotchStatusData &)> onNotchStatus;
+  std::function<void(const HslStatusData &)> onHslStatus;
   std::function<void(uint8_t mode, uint8_t source)> onFlightMode;
   // HEARTBEAT: nav_state is the flight-state enum index; timestamp + device id
   // (frame sysid) drive link liveness. The owner maps nav_state -> state name.
