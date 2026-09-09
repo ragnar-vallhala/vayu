@@ -24,6 +24,9 @@ DroneProtocol::DroneProtocol(QObject *parent) : QObject(parent) {
   m_v2Router.onNotchStatus = [this](const NotchStatusData &d) {
     emit notchStatusReceived(d);
   };
+  m_v2Router.onHslStatus = [this](const HslStatusData &d) {
+    emit hslStatusReceived(d);
+  };
   m_v2Router.onFlightMode = [this](uint8_t mode, uint8_t source) {
     emit flightModeReceived(mode, source);
   };

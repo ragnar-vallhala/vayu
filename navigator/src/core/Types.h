@@ -74,6 +74,31 @@ struct NotchStatusData {
 };
 
 // -----------------------------------------------------------
+// HSL_STATUS – the high-speed IMU-to-SD recorder, reported so it can be checked
+// from the ground instead of by pulling the card. droppedSectors is the one to
+// watch in flight: non-zero means the card could not sustain the write rate and
+// those samples are gone.
+// -----------------------------------------------------------
+struct HslStatusData {
+  bool recording = false;
+  uint32_t session = 0;
+  uint32_t headSlot = 0;
+  uint32_t ringSectors = 0;
+  uint32_t wraps = 0;
+  uint32_t droppedSectors = 0;
+  uint32_t seq = 0;
+  uint64_t timestamp = 0;
+
+  // Sectors of the ring holding data. Once it has wrapped that is all of it.
+  uint32_t usedSectors() const {
+    return wraps > 0 ? ringSectors : headSlot;
+  }
+  double fillFraction() const {
+    return ringSectors ? double(usedSectors()) / double(ringSectors) : 0.0;
+  }
+};
+
+// -----------------------------------------------------------
 // RC Channels – raw values (us)
 // -----------------------------------------------------------
 struct RcData {
