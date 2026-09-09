@@ -52,9 +52,7 @@ void Sparkline::paintEvent(QPaintEvent *) {
     mx = 1;
 
   const int n = m_data.size();
-  auto xAt = [&](int i) {
-    return r.left() + r.width() * i / (n - 1);
-  };
+  auto xAt = [&](int i) { return r.left() + r.width() * i / (n - 1); };
   auto yAt = [&](double v) {
     return r.bottom() - r.height() * qBound(0.0, v / mx, 1.0);
   };
@@ -160,7 +158,8 @@ void BarDelegate::paint(QPainter *p, const QStyleOptionViewItem &opt,
   // text
   p->setPen(QColor(0xe8, 0xec, 0xf2));
   p->drawText(opt.rect.adjusted(10, 0, -10, 0),
-              Qt::AlignVCenter | Qt::AlignLeft, idx.data(Qt::DisplayRole).toString());
+              Qt::AlignVCenter | Qt::AlignLeft,
+              idx.data(Qt::DisplayRole).toString());
   p->restore();
 }
 
@@ -215,10 +214,14 @@ PerfWidget::PerfWidget(QWidget *parent) : QWidget(parent) {
   m_taskTable->setShowGrid(false);
   m_taskTable->setItemDelegateForColumn(2, new BarDelegate(this));
   m_taskTable->setItemDelegateForColumn(3, new BarDelegate(this));
-  m_taskTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
-  m_taskTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
-  m_taskTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Stretch);
-  m_taskTable->horizontalHeader()->setSectionResizeMode(3, QHeaderView::Stretch);
+  m_taskTable->horizontalHeader()->setSectionResizeMode(
+      0, QHeaderView::ResizeToContents);
+  m_taskTable->horizontalHeader()->setSectionResizeMode(
+      1, QHeaderView::ResizeToContents);
+  m_taskTable->horizontalHeader()->setSectionResizeMode(2,
+                                                        QHeaderView::Stretch);
+  m_taskTable->horizontalHeader()->setSectionResizeMode(3,
+                                                        QHeaderView::Stretch);
   taskLay->addWidget(taskHdr);
   taskLay->addWidget(m_taskTable);
 
@@ -237,9 +240,12 @@ PerfWidget::PerfWidget(QWidget *parent) : QWidget(parent) {
   m_fifoTable->setSelectionMode(QAbstractItemView::SingleSelection);
   m_fifoTable->setShowGrid(false);
   m_fifoTable->setItemDelegateForColumn(1, new BarDelegate(this));
-  m_fifoTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
-  m_fifoTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
-  m_fifoTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
+  m_fifoTable->horizontalHeader()->setSectionResizeMode(
+      0, QHeaderView::ResizeToContents);
+  m_fifoTable->horizontalHeader()->setSectionResizeMode(1,
+                                                        QHeaderView::Stretch);
+  m_fifoTable->horizontalHeader()->setSectionResizeMode(
+      2, QHeaderView::ResizeToContents);
   fifoLay->addWidget(fifoHdr);
   fifoLay->addWidget(m_fifoTable);
 
@@ -315,42 +321,56 @@ void PerfWidget::buildTopCards(QHBoxLayout *row) {
 
 QString PerfWidget::stateName(uint8_t s) {
   switch (s) {
-  case 0: return "READY";
-  case 1: return "RUNNING";
-  case 2: return "BLOCKED";
-  case 3: return "DELAYED";
-  default: return QString("0x%1").arg(s, 2, 16, QChar('0'));
+  case 0:
+    return "READY";
+  case 1:
+    return "RUNNING";
+  case 2:
+    return "BLOCKED";
+  case 3:
+    return "DELAYED";
+  default:
+    return QString("0x%1").arg(s, 2, 16, QChar('0'));
   }
 }
 
 QColor PerfWidget::stateColor(uint8_t s) {
   switch (s) {
-  case 0: return QColor(0x4f, 0xc3, 0xf7); // READY - blue
-  case 1: return QColor(0x66, 0xbb, 0x6a); // RUNNING - green
-  case 2: return QColor(0xff, 0xa7, 0x26); // BLOCKED - amber
-  case 3: return QColor(0x90, 0x97, 0xa3); // DELAYED - grey
-  default: return QColor(0xb0, 0xb0, 0xb0);
+  case 0:
+    return QColor(0x4f, 0xc3, 0xf7); // READY - blue
+  case 1:
+    return QColor(0x66, 0xbb, 0x6a); // RUNNING - green
+  case 2:
+    return QColor(0xff, 0xa7, 0x26); // BLOCKED - amber
+  case 3:
+    return QColor(0x90, 0x97, 0xa3); // DELAYED - grey
+  default:
+    return QColor(0xb0, 0xb0, 0xb0);
   }
 }
 
 QString PerfWidget::fifoName(uint8_t id) {
-  static const char *n[] = {"imu.raw",        "imu.telemetry",
-                            "imu.control",    "imu.calib",
-                            "imu.calib_telem", "attitude.telemetry",
+  static const char *n[] = {"imu.raw",          "imu.telemetry",
+                            "imu.control",      "imu.calib",
+                            "imu.calib_telem",  "attitude.telemetry",
                             "attitude.control", "rc.telemetry",
-                            "rc.control",     "control.telemetry"};
+                            "rc.control",       "control.telemetry"};
   return id < 10 ? n[id] : QString("fifo#%1").arg(id);
 }
 
 QColor PerfWidget::stackColor(int pct) {
-  if (pct >= 90) return QColor(0xef, 0x53, 0x50);
-  if (pct >= 75) return QColor(0xff, 0xa7, 0x26);
+  if (pct >= 90)
+    return QColor(0xef, 0x53, 0x50);
+  if (pct >= 75)
+    return QColor(0xff, 0xa7, 0x26);
   return QColor(0x66, 0xbb, 0x6a);
 }
 
 QColor PerfWidget::fillColor(int pct) {
-  if (pct >= 95) return QColor(0xef, 0x53, 0x50);
-  if (pct >= 75) return QColor(0xff, 0xa7, 0x26);
+  if (pct >= 95)
+    return QColor(0xef, 0x53, 0x50);
+  if (pct >= 75)
+    return QColor(0xff, 0xa7, 0x26);
   return QColor(0x4f, 0xc3, 0xf7);
 }
 
@@ -425,8 +445,8 @@ void PerfWidget::updateReport(const PerfReport &r) {
     m_cardLoad->setBar(-1, Qt::gray);
   }
 
-  double heapPct =
-      r.heapTotalBytes ? 100.0 * double(r.heapPeakBytes) / r.heapTotalBytes
+  double heapPct = r.heapTotalBytes
+                       ? 100.0 * double(r.heapPeakBytes) / r.heapTotalBytes
                        : -1.0;
   if (heapPct >= 0) {
     m_cardHeap->setValue(QString("%1%").arg(heapPct, 0, 'f', 1));
@@ -463,12 +483,12 @@ void PerfWidget::updateReport(const PerfReport &r) {
   double ipcBlkPct =
       r.ipcTakes ? 100.0 * double(r.ipcBlocked) / double(r.ipcTakes) : 0.0;
   m_cardIpc->setValue(QString::number(ipcBlkPct, 'f', 0) + "%");
-  m_cardIpc->setSubtitle(QString("%1 of %2 takes blocked")
-                             .arg(r.ipcBlocked)
-                             .arg(r.ipcTakes));
+  m_cardIpc->setSubtitle(
+      QString("%1 of %2 takes blocked").arg(r.ipcBlocked).arg(r.ipcTakes));
   m_cardIpc->setBar(ipcBlkPct, QColor(0x4f, 0xc3, 0xf7));
 
-  m_cardUptime->setValue(QString::number(r.uptimeTicks / 1000.0, 'f', 0) + " s");
+  m_cardUptime->setValue(QString::number(r.uptimeTicks / 1000.0, 'f', 0) +
+                         " s");
   m_cardUptime->setSubtitle(QString("%1 ticks").arg(r.uptimeTicks));
   m_cardUptime->setBar(-1, Qt::gray);
 
@@ -561,7 +581,7 @@ QString PerfWidget::taskLabel(int id) const {
 void PerfWidget::setTaskName(int taskId, const QString &name) {
   m_answered.insert(taskId); // got a reply (even an empty one) — stop asking
   if (name.isEmpty())
-    return;                  // unnamed/unknown on the FC; keep "#id"
+    return; // unnamed/unknown on the FC; keep "#id"
   if (m_nameCache.value(taskId) == name)
     return;
   m_nameCache[taskId] = name;
@@ -606,18 +626,19 @@ void PerfWidget::renderDetail() {
                                      .arg(nm)
                                      .arg(t->id));
     m_detailBody->setText(
-        QString("<table cellspacing=6>"
-                "<tr><td style='color:#8b93a1'>State</td><td>"
-                "<b style='color:%1'>%2</b></td></tr>"
-                "<tr><td style='color:#8b93a1'>Priority</td><td>%3</td></tr>"
-                "<tr><td style='color:#8b93a1'>CPU (this sec)</td><td>"
-                "<b>%4%</b></td></tr>"
-                "<tr><td style='color:#8b93a1'>Cycles (lo)</td><td>%5</td></tr>"
-                "<tr><td style='color:#8b93a1'>Switch-ins</td><td>%6</td></tr>"
-                "<tr><td style='color:#8b93a1'>Max burst</td><td>%7 (%8)</td></tr>"
-                "<tr><td style='color:#8b93a1'>Stack peak</td><td>"
-                "<b style='color:%9'>%10 / %11 B  (%12%)</b></td></tr>"
-                "</table>")
+        QString(
+            "<table cellspacing=6>"
+            "<tr><td style='color:#8b93a1'>State</td><td>"
+            "<b style='color:%1'>%2</b></td></tr>"
+            "<tr><td style='color:#8b93a1'>Priority</td><td>%3</td></tr>"
+            "<tr><td style='color:#8b93a1'>CPU (this sec)</td><td>"
+            "<b>%4%</b></td></tr>"
+            "<tr><td style='color:#8b93a1'>Cycles (lo)</td><td>%5</td></tr>"
+            "<tr><td style='color:#8b93a1'>Switch-ins</td><td>%6</td></tr>"
+            "<tr><td style='color:#8b93a1'>Max burst</td><td>%7 (%8)</td></tr>"
+            "<tr><td style='color:#8b93a1'>Stack peak</td><td>"
+            "<b style='color:%9'>%10 / %11 B  (%12%)</b></td></tr>"
+            "</table>")
             .arg(stateColor(t->state).name())
             .arg(stateName(t->state))
             .arg(t->priority)
@@ -650,14 +671,15 @@ void PerfWidget::renderDetail() {
     bool dropping = f->drops > 0;
     m_detailTitle->setText(fifoName(f->id));
     m_detailBody->setText(
-        QString("<table cellspacing=6>"
-                "<tr><td style='color:#8b93a1'>Peak fill</td><td>"
-                "<b style='color:%1'>%2 / %3  (%4%)</b></td></tr>"
-                "<tr><td style='color:#8b93a1'>Drops</td><td>"
-                "<b style='color:%5'>%6</b></td></tr>"
-                "<tr><td style='color:#8b93a1'>Backpressure</td><td>%7</td></tr>"
-                "</table>"
-                "<p style='color:#8b93a1;font-size:11px'>%8</p>")
+        QString(
+            "<table cellspacing=6>"
+            "<tr><td style='color:#8b93a1'>Peak fill</td><td>"
+            "<b style='color:%1'>%2 / %3  (%4%)</b></td></tr>"
+            "<tr><td style='color:#8b93a1'>Drops</td><td>"
+            "<b style='color:%5'>%6</b></td></tr>"
+            "<tr><td style='color:#8b93a1'>Backpressure</td><td>%7</td></tr>"
+            "</table>"
+            "<p style='color:#8b93a1;font-size:11px'>%8</p>")
             .arg(fillColor(pct).name())
             .arg(f->peak)
             .arg(f->capacity)
@@ -666,11 +688,12 @@ void PerfWidget::renderDetail() {
             .arg(f->drops == 0xFFFF ? "≥65535 (saturated)"
                                     : QString::number(f->drops))
             .arg(dropping ? "producer outruns consumer" : "keeping up")
-            .arg(dropping
-                     ? "This ring is shedding items. If it's an OVERWRITE "
-                       "stream (telemetry) that's by design; if not, size it up "
-                       "or speed the consumer."
-                     : "No items lost since boot."));
+            .arg(
+                dropping
+                    ? "This ring is shedding items. If it's an OVERWRITE "
+                      "stream (telemetry) that's by design; if not, size it up "
+                      "or speed the consumer."
+                    : "No items lost since boot."));
     m_sparkCaption->setText("FILL % — LAST 60 REPORTS");
     m_detailSpark->setColor(fillColor(pct));
     m_detailSpark->setData(m_fifoFillHist.value(f->id), 100.0);

@@ -32,11 +32,11 @@ void vayu_assert_fail(const char *file, int line, const char *expr)
     __attribute__((noreturn));
 
 #define VAYU_ASSERT(cond)                                                      \
-    do {                                                                       \
-        if (!(cond)) {                                                         \
-            vayu_assert_fail(__FILE__, __LINE__, #cond);                       \
-        }                                                                      \
-    } while (0)
+  do {                                                                         \
+    if (!(cond)) {                                                             \
+      vayu_assert_fail(__FILE__, __LINE__, #cond);                             \
+    }                                                                          \
+  } while (0)
 
 #ifdef __cplusplus
 }

@@ -3,5 +3,4 @@
 
 // Periodic timer callbacks
 
-
 #endif // !VAYU_CALLBACKS_H

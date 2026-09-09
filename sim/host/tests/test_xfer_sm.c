@@ -26,15 +26,15 @@
 
 static int g_checks = 0;
 static int g_fails = 0;
-#define CHECK(cond, msg)                                                        \
-  do {                                                                          \
-    g_checks++;                                                                 \
-    if (cond) {                                                                 \
-      printf("    ok   %s\n", (msg));                                           \
-    } else {                                                                    \
-      g_fails++;                                                                \
-      printf("    FAIL %s   (%s:%d)\n", (msg), __FILE__, __LINE__);             \
-    }                                                                           \
+#define CHECK(cond, msg)                                                       \
+  do {                                                                         \
+    g_checks++;                                                                \
+    if (cond) {                                                                \
+      printf("    ok   %s\n", (msg));                                          \
+    } else {                                                                   \
+      g_fails++;                                                               \
+      printf("    FAIL %s   (%s:%d)\n", (msg), __FILE__, __LINE__);            \
+    }                                                                          \
   } while (0)
 
 /* ============================ capturing emitter ========================== */
@@ -314,7 +314,8 @@ static void test_out_of_order_upload(void) {
 
   /* The contiguous chunk advances the cursor. */
   xfer_on_data(0, 0, a, sizeof a, XFER_F_NONE);
-  CHECK(FAKE.size == 100 && s->cursor == 100, "contiguous chunk advances cursor");
+  CHECK(FAKE.size == 100 && s->cursor == 100,
+        "contiguous chunk advances cursor");
 
   /* A duplicate of an already-written region is ignored (no rewind). */
   xfer_on_data(0, 0, a, sizeof a, XFER_F_NONE);
@@ -333,26 +334,30 @@ static void test_rejections(void) {
 
   /* unknown service -> UNSUPPORTED */
   xfer_open_args_t bad = mkargs(0, XFER_DIR_DOWNLOAD, 999, 0);
-  CHECK(xfer_on_open(&bad) == XFER_RES_UNSUPPORTED, "unknown service UNSUPPORTED");
+  CHECK(xfer_on_open(&bad) == XFER_RES_UNSUPPORTED,
+        "unknown service UNSUPPORTED");
 
   /* upload to a read-only provider -> DENIED */
   xfer_open_args_t ro = mkargs(0, XFER_DIR_UPLOAD, 8, 0);
   CHECK(xfer_on_open(&ro) == XFER_RES_DENIED, "upload to read-only DENIED");
 
   /* out-of-range session slot -> TEMPORARILY_REJECTED */
-  xfer_open_args_t oor = mkargs((uint8_t)XFER_MAX_SESSIONS, XFER_DIR_DOWNLOAD, 7, 0);
+  xfer_open_args_t oor =
+      mkargs((uint8_t)XFER_MAX_SESSIONS, XFER_DIR_DOWNLOAD, 7, 0);
   CHECK(xfer_on_open(&oor) == XFER_RES_TEMPORARILY_REJECTED,
         "out-of-range session TEMPORARILY_REJECTED");
 
   /* occupy slot 0, then a different req_seq on the same slot is rejected */
   xfer_open_args_t a = mkargs(0, XFER_DIR_DOWNLOAD, 7, 0);
-  CHECK(xfer_on_open(&a) == XFER_OPEN_DEFERRED, "first open on slot 0 deferred");
+  CHECK(xfer_on_open(&a) == XFER_OPEN_DEFERRED,
+        "first open on slot 0 deferred");
   xfer_open_args_t a2 = mkargs(0, XFER_DIR_DOWNLOAD, 7, 0);
   a2.req_seq = 0xEE;
   CHECK(xfer_on_open(&a2) == XFER_RES_TEMPORARILY_REJECTED,
         "busy slot, different req_seq TEMPORARILY_REJECTED");
   /* same (session, req_seq) is idempotent */
-  CHECK(xfer_on_open(&a) == XFER_OPEN_DEFERRED, "retransmit same open is idempotent");
+  CHECK(xfer_on_open(&a) == XFER_OPEN_DEFERRED,
+        "retransmit same open is idempotent");
 }
 
 static void test_offset_past_eof(void) {
@@ -382,11 +387,13 @@ static void test_open_error_failed(void) {
   FAKE.open_rc = -42; /* provider->open fails */
 
   xfer_open_args_t dn = mkargs(0, XFER_DIR_DOWNLOAD, 7, 0);
-  CHECK(xfer_on_open(&dn) == XFER_OPEN_DEFERRED, "open still deferred (error is async)");
+  CHECK(xfer_on_open(&dn) == XFER_OPEN_DEFERRED,
+        "open still deferred (error is async)");
   xfer_tick(0, 0, 4);
   CHECK(CAP.n_cmd_ack == 1 && CAP.cmd_ack[0].result == XFER_RES_FAILED,
         "provider open error -> COMMAND_ACK FAILED");
-  CHECK(CAP.cmd_ack[0].param2 == -42, "error sub-code carried in result_param2");
+  CHECK(CAP.cmd_ack[0].param2 == -42,
+        "error sub-code carried in result_param2");
   CHECK(!xfer_session_active(0), "failed-open session freed");
 }
 
@@ -419,8 +426,9 @@ static void test_idle_timeout_reaps_stalled_upload(void) {
   xfer_tick(0, 0, 4);
   uint8_t blk[100];
   memset(blk, 0x33, sizeof blk);
-  xfer_on_data(0, 0, blk, sizeof blk, XFER_F_NONE); /* one chunk, then silence */
-  xfer_tick(10, 0, 4);                              /* refreshes liveness @10 */
+  xfer_on_data(0, 0, blk, sizeof blk,
+               XFER_F_NONE); /* one chunk, then silence */
+  xfer_tick(10, 0, 4);       /* refreshes liveness @10 */
   CHECK(xfer_session_active(0), "upload alive while chunks arrive");
   /* No more chunks; tick well past the 5 s idle bound. */
   xfer_tick(10 + 4000, 0, 4);
@@ -446,7 +454,8 @@ static void test_concurrent_budget_fairness(void) {
   /* Budget 2/tick shared across both sessions; ack both so they keep flowing. */
   for (int t = 0; t < 6; t++) {
     xfer_tick(10 + (uint32_t)t, 0, 2);
-    xfer_on_ack(0, 2000, XFER_F_NONE); /* keep them ACTIVE (don't finish early) */
+    xfer_on_ack(0, 2000,
+                XFER_F_NONE); /* keep them ACTIVE (don't finish early) */
     xfer_on_ack(1, 2000, XFER_F_NONE);
   }
   CHECK(CAP.data_by_session[0] > 0 && CAP.data_by_session[1] > 0,

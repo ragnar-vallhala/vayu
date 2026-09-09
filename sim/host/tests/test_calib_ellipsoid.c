@@ -26,24 +26,22 @@
 #include "calib/calib_ellipsoid.h"
 
 static int g_checks = 0, g_fails = 0;
-#define CHECK(cond, msg)                                                        \
-  do {                                                                          \
-    g_checks++;                                                                 \
-    if (cond)                                                                   \
-      printf("    ok   %s\n", (msg));                                           \
-    else {                                                                      \
-      g_fails++;                                                                \
+#define CHECK(cond, msg)                                                       \
+  do {                                                                         \
+    g_checks++;                                                                \
+    if (cond)                                                                  \
+      printf("    ok   %s\n", (msg));                                          \
+    else {                                                                     \
+      g_fails++;                                                               \
       printf("    FAIL %s   (%s:%d)\n", (msg), __FILE__, __LINE__);            \
-    }                                                                           \
+    }                                                                          \
   } while (0)
 
 /* Ground truth. A is symmetric => SPD (diagonally dominant, positive diag). */
 static const float RADIUS = 9.80665f;
 static const float B_TRUE[3] = {0.40f, -0.30f, 0.50f};
-static const float A_TRUE[9] = {
-    1.05f, 0.02f, 0.010f,
-    0.02f, 0.97f, 0.015f,
-    0.010f, 0.015f, 1.03f};
+static const float A_TRUE[9] = {1.05f,  0.02f,  0.010f, 0.02f, 0.97f,
+                                0.015f, 0.010f, 0.015f, 1.03f};
 
 static void mat3_vec(const float m[9], const float v[3], float out[3]) {
   for (int i = 0; i < 3; i++)
@@ -67,9 +65,11 @@ static void fib_dir(int i, int n, float u[3]) {
 }
 
 /* Accumulate one measured sample into the normal equations (mirrors bmx160). */
-static void accumulate(float S[81], float t[9], const float m[3], float radius) {
+static void accumulate(float S[81], float t[9], const float m[3],
+                       float radius) {
   float x = m[0] / radius, y = m[1] / radius, z = m[2] / radius;
-  float r[9] = {x * x, y * y, z * z, 2 * y * z, 2 * x * z, 2 * x * y, 2 * x, 2 * y, 2 * z};
+  float r[9] = {x * x,     y * y, z * z, 2 * y * z, 2 * x * z,
+                2 * x * y, 2 * x, 2 * y, 2 * z};
   for (int a = 0; a < 9; a++) {
     t[a] += r[a];
     for (int b = 0; b < 9; b++)
@@ -127,7 +127,8 @@ static void verify(int n, const float offset[3], const float soft[9],
                    m[2] / RADIUS - offset[2]};
     float corr[3];
     mat3_vec(soft, xc, corr);
-    float mag = sqrtf(corr[0] * corr[0] + corr[1] * corr[1] + corr[2] * corr[2]);
+    float mag =
+        sqrtf(corr[0] * corr[0] + corr[1] * corr[1] + corr[2] * corr[2]);
     mags[i] = mag;
     mag_mean += mag;
     float cosang = (corr[0] * u[0] + corr[1] * u[1] + corr[2] * u[2]) / mag;

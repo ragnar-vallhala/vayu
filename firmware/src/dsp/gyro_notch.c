@@ -52,17 +52,17 @@
 #define GYRO_NOTCH_FMIN_FLOOR 40.0f
 
 /* All heap-owned so nothing here grows .bss. NULL until a successful init. */
-static notch_bank_t *s_bank;       /* [NUM_AXES] */
-static bool s_enabled;             /* master (user/param) gate */
-static float s_throttle;           /* latest throttle 0..1, from the rate loop */
-static bool s_engaged;             /* enabled AND above the throttle gate */
-static bool s_ready[NUM_AXES];     /* axis has a frame awaiting retune */
-static uint8_t s_service_turn;     /* round-robin cursor for gyro_notch_service */
-static unsigned s_decim;           /* analyzer decimation factor D (>= 1) */
+static notch_bank_t *s_bank;   /* [NUM_AXES] */
+static bool s_enabled;         /* master (user/param) gate */
+static float s_throttle;       /* latest throttle 0..1, from the rate loop */
+static bool s_engaged;         /* enabled AND above the throttle gate */
+static bool s_ready[NUM_AXES]; /* axis has a frame awaiting retune */
+static uint8_t s_service_turn; /* round-robin cursor for gyro_notch_service */
+static unsigned s_decim;       /* analyzer decimation factor D (>= 1) */
 static uint8_t s_decim_phase[NUM_AXES]; /* per-axis observe phase, 0..D-1 */
-static bool s_autoband;            /* auto-band learn pass armed / in progress */
-static float s_ab_min, s_ab_max;   /* running peak-freq bounds during a learn */
-static unsigned s_ab_frames;       /* retunes observed so far this learn */
+static bool s_autoband;          /* auto-band learn pass armed / in progress */
+static float s_ab_min, s_ab_max; /* running peak-freq bounds during a learn */
+static unsigned s_ab_frames;     /* retunes observed so far this learn */
 
 /* Master AND throttle gate: the condition under which the notch actually filters
  * and analyses. */
@@ -76,8 +76,10 @@ static bool init_axis(unsigned axis) {
   const unsigned n = GYRO_NOTCH_N;
   float *ring = (float *)v_malloc(sizeof(float) * n);
   float *frame = (float *)v_malloc(sizeof(float) * n);
-  fft_complex_t *bins = (fft_complex_t *)v_malloc(sizeof(fft_complex_t) * (n / 2u + 1u));
-  fft_complex_t *scratch = (fft_complex_t *)v_malloc(sizeof(fft_complex_t) * (n / 2u));
+  fft_complex_t *bins =
+      (fft_complex_t *)v_malloc(sizeof(fft_complex_t) * (n / 2u + 1u));
+  fft_complex_t *scratch =
+      (fft_complex_t *)v_malloc(sizeof(fft_complex_t) * (n / 2u));
   if (!ring || !frame || !bins || !scratch) {
     return false; /* leaked on failure, but init failure is a boot-time abort */
   }

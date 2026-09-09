@@ -14,21 +14,21 @@
 // (HAVE_PULSE_SIMPLE); otherwise this is a silent stub so the build and the UI
 // toggle still work. setMotors() is safe to call from the GUI thread.
 class PropAudio {
- public:
+public:
   PropAudio();
   ~PropAudio();
 
-  PropAudio(const PropAudio&) = delete;
-  PropAudio& operator=(const PropAudio&) = delete;
+  PropAudio(const PropAudio &) = delete;
+  PropAudio &operator=(const PropAudio &) = delete;
 
   void setEnabled(bool on);
-  void setMotors(const std::array<float, 4>& omega_rads);
+  void setMotors(const std::array<float, 4> &omega_rads);
 
- private:
+private:
   void run();
 
-  std::atomic<bool>  alive_{false};
-  std::atomic<bool>  enabled_{false};
+  std::atomic<bool> alive_{false};
+  std::atomic<bool> enabled_{false};
   std::atomic<float> omega_[4];
-  std::thread        thread_;
+  std::thread thread_;
 };

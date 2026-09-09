@@ -16,7 +16,8 @@
 static int fails = 0;
 static void check(const char *what, int ok) {
   printf("  [%s] %s\n", ok ? "PASS" : "FAIL", what);
-  if (!ok) fails++;
+  if (!ok)
+    fails++;
 }
 
 /* Drive a unit-amplitude sine of `f_hz` through the section and return the
@@ -31,7 +32,8 @@ static float tone_gain(const biquad_coeffs_t *c, float f_hz, float fs_hz) {
   for (int n = 0; n < warmup + measure; n++) {
     float x = sinf(w * (float)n);
     float y = m_biquad_step(c, &st, x);
-    if (n >= warmup && fabsf(y) > peak) peak = fabsf(y);
+    if (n >= warmup && fabsf(y) > peak)
+      peak = fabsf(y);
   }
   return peak; /* input peak is 1.0, so this is the gain */
 }
@@ -49,7 +51,8 @@ int main(void) {
     int ok = 1;
     for (int n = 0; n < 100; n++) {
       float x = 0.3f * (float)n - 7.0f;
-      if (m_biquad_step(&c, &st, x) != x) ok = 0;
+      if (m_biquad_step(&c, &st, x) != x)
+        ok = 0;
     }
     check("y == x for a bypass section", ok);
   }
@@ -75,7 +78,8 @@ int main(void) {
     biquad_state_t st;
     m_biquad_reset(&st);
     float y = 0.0f;
-    for (int n = 0; n < 2000; n++) y = m_biquad_step(&c, &st, 1.0f);
+    for (int n = 0; n < 2000; n++)
+      y = m_biquad_step(&c, &st, 1.0f);
     check("constant input settles to itself", fabsf(y - 1.0f) < 1e-3f);
   }
 
@@ -129,12 +133,13 @@ int main(void) {
     /* sum of three tones + a unit impulse, all within |x| <= ~3 */
     for (int n = 0; n < 20000; n++) {
       float t = (float)n / fs;
-      float x = sinf(2.0f * PI * 30.0f * t) +
-                sinf(2.0f * PI * 150.0f * t) +
+      float x = sinf(2.0f * PI * 30.0f * t) + sinf(2.0f * PI * 150.0f * t) +
                 sinf(2.0f * PI * 320.0f * t) + (n == 0 ? 1.0f : 0.0f);
       float y = m_biquad_step(&c, &st, x);
-      if (!isfinite(y)) finite = 0;
-      if (fabsf(y) > peak) peak = fabsf(y);
+      if (!isfinite(y))
+        finite = 0;
+      if (fabsf(y) > peak)
+        peak = fabsf(y);
     }
     check("output stays finite", finite);
     check("output stays bounded", peak < 10.0f);
@@ -147,7 +152,8 @@ int main(void) {
     m_biquad_notch_design(&c, 100.0f, 8.0f, fs);
     biquad_state_t st;
     m_biquad_reset(&st);
-    for (int n = 0; n < 50; n++) m_biquad_step(&c, &st, 1.0f);
+    for (int n = 0; n < 50; n++)
+      m_biquad_step(&c, &st, 1.0f);
     m_biquad_reset(&st);
     check("state is zero after reset", st.s1 == 0.0f && st.s2 == 0.0f);
     /* first sample after reset == b0 * x (no history) */

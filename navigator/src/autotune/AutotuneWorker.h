@@ -10,7 +10,7 @@
 
 #include "AutotuneEngine.h"
 #include "Rollout.h"
-#include "vsim_proto.h"  // vsim_ctl_geometry_t (vehicle geometry blob)
+#include "vsim_proto.h" // vsim_ctl_geometry_t (vehicle geometry blob)
 
 // Bundles the C++ autotune run for the GUI: owns an AutotuneEngine and drives
 // the search on the in-process real-vaios backend (`vayu_sitl_rtos`, RtosEval).
@@ -34,10 +34,10 @@ public:
     bool tuneYaw = false;
     QString optimizer = "structured";
     int budget = 30;
-    int repeats = 5;  // rollouts averaged per eval (distinct noise seeds)
+    int repeats = 5; // rollouts averaged per eval (distinct noise seeds)
     quint64 optSeed = 1;
     autotune::RolloutParams rollout;
-    QString rtosBin;  // path to vayu_sitl_rtos (required)
+    QString rtosBin; // path to vayu_sitl_rtos (required)
     // Fast-backend cost: false = angle tracking (the exact realtime cost);
     // true = angle + roll/pitch rate-loop tracking (values the inner loop too).
     bool rtosRateCost = false;
@@ -46,7 +46,7 @@ public:
     // analytically (loop-shaping). Sidesteps the degenerate "don't-move" cost
     // minimum entirely. Implies the fast backend (uses rtosBin). See SysId.h.
     bool sysId = false;
-    double sysIdBwFrac = 0.33;  // crossover as a fraction of the actuator BW
+    double sysIdBwFrac = 0.33; // crossover as a fraction of the actuator BW
   };
 
   explicit AutotuneWorker(Params p, QObject *parent = nullptr);
@@ -64,7 +64,7 @@ signals:
   void finished(QVector<double> bestX, QStringList names, double bestCost);
   void failed(QString err);
   void log(QString line);
-  void done();  // run() has fully returned (success or failure) — safe to quit
+  void done(); // run() has fully returned (success or failure) — safe to quit
 
 private:
   // Optimizer search: drive the deterministic in-process vayu_sitl_rtos backend
@@ -80,5 +80,5 @@ private:
   Params m_p;
   std::atomic<bool> m_cancel{false};
   std::mutex m_engMtx;
-  AutotuneEngine *m_engine = nullptr;  // valid only during run(), for cancel()
+  AutotuneEngine *m_engine = nullptr; // valid only during run(), for cancel()
 };

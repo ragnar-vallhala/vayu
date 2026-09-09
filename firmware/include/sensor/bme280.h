@@ -39,8 +39,9 @@
 #define BME280_REG_CTRL_MEAS 0xF4
 #define BME280_REG_CONFIG 0xF5
 #define BME280_REG_DATA 0xF7 /* press(3) + temp(3) + hum(2) = 8 bytes */
-#define BME280_REG_CALIB_TP 0x88 /* dig_T1..dig_P9 + dig_H1, 26 bytes (0x88..0xA1) */
-#define BME280_REG_CALIB_H 0xE1  /* dig_H2..dig_H6, 7 bytes (0xE1..0xE7) */
+#define BME280_REG_CALIB_TP                                                    \
+  0x88 /* dig_T1..dig_P9 + dig_H1, 26 bytes (0x88..0xA1) */
+#define BME280_REG_CALIB_H 0xE1 /* dig_H2..dig_H6, 7 bytes (0xE1..0xE7) */
 #define BME280_CALIB_TP_LEN 26
 #define BME280_CALIB_H_LEN 7
 
@@ -84,7 +85,8 @@ typedef struct {
   float pressure_pa;   /* Pa */
   float humidity_rh;   /* %RH */
   float altitude_m;    /* m above the configured sea-level reference */
-  uint32_t timestamp;  /* DWT cycle stamp at acquisition (see vayu_dt_from_cycles) */
+  uint32_t
+      timestamp; /* DWT cycle stamp at acquisition (see vayu_dt_from_cycles) */
 } bme280_reading_t;
 
 /* Probe the chip ID, soft-reset, read the calibration, and configure forced

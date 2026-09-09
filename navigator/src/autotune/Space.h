@@ -1,10 +1,10 @@
 #pragma once
 
-#include <cstdint>  // int32_t before <stdlib.h> (glibc quirk)
+#include <cstdint> // int32_t before <stdlib.h> (glibc quirk)
 #include <string>
 #include <vector>
 
-#include "Optimizer.h"  // Vec, Bounds
+#include "Optimizer.h" // Vec, Bounds
 
 // The autotune parameter space — a C++ port of tools/autotune/autotune.py's
 // Space (_BASE [+ _YAW]). Maps the optimizer's vector to named gains; the
@@ -36,4 +36,4 @@ private:
   std::vector<Param> m_params;
 };
 
-}  // namespace autotune
+} // namespace autotune

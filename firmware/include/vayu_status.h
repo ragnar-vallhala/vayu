@@ -21,13 +21,13 @@
 #include <stdint.h>
 
 typedef enum vayu_status {
-    VAYU_OK            =  0, /**< Success. */
-    VAYU_ERR_INVALID   = -1, /**< Invalid argument or invalid state for op. */
-    VAYU_ERR_TIMEOUT   = -2, /**< Operation timed out. */
-    VAYU_ERR_BUSY      = -3, /**< Resource currently in use; try later. */
-    VAYU_ERR_RANGE     = -4, /**< Value outside accepted range. */
-    VAYU_ERR_FAULT     = -5, /**< Hardware, transport, or peripheral fault. */
-    VAYU_ERR_NOT_IMPL  = -6, /**< Not implemented on this build target. */
+  VAYU_OK = 0,            /**< Success. */
+  VAYU_ERR_INVALID = -1,  /**< Invalid argument or invalid state for op. */
+  VAYU_ERR_TIMEOUT = -2,  /**< Operation timed out. */
+  VAYU_ERR_BUSY = -3,     /**< Resource currently in use; try later. */
+  VAYU_ERR_RANGE = -4,    /**< Value outside accepted range. */
+  VAYU_ERR_FAULT = -5,    /**< Hardware, transport, or peripheral fault. */
+  VAYU_ERR_NOT_IMPL = -6, /**< Not implemented on this build target. */
 } vayu_status_t;
 
 /* R4.4: width is bounded — guard against accidental drift if the enum
@@ -46,7 +46,7 @@ _Static_assert(sizeof(vayu_status_t) <= sizeof(int32_t),
  * attribute on C functions; assignment to a local does.
  */
 #define VAYU_DISCARD(expr)                                                     \
-    do {                                                                       \
-        vayu_status_t _vayu_unused = (expr);                                   \
-        (void)_vayu_unused;                                                    \
-    } while (0)
+  do {                                                                         \
+    vayu_status_t _vayu_unused = (expr);                                       \
+    (void)_vayu_unused;                                                        \
+  } while (0)

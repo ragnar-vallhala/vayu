@@ -18,16 +18,18 @@
 #include <string.h>
 #include <sys/stat.h>
 
-#define HOST_VFS_MAX_FILES   8
+#define HOST_VFS_MAX_FILES 8
 #define HOST_VFS_MAX_HANDLES 8
-#define HOST_VFS_FILE_CAP    4096
+#define HOST_VFS_FILE_CAP                                                      \
+  65536 /* was 4096; HSL needs a ring big enough to wrap in test_hslog */
 
 /* Resolve the on-disk backing path for a VFS path, e.g. "0:pid.bin" ->
  * "/tmp/vayu_vfs/0_pid.bin". Non-alnum/._- chars are mapped to '_'. */
 static void backing_path(const char *vpath, char *out, size_t cap) {
   const char *dir = getenv("VAYU_VFS_DIR");
-  if (dir == NULL || dir[0] == '\0') dir = "/tmp/vayu_vfs";
-  mkdir(dir, 0777);                 /* ignore EEXIST */
+  if (dir == NULL || dir[0] == '\0')
+    dir = "/tmp/vayu_vfs";
+  mkdir(dir, 0777); /* ignore EEXIST */
   size_t n = 0;
   n += (size_t)snprintf(out, cap, "%s/", dir);
   for (const char *p = vpath; *p && n + 1 < cap; ++p) {
@@ -40,27 +42,27 @@ static void backing_path(const char *vpath, char *out, size_t cap) {
 }
 
 typedef struct {
-  char     path[64];
-  uint8_t  data[HOST_VFS_FILE_CAP];
-  size_t   size;
-  int      used;
+  char path[64];
+  uint8_t data[HOST_VFS_FILE_CAP];
+  size_t size;
+  int used;
 } host_vfs_file_t;
 
 typedef struct {
-  int    used;
-  int    file_idx;
+  int used;
+  int file_idx;
   size_t cursor;
 } host_vfs_handle_t;
 
-static host_vfs_file_t   s_files[HOST_VFS_MAX_FILES];
+static host_vfs_file_t s_files[HOST_VFS_MAX_FILES];
 static host_vfs_handle_t s_handles[HOST_VFS_MAX_HANDLES];
 
 int vfs_init(void) { return 0; }
 
 static int find_file(const char *path) {
   for (int i = 0; i < HOST_VFS_MAX_FILES; i++) {
-    if (s_files[i].used && strncmp(s_files[i].path, path,
-                                   sizeof s_files[i].path) == 0) {
+    if (s_files[i].used &&
+        strncmp(s_files[i].path, path, sizeof s_files[i].path) == 0) {
       return i;
     }
   }
@@ -86,9 +88,13 @@ static int load_file(const char *path) {
   char bp[256];
   backing_path(path, bp, sizeof bp);
   FILE *fp = fopen(bp, "rb");
-  if (fp == NULL) return -1;
+  if (fp == NULL)
+    return -1;
   int fidx = alloc_file(path);
-  if (fidx < 0) { fclose(fp); return -1; }
+  if (fidx < 0) {
+    fclose(fp);
+    return -1;
+  }
   size_t n = fread(s_files[fidx].data, 1, HOST_VFS_FILE_CAP, fp);
   fclose(fp);
   s_files[fidx].size = n;
@@ -97,11 +103,13 @@ static int load_file(const char *path) {
 
 /* Mirror a RAM slot out to its backing file. */
 static void flush_file(int fidx) {
-  if (fidx < 0 || !s_files[fidx].used) return;
+  if (fidx < 0 || !s_files[fidx].used)
+    return;
   char bp[256];
   backing_path(s_files[fidx].path, bp, sizeof bp);
   FILE *fp = fopen(bp, "wb");
-  if (fp == NULL) return;
+  if (fp == NULL)
+    return;
   fwrite(s_files[fidx].data, 1, s_files[fidx].size, fp);
   fclose(fp);
 }
@@ -112,7 +120,7 @@ vfs_fd_t vfs_open(const char *path, int flags) {
   }
   int fidx = find_file(path);
   if (fidx < 0) {
-    fidx = load_file(path);          /* try the on-disk backing file first */
+    fidx = load_file(path); /* try the on-disk backing file first */
   }
   if (fidx < 0) {
     if (!(flags & VFS_O_CREAT)) {
@@ -130,8 +138,7 @@ vfs_fd_t vfs_open(const char *path, int flags) {
     if (!s_handles[h].used) {
       s_handles[h].used = 1;
       s_handles[h].file_idx = fidx;
-      s_handles[h].cursor =
-          (flags & VFS_O_APPEND) ? s_files[fidx].size : 0u;
+      s_handles[h].cursor = (flags & VFS_O_APPEND) ? s_files[fidx].size : 0u;
       return h;
     }
   }
@@ -150,7 +157,7 @@ int vfs_close(vfs_fd_t fd) {
   if (h == NULL) {
     return -1;
   }
-  flush_file(h->file_idx);          /* persist to the backing file */
+  flush_file(h->file_idx); /* persist to the backing file */
   h->used = 0;
   return 0;
 }
@@ -182,7 +189,7 @@ int vfs_write(vfs_fd_t fd, const void *buf, size_t count) {
   if (h->cursor > f->size) {
     f->size = h->cursor;
   }
-  flush_file(h->file_idx);          /* keep the backing file in sync */
+  flush_file(h->file_idx); /* keep the backing file in sync */
   return (int)count;
 }
 
@@ -211,7 +218,7 @@ int vfs_mkdir(const char *path) {
 int vfs_unlink(const char *path) {
   char bp[256];
   backing_path(path, bp, sizeof bp);
-  remove(bp);                       /* drop the backing file too */
+  remove(bp); /* drop the backing file too */
   int fidx = find_file(path);
   if (fidx < 0) {
     return -1;
@@ -222,7 +229,8 @@ int vfs_unlink(const char *path) {
 
 int vfs_sync(vfs_fd_t fd) {
   host_vfs_handle_t *h = handle_of(fd);
-  if (h == NULL) return -1;
+  if (h == NULL)
+    return -1;
   flush_file(h->file_idx);
   return 0;
 }

@@ -29,7 +29,8 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#define BARO_PAYLOAD_BYTES ((uint32_t)(sizeof(vsim_baro_frame_t) - sizeof(vsim_hdr_t)))
+#define BARO_PAYLOAD_BYTES                                                     \
+  ((uint32_t)(sizeof(vsim_baro_frame_t) - sizeof(vsim_hdr_t)))
 #define MAX_CONSECUTIVE_BAD_FRAMES 64
 
 /* Per-instance FIFO: append $VSIM_FIFO_SUFFIX so colliding daemons can't
@@ -114,8 +115,10 @@ static int read_framed_baro(int fd, vsim_baro_frame_t *out) {
               hdr.version, hdr.type, hdr.payload_bytes, VSIM_PROTO_VERSION,
               VSIM_FRAME_BARO, BARO_PAYLOAD_BYTES);
     if (++bad >= MAX_CONSECUTIVE_BAD_FRAMES) {
-      fprintf(stderr, "host_baro: %u consecutive bad frames -- giving up "
-                      "(producer proto mismatch). Rebuild vsim_d.\n", bad);
+      fprintf(stderr,
+              "host_baro: %u consecutive bad frames -- giving up "
+              "(producer proto mismatch). Rebuild vsim_d.\n",
+              bad);
       return -1;
     }
   }
@@ -168,16 +171,24 @@ void host_baro_start(void) {
 
 /* ---- i2c_manager stubs (see file header) ---- */
 hal_status_t i2c_manager_write(uint8_t addr, uint8_t *data, uint16_t len) {
-  (void)addr; (void)data; (void)len;
+  (void)addr;
+  (void)data;
+  (void)len;
   return HAL_ERR_NOT_INITIALIZED;
 }
 hal_status_t i2c_manager_read(uint8_t addr, uint8_t *data, uint16_t len) {
-  (void)addr; (void)data; (void)len;
+  (void)addr;
+  (void)data;
+  (void)len;
   return HAL_ERR_NOT_INITIALIZED;
 }
 hal_status_t i2c_manager_write_read(uint8_t addr, uint8_t *tx_data,
                                     uint16_t tx_len, uint8_t *rx_data,
                                     uint16_t rx_len) {
-  (void)addr; (void)tx_data; (void)tx_len; (void)rx_data; (void)rx_len;
+  (void)addr;
+  (void)tx_data;
+  (void)tx_len;
+  (void)rx_data;
+  (void)rx_len;
   return HAL_ERR_NOT_INITIALIZED;
 }

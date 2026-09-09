@@ -30,6 +30,29 @@ bool angle_controller_get_outputs(angle_controller_outputs_t *outputs);
  */
 float angle_controller_last_throttle(void);
 
+/* Packed height-mode status for telemetry — the mode is otherwise invisible,
+ * which turns "I flipped the switch and nothing happened" into a log hunt.
+ *
+ *   bit 0-1  requested mode: 0=OFF 1=HOLD 2=LAND (straight from the switch)
+ *   bit 2    engaged   — actually driving the collective right now
+ *   bit 3    failed    — runaway guard gave up; latched until switch centred
+ *   bit 4    landed    — LAND touched down; latched until switch centred
+ *   bit 5    handback  — holding collective until the pilot's stick catches up
+ *   bit 6    armed_ok  — the switch has been seen CENTRED since arming
+ *   bit 7    blocked   — a mode is requested but something is vetoing it
+ *                        (acro, upset recovery, or armed_ok still 0)
+ *
+ * "blocked" with "armed_ok" clear is the common one: the switch was never at
+ * centre while armed, so the interlock has not released. */
+#define HEIGHT_STATE_MODE_MASK 0x03u
+#define HEIGHT_STATE_ENGAGED 0x04u
+#define HEIGHT_STATE_FAILED 0x08u
+#define HEIGHT_STATE_LANDED 0x10u
+#define HEIGHT_STATE_HANDBACK 0x20u
+#define HEIGHT_STATE_ARMED_OK 0x40u
+#define HEIGHT_STATE_BLOCKED 0x80u
+uint8_t angle_controller_height_state(void);
+
 /**
  * @brief Set the live angle-PID gains for one axis (0..NUM_AXES-1).
  * @return false if axis is out of range; true on apply.

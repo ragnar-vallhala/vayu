@@ -25,7 +25,8 @@
  * (row-major 3x3) receive the result. Returns 0 on success; -1 if the system
  * is singular or Q is not positive-definite (degenerate / planar data) — in
  * which case the caller should keep the previous calibration. */
-int calib_fit_ellipsoid(float S[81], float t[9], float offset[3], float soft[9]);
+int calib_fit_ellipsoid(float S[81], float t[9], float offset[3],
+                        float soft[9]);
 
 /* Closed-form 6-side accelerometer fit (PX4-style). Given a set of averaged
  * static poses `pts` (raw m/s^2, any order — poses are classified by their

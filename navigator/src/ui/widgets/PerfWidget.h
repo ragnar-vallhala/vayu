@@ -19,7 +19,10 @@ class Sparkline : public QWidget {
 public:
   explicit Sparkline(QWidget *parent = nullptr);
   void setData(const QVector<double> &data, double maxHint = 0.0);
-  void setColor(const QColor &c) { m_color = c; update(); }
+  void setColor(const QColor &c) {
+    m_color = c;
+    update();
+  }
 
 protected:
   void paintEvent(QPaintEvent *) override;

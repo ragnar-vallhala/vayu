@@ -13,7 +13,7 @@
 
 #include <cstdio>
 
-int main(int argc, char** argv) {
+int main(int argc, char **argv) {
   qputenv("QT_QPA_PLATFORM", "offscreen");
   QApplication app(argc, argv);
 
@@ -21,8 +21,8 @@ int main(int argc, char** argv) {
   hud.resize(800, 600);
 
   vsim::SimSnapshot s;
-  s.pos_w = vsim::Vec3(1.0f, 2.0f, -5.0f);             // altitude 5 m
-  s.att = vsim::Quat::fromEulerAngles(8.0f, 35.0f, 12.0f);  // pitch,yaw,roll
+  s.pos_w = vsim::Vec3(1.0f, 2.0f, -5.0f);                 // altitude 5 m
+  s.att = vsim::Quat::fromEulerAngles(8.0f, 35.0f, 12.0f); // pitch,yaw,roll
   s.vel_w = vsim::Vec3(3.0f, 1.0f, -1.0f);
   s.motor_duty = {0.5f, 0.6f, 0.7f, 0.85f};
   hud.setSnapshot(s);

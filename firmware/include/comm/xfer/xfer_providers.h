@@ -15,9 +15,10 @@
 #include "comm/xfer/navlink_xfer.h"
 
 /* Wire service ids (XFER_OPEN.service_id). */
-#define XFER_SVC_FILE 0u   /* generic read/write any SD path (up + down)       */
-#define XFER_SVC_LOG 1u    /* download-only: the circular blackbox files       */
-#define XFER_SVC_STREAM 2u /* download stream: a named live telemetry source   */
+#define XFER_SVC_FILE 0u /* generic read/write any SD path (up + down)       */
+#define XFER_SVC_LOG 1u  /* download-only: the circular blackbox files       */
+#define XFER_SVC_STREAM                                                        \
+  2u /* download stream: a named live telemetry source   */
 
 /* Individual registrations (each adds one provider to the SM registry). */
 int file_provider_register(void);

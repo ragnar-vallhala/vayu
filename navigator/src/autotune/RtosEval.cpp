@@ -10,12 +10,12 @@
 #include <cstring>
 #include <vector>
 
-#include "Cost.h"  // autotune::Sample, axisCost, yawRateCost, kBig
+#include "Cost.h" // autotune::Sample, axisCost, yawRateCost, kBig
 
 namespace autotune {
 
 namespace {
-constexpr int kTuneSampleFloats = 13;  // must match TUNE_SAMPLE_FLOATS (binary)
+constexpr int kTuneSampleFloats = 13; // must match TUNE_SAMPLE_FLOATS (binary)
 // Weight of the roll/pitch rate-loop term in AngleRate mode. yawRateCost is
 // already normalised to the angle-cost magnitude (~5-20), so unit weight puts
 // the inner-loop tracking on par with the outer-loop angle tracking.
@@ -32,7 +32,8 @@ bool readWindows(const QByteArray &d, std::vector<Sample> angleWin[3],
   const char *p = d.constData();
   qsizetype n = d.size(), off = 0;
   auto rd = [&](void *dst, qsizetype bytes) -> bool {
-    if (off + bytes > n) return false;
+    if (off + bytes > n)
+      return false;
     std::memcpy(dst, p + off, size_t(bytes));
     off += bytes;
     return true;
@@ -44,33 +45,45 @@ bool readWindows(const QByteArray &d, std::vector<Sample> angleWin[3],
   pitchRateWin.clear();
   for (int ax = 0; ax < 3; ++ax) {
     quint32 cnt = 0;
-    if (!rd(&cnt, 4)) return false;
+    if (!rd(&cnt, 4))
+      return false;
     angleWin[ax].clear();
     angleWin[ax].reserve(cnt);
     for (quint32 i = 0; i < cnt; ++i) {
       float f[kTuneSampleFloats];
-      if (!rd(f, sizeof f)) return false;
+      if (!rd(f, sizeof f))
+        return false;
       Sample s;
-      s.rollAngleSp = f[0];  s.rollAngleCurr = f[1];  s.rollOut = f[2];
-      s.pitchAngleSp = f[3]; s.pitchAngleCurr = f[4]; s.pitchOut = f[5];
-      s.yawRateSp = f[6];    s.yawRateCurr = f[7];    s.yawOut = f[8];
+      s.rollAngleSp = f[0];
+      s.rollAngleCurr = f[1];
+      s.rollOut = f[2];
+      s.pitchAngleSp = f[3];
+      s.pitchAngleCurr = f[4];
+      s.pitchOut = f[5];
+      s.yawRateSp = f[6];
+      s.yawRateCurr = f[7];
+      s.yawOut = f[8];
       angleWin[ax].push_back(s);
       // Map roll/pitch rate (f9..12) into a Sample's yaw-rate slots so the exact
       // yawRateCost() scores the inner loop (same fn, no per-axis duplicate).
       if (ax == 0) {
         Sample rr;
-        rr.yawRateSp = f[9];  rr.yawRateCurr = f[10];  rr.yawOut = f[2];
+        rr.yawRateSp = f[9];
+        rr.yawRateCurr = f[10];
+        rr.yawOut = f[2];
         rollRateWin.push_back(rr);
       } else if (ax == 1) {
         Sample pr;
-        pr.yawRateSp = f[11]; pr.yawRateCurr = f[12];  pr.yawOut = f[5];
+        pr.yawRateSp = f[11];
+        pr.yawRateCurr = f[12];
+        pr.yawOut = f[5];
         pitchRateWin.push_back(pr);
       }
     }
   }
   return true;
 }
-}  // namespace
+} // namespace
 
 RtosEval::~RtosEval() {
   if (!m_geomPath.isEmpty())
@@ -80,8 +93,8 @@ RtosEval::~RtosEval() {
 bool RtosEval::binExists() const { return QFileInfo::exists(m_bin); }
 
 bool RtosEval::setGeometry(const QByteArray &geomBytes, QString *err) {
-  const QString path =
-      QDir::temp().absoluteFilePath(QStringLiteral("vayu_rtos_geom%1.bin").arg(m_suffix));
+  const QString path = QDir::temp().absoluteFilePath(
+      QStringLiteral("vayu_rtos_geom%1.bin").arg(m_suffix));
   QFile f(path);
   if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate) ||
       f.write(geomBytes) != geomBytes.size()) {
@@ -95,7 +108,7 @@ bool RtosEval::setGeometry(const QByteArray &geomBytes, QString *err) {
 }
 
 QProcessEnvironment RtosEval::buildEnv(const Gains &g, quint32 seed,
-                                      const QString &winPath) const {
+                                       const QString &winPath) const {
   QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
   env.insert(QStringLiteral("VAYU_RTOS_SCENARIO"), QStringLiteral("doublet"));
   env.insert(QStringLiteral("VAYU_RTOS_SEED"), QString::number(seed));
@@ -109,13 +122,20 @@ QProcessEnvironment RtosEval::buildEnv(const Gains &g, quint32 seed,
   // Fly the same doublet the realtime path uses (amplitude/rig/timing).
   if (m_haveExcite) {
     env.insert(QStringLiteral("VAYU_RTOS_STEP_US"), QString::number(m_stepUs));
-    env.insert(QStringLiteral("VAYU_RTOS_TETHER"), QString::number(m_tetherK, 'g', 6));
-    env.insert(QStringLiteral("VAYU_RTOS_HOLD_MS"), QString::number(qRound(m_holdS * 1000.0)));
-    env.insert(QStringLiteral("VAYU_RTOS_RET_MS"), QString::number(qRound(m_retS * 1000.0)));
-    env.insert(QStringLiteral("VAYU_RTOS_SETTLE_MS"), QString::number(qRound(m_settleS * 1000.0)));
-    env.insert(QStringLiteral("VAYU_RTOS_WAVEFORM"), QString::number(m_waveform));
-    env.insert(QStringLiteral("VAYU_RTOS_CHIRP_F0"), QString::number(m_chirpF0, 'g', 6));
-    env.insert(QStringLiteral("VAYU_RTOS_CHIRP_F1"), QString::number(m_chirpF1, 'g', 6));
+    env.insert(QStringLiteral("VAYU_RTOS_TETHER"),
+               QString::number(m_tetherK, 'g', 6));
+    env.insert(QStringLiteral("VAYU_RTOS_HOLD_MS"),
+               QString::number(qRound(m_holdS * 1000.0)));
+    env.insert(QStringLiteral("VAYU_RTOS_RET_MS"),
+               QString::number(qRound(m_retS * 1000.0)));
+    env.insert(QStringLiteral("VAYU_RTOS_SETTLE_MS"),
+               QString::number(qRound(m_settleS * 1000.0)));
+    env.insert(QStringLiteral("VAYU_RTOS_WAVEFORM"),
+               QString::number(m_waveform));
+    env.insert(QStringLiteral("VAYU_RTOS_CHIRP_F0"),
+               QString::number(m_chirpF0, 'g', 6));
+    env.insert(QStringLiteral("VAYU_RTOS_CHIRP_F1"),
+               QString::number(m_chirpF1, 'g', 6));
   }
   // The binary reads a negative/absent env var as "use firmware default"
   // (apply_gains_from_env in host_rtos_main.c), so only push the ones we set.
@@ -138,7 +158,7 @@ RtosResult RtosEval::rollout(const Gains &g, quint32 seed, bool tuneYaw,
   // Per-rollout temp file the backend writes the per-axis Sample windows to.
   const QString winPath = QDir::temp().absoluteFilePath(
       QStringLiteral("vayu_rtos_win%1_%2.bin").arg(m_suffix).arg(seed));
-  QFile::remove(winPath);  // stale-guard: never score a previous run's windows
+  QFile::remove(winPath); // stale-guard: never score a previous run's windows
 
   const QProcessEnvironment env = buildEnv(g, seed, winPath);
 
@@ -159,10 +179,10 @@ RtosResult RtosEval::rollout(const Gains &g, quint32 seed, bool tuneYaw,
 
   const QString out = QString::fromUtf8(proc.readAllStandardOutput());
   // #RTOS-TUNE seed=.. roll_corr=.. pitch_corr=.. yaw_corr=.. rate_kp=.. ...
-  static const QRegularExpression re(
-      QStringLiteral("#RTOS-TUNE seed=(\\d+) roll_corr=(\\S+) pitch_corr=(\\S+) "
-                     "yaw_corr=(\\S+) rate_kp=\\S+ angle_kp=\\S+ wall=\\S+ "
-                     "speedup=(\\S+)"));
+  static const QRegularExpression re(QStringLiteral(
+      "#RTOS-TUNE seed=(\\d+) roll_corr=(\\S+) pitch_corr=(\\S+) "
+      "yaw_corr=(\\S+) rate_kp=\\S+ angle_kp=\\S+ wall=\\S+ "
+      "speedup=(\\S+)"));
   const QRegularExpressionMatch m = re.match(out);
   if (!m.hasMatch()) {
     const QString err = QString::fromUtf8(proc.readAllStandardError());
@@ -170,9 +190,9 @@ RtosResult RtosEval::rollout(const Gains &g, quint32 seed, bool tuneYaw,
                   .arg(m_bin, err.right(600));
     return r;
   }
-  r.roll    = m.captured(2).toDouble();
-  r.pitch   = m.captured(3).toDouble();
-  r.yaw     = m.captured(4).toDouble();
+  r.roll = m.captured(2).toDouble();
+  r.pitch = m.captured(3).toDouble();
+  r.yaw = m.captured(4).toDouble();
   r.speedup = m.captured(5).toDouble();
 
   // Score over the per-axis Sample windows.
@@ -241,13 +261,15 @@ bool RtosEval::captureRate(const Gains &g, quint32 seed, RawRate &out,
   proc.setProcessChannelMode(QProcess::SeparateChannels);
   proc.start(m_bin, {});
   if (!proc.waitForStarted(4000)) {
-    if (err) *err = QStringLiteral("failed to start %1").arg(m_bin);
+    if (err)
+      *err = QStringLiteral("failed to start %1").arg(m_bin);
     return false;
   }
   if (!proc.waitForFinished(timeoutMs)) {
     proc.kill();
     proc.waitForFinished(1000);
-    if (err) *err = QStringLiteral("capture timed out (%1 ms)").arg(timeoutMs);
+    if (err)
+      *err = QStringLiteral("capture timed out (%1 ms)").arg(timeoutMs);
     return false;
   }
 
@@ -292,4 +314,4 @@ bool RtosEval::captureRate(const Gains &g, quint32 seed, RawRate &out,
   return !out.rollU.isEmpty();
 }
 
-}  // namespace autotune
+} // namespace autotune

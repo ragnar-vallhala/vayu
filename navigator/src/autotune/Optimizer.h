@@ -16,7 +16,7 @@
 namespace autotune {
 
 using Vec = std::vector<double>;
-using Bounds = std::vector<std::pair<double, double>>;  // (lo, hi) per dim
+using Bounds = std::vector<std::pair<double, double>>; // (lo, hi) per dim
 using CostFn = std::function<double(const Vec &)>;
 
 // Deterministic seeded RNG (mirrors Python random.Random's role, not its exact
@@ -24,7 +24,7 @@ using CostFn = std::function<double(const Vec &)>;
 class Rng {
 public:
   explicit Rng(uint64_t seed) : m_gen(seed) {}
-  double random() { return m_unit(m_gen); }  // [0, 1)
+  double random() { return m_unit(m_gen); } // [0, 1)
   double uniform(double lo, double hi) { return lo + (hi - lo) * random(); }
   bool coin() { return random() < 0.5; }
 
@@ -82,4 +82,4 @@ void run(const std::string &name, Evaluator &ev, const Vec &x0,
 // Registry names (mirror optimizers.py REGISTRY).
 std::vector<std::string> optimizerNames();
 
-}  // namespace autotune
+} // namespace autotune

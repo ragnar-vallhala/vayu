@@ -10,16 +10,18 @@ MainStatusBar::MainStatusBar(QWidget *parent) : QStatusBar(parent) {
       QString("color: %1; font-weight: bold;").arg(Theme::hex(Theme::kDanger)));
 
   m_syncStatus = new QLabel("  Diff: ---  ", this);
-  m_syncStatus->setStyleSheet(
-      QString("color: %1; font-family: Monospace;")
-          .arg(Theme::hex(Theme::kTextMuted)));
+  m_syncStatus->setStyleSheet(QString("color: %1; font-family: Monospace;")
+                                  .arg(Theme::hex(Theme::kTextMuted)));
 
   m_pktStatus = new QLabel("  Packets: 0  ", this);
 
   m_rateStatus = new QLabel("  Rate: 0 Hz  ", this);
-  m_rateStatus->setStyleSheet(
-      QString("color: %1; font-family: Monospace;")
-          .arg(Theme::hex(Theme::kTextMuted)));
+  m_rateStatus->setStyleSheet(QString("color: %1; font-family: Monospace;")
+                                  .arg(Theme::hex(Theme::kTextMuted)));
+
+  m_hslStatus = new QLabel("  SD: ---  ", this);
+  m_hslStatus->setStyleSheet(QString("color: %1; font-family: Monospace;")
+                                 .arg(Theme::hex(Theme::kTextMuted)));
 
   // Mockup parity: segments are left-aligned; a build/protocol/nav hint sits
   // on the far right. addWidget() docks left, addPermanentWidget() docks right.
@@ -27,8 +29,10 @@ MainStatusBar::MainStatusBar(QWidget *parent) : QStatusBar(parent) {
   addWidget(m_syncStatus);
   addWidget(m_pktStatus);
   addWidget(m_rateStatus);
+  addWidget(m_hslStatus);
 
-  m_infoLabel = new QLabel("Navigator · NavLink v1 · Ctrl+1‑8 navigate  ", this);
+  m_infoLabel =
+      new QLabel("Navigator · NavLink v1 · Ctrl+1‑8 navigate  ", this);
   m_infoLabel->setStyleSheet(
       QString("color: %1;").arg(Theme::hex(Theme::kTextDim)));
   addPermanentWidget(m_infoLabel);
@@ -36,15 +40,16 @@ MainStatusBar::MainStatusBar(QWidget *parent) : QStatusBar(parent) {
 
 // ---------------------------------------------------------------------------
 
-void MainStatusBar::setConnectionStatus(bool connected, const QString &portLabel) {
+void MainStatusBar::setConnectionStatus(bool connected,
+                                        const QString &portLabel) {
   if (connected) {
     m_connStatus->setText(QString("  ● Connected: %1  ").arg(portLabel));
     m_connStatus->setStyleSheet(
         QString("color: %1; font-weight: bold;").arg(Theme::hex(Theme::kOk)));
   } else {
     m_connStatus->setText("  ● Disconnected  ");
-    m_connStatus->setStyleSheet(
-        QString("color: %1; font-weight: bold;").arg(Theme::hex(Theme::kDanger)));
+    m_connStatus->setStyleSheet(QString("color: %1; font-weight: bold;")
+                                    .arg(Theme::hex(Theme::kDanger)));
   }
 }
 
@@ -68,6 +73,46 @@ void MainStatusBar::setPacketRate(double hz) {
   m_rateStatus->setText(QString("  Rate: %1 Hz  ").arg(hz, 0, 'f', 0));
 }
 
+void MainStatusBar::setHslStatus(const HslStatusData &d) {
+  // Percentage of the ring holding data. Once wrapped that is all of it, and
+  // the oldest armed time is being overwritten -- worth saying, not an error.
+  const int pct = int(d.fillFraction() * 100.0 + 0.5);
+  QString text;
+  if (d.droppedSectors > 0) {
+    text = QString("  SD: %1 %2%% · %3 DROP  ")
+               .arg(d.recording ? "REC" : "idle")
+               .arg(pct)
+               .arg(d.droppedSectors);
+  } else {
+    text = QString("  SD: %1 %2%%%3  ")
+               .arg(d.recording ? "REC" : "idle")
+               .arg(pct)
+               .arg(d.wraps > 0 ? " · wrapped" : "");
+  }
+  m_hslStatus->setText(text);
+
+  QColor c;
+  if (d.droppedSectors > 0) {
+    c = Theme::kDanger; // the card fell behind; those samples do not exist
+  } else if (d.wraps > 0) {
+    c = Theme::kWarn; // still recording, but overwriting the oldest session
+  } else if (d.recording) {
+    c = Theme::kOk;
+  } else {
+    c = Theme::kTextMuted;
+  }
+  m_hslStatus->setStyleSheet(
+      QString("color: %1; %2font-family: Monospace;")
+          .arg(Theme::hex(c))
+          .arg(d.recording || d.droppedSectors ? "font-weight: bold; " : ""));
+}
+
+void MainStatusBar::clearHslStatus() {
+  m_hslStatus->setText("  SD: ---  ");
+  m_hslStatus->setStyleSheet(QString("color: %1; font-family: Monospace;")
+                                 .arg(Theme::hex(Theme::kTextMuted)));
+}
+
 void MainStatusBar::showSyncDrift(qint32 driftMs) {
   const QString text =
       QString("  Diff: %1%2ms  ").arg(driftMs >= 0 ? "+" : "").arg(driftMs);
@@ -75,9 +120,12 @@ void MainStatusBar::showSyncDrift(qint32 driftMs) {
 
   const qint32 absDiff = std::abs(driftMs);
   QColor c;
-  if      (absDiff < 20)  c = Theme::kOk;
-  else if (absDiff < 100) c = Theme::kWarn;
-  else                    c = Theme::kDanger;
+  if (absDiff < 20)
+    c = Theme::kOk;
+  else if (absDiff < 100)
+    c = Theme::kWarn;
+  else
+    c = Theme::kDanger;
   m_syncStatus->setStyleSheet(
       QString("color: %1; font-weight: bold; font-family: Monospace;")
           .arg(Theme::hex(c)));
@@ -88,7 +136,8 @@ void MainStatusBar::showSyncDrift(qint32 driftMs) {
 // ---------------------------------------------------------------------------
 
 void MainStatusBar::flashLive(QLabel *live) {
-  if (!live) return;
+  if (!live)
+    return;
   live->setStyleSheet(
       "background: #2D6A2D; color: #FFFFFF; border-radius: 4px; "
       "font-weight: bold; padding: 2px 8px; "
@@ -96,7 +145,8 @@ void MainStatusBar::flashLive(QLabel *live) {
 }
 
 void MainStatusBar::fadeLive(QLabel *live, qint64 elapsed) {
-  if (!live) return;
+  if (!live)
+    return;
 
   if (elapsed < 150) {
     // Hold bright; nothing to do.
@@ -107,7 +157,7 @@ void MainStatusBar::fadeLive(QLabel *live, qint64 elapsed) {
     // inline updater used; pulled here so the math has one home.
     const double factor = std::exp(-4.0 * (elapsed - 150) / 1850.0);
     const int alpha = static_cast<int>(255 * factor);
-    const int green = static_cast<int>(106 * factor + 29);  // 29 minimum
+    const int green = static_cast<int>(106 * factor + 29); // 29 minimum
     live->setStyleSheet(
         QString("background: rgba(30, %1, 30, 200); "
                 "color: rgba(255, 255, 255, %2); "

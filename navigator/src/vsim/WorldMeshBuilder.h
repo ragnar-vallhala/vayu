@@ -18,7 +18,7 @@ namespace vsim {
 // transform already baked GCS-side); every consecutive triple of vertices is
 // one triangle. Returns the blob bytes (empty on failure) and, via out-params,
 // the node count for the ctl-frame cross-check.
-std::vector<uint8_t> buildWorldBvh(const float* verts, uint32_t nverts,
-                                   bool doubleSided, uint32_t& outNodeCount);
+std::vector<uint8_t> buildWorldBvh(const float *verts, uint32_t nverts,
+                                   bool doubleSided, uint32_t &outNodeCount);
 
-}  // namespace vsim
+} // namespace vsim

@@ -13,8 +13,8 @@
 
 class ContourMinimapWidget : public QWidget {
   Q_OBJECT
- public:
-  explicit ContourMinimapWidget(QWidget* parent = nullptr);
+public:
+  explicit ContourMinimapWidget(QWidget *parent = nullptr);
 
   // World-(north,east) -> elevation [m] above the ground plane. Null clears the
   // map (shows a "no terrain" placeholder).
@@ -32,10 +32,10 @@ class ContourMinimapWidget : public QWidget {
   // Spacing between contour lines [m].
   void setContourInterval(float m) { contourM_ = m > 0.1f ? m : 0.1f; }
 
- protected:
-  void paintEvent(QPaintEvent*) override;
+protected:
+  void paintEvent(QPaintEvent *) override;
 
- private:
+private:
   std::function<float(float, float)> sampler_;
   float n_ = 0.0f, e_ = 0.0f, headingRad_ = 0.0f;
   float rangeM_ = 200.0f;

@@ -26,8 +26,8 @@
 
 /* Section ids carried in perf_frag_hdr_t.section. */
 #define PERF_SECTION_GLOBAL 0u
-#define PERF_SECTION_TASKS  1u
-#define PERF_SECTION_FIFOS  2u
+#define PERF_SECTION_TASKS 1u
+#define PERF_SECTION_FIFOS 2u
 
 /* GLOBAL flags. */
 #define PERF_FLAG_ENABLED 0x01u /* VAIOS_MODULE_PERF compiled in & live */
@@ -60,11 +60,11 @@ typedef enum {
 
 /* 8-byte fragment header — prefixes every PERF_STATS payload. */
 typedef struct __attribute__((packed)) {
-  uint8_t schema;   /* PERF_SCHEMA_VERSION                                  */
-  uint8_t section;  /* PERF_SECTION_*                                       */
-  uint8_t index;    /* chunk index within the section (0-based)            */
-  uint8_t count;    /* rows in this packet (TASKS/FIFOS); 0 for GLOBAL     */
-  uint32_t seq;     /* report id — every fragment of one report shares it  */
+  uint8_t schema;  /* PERF_SCHEMA_VERSION                                  */
+  uint8_t section; /* PERF_SECTION_*                                       */
+  uint8_t index;   /* chunk index within the section (0-based)            */
+  uint8_t count;   /* rows in this packet (TASKS/FIFOS); 0 for GLOBAL     */
+  uint32_t seq;    /* report id — every fragment of one report shares it  */
 } perf_frag_hdr_t;
 
 /* GLOBAL body — follows the fragment header in a GLOBAL packet. */
@@ -89,7 +89,8 @@ typedef struct __attribute__((packed)) {
   uint32_t heap_frees;
   uint32_t heap_oom;
   uint32_t heap_peak_bytes;
-  uint32_t heap_total_bytes; /* total heap pool size (for peak % usage)        */
+  uint32_t
+      heap_total_bytes; /* total heap pool size (for peak % usage)        */
 } perf_global_body_t;
 
 /* TASKS row — `count` of these follow the header in a TASKS packet. */

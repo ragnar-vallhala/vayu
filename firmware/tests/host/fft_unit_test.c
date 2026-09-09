@@ -25,7 +25,8 @@
 static int fails = 0;
 static void check(const char *what, int ok) {
   printf("  [%s] %s\n", ok ? "PASS" : "FAIL", what);
-  if (!ok) fails++;
+  if (!ok)
+    fails++;
 }
 
 #define TWO_PI 6.283185307179586
@@ -135,7 +136,8 @@ static void test_rfft_vs_complex(unsigned n) {
   ok &= fabsf(rout[0].im) < 1e-5f;
   ok &= fabsf(rout[nh].im) < 1e-5f;
   char msg[80];
-  snprintf(msg, sizeof msg, "rfft == complex DFT on n/2+1 bins, real DC/Nyq (N=%u)", n);
+  snprintf(msg, sizeof msg,
+           "rfft == complex DFT on n/2+1 bins, real DC/Nyq (N=%u)", n);
   check(msg, ok);
 
   free(r);
@@ -223,8 +225,10 @@ static void test_const_table(void) {
   for (unsigned k = 0; k < FFT_TABLE_N / 2; k++) {
     float e1 = fabsf(gen[k].re - FFT_TWIDDLE_N128[k].re);
     float e2 = fabsf(gen[k].im - FFT_TWIDDLE_N128[k].im);
-    if (e1 > maxerr) maxerr = e1;
-    if (e2 > maxerr) maxerr = e2;
+    if (e1 > maxerr)
+      maxerr = e1;
+    if (e2 > maxerr)
+      maxerr = e2;
   }
   check("const flash twiddles == runtime twiddles (<1e-6)", maxerr < 1e-6f);
 
@@ -240,7 +244,10 @@ static void test_const_table(void) {
   float pp = -1.0f;
   for (unsigned k = 0; k <= nh; k++) {
     float p = m_fft_bin_power(out[k]);
-    if (p > pp) { pp = p; peak = k; }
+    if (p > pp) {
+      pp = p;
+      peak = k;
+    }
   }
   check("const-table rfft localizes a tone (bin 23)", peak == k0);
 }

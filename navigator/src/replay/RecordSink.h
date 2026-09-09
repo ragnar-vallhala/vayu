@@ -32,7 +32,7 @@ public:
   RecordReader() = default;
   ~RecordReader() { close(); }
 
-  bool open(const QString &path);  // reads + validates the header
+  bool open(const QString &path); // reads + validates the header
   bool isOpen() const { return m_file.isOpen(); }
   RecordFormat::Header header() const { return m_header; }
 

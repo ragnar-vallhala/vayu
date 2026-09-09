@@ -22,7 +22,8 @@
 static int fails = 0;
 static void check(const char *what, int ok) {
   printf("  [%s] %s\n", ok ? "PASS" : "FAIL", what);
-  if (!ok) fails++;
+  if (!ok)
+    fails++;
 }
 
 /* Working buffers (caller-owned, as the module requires). */
@@ -95,7 +96,8 @@ int main(void) {
     printf("    found=%u  f0=%.2f Hz  (want ~133)\n", got,
            got ? peaks[0].freq_hz : 0.0f);
     check("exactly one peak", got == 1);
-    check("frequency within 2 Hz of 133", got && fabsf(peaks[0].freq_hz - 133.0f) < 2.0f);
+    check("frequency within 2 Hz of 133",
+          got && fabsf(peaks[0].freq_hz - 133.0f) < 2.0f);
   }
 
   /* 3. Two well-separated tones -> two peaks, strongest first. */
@@ -105,7 +107,8 @@ int main(void) {
     tone_t tones[] = {{90.0f, 0.5f}, {240.0f, 1.0f}}; /* 240 is stronger */
     unsigned got = drive(&nf, tones, 2, peaks, 4);
     printf("    found=%u  p0=%.1f Hz  p1=%.1f Hz\n", got,
-           got > 0 ? peaks[0].freq_hz : 0.0f, got > 1 ? peaks[1].freq_hz : 0.0f);
+           got > 0 ? peaks[0].freq_hz : 0.0f,
+           got > 1 ? peaks[1].freq_hz : 0.0f);
     check("two peaks found", got == 2);
     check("strongest peak (240 Hz) reported first",
           got == 2 && fabsf(peaks[0].freq_hz - 240.0f) < 3.0f);
@@ -143,8 +146,10 @@ int main(void) {
   printf("Test 7: analyze before a full window is empty\n");
   {
     setup(&nf, 50.0f, 300.0f, 4.0f);
-    for (int k = 0; k < (int)(N / 4); k++) notch_fft_push(&nf, 1.0f);
-    check("no peaks before a window fills", notch_fft_analyze(&nf, peaks, 4) == 0);
+    for (int k = 0; k < (int)(N / 4); k++)
+      notch_fft_push(&nf, 1.0f);
+    check("no peaks before a window fills",
+          notch_fft_analyze(&nf, peaks, 4) == 0);
   }
 
   printf("\n%s (%d failure%s)\n", fails ? "FAILED" : "ALL PASSED", fails,

@@ -148,8 +148,7 @@ void attitude_task(void *args) {
     if (++probe_cnt >= (uint32_t)ATTITUDE_EST_RATE_HZ) { /* ~1 s of updates */
       est_perf_telemetry_t perf = {
           .peak_us = (float)probe_peak / (float)cyc_per_us,
-          .mean_us =
-              ((float)probe_acc / (float)probe_cnt) / (float)cyc_per_us,
+          .mean_us = ((float)probe_acc / (float)probe_cnt) / (float)cyc_per_us,
           .decim = (float)ATTITUDE_DECIM,
           .rate_hz = (float)ATTITUDE_EST_RATE_HZ,
       };

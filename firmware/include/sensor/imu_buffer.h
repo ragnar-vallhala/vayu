@@ -8,7 +8,21 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define IMU_BUFFER_SIZE 10
+/* Ring depths. Usable slots = SIZE - 1 (spsc_init spends one on the empty
+ * marker, and one more re-aligning a buffer whose element size isn't a power
+ * of two, which none of these are).
+ *
+ * Control rings are drained with `while (pop())` on every consumer wake, so
+ * depth only has to absorb scheduler jitter: 4 usable slots is 4 ms at the
+ * 1 kHz sample rate, and 2x the worst peak measured over a full flight
+ * (2 of 9, zero drops -- docs/journal/log-analysis/20260907-231254-*). */
+#define IMU_BUFFER_SIZE 5
+
+/* Telemetry rings are mailboxes: a 1 kHz producer, a consumer that pops ONE
+ * element per gate tick (20-50 ms). Depth buys no throughput here -- it only
+ * makes the sample that IS read older, by SIZE-1 samples, every time. Two
+ * usable slots is the minimum that keeps producer and consumer decoupled. */
+#define IMU_TELEMETRY_BUFFER_SIZE 3
 
 void imu_buffer_init(void);
 
@@ -89,9 +103,12 @@ bool vert_input_queue_push(const vert_input_t *in);
 bool vert_input_queue_pop(vert_input_t *out_in);
 bool vert_input_queue_wait(uint32_t ticks_to_wait);
 
-bool imu_queue_calibration_telemetry_push(const imu_calibration_telemetry_t *sample);
-bool imu_queue_calibration_telemetry_pop(imu_calibration_telemetry_t *out_sample);
-bool imu_queue_calibration_telemetry_peek(imu_calibration_telemetry_t *out_sample);
+bool imu_queue_calibration_telemetry_push(
+    const imu_calibration_telemetry_t *sample);
+bool imu_queue_calibration_telemetry_pop(
+    imu_calibration_telemetry_t *out_sample);
+bool imu_queue_calibration_telemetry_peek(
+    imu_calibration_telemetry_t *out_sample);
 
 bool imu_queue_calibration_push(const bmx160_all_reading_t *sample);
 bool imu_queue_calibration_pop(bmx160_all_reading_t *out_sample);

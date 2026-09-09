@@ -59,14 +59,15 @@
 #include "Space.h"
 
 #include <cmath>
-#include <cstdio>   // ::rename (atomic blob publish)
+#include <cstdio> // ::rename (atomic blob publish)
 
 #include <unistd.h>
 
 // In-process firmware (libvayu_sitl_core) mixer setter — keeps the firmware
 // roll/pitch/yaw->motor mix consistent with the vehicle geometry the sim uses.
-extern "C" void angle_rate_controller_set_motor_geometry(
-    const float pos_x[4], const float pos_y[4], const int spin[4]);
+extern "C" void angle_rate_controller_set_motor_geometry(const float pos_x[4],
+                                                         const float pos_y[4],
+                                                         const int spin[4]);
 
 // In-process firmware flight-mode control (mirrors the geometry forward-decl
 // above; the firmware include path isn't on the GCS). mode arg: 0=stabilise/
@@ -79,18 +80,18 @@ extern "C" void flight_mode_release(void);
 // (solid) angle from the latest autotune excitation window. No Q_OBJECT — it's
 // driven by setData() from a lambda, not signals/slots.
 class ResponsePlot : public QWidget {
- public:
-  explicit ResponsePlot(QWidget* parent = nullptr) : QWidget(parent) {
+public:
+  explicit ResponsePlot(QWidget *parent = nullptr) : QWidget(parent) {
     setMinimumHeight(110);
   }
-  void setData(const QVector<double>& sp, const QVector<double>& meas) {
+  void setData(const QVector<double> &sp, const QVector<double> &meas) {
     sp_ = sp;
     meas_ = meas;
     update();
   }
 
- protected:
-  void paintEvent(QPaintEvent*) override {
+protected:
+  void paintEvent(QPaintEvent *) override {
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing);
     const QRectF r = rect().adjusted(2, 2, -2, -2);
@@ -102,37 +103,43 @@ class ResponsePlot : public QWidget {
       f.setBold(true);
       f.setPixelSize(std::max(18, int(r.height() / 2)));
       p.setFont(f);
-      p.setPen(QColor(0xE8, 0xF0, 0xFE, 40));  // faded watermark
+      p.setPen(QColor(0xE8, 0xF0, 0xFE, 40)); // faded watermark
       p.drawText(r, Qt::AlignCenter, QStringLiteral("NA"));
       return;
     }
     // Symmetric vertical scale around 0, fit to the data (deg).
     double mx = 1.0;
-    for (double v : sp_) mx = std::max(mx, std::abs(v));
-    for (double v : meas_) mx = std::max(mx, std::abs(v));
+    for (double v : sp_)
+      mx = std::max(mx, std::abs(v));
+    for (double v : meas_)
+      mx = std::max(mx, std::abs(v));
     mx *= 1.1;
     const int n = std::max(sp_.size(), meas_.size());
     auto toPt = [&](int i, double v) {
-      const double x = r.left() + r.width() * (n > 1 ? double(i) / (n - 1) : 0.5);
+      const double x =
+          r.left() + r.width() * (n > 1 ? double(i) / (n - 1) : 0.5);
       const double y = r.center().y() - (v / mx) * (r.height() / 2 - 4);
       return QPointF(x, y);
     };
     // Zero line.
     p.setPen(QPen(QColor(255, 255, 255, 24), 1));
-    p.drawLine(QPointF(r.left(), r.center().y()), QPointF(r.right(), r.center().y()));
-    auto poly = [&](const QVector<double>& d, QColor c, Qt::PenStyle st) {
-      if (d.size() < 2) return;
+    p.drawLine(QPointF(r.left(), r.center().y()),
+               QPointF(r.right(), r.center().y()));
+    auto poly = [&](const QVector<double> &d, QColor c, Qt::PenStyle st) {
+      if (d.size() < 2)
+        return;
       QPainterPath path;
       path.moveTo(toPt(0, d[0]));
-      for (int i = 1; i < d.size(); ++i) path.lineTo(toPt(i, d[i]));
+      for (int i = 1; i < d.size(); ++i)
+        path.lineTo(toPt(i, d[i]));
       p.setPen(QPen(c, 1.5, st));
       p.drawPath(path);
     };
-    poly(sp_, QColor(0x8A, 0x92, 0xA6), Qt::DashLine);   // setpoint
-    poly(meas_, QColor(0xE0, 0x6C, 0x75), Qt::SolidLine);  // measured (roll)
+    poly(sp_, QColor(0x8A, 0x92, 0xA6), Qt::DashLine);    // setpoint
+    poly(meas_, QColor(0xE0, 0x6C, 0x75), Qt::SolidLine); // measured (roll)
   }
 
- private:
+private:
   QVector<double> sp_, meas_;
 };
 
@@ -140,17 +147,18 @@ class ResponsePlot : public QWidget {
 // (mockup .pip). A title strip drags the frame; the bottom-right 16 px corner
 // resizes it. Both are clamped to the parent. Hosts any content widget.
 class PipOverlay : public QFrame {
- public:
-  PipOverlay(const QString& title, QWidget* content, QWidget* parent)
+public:
+  PipOverlay(const QString &title, QWidget *content, QWidget *parent)
       : QFrame(parent), content_(content) {
     setObjectName("PipOverlay");
     setStyleSheet("#PipOverlay{background:#11141b;border:1px solid #3E4452;}");
-    auto* v = new QVBoxLayout(this);
+    auto *v = new QVBoxLayout(this);
     v->setContentsMargins(1, 1, 1, 1);
     v->setSpacing(0);
     title_ = new QLabel(title, this);
-    title_->setStyleSheet("background:#21252B; color:#8A92A6; font-size:9px; "
-                          "font-weight:bold; letter-spacing:.5px; padding:2px 5px;");
+    title_->setStyleSheet(
+        "background:#21252B; color:#8A92A6; font-size:9px; "
+        "font-weight:bold; letter-spacing:.5px; padding:2px 5px;");
     title_->setCursor(Qt::SizeAllCursor);
     title_->setFixedHeight(16);
     v->addWidget(title_);
@@ -160,28 +168,32 @@ class PipOverlay : public QFrame {
     setMouseTracking(true);
   }
 
- protected:
+protected:
   static constexpr int kGrip = 16;
-  bool inGrip(const QPoint& p) const {
+  bool inGrip(const QPoint &p) const {
     return p.x() >= width() - kGrip && p.y() >= height() - kGrip;
   }
-  void mousePressEvent(QMouseEvent* e) override {
+  void mousePressEvent(QMouseEvent *e) override {
     start_ = e->globalPosition().toPoint();
     startGeo_ = geometry();
-    if (inGrip(e->pos())) mode_ = Resize;
-    else if (e->pos().y() < title_->height()) mode_ = Move;
-    else mode_ = None;
+    if (inGrip(e->pos()))
+      mode_ = Resize;
+    else if (e->pos().y() < title_->height())
+      mode_ = Move;
+    else
+      mode_ = None;
   }
-  void mouseMoveEvent(QMouseEvent* e) override {
+  void mouseMoveEvent(QMouseEvent *e) override {
     setCursor(inGrip(e->pos()) ? Qt::SizeFDiagCursor : Qt::ArrowCursor);
-    if (mode_ == None || !parentWidget()) return;
+    if (mode_ == None || !parentWidget())
+      return;
     const QPoint d = e->globalPosition().toPoint() - start_;
     if (mode_ == Move) {
       QPoint np = startGeo_.topLeft() + d;
       np.setX(qBound(0, np.x(), parentWidget()->width() - width()));
       np.setY(qBound(0, np.y(), parentWidget()->height() - height()));
       move(np);
-    } else {  // Resize
+    } else { // Resize
       int w = qMax(120, startGeo_.width() + d.x());
       int h = qMax(90, startGeo_.height() + d.y());
       w = qMin(w, parentWidget()->width() - x());
@@ -189,12 +201,12 @@ class PipOverlay : public QFrame {
       resize(w, h);
     }
   }
-  void mouseReleaseEvent(QMouseEvent*) override { mode_ = None; }
+  void mouseReleaseEvent(QMouseEvent *) override { mode_ = None; }
 
- private:
+private:
   enum Mode { None, Move, Resize } mode_ = None;
-  QLabel* title_ = nullptr;
-  QWidget* content_ = nullptr;
+  QLabel *title_ = nullptr;
+  QWidget *content_ = nullptr;
   QPoint start_;
   QRect startGeo_;
 };
@@ -205,7 +217,7 @@ constexpr int kFmAngle = 0, kFmAcro = 1, kFmSrcGcs = 1;
 // Push the vehicle's motor layout into the in-process firmware mixer so the
 // control mix matches the physics (stable for any quad layout, not just the
 // firmware's default numbering).
-void pushFirmwareMotorGeometry(const vsim::GeometryConfig& g) {
+void pushFirmwareMotorGeometry(const vsim::GeometryConfig &g) {
   float x[4], y[4];
   int spin[4];
   for (int i = 0; i < 4; ++i) {
@@ -221,58 +233,59 @@ void pushFirmwareMotorGeometry(const vsim::GeometryConfig& g) {
 // with M1/M2 on -y) needs {+1,+1,-1,-1} — the exact inverse — so flying the
 // default mix on it inverts roll and topples. Surfacing this catches a mix that
 // didn't get pushed to the firmware before arming.
-QString rollMixString(const vsim::GeometryConfig& g) {
+QString rollMixString(const vsim::GeometryConfig &g) {
   QString s;
   for (int i = 0; i < 4; ++i)
     s += (g.motors[i].pos.y() >= 0.0f ? "-" : "+");
   return s;
 }
 
-
-constexpr const char* kRepoRootSettingKey = "simulator/repoRoot";
-constexpr const char* kLogDirSettingKey   = "simulator/logDir";
-constexpr const char* kGeomGroup          = "simulator/geometry";
-constexpr const char* kWorldGroup         = "simulator/world";
-constexpr const char* kAudioKey           = "simulator/propAudio";
-constexpr const char* kImuHzKey           = "simulator/imuHz";
-constexpr const char* kPhysHzKey          = "simulator/physicsHz";
-constexpr const char* kPoseHzKey          = "simulator/poseHz";
+constexpr const char *kRepoRootSettingKey = "simulator/repoRoot";
+constexpr const char *kLogDirSettingKey = "simulator/logDir";
+constexpr const char *kGeomGroup = "simulator/geometry";
+constexpr const char *kWorldGroup = "simulator/world";
+constexpr const char *kAudioKey = "simulator/propAudio";
+constexpr const char *kImuHzKey = "simulator/imuHz";
+constexpr const char *kPhysHzKey = "simulator/physicsHz";
+constexpr const char *kPoseHzKey = "simulator/poseHz";
 // Defaults: IMU/firmware loop at 1 kHz (matches real hardware so PID tuning
 // transfers); physics at 8 kHz (8 RK4 substeps/sample — finer integration, same
 // sample rate); 60 Hz render.
 constexpr int kDefImuHz = 1000, kDefPhysHz = 8000, kDefPoseHz = 60;
-constexpr const char* kRcEnableKey        = "simulator/rcEnable";
-constexpr const char* kRcSourceKey        = "simulator/rcSource";   // 0=js 1=uart
-constexpr const char* kRcPathKey          = "simulator/rcPath";     // joystick dev
-constexpr const char* kRcUartPathKey      = "simulator/rcUartPath"; // serial dev
-constexpr const char* kRcBaudKey          = "simulator/rcBaud";
-constexpr const char* kRcMapAxisKey       = "simulator/rcMapAxis";   // + func
-constexpr const char* kRcMapInvKey        = "simulator/rcMapInv";    // + func
+constexpr const char *kRcEnableKey = "simulator/rcEnable";
+constexpr const char *kRcSourceKey = "simulator/rcSource";     // 0=js 1=uart
+constexpr const char *kRcPathKey = "simulator/rcPath";         // joystick dev
+constexpr const char *kRcUartPathKey = "simulator/rcUartPath"; // serial dev
+constexpr const char *kRcBaudKey = "simulator/rcBaud";
+constexpr const char *kRcMapAxisKey = "simulator/rcMapAxis"; // + func
+constexpr const char *kRcMapInvKey = "simulator/rcMapInv";   // + func
 
 // Default joystick axis for each function (roll,pitch,throttle,yaw,arm).
 constexpr int kRcDefaultAxis[5] = {0, 1, 2, 3, 4};
-constexpr const char* kRcFuncName[5] = {"Roll", "Pitch", "Throttle", "Yaw", "Arm"};
+constexpr const char *kRcFuncName[5] = {"Roll", "Pitch", "Throttle", "Yaw",
+                                        "Arm"};
 
 QString defaultRepoRoot() {
   // 1) Explicit override always wins.
   QByteArray env = qgetenv("VAYU_REPO");
-  if (!env.isEmpty()) return QString::fromUtf8(env);
+  if (!env.isEmpty())
+    return QString::fromUtf8(env);
   // 2) Walk up from the executable to find the repo root, identified by its
   //    marker dirs (tools/ + navlink/). The GCS binary is built somewhere
   //    under the repo, so this resolves on any checkout path / machine
   //    (mirrors SimWorker's app-dir-relative binary lookup).
   QDir d(QCoreApplication::applicationDirPath());
   for (int up = 0; up < 8; ++up) {
-    if (d.exists("tools") && d.exists("navlink")) return d.absolutePath();
-    if (!d.cdUp()) break;
+    if (d.exists("tools") && d.exists("navlink"))
+      return d.absolutePath();
+    if (!d.cdUp())
+      break;
   }
   // 3) Last-resort dev default (overridable in the UI / via VAYU_REPO).
   return QDir::homePath() + "/Documents/Drone/stack/vayu";
 }
 
-QString defaultLogDir() {
-  return defaultRepoRoot() + "/logs";
-}
+QString defaultLogDir() { return defaultRepoRoot() + "/logs"; }
 
 // C trampoline registered with vsim_iface_set_uart2_callback. Runs
 // on whichever firmware thread is producing the bytes (telemetry
@@ -280,25 +293,25 @@ QString defaultLogDir() {
 // queued invocation -- Qt does the heavy lifting; we don't share any
 // Qt object across threads here, the QByteArray is copied across the
 // connection.
-void uart2_to_widget_trampoline(void* user, const uint8_t* data, size_t n) {
-  auto* w = static_cast<SimulatorWidget*>(user);
-  if (!w || n == 0) return;
+void uart2_to_widget_trampoline(void *user, const uint8_t *data, size_t n) {
+  auto *w = static_cast<SimulatorWidget *>(user);
+  if (!w || n == 0)
+    return;
   // Called once per firmware UART write — PER BYTE in SITL. Coalesce instead of
   // posting a queued GUI event each time (that flooded the event loop and made
   // the whole app sluggish while the sim ran).
   w->queueUartBytes(data, n);
 }
 
-}  // namespace
+} // namespace
 
 // ============================================================================
 
-SimulatorWidget::SimulatorWidget(QWidget* parent) : QWidget(parent) {
+SimulatorWidget::SimulatorWidget(QWidget *parent) : QWidget(parent) {
   QSettings settings;
   m_repoRoot =
       settings.value(kRepoRootSettingKey, defaultRepoRoot()).toString();
-  m_logDir =
-      settings.value(kLogDirSettingKey, defaultLogDir()).toString();
+  m_logDir = settings.value(kLogDirSettingKey, defaultLogDir()).toString();
 
   // Initialize the shared iface up front. The pthread mutex/cond is
   // safe to leave constructed for the lifetime of Navigator; the
@@ -321,27 +334,36 @@ SimulatorWidget::SimulatorWidget(QWidget* parent) : QWidget(parent) {
   // exist beforehand. The bridge runs continuously and streams a neutral
   // frame until enabled; the checkbox toggles joystick influence live.
   m_rc = new RcBridge(this);
-  applyRcSource();  // pushes source + device path + baud to the bridge
+  applyRcSource(); // pushes source + device path + baud to the bridge
   m_rc->setEnabled(m_rcEnable->isChecked());
   QString rcErr;
   if (m_rc->openPty(&rcErr)) {
     qputenv("VAYU_UART_RC_PATH", m_rc->slavePath().toLocal8Bit());
     connect(m_rc, &RcBridge::logLine, this,
-            [this](const QString& s) { appendLog("rc", s); });
+            [this](const QString &s) { appendLog("rc", s); });
     connect(m_rc, &RcBridge::channelsUpdated, this,
             [this](int r, int pi, int t, int y, int a, int c6) {
               if (m_rcReadout)
-                m_rcReadout->setText(QString("RC: R%1 P%2 T%3 Y%4 A%5 C6:%6%7")
-                                         .arg(r).arg(pi).arg(t).arg(y).arg(a).arg(c6)
-                                         .arg(c6 > 1500 ? " (ACRO)" : " (STAB)"));
+                m_rcReadout->setText(
+                    QString("RC: R%1 P%2 T%3 Y%4 A%5 C6:%6%7")
+                        .arg(r)
+                        .arg(pi)
+                        .arg(t)
+                        .arg(y)
+                        .arg(a)
+                        .arg(c6)
+                        .arg(c6 > 1500 ? " (ACRO)" : " (STAB)"));
             });
     connect(m_rc, &RcBridge::axesUpdated, this,
             [this](QVector<int> au, QVector<int> bu) {
-              if (!m_rcAxesLabel) return;
+              if (!m_rcAxesLabel)
+                return;
               QString s = QStringLiteral("Ax");
-              for (int i = 0; i < au.size(); ++i) s += QString(" %1:%2").arg(i).arg(au[i]);
+              for (int i = 0; i < au.size(); ++i)
+                s += QString(" %1:%2").arg(i).arg(au[i]);
               s += QStringLiteral("  Btn");
-              for (int i = 0; i < bu.size(); ++i) s += QString(" %1:%2").arg(i).arg(bu[i]);
+              for (int i = 0; i < bu.size(); ++i)
+                s += QString(" %1:%2").arg(i).arg(bu[i]);
               m_rcAxesLabel->setText(s);
             });
     // Apply the persisted channel→axis mapping to the bridge.
@@ -360,14 +382,15 @@ SimulatorWidget::SimulatorWidget(QWidget* parent) : QWidget(parent) {
   // not opened any tty.)
   setRcUartConnected(false);
   if (m_rcConnect && m_rcSource)
-    m_rcConnect->setEnabled(m_rcSource->currentData().toInt() == RcBridge::Uart);
+    m_rcConnect->setEnabled(m_rcSource->currentData().toInt() ==
+                            RcBridge::Uart);
 
   // If another subsystem (board telemetry) claims the RC port, give it up.
   connect(&PortArbiter::instance(), &PortArbiter::revoked, this,
-          [this](const QString&, QObject* owner) {
+          [this](const QString &, QObject *owner) {
             if (owner == this && m_rcUartConnected) {
               appendLog("rc", tr("RC UART port taken by another connection — "
-                                  "disconnected."));
+                                 "disconnected."));
               setRcUartConnected(false);
             }
           });
@@ -390,14 +413,15 @@ SimulatorWidget::~SimulatorWidget() {
   // m_tuneThread is a QThread-derived child of this widget; if left running it'd
   // be "destroyed while still running" by ~QObject, which qFatal()s (the abort
   // seen on exit). Join it here.
-  if (m_tuneWorker) m_tuneWorker->cancel();  // break the blocking engine.run()
+  if (m_tuneWorker)
+    m_tuneWorker->cancel(); // break the blocking engine.run()
   if (m_tuneThread) {
     m_tuneThread->quit();
     if (!m_tuneThread->wait(3000)) {
       m_tuneThread->terminate();
       m_tuneThread->wait(1000);
     }
-    delete m_tuneThread;       // joined: direct delete is safe (no event loop)
+    delete m_tuneThread; // joined: direct delete is safe (no event loop)
     m_tuneThread = nullptr;
   }
   if (m_tuneWorker) {
@@ -405,7 +429,7 @@ SimulatorWidget::~SimulatorWidget() {
     m_tuneWorker = nullptr;
   }
 
-  closeLogFile();    // belt-and-suspenders: stopInAppSim already does this
+  closeLogFile(); // belt-and-suspenders: stopInAppSim already does this
   // We do NOT call vayu_sitl_stop()'s teardown completely; the firmware
   // threads keep running until the process exits. See host_lifecycle.c.
   if (m_ifaceInit) {
@@ -418,14 +442,14 @@ SimulatorWidget::~SimulatorWidget() {
 // ----------------------------------------------------------------------------
 
 void SimulatorWidget::buildUi() {
-  auto* root = new QVBoxLayout(this);
+  auto *root = new QVBoxLayout(this);
   root->setContentsMargins(16, 16, 16, 16);
   root->setSpacing(10);
 
   // ---- Header: title + mode tabs (Vehicle | World) + back ----
   {
-    auto* header = new QHBoxLayout();
-    auto* title = new QLabel(tr("Simulator"), this);
+    auto *header = new QHBoxLayout();
+    auto *title = new QLabel(tr("Simulator"), this);
     title->setStyleSheet(
         QString("color: %1; font-size: 18px; font-weight: bold;")
             .arg(Theme::hex(Theme::kAccent)));
@@ -433,18 +457,20 @@ void SimulatorWidget::buildUi() {
     header->addSpacing(18);
 
     m_vehicleTab = new QPushButton(tr("Vehicle"), this);
-    m_worldTab   = new QPushButton(tr("World"), this);
-    m_tuneTab    = new QPushButton(tr("Autotune"), this);
-    auto* grp = new QButtonGroup(this);
+    m_worldTab = new QPushButton(tr("World"), this);
+    m_tuneTab = new QPushButton(tr("Autotune"), this);
+    auto *grp = new QButtonGroup(this);
     grp->setExclusive(true);
-    for (auto* b : {m_vehicleTab, m_worldTab, m_tuneTab}) {
+    for (auto *b : {m_vehicleTab, m_worldTab, m_tuneTab}) {
       b->setCheckable(true);
       b->setObjectName("ToggleButton");
       b->setCursor(Qt::PointingHandCursor);
     }
-    m_vehicleTab->setToolTip(tr("Configure the airframe (locked while simulating)"));
+    m_vehicleTab->setToolTip(
+        tr("Configure the airframe (locked while simulating)"));
     m_worldTab->setToolTip(tr("Design the world and run the simulation"));
-    m_tuneTab->setToolTip(tr("Auto-tune the PID gains for the current vehicle"));
+    m_tuneTab->setToolTip(
+        tr("Auto-tune the PID gains for the current vehicle"));
     grp->addButton(m_vehicleTab, 0);
     grp->addButton(m_worldTab, 1);
     grp->addButton(m_tuneTab, 2);
@@ -456,11 +482,12 @@ void SimulatorWidget::buildUi() {
     header->addStretch();
     root->addLayout(header);
 
-    connect(grp, &QButtonGroup::idClicked, this, [this](int id) { setMode(id); });
+    connect(grp, &QButtonGroup::idClicked, this,
+            [this](int id) { setMode(id); });
   }
 
   // ---- Split: 3D viewport | stacked properties panel ----
-  auto* splitter = new QSplitter(Qt::Horizontal, this);
+  auto *splitter = new QSplitter(Qt::Horizontal, this);
   root->addWidget(splitter, 1);
 
   m_renderer = new vsim::SimRendererWidget(splitter);
@@ -503,8 +530,9 @@ void SimulatorWidget::buildUi() {
   m_minimapPip->show();
   m_minimapPip->raise();
   m_minimapTimer = new QTimer(this);
-  m_minimapTimer->setInterval(120);  // ~8 Hz: cheap, smooth enough to follow
-  connect(m_minimapTimer, &QTimer::timeout, this, &SimulatorWidget::updateMinimap);
+  m_minimapTimer->setInterval(120); // ~8 Hz: cheap, smooth enough to follow
+  connect(m_minimapTimer, &QTimer::timeout, this,
+          &SimulatorWidget::updateMinimap);
   m_minimapTimer->start();
 
   m_renderer->installEventFilter(this);
@@ -528,15 +556,17 @@ void SimulatorWidget::buildUi() {
     connect(m_geomEditor, &GeometryEditorWidget::geometryApplied, this, [this] {
       applyGeometryToRenderer();
       pushFirmwareMotorGeometry(m_geomEditor->physicsConfig());
-      if (m_sim) m_sim->sendGeometry(m_geomEditor->physicsConfig());
+      if (m_sim)
+        m_sim->sendGeometry(m_geomEditor->physicsConfig());
       persistGeometry(m_geomEditor->config());
-      appendLog("geom", tr("geometry applied (m=%1 kg)")
-                            .arg(m_geomEditor->config().mass));
+      appendLog(
+          "geom",
+          tr("geometry applied (m=%1 kg)").arg(m_geomEditor->config().mass));
     });
     // Vehicle page = geometry editor + the Fault Injection panel (mockup
     // groups them in the vehicle config column).
-    auto* vehWrap = new QWidget();
-    auto* vehV = new QVBoxLayout(vehWrap);
+    auto *vehWrap = new QWidget();
+    auto *vehV = new QVBoxLayout(vehWrap);
     vehV->setContentsMargins(0, 0, 0, 0);
     vehV->setSpacing(6);
     vehV->addWidget(m_geomEditor);
@@ -544,52 +574,59 @@ void SimulatorWidget::buildUi() {
     vehV->addWidget(buildFaultPanel());
     vehV->addStretch();
 
-    auto* scroll = new QScrollArea();
+    auto *scroll = new QScrollArea();
     scroll->setWidgetResizable(true);
     scroll->setWidget(vehWrap);
     scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    m_rightStack->addWidget(scroll);   // index 0 = Vehicle
+    m_rightStack->addWidget(scroll); // index 0 = Vehicle
   }
 
   // ===== World page: environment + aerodynamics + simulation =====
   {
-    auto* page = new QWidget();
-    auto* pv = new QVBoxLayout(page);
+    auto *page = new QWidget();
+    auto *pv = new QVBoxLayout(page);
     pv->setContentsMargins(0, 0, 0, 0);
     pv->setSpacing(6);
 
     m_worldEditor = new WorldEditorWidget(page);
     connect(m_worldEditor, &WorldEditorWidget::worldApplied, this, [this] {
-      if (m_sim) m_sim->sendWorld(m_worldEditor->config());
+      if (m_sim)
+        m_sim->sendWorld(m_worldEditor->config());
       persistWorld(m_worldEditor->config());
-      appendLog("world", tr("world applied (g=%1 m/s²)")
-                             .arg(m_worldEditor->config().gravity));
+      appendLog(
+          "world",
+          tr("world applied (g=%1 m/s²)").arg(m_worldEditor->config().gravity));
     });
     // Wind & turbulence: its own staged Apply → push + persist.
     connect(m_worldEditor, &WorldEditorWidget::windApplied, this, [this] {
       const vsim::WindConfig w = m_worldEditor->windConfig();
-      if (m_sim) m_sim->sendWind(w);
+      if (m_sim)
+        m_sim->sendWind(w);
       persistWind(w);
-      appendLog("world", w.enabled
-                             ? tr("wind applied (steady %1/%2/%3 m/s, turb σ=%4)")
-                                   .arg(w.steady.x()).arg(w.steady.y())
-                                   .arg(w.steady.z()).arg(w.turbSigma)
-                             : tr("wind disabled"));
+      appendLog("world",
+                w.enabled ? tr("wind applied (steady %1/%2/%3 m/s, turb σ=%4)")
+                                .arg(w.steady.x())
+                                .arg(w.steady.y())
+                                .arg(w.steady.z())
+                                .arg(w.turbSigma)
+                          : tr("wind disabled"));
     });
     // Obstacles are visual (phase 1): live-update the 3D view + persist on any
     // add/remove/edit, no Apply needed.
     connect(m_worldEditor, &WorldEditorWidget::obstaclesChanged, this, [this] {
-      if (m_renderer) m_renderer->setObstacles(m_worldEditor->config().obstacles);
+      if (m_renderer)
+        m_renderer->setObstacles(m_worldEditor->config().obstacles);
       if (m_downRenderer)
         m_downRenderer->setObstacles(m_worldEditor->config().obstacles);
-      if (m_sim) m_sim->sendObstacles(m_worldEditor->config().obstacles);
+      if (m_sim)
+        m_sim->sendObstacles(m_worldEditor->config().obstacles);
       persistWorld(m_worldEditor->config());
     });
     // 3D gizmo editing of obstacles <-> the editor list/form.
     connect(m_renderer, &vsim::SimRendererWidget::obstacleEdited, m_worldEditor,
             &WorldEditorWidget::setObstacleFromGizmo);
-    connect(m_renderer, &vsim::SimRendererWidget::obstacleSelected, m_worldEditor,
-            &WorldEditorWidget::selectObstacleRow);
+    connect(m_renderer, &vsim::SimRendererWidget::obstacleSelected,
+            m_worldEditor, &WorldEditorWidget::selectObstacleRow);
     connect(m_worldEditor, &WorldEditorWidget::obstacleSelectionChanged,
             m_renderer, &vsim::SimRendererWidget::selectObstacle);
     // Imported world mesh (visual): (re)load + render + persist on any change.
@@ -601,26 +638,27 @@ void SimulatorWidget::buildUi() {
 
     // ---- Training: glowing halo-gate course flown through the world ----
     {
-      auto* sec = new CollapsibleSection(tr("Training"), page);
-      auto* body = new QWidget();
-      auto* col = new QVBoxLayout(body);
+      auto *sec = new CollapsibleSection(tr("Training"), page);
+      auto *body = new QWidget();
+      auto *col = new QVBoxLayout(body);
       col->setContentsMargins(0, 0, 0, 0);
       col->setSpacing(6);
 
-      auto* row = new QHBoxLayout();
+      auto *row = new QHBoxLayout();
       row->addWidget(new QLabel(tr("Mode:"), body));
       m_trainingMode = new QComboBox(body);
-      m_trainingMode->addItem(tr("Off"),    vsim::TrainingCourse::Off);
-      m_trainingMode->addItem(tr("Easy"),   vsim::TrainingCourse::Easy);
+      m_trainingMode->addItem(tr("Off"), vsim::TrainingCourse::Off);
+      m_trainingMode->addItem(tr("Easy"), vsim::TrainingCourse::Easy);
       m_trainingMode->addItem(tr("Medium"), vsim::TrainingCourse::Medium);
-      m_trainingMode->addItem(tr("Hard"),   vsim::TrainingCourse::Hard);
+      m_trainingMode->addItem(tr("Hard"), vsim::TrainingCourse::Hard);
       m_trainingMode->setToolTip(tr(
           "Fly the drone through the glowing halo gates. The course starts at "
           "the floor and gets progressively harder (smaller, farther, more "
           "weave). A yellow arrow over the drone points to the next gate. "
           "Selecting a mode resets the airframe to the floor."));
-      connect(m_trainingMode, QOverload<int>::of(&QComboBox::currentIndexChanged),
-              this, [this] {
+      connect(m_trainingMode,
+              QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+              [this] {
                 if (m_trainingMode)
                   setTrainingMode(m_trainingMode->currentData().toInt());
               });
@@ -628,17 +666,17 @@ void SimulatorWidget::buildUi() {
       col->addLayout(row);
 
       m_trainingStatus = new QLabel(tr("Training off"), body);
-      m_trainingStatus->setStyleSheet(
-          QString("color:%1; font-size:11px;").arg(Theme::hex(Theme::kTextMuted)));
+      m_trainingStatus->setStyleSheet(QString("color:%1; font-size:11px;")
+                                          .arg(Theme::hex(Theme::kTextMuted)));
       col->addWidget(m_trainingStatus);
 
       sec->setContentWidget(body);
       pv->addWidget(sec);
     }
 
-    auto* simSec = new CollapsibleSection(tr("Simulation"), page);
-    auto* simBody = new QWidget();
-    auto* sv = new QVBoxLayout(simBody);
+    auto *simSec = new CollapsibleSection(tr("Simulation"), page);
+    auto *simBody = new QWidget();
+    auto *sv = new QVBoxLayout(simBody);
     sv->setContentsMargins(0, 0, 0, 0);
     sv->setSpacing(6);
 
@@ -647,7 +685,7 @@ void SimulatorWidget::buildUi() {
         QString("color: %1;").arg(Theme::hex(Theme::kTextMuted)));
     sv->addWidget(m_simStatusLabel);
 
-    auto* runRow = new QHBoxLayout();
+    auto *runRow = new QHBoxLayout();
     m_simStartBtn = new ui::SuccessButton(tr("Start"), simBody);
     m_simStartBtn->setToolTip(tr("Boot firmware (first time) + start the sim"));
     connect(m_simStartBtn, &QPushButton::clicked, this,
@@ -661,7 +699,8 @@ void SimulatorWidget::buildUi() {
     m_simResetBtn->setEnabled(false);
     m_simResetBtn->setToolTip(tr("Reset the airframe to the spawn pose"));
     connect(m_simResetBtn, &QPushButton::clicked, this, [this] {
-      if (!m_sim) return;
+      if (!m_sim)
+        return;
       // On procedural terrain, respawn ON the home helipad (origin) — a small
       // margin above the pad top so it settles onto the deck, not the slope.
       if (m_terrainHeightAt) {
@@ -672,9 +711,11 @@ void SimulatorWidget::buildUi() {
       }
     });
     m_simAttachBtn = new ui::GhostButton(tr("Attach Ext"), simBody);
-    m_simAttachBtn->setToolTip(tr("Render an EXTERNAL pose stream "
-        "(/tmp/vsim_pose) over the loaded world — e.g. a headless vayu_sitl_rtos "
-        "run. No engine is started here; this view just mirrors it."));
+    m_simAttachBtn->setToolTip(
+        tr("Render an EXTERNAL pose stream "
+           "(/tmp/vsim_pose) over the loaded world — e.g. a headless "
+           "vayu_sitl_rtos "
+           "run. No engine is started here; this view just mirrors it."));
     connect(m_simAttachBtn, &QPushButton::clicked, this,
             &SimulatorWidget::attachExternalSim);
     runRow->addWidget(m_simStartBtn);
@@ -683,43 +724,49 @@ void SimulatorWidget::buildUi() {
     runRow->addWidget(m_simAttachBtn);
     runRow->addStretch();
     m_fpvCheck = new QCheckBox(tr("FPV cam"), simBody);
-    m_fpvCheck->setToolTip(tr("Onboard first-person camera that rides the drone "
-                              "(looks forward). Off = 3rd-person orbit. "
-                              "Available while the sim is running."));
-    m_fpvCheck->setEnabled(false);   // enabled on Start (locks to the drone)
-    connect(m_fpvCheck, &QCheckBox::toggled, this,
-            [this](bool on) { if (m_renderer) m_renderer->setFpv(on); });
+    m_fpvCheck->setToolTip(
+        tr("Onboard first-person camera that rides the drone "
+           "(looks forward). Off = 3rd-person orbit. "
+           "Available while the sim is running."));
+    m_fpvCheck->setEnabled(false); // enabled on Start (locks to the drone)
+    connect(m_fpvCheck, &QCheckBox::toggled, this, [this](bool on) {
+      if (m_renderer)
+        m_renderer->setFpv(on);
+    });
     runRow->addWidget(m_fpvCheck);
 
     // PiP visibility toggles (mockup Down Cam / Horizon chips).
-    auto* downChk = new QCheckBox(tr("Down Cam"), simBody);
+    auto *downChk = new QCheckBox(tr("Down Cam"), simBody);
     downChk->setChecked(true);
     downChk->setToolTip(tr("Show the draggable bird's-eye down-camera PiP"));
     connect(downChk, &QCheckBox::toggled, this, [this](bool on) {
-      if (m_downPip) m_downPip->setVisible(on);
+      if (m_downPip)
+        m_downPip->setVisible(on);
     });
     runRow->addWidget(downChk);
 
-    auto* horizonChk = new QCheckBox(tr("Horizon"), simBody);
+    auto *horizonChk = new QCheckBox(tr("Horizon"), simBody);
     horizonChk->setChecked(true);
     horizonChk->setToolTip(tr("Show the draggable artificial-horizon PiP"));
     connect(horizonChk, &QCheckBox::toggled, this, [this](bool on) {
-      if (m_horizonPip) m_horizonPip->setVisible(on);
+      if (m_horizonPip)
+        m_horizonPip->setVisible(on);
     });
     runRow->addWidget(horizonChk);
 
-    auto* contourChk = new QCheckBox(tr("Contours"), simBody);
+    auto *contourChk = new QCheckBox(tr("Contours"), simBody);
     contourChk->setChecked(true);
     contourChk->setToolTip(tr("Show the draggable top-down contour minimap "
                               "(procedural terrain height)."));
     connect(contourChk, &QCheckBox::toggled, this, [this](bool on) {
-      if (m_minimapPip) m_minimapPip->setVisible(on);
+      if (m_minimapPip)
+        m_minimapPip->setVisible(on);
     });
     runRow->addWidget(contourChk);
 
 #ifdef VAYU_SIM_GRASS
-    auto* grassChk = new QCheckBox(tr("Grass"), simBody);
-    grassChk->setChecked(false);   // off by default
+    auto *grassChk = new QCheckBox(tr("Grass"), simBody);
+    grassChk->setChecked(false); // off by default
     grassChk->setToolTip(tr("Render instanced grass + flowers on procedural "
                             "terrain."));
     connect(grassChk, &QCheckBox::toggled, this, [this](bool on) {
@@ -727,19 +774,23 @@ void SimulatorWidget::buildUi() {
       // Drive both grass paths: CPU flora visibility and the GPU-grass pass.
       if (m_renderer) {
         m_renderer->setFloraVisible(on);
-        if (m_useGpuGrass) m_renderer->setGpuGrassActive(on);
+        if (m_useGpuGrass)
+          m_renderer->setGpuGrassActive(on);
       }
       if (m_downRenderer) {
         m_downRenderer->setFloraVisible(on);
-        if (m_useGpuGrass) m_downRenderer->setGpuGrassActive(on);
+        if (m_useGpuGrass)
+          m_downRenderer->setGpuGrassActive(on);
       }
     });
     runRow->addWidget(grassChk);
     // Apply the unchecked default to the renderers now (an unchecked box emits
     // no toggled signal at startup).
-    if (m_renderer) m_renderer->setFloraVisible(false);
-    if (m_downRenderer) m_downRenderer->setFloraVisible(false);
-#endif  // VAYU_SIM_GRASS
+    if (m_renderer)
+      m_renderer->setFloraVisible(false);
+    if (m_downRenderer)
+      m_downRenderer->setFloraVisible(false);
+#endif // VAYU_SIM_GRASS
 
     m_propAudioChk = new QCheckBox(tr("Prop audio"), simBody);
     m_propAudioChk->setToolTip(tr("Propeller sound synthesized from motor rpm "
@@ -759,15 +810,19 @@ void SimulatorWidget::buildUi() {
     // -- Loop rates (IMU/firmware, physics substeps, render) --
     {
       QSettings st;
-      auto* rg = new QGridLayout();
+      auto *rg = new QGridLayout();
       rg->setHorizontalSpacing(6);
-      auto mkCombo = [&](const QList<int>& opts, int def, const char* key,
-                         const QString& tip) {
-        auto* c = new QComboBox(simBody);
-        for (int v : opts) c->addItem(QString::number(v) + " Hz", v);
+      auto mkCombo = [&](const QList<int> &opts, int def, const char *key,
+                         const QString &tip) {
+        auto *c = new QComboBox(simBody);
+        for (int v : opts)
+          c->addItem(QString::number(v) + " Hz", v);
         const int cur = st.value(key, def).toInt();
         int idx = c->findData(cur);
-        if (idx < 0) { c->addItem(QString::number(cur) + " Hz", cur); idx = c->count() - 1; }
+        if (idx < 0) {
+          c->addItem(QString::number(cur) + " Hz", cur);
+          idx = c->count() - 1;
+        }
         c->setCurrentIndex(idx);
         c->setToolTip(tip);
         connect(c, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
@@ -777,40 +832,45 @@ void SimulatorWidget::buildUi() {
                 });
         return c;
       };
-      auto* imuC = mkCombo({200, 500, 1000, 2000}, kDefImuHz, kImuHzKey,
-                           tr("IMU emit + firmware inner-loop rate. Match your "
-                              "real hardware (e.g. 1 kHz) so PID tuning transfers."));
-      auto* physC = mkCombo({1000, 2000, 4000, 8000, 10000}, kDefPhysHz, kPhysHzKey,
-                            tr("RK4 physics rate. Run as substeps per IMU sample "
-                               "(snapped to a multiple of the IMU rate): higher = "
-                               "finer integration / less collision tunnelling, same "
-                               "sample rate."));
-      auto* poseC = mkCombo({30, 60, 120}, kDefPoseHz, kPoseHzKey,
+      auto *imuC =
+          mkCombo({200, 500, 1000, 2000}, kDefImuHz, kImuHzKey,
+                  tr("IMU emit + firmware inner-loop rate. Match your "
+                     "real hardware (e.g. 1 kHz) so PID tuning transfers."));
+      auto *physC =
+          mkCombo({1000, 2000, 4000, 8000, 10000}, kDefPhysHz, kPhysHzKey,
+                  tr("RK4 physics rate. Run as substeps per IMU sample "
+                     "(snapped to a multiple of the IMU rate): higher = "
+                     "finer integration / less collision tunnelling, same "
+                     "sample rate."));
+      auto *poseC = mkCombo({30, 60, 120}, kDefPoseHz, kPoseHzKey,
                             tr("Pose / 3D-render update rate."));
-      rg->addWidget(new QLabel(tr("IMU/loop:")), 0, 0);   rg->addWidget(imuC, 0, 1);
-      rg->addWidget(new QLabel(tr("Physics:")), 0, 2);    rg->addWidget(physC, 0, 3);
-      rg->addWidget(new QLabel(tr("Render:")), 1, 0);     rg->addWidget(poseC, 1, 1);
+      rg->addWidget(new QLabel(tr("IMU/loop:")), 0, 0);
+      rg->addWidget(imuC, 0, 1);
+      rg->addWidget(new QLabel(tr("Physics:")), 0, 2);
+      rg->addWidget(physC, 0, 3);
+      rg->addWidget(new QLabel(tr("Render:")), 1, 0);
+      rg->addWidget(poseC, 1, 1);
       sv->addLayout(rg);
     }
 
     m_simPoseLabel = new QLabel(tr("pose: -"), simBody);
-    m_simPoseLabel->setStyleSheet(
-        QString("color: %1; font-family: monospace;")
-            .arg(Theme::hex(Theme::kAccent)));
+    m_simPoseLabel->setStyleSheet(QString("color: %1; font-family: monospace;")
+                                      .arg(Theme::hex(Theme::kAccent)));
     sv->addWidget(m_simPoseLabel);
 
     // RC transmitter (USB joystick) → firmware RC. Must be set before the
     // first Start (firmware reads the RC path once at boot).
     {
       QSettings st;
-      auto* rcRow = new QHBoxLayout();
+      auto *rcRow = new QHBoxLayout();
       m_rcEnable = new QCheckBox(tr("RC transmitter"), simBody);
       m_rcEnable->setChecked(st.value(kRcEnableKey, true).toBool());
       m_rcEnable->setToolTip(tr("Feed a USB RC transmitter (joystick) into "
                                 "the sim. Enable before the first Start."));
       connect(m_rcEnable, &QCheckBox::toggled, this, [this](bool on) {
         QSettings().setValue(kRcEnableKey, on);
-        if (m_rc) m_rc->setEnabled(on);   // live, no restart
+        if (m_rc)
+          m_rc->setEnabled(on); // live, no restart
       });
       rcRow->addWidget(m_rcEnable);
 
@@ -823,8 +883,9 @@ void SimulatorWidget::buildUi() {
           st.value(kRcSourceKey, RcBridge::Joystick).toInt() == RcBridge::Uart
               ? 1
               : 0);
-      m_rcSource->setToolTip(tr("RC input source. USB joystick maps axes to "
-                                "channels; UART reads CSV µs frames directly."));
+      m_rcSource->setToolTip(
+          tr("RC input source. USB joystick maps axes to "
+             "channels; UART reads CSV µs frames directly."));
       connect(m_rcSource, QOverload<int>::of(&QComboBox::currentIndexChanged),
               this, [this] { applyRcSource(); });
       rcRow->addWidget(m_rcSource);
@@ -834,14 +895,16 @@ void SimulatorWidget::buildUi() {
       m_rcPath = new QComboBox(simBody);
       m_rcPath->setEditable(true);
       m_rcPath->setInsertPolicy(QComboBox::NoInsert);
-      m_rcPath->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+      m_rcPath->setSizeAdjustPolicy(
+          QComboBox::AdjustToMinimumContentsLengthWithIcon);
       // Each enumerated item shows the friendly description ("ttyUSB0 — FT232
       // USB UART") but carries the bare /dev path in itemData. Picking one
       // writes that path into the editable field — what the bridge opens.
       connect(m_rcPath, QOverload<int>::of(&QComboBox::activated), this,
               [this](int i) {
                 const QVariant d = m_rcPath->itemData(i);
-                if (d.isValid()) m_rcPath->setEditText(d.toString());
+                if (d.isValid())
+                  m_rcPath->setEditText(d.toString());
                 commitRcPath();
               });
       connect(m_rcPath->lineEdit(), &QLineEdit::editingFinished, this,
@@ -852,15 +915,17 @@ void SimulatorWidget::buildUi() {
       for (int b : {9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600})
         m_rcBaud->addItem(QString::number(b), b);
       {
-        const int idx = m_rcBaud->findData(st.value(kRcBaudKey, 115200).toInt());
+        const int idx =
+            m_rcBaud->findData(st.value(kRcBaudKey, 115200).toInt());
         m_rcBaud->setCurrentIndex(idx >= 0 ? idx : 4);
       }
       m_rcBaud->setToolTip(tr("UART baud (UART source only)."));
-      connect(m_rcBaud, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
-              [this] {
+      connect(m_rcBaud, QOverload<int>::of(&QComboBox::currentIndexChanged),
+              this, [this] {
                 const int b = m_rcBaud->currentData().toInt();
                 QSettings().setValue(kRcBaudKey, b);
-                if (m_rc) m_rc->setUartBaud(b);
+                if (m_rc)
+                  m_rc->setUartBaud(b);
               });
       rcRow->addWidget(m_rcBaud);
 
@@ -870,8 +935,9 @@ void SimulatorWidget::buildUi() {
       m_rcConnect = new QPushButton(tr("Connect"), simBody);
       m_rcConnect->setObjectName("ToggleButton");
       m_rcConnect->setCheckable(true);
-      m_rcConnect->setToolTip(tr("Connect/disconnect the RC UART device. The sim "
-                                 "only grabs the serial port while connected."));
+      m_rcConnect->setToolTip(
+          tr("Connect/disconnect the RC UART device. The sim "
+             "only grabs the serial port while connected."));
       connect(m_rcConnect, &QPushButton::clicked, this,
               [this] { setRcUartConnected(!m_rcUartConnected); });
       rcRow->addWidget(m_rcConnect);
@@ -881,16 +947,20 @@ void SimulatorWidget::buildUi() {
       // override, so the switch is authoritative — matching real RC). Off = angle
       // / stabilize (bank-angle limited); on = acro (body-rate, flips allowed).
       m_acroChk = new QCheckBox(tr("Acro (ch6)"), simBody);
-      m_acroChk->setToolTip(tr("Acro / rate mode on RC channel 6: sticks command "
-                               "body rate directly, no bank-angle limit. This is "
-                               "the ch6 switch — the firmware follows it."));
-      const bool acroOn = st.value(QStringLiteral("sim/rcAcro"), false).toBool();
+      m_acroChk->setToolTip(
+          tr("Acro / rate mode on RC channel 6: sticks command "
+             "body rate directly, no bank-angle limit. This is "
+             "the ch6 switch — the firmware follows it."));
+      const bool acroOn =
+          st.value(QStringLiteral("sim/rcAcro"), false).toBool();
       m_acroChk->setChecked(acroOn);
-      if (m_rc) m_rc->setAcro(acroOn);
-      flight_mode_release();   // ensure no stale GCS override blocks the switch
+      if (m_rc)
+        m_rc->setAcro(acroOn);
+      flight_mode_release(); // ensure no stale GCS override blocks the switch
       connect(m_acroChk, &QCheckBox::toggled, this, [this](bool on) {
         QSettings().setValue(QStringLiteral("sim/rcAcro"), on);
-        if (m_rc) m_rc->setAcro(on);   // toggles ch6 -> firmware switches mode
+        if (m_rc)
+          m_rc->setAcro(on); // toggles ch6 -> firmware switches mode
       });
       rcRow->addWidget(m_acroChk);
       sv->addLayout(rcRow);
@@ -915,30 +985,35 @@ void SimulatorWidget::buildUi() {
       sv->addWidget(m_rcAxesLabel);
 
       // Channel → axis mapping (+ invert), one row per function.
-      auto* mapGrid = new QGridLayout();
+      auto *mapGrid = new QGridLayout();
       mapGrid->setHorizontalSpacing(6);
       mapGrid->setVerticalSpacing(2);
       for (int f = 0; f < 5; ++f) {
         const int savedSrc =
-            st.value(QString(kRcMapAxisKey) + QString::number(f), kRcDefaultAxis[f]).toInt();
+            st.value(QString(kRcMapAxisKey) + QString::number(f),
+                     kRcDefaultAxis[f])
+                .toInt();
         const bool savedInv =
-            st.value(QString(kRcMapInvKey) + QString::number(f), false).toBool();
+            st.value(QString(kRcMapInvKey) + QString::number(f), false)
+                .toBool();
         mapGrid->addWidget(new QLabel(tr(kRcFuncName[f]), simBody), f, 0);
-        auto* combo = new QComboBox(simBody);
-        for (int a = 0; a < 6; ++a) combo->addItem(tr("Axis %1").arg(a), a);
+        auto *combo = new QComboBox(simBody);
+        for (int a = 0; a < 6; ++a)
+          combo->addItem(tr("Axis %1").arg(a), a);
         for (int b = 0; b < 3; ++b)
           combo->addItem(tr("Button %1").arg(b), RcBridge::kButtonBase + b);
         const int idx = combo->findData(savedSrc);
         combo->setCurrentIndex(idx >= 0 ? idx : 0);
         mapGrid->addWidget(combo, f, 1);
-        auto* inv = new QCheckBox(tr("invert"), simBody);
+        auto *inv = new QCheckBox(tr("invert"), simBody);
         inv->setChecked(savedInv);
         mapGrid->addWidget(inv, f, 2);
         m_rcAxisCombo[f] = combo;
         m_rcInvert[f] = inv;
-        connect(combo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+        connect(combo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+                this, [this, f] { pushRcMapping(f); });
+        connect(inv, &QCheckBox::toggled, this,
                 [this, f] { pushRcMapping(f); });
-        connect(inv, &QCheckBox::toggled, this, [this, f] { pushRcMapping(f); });
       }
       sv->addLayout(mapGrid);
 
@@ -948,7 +1023,8 @@ void SimulatorWidget::buildUi() {
       m_swArm->setToolTip(tr("Force the arm channel high. Use with throttle "
                              "down to ARM when your TX has no arm switch."));
       connect(m_swArm, &QCheckBox::toggled, this, [this](bool on) {
-        if (m_rc) m_rc->setArmOverride(on ? 1 : -1);
+        if (m_rc)
+          m_rc->setArmOverride(on ? 1 : -1);
       });
       sv->addWidget(m_swArm);
 
@@ -957,10 +1033,11 @@ void SimulatorWidget::buildUi() {
       applyRcSource();
     }
 
-    auto* repoRow = new QHBoxLayout();
+    auto *repoRow = new QHBoxLayout();
     repoRow->addWidget(new QLabel(tr("Repo root:"), simBody));
     m_repoRootEdit = new QLineEdit(m_repoRoot, simBody);
-    m_repoRootEdit->setToolTip(tr("Path to the vayu repo. Used for log paths."));
+    m_repoRootEdit->setToolTip(
+        tr("Path to the vayu repo. Used for log paths."));
     connect(m_repoRootEdit, &QLineEdit::editingFinished, this, [this] {
       m_repoRoot = m_repoRootEdit->text();
       QSettings().setValue(kRepoRootSettingKey, m_repoRoot);
@@ -968,16 +1045,17 @@ void SimulatorWidget::buildUi() {
     repoRow->addWidget(m_repoRootEdit, 1);
     sv->addLayout(repoRow);
 
-    auto* logRow = new QHBoxLayout();
+    auto *logRow = new QHBoxLayout();
     logRow->addWidget(new QLabel(tr("Log dir:"), simBody));
     m_logDirEdit = new QLineEdit(m_logDir, simBody);
-    m_logDirEdit->setToolTip(tr("Directory the per-run UART2 byte log is written into"));
+    m_logDirEdit->setToolTip(
+        tr("Directory the per-run UART2 byte log is written into"));
     connect(m_logDirEdit, &QLineEdit::editingFinished, this, [this] {
       m_logDir = m_logDirEdit->text();
       QSettings().setValue(kLogDirSettingKey, m_logDir);
     });
     logRow->addWidget(m_logDirEdit, 1);
-    auto* openBtn = new ui::GhostButton(tr("Open"), simBody);
+    auto *openBtn = new ui::GhostButton(tr("Open"), simBody);
     openBtn->setToolTip(tr("Open the log directory in your file manager"));
     connect(openBtn, &QPushButton::clicked, this, [this] {
       QDesktopServices::openUrl(QUrl::fromLocalFile(m_logDir));
@@ -1002,22 +1080,22 @@ void SimulatorWidget::buildUi() {
     pv->addWidget(simSec);
     pv->addStretch();
 
-    auto* scroll = new QScrollArea();
+    auto *scroll = new QScrollArea();
     scroll->setWidgetResizable(true);
     scroll->setWidget(page);
     scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    m_rightStack->addWidget(scroll);   // index 1 = World
+    m_rightStack->addWidget(scroll); // index 1 = World
   }
 
   // ===== Autotune page: PID gain search against the current vehicle =====
   {
-    auto* page = new QWidget();
+    auto *page = new QWidget();
     buildAutotunePage(page);
-    auto* scroll = new QScrollArea();
+    auto *scroll = new QScrollArea();
     scroll->setWidgetResizable(true);
     scroll->setWidget(page);
     scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    m_rightStack->addWidget(scroll);   // index 2 = Autotune
+    m_rightStack->addWidget(scroll); // index 2 = Autotune
   }
 
   splitter->setStretchFactor(0, 3);
@@ -1028,22 +1106,28 @@ void SimulatorWidget::buildUi() {
   m_geomEditor->setConfig(restoreGeometry());
   m_worldEditor->setConfig(restoreWorld());
   m_worldEditor->setWindConfig(restoreWind());
-  if (m_renderer) m_renderer->setObstacles(m_worldEditor->config().obstacles);
+  if (m_renderer)
+    m_renderer->setObstacles(m_worldEditor->config().obstacles);
   if (m_downRenderer)
     m_downRenderer->setObstacles(m_worldEditor->config().obstacles);
   loadWorldMeshToRenderer();
 
-  setMode(0);   // start in Vehicle (sim stopped)
+  setMode(0); // start in Vehicle (sim stopped)
 }
 
 void SimulatorWidget::setMode(int mode) {
-  if (!m_rightStack) return;
+  if (!m_rightStack)
+    return;
   // Vehicle is config-only and locked while the sim runs.
-  if (mode == 0 && m_sim) mode = 1;
+  if (mode == 0 && m_sim)
+    mode = 1;
   m_rightStack->setCurrentIndex(mode);
-  if (m_vehicleTab) m_vehicleTab->setChecked(mode == 0);
-  if (m_worldTab)   m_worldTab->setChecked(mode == 1);
-  if (m_tuneTab)    m_tuneTab->setChecked(mode == 2);
+  if (m_vehicleTab)
+    m_vehicleTab->setChecked(mode == 0);
+  if (m_worldTab)
+    m_worldTab->setChecked(mode == 1);
+  if (m_tuneTab)
+    m_tuneTab->setChecked(mode == 2);
   // Motor gizmos belong to Vehicle mode; obstacle gizmos to World mode. Both
   // only when stopped (a running sim owns the airframe + the live world).
   if (m_renderer) {
@@ -1058,28 +1142,30 @@ void SimulatorWidget::setMode(int mode) {
 }
 
 void SimulatorWidget::pushFaults() {
-  if (!m_sim) return;
-  m_sim->sendFaults({m_motorKill[0], m_motorKill[1], m_motorKill[2],
-                     m_motorKill[3]},
-                    m_imuDropout);
+  if (!m_sim)
+    return;
+  m_sim->sendFaults(
+      {m_motorKill[0], m_motorKill[1], m_motorKill[2], m_motorKill[3]},
+      m_imuDropout);
 }
 
 void SimulatorWidget::pushNoise() {
-  if (!m_sim) return;
-  auto& a = m_sensorRow[0];
-  auto& g = m_sensorRow[1];
-  auto& m = m_sensorRow[2];
+  if (!m_sim)
+    return;
+  auto &a = m_sensorRow[0];
+  auto &g = m_sensorRow[1];
+  auto &m = m_sensorRow[2];
   m_sim->sendNoise(a.sigma->value(), a.clip->value(), a.en->isChecked(),
                    g.sigma->value(), g.clip->value(), g.en->isChecked(),
                    m.sigma->value(), m.clip->value(), m.en->isChecked());
 }
 
-QWidget* SimulatorWidget::buildSensorPanel() {
+QWidget *SimulatorWidget::buildSensorPanel() {
   // Mockup Vehicle ▸ Sensor Models: per-sensor white-noise σ + bias clip, plus
   // an enable toggle that doubles as a dropout fault. Defaults match the
   // daemon's SensorNoise (BMX160-class).
-  auto* grp = new QGroupBox(tr("Sensor Models"), this);
-  auto* grid = new QGridLayout(grp);
+  auto *grp = new QGroupBox(tr("Sensor Models"), this);
+  auto *grid = new QGridLayout(grp);
   grid->setHorizontalSpacing(10);
   grid->setVerticalSpacing(4);
   grid->addWidget(new QLabel(tr("Sensor"), grp), 0, 0);
@@ -1087,14 +1173,20 @@ QWidget* SimulatorWidget::buildSensorPanel() {
   grid->addWidget(new QLabel(tr("Noise σ"), grp), 0, 2);
   grid->addWidget(new QLabel(tr("Bias clip"), grp), 0, 3);
 
-  struct Def { const char* name; double sigma; double clip; int dec; double step; };
+  struct Def {
+    const char *name;
+    double sigma;
+    double clip;
+    int dec;
+    double step;
+  };
   const Def defs[3] = {
       {"Accel (m/s²)", 0.03, 0.08, 4, 0.005},
       {"Gyro (rad/s)", 0.0014, 0.012, 5, 0.0005},
       {"Mag (µT)", 0.3, 5.0, 3, 0.1},
   };
   for (int i = 0; i < 3; ++i) {
-    auto& r = m_sensorRow[i];
+    auto &r = m_sensorRow[i];
     grid->addWidget(new QLabel(tr(defs[i].name), grp), i + 1, 0);
     r.en = new QCheckBox(grp);
     r.en->setChecked(true);
@@ -1122,20 +1214,21 @@ QWidget* SimulatorWidget::buildSensorPanel() {
   return grp;
 }
 
-QWidget* SimulatorWidget::buildFaultPanel() {
+QWidget *SimulatorWidget::buildFaultPanel() {
   // Mockup Vehicle ▸ Fault Injection: kill any rotor mid-flight, drop the RC
   // feed (firmware failsafe), or a GPS glitch (no GPS model in SITL yet).
-  auto* grp = new QGroupBox(tr("Fault Injection"), this);
-  auto* v = new QVBoxLayout(grp);
+  auto *grp = new QGroupBox(tr("Fault Injection"), this);
+  auto *v = new QVBoxLayout(grp);
   v->setSpacing(6);
 
-  auto* killRow = new QHBoxLayout();
+  auto *killRow = new QHBoxLayout();
   killRow->addWidget(new QLabel(tr("Kill motor:"), grp));
   for (int i = 0; i < 4; ++i) {
     m_killBtn[i] = new QPushButton(QString("M%1").arg(i + 1), grp);
     m_killBtn[i]->setCheckable(true);
     m_killBtn[i]->setFixedWidth(40);
-    m_killBtn[i]->setToolTip(tr("Cut rotor %1 (dead ESC) while flying").arg(i + 1));
+    m_killBtn[i]->setToolTip(
+        tr("Cut rotor %1 (dead ESC) while flying").arg(i + 1));
     connect(m_killBtn[i], &QPushButton::toggled, this, [this, i](bool on) {
       m_motorKill[i] = on;
       pushFaults();
@@ -1147,44 +1240,47 @@ QWidget* SimulatorWidget::buildFaultPanel() {
   killRow->addStretch();
   v->addLayout(killRow);
 
-  auto* rcLoss = new QCheckBox(tr("RC link loss (→ firmware failsafe)"), grp);
+  auto *rcLoss = new QCheckBox(tr("RC link loss (→ firmware failsafe)"), grp);
   rcLoss->setToolTip(tr("Stop feeding RC so the firmware enters failsafe"));
   connect(rcLoss, &QCheckBox::toggled, this, [this](bool on) {
     // On: cut the RC feed. Off: restore whatever the RC-enable box says.
-    if (m_rc) m_rc->setEnabled(on ? false : (m_rcEnable && m_rcEnable->isChecked()));
-    appendLog("fault", on ? tr("RC link loss injected") : tr("RC link restored"));
+    if (m_rc)
+      m_rc->setEnabled(on ? false : (m_rcEnable && m_rcEnable->isChecked()));
+    appendLog("fault",
+              on ? tr("RC link loss injected") : tr("RC link restored"));
   });
   v->addWidget(rcLoss);
 
-  auto* gps = new QCheckBox(tr("GPS glitch"), grp);
-  gps->setEnabled(false);  // no GPS model in the SITL yet
+  auto *gps = new QCheckBox(tr("GPS glitch"), grp);
+  gps->setEnabled(false); // no GPS model in the SITL yet
   gps->setToolTip(tr("No GPS is simulated yet — placeholder for parity"));
   v->addWidget(gps);
 
   return grp;
 }
 
-void SimulatorWidget::buildAutotunePage(QWidget* page) {
-  auto* v = new QVBoxLayout(page);
+void SimulatorWidget::buildAutotunePage(QWidget *page) {
+  auto *v = new QVBoxLayout(page);
   v->setContentsMargins(10, 10, 10, 10);
   v->setSpacing(8);
 
-  auto* title = new QLabel(tr("PID Autotune"), page);
+  auto *title = new QLabel(tr("PID Autotune"), page);
   title->setStyleSheet(QString("color:%1; font-size:15px; font-weight:bold;")
                            .arg(Theme::hex(Theme::kAccent)));
   v->addWidget(title);
 
-  auto* info = new QLabel(
+  auto *info = new QLabel(
       tr("Searches the inner rate + outer angle gains for the CURRENT vehicle "
          "geometry, in an isolated headless test-rig sim (tools/autotune). The "
          "live sim keeps running; tuned gains persist to the shared store and "
          "load on the next sim start."),
       page);
   info->setWordWrap(true);
-  info->setStyleSheet(QString("color:%1; font-size:11px;").arg(Theme::hex(Theme::kTextMuted)));
+  info->setStyleSheet(
+      QString("color:%1; font-size:11px;").arg(Theme::hex(Theme::kTextMuted)));
   v->addWidget(info);
 
-  auto* form = new QGridLayout();
+  auto *form = new QGridLayout();
   int r = 0;
   form->addWidget(new QLabel(tr("Optimizer:"), page), r, 0);
   m_tuneOptimizer = new QComboBox(page);
@@ -1199,7 +1295,8 @@ void SimulatorWidget::buildAutotunePage(QWidget* page) {
   m_tuneBudget = new QSpinBox(page);
   m_tuneBudget->setRange(5, 200);
   m_tuneBudget->setValue(30);
-  m_tuneBudget->setToolTip(tr("More rollouts = better tune, slower (~6 s each)."));
+  m_tuneBudget->setToolTip(
+      tr("More rollouts = better tune, slower (~6 s each)."));
   form->addWidget(m_tuneBudget, r++, 1);
 
   form->addWidget(new QLabel(tr("Excitation (µs):"), page), r, 0);
@@ -1207,10 +1304,11 @@ void SimulatorWidget::buildAutotunePage(QWidget* page) {
   m_tuneStep->setRange(1550, 1950);
   m_tuneStep->setSingleStep(25);
   m_tuneStep->setValue(1800);
-  m_tuneStep->setToolTip(tr("Doublet stick amplitude (1500=center, 2000=full; "
-                            "~21° at 1800). Lower it (e.g. 1650) to soften the "
-                            "excitation on twitchy airframes so a marginal seed "
-                            "doesn't flip."));
+  m_tuneStep->setToolTip(
+      tr("Doublet stick amplitude (1500=center, 2000=full; "
+         "~21° at 1800). Lower it (e.g. 1650) to soften the "
+         "excitation on twitchy airframes so a marginal seed "
+         "doesn't flip."));
   form->addWidget(m_tuneStep, r++, 1);
 
   // Excitation waveform: step doublet vs swept-sine chirp (conditional freq row).
@@ -1222,10 +1320,10 @@ void SimulatorWidget::buildAutotunePage(QWidget* page) {
                                   "sine f0→f1 over the hold, probing a band."));
   form->addWidget(m_tuneExcitation, r++, 1);
 
-  auto* chirpLbl = new QLabel(tr("Chirp f0–f1 (Hz):"), page);
+  auto *chirpLbl = new QLabel(tr("Chirp f0–f1 (Hz):"), page);
   form->addWidget(chirpLbl, r, 0);
   m_chirpRow = new QWidget(page);
-  auto* chirpH = new QHBoxLayout(m_chirpRow);
+  auto *chirpH = new QHBoxLayout(m_chirpRow);
   chirpH->setContentsMargins(0, 0, 0, 0);
   m_tuneChirpF0 = new QDoubleSpinBox(m_chirpRow);
   m_tuneChirpF0->setRange(0.1, 50.0);
@@ -1241,7 +1339,8 @@ void SimulatorWidget::buildAutotunePage(QWidget* page) {
   form->addWidget(m_chirpRow, r++, 1);
   auto syncChirpVis = [this, chirpLbl] {
     const bool chirp = m_tuneExcitation->currentIndex() == 1;
-    if (m_chirpRow) m_chirpRow->setVisible(chirp);
+    if (m_chirpRow)
+      m_chirpRow->setVisible(chirp);
     chirpLbl->setVisible(chirp);
   };
   connect(m_tuneExcitation, QOverload<int>::of(&QComboBox::currentIndexChanged),
@@ -1252,8 +1351,9 @@ void SimulatorWidget::buildAutotunePage(QWidget* page) {
   m_tuneRepeats = new QSpinBox(page);
   m_tuneRepeats->setRange(1, 5);
   m_tuneRepeats->setValue(2);
-  m_tuneRepeats->setToolTip(tr("Rollouts averaged per evaluation (--repeats). "
-                               "Higher = less noisy cost, proportionally slower."));
+  m_tuneRepeats->setToolTip(
+      tr("Rollouts averaged per evaluation (--repeats). "
+         "Higher = less noisy cost, proportionally slower."));
   form->addWidget(m_tuneRepeats, r++, 1);
 
   form->addWidget(new QLabel(tr("Rig tether:"), page), r, 0);
@@ -1261,30 +1361,35 @@ void SimulatorWidget::buildAutotunePage(QWidget* page) {
   m_tuneTether->setRange(0.0, 100.0);
   m_tuneTether->setSingleStep(5.0);
   m_tuneTether->setValue(30.0);
-  m_tuneTether->setToolTip(tr("Soft-rig spring stiffness [1/s²] (--rig-tether). The "
-                              "body translates during the doublet so the accel sees "
-                              "free-flight thrust-tilt (estimator-aware). 0 = legacy "
-                              "hard pin (no translation)."));
+  m_tuneTether->setToolTip(
+      tr("Soft-rig spring stiffness [1/s²] (--rig-tether). The "
+         "body translates during the doublet so the accel sees "
+         "free-flight thrust-tilt (estimator-aware). 0 = legacy "
+         "hard pin (no translation)."));
   form->addWidget(m_tuneTether, r++, 1);
 
   m_tuneYaw = new QCheckBox(tr("Tune yaw too"), page);
-  m_tuneYaw->setToolTip(tr("Also tune the yaw RATE loop (--yaw): yaw_rate kp/ki/kd "
-                           "+ gyro LPF, excited by a yaw-rate doublet. Yaw is "
-                           "rate-controlled, so there is no yaw angle gain to tune."));
+  m_tuneYaw->setToolTip(
+      tr("Also tune the yaw RATE loop (--yaw): yaw_rate kp/ki/kd "
+         "+ gyro LPF, excited by a yaw-rate doublet. Yaw is "
+         "rate-controlled, so there is no yaw angle gain to tune."));
   form->addWidget(m_tuneYaw, r++, 1);
 
   m_tuneSysId = new QCheckBox(tr("System ID (analytic design)"), page);
   m_tuneSysId->setToolTip(tr(
       "Instead of an optimizer search, fly ONE broadband chirp on the fast "
-      "backend, fit a physical plant model (omega/u = K/(s(tau·s+1))) per axis, "
+      "backend, fit a physical plant model (omega/u = K/(s(tau·s+1))) per "
+      "axis, "
       "and compute the gains analytically by loop-shaping (PD zero on the "
       "actuator pole; crossover at a fraction of the actuator bandwidth).\n"
       "Why: the search minimizes a tracking cost that the OUTER angle loop "
       "dominates, so it never values a stiff inner rate loop and settles on a "
       "near-zero rate_kp. System-ID has no cost to game — the rate loop gets a "
       "real gain by construction, in ONE rollout instead of a full sweep.\n"
-      "Implies the fast backend. Budget/optimizer/cost-function are ignored; the "
-      "chirp band + rig come from the Excitation settings. The result is applied "
+      "Implies the fast backend. Budget/optimizer/cost-function are ignored; "
+      "the "
+      "chirp band + rig come from the Excitation settings. The result is "
+      "applied "
       "and a verification doublet is flown to confirm it tracks."));
   form->addWidget(m_tuneSysId, r++, 1);
 
@@ -1298,7 +1403,8 @@ void SimulatorWidget::buildAutotunePage(QWidget* page) {
       "System-ID only: the rate-loop crossover as a fraction of the identified "
       "actuator bandwidth (1/tau). This is the aggressiveness lever — it sets "
       "rate_kp = wc/K and angle_kp = 0.25·wc.\n"
-      "• Higher (→0.5): stiffer, faster disturbance rejection, but closer to the "
+      "• Higher (→0.5): stiffer, faster disturbance rejection, but closer to "
+      "the "
       "actuator pole — risks buzz; rate_kp is hard-capped at the buzz knee.\n"
       "• Lower (→0.1): gentler, more phase margin, softer response.\n"
       "0.33 (crossover at ~1/3 of the actuator BW) is a balanced default."));
@@ -1310,9 +1416,11 @@ void SimulatorWidget::buildAutotunePage(QWidget* page) {
   m_tuneCostFn->addItem(tr("Angle + rate tracking"));
   m_tuneCostFn->setToolTip(tr(
       "Cost used by the Fast backend.\n"
-      "• Angle tracking: the exact realtime cost — angle-loop IAE + overshoot + "
+      "• Angle tracking: the exact realtime cost — angle-loop IAE + overshoot "
+      "+ "
       "chatter, with the divergence penalty. Scores the OUTER loop.\n"
-      "• Angle + rate tracking: adds a roll/pitch RATE-loop tracking term so the "
+      "• Angle + rate tracking: adds a roll/pitch RATE-loop tracking term so "
+      "the "
       "search also values a tracking, non-buzzy inner loop (the analysis's "
       "Part-D rate term). Note: on the current sim plant the rate loop buzzes "
       "before it stiffens, so this mainly penalises buzzy high-rate_kp tunes "
@@ -1322,39 +1430,44 @@ void SimulatorWidget::buildAutotunePage(QWidget* page) {
   form->addWidget(m_tuneCostFn, r++, 1);
 
   m_tuneCompare = new QCheckBox(tr("Compare all optimizers"), page);
-  m_tuneCompare->setToolTip(tr("Run every optimizer on equal budgets and keep the "
-                               "best (--compare). Much slower (N× the budget)."));
+  m_tuneCompare->setToolTip(
+      tr("Run every optimizer on equal budgets and keep the "
+         "best (--compare). Much slower (N× the budget)."));
   form->addWidget(m_tuneCompare, r++, 1);
   m_tuneBuzz = new QCheckBox(tr("Throttle buzz check"), page);
   m_tuneBuzz->setChecked(true);
-  m_tuneBuzz->setToolTip(tr("Penalize gains that limit-cycle at hover+ throttle "
-                            "(off = --no-buzz-check). The rig can't see this; the "
-                            "check sweeps throttle and scores rate-output chatter. "
-                            "Adds ~3 s per eval but stops a buzzy tune from winning."));
+  m_tuneBuzz->setToolTip(
+      tr("Penalize gains that limit-cycle at hover+ throttle "
+         "(off = --no-buzz-check). The rig can't see this; the "
+         "check sweeps throttle and scores rate-output chatter. "
+         "Adds ~3 s per eval but stops a buzzy tune from winning."));
   form->addWidget(m_tuneBuzz, r++, 1);
   m_tuneValidate = new QCheckBox(tr("Free-flight validation"), page);
   m_tuneValidate->setChecked(true);
-  m_tuneValidate->setToolTip(tr("After the search, lift off and step-recover each "
-                                "axis to confirm the winner flies (off = "
-                                "--no-validate)."));
+  m_tuneValidate->setToolTip(
+      tr("After the search, lift off and step-recover each "
+         "axis to confirm the winner flies (off = "
+         "--no-validate)."));
   form->addWidget(m_tuneValidate, r++, 1);
   // AT-1: no auto-apply. The search only proposes; committing to firmware is a
   // separate explicit click (the Apply button below).
-  m_tunePlot = new QCheckBox(tr("Live dashboard (attitude + cost window)"), page);
+  m_tunePlot =
+      new QCheckBox(tr("Live dashboard (attitude + cost window)"), page);
   m_tunePlot->setChecked(true);
   m_tunePlot->setToolTip(tr("Opens the autotuner's live plot: the drone's "
                             "attitude response to each excitation + cost "
                             "convergence, gains and per-axis traces."));
   form->addWidget(m_tunePlot, r++, 1);
   m_tuneVerbose = new QCheckBox(tr("Verbose log (print every eval)"), page);
-  m_tuneVerbose->setToolTip(tr("Print each evaluation's gains + cost to the log "
-                               "(--verbose)."));
+  m_tuneVerbose->setToolTip(
+      tr("Print each evaluation's gains + cost to the log "
+         "(--verbose)."));
   form->addWidget(m_tuneVerbose, r++, 1);
   v->addLayout(form);
 
   // --- Advanced: reproducibility seeds (rarely changed) -----------------
-  auto* advGroup = new QGroupBox(tr("Advanced (reproducibility)"), page);
-  auto* advForm = new QGridLayout(advGroup);
+  auto *advGroup = new QGroupBox(tr("Advanced (reproducibility)"), page);
+  auto *advForm = new QGridLayout(advGroup);
   int ar = 0;
   advForm->addWidget(new QLabel(tr("Optimizer seed:"), page), ar, 0);
   m_tuneSeed = new QSpinBox(page);
@@ -1366,10 +1479,11 @@ void SimulatorWidget::buildAutotunePage(QWidget* page) {
   advForm->addWidget(new QLabel(tr("Sim noise seed:"), page), ar, 0);
   m_tuneSimSeed = new QSpinBox(page);
   m_tuneSimSeed->setRange(0, 2000000000);
-  m_tuneSimSeed->setValue(0xC0FFEE);   // DEFAULT_SIM_SEED in autotune.py
-  m_tuneSimSeed->setToolTip(tr("Base seed for the sensor-noise reset (--sim-seed); "
-                               "repeat i uses seed+i. Makes eval(x) reproducible. "
-                               "0 = free-running noise (legacy)."));
+  m_tuneSimSeed->setValue(0xC0FFEE); // DEFAULT_SIM_SEED in autotune.py
+  m_tuneSimSeed->setToolTip(
+      tr("Base seed for the sensor-noise reset (--sim-seed); "
+         "repeat i uses seed+i. Makes eval(x) reproducible. "
+         "0 = free-running noise (legacy)."));
   advForm->addWidget(m_tuneSimSeed, ar++, 1);
   v->addWidget(advGroup);
 
@@ -1379,39 +1493,62 @@ void SimulatorWidget::buildAutotunePage(QWidget* page) {
     QSettings st;
     st.beginGroup(QStringLiteral("autotune"));
     m_tuneOptimizer->setCurrentText(
-        st.value(QStringLiteral("optimizer"), m_tuneOptimizer->currentText()).toString());
-    m_tuneBudget->setValue(st.value(QStringLiteral("budget"), m_tuneBudget->value()).toInt());
-    m_tuneStep->setValue(st.value(QStringLiteral("stepUs"), m_tuneStep->value()).toInt());
-    m_tuneRepeats->setValue(st.value(QStringLiteral("repeats"), m_tuneRepeats->value()).toInt());
-    m_tuneTether->setValue(st.value(QStringLiteral("tether"), m_tuneTether->value()).toDouble());
-    m_tuneSeed->setValue(st.value(QStringLiteral("seed"), m_tuneSeed->value()).toInt());
-    m_tuneSimSeed->setValue(st.value(QStringLiteral("simSeed"), m_tuneSimSeed->value()).toInt());
-    m_tuneYaw->setChecked(st.value(QStringLiteral("yaw"), m_tuneYaw->isChecked()).toBool());
-    m_tuneSysId->setChecked(st.value(QStringLiteral("sysid"), m_tuneSysId->isChecked()).toBool());
-    m_tuneSysIdBw->setValue(st.value(QStringLiteral("sysidBw"), m_tuneSysIdBw->value()).toDouble());
-    m_tuneCostFn->setCurrentIndex(st.value(QStringLiteral("costFn"), m_tuneCostFn->currentIndex()).toInt());
-    m_tuneCompare->setChecked(st.value(QStringLiteral("compare"), m_tuneCompare->isChecked()).toBool());
-    m_tuneBuzz->setChecked(st.value(QStringLiteral("buzz"), m_tuneBuzz->isChecked()).toBool());
-    m_tuneValidate->setChecked(st.value(QStringLiteral("validate"), m_tuneValidate->isChecked()).toBool());
-    m_tunePlot->setChecked(st.value(QStringLiteral("plot"), m_tunePlot->isChecked()).toBool());
-    m_tuneVerbose->setChecked(st.value(QStringLiteral("verbose"), m_tuneVerbose->isChecked()).toBool());
+        st.value(QStringLiteral("optimizer"), m_tuneOptimizer->currentText())
+            .toString());
+    m_tuneBudget->setValue(
+        st.value(QStringLiteral("budget"), m_tuneBudget->value()).toInt());
+    m_tuneStep->setValue(
+        st.value(QStringLiteral("stepUs"), m_tuneStep->value()).toInt());
+    m_tuneRepeats->setValue(
+        st.value(QStringLiteral("repeats"), m_tuneRepeats->value()).toInt());
+    m_tuneTether->setValue(
+        st.value(QStringLiteral("tether"), m_tuneTether->value()).toDouble());
+    m_tuneSeed->setValue(
+        st.value(QStringLiteral("seed"), m_tuneSeed->value()).toInt());
+    m_tuneSimSeed->setValue(
+        st.value(QStringLiteral("simSeed"), m_tuneSimSeed->value()).toInt());
+    m_tuneYaw->setChecked(
+        st.value(QStringLiteral("yaw"), m_tuneYaw->isChecked()).toBool());
+    m_tuneSysId->setChecked(
+        st.value(QStringLiteral("sysid"), m_tuneSysId->isChecked()).toBool());
+    m_tuneSysIdBw->setValue(
+        st.value(QStringLiteral("sysidBw"), m_tuneSysIdBw->value()).toDouble());
+    m_tuneCostFn->setCurrentIndex(
+        st.value(QStringLiteral("costFn"), m_tuneCostFn->currentIndex())
+            .toInt());
+    m_tuneCompare->setChecked(
+        st.value(QStringLiteral("compare"), m_tuneCompare->isChecked())
+            .toBool());
+    m_tuneBuzz->setChecked(
+        st.value(QStringLiteral("buzz"), m_tuneBuzz->isChecked()).toBool());
+    m_tuneValidate->setChecked(
+        st.value(QStringLiteral("validate"), m_tuneValidate->isChecked())
+            .toBool());
+    m_tunePlot->setChecked(
+        st.value(QStringLiteral("plot"), m_tunePlot->isChecked()).toBool());
+    m_tuneVerbose->setChecked(
+        st.value(QStringLiteral("verbose"), m_tuneVerbose->isChecked())
+            .toBool());
     st.endGroup();
   }
   // Design-bandwidth knob is meaningful only for the System-ID path.
   m_tuneSysIdBw->setEnabled(m_tuneSysId->isChecked());
-  auto saveTune = [](const QString& key, const QVariant& val) {
+  auto saveTune = [](const QString &key, const QVariant &val) {
     QSettings s;
     s.setValue(QStringLiteral("autotune/") + key, val);
   };
   connect(m_tuneOptimizer, &QComboBox::currentTextChanged, this,
-          [saveTune](const QString& t) { saveTune(QStringLiteral("optimizer"), t); });
+          [saveTune](const QString &t) {
+            saveTune(QStringLiteral("optimizer"), t);
+          });
   connect(m_tuneBudget, QOverload<int>::of(&QSpinBox::valueChanged), this,
           [saveTune](int v) { saveTune(QStringLiteral("budget"), v); });
   connect(m_tuneStep, QOverload<int>::of(&QSpinBox::valueChanged), this,
           [saveTune](int v) { saveTune(QStringLiteral("stepUs"), v); });
   connect(m_tuneRepeats, QOverload<int>::of(&QSpinBox::valueChanged), this,
           [saveTune](int v) { saveTune(QStringLiteral("repeats"), v); });
-  connect(m_tuneTether, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+  connect(m_tuneTether, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+          this,
           [saveTune](double v) { saveTune(QStringLiteral("tether"), v); });
   connect(m_tuneSeed, QOverload<int>::of(&QSpinBox::valueChanged), this,
           [saveTune](int v) { saveTune(QStringLiteral("seed"), v); });
@@ -1419,16 +1556,16 @@ void SimulatorWidget::buildAutotunePage(QWidget* page) {
           [saveTune](int v) { saveTune(QStringLiteral("simSeed"), v); });
   connect(m_tuneYaw, &QCheckBox::toggled, this,
           [saveTune](bool v) { saveTune(QStringLiteral("yaw"), v); });
-  connect(m_tuneSysId, &QCheckBox::toggled, this,
-          [this, saveTune](bool v) {
-            saveTune(QStringLiteral("sysid"), v);
-            if (m_tuneSysIdBw)
-              m_tuneSysIdBw->setEnabled(v);
-          });
-  connect(m_tuneSysIdBw, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+  connect(m_tuneSysId, &QCheckBox::toggled, this, [this, saveTune](bool v) {
+    saveTune(QStringLiteral("sysid"), v);
+    if (m_tuneSysIdBw)
+      m_tuneSysIdBw->setEnabled(v);
+  });
+  connect(m_tuneSysIdBw, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+          this,
           [saveTune](double v) { saveTune(QStringLiteral("sysidBw"), v); });
-  connect(m_tuneCostFn, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
-          [saveTune](int v) { saveTune(QStringLiteral("costFn"), v); });
+  connect(m_tuneCostFn, QOverload<int>::of(&QComboBox::currentIndexChanged),
+          this, [saveTune](int v) { saveTune(QStringLiteral("costFn"), v); });
   connect(m_tuneCompare, &QCheckBox::toggled, this,
           [saveTune](bool v) { saveTune(QStringLiteral("compare"), v); });
   connect(m_tuneBuzz, &QCheckBox::toggled, this,
@@ -1441,15 +1578,17 @@ void SimulatorWidget::buildAutotunePage(QWidget* page) {
           [saveTune](bool v) { saveTune(QStringLiteral("verbose"), v); });
 
   // --- Test-rig pose: pin the airframe and tilt it on the stand ---------
-  auto* rigGroup = new QGroupBox(tr("Test-rig pose"), page);
-  auto* rigV = new QVBoxLayout(rigGroup);
-  m_rigEnable = new QCheckBox(tr("Rig mode (pin translation, free rotation)"), page);
-  m_rigEnable->setToolTip(tr("Pins the airframe so you can tilt it on a stand. "
-                             "Disarm first — armed, the controller fights the pose."));
+  auto *rigGroup = new QGroupBox(tr("Test-rig pose"), page);
+  auto *rigV = new QVBoxLayout(rigGroup);
+  m_rigEnable =
+      new QCheckBox(tr("Rig mode (pin translation, free rotation)"), page);
+  m_rigEnable->setToolTip(
+      tr("Pins the airframe so you can tilt it on a stand. "
+         "Disarm first — armed, the controller fights the pose."));
   rigV->addWidget(m_rigEnable);
-  auto* rigGrid = new QGridLayout();
-  auto mkSlider = [&](const QString& name, int row) {
-    auto* s = new QSlider(Qt::Horizontal, page);
+  auto *rigGrid = new QGridLayout();
+  auto mkSlider = [&](const QString &name, int row) {
+    auto *s = new QSlider(Qt::Horizontal, page);
     s->setRange(-180, 180);
     s->setValue(0);
     s->setEnabled(false);
@@ -1469,15 +1608,21 @@ void SimulatorWidget::buildAutotunePage(QWidget* page) {
   v->addWidget(rigGroup);
 
   connect(m_rigEnable, &QCheckBox::toggled, this, [this](bool on) {
-    if (m_rigRoll) m_rigRoll->setEnabled(on);
-    if (m_rigPitch) m_rigPitch->setEnabled(on);
-    if (m_rigYaw) m_rigYaw->setEnabled(on);
-    if (m_sim) m_sim->sendTestRig(on);
+    if (m_rigRoll)
+      m_rigRoll->setEnabled(on);
+    if (m_rigPitch)
+      m_rigPitch->setEnabled(on);
+    if (m_rigYaw)
+      m_rigYaw->setEnabled(on);
+    if (m_sim)
+      m_sim->sendTestRig(on);
     if (on) {
       applyRigPose();
     } else {
-      if (m_sim) m_sim->sendReset();           // back to level, free flight
-      if (m_rigReadout) m_rigReadout->setText(tr("rig: off"));
+      if (m_sim)
+        m_sim->sendReset(); // back to level, free flight
+      if (m_rigReadout)
+        m_rigReadout->setText(tr("rig: off"));
     }
   });
   // Apply the pose ONCE per change, not on every intermediate drag value: each
@@ -1489,16 +1634,20 @@ void SimulatorWidget::buildAutotunePage(QWidget* page) {
     if (m_rigReadout && m_rigRoll)
       m_rigReadout->setText(
           tr("rig: roll %1°  pitch %2°  yaw %3°  (release to apply)")
-              .arg(m_rigRoll->value()).arg(m_rigPitch->value()).arg(m_rigYaw->value()));
+              .arg(m_rigRoll->value())
+              .arg(m_rigPitch->value())
+              .arg(m_rigYaw->value()));
   };
-  for (QSlider* s : {m_rigRoll, m_rigPitch, m_rigYaw}) {
+  for (QSlider *s : {m_rigRoll, m_rigPitch, m_rigYaw}) {
     connect(s, &QSlider::valueChanged, this, [this, s, previewRig] {
-      if (s->isSliderDown()) previewRig();   // mid-drag: preview only
-      else applyRigPose();                    // click / keyboard step: apply now
+      if (s->isSliderDown())
+        previewRig(); // mid-drag: preview only
+      else
+        applyRigPose(); // click / keyboard step: apply now
     });
     connect(s, &QSlider::sliderReleased, this, [this] { applyRigPose(); });
   }
-  setRigControlsEnabled(m_sim != nullptr);   // disabled until the sim runs
+  setRigControlsEnabled(m_sim != nullptr); // disabled until the sim runs
 
   // Embedded convergence chart — cost per evaluation + best-so-far.
   m_tuneChart = new TuneChart(page);
@@ -1506,15 +1655,17 @@ void SimulatorWidget::buildAutotunePage(QWidget* page) {
 
   // Live step/chirp response of the roll axis (setpoint vs measured), updated
   // once per evaluation from the latest excitation window.
-  v->addWidget(new QLabel(tr("Roll response — setpoint (dashed) vs measured"), page));
+  v->addWidget(
+      new QLabel(tr("Roll response — setpoint (dashed) vs measured"), page));
   m_tuneResponse = new ResponsePlot(page);
   v->addWidget(m_tuneResponse);
 
-  auto* btnRow = new QHBoxLayout();
+  auto *btnRow = new QHBoxLayout();
   m_tuneStart = new QPushButton(tr("Start Autotune"), page);
   m_tuneStop = new QPushButton(tr("Stop"), page);
   m_tuneStop->setEnabled(false);
-  connect(m_tuneStart, &QPushButton::clicked, this, [this] { startAutotune(); });
+  connect(m_tuneStart, &QPushButton::clicked, this,
+          [this] { startAutotune(); });
   connect(m_tuneStop, &QPushButton::clicked, this, [this] { stopAutotune(); });
   btnRow->addWidget(m_tuneStart);
   btnRow->addWidget(m_tuneStop);
@@ -1523,8 +1674,9 @@ void SimulatorWidget::buildAutotunePage(QWidget* page) {
 
   m_tuneResult = new QLabel(tr("—"), page);
   m_tuneResult->setWordWrap(true);
-  m_tuneResult->setStyleSheet(QString("color:%1; font-family:monospace; font-size:11px;")
-                                  .arg(Theme::hex(Theme::kOk)));
+  m_tuneResult->setStyleSheet(
+      QString("color:%1; font-family:monospace; font-size:11px;")
+          .arg(Theme::hex(Theme::kOk)));
   v->addWidget(m_tuneResult);
 
   // AT-1: Proposed Gains (the search's best) + an explicit Apply to firmware.
@@ -1548,12 +1700,12 @@ void SimulatorWidget::buildAutotunePage(QWidget* page) {
   v->addWidget(m_tuneGainsTable);
 
   m_tuneApplyBtn = new QPushButton(tr("Apply Gains"), page);
-  m_tuneApplyBtn->setEnabled(false);  // enabled once a search proposes gains
-  m_tuneApplyBtn->setToolTip(
-      tr("Apply the proposed (best) gains. With a flight controller connected "
-         "they go to the board via CMD_SET_PID; otherwise they apply to the "
-         "in-app sim and persist to 0:pid.bin (reloaded on the next sim start). "
-         "The autotuner never writes them on its own."));
+  m_tuneApplyBtn->setEnabled(false); // enabled once a search proposes gains
+  m_tuneApplyBtn->setToolTip(tr(
+      "Apply the proposed (best) gains. With a flight controller connected "
+      "they go to the board via CMD_SET_PID; otherwise they apply to the "
+      "in-app sim and persist to 0:pid.bin (reloaded on the next sim start). "
+      "The autotuner never writes them on its own."));
   connect(m_tuneApplyBtn, &QPushButton::clicked, this,
           [this] { applyProposedGains(); });
   v->addWidget(m_tuneApplyBtn);
@@ -1570,10 +1722,11 @@ QString SimulatorWidget::exportVehicleGeometryJson() {
   QJsonObject root;
   root["mass"] = g.mass;
   QJsonArray inertia;
-  for (int i = 0; i < 9; ++i) inertia.append(g.inertia[i]);
+  for (int i = 0; i < 9; ++i)
+    inertia.append(g.inertia[i]);
   root["inertia"] = inertia;
   QJsonArray motors;
-  for (const auto& m : g.motors) {
+  for (const auto &m : g.motors) {
     QJsonObject mo;
     mo["pos"] = QJsonArray{m.pos.x(), m.pos.y(), m.pos.z()};
     mo["axis"] = QJsonArray{m.axis.x(), m.axis.y(), m.axis.z()};
@@ -1601,7 +1754,7 @@ QString SimulatorWidget::exportWorldJson() {
   root["ground_z"] = w.ground_z;
   root["restitution"] = w.restitution;
   root["linear_drag"] = w.linear_drag;
-  root["angular_drag"] = w.angular_drag;          // the one that matters for damping
+  root["angular_drag"] = w.angular_drag; // the one that matters for damping
   root["ground_right_gain"] = w.ground_right_gain;
   root["ground_right_damp"] = w.ground_right_damp;
   QDir().mkpath(m_logDir);
@@ -1615,7 +1768,8 @@ QString SimulatorWidget::exportWorldJson() {
 }
 
 void SimulatorWidget::startAutotune() {
-  if (m_tuneThread || !m_geomEditor) return;
+  if (m_tuneThread || !m_geomEditor)
+    return;
   const QString root = defaultRepoRoot();
 
   // The autotune search runs on the single in-process `vayu_sitl_rtos` backend
@@ -1626,26 +1780,30 @@ void SimulatorWidget::startAutotune() {
   if (m_tuneSysIdBw)
     p.sysIdBwFrac = m_tuneSysIdBw->value();
   p.rtosRateCost = m_tuneCostFn && m_tuneCostFn->currentIndex() == 1;
-  for (const QString &cand : {root + "/build_sitl_rtos/vayu_sitl_rtos",
-                              root + "/sim/host/build_sitl_rtos/vayu_sitl_rtos"}) {
+  for (const QString &cand :
+       {root + "/build_sitl_rtos/vayu_sitl_rtos",
+        root + "/sim/host/build_sitl_rtos/vayu_sitl_rtos"}) {
     if (QFileInfo::exists(cand)) {
       p.rtosBin = cand;
       break;
     }
   }
   if (p.rtosBin.isEmpty()) {
-    m_tuneLog->appendPlainText(tr(
-        "[error] autotune backend not found. Build it with:\n"
-        "  cmake -S sim/host -B build_sitl_rtos -DVAYU_SITL_RTOS_BUILD=ON\n"
-        "  cmake --build build_sitl_rtos --target vayu_sitl_rtos"));
+    m_tuneLog->appendPlainText(
+        tr("[error] autotune backend not found. Build it with:\n"
+           "  cmake -S sim/host -B build_sitl_rtos -DVAYU_SITL_RTOS_BUILD=ON\n"
+           "  cmake --build build_sitl_rtos --target vayu_sitl_rtos"));
     return;
   }
 
   // Stop the interactive sim and lock Vehicle/World so the airframe can't
   // change mid-search.
-  if (m_sim) stopInAppSim();
-  if (m_vehicleTab) m_vehicleTab->setEnabled(false);
-  if (m_worldTab) m_worldTab->setEnabled(false);
+  if (m_sim)
+    stopInAppSim();
+  if (m_vehicleTab)
+    m_vehicleTab->setEnabled(false);
+  if (m_worldTab)
+    m_worldTab->setEnabled(false);
 
   const QString tuneSuffix =
       QStringLiteral("_attune%1").arg(QCoreApplication::applicationPid());
@@ -1657,7 +1815,8 @@ void SimulatorWidget::startAutotune() {
     const vsim::GeometryConfig g = m_geomEditor->physicsConfig();
     vsim_ctl_geometry_t gb{};
     gb.mass = g.mass;
-    for (int i = 0; i < 9; ++i) gb.inertia[i] = g.inertia[i];
+    for (int i = 0; i < 9; ++i)
+      gb.inertia[i] = g.inertia[i];
     for (int i = 0; i < 4; ++i) {
       const auto &m = g.motors[i];
       gb.motors[i].pos[0] = m.pos.x();
@@ -1695,7 +1854,8 @@ void SimulatorWidget::startAutotune() {
   p.tuneYaw = m_tuneYaw->isChecked();
   p.optimizer = m_tuneOptimizer->currentText();
   p.budget = m_tuneBudget->value();
-  p.repeats = m_tuneRepeats->value();  // rollouts averaged per eval (smooths noise)
+  p.repeats =
+      m_tuneRepeats->value(); // rollouts averaged per eval (smooths noise)
   p.optSeed = quint64(m_tuneSeed->value());
   p.rollout.stepUs = m_tuneStep->value();
   p.rollout.tetherK = m_tuneTether->value();
@@ -1738,20 +1898,21 @@ void SimulatorWidget::startAutotune() {
           });
   connect(m_tuneWorker, &AutotuneWorker::finished, this,
           &SimulatorWidget::onTuneFinished);
-  connect(m_tuneWorker, &AutotuneWorker::failed, this, [this](const QString &e) {
-    m_tuneLog->appendPlainText("[error] " + e);
-  });
+  connect(
+      m_tuneWorker, &AutotuneWorker::failed, this,
+      [this](const QString &e) { m_tuneLog->appendPlainText("[error] " + e); });
   connect(m_tuneWorker, &AutotuneWorker::log, this,
           [this](const QString &l) { m_tuneLog->appendPlainText(l); });
   connect(m_tuneWorker, &AutotuneWorker::done, this,
           &SimulatorWidget::onTuneDone);
 
   m_tuneThread->start();
-  emit autotuneRunningChanged(true);  // drives the source FSM → Autotune state
+  emit autotuneRunningChanged(true); // drives the source FSM → Autotune state
 }
 
 void SimulatorWidget::stopAutotune() {
-  if (m_tuneWorker) m_tuneWorker->cancel();  // unwinds the optimizer + stack
+  if (m_tuneWorker)
+    m_tuneWorker->cancel(); // unwinds the optimizer + stack
 }
 
 void SimulatorWidget::onTuneEvaluated(const QVector<double> &current,
@@ -1766,14 +1927,16 @@ void SimulatorWidget::onTuneEvaluated(const QVector<double> &current,
   const int rows = m_tuneGainsTable->rowCount();
   for (int i = 0; i < rows; ++i) {
     if (i < current.size())
-      m_tuneGainsTable->item(i, 1)->setText(QString::number(current[i], 'g', 4));
+      m_tuneGainsTable->item(i, 1)->setText(
+          QString::number(current[i], 'g', 4));
     if (i < best.size())
       m_tuneGainsTable->item(i, 2)->setText(QString::number(best[i], 'g', 4));
   }
 }
 
 void SimulatorWidget::onTuneFinished(const QVector<double> &bestX,
-                                     const QStringList &names, double bestCost) {
+                                     const QStringList &names,
+                                     double bestCost) {
   // AT-1: surface the best gains as a proposal; applying is the explicit click.
   m_tuneParams = names;
   m_tuneBestX = bestX;
@@ -1809,12 +1972,16 @@ void SimulatorWidget::onTuneDone() {
     delete m_tuneWorker;
     m_tuneWorker = nullptr;
   }
-  if (m_tuneStart) m_tuneStart->setEnabled(true);
-  if (m_tuneStop) m_tuneStop->setEnabled(false);
+  if (m_tuneStart)
+    m_tuneStart->setEnabled(true);
+  if (m_tuneStop)
+    m_tuneStop->setEnabled(false);
   // Unlock Vehicle/World now the search (which locked them) has ended.
-  if (m_vehicleTab) m_vehicleTab->setEnabled(true);
-  if (m_worldTab) m_worldTab->setEnabled(true);
-  emit autotuneRunningChanged(false);  // source FSM → Idle
+  if (m_vehicleTab)
+    m_vehicleTab->setEnabled(true);
+  if (m_worldTab)
+    m_worldTab->setEnabled(true);
+  emit autotuneRunningChanged(false); // source FSM → Idle
 }
 
 void SimulatorWidget::parseProposedGains() {
@@ -1826,24 +1993,29 @@ void SimulatorWidget::parseProposedGains() {
   m_tuneApplyBtn->setEnabled(false);
 
   QFile f(m_tuneOutJson);
-  if (!f.open(QIODevice::ReadOnly)) return;
+  if (!f.open(QIODevice::ReadOnly))
+    return;
   const QJsonDocument doc = QJsonDocument::fromJson(f.readAll());
   f.close();
-  if (!doc.isObject()) return;
+  if (!doc.isObject())
+    return;
   const QJsonObject root = doc.object();
-  for (const QJsonValue& n : root.value(QStringLiteral("params")).toArray())
+  for (const QJsonValue &n : root.value(QStringLiteral("params")).toArray())
     m_tuneParams << n.toString();
   const QJsonArray results = root.value(QStringLiteral("results")).toArray();
-  if (results.isEmpty()) return;
+  if (results.isEmpty())
+    return;
   // The autotuner sorts results best-first.
-  for (const QJsonValue& x :
+  for (const QJsonValue &x :
        results.first().toObject().value(QStringLiteral("best_x")).toArray())
     m_tuneBestX << x.toDouble();
-  if (m_tuneParams.isEmpty() || m_tuneBestX.isEmpty()) return;
+  if (m_tuneParams.isEmpty() || m_tuneBestX.isEmpty())
+    return;
 
   QStringList parts;
   for (int i = 0; i < m_tuneParams.size() && i < m_tuneBestX.size(); ++i)
-    parts << QStringLiteral("%1=%2").arg(m_tuneParams[i])
+    parts << QStringLiteral("%1=%2")
+                 .arg(m_tuneParams[i])
                  .arg(m_tuneBestX[i], 0, 'g', 4);
   m_tuneProposed->setText(tr("Proposed gains: %1").arg(parts.join(", ")));
   m_tuneApplyBtn->setEnabled(
@@ -1865,9 +2037,10 @@ void SimulatorWidget::applyProposedGains() {
           .arg(cmds.size()));
 }
 
-void SimulatorWidget::updateHud(const vsim::SimSnapshot& s) {
-  m_lastDronePos = s.pos_w;  // tracked for the lift-onto-terrain logic
-  if (m_hud) m_hud->setSnapshot(s);
+void SimulatorWidget::updateHud(const vsim::SimSnapshot &s) {
+  m_lastDronePos = s.pos_w; // tracked for the lift-onto-terrain logic
+  if (m_hud)
+    m_hud->setSnapshot(s);
   if (m_horizon) {
     float roll, pitch, yaw;
     vsim::quatToEulerNED(s.att, &roll, &pitch, &yaw);
@@ -1878,7 +2051,8 @@ void SimulatorWidget::updateHud(const vsim::SimSnapshot& s) {
     const float wN = s.wind_w.x(), wE = s.wind_w.y();
     const float spd = std::sqrt(wN * wN + wE * wE);
     float dir = std::atan2(wE, wN) * 180.0f / 3.14159265358979323846f;
-    if (dir < 0.0f) dir += 360.0f;
+    if (dir < 0.0f)
+      dir += 360.0f;
     m_worldEditor->setWindReadout(spd, dir);
   }
 
@@ -1887,14 +2061,16 @@ void SimulatorWidget::updateHud(const vsim::SimSnapshot& s) {
   if (m_training.active()) {
     const bool cleared = m_training.advance(s.pos_w);
     const bool show = !m_training.finished();
-    if (m_renderer) m_renderer->setTrainingActive(m_training.activeIndex(), show);
+    if (m_renderer)
+      m_renderer->setTrainingActive(m_training.activeIndex(), show);
     if (m_downRenderer)
       m_downRenderer->setTrainingActive(m_training.activeIndex(), show);
     if (cleared) {
       updateTrainingProgress();
       if (m_training.finished())
-        appendLog("train", tr("course complete — %1 gates cleared!")
-                               .arg(m_training.total()));
+        appendLog(
+            "train",
+            tr("course complete — %1 gates cleared!").arg(m_training.total()));
       else
         appendLog("train", tr("gate %1 / %2 cleared")
                                .arg(m_training.passedCount())
@@ -1904,14 +2080,16 @@ void SimulatorWidget::updateHud(const vsim::SimSnapshot& s) {
 }
 
 void SimulatorWidget::setTrainingMode(int difficulty) {
-  m_training.generate(static_cast<vsim::TrainingCourse::Difficulty>(difficulty));
+  m_training.generate(
+      static_cast<vsim::TrainingCourse::Difficulty>(difficulty));
   pushTrainingGates();
   updateTrainingProgress();
   // Start every run from the floor: re-spawn the airframe at the level pose.
-  if (m_training.active() && m_sim) m_sim->sendReset();
+  if (m_training.active() && m_sim)
+    m_sim->sendReset();
   if (m_training.active())
-    appendLog("train", tr("training course armed (%1 gates)")
-                           .arg(m_training.total()));
+    appendLog("train",
+              tr("training course armed (%1 gates)").arg(m_training.total()));
 }
 
 void SimulatorWidget::pushTrainingGates() {
@@ -1927,12 +2105,13 @@ void SimulatorWidget::pushTrainingGates() {
 }
 
 void SimulatorWidget::updateTrainingProgress() {
-  if (!m_trainingStatus) return;
+  if (!m_trainingStatus)
+    return;
   if (!m_training.active()) {
     m_trainingStatus->setText(tr("Training off"));
   } else if (m_training.finished()) {
-    m_trainingStatus->setText(tr("Course complete — %1 / %1 gates")
-                                  .arg(m_training.total()));
+    m_trainingStatus->setText(
+        tr("Course complete — %1 / %1 gates").arg(m_training.total()));
   } else {
     m_trainingStatus->setText(tr("Next: gate %1 / %2")
                                   .arg(m_training.passedCount() + 1)
@@ -1941,11 +2120,12 @@ void SimulatorWidget::updateTrainingProgress() {
 }
 
 void SimulatorWidget::loadWorldMeshToRenderer() {
-  if (!m_renderer || !m_worldEditor) return;
-  const vsim::WorldConfig& w = m_worldEditor->config();
+  if (!m_renderer || !m_worldEditor)
+    return;
+  const vsim::WorldConfig &w = m_worldEditor->config();
 
-  const bool endless =
-      w.proceduralBiome.compare(QStringLiteral("endless"), Qt::CaseInsensitive) == 0;
+  const bool endless = w.proceduralBiome.compare(QStringLiteral("endless"),
+                                                 Qt::CaseInsensitive) == 0;
 
   // Point the contour minimap at the active terrain's height source. The
   // endless lambda reads the streamer's field lazily (configured below); the
@@ -1963,9 +2143,9 @@ void SimulatorWidget::loadWorldMeshToRenderer() {
     auto hf = std::make_shared<vsim::procgen::Heightfield>(
         vsim::proceduralMeadowHeightfield(w));
     heightAt = [hf](float n, float e) { return hf->sampleWorld(n, e); };
-    minimapRange = w.proceduralSizeM * 0.5f;  // fit the finite arena
+    minimapRange = w.proceduralSizeM * 0.5f; // fit the finite arena
   }
-  m_terrainHeightAt = heightAt;  // null for imported / no world
+  m_terrainHeightAt = heightAt; // null for imported / no world
   // Scatter helipad pads (and the home pad at origin) for the new world.
   m_lastHelipadCenter = QVector3D(0, 0, 0);
   recomputeHelipads(0.0f, 0.0f);
@@ -1979,20 +2159,22 @@ void SimulatorWidget::loadWorldMeshToRenderer() {
 
   // Leaving the endless biome: stop the streamer and drop its chunks so a
   // finite mesh / grid shows cleanly.
-  if (!endless && m_useGpuGrass) {  // leaving the GPU-grass biome
+  if (!endless && m_useGpuGrass) { // leaving the GPU-grass biome
     m_useGpuGrass = false;
     m_renderer->setGpuGrassActive(false);
-    if (m_downRenderer) m_downRenderer->setGpuGrassActive(false);
+    if (m_downRenderer)
+      m_downRenderer->setGpuGrassActive(false);
   }
   if (!endless && m_chunkStreamer.active()) {
-    ++m_streamGen;  // invalidate in-flight builds
+    ++m_streamGen; // invalidate in-flight builds
     m_chunkStreamer.deactivate();
     m_chunkCache.clear();
     m_floraCache.clear();
     m_floraShown.clear();
     m_floraInflight.clear();
     m_collisionPending = false;
-    if (m_streamTimer) m_streamTimer->stop();
+    if (m_streamTimer)
+      m_streamTimer->stop();
     m_renderer->clearWorldChunks();
     m_renderer->clearChunkFlora();
     if (m_downRenderer) {
@@ -2004,7 +2186,8 @@ void SimulatorWidget::loadWorldMeshToRenderer() {
   // Endless streaming biome: drive the chunk streamer instead of one mesh.
   if (endless) {
     m_renderer->setWorldMesh({}, {});
-    if (m_downRenderer) m_downRenderer->setWorldMesh({}, {});
+    if (m_downRenderer)
+      m_downRenderer->setWorldMesh({}, {});
     m_renderer->clearWorldChunks();
     m_renderer->clearChunkFlora();
     if (m_downRenderer) {
@@ -2022,10 +2205,10 @@ void SimulatorWidget::loadWorldMeshToRenderer() {
     m_collisionPending = false;
 
     vsim::ChunkStreamer::Config sc;
-    sc.field = w.field;  // user-tuned terrain shape + colour bands
+    sc.field = w.field; // user-tuned terrain shape + colour bands
     sc.field.seed = static_cast<uint32_t>(w.proceduralSeed);
     m_chunkStreamer.configure(sc);
-    m_floraParams = w.flora;  // user-tuned grass density / slope / height
+    m_floraParams = w.flora; // user-tuned grass density / slope / height
     m_floraParams.seed = static_cast<uint32_t>(w.proceduralSeed);
 
 #ifdef VAYU_SIM_GRASS
@@ -2046,7 +2229,7 @@ void SimulatorWidget::loadWorldMeshToRenderer() {
     gp.heightMean = w.flora.heightMean;
     gp.heightStdDev = w.flora.heightStdDev;
     gp.flowerFrac = w.flora.flowerFrac;
-    gp.look = w.look;   // live grass shading knobs
+    gp.look = w.look; // live grass shading knobs
     const float bpc = std::max(1.0f, w.flora.bladesPerCell);
     // Near-ring candidate spacing. GpuGrass adds a coarse FAR ring (4x cell) on
     // top for distance, so this only controls near density — push it small.
@@ -2057,12 +2240,13 @@ void SimulatorWidget::loadWorldMeshToRenderer() {
     const float radius = gp.grid * gp.cell * 0.5f;
     gp.falloffEnd = radius * 0.9f;
     gp.falloffStart = gp.falloffEnd * 0.6f;
-#endif  // VAYU_SIM_GRASS
+#endif // VAYU_SIM_GRASS
 
     // Terrain lighting tracks the same look knobs so ground + grass warm together.
     m_renderer->setTerrainLook(w.look.sunIntensity, w.look.ambientStrength);
     if (m_downRenderer)
-      m_downRenderer->setTerrainLook(w.look.sunIntensity, w.look.ambientStrength);
+      m_downRenderer->setTerrainLook(w.look.sunIntensity,
+                                     w.look.ambientStrength);
 
 #ifdef VAYU_SIM_GRASS
     m_useGpuGrass = m_renderer->gpuGrassReady();
@@ -2082,18 +2266,19 @@ void SimulatorWidget::loadWorldMeshToRenderer() {
                              : tr("GPU grass ready (toggle 'Grass' to show)"));
     } else {
       m_renderer->setGpuGrassActive(false);
-      if (m_downRenderer) m_downRenderer->setGpuGrassActive(false);
+      if (m_downRenderer)
+        m_downRenderer->setGpuGrassActive(false);
     }
-#endif  // VAYU_SIM_GRASS
+#endif // VAYU_SIM_GRASS
 
     if (!m_streamTimer) {
       m_streamTimer = new QTimer(this);
-      m_streamTimer->setInterval(100);  // 10 Hz poll of the view centre
+      m_streamTimer->setInterval(100); // 10 Hz poll of the view centre
       connect(m_streamTimer, &QTimer::timeout, this,
               &SimulatorWidget::onStreamTick);
     }
     m_streamTimer->start();
-    onStreamTick();  // stream the initial neighbourhood immediately
+    onStreamTick(); // stream the initial neighbourhood immediately
     appendLog("world", tr("endless procedural terrain (seed %1) streaming")
                            .arg(w.proceduralSeed));
     return;
@@ -2104,11 +2289,14 @@ void SimulatorWidget::loadWorldMeshToRenderer() {
   if (!w.proceduralBiome.isEmpty()) {
     const vsim::LoadedMesh m = vsim::generateProceduralWorld(w);
     if (!m.valid) {
-      appendLog("world", tr("procedural world: unknown biome '%1'")
-                             .arg(w.proceduralBiome));
+      appendLog(
+          "world",
+          tr("procedural world: unknown biome '%1'").arg(w.proceduralBiome));
       m_renderer->setWorldMesh({}, {});
-      if (m_downRenderer) m_downRenderer->setWorldMesh({}, {});
-      if (m_sim) m_sim->clearWorldMesh();
+      if (m_downRenderer)
+        m_downRenderer->setWorldMesh({}, {});
+      if (m_sim)
+        m_sim->clearWorldMesh();
       return;
     }
     m_renderer->setWorldMesh(m.positions, m.normals, m.colors);
@@ -2119,7 +2307,7 @@ void SimulatorWidget::loadWorldMeshToRenderer() {
                            .arg(w.proceduralSeed)
                            .arg(m.triangleCount()));
     if (m_sim) {
-      sendWorldMeshToSim(m);     // collision ready -> safe to lift onto it
+      sendWorldMeshToSim(m); // collision ready -> safe to lift onto it
       liftDroneToSurface();
     }
     return;
@@ -2127,8 +2315,10 @@ void SimulatorWidget::loadWorldMeshToRenderer() {
 
   if (w.worldMeshPath.isEmpty()) {
     m_renderer->setWorldMesh({}, {});
-    if (m_downRenderer) m_downRenderer->setWorldMesh({}, {});
-    if (m_sim) m_sim->clearWorldMesh();
+    if (m_downRenderer)
+      m_downRenderer->setWorldMesh({}, {});
+    if (m_sim)
+      m_sim->clearWorldMesh();
     return;
   }
   // Bake the source up-axis into NED (up = -Z): Z-up needs a 180° flip about
@@ -2138,16 +2328,20 @@ void SimulatorWidget::loadWorldMeshToRenderer() {
   // drives both the render and the collision BVH, so they stay in lockstep.
   QMatrix4x4 xform;
   xform.translate(w.worldMeshOffset);
-  if (w.worldUpAxis == 1) xform.rotate(-90.0f, 1, 0, 0);
-  else                    xform.rotate(180.0f, 1, 0, 0);
+  if (w.worldUpAxis == 1)
+    xform.rotate(-90.0f, 1, 0, 0);
+  else
+    xform.rotate(180.0f, 1, 0, 0);
   QString err;
   const vsim::LoadedMesh m =
       vsim::loadMesh(w.worldMeshPath, w.worldScale, xform, &err);
   if (!m.valid) {
     appendLog("world", tr("world mesh load failed: %1").arg(err));
     m_renderer->setWorldMesh({}, {});
-    if (m_downRenderer) m_downRenderer->setWorldMesh({}, {});
-    if (m_sim) m_sim->clearWorldMesh();
+    if (m_downRenderer)
+      m_downRenderer->setWorldMesh({}, {});
+    if (m_sim)
+      m_sim->clearWorldMesh();
     return;
   }
   m_renderer->setWorldMesh(m.positions, m.normals, m.colors);
@@ -2157,18 +2351,22 @@ void SimulatorWidget::loadWorldMeshToRenderer() {
 
   // Hand the same baked geometry to the physics daemon as a collision BVH.
   // Render and collision therefore share one transform → they never disagree.
-  if (m_sim) sendWorldMeshToSim(m);
+  if (m_sim)
+    sendWorldMeshToSim(m);
 }
 
 void SimulatorWidget::updateMinimap() {
-  if (!m_minimap || !m_minimapPip || !m_minimapPip->isVisible()) return;
-  if (!m_renderer || !m_minimap->hasSampler()) return;
+  if (!m_minimap || !m_minimapPip || !m_minimapPip->isVisible())
+    return;
+  if (!m_renderer || !m_minimap->hasSampler())
+    return;
   const QVector3D c = m_renderer->streamCenter();
   m_minimap->setView(c.x(), c.y(), m_renderer->viewHeadingRad());
 }
 
 void SimulatorWidget::onStreamTick() {
-  if (!m_chunkStreamer.active() || !m_renderer) return;
+  if (!m_chunkStreamer.active() || !m_renderer)
+    return;
   const QVector3D c = m_renderer->streamCenter();
   const vsim::StreamPlan p = m_chunkStreamer.plan(c.x(), c.y());
 
@@ -2192,7 +2390,8 @@ void SimulatorWidget::onStreamTick() {
     m_colCy = p.colCy;
     // CPU grass follows the centre — only when enabled and GPU grass isn't used.
 #ifdef VAYU_SIM_GRASS
-    if (m_grassEnabled && !m_useGpuGrass) streamFlora(p.colCx, p.colCy);
+    if (m_grassEnabled && !m_useGpuGrass)
+      streamFlora(p.colCx, p.colCy);
 #endif
   }
 
@@ -2204,23 +2403,28 @@ void SimulatorWidget::onStreamTick() {
   const int res = m_chunkStreamer.config().resolution;
   const int collRes = m_chunkStreamer.config().collisionResolution;
   const int gen = m_streamGen;
-  for (const vsim::ChunkReq& req : p.toBuild) {
-    auto* watcher = new QFutureWatcher<BuiltChunk>(this);
-    connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher, req, gen]() {
-      if (gen == m_streamGen) onChunkMeshed(req.key, watcher->result());
-      else m_chunkStreamer.forget(req.key);  // stale: config changed mid-build
-      watcher->deleteLater();
-    });
+  for (const vsim::ChunkReq &req : p.toBuild) {
+    auto *watcher = new QFutureWatcher<BuiltChunk>(this);
+    connect(watcher, &QFutureWatcherBase::finished, this,
+            [this, watcher, req, gen]() {
+              if (gen == m_streamGen)
+                onChunkMeshed(req.key, watcher->result());
+              else
+                m_chunkStreamer.forget(
+                    req.key); // stale: config changed mid-build
+              watcher->deleteLater();
+            });
     watcher->setFuture(QtConcurrent::run([field, req, chunkM, res, collRes]() {
       BuiltChunk b;
-      b.mesh = vsim::procgen::meshFieldChunk(*field, req.cx, req.cy, chunkM, res);
-      b.collMesh =
-          vsim::procgen::meshFieldChunk(*field, req.cx, req.cy, chunkM, collRes);
+      b.mesh =
+          vsim::procgen::meshFieldChunk(*field, req.cx, req.cy, chunkM, res);
+      b.collMesh = vsim::procgen::meshFieldChunk(*field, req.cx, req.cy, chunkM,
+                                                 collRes);
       return b;
     }));
   }
 
-  tryBuildCollision();  // in case the neighbourhood is already cached
+  tryBuildCollision(); // in case the neighbourhood is already cached
 
   // Refresh helipads when the view has roamed enough (avoids 10 Hz churn).
   if (std::hypot(c.x() - m_lastHelipadCenter.x(),
@@ -2230,9 +2434,9 @@ void SimulatorWidget::onStreamTick() {
   }
 }
 
-void SimulatorWidget::onChunkMeshed(qint64 key, const BuiltChunk& built) {
+void SimulatorWidget::onChunkMeshed(qint64 key, const BuiltChunk &built) {
   m_chunkStreamer.markBuilt(key);
-  if (!m_chunkStreamer.wanted(key)) {  // drifted out of range while meshing
+  if (!m_chunkStreamer.wanted(key)) { // drifted out of range while meshing
     m_chunkStreamer.forget(key);
     return;
   }
@@ -2250,7 +2454,8 @@ void SimulatorWidget::onChunkMeshed(qint64 key, const BuiltChunk& built) {
 #ifdef VAYU_SIM_GRASS
 void SimulatorWidget::uploadFloraChunk(qint64 key) {
   auto it = m_floraCache.find(key);
-  if (it == m_floraCache.end()) return;
+  if (it == m_floraCache.end())
+    return;
   const float chunkM = m_chunkStreamer.config().chunkM;
   const float cxw = (vsim::ChunkStreamer::cxOf(key) + 0.5f) * chunkM;
   const float cyw = (vsim::ChunkStreamer::cyOf(key) + 0.5f) * chunkM;
@@ -2272,27 +2477,36 @@ void SimulatorWidget::streamFlora(int cx, int cy) {
       drop.push_back(key);
   for (qint64 key : drop) {
     m_renderer->removeChunkFlora(key);
-    if (m_downRenderer) m_downRenderer->removeChunkFlora(key);
+    if (m_downRenderer)
+      m_downRenderer->removeChunkFlora(key);
     m_floraShown.erase(key);
   }
   // Bring grass into range: upload from cache, or scatter it off-thread.
   const auto field = m_chunkStreamer.field();
-  if (!field) return;
+  if (!field)
+    return;
   const float chunkM = m_chunkStreamer.config().chunkM;
-  const vsim::procgen::FloraParams fp = m_floraParams;  // user-tuned knobs
+  const vsim::procgen::FloraParams fp = m_floraParams; // user-tuned knobs
   const int gen = m_streamGen;
   for (int j = cy - kFloraRadius; j <= cy + kFloraRadius; ++j)
     for (int i = cx - kFloraRadius; i <= cx + kFloraRadius; ++i) {
       const qint64 key = vsim::ChunkStreamer::keyOf(i, j);
-      if (m_floraShown.count(key)) continue;
-      if (m_floraCache.count(key)) { uploadFloraChunk(key); continue; }
-      if (m_floraInflight.count(key)) continue;
+      if (m_floraShown.count(key))
+        continue;
+      if (m_floraCache.count(key)) {
+        uploadFloraChunk(key);
+        continue;
+      }
+      if (m_floraInflight.count(key))
+        continue;
       m_floraInflight.insert(key);
       const int fcx = i, fcy = j;
-      auto* w = new QFutureWatcher<std::vector<float>>(this);
+      auto *w = new QFutureWatcher<std::vector<float>>(this);
       connect(w, &QFutureWatcherBase::finished, this, [this, w, key, gen]() {
-        if (gen == m_streamGen) onFloraScattered(key, w->result());
-        else m_floraInflight.erase(key);
+        if (gen == m_streamGen)
+          onFloraScattered(key, w->result());
+        else
+          m_floraInflight.erase(key);
         w->deleteLater();
       });
       w->setFuture(QtConcurrent::run([field, fcx, fcy, chunkM, fp]() {
@@ -2300,7 +2514,7 @@ void SimulatorWidget::streamFlora(int cx, int cy) {
             vsim::procgen::scatterFlora(*field, fcx, fcy, chunkM, fp);
         std::vector<float> d;
         d.reserve(blades.size() * 9);
-        for (const vsim::procgen::FloraInstance& g : blades)
+        for (const vsim::procgen::FloraInstance &g : blades)
           d.insert(d.end(), {g.pos.x, g.pos.y, g.pos.z, g.yaw, g.height,
                              g.flower, g.tint.x, g.tint.y, g.tint.z});
         return d;
@@ -2309,7 +2523,7 @@ void SimulatorWidget::streamFlora(int cx, int cy) {
 }
 
 void SimulatorWidget::onFloraScattered(qint64 key,
-                                       const std::vector<float>& packed) {
+                                       const std::vector<float> &packed) {
   m_floraInflight.erase(key);
   m_floraCache[key] = {packed, static_cast<int>(packed.size() / 9)};
   // Upload only if it's still within the near radius of the current centre.
@@ -2317,26 +2531,31 @@ void SimulatorWidget::onFloraScattered(qint64 key,
       std::abs(vsim::ChunkStreamer::cyOf(key) - m_colCy) <= kFloraRadius)
     uploadFloraChunk(key);
 }
-#endif  // VAYU_SIM_GRASS
+#endif // VAYU_SIM_GRASS
 
 void SimulatorWidget::tryBuildCollision() {
-  if (!m_collisionPending) return;
-  if (!m_sim) { m_collisionPending = false; return; }  // no physics -> not needed
+  if (!m_collisionPending)
+    return;
+  if (!m_sim) {
+    m_collisionPending = false;
+    return;
+  } // no physics -> not needed
   // Build the local collision BVH from the cached chunk meshes (no regen). Wait
   // until the whole collision neighbourhood is cached.
   const std::vector<vsim::ChunkReq> need =
       m_chunkStreamer.collisionChunks(m_colCx, m_colCy);
-  std::vector<const vsim::procgen::ProcMesh*> meshes;
+  std::vector<const vsim::procgen::ProcMesh *> meshes;
   meshes.reserve(need.size());
-  for (const vsim::ChunkReq& req : need) {
+  for (const vsim::ChunkReq &req : need) {
     auto it = m_chunkCache.find(req.key);
-    if (it == m_chunkCache.end()) return;  // not all cached yet; retry on next
+    if (it == m_chunkCache.end())
+      return; // not all cached yet; retry on next
     meshes.push_back(&it->second);
   }
   vsim::LoadedMesh m = vsim::collisionMeshFromChunks(meshes);
   m_collisionPending = false;
   if (m.valid) {
-    appendHelipadCollision(m.positions);  // pads become solid landing surfaces
+    appendHelipadCollision(m.positions); // pads become solid landing surfaces
     sendWorldMeshToSim(m);
   }
   // The local terrain just changed under the drone (spawn or a crossing); if
@@ -2349,8 +2568,10 @@ void SimulatorWidget::recomputeHelipads(float cx, float cy) {
   m_helipads.clear();
   if (!m_terrainHeightAt) {
     m_homePad = QVector3D(0, 0, 0);
-    if (m_renderer) m_renderer->setHelipads(m_helipads);
-    if (m_downRenderer) m_downRenderer->setHelipads(m_helipads);
+    if (m_renderer)
+      m_renderer->setHelipads(m_helipads);
+    if (m_downRenderer)
+      m_downRenderer->setHelipads(m_helipads);
     return;
   }
   // Home pad always at the origin — a deterministic, guaranteed drone spawn.
@@ -2362,10 +2583,14 @@ void SimulatorWidget::recomputeHelipads(float cx, float cy) {
   // the same pads appear regardless of view history. Computed within kRange of
   // the view centre so pads stream in/out as you roam.
   const float kGrid = 70.0f, kRange = 260.0f, kEps = 2.0f, kMaxSlope = 0.09f;
-  const int kCandidates = 4;  // probe several spots/cell, keep the flattest
+  const int kCandidates = 4; // probe several spots/cell, keep the flattest
   auto hash = [](int gx, int gy) -> uint32_t {
     uint32_t h = uint32_t(gx) * 0x9e3779b1u ^ uint32_t(gy) * 0x85ebca77u;
-    h ^= h >> 16; h *= 0x7feb352du; h ^= h >> 15; h *= 0x846ca68bu; h ^= h >> 16;
+    h ^= h >> 16;
+    h *= 0x7feb352du;
+    h ^= h >> 15;
+    h *= 0x846ca68bu;
+    h ^= h >> 16;
     return h;
   };
   auto slopeAt = [&](float px, float py) {
@@ -2383,40 +2608,57 @@ void SimulatorWidget::recomputeHelipads(float cx, float cy) {
   const int gy1 = int(std::floor((cy + kRange) / kGrid));
   for (int gx = gx0; gx <= gx1; ++gx)
     for (int gy = gy0; gy <= gy1; ++gy) {
-      if (gx == 0 && gy == 0) continue;  // origin reserved for the home pad
-      if ((hash(gx, gy) & 0xffu) > 180u) continue;  // ~70% of cells get a pad
+      if (gx == 0 && gy == 0)
+        continue; // origin reserved for the home pad
+      if ((hash(gx, gy) & 0xffu) > 180u)
+        continue; // ~70% of cells get a pad
       // Probe several jittered spots in the cell, keep the flattest one.
       float bestSlope = 1e9f, bx = 0, by = 0;
       for (int k = 0; k < kCandidates; ++k) {
-        const uint32_t h2 = hash(gx * 73856093 + k * 19349663, gy * 83492791 - k);
+        const uint32_t h2 =
+            hash(gx * 73856093 + k * 19349663, gy * 83492791 - k);
         const float jx = float(h2 & 0xffu) / 255.0f - 0.5f;
         const float jy = float((h2 >> 8) & 0xffu) / 255.0f - 0.5f;
         const float px = (float(gx) + 0.5f + jx * 0.8f) * kGrid;
         const float py = (float(gy) + 0.5f + jy * 0.8f) * kGrid;
         const float s = slopeAt(px, py);
-        if (s < bestSlope) { bestSlope = s; bx = px; by = py; }
+        if (s < bestSlope) {
+          bestSlope = s;
+          bx = px;
+          by = py;
+        }
       }
-      if (bestSlope > kMaxSlope) continue;  // no flat-enough spot in this cell
-      if ((bx - cx) * (bx - cx) + (by - cy) * (by - cy) > kRange * kRange) continue;
+      if (bestSlope > kMaxSlope)
+        continue; // no flat-enough spot in this cell
+      if ((bx - cx) * (bx - cx) + (by - cy) * (by - cy) > kRange * kRange)
+        continue;
       m_helipads.emplace_back(bx, by, m_terrainHeightAt(bx, by));
     }
-  if (m_renderer) m_renderer->setHelipads(m_helipads);
-  if (m_downRenderer) m_downRenderer->setHelipads(m_helipads);
+  if (m_renderer)
+    m_renderer->setHelipads(m_helipads);
+  if (m_downRenderer)
+    m_downRenderer->setHelipads(m_helipads);
 }
 
-void SimulatorWidget::appendHelipadCollision(std::vector<QVector3D>& pos) const {
+void SimulatorWidget::appendHelipadCollision(
+    std::vector<QVector3D> &pos) const {
   const float R = vsim::SimRendererWidget::kHelipadRadiusM;
-  const int N = 20;  // collision tessellation (coarser than render is fine)
+  const int N = 20; // collision tessellation (coarser than render is fine)
   // Every triangle is emitted with BOTH windings so it collides regardless of
   // the BVH's single/double-sided flag (the drone must rest on the deck top).
-  auto tri2 = [&](const QVector3D& a, const QVector3D& b, const QVector3D& c) {
-    pos.push_back(a); pos.push_back(b); pos.push_back(c);
-    pos.push_back(a); pos.push_back(c); pos.push_back(b);
+  auto tri2 = [&](const QVector3D &a, const QVector3D &b, const QVector3D &c) {
+    pos.push_back(a);
+    pos.push_back(b);
+    pos.push_back(c);
+    pos.push_back(a);
+    pos.push_back(c);
+    pos.push_back(b);
   };
-  for (const QVector3D& pad : m_helipads) {
+  for (const QVector3D &pad : m_helipads) {
     const float px = pad.x(), py = pad.y();
-    const float zDeck = -pad.z() - vsim::SimRendererWidget::kHelipadDeckM;  // top
-    const float zBase = -pad.z();                                          // terrain
+    const float zDeck =
+        -pad.z() - vsim::SimRendererWidget::kHelipadDeckM; // top
+    const float zBase = -pad.z();                          // terrain
     const QVector3D ctr(px, py, zDeck);
     for (int j = 0; j < N; ++j) {
       const double a0 = 2 * M_PI * j / N, a1 = 2 * M_PI * (j + 1) / N;
@@ -2424,18 +2666,19 @@ void SimulatorWidget::appendHelipadCollision(std::vector<QVector3D>& pos) const 
       const QVector3D r1(px + R * std::cos(a1), py + R * std::sin(a1), zDeck);
       const QVector3D b0(px + R * std::cos(a0), py + R * std::sin(a0), zBase);
       const QVector3D b1(px + R * std::cos(a1), py + R * std::sin(a1), zBase);
-      tri2(ctr, r0, r1);   // deck cap (landing surface)
-      tri2(r0, b0, b1);    // side wall down to terrain
+      tri2(ctr, r0, r1); // deck cap (landing surface)
+      tri2(r0, b0, b1);  // side wall down to terrain
       tri2(r0, b1, r1);
     }
   }
 }
 
 float SimulatorWidget::landingSurfaceZ(float x, float y) const {
-  float z = m_terrainHeightAt ? -m_terrainHeightAt(x, y) : 0.0f;  // terrain surface
+  float z =
+      m_terrainHeightAt ? -m_terrainHeightAt(x, y) : 0.0f; // terrain surface
   const float r2 = vsim::SimRendererWidget::kHelipadRadiusM *
                    vsim::SimRendererWidget::kHelipadRadiusM;
-  for (const QVector3D& pad : m_helipads) {
+  for (const QVector3D &pad : m_helipads) {
     const float dx = x - pad.x(), dy = y - pad.y();
     if (dx * dx + dy * dy <= r2) {
       // Deck sits kHelipadDeckM above that pad's terrain (more negative z =
@@ -2447,12 +2690,13 @@ float SimulatorWidget::landingSurfaceZ(float x, float y) const {
 }
 
 void SimulatorWidget::liftDroneToSurface() {
-  if (!m_sim || !m_terrainHeightAt) return;
+  if (!m_sim || !m_terrainHeightAt)
+    return;
   const float x = m_lastDronePos.x();
   const float y = m_lastDronePos.y();
   // Terrain is a single-valued height field, so the analytic height under the
   // drone is exactly where a ray cast straight down from far above would hit.
-  const float h = m_terrainHeightAt(x, y);     // surface elevation [m] above z=0
+  const float h = m_terrainHeightAt(x, y); // surface elevation [m] above z=0
   // Land on the pad top when over a helipad, otherwise on the terrain.
   const float surfaceZ = landingSurfaceZ(x, y);
 
@@ -2461,25 +2705,28 @@ void SimulatorWidget::liftDroneToSurface() {
   // has sunk into the terrain. A drone resting on or flying above the surface is
   // left alone (no yanking a landed or airborne drone).
   const float buriedEps = 0.3f;
-  if (m_lastDronePos.z() <= surfaceZ + buriedEps) return;
+  if (m_lastDronePos.z() <= surfaceZ + buriedEps)
+    return;
 
   // Re-drop level + stationary a clear margin above the surface, so it falls and
   // settles instead of spawning embedded in a slope (which wedges it tilted).
   const float dropClearance = 1.5f;
   m_sim->sendResetPose(x, y, surfaceZ - dropClearance);
-  appendLog("world", tr("re-dropped drone above terrain (surface %.1f m)").arg(h));
+  appendLog("world",
+            tr("re-dropped drone above terrain (surface %.1f m)").arg(h));
 }
 
-void SimulatorWidget::sendWorldMeshToSim(const vsim::LoadedMesh& m) {
-  if (!m_sim || !m.valid) return;
-  const vsim::WorldConfig& w = m_worldEditor->config();
+void SimulatorWidget::sendWorldMeshToSim(const vsim::LoadedMesh &m) {
+  if (!m_sim || !m.valid)
+    return;
+  const vsim::WorldConfig &w = m_worldEditor->config();
 
   // Flatten the QVector3D soup to the contiguous float[3*nverts] the BVH
   // builder expects (NED world space; transform already baked into positions).
   const uint32_t nverts = static_cast<uint32_t>(m.positions.size());
   std::vector<float> verts;
   verts.reserve(static_cast<size_t>(nverts) * 3);
-  for (const QVector3D& p : m.positions) {
+  for (const QVector3D &p : m.positions) {
     verts.push_back(p.x());
     verts.push_back(p.y());
     verts.push_back(p.z());
@@ -2505,9 +2752,8 @@ void SimulatorWidget::sendWorldMeshToSim(const vsim::LoadedMesh& m) {
       appendLog("world", tr("world mesh: cannot write %1").arg(tmp));
       return;
     }
-    const qint64 wrote =
-        f.write(reinterpret_cast<const char*>(blob.data()),
-                static_cast<qint64>(blob.size()));
+    const qint64 wrote = f.write(reinterpret_cast<const char *>(blob.data()),
+                                 static_cast<qint64>(blob.size()));
     f.close();
     if (wrote != static_cast<qint64>(blob.size())) {
       appendLog("world", tr("world mesh: short write to %1").arg(tmp));
@@ -2515,7 +2761,8 @@ void SimulatorWidget::sendWorldMeshToSim(const vsim::LoadedMesh& m) {
       return;
     }
   }
-  if (::rename(tmp.toLocal8Bit().constData(), path.toLocal8Bit().constData()) != 0) {
+  if (::rename(tmp.toLocal8Bit().constData(), path.toLocal8Bit().constData()) !=
+      0) {
     appendLog("world", tr("world mesh: rename to %1 failed").arg(path));
     QFile::remove(tmp);
     return;
@@ -2524,21 +2771,24 @@ void SimulatorWidget::sendWorldMeshToSim(const vsim::LoadedMesh& m) {
   const uint32_t ntris = nverts / 3;
   m_sim->sendWorldMesh(path, nverts, ntris, nodes, w.worldMeshRestitution,
                        w.worldMeshDoubleSided);
-  appendLog("world",
-            tr("world mesh → daemon: %1 tris, %2 nodes (%3 KiB)")
-                .arg(ntris).arg(nodes).arg(blob.size() / 1024));
+  appendLog("world", tr("world mesh → daemon: %1 tris, %2 nodes (%3 KiB)")
+                         .arg(ntris)
+                         .arg(nodes)
+                         .arg(blob.size() / 1024));
 }
 
 void SimulatorWidget::pushRatesToSim() {
-  if (!m_sim) return;
+  if (!m_sim)
+    return;
   QSettings s;
   m_sim->sendRates(s.value(kImuHzKey, kDefImuHz).toInt(),
                    s.value(kPhysHzKey, kDefPhysHz).toInt(),
                    s.value(kPoseHzKey, kDefPoseHz).toInt());
 }
 
-void SimulatorWidget::hudSetStatus(const QString& s) {
-  if (m_hud) m_hud->setStatus(s);
+void SimulatorWidget::hudSetStatus(const QString &s) {
+  if (m_hud)
+    m_hud->setStatus(s);
 }
 
 void SimulatorWidget::setPropAudioDefault(bool on) {
@@ -2559,23 +2809,29 @@ void SimulatorWidget::setRigControlsEnabled(bool simRunning) {
     }
   }
   const bool slidersOn = simRunning && m_rigEnable && m_rigEnable->isChecked();
-  for (QSlider* s : {m_rigRoll, m_rigPitch, m_rigYaw})
-    if (s) s->setEnabled(slidersOn);
+  for (QSlider *s : {m_rigRoll, m_rigPitch, m_rigYaw})
+    if (s)
+      s->setEnabled(slidersOn);
   if (m_rigReadout)
     m_rigReadout->setText(simRunning ? tr("rig: off")
                                      : tr("rig: start the simulator to pose"));
 }
 
 void SimulatorWidget::applyRigPose() {
-  if (!m_rigEnable || !m_rigEnable->isChecked()) return;
-  const int r = m_rigRoll->value(), p = m_rigPitch->value(), y = m_rigYaw->value();
+  if (!m_rigEnable || !m_rigEnable->isChecked())
+    return;
+  const int r = m_rigRoll->value(), p = m_rigPitch->value(),
+            y = m_rigYaw->value();
   // Always reflect the slider values so dragging is visibly registering, even
   // if the sim isn't connected — that tells us whether the issue is the sliders
   // or the channel.
   if (!m_sim) {
     if (m_rigReadout)
       m_rigReadout->setText(
-          tr("rig: r%1 p%2 y%3 — sim not running, start it first").arg(r).arg(p).arg(y));
+          tr("rig: r%1 p%2 y%3 — sim not running, start it first")
+              .arg(r)
+              .arg(p)
+              .arg(y));
     return;
   }
   m_sim->sendRigPose(static_cast<float>(r), static_cast<float>(p),
@@ -2594,29 +2850,34 @@ void SimulatorWidget::setFlightModeStatus(quint8 mode, quint8 source) {
     QSignalBlocker block(m_acroChk);
     m_acroChk->setChecked(acro);
   }
-  const QString modeStr = QString("%1 (%2)")
-                              .arg(acro ? tr("ACRO") : tr("STABILISE"),
-                                   gcs ? tr("GCS") : tr("RC"));
-  if (m_flightModeLabel) m_flightModeLabel->setText(tr("mode: ") + modeStr);
-  if (m_hud) m_hud->setFlightMode(modeStr);   // show it in the viewport HUD too
+  const QString modeStr = QString("%1 (%2)").arg(
+      acro ? tr("ACRO") : tr("STABILISE"), gcs ? tr("GCS") : tr("RC"));
+  if (m_flightModeLabel)
+    m_flightModeLabel->setText(tr("mode: ") + modeStr);
+  if (m_hud)
+    m_hud->setFlightMode(modeStr); // show it in the viewport HUD too
 }
 
 void SimulatorWidget::hudSetImu(const float acc[3], const float gyr[3]) {
-  if (m_hud) m_hud->setImu(acc, gyr);
+  if (m_hud)
+    m_hud->setImu(acc, gyr);
 }
 
 void SimulatorWidget::pushRcMapping(int func) {
-  if (func < 0 || func >= 5 || !m_rcAxisCombo[func]) return;
+  if (func < 0 || func >= 5 || !m_rcAxisCombo[func])
+    return;
   const int axis = m_rcAxisCombo[func]->currentData().toInt();
   const bool inv = m_rcInvert[func]->isChecked();
-  if (m_rc) m_rc->setMapping(func, axis, inv);
+  if (m_rc)
+    m_rc->setMapping(func, axis, inv);
   QSettings s;
   s.setValue(QString(kRcMapAxisKey) + QString::number(func), axis);
   s.setValue(QString(kRcMapInvKey) + QString::number(func), inv);
 }
 
 void SimulatorWidget::applyRcSource() {
-  if (!m_rcSource) return;
+  if (!m_rcSource)
+    return;
   const bool uart = m_rcSource->currentData().toInt() == RcBridge::Uart;
   QSettings st;
   st.setValue(kRcSourceKey, uart ? RcBridge::Uart : RcBridge::Joystick);
@@ -2630,12 +2891,11 @@ void SimulatorWidget::applyRcSource() {
     m_rcPath->clear();
     if (uart) {
       // Enumerate serial ports so the user can pick instead of typing.
-      for (const QSerialPortInfo& info : QSerialPortInfo::availablePorts()) {
+      for (const QSerialPortInfo &info : QSerialPortInfo::availablePorts()) {
         const QString desc = info.description();
-        m_rcPath->addItem(desc.isEmpty()
-                              ? info.portName()
-                              : QStringLiteral("%1 — %2").arg(info.portName(),
-                                                              desc),
+        m_rcPath->addItem(desc.isEmpty() ? info.portName()
+                                         : QStringLiteral("%1 — %2").arg(
+                                               info.portName(), desc),
                           info.systemLocation());
       }
     }
@@ -2645,25 +2905,32 @@ void SimulatorWidget::applyRcSource() {
                   "(roll,pitch,throttle,yaw,arm,…), µs per channel.")
              : tr("Joystick device (Linux js API)."));
   }
-  if (m_rcBaud) m_rcBaud->setEnabled(uart);
+  if (m_rcBaud)
+    m_rcBaud->setEnabled(uart);
 
   // The explicit Connect button only applies to the UART source. Switching to
   // the joystick (or away from UART) drops any held serial port.
-  if (!uart && m_rcUartConnected) setRcUartConnected(false);
-  if (m_rcConnect) m_rcConnect->setEnabled(uart);
+  if (!uart && m_rcUartConnected)
+    setRcUartConnected(false);
+  if (m_rcConnect)
+    m_rcConnect->setEnabled(uart);
 
   // Axis mapping only applies to a joystick; a CSV stream is already
   // channelised, so grey the mapping out under UART.
   for (int f = 0; f < 5; ++f) {
-    if (m_rcAxisCombo[f]) m_rcAxisCombo[f]->setEnabled(!uart);
-    if (m_rcInvert[f]) m_rcInvert[f]->setEnabled(!uart);
+    if (m_rcAxisCombo[f])
+      m_rcAxisCombo[f]->setEnabled(!uart);
+    if (m_rcInvert[f])
+      m_rcInvert[f]->setEnabled(!uart);
   }
 
   // Push to the bridge (no-op until it exists; the ctor calls this again).
   if (m_rc) {
     if (uart) {
-      if (m_rcPath) m_rc->setUartPath(m_rcPath->currentText());
-      if (m_rcBaud) m_rc->setUartBaud(m_rcBaud->currentData().toInt());
+      if (m_rcPath)
+        m_rc->setUartPath(m_rcPath->currentText());
+      if (m_rcBaud)
+        m_rc->setUartBaud(m_rcBaud->currentData().toInt());
     } else if (m_rcPath) {
       m_rc->setJoystickPath(m_rcPath->currentText());
     }
@@ -2674,13 +2941,16 @@ void SimulatorWidget::applyRcSource() {
 // Persist the current device-field text for the active source and push it to
 // the bridge. Shared by the editable combo's pick + edit-finished signals.
 void SimulatorWidget::commitRcPath() {
-  if (!m_rcPath || !m_rcSource) return;
+  if (!m_rcPath || !m_rcSource)
+    return;
   const bool uart = m_rcSource->currentData().toInt() == RcBridge::Uart;
   const QString path = m_rcPath->currentText();
   QSettings().setValue(uart ? kRcUartPathKey : kRcPathKey, path);
   if (m_rc) {
-    if (uart) m_rc->setUartPath(path);
-    else      m_rc->setJoystickPath(path);
+    if (uart)
+      m_rc->setUartPath(path);
+    else
+      m_rc->setJoystickPath(path);
   }
 }
 
@@ -2707,13 +2977,15 @@ void SimulatorWidget::setRcUartConnected(bool on) {
   }
 }
 
-bool SimulatorWidget::eventFilter(QObject* obj, QEvent* ev) {
+bool SimulatorWidget::eventFilter(QObject *obj, QEvent *ev) {
   if (obj == m_renderer && ev->type() == QEvent::Resize) {
-    if (m_hud) m_hud->setGeometry(m_renderer->rect());
+    if (m_hud)
+      m_hud->setGeometry(m_renderer->rect());
     // The PiPs float at user-chosen positions; just keep them above the HUD and
     // clamp them back inside if the viewport shrank past them.
-    for (QWidget* pip : {m_horizonPip, m_downPip, m_minimapPip}) {
-      if (!pip) continue;
+    for (QWidget *pip : {m_horizonPip, m_downPip, m_minimapPip}) {
+      if (!pip)
+        continue;
       QPoint p = pip->pos();
       p.setX(qBound(0, p.x(), qMax(0, m_renderer->width() - pip->width())));
       p.setY(qBound(0, p.y(), qMax(0, m_renderer->height() - pip->height())));
@@ -2729,7 +3001,8 @@ bool SimulatorWidget::eventFilter(QObject* obj, QEvent* ev) {
 // ----------------------------------------------------------------------------
 
 void SimulatorWidget::startInAppSim() {
-  if (m_sim) return;
+  if (m_sim)
+    return;
 
   // Per-instance path isolation: publish a suffix for this Navigator process in
   // the environment BEFORE the engine boots (the firmware shim caches its
@@ -2757,19 +3030,19 @@ void SimulatorWidget::startInAppSim() {
   vsim_iface_set_uart2_callback(&m_iface, &uart2_to_widget_trampoline, this);
 
   m_sim = new vsim::SimWorker(this);
-  m_sim->setIface(&m_iface);   // boot the engine wired to our telemetry iface
+  m_sim->setIface(&m_iface); // boot the engine wired to our telemetry iface
   connect(m_sim, &vsim::SimWorker::stoppedCleanly, this,
           &SimulatorWidget::onSimWorkerExited);
-  connect(m_sim, &vsim::SimWorker::poseUpdated,
-          m_renderer, &vsim::SimRendererWidget::setSnapshot);
+  connect(m_sim, &vsim::SimWorker::poseUpdated, m_renderer,
+          &vsim::SimRendererWidget::setSnapshot);
   if (m_downRenderer)
-    connect(m_sim, &vsim::SimWorker::poseUpdated,
-            m_downRenderer, &vsim::SimRendererWidget::setSnapshot);
+    connect(m_sim, &vsim::SimWorker::poseUpdated, m_downRenderer,
+            &vsim::SimRendererWidget::setSnapshot);
   // Record physics ground truth for this run (gt-*.bin).
   connect(m_sim, &vsim::SimWorker::poseUpdated, this,
           &SimulatorWidget::logGroundTruth);
-  connect(m_sim, &vsim::SimWorker::poseUpdated,
-          this, [this](vsim::SimSnapshot snap) {
+  connect(m_sim, &vsim::SimWorker::poseUpdated, this,
+          [this](vsim::SimSnapshot snap) {
             float pitch, yaw, roll;
             vsim::quatToEulerNED(snap.att, &roll, &pitch, &yaw);
             // Fixed field widths so a leading '-' (or "-0.0") doesn't widen the
@@ -2792,66 +3065,80 @@ void SimulatorWidget::startInAppSim() {
             m_propAudio.setMotors(snap.motor_omega);
           });
   connect(m_sim, &vsim::SimWorker::logLine, this,
-          [this](const QString& s) { appendLog("vsim", s); });
+          [this](const QString &s) { appendLog("vsim", s); });
   // Once the daemon's FIFOs are up, push the configured airframe + world
   // so the sim flies the edited params from frame one.
   connect(m_sim, &vsim::SimWorker::online, this, [this] {
-    if (!m_sim) return;
+    if (!m_sim)
+      return;
     const auto cfg = m_geomEditor->physicsConfig();
-    pushRatesToSim();   // apply configured loop rates before geometry/world
-    pushFirmwareMotorGeometry(cfg);   // firmware roll/pitch/yaw mix signs (physics frame)
-    m_sim->sendGeometry(cfg);          // in-process physics motor layout
+    pushRatesToSim(); // apply configured loop rates before geometry/world
+    pushFirmwareMotorGeometry(
+        cfg); // firmware roll/pitch/yaw mix signs (physics frame)
+    m_sim->sendGeometry(cfg); // in-process physics motor layout
     m_sim->sendWorld(m_worldEditor->config());
     m_sim->sendObstacles(m_worldEditor->config().obstacles);
-    m_sim->sendWind(m_worldEditor->windConfig());   // restore wind across restart
-    pushNoise();   // apply the configured sensor models (σ / enable)
-    pushFaults();  // re-assert any latched faults across the restart
-    loadWorldMeshToRenderer();  // re-loads + ships the collision BVH now m_sim exists
+    m_sim->sendWind(m_worldEditor->windConfig()); // restore wind across restart
+    pushNoise();  // apply the configured sensor models (σ / enable)
+    pushFaults(); // re-assert any latched faults across the restart
+    loadWorldMeshToRenderer(); // re-loads + ships the collision BVH now m_sim exists
     // Restart any armed training course from the first gate, flying from the floor.
     if (m_training.active()) {
       m_training.resetProgress();
       pushTrainingGates();
       updateTrainingProgress();
     }
-    appendLog("geom", tr("firmware roll-mix %1 (default -+ ; mismatch = inverted "
-                          "roll). pushed to firmware + physics.")
-                          .arg(rollMixString(cfg)));
+    appendLog("geom",
+              tr("firmware roll-mix %1 (default -+ ; mismatch = inverted "
+                 "roll). pushed to firmware + physics.")
+                  .arg(rollMixString(cfg)));
     // Belt-and-suspenders: re-assert BOTH the firmware mix AND the physics layout
     // shortly after start. If a restart race left one side on its default while
     // the other had the real (possibly Y-mirrored) geometry, roll inverts and
     // the craft topples at lift-off; this guarantees they agree before arming.
     QTimer::singleShot(800, this, [this] {
-      if (!m_sim) return;
+      if (!m_sim)
+        return;
       const auto c = m_geomEditor->physicsConfig();
       pushFirmwareMotorGeometry(c);
       m_sim->sendGeometry(c);
-      pushRatesToSim();   // re-assert loop rates too: the daemon boots at its
-                          // compiled default, so a dropped/raced SET_RATES would
-                          // otherwise leave it there (e.g. physics stuck at 8k).
+      pushRatesToSim(); // re-assert loop rates too: the daemon boots at its
+                        // compiled default, so a dropped/raced SET_RATES would
+                        // otherwise leave it there (e.g. physics stuck at 8k).
     });
   });
   m_sim->start(QThread::TimeCriticalPriority);
 
   m_simStartBtn->setEnabled(false);
   m_simStopBtn->setEnabled(true);
-  if (m_simResetBtn) m_simResetBtn->setEnabled(true);
-  if (m_fpvCheck) m_fpvCheck->setEnabled(true);  // FPV needs the drone-attached camera
+  if (m_simResetBtn)
+    m_simResetBtn->setEnabled(true);
+  if (m_fpvCheck)
+    m_fpvCheck->setEnabled(true); // FPV needs the drone-attached camera
   m_simStatusLabel->setText(tr("● Running"));
   m_simStatusLabel->setStyleSheet(
       QString("color: %1;").arg(Theme::hex(Theme::kOk)));
   // Vehicle configuration is locked while simulating; force World mode.
-  if (m_vehicleTab) m_vehicleTab->setEnabled(false);
+  if (m_vehicleTab)
+    m_vehicleTab->setEnabled(false);
   setMode(1);
   // Show the telemetry HUD over the viewport.
-  if (m_hud) { m_hud->setGeometry(m_renderer->rect()); m_hud->raise(); m_hud->show(); }
-  if (m_horizonPip) m_horizonPip->raise();   // keep the PiPs above the HUD
-  if (m_downPip) m_downPip->raise();
-  setRigControlsEnabled(true);         // rig pose is now available
+  if (m_hud) {
+    m_hud->setGeometry(m_renderer->rect());
+    m_hud->raise();
+    m_hud->show();
+  }
+  if (m_horizonPip)
+    m_horizonPip->raise(); // keep the PiPs above the HUD
+  if (m_downPip)
+    m_downPip->raise();
+  setRigControlsEnabled(true); // rig pose is now available
   emit simRunningChanged(true);
 }
 
 void SimulatorWidget::attachExternalSim() {
-  if (m_sim) return;
+  if (m_sim)
+    return;
   // Mirror an EXTERNAL sim's pose stream (default /tmp/vsim_pose) — e.g. a
   // headless vayu_sitl_rtos run driving the real firmware. We boot no in-process
   // engine; this view only renders the external pose stream over the
@@ -2861,11 +3148,11 @@ void SimulatorWidget::attachExternalSim() {
   m_sim = new vsim::SimWorker(this);
   connect(m_sim, &vsim::SimWorker::stoppedCleanly, this,
           &SimulatorWidget::onSimWorkerExited);
-  connect(m_sim, &vsim::SimWorker::poseUpdated,
-          m_renderer, &vsim::SimRendererWidget::setSnapshot);
+  connect(m_sim, &vsim::SimWorker::poseUpdated, m_renderer,
+          &vsim::SimRendererWidget::setSnapshot);
   if (m_downRenderer)
-    connect(m_sim, &vsim::SimWorker::poseUpdated,
-            m_downRenderer, &vsim::SimRendererWidget::setSnapshot);
+    connect(m_sim, &vsim::SimWorker::poseUpdated, m_downRenderer,
+            &vsim::SimRendererWidget::setSnapshot);
   connect(m_sim, &vsim::SimWorker::poseUpdated, this,
           [this](vsim::SimSnapshot snap) {
             const int dec = Units::decimals();
@@ -2885,25 +3172,34 @@ void SimulatorWidget::attachExternalSim() {
             m_propAudio.setMotors(snap.motor_omega);
           });
   connect(m_sim, &vsim::SimWorker::logLine, this,
-          [this](const QString& s) { appendLog("attach", s); });
+          [this](const QString &s) { appendLog("attach", s); });
   m_sim->startAttach(QStringLiteral("/tmp/vsim_pose"));
 
   m_simStartBtn->setEnabled(false);
   m_simAttachBtn->setEnabled(false);
   m_simStopBtn->setEnabled(true);
-  if (m_fpvCheck) m_fpvCheck->setEnabled(true);
+  if (m_fpvCheck)
+    m_fpvCheck->setEnabled(true);
   m_simStatusLabel->setText(tr("● Attached (external sim)"));
   m_simStatusLabel->setStyleSheet(
       QString("color: %1;").arg(Theme::hex(Theme::kOk)));
-  if (m_vehicleTab) m_vehicleTab->setEnabled(false);
+  if (m_vehicleTab)
+    m_vehicleTab->setEnabled(false);
   setMode(1);
-  if (m_hud) { m_hud->setGeometry(m_renderer->rect()); m_hud->raise(); m_hud->show(); }
-  if (m_horizonPip) m_horizonPip->raise();
-  if (m_downPip) m_downPip->raise();
+  if (m_hud) {
+    m_hud->setGeometry(m_renderer->rect());
+    m_hud->raise();
+    m_hud->show();
+  }
+  if (m_horizonPip)
+    m_horizonPip->raise();
+  if (m_downPip)
+    m_downPip->raise();
 }
 
 void SimulatorWidget::stopInAppSim() {
-  if (!m_sim) return;
+  if (!m_sim)
+    return;
   // Detach the telemetry callback first: the firmware threads keep running
   // (vayu_sitl is one-shot), so without this they'd keep streaming heartbeats
   // and IMU to the home screen after Stop — the LIVE blinker would never stop.
@@ -2916,29 +3212,35 @@ void SimulatorWidget::stopInAppSim() {
   }
   m_sim->deleteLater();
   m_sim = nullptr;
-  m_propAudio.setMotors({0.0f, 0.0f, 0.0f, 0.0f});  // silence once stopped
+  m_propAudio.setMotors({0.0f, 0.0f, 0.0f, 0.0f}); // silence once stopped
   m_simStartBtn->setEnabled(true);
-  if (m_simAttachBtn) m_simAttachBtn->setEnabled(true);
+  if (m_simAttachBtn)
+    m_simAttachBtn->setEnabled(true);
   m_attached = false;
   m_simStopBtn->setEnabled(false);
-  if (m_simResetBtn) m_simResetBtn->setEnabled(false);
-  if (m_fpvCheck) {                       // FPV is drone-only; back to free-roam
+  if (m_simResetBtn)
+    m_simResetBtn->setEnabled(false);
+  if (m_fpvCheck) { // FPV is drone-only; back to free-roam
     QSignalBlocker block(m_fpvCheck);
     m_fpvCheck->setChecked(false);
     m_fpvCheck->setEnabled(false);
   }
-  if (m_renderer) m_renderer->setFpv(false);
+  if (m_renderer)
+    m_renderer->setFpv(false);
   m_simStatusLabel->setText(tr("● Stopped (firmware idle)"));
   m_simStatusLabel->setStyleSheet(
       QString("color: %1;").arg(Theme::hex(Theme::kTextMuted)));
   // Vehicle config is editable again; stay in World until the user
   // switches back (clicking the Vehicle tab re-enables motor gizmos).
-  if (m_vehicleTab) m_vehicleTab->setEnabled(true);
+  if (m_vehicleTab)
+    m_vehicleTab->setEnabled(true);
   // Re-apply the current mode now that m_sim is null: re-enables World-mode
   // free-roam + obstacle gizmos (the running sim had locked the camera).
-  if (m_rightStack) setMode(m_rightStack->currentIndex());
-  if (m_hud) m_hud->hide();
-  setRigControlsEnabled(false);        // no sim to pose anymore
+  if (m_rightStack)
+    setMode(m_rightStack->currentIndex());
+  if (m_hud)
+    m_hud->hide();
+  setRigControlsEnabled(false); // no sim to pose anymore
   // Close the per-run log file so its trailing bytes flush to disk.
   closeLogFile();
   // Note: we don't call vayu_sitl_stop() here on the Stop button.
@@ -2952,7 +3254,8 @@ void SimulatorWidget::onSimWorkerExited() {
   // or the daemon died) without the user clicking Stop. If we haven't already
   // torn down (explicit Stop nulls m_sim before the queued signal arrives),
   // run the normal stop path so the buttons / status reflect the dead worker.
-  if (!m_sim) return;
+  if (!m_sim)
+    return;
   appendLog("vsim", "[worker exited — resetting to Stopped]");
   stopInAppSim();
 }
@@ -2962,7 +3265,8 @@ void SimulatorWidget::onSimWorkerExited() {
 // ----------------------------------------------------------------------------
 
 void SimulatorWidget::applyGeometryToRenderer() {
-  if (!m_renderer || !m_geomEditor) return;
+  if (!m_renderer || !m_geomEditor)
+    return;
   // CoM frame: mesh is already recentered, motor arms are CoM-relative,
   // and the CoM sits at the body origin.
   const auto cfg = m_geomEditor->physicsConfig();
@@ -2970,11 +3274,11 @@ void SimulatorWidget::applyGeometryToRenderer() {
     m_renderer->setDroneMesh(m_geomEditor->meshPositions(),
                              m_geomEditor->meshNormals());
   }
-  m_renderer->setComMarker(QVector3D(0, 0, 0));  // CoM == body origin now
+  m_renderer->setComMarker(QVector3D(0, 0, 0)); // CoM == body origin now
   std::array<QVector3D, 4> pos, axis;
   std::array<int, 4> spin;
   for (int i = 0; i < 4; ++i) {
-    pos[i]  = cfg.motors[i].pos;
+    pos[i] = cfg.motors[i].pos;
     axis[i] = cfg.motors[i].axis;
     spin[i] = cfg.motors[i].spin;
   }
@@ -2989,20 +3293,25 @@ void SimulatorWidget::applyGeometryToRenderer() {
   }
 }
 
-void SimulatorWidget::persistGeometry(const vsim::GeometryConfig& g) {
+void SimulatorWidget::persistGeometry(const vsim::GeometryConfig &g) {
   QSettings s;
   s.beginGroup(kGeomGroup);
   s.setValue("meshPath", g.meshPath);
   s.setValue("scale", g.scale);
   s.setValue("mass", g.mass);
-  s.setValue("tx", g.translate.x()); s.setValue("ty", g.translate.y()); s.setValue("tz", g.translate.z());
-  s.setValue("rx", g.rotate.x());    s.setValue("ry", g.rotate.y());    s.setValue("rz", g.rotate.z());
+  s.setValue("tx", g.translate.x());
+  s.setValue("ty", g.translate.y());
+  s.setValue("tz", g.translate.z());
+  s.setValue("rx", g.rotate.x());
+  s.setValue("ry", g.rotate.y());
+  s.setValue("rz", g.rotate.z());
   s.setValue("comX", g.com.x());
   s.setValue("comY", g.com.y());
   s.setValue("comZ", g.com.z());
-  for (int i = 0; i < 9; ++i) s.setValue(QString("I%1").arg(i), g.inertia[i]);
+  for (int i = 0; i < 9; ++i)
+    s.setValue(QString("I%1").arg(i), g.inertia[i]);
   for (int i = 0; i < 4; ++i) {
-    const auto& m = g.motors[i];
+    const auto &m = g.motors[i];
     const QString p = QString("m%1_").arg(i);
     s.setValue(p + "px", m.pos.x());
     s.setValue(p + "py", m.pos.y());
@@ -3019,7 +3328,7 @@ void SimulatorWidget::persistGeometry(const vsim::GeometryConfig& g) {
 }
 
 vsim::GeometryConfig SimulatorWidget::restoreGeometry() {
-  vsim::GeometryConfig g;  // sensible defaults if nothing was saved
+  vsim::GeometryConfig g; // sensible defaults if nothing was saved
   QSettings s;
   s.beginGroup(kGeomGroup);
   if (!s.contains("mass")) {
@@ -3038,7 +3347,7 @@ vsim::GeometryConfig SimulatorWidget::restoreGeometry() {
   for (int i = 0; i < 9; ++i)
     g.inertia[i] = s.value(QString("I%1").arg(i), g.inertia[i]).toFloat();
   for (int i = 0; i < 4; ++i) {
-    auto& m = g.motors[i];
+    auto &m = g.motors[i];
     const QString p = QString("m%1_").arg(i);
     m.pos = QVector3D(s.value(p + "px", m.pos.x()).toFloat(),
                       s.value(p + "py", m.pos.y()).toFloat(),
@@ -3055,7 +3364,7 @@ vsim::GeometryConfig SimulatorWidget::restoreGeometry() {
   return g;
 }
 
-void SimulatorWidget::persistWorld(const vsim::WorldConfig& w) {
+void SimulatorWidget::persistWorld(const vsim::WorldConfig &w) {
   QSettings s;
   s.beginGroup(kWorldGroup);
   s.setValue("gravity", w.gravity);
@@ -3075,12 +3384,18 @@ void SimulatorWidget::persistWorld(const vsim::WorldConfig& w) {
   s.setValue("worldMeshOffZ", w.worldMeshOffset.z());
   s.beginWriteArray("obstacles", w.obstacles.size());
   for (int i = 0; i < w.obstacles.size(); ++i) {
-    const vsim::Obstacle& o = w.obstacles[i];
+    const vsim::Obstacle &o = w.obstacles[i];
     s.setArrayIndex(i);
     s.setValue("type", o.type);
-    s.setValue("px", o.pos.x()); s.setValue("py", o.pos.y()); s.setValue("pz", o.pos.z());
-    s.setValue("sx", o.size.x()); s.setValue("sy", o.size.y()); s.setValue("sz", o.size.z());
-    s.setValue("rx", o.rotate.x()); s.setValue("ry", o.rotate.y()); s.setValue("rz", o.rotate.z());
+    s.setValue("px", o.pos.x());
+    s.setValue("py", o.pos.y());
+    s.setValue("pz", o.pos.z());
+    s.setValue("sx", o.size.x());
+    s.setValue("sy", o.size.y());
+    s.setValue("sz", o.size.z());
+    s.setValue("rx", o.rotate.x());
+    s.setValue("ry", o.rotate.y());
+    s.setValue("rz", o.rotate.z());
     s.setValue("rest", o.restitution);
   }
   s.endArray();
@@ -3088,38 +3403,46 @@ void SimulatorWidget::persistWorld(const vsim::WorldConfig& w) {
 }
 
 vsim::WorldConfig SimulatorWidget::restoreWorld() {
-  vsim::WorldConfig w;   // defaults if nothing saved
+  vsim::WorldConfig w; // defaults if nothing saved
   QSettings s;
   s.beginGroup(kWorldGroup);
   if (!s.contains("gravity")) {
     s.endGroup();
     return w;
   }
-  w.gravity      = s.value("gravity", w.gravity).toFloat();
-  w.ground_z     = s.value("ground_z", w.ground_z).toFloat();
-  w.restitution  = s.value("restitution", w.restitution).toFloat();
-  w.linear_drag  = s.value("linear_drag", w.linear_drag).toFloat();
+  w.gravity = s.value("gravity", w.gravity).toFloat();
+  w.ground_z = s.value("ground_z", w.ground_z).toFloat();
+  w.restitution = s.value("restitution", w.restitution).toFloat();
+  w.linear_drag = s.value("linear_drag", w.linear_drag).toFloat();
   w.angular_drag = s.value("angular_drag", w.angular_drag).toFloat();
-  w.ground_right_gain = s.value("ground_right_gain", w.ground_right_gain).toFloat();
-  w.ground_right_damp = s.value("ground_right_damp", w.ground_right_damp).toFloat();
+  w.ground_right_gain =
+      s.value("ground_right_gain", w.ground_right_gain).toFloat();
+  w.ground_right_damp =
+      s.value("ground_right_damp", w.ground_right_damp).toFloat();
   w.worldMeshPath = s.value("worldMeshPath", w.worldMeshPath).toString();
   w.worldScale = s.value("worldScale", w.worldScale).toFloat();
   w.worldUpAxis = s.value("worldUpAxis", w.worldUpAxis).toInt();
-  w.worldMeshRestitution = s.value("worldMeshRestitution", w.worldMeshRestitution).toFloat();
-  w.worldMeshDoubleSided = s.value("worldMeshDoubleSided", w.worldMeshDoubleSided).toBool();
-  w.worldMeshOffset = QVector3D(
-      s.value("worldMeshOffX", w.worldMeshOffset.x()).toFloat(),
-      s.value("worldMeshOffY", w.worldMeshOffset.y()).toFloat(),
-      s.value("worldMeshOffZ", w.worldMeshOffset.z()).toFloat());
+  w.worldMeshRestitution =
+      s.value("worldMeshRestitution", w.worldMeshRestitution).toFloat();
+  w.worldMeshDoubleSided =
+      s.value("worldMeshDoubleSided", w.worldMeshDoubleSided).toBool();
+  w.worldMeshOffset =
+      QVector3D(s.value("worldMeshOffX", w.worldMeshOffset.x()).toFloat(),
+                s.value("worldMeshOffY", w.worldMeshOffset.y()).toFloat(),
+                s.value("worldMeshOffZ", w.worldMeshOffset.z()).toFloat());
   const int n = s.beginReadArray("obstacles");
   w.obstacles.clear();
   for (int i = 0; i < n; ++i) {
     s.setArrayIndex(i);
     vsim::Obstacle o;
     o.type = s.value("type", 0).toInt();
-    o.pos = QVector3D(s.value("px").toFloat(), s.value("py").toFloat(), s.value("pz").toFloat());
-    o.size = QVector3D(s.value("sx", 1.0).toFloat(), s.value("sy", 1.0).toFloat(), s.value("sz", 1.0).toFloat());
-    o.rotate = QVector3D(s.value("rx").toFloat(), s.value("ry").toFloat(), s.value("rz").toFloat());
+    o.pos = QVector3D(s.value("px").toFloat(), s.value("py").toFloat(),
+                      s.value("pz").toFloat());
+    o.size =
+        QVector3D(s.value("sx", 1.0).toFloat(), s.value("sy", 1.0).toFloat(),
+                  s.value("sz", 1.0).toFloat());
+    o.rotate = QVector3D(s.value("rx").toFloat(), s.value("ry").toFloat(),
+                         s.value("rz").toFloat());
     o.restitution = s.value("rest", 0.3).toFloat();
     w.obstacles.push_back(o);
   }
@@ -3128,7 +3451,7 @@ vsim::WorldConfig SimulatorWidget::restoreWorld() {
   return w;
 }
 
-void SimulatorWidget::persistWind(const vsim::WindConfig& w) {
+void SimulatorWidget::persistWind(const vsim::WindConfig &w) {
   QSettings s;
   s.beginGroup(kWorldGroup);
   s.setValue("windN", w.steady.x());
@@ -3143,17 +3466,17 @@ void SimulatorWidget::persistWind(const vsim::WindConfig& w) {
 }
 
 vsim::WindConfig SimulatorWidget::restoreWind() {
-  vsim::WindConfig w;   // defaults (disabled, zero) if nothing saved
+  vsim::WindConfig w; // defaults (disabled, zero) if nothing saved
   QSettings s;
   s.beginGroup(kWorldGroup);
   w.steady = QVector3D(s.value("windN", w.steady.x()).toFloat(),
                        s.value("windE", w.steady.y()).toFloat(),
                        s.value("windD", w.steady.z()).toFloat());
-  w.gustAmp    = s.value("windGustAmp", w.gustAmp).toFloat();
+  w.gustAmp = s.value("windGustAmp", w.gustAmp).toFloat();
   w.gustPeriod = s.value("windGustPeriod", w.gustPeriod).toFloat();
-  w.turbSigma  = s.value("windTurbSigma", w.turbSigma).toFloat();
-  w.turbTau    = s.value("windTurbTau", w.turbTau).toFloat();
-  w.enabled    = s.value("windEnabled", w.enabled).toBool();
+  w.turbSigma = s.value("windTurbSigma", w.turbSigma).toFloat();
+  w.turbTau = s.value("windTurbTau", w.turbTau).toFloat();
+  w.enabled = s.value("windEnabled", w.enabled).toBool();
   s.endGroup();
   return w;
 }
@@ -3162,11 +3485,12 @@ vsim::WindConfig SimulatorWidget::restoreWind() {
 // buffer and, only if a drain isn't already queued, post ONE onUartBytes()
 // event to the GUI thread. So no matter how many per-byte writes land between
 // event-loop passes, the GUI processes them in a single batch.
-void SimulatorWidget::queueUartBytes(const uint8_t* data, size_t n) {
+void SimulatorWidget::queueUartBytes(const uint8_t *data, size_t n) {
   bool post = false;
   {
     std::lock_guard<std::mutex> lk(m_uartRxMtx);
-    m_uartRxBuf.append(reinterpret_cast<const char*>(data), static_cast<int>(n));
+    m_uartRxBuf.append(reinterpret_cast<const char *>(data),
+                       static_cast<int>(n));
     if (!m_uartRxDrainPending) {
       m_uartRxDrainPending = true;
       post = true;
@@ -3198,7 +3522,7 @@ void SimulatorWidget::onUartBytes() {
 
 // Ground-truth record size: 2 x u64 (tick, t_us) + 27 x f32 (pose/vel/rates/
 // rpy/motors/airspeed/batt). Keep in sync with logGroundTruth + parse_gt.py.
-static constexpr int kGtRecordBytes = 2 * 8 + 27 * 4;  // 124
+static constexpr int kGtRecordBytes = 2 * 8 + 27 * 4; // 124
 
 void SimulatorWidget::openNewLogFile() {
   closeLogFile();
@@ -3207,8 +3531,7 @@ void SimulatorWidget::openNewLogFile() {
     appendLog("log", QString("[mkdir failed: %1]").arg(m_logDir));
     return;
   }
-  QString stamp =
-      QDateTime::currentDateTime().toString("yyyy-MM-dd_HH-mm-ss");
+  QString stamp = QDateTime::currentDateTime().toString("yyyy-MM-dd_HH-mm-ss");
   // gt- (ground truth), not sim-: this file holds the PHYSICS state, not the FC
   // telemetry. Legacy tools (tools/sim_log_*.py) still parse the old sim-*.bin
   // as FC NavLink, so a distinct name keeps them from mis-reading this format.
@@ -3231,7 +3554,7 @@ void SimulatorWidget::openNewLogFile() {
        << quint64(QDateTime::currentMSecsSinceEpoch());
     m_runLogBytes += 20;
   }
-  m_runClock.start();  // monotonic per-record timestamp base
+  m_runClock.start(); // monotonic per-record timestamp base
   if (m_logPathLabel) {
     m_logPathLabel->setText(QString("Ground-truth log: %1").arg(path));
     m_logPathLabel->setStyleSheet(
@@ -3256,7 +3579,8 @@ void SimulatorWidget::openNewLogFile() {
 //   f32 batt_voltage          [V]
 //   f32 batt_soc              [0,1]
 void SimulatorWidget::logGroundTruth(vsim::SimSnapshot snap) {
-  if (!m_runLog || !m_runLog->isOpen()) return;
+  if (!m_runLog || !m_runLog->isOpen())
+    return;
   float roll, pitch, yaw;
   vsim::quatToEulerNED(snap.att, &roll, &pitch, &yaw);
 
@@ -3265,15 +3589,16 @@ void SimulatorWidget::logGroundTruth(vsim::SimSnapshot snap) {
   QDataStream s(&rec, QIODevice::WriteOnly);
   s.setByteOrder(QDataStream::LittleEndian);
   s.setFloatingPointPrecision(QDataStream::SinglePrecision);
-  s << quint64(snap.tick_count)
-    << quint64(m_runClock.nsecsElapsed() / 1000);
+  s << quint64(snap.tick_count) << quint64(m_runClock.nsecsElapsed() / 1000);
   s << snap.pos_w.x() << snap.pos_w.y() << snap.pos_w.z();
   s << snap.att.scalar() << snap.att.x() << snap.att.y() << snap.att.z();
   s << snap.vel_w.x() << snap.vel_w.y() << snap.vel_w.z();
   s << snap.omega_b.x() << snap.omega_b.y() << snap.omega_b.z();
   s << roll << pitch << yaw;
-  for (float v : snap.motor_omega) s << v;
-  for (float v : snap.motor_duty) s << v;
+  for (float v : snap.motor_omega)
+    s << v;
+  for (float v : snap.motor_duty)
+    s << v;
   s << snap.airspeed << snap.batt_voltage << snap.batt_soc;
 
   m_runLog->write(rec);
@@ -3281,11 +3606,13 @@ void SimulatorWidget::logGroundTruth(vsim::SimSnapshot snap) {
   // Occasional size readout (every ~5 s at 60 Hz pose).
   static int chatter_div = 0;
   if (++chatter_div % 300 == 0)
-    appendLog("gt", QString("logged %1 KB ground truth").arg(m_runLogBytes / 1024));
+    appendLog("gt",
+              QString("logged %1 KB ground truth").arg(m_runLogBytes / 1024));
 }
 
 void SimulatorWidget::closeLogFile() {
-  if (!m_runLog) return;
+  if (!m_runLog)
+    return;
   if (m_runLog->isOpen()) {
     m_runLog->flush();
     appendLog("log", QString("[closed: %1 bytes total]").arg(m_runLogBytes));
@@ -3294,15 +3621,15 @@ void SimulatorWidget::closeLogFile() {
   m_runLog.reset();
 }
 
-void SimulatorWidget::appendLog(const QString& tag, const QString& text) {
+void SimulatorWidget::appendLog(const QString &tag, const QString &text) {
   QString trimmed = text;
   while (trimmed.endsWith('\n') || trimmed.endsWith('\r')) {
     trimmed.chop(1);
   }
-  if (trimmed.isEmpty()) return;
-  for (const QString& line : trimmed.split('\n', Qt::SkipEmptyParts)) {
+  if (trimmed.isEmpty())
+    return;
+  for (const QString &line : trimmed.split('\n', Qt::SkipEmptyParts)) {
     m_log->appendPlainText(QString("[%1] %2").arg(tag, line));
   }
-  m_log->verticalScrollBar()->setValue(
-      m_log->verticalScrollBar()->maximum());
+  m_log->verticalScrollBar()->setValue(m_log->verticalScrollBar()->maximum());
 }

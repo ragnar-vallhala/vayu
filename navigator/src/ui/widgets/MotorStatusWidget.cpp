@@ -19,18 +19,18 @@ namespace {
 // Quad-X motor geometry (mockup MOTORS): unit corner positions, spin
 // direction and per-motor colour. Order M1..M4.
 struct MotorDef {
-  int cornerX;   // -1 left, +1 right
-  int cornerY;   // -1 up (front), +1 down (rear)
-  bool cw;       // true = clockwise
+  int cornerX; // -1 left, +1 right
+  int cornerY; // -1 up (front), +1 down (rear)
+  bool cw;     // true = clockwise
   const char *color;
 };
 const MotorDef kMotors[4] = {
-    {+1, -1, true, "#E06C75"},   // M1 front-right CW
-    {+1, +1, false, "#98C379"},  // M2 rear-right CCW
-    {-1, +1, true, "#61AFEF"},   // M3 rear-left CW
-    {-1, -1, false, "#D19A66"},  // M4 front-left CCW
+    {+1, -1, true, "#E06C75"},  // M1 front-right CW
+    {+1, +1, false, "#98C379"}, // M2 rear-right CCW
+    {-1, +1, true, "#61AFEF"},  // M3 rear-left CW
+    {-1, -1, false, "#D19A66"}, // M4 front-left CCW
 };
-}  // namespace
+} // namespace
 
 // ----------------------------------------------------------------------------
 // DroneViewWidget: Quad-X schematic with speed-arc rings, spinning props,
@@ -47,7 +47,7 @@ public:
     connect(m_anim, &QTimer::timeout, this, [this] {
       for (int i = 0; i < 4; ++i) {
         const float spin = (kMotors[i].cw ? 1.0f : -1.0f) * m_speeds[i];
-        m_blade[i] += spin * 28.0f;  // deg/frame at full throttle
+        m_blade[i] += spin * 28.0f; // deg/frame at full throttle
       }
       update();
     });
@@ -56,7 +56,7 @@ public:
 
   void setSpeeds(const QVector<float> &speeds) {
     m_speeds = speeds;
-    m_hasData = true;  // real motor telemetry has arrived
+    m_hasData = true; // real motor telemetry has arrived
     update();
   }
 
@@ -150,16 +150,16 @@ private:
     lf.setBold(true);
     lf.setPixelSize(11);
     p.setFont(lf);
-    p.drawText(QRectF(-r, lblY, 2 * r, 14), Qt::AlignCenter,
-               QString("M%1 · %2").arg(idx + 1).arg(kMotors[idx].cw ? "CW"
-                                                                    : "CCW"));
+    p.drawText(
+        QRectF(-r, lblY, 2 * r, 14), Qt::AlignCenter,
+        QString("M%1 · %2").arg(idx + 1).arg(kMotors[idx].cw ? "CW" : "CCW"));
 
     p.restore();
   }
 
   QVector<float> m_speeds;
-  bool m_hasData = false;           // false → centre reads "-" (no telemetry)
-  float m_blade[4] = {0, 0, 0, 0};  // accumulated blade angle (deg) per motor
+  bool m_hasData = false;          // false → centre reads "-" (no telemetry)
+  float m_blade[4] = {0, 0, 0, 0}; // accumulated blade angle (deg) per motor
   QTimer *m_anim = nullptr;
 };
 
@@ -179,7 +179,7 @@ QLabel *addPowerField(QGridLayout *g, int row, const QString &key) {
   g->addWidget(v, row, 1);
   return v;
 }
-}  // namespace
+} // namespace
 
 MotorStatusWidget::MotorStatusWidget(QWidget *parent) : QWidget(parent) {
   m_speeds = {0.0f, 0.0f, 0.0f, 0.0f};
@@ -201,7 +201,8 @@ MotorStatusWidget::MotorStatusWidget(QWidget *parent) : QWidget(parent) {
     const QString path = CsvExport::promptAndWriteCombined(
         this, QString("motors-%1.csv").arg(stamp),
         {{m_graph, {"m1_fr", "m2_rr", "m3_rl", "m4_fl"}}});
-    if (!path.isEmpty()) Notify::ok(this, tr("Wrote %1").arg(path));
+    if (!path.isEmpty())
+      Notify::ok(this, tr("Wrote %1").arg(path));
   });
 
   header->addStretch();
@@ -234,7 +235,8 @@ MotorStatusWidget::MotorStatusWidget(QWidget *parent) : QWidget(parent) {
 
   const char *colors[] = {"#E06C75", "#98C379", "#61AFEF", "#D19A66"};
   m_graph = new RealTimeGraph(this, 4);
-  for (int i = 0; i < 4; ++i) m_graph->setColor(i, QColor(colors[i]));
+  for (int i = 0; i < 4; ++i)
+    m_graph->setColor(i, QColor(colors[i]));
   m_graph->setWindowSeconds(10);
   leftCol->addWidget(m_graph, 2);
 
@@ -321,7 +323,8 @@ MotorStatusWidget::MotorStatusWidget(QWidget *parent) : QWidget(parent) {
 }
 
 void MotorStatusWidget::setMotorSpeeds(const QVector<float> &speeds) {
-  if (speeds.size() < 4) return;
+  if (speeds.size() < 4)
+    return;
   m_speeds = speeds;
   m_droneView->setSpeeds(speeds);
 

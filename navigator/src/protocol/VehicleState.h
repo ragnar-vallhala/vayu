@@ -18,17 +18,18 @@
 // ---------------------------------------------------------------------------
 struct VehicleState {
   AttitudeData attitude{};
-  ImuData      imu{};
-  RcData       rc{};
-  MotorData    motors{};
-  BaroData     baro{};
-  VerticalStateData vertical{};  // fused VERT estimate (VERTICAL_STATE, msgid 1040)
+  ImuData imu{};
+  RcData rc{};
+  MotorData motors{};
+  BaroData baro{};
+  VerticalStateData
+      vertical{}; // fused VERT estimate (VERTICAL_STATE, msgid 1040)
 
-  uint8_t flightMode = 0;        // 0 = stabilise/angle, 1 = acro
-  uint8_t flightModeSource = 0;  // 0 = RC switch, 1 = GCS override
+  uint8_t flightMode = 0;       // 0 = stabilise/angle, 1 = acro
+  uint8_t flightModeSource = 0; // 0 = RC switch, 1 = GCS override
 
-  QString vehicleState;          // last *recognised* state name ("" = none yet)
-  bool    armed = false;         // derived: ARMED | IN_AIR | FAILSAFE
+  QString vehicleState; // last *recognised* state name ("" = none yet)
+  bool armed = false;   // derived: ARMED | IN_AIR | FAILSAFE
 
   // Last-rx wall-clock (ms since epoch) per feed; 0 = never received. The UI
   // shows "-" once these go stale, distinguishing absent telemetry from a real

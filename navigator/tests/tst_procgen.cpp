@@ -22,14 +22,14 @@ TerrainParams smallParams(uint32_t seed = 1337u) {
   TerrainParams p;
   p.seed = seed;
   p.sizeM = 128.0f;
-  p.resolution = 48;  // keep the test fast; invariants are resolution-agnostic
+  p.resolution = 48; // keep the test fast; invariants are resolution-agnostic
   return p;
 }
-}  // namespace
+} // namespace
 
 class TstProcgen : public QObject {
   Q_OBJECT
- private slots:
+private slots:
   void noiseIsDeterministicAndBounded();
   void fbmStaysInRange();
   void heightfieldHeightsBounded();
@@ -55,11 +55,12 @@ void TstProcgen::noiseIsDeterministicAndBounded() {
   for (int i = 0; i < 200; ++i) {
     const float x = i * 0.37f, y = i * 0.19f;
     const float va = a.gradient(x, y);
-    QCOMPARE(va, b.gradient(x, y));          // same seed -> identical
-    QVERIFY(va >= -1.5f && va <= 1.5f);      // ~[-1,1] with margin
-    if (std::fabs(va - c.gradient(x, y)) > 1e-6f) differs = true;
+    QCOMPARE(va, b.gradient(x, y));     // same seed -> identical
+    QVERIFY(va >= -1.5f && va <= 1.5f); // ~[-1,1] with margin
+    if (std::fabs(va - c.gradient(x, y)) > 1e-6f)
+      differs = true;
   }
-  QVERIFY(differs);                          // a different seed decorrelates
+  QVERIFY(differs); // a different seed decorrelates
 }
 
 void TstProcgen::fbmStaysInRange() {
@@ -79,10 +80,13 @@ void TstProcgen::heightfieldHeightsBounded() {
   QVERIFY(hf.valid());
   QCOMPARE(hf.n, p.resolution);
   float lo = 1e9f, hi = -1e9f;
-  for (float v : hf.h) { lo = std::min(lo, v); hi = std::max(hi, v); }
-  QVERIFY(lo >= -1e-4f);                 // never below the ground plane
-  QVERIFY(hi <= p.heightM + 1e-3f);      // never above the peak cap
-  QVERIFY(hi > p.heightM * 0.2f);        // and it actually rises (not flat)
+  for (float v : hf.h) {
+    lo = std::min(lo, v);
+    hi = std::max(hi, v);
+  }
+  QVERIFY(lo >= -1e-4f);            // never below the ground plane
+  QVERIFY(hi <= p.heightM + 1e-3f); // never above the peak cap
+  QVERIFY(hi > p.heightM * 0.2f);   // and it actually rises (not flat)
 }
 
 void TstProcgen::sampleWorldMatchesLatticeNodes() {
@@ -112,14 +116,14 @@ void TstProcgen::meshGeometryInBounds() {
   const TerrainParams p = smallParams();
   const ProcMesh m = generateMeadow(p);
   const float half = p.sizeM * 0.5f + 1e-3f;
-  for (const PgVec3& v : m.positions) {
+  for (const PgVec3 &v : m.positions) {
     QVERIFY(v.x >= -half && v.x <= half);
     QVERIFY(v.y >= -half && v.y <= half);
     // Terrain is above the ground plane: z = -height <= 0.
     QVERIFY(v.z <= 1e-3f && v.z >= -(p.heightM + 1e-2f));
   }
   // Colors are valid RGB in [0,1].
-  for (const PgVec3& c : m.colors) {
+  for (const PgVec3 &c : m.colors) {
     QVERIFY(c.x >= 0.0f && c.x <= 1.0f);
     QVERIFY(c.y >= 0.0f && c.y <= 1.0f);
     QVERIFY(c.z >= 0.0f && c.z <= 1.0f);
@@ -128,7 +132,7 @@ void TstProcgen::meshGeometryInBounds() {
 
 void TstProcgen::normalsAreUnitAndUpward() {
   const ProcMesh m = generateMeadow(smallParams());
-  for (const PgVec3& nrm : m.normals) {
+  for (const PgVec3 &nrm : m.normals) {
     const float len = std::sqrt(nrm.x * nrm.x + nrm.y * nrm.y + nrm.z * nrm.z);
     QVERIFY(std::fabs(len - 1.0f) < 1e-3f);
     // In NED, up is -Z; every terrain normal must point at least somewhat up.
@@ -153,8 +157,9 @@ void TstProcgen::differentSeedDiffersMesh() {
   QCOMPARE(a.positions.size(), b.positions.size());
   std::size_t differing = 0;
   for (std::size_t i = 0; i < a.positions.size(); ++i)
-    if (a.positions[i].z != b.positions[i].z) ++differing;
-  QVERIFY(differing > a.positions.size() / 10);  // fields are genuinely distinct
+    if (a.positions[i].z != b.positions[i].z)
+      ++differing;
+  QVERIFY(differing > a.positions.size() / 10); // fields are genuinely distinct
 }
 
 void TstProcgen::fieldIsDeterministicAndBounded() {
@@ -164,8 +169,8 @@ void TstProcgen::fieldIsDeterministicAndBounded() {
   for (int i = 0; i < 300; ++i) {
     const float wx = i * 13.7f - 800.0f, wy = i * 7.1f - 400.0f;
     const float h = a.height(wx, wy);
-    QCOMPARE(h, b.height(wx, wy));                 // deterministic
-    QVERIFY(h >= -1e-4f && h <= fp.heightM + 1e-3f);  // bounded, never negative
+    QCOMPARE(h, b.height(wx, wy));                   // deterministic
+    QVERIFY(h >= -1e-4f && h <= fp.heightM + 1e-3f); // bounded, never negative
   }
 }
 
@@ -185,17 +190,21 @@ void TstProcgen::fieldChunksTileSeamlessly() {
   // Collect the vertices on the boundary x == chunkM from both chunks, keyed by
   // their y coordinate; every left-edge sample of `right` must coincide with a
   // right-edge sample of `left`.
-  auto matchAt = [](const ProcMesh& m, float xWanted, float y) -> int {
+  auto matchAt = [](const ProcMesh &m, float xWanted, float y) -> int {
     int found = -1;
     for (std::size_t i = 0; i < m.positions.size(); ++i) {
       if (std::fabs(m.positions[i].x - xWanted) < 1e-3f &&
-          std::fabs(m.positions[i].y - y) < 1e-3f) { found = (int)i; break; }
+          std::fabs(m.positions[i].y - y) < 1e-3f) {
+        found = (int)i;
+        break;
+      }
     }
     return found;
   };
   int checked = 0;
   for (std::size_t i = 0; i < right.positions.size(); ++i) {
-    if (std::fabs(right.positions[i].x - chunkM) > 1e-3f) continue;  // left edge
+    if (std::fabs(right.positions[i].x - chunkM) > 1e-3f)
+      continue; // left edge
     const int li = matchAt(left, chunkM, right.positions[i].y);
     QVERIFY(li >= 0);
     QCOMPARE(left.positions[li].z, right.positions[i].z);
@@ -203,7 +212,8 @@ void TstProcgen::fieldChunksTileSeamlessly() {
     QCOMPARE(left.normals[li].y, right.normals[i].y);
     QCOMPARE(left.normals[li].z, right.normals[i].z);
     QCOMPARE(left.colors[li].x, right.colors[i].x);
-    if (++checked > 40) break;
+    if (++checked > 40)
+      break;
   }
   QVERIFY(checked > 5);
 }
@@ -216,13 +226,12 @@ void TstProcgen::fieldChunkSoupIntegrity() {
   QCOMPARE(m.positions.size() % 3, std::size_t(0));
   QCOMPARE(m.normals.size(), m.positions.size());
   QCOMPARE(m.colors.size(), m.positions.size());
-  QCOMPARE(m.triangleCount(),
-           static_cast<std::size_t>(res) * res * 2);
+  QCOMPARE(m.triangleCount(), static_cast<std::size_t>(res) * res * 2);
   // Chunk (-3,2) occupies world x in [-480,-320], y in [320,480].
-  for (const PgVec3& v : m.positions) {
+  for (const PgVec3 &v : m.positions) {
     QVERIFY(v.x >= -480.1f && v.x <= -319.9f);
     QVERIFY(v.y >= 319.9f && v.y <= 480.1f);
-    QVERIFY(v.z <= 1e-3f);  // terrain above ground plane
+    QVERIFY(v.z <= 1e-3f); // terrain above ground plane
   }
 }
 
@@ -230,26 +239,31 @@ static vsim::ChunkStreamer::Config streamCfg(int renderRadius) {
   vsim::ChunkStreamer::Config c;
   c.field.seed = 11u;
   c.chunkM = 100.0f;
-  c.resolution = 8;        // tiny chunks -> fast test
+  c.resolution = 8; // tiny chunks -> fast test
   c.renderRadius = renderRadius;
   c.collisionRadius = 1;
-  c.maxInFlight = 4;       // cap per plan(); drain over several calls
+  c.maxInFlight = 4; // cap per plan(); drain over several calls
   return c;
 }
 
 // Pump plan() at a fixed point, "building" each requested chunk (markBuilt),
 // until no more work is produced. Returns {totalBuilds, totalRemoves,
 // collisionEverDue}.
-struct DrainResult { std::size_t builds, removes; bool collision; };
-static DrainResult drain(vsim::ChunkStreamer& s, float wx, float wy) {
+struct DrainResult {
+  std::size_t builds, removes;
+  bool collision;
+};
+static DrainResult drain(vsim::ChunkStreamer &s, float wx, float wy) {
   DrainResult r{0, 0, false};
   for (int i = 0; i < 200; ++i) {
     const vsim::StreamPlan p = s.plan(wx, wy);
     r.builds += p.toBuild.size();
     r.removes += p.toRemove.size();
     r.collision = r.collision || p.collisionDue;
-    for (const vsim::ChunkReq& req : p.toBuild) s.markBuilt(req.key);
-    if (p.toBuild.empty() && p.toRemove.empty()) break;
+    for (const vsim::ChunkReq &req : p.toBuild)
+      s.markBuilt(req.key);
+    if (p.toBuild.empty() && p.toRemove.empty())
+      break;
   }
   return r;
 }
@@ -287,7 +301,7 @@ void TstProcgen::streamerPagesOnCrossing() {
   const DrainResult d = drain(s, 150.0f, 0.0f);
   QCOMPARE(d.builds, static_cast<std::size_t>(2 * r + 1));
   QCOMPARE(d.removes, static_cast<std::size_t>(2 * r + 1));
-  QVERIFY(d.collision);  // centre changed cell -> collision reshipped
+  QVERIFY(d.collision); // centre changed cell -> collision reshipped
 }
 
 void TstProcgen::floraSitsOnSurfaceAndDeterministic() {
@@ -330,9 +344,9 @@ void TstProcgen::floraTilesWithoutDuplicates() {
   const std::vector<FloraInstance> c1 = scatterFlora(f, 1, 0, chunkM, gp);
   QVERIFY(!c0.empty() && !c1.empty());
   // Jitter can push a base slightly over the seam; allow a small margin.
-  for (const FloraInstance& b : c0)
+  for (const FloraInstance &b : c0)
     QVERIFY(b.pos.x < chunkM + gp.spacing);
-  for (const FloraInstance& b : c1)
+  for (const FloraInstance &b : c1)
     QVERIFY(b.pos.x >= chunkM - gp.spacing);
 }
 

@@ -1,10 +1,11 @@
 #include "comm/navlink_tx.h"
-#include "comm/channel.h"     /* write_channel, channel_t */
-#include "dsp/gyro_notch.h"   /* gyro_notch_enabled / _center_hz (NOTCH_STATUS) */
-#include "sys/state.h"        /* system_state_get, sys_state_t */
-#include "sys/sys_utils.h"    /* get_device_id */
-#include "utils.h"            /* v_memcpy, v_get_ticks */
-#include "navlink_msgs.h"     /* generated codec — included ONLY here + navlink_router.c */
+#include "storage/imu_hs_log.h"
+#include "comm/channel.h"   /* write_channel, channel_t */
+#include "dsp/gyro_notch.h" /* gyro_notch_enabled / _center_hz (NOTCH_STATUS) */
+#include "sys/state.h"      /* system_state_get, sys_state_t */
+#include "sys/sys_utils.h"  /* get_device_id */
+#include "utils.h"          /* v_memcpy, v_get_ticks */
+#include "navlink_msgs.h" /* generated codec — included ONLY here + navlink_router.c */
 #include <stdint.h>
 
 extern channel_t g_telemetry_channel; /* defined in telemetry_task.c */
@@ -37,7 +38,8 @@ void navlink_tx_log(const char *buf, uint8_t len) {
       continue; /* skip empty lines */
     }
     uint8_t frame[NAVLINK_MAX_FRAME];
-    size_t n = navlink_statustext_encode(frame, &msg, seq++, get_device_id(), 1);
+    size_t n =
+        navlink_statustext_encode(frame, &msg, seq++, get_device_id(), 1);
     write_channel(g_telemetry_channel, frame, (uint16_t)n);
   }
 }
@@ -58,7 +60,8 @@ void navlink_tx_sysid_sample(uint16_t start, uint16_t total, uint16_t hz,
     msg.gyro[i] = gyro[i];
   }
   uint8_t frame[NAVLINK_MAX_FRAME];
-  size_t n = navlink_sysid_sample_encode(frame, &msg, seq++, get_device_id(), 1);
+  size_t n =
+      navlink_sysid_sample_encode(frame, &msg, seq++, get_device_id(), 1);
   write_channel(g_telemetry_channel, frame, (uint16_t)n);
 }
 
@@ -70,7 +73,7 @@ void navlink_tx_heartbeat(void) {
    * position (ctz) maps one to the other. */
   static uint8_t seq = 0;
   navlink_heartbeat_t msg = {0};
-  msg.type = 0;          /* vehicle type — unused by the GCS today */
+  msg.type = 0; /* vehicle type — unused by the GCS today */
   msg.autopilot = 0;
   msg.base_mode = 0;
   msg.system_status = 0;
@@ -113,6 +116,25 @@ void navlink_tx_notch_status(void) {
   s.yaw_hz2 = gyro_notch_center_hz(2, 2);
   uint8_t frame[NAVLINK_MAX_FRAME];
   size_t n = navlink_notch_status_encode(frame, &s, seq++, get_device_id(), 1);
+  write_channel(g_telemetry_channel, frame, (uint16_t)n);
+}
+
+/** @noreq high-speed SD stream status (observability) */
+void navlink_tx_hsl_status(void) {
+  /* v2 HSL_STATUS (msgid 1048). Lets the recorder be checked over the link
+   * instead of by pulling the card -- above all dropped_sectors, which is the
+   * only in-flight evidence that the card is not keeping up with 31 KB/s. */
+  static uint8_t seq = 0;
+  navlink_hsl_status_t s = {0};
+  s.recording = imu_hs_log_active() ? 1u : 0u;
+  s.session = imu_hs_log_session();
+  s.head_slot = imu_hs_log_head_slot();
+  s.ring_sectors = imu_hs_log_ring_sectors();
+  s.wraps = imu_hs_log_wraps();
+  s.dropped_sectors = imu_hs_log_dropped();
+  s.seq = imu_hs_log_seq();
+  uint8_t frame[NAVLINK_MAX_FRAME];
+  size_t n = navlink_hsl_status_encode(frame, &s, seq++, get_device_id(), 1);
   write_channel(g_telemetry_channel, frame, (uint16_t)n);
 }
 
@@ -240,8 +262,14 @@ void navlink_tx_vertical_state(const vertical_state_t *vs) {
   m.baro_altitude = vs->baro_altitude;
   m.agl = vs->agl;
   m.valid = vs->valid ? 1u : 0u;
+  m.agl_tof = vs->agl_tof;
+  m.tof_valid = vs->tof_valid ? 1u : 0u;
+  m.height_state = angle_controller_height_state();
+  m.accel_bias = vs->accel_bias;
+  m.accel_unhealthy = vs->accel_unhealthy ? 1u : 0u;
   uint8_t frame[NAVLINK_MAX_FRAME];
-  size_t n = navlink_vertical_state_encode(frame, &m, seq++, get_device_id(), 1);
+  size_t n =
+      navlink_vertical_state_encode(frame, &m, seq++, get_device_id(), 1);
   write_channel(g_telemetry_channel, frame, (uint16_t)n);
 }
 

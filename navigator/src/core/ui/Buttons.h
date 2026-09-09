@@ -22,11 +22,11 @@ namespace ui {
 
 class PrimaryButton : public QPushButton {
   Q_OBJECT
- public:
-  explicit PrimaryButton(QWidget* parent = nullptr) : QPushButton(parent) {
+public:
+  explicit PrimaryButton(QWidget *parent = nullptr) : QPushButton(parent) {
     setObjectName("PrimaryButton");
   }
-  explicit PrimaryButton(const QString& text, QWidget* parent = nullptr)
+  explicit PrimaryButton(const QString &text, QWidget *parent = nullptr)
       : QPushButton(text, parent) {
     setObjectName("PrimaryButton");
   }
@@ -34,11 +34,11 @@ class PrimaryButton : public QPushButton {
 
 class SuccessButton : public QPushButton {
   Q_OBJECT
- public:
-  explicit SuccessButton(QWidget* parent = nullptr) : QPushButton(parent) {
+public:
+  explicit SuccessButton(QWidget *parent = nullptr) : QPushButton(parent) {
     setObjectName("SuccessButton");
   }
-  explicit SuccessButton(const QString& text, QWidget* parent = nullptr)
+  explicit SuccessButton(const QString &text, QWidget *parent = nullptr)
       : QPushButton(text, parent) {
     setObjectName("SuccessButton");
   }
@@ -46,11 +46,11 @@ class SuccessButton : public QPushButton {
 
 class DangerButton : public QPushButton {
   Q_OBJECT
- public:
-  explicit DangerButton(QWidget* parent = nullptr) : QPushButton(parent) {
+public:
+  explicit DangerButton(QWidget *parent = nullptr) : QPushButton(parent) {
     setObjectName("DangerButton");
   }
-  explicit DangerButton(const QString& text, QWidget* parent = nullptr)
+  explicit DangerButton(const QString &text, QWidget *parent = nullptr)
       : QPushButton(text, parent) {
     setObjectName("DangerButton");
   }
@@ -58,11 +58,11 @@ class DangerButton : public QPushButton {
 
 class GhostButton : public QPushButton {
   Q_OBJECT
- public:
-  explicit GhostButton(QWidget* parent = nullptr) : QPushButton(parent) {
+public:
+  explicit GhostButton(QWidget *parent = nullptr) : QPushButton(parent) {
     setObjectName("GhostButton");
   }
-  explicit GhostButton(const QString& text, QWidget* parent = nullptr)
+  explicit GhostButton(const QString &text, QWidget *parent = nullptr)
       : QPushButton(text, parent) {
     setObjectName("GhostButton");
   }
@@ -70,11 +70,11 @@ class GhostButton : public QPushButton {
 
 class BackButton : public QPushButton {
   Q_OBJECT
- public:
-  explicit BackButton(QWidget* parent = nullptr) : QPushButton(parent) {
+public:
+  explicit BackButton(QWidget *parent = nullptr) : QPushButton(parent) {
     setObjectName("BackButton");
     setText(tr("Back"));
   }
 };
 
-}  // namespace ui
+} // namespace ui

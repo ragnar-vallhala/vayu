@@ -29,7 +29,7 @@ void TstViewHistory::revisitMovesToFront() {
   h.visit(1);
   h.visit(2);
   h.visit(3);
-  h.visit(1);  // re-visit an older view
+  h.visit(1); // re-visit an older view
   QCOMPARE(h.mru(), (QList<int>{1, 3, 2}));
 }
 
@@ -44,11 +44,11 @@ void TstViewHistory::revisitingCurrentIsNoOp() {
 
 void TstViewHistory::previousIsSecondEntry() {
   ViewHistory h;
-  QCOMPARE(h.previous(), -1);  // empty
+  QCOMPARE(h.previous(), -1); // empty
   h.visit(1);
-  QCOMPARE(h.previous(), -1);  // only one view
+  QCOMPARE(h.previous(), -1); // only one view
   h.visit(2);
-  QCOMPARE(h.previous(), 1);   // toggle target is the prior view
+  QCOMPARE(h.previous(), 1); // toggle target is the prior view
   h.visit(3);
   QCOMPARE(h.previous(), 2);
 }
@@ -58,19 +58,19 @@ void TstViewHistory::depthCapsHistory() {
   h.setDepth(3);
   for (int i = 1; i <= 6; ++i)
     h.visit(i);
-  QCOMPARE(h.mru(), (QList<int>{6, 5, 4}));  // only the 3 most recent kept
+  QCOMPARE(h.mru(), (QList<int>{6, 5, 4})); // only the 3 most recent kept
 }
 
 void TstViewHistory::setDepthClampsAndTruncates() {
   ViewHistory h;
-  QCOMPARE(h.depth(), 5);              // default
+  QCOMPARE(h.depth(), 5); // default
   h.setDepth(99);
   QCOMPARE(h.depth(), ViewHistory::kMaxDepth);
   h.setDepth(0);
   QCOMPARE(h.depth(), ViewHistory::kMinDepth);
 
   for (int i = 1; i <= 5; ++i)
-    h.visit(i);                        // mru = {5,4,3,2,1}, depth currently 2
+    h.visit(i); // mru = {5,4,3,2,1}, depth currently 2
   QCOMPARE(h.mru().size(), ViewHistory::kMinDepth);
   QCOMPARE(h.mru(), (QList<int>{5, 4}));
 }

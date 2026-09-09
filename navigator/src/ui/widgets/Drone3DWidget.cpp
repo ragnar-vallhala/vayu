@@ -18,23 +18,23 @@ struct Motor {
   float x, y;
   bool front;
 };
-constexpr float kArmReach = 0.86f;  // motor offset on each axis
+constexpr float kArmReach = 0.86f; // motor offset on each axis
 const std::array<Motor, 4> kMotors = {{
-    {+kArmReach, +kArmReach, true},   // front-right
-    {-kArmReach, +kArmReach, true},   // front-left
-    {+kArmReach, -kArmReach, false},  // rear-right
-    {-kArmReach, -kArmReach, false},  // rear-left
+    {+kArmReach, +kArmReach, true},  // front-right
+    {-kArmReach, +kArmReach, true},  // front-left
+    {+kArmReach, -kArmReach, false}, // rear-right
+    {-kArmReach, -kArmReach, false}, // rear-left
 }};
 
-constexpr float kViewTilt = 60.0f;  // deg; look down on the top, like .scene
+constexpr float kViewTilt = 60.0f; // deg; look down on the top, like .scene
 
 const QColor kArmEdge(0x3e, 0x44, 0x52);
 const QColor kArmFill(0x2c, 0x31, 0x3a);
 const QColor kHub(0x3a, 0x41, 0x4e);
 const QColor kHubEdge(0x4a, 0x52, 0x5f);
-const QColor kFront(0xE0, 0x6C, 0x75);   // --danger (front pods)
-const QColor kRear(0x98, 0xC3, 0x79);    // --ok (rear pods)
-const QColor kAccent(0x61, 0xAF, 0xEF);  // --accent (nose)
+const QColor kFront(0xE0, 0x6C, 0x75);  // --danger (front pods)
+const QColor kRear(0x98, 0xC3, 0x79);   // --ok (rear pods)
+const QColor kAccent(0x61, 0xAF, 0xEF); // --accent (nose)
 const QColor kPodFill(0x20, 0x24, 0x2e);
 const QColor kBlade(190, 205, 225, 95);
 
@@ -45,21 +45,25 @@ const QColor kBlade(190, 205, 225, 95);
 constexpr float kSmooth = 0.5f;
 float easeAngle(float cur, float target, float a) {
   float d = target - cur;
-  while (d > 180.0f) d -= 360.0f;
-  while (d < -180.0f) d += 360.0f;
+  while (d > 180.0f)
+    d -= 360.0f;
+  while (d < -180.0f)
+    d += 360.0f;
   cur += d * a;
-  while (cur > 180.0f) cur -= 360.0f;
-  while (cur < -180.0f) cur += 360.0f;
+  while (cur > 180.0f)
+    cur -= 360.0f;
+  while (cur < -180.0f)
+    cur += 360.0f;
   return cur;
 }
 
-}  // namespace
+} // namespace
 
 Drone3DWidget::Drone3DWidget(QWidget *parent) : QOpenGLWidget(parent) {
   setMinimumSize(260, 260);
   // Gentle prop spin so the airframe reads as "live", as in the mockup.
   m_spinTimer = new QTimer(this);
-  m_spinTimer->setInterval(33);  // ~30 fps
+  m_spinTimer->setInterval(33); // ~30 fps
   connect(m_spinTimer, &QTimer::timeout, this, [this] {
     m_propPhase += 9.0f;
     // Ease the displayed attitude toward the latest target so bursty / low-rate
@@ -97,7 +101,7 @@ void Drone3DWidget::showEvent(QShowEvent *event) {
 
 void Drone3DWidget::hideEvent(QHideEvent *event) {
   QOpenGLWidget::hideEvent(event);
-  m_spinTimer->stop();  // don't burn CPU while the 3D view is hidden
+  m_spinTimer->stop(); // don't burn CPU while the 3D view is hidden
 }
 
 void Drone3DWidget::paintEvent(QPaintEvent *) {
@@ -119,16 +123,17 @@ void Drone3DWidget::paintEvent(QPaintEvent *) {
   // Orientation: live attitude, then a fixed view tilt that looks down on the
   // top of the airframe (the mockup's `scene { rotateX(58deg) }`).
   QMatrix4x4 R;
-  R.rotate(-kViewTilt, 1, 0, 0);  // view tilt about screen X (look down)
-  R.rotate(m_yaw, 0, 0, 1);       // yaw about up (+Z)
-  R.rotate(m_roll, 0, 1, 0);      // roll about forward (+Y)
-  R.rotate(m_pitch, 1, 0, 0);     // pitch about right (+X)
+  R.rotate(-kViewTilt, 1, 0, 0); // view tilt about screen X (look down)
+  R.rotate(m_yaw, 0, 0, 1);      // yaw about up (+Z)
+  R.rotate(m_roll, 0, 1, 0);     // roll about forward (+Y)
+  R.rotate(m_pitch, 1, 0, 0);    // pitch about right (+X)
 
   // Orthographic projection (mild, like the mockup's large perspective): map a
   // body point to screen and report its camera-depth for painter ordering.
   auto project = [&](float x, float y, float z, float *depth = nullptr) {
     const QVector3D r = R.map(QVector3D(x, y, z));
-    if (depth) *depth = r.z();
+    if (depth)
+      *depth = r.z();
     return center + QPointF(r.x() * scale, -r.y() * scale);
   };
 
@@ -157,13 +162,15 @@ void Drone3DWidget::paintEvent(QPaintEvent *) {
   }
 
   // --- arms: two crossed bars through the centre ---
-  p.setPen(QPen(kArmFill, qMax(2.0f, scale * 0.10f), Qt::SolidLine, Qt::RoundCap));
+  p.setPen(
+      QPen(kArmFill, qMax(2.0f, scale * 0.10f), Qt::SolidLine, Qt::RoundCap));
   p.drawLine(project(kMotors[1].x, kMotors[1].y, 0),
-             project(kMotors[2].x, kMotors[2].y, 0));  // FL — RR
+             project(kMotors[2].x, kMotors[2].y, 0)); // FL — RR
   p.drawLine(project(kMotors[0].x, kMotors[0].y, 0),
-             project(kMotors[3].x, kMotors[3].y, 0));  // FR — RL
+             project(kMotors[3].x, kMotors[3].y, 0)); // FR — RL
   // thin highlight edge
-  p.setPen(QPen(kArmEdge, qMax(1.0f, scale * 0.03f), Qt::SolidLine, Qt::RoundCap));
+  p.setPen(
+      QPen(kArmEdge, qMax(1.0f, scale * 0.03f), Qt::SolidLine, Qt::RoundCap));
   p.drawLine(project(kMotors[1].x, kMotors[1].y, 0.02f),
              project(kMotors[2].x, kMotors[2].y, 0.02f));
   p.drawLine(project(kMotors[0].x, kMotors[0].y, 0.02f),
@@ -183,8 +190,8 @@ void Drone3DWidget::paintEvent(QPaintEvent *) {
   std::sort(order.begin(), order.end(),
             [](const Drawn &a, const Drawn &b) { return a.depth < b.depth; });
 
-  const float podR = 0.24f;    // body units (motor housing radius)
-  const float bladeR = 0.30f;  // body units
+  const float podR = 0.24f;   // body units (motor housing radius)
+  const float bladeR = 0.30f; // body units
   for (const Drawn &o : order) {
     const Motor &m = kMotors[o.i];
     const QColor ring = m.front ? kFront : kRear;
@@ -196,7 +203,8 @@ void Drone3DWidget::paintEvent(QPaintEvent *) {
 
     // prop blades in the rotor plane just above the pod (so they foreshorten
     // and yaw with the airframe), two bars crossed at 90°.
-    p.setPen(QPen(kBlade, qMax(2.0f, scale * 0.03f), Qt::SolidLine, Qt::RoundCap));
+    p.setPen(
+        QPen(kBlade, qMax(2.0f, scale * 0.03f), Qt::SolidLine, Qt::RoundCap));
     for (int k = 0; k < 2; ++k) {
       const float a = qDegreesToRadians(m_propPhase + o.i * 35.0f + k * 90.0f);
       const float dx = std::cos(a) * bladeR;

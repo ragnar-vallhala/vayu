@@ -1,8 +1,10 @@
 #include "sensor/bmx160.h"
+#include "storage/imu_hs_log.h"
 #include "calib/calib_engine.h"
 #include "comm/comm.h"
 #include "sensor/bme280.h"
 #include "sensor/i2c_manager.h"
+#include "sensor/vl53l0x.h"
 #include "navhal.h"
 #include "ipc.h"
 #include "est/est.h"
@@ -32,10 +34,12 @@ extern float m_fabsf(float x);
 #define ACC_STILL_TOL_G 0.2f
 #define GYRO_STILL_DPS 0.2f
 #define ACC_STILL_LO_SQ                                                        \
-  ((ACC_STILL_G - ACC_STILL_TOL_G) * (ACC_STILL_G - ACC_STILL_TOL_G)) /* 9.61^2 */
+  ((ACC_STILL_G - ACC_STILL_TOL_G) *                                           \
+   (ACC_STILL_G - ACC_STILL_TOL_G)) /* 9.61^2 */
 #define ACC_STILL_HI_SQ                                                        \
-  ((ACC_STILL_G + ACC_STILL_TOL_G) * (ACC_STILL_G + ACC_STILL_TOL_G)) /* 10.01^2 */
-#define GYRO_STILL_SQ (GYRO_STILL_DPS * GYRO_STILL_DPS)               /* 0.04 */
+  ((ACC_STILL_G + ACC_STILL_TOL_G) *                                           \
+   (ACC_STILL_G + ACC_STILL_TOL_G))                     /* 10.01^2 */
+#define GYRO_STILL_SQ (GYRO_STILL_DPS * GYRO_STILL_DPS) /* 0.04 */
 static int in_init = 1;
 #define IS_FINITE(x) (m_isfinite(x))
 uint8_t tx_buf[2];
@@ -73,12 +77,19 @@ typedef enum {
   IMU_OP_FAST, // Gyro + Accel
   IMU_OP_MAG,  // Magnetometer
   IMU_OP_TEMP, // Temperature
-  IMU_OP_BARO  // BME280 baro/humidity (shares this single-owner bus loop)
+  IMU_OP_BARO, // BME280 baro/humidity (shares this single-owner bus loop)
+  IMU_OP_TOF   // VL53L0X ToF rangefinder (ditto)
 } imu_op_t;
 
 /* Read the BME280 every Nth TEMP slot. TEMP runs ~1/13 of FAST (2 kHz) ~= 150
  * Hz, so /10 ~= 15 Hz — matched to the BME280's 62.5 ms normal-mode cadence. */
 #define BARO_READ_DECIM 10
+
+/* Read the VL53L0X every Nth TEMP slot. 150/7 ~= 21 Hz, comfortably under the
+ * device's ~30 Hz continuous cadence. 7 is coprime with BARO_READ_DECIM so the
+ * two ride-along slots almost never land on the same TEMP tick (when they do,
+ * the baro wins and the ToF read simply waits one cycle). */
+#define TOF_READ_DECIM 7
 
 extern hal_i2c_config_t i2c_config;
 static volatile imu_op_t _next_op = IMU_OP_FAST;
@@ -92,6 +103,7 @@ static void bmx160_dma_callback_fast(void *args);
 static void bmx160_dma_callback_mag(void *args);
 static void bmx160_dma_callback_temp(void *args);
 static void bmx160_dma_callback_baro(void *args);
+static void bmx160_dma_callback_tof(void *args);
 
 static float acc_scale = 0.0f;
 static float gyr_scale = 0.0f;
@@ -108,8 +120,10 @@ static bmx160_calibration_t bmx160_calib = {
  * estimator reads while the calibration task may write — a torn read is
  * harmless, same R8.6 rationale as the gyro-bias offset). */
 void bmx160_get_board_trim(float *roll_deg, float *pitch_deg) {
-  if (roll_deg) *roll_deg = bmx160_calib.board_trim[0];
-  if (pitch_deg) *pitch_deg = bmx160_calib.board_trim[1];
+  if (roll_deg)
+    *roll_deg = bmx160_calib.board_trim[0];
+  if (pitch_deg)
+    *pitch_deg = bmx160_calib.board_trim[1];
 }
 
 /* Set by bmx160_calib_request_cancel() (CMD_CANCEL_CALIBRATION), polled and
@@ -177,8 +191,7 @@ static bmx160_err_type bmx160_wait_mag_manual_op(void) {
 static bmx160_err_type bmx160_verify_pmu(uint8_t mask, uint8_t expected) {
   uint8_t reg = BMX160_PMU_STAT_ADDR;
 
-  if (i2c_manager_write_read(BMX160_I2C_ADDR, &reg, 1, rx_buf, 1) !=
-      HAL_OK) {
+  if (i2c_manager_write_read(BMX160_I2C_ADDR, &reg, 1, rx_buf, 1) != HAL_OK) {
 
     return ERR0;
   }
@@ -214,7 +227,8 @@ hal_status_t bmx160_init(void) {
       bmx160_calib = loaded;
       vayu_log("[CALIB] Calibration loaded (v%u).", (unsigned)hdr.version);
     } else {
-      vayu_log("[CALIB] Calibration file invalid/old; using identity defaults.");
+      vayu_log(
+          "[CALIB] Calibration file invalid/old; using identity defaults.");
     }
   }
   // 1. Verify Chip ID
@@ -281,6 +295,7 @@ hal_status_t bmx160_init(void) {
   acc_scale = g_range * 9.80665f / 32768.0f;
   float dps_range = bmx160_range_code_to_dps(bmx160_cfg.bmx160_gyr_range);
   gyr_scale = dps_range / 32768.0f;
+  imu_hs_log_set_scale(gyr_scale, acc_scale);
 
   // 6. Configure Magnetometer (BMM150 setup)
   if (bmx160_set_mag_conf() != NO_ERR) {
@@ -683,8 +698,7 @@ bmx160_err_type bmx160_read_all_converted(bmx160_all_reading_t *data) {
 bmx160_err_type bmx160_read_acc_config(bmx160_config_t *config) {
   // Reading ACC conf
   tx_buf[0] = BMX160_ACC_CONF_ADDR;
-  if (i2c_manager_write_read(BMX160_I2C_ADDR, tx_buf, 1, rx_buf, 1) ==
-      HAL_OK) {
+  if (i2c_manager_write_read(BMX160_I2C_ADDR, tx_buf, 1, rx_buf, 1) == HAL_OK) {
     config->bmx160_acc_us = GET_ACC_US(rx_buf[0]);
     config->bmx160_acc_bwp = GET_ACC_BWP(rx_buf[0]);
     config->bmx160_acc_odr = GET_ACC_ODR(rx_buf[0]);
@@ -692,8 +706,7 @@ bmx160_err_type bmx160_read_acc_config(bmx160_config_t *config) {
     return ERR0;
 
   tx_buf[0] = BMX160_ACC_RANGE_ADDR;
-  if (i2c_manager_write_read(BMX160_I2C_ADDR, tx_buf, 1, rx_buf, 1) ==
-      HAL_OK) {
+  if (i2c_manager_write_read(BMX160_I2C_ADDR, tx_buf, 1, rx_buf, 1) == HAL_OK) {
     config->bmx160_acc_range = GET_ACC_RANGE(rx_buf[0]);
   } else
     return ERR0;
@@ -704,16 +717,14 @@ bmx160_err_type bmx160_read_acc_config(bmx160_config_t *config) {
 bmx160_err_type bmx160_read_gyr_config(bmx160_config_t *config) {
   // Reading GYR conf
   tx_buf[0] = BMX160_GYR_CONF_ADDR;
-  if (i2c_manager_write_read(BMX160_I2C_ADDR, tx_buf, 1, rx_buf, 1) ==
-      HAL_OK) {
+  if (i2c_manager_write_read(BMX160_I2C_ADDR, tx_buf, 1, rx_buf, 1) == HAL_OK) {
     config->bmx160_gyr_bwp = GET_GYR_BWP(rx_buf[0]);
     config->bmx160_gyr_odr = GET_GYR_ODR(rx_buf[0]);
   } else
     return ERR0;
 
   tx_buf[0] = BMX160_GYR_RANGE_ADDR;
-  if (i2c_manager_write_read(BMX160_I2C_ADDR, tx_buf, 1, rx_buf, 1) ==
-      HAL_OK) {
+  if (i2c_manager_write_read(BMX160_I2C_ADDR, tx_buf, 1, rx_buf, 1) == HAL_OK) {
     config->bmx160_gyr_range = GET_GYR_RANGE(rx_buf[0]);
   } else
     return ERR0;
@@ -724,8 +735,7 @@ bmx160_err_type bmx160_read_gyr_config(bmx160_config_t *config) {
 bmx160_err_type bmx160_read_mag_config(bmx160_config_t *config) {
   // Reading MAG conf
   tx_buf[0] = BMX160_MAG_CONF_ADDR;
-  if (i2c_manager_write_read(BMX160_I2C_ADDR, tx_buf, 1, rx_buf, 1) ==
-      HAL_OK) {
+  if (i2c_manager_write_read(BMX160_I2C_ADDR, tx_buf, 1, rx_buf, 1) == HAL_OK) {
     config->bmx160_mag_odr = GET_MAG_ODR(rx_buf[0]);
   } else
     return ERR0;
@@ -757,20 +767,21 @@ bmx160_err_type bmx160_write_config(bmx160_config_t *config) {
   bmx160_set_current_config(config);
 
   // Pre-calculate scales
-  float g_range = bmx160_range_code_to_g(config->bmx160_acc_range);
+  float g_range = bmx160_range_code_to_g((uint8_t)config->bmx160_acc_range);
   acc_scale = g_range * 9.80665f / 32768.0f;
 
-  float dps_range = bmx160_range_code_to_dps(config->bmx160_gyr_range);
+  float dps_range = bmx160_range_code_to_dps((uint8_t)config->bmx160_gyr_range);
   gyr_scale = dps_range / 32768.0f;
+  imu_hs_log_set_scale(gyr_scale, acc_scale);
 
   return NO_ERR;
 }
 
 /** @noreq Register-field packing helper. */
 static uint8_t bmx160_get_acc_conf(bmx160_config_t *config) {
-  uint8_t val =
-      (((config->bmx160_acc_us & 1U) << 7U) |
-       ((config->bmx160_acc_bwp & 7U) << 4U) | (config->bmx160_acc_odr & 15U));
+  uint8_t val = (uint8_t)(((config->bmx160_acc_us & 1U) << 7U) |
+                          ((config->bmx160_acc_bwp & 7U) << 4U) |
+                          (config->bmx160_acc_odr & 15U));
   return val;
 }
 
@@ -782,8 +793,8 @@ static uint8_t bmx160_get_acc_range(bmx160_config_t *config) {
 
 /** @noreq Register-field packing helper. */
 static uint8_t bmx160_get_gyr_conf(bmx160_config_t *config) {
-  uint8_t val =
-      (((config->bmx160_gyr_bwp & 3U) << 4U) | (config->bmx160_gyr_odr & 15U));
+  uint8_t val = (uint8_t)(((config->bmx160_gyr_bwp & 3U) << 4U) |
+                          (config->bmx160_gyr_odr & 15U));
   return val;
 }
 
@@ -952,6 +963,14 @@ void bmx160_initiate_read(void *args) {
         ret = i2c_manager_read_async(BME280_I2C_ADDR, BME280_REG_DATA,
                                      BME280_DATA_LEN, bmx160_dma_callback_baro);
         break;
+      case IMU_OP_TOF:
+        /* Read the VL53L0X's 12-byte result block (0x14..0x1F) through the SAME
+         * single-owner DMA path. The device free-runs in continuous mode, so
+         * this is a pure read — no trigger, and no interrupt-clear write (the
+         * async path cannot write; see vl53l0x.h). */
+        ret = i2c_manager_read_async(VL53L0X_I2C_ADDR, VL53L0X_REG_RESULT_RANGE,
+                                     VL53L0X_DATA_LEN, bmx160_dma_callback_tof);
+        break;
       }
 
       if (ret != HAL_OK) {
@@ -975,7 +994,7 @@ void bmx160_initiate_read(void *args) {
 
         // CRITICAL: START DMA MANUALLY
         hal_status_t ret = i2c_manager_read_async(BMX160_I2C_ADDR, 0x0C, 12,
-                                                      bmx160_dma_callback_fast);
+                                                  bmx160_dma_callback_fast);
 
         if (ret != HAL_OK) {
           vayu_log("RESTART FAILED");
@@ -1030,6 +1049,7 @@ static void bmx160_dma_callback_mag(void *args) {
 /** @implements SNS-BMX-104, SNS-BMX-105 */
 static void bmx160_dma_callback_temp(void *args) {
   static uint32_t baro_counter = 0;
+  static uint32_t tof_counter = 0;
   if (args != NULL) {
     v_memcpy(&_bmx_dma_rx_buffer_double[28], args, 2);
     _temp_fresh = 1; /* new temperature -> process_data will reconvert it */
@@ -1039,8 +1059,11 @@ static void bmx160_dma_callback_temp(void *args) {
    * only if the baro is present (else its DMA read would NACK and trip the
    * IMU recovery path). The baro callback returns the chain to FAST. */
   baro_counter++;
+  tof_counter++;
   if (bme280_is_present() && (baro_counter % BARO_READ_DECIM == 0)) {
     _next_op = IMU_OP_BARO;
+  } else if (vl53l0x_is_present() && (tof_counter % TOF_READ_DECIM == 0)) {
+    _next_op = IMU_OP_TOF;
   } else {
     _next_op = IMU_OP_FAST;
   }
@@ -1059,6 +1082,24 @@ static void bmx160_dma_callback_temp(void *args) {
 static void bmx160_dma_callback_baro(void *args) {
   if (args != NULL) {
     bme280_ingest_raw((const uint8_t *)args);
+  }
+  isr_count++;
+  _next_op = IMU_OP_FAST;
+
+  int higher_priority_task_woken = 0;
+  v_semaphore_give_from_isr(bmx160_ready_sema, &higher_priority_task_woken);
+  if (higher_priority_task_woken) {
+    task_yield();
+  }
+}
+
+/* VL53L0X result-block burst complete: hand the 12 raw bytes to the ToF driver
+ * (cheap copy + flag; decode runs in vl53l0x_read_task) and return the
+ * acquisition chain to FAST. Mirrors the baro callback. */
+/** @noreq ISR glue for the ToF ride-along slot. */
+static void bmx160_dma_callback_tof(void *args) {
+  if (args != NULL) {
+    vl53l0x_ingest_raw((const uint8_t *)args);
   }
   isr_count++;
   _next_op = IMU_OP_FAST;
@@ -1256,6 +1297,12 @@ void bmx160_process_data(void) {
   _bmx_data.raw.rhall = rhall;
   _bmx_data.raw.temp = raw_temp;
 
+  /* High-speed SD stream, tapped HERE: sensor-native counts, before the LPF,
+   * the bias correction and the axis remap below. Pre-filter is the entire
+   * point -- the recording exists to show what the filters should be removing.
+   * RAM-only, ~12 bytes of memcpy, no-op unless armed. */
+  imu_hs_log_sample(_bmx_data.raw.gyr, _bmx_data.raw.acc, _sample_cyc);
+
   // Convert to units (for local attitude fusion and telemetry)
   _bmx_data.converted.acc_raw[0] = -bmx160_raw_acc_to_mps2(ax);
   _bmx_data.converted.acc_raw[1] = bmx160_raw_acc_to_mps2(ay);
@@ -1343,7 +1390,8 @@ void bmx160_process_data(void) {
     _bmx_data.converted.acc[1] = Asi[3] * a0 + Asi[4] * a1 + Asi[5] * a2;
     _bmx_data.converted.acc[2] = Asi[6] * a0 + Asi[7] * a1 + Asi[8] * a2;
     for (int i = 0; i < 3; i++)
-      _bmx_data.converted.acc[i] = lpf_apply(&acc_lpf[i], _bmx_data.converted.acc[i]);
+      _bmx_data.converted.acc[i] =
+          lpf_apply(&acc_lpf[i], _bmx_data.converted.acc[i]);
   }
 
   // Tag the converted sample with its acquisition cycle stamp and fan it out.
@@ -1519,9 +1567,9 @@ static int pose_advances_coverage(const float avg[3], pose_kind_t kind,
       return POSE_REJ_SHAPE; // no axis points along gravity -> not a clean face
     int sign, axis = dom_axis(u, &sign);
     for (int i = 0; i < n_banked; i++) {
-      float bm = m_sqrt(banked[i][0] * banked[i][0] +
-                        banked[i][1] * banked[i][1] +
-                        banked[i][2] * banked[i][2]);
+      float bm =
+          m_sqrt(banked[i][0] * banked[i][0] + banked[i][1] * banked[i][1] +
+                 banked[i][2] * banked[i][2]);
       if (bm < 1.0f)
         continue;
       float bu[3] = {banked[i][0] / bm, banked[i][1] / bm, banked[i][2] / bm};
@@ -1545,14 +1593,13 @@ static int pose_advances_coverage(const float avg[3], pose_kind_t kind,
   if (amid < ACCEL_POSE_EDGE_MIN_SECOND)
     return POSE_REJ_SHAPE; // only one axis loaded -> not a shared-gravity edge
   for (int i = 0; i < n_banked; i++) {
-    float bm = m_sqrt(banked[i][0] * banked[i][0] +
-                      banked[i][1] * banked[i][1] +
-                      banked[i][2] * banked[i][2]);
+    float bm =
+        m_sqrt(banked[i][0] * banked[i][0] + banked[i][1] * banked[i][1] +
+               banked[i][2] * banked[i][2]);
     if (bm < 1.0f)
       continue;
-    float dot = (u[0] * banked[i][0] + u[1] * banked[i][1] +
-                 u[2] * banked[i][2]) /
-                bm;
+    float dot =
+        (u[0] * banked[i][0] + u[1] * banked[i][1] + u[2] * banked[i][2]) / bm;
     if (dot > ACCEL_POSE_MIN_SEP_COS)
       return POSE_REJ_DUP; // within ~30 deg of a pose already taken
   }
@@ -1576,7 +1623,7 @@ static int wait_for_static_pose(uint8_t code, pose_kind_t kind,
 
   const float g = 9.81f;
   const float mag_min2 = (0.45f * g) * (0.45f * g); // reject free-fall / drops
-  const float mag_max2 = (2.0f * g) * (2.0f * g);   // permissive: up to ~2x scale
+  const float mag_max2 = (2.0f * g) * (2.0f * g); // permissive: up to ~2x scale
   const float gyro_still2 = ACCEL_CAL_GYRO_STILL_DPS * ACCEL_CAL_GYRO_STILL_DPS;
 
   const int target = ACCEL_POSE_STILL_SAMPLES;
@@ -1767,24 +1814,26 @@ void calibration_task(void *args) {
       }
       npts++;
       vayu_log("[CALIB] Pose %d recorded.", i);
-      v_delay(CALIBRATION_WAIT_USER_TIME_PRE_CALIBRATION); // user moves the board
+      v_delay(
+          CALIBRATION_WAIT_USER_TIME_PRE_CALIBRATION); // user moves the board
     }
 
     calib_target_t acc_target = {
         .name = "accel",
-        .radius = 9.80665f,              // gravity (m/s^2) — absolute target
+        .radius = 9.80665f, // gravity (m/s^2) — absolute target
 #if ACCEL_CALIB_METHOD == ACCEL_CALIB_SIXPOINT
         .fit = CALIB_FIT_SIXPOINT,
         .min_samples = ACCEL_CAL_FACE_POSES, // needs all 6 sides
 #else
         .fit = CALIB_FIT_ELLIPSOID,
         .min_samples = ACCEL_CAL_MIN_POSES,
-        .normalize_radius = true,        // rescale so |a_cal| == g exactly
+        .normalize_radius = true, // rescale so |a_cal| == g exactly
 #endif
         .commit = acc_commit,
         .ctx = NULL,
     };
-    if (calib_engine_fit_points(&acc_target, (const float (*)[3])pts, npts) != 0) {
+    if (calib_engine_fit_points(&acc_target, (const float (*)[3])pts, npts) !=
+        0) {
       vayu_log("[CALIB] Accel fit failed; keeping old calibration.");
       goto done;
     }
@@ -1838,7 +1887,8 @@ void calibration_task(void *args) {
         .ctx = NULL,
     };
     if (calib_engine_run(&mag_target) != 0) {
-      vayu_log("[CALIB] Mag calibration not committed; keeping old calibration.");
+      vayu_log(
+          "[CALIB] Mag calibration not committed; keeping old calibration.");
       goto done;
     }
 
@@ -1847,14 +1897,16 @@ void calibration_task(void *args) {
      * store it as board_trim. The estimator subtracts this from its euler output
      * (attitude_task), so a cushion-tilted FC whose level != the prop plane still
      * reports and holds true level. Uses CALIBRATED accel (post accel-cal). */
-    vayu_log("[CALIB] Board-level (trim) calibration — hold the FRAME level...");
+    vayu_log(
+        "[CALIB] Board-level (trim) calibration — hold the FRAME level...");
     calib_telemetry(CALIB_UPDATE_BOARD_LEVEL, 0.0f);
     v_delay(CALIBRATION_WAIT_USER_TIME_PRE_CALIBRATION);
 
     const int target = ACCEL_POSE_STILL_SAMPLES; /* contiguous still samples */
     const int max_ticks = 1500;                  /* generous cap (~15 s) */
     const float gg = 9.81f;
-    const float gyro_still2 = ACCEL_CAL_GYRO_STILL_DPS * ACCEL_CAL_GYRO_STILL_DPS;
+    const float gyro_still2 =
+        ACCEL_CAL_GYRO_STILL_DPS * ACCEL_CAL_GYRO_STILL_DPS;
     const float amin2 = (0.6f * gg) * (0.6f * gg);
     const float amax2 = (1.4f * gg) * (1.4f * gg);
     float sum[3] = {0.0f, 0.0f, 0.0f};
@@ -1916,7 +1968,8 @@ void calibration_task(void *args) {
     /* Sanity: a real mount tilt is small; reject an absurd capture (frame wasn't
      * actually level) so we never latch a huge trim. */
     if (FABS_F(roll) > 30.0f || FABS_F(pitch) > 30.0f) {
-      vayu_log("[CALIB] Board-level: %.1f/%.1f deg too large (not level?); kept old.",
+      vayu_log("[CALIB] Board-level: %.1f/%.1f deg too large (not level?); "
+               "kept old.",
                roll, pitch);
       goto done;
     }

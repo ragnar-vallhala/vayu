@@ -18,38 +18,42 @@
 // (SerialManager uses the short QSerialPort name; RcBridge uses the full path).
 class PortArbiter : public QObject {
   Q_OBJECT
- public:
-  static PortArbiter& instance() {
+public:
+  static PortArbiter &instance() {
     static PortArbiter inst;
     return inst;
   }
 
-  static QString normalize(const QString& port) {
+  static QString normalize(const QString &port) {
     return port.trimmed().section('/', -1);
   }
 
   // Claim `port` for `owner`. If a different owner holds it, that owner is
   // revoked first. No-op when `owner` already holds it.
-  void acquire(const QString& port, QObject* owner) {
+  void acquire(const QString &port, QObject *owner) {
     const QString key = normalize(port);
-    if (key.isEmpty() || owner == nullptr) return;
-    QObject* prev = m_owners.value(key, nullptr);
-    if (prev == owner) return;
+    if (key.isEmpty() || owner == nullptr)
+      return;
+    QObject *prev = m_owners.value(key, nullptr);
+    if (prev == owner)
+      return;
     m_owners.insert(key, owner);
-    if (prev != nullptr) emit revoked(key, prev);
+    if (prev != nullptr)
+      emit revoked(key, prev);
   }
 
   // Release `port` only if `owner` currently holds it.
-  void release(const QString& port, QObject* owner) {
+  void release(const QString &port, QObject *owner) {
     const QString key = normalize(port);
-    if (m_owners.value(key, nullptr) == owner) m_owners.remove(key);
+    if (m_owners.value(key, nullptr) == owner)
+      m_owners.remove(key);
   }
 
- signals:
+signals:
   // `port` is the normalised key; `owner` is the QObject that must give it up.
-  void revoked(const QString& port, QObject* owner);
+  void revoked(const QString &port, QObject *owner);
 
- private:
+private:
   PortArbiter() = default;
-  QHash<QString, QObject*> m_owners;
+  QHash<QString, QObject *> m_owners;
 };

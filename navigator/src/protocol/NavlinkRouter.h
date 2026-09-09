@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core/Types.h"  // AttitudeData, ...
+#include "core/Types.h" // AttitudeData, ...
 #include <QByteArray>
 #include <functional>
 
@@ -31,14 +31,15 @@ public:
   std::function<void(const BaroData &)> onBaro;
   std::function<void(const VerticalStateData &)> onVerticalState;
   std::function<void(const NotchStatusData &)> onNotchStatus;
+  std::function<void(const HslStatusData &)> onHslStatus;
   std::function<void(uint8_t mode, uint8_t source)> onFlightMode;
   // HEARTBEAT: nav_state is the flight-state enum index; timestamp + device id
   // (frame sysid) drive link liveness. The owner maps nav_state -> state name.
   std::function<void(uint8_t navState, uint64_t timestamp, uint8_t deviceId)>
       onHeartbeat;
-  std::function<void(const QString &line)> onLog;          // STATUSTEXT
+  std::function<void(const QString &line)> onLog; // STATUSTEXT
   std::function<void(const CalibrationUpdate &)> onCalibration;
-  std::function<void(const PerfReport &)> onPerf;          // reassembled report
+  std::function<void(const PerfReport &)> onPerf; // reassembled report
   std::function<void(int taskId, const QString &name)> onTaskName;
   // TIME_SYNC RESPONSE: the four NTP stamps (t4 captured here, on receipt).
   std::function<void(uint8_t seq, uint64_t t1, uint64_t t2, uint64_t t3,

@@ -398,14 +398,21 @@
     },
     {
       "msgid": 1040, "name": "VERTICAL_STATE",
-      "doc": "Fused vertical estimate from the VERT 2-state filter (baro + accel). altitude/climb_rate are the fused outputs (altitude is absolute/MSL, same reference as BARO); agl is the FC-authoritative height above the ground reference (captured while disarmed, frozen at arm); baro_altitude is the raw sensor altitude carried alongside so the GCS can chart fused-vs-raw. valid=0 until the filter is seeded by the first baro fix.",
+      "doc": "Fused vertical estimate from the VERT 3-state filter (baro + accel + accel bias). altitude/climb_rate are the fused outputs (altitude is absolute/MSL, same reference as BARO); agl is the FC-authoritative height above the ground reference (captured while disarmed, frozen at arm); baro_altitude is the raw sensor altitude carried alongside so the GCS can chart fused-vs-raw. valid=0 until the filter is seeded by the first baro fix. agl_tof is the tilt-compensated rangefinder height, meaningful only while tof_valid=1 (fresh, in range, near level) - it is the AGL source flight_phase and the height mode prefer near the ground. height_state is the packed height-mode status (see control/angle_controller.h): bits0-1 requested mode 0=OFF 1=HOLD 2=LAND, bit2 engaged, bit3 runaway-failed, bit4 landed, bit5 handback, bit6 interlock armed, bit7 blocked. accel_bias is the filter's estimate of the DC error in the vertical accelerometer (m/s/s, positive = reads more UP-acceleration than is real); motor vibration drives this to about -1 on this airframe, so it doubles as a vibration read-out. accel_unhealthy=1 means that estimate hit its authority clamp, so climb_rate is NOT trustworthy and the height mode is vetoed.",
       "fields": [
         { "index": 0, "name": "altitude",      "type": "f32", "unit": "m" },
         { "index": 1, "name": "climb_rate",    "type": "f32", "unit": "m/s" },
         { "index": 2, "name": "vertical_accel","type": "f32", "unit": "m/s/s" },
         { "index": 3, "name": "baro_altitude", "type": "f32", "unit": "m" },
         { "index": 4, "name": "agl",           "type": "f32", "unit": "m" },
-        { "index": 5, "name": "valid",         "type": "u8" }
+        { "index": 5, "name": "valid",         "type": "u8" },
+        { "index": 6, "name": "agl_tof",       "type": "f32", "unit": "m" },
+        { "index": 7, "name": "tof_valid",     "type": "u8" },
+        { "index": 8, "name": "height_state",  "type": "u8" },
+        { "index": 9, "name": "accel_bias",    "type": "f32", "unit": "m/s/s",
+          "extension": true },
+        { "index": 10, "name": "accel_unhealthy", "type": "u8",
+          "extension": true }
       ]
     },
     {
@@ -495,6 +502,22 @@
         { "index": 9, "name": "yaw_hz0",   "type": "f32", "unit": "Hz" },
         { "index": 10, "name": "yaw_hz1",  "type": "f32", "unit": "Hz" },
         { "index": 11, "name": "yaw_hz2",  "type": "f32", "unit": "Hz" }
+      ]
+    },
+
+    {
+      "msgid": 1048, "name": "HSL_STATUS",
+      "doc": "High-speed IMU-to-SD stream (storage/imu_hs_log) status, so the recorder can be checked over the link instead of by pulling the card. Streamed at 1 Hz. dropped_sectors is the field that matters in flight: it is non-zero only when the card cannot sustain the write rate, and the samples it counts are gone.",
+      "fields": [
+        { "index": 0, "name": "recording",       "type": "u8", "doc": "1 = a session is open (armed)" },
+        { "index": 1, "name": "_pad",            "type": "u8" },
+        { "index": 2, "name": "_pad2",           "type": "u16" },
+        { "index": 3, "name": "session",         "type": "u32", "doc": "armed-period counter, monotonic for the life of the file" },
+        { "index": 4, "name": "head_slot",       "type": "u32", "doc": "ring slot the next sector goes to" },
+        { "index": 5, "name": "ring_sectors",    "type": "u32", "doc": "total ring slots; with head_slot and wraps this says how much of the ring holds data" },
+        { "index": 6, "name": "wraps",           "type": "u32", "doc": "times the ring has been round since the file was created" },
+        { "index": 7, "name": "dropped_sectors", "type": "u32", "doc": "sectors lost because a stream's buffers filled before the FS task drained them, i.e. the card fell behind" },
+        { "index": 8, "name": "seq",             "type": "u32", "doc": "seq the next frame will carry; its rate of change is the true sector rate" }
       ]
     },
 

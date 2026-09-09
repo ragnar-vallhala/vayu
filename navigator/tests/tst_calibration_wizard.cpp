@@ -22,7 +22,7 @@ void TstCalibrationWizard::modesHaveExpectedSteps() {
   w.begin(CalibMode::AccelBias);
   QCOMPARE(w.stepCount(), 1);
   w.begin(CalibMode::Accel6Axis);
-  QCOMPARE(w.stepCount(), 6);  // six faces — the firmware's active SIXPOINT fit
+  QCOMPARE(w.stepCount(), 6); // six faces — the firmware's active SIXPOINT fit
   w.begin(CalibMode::Mag);
   QCOMPARE(w.stepCount(), 1);
   QCOMPARE(w.steps().first().orient, CalibUpdateType::FreeRot);
@@ -81,7 +81,7 @@ void TstCalibrationWizard::advancesByArrivalOrderNotCatalog() {
 void TstCalibrationWizard::nonStepInstructionIgnored() {
   CalibrationWizard w;
   w.begin(CalibMode::Accel6Axis);
-  w.onInstruction(CalibUpdateType::LeftDown);  // first arrival -> slot 0
+  w.onInstruction(CalibUpdateType::LeftDown); // first arrival -> slot 0
   QCOMPARE(w.currentIndex(), 0);
   // A Progress "still calibrating" status must not move the wizard.
   w.onInstruction(CalibUpdateType::Progress);

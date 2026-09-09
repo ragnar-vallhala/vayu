@@ -17,7 +17,7 @@ void AuxSwitch::setActive(int index) {
 
 void AuxSwitch::setFromChannel(int us) {
   if (us <= 0) {
-    m_active = -1;  // no data
+    m_active = -1; // no data
   } else if (m_segments.size() >= 3) {
     m_active = us < 1300 ? 0 : (us > 1700 ? 2 : 1);
   } else {
@@ -41,7 +41,8 @@ void AuxSwitch::paintEvent(QPaintEvent *) {
 
   // Segmented control on the right.
   const int n = m_segments.size();
-  if (n == 0) return;
+  if (n == 0)
+    return;
   const int segW = (width() - lblW) / n;
   const int x0 = lblW;
   const int h = std::min(18, height());
@@ -53,7 +54,8 @@ void AuxSwitch::paintEvent(QPaintEvent *) {
     p.fillRect(seg, on ? QColor(0x2A, 0x3A, 0x55) : QColor(0, 0, 0, 0));
     p.setPen(border);
     p.drawRect(seg);
-    p.setPen(on ? QColor(0xCF, 0xE3, 0xFF) : QColor(Theme::hex(Theme::kTextDim)));
+    p.setPen(on ? QColor(0xCF, 0xE3, 0xFF)
+                : QColor(Theme::hex(Theme::kTextDim)));
     QFont sf = f;
     sf.setBold(on);
     p.setFont(sf);

@@ -347,9 +347,10 @@ static void ekf_update_mag(float mx, float my, float mz) {
  *
  * @implements EST-EKF-001, EST-EKF-002
  * ------------------------------------------------------------------------*/
-void m_ekf_filter(const float ax, const float ay, const float az, const float gx,
-                  const float gy, const float gz, const float mx, const float my,
-                  const float mz, float dt, attitude_t *ori) {
+void m_ekf_filter(const float ax, const float ay, const float az,
+                  const float gx, const float gy, const float gz,
+                  const float mx, const float my, const float mz, float dt,
+                  attitude_t *ori) {
   if (!E.initialized)
     ekf_init(false);
 
