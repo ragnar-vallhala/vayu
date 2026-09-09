@@ -42,8 +42,8 @@ static flight_phase_event_t run(flight_phase_t *fp, bool armed, bool in_air,
                                 int n) {
   flight_phase_event_t first = FLIGHT_PHASE_EVENT_NONE;
   for (int i = 0; i < n; i++) {
-    flight_phase_event_t e =
-        flight_phase_update(fp, armed, in_air, alt, alt, 0.0f, false, climb, thr, dt);
+    flight_phase_event_t e = flight_phase_update(fp, armed, in_air, alt, alt,
+                                                 0.0f, false, climb, thr, dt);
     if (e != FLIGHT_PHASE_EVENT_NONE && first == FLIGHT_PHASE_EVENT_NONE)
       first = e;
   }
@@ -52,7 +52,8 @@ static flight_phase_event_t run(flight_phase_t *fp, bool armed, bool in_air,
 
 /* Seed the ground reference from baro while disarmed at the given ground level. */
 static void seed_ground(flight_phase_t *fp, float ground) {
-  flight_phase_update(fp, false, false, ground, ground, 0.0f, false, 0.0f, 0.0f, 0.004f);
+  flight_phase_update(fp, false, false, ground, ground, 0.0f, false, 0.0f, 0.0f,
+                      0.004f);
 }
 
 /* --- FP-001 / FP-002: ground reference capture + freeze ----------------- */
@@ -62,13 +63,16 @@ static void test_ground_ref(void) {
 
   /* Disarmed: ref follows the (drifting) baro; AGL pinned to 0. The fused value
    * is deliberately different to prove the ref tracks BARO, not fused. */
-  flight_phase_update(&fp, false, false, 999.0f, 480.0f, 0.0f, false, 0.0f, 0.0f, 0.004f);
-  flight_phase_update(&fp, false, false, 999.0f, 480.5f, 0.0f, false, 0.0f, 0.0f, 0.004f);
+  flight_phase_update(&fp, false, false, 999.0f, 480.0f, 0.0f, false, 0.0f,
+                      0.0f, 0.004f);
+  flight_phase_update(&fp, false, false, 999.0f, 480.5f, 0.0f, false, 0.0f,
+                      0.0f, 0.004f);
   check(fp.have_ref && fabsf(fp.ground_ref - 480.5f) < 1e-4f && fp.agl == 0.0f,
         "FP-001 ground ref tracks baro (not fused) while disarmed, AGL=0");
 
   /* Arm at 480.5 m: ref freezes; AGL = fused - frozen ref. */
-  flight_phase_update(&fp, true, false, 481.5f, 481.5f, 0.0f, false, 0.0f, 0.2f, 0.004f);
+  flight_phase_update(&fp, true, false, 481.5f, 481.5f, 0.0f, false, 0.0f, 0.2f,
+                      0.004f);
   check(fabsf(fp.ground_ref - 480.5f) < 1e-4f && fabsf(fp.agl - 1.0f) < 1e-4f,
         "FP-002 ref frozen at arm; AGL = fused - frozen ref");
 }
@@ -86,7 +90,8 @@ static void test_takeoff_gates(void) {
   flight_phase_t fp;
   flight_phase_init(&fp);
   seed_ground(&fp, G);
-  check(run(&fp, true, false, ALT, 0.0f, 0.0f, dt, n) == FLIGHT_PHASE_EVENT_NONE,
+  check(run(&fp, true, false, ALT, 0.0f, 0.0f, dt, n) ==
+            FLIGHT_PHASE_EVENT_NONE,
         "FP-003 altitude alone does not trip takeoff");
 
   /* climb only (at ground level, no throttle) */
@@ -112,7 +117,8 @@ static void test_takeoff_gates(void) {
    * takes off while AGL+climb hold — the latch is sticky. */
   flight_phase_init(&fp);
   seed_ground(&fp, G);
-  flight_phase_update(&fp, true, false, ALT, ALT, 0.0f, false, CLB, THR, dt); /* powered */
+  flight_phase_update(&fp, true, false, ALT, ALT, 0.0f, false, CLB, THR,
+                      dt); /* powered */
   check(run(&fp, true, false, ALT, CLB, 0.0f, dt, n) ==
             FLIGHT_PHASE_EVENT_TAKEOFF,
         "FP-003 takeoff survives a throttle chop after lift was commanded");
@@ -143,8 +149,8 @@ static void test_takeoff_debounce(void) {
   int events = 0;
   bool in_air = false;
   for (int i = 0; i < 50; i++) {
-    if (flight_phase_update(&fp, true, in_air, ALT, ALT, 0.0f, false, CLB, THR, dt) ==
-        FLIGHT_PHASE_EVENT_TAKEOFF) {
+    if (flight_phase_update(&fp, true, in_air, ALT, ALT, 0.0f, false, CLB, THR,
+                            dt) == FLIGHT_PHASE_EVENT_TAKEOFF) {
       events++;
       in_air = true;
     }
@@ -207,7 +213,8 @@ static void test_disarm_resets(void) {
   check(fp.takeoff_timer > 0.0f && fp.powered,
         "FP-007 timer accumulated + powered latched while armed");
   /* ...then disarm: the timer and the latch must clear. */
-  flight_phase_update(&fp, false, false, 0.0f, 0.0f, 0.0f, false, 0.0f, 0.0f, dt);
+  flight_phase_update(&fp, false, false, 0.0f, 0.0f, 0.0f, false, 0.0f, 0.0f,
+                      dt);
   check(fp.takeoff_timer == 0.0f && fp.land_timer == 0.0f && !fp.powered,
         "FP-007 disarm clears the debounce timers and throttle latch");
 }
@@ -229,7 +236,7 @@ static flight_phase_event_t run_tof(flight_phase_t *fp, bool armed, bool in_air,
   return first;
 }
 
-#define MOUNT 0.045f   /* what the sensor reads sitting on its feet */
+#define MOUNT 0.045f /* what the sensor reads sitting on its feet */
 
 static void test_tof_mount_offset(void) {
   printf("  FP-008 rangefinder mount offset self-calibrates\n");
@@ -237,7 +244,8 @@ static void test_tof_mount_offset(void) {
   flight_phase_init(&fp);
   /* Disarmed on the ground: the reading IS the mounting height. */
   run_tof(&fp, false, false, 100.0f, MOUNT, 0.0f, 0.0f, 0.004f, 5);
-  check(fp.have_tof_ref && fp.tof_ground_ref > 0.04f && fp.tof_ground_ref < 0.05f,
+  check(fp.have_tof_ref && fp.tof_ground_ref > 0.04f &&
+            fp.tof_ground_ref < 0.05f,
         "FP-008 ToF ground reference captured while disarmed");
   /* Armed, still on the ground: AGL must be ~0, not the 45 mm mount height. */
   run_tof(&fp, true, false, 100.0f, MOUNT, 0.0f, 0.2f, 0.004f, 3);
@@ -246,7 +254,8 @@ static void test_tof_mount_offset(void) {
   /* Lift to a true 0.5 m: the raw reading is 0.5 + mount. */
   run_tof(&fp, true, false, 100.0f, 0.5f + MOUNT, 0.0f, 0.2f, 0.004f, 3);
   check(fp.agl > 0.48f && fp.agl < 0.52f, "FP-008 AGL tracks true height");
-  check(flight_phase_tof_active(&fp), "FP-008 reports the ToF as the AGL source");
+  check(flight_phase_tof_active(&fp),
+        "FP-008 reports the ToF as the AGL source");
 }
 
 static void test_tof_beats_bad_baro(void) {
@@ -267,8 +276,8 @@ static void test_tof_tighter_gates(void) {
   flight_phase_t a;
   flight_phase_init(&a);
   run_tof(&a, false, false, 100.0f, MOUNT, 0.0f, 0.0f, dt, 5);
-  flight_phase_event_t e = run_tof(&a, true, false, 100.0f, 0.20f + MOUNT, 0.5f,
-                                   0.5f, dt, (int)n);
+  flight_phase_event_t e =
+      run_tof(&a, true, false, 100.0f, 0.20f + MOUNT, 0.5f, 0.5f, dt, (int)n);
   check(e == FLIGHT_PHASE_EVENT_TAKEOFF,
         "FP-010 ToF takeoff fires at 0.20 m (baro gate would not)");
   /* Same height on the baro path must NOT fire. */

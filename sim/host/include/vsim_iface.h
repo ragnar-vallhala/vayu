@@ -46,15 +46,15 @@ extern "C" {
 #define VSIM_IMU_FRAME_BYTES 76
 
 typedef struct vsim_iface_s {
-    pthread_mutex_t lock;
-    pthread_cond_t  imu_cond;
+  pthread_mutex_t lock;
+  pthread_cond_t imu_cond;
 
-    /* Firmware -> host. Index 0..3 = M1..M4. Updated by every
+  /* Firmware -> host. Index 0..3 = M1..M4. Updated by every
      * hal_pwm_set_duty_cycle call. Already ESC-band-stripped in the
      * 0..1 linear range, matching the bridge contract today. */
-    float motor_duty[4];
+  float motor_duty[4];
 
-    /* Host -> firmware. The latest IMU sample. The host increments
+  /* Host -> firmware. The latest IMU sample. The host increments
      * imu_seq each time it overwrites the frame and broadcasts
      * imu_cond; the firmware's feeder thread waits on imu_cond until
      * imu_seq != imu_consumer_seq, then copies and advances its own
@@ -62,15 +62,15 @@ typedef struct vsim_iface_s {
      * are dropped (latest wins) - typical IMU rates (200 Hz) are
      * comfortably below the consumer's processing rate, so drops
      * shouldn't happen in steady state. */
-    uint8_t imu_frame[VSIM_IMU_FRAME_BYTES];
-    uint64_t imu_seq;            /* incremented by host */
-    uint64_t imu_consumer_seq;   /* advanced by firmware */
+  uint8_t imu_frame[VSIM_IMU_FRAME_BYTES];
+  uint64_t imu_seq;          /* incremented by host */
+  uint64_t imu_consumer_seq; /* advanced by firmware */
 
-    /* Set to 0 when shutting down; firmware threads see this and
+  /* Set to 0 when shutting down; firmware threads see this and
      * exit their loops. */
-    int running;
+  int running;
 
-    /* UART2 byte callback (firmware -> host). Invoked from inside
+  /* UART2 byte callback (firmware -> host). Invoked from inside
      * host_navhal's hal_uart_write_dma / write_char on the firmware
      * thread that produced the bytes. host receives the same byte
      * stream that the standalone binary's pty would emit (DroneProtocol
@@ -78,8 +78,8 @@ typedef struct vsim_iface_s {
      * for marshalling onto its own event loop if needed - we do not
      * hold any iface lock across this callback. NULL = no consumer
      * (bytes are dropped on the host side). */
-    void (*on_uart2_bytes)(void *user, const uint8_t *data, size_t n);
-    void *on_uart2_bytes_user;
+  void (*on_uart2_bytes)(void *user, const uint8_t *data, size_t n);
+  void *on_uart2_bytes_user;
 } vsim_iface_t;
 
 /* Initialize the iface members. The caller still owns the struct
@@ -101,10 +101,10 @@ void vsim_iface_get_motor_duty(const vsim_iface_t *iface, float out_duty[4]);
 /* Set / clear the UART2 byte callback. Safe to call before
  * vayu_sitl_start so the firmware's first telemetry tick already
  * routes to the host. */
-void vsim_iface_set_uart2_callback(
-    vsim_iface_t *iface,
-    void (*cb)(void *user, const uint8_t *data, size_t n),
-    void *user);
+void vsim_iface_set_uart2_callback(vsim_iface_t *iface,
+                                   void (*cb)(void *user, const uint8_t *data,
+                                              size_t n),
+                                   void *user);
 
 /* ----- firmware-side (called from inside libvayu_sitl_core.a) ----- */
 
@@ -133,4 +133,4 @@ void vayu_sitl_set_passthrough(int enabled);
 }
 #endif
 
-#endif  /* VAYU_VSIM_IFACE_H */
+#endif /* VAYU_VSIM_IFACE_H */

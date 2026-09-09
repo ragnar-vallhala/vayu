@@ -31,7 +31,7 @@
 #include <ucontext.h>
 
 #include "host_clock.h"
-#include "memory.h"   /* HEAP_SIZE */
+#include "memory.h" /* HEAP_SIZE */
 #include "task.h"
 
 /* ---- per-task execution context -------------------------------------- */
@@ -41,13 +41,13 @@
  * the memory; we only borrow it as the ucontext stack. */
 #define HOST_PORT_MAX_TASKS 32
 static ucontext_t task_ctx[HOST_PORT_MAX_TASKS];
-static ucontext_t stepper_ctx;          /* the driver/stepper context */
-static int        in_scheduler = 0;     /* 1 while the scheduler is running */
+static ucontext_t stepper_ctx; /* the driver/stepper context */
+static int in_scheduler = 0;   /* 1 while the scheduler is running */
 
-extern TCB *current_task;               /* kernel-owned */
-extern void set_next_task(void);        /* kernel policy: pick highest-ready */
-extern void task_exit(void);            /* TASK_EXIT trampoline target */
-extern int  wake_up_delayed_tasks_isr(void); /* kernel: move due delayed→ready */
+extern TCB *current_task;        /* kernel-owned */
+extern void set_next_task(void); /* kernel policy: pick highest-ready */
+extern void task_exit(void);     /* TASK_EXIT trampoline target */
+extern int wake_up_delayed_tasks_isr(void); /* kernel: move due delayed→ready */
 
 /* ---- the sim clock for the RTOS path --------------------------------- *
  * The kernel's delay/timeout logic counts SysTick ticks (systick_count, 1 tick =
@@ -57,8 +57,8 @@ extern int  wake_up_delayed_tasks_isr(void); /* kernel: move due delayed→ready
  * scheduler_running gates vaios.c's v_delay (busy-wait before start, task_delay
  * after). Both are kernel-extern'd; we own the definitions on host. */
 volatile uint32_t systick_count = 0;
-extern uint8_t scheduler_running;         /* defined in kernel/task.c */
-volatile uint32_t critical_nesting = 0;   /* port.h critical-section nesting */
+extern uint8_t scheduler_running;       /* defined in kernel/task.c */
+volatile uint32_t critical_nesting = 0; /* port.h critical-section nesting */
 uint32_t v_get_ticks(void) { return systick_count; }
 
 /* Kernel heap backing store: memory.c uses &_heap_start as the base of a
@@ -78,7 +78,7 @@ static ucontext_t *ctx_of(const TCB *t) {
 static void task_trampoline(unsigned int hi, unsigned int lo) {
   TCB *t = (TCB *)(((uintptr_t)hi << 32) | (uintptr_t)lo);
   t->entry(t->arg);
-  task_exit();                          /* task body returned -> kernel cleanup */
+  task_exit(); /* task body returned -> kernel cleanup */
 }
 
 /* ---- port: stack/context init ---------------------------------------- */
@@ -91,10 +91,10 @@ void init_task_stack(TCB *task) {
   getcontext(uc);
   uc->uc_stack.ss_sp = task->mem_block;
   uc->uc_stack.ss_size = task->stack_size;
-  uc->uc_link = &stepper_ctx;           /* if a task ever returns, fall to stepper */
+  uc->uc_link = &stepper_ctx; /* if a task ever returns, fall to stepper */
   const uintptr_t p = (uintptr_t)task;
-  makecontext(uc, (void (*)(void))task_trampoline, 2,
-              (unsigned int)(p >> 32), (unsigned int)(p & 0xffffffffu));
+  makecontext(uc, (void (*)(void))task_trampoline, 2, (unsigned int)(p >> 32),
+              (unsigned int)(p & 0xffffffffu));
   /* in-range sp so the (host-vestigial) watermark check can't false-fire */
   task->sp = task->mem_block + (task->stack_size / sizeof(uint32_t)) - 4;
 }
@@ -118,7 +118,7 @@ void load_next_task_from_isr(void) { task_yield(); }
 /* Start the scheduler: pick the first task and jump into it. Returns to the
  * stepper when the system goes idle (idle's cpu_relax swaps back). */
 void scheduler_start(void) {
-  scheduler_running = 1;                /* gates v_delay onto cooperative task_delay */
+  scheduler_running = 1; /* gates v_delay onto cooperative task_delay */
   set_next_task();
   in_scheduler = 1;
   swapcontext(&stepper_ctx, ctx_of(current_task));
@@ -132,7 +132,7 @@ void scheduler_start(void) {
 void host_rtos_tick(uint32_t ms) {
   for (uint32_t i = 0; i < ms; i++) {
     systick_count++;
-    wake_up_delayed_tasks_isr();        /* delayed→ready; reschedule on next run */
+    wake_up_delayed_tasks_isr(); /* delayed→ready; reschedule on next run */
   }
 }
 
@@ -141,7 +141,8 @@ void host_rtos_tick(uint32_t ms) {
  * the idle task's cpu_relax swaps back here. On return the tick is fully settled
  * (PWM written). Call after advancing the clock + injecting a sensor sample. */
 void host_rtos_run_until_idle(void) {
-  if (!current_task) return;            /* not started yet */
+  if (!current_task)
+    return; /* not started yet */
   in_scheduler = 1;
   swapcontext(&stepper_ctx, ctx_of(current_task));
   in_scheduler = 0;
@@ -156,11 +157,11 @@ void host_rtos_run_until_idle(void) {
  * nothing ready" the race-free settle signal. (Overrides host_navhal's no-op.) */
 extern TCB *idle_task;
 void hal_cpu_idle(void) {
-  set_next_task();                      /* may select a just-woken task */
+  set_next_task(); /* may select a just-woken task */
   if (current_task != idle_task)
     swapcontext(ctx_of(idle_task), ctx_of(current_task));
   else
-    swapcontext(ctx_of(idle_task), &stepper_ctx);  /* quiescent → to stepper */
+    swapcontext(ctx_of(idle_task), &stepper_ctx); /* quiescent → to stepper */
 }
 
 /* Pre-scheduler busy-wait relax (vaios.c v_delay before scheduler_running).
@@ -174,21 +175,28 @@ void v_port_cpu_relax(void) {}
  * concurrent ISRs, so no hardware interrupt masking is needed here.) */
 static uint32_t crit_nesting = 0;
 void v_port_disable_interrupts(void) { crit_nesting++; }
-void v_port_enable_interrupts(void)  { if (crit_nesting) crit_nesting--; }
+void v_port_enable_interrupts(void) {
+  if (crit_nesting)
+    crit_nesting--;
+}
 uint32_t v_port_get_psp(void) { return 0; }
-void v_port_trigger_pendsv(void) { /* host switches synchronously in task_yield */ }
+void v_port_trigger_pendsv(
+    void) { /* host switches synchronously in task_yield */ }
 void v_port_halt(void) { abort(); }
 
 /* ---- port: hardware bring-up (v_port_hw_*) --------------------------- */
 /* The kernel's v_init() calls these during boot. On host the clock/FPU/systick
  * are modelled by the virtual clock + the stepper tick, the console is stderr,
  * and there is no SD peripheral here (the host VFS is disk-backed elsewhere). */
-void v_port_hw_clock_init(int internal_clock_setup) { (void)internal_clock_setup; }
+void v_port_hw_clock_init(int internal_clock_setup) {
+  (void)internal_clock_setup;
+}
 void v_port_hw_fpu_enable(void) {}
 void v_port_hw_systick_init(uint32_t period_us) { (void)period_us; }
 void v_port_hw_sched_irq_init(void) {}
 void v_port_hw_console_init(uint32_t baud, void (*dma_cb)(void)) {
-  (void)baud; (void)dma_cb;
+  (void)baud;
+  (void)dma_cb;
 }
-int  v_port_hw_sdio_init(void) { return 0; }
-int  v_port_hw_sdio_card_init(void) { return 0; }
+int v_port_hw_sdio_init(void) { return 0; }
+int v_port_hw_sdio_card_init(void) { return 0; }

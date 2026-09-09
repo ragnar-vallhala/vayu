@@ -35,8 +35,10 @@ int main(void) {
   {
     lpf_t f;
     lpf_init(&f, 1.0f);
-    CHECK(CLOSE(lpf_apply(&f, 3.5f), 3.5f, 1e-6f), "first sample passes through");
-    CHECK(CLOSE(lpf_apply(&f, -2.0f), -2.0f, 1e-6f), "second sample passes through");
+    CHECK(CLOSE(lpf_apply(&f, 3.5f), 3.5f, 1e-6f),
+          "first sample passes through");
+    CHECK(CLOSE(lpf_apply(&f, -2.0f), -2.0f, 1e-6f),
+          "second sample passes through");
   }
 
   printf("  [3] alpha = 0 freezes the output\n");
@@ -44,7 +46,8 @@ int main(void) {
     lpf_t f;
     lpf_init(&f, 0.0f);
     lpf_apply(&f, 100.0f);
-    CHECK(CLOSE(lpf_apply(&f, 100.0f), 0.0f, 1e-6f), "input never reaches output");
+    CHECK(CLOSE(lpf_apply(&f, 100.0f), 0.0f, 1e-6f),
+          "input never reaches output");
   }
 
   printf("  [4] one step matches the recurrence exactly\n");
@@ -57,7 +60,8 @@ int main(void) {
     CHECK(CLOSE(f.output, 7.5f, 1e-6f), "state tracks the return value");
   }
 
-  printf("  [5] converges to a constant input, monotonically, without overshoot\n");
+  printf("  [5] converges to a constant input, monotonically, without "
+         "overshoot\n");
   {
     lpf_t f;
     lpf_init(&f, 0.1f);

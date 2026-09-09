@@ -5,11 +5,11 @@
 #define VAYU_SIM_RCC_REG_H
 
 typedef enum {
-    RCC_CFGR_HPRE_DIV1 = 0,
+  RCC_CFGR_HPRE_DIV1 = 0,
 } rcc_cfgr_hpre_div_t;
 
 typedef enum {
-    RCC_CFGR_PPRE_DIV1 = 0,
+  RCC_CFGR_PPRE_DIV1 = 0,
 } rcc_cfgr_ppre_div_t;
 
 #endif

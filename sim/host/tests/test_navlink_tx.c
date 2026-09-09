@@ -121,10 +121,10 @@ int main(void) {
   iface.on_uart2_bytes_user = NULL;
   vsim_iface_set_global(&iface);
 
-  serial_args_t uart_args = {.baud_rate = 460800, .uart = HAL_UART_2,
-                             .timeout = 100};
-  if (get_handler(CHANNEL_TYPE_SERIAL, &g_telemetry_channel, &uart_args, NULL) !=
-      NONE) {
+  serial_args_t uart_args = {
+      .baud_rate = 460800, .uart = HAL_UART_2, .timeout = 100};
+  if (get_handler(CHANNEL_TYPE_SERIAL, &g_telemetry_channel, &uart_args,
+                  NULL) != NONE) {
     printf("    FATAL: could not open the telemetry channel\n");
     return 1;
   }
@@ -142,8 +142,10 @@ int main(void) {
     const uint8_t *p = find_msg(MSG_ATTITUDE_EULER, &len);
     CHECK(p != NULL, "ATTITUDE_EULER frame emitted");
     if (p) {
-      CHECK(fabsf(rdf(p, 0) - (float)M_PI / 2.0f) < 1e-4f, "roll 90deg -> pi/2 rad");
-      CHECK(fabsf(rdf(p, 4) + (float)M_PI / 4.0f) < 1e-4f, "pitch -45deg -> -pi/4 rad");
+      CHECK(fabsf(rdf(p, 0) - (float)M_PI / 2.0f) < 1e-4f,
+            "roll 90deg -> pi/2 rad");
+      CHECK(fabsf(rdf(p, 4) + (float)M_PI / 4.0f) < 1e-4f,
+            "pitch -45deg -> -pi/4 rad");
       CHECK(fabsf(rdf(p, 8) - (float)M_PI) < 1e-4f, "yaw 180deg -> pi rad");
     }
   }
@@ -151,7 +153,7 @@ int main(void) {
   printf("  [2] IMU_RAW carries the 10-float vector unscaled\n");
   {
     tx_reset();
-    const float f10[10] = {-0.5f, 0.25f, -9.81f, 1.0f, 2.0f,
+    const float f10[10] = {-0.5f, 0.25f, -9.81f, 1.0f,  2.0f,
                            3.0f,  10.0f, 20.0f,  30.0f, 27.5f};
     navlink_tx_imu_full(f10);
     tx_flush();
@@ -160,7 +162,8 @@ int main(void) {
     CHECK(p != NULL, "IMU_RAW frame emitted");
     if (p) {
       CHECK(fabsf(rdf(p, 0) - (-0.5f)) < 1e-6f, "acc x passthrough");
-      CHECK(fabsf(rdf(p, 8) - (-9.81f)) < 1e-6f, "acc z passthrough (gravity sign kept)");
+      CHECK(fabsf(rdf(p, 8) - (-9.81f)) < 1e-6f,
+            "acc z passthrough (gravity sign kept)");
     }
   }
 
@@ -170,7 +173,8 @@ int main(void) {
     const char buf[] = "alpha\nbravo\ncharlie\n";
     navlink_tx_log(buf, (uint8_t)(sizeof buf - 1));
     tx_flush();
-    CHECK(count_msgs(MSG_STATUSTEXT) == 3, "three lines -> three STATUSTEXT frames");
+    CHECK(count_msgs(MSG_STATUSTEXT) == 3,
+          "three lines -> three STATUSTEXT frames");
     uint8_t len = 0;
     const uint8_t *p = find_msg(MSG_STATUSTEXT, &len);
     CHECK(p != NULL, "STATUSTEXT emitted");
@@ -179,7 +183,8 @@ int main(void) {
       CHECK(memcmp(p + 1, "alpha", 5) == 0, "first line text is 'alpha'");
   }
 
-  printf("  [4] a line longer than the 50-char field spills into another frame\n");
+  printf(
+      "  [4] a line longer than the 50-char field spills into another frame\n");
   {
     tx_reset();
     char big[80];
@@ -208,7 +213,8 @@ int main(void) {
     navlink_tx_notch_status();
     tx_flush();
     CHECK(g_tx_n > 0, "bytes reached the wire");
-    CHECK(g_tx[0] == NL_SYNC && g_tx[1] == NL_VER, "leading frame is 0x56/0x02");
+    CHECK(g_tx[0] == NL_SYNC && g_tx[1] == NL_VER,
+          "leading frame is 0x56/0x02");
   }
 
   vsim_iface_set_global(NULL);
