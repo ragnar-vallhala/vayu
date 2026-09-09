@@ -224,7 +224,13 @@ class TestRegistry(unittest.TestCase):
             self.assertEqual(nl.CRC_EXTRA[msgid], cls.CRC_EXTRA)
 
     def test_registry_covers_dialect(self):
-        self.assertEqual({m["msgid"] for m in DIALECT["messages"]}, set(nl.MSGID_TO_CLASS))
+        # The checked-in registry is the PROD profile, and generate.py drops
+        # test-flagged messages from it (--profile prod, generate.py:1083).
+        # Comparing against the unfiltered dialect asks the prod codec to carry
+        # HW_TEST_*, which is exactly what the profile split exists to prevent
+        # -- and what test_msgids_in_core_half below asserts it does not.
+        prod = {m["msgid"] for m in DIALECT["messages"] if not m.get("test")}
+        self.assertEqual(prod, set(nl.MSGID_TO_CLASS))
 
     def test_msgids_in_core_half(self):
         for msgid in nl.MSGID_TO_CLASS:
