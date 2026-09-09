@@ -183,7 +183,8 @@ static inline float vayu_dt_from_cycles(uint32_t now_cyc, uint32_t prev_cyc) {
 #define DEAFULT_PITCH_ANGLE_RATE_KFF 0.0f
 #define DEAFULT_PITCH_ANGLE_RATE_I_MAX 0.2f
 #define DEAFULT_PITCH_ANGLE_RATE_D_MAX 0.25f
-#define DEAFULT_PITCH_ANGLE_RATE_D_LPF_RC 0.004f  // see roll: ~40 Hz so the rig-tune Kd isn't filtered to zero
+#define DEAFULT_PITCH_ANGLE_RATE_D_LPF_RC                                      \
+  0.004f // see roll: ~40 Hz so the rig-tune Kd isn't filtered to zero
 #define DEAFULT_PITCH_ANGLE_RATE_OUT_MIN -1.0f
 #define DEAFULT_PITCH_ANGLE_RATE_OUT_MAX 1.0f
 
@@ -243,7 +244,7 @@ static inline float vayu_dt_from_cycles(uint32_t now_cyc, uint32_t prev_cyc) {
  * after that, it is not coming back (inverted, broken prop, lost a motor) and
  * holding hover thrust would only drive it into the ground harder — so the cut
  * happens after all. */
-#define MAX_ANGLE_RECOVER 45.0f  /* hysteresis: exit recovery below this tilt */
+#define MAX_ANGLE_RECOVER 45.0f /* hysteresis: exit recovery below this tilt */
 #define RECOVERY_TIMEOUT_MS 2000u
 /* Recovery holds the MEASURED hover (est/hover_estimate.h), not a constant.
  * There used to be a RECOVERY_THROTTLE 0.50f here, described as "roughly hover
@@ -349,9 +350,9 @@ static inline float vayu_dt_from_cycles(uint32_t now_cyc, uint32_t prev_cyc) {
  * channel, decode gap). It MUST NOT be read as the low position, because the
  * low position is now the one that commands a lift-off. */
 #define ALT_MODE_VALID_MIN_US 900
-#define DEAFULT_ROLL_ACRO_RATE_MAX  200.0f /* deg/s at full stick */
+#define DEAFULT_ROLL_ACRO_RATE_MAX 200.0f /* deg/s at full stick */
 #define DEAFULT_PITCH_ACRO_RATE_MAX 200.0f
-#define DEAFULT_YAW_ACRO_RATE_MAX   200.0f
+#define DEAFULT_YAW_ACRO_RATE_MAX 200.0f
 
 typedef struct __attribute__((packed)) {
   float roll_angle_sp;
@@ -399,7 +400,8 @@ typedef struct __attribute__((packed)) {
 #define ACCEL_CALIB_ELLIPSOID 0
 #define ACCEL_CALIB_SIXPOINT 1
 #ifndef ACCEL_CALIB_METHOD
-#define ACCEL_CALIB_METHOD ACCEL_CALIB_SIXPOINT /* 6-side closed-form accel fit */
+#define ACCEL_CALIB_METHOD                                                     \
+  ACCEL_CALIB_SIXPOINT /* 6-side closed-form accel fit */
 #endif
 
 /* Pose-tolerant full-3x3 accel calibration (calib engine, point-set fit). */
@@ -411,7 +413,7 @@ typedef struct __attribute__((packed)) {
   100 // contiguous static samples averaged per pose (~2 s at the 50 Hz cal poll)
 #define ACCEL_CAL_GYRO_STILL_DPS                                               \
   3.0f // |gyro| below this (per axis sum-of-squares) counts the board as still
-#define ACCEL_CAL_FACE_POSES                                                    \
+#define ACCEL_CAL_FACE_POSES                                                   \
   6 // first N of the prompt list are the 6 faces; the rest are edges/corners
 
 /* Pose-coverage gate (full-3x3 accel). A still hold is banked only if it ADVANCES
@@ -426,9 +428,9 @@ typedef struct __attribute__((packed)) {
  * board's axes are signed/mounted. */
 #define ACCEL_POSE_FACE_DOMINANCE                                              \
   0.85f // |a_dom|/|a| for a hold to count as a clean face (~32 deg cone)
-#define ACCEL_POSE_EDGE_MIN_SECOND                                            \
+#define ACCEL_POSE_EDGE_MIN_SECOND                                             \
   0.40f // 2nd-largest |a_i|/|a| required for a shared-gravity edge/corner
-#define ACCEL_POSE_MIN_SEP_COS                                                \
+#define ACCEL_POSE_MIN_SEP_COS                                                 \
   0.866f // edge holds must sit > 30 deg apart (cos 30) to count as distinct
 
 /* Stillness-gated gyro bias capture (calib engine, bias fit). */
@@ -454,11 +456,11 @@ extern channel_t g_telemetry_channel;
 // SITL build: keep log files small so init does not stall on
 // pre-allocation against a simulated SD backend.
 #define NAVLINK_LOGGING_FILE_SIZE (64 * 1024)
-#define SYS_LOGGING_FILE_SIZE     (64 * 1024)
+#define SYS_LOGGING_FILE_SIZE (64 * 1024)
 #define GENERAL_LOGGING_FILE_SIZE (64 * 1024)
 #else
 #define NAVLINK_LOGGING_FILE_SIZE 1024 * 1024 * 10 // 10MB Preallocated
-#define SYS_LOGGING_FILE_SIZE 1024 * 1024 * 10 // 10MB Preallocated
+#define SYS_LOGGING_FILE_SIZE 1024 * 1024 * 10     // 10MB Preallocated
 #define GENERAL_LOGGING_FILE_SIZE 1024 * 1024 * 10 // 10MB Preallocated
 #endif
 /* High-speed IMU stream (see include/storage/imu_hs_log.h). Its own file, so

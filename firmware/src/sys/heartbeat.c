@@ -112,7 +112,6 @@ static inline void _run_heartbeat(channel_t *channel, uint32_t period) {
   }
   last_time = current_time;
 
-
   static sys_state_t last_state = SYSTEM_STATE_UNINITIALIZED;
   sys_state_t current_state = system_state_get();
 

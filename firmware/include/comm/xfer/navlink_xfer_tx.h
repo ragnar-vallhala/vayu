@@ -29,7 +29,8 @@ extern const fs_query_tx_ops_t g_fs_query_tx_ops;
 size_t xfer_build_command_ack(uint8_t *frame, uint32_t acked_msgid,
                               uint8_t req_seq, uint8_t result, int32_t param2);
 size_t xfer_build_info(uint8_t *frame, const xfer_session_t *s, uint8_t result,
-                       uint16_t chunk_size, uint32_t total_size, uint32_t mtime);
+                       uint16_t chunk_size, uint32_t total_size,
+                       uint32_t mtime);
 size_t xfer_build_data(uint8_t *frame, const xfer_session_t *s, uint8_t flags,
                        uint8_t len, uint32_t offset, const uint8_t *buf);
 size_t xfer_build_ack(uint8_t *frame, const xfer_session_t *s, uint8_t flags,

@@ -178,16 +178,16 @@ typedef struct {
 } bmx160_all_raw_reading_t;
 
 typedef struct {
-  float acc[3];             // Calibrated m/s^2
-  float gyr[3];             // Calibrated dps
-  float mag[3];             // Calibrated uT (offset/scale applied) — getter/telemetry
-  float acc_raw[3];         // Raw m/s^2 (uncalibrated)
-  float gyr_raw[3];         // Raw dps (uncalibrated)
+  float acc[3];     // Calibrated m/s^2
+  float gyr[3];     // Calibrated dps
+  float mag[3];     // Calibrated uT (offset/scale applied) — getter/telemetry
+  float acc_raw[3]; // Raw m/s^2 (uncalibrated)
+  float gyr_raw[3]; // Raw dps (uncalibrated)
   float mag_compensated[3]; // Compensated uT (pre offset/scale)
-  float mag_fusion[3];      // Calibrated + unit-normalized; estimator input only
+  float mag_fusion[3]; // Calibrated + unit-normalized; estimator input only
   float temp;
-  uint32_t timestamp;       // DWT cycle stamp at sample acquisition (for dt;
-                            // see vayu_dt_from_cycles in variables.h)
+  uint32_t timestamp; // DWT cycle stamp at sample acquisition (for dt;
+                      // see vayu_dt_from_cycles in variables.h)
 } bmx160_all_converted_reading_t;
 
 typedef union {
@@ -206,7 +206,6 @@ void bmx160_dma_callback(void *args);
 /* HIGH_FREQ_TIMER callback that paces the accel/gyro reads to
  * IMU_SAMPLE_FREQ_HZ. Register with timer_callback_register(..., IMU_FAST_PERIOD_US). */
 void bmx160_fast_tick_isr(void);
-
 
 // Temp APIs
 int16_t bmx160_read_temp_raw(void);
@@ -248,14 +247,15 @@ void bmx160_set_current_config(bmx160_config_t *cfg);
 
 typedef struct {
   float acc_offset[3];
-  float acc_soft_iron[9]; // row-major 3x3: scale + cross-axis misalignment, identity default
+  float acc_soft_iron
+      [9]; // row-major 3x3: scale + cross-axis misalignment, identity default
   float gyr_offset[3];
-  float mag_offset[3];   // hard-iron bias (uT)
+  float mag_offset[3];    // hard-iron bias (uT)
   float mag_soft_iron[9]; // row-major 3x3 soft-iron matrix, identity default
-  float board_trim[2];   // [roll,pitch] mounting tilt (deg) — subtracted from the
-                         // attitude estimate so "frame level" reads 0 (board-level
-                         // / trim calibration; corrects a cushion-mounted FC whose
-                         // level doesn't match the prop plane). 0,0 default.
+  float board_trim[2]; // [roll,pitch] mounting tilt (deg) — subtracted from the
+  // attitude estimate so "frame level" reads 0 (board-level
+  // / trim calibration; corrects a cushion-mounted FC whose
+  // level doesn't match the prop plane). 0,0 default.
 } bmx160_calibration_t;
 
 /* On-disk calibration file (0:cal.bin) layout: a small header for
@@ -264,7 +264,8 @@ typedef struct {
  * layout) is rejected on load and the compiled-in identity defaults are kept.
  * v3 replaced acc_scale[3] with the full acc_soft_iron[9]. */
 #define CALIB_FILE_MAGIC 0x4C414356u /* 'VCAL' */
-#define CALIB_FILE_VERSION 4u /* v4 adds board_trim[2]; v3 files reset to defaults */
+#define CALIB_FILE_VERSION                                                     \
+  4u /* v4 adds board_trim[2]; v3 files reset to defaults */
 
 typedef struct {
   uint32_t magic;
@@ -291,7 +292,7 @@ typedef struct {
 typedef struct {
   uint8_t buffer[20];
   uint8_t size;
-}imu_calibration_telemetry_t;
+} imu_calibration_telemetry_t;
 
 void calibration_task(void *args);
 

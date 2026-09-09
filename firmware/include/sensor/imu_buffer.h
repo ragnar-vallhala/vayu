@@ -103,9 +103,12 @@ bool vert_input_queue_push(const vert_input_t *in);
 bool vert_input_queue_pop(vert_input_t *out_in);
 bool vert_input_queue_wait(uint32_t ticks_to_wait);
 
-bool imu_queue_calibration_telemetry_push(const imu_calibration_telemetry_t *sample);
-bool imu_queue_calibration_telemetry_pop(imu_calibration_telemetry_t *out_sample);
-bool imu_queue_calibration_telemetry_peek(imu_calibration_telemetry_t *out_sample);
+bool imu_queue_calibration_telemetry_push(
+    const imu_calibration_telemetry_t *sample);
+bool imu_queue_calibration_telemetry_pop(
+    imu_calibration_telemetry_t *out_sample);
+bool imu_queue_calibration_telemetry_peek(
+    imu_calibration_telemetry_t *out_sample);
 
 bool imu_queue_calibration_push(const bmx160_all_reading_t *sample);
 bool imu_queue_calibration_pop(bmx160_all_reading_t *out_sample);

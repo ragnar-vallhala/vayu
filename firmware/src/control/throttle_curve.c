@@ -32,9 +32,9 @@ float throttle_curve(float stick, float hover_duty) {
   /* Stick -> thrust fraction, hover pinned at mid-stick. Two straight segments:
    * the lower half spans 0..hover_thrust, the upper half hover_thrust..1. */
   const float hover_thrust = hover_duty * hover_duty;
-  float thrust = (s <= 0.5f)
-                     ? (s * 2.0f * hover_thrust)
-                     : (hover_thrust + (s - 0.5f) * 2.0f * (1.0f - hover_thrust));
+  float thrust =
+      (s <= 0.5f) ? (s * 2.0f * hover_thrust)
+                  : (hover_thrust + (s - 0.5f) * 2.0f * (1.0f - hover_thrust));
 
   /* Thrust ~ duty^2, so invert to get the duty the mixer wants. */
   return clampf(m_sqrt(clampf(thrust, 0.0f, 1.0f)), 0.0f, 1.0f);

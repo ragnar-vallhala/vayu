@@ -207,9 +207,15 @@ static inline bool m_mat4_inv(const float *m, float *inv) {
 
 /** Skew-symmetric (cross-product) matrix M(3x3) such that M*x = v cross x. */
 static inline void m_skew3(const float v[3], float M[9]) {
-  M[0] = 0.0f;   M[1] = -v[2]; M[2] = v[1];
-  M[3] = v[2];   M[4] = 0.0f;  M[5] = -v[0];
-  M[6] = -v[1];  M[7] = v[0];  M[8] = 0.0f;
+  M[0] = 0.0f;
+  M[1] = -v[2];
+  M[2] = v[1];
+  M[3] = v[2];
+  M[4] = 0.0f;
+  M[5] = -v[0];
+  M[6] = -v[1];
+  M[7] = v[0];
+  M[8] = 0.0f;
 }
 
 static inline float m_vec3_dot(const float a[3], const float b[3]) {
@@ -273,8 +279,8 @@ static inline void m_quat_rotate_inv(const quaternion_t *q, const float v[3],
  * fold an error-state attitude correction into a nominal quaternion.
  */
 static inline void m_quat_exp(const float dtheta[3], quaternion_t *dq) {
-  float t2 = dtheta[0] * dtheta[0] + dtheta[1] * dtheta[1] +
-             dtheta[2] * dtheta[2];
+  float t2 =
+      dtheta[0] * dtheta[0] + dtheta[1] * dtheta[1] + dtheta[2] * dtheta[2];
   float theta = m_sqrt(t2);
   if (theta < 1e-6f) {
     dq->w = 1.0f;

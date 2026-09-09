@@ -45,12 +45,12 @@ float angle_controller_last_throttle(void);
  * "blocked" with "armed_ok" clear is the common one: the switch was never at
  * centre while armed, so the interlock has not released. */
 #define HEIGHT_STATE_MODE_MASK 0x03u
-#define HEIGHT_STATE_ENGAGED   0x04u
-#define HEIGHT_STATE_FAILED    0x08u
-#define HEIGHT_STATE_LANDED    0x10u
-#define HEIGHT_STATE_HANDBACK  0x20u
-#define HEIGHT_STATE_ARMED_OK  0x40u
-#define HEIGHT_STATE_BLOCKED   0x80u
+#define HEIGHT_STATE_ENGAGED 0x04u
+#define HEIGHT_STATE_FAILED 0x08u
+#define HEIGHT_STATE_LANDED 0x10u
+#define HEIGHT_STATE_HANDBACK 0x20u
+#define HEIGHT_STATE_ARMED_OK 0x40u
+#define HEIGHT_STATE_BLOCKED 0x80u
 uint8_t angle_controller_height_state(void);
 
 /**

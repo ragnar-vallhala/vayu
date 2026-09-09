@@ -97,17 +97,18 @@ typedef enum {
 } flight_phase_event_t;
 
 typedef struct {
-  float ground_ref;    /**< baro altitude of the ground (captured while disarmed). */
-  bool have_ref;       /**< false until the first grounded sample seeds it. */
-  float agl;           /**< last computed AGL (m) — cached for telemetry. */
-  bool powered;        /**< latched true once throttle crossed the takeoff gate
+  float
+      ground_ref; /**< baro altitude of the ground (captured while disarmed). */
+  bool have_ref;  /**< false until the first grounded sample seeds it. */
+  float agl;      /**< last computed AGL (m) — cached for telemetry. */
+  bool powered;   /**< latched true once throttle crossed the takeoff gate
                         *   since arming; cleared on disarm. */
   float tof_ground_ref; /**< rangefinder reading with the craft on its feet —
                          *   i.e. the sensor's mounting height. Captured on the
                          *   same terms as ground_ref, so it self-calibrates
                          *   across gear/prop-guard/battery changes. */
-  bool have_tof_ref;    /**< false until a settled grounded ToF sample seeds it. */
-  bool tof_active;      /**< the ToF supplied AGL on the previous step — drives
+  bool have_tof_ref; /**< false until a settled grounded ToF sample seeds it. */
+  bool tof_active;   /**< the ToF supplied AGL on the previous step — drives
                          *   the one-shot baro re-anchor when it drops out. */
   float takeoff_timer; /**< s the takeoff gates have held continuously. */
   float land_timer;    /**< s the landing gates have held continuously. */

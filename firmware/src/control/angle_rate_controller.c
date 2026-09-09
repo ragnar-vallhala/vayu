@@ -5,10 +5,10 @@
 #include "control/pid_config.h"
 #include "control/control_buffer.h"
 #include "control/pid.h"
-#include "control/mixer.h"       /* dedicated control-allocation mixer */
-#include "control/rate_indi.h"   /* optional INDI inner loop (RATE_CTRL_ALGO_USED) */
+#include "control/mixer.h"     /* dedicated control-allocation mixer */
+#include "control/rate_indi.h" /* optional INDI inner loop (RATE_CTRL_ALGO_USED) */
 #include "control/sysid.h"
-#include "dsp/gyro_notch.h"      /* FFT-driven dynamic gyro notch (off by default) */
+#include "dsp/gyro_notch.h" /* FFT-driven dynamic gyro notch (off by default) */
 #include "storage/fs_owner.h" /* vayu_log */
 #include "storage/imu_hs_log.h"
 
@@ -17,7 +17,7 @@
 #ifndef GYRO_NOTCH_FORCE_ON
 #define GYRO_NOTCH_FORCE_ON 0
 #endif
-#include "memory.h"   /* v_memcpy */
+#include "memory.h" /* v_memcpy */
 #include "navhal.h"
 #include "sensor/sensor.h"
 #include "sys/state.h"
@@ -79,7 +79,7 @@ static AngleRateController angle_rate_controller = {
  * Co-tuned with the gains: heavier filtering raises the gain ceiling before the
  * loop hunts around the gyro deadband. Defaults off so flight behavior is
  * unchanged until a tune sets it. */
-static float s_gyro_lpf_rc[NUM_AXES]    = {0.0f, 0.0f, 0.0f};
+static float s_gyro_lpf_rc[NUM_AXES] = {0.0f, 0.0f, 0.0f};
 static float s_gyro_lpf_state[NUM_AXES] = {0.0f, 0.0f, 0.0f};
 
 /* INDI inner-loop state (used only when RATE_CTRL_ALGO_USED == RATE_CTRL_INDI;
@@ -126,9 +126,9 @@ float angle_rate_controller_get_d_lpf(uint8_t axis) {
  * yaw feedback. ONE geometry source (the GCS vehicle / loaded .vveh) drives both
  * the sim physics and this mix, keeping firmware + sim consistent and stable for
  * any quad layout. */
-static float s_mix_roll[4]  = {-1.f, -1.f, +1.f, +1.f};  /* -sign(y) */
-static float s_mix_pitch[4] = {+1.f, -1.f, -1.f, +1.f};  /*  sign(x) */
-static float s_mix_yaw[4]   = {-1.f, +1.f, -1.f, +1.f};  /*  spin    */
+static float s_mix_roll[4] = {-1.f, -1.f, +1.f, +1.f};  /* -sign(y) */
+static float s_mix_pitch[4] = {+1.f, -1.f, -1.f, +1.f}; /*  sign(x) */
+static float s_mix_yaw[4] = {-1.f, +1.f, -1.f, +1.f};   /*  spin    */
 
 /* Control-allocation mixer (firmware/src/control/mixer.c): pseudo-inverse mix +
  * airmode desaturation + clamp + idle floor. Kept in sync with the s_mix_* signs
@@ -161,9 +161,9 @@ static void mixer_sync(void) {
   float px[4], py[4];
   int sp[4];
   for (int i = 0; i < 4; i++) {
-    px[i] = s_mix_pitch[i];                      /* sign(x)            */
-    py[i] = -s_mix_roll[i];                      /* sign(y) = -(-sign y) */
-    sp[i] = (s_mix_yaw[i] >= 0.0f) ? 1 : -1;     /* spin               */
+    px[i] = s_mix_pitch[i];                  /* sign(x)            */
+    py[i] = -s_mix_roll[i];                  /* sign(y) = -(-sign y) */
+    sp[i] = (s_mix_yaw[i] >= 0.0f) ? 1 : -1; /* spin               */
   }
   mixer_set_geometry(&s_mixer, px, py, sp, 4);
   mixer_set_airmode(&s_mixer, s_airmode);
@@ -176,9 +176,9 @@ void angle_rate_controller_set_motor_geometry(const float pos_x[4],
                                               const float pos_y[4],
                                               const int spin[4]) {
   for (int i = 0; i < 4; i++) {
-    s_mix_roll[i]  = (pos_y[i] >= 0.0f) ? -1.0f : +1.0f;
+    s_mix_roll[i] = (pos_y[i] >= 0.0f) ? -1.0f : +1.0f;
     s_mix_pitch[i] = (pos_x[i] >= 0.0f) ? +1.0f : -1.0f;
-    s_mix_yaw[i]   = (spin[i] >= 0)     ? +1.0f : -1.0f;
+    s_mix_yaw[i] = (spin[i] >= 0) ? +1.0f : -1.0f;
   }
   mixer_sync(); /* rebuild the allocator for the new geometry */
 }
@@ -192,11 +192,14 @@ void angle_rate_controller_set_motor_geometry(const float pos_x[4],
 bool angle_rate_controller_apply_geometry_command(const uint8_t *payload,
                                                   uint16_t len) {
   /* payload: [cmd:2][argc:1][x0..x3, y0..y3, spin0..spin3] (12 floats). */
-  if (payload == NULL || len < 3) return false;
+  if (payload == NULL || len < 3)
+    return false;
   uint8_t argc = payload[2];
-  if (argc < 12 || len < (uint16_t)argc * 4u + 3u) return false;
+  if (argc < 12 || len < (uint16_t)argc * 4u + 3u)
+    return false;
   float a[12];
-  for (int i = 0; i < 12; i++) v_memcpy(&a[i], &payload[3 + i * 4], 4);
+  for (int i = 0; i < 12; i++)
+    v_memcpy(&a[i], &payload[3 + i * 4], 4);
   const float x[4] = {a[0], a[1], a[2], a[3]};
   const float y[4] = {a[4], a[5], a[6], a[7]};
   const int spin[4] = {a[8] >= 0 ? 1 : -1, a[9] >= 0 ? 1 : -1,
@@ -396,7 +399,8 @@ void angle_rate_controller_task(void *arg) {
       float rc = s_gyro_lpf_rc[i];
       if (rc > 1e-6f && dt > 0.0f) {
         float alpha = dt / (dt + rc);
-        s_gyro_lpf_state[i] += alpha * (imu_data.converted.gyr[i] - s_gyro_lpf_state[i]);
+        s_gyro_lpf_state[i] +=
+            alpha * (imu_data.converted.gyr[i] - s_gyro_lpf_state[i]);
         imu_data.converted.gyr[i] = s_gyro_lpf_state[i];
       } else {
         s_gyro_lpf_state[i] = imu_data.converted.gyr[i];
@@ -453,13 +457,13 @@ void angle_rate_controller_task(void *arg) {
     sys_state_t state = system_state_get();
     bool armed_now =
         (state == SYSTEM_STATE_ARMED || state == SYSTEM_STATE_IN_AIR);
-    bool armed_prev = (prev_state == SYSTEM_STATE_ARMED ||
-                       prev_state == SYSTEM_STATE_IN_AIR);
+    bool armed_prev =
+        (prev_state == SYSTEM_STATE_ARMED || prev_state == SYSTEM_STATE_IN_AIR);
     if (armed_now && !armed_prev) {
       for (int i = 0; i < NUM_AXES; i++) {
         v_pid_reset(&angle_rate_controller.pid[i]);
-        rate_indi_reset(&s_indi[i]);    /* re-seed INDI filters/feedback too */
-        s_gyro_lpf_state[i] = 0.0f;     /* clear the input filter too */
+        rate_indi_reset(&s_indi[i]); /* re-seed INDI filters/feedback too */
+        s_gyro_lpf_state[i] = 0.0f;  /* clear the input filter too */
       }
     }
     prev_state = state;
@@ -477,8 +481,10 @@ void angle_rate_controller_task(void *arg) {
      * wrench bridge -- which then applies NaN force/torque to the
      * airframe and physics explodes. */
     float target_throttle = angle_controller_outputs.throttle;
-    if (target_throttle < 0.0f) target_throttle = 0.0f;
-    if (target_throttle > 1.0f) target_throttle = 1.0f;
+    if (target_throttle < 0.0f)
+      target_throttle = 0.0f;
+    if (target_throttle > 1.0f)
+      target_throttle = 1.0f;
 
     /* Feed throttle to the dynamic notch: it only engages above an idle gate
      * (where prop vibration exists). Consumed by next tick's gyro_notch_apply /
@@ -503,13 +509,13 @@ void angle_rate_controller_task(void *arg) {
     float outputs[NUM_AXES] = {0};
     if (RATE_CTRL_ALGO_USED == RATE_CTRL_INDI) {
       for (int i = 0; i < NUM_AXES; i++) {
-        outputs[i] = rate_indi_update(&s_indi[i], target_rates[i],
-                                      current_rates[i], dt);
+        outputs[i] =
+            rate_indi_update(&s_indi[i], target_rates[i], current_rates[i], dt);
       }
     } else {
       for (int i = 0; i < NUM_AXES; i++) {
-        outputs[i] = v_pid_update(&angle_rate_controller.pid[i], target_rates[i],
-                                  current_rates[i], 0, dt);
+        outputs[i] = v_pid_update(&angle_rate_controller.pid[i],
+                                  target_rates[i], current_rates[i], 0, dt);
       }
     }
 
@@ -559,11 +565,13 @@ void angle_rate_controller_task(void *arg) {
       ramp_throttle = PID_FULL_AUTHORITY_THROTTLE;
     }
     if (ramp_throttle < MIN_ARMED_THROTTLE) {
-      for (int i = 0; i < NUM_AXES; i++) outputs[i] = 0.0f;
+      for (int i = 0; i < NUM_AXES; i++)
+        outputs[i] = 0.0f;
     } else if (ramp_throttle < PID_FULL_AUTHORITY_THROTTLE) {
       float ramp = (ramp_throttle - MIN_ARMED_THROTTLE) /
                    (PID_FULL_AUTHORITY_THROTTLE - MIN_ARMED_THROTTLE);
-      for (int i = 0; i < NUM_AXES; i++) outputs[i] *= ramp;
+      for (int i = 0; i < NUM_AXES; i++)
+        outputs[i] *= ramp;
     }
     /* Control allocation. The mixer (firmware/src/control/mixer.c) owns the
      * per-motor mix (pseudo-inverse of the airframe geometry), saturation
@@ -597,13 +605,13 @@ void angle_rate_controller_task(void *arg) {
                           motor_outputs.m4};
       float a_roll = 0.0f, a_pitch = 0.0f, a_yaw = 0.0f;
       for (int i = 0; i < 4; i++) {
-        a_roll  += m[i] * s_mix_roll[i];
+        a_roll += m[i] * s_mix_roll[i];
         a_pitch += m[i] * s_mix_pitch[i];
-        a_yaw   += m[i] * s_mix_yaw[i];
+        a_yaw += m[i] * s_mix_yaw[i];
       }
-      rate_indi_set_applied(&s_indi[0], a_roll  * 0.25f);
+      rate_indi_set_applied(&s_indi[0], a_roll * 0.25f);
       rate_indi_set_applied(&s_indi[1], a_pitch * 0.25f);
-      rate_indi_set_applied(&s_indi[2], a_yaw   * 0.25f);
+      rate_indi_set_applied(&s_indi[2], a_yaw * 0.25f);
     }
 
     /* Only feed the motor FIFO while the airframe is armed. The
@@ -629,8 +637,8 @@ void angle_rate_controller_task(void *arg) {
      * collective shift MIXER_AIRMODE_RP applies under saturation. Decimated
      * internally to 400 Hz -- the ESC PWM rate -- and a no-op unless armed. */
     {
-      const float mo[4] = {motor_outputs.m1, motor_outputs.m2,
-                           motor_outputs.m3, motor_outputs.m4};
+      const float mo[4] = {motor_outputs.m1, motor_outputs.m2, motor_outputs.m3,
+                           motor_outputs.m4};
       uint16_t hf = 0u;
       if (state == SYSTEM_STATE_ARMED) {
         hf |= HSL_ACT_F_ARMED;

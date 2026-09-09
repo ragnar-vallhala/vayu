@@ -6,7 +6,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-
 typedef struct {
   struct PID pid[NUM_AXES];
 } AngleRateController;
@@ -24,8 +23,8 @@ void angle_rate_controller_task(void *arg);
  * @return false if axis is out of range; true on apply.
  * @implements COMM-CMD-003
  */
-bool angle_rate_controller_set_gains(uint8_t axis, float kp, float ki,
-                                     float kd, float kff);
+bool angle_rate_controller_set_gains(uint8_t axis, float kp, float ki, float kd,
+                                     float kff);
 
 /**
  * @brief Read the live rate-PID gains for one axis (0..NUM_AXES-1).

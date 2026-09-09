@@ -48,8 +48,10 @@ float m_pow(float base, float exp) { return powf(base, exp); }
 // -------------------------
 /** @noreq pure scalar clamp utility */
 float m_clamp(float val, float min, float max) {
-  if (val < min) return min;
-  if (val > max) return max;
+  if (val < min)
+    return min;
+  if (val > max)
+    return max;
   return val;
 }
 

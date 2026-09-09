@@ -43,9 +43,9 @@ bool ibus_parse_byte(uint8_t byte, ibus_data_t *data);
  * HELD — both conditions, so a continuous full-throttle push (no single-frame
  * jump) and a one-frame glitch (not held) don't false-trip. Tune on hardware. */
 #define RC_FAILSAFE_THROTTLE_RAW 1900U /**< ch3 above this counts as "high". */
-#define RC_FAILSAFE_JUMP_DELTA 300U    /**< one-frame rise no human stick makes. */
-#define RC_FAILSAFE_HOLD_FRAMES 4U     /**< consecutive high frames to confirm. */
-#define RC_THROTTLE_MIN_RAW 1000U      /**< iBUS throttle minimum (0% throttle). */
+#define RC_FAILSAFE_JUMP_DELTA 300U /**< one-frame rise no human stick makes. */
+#define RC_FAILSAFE_HOLD_FRAMES 4U  /**< consecutive high frames to confirm. */
+#define RC_THROTTLE_MIN_RAW 1000U   /**< iBUS throttle minimum (0% throttle). */
 
 /**
  * @brief Mark "right now" as the most recent valid RC frame.

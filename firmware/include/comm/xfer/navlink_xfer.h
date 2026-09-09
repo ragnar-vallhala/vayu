@@ -87,29 +87,29 @@ struct xfer_provider; /* fwd */
 
 typedef struct xfer_session {
   xfer_state_t state;
-  uint8_t session;     /* slot id (== array index) */
-  uint8_t dir;         /* xfer_dir_t */
-  uint8_t mode;        /* xfer_mode_t */
-  uint8_t gcs_sys;     /* reply target, stamped from the XFER_OPEN frame hdr */
+  uint8_t session; /* slot id (== array index) */
+  uint8_t dir;     /* xfer_dir_t */
+  uint8_t mode;    /* xfer_mode_t */
+  uint8_t gcs_sys; /* reply target, stamped from the XFER_OPEN frame hdr */
   uint8_t gcs_comp;
   uint8_t open_req_seq; /* correlates the deferred COMMAND_ACK */
   uint8_t close_req_seq;
-  bool close_pending;  /* xfer_on_close seen; tick emits the close COMMAND_ACK */
-  bool info_acked;     /* first XFER_ACK/peer response seen -> stop retrying INFO */
-  bool rx_activity;    /* a chunk arrived since the last tick (upload liveness) */
-  bool upload_eof;     /* EOF chunk received; tick polls provider->flush (all
+  bool close_pending; /* xfer_on_close seen; tick emits the close COMMAND_ACK */
+  bool info_acked; /* first XFER_ACK/peer response seen -> stop retrying INFO */
+  bool rx_activity; /* a chunk arrived since the last tick (upload liveness) */
+  bool upload_eof;  /* EOF chunk received; tick polls provider->flush (all
                         * bytes persisted) before the terminal DONE/FAILED ack */
   uint16_t service_id;
   uint16_t chunk_size; /* negotiated emit size (<= XFER_CHUNK_MAX) */
   uint32_t total_size; /* XFER_SIZE_STREAM for streams */
-  uint32_t cursor;     /* download: next offset to emit; upload: next expected */
+  uint32_t cursor; /* download: next offset to emit; upload: next expected */
   uint32_t offset_start;
-  uint16_t rate_hz;    /* stream cadence */
+  uint16_t rate_hz;      /* stream cadence */
   uint32_t next_due_ms;  /* stream: next poll; upload: next periodic ACK */
   uint32_t last_rx_ms;   /* idle-timeout base */
   uint32_t last_emit_ms; /* INFO/ACK retransmit base */
   const struct xfer_provider *provider;
-  void *user;            /* provider scratch (e.g. open fd / file size) */
+  void *user; /* provider scratch (e.g. open fd / file size) */
   char arg[XFER_ARG_MAX];
 } xfer_session_t;
 
@@ -140,9 +140,11 @@ typedef struct {
 typedef struct xfer_provider {
   uint16_t service_id;
   const char *name;
-  int (*open)(xfer_session_t *s, const xfer_open_args_t *a, uint32_t *total_out);
+  int (*open)(xfer_session_t *s, const xfer_open_args_t *a,
+              uint32_t *total_out);
   int (*read)(xfer_session_t *s, uint32_t off, uint8_t *buf, uint16_t max);
-  int (*write)(xfer_session_t *s, uint32_t off, const uint8_t *buf, uint16_t len);
+  int (*write)(xfer_session_t *s, uint32_t off, const uint8_t *buf,
+               uint16_t len);
   int (*poll)(xfer_session_t *s, uint8_t *buf, uint16_t max);
   void (*close)(xfer_session_t *s, int result);
   /* Upload completion (optional). After the EOF chunk, tick polls this until the

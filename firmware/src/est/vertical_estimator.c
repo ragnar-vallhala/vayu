@@ -54,8 +54,9 @@ float vert_world_up_accel(const quaternion_t *q, const float a_body[3]) {
    * once gravity is removed. Up-positive is the negative of that. */
   float a_world[3];
   m_quat_rotate(q, a_body, a_world);
-  float a_down_inertial = a_world[2] + VERT_GRAVITY; /* down-positive, ~0 static */
-  return -a_down_inertial;                           /* up-positive */
+  float a_down_inertial =
+      a_world[2] + VERT_GRAVITY; /* down-positive, ~0 static */
+  return -a_down_inertial;       /* up-positive */
 }
 
 /* @implements EST-ALT-001, EST-ALT-101 */

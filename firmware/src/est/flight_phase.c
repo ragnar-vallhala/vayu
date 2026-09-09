@@ -26,7 +26,9 @@ void flight_phase_init(flight_phase_t *fp) {
 
 /* @implements EST-PHS-001, EST-PHS-101 */
 /* @noreq trivial accessor. */
-bool flight_phase_tof_active(const flight_phase_t *fp) { return fp->tof_active; }
+bool flight_phase_tof_active(const flight_phase_t *fp) {
+  return fp->tof_active;
+}
 
 /* @implements EST-PHS-001, EST-PHS-101 */
 flight_phase_event_t flight_phase_update(flight_phase_t *fp, bool armed,
@@ -53,8 +55,8 @@ flight_phase_event_t flight_phase_update(flight_phase_t *fp, bool armed,
      * its feet IS the mounting height, so capturing it here is what makes the
      * offset self-calibrating. Only while settled, and only from a valid
      * reading — a dropout must not seed a zero reference. */
-    if (tof_valid &&
-        (!fp->have_tof_ref || m_fabsf(climb_rate) < FLIGHT_PHASE_LAND_RATE_MS)) {
+    if (tof_valid && (!fp->have_tof_ref ||
+                      m_fabsf(climb_rate) < FLIGHT_PHASE_LAND_RATE_MS)) {
       fp->tof_ground_ref = tof_range;
       fp->have_tof_ref = true;
     }

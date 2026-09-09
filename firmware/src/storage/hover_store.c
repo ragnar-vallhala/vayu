@@ -23,7 +23,8 @@ float hover_store_load(float fallback) {
   vfs_close(fd);
 
   if (n != (int)sizeof s || s.magic != HOVER_STORE_MAGIC) {
-    vayu_log("hover: store absent/bad magic, using %d/1000", (int)(fallback * 1000));
+    vayu_log("hover: store absent/bad magic, using %d/1000",
+             (int)(fallback * 1000));
     return fallback;
   }
   /* Range-check before trusting it: a plausible-looking file with a wild value

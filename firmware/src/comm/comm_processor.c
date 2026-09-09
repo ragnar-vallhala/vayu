@@ -145,11 +145,12 @@ void comm_processor_dispatch(const packet_t *pkt) {
       VAYU_DISCARD(pid_config_apply_command(pkt->payload, pkt->length));
     } else if (cmd_id == CMD_SET_GYRO_LPF) {
       /* Live rate-loop gyro LPF update (co-tuned with the gains). */
-      VAYU_DISCARD(pid_config_apply_gyro_lpf_command(pkt->payload, pkt->length));
+      VAYU_DISCARD(
+          pid_config_apply_gyro_lpf_command(pkt->payload, pkt->length));
     } else if (cmd_id == CMD_SET_MOTOR_GEOMETRY) {
       /* Set the mixer signs from the airframe motor layout (sim/vehicle). */
-      VAYU_DISCARD(
-          angle_rate_controller_apply_geometry_command(pkt->payload, pkt->length));
+      VAYU_DISCARD(angle_rate_controller_apply_geometry_command(pkt->payload,
+                                                                pkt->length));
     } else if (cmd_id == CMD_SET_FLIGHT_MODE) {
       /* GCS stabilise/acro override (arg 0=angle, 1=acro, 2=release to RC). */
       VAYU_DISCARD(flight_mode_apply_command(pkt->payload, pkt->length));

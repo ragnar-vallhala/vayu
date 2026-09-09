@@ -62,10 +62,11 @@ uint64_t get_timestamp_unix(void) {
  * disciplined clock reports correction ~= 0 (windup-free).
  * @implements SYS-TIM-006 */
 void time_sync_set_offset64(int64_t correction_ms) {
-  _clock_synced = 1; /* GCS has disciplined our clock — FC is now synchronised (§10.5) */
+  _clock_synced =
+      1; /* GCS has disciplined our clock — FC is now synchronised (§10.5) */
   if (correction_ms > TIME_SYNC_STEP_MS || correction_ms < -TIME_SYNC_STEP_MS) {
-    _offset_applied += (double)correction_ms;   /* step */
-    _offset_target = (int64_t)_offset_applied;  /* park the slew target */
+    _offset_applied += (double)correction_ms;  /* step */
+    _offset_target = (int64_t)_offset_applied; /* park the slew target */
   } else {
     _offset_target = (int64_t)_offset_applied + correction_ms; /* slew */
   }
@@ -83,7 +84,8 @@ void time_sync_discipline_tick(void) {
     _last_discipline_ticks = now;
     return;
   }
-  double dt = (double)(now - _last_discipline_ticks) / (double)HIGH_FREQ_TIMER_FREQ;
+  double dt =
+      (double)(now - _last_discipline_ticks) / (double)HIGH_FREQ_TIMER_FREQ;
   _last_discipline_ticks = now;
   if (dt <= 0.0)
     return;

@@ -22,9 +22,9 @@
 #define FS_QUERY_PATH_MAX 48 /* = FS_LIST/FS_INFO.path char[48] */
 
 /* result codes mirror command_result (navlink/dialect.json) by value. */
-#define FSQ_RES_OK 0u      /* ACCEPTED */
-#define FSQ_RES_DENIED 2u  /* path does not exist */
-#define FSQ_RES_BUSY 1u    /* TEMPORARILY_REJECTED (a query is already running) */
+#define FSQ_RES_OK 0u     /* ACCEPTED */
+#define FSQ_RES_DENIED 2u /* path does not exist */
+#define FSQ_RES_BUSY 1u /* TEMPORARILY_REJECTED (a query is already running) */
 
 /* wire msgids mirrored from the dialect (for the deferred COMMAND_ACK). */
 #define FS_WIRE_MSGID_LIST 8203u
