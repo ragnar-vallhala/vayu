@@ -54,11 +54,11 @@ void TstTimeSyncEstimator::minDelaySelection() {
   // heavily-jittered ones at offset 1100. The 1/(delay)^2 weighting must let
   // the clean sample dominate the filtered offset.
   e.addSample(make(50000, 1100.0, 200.0));
-  e.addSample(make(50000, 1000.0, 4.0));  // the good one
+  e.addSample(make(50000, 1000.0, 4.0)); // the good one
   e.addSample(make(50000, 1100.0, 220.0));
   e.addSample(make(50000, 1100.0, 180.0));
   QVERIFY(std::llabs(e.offsetMs() - 1000) < 5);
-  QCOMPARE(e.delayMs(), qint64(2));  // min round-trip 4 -> one-way 2
+  QCOMPARE(e.delayMs(), qint64(2)); // min round-trip 4 -> one-way 2
 }
 
 void TstTimeSyncEstimator::skewRecoveryAndProjection() {
@@ -69,7 +69,7 @@ void TstTimeSyncEstimator::skewRecoveryAndProjection() {
   for (int k = 0; k <= 10; ++k) {
     const qint64 t1 = qint64(gcs0) + qint64(k) * 1000;
     const double offset = O0 + skew * (double(t1) - gcs0);
-    QVERIFY(e.addSample(make(t1, offset, 2 * d)));  // round-trip 2d
+    QVERIFY(e.addSample(make(t1, offset, 2 * d))); // round-trip 2d
     lastT1 = t1;
   }
   QVERIFY(e.synced());
@@ -93,7 +93,8 @@ void TstTimeSyncEstimator::rejectsImplausibleDelay() {
   QVERIFY(!e.addSample(neg));
 
   // Absurdly large round-trip beyond the cap: rejected.
-  QVERIFY(!e.addSample(make(2000, 100.0, double(TimeSyncEstimator::kMaxDelayMs) + 1)));
+  QVERIFY(!e.addSample(
+      make(2000, 100.0, double(TimeSyncEstimator::kMaxDelayMs) + 1)));
 
   QVERIFY(!e.synced());
   // A plausible one still lands.
@@ -108,7 +109,7 @@ void TstTimeSyncEstimator::resetClears() {
   e.reset();
   QVERIFY(!e.synced());
   QCOMPARE(e.offsetMs(), qint64(0));
-  QCOMPARE(e.fcToGcs(12345, 99999), qint64(12345));  // identity again
+  QCOMPARE(e.fcToGcs(12345, 99999), qint64(12345)); // identity again
 }
 
 QTEST_APPLESS_MAIN(TstTimeSyncEstimator)

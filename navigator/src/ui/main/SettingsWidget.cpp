@@ -51,8 +51,9 @@ class NavDelegate : public QStyledItemDelegate {
 public:
   using QStyledItemDelegate::QStyledItemDelegate;
 
-  QSize sizeHint(const QStyleOptionViewItem &, const QModelIndex &) const override {
-    return QSize(0, 54);  // row taller than the icon → even vertical gaps
+  QSize sizeHint(const QStyleOptionViewItem &,
+                 const QModelIndex &) const override {
+    return QSize(0, 54); // row taller than the icon → even vertical gaps
   }
 
   void paint(QPainter *p, const QStyleOptionViewItem &opt,
@@ -90,7 +91,10 @@ QLabel *paneHeader(const QString &title) {
 
 // A name/description ── control row. Returns the container and its name label so
 // callers can mark it dirty.
-struct Row { QWidget *w; QLabel *name; };
+struct Row {
+  QWidget *w;
+  QLabel *name;
+};
 Row makeRow(const QString &name, const QString &desc, QWidget *ctl) {
   auto *w = new QWidget;
   auto *h = new QHBoxLayout(w);
@@ -102,8 +106,8 @@ Row makeRow(const QString &name, const QString &desc, QWidget *ctl) {
   left->addWidget(n);
   if (!desc.isEmpty()) {
     auto *d = new QLabel(desc);
-    d->setStyleSheet(
-        QString("color:%1; font-size:11px;").arg(Theme::hex(Theme::kTextMuted)));
+    d->setStyleSheet(QString("color:%1; font-size:11px;")
+                         .arg(Theme::hex(Theme::kTextMuted)));
     d->setWordWrap(true);
     left->addWidget(d);
   }
@@ -131,7 +135,8 @@ QWidget *soonRow(const QString &name, const QString &desc, QWidget *ctl) {
 
 QComboBox *combo(std::initializer_list<QString> items) {
   auto *c = new QComboBox;
-  for (const auto &i : items) c->addItem(i);
+  for (const auto &i : items)
+    c->addItem(i);
   return c;
 }
 QCheckBox *check(bool on) {
@@ -152,7 +157,7 @@ QDoubleSpinBox *dspin(double lo, double hi, double val, double step) {
   s->setSingleStep(step);
   return s;
 }
-}  // namespace
+} // namespace
 
 SettingsWidget::SettingsWidget(QWidget *parent) : QWidget(parent) {
   auto *root = new QVBoxLayout(this);
@@ -191,7 +196,7 @@ SettingsWidget::SettingsWidget(QWidget *parent) : QWidget(parent) {
   nav->setFixedWidth(64);
   nav->setFrameShape(QFrame::NoFrame);
   nav->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-  nav->setMouseTracking(true);  // so hover repaints
+  nav->setMouseTracking(true); // so hover repaints
   nav->setIconSize(QSize(kNavIconPx, kNavIconPx));
   nav->setItemDelegate(new NavDelegate(nav));
   nav->setStyleSheet(
@@ -221,7 +226,7 @@ SettingsWidget::SettingsWidget(QWidget *parent) : QWidget(parent) {
     sc->setWidget(lay->parentWidget());
     stack->addWidget(sc);
     auto *item = new QListWidgetItem(navIcon(icon), QString());
-    item->setToolTip(navText);  // name on hover (delegate centres the glyph)
+    item->setToolTip(navText); // name on hover (delegate centres the glyph)
     nav->addItem(item);
   };
 
@@ -232,11 +237,16 @@ SettingsWidget::SettingsWidget(QWidget *parent) : QWidget(parent) {
         "Per-stream enable + request rate. Disable unused streams or lower "
         "their rate to save link bandwidth.");
     note->setWordWrap(true);
-    note->setStyleSheet(
-        QString("color:%1; font-size:11px;").arg(Theme::hex(Theme::kTextMuted)));
+    note->setStyleSheet(QString("color:%1; font-size:11px;")
+                            .arg(Theme::hex(Theme::kTextMuted)));
     v->addWidget(note);
 
-    struct S { const char *name; const char *type; const char *rate; bool on; };
+    struct S {
+      const char *name;
+      const char *type;
+      const char *rate;
+      bool on;
+    };
     const S streams[] = {
         {"Heartbeat", "0x0", "1", true},
         {"IMU — full", "0x1", "200", true},
@@ -266,8 +276,8 @@ SettingsWidget::SettingsWidget(QWidget *parent) : QWidget(parent) {
     tbl->setEnabled(false);
     tbl->setToolTip(kSoon);
     v->addWidget(tbl);
-    auto *est = new QLabel("est. downlink ≈ 31.4 KB/s of 115 KB/s · " +
-                           soonTag());
+    auto *est =
+        new QLabel("est. downlink ≈ 31.4 KB/s of 115 KB/s · " + soonTag());
     est->setStyleSheet(
         QString("color:%1; font-size:11px;").arg(Theme::hex(Theme::kTextDim)));
     est->setAlignment(Qt::AlignRight);
@@ -282,8 +292,8 @@ SettingsWidget::SettingsWidget(QWidget *parent) : QWidget(parent) {
     m_transportCombo = new QComboBox(this);
     m_transportCombo->addItems({"Serial", "UDP"});
     {
-      auto rr = makeRow("Default transport", "selected on launch",
-                        m_transportCombo);
+      auto rr =
+          makeRow("Default transport", "selected on launch", m_transportCombo);
       v->addWidget(rr.w);
       track(m_transportCombo, rr.name);
     }
@@ -297,15 +307,15 @@ SettingsWidget::SettingsWidget(QWidget *parent) : QWidget(parent) {
     // fixed pick-list (detected ports + "Ask each time") — not editable, so the
     // "Ask each time" sentinel can't be typed over.
     m_portCombo = new QComboBox(this);
-    m_portCombo->addItem(tr("Ask each time"));  // index 0 → no override
+    m_portCombo->addItem(tr("Ask each time")); // index 0 → no override
     for (const auto &pi : QSerialPortInfo::availablePorts())
       m_portCombo->addItem(pi.portName());
     m_udpPortSpin = new QSpinBox(this);
     m_udpPortSpin->setRange(1, 65535);
     m_udpPortSpin->setValue(14550);
     m_portStack = new QStackedWidget(this);
-    m_portStack->addWidget(m_portCombo);    // page 0 = Serial
-    m_portStack->addWidget(m_udpPortSpin);  // page 1 = UDP
+    m_portStack->addWidget(m_portCombo);   // page 0 = Serial
+    m_portStack->addWidget(m_udpPortSpin); // page 1 = UDP
     {
       auto rr = makeRow("Default port", "pre-filled on launch", m_portStack);
       v->addWidget(rr.w);
@@ -318,7 +328,7 @@ SettingsWidget::SettingsWidget(QWidget *parent) : QWidget(parent) {
       m_baudCombo->addItem(QString::number(b), b);
     {
       auto rr = makeRow("Default baud", "pre-filled on launch", m_baudCombo);
-      m_baudRow = rr.w;  // for the "locked" tooltip when UDP
+      m_baudRow = rr.w; // for the "locked" tooltip when UDP
       v->addWidget(rr.w);
       track(m_baudCombo, rr.name);
     }
@@ -423,8 +433,9 @@ SettingsWidget::SettingsWidget(QWidget *parent) : QWidget(parent) {
 
     // Metric ⇒ m + m/s; Imperial ⇒ ft + mph. Connected after the alt/speed
     // combos exist; fires only on a real user pick (setSettings blocks signals).
-    connect(m_unitSystemCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
-            this, [this](int i) {
+    connect(m_unitSystemCombo,
+            QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+            [this](int i) {
               const bool imperial = i == 1;
               m_altCombo->setCurrentIndex(imperial ? 1 : 0);
               m_speedCombo->setCurrentIndex(imperial ? 2 : 0);
@@ -437,8 +448,7 @@ SettingsWidget::SettingsWidget(QWidget *parent) : QWidget(parent) {
       track(m_decimalsSpin, rr.name);
     }
 
-    m_startupCombo =
-        combo({"Last viewed", "Flight Dashboard", "Simulator"});
+    m_startupCombo = combo({"Last viewed", "Flight Dashboard", "Simulator"});
     {
       auto rr = makeRow("Startup page", "page shown on launch", m_startupCombo);
       v->addWidget(rr.w);
@@ -476,7 +486,8 @@ SettingsWidget::SettingsWidget(QWidget *parent) : QWidget(parent) {
     m_graphWindowSpin->setValue(5);
     m_graphWindowSpin->setSuffix(" s");
     {
-      auto rr = makeRow("Graph window", "time span shown (s)", m_graphWindowSpin);
+      auto rr =
+          makeRow("Graph window", "time span shown (s)", m_graphWindowSpin);
       v->addWidget(rr.w);
       track(m_graphWindowSpin, rr.name);
     }
@@ -505,23 +516,25 @@ SettingsWidget::SettingsWidget(QWidget *parent) : QWidget(parent) {
 
     m_stateBandChk = check(false);
     {
-      auto rr = makeRow("Vehicle-state band",
-                        "colour the plot background by FC state", m_stateBandChk);
+      auto rr =
+          makeRow("Vehicle-state band",
+                  "colour the plot background by FC state", m_stateBandChk);
       v->addWidget(rr.w);
       track(m_stateBandChk, rr.name);
     }
 
     m_traceWidthSpin = dspin(0.5, 4.0, 1.4, 0.1);
     {
-      auto rr = makeRow("Trace width", "graph line thickness", m_traceWidthSpin);
+      auto rr =
+          makeRow("Trace width", "graph line thickness", m_traceWidthSpin);
       v->addWidget(rr.w);
       track(m_traceWidthSpin, rr.name);
     }
 
     m_antialiasChk = check(false);
     {
-      auto rr = makeRow("Antialias traces", "smoother lines (slightly more CPU)",
-                        m_antialiasChk);
+      auto rr = makeRow("Antialias traces",
+                        "smoother lines (slightly more CPU)", m_antialiasChk);
       v->addWidget(rr.w);
       track(m_antialiasChk, rr.name);
     }
@@ -533,9 +546,9 @@ SettingsWidget::SettingsWidget(QWidget *parent) : QWidget(parent) {
     auto *v = newPane("Logging & Recording");
 
     m_recordOnConnectChk = new QCheckBox(this);
-    m_recordOnConnectChk->setToolTip(
-        "Tee every received frame to a timestamped .bin under the log directory "
-        "while connected, for later replay.");
+    m_recordOnConnectChk->setToolTip("Tee every received frame to a "
+                                     "timestamped .bin under the log directory "
+                                     "while connected, for later replay.");
     {
       auto rr = makeRow("Record telemetry", "auto-log all packets on connect",
                         m_recordOnConnectChk);
@@ -557,8 +570,8 @@ SettingsWidget::SettingsWidget(QWidget *parent) : QWidget(parent) {
       auto *browse = new QPushButton(tr("Browse…"));
       dh->addWidget(m_logDirEdit, 1);
       dh->addWidget(browse);
-      auto rr = makeRow("Log directory", "where recordings + exports are written",
-                        dirW);
+      auto rr = makeRow("Log directory",
+                        "where recordings + exports are written", dirW);
       v->addWidget(rr.w);
       connect(browse, &QPushButton::clicked, this, [this, lbl = rr.name] {
         const QString start = m_logDirEdit->text().isEmpty()
@@ -575,7 +588,8 @@ SettingsWidget::SettingsWidget(QWidget *parent) : QWidget(parent) {
 
     m_timestampCombo = combo({"Local", "UTC", "Sim t (T+)"});
     {
-      auto rr = makeRow("Timestamps", "System Log time prefix", m_timestampCombo);
+      auto rr =
+          makeRow("Timestamps", "System Log time prefix", m_timestampCombo);
       v->addWidget(rr.w);
       track(m_timestampCombo, rr.name);
     }
@@ -605,8 +619,8 @@ SettingsWidget::SettingsWidget(QWidget *parent) : QWidget(parent) {
 
     m_toastChk = check(true);
     {
-      auto rr = makeRow("Toast notifications", "in-app status pop-ups",
-                        m_toastChk);
+      auto rr =
+          makeRow("Toast notifications", "in-app status pop-ups", m_toastChk);
       v->addWidget(rr.w);
       track(m_toastChk, rr.name);
     }
@@ -657,13 +671,13 @@ SettingsWidget::SettingsWidget(QWidget *parent) : QWidget(parent) {
 
     // Perf poll rate stays coming-soon: kernel-perf is pushed by the firmware
     // (broadcast), not polled, so there's no rate for the GCS to set yet.
-    v->addWidget(soonRow("Perf poll rate", "kernel-perf refresh (Hz)",
-                         spin(1, 60, 5)));
+    v->addWidget(
+        soonRow("Perf poll rate", "kernel-perf refresh (Hz)", spin(1, 60, 5)));
 
     m_crcCheckChk = check(true);
     {
-      auto rr = makeRow("CRC checking", "drop packets that fail CRC",
-                        m_crcCheckChk);
+      auto rr =
+          makeRow("CRC checking", "drop packets that fail CRC", m_crcCheckChk);
       v->addWidget(rr.w);
       track(m_crcCheckChk, rr.name);
     }
@@ -677,7 +691,8 @@ SettingsWidget::SettingsWidget(QWidget *parent) : QWidget(parent) {
       auto *exportBtn = new QPushButton(tr("Export…"));
       ieh->addWidget(importBtn);
       ieh->addWidget(exportBtn);
-      v->addWidget(makeRow("Settings file", "import / export the config", ie).w);
+      v->addWidget(
+          makeRow("Settings file", "import / export the config", ie).w);
       connect(importBtn, &QPushButton::clicked, this,
               &SettingsWidget::importSettings);
       connect(exportBtn, &QPushButton::clicked, this,
@@ -686,7 +701,8 @@ SettingsWidget::SettingsWidget(QWidget *parent) : QWidget(parent) {
 
     {
       auto *reset = new QPushButton(tr("Reset…"));
-      v->addWidget(makeRow("Reset to defaults", "restore all settings", reset).w);
+      v->addWidget(
+          makeRow("Reset to defaults", "restore all settings", reset).w);
       connect(reset, &QPushButton::clicked, this,
               &SettingsWidget::resetToDefaults);
     }
@@ -711,7 +727,7 @@ SettingsWidget::SettingsWidget(QWidget *parent) : QWidget(parent) {
   root->addLayout(applyRow);
 
   connect(m_applyBtn, &QPushButton::clicked, this, [this] {
-    emit applyRequested();  // MainWindow reads getSettings(), applies + saves
+    emit applyRequested(); // MainWindow reads getSettings(), applies + saves
     clearDirty();
   });
 
@@ -721,26 +737,32 @@ SettingsWidget::SettingsWidget(QWidget *parent) : QWidget(parent) {
 
 void SettingsWidget::markDirty(QLabel *label) {
   if (label) {
-    label->setStyleSheet(QString("font-weight:600; color:%1;")
-                             .arg(Theme::hex(Theme::kWarn)));
+    label->setStyleSheet(
+        QString("font-weight:600; color:%1;").arg(Theme::hex(Theme::kWarn)));
     m_dirtyLabels.insert(label);
   }
-  if (m_applyBtn) m_applyBtn->setEnabled(true);
-  if (m_dirtyHint) m_dirtyHint->setVisible(true);
+  if (m_applyBtn)
+    m_applyBtn->setEnabled(true);
+  if (m_dirtyHint)
+    m_dirtyHint->setVisible(true);
 }
 
 void SettingsWidget::clearDirty() {
-  for (QLabel *l : m_dirtyLabels) l->setStyleSheet(rowLabelStyle());
+  for (QLabel *l : m_dirtyLabels)
+    l->setStyleSheet(rowLabelStyle());
   m_dirtyLabels.clear();
-  if (m_applyBtn) m_applyBtn->setEnabled(false);
-  if (m_dirtyHint) m_dirtyHint->setVisible(false);
+  if (m_applyBtn)
+    m_applyBtn->setEnabled(false);
+  if (m_dirtyHint)
+    m_dirtyHint->setVisible(false);
 }
 
 void SettingsWidget::exportSettings() {
   const QString path = QFileDialog::getSaveFileName(
       this, tr("Export settings"), QStringLiteral("vayu_settings.dat"),
       tr("Vayu settings (*.dat);;All files (*)"));
-  if (path.isEmpty()) return;
+  if (path.isEmpty())
+    return;
   if (SettingsManager::saveToPath(path, getSettings()))
     Notify::ok(this, tr("Exported settings → %1").arg(path));
   else
@@ -748,17 +770,18 @@ void SettingsWidget::exportSettings() {
 }
 
 void SettingsWidget::importSettings() {
-  const QString path = QFileDialog::getOpenFileName(
-      this, tr("Import settings"), QString(),
-      tr("Vayu settings (*.dat);;All files (*)"));
-  if (path.isEmpty()) return;
+  const QString path =
+      QFileDialog::getOpenFileName(this, tr("Import settings"), QString(),
+                                   tr("Vayu settings (*.dat);;All files (*)"));
+  if (path.isEmpty())
+    return;
   GcsSettings s;
   if (!SettingsManager::loadFromPath(path, s)) {
     Notify::error(this, tr("Not a valid Vayu settings file"));
     return;
   }
-  setSettings(s);         // populate the form (clears dirty)
-  emit applyRequested();  // apply + persist to the default store via MainWindow
+  setSettings(s);        // populate the form (clears dirty)
+  emit applyRequested(); // apply + persist to the default store via MainWindow
   Notify::ok(this, tr("Imported settings from %1").arg(path));
 }
 
@@ -768,21 +791,24 @@ void SettingsWidget::resetToDefaults() {
           tr("Restore all settings to their defaults? This applies and saves "
              "immediately.")) != QMessageBox::Yes)
     return;
-  setSettings(GcsSettings{});  // default-constructed = the defaults
+  setSettings(GcsSettings{}); // default-constructed = the defaults
   emit applyRequested();
   Notify::ok(this, tr("Settings reset to defaults"));
 }
 
 void SettingsWidget::updateTransportDependent() {
-  if (!m_transportCombo || !m_portStack || !m_baudCombo) return;
+  if (!m_transportCombo || !m_portStack || !m_baudCombo)
+    return;
   const bool udp = m_transportCombo->currentIndex() == 1;
   m_portStack->setCurrentIndex(udp ? 1 : 0);
   // Baud is meaningless over UDP — lock + fade it, and tip the row (a disabled
   // widget can't show its own tooltip, so the row container carries it).
   m_baudCombo->setEnabled(!udp);
-  const QString tip = udp ? tr("Not available for the UDP transport") : QString();
+  const QString tip =
+      udp ? tr("Not available for the UDP transport") : QString();
   m_baudCombo->setToolTip(tip);
-  if (m_baudRow) m_baudRow->setToolTip(tip);
+  if (m_baudRow)
+    m_baudRow->setToolTip(tip);
 }
 
 void SettingsWidget::setSettings(const GcsSettings &s) {
@@ -804,7 +830,8 @@ void SettingsWidget::setSettings(const GcsSettings &s) {
   m_autoReconnectChk->setChecked(s.autoReconnect);
   const QSignalBlocker bRec(m_recordOnConnectChk);
   m_recordOnConnectChk->setChecked(s.recordOnConnect);
-  if (m_logDirEdit) m_logDirEdit->setText(s.logDirectory);
+  if (m_logDirEdit)
+    m_logDirEdit->setText(s.logDirectory);
   const QSignalBlocker bTs(m_timestampCombo);
   m_timestampCombo->setCurrentIndex(s.timestampMode);
   const QSignalBlocker bMll(m_maxLogLinesSpin);
@@ -847,18 +874,18 @@ void SettingsWidget::setSettings(const GcsSettings &s) {
     const QSignalBlocker bT(m_transportCombo);
     m_transportCombo->setCurrentIndex(s.defaultTransport);
   }
-  updateTransportDependent();  // reflect the stack/baud state for this transport
-  if (s.defaultTransport == 1) {  // UDP → defaultPort holds the port number
+  updateTransportDependent(); // reflect the stack/baud state for this transport
+  if (s.defaultTransport == 1) { // UDP → defaultPort holds the port number
     const QSignalBlocker bU(m_udpPortSpin);
     m_udpPortSpin->setValue(s.defaultPort.isEmpty() ? 14550
                                                     : s.defaultPort.toInt());
   } else {
     const QSignalBlocker bP(m_portCombo);
     if (s.defaultPort.isEmpty()) {
-      m_portCombo->setCurrentIndex(0);  // Ask each time
+      m_portCombo->setCurrentIndex(0); // Ask each time
     } else {
       int idx = m_portCombo->findText(s.defaultPort);
-      if (idx < 0) {  // saved port not currently present — keep it selectable
+      if (idx < 0) { // saved port not currently present — keep it selectable
         m_portCombo->addItem(s.defaultPort);
         idx = m_portCombo->count() - 1;
       }
@@ -875,7 +902,7 @@ void SettingsWidget::setSettings(const GcsSettings &s) {
   const QSignalBlocker bLl(m_linkLossSpin);
   m_linkLossSpin->setValue(s.linkLossTimeoutMs);
 
-  clearDirty();  // a programmatic load is not a user edit
+  clearDirty(); // a programmatic load is not a user edit
 }
 
 GcsSettings SettingsWidget::getSettings() const {
@@ -888,8 +915,7 @@ GcsSettings SettingsWidget::getSettings() const {
   s.traceWidth = m_traceWidthSpin ? m_traceWidthSpin->value() : 1.4;
   s.antialias = !m_antialiasChk || m_antialiasChk->isChecked();
   s.autoReconnect = m_autoReconnectChk && m_autoReconnectChk->isChecked();
-  s.recordOnConnect =
-      m_recordOnConnectChk && m_recordOnConnectChk->isChecked();
+  s.recordOnConnect = m_recordOnConnectChk && m_recordOnConnectChk->isChecked();
   s.logDirectory = m_logDirEdit ? m_logDirEdit->text() : QString();
   s.timestampMode = m_timestampCombo ? m_timestampCombo->currentIndex() : 0;
   s.maxLogLines = m_maxLogLinesSpin ? m_maxLogLinesSpin->value() : 2000;
@@ -912,8 +938,8 @@ GcsSettings SettingsWidget::getSettings() const {
   s.restoreLayout = !m_restoreLayoutChk || m_restoreLayoutChk->isChecked();
   s.defaultTransport = m_transportCombo ? m_transportCombo->currentIndex() : 0;
   if (s.defaultTransport == 1) {
-    s.defaultPort = m_udpPortSpin ? QString::number(m_udpPortSpin->value())
-                                  : QString();
+    s.defaultPort =
+        m_udpPortSpin ? QString::number(m_udpPortSpin->value()) : QString();
   } else {
     s.defaultPort =
         (!m_portCombo || m_portCombo->currentText() == tr("Ask each time"))

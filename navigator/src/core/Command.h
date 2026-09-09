@@ -14,19 +14,19 @@
 // `when` contexts below are defined but every command is currently `Always`;
 // context-gating (SessionMode) is wired but not yet load-bearing.
 enum class CmdContext {
-  Always,     // enabled unconditionally
-  Connected,  // a live link (serial/UDP) is up
-  Live,       // session is in Live mode (not replay)
-  Replay,     // session is in Replay mode
+  Always,    // enabled unconditionally
+  Connected, // a live link (serial/UDP) is up
+  Live,      // session is in Live mode (not replay)
+  Replay,    // session is in Replay mode
 };
 
 struct Command {
-  QString id;                 // stable, dotted: "view.home", "link.toggle"
-  QString title;              // human label, may carry an "&" menu mnemonic
-  QString category;           // grouping: "View", "Link", "Window"
-  QKeySequence defaultSeq;    // factory binding; user overrides layer on top
+  QString id;              // stable, dotted: "view.home", "link.toggle"
+  QString title;           // human label, may carry an "&" menu mnemonic
+  QString category;        // grouping: "View", "Link", "Window"
+  QKeySequence defaultSeq; // factory binding; user overrides layer on top
   CmdContext when = CmdContext::Always;
-  QAction *action = nullptr;  // the one shared QAction (owned by the registry)
+  QAction *action = nullptr; // the one shared QAction (owned by the registry)
 };
 
 // Strip Qt menu-mnemonic markers from a title for display outside a menu (the

@@ -22,7 +22,7 @@ typedef struct {
   float pitch;
   float yaw;
   quaternion_t q;
-  bool degraded;      /**< Set when estimator_is_degraded() — see EST-MAH-002. */
+  bool degraded; /**< Set when estimator_is_degraded() — see EST-MAH-002. */
   uint32_t timestamp; /**< DWT cycle stamp of the source IMU sample (acquisition
                        *   time). Loops derive dt from deltas of this, not DWT
                        *   read at loop time — see vayu_dt_from_cycles(). */
@@ -114,8 +114,8 @@ void m_complementary_filter(const float ax, const float ay, const float az,
 
 void m_mahony_filter(const float ax, const float ay, const float az,
                      const float gx, const float gy, const float gz,
-                     const float mx, const float my, const float mz,
-                     float dt, attitude_t *ori);
+                     const float mx, const float my, const float mz, float dt,
+                     attitude_t *ori);
 
 /* ----------------------------------------------------------------------------
  * Error-state EKF (MEKF) — see src/est/ekf.c, tunables in est/ekf.h.

@@ -28,6 +28,33 @@ import navlink_msgs as nl          # noqa: E402
 
 AXES = {"roll": 0, "pitch": 1, "yaw": 2}
 
+# The FC's §10.5 gate rejects every command until its clock is disciplined, and
+# ONLY role=2 does that (it forces _clock_synced via set_offset64(0)); role=0 is
+# an ordinary sample and leaves the gate shut. Sending commands into a shut gate
+# is silent — they are dropped with no ack and no log, which is indistinguishable
+# from a lossy link. Verified 2026-09-05: a run that reported "sent 5 commands"
+# left every gain at its compiled default (read back over SWD).
+TIME_SYNC_REQUEST_WIDE = 2
+
+
+def _frames(dgram):
+    """Yield every NavLink frame in a datagram.
+
+    The ESP bridge packs several frames per UDP datagram, so decoding only the
+    first silently loses the rest — which is why acks appeared to be missing."""
+    off = 0
+    while len(dgram) - off >= frame.HDR_LEN + 2:
+        if dgram[off] != 0x56 or dgram[off + 1] != 0x02:
+            off += 1
+            continue
+        flen = frame.HDR_LEN + dgram[off + 2] + 2
+        if len(dgram) - off < flen:
+            break
+        d = frame.decode(dgram[off:off + flen])
+        off += flen
+        if d.ok:
+            yield d
+
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
@@ -102,8 +129,41 @@ def main():
         seq = (seq + 1) & 0xFF
         s.sendto(frame.encode(mid, pl, seq=seq), peer)
 
-    send(nl.TimeSync.MSGID, nl.TimeSync(role=0, seq=1, t1_gcs_tx=int(time.time()*1e6)).pack())
-    time.sleep(0.05)
+    # Clear the §10.5 gate and CONFIRM it: retransmit until the FC answers with
+    # role=1. Without the confirmation a single dropped request (this link runs
+    # 10-15% loss) leaves the gate shut and every command below is discarded.
+    synced = False
+    t0 = time.time()
+    last_req = 0.0
+    while not synced and time.time() - t0 < 10.0:
+        # Keep announcing ourselves: the ESP bridge unicasts to the last peer it
+        # heard a GCS-HELLO from, and goes quiet if we stop.
+        if time.time() - lh > 0.4:
+            s.sendto(b"GCS-HELLO", ("255.255.255.255", args.port))
+            lh = time.time()
+        if time.time() - last_req > 0.3:
+            send(nl.TimeSync.MSGID,
+                 nl.TimeSync(role=TIME_SYNC_REQUEST_WIDE, seq=seq & 0xFF,
+                             t1_gcs_tx=int(time.time() * 1e6)).pack())
+            last_req = time.time()
+        try:
+            d, _ = s.recvfrom(2048)
+        except socket.timeout:
+            continue
+        if d == b"GCS-HELLO":
+            continue
+        for fr in _frames(d):
+            if fr.msgid == nl.TimeSync.MSGID:
+                m = nl.TimeSync.unpack(fr.payload)
+                if int(getattr(m, "role", 0)) == 1:
+                    synced = True
+    if not synced:
+        print("[tune] FAILED: the FC never confirmed TIME_SYNC, so the command "
+              "gate is shut and NOTHING would be applied. Not sending.",
+              file=sys.stderr)
+        s.close()
+        return 2
+    print("[tune] §10.5 gate cleared (FC clock disciplined).")
 
     sent = {}  # req_seq -> label
     for name, payload in cmds:
@@ -141,11 +201,11 @@ def main():
             continue
         if d == b"GCS-HELLO":
             continue
-        fr = frame.decode(d)
-        if fr.ok and fr.msgid == 5:
-            mm = nl.CommandAck.unpack(fr.payload)
-            if mm.req_seq in sent:
-                acked[sent[mm.req_seq]] = mm.result
+        for fr in _frames(d):
+            if fr.msgid == 5:
+                mm = nl.CommandAck.unpack(fr.payload)
+                if mm.req_seq in sent:
+                    acked[sent[mm.req_seq]] = mm.result
     s.close()
 
     print(f"[tune] sent {len(cmds)} commands; acks: "

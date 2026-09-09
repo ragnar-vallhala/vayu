@@ -49,7 +49,7 @@
 
 typedef enum {
   PID_CTRL_ANGLE = 0,
-  PID_CTRL_RATE  = 1,
+  PID_CTRL_RATE = 1,
   PID_CTRL_COUNT = 2,
 } pid_ctrl_sel_t;
 

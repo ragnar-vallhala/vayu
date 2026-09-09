@@ -40,8 +40,8 @@ static void fft_bit_reverse(fft_complex_t *x, unsigned n) {
 }
 
 /** @noreq in-place radix-2 DIT complex FFT (maths-interface FFT core). */
-void m_fft_forward(fft_complex_t *x, unsigned n,
-                   const fft_complex_t *tw, unsigned tw_stride) {
+void m_fft_forward(fft_complex_t *x, unsigned n, const fft_complex_t *tw,
+                   unsigned tw_stride) {
   if (n < 2) {
     return;
   }
@@ -72,8 +72,8 @@ void m_fft_forward(fft_complex_t *x, unsigned n,
 }
 
 /** @noreq 1/n-normalized inverse FFT via the conjugate identity. */
-void m_fft_inverse(fft_complex_t *x, unsigned n,
-                   const fft_complex_t *tw, unsigned tw_stride) {
+void m_fft_inverse(fft_complex_t *x, unsigned n, const fft_complex_t *tw,
+                   unsigned tw_stride) {
   if (n < 1) {
     return;
   }

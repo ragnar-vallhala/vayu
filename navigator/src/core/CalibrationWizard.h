@@ -3,7 +3,7 @@
 #include <QString>
 #include <QVector>
 
-#include "Types.h"  // CalibUpdateType
+#include "Types.h" // CalibUpdateType
 
 // Step state machine for the gated calibration wizard (FR / feature-matrix:
 // "Calibration wizard (gated, fig-8)"). The firmware drives the flow by sending
@@ -12,17 +12,17 @@
 // the UI can show a guided checklist + progress + a per-step animation. Pure
 // (no widgets) so the flow logic is unit-tested headless.
 enum class CalibMode {
-  Gyro,        // hold still
-  AccelBias,   // single level placement (legacy bias-only mode)
-  Accel6Axis,  // full 3x3: six faces + six edges/corners (pose-tolerant)
-  Mag,         // free figure-8 rotation
-  BoardLevel,  // single level hold -> mounting-tilt trim (imu_id 4)
+  Gyro,       // hold still
+  AccelBias,  // single level placement (legacy bias-only mode)
+  Accel6Axis, // full 3x3: six faces + six edges/corners (pose-tolerant)
+  Mag,        // free figure-8 rotation
+  BoardLevel, // single level hold -> mounting-tilt trim (imu_id 4)
 };
 
 struct CalibStep {
-  CalibUpdateType orient;  // firmware instruction that activates this step
-  QString label;           // short title (e.g. "Nose up")
-  QString hint;            // what the operator should do
+  CalibUpdateType orient; // firmware instruction that activates this step
+  QString label;          // short title (e.g. "Nose up")
+  QString hint;           // what the operator should do
 };
 
 class CalibrationWizard {
@@ -33,11 +33,11 @@ public:
   CalibMode mode() const { return m_mode; }
   const QVector<CalibStep> &steps() const { return m_steps; }
   int stepCount() const { return int(m_steps.size()); }
-  int currentIndex() const { return m_current; }  // -1 until the first prompt
+  int currentIndex() const { return m_current; } // -1 until the first prompt
   int doneCount() const { return m_done; }
   bool isActive() const { return m_active; }
   bool isComplete() const { return m_complete; }
-  double progress() const;  // 0..1; 1.0 once complete
+  double progress() const; // 0..1; 1.0 once complete
 
   // A firmware CALIB_UPDATE_<orient> instruction arrived: the prompted pose
   // becomes current and every pose instructed before it is marked done.

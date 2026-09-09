@@ -13,18 +13,18 @@
 #include "maths/linalg.h"
 
 /* @noreq trivial init (explicit gains). */
-void vert_est_init(vertical_estimator_t *ve, float k_alt, float k_vel) {
-  ve->altitude = 0.0f;
-  ve->climb_rate = 0.0f;
-  ve->vertical_accel = 0.0f;
+void vert_est_init(vertical_estimator_t *ve, float k_alt, float k_vel,
+                   float k_bias) {
   ve->k_alt = k_alt;
   ve->k_vel = k_vel;
-  ve->initialized = false;
+  ve->k_bias = k_bias;
+  vert_est_reset(ve);
 }
 
 /* @noreq trivial init (default gains). */
 void vert_est_init_default(vertical_estimator_t *ve) {
-  vert_est_init(ve, VERT_DEFAULT_K_ALT, VERT_DEFAULT_K_VEL);
+  vert_est_init(ve, VERT_DEFAULT_K_ALT, VERT_DEFAULT_K_VEL,
+                VERT_DEFAULT_K_BIAS);
 }
 
 /* @noreq trivial state reset (keeps gains). */
@@ -32,6 +32,16 @@ void vert_est_reset(vertical_estimator_t *ve) {
   ve->altitude = 0.0f;
   ve->climb_rate = 0.0f;
   ve->vertical_accel = 0.0f;
+  /* The bias is a property of the SENSOR under vibration, not of this flight's
+   * altitude reference, so in principle it could survive a re-seed. It is
+   * cleared anyway: a reset means we no longer trust where we are, the bias
+   * re-converges in a few seconds, and carrying a stale one into a fresh
+   * reference is the failure that is hard to see. */
+  ve->accel_bias = 0.0f;
+  ve->tof_prev = 0.0f;
+  ve->tof_have_prev = false;
+  ve->clean_count = 0;
+  ve->accel_unhealthy = false;
   ve->initialized = false;
   /* gains preserved */
 }
@@ -44,21 +54,27 @@ float vert_world_up_accel(const quaternion_t *q, const float a_body[3]) {
    * once gravity is removed. Up-positive is the negative of that. */
   float a_world[3];
   m_quat_rotate(q, a_body, a_world);
-  float a_down_inertial = a_world[2] + VERT_GRAVITY; /* down-positive, ~0 static */
-  return -a_down_inertial;                           /* up-positive */
+  float a_down_inertial =
+      a_world[2] + VERT_GRAVITY; /* down-positive, ~0 static */
+  return -a_down_inertial;       /* up-positive */
 }
 
 /* @implements EST-ALT-001, EST-ALT-101 */
 void vert_est_predict(vertical_estimator_t *ve, float a_up, float dt) {
-  ve->vertical_accel = a_up;
+  /* Remove the estimated DC error before integrating. `vertical_accel` caches
+   * the CORRECTED value, because that is what every consumer wants: telemetry
+   * charting real motion, and the hover estimator's steady-flight gate, which
+   * would otherwise be held open or shut by the bias rather than by motion. */
+  float a_corr = a_up - ve->accel_bias;
+  ve->vertical_accel = a_corr;
   if (!ve->initialized)
     return; /* don't free-run from an unknown origin before the first baro fix */
   if (dt <= 0.0f)
     return;
   /* Semi-implicit integration: advance position with the pre-update velocity
    * plus the half-step accel term, then advance velocity. */
-  ve->altitude += ve->climb_rate * dt + 0.5f * a_up * dt * dt;
-  ve->climb_rate += a_up * dt;
+  ve->altitude += ve->climb_rate * dt + 0.5f * a_corr * dt * dt;
+  ve->climb_rate += a_corr * dt;
 }
 
 /* @implements EST-ALT-001, EST-ALT-101 */
@@ -73,4 +89,79 @@ void vert_est_correct(vertical_estimator_t *ve, float baro_alt) {
   float err = baro_alt - ve->altitude;
   ve->altitude += ve->k_alt * err;   /* pull position toward baro */
   ve->climb_rate += ve->k_vel * err; /* cross-term bounds accel drift */
+
+  /* Third state. A persistently positive innovation (baro above the filter)
+   * means we have been integrating less upward acceleration than was real, so
+   * the accel reads LOW and the bias must go negative — hence the minus. This
+   * is the same signal PX4's checkVerticalAccelerationHealth() watches, used
+   * here to CANCEL the error rather than merely to flag it. */
+  ve->accel_bias -= ve->k_bias * err;
+
+  bool saturated = false;
+  if (ve->accel_bias > VERT_ACCEL_BIAS_MAX) {
+    ve->accel_bias = VERT_ACCEL_BIAS_MAX;
+    saturated = true;
+  } else if (ve->accel_bias < -VERT_ACCEL_BIAS_MAX) {
+    ve->accel_bias = -VERT_ACCEL_BIAS_MAX;
+    saturated = true;
+  }
+
+  /* Health: saturation means the mismatch is beyond what the bias state can
+   * absorb, so climb_rate is once again being dragged by an uncorrected error.
+   * Latch immediately, release only after a run of clean samples (probation),
+   * so the flag cannot chatter across the clamp. */
+  if (saturated) {
+    ve->clean_count = 0;
+    ve->accel_unhealthy = true;
+  } else if (ve->accel_unhealthy &&
+             ++ve->clean_count >= VERT_ACCEL_PROBATION_SAMPLES) {
+    ve->accel_unhealthy = false;
+    ve->clean_count = 0;
+  }
+}
+
+/* @noreq trivial history reset. */
+void vert_est_tof_gap(vertical_estimator_t *ve) { ve->tof_have_prev = false; }
+
+/* @implements EST-ALT-101 */
+void vert_est_correct_tof(vertical_estimator_t *ve, float agl_tof, float dt) {
+  /* An un-seeded filter has no climb_rate to innovate against, and a gap too
+   * long to differentiate across is not a velocity. Both drop the history so
+   * the next pair of samples starts clean rather than straddling the hole. */
+  if (!ve->initialized || dt <= 0.0f || dt > VERT_TOF_MAX_GAP_S) {
+    /* Not usable AS a velocity, but the reading itself is a perfectly good base
+     * for the NEXT difference — so keep it and just skip this update. */
+    ve->tof_prev = agl_tof;
+    ve->tof_have_prev = ve->initialized;
+    return;
+  }
+  if (!ve->tof_have_prev) {
+    ve->tof_prev = agl_tof;
+    ve->tof_have_prev = true;
+    return; /* need two samples to make a velocity */
+  }
+
+  float v_tof = (agl_tof - ve->tof_prev) / dt;
+  ve->tof_prev = agl_tof;
+
+  /* Reject the impossible: a terrain step, a mount change or a range glitch all
+   * look like a one-sample velocity no quadcopter reaches inside a 1.5 m band.
+   * Dropping the history too, because the sample AFTER a step would otherwise
+   * difference across it in the opposite direction. */
+  if (v_tof > VERT_TOF_VEL_GATE || v_tof < -VERT_TOF_VEL_GATE) {
+    ve->tof_have_prev = false;
+    return;
+  }
+
+  /* Same sign convention as the baro correction: a positive innovation (truth
+   * rising faster than the filter believes) means we have been integrating too
+   * little upward acceleration, so the accel reads LOW and the bias goes
+   * negative. Bias only — altitude and climb_rate are untouched by design. */
+  float innov = v_tof - ve->climb_rate;
+  ve->accel_bias -= VERT_K_TOF_BIAS * innov;
+
+  if (ve->accel_bias > VERT_ACCEL_BIAS_MAX)
+    ve->accel_bias = VERT_ACCEL_BIAS_MAX;
+  else if (ve->accel_bias < -VERT_ACCEL_BIAS_MAX)
+    ve->accel_bias = -VERT_ACCEL_BIAS_MAX;
 }

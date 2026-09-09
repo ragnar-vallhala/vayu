@@ -14,9 +14,10 @@
 static int fails = 0;
 static void eq(const char *what, uint16_t got, uint16_t want) {
   int ok = got == want;
-  printf("  [%s] %s (got 0x%04X want 0x%04X)\n", ok ? "PASS" : "FAIL", what, got,
-         want);
-  if (!ok) fails++;
+  printf("  [%s] %s (got 0x%04X want 0x%04X)\n", ok ? "PASS" : "FAIL", what,
+         got, want);
+  if (!ok)
+    fails++;
 }
 
 int main(void) {
@@ -38,7 +39,8 @@ int main(void) {
     int is_nan = (h & 0x7C00) == 0x7C00 && (h & 0x03FF) != 0;
     printf("  [%s] NaN -> half-NaN pattern (got 0x%04X)\n",
            is_nan ? "PASS" : "FAIL", h);
-    if (!is_nan) fails++;
+    if (!is_nan)
+      fails++;
   }
 
   printf("\n%s (%d failure%s)\n", fails ? "FAILED" : "ALL PASSED", fails,

@@ -17,21 +17,23 @@ namespace CsvExport {
 
 namespace {
 
-QString quoteIfNeeded(const QString& s) {
-  if (!s.contains(',') && !s.contains('"') && !s.contains('\n')) return s;
+QString quoteIfNeeded(const QString &s) {
+  if (!s.contains(',') && !s.contains('"') && !s.contains('\n'))
+    return s;
   QString q = s;
   q.replace('"', "\"\"");
   return '"' + q + '"';
 }
 
-}  // namespace
+} // namespace
 
-int writeCombined(QTextStream& out, const QList<GraphSource>& sources) {
+int writeCombined(QTextStream &out, const QList<GraphSource> &sources) {
   // 1) Header row.
   out << "timestamp_ms";
   int seriesOrdinal = 0;
-  for (const auto& src : sources) {
-    if (!src.graph) continue;
+  for (const auto &src : sources) {
+    if (!src.graph)
+      continue;
     const int n = src.graph->numSeries();
     for (int i = 0; i < n; ++i) {
       out << ',';
@@ -47,18 +49,20 @@ int writeCombined(QTextStream& out, const QList<GraphSource>& sources) {
 
   // 2) Build cursor positions for each (source, series).
   struct Cursor {
-    const std::deque<RealTimeGraph::DataPoint>* data;
+    const std::deque<RealTimeGraph::DataPoint> *data;
     size_t idx;
   };
   std::vector<Cursor> cursors;
-  for (const auto& src : sources) {
-    if (!src.graph) continue;
-    const auto& s = src.graph->series();
-    for (const auto& deq : s) {
+  for (const auto &src : sources) {
+    if (!src.graph)
+      continue;
+    const auto &s = src.graph->series();
+    for (const auto &deq : s) {
       cursors.push_back({&deq, 0});
     }
   }
-  if (cursors.empty()) return 0;
+  if (cursors.empty())
+    return 0;
 
   // 3) Walk a unified timestamp axis across all cursors. At each step,
   //    pick the smallest unconsumed ts, emit a row, advance any cursors
@@ -67,16 +71,17 @@ int writeCombined(QTextStream& out, const QList<GraphSource>& sources) {
   while (true) {
     qint64 next = std::numeric_limits<qint64>::max();
     bool any = false;
-    for (const auto& c : cursors) {
+    for (const auto &c : cursors) {
       if (c.idx < c.data->size()) {
         any = true;
         next = std::min(next, (*c.data)[c.idx].timestamp);
       }
     }
-    if (!any) break;
+    if (!any)
+      break;
 
     out << next;
-    for (auto& c : cursors) {
+    for (auto &c : cursors) {
       out << ',';
       if (c.idx < c.data->size() && (*c.data)[c.idx].timestamp == next) {
         out << QString::number((*c.data)[c.idx].value, 'g', 6);
@@ -89,19 +94,21 @@ int writeCombined(QTextStream& out, const QList<GraphSource>& sources) {
   return rows;
 }
 
-QString promptAndWriteCombined(QWidget* parent, const QString& defaultName,
-                               const QList<GraphSource>& sources) {
+QString promptAndWriteCombined(QWidget *parent, const QString &defaultName,
+                               const QList<GraphSource> &sources) {
   // Suggest the user's Documents/Downloads dir. The save dialog
   // remembers its own last-used directory across launches.
   QString suggestion =
       QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
-  if (!suggestion.isEmpty()) suggestion += '/';
+  if (!suggestion.isEmpty())
+    suggestion += '/';
   suggestion += defaultName.isEmpty() ? "telemetry.csv" : defaultName;
 
   const QString path = QFileDialog::getSaveFileName(
       parent, QObject::tr("Export CSV"), suggestion,
       QObject::tr("CSV (*.csv);;All files (*)"));
-  if (path.isEmpty()) return {};
+  if (path.isEmpty())
+    return {};
 
   QFile f(path);
   if (!f.open(QIODevice::WriteOnly | QIODevice::Text)) {
@@ -120,4 +127,4 @@ QString promptAndWriteCombined(QWidget* parent, const QString& defaultName,
   return path;
 }
 
-}  // namespace CsvExport
+} // namespace CsvExport

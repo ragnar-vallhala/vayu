@@ -24,5 +24,5 @@ protected:
 private:
   QString m_label;
   QStringList m_segments;
-  int m_active = -1;  // -1 = N/A
+  int m_active = -1; // -1 = N/A
 };

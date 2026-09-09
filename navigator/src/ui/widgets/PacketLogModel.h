@@ -13,17 +13,17 @@
  * model's data() is O(1) and never re-decodes during painting.
  */
 struct PacketEntry {
-  quint64 no = 0;      // stable packet number (Wireshark "No.")
-  qint64 tMs = 0;      // epoch ms (for expression filters / sort)
-  QString time;        // cached "HH:mm:ss.zzz"
-  bool tx = false;     // direction: false = RX, true = TX
-  quint8 type = 0xFF;  // type nibble (0xFF = RAW / non-frame)
+  quint64 no = 0;     // stable packet number (Wireshark "No.")
+  qint64 tMs = 0;     // epoch ms (for expression filters / sort)
+  QString time;       // cached "HH:mm:ss.zzz"
+  bool tx = false;    // direction: false = RX, true = TX
+  quint8 type = 0xFF; // type nibble (0xFF = RAW / non-frame)
   quint8 dev = 0;
   int len = 0;
   QString typeName;
-  QString info;        // one-line summary (kept for the display-filter expression)
-  QString crc;         // trailing CRC32 as "0x........" (frames only)
-  QString payloadHex;  // payload bytes as spaced hex (truncated for display)
+  QString info; // one-line summary (kept for the display-filter expression)
+  QString crc;  // trailing CRC32 as "0x........" (frames only)
+  QString payloadHex; // payload bytes as spaced hex (truncated for display)
   QByteArray raw;
 };
 
@@ -37,7 +37,14 @@ class PacketLogModel : public QAbstractTableModel {
 public:
   // Columns match the mockup: Time | Dir | Type | Dev | Len | CRC | Payload (hex).
   enum Column {
-    ColTime, ColDir, ColType, ColDev, ColLen, ColCrc, ColPayload, ColCount
+    ColTime,
+    ColDir,
+    ColType,
+    ColDev,
+    ColLen,
+    ColCrc,
+    ColPayload,
+    ColCount
   };
 
   explicit PacketLogModel(QObject *parent = nullptr);

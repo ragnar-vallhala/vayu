@@ -30,29 +30,36 @@
 #include "vaios_config_default.h" /* PANIC */
 #include "variables.h" /* *_LOGGING_FILENAME/_FILE_SIZE, CALIBRATION_FILE_PATH */
 #include "vfs.h"
+#include "storage/imu_hs_log.h"
 
 /* ===========================================================================
  * Sizing
  * =========================================================================== */
-#define FS_LOG_PAYLOAD_MAX 256u  /* >= max navlink blackbox record           */
-#define FS_SAVE_PAYLOAD_MAX 216u /* pid_store 216B (PID5 + notch + motor geom); calib hdr(8)+payload(84) */
+#define FS_LOG_PAYLOAD_MAX 256u /* >= max navlink blackbox record           */
+#define FS_SAVE_PAYLOAD_MAX                                                    \
+  216u /* pid_store 216B (PID5 + notch + motor geom); calib hdr(8)+payload(84) */
 /* Log lane depth. KEEP SMALL: each slot is FS_LOG_PAYLOAD_MAX+ bytes of static
  * BSS, and the STM32F401 (96 KiB SRAM) is RAM-starved — a too-large queue pushes
  * _heap_start up until the kernel heap's HEAP_SIZE memset runs off the top of RAM
  * (silent: the linker can't see it), corrupting memory at boot -> HardFault. 4 is
  * ample; do NOT raise without checking _heap_start + HEAP_SIZE <= top-of-RAM. */
-#define FS_LOG_QUEUE_CAP 4u      /* ~1 KiB; a 32-deep lane (8.3 KiB) overflows F401 SRAM. */
-#define FS_SAVE_QUEUE_CAP 4u     /* reserved — logs can never occupy this lane */
-#define FS_POLL_TICKS 5u         /* save/write-at latency bound while blocked on logs */
+#define FS_LOG_QUEUE_CAP                                                       \
+  4u /* ~1 KiB; a 32-deep lane (8.3 KiB) overflows F401 SRAM. */
+#define FS_SAVE_QUEUE_CAP 4u /* reserved — logs can never occupy this lane */
+#define FS_POLL_TICKS 5u /* save/write-at latency bound while blocked on logs */
 
 /* Upload write-at lane (xfer substrate). The backing buffers are HEAP-allocated
  * (v_malloc) not static, so adding these lanes keeps .bss flat and doesn't shrink
  * the F401 MSP margin (firmware/docs/plans/xfer-memory-budget.md). */
-#define FS_WRITEAT_PAYLOAD_MAX 247u /* = XFER_CHUNK_MAX (one XFER_DATA chunk)     */
-#define FS_WRITEAT_PATH_MAX 40u     /* >= XFER_ARG_MAX(32) SD path                */
-#define FS_WRITEAT_QUEUE_CAP 2u     /* fresh-request lane (one chunk of pipelining)*/
-#define FS_WRITEAT_RETRY_CAP 4u     /* failed-write retry lane                     */
-#define FS_WRITEAT_MAX_TRIES 16u    /* attempts before a write is deemed permanent */
+#define FS_WRITEAT_PAYLOAD_MAX                                                 \
+  247u                          /* = XFER_CHUNK_MAX (one XFER_DATA chunk)     */
+#define FS_WRITEAT_PATH_MAX 40u /* >= XFER_ARG_MAX(32) SD path                */
+#define FS_WRITEAT_QUEUE_CAP                                                   \
+  2u /* fresh-request lane (one chunk of pipelining)*/
+#define FS_WRITEAT_RETRY_CAP                                                   \
+  4u /* failed-write retry lane                     */
+#define FS_WRITEAT_MAX_TRIES                                                   \
+  16u /* attempts before a write is deemed permanent */
 /* Idle loops (task iterations) the cached write fd may sit unused before it is
  * closed. The task loops ~every FS_POLL_TICKS (ms) when idle, so ~10 loops ≈
  * 50 ms — long enough to span an upload's inter-chunk pacing gaps (so the file is
@@ -66,9 +73,13 @@
 #define FS_READ_FD_MAX_HOLD_LOOPS 400u
 /* Per-session write-at bookkeeping. Must be >= XFER_MAX_SESSIONS (navlink_xfer.h);
  * kept as a local constant so fs_owner stays independent of the xfer headers. */
-#define FS_WA_SESSIONS 2u
+/* One slot per xfer session, PLUS one reserved for firmware-internal writers
+ * (FS_WA_SESSION_INTERNAL). Without the spare, an internal save had to borrow
+ * session 0 and would corrupt a concurrent GCS upload's pending/committed/
+ * failed accounting — the xfer flow control reads those to decide DONE. */
+#define FS_WA_SESSIONS 3u
 
-#define FS_SAVE_MAX_TRIES 8u         /* save retry budget (slots free quickly)     */
+#define FS_SAVE_MAX_TRIES 8u /* save retry budget (slots free quickly)     */
 
 #define FS_PID_FILE_PATH "0:pid.bin" /* mirrors pid_config.c boot reader */
 
@@ -135,7 +146,8 @@ static uint32_t s_wfd_idle_loops;
 static vfs_fd_t s_rfd = -1;
 static char s_rpath[FS_WRITEAT_PATH_MAX];
 static uint32_t s_rfd_idle_loops;
-static uint32_t s_rpos; /* current file position of s_rfd (avoid redundant lseek) */
+static uint32_t
+    s_rpos; /* current file position of s_rfd (avoid redundant lseek) */
 
 /* Blackbox file state (open-on-demand; positions persist across writes). */
 static uint32_t navlink_write_pos = 0;
@@ -180,13 +192,15 @@ static void ensure_file_size(const char *path, uint32_t file_size) {
 
 /** @implements LOG-SD-001 — preallocate + size the 3 circular blackbox files. */
 void fs_owner_boot_init(void) {
-  if (vfs_preallocate(NAVLINK_LOGGING_FILENAME, NAVLINK_LOGGING_FILE_SIZE) != 0) {
+  if (vfs_preallocate(NAVLINK_LOGGING_FILENAME, NAVLINK_LOGGING_FILE_SIZE) !=
+      0) {
     PANIC("Navlink prealloc failed");
   }
   if (vfs_preallocate(SYS_LOGGING_FILENAME, SYS_LOGGING_FILE_SIZE) != 0) {
     PANIC("System prealloc failed");
   }
-  if (vfs_preallocate(GENERAL_LOGGING_FILENAME, GENERAL_LOGGING_FILE_SIZE) != 0) {
+  if (vfs_preallocate(GENERAL_LOGGING_FILENAME, GENERAL_LOGGING_FILE_SIZE) !=
+      0) {
     PANIC("General prealloc failed");
   }
 
@@ -197,6 +211,8 @@ void fs_owner_boot_init(void) {
   navlink_write_pos = 0;
   system_write_pos = 0;
   general_write_pos = 0;
+
+  imu_hs_log_boot_init();
 }
 
 /* ===========================================================================
@@ -238,18 +254,19 @@ static void fs_do_log_req(const fs_log_req_t *req) {
   switch ((logger_type_t)req->logger_type) {
   case NAVLINK_LOGGER:
     fs_circular_write(NAVLINK_LOGGING_FILENAME, &navlink_write_pos,
-                      &navlink_wrap_count, NAVLINK_LOGGING_FILE_SIZE, req->payload,
-                      req->len);
+                      &navlink_wrap_count, NAVLINK_LOGGING_FILE_SIZE,
+                      req->payload, req->len);
     break;
   case SYSTEM_LOGGER:
-    fs_circular_write(SYS_LOGGING_FILENAME, &system_write_pos, &system_wrap_count,
-                      SYS_LOGGING_FILE_SIZE, req->payload, req->len);
+    fs_circular_write(SYS_LOGGING_FILENAME, &system_write_pos,
+                      &system_wrap_count, SYS_LOGGING_FILE_SIZE, req->payload,
+                      req->len);
     break;
   case GENERAL_LOGGER:
   default:
     fs_circular_write(GENERAL_LOGGING_FILENAME, &general_write_pos,
-                      &general_wrap_count, GENERAL_LOGGING_FILE_SIZE, req->payload,
-                      req->len);
+                      &general_wrap_count, GENERAL_LOGGING_FILE_SIZE,
+                      req->payload, req->len);
     break;
   }
 }
@@ -495,9 +512,9 @@ typedef struct {
 #define FS_SYNC_TIMEOUT_TICKS 2000u /* generous; avoids a permanent hang */
 
 static volatile bool s_task_mode = false; /* true only under the real FS task */
-static mpmc_queue_t s_sync_lock_q;        /* 1-token serialiser for requesters */
-static mpmc_queue_t s_sync_req_q;         /* caller -> FS task */
-static mpmc_queue_t s_sync_res_q;         /* FS task -> caller */
+static mpmc_queue_t s_sync_lock_q; /* 1-token serialiser for requesters */
+static mpmc_queue_t s_sync_req_q;  /* caller -> FS task */
+static mpmc_queue_t s_sync_res_q;  /* FS task -> caller */
 static uint8_t s_sync_lock_buf[1];
 static fs_sync_req_t s_sync_req_buf[1];
 static fs_sync_res_t s_sync_res_buf[1];
@@ -666,6 +683,10 @@ void fs_owner_task(void *args) {
         fs_do_log_req(&lreq);
       }
     }
+    /* High-speed IMU stream: whole preallocated sectors, and the only SD writer
+     * that must keep a steady 24 KB/s. Serviced here so SD/VFS stays
+     * single-owner; it self-gates on the arm state. */
+    imu_hs_log_drain();
     /* Block for a cross-task FS request (download reads etc.) so they're serviced
      * promptly; the timeout bounds save/write-at/retry/log latency when idle. */
     fs_sync_req_t sreq;
@@ -689,6 +710,9 @@ void fs_owner_task(void *args) {
 
 /** @noreq trivial setter for the log-suppression flag. */
 void fs_owner_suppress_logs(bool suppress) { s_logs_suppressed = suppress; }
+
+/** @noreq trivial getter; the HS logger quiesces on the same flag. */
+bool fs_owner_logs_suppressed(void) { return s_logs_suppressed; }
 
 /* ===========================================================================
  * Producers — snapshot and return immediately.
@@ -751,8 +775,9 @@ bool fs_owner_enqueue_calib_save(const void *header, uint32_t hlen,
 }
 
 /** @implements LOG-XFER-001 */
-bool fs_owner_enqueue_write_at(uint8_t session, const char *path, uint32_t offset,
-                               const void *data, uint32_t len) {
+bool fs_owner_enqueue_write_at(uint8_t session, const char *path,
+                               uint32_t offset, const void *data,
+                               uint32_t len) {
   if (!s_ready || s_writeat_buf == NULL || path == NULL || data == NULL ||
       len == 0u || len > FS_WRITEAT_PAYLOAD_MAX || session >= FS_WA_SESSIONS) {
     s_dropped_writeats++;
@@ -830,8 +855,11 @@ int fs_owner_read_at(const char *path, uint32_t offset, void *buf,
   if (path == NULL || buf == NULL || len == 0u) {
     return -1;
   }
-  fs_sync_req_t req = {
-      .op = FS_SYNC_READ, .path = path, .offset = offset, .buf = buf, .len = len};
+  fs_sync_req_t req = {.op = FS_SYNC_READ,
+                       .path = path,
+                       .offset = offset,
+                       .buf = buf,
+                       .len = len};
   if (s_task_mode) {
     return fs_sync_call(&req);
   }

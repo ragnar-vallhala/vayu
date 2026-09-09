@@ -134,6 +134,21 @@ if(VAYU_HW_TEST)
   message(STATUS "VAYU_HW_TEST: building on-hardware bench firmware (hwtest)")
 endif()
 add_executable(main ${STARTUP_FILE} ${VAYU_SOURCES} ${NAVLINK_SOURCES})
+
+# Force the FFT gyro notch enabled at boot, overriding whatever pid.bin holds.
+# OFF ships: the enable is normally owned by CMD_SET_GYRO_NOTCH and persisted,
+# and a build that silently overrides persisted state is a trap. ON is for a
+# test airframe where the notch must be known-on without a working uplink to
+# send the command -- it logs "notch: FORCED ON by build" at boot so the
+# override is visible in telemetry rather than assumed.
+#   cmake -S firmware -B firmware/build-notch -DVAYU_GYRO_NOTCH_FORCE_ON=ON
+# [TEMP BLOCK TODO: REMOVE]
+option(VAYU_GYRO_NOTCH_FORCE_ON
+       "Force the gyro notch on at boot, ignoring the persisted enable" OFF)
+if(VAYU_GYRO_NOTCH_FORCE_ON)
+  target_compile_definitions(main PRIVATE GYRO_NOTCH_FORCE_ON=1)
+  message(STATUS "gyro notch: FORCED ON at boot (overrides pid.bin)")
+endif()
 target_compile_options(main PRIVATE ${BASE_C_FLAGS})
 set_target_properties(main PROPERTIES COMPILE_FLAGS "${BASE_C_FLAGS}")
 if(VAYU_HW_TEST)
@@ -170,9 +185,12 @@ set(VAYU_R12_CLEAN_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/est/sensor_fusion.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/est/ekf.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/est/lpf.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/est/hover_estimate.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/storage/hover_store.c
     # SNS module (Phase 4)
     ${CMAKE_CURRENT_SOURCE_DIR}/src/sensor/bmx160.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/sensor/bme280.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/sensor/vl53l0x.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/sensor/imu_buffer.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/sensor/i2c_manager.c
     # CTRL module (Phase 4)
@@ -182,6 +200,8 @@ set(VAYU_R12_CLEAN_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/sysid.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/pid_config.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/pid.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/throttle_curve.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/height_controller.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/control_buffer.c
     # COMM module (Phase 4)
     ${CMAKE_CURRENT_SOURCE_DIR}/src/comm/channel.c

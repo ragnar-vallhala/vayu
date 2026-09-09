@@ -14,23 +14,23 @@
 typedef enum {
   CALIB_FIT_ELLIPSOID, /* sphere-constrained LSQ: offset + 3x3 (accel, mag) */
   CALIB_FIT_BIAS,      /* zero-rate bias: mean of still samples (gyro) */
-  CALIB_FIT_SIXPOINT,  /* closed-form 6-side accel: offset + 3x3 (point-set only) */
+  CALIB_FIT_SIXPOINT, /* closed-form 6-side accel: offset + 3x3 (point-set only) */
 } calib_fit_t;
 
 typedef struct calib_target {
-  const char *name;        /* used in log lines */
+  const char *name; /* used in log lines */
   calib_fit_t fit;
-  float       radius;      /* ellipsoid target |v| in raw units (g, |B|, ...) */
-  uint16_t    min_samples; /* gate before a fit is attempted */
-  float       cov_done;    /* per-axis coverage % to early-finish (ellipsoid) */
-  uint16_t    max_ticks;   /* hard cap on acquisition ticks */
-  uint16_t    poll_ms;     /* delay between acquisition ticks */
+  float radius;         /* ellipsoid target |v| in raw units (g, |B|, ...) */
+  uint16_t min_samples; /* gate before a fit is attempted */
+  float cov_done;       /* per-axis coverage % to early-finish (ellipsoid) */
+  uint16_t max_ticks;   /* hard cap on acquisition ticks */
+  uint16_t poll_ms;     /* delay between acquisition ticks */
   /* If true, rescale the fitted shape matrix so the corrected magnitude equals
    * `radius` exactly (e.g. |a|=g for accel). The bare ellipsoid fit normalises to
    * the geometric-mean semi-axis (det=1), which is fine for the mag (direction
    * only) but wrong for the accel (absolute g matters). Only honoured by the
    * point-set fit, which has the samples to measure the common radius. */
-  bool        normalize_radius;
+  bool normalize_radius;
 
   /* Pop one RAW physical 3-vector (uT, m/s^2, ...). Return false if no valid
    * sample is ready this tick — the engine skips it but still counts the tick
@@ -61,6 +61,7 @@ int calib_engine_run(const calib_target_t *t);
  * Uses t->radius, t->min_samples, t->commit; ignores read_raw/cancelled/
  * on_coverage/max_ticks/poll_ms. Returns 0 (committed) or -1 (too few points /
  * fit failure — caller keeps the old calibration). */
-int calib_engine_fit_points(const calib_target_t *t, const float (*pts)[3], int npts);
+int calib_engine_fit_points(const calib_target_t *t, const float (*pts)[3],
+                            int npts);
 
 #endif /* CALIB_ENGINE_H */

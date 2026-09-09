@@ -51,6 +51,6 @@ private:
   float m_targetRoll = 0.0f;
   float m_targetPitch = 0.0f;
   float m_targetYaw = 0.0f;
-  bool m_haveTarget = false;     // snap to the first sample, ease after that
+  bool m_haveTarget = false; // snap to the first sample, ease after that
   QTimer *m_smoothTimer = nullptr;
 };

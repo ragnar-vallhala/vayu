@@ -21,24 +21,25 @@
 namespace autotune {
 
 struct RtosResult {
-  bool   ok    = false;   // process ran and a cost was scored
-  bool   starved = false; // a window was unscorable (axisCost nullopt) — like the
-                          // realtime path's starved retry, NOT a divergence
-  bool   diverged = false;// a per-axis cost hit kBig (|angle| > 80°)
+  bool ok = false;      // process ran and a cost was scored
+  bool starved = false; // a window was unscorable (axisCost nullopt) — like the
+                        // realtime path's starved retry, NOT a divergence
+  bool diverged = false; // a per-axis cost hit kBig (|angle| > 80°)
   // EXACT realtime cost: axisCost(roll) + axisCost(pitch) [+ yawRateCost(yaw)],
   // the SAME Cost.cpp the SITL path runs (incl. its kBig divergence guard).
-  double cost  = 0.0;
-  double rollCost = 0.0, pitchCost = 0.0, yawCost = 0.0;  // angle-loop components
+  double cost = 0.0;
+  double rollCost = 0.0, pitchCost = 0.0,
+         yawCost = 0.0; // angle-loop components
   // Roll/pitch RATE-loop components (AngleRate mode only; 0 in Angle mode).
   double rollRateCost = 0.0, pitchRateCost = 0.0;
   // Rate-tracking correlations from the #RTOS-TUNE line — kept for the log only
   // (the cost is the angle-IAE metric above, not these).
-  double roll  = 0.0, pitch = 0.0, yaw = 0.0;
-  double speedup = 0.0;   // sim-seconds / wall-seconds for this rollout
+  double roll = 0.0, pitch = 0.0, yaw = 0.0;
+  double speedup = 0.0; // sim-seconds / wall-seconds for this rollout
   // Roll-axis excitation window (angle setpoint vs measured, deg) for the live
   // response plot — the same trace the realtime path feeds it.
   QVector<double> respSp, respMeas;
-  QString error;          // populated when !ok
+  QString error; // populated when !ok
 };
 
 class RtosEval {
@@ -61,7 +62,8 @@ public:
 
   // bin: path to vayu_sitl_rtos. suffix: VSIM_FIFO_SUFFIX isolation tag so a
   // concurrent world-tab/other sim can't collide on /tmp advert paths.
-  RtosEval(QString bin, QString suffix) : m_bin(std::move(bin)), m_suffix(std::move(suffix)) {}
+  RtosEval(QString bin, QString suffix)
+      : m_bin(std::move(bin)), m_suffix(std::move(suffix)) {}
   ~RtosEval();
 
   bool binExists() const;
@@ -111,7 +113,8 @@ public:
   struct RawRate {
     QVector<double> rollU, rollOmega, rollSp;
     QVector<double> pitchU, pitchOmega, pitchSp;
-    QVector<double> yawU, yawOmega, yawSp;  // yaw is rate-commanded (no angle loop)
+    QVector<double> yawU, yawOmega,
+        yawSp; // yaw is rate-commanded (no angle loop)
     double dt = 0.001;
   };
   bool captureRate(const Gains &g, quint32 seed, RawRate &out,
@@ -125,14 +128,14 @@ private:
 
   QString m_bin;
   QString m_suffix;
-  QString m_geomPath;  // temp vsim_ctl_geometry_t file (empty = reference quad)
+  QString m_geomPath; // temp vsim_ctl_geometry_t file (empty = reference quad)
   // Excitation (set via setExcitation; defaults match the backend's own).
-  bool   m_haveExcite = false;
-  int    m_stepUs = 1800;
+  bool m_haveExcite = false;
+  int m_stepUs = 1800;
   double m_tetherK = 30.0, m_holdS = 1.0, m_retS = 0.7, m_settleS = 0.6;
-  int    m_waveform = 0;  // 0 = step, 1 = chirp
+  int m_waveform = 0; // 0 = step, 1 = chirp
   double m_chirpF0 = 1.0, m_chirpF1 = 12.0;
   CostMode m_costMode = CostMode::Angle;
 };
 
-}  // namespace autotune
+} // namespace autotune

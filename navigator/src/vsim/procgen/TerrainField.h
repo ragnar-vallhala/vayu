@@ -22,10 +22,10 @@ namespace vsim::procgen {
 
 struct FieldParams {
   uint32_t seed = 1337u;
-  float heightM = 70.0f;     // peak (mountain) elevation above ground [m]
-  float featureM = 220.0f;   // metres of the largest detail feature (broader)
-  float macroM = 1400.0f;    // metres of the macro range/basin placement field
-  int octaves = 6;           // detail layers (6 is plenty; 7 over-sharpened)
+  float heightM = 70.0f;   // peak (mountain) elevation above ground [m]
+  float featureM = 220.0f; // metres of the largest detail feature (broader)
+  float macroM = 1400.0f;  // metres of the macro range/basin placement field
+  int octaves = 6;         // detail layers (6 is plenty; 7 over-sharpened)
   float lacunarity = 2.0f;
   float gain = 0.5f;
   float mountainMix = 0.55f; // ridged-ridge weight inside mountainous regions
@@ -36,15 +36,15 @@ struct FieldParams {
 
   // Surface-colour thresholds, as fractions of heightM (0..1). Each is the
   // elevation where that band is reached; colour() blends with fixed widths.
-  float colBrownT = 0.60f;   // green -> brown by this elevation
-  float colRockT = 0.82f;    // brown -> bare rock by this elevation
-  float colSnowT = 0.68f;    // snow begins capping above this elevation
-  float colSlopeT = 0.65f;   // slope steepness (0..1) that exposes rock
+  float colBrownT = 0.60f; // green -> brown by this elevation
+  float colRockT = 0.82f;  // brown -> bare rock by this elevation
+  float colSnowT = 0.68f;  // snow begins capping above this elevation
+  float colSlopeT = 0.65f; // slope steepness (0..1) that exposes rock
 };
 
 class TerrainField {
- public:
-  explicit TerrainField(const FieldParams& p);
+public:
+  explicit TerrainField(const FieldParams &p);
 
   // Elevation [m] above the ground plane at world (wx, wy). Always >= 0.
   float height(float wx, float wy) const;
@@ -58,9 +58,9 @@ class TerrainField {
   // (1 = level ground, 0 = vertical). Green valley -> olive -> rock.
   PgVec3 color(float h, float flatness) const;
 
-  const FieldParams& params() const { return p_; }
+  const FieldParams &params() const { return p_; }
 
- private:
+private:
   FieldParams p_;
   Noise hills_;
   Noise mtn_;
@@ -75,7 +75,7 @@ class TerrainField {
 // Chunk (cx, cy) spans [cx*chunkM, (cx+1)*chunkM] x [cy*chunkM, (cy+1)*chunkM].
 // `res` is grid cells per side; vertices on shared edges land on identical world
 // coordinates as the neighbour chunk, so meshes tile seamlessly.
-ProcMesh meshFieldChunk(const TerrainField& f, int cx, int cy, float chunkM,
+ProcMesh meshFieldChunk(const TerrainField &f, int cx, int cy, float chunkM,
                         int res);
 
-}  // namespace vsim::procgen
+} // namespace vsim::procgen

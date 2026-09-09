@@ -10,9 +10,9 @@ typedef enum {
   SYSTEM_STATE_PREARM = 0x8,
   SYSTEM_STATE_ARMED = 0x10,
   SYSTEM_STATE_IN_AIR = 0x20,
-  SYSTEM_STATE_FAILSAFE=0x40,
-  SYSTEM_STATE_TERMINATED=0x80,
-  SYSTEM_STATE_CALIBRATING=0x100,
+  SYSTEM_STATE_FAILSAFE = 0x40,
+  SYSTEM_STATE_TERMINATED = 0x80,
+  SYSTEM_STATE_CALIBRATING = 0x100,
 } sys_state_t;
 
 extern volatile sys_state_t _system_current_status;
@@ -94,7 +94,8 @@ typedef enum {
   IMU_HEALTH_MAG_TEMP_INVALID = 0x40000
 } sys_imu_health_check_state_t;
 
-extern volatile sys_imu_health_check_state_t _system_imu_health_check_current_status;
+extern volatile sys_imu_health_check_state_t
+    _system_imu_health_check_current_status;
 static inline void system_imu_health_check_state_init(void) {
   _system_imu_health_check_current_status = IMU_HEALTH_NO_CHECK;
 }
@@ -102,7 +103,8 @@ static inline void
 system_imu_health_check_state_set(sys_imu_health_check_state_t state) {
   _system_imu_health_check_current_status = state;
 }
-static inline sys_imu_health_check_state_t system_imu_health_check_state_get(void) {
+static inline sys_imu_health_check_state_t
+system_imu_health_check_state_get(void) {
   return _system_imu_health_check_current_status;
 }
 

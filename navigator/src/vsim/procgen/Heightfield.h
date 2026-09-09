@@ -25,12 +25,20 @@ struct Heightfield {
   }
 
   // World metres covered by one grid step.
-  float spacing() const { return n > 1 ? sizeM / static_cast<float>(n - 1) : 0.0f; }
+  float spacing() const {
+    return n > 1 ? sizeM / static_cast<float>(n - 1) : 0.0f;
+  }
 
   // Height at clamped integer lattice coords.
   float at(int ix, int iy) const {
-    if (ix < 0) ix = 0; else if (ix >= n) ix = n - 1;
-    if (iy < 0) iy = 0; else if (iy >= n) iy = n - 1;
+    if (ix < 0)
+      ix = 0;
+    else if (ix >= n)
+      ix = n - 1;
+    if (iy < 0)
+      iy = 0;
+    else if (iy >= n)
+      iy = n - 1;
     return h[static_cast<std::size_t>(iy) * n + ix];
   }
 
@@ -39,14 +47,14 @@ struct Heightfield {
     const float half = sizeM * 0.5f;
     const float s = spacing();
     return PgVec3{-half + s * static_cast<float>(ix),
-                  -half + s * static_cast<float>(iy),
-                  -at(ix, iy)};
+                  -half + s * static_cast<float>(iy), -at(ix, iy)};
   }
 
   // Bilinear height at continuous world (wx, wy). Outside the grid clamps to the
   // edge. Used by a future heightfield collider and by scatter placement.
   float sampleWorld(float wx, float wy) const {
-    if (!valid()) return 0.0f;
+    if (!valid())
+      return 0.0f;
     const float half = sizeM * 0.5f;
     const float s = spacing();
     const float gx = (wx + half) / s;
@@ -74,9 +82,13 @@ struct Heightfield {
     const float dhdy = (at(ix, iy + 1) - at(ix, iy - 1)) * inv2s;
     float nx = dhdx, ny = dhdy, nz = -1.0f;
     const float len = std::sqrt(nx * nx + ny * ny + nz * nz);
-    if (len > 0.0f) { nx /= len; ny /= len; nz /= len; }
+    if (len > 0.0f) {
+      nx /= len;
+      ny /= len;
+      nz /= len;
+    }
     return PgVec3{nx, ny, nz};
   }
 };
 
-}  // namespace vsim::procgen
+} // namespace vsim::procgen

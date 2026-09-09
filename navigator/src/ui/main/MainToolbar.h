@@ -50,13 +50,13 @@ public:
   // currentPort returns the bare device path (userData if present, edit
   // text otherwise). currentBaud is the numeric value from userData.
   QString currentPort() const;
-  int     currentBaud() const;
-  void    setPort(const QString &path);
-  void    setBaud(int baud);
+  int currentBaud() const;
+  void setPort(const QString &path);
+  void setBaud(int baud);
   // Select Serial (0) / UDP (1); swaps the visible inputs (mockup default).
-  void    setTransport(int index);
+  void setTransport(int index);
   // Pre-fill the UDP bind-port field (used when UDP is the launch default).
-  void    setUdpPort(int port);
+  void setUdpPort(int port);
 
   // ---- LIVE blinker handle for heartbeat fade ------------------------------
   // The MainStatusBar / heartbeat handler repaints this label every
@@ -82,14 +82,14 @@ signals:
 private:
   void buildContent();
 
-  QComboBox   *m_transportCombo = nullptr;  // Serial / UDP
-  QComboBox   *m_portCombo  = nullptr;
-  QComboBox   *m_baudCombo  = nullptr;
-  QLineEdit   *m_udpPortEdit = nullptr;
+  QComboBox *m_transportCombo = nullptr; // Serial / UDP
+  QComboBox *m_portCombo = nullptr;
+  QComboBox *m_baudCombo = nullptr;
+  QLineEdit *m_udpPortEdit = nullptr;
   QPushButton *m_refreshBtn = nullptr;
   QPushButton *m_connectBtn = nullptr;
-  QPushButton *m_armBtn     = nullptr;
-  QLabel      *m_liveLabel  = nullptr;
+  QPushButton *m_armBtn = nullptr;
+  QLabel *m_liveLabel = nullptr;
 
   // Toolbar-action handles so we can show/hide each transport's inputs.
   QList<QAction *> m_serialActions;

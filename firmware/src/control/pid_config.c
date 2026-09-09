@@ -14,17 +14,17 @@
 #include "control/pid_config.h"
 #include "control/angle_controller.h"
 #include "control/angle_rate_controller.h"
-#include "dsp/gyro_notch.h"           /* gyro_notch set/get params (notch persist) */
-#include "memory.h"                   /* v_memcpy */
-#include "storage/fs_owner.h"              /* vayu_log */
-#include "variables.h"                /* NUM_AXES */
+#include "dsp/gyro_notch.h"   /* gyro_notch set/get params (notch persist) */
+#include "memory.h"           /* v_memcpy */
+#include "storage/fs_owner.h" /* vayu_log */
+#include "variables.h"        /* NUM_AXES */
 #include "vfs.h"
 #include "maths/maths_interface.h"
 
 /* Bumped PID4 -> PID5 for the motor-geometry fields below (was PID3 -> PID4 for
  * the gyro notch). Any older file fails the exact-size/magic check in
  * pid_config_init and resets to defaults (same policy as the earlier bumps). */
-#define PID_CONFIG_MAGIC     0x50494435u /* 'P''I''D''5' */
+#define PID_CONFIG_MAGIC 0x50494435u /* 'P''I''D''5' */
 #define PID_CONFIG_FILE_PATH "0:pid.bin"
 
 typedef struct {
@@ -35,32 +35,33 @@ typedef struct {
 typedef struct {
   uint32_t magic;
   pid_gains_t gains[PID_CTRL_COUNT][NUM_AXES];
-  float   gyro_lpf[NUM_AXES];        /* rate-loop gyro LPF time constant [s] */
+  float gyro_lpf[NUM_AXES]; /* rate-loop gyro LPF time constant [s] */
   uint8_t gyro_lpf_valid[NUM_AXES];
-  float   d_lpf[NUM_AXES];           /* rate-loop D-term LPF time constant [s] */
+  float d_lpf[NUM_AXES]; /* rate-loop D-term LPF time constant [s] */
   uint8_t d_lpf_valid[NUM_AXES];
   /* Dynamic gyro-notch tune. Global (not per-axis): the notch applies the same
    * detection band/Q to every axis. Stores the EFFECTIVE param set (read back
    * from gyro_notch after apply) so a partial command persists a full tune. */
-  float   notch_q;
-  float   notch_fmin_hz;
-  float   notch_fmax_hz;
-  float   notch_min_ratio;
-  uint8_t notch_enabled;             /* master enable persisted across boots */
-  uint8_t notch_valid;               /* 0 until a notch command has been stored */
+  float notch_q;
+  float notch_fmin_hz;
+  float notch_fmax_hz;
+  float notch_min_ratio;
+  uint8_t notch_enabled; /* master enable persisted across boots */
+  uint8_t notch_valid;   /* 0 until a notch command has been stored */
   /* Airframe motor geometry (CMD_SET_MOTOR_GEOMETRY): per-motor body position
    * [m] + spin (+1/-1). Persisted so the mixer signs survive a reboot instead of
    * falling back to the compiled default layout. */
-  float   motor_pos_x[4];
-  float   motor_pos_y[4];
-  int8_t  motor_spin[4];             /* +1 CW-sign / -1 per motor */
-  uint8_t motor_geom_valid;          /* 0 until a geometry has been stored */
+  float motor_pos_x[4];
+  float motor_pos_y[4];
+  int8_t motor_spin[4];     /* +1 CW-sign / -1 per motor */
+  uint8_t motor_geom_valid; /* 0 until a geometry has been stored */
 } pid_store_t;
 
 /* The store is written verbatim as one FS-owner save payload; keep it within the
  * queue's per-request buffer (FS_SAVE_PAYLOAD_MAX in fs_owner.c). Bump both together. */
-_Static_assert(sizeof(pid_store_t) <= 216u,
-               "pid_store_t exceeds FS_SAVE_PAYLOAD_MAX (raise it in fs_owner.c)");
+_Static_assert(
+    sizeof(pid_store_t) <= 216u,
+    "pid_store_t exceeds FS_SAVE_PAYLOAD_MAX (raise it in fs_owner.c)");
 
 /* Zero-init: magic 0, every slot valid == 0 → controllers keep defaults
  * until either a load restores values or a command sets them. */
@@ -155,7 +156,8 @@ bool pid_config_get_gyro_notch(float *q, float *fmin_hz, float *fmax_hz,
 
 /** @noreq motor-geometry store getter (CMD_SET_MOTOR_GEOMETRY persistence). Fills
  * the persisted layout if one was ever stored; false leaves the out-params. */
-bool pid_config_get_motor_geometry(float pos_x[4], float pos_y[4], int spin[4]) {
+bool pid_config_get_motor_geometry(float pos_x[4], float pos_y[4],
+                                   int spin[4]) {
   if (!s_store.motor_geom_valid) {
     return false;
   }
@@ -222,15 +224,15 @@ vayu_status_t pid_config_apply_command(const uint8_t *payload,
   if (ctrl < 0 || ctrl >= PID_CTRL_COUNT || axis < 0 || axis >= NUM_AXES) {
     return VAYU_ERR_INVALID;
   }
-  if (!m_isfinite(kp) || !m_isfinite(ki) || !m_isfinite(kd) || !m_isfinite(kff)) {
+  if (!m_isfinite(kp) || !m_isfinite(ki) || !m_isfinite(kd) ||
+      !m_isfinite(kff)) {
     return VAYU_ERR_INVALID; /* reject NaN/Inf gains outright */
   }
 
-  bool applied = (ctrl == PID_CTRL_RATE)
-                     ? angle_rate_controller_set_gains((uint8_t)axis, kp, ki,
-                                                       kd, kff)
-                     : angle_controller_set_gains((uint8_t)axis, kp, ki, kd,
-                                                  kff);
+  bool applied =
+      (ctrl == PID_CTRL_RATE)
+          ? angle_rate_controller_set_gains((uint8_t)axis, kp, ki, kd, kff)
+          : angle_controller_set_gains((uint8_t)axis, kp, ki, kd, kff);
   if (!applied) {
     return VAYU_ERR_INVALID;
   }

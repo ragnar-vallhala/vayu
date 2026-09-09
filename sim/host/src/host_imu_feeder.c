@@ -248,9 +248,9 @@ static void *imu_feeder_thread(void *arg) {
     host_clock_advance_us((uint64_t)1000000 / SITL_IMU_FEED_HZ);
     {
       extern void increment_high_freq_timer(void);
-      static uint32_t hf_carry = 0; /* fractional-tick accumulator */
-      hf_carry += HIGH_FREQ_TIMER_FREQ;        /* HF ticks per second ... */
-      while (hf_carry >= SITL_IMU_FEED_HZ) {   /* ... emit per-sample share */
+      static uint32_t hf_carry = 0;          /* fractional-tick accumulator */
+      hf_carry += HIGH_FREQ_TIMER_FREQ;      /* HF ticks per second ... */
+      while (hf_carry >= SITL_IMU_FEED_HZ) { /* ... emit per-sample share */
         increment_high_freq_timer();
         hf_carry -= SITL_IMU_FEED_HZ;
       }
@@ -301,9 +301,10 @@ int host_imu_feeder_pump(void) {
     return 0;
   int rc = read_framed_imu(s_step_imu_fd, &sample.converted);
   if (rc <= 0)
-    return 0;                       /* EOF / wire error */
+    return 0; /* EOF / wire error */
   cyc += (uint32_t)(SYS_CLOCK_FREQ / SITL_IMU_FEED_HZ);
-  sample.converted.timestamp = cyc; /* fixed-ODR sim stamp (drives estimator dt) */
+  sample.converted.timestamp =
+      cyc; /* fixed-ODR sim stamp (drives estimator dt) */
   imu_queue_control_push(&sample);
   imu_queue_telemetry_push(&sample);
   imu_queue_attitude_push(&sample);

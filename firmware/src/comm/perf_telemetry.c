@@ -32,7 +32,13 @@
 
 /* Report cadence (ms). 1 Hz is plenty for stack/heap/fifo trend watching and
  * keeps the telemetry link uncongested next to the IMU/attitude streams. */
-#define PERF_REPORT_PERIOD_MS 1000u
+/* One report emits a frame PER TASK plus one per FIFO — ~27 frames in a single
+ * burst, which is both ~13% of the link's frame budget and exactly the shape
+ * the ESP bridge's RX ring handles worst. Stretched from 1 s to 5 s: stack
+ * watermarks and CPU shares are slow-moving, and this is the readout that
+ * catches a task creeping toward the overflow that panics the kernel at boot,
+ * so it is slowed rather than switched off. */
+#define PERF_REPORT_PERIOD_MS 5000u
 
 /* Local gather bounds — sized above the current task/fifo counts with margin. */
 #define PERF_TASK_CAP 24

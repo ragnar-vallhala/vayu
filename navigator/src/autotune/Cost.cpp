@@ -35,7 +35,8 @@ void angleTrace(const std::vector<Sample> &s, int axis, std::vector<double> &sp,
   }
 }
 
-double meanAbsErr(const std::vector<double> &sp, const std::vector<double> &cur) {
+double meanAbsErr(const std::vector<double> &sp,
+                  const std::vector<double> &cur) {
   double s = 0.0;
   for (size_t i = 0; i < sp.size(); ++i)
     s += std::fabs(sp[i] - cur[i]);
@@ -49,17 +50,17 @@ double maxAbs(const std::vector<double> &v) {
   return m;
 }
 
-}  // namespace
+} // namespace
 
 std::optional<double> axisCost(const std::vector<Sample> &samples, int axis) {
   std::vector<double> sp, cur, out;
   angleTrace(samples, axis, sp, cur, out);
   if (sp.size() < 5)
-    return std::nullopt;  // telemetry starved -> retry, not a divergence
+    return std::nullopt; // telemetry starved -> retry, not a divergence
 
   for (double c : cur)
     if (!std::isfinite(c) || std::fabs(c) > 80.0)
-      return kBig;  // genuine divergence / failsafe
+      return kBig; // genuine divergence / failsafe
 
   const double iae = meanAbsErr(sp, cur);
   const double target = std::max(1.0, maxAbs(sp));
@@ -81,15 +82,16 @@ std::optional<double> yawRateCost(const std::vector<Sample> &samples) {
 
   for (double c : cur)
     if (!std::isfinite(c) || std::fabs(c) > 2000.0)
-      return kBig;  // gyro saturating / divergence
+      return kBig; // gyro saturating / divergence
 
   const double iae = meanAbsErr(sp, cur);
   const double target = std::max(20.0, maxAbs(sp));
-  const double iaeN = (iae / target) * 21.0;  // fraction-of-command -> angle scale
+  const double iaeN =
+      (iae / target) * 21.0; // fraction-of-command -> angle scale
   const double overshoot = std::max(0.0, maxAbs(cur) - target) / target;
   const double chatterPen =
       kChatterScale * std::max(0.0, chatter(out) - kChatterThresh);
   return iaeN + 3.0 * overshoot + chatterPen;
 }
 
-}  // namespace autotune
+} // namespace autotune

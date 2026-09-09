@@ -15,7 +15,8 @@
 static int fails = 0;
 static void check(const char *what, int ok) {
   printf("  [%s] %s\n", ok ? "PASS" : "FAIL", what);
-  if (!ok) fails++;
+  if (!ok)
+    fails++;
 }
 static int near(float a, float b) { return fabsf(a - b) < 1e-4f; }
 
@@ -54,7 +55,8 @@ int main(void) {
   {
     quaternion_t q = {2.0f, 0.0f, 0.0f, 0.0f};
     normalize_quaternion(&q);
-    check("scalar quat normalizes to identity", near(q.w, 1.0f) && near(q.x, 0));
+    check("scalar quat normalizes to identity",
+          near(q.w, 1.0f) && near(q.x, 0));
   }
 
   /* 6. identity euler -> identity quaternion */
@@ -62,7 +64,8 @@ int main(void) {
   {
     quaternion_t q;
     quaternion_from_euler(0, 0, 0, &q);
-    check("identity", near(q.w, 1) && near(q.x, 0) && near(q.y, 0) && near(q.z, 0));
+    check("identity",
+          near(q.w, 1) && near(q.x, 0) && near(q.y, 0) && near(q.z, 0));
   }
 
   /* 7. 90deg roll -> known quaternion (cos45, sin45, 0, 0) */

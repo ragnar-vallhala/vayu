@@ -89,7 +89,7 @@ static void rc_apply_frame(void) {
 /* SITL override: when sim_rc_enabled is non-zero, rc_ibus_task skips
  * iBus parsing and uses sim_rc_channels[] as the live RC input. The
  * host SITL driver writes these directly. */
-volatile uint8_t  sim_rc_enabled = 0;
+volatile uint8_t sim_rc_enabled = 0;
 volatile uint16_t sim_rc_channels[14] = {1500, 1500, 1000, 1500, 1000,
                                          1000, 1500, 1500, 1500, 1500,
                                          1500, 1500, 1500, 1500};

@@ -1,6 +1,6 @@
 #include "AutotuneEngine.h"
 
-#include "Cost.h"       // kBig
+#include "Cost.h" // kBig
 #include "Optimizer.h"
 
 using namespace autotune;
@@ -13,13 +13,14 @@ QVector<double> toQv(const Vec &v) {
     q.push_back(x);
   return q;
 }
-}  // namespace
+} // namespace
 
 AutotuneEngine::AutotuneEngine(bool tuneYaw, QString optimizer, int budget,
                                quint64 seed, Rollout rollout, bool fastRtos,
                                QObject *parent)
-    : QObject(parent), m_space(tuneYaw, fastRtos), m_optimizer(std::move(optimizer)),
-      m_budget(budget), m_seed(seed), m_rollout(std::move(rollout)) {
+    : QObject(parent), m_space(tuneYaw, fastRtos),
+      m_optimizer(std::move(optimizer)), m_budget(budget), m_seed(seed),
+      m_rollout(std::move(rollout)) {
   // Registered so evaluated()/finished() can cross a thread boundary (the UI
   // runs the engine in a worker thread).
   qRegisterMetaType<QVector<double>>("QVector<double>");

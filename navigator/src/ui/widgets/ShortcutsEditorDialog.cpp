@@ -35,8 +35,8 @@ bool captureSequence(QWidget *parent, const QString &title,
   v->addWidget(edit);
   auto *box = new QDialogButtonBox(
       QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
-  auto *clearBtn = box->addButton(QObject::tr("Clear"),
-                                  QDialogButtonBox::ResetRole);
+  auto *clearBtn =
+      box->addButton(QObject::tr("Clear"), QDialogButtonBox::ResetRole);
   QObject::connect(clearBtn, &QPushButton::clicked, edit,
                    &QKeySequenceEdit::clear);
   QObject::connect(box, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
@@ -46,12 +46,11 @@ bool captureSequence(QWidget *parent, const QString &title,
     return false;
   // Keep only the first chord — chorded sequences are out of scope (v1).
   const QKeySequence seq = edit->keySequence();
-  *out = seq.isEmpty() ? QKeySequence()
-                       : QKeySequence(seq[0]);
+  *out = seq.isEmpty() ? QKeySequence() : QKeySequence(seq[0]);
   return true;
 }
 
-}  // namespace
+} // namespace
 
 ShortcutsEditorDialog::ShortcutsEditorDialog(CommandRegistry *registry,
                                              ShortcutsManager *manager,
@@ -74,10 +73,10 @@ ShortcutsEditorDialog::ShortcutsEditorDialog(CommandRegistry *registry,
       {tr("Command"), tr("Category"), tr("Shortcut")});
   m_table->horizontalHeader()->setSectionResizeMode(COL_COMMAND,
                                                     QHeaderView::Stretch);
-  m_table->horizontalHeader()->setSectionResizeMode(COL_CATEGORY,
-                                                    QHeaderView::ResizeToContents);
-  m_table->horizontalHeader()->setSectionResizeMode(COL_SHORTCUT,
-                                                    QHeaderView::ResizeToContents);
+  m_table->horizontalHeader()->setSectionResizeMode(
+      COL_CATEGORY, QHeaderView::ResizeToContents);
+  m_table->horizontalHeader()->setSectionResizeMode(
+      COL_SHORTCUT, QHeaderView::ResizeToContents);
   m_table->verticalHeader()->setVisible(false);
   m_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
   m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -90,8 +89,8 @@ ShortcutsEditorDialog::ShortcutsEditorDialog(CommandRegistry *registry,
   v->addWidget(m_table);
 
   auto *buttons = new QDialogButtonBox(this);
-  auto *resetAll = buttons->addButton(tr("Reset All"),
-                                      QDialogButtonBox::ResetRole);
+  auto *resetAll =
+      buttons->addButton(tr("Reset All"), QDialogButtonBox::ResetRole);
   connect(resetAll, &QPushButton::clicked, this, [this] {
     m_manager->resetAll();
     m_manager->save();
@@ -122,8 +121,8 @@ void ShortcutsEditorDialog::rebuild() {
     m_table->setItem(row, COL_CATEGORY, new QTableWidgetItem(c.category));
 
     const QKeySequence seq = m_manager->effective(c.id);
-    auto *keyItem = new QTableWidgetItem(
-        seq.toString(QKeySequence::NativeText));
+    auto *keyItem =
+        new QTableWidgetItem(seq.toString(QKeySequence::NativeText));
     // Mark overridden rows so the user sees what diverges from defaults.
     if (m_manager->hasOverride(c.id)) {
       QFont f = keyItem->font();
@@ -153,8 +152,9 @@ void ShortcutsEditorDialog::rebindRow(int row) {
   if (id.isEmpty())
     return;
   QKeySequence seq;
-  if (!captureSequence(this, tr("Rebind: %1").arg(m_table->item(row, COL_COMMAND)->text()),
-                       m_manager->effective(id), &seq))
+  if (!captureSequence(
+          this, tr("Rebind: %1").arg(m_table->item(row, COL_COMMAND)->text()),
+          m_manager->effective(id), &seq))
     return;
 
   if (!seq.isEmpty()) {

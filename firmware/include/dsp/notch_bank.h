@@ -33,15 +33,16 @@
 
 /* One dynamic notch bank for a single channel. Treat as opaque after init. */
 typedef struct {
-  notch_fft_t fft;        /* the analysis front-end (buffers wired at init) */
-  float filter_fs_hz;     /* rate at which the biquads run / are designed */
-  float q;                /* notch Q (bandwidth); higher = narrower */
-  unsigned num_notches;   /* biquads in the cascade (1..MAX) */
-  unsigned active;        /* notches currently tuned to a peak (0..num_notches) */
+  notch_fft_t fft;      /* the analysis front-end (buffers wired at init) */
+  float filter_fs_hz;   /* rate at which the biquads run / are designed */
+  float q;              /* notch Q (bandwidth); higher = narrower */
+  unsigned num_notches; /* biquads in the cascade (1..MAX) */
+  unsigned active;      /* notches currently tuned to a peak (0..num_notches) */
   biquad_coeffs_t coeffs[NOTCH_BANK_MAX_NOTCHES];
   biquad_state_t state[NOTCH_BANK_MAX_NOTCHES];
-  float freqs[NOTCH_BANK_MAX_NOTCHES]; /* last tuned center Hz per slot; 0 if bypassed */
-  int hold_on_miss;       /* if set, a slot with no peak keeps its last coeffs */
+  float freqs
+      [NOTCH_BANK_MAX_NOTCHES]; /* last tuned center Hz per slot; 0 if bypassed */
+  int hold_on_miss; /* if set, a slot with no peak keeps its last coeffs */
 } notch_bank_t;
 
 /* Wire up a bank. `fft_cfg`/`window`/`tw`/`ring`/`frame`/`bins`/`scratch` are

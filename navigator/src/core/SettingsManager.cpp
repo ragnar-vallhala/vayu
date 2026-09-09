@@ -36,6 +36,8 @@ bool SettingsManager::loadFromPath(const QString &path, GcsSettings &s) {
   return true;
 }
 
-bool SettingsManager::save(const GcsSettings &s) { return saveToPath(FileName, s); }
+bool SettingsManager::save(const GcsSettings &s) {
+  return saveToPath(FileName, s);
+}
 
 bool SettingsManager::load(GcsSettings &s) { return loadFromPath(FileName, s); }

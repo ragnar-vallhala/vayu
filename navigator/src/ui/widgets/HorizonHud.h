@@ -8,15 +8,15 @@
 // roll/pitch/yaw in degrees (NED aerospace convention).
 class HorizonHud : public QWidget {
   Q_OBJECT
- public:
-  explicit HorizonHud(QWidget* parent = nullptr);
+public:
+  explicit HorizonHud(QWidget *parent = nullptr);
 
- public slots:
+public slots:
   void setAttitude(float rollDeg, float pitchDeg, float yawDeg);
 
- protected:
-  void paintEvent(QPaintEvent*) override;
+protected:
+  void paintEvent(QPaintEvent *) override;
 
- private:
+private:
   float roll_ = 0.0f, pitch_ = 0.0f, yaw_ = 0.0f;
 };

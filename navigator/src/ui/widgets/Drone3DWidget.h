@@ -33,7 +33,7 @@ private:
   float m_targetRoll = 0.0f;
   float m_targetPitch = 0.0f;
   float m_targetYaw = 0.0f;
-  bool m_haveTarget = false;  // snap to the first sample, ease after that
-  float m_propPhase = 0.0f;   // degrees, advanced by the spin timer
+  bool m_haveTarget = false; // snap to the first sample, ease after that
+  float m_propPhase = 0.0f;  // degrees, advanced by the spin timer
   QTimer *m_spinTimer = nullptr;
 };

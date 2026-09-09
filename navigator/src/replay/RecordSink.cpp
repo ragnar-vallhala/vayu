@@ -73,7 +73,7 @@ bool RecordReader::next(RecordFormat::Frame &out) {
   if (len > 0) {
     const int got = s.readRawData(out.bytes.data(), int(len));
     if (got != int(len))
-      return false;  // truncated record
+      return false; // truncated record
   }
   return true;
 }

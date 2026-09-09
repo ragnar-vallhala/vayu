@@ -84,8 +84,8 @@ void spsa(Evaluator &ev, const Vec &x0, const Bounds &b, Rng &rng) {
   }
 }
 
-void fdgd(Evaluator &ev, const Vec &x0, const Bounds &b, Rng &, double lr = 0.15,
-          double eps = 0.05) {
+void fdgd(Evaluator &ev, const Vec &x0, const Bounds &b, Rng &,
+          double lr = 0.15, double eps = 0.05) {
   const int n = int(x0.size());
   const Vec span = spans(b);
   Vec x = clampVec(x0, b);
@@ -291,7 +291,7 @@ void hybrid(Evaluator &ev, const Vec &x0, const Bounds &b, Rng &rng,
 
 void portfolio(Evaluator &ev, const Vec &x0, const Bounds &b, Rng &rng);
 
-}  // namespace
+} // namespace
 
 void run(const std::string &name, Evaluator &ev, const Vec &x0,
          const Bounds &bounds, Rng &rng) {
@@ -310,7 +310,7 @@ void run(const std::string &name, Evaluator &ev, const Vec &x0,
   else if (name == "portfolio")
     portfolio(ev, x0, bounds, rng);
   else
-    randomSearch(ev, x0, bounds, rng);  // "random" + unknown
+    randomSearch(ev, x0, bounds, rng); // "random" + unknown
 }
 
 namespace {
@@ -333,11 +333,11 @@ void portfolio(Evaluator &ev, const Vec &x0, const Bounds &b, Rng &rng) {
   }
 }
 
-}  // namespace
+} // namespace
 
 std::vector<std::string> optimizerNames() {
   return {"random",      "spsa",       "fdgd",   "coordinate",
           "nelder-mead", "structured", "hybrid", "portfolio"};
 }
 
-}  // namespace autotune
+} // namespace autotune

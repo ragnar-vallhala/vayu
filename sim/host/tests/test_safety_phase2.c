@@ -35,13 +35,13 @@
 
 /* vaios host clock (sim/host/src/host_vaios.c). */
 extern uint32_t v_get_ticks(void);
-extern void     v_delay(uint32_t ms);
+extern void v_delay(uint32_t ms);
 
 /* ----------------------------------------------------------------------------
  * Tiny check framework
  * --------------------------------------------------------------------------*/
 static int g_checks = 0;
-static int g_fails  = 0;
+static int g_fails = 0;
 
 #define CHECK(cond, msg)                                                       \
   do {                                                                         \
@@ -75,9 +75,9 @@ static void force_state(sys_state_t target) {
 /* Drive the estimator into the degraded state: open a rejection window,
  * let it exceed EST_DEGRADED_TIMEOUT_MS, then post one more reject. */
 static void force_estimator_degraded(void) {
-  estimator_mark_sample(false);                 /* opens rejection window */
+  estimator_mark_sample(false); /* opens rejection window */
   v_delay(EST_DEGRADED_TIMEOUT_MS + 30U);
-  estimator_mark_sample(false);                 /* elapsed > horizon -> raise */
+  estimator_mark_sample(false); /* elapsed > horizon -> raise */
 }
 
 /* ----------------------------------------------------------------------------
@@ -101,7 +101,8 @@ static void test_state_transition_table(void) {
   CHECK(system_state_set(SYSTEM_STATE_ARMED) == VAYU_OK, "STANDBY->ARMED ok");
 
   /* Self-loop: no-op, but a success. */
-  CHECK(system_state_set(SYSTEM_STATE_ARMED) == VAYU_OK, "ARMED->ARMED no-op ok");
+  CHECK(system_state_set(SYSTEM_STATE_ARMED) == VAYU_OK,
+        "ARMED->ARMED no-op ok");
   CHECK(system_state_get() == SYSTEM_STATE_ARMED, "still ARMED");
 
   /* FAILSAFE reachable from any state regardless of the table. */
@@ -161,12 +162,12 @@ static void test_rc_watchdog_failsafe(void) {
   CHECK(system_state_get() == SYSTEM_STATE_FAILSAFE, "stays FAILSAFE");
 
   /* Watchdog is inactive on the bench (CALIBRATING) even with no link. */
-  force_state(SYSTEM_STATE_CALIBRATING);   /* signal still lost */
+  force_state(SYSTEM_STATE_CALIBRATING); /* signal still lost */
   rc_watchdog_step();
   CHECK(system_state_get() == SYSTEM_STATE_CALIBRATING,
         "no watchdog in CALIBRATING despite RC loss");
 
-  rc_mark_frame_valid();   /* restore link for later tests */
+  rc_mark_frame_valid(); /* restore link for later tests */
 }
 
 /* ----------------------------------------------------------------------------
@@ -211,7 +212,7 @@ static void test_estimator_safety_failsafe(void) {
   CHECK(system_state_get() == SYSTEM_STATE_FAILSAFE,
         "degraded estimator in ARMED -> FAILSAFE");
 
-  estimator_mark_sample(true);   /* clear for later tests */
+  estimator_mark_sample(true); /* clear for later tests */
 }
 
 /* ----------------------------------------------------------------------------
@@ -222,7 +223,7 @@ static void test_arm_preconditions(void) {
 
   ibus_data_t rc;
   memset(&rc, 0, sizeof rc);
-  rc.channels[2] = 1000;   /* throttle at minimum */
+  rc.channels[2] = 1000; /* throttle at minimum */
 
   /* All preconditions satisfied. */
   rc_mark_frame_valid();
@@ -245,7 +246,8 @@ static void test_arm_preconditions(void) {
   v_delay(RC_LOSS_TIMEOUT_MS + 100U);
   CHECK(arm_preconditions_met(&rc) == false, "RC loss -> arm blocked");
   rc_mark_frame_valid();
-  CHECK(arm_preconditions_met(&rc) == true, "preconditions restored -> allowed");
+  CHECK(arm_preconditions_met(&rc) == true,
+        "preconditions restored -> allowed");
 }
 
 /* ----------------------------------------------------------------------------
@@ -258,8 +260,8 @@ static void test_software_arm_latch(void) {
 
   ibus_data_t rc;
   memset(&rc, 0, sizeof rc);
-  rc.channels[2] = 1000;   /* throttle at minimum */
-  rc.channels[4] = 1500;   /* 4-ch HID: arm channel absent -> filled 1500 */
+  rc.channels[2] = 1000; /* throttle at minimum */
+  rc.channels[4] = 1500; /* 4-ch HID: arm channel absent -> filled 1500 */
 
   /* Predicate: latch clear + no switch -> not arm-engaged. */
   g_sw_arm_request = 0;
@@ -280,7 +282,7 @@ static void test_software_arm_latch(void) {
   force_state(SYSTEM_STATE_STANDBY);
   rc_mark_frame_valid();
   estimator_mark_sample(true);
-  g_sw_arm_request = 1;   /* CMD_ARM */
+  g_sw_arm_request = 1; /* CMD_ARM */
   if (rc_arm_engaged(&rc) && system_state_get() == SYSTEM_STATE_STANDBY &&
       arm_preconditions_met(&rc)) {
     VAYU_DISCARD(system_state_set(SYSTEM_STATE_ARMED));
@@ -289,7 +291,7 @@ static void test_software_arm_latch(void) {
         "CMD_ARM latch + preconditions -> ARMED");
 
   /* CMD_DISARM clears the latch -> next frame disarms to STANDBY. */
-  g_sw_arm_request = 0;   /* CMD_DISARM */
+  g_sw_arm_request = 0; /* CMD_DISARM */
   if (!rc_arm_engaged(&rc) && (system_state_get() == SYSTEM_STATE_ARMED ||
                                system_state_get() == SYSTEM_STATE_FAILSAFE)) {
     VAYU_DISCARD(system_state_set(SYSTEM_STATE_STANDBY));
@@ -299,7 +301,7 @@ static void test_software_arm_latch(void) {
 
   /* High throttle blocks a latched arm just like the switch path. */
   force_state(SYSTEM_STATE_STANDBY);
-  rc.channels[2] = 1500;   /* throttle up */
+  rc.channels[2] = 1500; /* throttle up */
   g_sw_arm_request = 1;
   CHECK(rc_arm_engaged(&rc) == true && arm_preconditions_met(&rc) == false,
         "latched arm + high throttle -> preconditions block ARMED");
@@ -344,7 +346,8 @@ static void test_rc_throttle_failsafe(void) {
     (void)rc_throttle_failsafe_step(1980);
   }
   CHECK(rc_throttle_failsafe_step(1980), "stays latched while held high");
-  CHECK(!rc_throttle_failsafe_step(1400), "clears once throttle returns normal");
+  CHECK(!rc_throttle_failsafe_step(1400),
+        "clears once throttle returns normal");
 }
 
 int main(void) {

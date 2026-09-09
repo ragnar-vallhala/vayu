@@ -5,8 +5,7 @@
 bool TimeSyncEstimator::addSample(const Sample &s) {
   // NTP four-timestamp offset/delay. Work in doubles so the large absolute
   // wall-clock magnitudes (~1.7e12 ms) and the sub-ms slope both stay sane.
-  const double offset =
-      (double(s.t2 - s.t1) + double(s.t3 - s.t4)) / 2.0;
+  const double offset = (double(s.t2 - s.t1) + double(s.t3 - s.t4)) / 2.0;
   const double delay = double(s.t4 - s.t1) - double(s.t3 - s.t2);
 
   // Reject impossible/absurd round-trips: a negative delay means a clock ran
@@ -63,18 +62,18 @@ void TimeSyncEstimator::refit() {
 }
 
 qint64 TimeSyncEstimator::offsetMs() const {
-  return llround(m_a);  // offset at m_tRef
+  return llround(m_a); // offset at m_tRef
 }
 
 qint64 TimeSyncEstimator::delayMs() const {
-  return llround(m_minDelay / 2.0);  // round-trip min -> one-way latency
+  return llround(m_minDelay / 2.0); // round-trip min -> one-way latency
 }
 
 qint64 TimeSyncEstimator::fcToGcs(qint64 fcMs, qint64 gcsNowMs) const {
   if (m_win.empty())
-    return fcMs;  // no estimate yet: identity
+    return fcMs; // no estimate yet: identity
   const double offsetAt = m_a + m_b * (double(gcsNowMs) - m_tRef);
-  return fcMs - llround(offsetAt);  // GCS = FC - offset
+  return fcMs - llround(offsetAt); // GCS = FC - offset
 }
 
 void TimeSyncEstimator::reset() {

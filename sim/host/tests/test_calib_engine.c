@@ -18,23 +18,21 @@
 #include "calib/calib_ellipsoid.h"
 
 static int g_checks = 0, g_fails = 0;
-#define CHECK(cond, msg)                                                        \
-  do {                                                                          \
-    g_checks++;                                                                 \
-    if (cond)                                                                   \
-      printf("    ok   %s\n", (msg));                                           \
-    else {                                                                      \
-      g_fails++;                                                                \
+#define CHECK(cond, msg)                                                       \
+  do {                                                                         \
+    g_checks++;                                                                \
+    if (cond)                                                                  \
+      printf("    ok   %s\n", (msg));                                          \
+    else {                                                                     \
+      g_fails++;                                                               \
       printf("    FAIL %s   (%s:%d)\n", (msg), __FILE__, __LINE__);            \
-    }                                                                           \
+    }                                                                          \
   } while (0)
 
 #define RADIUS 50.0f
 static const float B_TRUE[3] = {3.0f, -2.0f, 4.0f};
-static const float A_TRUE[9] = {
-    1.05f, 0.02f, 0.010f,
-    0.02f, 0.97f, 0.015f,
-    0.010f, 0.015f, 1.03f};
+static const float A_TRUE[9] = {1.05f,  0.02f,  0.010f, 0.02f, 0.97f,
+                                0.015f, 0.010f, 0.015f, 1.03f};
 
 static void mat3_vec(const float m[9], const float v[3], float out[3]) {
   for (int i = 0; i < 3; i++)
@@ -91,8 +89,8 @@ static void fake_commit(const float offset[3], const float mat[9], void *ctx) {
 
 /* ---- fake bias (gyro) provider ------------------------------------------- */
 static const float GBIAS[3] = {0.5f, -0.3f, 0.8f};
-static bool s_bias_still;     // does the board count as still this run?
-static float s_bias_noise;    // +/- amplitude of per-sample noise
+static bool s_bias_still;  // does the board count as still this run?
+static float s_bias_noise; // +/- amplitude of per-sample noise
 static unsigned int s_blcg;
 
 static bool bias_read(float v[3], void *ctx) {
@@ -101,7 +99,8 @@ static bool bias_read(float v[3], void *ctx) {
     return false; // board moving -> no accepted samples (engine should time out)
   for (int k = 0; k < 3; k++) {
     s_blcg = s_blcg * 1103515245u + 12345u;
-    float nz = s_bias_noise * ((float)((s_blcg >> 16) & 0xFFFF) / 32768.0f - 1.0f);
+    float nz =
+        s_bias_noise * ((float)((s_blcg >> 16) & 0xFFFF) / 32768.0f - 1.0f);
     v[k] = GBIAS[k] + nz;
   }
   return true;
@@ -166,11 +165,13 @@ int main(void) {
       float u[3], m[3];
       fib_dir(i, NDIR, u);
       synth(u, m);
-      float d[3] = {(m[0] - s_offset[0]) / RADIUS, (m[1] - s_offset[1]) / RADIUS,
+      float d[3] = {(m[0] - s_offset[0]) / RADIUS,
+                    (m[1] - s_offset[1]) / RADIUS,
                     (m[2] - s_offset[2]) / RADIUS};
       float corr[3];
       mat3_vec(s_mat, d, corr);
-      float mag = sqrtf(corr[0] * corr[0] + corr[1] * corr[1] + corr[2] * corr[2]);
+      float mag =
+          sqrtf(corr[0] * corr[0] + corr[1] * corr[1] + corr[2] * corr[2]);
       mags[i] = mag;
       mag_mean += mag;
       if ((corr[0] * u[0] + corr[1] * u[1] + corr[2] * u[2]) / mag < 0.999f)
@@ -183,7 +184,8 @@ int main(void) {
         mag_const = 0;
     CHECK(dir_ok, "corrected direction == true direction");
     CHECK(mag_const, "corrected magnitude constant over the sphere");
-    CHECK(fabsf(mag_mean - cbrtf(det3(A_TRUE))) < 0.02f, "radius == det(A)^(1/3)");
+    CHECK(fabsf(mag_mean - cbrtf(det3(A_TRUE))) < 0.02f,
+          "radius == det(A)^(1/3)");
   }
 
   printf("  [2] cancel -> no commit\n");
@@ -202,7 +204,7 @@ int main(void) {
   t = base_target();
   t.min_samples = 1000; /* unreachable within max_ticks (only ~20 samples) */
   t.max_ticks = 20;
-  t.cov_done = 200.0f;    /* never satisfied, so it runs the full (tiny) cap */
+  t.cov_done = 200.0f; /* never satisfied, so it runs the full (tiny) cap */
   rc = calib_engine_run(&t);
   CHECK(rc == -1, "under-sampled run returns failure");
   CHECK(s_commits == 0, "no commit when too few samples");
@@ -232,7 +234,8 @@ int main(void) {
                     pts[i][2] - s_offset[2]};
       float corr[3];
       mat3_vec(s_mat, d, corr);
-      float mag = sqrtf(corr[0] * corr[0] + corr[1] * corr[1] + corr[2] * corr[2]);
+      float mag =
+          sqrtf(corr[0] * corr[0] + corr[1] * corr[1] + corr[2] * corr[2]);
       mags[i] = mag;
       mag_mean += mag;
       if ((corr[0] * u[0] + corr[1] * u[1] + corr[2] * u[2]) / mag < 0.999f)
@@ -242,7 +245,8 @@ int main(void) {
     CHECK(dir_ok, "corrected direction == true direction");
     /* the whole point of normalize_radius: absolute magnitude == radius (g),
      * NOT the bare fit's det(A)^(1/3) */
-    CHECK(fabsf(mag_mean - RADIUS) < 0.05f, "corrected magnitude == radius (g)");
+    CHECK(fabsf(mag_mean - RADIUS) < 0.05f,
+          "corrected magnitude == radius (g)");
     int mag_const = 1;
     for (int i = 0; i < NDIR; i++)
       if (fabsf(mags[i] - RADIUS) > 0.02f * RADIUS)
@@ -290,11 +294,10 @@ int main(void) {
     const float b_true[3] = {0.30f, -0.20f, 0.15f};
     /* sensor forward model: raw = A_sens * true_accel + b_true (mild scale +
      * cross-axis misalignment). The fit must recover soft == A_sens^-1. */
-    const float A_sens[9] = {1.02f,  0.01f, -0.02f,
-                             0.015f, 0.98f,  0.010f,
-                             -0.01f, 0.02f,  1.04f};
+    const float A_sens[9] = {1.02f,  0.01f,  -0.02f, 0.015f, 0.98f,
+                             0.010f, -0.01f, 0.02f,  1.04f};
     /* 6 faces in shuffled order (order-independence of the classifier). */
-    const float axes[6][3] = {{0, 0, 1}, {1, 0, 0},  {0, -1, 0},
+    const float axes[6][3] = {{0, 0, 1},  {1, 0, 0},  {0, -1, 0},
                               {-1, 0, 0}, {0, 0, -1}, {0, 1, 0}};
     float pts8[6][3];
     for (int p = 0; p < 6; p++) {
@@ -335,15 +338,16 @@ int main(void) {
                          .ctx = NULL};
     s_commits = 0;
     int rc8b = calib_engine_fit_points(&ts, (const float (*)[3])pts8, 6);
-    CHECK(rc8b == 0 && s_commits == 1, "engine dispatches six-point + commits once");
+    CHECK(rc8b == 0 && s_commits == 1,
+          "engine dispatches six-point + commits once");
   }
 
   printf("  [9] six-point rejects a missing side\n");
   {
     const float g = 9.80665f;
     /* five real faces + a duplicate +x, so -y is absent. */
-    float pts9[6][3] = {{g, 0, 0},  {-g, 0, 0}, {0, g, 0},
-                        {0, 0, g},  {0, 0, -g}, {g, 0, 0}};
+    float pts9[6][3] = {{g, 0, 0}, {-g, 0, 0}, {0, g, 0},
+                        {0, 0, g}, {0, 0, -g}, {g, 0, 0}};
     float offset[3], soft[9];
     int rc9 = calib_fit_sixpoint((const float (*)[3])pts9, 6, g, offset, soft);
     CHECK(rc9 == -1, "missing/duplicate side -> fit rejected");

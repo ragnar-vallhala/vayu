@@ -29,15 +29,15 @@
 static int g_checks = 0;
 static int g_fails = 0;
 
-#define CHECK(cond, msg)                                                        \
-  do {                                                                          \
-    g_checks++;                                                                 \
-    if (cond) {                                                                 \
-      printf("    ok   %s\n", (msg));                                           \
-    } else {                                                                    \
-      g_fails++;                                                                \
-      printf("    FAIL %s   (%s:%d)\n", (msg), __FILE__, __LINE__);             \
-    }                                                                           \
+#define CHECK(cond, msg)                                                       \
+  do {                                                                         \
+    g_checks++;                                                                \
+    if (cond) {                                                                \
+      printf("    ok   %s\n", (msg));                                          \
+    } else {                                                                   \
+      g_fails++;                                                               \
+      printf("    FAIL %s   (%s:%d)\n", (msg), __FILE__, __LINE__);            \
+    }                                                                          \
   } while (0)
 
 /* Read up to `max` bytes from a VFS path into buf; returns byte count or <0. */
@@ -237,7 +237,8 @@ static void test_writeat_lane_bounds_and_reservation(void) {
   int accepted = 0;
   const int flood = 50;
   for (int i = 0; i < flood; i++)
-    if (fs_owner_enqueue_write_at(0, "0:u.bin", (uint32_t)(i * 64), rec, sizeof rec))
+    if (fs_owner_enqueue_write_at(0, "0:u.bin", (uint32_t)(i * 64), rec,
+                                  sizeof rec))
       accepted++;
   CHECK(accepted >= 1 && accepted <= 2,
         "write-at lane bounded by its capacity (<=2)");
@@ -258,7 +259,8 @@ static void test_writeat_lane_bounds_and_reservation(void) {
   uint32_t wa1 = fs_owner_dropped_writeats();
   CHECK(!fs_owner_enqueue_write_at(0, longpath, 0, rec, sizeof rec),
         "over-long path rejected");
-  CHECK(fs_owner_dropped_writeats() == wa1 + 1, "rejected path counted as a drop");
+  CHECK(fs_owner_dropped_writeats() == wa1 + 1,
+        "rejected path counted as a drop");
 
   fs_owner_pump(); /* drain everything queued */
 }
@@ -282,11 +284,13 @@ static void test_dir_browse_and_stat(void) {
   vfs_stat_t st;
   int r = fs_owner_stat("0:nav_a.bin", &st);
   CHECK(r == 0 && st.exists == 1, "stat finds an existing file");
-  CHECK(st.size == sizeof blob && st.is_dir == 0, "stat reports size + not-dir");
+  CHECK(st.size == sizeof blob && st.is_dir == 0,
+        "stat reports size + not-dir");
 
   /* stat a missing path: distinct "does not exist". */
   r = fs_owner_stat("0:nope_xyz.bin", &st);
-  CHECK(r < 0 && st.exists == 0, "stat of a missing path reports does-not-exist");
+  CHECK(r < 0 && st.exists == 0,
+        "stat of a missing path reports does-not-exist");
 
   /* stat the root: it is a directory. */
   CHECK(fs_owner_stat("0:", &st) == 0 && st.is_dir == 1, "root stats as a dir");

@@ -21,33 +21,36 @@ extern volatile uint32_t critical_nesting;
  * counter satisfies the kernel's enter/exit balance, and the FromISR form uses
  * the same save/restore signature the kernel (ipc.c) expects. */
 static inline void v_enter_critical(void) { critical_nesting++; }
-static inline void v_exit_critical(void) { if (critical_nesting) critical_nesting--; }
+static inline void v_exit_critical(void) {
+  if (critical_nesting)
+    critical_nesting--;
+}
 static inline uint32_t v_enter_critical_from_isr(void) { return 0; }
 static inline void v_exit_critical_from_isr(uint32_t saved) { (void)saved; }
 
 #define ENTER_CRITICAL() v_enter_critical()
-#define EXIT_CRITICAL()  v_exit_critical()
+#define EXIT_CRITICAL() v_exit_critical()
 #define ENTER_CRITICAL_FROM_ISR() v_enter_critical_from_isr()
 #define EXIT_CRITICAL_FROM_ISR(saved) v_exit_critical_from_isr(saved)
 
-#else  /* legacy pthread SITL */
+#else /* legacy pthread SITL */
 #include <pthread.h>
 extern pthread_mutex_t host_critical_mutex;
 
 static inline void v_enter_critical(void) {
-    pthread_mutex_lock(&host_critical_mutex);
-    critical_nesting++;
+  pthread_mutex_lock(&host_critical_mutex);
+  critical_nesting++;
 }
 
 static inline void v_exit_critical(void) {
-    critical_nesting--;
-    pthread_mutex_unlock(&host_critical_mutex);
+  critical_nesting--;
+  pthread_mutex_unlock(&host_critical_mutex);
 }
 
 #define ENTER_CRITICAL() v_enter_critical()
-#define EXIT_CRITICAL()  v_exit_critical()
+#define EXIT_CRITICAL() v_exit_critical()
 #define ENTER_CRITICAL_FROM_ISR() v_enter_critical()
-#define EXIT_CRITICAL_FROM_ISR()  v_exit_critical()
+#define EXIT_CRITICAL_FROM_ISR() v_exit_critical()
 #endif
 
 /* Memory barrier macro used by extern/vaios/kernel/structure.c. On host

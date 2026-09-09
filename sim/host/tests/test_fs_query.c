@@ -16,15 +16,15 @@
 #include "storage/fs_owner.h"
 
 static int g_checks = 0, g_fails = 0;
-#define CHECK(cond, msg)                                                        \
-  do {                                                                          \
-    g_checks++;                                                                 \
-    if (cond)                                                                   \
-      printf("    ok   %s\n", (msg));                                           \
-    else {                                                                      \
-      g_fails++;                                                                \
-      printf("    FAIL %s   (%s:%d)\n", (msg), __FILE__, __LINE__);             \
-    }                                                                           \
+#define CHECK(cond, msg)                                                       \
+  do {                                                                         \
+    g_checks++;                                                                \
+    if (cond)                                                                  \
+      printf("    ok   %s\n", (msg));                                          \
+    else {                                                                     \
+      g_fails++;                                                               \
+      printf("    FAIL %s   (%s:%d)\n", (msg), __FILE__, __LINE__);            \
+    }                                                                          \
   } while (0)
 
 static struct {

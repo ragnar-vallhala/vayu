@@ -35,7 +35,7 @@ static uint32_t imu_telemetry_drops(void) {
 }
 
 static int g_checks = 0;
-static int g_fails  = 0;
+static int g_fails = 0;
 
 #define CHECK(cond, msg)                                                       \
   do {                                                                         \

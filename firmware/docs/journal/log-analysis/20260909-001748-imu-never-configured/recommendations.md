@@ -1,0 +1,252 @@
+# Recommendations
+
+Ordered. P0 blocks tomorrow's run.
+
+## P0 — configure the IMU at boot
+
+Nothing else on this list matters until the sensor is producing real data.
+`bmx160_init()` must write `ACC_CONF`, `ACC_RANGE`, `GYR_CONF` and `GYR_RANGE`
+instead of reading them back. The packing helpers already exist
+(`bmx160.c:780-833`); they are simply never called.
+
+Targets, matching what every other autopilot uses on a small multirotor:
+
+| register | set to | why |
+|---|---|---|
+| `ACC_CONF` | odr = 1600 Hz, bwp = normal (OSR2), us = 0 | above prop + blade-pass, so the anti-alias filter has something to work with |
+| `ACC_RANGE` | ±16 g (**code 12**) | gravity drops from 50% to 6.5% of full scale; leaves ~15 g of vibration headroom |
+| `GYR_CONF` | odr = 1600 Hz (or 3200) | same aliasing argument; the rate loop is the consumer |
+| `GYR_RANGE` | ±2000 dps (already the default) | unchanged, has ample headroom |
+
+### The trap in doing this
+
+`bmx160_acc_range_t` holds **g-values, not register codes**:
+
+```c
+BMX160_ACC_16G = 16
+...
+static uint8_t bmx160_get_acc_range(bmx160_config_t *config) {
+  uint8_t val = (config->bmx160_acc_range & 15U);   // 16 & 15 == 0  -- invalid
+```
+
+while the *getter* already speaks codes (`bmx160_range_code_to_g`: 3→2 g,
+5→4 g, 8→8 g, 12→16 g). Setting `BMX160_ACC_16G` today writes `0` to
+`ACC_RANGE` and silently does the wrong thing. **Fix the enum to carry register
+codes** (2 g→3, 4 g→5, 8 g→8, 16 g→12) so setter and getter agree, or the first
+attempt at this fix will look like it worked and won't have.
+
+Verify on hardware by reading the scale straight out of the next recording's
+`FMT` frame: `scale × 32768 / 9.80665` must read 16.00, and the effective
+new-data rate (`hslog.py`, repeat-run length) must stop being ~97 Hz.
+
+## P1 — re-check everything that was tuned against aliased data
+
+Do these *after* P0 and a fresh capture, not before.
+
+1. **Re-run accel calibration.** The stored offsets and soft-iron in `cal.bin`
+   were fitted against a ±2 g sensor at 100 Hz. They are in m/s² so they carry
+   over numerically, but they describe a different instrument.
+2. **Re-check the rate-loop D term.** With the sensor at ~100 Hz the D term is
+   90% zeros and 10% impulses (analysis §6c). Once the gyro is fresh at 1600 Hz
+   this fixes itself — but the current Kd was tuned *against* the impulse train,
+   so it is very likely wrong for a continuous derivative. Re-tune, or at least
+   re-measure, before trusting it. The same applies to `*_D_LPF_RC = 0.004`.
+3. **Re-check `LPF_GYR_ALPHA` / `LPF_ACC_ALPHA`** (0.51 / 0.34). Applied once
+   per poll at 1827 Hz they sit near 300 Hz and 150 Hz, which did nothing to a
+   98 Hz staircase. Against a real 1600 Hz stream they become live filters with
+   real phase lag in the control path — pick them deliberately rather than
+   inheriting them.
+4. **Re-measure the vibration spectrum with props on.** For the first time
+   there will be real content above 50 Hz. This is the capture the FFT notch
+   needs, and it is the one thing this archive could not provide.
+5. **Re-size `VERT_ACCEL_BIAS_MAX` (currently 3.0).** It was chosen against
+   rectified data. With a sensor that reports true specific force the bias it
+   must absorb should be far smaller, and a tighter clamp makes the veto a
+   sharper instrument.
+6. **Re-validate the FFT notch, or leave it off.** It has been force-enabled
+   since 2026-09-07 and cannot have been doing anything useful. Consider
+   flashing `firmware/build` (notch off) for the first post-fix run so the
+   vibration is measured unfiltered.
+7. **Reconsider `IMU_SAMPLE_FREQ_HZ = 2000`.** Once the sensor runs at 1600 Hz,
+   polling at 1827 Hz is roughly right; today it is 19× oversampling.
+
+## P1b — the other two drivers
+
+Found by asking whether the BMX160 was the only device left on defaults. It was
+not the only one with a problem, though it is the only one left on defaults by
+accident.
+
+1. **Retry the VL53L0X probe.** `vl53l0x_init()` runs once at boot, shares I2C1
+   with the IMU, and on a failed model-ID read sets `_initialized = 0` forever.
+   The recording shows the rangefinder publishing nothing at all in **9 of 20
+   arms** — binary per power cycle, not throttle-related. Retry the probe a few
+   times with a delay, and re-probe periodically while it is absent; the ToF
+   velocity aiding added 2026-09-08 is unavailable on roughly half of boots as
+   things stand. Surface the state in telemetry so it is visible without a card
+   read.
+2. **Consider tuning the VL53L0X.** Timing budget, signal-rate limit and VCSEL
+   periods are all at ST defaults (~33 ms budget, ~1.2 m usable). The height
+   mode switches to baro above 1.5 m, which is beyond where the default
+   configuration is reliable — the two thresholds were never reconciled.
+3. **Revisit `BME280_FILTER_OFF`.** The BME280 is otherwise configured
+   correctly, but its IIR filter is off and `BME280_FILTER_OFF` is the only
+   filter constant that exists in the header. Bosch recommends coefficient 16
+   for altimetry against exactly the kind of transient a prop makes. Measured
+   effective rate today is 13.0 Hz.
+
+## P1c — the output side
+
+Measured in analysis §6d. None of this is a "never configured" bug — the ESC
+path is set up explicitly — but all of it was sized against the aliased plant.
+
+1. **Re-measure mixer saturation after P0.** 43% of powered ticks currently have
+   a motor at a rail, and airmode is modulating collective by 1.8x at low stick
+   and 0.65x above 0.5. Much of that differential demand comes from a rate PID
+   chasing an aliased gyro, so it should shrink on its own — check before
+   changing mixer behaviour, or a real fix gets papered over by a tuning change.
+2. **Reconsider `MOTOR_IDLE_FLOOR = 0.15`.** High for a 5" airframe (0.05-0.08
+   is typical). It eats authority range at the bottom, and it spins the props
+   hard enough to produce aliasing at zero stick — every idle arm in this
+   capture shows motors at exactly 0.150.
+3. **The ESC runs at 400 Hz PWM** while the rate loop runs at 1 kHz, so ~60% of
+   computed commands are never delivered. Not urgent, but once the sensor is at
+   1600 Hz the actuator becomes the slowest link in the chain. OneShot/DShot is
+   the eventual answer; at minimum, know that the loop rate above 400 Hz buys
+   nothing today.
+4. **Motor-queue staleness — measured, and deliberately NOT fixed this way.** `motor_task` does
+   `spsc_read(&motor_angle_rate2motor_queue, &out, 1)` once per 2 ms tick while
+   the rate loop pushes at 1 kHz. The policy is `SPSC_POLICY_OVERWRITE`, which
+   drops the *oldest* and appends at the head (`structure.c:114`), and the
+   consumer reads from the tail — so the queue sits permanently full at 2 usable
+   slots and **the command reaching the ESC is always the older one**. The input
+   side already does this correctly: `while (imu_queue_control_pop(&imu_data))`
+   drains and keeps the freshest. Make the motor path match. Worth ~1–2 ms, and
+   it is a handful of lines.
+
+   Full actuator transport lag today, for reference:
+
+   ```
+   ~1-2 ms   reading the stale item out of the queue     <- avoidable, free
+   up to 2 ms  motor_task period (v_delay(2), 500 Hz)    <- avoidable
+   up to 2.5 ms PWM update granularity at 400 Hz         <- protocol-bound
+   ```
+
+   **Decision (2026-09-09): rejected, reverted.** Draining makes the amount of
+   work the consumer does per tick a function of how fast the producer ran,
+   which couples two tasks that are deliberately independent today — a fixed
+   one-read-per-tick consumer has a bounded, rate-independent cost. The ~1–2 ms
+   is not worth trading that away for.
+
+   If the staleness is worth removing later, do it **without** coupling them:
+   a single-slot mailbox with a seqlock or a plain "latest value" cell has no
+   queue to drain and no producer-dependent work. That is a different change
+   from turning the FIFO read into a loop, and it is the one to make.
+
+   Second-order against a 98 Hz sensor either way — the real term is the 2.5 ms
+   PWM latch, which is protocol-bound (see item 5).
+
+5. **DMA does not help here** (asked 2026-09-09; recording the reasoning so it
+   is not re-litigated). Setting a motor command is a single write to
+   `TIM1->CCRx` — there is nothing for a DMA engine to offload, and none of the
+   three lag terms above is CPU-bound. NavHAL does have DMA (`hal_dma.h`, used
+   by UART/I2C/SDIO) but no timer-DMA binding.
+
+   DMA only becomes relevant if the *protocol* changes, and it is the protocol
+   that would buy the time:
+
+   - Standard PWM cannot go much faster than it already does. A 1–2 ms pulse
+     needs a period ≥ 2 ms, so ~500 Hz is the hard ceiling and 400 Hz is
+     already near it. Raising `DEFAULT_PWM_FREQ` alone will break the pulse
+     encoding.
+   - **OneShot125** (125–250 µs pulses) allows several kHz and is a small change
+     to `esc_init`'s constants plus a timer reconfigure. No DMA needed.
+   - **DShot** encodes each command as a 16-bit frame and does need timer+DMA to
+     clock the bit pattern out — that is where DMA genuinely enters, but the
+     benefit comes from DShot, not from DMA.
+   - **Bidirectional DShot** additionally returns real motor RPM. That is the
+     interesting one: an RPM-driven notch needs no FFT at all, which would
+     retire the whole [[fft-dynamic-notch]] problem rather than fixing it.
+
+   Sequence if this is wanted: fix the ODR (P0), take the queue and task-period
+   wins (free), then evaluate OneShot125 before DShot, since DShot is new HAL
+   work on the timer path.
+
+6. **Do not read the FAILSAFEs as an accel-health problem.** The accel latch
+   vetoes height mode and stops there; the failsafes are the 70 deg tilt cutoff
+   firing after the airframe tips. Restrain the airframe for the next bench run
+   so a tip does not truncate the capture.
+
+## P1d — static memory
+
+Measured in analysis §7c by `tools/dev/alloc_budget.py`. Neither is urgent;
+both are recorded so the 12 KB is not a surprise next time something needs RAM.
+
+1. **`MAX_SERIAL_HANDLERS` is 3 and one slot is used.** 8,224 B of `.bss` is
+   permanently idle — 20% of the static footprint, on a part whose whole
+   MSP + slack region is 14.5 KB. The spare slots are plausibly deliberate
+   headroom (a second telemetry link, GPS or ESC telemetry would each want one,
+   and `get_handler()` returns `ERROR` when it runs out rather than degrading),
+   so **2 is probably the honest number rather than 1** — which still returns
+   4,112 B.
+2. **`CHANNEL_TX_BUF_SIZE = 2048` is sized against a comment, not a
+   measurement.** The rationale assumes a 1 Hz perf report with 24 tasks and 16
+   fifos; it runs at 5000 ms with 17 and 9, so the real worst burst is ~880 B
+   and `channel_tx_overflow_count()` reads 0. **Do not shrink it yet** — the
+   burst is about to change. Re-enabling ControlTrace, restoring the perf report
+   to 1 Hz, or raising the IMU ODR all push more frames per flush; shrinking now
+   and changing the telemetry mix next week is how you get an overflow nobody
+   can attribute. Re-measure after P0 and size against the number.
+3. **Regenerate memory figures, do not hand-maintain them.**
+   `journal/memory_report.md` had drifted to claiming `HEAP_SIZE = 0xE000` when
+   it is `0xA000`, which is the same class of mistake as asking for an 8 KB
+   stack from a heap with 4.4 KB free. `tools/dev/alloc_budget.py --fit N`
+   answers that question directly.
+
+## P1e — settle the yaw axis
+
+Analysis §7d verifies the roll and pitch chain end to end — negative feedback
+and a clean torque → angular-acceleration response at 36–48 ms — but yaw shows
+no plant response at any lag and a **positive** `corr(u, rate)` of +0.77 across
+all eight usable runs. That is what an inverted sign looks like; it is also what
+a commanded yaw looks like, and what a bench-friction-locked airframe looks like.
+The recording cannot separate them because the `act` stream carries only the
+collective setpoint.
+
+1. **Log the rate setpoints.** ControlTrace already carries them and is one line
+   to re-enable (`telemetry_task.c`, `send_pid_err`), or add the RC channels to
+   the `act` stream. Either makes `u = K(sp − ω)` directly checkable and settles
+   this from the next capture, with no extra test.
+2. **Or run props-on suspended**, free to yaw, and confirm a commanded yaw
+   produces yaw acceleration in the commanded direction.
+
+Do this before the first free flight. The 2026-06-21/22 tune found the yaw sign
+backwards once already; a second occurrence would not be surprising and is
+cheap to rule out.
+
+## P2 — recorder and tooling
+
+1. **Persist `s_session` in the HSL file header.** It is the one cursor field
+   not recovered at boot (`head_slot`, `next_seq`, `wraps` all are), so ids
+   restart at 1 every power cycle and the block session-tag aliases
+   immediately instead of after 256 arms. `imu_hs_log_boot_init()` already
+   reads the header; add the field beside the others.
+2. **Keep Navigator attached during runs.** One `TIME_SYNC` per power cycle is
+   all it takes for every `SESSION` frame to carry a real wall clock instead of
+   uptime.
+3. **`act` stream nominal rate is unreachable.** It declares 400 Hz but is fed
+   once per 1 kHz rate-loop iteration, so it lands on 1000/3 = 333 Hz. Either
+   declare 333 or decimate to 250; the decoder reports measured rates so
+   nothing is wrong today, only misleading.
+
+## Not doing
+
+- **Chasing a mechanical vibration fix first.** The run-to-run spread is now
+  explained without invoking a mechanical fault: at matched throttle the
+  *measured* vibration is identical across runs (`acc_sd` 1.01–1.36) while the
+  loss varies 4×, so what differs is where the prop tone folds, not how much
+  the airframe shakes (analysis §6b). There may still be a balance problem —
+  but no mechanical measurement means anything while the sensor cannot see
+  above 50 Hz. Fix P0, then measure.
+- **Touching the vertical estimator.** It behaved correctly throughout: it
+  absorbed the error, clamped, latched, and vetoed. Six FAILSAFEs are six
+  successful refusals to fly on bad data.

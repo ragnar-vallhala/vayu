@@ -77,7 +77,7 @@ int main(void) {
   printf("  [2] a TIME_SYNC frame clears the gate\n");
   {
     navlink_time_sync_t ts = {0};
-    ts.role = 0;   /* GCS request */
+    ts.role = 0; /* GCS request */
     ts.seq = 1;
     ts.t1_gcs_tx = 1000000ull;
     size_t n = navlink_time_sync_encode(frame, &ts, 0, 255, 1);
@@ -89,8 +89,8 @@ int main(void) {
   printf("  [3] once synced, the same command is applied\n");
   {
     flight_mode_t before = flight_mode_get();
-    flight_mode_t want = (before == FLIGHT_MODE_ANGLE) ? FLIGHT_MODE_ACRO
-                                                           : FLIGHT_MODE_ANGLE;
+    flight_mode_t want =
+        (before == FLIGHT_MODE_ANGLE) ? FLIGHT_MODE_ACRO : FLIGHT_MODE_ANGLE;
     size_t n = build_set_mode(frame, (uint8_t)want);
     feed(frame, n);
     CHECK(flight_mode_get() == want, "flight mode changed after sync");
@@ -101,8 +101,8 @@ int main(void) {
   printf("  [4] a corrupted frame is dropped, not dispatched\n");
   {
     flight_mode_t before = flight_mode_get();
-    flight_mode_t other = (before == FLIGHT_MODE_ANGLE) ? FLIGHT_MODE_ACRO
-                                                            : FLIGHT_MODE_ANGLE;
+    flight_mode_t other =
+        (before == FLIGHT_MODE_ANGLE) ? FLIGHT_MODE_ACRO : FLIGHT_MODE_ANGLE;
     size_t n = build_set_mode(frame, (uint8_t)other);
     frame[n - 1] ^= 0xFFu; /* wreck the CRC */
     feed(frame, n);
