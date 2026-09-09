@@ -19,6 +19,7 @@
 #include "control/angle_controller.h" /* angle_controller_last_throttle */
 #include "control/height_controller.h" /* HEIGHT_HOVER_GUESS (initial seed) */
 #include "est/flight_phase.h"
+#include "storage/imu_hs_log.h"
 #include "est/hover_estimate.h"
 #include "storage/hover_store.h"
 #include "est/vertical_estimator.h"
@@ -232,5 +233,26 @@ void vertical_estimator_task(void *args) {
         .timestamp = in.timestamp,
     };
     vertical_state_queue_push(&out);
+
+    /* High-speed SD stream, "vrt": the estimator's own view, on the same
+     * timebase as the vibration that corrupts it. accel_bias is the most
+     * direct read-out of how badly motor noise is rectifying the accelerometer,
+     * and it is meaningless without the raw accel beside it. Decimated
+     * internally to 20 Hz, and a no-op unless armed. */
+    {
+      hsl_vert_sample_t hv = {
+          .baro_altitude = out.baro_altitude,
+          .agl = out.agl,
+          .agl_tof = out.agl_tof,
+          .altitude = out.altitude,
+          .climb_rate = out.climb_rate,
+          .accel_bias = out.accel_bias,
+          .flags = (uint16_t)((out.tof_valid ? HSL_VRT_F_TOF_VALID : 0u) |
+                              (out.accel_unhealthy ? HSL_VRT_F_ACCEL_UNHEALTHY : 0u) |
+                              (out.valid ? HSL_VRT_F_VALID : 0u) |
+                              (out.hover_measured ? HSL_VRT_F_HOVER_MEASURED : 0u)),
+      };
+      imu_hs_log_vert(&hv, out.timestamp);
+    }
   }
 }

@@ -30,6 +30,7 @@
 #include "vaios_config_default.h" /* PANIC */
 #include "variables.h" /* *_LOGGING_FILENAME/_FILE_SIZE, CALIBRATION_FILE_PATH */
 #include "vfs.h"
+#include "storage/imu_hs_log.h"
 
 /* ===========================================================================
  * Sizing
@@ -201,6 +202,8 @@ void fs_owner_boot_init(void) {
   navlink_write_pos = 0;
   system_write_pos = 0;
   general_write_pos = 0;
+
+  imu_hs_log_boot_init();
 }
 
 /* ===========================================================================
@@ -670,6 +673,10 @@ void fs_owner_task(void *args) {
         fs_do_log_req(&lreq);
       }
     }
+    /* High-speed IMU stream: whole preallocated sectors, and the only SD writer
+     * that must keep a steady 24 KB/s. Serviced here so SD/VFS stays
+     * single-owner; it self-gates on the arm state. */
+    imu_hs_log_drain();
     /* Block for a cross-task FS request (download reads etc.) so they're serviced
      * promptly; the timeout bounds save/write-at/retry/log latency when idle. */
     fs_sync_req_t sreq;
@@ -693,6 +700,9 @@ void fs_owner_task(void *args) {
 
 /** @noreq trivial setter for the log-suppression flag. */
 void fs_owner_suppress_logs(bool suppress) { s_logs_suppressed = suppress; }
+
+/** @noreq trivial getter; the HS logger quiesces on the same flag. */
+bool fs_owner_logs_suppressed(void) { return s_logs_suppressed; }
 
 /* ===========================================================================
  * Producers — snapshot and return immediately.
