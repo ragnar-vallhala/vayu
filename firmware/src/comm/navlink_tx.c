@@ -1,4 +1,5 @@
 #include "comm/navlink_tx.h"
+#include "control/angle_controller.h" /* angle_controller_height_state */
 #include "storage/imu_hs_log.h"
 #include "comm/channel.h"   /* write_channel, channel_t */
 #include "dsp/gyro_notch.h" /* gyro_notch_enabled / _center_hz (NOTCH_STATUS) */

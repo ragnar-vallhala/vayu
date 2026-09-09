@@ -291,9 +291,17 @@ hal_status_t bmx160_init(void) {
 
   // Pre-calculate scales (calculating here too just in case config write fails
   // elsewhere)
-  float g_range = bmx160_range_code_to_g(bmx160_cfg.bmx160_acc_range);
+  /* NOTE: these fields are TYPED bmx160_acc_range_t / bmx160_gyr_range_t, whose
+   * enumerators are g and dps values (2/4/8/16, 2000/1000/...), but what they
+   * actually hold is the REGISTER CODE read back by GET_ACC_RANGE/GET_GYR_RANGE
+   * (3/5/8/12) -- which is what range_code_to_g/dps expect. The type is a lie
+   * and the mismatch is the trap in configuring the sensor: writing
+   * BMX160_ACC_16G would emit 16 & 15 == 0. Casting explicitly here so the
+   * narrowing is deliberate rather than silent; fixing the type belongs with
+   * the ODR/range work. */
+  float g_range = bmx160_range_code_to_g((uint8_t)bmx160_cfg.bmx160_acc_range);
   acc_scale = g_range * 9.80665f / 32768.0f;
-  float dps_range = bmx160_range_code_to_dps(bmx160_cfg.bmx160_gyr_range);
+  float dps_range = bmx160_range_code_to_dps((uint8_t)bmx160_cfg.bmx160_gyr_range);
   gyr_scale = dps_range / 32768.0f;
   imu_hs_log_set_scale(gyr_scale, acc_scale);
 

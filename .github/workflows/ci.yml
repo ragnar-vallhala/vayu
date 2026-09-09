@@ -169,11 +169,23 @@ jobs:
       - uses: actions/checkout@v5
         with:
           submodules: recursive
-      - run: sudo apt-get update && sudo apt-get install -y cmake clang-tidy
-      - name: Generate compile_commands + run clang-tidy
-        # Report-only until the baseline is burned down (R12.3).
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake clang-tidy gcc-arm-none-eabi jq
+      - name: clang-tidy (ARM target config, all firmware sources)
+        continue-on-error: true
+        run: |
+          cmake -S firmware -B firmware/build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+          tools/dev/run_clang_tidy.sh firmware/build
+      - name: clang-tidy (VAYU_SIM host config)
         continue-on-error: true
         run: |
           cmake -S sim/host -B build_tidy -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
           cmake --build build_tidy -j --target vayu_sitl_core
-          git ls-files 'firmware/src/*.c' | xargs -P4 -I{} clang-tidy -p build_tidy {}
+          # Only files the SITL build actually compiles. Running the full
+          # firmware/src list here is what produced the phantom
+          # undeclared-function and parse errors: 11 of the 67 sources are not
+          # in this database, so clang-tidy analysed them with default flags.
+          jq -r '.[].file' build_tidy/compile_commands.json | sort -u \
+            | grep '/firmware/src/' \
+            | xargs -P"$(nproc)" -I{} clang-tidy -p build_tidy --quiet {}

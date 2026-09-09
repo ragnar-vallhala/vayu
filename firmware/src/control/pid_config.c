@@ -169,7 +169,9 @@ bool pid_config_get_motor_geometry(float pos_x[4], float pos_y[4],
       pos_y[i] = s_store.motor_pos_y[i];
     }
     if (spin) {
-      spin[i] = s_store.motor_spin[i];
+      /* int8_t holding +1/-1: the sign is the payload, so the check's
+       * suggested unsigned-char round-trip would invert -1 to 255. */
+      spin[i] = (int)s_store.motor_spin[i];
     }
   }
   return true;
