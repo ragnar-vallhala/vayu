@@ -106,6 +106,7 @@ set(VAYU_SOURCES
     ${VAYU_ROOT}/firmware/src/sensor/bme280.c   # real FC baro driver (altitude/publish/getters); host_baro.c feeds it
     ${VAYU_ROOT}/firmware/src/sensor/vl53l0x.c  # real FC ToF driver; no host feeder, so its boot probe fails on the i2c stubs and it reports absent (tof_valid=0 -> the height loop falls back to baro AGL)
     ${VAYU_ROOT}/firmware/src/storage/fs_owner.c # centralised FS owner (absorbs logger.c)
+    ${VAYU_ROOT}/firmware/src/storage/imu_hs_log.c # high-speed IMU->SD stream (HSL), drained by the FS task
     ${VAYU_ROOT}/firmware/src/logger/log_text.c  # vayu_log + queue (moved from utils.c)
     ${VAYU_ROOT}/firmware/src/sys/state.c
     ${VAYU_ROOT}/firmware/src/sys/assert.c
@@ -315,6 +316,17 @@ add_test(NAME phase3_slog COMMAND test_phase3_slog)
 
 # Centralised FS owner: snapshot/torn-read, reserved save lane, drop accounting,
 # log round-trip (src/storage/fs_owner.c, in vayu_sitl_core).
+# HSL wire format: the real encoder's bytes, then decoded by hslog.py below —
+# the encoder has no runtime consumer that would ever notice a layout mistake.
+add_executable(test_hslog tests/test_hslog.c)
+target_link_libraries(test_hslog PRIVATE vayu_sitl_core m)
+add_test(NAME hslog COMMAND test_hslog)
+add_test(NAME hslog_decode
+         COMMAND ${CMAKE_COMMAND} -E env python3
+                 ${VAYU_ROOT}/tools/telemetry/hslog.py
+                 --selftest-file /tmp/vayu_hslog_test/0_imuhs.bin)
+set_tests_properties(hslog_decode PROPERTIES DEPENDS hslog)
+
 add_executable(test_fs_owner tests/test_fs_owner.c)
 target_link_libraries(test_fs_owner PRIVATE vayu_sitl_core m)
 add_test(NAME fs_owner COMMAND test_fs_owner)
