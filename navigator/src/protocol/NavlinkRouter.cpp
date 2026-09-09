@@ -1,11 +1,11 @@
 #include "NavlinkRouter.h"
 
-#include "core/MathUtils.h"  // float16_to_float32 (IMU delta reconstruction)
-#include <QDateTime>          // t4 capture for TIME_SYNC
+#include "core/MathUtils.h" // float16_to_float32 (IMU delta reconstruction)
+#include <QDateTime>        // t4 capture for TIME_SYNC
 #include <QtGlobal>
 
 extern "C" {
-#include "navlink_msgs.h"  // the generated codec — included ONLY here (RX side)
+#include "navlink_msgs.h" // the generated codec — included ONLY here (RX side)
 }
 
 namespace {
@@ -17,7 +17,7 @@ void thunkAttitude(void *ctx, const navlink_frame_hdr_t *,
                    const navlink_attitude_euler_t *m) {
   auto *r = static_cast<NavlinkRouter *>(ctx);
   if (r->onAttitude) {
-    AttitudeData a;  // v2 is radians; AttitudeData is degrees (core/Types.h)
+    AttitudeData a; // v2 is radians; AttitudeData is degrees (core/Types.h)
     a.roll = m->roll * kRad2Deg;
     a.pitch = m->pitch * kRad2Deg;
     a.yaw = m->yaw * kRad2Deg;
@@ -36,7 +36,7 @@ void thunkImuRaw(void *ctx, const navlink_frame_hdr_t *,
   }
   d.tempC = m->temp;
   d.timestamp = m->sample_time_us;
-  r->lastImu = d;  // anchor for subsequent IMU_COMPRESSED deltas
+  r->lastImu = d; // anchor for subsequent IMU_COMPRESSED deltas
   r->hasLastImu = true;
   if (r->onImu)
     r->onImu(d);
@@ -46,7 +46,7 @@ void thunkImuCompressed(void *ctx, const navlink_frame_hdr_t *,
                         const navlink_imu_compressed_t *m) {
   auto *r = static_cast<NavlinkRouter *>(ctx);
   if (!r->hasLastImu)
-    return;  // no anchor yet — drop until the next IMU_RAW (as v1 did)
+    return; // no anchor yet — drop until the next IMU_RAW (as v1 did)
   ImuData d = r->lastImu;
   for (int i = 0; i < 3; i++) {
     d.acc[i] += MathUtils::float16_to_float32(m->delta[i]);
@@ -54,7 +54,7 @@ void thunkImuCompressed(void *ctx, const navlink_frame_hdr_t *,
     d.mag[i] += MathUtils::float16_to_float32(m->delta[i + 6]);
   }
   d.tempC += MathUtils::float16_to_float32(m->delta[9]);
-  r->lastImu = d;  // deltas chain off the reconstructed sample
+  r->lastImu = d; // deltas chain off the reconstructed sample
   if (r->onImu)
     r->onImu(d);
 }
@@ -64,7 +64,7 @@ void thunkRc(void *ctx, const navlink_frame_hdr_t *,
   auto *r = static_cast<NavlinkRouter *>(ctx);
   if (!r->onRc)
     return;
-  RcData d;  // RcData holds 14 channels; v2 carries 18 — take the first 14
+  RcData d; // RcData holds 14 channels; v2 carries 18 — take the first 14
   for (int i = 0; i < 14; i++)
     d.channels[i] = m->chan[i];
   r->onRc(d);
@@ -75,7 +75,7 @@ void thunkMotor(void *ctx, const navlink_frame_hdr_t *,
   auto *r = static_cast<NavlinkRouter *>(ctx);
   if (!r->onMotor)
     return;
-  MotorData d;  // MotorData holds 4 motors; v2 carries 8 — take the first 4
+  MotorData d; // MotorData holds 4 motors; v2 carries 8 — take the first 4
   for (int i = 0; i < 4; i++)
     d.speeds[i] = m->cmd[i];
   r->onMotor(d);
@@ -236,7 +236,7 @@ void thunkPerfGlobal(void *ctx, const navlink_frame_hdr_t *,
                      const navlink_perf_global_t *m) {
   auto *r = static_cast<NavlinkRouter *>(ctx);
   PerfReport &a = r->perfAccum;
-  a = PerfReport{};  // fresh report
+  a = PerfReport{}; // fresh report
   a.seq = m->seq;
   a.enabled = (m->flags & 0x01) != 0;
   a.uptimeTicks = m->uptime_ticks;
@@ -277,7 +277,7 @@ void thunkPerfTask(void *ctx, const navlink_frame_hdr_t *,
                    const navlink_perf_task_t *m) {
   auto *r = static_cast<NavlinkRouter *>(ctx);
   if (!r->perfHaveGlobal || m->seq != r->perfAccum.seq)
-    return;  // stray row without its GLOBAL
+    return; // stray row without its GLOBAL
   PerfTaskRow t;
   t.id = m->task_id;
   t.priority = m->priority;
@@ -321,8 +321,7 @@ void thunkTimeSync(void *ctx, const navlink_frame_hdr_t *,
   auto *r = static_cast<NavlinkRouter *>(ctx);
   if (m->role != 1 /* RESPONSE */ || !r->onTimeSync)
     return;
-  const quint64 t4 =
-      static_cast<quint64>(QDateTime::currentMSecsSinceEpoch());
+  const quint64 t4 = static_cast<quint64>(QDateTime::currentMSecsSinceEpoch());
   r->onTimeSync(m->seq, m->t1_gcs_tx, m->t2_fc_rx, m->t3_fc_tx, t4);
 }
 
@@ -339,7 +338,7 @@ void thunkDefault(void *ctx, const navlink_frame_hdr_t *, uint32_t msgid,
   if (r->onDefault)
     r->onDefault(msgid, static_cast<int>(len));
 }
-}  // namespace
+} // namespace
 
 struct NavlinkRouter::Impl {
   navlink_parser_t parser;
@@ -348,8 +347,8 @@ struct NavlinkRouter::Impl {
 
 NavlinkRouter::NavlinkRouter() : d_(new Impl) {
   navlink_parser_init(&d_->parser);
-  d_->handlers = {};               // zero every slot
-  d_->handlers.ctx = this;         // shared ctx: the router itself
+  d_->handlers = {};       // zero every slot
+  d_->handlers.ctx = this; // shared ctx: the router itself
   d_->handlers.on_default = thunkDefault;
   d_->handlers.on_attitude_euler = thunkAttitude;
   d_->handlers.on_imu_raw = thunkImuRaw;

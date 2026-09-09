@@ -30,19 +30,19 @@
 namespace autotune {
 
 struct Plant {
-  bool   ok  = false;
-  double K   = 0.0;   // DC gain of u -> angular accel  [ (rad/s^2) / u ]
-  double tau = 0.0;   // actuator/filter lag time constant [s]
-  double a   = 0.0;   // ARX pole (discrete), tau = -dt/ln(a)
-  double b   = 0.0;   // ARX input gain (discrete)
-  double r2  = 0.0;   // one-step prediction R^2 on accel (fit quality, 0..1)
-  int    n   = 0;     // samples used
-  double actuatorBwHz() const;  // (1/tau)/(2 pi); 0 if !ok
+  bool ok = false;
+  double K = 0.0;   // DC gain of u -> angular accel  [ (rad/s^2) / u ]
+  double tau = 0.0; // actuator/filter lag time constant [s]
+  double a = 0.0;   // ARX pole (discrete), tau = -dt/ln(a)
+  double b = 0.0;   // ARX input gain (discrete)
+  double r2 = 0.0;  // one-step prediction R^2 on accel (fit quality, 0..1)
+  int n = 0;        // samples used
+  double actuatorBwHz() const; // (1/tau)/(2 pi); 0 if !ok
 };
 
 struct DesignGains {
   double rate_kp = 0.0, rate_ki = 0.0, rate_kd = 0.0, angle_kp = 0.0;
-  double wc = 0.0;  // crossover actually used [rad/s] (may be buzz-capped)
+  double wc = 0.0; // crossover actually used [rad/s] (may be buzz-capped)
 };
 
 // Fit the plant from a rate-loop input/output series (u = rate-PID output,
@@ -65,4 +65,4 @@ double chooseCrossover(const Plant &p, double bwFrac = 0.33,
 // Loop-shape the gains for crossover wc against plant p (formulas above).
 DesignGains designGains(const Plant &p, double wc);
 
-}  // namespace autotune
+} // namespace autotune

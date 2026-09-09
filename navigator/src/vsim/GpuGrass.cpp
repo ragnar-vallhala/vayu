@@ -58,7 +58,7 @@ namespace {
 // Pass 1: evaluate the terrain noise ONCE per texel into a height image. The
 // grass pass then samples this instead of computing noise per blade — the GoT
 // height-texture trick, ~10x fewer noise evals per frame.
-const char* kFill = R"GLSL(
+const char *kFill = R"GLSL(
 #version 430 core
 layout(local_size_x=16, local_size_y=16) in;
 layout(r32f, binding=0) writeonly uniform image2D heightImg;
@@ -97,7 +97,7 @@ void main(){
 )GLSL";
 
 // Pass 2: place blades, sampling the height image (no per-blade noise).
-const char* kCompute = R"GLSL(
+const char *kCompute = R"GLSL(
 #version 430 core
 layout(local_size_x=16, local_size_y=16) in;
 struct Blade { vec4 posyaw; vec4 hf; vec4 tint; };
@@ -186,7 +186,7 @@ void main(){
 }
 )GLSL";
 
-const char* kVert = R"GLSL(
+const char *kVert = R"GLSL(
 #version 430 core
 layout(location=0) in vec3 a_local;
 layout(location=1) in vec3 a_normal;
@@ -215,7 +215,7 @@ void main(){
 }
 )GLSL";
 
-const char* kFrag = R"GLSL(
+const char *kFrag = R"GLSL(
 #version 430 core
 in vec3 v_color; in vec3 v_world; in vec3 v_normal; in float v_hf; in float v_flower;
 in float v_across;
@@ -303,7 +303,7 @@ void main(){
 }
 )GLSL";
 
-}  // namespace
+} // namespace
 
 // Concentric density rings share the pipeline: a dense near ring plus coarser
 // rings (cell multiplied) that carry grass out to the visible horizon. All
@@ -321,7 +321,7 @@ static constexpr int kRingSeg[kNumRings] = {5, 4, 3, 2};
 
 GpuGrass::~GpuGrass() = default;
 
-bool GpuGrass::init(QOpenGLExtraFunctions* gl) {
+bool GpuGrass::init(QOpenGLExtraFunctions *gl) {
   if (!fill_.addShaderFromSourceCode(QOpenGLShader::Compute, kFill) ||
       !fill_.link() ||
       !comp_.addShaderFromSourceCode(QOpenGLShader::Compute, kCompute) ||
@@ -329,7 +329,7 @@ bool GpuGrass::init(QOpenGLExtraFunctions* gl) {
     qInfo("[GpuGrass] compute unavailable -> CPU flora fallback. log:\n%s%s",
           fill_.log().toLocal8Bit().constData(),
           comp_.log().toLocal8Bit().constData());
-    return false;  // compute unsupported -> caller falls back to CPU flora
+    return false; // compute unsupported -> caller falls back to CPU flora
   }
   if (!draw_.addShaderFromSourceCode(QOpenGLShader::Vertex, kVert) ||
       !draw_.addShaderFromSourceCode(QOpenGLShader::Fragment, kFrag) ||
@@ -354,13 +354,15 @@ bool GpuGrass::init(QOpenGLExtraFunctions* gl) {
   for (int i = 0; i < kNumRings; ++i) {
     gl->glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo_[i]);
     gl->glBufferData(GL_SHADER_STORAGE_BUFFER,
-                     GLsizeiptr(maxBladesPerRing_) * 12 * sizeof(float), nullptr,
-                     GL_DYNAMIC_DRAW);
+                     GLsizeiptr(maxBladesPerRing_) * 12 * sizeof(float),
+                     nullptr, GL_DYNAMIC_DRAW);
     buildBlade(gl, i, kRingSeg[i]);
     gl->glBindBuffer(GL_ATOMIC_COUNTER_BUFFER, counter_[i]);
-    gl->glBufferData(GL_ATOMIC_COUNTER_BUFFER, sizeof(zero), &zero, GL_DYNAMIC_DRAW);
+    gl->glBufferData(GL_ATOMIC_COUNTER_BUFFER, sizeof(zero), &zero,
+                     GL_DYNAMIC_DRAW);
     gl->glBindBuffer(GL_DRAW_INDIRECT_BUFFER, indirect_[i]);
-    gl->glBufferData(GL_DRAW_INDIRECT_BUFFER, sizeof(cmd), cmd, GL_DYNAMIC_DRAW);
+    gl->glBufferData(GL_DRAW_INDIRECT_BUFFER, sizeof(cmd), cmd,
+                     GL_DYNAMIC_DRAW);
   }
 
   // R32F terrain-height image (immutable storage, point access via imageLoad).
@@ -375,26 +377,29 @@ bool GpuGrass::init(QOpenGLExtraFunctions* gl) {
   return true;
 }
 
-void GpuGrass::setParams(const Params& p) { params_ = p; }
+void GpuGrass::setParams(const Params &p) { params_ = p; }
 
-void GpuGrass::buildBlade(QOpenGLExtraFunctions* gl, int ring, int segments) {
+void GpuGrass::buildBlade(QOpenGLExtraFunctions *gl, int ring, int segments) {
   // Strap-leaf blade that RISES then ARCHES OVER (tip droops well below the apex)
   // — the defining GoT meadow-grass shape. The curve peaks near z=-0.8 (t~0.64)
   // and the tip falls back to z=-0.55, sweeping out to x=1.0 (then per-blade bend
   // + yaw orient it). Mirrors the conceptual CPU blade.
-  const float wb = 0.040f;  // half-width: slender strap (was too card-like at 0.075)
-  const float P0x = 0, P0z = 0, P1x = 0.16f, P1z = -1.25f, P2x = 1.0f, P2z = -0.55f;
-  auto bez = [&](float t, float& x, float& z) {
+  const float wb =
+      0.040f; // half-width: slender strap (was too card-like at 0.075)
+  const float P0x = 0, P0z = 0, P1x = 0.16f, P1z = -1.25f, P2x = 1.0f,
+              P2z = -0.55f;
+  auto bez = [&](float t, float &x, float &z) {
     float u = 1 - t;
     x = u * u * P0x + 2 * u * t * P1x + t * t * P2x;
     z = u * u * P0z + 2 * u * t * P1z + t * t * P2z;
   };
-  auto nrm = [&](float t, float& nx, float& nz) {
+  auto nrm = [&](float t, float &nx, float &nz) {
     float tx = 2 * (1 - t) * (P1x - P0x) + 2 * t * (P2x - P1x);
     float tz = 2 * (1 - t) * (P1z - P0z) + 2 * t * (P2z - P1z);
     float rx = -tz, rz = tx - 0.9f;
     float l = std::sqrt(rx * rx + rz * rz);
-    nx = rx / l; nz = rz / l;
+    nx = rx / l;
+    nz = rz / l;
   };
   // Strap profile: narrow at the very base, widest through the lower-mid, then a
   // quick taper to a sharp point — a leaf, not a triangle spike.
@@ -403,26 +408,30 @@ void GpuGrass::buildBlade(QOpenGLExtraFunctions* gl, int ring, int segments) {
     float baseNarrow = 0.50f + 0.50f * (s * s * (3.0f - 2.0f * s));
     return wb * std::pow(1.0f - t, 0.40f) * baseNarrow;
   };
-  const int kSeg = segments;  // LOD: fewer segments for far rings
+  const int kSeg = segments; // LOD: fewer segments for far rings
   // Folded cross-section: a raised central SPINE (the midrib) with the surface
   // curling back to each edge. Three columns per rib (+edge, spine, -edge); the
   // spine is pushed out along the face normal so the blade reads as a rounded,
   // voluminous leaf — not flat paper — and the edge normals tilt outward so it
   // shades like a cylinder across its width. The 7th component is the across
   // coordinate (-1 edge .. 0 spine .. +1 edge) used to draw the vein.
-  const float bulge = 0.45f;  // spine displacement (fraction of half-width)
-  const float curl = 0.95f;   // edge-normal outward tilt (rounded-leaf shading)
+  const float bulge = 0.45f; // spine displacement (fraction of half-width)
+  const float curl = 0.95f;  // edge-normal outward tilt (rounded-leaf shading)
   std::vector<float> v;
-  auto vert = [&](float x, float y, float z, float nx, float ny, float nz, float acr) {
+  auto vert = [&](float x, float y, float z, float nx, float ny, float nz,
+                  float acr) {
     float l = std::sqrt(nx * nx + ny * ny + nz * nz);
-    if (l < 1e-6f) l = 1.0f;
+    if (l < 1e-6f)
+      l = 1.0f;
     v.insert(v.end(), {x, y, z, nx / l, ny / l, nz / l, acr});
   };
   for (int s = 0; s < kSeg; ++s) {
     float t0 = float(s) / kSeg, t1 = float(s + 1) / kSeg;
     float x0, z0, x1, z1, n0x, n0z, n1x, n1z;
-    bez(t0, x0, z0); bez(t1, x1, z1);
-    nrm(t0, n0x, n0z); nrm(t1, n1x, n1z);
+    bez(t0, x0, z0);
+    bez(t1, x1, z1);
+    nrm(t0, n0x, n0z);
+    nrm(t1, n1x, n1z);
     float w0 = width(t0), w1 = width(t1);
     // Spine vertices: edge curve displaced outward along the face normal.
     float s0x = x0 + bulge * w0 * n0x, s0z = z0 + bulge * w0 * n0z;
@@ -455,10 +464,10 @@ void GpuGrass::buildBlade(QOpenGLExtraFunctions* gl, int ring, int segments) {
   gl->glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, gstride, nullptr);
   gl->glEnableVertexAttribArray(1);
   gl->glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, gstride,
-                            reinterpret_cast<void*>(3 * sizeof(float)));
+                            reinterpret_cast<void *>(3 * sizeof(float)));
   gl->glEnableVertexAttribArray(5);
   gl->glVertexAttribPointer(5, 1, GL_FLOAT, GL_FALSE, gstride,
-                            reinterpret_cast<void*>(6 * sizeof(float)));
+                            reinterpret_cast<void *>(6 * sizeof(float)));
   bladeVbo_[ring].release();
   // Per-instance blade data (divisor 1) read from the SAME buffer the compute
   // writes — but as vertex attributes, which avoids the (often unsupported)
@@ -470,22 +479,23 @@ void GpuGrass::buildBlade(QOpenGLExtraFunctions* gl, int ring, int segments) {
   gl->glVertexAttribDivisor(2, 1);
   gl->glEnableVertexAttribArray(3);
   gl->glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, istride,
-                            reinterpret_cast<void*>(4 * sizeof(float)));
+                            reinterpret_cast<void *>(4 * sizeof(float)));
   gl->glVertexAttribDivisor(3, 1);
   gl->glEnableVertexAttribArray(4);
   gl->glVertexAttribPointer(4, 4, GL_FLOAT, GL_FALSE, istride,
-                            reinterpret_cast<void*>(8 * sizeof(float)));
+                            reinterpret_cast<void *>(8 * sizeof(float)));
   gl->glVertexAttribDivisor(4, 1);
   gl->glBindBuffer(GL_ARRAY_BUFFER, 0);
   vao_[ring].release();
 }
 
-void GpuGrass::render(QOpenGLExtraFunctions* gl, const QMatrix4x4& proj,
-                      const QMatrix4x4& view, const QVector3D& camPos,
-                      const QVector3D& sunDir, float time,
-                      const QMatrix4x4& lightVP, unsigned int shadowTex,
+void GpuGrass::render(QOpenGLExtraFunctions *gl, const QMatrix4x4 &proj,
+                      const QMatrix4x4 &view, const QVector3D &camPos,
+                      const QVector3D &sunDir, float time,
+                      const QMatrix4x4 &lightVP, unsigned int shadowTex,
                       bool shadowOn) {
-  if (!ready_) return;
+  if (!ready_)
+    return;
 
   // Grow the per-ring instance buffers if the grid was enlarged.
   const int need = params_.grid * params_.grid;
@@ -494,8 +504,8 @@ void GpuGrass::render(QOpenGLExtraFunctions* gl, const QMatrix4x4& proj,
     for (int i = 0; i < kNumRings; ++i) {
       gl->glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo_[i]);
       gl->glBufferData(GL_SHADER_STORAGE_BUFFER,
-                       GLsizeiptr(maxBladesPerRing_) * 12 * sizeof(float), nullptr,
-                       GL_DYNAMIC_DRAW);
+                       GLsizeiptr(maxBladesPerRing_) * 12 * sizeof(float),
+                       nullptr, GL_DYNAMIC_DRAW);
     }
   }
 
@@ -525,10 +535,11 @@ void GpuGrass::render(QOpenGLExtraFunctions* gl, const QMatrix4x4& proj,
       float(params_.grid) * params_.cell * kRingMul[kNumRings - 1] * 0.5f;
 
   for (int i = 0; i < kNumRings; ++i) {
-    const Ring& ring = rings[i];
+    const Ring &ring = rings[i];
     // Reset this ring's indirect command {vertexCount, instanceCount=0, ..} and
     // its atomic counter before the grass pass appends into them.
-    const unsigned int cmd[4] = {static_cast<unsigned int>(bladeVerts_[i]), 0u, 0u, 0u};
+    const unsigned int cmd[4] = {static_cast<unsigned int>(bladeVerts_[i]), 0u,
+                                 0u, 0u};
     gl->glBindBuffer(GL_DRAW_INDIRECT_BUFFER, indirect_[i]);
     gl->glBufferSubData(GL_DRAW_INDIRECT_BUFFER, 0, sizeof(cmd), cmd);
     gl->glBindBuffer(GL_ATOMIC_COUNTER_BUFFER, counter_[i]);
@@ -538,7 +549,7 @@ void GpuGrass::render(QOpenGLExtraFunctions* gl, const QMatrix4x4& proj,
     // fixed and the camera moves through it.
     const int originCellX = int(std::floor(camPos.x() / ring.cell));
     const int originCellY = int(std::floor(camPos.y() / ring.cell));
-    const int halfGrid = params_.grid / 2;  // grid origin offset, in cells
+    const int halfGrid = params_.grid / 2; // grid origin offset, in cells
     const float regionSize = float(params_.grid) * ring.cell;
     const QVector2D regionMin(float(originCellX - halfGrid) * ring.cell,
                               float(originCellY - halfGrid) * ring.cell);
@@ -556,7 +567,8 @@ void GpuGrass::render(QOpenGLExtraFunctions* gl, const QMatrix4x4& proj,
     fill_.setUniformValue("u_texSize", texSize_);
     fill_.setUniformValue("u_regionMin", regionMin);
     fill_.setUniformValue("u_regionSize", regionSize);
-    gl->glBindImageTexture(0, heightTex_, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_R32F);
+    gl->glBindImageTexture(0, heightTex_, 0, GL_FALSE, 0, GL_WRITE_ONLY,
+                           GL_R32F);
     const int fg = (texSize_ + 15) / 16;
     gl->glDispatchCompute(fg, fg, 1);
     gl->glMemoryBarrier(GL_ALL_BARRIER_BITS);
@@ -589,7 +601,8 @@ void GpuGrass::render(QOpenGLExtraFunctions* gl, const QMatrix4x4& proj,
     comp_.setUniformValue("u_innerStart", ring.innerStart);
     comp_.setUniformValue("u_innerEnd", ring.innerEnd);
     comp_.setUniformValue("u_farRadius", farRadius);
-    gl->glBindImageTexture(0, heightTex_, 0, GL_FALSE, 0, GL_READ_ONLY, GL_R32F);
+    gl->glBindImageTexture(0, heightTex_, 0, GL_FALSE, 0, GL_READ_ONLY,
+                           GL_R32F);
     gl->glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, ssbo_[i]);
     gl->glBindBufferBase(GL_ATOMIC_COUNTER_BUFFER, 1, counter_[i]);
     const int groups = (params_.grid + 15) / 16;
@@ -619,7 +632,7 @@ void GpuGrass::render(QOpenGLExtraFunctions* gl, const QMatrix4x4& proj,
   draw_.setUniformValue("u_fogstart", 45.0f);
   draw_.setUniformValue("u_lightvp", lightVP);
   draw_.setUniformValue("u_shadowon", shadowOn ? 1.0f : 0.0f);
-  draw_.setUniformValue("u_shadowtex", 1);   // sampler on texture unit 1
+  draw_.setUniformValue("u_shadowtex", 1); // sampler on texture unit 1
   // Live look knobs (procgen::GrassLook).
   draw_.setUniformValue("u_sunint", params_.look.sunIntensity);
   draw_.setUniformValue("u_ambstr", params_.look.ambientStrength);
@@ -633,7 +646,7 @@ void GpuGrass::render(QOpenGLExtraFunctions* gl, const QMatrix4x4& proj,
   gl->glBindTexture(0x0DE1 /*GL_TEXTURE_2D*/, shadowTex);
   gl->glActiveTexture(0x84C0 /*GL_TEXTURE0*/);
   for (int i = 0; i < kNumRings; ++i) {
-    vao_[i].bind();  // ring LOD mesh + ring instance buffer (no SSBO read)
+    vao_[i].bind(); // ring LOD mesh + ring instance buffer (no SSBO read)
     gl->glBindBuffer(GL_DRAW_INDIRECT_BUFFER, indirect_[i]);
     gl->glDrawArraysIndirect(GL_TRIANGLES, nullptr);
     vao_[i].release();
@@ -641,4 +654,4 @@ void GpuGrass::render(QOpenGLExtraFunctions* gl, const QMatrix4x4& proj,
   draw_.release();
 }
 
-}  // namespace vsim
+} // namespace vsim

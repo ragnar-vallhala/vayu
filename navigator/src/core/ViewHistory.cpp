@@ -12,7 +12,7 @@ void ViewHistory::setDepth(int n) {
 
 void ViewHistory::visit(int viewId) {
   if (!m_mru.isEmpty() && m_mru.front() == viewId)
-    return;  // re-visiting the current view collapses
+    return; // re-visiting the current view collapses
   m_mru.removeAll(viewId);
   m_mru.prepend(viewId);
   while (m_mru.size() > m_depth)

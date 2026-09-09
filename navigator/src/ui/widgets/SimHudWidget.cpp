@@ -10,29 +10,29 @@
 #include <algorithm>
 #include <cmath>
 
-SimHudWidget::SimHudWidget(QWidget* parent) : QWidget(parent) {
+SimHudWidget::SimHudWidget(QWidget *parent) : QWidget(parent) {
   setAttribute(Qt::WA_TransparentForMouseEvents);
   setAttribute(Qt::WA_NoSystemBackground);
   setAttribute(Qt::WA_TranslucentBackground);
 }
 
-void SimHudWidget::setSnapshot(const vsim::SimSnapshot& s) {
+void SimHudWidget::setSnapshot(const vsim::SimSnapshot &s) {
   // NED aerospace extraction — Qt's getEulerAngles (Y-up) permutes the axes for
   // an NED airframe, which rotated the ladder by the drifting heading.
   vsim::quatToEulerNED(s.att, &roll_, &pitch_, &yaw_);
-  alt_ = -s.pos_w.z();                              // NED z down → altitude up
-  gs_ = std::hypot(s.vel_w.x(), s.vel_w.y());        // ground speed
-  vs_ = -s.vel_w.z();                                // +up
+  alt_ = -s.pos_w.z();                        // NED z down → altitude up
+  gs_ = std::hypot(s.vel_w.x(), s.vel_w.y()); // ground speed
+  vs_ = -s.vel_w.z();                         // +up
   motor_ = s.motor_duty;
   update();
 }
 
-void SimHudWidget::setStatus(const QString& s) {
+void SimHudWidget::setStatus(const QString &s) {
   status_ = s;
   update();
 }
 
-void SimHudWidget::setFlightMode(const QString& m) {
+void SimHudWidget::setFlightMode(const QString &m) {
   mode_ = m;
   update();
 }
@@ -40,16 +40,19 @@ void SimHudWidget::setFlightMode(const QString& m) {
 void SimHudWidget::setImu(const float acc[3], const float gyr[3]) {
   for (int i = 0; i < 3; ++i) {
     accHist_[i].append(acc[i]);
-    if (accHist_[i].size() > kHistN) accHist_[i].removeFirst();
+    if (accHist_[i].size() > kHistN)
+      accHist_[i].removeFirst();
     gyrHist_[i].append(gyr[i]);
-    if (gyrHist_[i].size() > kHistN) gyrHist_[i].removeFirst();
+    if (gyrHist_[i].size() > kHistN)
+      gyrHist_[i].removeFirst();
   }
   update();
 }
 
-void SimHudWidget::paintEvent(QPaintEvent*) {
+void SimHudWidget::paintEvent(QPaintEvent *) {
   const int W = width(), H = height();
-  if (W < 80 || H < 80) return;
+  if (W < 80 || H < 80)
+    return;
 
   QPainter p(this);
   p.setRenderHint(QPainter::Antialiasing, true);
@@ -61,7 +64,7 @@ void SimHudWidget::paintEvent(QPaintEvent*) {
   font.setBold(true);
   p.setFont(font);
 
-  auto pen = [&](const QColor& col, double w, Qt::PenStyle st = Qt::SolidLine) {
+  auto pen = [&](const QColor &col, double w, Qt::PenStyle st = Qt::SolidLine) {
     QPen q(col);
     q.setWidthF(w);
     q.setStyle(st);
@@ -78,7 +81,7 @@ void SimHudWidget::paintEvent(QPaintEvent*) {
     p.setClipRect(QRectF(sideMargin, 0, W - 2 * sideMargin, H));
     p.translate(c);
     p.rotate(-roll_);
-    const double ppd = H / 45.0;          // px per pitch degree
+    const double ppd = H / 45.0; // px per pitch degree
     p.translate(0, pitch_ * ppd);
     pen(hud, 2.0);
     // Keep the horizon clear of the side speed/altitude tapes.
@@ -86,9 +89,11 @@ void SimHudWidget::paintEvent(QPaintEvent*) {
     p.drawLine(QPointF(-hl, 0), QPointF(-W * 0.05, 0));
     p.drawLine(QPointF(W * 0.05, 0), QPointF(hl, 0));
     for (int a = -90; a <= 90; a += 10) {
-      if (a == 0) continue;
+      if (a == 0)
+        continue;
       const double y = -a * ppd;
-      if (std::abs(y) > H * 0.55) continue;
+      if (std::abs(y) > H * 0.55)
+        continue;
       const double half = (a % 20 == 0) ? W * 0.10 : W * 0.06;
       pen(dim, 1.3, a < 0 ? Qt::DashLine : Qt::SolidLine);
       p.drawLine(QPointF(-half, y), QPointF(-W * 0.03, y));
@@ -115,7 +120,8 @@ void SimHudWidget::paintEvent(QPaintEvent*) {
   {
     const double R = qMin(W, H) * 0.34;
     pen(dim, 1.4);
-    p.drawArc(QRectF(c.x() - R, c.y() - R, 2 * R, 2 * R), (90 - 60) * 16, 120 * 16);
+    p.drawArc(QRectF(c.x() - R, c.y() - R, 2 * R, 2 * R), (90 - 60) * 16,
+              120 * 16);
     pen(hud, 1.4);
     for (int a : {-60, -45, -30, -20, -10, 0, 10, 20, 30, 45, 60}) {
       const double sn = std::sin(qDegreesToRadians((double)a));
@@ -145,18 +151,21 @@ void SimHudWidget::paintEvent(QPaintEvent*) {
     const int base = (int)std::floor(hdg) - 45;
     for (int iv = base; iv <= base + 90; ++iv) {
       const int h = ((iv % 360) + 360) % 360;
-      if (h % 5) continue;
+      if (h % 5)
+        continue;
       const double x = c.x() + (iv - hdg) * ppd;
       if (h % 10 == 0) {
         pen(hud, 1.3);
         p.drawLine(QPointF(x, ty), QPointF(x, ty + 9));
-        QString lbl = h == 0     ? "N"
-                      : h == 90  ? "E"
-                      : h == 180 ? "S"
-                      : h == 270 ? "W"
-                      : (h % 30 == 0) ? QString::number(h) : QString();
+        QString lbl = h == 0          ? "N"
+                      : h == 90       ? "E"
+                      : h == 180      ? "S"
+                      : h == 270      ? "W"
+                      : (h % 30 == 0) ? QString::number(h)
+                                      : QString();
         if (!lbl.isEmpty())
-          p.drawText(QRectF(x - 16, ty + 10, 32, 14), Qt::AlignHCenter | Qt::AlignTop, lbl);
+          p.drawText(QRectF(x - 16, ty + 10, 32, 14),
+                     Qt::AlignHCenter | Qt::AlignTop, lbl);
       } else {
         pen(dim, 1.1);
         p.drawLine(QPointF(x, ty), QPointF(x, ty + 5));
@@ -166,7 +175,8 @@ void SimHudWidget::paintEvent(QPaintEvent*) {
     // caret + numeric heading box
     pen(hud, 1.4);
     QPolygonF car;
-    car << QPointF(c.x(), ty + 11) << QPointF(c.x() - 6, ty + 2) << QPointF(c.x() + 6, ty + 2);
+    car << QPointF(c.x(), ty + 11) << QPointF(c.x() - 6, ty + 2)
+        << QPointF(c.x() + 6, ty + 2);
     p.setBrush(hud);
     p.drawPolygon(car);
     p.setBrush(Qt::NoBrush);
@@ -178,7 +188,7 @@ void SimHudWidget::paintEvent(QPaintEvent*) {
 
   // vertical tape helper: side = -1 left (value increases up), +1 right.
   auto tape = [&](double x, int side, double value, double ppu, int majorEvery,
-                  const QString& title, int decimals) {
+                  const QString &title, int decimals) {
     const double top = H * 0.20, bot = H * 0.80, mid = (top + bot) / 2;
     p.save();
     p.setClipRect(QRectF(x - 60, top - 2, 120, bot - top + 4));
@@ -188,14 +198,16 @@ void SimHudWidget::paintEvent(QPaintEvent*) {
     const int hi = (int)std::ceil(value + (bot - mid) / ppu) + 1;
     for (int v = lo; v <= hi; ++v) {
       const double y = mid - (v - value) * ppu;
-      if (y < top || y > bot) continue;
+      if (y < top || y > bot)
+        continue;
       const bool major = (v % majorEvery == 0);
       const double len = major ? 12 : 6;
       pen(major ? hud : dim, major ? 1.3 : 1.0);
       p.drawLine(QPointF(x, y), QPointF(x + side * len, y));
       if (major && v >= 0)
         p.drawText(QRectF(x + side * 16 - (side < 0 ? 44 : 0), y - 7, 44, 14),
-                   (side < 0 ? Qt::AlignRight : Qt::AlignLeft) | Qt::AlignVCenter,
+                   (side < 0 ? Qt::AlignRight : Qt::AlignLeft) |
+                       Qt::AlignVCenter,
                    QString::number(v));
     }
     p.restore();
@@ -206,7 +218,8 @@ void SimHudWidget::paintEvent(QPaintEvent*) {
     p.drawRect(vb);
     p.drawText(vb, Qt::AlignCenter, QString::number(value, 'f', decimals));
     QPolygonF ptr;
-    ptr << QPointF(x, mid) << QPointF(x + side * 8, mid - 6) << QPointF(x + side * 8, mid + 6);
+    ptr << QPointF(x, mid) << QPointF(x + side * 8, mid - 6)
+        << QPointF(x + side * 8, mid + 6);
     p.setBrush(hud);
     p.drawPolygon(ptr);
     p.setBrush(Qt::NoBrush);
@@ -216,9 +229,9 @@ void SimHudWidget::paintEvent(QPaintEvent*) {
   // Units + precision come from Settings ▸ Units & Display (Units:: helper).
   const int dec = Units::decimals();
   tape(60.0, -1, Units::toSpeed(gs_), 12.0, 5,
-       tr("SPD ") + Units::speedSuffix(), dec);           // left: ground speed
+       tr("SPD ") + Units::speedSuffix(), dec); // left: ground speed
   tape(W - 60.0, +1, Units::toAltitude(alt_), 14.0, 5,
-       tr("ALT ") + Units::altSuffix(), dec);             // right: altitude
+       tr("ALT ") + Units::altSuffix(), dec); // right: altitude
 
   // vertical speed under the altitude box
   pen(vs_ >= 0 ? hud : warn, 1.2);
@@ -243,8 +256,8 @@ void SimHudWidget::paintEvent(QPaintEvent*) {
   // ===== system status (top-left) =====
   {
     const QString st = status_.isEmpty() ? tr("—") : status_;
-    const bool danger =
-        st.contains("FAILSAFE") || st.contains("ARMED") || st.contains("IN_AIR");
+    const bool danger = st.contains("FAILSAFE") || st.contains("ARMED") ||
+                        st.contains("IN_AIR");
     const QColor scol = danger ? warn : hud;
     const QString label = tr("STATE ") + st;
     const QFontMetrics fm(font);
@@ -269,8 +282,9 @@ void SimHudWidget::paintEvent(QPaintEvent*) {
 
   // ===== accel / gyro mini-plots (bottom-right) =====
   {
-    auto plot = [&](const QRectF& r, const QString& title,
-                    const std::array<QVector<float>, 3>& hist, double minRange) {
+    auto plot = [&](const QRectF &r, const QString &title,
+                    const std::array<QVector<float>, 3> &hist,
+                    double minRange) {
       p.fillRect(r, box);
       pen(dim, 1.0);
       p.drawRect(r);
@@ -278,7 +292,8 @@ void SimHudWidget::paintEvent(QPaintEvent*) {
       // shows a readable trace.
       double mx = minRange;
       for (int i = 0; i < 3; ++i)
-        for (float v : hist[i]) mx = std::max(mx, (double)std::abs(v));
+        for (float v : hist[i])
+          mx = std::max(mx, (double)std::abs(v));
       const double midY = r.y() + r.height() * 0.58;
       const double plotH = r.height() * 0.38;
       pen(dim, 0.8, Qt::DotLine);
@@ -286,11 +301,13 @@ void SimHudWidget::paintEvent(QPaintEvent*) {
       const QColor axc[3] = {QColor(255, 95, 95), QColor(90, 255, 160),
                              QColor(90, 180, 255)};
       for (int i = 0; i < 3; ++i) {
-        const QVector<float>& h = hist[i];
-        if (h.size() < 2) continue;
+        const QVector<float> &h = hist[i];
+        if (h.size() < 2)
+          continue;
         QPolygonF poly;
         for (int k = 0; k < h.size(); ++k) {
-          const double x = r.x() + 4 + (r.width() - 8) * (double)k / (kHistN - 1);
+          const double x =
+              r.x() + 4 + (r.width() - 8) * (double)k / (kHistN - 1);
           const double y =
               midY - std::clamp((double)h[k] / mx, -1.0, 1.0) * plotH;
           poly << QPointF(x, y);
@@ -302,7 +319,8 @@ void SimHudWidget::paintEvent(QPaintEvent*) {
       p.drawText(QRectF(r.x() + 4, r.y() + 1, r.width() - 8, 12), Qt::AlignLeft,
                  title);
       pen(dim, 1.0);
-      p.drawText(QRectF(r.x() + 4, r.y() + 1, r.width() - 8, 12), Qt::AlignRight,
+      p.drawText(QRectF(r.x() + 4, r.y() + 1, r.width() - 8, 12),
+                 Qt::AlignRight,
                  QString::fromUtf8("±%1").arg(mx, 0, 'f', mx < 10 ? 1 : 0));
     };
     const double pw = 210, ph = 46, px = W - pw - 14;

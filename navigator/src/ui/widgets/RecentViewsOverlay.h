@@ -27,7 +27,7 @@ public:
   void startCycle(int startIndex = 1);
 
 signals:
-  void activated(int viewId);  // committed selection
+  void activated(int viewId); // committed selection
   void cancelled();
 
 protected:

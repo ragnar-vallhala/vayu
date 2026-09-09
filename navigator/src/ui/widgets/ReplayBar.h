@@ -90,8 +90,8 @@ class ReplayBar : public QWidget {
 public:
   explicit ReplayBar(QWidget *parent = nullptr);
 
-  void bind(ReplaySource *src);          // nullptr unbinds
-  void setLogName(const QString &name);  // shown in the overview row
+  void bind(ReplaySource *src);         // nullptr unbinds
+  void setLogName(const QString &name); // shown in the overview row
 
 signals:
   void exitRequested();
@@ -103,7 +103,7 @@ private:
   void step(qint64 deltaUs);
   void updatePlayIcon();
   void updateTimeLabels();
-  static QString fmt(qint64 us);  // HH:MM:SS, HH stripped under 60 min
+  static QString fmt(qint64 us); // HH:MM:SS, HH stripped under 60 min
 
   ReplaySource *m_src = nullptr;
   QPushButton *m_toStart = nullptr;
@@ -113,7 +113,7 @@ private:
   QPushButton *m_toEnd = nullptr;
   QPushButton *m_exit = nullptr;
   QComboBox *m_speed = nullptr;
-  QComboBox *m_mode = nullptr;  // Play once / Loop
+  QComboBox *m_mode = nullptr; // Play once / Loop
   PlaybackScrub *m_play_scrub = nullptr;
   CropScrub *m_crop_scrub = nullptr;
   QLabel *m_curTime = nullptr;
@@ -124,7 +124,7 @@ private:
   QShortcut *m_scPlay = nullptr;
   QShortcut *m_scBack = nullptr;
   QShortcut *m_scFwd = nullptr;
-  QIcon m_playIcon;   // ▶ — shown while paused
-  QIcon m_pauseIcon;  // ⏸ — shown while playing
+  QIcon m_playIcon;  // ▶ — shown while paused
+  QIcon m_pauseIcon; // ⏸ — shown while playing
   bool m_scrubbing = false;
 };

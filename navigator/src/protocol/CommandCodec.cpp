@@ -1,7 +1,7 @@
 #include "CommandCodec.h"
 
 extern "C" {
-#include "navlink_msgs.h"  // NavLink v2 generated codec
+#include "navlink_msgs.h" // NavLink v2 generated codec
 }
 
 // Every command is now a typed NavLink v2 frame. Each encoder mirrors the
@@ -18,7 +18,7 @@ uint8_t nextSeq() {
 QByteArray frame(const uint8_t *buf, size_t n) {
   return QByteArray(reinterpret_cast<const char *>(buf), static_cast<int>(n));
 }
-}  // namespace
+} // namespace
 
 QByteArray encodeSetPid(int controller, int axis, float kp, float ki, float kd,
                         float kff, quint8 devId, quint32 tsMs) {
@@ -77,7 +77,7 @@ QByteArray encodeSetFlightMode(int mode, quint8 devId, quint32 tsMs) {
   m.target_comp = 1;
   m.req_seq = nextSeq();
   m.mode = static_cast<uint8_t>(mode);
-  m.source = 1;  // mode_source GCS
+  m.source = 1; // mode_source GCS
   uint8_t buf[NAVLINK_MAX_FRAME];
   size_t n = navlink_cmd_set_flight_mode_encode(buf, &m, m.req_seq, 0xFF, 1);
   return frame(buf, n);
@@ -139,11 +139,11 @@ QByteArray encodeCalibrate(quint8 which, quint8 devId) {
   return frame(buf, n);
 }
 
-QByteArray encodeTimeSyncRequest(quint8 seq, quint64 t1, qint32 commandedOffsetMs,
-                                 quint8 devId) {
+QByteArray encodeTimeSyncRequest(quint8 seq, quint64 t1,
+                                 qint32 commandedOffsetMs, quint8 devId) {
   Q_UNUSED(devId);
   navlink_time_sync_t m{};
-  m.role = 0;  // REQUEST
+  m.role = 0; // REQUEST
   m.seq = seq;
   m.t1_gcs_tx = t1;
   m.t2_fc_rx = 0;
@@ -158,7 +158,7 @@ QByteArray encodeTimeSyncRequestWide(quint8 seq, quint64 t1,
                                      qint64 commandedOffsetMs, quint8 devId) {
   Q_UNUSED(devId);
   navlink_time_sync_t m{};
-  m.role = 2;  // REQUEST_WIDE
+  m.role = 2; // REQUEST_WIDE
   m.seq = seq;
   m.t1_gcs_tx = t1;
   m.t2_fc_rx = 0;
@@ -184,4 +184,4 @@ QByteArray encodeTaskNameRequest(int taskId, quint8 devId, quint32 tsMs) {
   return frame(buf, n);
 }
 
-}  // namespace CommandCodec
+} // namespace CommandCodec

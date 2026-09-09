@@ -30,16 +30,16 @@ class RealTimeGraph;
 namespace CsvExport {
 
 struct GraphSource {
-  const RealTimeGraph* graph;
-  QStringList headers;  // one per series in this graph; missing names → series_N
+  const RealTimeGraph *graph;
+  QStringList headers; // one per series in this graph; missing names → series_N
 };
 
-int writeCombined(QTextStream& out, const QList<GraphSource>& sources);
+int writeCombined(QTextStream &out, const QList<GraphSource> &sources);
 
 // UI-side convenience. `defaultName` is the suggested filename (no
 // directory — the dialog picks one). Returns the absolute path
 // written, or empty if the user cancelled or the write failed.
-QString promptAndWriteCombined(QWidget* parent, const QString& defaultName,
-                               const QList<GraphSource>& sources);
+QString promptAndWriteCombined(QWidget *parent, const QString &defaultName,
+                               const QList<GraphSource> &sources);
 
-}  // namespace CsvExport
+} // namespace CsvExport

@@ -11,9 +11,9 @@
 namespace vsim {
 
 struct MassProperties {
-  float volume = 0.0f;          // m^3 (of the tessellated solid)
-  float mass = 0.0f;            // kg (== requested target mass)
-  QVector3D com{0, 0, 0};       // center of mass, body frame [m]
+  float volume = 0.0f;    // m^3 (of the tessellated solid)
+  float mass = 0.0f;      // kg (== requested target mass)
+  QVector3D com{0, 0, 0}; // center of mass, body frame [m]
 
   // Inertia tensor about the CoM, body frame [kg*m^2]. Six unique
   // entries of the symmetric matrix; off-diagonals are the products of
@@ -30,7 +30,7 @@ struct MassProperties {
 // Winding is auto-corrected: an inside-out mesh still yields a positive
 // volume and a correct tensor. Returns {valid=false} for empty/degenerate
 // input (zero volume).
-MassProperties computeMassProperties(const std::vector<QVector3D>& positions,
+MassProperties computeMassProperties(const std::vector<QVector3D> &positions,
                                      float targetMass);
 
-}  // namespace vsim
+} // namespace vsim

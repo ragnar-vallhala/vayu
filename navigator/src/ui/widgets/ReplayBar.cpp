@@ -20,10 +20,10 @@ const QColor kWarn(209, 154, 102);
 const QColor kBase(19, 20, 27);
 const QColor kBorder(42, 51, 71);
 const QColor kHandleEdge(207, 227, 255);
-const QColor kCropBand(97, 175, 239, 46);  // rgba(accent, .18)
+const QColor kCropBand(97, 175, 239, 46); // rgba(accent, .18)
 
-constexpr int kMargin = 7;             // keeps edge handles/knob fully on-widget
-constexpr qint64 kStepUs = 5'000'000;  // ←/→ and step buttons jump 5 s
+constexpr int kMargin = 7;            // keeps edge handles/knob fully on-widget
+constexpr qint64 kStepUs = 5'000'000; // ←/→ and step buttons jump 5 s
 
 int lerpX(int left, int right, double f) {
   return left + int(qBound(0.0, f, 1.0) * (right - left));
@@ -36,7 +36,7 @@ enum class Glyph { ToStart, Back, Play, Pause, Fwd, ToEnd };
 
 QIcon mediaIcon(Glyph g, const QColor &c) {
   constexpr int S = 64;
-  constexpr qreal cy = S / 2.0, top = 18, bot = 46;  // 28 px tall, centred
+  constexpr qreal cy = S / 2.0, top = 18, bot = 46; // 28 px tall, centred
   QPixmap pm(S, S);
   pm.fill(Qt::transparent);
   QPainter p(&pm);
@@ -44,25 +44,46 @@ QIcon mediaIcon(Glyph g, const QColor &c) {
   p.setPen(Qt::NoPen);
   p.setBrush(c);
 
-  auto rtri = [&](qreal x) {  // right-pointing triangle, apex at x+15
+  auto rtri = [&](qreal x) { // right-pointing triangle, apex at x+15
     p.drawPolygon(QPolygonF{{x, top}, {x, bot}, {x + 15, cy}});
   };
-  auto ltri = [&](qreal x) {  // left-pointing triangle, apex at x-15
+  auto ltri = [&](qreal x) { // left-pointing triangle, apex at x-15
     p.drawPolygon(QPolygonF{{x, top}, {x, bot}, {x - 15, cy}});
   };
-  auto bar = [&](qreal x) { p.drawRoundedRect(QRectF(x, top, 6, bot - top), 1, 1); };
+  auto bar = [&](qreal x) {
+    p.drawRoundedRect(QRectF(x, top, 6, bot - top), 1, 1);
+  };
 
   switch (g) {
-    case Glyph::Play:    rtri(24); break;
-    case Glyph::Pause:   bar(24); bar(34); break;
-    case Glyph::Back:    ltri(33); ltri(47); break;
-    case Glyph::Fwd:     rtri(18); rtri(32); break;
-    case Glyph::ToStart: bar(14); ltri(38); ltri(52); break;
-    case Glyph::ToEnd:   rtri(12); rtri(26); bar(44); break;
+  case Glyph::Play:
+    rtri(24);
+    break;
+  case Glyph::Pause:
+    bar(24);
+    bar(34);
+    break;
+  case Glyph::Back:
+    ltri(33);
+    ltri(47);
+    break;
+  case Glyph::Fwd:
+    rtri(18);
+    rtri(32);
+    break;
+  case Glyph::ToStart:
+    bar(14);
+    ltri(38);
+    ltri(52);
+    break;
+  case Glyph::ToEnd:
+    rtri(12);
+    rtri(26);
+    bar(44);
+    break;
   }
   return QIcon(pm);
 }
-}  // namespace
+} // namespace
 
 // ===========================================================================
 // PlaybackScrub — row 1, zoomed to the crop window
@@ -90,9 +111,10 @@ int PlaybackScrub::xForPos() const {
 
 qint64 PlaybackScrub::usForX(int x) const {
   const int span = width() - 2 * kMargin;
-  if (span <= 0) return m_t0;
-  const double f = double(qBound(kMargin, x, width() - kMargin) - kMargin) /
-                   double(span);
+  if (span <= 0)
+    return m_t0;
+  const double f =
+      double(qBound(kMargin, x, width() - kMargin) - kMargin) / double(span);
   return m_t0 + qint64(f * double(m_t1 - m_t0));
 }
 
@@ -103,14 +125,16 @@ void PlaybackScrub::seekTo(int x) {
 }
 
 void PlaybackScrub::mousePressEvent(QMouseEvent *e) {
-  if (e->button() != Qt::LeftButton) return;
+  if (e->button() != Qt::LeftButton)
+    return;
   m_drag = true;
   emit scrubbingChanged(true);
   seekTo(int(e->position().x()));
 }
 
 void PlaybackScrub::mouseMoveEvent(QMouseEvent *e) {
-  if (m_drag) seekTo(int(e->position().x()));
+  if (m_drag)
+    seekTo(int(e->position().x()));
 }
 
 void PlaybackScrub::mouseReleaseEvent(QMouseEvent *) {
@@ -133,7 +157,8 @@ void PlaybackScrub::paintEvent(QPaintEvent *) {
   const int xk = xForPos();
   p.setPen(Qt::NoPen);
   p.setBrush(kWarn);
-  p.drawRoundedRect(QRect(kMargin, cy - th / 2, qMax(0, xk - kMargin), th), 2, 2);
+  p.drawRoundedRect(QRect(kMargin, cy - th / 2, qMax(0, xk - kMargin), th), 2,
+                    2);
 
   // Round white knob at the playhead.
   p.setBrush(Qt::white);
@@ -165,36 +190,42 @@ void CropScrub::setPosition(qint64 us) {
 }
 
 int CropScrub::xForUs(qint64 us) const {
-  const double f = m_dur > 0 ? double(qBound<qint64>(0, us, m_dur)) / m_dur : 0.0;
+  const double f =
+      m_dur > 0 ? double(qBound<qint64>(0, us, m_dur)) / m_dur : 0.0;
   return lerpX(kMargin, width() - kMargin, f);
 }
 
 qint64 CropScrub::usForX(int x) const {
   const int span = width() - 2 * kMargin;
-  if (m_dur <= 0 || span <= 0) return 0;
-  const double f = double(qBound(kMargin, x, width() - kMargin) - kMargin) /
-                   double(span);
+  if (m_dur <= 0 || span <= 0)
+    return 0;
+  const double f =
+      double(qBound(kMargin, x, width() - kMargin) - kMargin) / double(span);
   return qint64(f * m_dur);
 }
 
 CropScrub::Grab CropScrub::hitTest(int x) const {
   const int xs = xForUs(m_t0), xe = xForUs(m_t1);
   const int tol = 7, ds = qAbs(x - xs), de = qAbs(x - xe);
-  if (ds <= tol && ds <= de) return Grab::Start;
-  if (de <= tol) return Grab::End;
+  if (ds <= tol && ds <= de)
+    return Grab::Start;
+  if (de <= tol)
+    return Grab::End;
   return Grab::Seek;
 }
 
 void CropScrub::mousePressEvent(QMouseEvent *e) {
-  if (e->button() != Qt::LeftButton || m_dur <= 0) return;
+  if (e->button() != Qt::LeftButton || m_dur <= 0)
+    return;
   m_grab = hitTest(int(e->position().x()));
-  if (m_grab == Grab::Seek) emit scrubbingChanged(true);
+  if (m_grab == Grab::Seek)
+    emit scrubbingChanged(true);
   mouseMoveEvent(e);
 }
 
 void CropScrub::mouseMoveEvent(QMouseEvent *e) {
   const int x = int(e->position().x());
-  if (m_grab == Grab::None) {  // hover feedback
+  if (m_grab == Grab::None) { // hover feedback
     setCursor(hitTest(x) == Grab::Seek ? Qt::PointingHandCursor
                                        : Qt::SplitHCursor);
     return;
@@ -209,7 +240,7 @@ void CropScrub::mouseMoveEvent(QMouseEvent *e) {
     m_t1 = qBound<qint64>(m_t0 + minGap, t, m_dur);
     update();
     emit cropChanged(m_t0, m_t1);
-  } else {  // Seek
+  } else { // Seek
     m_pos = qBound(m_t0, t, m_t1);
     update();
     emit scrubbed(m_pos);
@@ -217,7 +248,8 @@ void CropScrub::mouseMoveEvent(QMouseEvent *e) {
 }
 
 void CropScrub::mouseReleaseEvent(QMouseEvent *) {
-  if (m_grab == Grab::Seek) emit scrubbingChanged(false);
+  if (m_grab == Grab::Seek)
+    emit scrubbingChanged(false);
   m_grab = Grab::None;
 }
 
@@ -233,7 +265,8 @@ void CropScrub::paintEvent(QPaintEvent *) {
   p.setPen(QPen(kBorder, 1));
   p.setBrush(kBase);
   p.drawRoundedRect(track, 3, 3);
-  if (m_dur <= 0) return;
+  if (m_dur <= 0)
+    return;
 
   const int xs = xForUs(m_t0), xe = xForUs(m_t1), xp = xForUs(m_pos);
 
@@ -283,7 +316,7 @@ ReplayBar::ReplayBar(QWidget *parent) : QWidget(parent) {
   m_play = new QPushButton(this);
   m_fwd = new QPushButton(this);
   m_toEnd = new QPushButton(this);
-  m_play->setObjectName("rpPlay");  // stable handle for tests (icon, no text)
+  m_play->setObjectName("rpPlay"); // stable handle for tests (icon, no text)
   m_toStart->setToolTip(tr("Skip to crop start"));
   m_back->setToolTip(tr("Step back 5 s (←)"));
   m_play->setToolTip(tr("Play / Pause (Space)"));
@@ -291,7 +324,7 @@ ReplayBar::ReplayBar(QWidget *parent) : QWidget(parent) {
   m_toEnd->setToolTip(tr("Skip to crop end"));
 
   // Vector glyphs (font-independent, vertically centred). Play uses the accent.
-  const QColor glyph(0xAB, 0xB2, 0xBF);  // matches the toolbar's muted text
+  const QColor glyph(0xAB, 0xB2, 0xBF); // matches the toolbar's muted text
   m_playIcon = mediaIcon(Glyph::Play, kAccent);
   m_pauseIcon = mediaIcon(Glyph::Pause, kAccent);
   m_toStart->setIcon(mediaIcon(Glyph::ToStart, glyph));
@@ -317,7 +350,7 @@ ReplayBar::ReplayBar(QWidget *parent) : QWidget(parent) {
   m_speed = new QComboBox(this);
   for (double x : {0.25, 0.5, 1.0, 2.0, 4.0})
     m_speed->addItem(QString::number(x) + "x", x);
-  m_speed->setCurrentIndex(2);  // 1.0x
+  m_speed->setCurrentIndex(2); // 1.0x
   r1->addWidget(m_speed);
 
   m_mode = new QComboBox(this);
@@ -348,7 +381,8 @@ ReplayBar::ReplayBar(QWidget *parent) : QWidget(parent) {
   m_scPlay = new QShortcut(QKeySequence(Qt::Key_Space), this);
   m_scBack = new QShortcut(QKeySequence(Qt::Key_Left), this);
   m_scFwd = new QShortcut(QKeySequence(Qt::Key_Right), this);
-  for (auto *s : {m_scPlay, m_scBack, m_scFwd}) s->setContext(Qt::WindowShortcut);
+  for (auto *s : {m_scPlay, m_scBack, m_scFwd})
+    s->setContext(Qt::WindowShortcut);
   connect(m_scPlay, &QShortcut::activated, this, &ReplayBar::togglePlay);
   connect(m_scBack, &QShortcut::activated, this, [this] { step(-kStepUs); });
   connect(m_scFwd, &QShortcut::activated, this, [this] { step(kStepUs); });
@@ -358,24 +392,29 @@ ReplayBar::ReplayBar(QWidget *parent) : QWidget(parent) {
   connect(m_back, &QPushButton::clicked, this, [this] { step(-kStepUs); });
   connect(m_fwd, &QPushButton::clicked, this, [this] { step(kStepUs); });
   connect(m_toStart, &QPushButton::clicked, this, [this] {
-    if (m_src) m_src->seek(m_src->rangeStart());
+    if (m_src)
+      m_src->seek(m_src->rangeStart());
   });
   connect(m_toEnd, &QPushButton::clicked, this, [this] {
-    if (m_src) m_src->seek(m_src->rangeEnd());
+    if (m_src)
+      m_src->seek(m_src->rangeEnd());
   });
   connect(m_exit, &QPushButton::clicked, this, &ReplayBar::exitRequested);
   connect(m_speed, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
           [this](int) {
-            if (m_src) m_src->setSpeed(m_speed->currentData().toDouble());
+            if (m_src)
+              m_src->setSpeed(m_speed->currentData().toDouble());
           });
   connect(m_mode, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
           [this](int) {
-            if (m_src) m_src->setLoop(m_mode->currentData().toBool());
+            if (m_src)
+              m_src->setLoop(m_mode->currentData().toBool());
           });
 
   // Playback knob (row 1) — fine scrub within the crop.
   connect(m_play_scrub, &PlaybackScrub::scrubbed, this, [this](qint64 us) {
-    if (m_src) m_src->seek(us);
+    if (m_src)
+      m_src->seek(us);
   });
   connect(m_play_scrub, &PlaybackScrub::scrubbingChanged, this,
           [this](bool on) { m_scrubbing = on; });
@@ -383,29 +422,31 @@ ReplayBar::ReplayBar(QWidget *parent) : QWidget(parent) {
   // Crop overview (row 2) — handles re-crop, track clicks seek.
   connect(m_crop_scrub, &CropScrub::cropChanged, this,
           [this](qint64 a, qint64 b) {
-            if (m_src) m_src->setRange(a, b);
+            if (m_src)
+              m_src->setRange(a, b);
             m_play_scrub->setCrop(a, b);
             updateTimeLabels();
           });
   connect(m_crop_scrub, &CropScrub::scrubbed, this, [this](qint64 us) {
-    if (m_src) m_src->seek(us);
+    if (m_src)
+      m_src->seek(us);
   });
   connect(m_crop_scrub, &CropScrub::scrubbingChanged, this,
           [this](bool on) { m_scrubbing = on; });
 }
 
-void ReplayBar::setLogName(const QString &name) {
-  m_fileLabel->setText(name);
-}
+void ReplayBar::setLogName(const QString &name) { m_fileLabel->setText(name); }
 
 void ReplayBar::bind(ReplaySource *src) {
-  if (m_src) m_src->disconnect(this);
+  if (m_src)
+    m_src->disconnect(this);
   m_src = src;
   const bool on = (m_src != nullptr);
   m_scPlay->setEnabled(on);
   m_scBack->setEnabled(on);
   m_scFwd->setEnabled(on);
-  if (!m_src) return;
+  if (!m_src)
+    return;
   connect(m_src, &ReplaySource::positionChanged, this, &ReplayBar::onPosition);
   connect(m_src, &ReplaySource::finished, this, [this] { updatePlayIcon(); });
   syncFromSource();
@@ -422,14 +463,18 @@ void ReplayBar::syncFromSource() {
 }
 
 void ReplayBar::togglePlay() {
-  if (!m_src) return;
-  if (m_src->isPlaying()) m_src->pause();
-  else m_src->play();
+  if (!m_src)
+    return;
+  if (m_src->isPlaying())
+    m_src->pause();
+  else
+    m_src->play();
   updatePlayIcon();
 }
 
 void ReplayBar::step(qint64 deltaUs) {
-  if (m_src) m_src->seek(m_src->positionUs() + deltaUs);
+  if (m_src)
+    m_src->seek(m_src->positionUs() + deltaUs);
 }
 
 void ReplayBar::updatePlayIcon() {
@@ -437,7 +482,8 @@ void ReplayBar::updatePlayIcon() {
 }
 
 void ReplayBar::updateTimeLabels() {
-  if (!m_src) return;
+  if (!m_src)
+    return;
   m_curTime->setText(fmt(m_src->positionUs()));
   m_cropStartTime->setText(fmt(m_src->rangeStart()));
   m_cropEndTime->setText(fmt(m_src->rangeEnd()));

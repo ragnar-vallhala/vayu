@@ -22,8 +22,8 @@ void TstAutotuneEngine::spaceLayout() {
   QCOMPARE(QString::fromStdString(s.names().front()), QString("rate_kp"));
   QCOMPARE(QString::fromStdString(s.names().back()), QString("gyro_lpf"));
   const auto b = s.bounds();
-  QCOMPARE(b.front().first, 0.0005);  // rate_kp lo
-  QCOMPARE(b.front().second, 0.012);  // rate_kp hi
+  QCOMPARE(b.front().first, 0.0005); // rate_kp lo
+  QCOMPARE(b.front().second, 0.012); // rate_kp hi
   QCOMPARE(s.seed().front(), 0.007);
 
   autotune::Space y(true);
@@ -57,7 +57,7 @@ void TstAutotuneEngine::runsStreamsAndFinishes() {
   eng.run();
 
   QVERIFY(evalSpy.count() > 0);
-  QVERIFY(evalSpy.count() <= 300);  // never exceeds budget
+  QVERIFY(evalSpy.count() <= 300); // never exceeds budget
   QCOMPARE(finSpy.count(), 1);
 
   const QList<QVariant> fin = finSpy.first();
@@ -68,7 +68,7 @@ void TstAutotuneEngine::runsStreamsAndFinishes() {
   QCOMPARE(names.size(), 5);
   // coordinate descent reaches ~7e-4 normalized cost on this bowl (every gain
   // resolved); the threshold leaves margin without admitting a non-converged run.
-  QVERIFY(bestCost < 0.005);  // converged near the synthetic optimum
+  QVERIFY(bestCost < 0.005); // converged near the synthetic optimum
 }
 
 void TstAutotuneEngine::yawWidensTheSpace() {

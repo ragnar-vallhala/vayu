@@ -11,19 +11,19 @@ class QVBoxLayout;
 // right-hand properties panel.
 class CollapsibleSection : public QWidget {
   Q_OBJECT
- public:
-  explicit CollapsibleSection(const QString& title, QWidget* parent = nullptr,
+public:
+  explicit CollapsibleSection(const QString &title, QWidget *parent = nullptr,
                               bool expanded = true);
 
   // Reparents `content` into the section body.
-  void setContentWidget(QWidget* content);
+  void setContentWidget(QWidget *content);
   void setExpanded(bool on);
   bool isExpanded() const;
 
- private:
+private:
   void updateArrow();
 
-  QToolButton* header_ = nullptr;
-  QWidget* body_ = nullptr;
-  QVBoxLayout* bodyLayout_ = nullptr;
+  QToolButton *header_ = nullptr;
+  QWidget *body_ = nullptr;
+  QVBoxLayout *bodyLayout_ = nullptr;
 };

@@ -28,9 +28,9 @@ signals:
   void applyRequested();
 
 private:
-  void markDirty(QLabel *label);        // yellow the row + enable Apply
-  void clearDirty();                    // reset after Apply / programmatic load
-  void updateTransportDependent();      // UDP ⇒ numeric port + locked baud
+  void markDirty(QLabel *label);   // yellow the row + enable Apply
+  void clearDirty();               // reset after Apply / programmatic load
+  void updateTransportDependent(); // UDP ⇒ numeric port + locked baud
   // Advanced ▸ Settings file / Reset — immediate actions (not staged).
   void importSettings();
   void exportSettings();
@@ -62,20 +62,20 @@ private:
   QSpinBox *m_recentViewsSpin = nullptr;
   QComboBox *m_themeCombo = nullptr;
   // Units & Display.
-  QComboBox *m_unitSystemCombo = nullptr;  // Metric / Imperial (preset)
-  QComboBox *m_angleCombo = nullptr;       // deg / rad
-  QComboBox *m_altCombo = nullptr;         // metres / feet
-  QComboBox *m_speedCombo = nullptr;       // m/s / km/h / mph
-  QSpinBox *m_decimalsSpin = nullptr;      // readout precision
-  QComboBox *m_startupCombo = nullptr;     // last viewed / dashboard / sim
+  QComboBox *m_unitSystemCombo = nullptr; // Metric / Imperial (preset)
+  QComboBox *m_angleCombo = nullptr;      // deg / rad
+  QComboBox *m_altCombo = nullptr;        // metres / feet
+  QComboBox *m_speedCombo = nullptr;      // m/s / km/h / mph
+  QSpinBox *m_decimalsSpin = nullptr;     // readout precision
+  QComboBox *m_startupCombo = nullptr;    // last viewed / dashboard / sim
   QCheckBox *m_restoreLayoutChk = nullptr;
   // Link & Connection defaults.
   QComboBox *m_transportCombo = nullptr;
-  QComboBox *m_portCombo = nullptr;       // serial port (transport = Serial)
-  QSpinBox *m_udpPortSpin = nullptr;      // UDP port number (transport = UDP)
-  QStackedWidget *m_portStack = nullptr;  // swaps the two above
+  QComboBox *m_portCombo = nullptr;      // serial port (transport = Serial)
+  QSpinBox *m_udpPortSpin = nullptr;     // UDP port number (transport = UDP)
+  QStackedWidget *m_portStack = nullptr; // swaps the two above
   QComboBox *m_baudCombo = nullptr;
-  QWidget *m_baudRow = nullptr;           // row container (tooltip when locked)
+  QWidget *m_baudRow = nullptr; // row container (tooltip when locked)
   QDoubleSpinBox *m_reconnectSpin = nullptr;
   QSpinBox *m_linkLossSpin = nullptr;
   // Apply / dirty state.

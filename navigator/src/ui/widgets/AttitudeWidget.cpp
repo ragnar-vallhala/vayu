@@ -17,21 +17,25 @@ namespace {
 constexpr float kSmooth = 0.5f;
 float easeAngle(float cur, float target, float a) {
   float d = target - cur;
-  while (d > 180.0f) d -= 360.0f;
-  while (d < -180.0f) d += 360.0f;
+  while (d > 180.0f)
+    d -= 360.0f;
+  while (d < -180.0f)
+    d += 360.0f;
   cur += d * a;
-  while (cur > 180.0f) cur -= 360.0f;
-  while (cur < -180.0f) cur += 360.0f;
+  while (cur > 180.0f)
+    cur -= 360.0f;
+  while (cur < -180.0f)
+    cur += 360.0f;
   return cur;
 }
-}  // namespace
+} // namespace
 
 AttitudeWidget::AttitudeWidget(QWidget *parent) : QOpenGLWidget(parent) {
   setMinimumSize(260, 260);
   // Smoothing/repaint clock: ease the displayed attitude toward the latest
   // target and repaint at ~30 Hz, decoupled from the (bursty) packet rate.
   m_smoothTimer = new QTimer(this);
-  m_smoothTimer->setInterval(33);  // ~30 fps
+  m_smoothTimer->setInterval(33); // ~30 fps
   connect(m_smoothTimer, &QTimer::timeout, this, [this] {
     m_roll = easeAngle(m_roll, m_targetRoll, kSmooth);
     m_pitch = easeAngle(m_pitch, m_targetPitch, kSmooth);
@@ -66,7 +70,7 @@ void AttitudeWidget::showEvent(QShowEvent *event) {
 
 void AttitudeWidget::hideEvent(QHideEvent *event) {
   QOpenGLWidget::hideEvent(event);
-  m_smoothTimer->stop();  // don't burn CPU / GL while hidden
+  m_smoothTimer->stop(); // don't burn CPU / GL while hidden
 }
 
 void AttitudeWidget::initializeGL() {
@@ -83,8 +87,8 @@ void AttitudeWidget::paintGL() {
   p.setRenderHint(QPainter::Antialiasing);
 
   const int W = width(), H = height();
-  const int tapeH = 26;                        // bottom heading-tape strip
-  const QRectF adi(2, 2, W - 4, H - tapeH - 4);  // horizon viewport
+  const int tapeH = 26;                         // bottom heading-tape strip
+  const QRectF adi(2, 2, W - 4, H - tapeH - 4); // horizon viewport
   const QRectF tape(2, H - tapeH, W - 4, tapeH - 2);
 
   // Horizon + pitch ladder clipped to the rounded ADI viewport.
@@ -108,7 +112,7 @@ void AttitudeWidget::paintGL() {
 
 // ---------------------------------------------------------------------------
 void AttitudeWidget::drawHorizon(QPainter &p, const QRectF &adi) {
-  const double pixPerDeg = adi.height() * 0.012;  // ~ ±40° spans the viewport
+  const double pixPerDeg = adi.height() * 0.012; // ~ ±40° spans the viewport
   const double pitchOffset = m_pitch * pixPerDeg;
   const double cx = adi.center().x(), cy = adi.center().y();
   const double BIG = qMax(adi.width(), adi.height()) * 2.0;
@@ -144,13 +148,16 @@ void AttitudeWidget::drawPitchLadder(QPainter &p, const QRectF &adi) {
   f.setPixelSize(10);
   p.setFont(f);
   for (int deg = -40; deg <= 40; deg += 10) {
-    if (deg == 0) continue;
+    if (deg == 0)
+      continue;
     const double y = pitchOffset - deg * pixPerDeg;
     const double len = (qAbs(deg) % 20 == 0) ? 42 : 24;
     p.drawLine(QPointF(-len, y), QPointF(len, y));
     const QString s = QString::number(qAbs(deg));
-    p.drawText(QRectF(len + 4, y - 7, 26, 14), Qt::AlignLeft | Qt::AlignVCenter, s);
-    p.drawText(QRectF(-len - 30, y - 7, 26, 14), Qt::AlignRight | Qt::AlignVCenter, s);
+    p.drawText(QRectF(len + 4, y - 7, 26, 14), Qt::AlignLeft | Qt::AlignVCenter,
+               s);
+    p.drawText(QRectF(-len - 30, y - 7, 26, 14),
+               Qt::AlignRight | Qt::AlignVCenter, s);
   }
   p.restore();
 }
@@ -164,7 +171,7 @@ void AttitudeWidget::drawRollArc(QPainter &p, const QRectF &adi) {
   p.setPen(QPen(QColor(210, 218, 228), 1.2));
   const int angles[] = {-60, -45, -30, -20, -10, 0, 10, 20, 30, 45, 60};
   for (int a : angles) {
-    const double rad = qDegreesToRadians(-90.0 + a);  // -90 = straight up
+    const double rad = qDegreesToRadians(-90.0 + a); // -90 = straight up
     const bool major = (a == 0 || qAbs(a) == 30 || qAbs(a) == 60);
     const double len = major ? 11 : 6;
     const QPointF o(cx + r * qCos(rad), cy + r * qSin(rad));
@@ -201,7 +208,7 @@ void AttitudeWidget::drawHeadingTape(QPainter &p, const QRectF &tape) {
   p.setClipRect(tape);
   p.fillRect(tape, QColor(0x16, 0x1A, 0x22));
 
-  const double span = 160.0;  // degrees visible across the strip
+  const double span = 160.0; // degrees visible across the strip
   const double pxPerDeg = tape.width() / span;
   const double cx = tape.center().x();
 
@@ -215,18 +222,25 @@ void AttitudeWidget::drawHeadingTape(QPainter &p, const QRectF &tape) {
   const int to = int(m_yaw + span / 2) + 5;
   for (int d = from; d <= to; ++d) {
     int hdg = ((d % 360) + 360) % 360;
-    if (hdg % 5 != 0) continue;
+    if (hdg % 5 != 0)
+      continue;
     const double x = cx + (d - m_yaw) * pxPerDeg;
     const bool major = (hdg % 30 == 0);
     p.setPen(QPen(QColor(0x8A, 0x92, 0xA6), 1));
-    p.drawLine(QPointF(x, tape.top()), QPointF(x, tape.top() + (major ? 7 : 4)));
+    p.drawLine(QPointF(x, tape.top()),
+               QPointF(x, tape.top() + (major ? 7 : 4)));
     if (major) {
       QString lbl;
-      if (hdg == 0) lbl = "N";
-      else if (hdg == 90) lbl = "E";
-      else if (hdg == 180) lbl = "S";
-      else if (hdg == 270) lbl = "W";
-      else lbl = QString::number(hdg);
+      if (hdg == 0)
+        lbl = "N";
+      else if (hdg == 90)
+        lbl = "E";
+      else if (hdg == 180)
+        lbl = "S";
+      else if (hdg == 270)
+        lbl = "W";
+      else
+        lbl = QString::number(hdg);
       p.setPen(QColor(0xCF, 0xD7, 0xE3));
       p.drawText(QRectF(x - 20, tape.top() + 7, 40, tape.height() - 7),
                  Qt::AlignHCenter | Qt::AlignVCenter, lbl);

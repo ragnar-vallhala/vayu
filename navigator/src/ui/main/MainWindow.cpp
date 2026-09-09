@@ -119,14 +119,18 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   // entirely inside the engine now (serial+UDP drained on the worker).
   connect(m_engine, &TelemetryEngine::connectionStateChanged, this,
           [this](bool connected, bool isUdp) {
-            if (isUdp) m_udpOpen = connected;
-            else m_serialOpen = connected;
+            if (isUdp)
+              m_udpOpen = connected;
+            else
+              m_serialOpen = connected;
             onConnectionStateChanged(m_serialOpen || m_udpOpen);
           });
   connect(m_engine, &TelemetryEngine::errorOccurred, this,
           [this](const QString &m, bool isUdp) {
-            if (isUdp) m_logPanel->appendLog("[UDP] " + m);
-            else onSerialError(m);
+            if (isUdp)
+              m_logPanel->appendLog("[UDP] " + m);
+            else
+              onSerialError(m);
           });
   // Async result of openSerial/bindUdp (open() can't return across the thread
   // hop): persist the good setting; release the PortArbiter on serial failure.
@@ -134,7 +138,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
           [this](bool ok, const QString &label, bool isUdp) {
             if (ok) {
               persistPortBaud();
-              if (isUdp) m_logPanel->appendLog("[UDP] listening on " + label);
+              if (isUdp)
+                m_logPanel->appendLog("[UDP] listening on " + label);
             } else {
               // The optimistic Fc transition didn't actually open — demote to
               // Idle (teardownFc releases the PortArbiter + closes the links).
@@ -153,15 +158,15 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
                                          : "[GCS] Export stopped");
             // The engine has opened the file by now — an exported .bin is a
             // replayable log, so add it to the recent list.
-            if (active) addRecentLog(path);
+            if (active)
+              addRecentLog(path);
           });
 
   // Low-rate / event-like protocol signals stay wired directly to the GUI (they
   // are auto-queued across the thread boundary). Per-packet telemetry is consumed
   // inside the engine and surfaced via snapshot() at the render rate — onUiTimer.
   DroneProtocol *proto = m_engine->protocol();
-  connect(proto, &DroneProtocol::logReceived, this,
-          &MainWindow::onLogReceived);
+  connect(proto, &DroneProtocol::logReceived, this, &MainWindow::onLogReceived);
   connect(proto, &DroneProtocol::unknownPacket, this,
           [this](const QByteArray &raw) {
             onLogReceived(QString("[raw] ") + QString::fromLatin1(raw));
@@ -188,7 +193,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
 
   // Periodic status refresh at 20 Hz for smoother fade
   connect(m_uiTimer, &QTimer::timeout, this, &MainWindow::onUiTimer);
-  m_uiTimer->start(33);  // ~30 Hz UI render pump (decoupled from packet rate)
+  m_uiTimer->start(33); // ~30 Hz UI render pump (decoupled from packet rate)
 
   connect(m_syncTimer, &QTimer::timeout, this,
           &MainWindow::onTimeSyncRequested);
@@ -201,8 +206,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   m_stackedWidget->addWidget(m_analyzerWidget);
 
   // Wire Protocol and Serial to Analyzer
-  connect(m_engine->protocol(), &DroneProtocol::packetReceived, m_analyzerWidget,
-          &PacketAnalyzerWidget::logRxPacket);
+  connect(m_engine->protocol(), &DroneProtocol::packetReceived,
+          m_analyzerWidget, &PacketAnalyzerWidget::logRxPacket);
   connect(m_engine->protocol(), &DroneProtocol::unknownPacket, m_analyzerWidget,
           &PacketAnalyzerWidget::logRxPacket);
   // TX frames for the analyzer come from the engine (serial+UDP dataSent are
@@ -248,7 +253,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
           &MainWindow::onDisconnectRequested);
   connect(m_toolbar, &MainToolbar::armClicked, this, &MainWindow::onArmClicked);
 
-  m_toolbar->refreshPorts();  // populate port list on startup
+  m_toolbar->refreshPorts(); // populate port list on startup
   setConnected(false);
   // Build Calibration
   m_calibrationWidget = new CalibrationWidget(this);
@@ -323,66 +328,69 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   // AT-1: the autotune tab proposes gains; applying to firmware is an explicit
   // operator action. Turn the proposal into CMD_SET_PID frames and send them
   // over the live link (sendToFc refuses in replay; we also require a link).
-  connect(m_simulatorWidget, &SimulatorWidget::applyPidGainsRequested, this,
-          [this](const QVector<PidSetCmd> &cmds) {
-            // Two apply targets, picked by what's live:
-            //   Fc        -> send CMD_SET_PID over the live link (real board).
-            //   sim core  -> apply in-process to the in-app firmware, which
-            //                persists to 0:pid.bin so the tune survives a sim
-            //                restart (same path the real FC uses; no link).
-            // A live FC link wins. Otherwise, if the in-process firmware has
-            // been started this session (true even in the Idle window right
-            // after an autotune run), apply there.
-            const SourceState st = m_source.state();
-            if (st == SourceState::Fc) {
-              const uint32_t now =
-                  static_cast<uint32_t>(QDateTime::currentMSecsSinceEpoch());
-              for (const PidSetCmd &c : cmds)
-                sendToFc(CommandCodec::encodeSetPid(c.controller, c.axis, c.kp,
-                                                    c.ki, c.kd, c.kff, 42, now));
-              m_logPanel->appendLog(
-                  QString(
-                      "[GCS] Applied %1 PID slot(s) to firmware (CMD_SET_PID)")
-                      .arg(cmds.size()));
-              Notify::ok(this, tr("Applied gains to firmware"));
-              return;
-            }
+  connect(
+      m_simulatorWidget, &SimulatorWidget::applyPidGainsRequested, this,
+      [this](const QVector<PidSetCmd> &cmds) {
+        // Two apply targets, picked by what's live:
+        //   Fc        -> send CMD_SET_PID over the live link (real board).
+        //   sim core  -> apply in-process to the in-app firmware, which
+        //                persists to 0:pid.bin so the tune survives a sim
+        //                restart (same path the real FC uses; no link).
+        // A live FC link wins. Otherwise, if the in-process firmware has
+        // been started this session (true even in the Idle window right
+        // after an autotune run), apply there.
+        const SourceState st = m_source.state();
+        if (st == SourceState::Fc) {
+          const uint32_t now =
+              static_cast<uint32_t>(QDateTime::currentMSecsSinceEpoch());
+          for (const PidSetCmd &c : cmds)
+            sendToFc(CommandCodec::encodeSetPid(c.controller, c.axis, c.kp,
+                                                c.ki, c.kd, c.kff, 42, now));
+          m_logPanel->appendLog(
+              QString("[GCS] Applied %1 PID slot(s) to firmware (CMD_SET_PID)")
+                  .arg(cmds.size()));
+          Notify::ok(this, tr("Applied gains to firmware"));
+          return;
+        }
 #ifdef NAVIGATOR_HAS_SITL
-            if (m_simulatorWidget && m_simulatorWidget->sitlCoreStarted()) {
-              // Build the v1 CMD_SET_PID payload the firmware expects and hand
-              // it to the same apply+persist routine the link path triggers:
-              //   [0..1] cmd_id LE | [2] argc(6) | [3..] 6 LE floats:
-              //   ctrl, axis, kp, ki, kd, kff. Host is little-endian like the
-              //   target FC, so a raw memcpy of the floats is wire-correct.
-              int ok = 0;
-              for (const PidSetCmd &c : cmds) {
-                uint8_t buf[3 + 6 * 4];
-                buf[0] = static_cast<uint8_t>(kCmdSetPid & 0xFF);
-                buf[1] = static_cast<uint8_t>((kCmdSetPid >> 8) & 0xFF);
-                buf[2] = 6;  // argc
-                const float args[6] = {static_cast<float>(c.controller),
-                                       static_cast<float>(c.axis),
-                                       c.kp, c.ki, c.kd, c.kff};
-                std::memcpy(&buf[3], args, sizeof args);
-                if (pid_config_apply_command(buf, sizeof buf) == 0 /*VAYU_OK*/)
-                  ++ok;
-              }
-              m_logPanel->appendLog(
-                  QString("[GCS] Applied %1/%2 PID slot(s) to sim "
-                          "(persisted to 0:pid.bin)")
-                      .arg(ok)
-                      .arg(cmds.size()));
-              if (ok == cmds.size())
-                Notify::ok(this, tr("Applied gains to sim (persisted)"));
-              else
-                Notify::warn(this, tr("Some sim gains were rejected"));
-              return;
-            }
+        if (m_simulatorWidget && m_simulatorWidget->sitlCoreStarted()) {
+          // Build the v1 CMD_SET_PID payload the firmware expects and hand
+          // it to the same apply+persist routine the link path triggers:
+          //   [0..1] cmd_id LE | [2] argc(6) | [3..] 6 LE floats:
+          //   ctrl, axis, kp, ki, kd, kff. Host is little-endian like the
+          //   target FC, so a raw memcpy of the floats is wire-correct.
+          int ok = 0;
+          for (const PidSetCmd &c : cmds) {
+            uint8_t buf[3 + 6 * 4];
+            buf[0] = static_cast<uint8_t>(kCmdSetPid & 0xFF);
+            buf[1] = static_cast<uint8_t>((kCmdSetPid >> 8) & 0xFF);
+            buf[2] = 6; // argc
+            const float args[6] = {static_cast<float>(c.controller),
+                                   static_cast<float>(c.axis),
+                                   c.kp,
+                                   c.ki,
+                                   c.kd,
+                                   c.kff};
+            std::memcpy(&buf[3], args, sizeof args);
+            if (pid_config_apply_command(buf, sizeof buf) == 0 /*VAYU_OK*/)
+              ++ok;
+          }
+          m_logPanel->appendLog(
+              QString("[GCS] Applied %1/%2 PID slot(s) to sim "
+                      "(persisted to 0:pid.bin)")
+                  .arg(ok)
+                  .arg(cmds.size()));
+          if (ok == cmds.size())
+            Notify::ok(this, tr("Applied gains to sim (persisted)"));
+          else
+            Notify::warn(this, tr("Some sim gains were rejected"));
+          return;
+        }
 #endif
-            m_logPanel->appendLog(
-                "[GCS] Apply gains ignored — connect an FC or start the sim");
-            Notify::warn(this, tr("No FC link or sim — can't apply gains"));
-          });
+        m_logPanel->appendLog(
+            "[GCS] Apply gains ignored — connect an FC or start the sim");
+        Notify::warn(this, tr("No FC link or sim — can't apply gains"));
+      });
   // Reflect the firmware's reported flight mode (stabilise/acro + RC/GCS source)
   // back onto the simulator's Acro toggle.
   connect(m_engine->protocol(), &DroneProtocol::flightModeReceived,
@@ -424,7 +432,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   buildViewTitles();
   connect(m_stackedWidget, &QStackedWidget::currentChanged, this,
           [this](int idx) {
-            if (idx >= 0) m_viewHistory.visit(idx);
+            if (idx >= 0)
+              m_viewHistory.visit(idx);
           });
   m_recentOverlay = new RecentViewsOverlay(this);
   connect(m_recentOverlay, &RecentViewsOverlay::activated, this,
@@ -460,17 +469,18 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   // app was last closed mid-replay — but no ReplaySource exists at launch, so
   // that would be an orphaned, undismissable bar. Replay is never active at
   // startup; force it hidden.
-  if (m_replayToolbar) m_replayToolbar->setVisible(false);
+  if (m_replayToolbar)
+    m_replayToolbar->setVisible(false);
 
   // Apply the explicit Link & Connection launch defaults on top of the
   // restored last-used port/baud (an explicit default wins; an empty default
   // port means "Ask each time" → keep whatever restoreUiState picked).
   if (m_toolbar) {
     m_toolbar->setTransport(savedSettings.defaultTransport);
-    if (savedSettings.defaultTransport == 1) {  // UDP: defaultPort is a number
+    if (savedSettings.defaultTransport == 1) { // UDP: defaultPort is a number
       if (!savedSettings.defaultPort.isEmpty())
         m_toolbar->setUdpPort(savedSettings.defaultPort.toInt());
-    } else {  // Serial: defaultPort is a device path; baud applies
+    } else { // Serial: defaultPort is a device path; baud applies
       if (!savedSettings.defaultPort.isEmpty())
         m_toolbar->setPort(savedSettings.defaultPort);
       m_toolbar->setBaud(savedSettings.defaultBaud);
@@ -478,7 +488,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   }
 
   // If restoreUiState didn't put us on a page (first run), default to home.
-  if (m_stackedWidget->currentWidget() == nullptr) showHome();
+  if (m_stackedWidget->currentWidget() == nullptr)
+    showHome();
 }
 
 void MainWindow::closeEvent(QCloseEvent *event) {
@@ -529,9 +540,7 @@ void MainWindow::showControlLoopPlot() {
   m_stackedWidget->setCurrentWidget(m_controlLoopWidget);
 }
 
-void MainWindow::showPerf() {
-  m_stackedWidget->setCurrentWidget(m_perfWidget);
-}
+void MainWindow::showPerf() { m_stackedWidget->setCurrentWidget(m_perfWidget); }
 
 void MainWindow::sendTaskNameRequest(int taskId) {
   if (taskId < 0 || taskId > 255)
@@ -546,7 +555,8 @@ void MainWindow::sendTaskNameRequest(int taskId) {
 
 void MainWindow::showSimulator() {
 #ifdef NAVIGATOR_HAS_SITL
-  if (m_simulatorWidget) m_stackedWidget->setCurrentWidget(m_simulatorWidget);
+  if (m_simulatorWidget)
+    m_stackedWidget->setCurrentWidget(m_simulatorWidget);
 #endif
 }
 
@@ -605,8 +615,7 @@ void MainWindow::buildUi() {
       QString("font-size: 16px; font-weight: bold; color: %1; "
               "background: %2; border: 1px solid %3; "
               "border-radius: 4px; padding: 4px; margin-bottom: 6px;")
-          .arg(Theme::hex(Theme::kTextDim),
-               Theme::hex(Theme::kBg),
+          .arg(Theme::hex(Theme::kTextDim), Theme::hex(Theme::kBg),
                Theme::hex(Theme::kBorder)));
   attLayout->addWidget(m_statusLabel);
 
@@ -625,8 +634,7 @@ void MainWindow::buildUi() {
       QString("font-size: 13px; font-weight: bold; color: %1; "
               "background: %2; border: 1px solid %3; "
               "border-radius: 4px; padding: 3px; margin-bottom: 8px;")
-          .arg(Theme::hex(Theme::kTextDim),
-               Theme::hex(Theme::kBg),
+          .arg(Theme::hex(Theme::kTextDim), Theme::hex(Theme::kBg),
                Theme::hex(Theme::kBorder)));
   attLayout->addWidget(m_flightModeLabel);
 
@@ -711,39 +719,41 @@ void MainWindow::buildMenuBar() {
 
   // ---- File ----
   QMenu *fileMenu = menu->addMenu("&File");
-  fileMenu->addAction(m_cmds->add(
-      "link.toggle", "&Connect / Disconnect", "Link", QKeySequence("Ctrl+K"),
-      CmdContext::Always,
-      [this] { if (m_toolbar) m_toolbar->onConnectClicked(); }));
+  fileMenu->addAction(m_cmds->add("link.toggle", "&Connect / Disconnect",
+                                  "Link", QKeySequence("Ctrl+K"),
+                                  CmdContext::Always, [this] {
+                                    if (m_toolbar)
+                                      m_toolbar->onConnectClicked();
+                                  }));
   fileMenu->addSeparator();
   fileMenu->addAction(m_cmds->add(
       "replay.open", "&Open Flight Log…", "Replay", QKeySequence("Ctrl+O"),
       CmdContext::Always, [this] {
         const QString path = QFileDialog::getOpenFileName(
-            this, tr("Open Telemetry Log"),
-            QDir::home().filePath("vayu-logs"),
+            this, tr("Open Telemetry Log"), QDir::home().filePath("vayu-logs"),
             tr("Telemetry recordings (*.bin)"));
-        if (!path.isEmpty()) enterReplay(path);
+        if (!path.isEmpty())
+          enterReplay(path);
       }));
   // Open Recent Log — MRU of the last logs opened or recorded. Rebuilt every
   // time it's shown so it reflects new recordings and prunes deleted files.
   m_recentLogsMenu = fileMenu->addMenu(tr("Open &Recent Log"));
-  m_recentLogsMenu->setToolTipsVisible(true);  // show full path on hover
+  m_recentLogsMenu->setToolTipsVisible(true); // show full path on hover
   connect(m_recentLogsMenu, &QMenu::aboutToShow, this,
           &MainWindow::rebuildRecentLogsMenu);
   rebuildRecentLogsMenu();
   // Jump straight to the most recent log (opened, recorded, or exported).
-  fileMenu->addAction(m_cmds->add(
-      "replay.openLast", "Open &Last Log", "Replay",
-      QKeySequence("Ctrl+Shift+O"), CmdContext::Always,
-      [this] { openLastRecentLog(); }));
+  fileMenu->addAction(m_cmds->add("replay.openLast", "Open &Last Log", "Replay",
+                                  QKeySequence("Ctrl+Shift+O"),
+                                  CmdContext::Always,
+                                  [this] { openLastRecentLog(); }));
   // Live, packet-type-filtered telemetry export (toggles start/stop). The action
   // text flips to "Stop Log Export" while running (engine.exportStateChanged).
-  m_exportAction = m_cmds->add("log.export", "&Export Log…", "Log",
-                               QKeySequence("Ctrl+E"), CmdContext::Always,
-                               [this] { onExportLogToggle(); });
+  m_exportAction =
+      m_cmds->add("log.export", "&Export Log…", "Log", QKeySequence("Ctrl+E"),
+                  CmdContext::Always, [this] { onExportLogToggle(); });
   fileMenu->addAction(m_exportAction);
-  updateExportEnabled();  // disabled until a source is feeding
+  updateExportEnabled(); // disabled until a source is feeding
   fileMenu->addSeparator();
   fileMenu->addAction(m_cmds->add("app.exit", "E&xit", "Application",
                                   QKeySequence(QKeySequence::Quit),
@@ -754,8 +764,8 @@ void MainWindow::buildMenuBar() {
   auto addNav = [&](QMenu *m, const QString &id, const QString &text,
                     const QKeySequence &key, ui::Icon icon,
                     std::function<void()> fn) {
-    QAction *a = m_cmds->add(id, text, "View", key, CmdContext::Always,
-                             std::move(fn));
+    QAction *a =
+        m_cmds->add(id, text, "View", key, CmdContext::Always, std::move(fn));
     a->setIcon(ui::svgIcon(icon));
     m->addAction(a);
     return a;
@@ -780,27 +790,28 @@ void MainWindow::buildMenuBar() {
   addNav(viewMenu, "nav.perf", "&Kernel Perf", QKeySequence("Ctrl+8"),
          ui::Icon::Perf, [this] { showPerf(); });
   viewMenu->addSeparator();
-  viewMenu->addAction(m_cmds->add(
-      "window.fullscreen", "&Fullscreen", "Window", QKeySequence(Qt::Key_F11),
-      CmdContext::Always, [this] {
-        if (isFullScreen()) showNormal();
-        else showFullScreen();
-      }));
+  viewMenu->addAction(m_cmds->add("window.fullscreen", "&Fullscreen", "Window",
+                                  QKeySequence(Qt::Key_F11), CmdContext::Always,
+                                  [this] {
+                                    if (isFullScreen())
+                                      showNormal();
+                                    else
+                                      showFullScreen();
+                                  }));
 
   // ---- Flight ----
   QMenu *flightMenu = menu->addMenu("F&light");
   {
-    QAction *arm =
-        m_cmds->add("flight.arm", "&Arm / Disarm", "Flight",
-                    QKeySequence("Ctrl+A"), CmdContext::Always,
-                    [this] { onArmClicked(); });
+    QAction *arm = m_cmds->add("flight.arm", "&Arm / Disarm", "Flight",
+                               QKeySequence("Ctrl+A"), CmdContext::Always,
+                               [this] { onArmClicked(); });
     arm->setIcon(ui::svgIcon(ui::Icon::Arm));
     flightMenu->addAction(arm);
   }
   flightMenu->addSeparator();
-  flightMenu->addAction(m_cmds->add("flight.runCalib", "&Run Calibration…",
-                                    "Flight", QKeySequence(), CmdContext::Always,
-                                    [this] { showCalibration(); }));
+  flightMenu->addAction(m_cmds->add(
+      "flight.runCalib", "&Run Calibration…", "Flight", QKeySequence(),
+      CmdContext::Always, [this] { showCalibration(); }));
 
   // ---- Tools ----
   QMenu *toolsMenu = menu->addMenu("&Tools");
@@ -817,34 +828,33 @@ void MainWindow::buildMenuBar() {
 
   // ---- Window ----
   QMenu *windowMenu = menu->addMenu("&Window");
-  windowMenu->addAction(m_cmds->add("window.resetLayout", "&Reset Layout",
-                                    "Window", QKeySequence(), CmdContext::Always,
-                                    [this] { resetLayout(); }));
+  windowMenu->addAction(m_cmds->add(
+      "window.resetLayout", "&Reset Layout", "Window", QKeySequence(),
+      CmdContext::Always, [this] { resetLayout(); }));
 
   // ---- Help ----
   QMenu *helpMenu = menu->addMenu("&Help");
-  helpMenu->addAction(m_cmds->add(
-      "help.docs", "&Documentation", "Help", QKeySequence(Qt::Key_F1),
-      CmdContext::Always, [this] {
-        const QString docs = AboutDialog::docsPath();
-        if (docs.isEmpty())
-          Notify::warn(this, tr("Bundled documentation not found"));
-        else
-          QDesktopServices::openUrl(QUrl::fromLocalFile(docs));
-      }));
-  helpMenu->addAction(m_cmds->add(
-      "help.shortcuts", "&Keyboard Shortcuts…", "Help",
-      QKeySequence("Ctrl+Alt+K"), CmdContext::Always, [this] {
-        ShortcutsEditorDialog dlg(m_cmds, m_shortcuts, this);
-        dlg.exec();
-      }));
+  helpMenu->addAction(
+      m_cmds->add("help.docs", "&Documentation", "Help",
+                  QKeySequence(Qt::Key_F1), CmdContext::Always, [this] {
+                    const QString docs = AboutDialog::docsPath();
+                    if (docs.isEmpty())
+                      Notify::warn(this, tr("Bundled documentation not found"));
+                    else
+                      QDesktopServices::openUrl(QUrl::fromLocalFile(docs));
+                  }));
+  helpMenu->addAction(
+      m_cmds->add("help.shortcuts", "&Keyboard Shortcuts…", "Help",
+                  QKeySequence("Ctrl+Alt+K"), CmdContext::Always, [this] {
+                    ShortcutsEditorDialog dlg(m_cmds, m_shortcuts, this);
+                    dlg.exec();
+                  }));
   helpMenu->addSeparator();
-  helpMenu->addAction(m_cmds->add(
-      "help.about", "&About Navigator", "Help", QKeySequence(),
-      CmdContext::Always, [this] {
-        AboutDialog dlg(this);
-        dlg.exec();
-      }));
+  helpMenu->addAction(m_cmds->add("help.about", "&About Navigator", "Help",
+                                  QKeySequence(), CmdContext::Always, [this] {
+                                    AboutDialog dlg(this);
+                                    dlg.exec();
+                                  }));
 }
 
 void MainWindow::resetLayout() {
@@ -885,7 +895,8 @@ void MainWindow::exitReplay() {
   runTransition([&] { m_source.requestIdle(); });
   // Safety for an orphaned bar (restored visible with no source): the Replay
   // teardown hook hides it, but requestIdle from a non-Replay state won't run it.
-  if (m_replayToolbar) m_replayToolbar->setVisible(false);
+  if (m_replayToolbar)
+    m_replayToolbar->setVisible(false);
 }
 
 void MainWindow::sendToFc(const QByteArray &pkt) {
@@ -904,7 +915,8 @@ void MainWindow::sendToFc(const QByteArray &pkt) {
 void MainWindow::runTransition(const std::function<void()> &body) {
   // A deliberate transition's teardown may stop the sim, which fires
   // simRunningChanged → a reconcile request; suppress that re-entry.
-  if (m_fsmBusy) return;
+  if (m_fsmBusy)
+    return;
   m_fsmBusy = true;
   body();
   m_fsmBusy = false;
@@ -915,8 +927,10 @@ void MainWindow::applyFeed(SourceState s) {
   // source, attach the new one (GUI-thread connect, like the old replay path),
   // and enable the live transport feed only for Fc.
   ITelemetrySource *want = nullptr;
-  if (s == SourceState::Replay) want = m_replaySource;
-  else if (s == SourceState::Sim) want = m_simSource;
+  if (s == SourceState::Replay)
+    want = m_replaySource;
+  else if (s == SourceState::Sim)
+    want = m_simSource;
   if (want != m_activeFeedSource) {
     if (m_activeFeedSource)
       disconnect(m_activeFeedSource, &ITelemetrySource::bytesReceived, m_engine,
@@ -943,11 +957,12 @@ void MainWindow::buildSourceHooks() {
       return false;
     }
     if (port.startsWith("udp", Qt::CaseInsensitive)) {
-      quint16 udpPort = 14555;  // "udp" / "udp:<port>" — ESP8266 WiFi bridge
+      quint16 udpPort = 14555; // "udp" / "udp:<port>" — ESP8266 WiFi bridge
       const int colon = port.indexOf(':');
       if (colon >= 0) {
         const quint16 p = port.mid(colon + 1).toUShort();
-        if (p) udpPort = p;
+        if (p)
+          udpPort = p;
       }
       m_currentPort = QStringLiteral("udp:%1").arg(udpPort);
       QMetaObject::invokeMethod(m_engine, "bindUdp", Qt::QueuedConnection,
@@ -975,14 +990,14 @@ void MainWindow::buildSourceHooks() {
       rs->deleteLater();
       return false;
     }
-    stopRecording();  // a live recording must not capture replayed frames
+    stopRecording(); // a live recording must not capture replayed frames
     m_replaySource = rs;
     m_replayBar->bind(rs);
     m_replayBar->setLogName(QFileInfo(path).fileName());
     m_replayToolbar->setVisible(true);
     m_logPanel->appendLog("[GCS] Replay: " + path);
     addRecentLog(path);
-    return true;  // applyFeed(Replay) wires rs → feedBytes
+    return true; // applyFeed(Replay) wires rs → feedBytes
   };
   h.teardownReplay = [this] {
     if (m_replaySource) {
@@ -991,7 +1006,8 @@ void MainWindow::buildSourceHooks() {
       m_replaySource->deleteLater();
       m_replaySource = nullptr;
     }
-    if (m_replayToolbar) m_replayToolbar->setVisible(false);
+    if (m_replayToolbar)
+      m_replayToolbar->setVisible(false);
     m_logPanel->appendLog("[GCS] Exited replay — live");
   };
 
@@ -1002,10 +1018,12 @@ void MainWindow::buildSourceHooks() {
   // runTransition (m_fsmBusy) and the state-guarded reconcile handlers.
 #ifdef NAVIGATOR_HAS_SITL
   h.teardownSim = [this] {
-    if (m_simulatorWidget) m_simulatorWidget->stopInAppSim();
+    if (m_simulatorWidget)
+      m_simulatorWidget->stopInAppSim();
   };
   h.teardownAutotune = [this] {
-    if (m_simulatorWidget) m_simulatorWidget->stopAutotune();
+    if (m_simulatorWidget)
+      m_simulatorWidget->stopAutotune();
   };
 #endif
   h.applyFeed = [this](SourceState s) { applyFeed(s); };
@@ -1021,16 +1039,19 @@ void MainWindow::onExportLogToggle() {
 
   // Stream picker: each row is a packet-type group; ticking it keeps those
   // packet types in the exported (replayable) .bin. Defaults to everything.
-  struct Stream { const char *label; int mask; };
+  struct Stream {
+    const char *label;
+    int mask;
+  };
   static const Stream kStreams[] = {
-      {"IMU (accel / gyro / mag)",   (1 << 0x1) | (1 << 0x2)},
-      {"Attitude",                   (1 << 0x4)},
-      {"RC channels",                (1 << 0x5)},
-      {"Motors",                     (1 << 0x8)},
-      {"System status / control",    (1 << 0x6)},
-      {"Log messages",               (1 << 0x7)},
-      {"Heartbeat",                  (1 << 0x0)},
-      {"Perf / kernel stats",        (1 << 0x9) | (1 << 0xA)},
+      {"IMU (accel / gyro / mag)", (1 << 0x1) | (1 << 0x2)},
+      {"Attitude", (1 << 0x4)},
+      {"RC channels", (1 << 0x5)},
+      {"Motors", (1 << 0x8)},
+      {"System status / control", (1 << 0x6)},
+      {"Log messages", (1 << 0x7)},
+      {"Heartbeat", (1 << 0x0)},
+      {"Perf / kernel stats", (1 << 0x9) | (1 << 0xA)},
   };
 
   QDialog dlg(this);
@@ -1051,11 +1072,13 @@ void MainWindow::onExportLogToggle() {
   lay->addWidget(bb);
   connect(bb, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
   connect(bb, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
-  if (dlg.exec() != QDialog::Accepted) return;
+  if (dlg.exec() != QDialog::Accepted)
+    return;
 
   int mask = 0;
   for (int i = 0; i < boxes.size(); ++i)
-    if (boxes[i]->isChecked()) mask |= kStreams[i].mask;
+    if (boxes[i]->isChecked())
+      mask |= kStreams[i].mask;
   if (mask == 0) {
     Notify::warn(this, tr("Select at least one stream to export"));
     return;
@@ -1064,15 +1087,19 @@ void MainWindow::onExportLogToggle() {
   // Destination file: a Save dialog pre-filled with the default name inside
   // ~/vayu-logs, so the user can keep the auto name or rename/relocate it.
   QDir logDir(QDir::home().filePath("vayu-logs"));
-  if (!logDir.exists()) logDir.mkpath(".");
-  const QString stamp = QDateTime::currentDateTime().toString("yyyyMMdd-HHmmss");
+  if (!logDir.exists())
+    logDir.mkpath(".");
+  const QString stamp =
+      QDateTime::currentDateTime().toString("yyyyMMdd-HHmmss");
   const QString defaultPath =
       logDir.filePath(QStringLiteral("export-%1.bin").arg(stamp));
-  QString path = QFileDialog::getSaveFileName(
-      this, tr("Export telemetry to"), defaultPath,
-      tr("Telemetry recordings (*.bin)"));
-  if (path.isEmpty()) return;
-  if (!path.endsWith(".bin", Qt::CaseInsensitive)) path += ".bin";
+  QString path =
+      QFileDialog::getSaveFileName(this, tr("Export telemetry to"), defaultPath,
+                                   tr("Telemetry recordings (*.bin)"));
+  if (path.isEmpty())
+    return;
+  if (!path.endsWith(".bin", Qt::CaseInsensitive))
+    path += ".bin";
 
   QMetaObject::invokeMethod(m_engine, "startExport", Qt::QueuedConnection,
                             Q_ARG(QString, path), Q_ARG(int, mask));
@@ -1131,18 +1158,19 @@ void MainWindow::onLogReceived(const QString &msg) {
 // vehicleState changes (the kStateNames filter already happened in the engine).
 void MainWindow::applyVehicleStatePill(const QString &msg) {
 #ifdef NAVIGATOR_HAS_SITL
-  if (m_simulatorWidget) m_simulatorWidget->hudSetStatus(msg);
+  if (m_simulatorWidget)
+    m_simulatorWidget->hudSetStatus(msg);
 #endif
 
   // Drive the dashboard graph state band (mockup .g-status SCOL).
   if (m_imuPanel) {
-    QColor sc(0x61, 0xAF, 0xEF);  // init blue
+    QColor sc(0x61, 0xAF, 0xEF); // init blue
     if (msg == "FAILSAFE")
-      sc = QColor(0xE0, 0x82, 0x2E);  // orange
+      sc = QColor(0xE0, 0x82, 0x2E); // orange
     else if (msg == "ARMED" || msg == "IN_AIR")
-      sc = QColor(0xE0, 0x6C, 0x75);  // red
+      sc = QColor(0xE0, 0x6C, 0x75); // red
     else if (msg == "STANDBY" || msg == "PREARM")
-      sc = QColor(0x98, 0xC3, 0x79);  // green
+      sc = QColor(0x98, 0xC3, 0x79); // green
     m_imuPanel->setVehicleState(sc);
   }
 
@@ -1175,16 +1203,18 @@ void MainWindow::applyVehicleStatePill(const QString &msg) {
 // Flight-mode pill (STABILISE/ACRO + RC/GCS). Render-clock driven, called only
 // when the snapshot's mode/source changes.
 void MainWindow::applyFlightModePill(quint8 mode, quint8 source) {
-  if (!m_flightModeLabel) return;
+  if (!m_flightModeLabel)
+    return;
   const bool acro = (mode == 1);
   const bool gcs = (source == 1);
   m_flightModeLabel->setText(
-      QString("%1  ·  %2").arg(acro ? "ACRO" : "STABILISE", gcs ? "GCS" : "RC"));
+      QString("%1  ·  %2")
+          .arg(acro ? "ACRO" : "STABILISE", gcs ? "GCS" : "RC"));
   QString style = "font-size: 13px; font-weight: bold; border-radius: 4px; "
                   "padding: 3px; margin-bottom: 8px;";
-  if (acro)  // rate mode: amber, no bank-angle limit
+  if (acro) // rate mode: amber, no bank-angle limit
     style += " color: #E5C07B; background: #2D2616; border: 1px solid #E5C07B;";
-  else       // stabilise: blue/calm
+  else // stabilise: blue/calm
     style += " color: #61AFEF; background: #1A2A3A; border: 1px solid #61AFEF;";
   m_flightModeLabel->setStyleSheet(style);
 }
@@ -1195,14 +1225,15 @@ void MainWindow::applyFlightModePill(quint8 mode, quint8 source) {
 
 void MainWindow::onConnectionStateChanged(bool connected) {
   setConnected(connected);
-  const QString msg =
-      connected ? QString("[GCS] Connected to %1").arg(m_currentPort)
-                : "[GCS] Disconnected";
+  const QString msg = connected
+                          ? QString("[GCS] Connected to %1").arg(m_currentPort)
+                          : "[GCS] Disconnected";
   m_logPanel->appendLog(msg);
 
   // Telemetry recording follows the link (Phase-1 1C).
   if (connected) {
-    if (m_recordOnConnect) startRecording();
+    if (m_recordOnConnect)
+      startRecording();
   } else {
     stopRecording();
     // Export-on-disconnect: dump the System Log buffer to a .log under the log
@@ -1225,7 +1256,8 @@ void MainWindow::applyAllSettings(bool persist) {
   // Remember the steady-state period; only apply it live once locked, otherwise
   // keep the fast acquisition cadence (see onTimeSyncResponse).
   m_syncPeriodMs = s.syncPeriodMs;
-  if (m_syncTimer && m_syncLocked) m_syncTimer->setInterval(m_syncPeriodMs);
+  if (m_syncTimer && m_syncLocked)
+    m_syncTimer->setInterval(m_syncPeriodMs);
   if (m_imuPanel) {
     m_imuPanel->setGraphWindow(s.graphWindowSec);
     m_imuPanel->setGraphDropout(s.graphDropoutRate);
@@ -1236,9 +1268,9 @@ void MainWindow::applyAllSettings(bool persist) {
   }
   QMetaObject::invokeMethod(m_engine, "setAutoReconnect", Qt::QueuedConnection,
                             Q_ARG(bool, s.autoReconnect));
-  QMetaObject::invokeMethod(
-      m_engine, "setReconnectInterval", Qt::QueuedConnection,
-      Q_ARG(int, int(s.reconnectIntervalSec * 1000)));
+  QMetaObject::invokeMethod(m_engine, "setReconnectInterval",
+                            Qt::QueuedConnection,
+                            Q_ARG(int, int(s.reconnectIntervalSec * 1000)));
   m_linkLossTimeoutMs = s.linkLossTimeoutMs;
   m_viewHistory.setDepth(s.recentViewsCount);
 
@@ -1259,7 +1291,7 @@ void MainWindow::applyAllSettings(bool persist) {
 
   // Logging & Recording.
   if (m_logPanel) {
-    m_logPanel->setTimestampMode(s.timestampMode);  // Local/UTC/Elapsed
+    m_logPanel->setTimestampMode(s.timestampMode); // Local/UTC/Elapsed
     m_logPanel->setMaxLines(s.maxLogLines);
   }
   m_logDir = s.logDirectory;
@@ -1270,11 +1302,13 @@ void MainWindow::applyAllSettings(bool persist) {
   m_chime.setEnabled(s.audioAlerts);
   m_confirmBeforeArm = s.confirmBeforeArm;
 #ifdef NAVIGATOR_HAS_SITL
-  if (m_simulatorWidget) m_simulatorWidget->setPropAudioDefault(s.simPropAudio);
+  if (m_simulatorWidget)
+    m_simulatorWidget->setPropAudioDefault(s.simPropAudio);
 #endif
 
   // Advanced.
-  if (m_analyzerWidget) m_analyzerWidget->setPacketCapacity(s.packetBufferRows);
+  if (m_analyzerWidget)
+    m_analyzerWidget->setPacketCapacity(s.packetBufferRows);
   if (m_engine && m_engine->protocol())
     QMetaObject::invokeMethod(m_engine->protocol(), "setCrcCheck",
                               Qt::QueuedConnection, Q_ARG(bool, s.crcCheck));
@@ -1293,12 +1327,14 @@ void MainWindow::applyAllSettings(bool persist) {
   // not here, since they describe next-launch behaviour.
   if (persist) {
     SettingsManager::save(s);
-    if (m_logPanel) m_logPanel->appendLog("[GCS] Settings applied");
+    if (m_logPanel)
+      m_logPanel->appendLog("[GCS] Settings applied");
   }
 }
 
 void MainWindow::updateExportEnabled() {
-  if (!m_exportAction) return;
+  if (!m_exportAction)
+    return;
   // Enabled when telemetry is arriving (live link or in-app sim), or while an
   // export is already running so the user can stop it.
   m_exportAction->setEnabled(m_source.txAllowed() || m_exportActive);
@@ -1309,12 +1345,14 @@ QString MainWindow::resolveLogDir() const {
   const QString path =
       m_logDir.isEmpty() ? QDir::home().filePath("vayu-logs") : m_logDir;
   QDir d(path);
-  if (!d.exists()) d.mkpath(".");
+  if (!d.exists())
+    d.mkpath(".");
   return path;
 }
 
 void MainWindow::startRecording() {
-  if (!m_recordingPath.isEmpty()) return;  // already recording this session
+  if (!m_recordingPath.isEmpty())
+    return; // already recording this session
   QDir logDir(resolveLogDir());
   const QString stamp =
       QDateTime::currentDateTime().toString("yyyyMMdd-hhmmss");
@@ -1333,7 +1371,8 @@ void MainWindow::startRecording() {
 }
 
 void MainWindow::stopRecording() {
-  if (m_recordingPath.isEmpty()) return;
+  if (m_recordingPath.isEmpty())
+    return;
   QMetaObject::invokeMethod(m_engine, "stopRecording", Qt::QueuedConnection);
   m_logPanel->appendLog("[GCS] Stopped recording → " + m_recordingPath);
   m_recordingPath.clear();
@@ -1341,33 +1380,39 @@ void MainWindow::stopRecording() {
 
 void MainWindow::onSerialError(const QString &msg) {
   m_logPanel->appendLog("[ERROR] " + msg);
-  if (m_statusBar) m_statusBar->setError(msg);
+  if (m_statusBar)
+    m_statusBar->setError(msg);
   setConnected(false);
 }
 
 void MainWindow::setConnected(bool on) {
   // `on` = the live transport is up/down (from connectionStateChanged). The FSM
   // (m_source) owns the mode; this drives the transport-tied UI side effects.
-  m_linkLost = false;  // reset the watchdog on any connect/disconnect edge
+  m_linkLost = false; // reset the watchdog on any connect/disconnect edge
   updateExportEnabled();
 
   // Page-level gating: any page whose actions only make sense with a
   // live serial link is told to disable its action surface here.
   // Read-only display pages (Motor / ControlLoop) are intentionally
   // left interactive so the last known data stays visible.
-  if (m_calibrationWidget) m_calibrationWidget->setConnected(on);
-  if (m_gyroNotchWidget) m_gyroNotchWidget->setConnected(on);
+  if (m_calibrationWidget)
+    m_calibrationWidget->setConnected(on);
+  if (m_gyroNotchWidget)
+    m_gyroNotchWidget->setConnected(on);
 
-  if (m_toolbar)   m_toolbar->setConnected(on, m_currentPort);
+  if (m_toolbar)
+    m_toolbar->setConnected(on, m_currentPort);
   refreshConnectionPill();
 
   // ARM/DISARM is reachable whenever the link is up; the firmware enforces
   // the arm preconditions (throttle, RC, estimator). On disconnect reset the
   // cached arm state and the button label back to ARM.
-  if (m_toolbar) m_toolbar->setArmEnabled(on);
+  if (m_toolbar)
+    m_toolbar->setArmEnabled(on);
   if (!on) {
     m_armed = false;
-    if (m_toolbar) m_toolbar->setArmState(false);
+    if (m_toolbar)
+      m_toolbar->setArmState(false);
   }
 
   // System-state pill on the attitude page. Stays here because it's
@@ -1379,8 +1424,7 @@ void MainWindow::setConnected(bool on) {
           QString("font-size: 18px; font-weight: bold; color: %1; "
                   "background: %2; border: 1px solid %3; "
                   "border-radius: 4px; padding: 4px; margin-bottom: 8px;")
-              .arg(Theme::hex(Theme::kAccent),
-                   Theme::hex(Theme::kBg),
+              .arg(Theme::hex(Theme::kAccent), Theme::hex(Theme::kBg),
                    Theme::hex(Theme::kAccent)));
     } else {
       m_statusLabel->setText("—");
@@ -1388,8 +1432,7 @@ void MainWindow::setConnected(bool on) {
           QString("font-size: 18px; font-weight: bold; color: %1; "
                   "background: %2; border: 1px solid %3; "
                   "border-radius: 4px; padding: 4px; margin-bottom: 8px;")
-              .arg(Theme::hex(Theme::kTextDim),
-                   Theme::hex(Theme::kBg),
+              .arg(Theme::hex(Theme::kTextDim), Theme::hex(Theme::kBg),
                    Theme::hex(Theme::kBorder)));
     }
   }
@@ -1416,7 +1459,8 @@ void MainWindow::setConnected(bool on) {
 }
 
 void MainWindow::refreshConnectionPill() {
-  if (!m_statusBar) return;
+  if (!m_statusBar)
+    return;
   // Driven by the FSM: a live Fc link (transport actually up) shows the port;
   // Sim shows SIM; everything else (Idle/Autotune/Replay) shows disconnected
   // (Replay is surfaced by the toolbar REPLAY pill instead).
@@ -1450,11 +1494,13 @@ void MainWindow::onUiTimer() {
 
   // Inbound packet rate (Hz) for the status bar — sampled once a second from the
   // engine's monotonic wire-packet counter (mockup "Rate: N Hz").
-  if (m_lastRateTime == 0) m_lastRateTime = nowMs;
+  if (m_lastRateTime == 0)
+    m_lastRateTime = nowMs;
   if (nowMs - m_lastRateTime >= 1000) {
     const double hz =
         (s.packetCount - m_pktAtLastRate) * 1000.0 / (nowMs - m_lastRateTime);
-    if (m_statusBar) m_statusBar->setPacketRate(hz);
+    if (m_statusBar)
+      m_statusBar->setPacketRate(hz);
     m_pktAtLastRate = s.packetCount;
     m_lastRateTime = nowMs;
   }
@@ -1489,8 +1535,7 @@ void MainWindow::onUiTimer() {
       m_baroGroundRefM = msl;
       m_haveBaroRef = true;
     }
-    const float agl =
-        vertUsable ? s.vertical.aglM : (msl - m_baroGroundRefM);
+    const float agl = vertUsable ? s.vertical.aglM : (msl - m_baroGroundRefM);
     m_imuPanel->setBaroAltitude(msl, agl, true);
   } else {
     m_imuPanel->setBaroAltitude(0.0f, 0.0f, false);
@@ -1499,15 +1544,15 @@ void MainWindow::onUiTimer() {
   // Before the first baro fix the fused outputs are meaningless, so the trace
   // stays NA until the filter is seeded.
   if (vertUsable) {
-    m_imuPanel->setVerticalState(s.vertical.altitudeM, s.vertical.baroAltitudeM,
-                                 s.vertical.climbRateMs,
-                                 s.vertical.accelBiasMs2,
-                                 s.vertical.accelUnhealthy, true);
+    m_imuPanel->setVerticalState(
+        s.vertical.altitudeM, s.vertical.baroAltitudeM, s.vertical.climbRateMs,
+        s.vertical.accelBiasMs2, s.vertical.accelUnhealthy, true);
   } else {
     m_imuPanel->setVerticalState(0.0f, 0.0f, 0.0f, 0.0f, false, false);
   }
 #ifdef NAVIGATOR_HAS_SITL
-  if (m_simulatorWidget) m_simulatorWidget->hudSetImu(s.imu.acc, s.imu.gyr);
+  if (m_simulatorWidget)
+    m_simulatorWidget->hudSetImu(s.imu.acc, s.imu.gyr);
 #endif
 
   // Attitude instruments (2D ADI + 3D airframe) render here at the timer rate
@@ -1524,12 +1569,14 @@ void MainWindow::onUiTimer() {
   // per packet.
   const bool rcFresh =
       s.lastRcMs != 0 && (nowMs - s.lastRcMs) < kTelemetryStaleMs;
-  if (rcFresh) m_rcWidget->updateChannels(s.rc);
+  if (rcFresh)
+    m_rcWidget->updateChannels(s.rc);
   const bool motorFresh =
       s.lastMotorMs != 0 && (nowMs - s.lastMotorMs) < kTelemetryStaleMs;
   if (motorFresh) {
     QVector<float> speeds;
-    for (int i = 0; i < 4; ++i) speeds.append(s.motors.speeds[i]);
+    for (int i = 0; i < 4; ++i)
+      speeds.append(s.motors.speeds[i]);
     m_motorWidget->setMotorSpeeds(speeds);
   }
 
@@ -1547,7 +1594,8 @@ void MainWindow::onUiTimer() {
     }
     if (s.armed != m_armed) {
       m_armed = s.armed;
-      if (m_toolbar) m_toolbar->setArmState(m_armed);
+      if (m_toolbar)
+        m_toolbar->setArmState(m_armed);
       m_chime.play(m_armed ? ChimeAudio::Kind::Arm : ChimeAudio::Kind::Disarm);
       if (m_armed)
         Notify::ok(this, tr("Armed"));
@@ -1565,16 +1613,15 @@ void MainWindow::onUiTimer() {
   // Throttled updates for numeric labels (update every 4 ticks)
   if (tick % 4 != 0) {
     // Still update packet count and live blinker every tick for smoothness
-    if (m_statusBar) m_statusBar->setPacketCount(pktShown);
+    if (m_statusBar)
+      m_statusBar->setPacketCount(pktShown);
     updateLiveBlinker();
     return;
   }
 
   // Update attitude numeric labels (stable ~7.5 Hz update). Angle unit +
   // precision come from Settings ▸ Units & Display via the Units:: helper.
-  auto fmtVal = [](float v) {
-    return Units::angle(static_cast<double>(v), 7);
-  };
+  auto fmtVal = [](float v) { return Units::angle(static_cast<double>(v), 7); };
   auto fmtStd = [](float v) {
     return QString("± σ %1").arg(Units::toAngle(static_cast<double>(v)), 6, 'f',
                                  Units::decimals() + 1);
@@ -1591,36 +1638,41 @@ void MainWindow::onUiTimer() {
     m_pitchStd->setText(fmtStd(s.pitchStd));
     m_yawStd->setText(fmtStd(s.yawStd));
   } else {
-    for (QLabel *l : {m_rollLabel, m_pitchLabel, m_yawLabel}) l->setText("-");
-    for (QLabel *l : {m_rollStd, m_pitchStd, m_yawStd}) l->setText("± σ -");
+    for (QLabel *l : {m_rollLabel, m_pitchLabel, m_yawLabel})
+      l->setText("-");
+    for (QLabel *l : {m_rollStd, m_pitchStd, m_yawStd})
+      l->setText("± σ -");
   }
 
-  if (m_statusBar) m_statusBar->setPacketCount(pktShown);
+  if (m_statusBar)
+    m_statusBar->setPacketCount(pktShown);
   updateLiveBlinker();
 }
 
 void MainWindow::updateLiveBlinker() {
-  if (!m_toolbar) return;
+  if (!m_toolbar)
+    return;
   // In replay the pill shows a static REPLAY; don't let the heartbeat fade
   // fight it (Phase-1 1D).
-  if (m_source.isReplay()) return;
+  if (m_source.isReplay())
+    return;
   QLabel *live = m_toolbar->liveLabel();
-  if (!live) return;
+  if (!live)
+    return;
 
   if (m_lastHbTime == 0) {
     // Never received a heartbeat — leave the idle qss styling in place.
     live->setStyleSheet(QString());
     return;
   }
-  const qint64 elapsed =
-      QDateTime::currentMSecsSinceEpoch() - m_lastHbTime;
+  const qint64 elapsed = QDateTime::currentMSecsSinceEpoch() - m_lastHbTime;
   MainStatusBar::fadeLive(live, elapsed);
 
   // Link-loss watchdog (live links only; the sim/replay don't heartbeat the
   // same way). On timeout, flag the connection pill disconnected — the
   // transport stays open, so auto-reconnect still handles genuine drops.
-  const bool lost = m_source.state() == SourceState::Fc &&
-                    elapsed > m_linkLossTimeoutMs;
+  const bool lost =
+      m_source.state() == SourceState::Fc && elapsed > m_linkLossTimeoutMs;
   if (lost != m_linkLost) {
     m_linkLost = lost;
     if (m_statusBar) {
@@ -1628,7 +1680,7 @@ void MainWindow::updateLiveBlinker() {
         m_statusBar->setError(
             tr("Link lost — no heartbeat for %1 ms").arg(elapsed));
       else
-        refreshConnectionPill();  // heartbeat resumed → restore the pill
+        refreshConnectionPill(); // heartbeat resumed → restore the pill
     }
   }
 }
@@ -1640,7 +1692,8 @@ void MainWindow::onHeartbeatReceived(uint64_t timestamp, uint8_t deviceId) {
   // handshake (onTimeSyncResponse). The wire-packet counter lives in the engine.
   m_lastHbTime = QDateTime::currentMSecsSinceEpoch();
   // Flash the LIVE label bright; the UI tick will fade it back.
-  if (m_toolbar) MainStatusBar::flashLive(m_toolbar->liveLabel());
+  if (m_toolbar)
+    MainStatusBar::flashLive(m_toolbar->liveLabel());
 }
 
 void MainWindow::onTimeSyncRequested() {
@@ -1665,8 +1718,9 @@ void MainWindow::onTimeSyncRequested() {
 void MainWindow::onTimeSyncResponse(quint8 seq, quint64 t1, quint64 t2,
                                     quint64 t3, quint64 t4) {
   Q_UNUSED(seq);
-  m_lastHbTime = QDateTime::currentMSecsSinceEpoch();  // counts as liveness
-  if (m_toolbar) MainStatusBar::flashLive(m_toolbar->liveLabel());
+  m_lastHbTime = QDateTime::currentMSecsSinceEpoch(); // counts as liveness
+  if (m_toolbar)
+    MainStatusBar::flashLive(m_toolbar->liveLabel());
 
   TimeSyncEstimator::Sample s;
   s.t1 = static_cast<qint64>(t1);
@@ -1674,21 +1728,21 @@ void MainWindow::onTimeSyncResponse(quint8 seq, quint64 t1, quint64 t2,
   s.t3 = static_cast<qint64>(t3);
   s.t4 = static_cast<qint64>(t4);
   if (!m_tsEst.addSample(s))
-    return;  // implausible round-trip — keep the last good reading
+    return; // implausible round-trip — keep the last good reading
 
   // The FC now keeps a full 64-bit ms clock, so we discipline against the full
   // offset (no modular-u32 games). The correction to apply is -offset; if it
   // fits int32 we use the usual field, otherwise the REQUEST_WIDE two-word path
   // (cold start: FC uptime clock vs GCS epoch is ~decades, far beyond int32).
-  const qint64 off = ((s.t2 - s.t1) + (s.t3 - s.t4)) / 2;  // per-sample FC - GCS
-  const qint64 corr = -off;                                // apply to the FC
-  constexpr qint64 kSyncEpsilonMs = 50;  // in-sync deadband / lock threshold
+  const qint64 off = ((s.t2 - s.t1) + (s.t3 - s.t4)) / 2; // per-sample FC - GCS
+  const qint64 corr = -off;                               // apply to the FC
+  constexpr qint64 kSyncEpsilonMs = 50; // in-sync deadband / lock threshold
   const bool locked = qAbs(corr) < kSyncEpsilonMs;
   constexpr qint64 kI32Min = -2147483647 - 1, kI32Max = 2147483647;
   if (locked) {
     m_syncWide = false;
-    m_syncCorrection = static_cast<qint32>(kI32Min);  // no command
-  } else if (corr > kI32Min && corr <= kI32Max) {      // fits int32 (avoid sentinel)
+    m_syncCorrection = static_cast<qint32>(kI32Min); // no command
+  } else if (corr > kI32Min && corr <= kI32Max) { // fits int32 (avoid sentinel)
     m_syncWide = false;
     m_syncCorrection = static_cast<qint32>(corr);
   } else {
@@ -1724,16 +1778,16 @@ void MainWindow::onTimeSyncResponse(quint8 seq, quint64 t1, quint64 t2,
 // splitter shape doesn't change.
 
 namespace {
-constexpr const char *kGeomKey       = "ui/geometry";
-constexpr const char *kWinStateKey   = "ui/windowState";
-constexpr const char *kTopSplitKey   = "ui/topSplitter";
-constexpr const char *kVSplitKey     = "ui/vSplitter";
-constexpr const char *kPageKey       = "ui/lastPage";
-constexpr const char *kPortKey       = "comm/lastPort";
-constexpr const char *kBaudKey       = "comm/lastBaud";
+constexpr const char *kGeomKey = "ui/geometry";
+constexpr const char *kWinStateKey = "ui/windowState";
+constexpr const char *kTopSplitKey = "ui/topSplitter";
+constexpr const char *kVSplitKey = "ui/vSplitter";
+constexpr const char *kPageKey = "ui/lastPage";
+constexpr const char *kPortKey = "comm/lastPort";
+constexpr const char *kBaudKey = "comm/lastBaud";
 constexpr const char *kRecentLogsKey = "replay/recentLogs";
 constexpr int kMaxRecentLogs = 10;
-}  // namespace
+} // namespace
 
 void MainWindow::installShortcuts() {
   // Page navigation (Ctrl+1‑8), Connect (Ctrl+K), Arm (Ctrl+A), Calibration
@@ -1742,20 +1796,21 @@ void MainWindow::installShortcuts() {
   // shortcut-commands are registered here and bound to the window directly.
 
   // Ctrl+L — clear the log panel.
-  addAction(m_cmds->add("log.clear", "Clear Log", "Log",
-                        QKeySequence("Ctrl+L"), CmdContext::Always, [this] {
-                          if (m_logPanel) m_logPanel->clearLog();
+  addAction(m_cmds->add("log.clear", "Clear Log", "Log", QKeySequence("Ctrl+L"),
+                        CmdContext::Always, [this] {
+                          if (m_logPanel)
+                            m_logPanel->clearLog();
                         }));
 
   // Ctrl+Shift+P — fuzzy command palette over the registry (FR-UX-20).
-  addAction(m_cmds->add(
-      "command.palette", "Command Palette…", "View",
-      QKeySequence("Ctrl+Shift+P"), CmdContext::Always, [this] {
-        CommandPalette pal(m_cmds, this);
-        pal.move(geometry().center() -
-                 QPoint(pal.width() / 2, pal.height() / 2));
-        pal.exec();
-      }));
+  addAction(m_cmds->add("command.palette", "Command Palette…", "View",
+                        QKeySequence("Ctrl+Shift+P"), CmdContext::Always,
+                        [this] {
+                          CommandPalette pal(m_cmds, this);
+                          pal.move(geometry().center() -
+                                   QPoint(pal.width() / 2, pal.height() / 2));
+                          pal.exec();
+                        }));
 
   // Ctrl+Tab — recent-views (MRU) switcher (FR-UX-21).
   addAction(m_cmds->add("view.recent", "Recent Views", "View",
@@ -1766,9 +1821,11 @@ void MainWindow::installShortcuts() {
 void MainWindow::buildViewTitles() {
   m_viewTitles.clear();
   auto put = [this](QWidget *w, const QString &name) {
-    if (!w) return;
+    if (!w)
+      return;
     const int i = m_stackedWidget->indexOf(w);
-    if (i >= 0) m_viewTitles[i] = name;
+    if (i >= 0)
+      m_viewTitles[i] = name;
   };
   put(m_homeWidget, tr("Home"));
   put(m_analyzerWidget, tr("Packet Analyzer"));
@@ -1786,7 +1843,8 @@ void MainWindow::buildViewTitles() {
 
 void MainWindow::showRecentViews() {
   const QList<int> mru = m_viewHistory.mru();
-  if (mru.size() < 2) return;  // nothing to switch between yet
+  if (mru.size() < 2)
+    return; // nothing to switch between yet
   QList<QPair<int, QString>> items;
   for (int idx : mru)
     items.append({idx, m_viewTitles.value(idx, tr("View %1").arg(idx + 1))});
@@ -1796,11 +1854,14 @@ void MainWindow::showRecentViews() {
 
 void MainWindow::saveUiState() {
   QSettings s;
-  s.setValue(kGeomKey,     saveGeometry());
+  s.setValue(kGeomKey, saveGeometry());
   s.setValue(kWinStateKey, saveState());
-  if (m_topSplitter) s.setValue(kTopSplitKey, m_topSplitter->saveState());
-  if (m_vSplitter)   s.setValue(kVSplitKey,   m_vSplitter->saveState());
-  if (m_stackedWidget) s.setValue(kPageKey, m_stackedWidget->currentIndex());
+  if (m_topSplitter)
+    s.setValue(kTopSplitKey, m_topSplitter->saveState());
+  if (m_vSplitter)
+    s.setValue(kVSplitKey, m_vSplitter->saveState());
+  if (m_stackedWidget)
+    s.setValue(kPageKey, m_stackedWidget->currentIndex());
   persistPortBaud();
 }
 
@@ -1809,8 +1870,10 @@ void MainWindow::restoreUiState() {
   // Window geometry + splitter sizes are gated by "Restore layout" (Settings ▸
   // Units & Display). Off ⇒ open at the default size with default splitters.
   if (m_restoreLayout) {
-    if (s.contains(kGeomKey))     restoreGeometry(s.value(kGeomKey).toByteArray());
-    if (s.contains(kWinStateKey)) restoreState(s.value(kWinStateKey).toByteArray());
+    if (s.contains(kGeomKey))
+      restoreGeometry(s.value(kGeomKey).toByteArray());
+    if (s.contains(kWinStateKey))
+      restoreState(s.value(kWinStateKey).toByteArray());
     if (m_topSplitter && s.contains(kTopSplitKey))
       m_topSplitter->restoreState(s.value(kTopSplitKey).toByteArray());
     if (m_vSplitter && s.contains(kVSplitKey))
@@ -1841,26 +1904,30 @@ void MainWindow::restoreUiState() {
 }
 
 void MainWindow::persistPortBaud() {
-  if (!m_toolbar) return;
+  if (!m_toolbar)
+    return;
   QSettings s;
   s.setValue(kPortKey, m_toolbar->currentPort());
   s.setValue(kBaudKey, m_toolbar->currentBaud());
 }
 
 void MainWindow::addRecentLog(const QString &path) {
-  if (path.isEmpty()) return;
+  if (path.isEmpty())
+    return;
   const QString abs = QFileInfo(path).absoluteFilePath();
   QSettings s;
   QStringList logs = s.value(kRecentLogsKey).toStringList();
-  logs.removeAll(abs);              // dedup: move to front if already present
+  logs.removeAll(abs); // dedup: move to front if already present
   logs.prepend(abs);
-  while (logs.size() > kMaxRecentLogs) logs.removeLast();
+  while (logs.size() > kMaxRecentLogs)
+    logs.removeLast();
   s.setValue(kRecentLogsKey, logs);
   rebuildRecentLogsMenu();
 }
 
 void MainWindow::rebuildRecentLogsMenu() {
-  if (!m_recentLogsMenu) return;
+  if (!m_recentLogsMenu)
+    return;
   m_recentLogsMenu->clear();
 
   QSettings s;
@@ -1870,8 +1937,10 @@ void MainWindow::rebuildRecentLogsMenu() {
   // recording file even though it may not exist on disk yet.
   QStringList live;
   for (const QString &p : logs)
-    if (p == m_recordingPath || QFileInfo::exists(p)) live.append(p);
-  if (live != logs) s.setValue(kRecentLogsKey, live);
+    if (p == m_recordingPath || QFileInfo::exists(p))
+      live.append(p);
+  if (live != logs)
+    s.setValue(kRecentLogsKey, live);
 
   if (live.isEmpty()) {
     QAction *none = m_recentLogsMenu->addAction(tr("(no recent logs)"));

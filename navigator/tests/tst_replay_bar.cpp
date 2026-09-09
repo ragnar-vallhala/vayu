@@ -69,10 +69,10 @@ void TstReplayBar::unbindIsSafe() {
   QVERIFY(src.open(logPath));
   ReplayBar bar;
   bar.bind(&src);
-  bar.bind(nullptr);  // must not crash; controls become inert
+  bar.bind(nullptr); // must not crash; controls become inert
   auto *play = bar.findChild<QPushButton *>("rpPlay");
   QVERIFY(play);
-  play->click();  // no bound source -> no effect, no crash
+  play->click(); // no bound source -> no effect, no crash
   QVERIFY(!src.isPlaying());
 }
 

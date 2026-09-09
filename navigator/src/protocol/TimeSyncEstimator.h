@@ -20,10 +20,10 @@
 class TimeSyncEstimator {
 public:
   struct Sample {
-    qint64 t1 = 0;  // GCS send    (wall-clock ms)
-    qint64 t2 = 0;  // FC receive  (FC ms)
-    qint64 t3 = 0;  // FC send     (FC ms)
-    qint64 t4 = 0;  // GCS receive (wall-clock ms)
+    qint64 t1 = 0; // GCS send    (wall-clock ms)
+    qint64 t2 = 0; // FC receive  (FC ms)
+    qint64 t3 = 0; // FC send     (FC ms)
+    qint64 t4 = 0; // GCS receive (wall-clock ms)
   };
 
   // Feed one exchange. Returns false (and ignores the sample) when the
@@ -46,15 +46,15 @@ public:
 
   void reset();
 
-  static constexpr int kWindow = 16;            // sliding-window depth
-  static constexpr int kMinSamples = 3;         // samples before "synced"
-  static constexpr qint64 kMaxDelayMs = 60000;  // reject absurd round-trips
+  static constexpr int kWindow = 16;           // sliding-window depth
+  static constexpr int kMinSamples = 3;        // samples before "synced"
+  static constexpr qint64 kMaxDelayMs = 60000; // reject absurd round-trips
 
 private:
   struct Pt {
-    double t;       // GCS send time (t1), the regression abscissa
-    double offset;  // FC - GCS for this sample
-    double delay;   // round-trip transit for this sample
+    double t;      // GCS send time (t1), the regression abscissa
+    double offset; // FC - GCS for this sample
+    double delay;  // round-trip transit for this sample
   };
 
   std::deque<Pt> m_win;

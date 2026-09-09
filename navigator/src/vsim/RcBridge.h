@@ -24,8 +24,8 @@
 // the stick is down (axis rests at -32767 → 1000 us).
 class RcBridge : public QThread {
   Q_OBJECT
- public:
-  explicit RcBridge(QObject* parent = nullptr);
+public:
+  explicit RcBridge(QObject *parent = nullptr);
   ~RcBridge() override;
 
   // RC input source. Joystick: read a Linux js device and map axes/buttons
@@ -35,12 +35,12 @@ class RcBridge : public QThread {
   enum Source { Joystick = 0, Uart = 1 };
   void setSource(int s) { source_.store(s, std::memory_order_release); }
 
-  void setJoystickPath(const QString& p) {
+  void setJoystickPath(const QString &p) {
     QMutexLocker lk(&cfg_mtx_);
     js_path_ = p;
   }
   // Serial device + baud for the Uart source (e.g. /dev/ttyUSB1 @ 115200).
-  void setUartPath(const QString& p) {
+  void setUartPath(const QString &p) {
     QMutexLocker lk(&cfg_mtx_);
     uart_path_ = p;
   }
@@ -75,7 +75,9 @@ class RcBridge : public QThread {
 
   // Software arm override for TXs with no usable arm switch.
   // v: -1 = use the mapped source; 0 = force disarmed; 1 = force armed.
-  void setArmOverride(int v) { armOverride_.store(v, std::memory_order_relaxed); }
+  void setArmOverride(int v) {
+    armOverride_.store(v, std::memory_order_relaxed);
+  }
 
   // Flight-mode toggle driving RC channel 6 (acro/rate mode in the firmware).
   // on = acro (ch6 high), off = angle/stabilize. Safe from the GUI thread.
@@ -84,12 +86,12 @@ class RcBridge : public QThread {
 
   // Create the pty pair; slavePath() is then valid. Returns false (and
   // sets *err) on failure. Call before start() / before vayu_sitl_start.
-  bool openPty(QString* err);
+  bool openPty(QString *err);
   QString slavePath() const { return slave_path_; }
 
   void requestStop();
 
- signals:
+signals:
   // Latest output channel values (microseconds), for an on-screen readout.
   void channelsUpdated(int roll, int pitch, int thr, int yaw, int arm, int ch6);
   // Per-axis µs + per-button states (0/1), to identify which input each
@@ -97,11 +99,11 @@ class RcBridge : public QThread {
   void axesUpdated(QVector<int> axisUs, QVector<int> buttons);
   void logLine(QString line);
 
- protected:
+protected:
   void run() override;
 
- private:
-  QMutex cfg_mtx_;  // guards js_path_ / uart_path_ / uart_baud_ (live edits)
+private:
+  QMutex cfg_mtx_; // guards js_path_ / uart_path_ / uart_baud_ (live edits)
   QString js_path_ = QStringLiteral("/dev/input/js0");
   QString uart_path_ = QStringLiteral("/dev/ttyUSB0");
   int uart_baud_ = 115200;
@@ -110,11 +112,11 @@ class RcBridge : public QThread {
   int master_fd_ = -1;
   std::atomic<bool> stop_{false};
   std::atomic<bool> enabled_{true};
-  std::atomic<bool> uartConnected_{false};  // Uart source opened only when true
-  std::atomic<int> armOverride_{-1};   // -1 use mapping, 0 disarm, 1 arm
-  std::atomic<int> acro_{0};           // 0 = angle mode (ch6 low), 1 = acro
-  std::atomic<int> mapAxis_[5];   // func → source code (axis idx or 1000+btn)
-  std::atomic<int> mapInv_[5];    // func → invert (0/1)
-  std::array<int, 16> axis_{};    // raw -32767..32767
-  std::array<int, 16> button_{};  // 0/1
+  std::atomic<bool> uartConnected_{false}; // Uart source opened only when true
+  std::atomic<int> armOverride_{-1};       // -1 use mapping, 0 disarm, 1 arm
+  std::atomic<int> acro_{0};               // 0 = angle mode (ch6 low), 1 = acro
+  std::atomic<int> mapAxis_[5];  // func → source code (axis idx or 1000+btn)
+  std::atomic<int> mapInv_[5];   // func → invert (0/1)
+  std::array<int, 16> axis_{};   // raw -32767..32767
+  std::array<int, 16> button_{}; // 0/1
 };

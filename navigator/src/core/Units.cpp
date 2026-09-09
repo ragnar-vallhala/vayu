@@ -9,7 +9,7 @@ Units::AngleUnit g_angle = Units::AngleUnit::Degrees;
 Units::AltUnit g_alt = Units::AltUnit::Meters;
 Units::SpeedUnit g_speed = Units::SpeedUnit::Mps;
 int g_decimals = 2;
-}  // namespace
+} // namespace
 
 namespace Units {
 
@@ -30,9 +30,12 @@ double toAltitude(double metres) {
 
 double toSpeed(double mps) {
   switch (g_speed) {
-    case SpeedUnit::Kmh: return mps * 3.6;
-    case SpeedUnit::Mph: return mps * 2.236936292;
-    case SpeedUnit::Mps: break;
+  case SpeedUnit::Kmh:
+    return mps * 3.6;
+  case SpeedUnit::Mph:
+    return mps * 2.236936292;
+  case SpeedUnit::Mps:
+    break;
   }
   return mps;
 }
@@ -48,9 +51,12 @@ QString altSuffix() {
 
 QString speedSuffix() {
   switch (g_speed) {
-    case SpeedUnit::Kmh: return QStringLiteral("km/h");
-    case SpeedUnit::Mph: return QStringLiteral("mph");
-    case SpeedUnit::Mps: break;
+  case SpeedUnit::Kmh:
+    return QStringLiteral("km/h");
+  case SpeedUnit::Mph:
+    return QStringLiteral("mph");
+  case SpeedUnit::Mps:
+    break;
   }
   return QStringLiteral("m/s");
 }
@@ -73,4 +79,4 @@ QString speed(double mps) {
       .arg(speedSuffix());
 }
 
-}  // namespace Units
+} // namespace Units

@@ -2,8 +2,8 @@
 
 #include "DroneProtocol.h"
 #include "VehicleState.h"
-#include "RollingStats.h"   // src/ui/widgets is on the include path
-#include "RecordSink.h"     // src/ui/main is on the include path
+#include "RollingStats.h" // src/ui/widgets is on the include path
+#include "RecordSink.h"   // src/ui/main is on the include path
 
 #include <QByteArray>
 #include <QElapsedTimer>
@@ -53,10 +53,10 @@ public slots:
   // int (not quint16) so the queued invoke uses a guaranteed-registered metatype.
   void bindUdp(int port);
   void closeLinks();
-  void send(const QByteArray &pkt);            // routes UDP-else-serial
+  void send(const QByteArray &pkt); // routes UDP-else-serial
   void setAutoReconnect(bool on);
-  void setReconnectInterval(int ms);           // base auto-reconnect retry delay
-  void setReplayMode(bool on);                 // compat shim: setLiveFeed(!on)
+  void setReconnectInterval(int ms); // base auto-reconnect retry delay
+  void setReplayMode(bool on);       // compat shim: setLiveFeed(!on)
   // Source-state-machine seam (gcs-source-state-machine.md): enable/disable the
   // owned live transports' feed into the parser (true for Fc, false for
   // Idle/Sim/Autotune/Replay). The non-live sources (Replay/Sim) are connected
@@ -93,16 +93,16 @@ private:
   UdpManager *m_udp = nullptr;
 
   RecordSink m_recorder;
-  QElapsedTimer m_elapsed;     // monotonic base for record-frame timestamps
-  bool m_acceptLive = true;    // false while a non-live source feeds (Sim/Replay)
+  QElapsedTimer m_elapsed;  // monotonic base for record-frame timestamps
+  bool m_acceptLive = true; // false while a non-live source feeds (Sim/Replay)
 
   // Live, packet-type-filtered export (separate from the full recorder).
   RecordSink m_exporter;
   bool m_exporting = false;
-  quint16 m_exportMask = 0;    // bit N set => keep packet type N
+  quint16 m_exportMask = 0; // bit N set => keep packet type N
 
-  mutable QMutex m_mutex;      // guards m_state (snapshot() ↔ updaters)
-  VehicleState m_state;        // canonical store
+  mutable QMutex m_mutex; // guards m_state (snapshot() ↔ updaters)
+  VehicleState m_state;   // canonical store
 
   // Rolling attitude std-dev accumulators (kept here, not in the snapshot, so
   // accumulation stays per-packet). 50-sample window matches the old MainWindow.

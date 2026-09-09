@@ -25,13 +25,14 @@ void TstRecordSink::roundTripFramesAndHeader() {
   const QString p = path("rt.bin");
   const QList<RecordFormat::Frame> frames = {
       {10, QByteArray("\x55\x01hello", 7)},
-      {2500, QByteArray()},                  // empty payload is legal
+      {2500, QByteArray()}, // empty payload is legal
       {99999, QByteArray("\x00\xFF\x10", 3)},
   };
 
   {
     RecordSink sink;
-    QVERIFY(sink.open(p, /*protocolVersion=*/7, /*startWallClockMs=*/123456789ull));
+    QVERIFY(
+        sink.open(p, /*protocolVersion=*/7, /*startWallClockMs=*/123456789ull));
     QVERIFY(sink.isOpen());
     for (const auto &f : frames)
       sink.writeFrame(f.tUs, f.bytes);
@@ -68,7 +69,7 @@ void TstRecordSink::emptySessionHasHeaderNoFrames() {
   RecordReader reader;
   QVERIFY(reader.open(p));
   RecordFormat::Frame f;
-  QVERIFY(!reader.next(f));  // clean EOF immediately after the header
+  QVERIFY(!reader.next(f)); // clean EOF immediately after the header
 }
 
 void TstRecordSink::readerRejectsNonRecordFile() {
@@ -79,7 +80,7 @@ void TstRecordSink::readerRejectsNonRecordFile() {
   g.close();
 
   RecordReader reader;
-  QVERIFY(!reader.open(p));  // bad magic -> refused
+  QVERIFY(!reader.open(p)); // bad magic -> refused
 }
 
 void TstRecordSink::writeFrameAfterCloseIsNoOp() {
@@ -87,12 +88,12 @@ void TstRecordSink::writeFrameAfterCloseIsNoOp() {
   RecordSink sink;
   QVERIFY(sink.open(p, 1, 0));
   sink.close();
-  sink.writeFrame(1, QByteArray("ignored"));  // must not crash or reopen
+  sink.writeFrame(1, QByteArray("ignored")); // must not crash or reopen
 
   RecordReader reader;
   QVERIFY(reader.open(p));
   RecordFormat::Frame f;
-  QVERIFY(!reader.next(f));  // nothing was appended
+  QVERIFY(!reader.next(f)); // nothing was appended
 }
 
 QTEST_MAIN(TstRecordSink)

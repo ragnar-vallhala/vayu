@@ -27,7 +27,7 @@ QDoubleSpinBox *mkSpin(double lo, double hi, double step, double val,
     s->setSuffix(suffix);
   return s;
 }
-}  // namespace
+} // namespace
 
 GyroNotchWidget::GyroNotchWidget(QWidget *parent) : QWidget(parent) {
   auto *root = new QVBoxLayout(this);
@@ -121,14 +121,15 @@ void GyroNotchWidget::onApplyClicked() {
 }
 
 void GyroNotchWidget::onNotchStatus(const NotchStatusData &d) {
-  m_statusLabel->setText(d.enabled ? tr("Notch ENABLED") : tr("Notch disabled"));
+  m_statusLabel->setText(d.enabled ? tr("Notch ENABLED")
+                                   : tr("Notch disabled"));
   for (int axis = 0; axis < 3; ++axis) {
     for (int slot = 0; slot < 3; ++slot) {
       float hz = d.centerHz[axis][slot];
-      m_center[axis][slot]->setText(hz > 0.0f ? QStringLiteral("%1 Hz").arg(
-                                                    static_cast<double>(hz), 0,
-                                                    'f', 1)
-                                              : QStringLiteral("—"));
+      m_center[axis][slot]->setText(
+          hz > 0.0f
+              ? QStringLiteral("%1 Hz").arg(static_cast<double>(hz), 0, 'f', 1)
+              : QStringLiteral("—"));
     }
   }
 }

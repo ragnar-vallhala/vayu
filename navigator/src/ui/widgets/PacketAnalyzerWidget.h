@@ -46,7 +46,7 @@ private slots:
 
 private:
   void buildUi();
-  void resizeColumns();                                  // proportional fill
+  void resizeColumns();                                 // proportional fill
   void tee(const QString &dir, const QByteArray &data); // stream-to-CSV
 
   FrequencyRibbon *m_freqRibbon = nullptr;

@@ -59,9 +59,9 @@ void TstCommandRegistry::duplicateIdIsIgnored() {
   CommandRegistry reg;
   QAction *a1 = reg.add("dup", "First", "C", {}, CmdContext::Always, {});
   QAction *a2 = reg.add("dup", "Second", "C", {}, CmdContext::Always, {});
-  QCOMPARE(a1, a2);  // re-registration returns the original action
+  QCOMPARE(a1, a2); // re-registration returns the original action
   QCOMPARE(reg.all().size(), 1);
-  QCOMPARE(reg.command("dup")->title, QStringLiteral("First"));  // unchanged
+  QCOMPARE(reg.command("dup")->title, QStringLiteral("First")); // unchanged
 }
 
 void TstCommandRegistry::triggerInvokesCallback() {
@@ -76,8 +76,8 @@ void TstCommandRegistry::triggerInvokesCallback() {
 
 void TstCommandRegistry::defaultShortcutApplied() {
   CommandRegistry reg;
-  QAction *a = reg.add("s", "S", "C", QKeySequence("Ctrl+K"),
-                       CmdContext::Always, {});
+  QAction *a =
+      reg.add("s", "S", "C", QKeySequence("Ctrl+K"), CmdContext::Always, {});
   QCOMPARE(a->shortcut(), QKeySequence("Ctrl+K"));
   // An empty default leaves the action with no shortcut.
   QAction *b = reg.add("b", "B", "C", QKeySequence(), CmdContext::Always, {});
