@@ -9,7 +9,7 @@ namespace vsim {
 using procgen::ProcMesh;
 using procgen::TerrainField;
 
-void ChunkStreamer::configure(const Config& c) {
+void ChunkStreamer::configure(const Config &c) {
   cfg_ = c;
   field_ = std::make_shared<const TerrainField>(c.field);
   loaded_.clear();
@@ -51,7 +51,8 @@ std::vector<ChunkReq> ChunkStreamer::collisionChunks(int cx, int cy) const {
 
 StreamPlan ChunkStreamer::plan(float wx, float wy) {
   StreamPlan p;
-  if (!active_ || !field_) return p;
+  if (!active_ || !field_)
+    return p;
 
   const int cx = static_cast<int>(std::floor(wx / cfg_.chunkM));
   const int cy = static_cast<int>(std::floor(wy / cfg_.chunkM));
@@ -67,8 +68,10 @@ StreamPlan ChunkStreamer::plan(float wx, float wy) {
     // Drop loaded chunks that left the disc. (In-flight chunks that left are
     // handled on arrival: markBuilt then a later plan removes them.)
     for (qint64 key : loaded_)
-      if (desired_.find(key) == desired_.end()) p.toRemove.push_back(key);
-    for (qint64 key : p.toRemove) loaded_.erase(key);
+      if (desired_.find(key) == desired_.end())
+        p.toRemove.push_back(key);
+    for (qint64 key : p.toRemove)
+      loaded_.erase(key);
 
     if (cx != colCx_ || cy != colCy_) {
       p.collisionDue = true;
@@ -96,7 +99,8 @@ StreamPlan ChunkStreamer::plan(float wx, float wy) {
               [&](qint64 a, qint64 b) { return cheb(a) < cheb(b); });
     int budget = cfg_.maxInFlight - static_cast<int>(inflight_.size());
     for (qint64 key : missing) {
-      if (budget <= 0) break;
+      if (budget <= 0)
+        break;
       p.toBuild.push_back(ChunkReq{key, cxOf(key), cyOf(key)});
       inflight_.insert(key);
       --budget;
@@ -105,7 +109,7 @@ StreamPlan ChunkStreamer::plan(float wx, float wy) {
   return p;
 }
 
-ChunkMeshData toChunkMeshData(qint64 key, const ProcMesh& m) {
+ChunkMeshData toChunkMeshData(qint64 key, const ProcMesh &m) {
   ChunkMeshData out;
   out.key = key;
   const std::size_t n = m.positions.size();
@@ -121,20 +125,23 @@ ChunkMeshData toChunkMeshData(qint64 key, const ProcMesh& m) {
   return out;
 }
 
-LoadedMesh collisionMeshFromChunks(
-    const std::vector<const ProcMesh*>& chunks) {
+LoadedMesh
+collisionMeshFromChunks(const std::vector<const ProcMesh *> &chunks) {
   LoadedMesh out;
   QVector3D lo(1e9f, 1e9f, 1e9f), hi(-1e9f, -1e9f, -1e9f);
-  for (const ProcMesh* m : chunks) {
-    if (!m) continue;
+  for (const ProcMesh *m : chunks) {
+    if (!m)
+      continue;
     for (std::size_t k = 0; k < m->positions.size(); ++k) {
-      const procgen::PgVec3& p = m->positions[k];
-      const procgen::PgVec3& nrm = m->normals[k];
+      const procgen::PgVec3 &p = m->positions[k];
+      const procgen::PgVec3 &nrm = m->normals[k];
       out.positions.emplace_back(p.x, p.y, p.z);
       out.normals.emplace_back(nrm.x, nrm.y, nrm.z);
-      lo.setX(std::min(lo.x(), p.x)); lo.setY(std::min(lo.y(), p.y));
+      lo.setX(std::min(lo.x(), p.x));
+      lo.setY(std::min(lo.y(), p.y));
       lo.setZ(std::min(lo.z(), p.z));
-      hi.setX(std::max(hi.x(), p.x)); hi.setY(std::max(hi.y(), p.y));
+      hi.setX(std::max(hi.x(), p.x));
+      hi.setY(std::max(hi.y(), p.y));
       hi.setZ(std::max(hi.z(), p.z));
     }
   }
@@ -144,4 +151,4 @@ LoadedMesh collisionMeshFromChunks(
   return out;
 }
 
-}  // namespace vsim
+} // namespace vsim

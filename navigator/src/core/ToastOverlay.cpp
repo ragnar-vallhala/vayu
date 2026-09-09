@@ -24,8 +24,9 @@ ToastOverlay::ToastOverlay(QWidget *host) : QWidget(host), m_host(host) {
 ToastOverlay *ToastOverlay::forHost(QWidget *host) {
   // dynamic_cast over the child list — no Q_OBJECT/qobject_cast needed.
   for (QObject *c : host->children())
-    if (auto *o = dynamic_cast<ToastOverlay *>(c)) return o;
-  return new ToastOverlay(host);  // parented to host → lives with it
+    if (auto *o = dynamic_cast<ToastOverlay *>(c))
+      return o;
+  return new ToastOverlay(host); // parented to host → lives with it
 }
 
 void ToastOverlay::addToast(const QColor &accent, const QString &iconText,
@@ -40,7 +41,8 @@ void ToastOverlay::addToast(const QColor &accent, const QString &iconText,
       c->setProperty("toastCount", n);
       if (auto *lbl = c->findChild<QLabel *>())
         lbl->setText(iconText + text + QStringLiteral("  ×%1").arg(n));
-      if (auto *t = c->findChild<QTimer *>()) t->start();  // restart countdown
+      if (auto *t = c->findChild<QTimer *>())
+        t->start(); // restart countdown
       c->adjustSize();
       relayout();
       return;
@@ -76,7 +78,7 @@ void ToastOverlay::addToast(const QColor &accent, const QString &iconText,
   fx->setOpacity(0.0);
   card->setGraphicsEffect(fx);
 
-  m_toasts.prepend(card);  // newest first
+  m_toasts.prepend(card); // newest first
   // Cap the stack: evict the oldest immediately if we're over the limit.
   while (m_toasts.size() > kMaxToasts) {
     QWidget *old = m_toasts.takeLast();
@@ -125,7 +127,7 @@ void ToastOverlay::relayout() {
   // never sit over the bottom replay controls / Exit Replay regardless of how
   // reliably WA_TransparentForMouseEvents passes clicks through on this platform.
   const int rightMargin = 16;
-  const int topMargin = 56;  // clear the menu/toolbar
+  const int topMargin = 56; // clear the menu/toolbar
   const int gap = 8;
 
   int w = 0, h = 0;
@@ -134,12 +136,13 @@ void ToastOverlay::relayout() {
     w = std::max(w, c->width());
     h += c->height() + gap;
   }
-  if (h > 0) h -= gap;
+  if (h > 0)
+    h -= gap;
 
   const int x = std::max(0, m_host->width() - w - rightMargin);
   setGeometry(x, topMargin, w, h);
 
-  int y = 0;  // newest first → topmost in the stack
+  int y = 0; // newest first → topmost in the stack
   for (QWidget *c : m_toasts) {
     c->move(w - c->width(), y);
     y += c->height() + gap;

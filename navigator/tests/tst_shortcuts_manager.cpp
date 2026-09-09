@@ -66,9 +66,9 @@ void TstShortcutsManager::conflictIsDetected() {
 void TstShortcutsManager::lastBoundWinsDisplacesPrevious() {
   ShortcutsManager m(reg);
   QSignalSpy spy(&m, &ShortcutsManager::displaced);
-  m.setOverride("view.pa", QKeySequence("Ctrl+L"));  // steal from log.clear
+  m.setOverride("view.pa", QKeySequence("Ctrl+L")); // steal from log.clear
   QCOMPARE(m.effective("view.pa"), QKeySequence("Ctrl+L"));
-  QVERIFY(m.effective("log.clear").isEmpty());  // displaced -> unbound
+  QVERIFY(m.effective("log.clear").isEmpty()); // displaced -> unbound
   QCOMPARE(reg->action("log.clear")->shortcut(), QKeySequence());
   QCOMPARE(spy.count(), 1);
   QCOMPARE(spy.at(0).at(0).toString(), QString("log.clear"));
@@ -101,7 +101,7 @@ void TstShortcutsManager::persistRoundTrip() {
   {
     ShortcutsManager m(reg);
     m.setOverride("view.home", QKeySequence("Ctrl+Shift+H"));
-    m.setOverride("log.clear", QKeySequence());  // explicit unbind
+    m.setOverride("log.clear", QKeySequence()); // explicit unbind
     m.save(path);
   }
   // Fresh registry + manager loading the same file reproduces the overrides.

@@ -54,10 +54,11 @@ void SerialManager::close() {
 }
 
 void SerialManager::tryReconnect() {
-  if (m_userClose || m_lastPort.isEmpty()) return;
+  if (m_userClose || m_lastPort.isEmpty())
+    return;
   if (m_retryCount >= kMaxRetries) {
-    emit errorOccurred(tr("Auto-reconnect: gave up after %1 attempts")
-                           .arg(kMaxRetries));
+    emit errorOccurred(
+        tr("Auto-reconnect: gave up after %1 attempts").arg(kMaxRetries));
     return;
   }
   ++m_retryCount;
@@ -114,6 +115,7 @@ void SerialManager::onErrorOccurred(QSerialPort::SerialPortError error) {
   // Schedule a reconnect if the user wants one and didn't ask for the
   // disconnect themselves.
   if (m_autoReconnect && !m_userClose && !m_lastPort.isEmpty()) {
-    if (!m_retryTimer.isActive()) m_retryTimer.start(m_initialDelayMs);
+    if (!m_retryTimer.isActive())
+      m_retryTimer.start(m_initialDelayMs);
   }
 }

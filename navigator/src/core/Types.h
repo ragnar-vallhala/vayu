@@ -28,10 +28,10 @@ struct AttitudeData {
 // Barometer – mirrors NavLink BARO (msgid 1039), BME280 source
 // -----------------------------------------------------------
 struct BaroData {
-  float pressurePa = 0.0f;    // Pa
-  float temperatureC = 0.0f;  // °C
-  float humidityRh = 0.0f;    // %RH
-  float altitudeM = 0.0f;     // m (ISA, from sea-level reference)
+  float pressurePa = 0.0f;   // Pa
+  float temperatureC = 0.0f; // °C
+  float humidityRh = 0.0f;   // %RH
+  float altitudeM = 0.0f;    // m (ISA, from sea-level reference)
   uint64_t timestamp = 0;
 };
 
@@ -42,8 +42,8 @@ struct BaroData {
 // fused-vs-raw. valid=false until the filter is seeded by the first baro fix.
 // -----------------------------------------------------------
 struct VerticalStateData {
-  float altitudeM = 0.0f;        // fused, m (same reference as BaroData.altitudeM)
-  float climbRateMs = 0.0f;      // fused, m/s (positive climbing)
+  float altitudeM = 0.0f;   // fused, m (same reference as BaroData.altitudeM)
+  float climbRateMs = 0.0f; // fused, m/s (positive climbing)
   float verticalAccelMs2 = 0.0f; // m/s² (up-positive)
   float baroAltitudeM = 0.0f;    // raw baro altitude, m
   float aglM = 0.0f;             // FC-authoritative height above ground ref, m
@@ -55,8 +55,8 @@ struct VerticalStateData {
   // so climbRateMs is NOT trustworthy and the FC has vetoed the height mode.
   // See firmware/docs/plans/vertical-velocity-vibration.md.
   float accelBiasMs2 = 0.0f;
-  bool  accelUnhealthy = false;
-  bool  valid = false;           // filter seeded
+  bool accelUnhealthy = false;
+  bool valid = false; // filter seeded
   uint64_t timestamp = 0;
 };
 
@@ -90,9 +90,7 @@ struct HslStatusData {
   uint64_t timestamp = 0;
 
   // Sectors of the ring holding data. Once it has wrapped that is all of it.
-  uint32_t usedSectors() const {
-    return wraps > 0 ? ringSectors : headSlot;
-  }
+  uint32_t usedSectors() const { return wraps > 0 ? ringSectors : headSlot; }
   double fillFraction() const {
     return ringSectors ? double(usedSectors()) / double(ringSectors) : 0.0;
   }

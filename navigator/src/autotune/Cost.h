@@ -1,6 +1,6 @@
 #pragma once
 
-#include <cstdint>  // ensure int32_t is defined before <stdlib.h> (glibc quirk)
+#include <cstdint> // ensure int32_t is defined before <stdlib.h> (glibc quirk)
 #include <optional>
 #include <vector>
 
@@ -11,7 +11,7 @@
 // is the separate, sim-coupled layer.
 namespace autotune {
 
-inline constexpr double kBig = 1.0e6;  // divergence / failsafe penalty
+inline constexpr double kBig = 1.0e6; // divergence / failsafe penalty
 inline constexpr double kChatterThresh = 0.04;
 inline constexpr double kChatterScale = 25.0;
 inline constexpr double kBuzzThresh = 0.02;
@@ -40,4 +40,4 @@ std::optional<double> axisCost(const std::vector<Sample> &samples, int axis);
 // chatter. nullopt / kBig as above (gyro saturation at |rate| > 2000°/s).
 std::optional<double> yawRateCost(const std::vector<Sample> &samples);
 
-}  // namespace autotune
+} // namespace autotune

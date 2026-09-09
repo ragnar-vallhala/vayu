@@ -47,8 +47,8 @@ public:
 private:
   QLabel *m_connStatus = nullptr;
   QLabel *m_syncStatus = nullptr;
-  QLabel *m_pktStatus  = nullptr;
+  QLabel *m_pktStatus = nullptr;
   QLabel *m_rateStatus = nullptr;
-  QLabel *m_hslStatus  = nullptr;
-  QLabel *m_infoLabel  = nullptr;  // right-aligned "Navigator · NavLink v1 · …"
+  QLabel *m_hslStatus = nullptr;
+  QLabel *m_infoLabel = nullptr; // right-aligned "Navigator · NavLink v1 · …"
 };

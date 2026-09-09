@@ -25,7 +25,7 @@ void StickGimbal::paintEvent(QPaintEvent *) {
   const int box = std::min(width(), height() - 18);
   const QRectF g((width() - box) / 2.0, 0, box, box);
   p.setPen(QPen(QColor(Theme::hex(Theme::kBorderStrong)), 1));
-  p.setBrush(QColor(0x13, 0x14, 0x1B));  // --base
+  p.setBrush(QColor(0x13, 0x14, 0x1B)); // --base
   p.drawRoundedRect(g, 4, 4);
 
   // Dashed centre crosshair (rgba(255,255,255,.13)).
@@ -52,6 +52,6 @@ void StickGimbal::paintEvent(QPaintEvent *) {
   f.setPointSize(8);
   p.setFont(f);
   p.setPen(QColor(Theme::hex(Theme::kTextDim)));
-  p.drawText(QRectF(0, g.bottom() + 3, width(), 14), Qt::AlignHCenter | Qt::AlignTop,
-             m_caption);
+  p.drawText(QRectF(0, g.bottom() + 3, width(), 14),
+             Qt::AlignHCenter | Qt::AlignTop, m_caption);
 }

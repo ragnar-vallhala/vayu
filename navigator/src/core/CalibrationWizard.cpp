@@ -2,53 +2,53 @@
 
 QVector<CalibStep> CalibrationWizard::stepsFor(CalibMode mode) {
   switch (mode) {
-    case CalibMode::Gyro:
-      return {{CalibUpdateType::Progress, QStringLiteral("Hold still"),
-               QStringLiteral("Keep the vehicle motionless and level.")}};
-    case CalibMode::AccelBias:
-      return {{CalibUpdateType::Upright, QStringLiteral("Level"),
-               QStringLiteral("Place the vehicle level and still.")}};
-    case CalibMode::Accel6Axis:
-      // The SIX FACES — matching the firmware's active accel fit, the closed-form
-      // 6-side solve (ACCEL_CALIB_METHOD == ACCEL_CALIB_SIXPOINT in
-      // firmware/include/variables.h), which prompts the faces only. The edge /
-      // corner holds are NOT listed: they are prompted solely by the ELLIPSOID
-      // fit, whose off-diagonal misalignment terms need the shared-gravity poses
-      // to become observable. Listing them under SIXPOINT stranded six rows
-      // permanently pending and stalled the bar at 50% until the firmware's
-      // terminal COMPLETE snapped it to 100%.
-      //
-      // The firmware does not advertise its fit method on the wire, so this list
-      // tracks that compile-time switch by hand: flipping variables.h back to
-      // ELLIPSOID means restoring the six Edge1..Edge6 steps here.
-      //
-      // Listed in the firmware's emission order so the initial (all-pending)
-      // checklist reads in the real sequence. Advancement is order-agnostic
-      // regardless (see onInstruction), so this order is display-only. Poses are
-      // advisory (the fit classifies each hold by its dominant axis), so "roughly
-      // this orientation, held still" is all the operator needs.
-      return {
-          {CalibUpdateType::Upright, QStringLiteral("Level"),
-           QStringLiteral("Set level, upright.")},
-          {CalibUpdateType::UpsideDown, QStringLiteral("Upside down"),
-           QStringLiteral("Flip fully inverted.")},
-          {CalibUpdateType::NoseUp, QStringLiteral("Nose up"),
-           QStringLiteral("Stand the vehicle on its tail, nose pointing up.")},
-          {CalibUpdateType::NoseDown, QStringLiteral("Nose down"),
-           QStringLiteral("Nose pointing straight down.")},
-          {CalibUpdateType::RightDown, QStringLiteral("Right side down"),
-           QStringLiteral("Roll onto the right side.")},
-          {CalibUpdateType::LeftDown, QStringLiteral("Left side down"),
-           QStringLiteral("Roll onto the left side.")},
-      };
-    case CalibMode::Mag:
-      return {{CalibUpdateType::FreeRot, QStringLiteral("Figure-8"),
-               QStringLiteral("Rotate the vehicle slowly through a figure-8, "
-                              "covering every axis.")}};
-    case CalibMode::BoardLevel:
-      return {{CalibUpdateType::BoardLevel, QStringLiteral("Frame level"),
-               QStringLiteral("Set the FRAME level (props plane horizontal) and "
-                              "hold still — corrects a tilted FC mount.")}};
+  case CalibMode::Gyro:
+    return {{CalibUpdateType::Progress, QStringLiteral("Hold still"),
+             QStringLiteral("Keep the vehicle motionless and level.")}};
+  case CalibMode::AccelBias:
+    return {{CalibUpdateType::Upright, QStringLiteral("Level"),
+             QStringLiteral("Place the vehicle level and still.")}};
+  case CalibMode::Accel6Axis:
+    // The SIX FACES — matching the firmware's active accel fit, the closed-form
+    // 6-side solve (ACCEL_CALIB_METHOD == ACCEL_CALIB_SIXPOINT in
+    // firmware/include/variables.h), which prompts the faces only. The edge /
+    // corner holds are NOT listed: they are prompted solely by the ELLIPSOID
+    // fit, whose off-diagonal misalignment terms need the shared-gravity poses
+    // to become observable. Listing them under SIXPOINT stranded six rows
+    // permanently pending and stalled the bar at 50% until the firmware's
+    // terminal COMPLETE snapped it to 100%.
+    //
+    // The firmware does not advertise its fit method on the wire, so this list
+    // tracks that compile-time switch by hand: flipping variables.h back to
+    // ELLIPSOID means restoring the six Edge1..Edge6 steps here.
+    //
+    // Listed in the firmware's emission order so the initial (all-pending)
+    // checklist reads in the real sequence. Advancement is order-agnostic
+    // regardless (see onInstruction), so this order is display-only. Poses are
+    // advisory (the fit classifies each hold by its dominant axis), so "roughly
+    // this orientation, held still" is all the operator needs.
+    return {
+        {CalibUpdateType::Upright, QStringLiteral("Level"),
+         QStringLiteral("Set level, upright.")},
+        {CalibUpdateType::UpsideDown, QStringLiteral("Upside down"),
+         QStringLiteral("Flip fully inverted.")},
+        {CalibUpdateType::NoseUp, QStringLiteral("Nose up"),
+         QStringLiteral("Stand the vehicle on its tail, nose pointing up.")},
+        {CalibUpdateType::NoseDown, QStringLiteral("Nose down"),
+         QStringLiteral("Nose pointing straight down.")},
+        {CalibUpdateType::RightDown, QStringLiteral("Right side down"),
+         QStringLiteral("Roll onto the right side.")},
+        {CalibUpdateType::LeftDown, QStringLiteral("Left side down"),
+         QStringLiteral("Roll onto the left side.")},
+    };
+  case CalibMode::Mag:
+    return {{CalibUpdateType::FreeRot, QStringLiteral("Figure-8"),
+             QStringLiteral("Rotate the vehicle slowly through a figure-8, "
+                            "covering every axis.")}};
+  case CalibMode::BoardLevel:
+    return {{CalibUpdateType::BoardLevel, QStringLiteral("Frame level"),
+             QStringLiteral("Set the FRAME level (props plane horizontal) and "
+                            "hold still — corrects a tilted FC mount.")}};
   }
   return {};
 }
@@ -98,12 +98,12 @@ void CalibrationWizard::onInstruction(CalibUpdateType orient) {
   // the bar backwards.) Bring the prompted pose into the next live slot so the
   // checklist reflects the true order and progress stays monotonic.
   if (j <= m_current)
-    return;  // a pose already visited was re-prompted — never go backwards
-  const int nextSlot = m_current + 1;  // m_current starts at -1 -> first slot 0
+    return; // a pose already visited was re-prompted — never go backwards
+  const int nextSlot = m_current + 1; // m_current starts at -1 -> first slot 0
   if (j != nextSlot)
     m_steps.swapItemsAt(nextSlot, j);
   m_current = nextSlot;
-  m_done = nextSlot;  // every step ahead of the current one is complete
+  m_done = nextSlot; // every step ahead of the current one is complete
   m_active = true;
 }
 

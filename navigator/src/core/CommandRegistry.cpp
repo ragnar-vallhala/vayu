@@ -15,7 +15,7 @@ QAction *CommandRegistry::add(const QString &id, const QString &title,
   }
 
   auto *act = new QAction(title, this);
-  act->setObjectName(id);  // lets the editor/palette key off the id
+  act->setObjectName(id); // lets the editor/palette key off the id
   if (!defaultSeq.isEmpty())
     act->setShortcut(defaultSeq);
   if (onTrigger)

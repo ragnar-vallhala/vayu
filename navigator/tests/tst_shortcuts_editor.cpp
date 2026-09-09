@@ -43,16 +43,17 @@ private slots:
 };
 
 void TstShortcutsEditor::displaysTitlesWithoutMnemonics() {
-  reg->add("view.sim", "Si&mulator", "View", QKeySequence(),
-           CmdContext::Always, {});
+  reg->add("view.sim", "Si&mulator", "View", QKeySequence(), CmdContext::Always,
+           {});
   ShortcutsEditorDialog dlg(reg, mgr);
   auto *table = dlg.findChild<QTableWidget *>();
   QVERIFY(table);
   bool sawSimulator = false;
   for (int r = 0; r < table->rowCount(); ++r) {
     const QString text = table->item(r, 0)->text();
-    QVERIFY(!text.contains('&'));  // no raw mnemonic markers in the editor
-    if (text == "Simulator") sawSimulator = true;
+    QVERIFY(!text.contains('&')); // no raw mnemonic markers in the editor
+    if (text == "Simulator")
+      sawSimulator = true;
   }
   QVERIFY(sawSimulator);
 }

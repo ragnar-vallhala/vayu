@@ -53,8 +53,8 @@ void TstReplaySource::advanceEmitsDueFramesInOrder() {
   QVERIFY(src.open(logPath));
   QSignalSpy spy(&src, &ITelemetrySource::bytesReceived);
 
-  QCOMPARE(src.advanceTo(50), 1);   // frame at t=0
-  QCOMPARE(src.advanceTo(250), 2);  // t=100, t=200
+  QCOMPARE(src.advanceTo(50), 1);  // frame at t=0
+  QCOMPARE(src.advanceTo(250), 2); // t=100, t=200
   QCOMPARE(spy.count(), 3);
   QCOMPARE(spy.at(0).at(0).toByteArray(), QByteArray("f0"));
   QCOMPARE(spy.at(1).at(0).toByteArray(), QByteArray("f1"));
@@ -67,7 +67,7 @@ void TstReplaySource::finishedFiresAtEndWhenNotLooping() {
   QSignalSpy spyData(&src, &ITelemetrySource::bytesReceived);
   QSignalSpy spyFin(&src, &ReplaySource::finished);
 
-  src.advanceTo(10000);  // past the end
+  src.advanceTo(10000); // past the end
   QCOMPARE(spyData.count(), 4);
   QCOMPARE(spyFin.count(), 1);
   QVERIFY(!src.isPlaying());
@@ -80,23 +80,23 @@ void TstReplaySource::loopWrapsWithoutFinishing() {
   QSignalSpy spyData(&src, &ITelemetrySource::bytesReceived);
   QSignalSpy spyFin(&src, &ReplaySource::finished);
 
-  src.advanceTo(10000);            // emits all 4, wraps to start
+  src.advanceTo(10000); // emits all 4, wraps to start
   QCOMPARE(spyData.count(), 4);
-  QCOMPARE(spyFin.count(), 0);     // looping never "finishes"
+  QCOMPARE(spyFin.count(), 0); // looping never "finishes"
   QCOMPARE(src.positionUs(), qint64(0));
-  src.advanceTo(10000);            // replays the whole crop again
+  src.advanceTo(10000); // replays the whole crop again
   QCOMPARE(spyData.count(), 8);
 }
 
 void TstReplaySource::cropRangeLimitsEmission() {
   ReplaySource src;
   QVERIFY(src.open(logPath));
-  src.setRange(100, 200);          // auto-seeks to 100
+  src.setRange(100, 200); // auto-seeks to 100
   QCOMPARE(src.positionUs(), qint64(100));
   QSignalSpy spy(&src, &ITelemetrySource::bytesReceived);
 
   src.advanceTo(10000);
-  QCOMPARE(spy.count(), 2);        // only t=100 and t=200
+  QCOMPARE(spy.count(), 2); // only t=100 and t=200
   QCOMPARE(spy.at(0).at(0).toByteArray(), QByteArray("f1"));
   QCOMPARE(spy.at(1).at(0).toByteArray(), QByteArray("f2"));
 }
@@ -111,7 +111,7 @@ void TstReplaySource::seekClampsIntoRange() {
 
   src.setRange(100, 200);
   src.seek(0);
-  QCOMPARE(src.positionUs(), qint64(100));  // clamped up into the crop
+  QCOMPARE(src.positionUs(), qint64(100)); // clamped up into the crop
 }
 
 void TstReplaySource::speedRejectsNonPositive() {
@@ -120,9 +120,9 @@ void TstReplaySource::speedRejectsNonPositive() {
   src.setSpeed(2.0);
   QCOMPARE(src.speed(), 2.0);
   src.setSpeed(-1.0);
-  QCOMPARE(src.speed(), 2.0);  // ignored
+  QCOMPARE(src.speed(), 2.0); // ignored
   src.setSpeed(0.0);
-  QCOMPARE(src.speed(), 2.0);  // ignored
+  QCOMPARE(src.speed(), 2.0); // ignored
 }
 
 QTEST_MAIN(TstReplaySource)

@@ -8,7 +8,7 @@
 #pragma once
 
 #include <cstddef>
-#include <cstdint>  // ensure int32_t et al. are defined before <cmath>/<cstdlib>
+#include <cstdint> // ensure int32_t et al. are defined before <cmath>/<cstdlib>
 #include <vector>
 
 namespace vsim::procgen {
@@ -33,4 +33,4 @@ struct ProcMesh {
   bool empty() const { return positions.empty(); }
 };
 
-}  // namespace vsim::procgen
+} // namespace vsim::procgen

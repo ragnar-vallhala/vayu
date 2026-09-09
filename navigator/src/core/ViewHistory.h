@@ -25,7 +25,7 @@ public:
   // depth.
   void visit(int viewId);
 
-  QList<int> mru() const { return m_mru; }  // front = most recent
+  QList<int> mru() const { return m_mru; } // front = most recent
   int count() const { return int(m_mru.size()); }
 
   // The view a quick toggle should jump to (second entry), or -1 if there is
@@ -33,6 +33,6 @@ public:
   int previous() const;
 
 private:
-  QList<int> m_mru;  // front = most recent
+  QList<int> m_mru; // front = most recent
   int m_depth = 5;
 };

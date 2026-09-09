@@ -8,10 +8,8 @@
 #include <QStringList>
 
 TelemetryEngine::TelemetryEngine(QObject *parent)
-    : QObject(parent),
-      m_protocol(new DroneProtocol(this)),
-      m_serial(new SerialManager(this)),
-      m_udp(new UdpManager(this)) {
+    : QObject(parent), m_protocol(new DroneProtocol(this)),
+      m_serial(new SerialManager(this)), m_udp(new UdpManager(this)) {
 
   // The parser now lives on the worker thread, so DroneProtocol's struct-carrying
   // signals reach the GUI widgets (control-loop / perf / calibration) via QUEUED
@@ -64,10 +62,12 @@ TelemetryEngine::TelemetryEngine(QObject *parent)
   // replayable .bin. Runs on the worker thread (same as the recorder).
   connect(m_protocol, &DroneProtocol::packetReceived, this,
           [this](const QByteArray &pkt) {
-            if (!m_exporting || pkt.size() < 2) return;
+            if (!m_exporting || pkt.size() < 2)
+              return;
             const int type = (static_cast<quint8>(pkt[1]) >> 4) & 0x0F;
             if (m_exportMask & static_cast<quint16>(1u << type))
-              m_exporter.writeFrame(quint64(m_elapsed.nsecsElapsed() / 1000), pkt);
+              m_exporter.writeFrame(quint64(m_elapsed.nsecsElapsed() / 1000),
+                                    pkt);
           });
 
   // --- High-rate state signals: consumed here to update the store. These are
@@ -136,10 +136,11 @@ TelemetryEngine::TelemetryEngine(QObject *parent)
             // that isn't a recognised state (the binary HEALTH counters get
             // stringified to non-printable bytes upstream).
             static const QStringList kStateNames = {
-                "UNINITIALIZED", "INIT",     "STANDBY",    "PREARM",
-                "ARMED",         "IN_AIR",   "FAILSAFE",   "TERMINATED",
-                "CALIBRATING"};
-            if (!kStateNames.contains(msg)) return;
+                "UNINITIALIZED", "INIT",       "STANDBY",
+                "PREARM",        "ARMED",      "IN_AIR",
+                "FAILSAFE",      "TERMINATED", "CALIBRATING"};
+            if (!kStateNames.contains(msg))
+              return;
             QMutexLocker lock(&m_mutex);
             m_state.vehicleState = msg;
             // ARMED / IN_AIR / FAILSAFE all count as armed so the operator can
@@ -204,25 +205,28 @@ void TelemetryEngine::setLiveFeed(bool on) { m_acceptLive = on; }
 
 void TelemetryEngine::startRecording(const QString &path,
                                      qulonglong startWallClockMs) {
-  if (m_recorder.isOpen()) return;
+  if (m_recorder.isOpen())
+    return;
   m_recorder.open(path, /*protocolVersion=*/1, startWallClockMs);
 }
 
 void TelemetryEngine::stopRecording() {
-  if (m_recorder.isOpen()) m_recorder.close();
+  if (m_recorder.isOpen())
+    m_recorder.close();
 }
 
 void TelemetryEngine::startExport(const QString &path, int typeMask) {
-  if (m_exporter.isOpen()) m_exporter.close();
+  if (m_exporter.isOpen())
+    m_exporter.close();
   m_exportMask = static_cast<quint16>(typeMask);
-  m_exporting = m_exporter.open(
-      path, /*protocolVersion=*/1,
-      quint64(QDateTime::currentMSecsSinceEpoch()));
+  m_exporting = m_exporter.open(path, /*protocolVersion=*/1,
+                                quint64(QDateTime::currentMSecsSinceEpoch()));
   emit exportStateChanged(m_exporting, m_exporting ? path : QString());
 }
 
 void TelemetryEngine::stopExport() {
-  if (m_exporter.isOpen()) m_exporter.close();
+  if (m_exporter.isOpen())
+    m_exporter.close();
   m_exporting = false;
   emit exportStateChanged(false, QString());
 }

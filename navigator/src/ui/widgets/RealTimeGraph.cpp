@@ -41,15 +41,20 @@ RealTimeGraph::RealTimeGraph(QWidget *parent, int numSeries) : QWidget(parent) {
     // buffers so the graph is definitively "NA" and the memory is freed.
     bool anyData = false;
     for (const auto &s : m_seriesData)
-      if (!s.empty()) { anyData = true; break; }
+      if (!s.empty()) {
+        anyData = true;
+        break;
+      }
     if (!anyData)
       return;
     ++m_idleTicks;
     const int washTicks =
-        m_windowSeconds * 1000 / m_repaintTimer->interval() + 2;  // +margin
+        m_windowSeconds * 1000 / m_repaintTimer->interval() + 2; // +margin
     if (m_idleTicks >= washTicks) {
-      for (auto &s : m_seriesData) s.clear();
-      for (auto &s : m_sigmaData) s.clear();
+      for (auto &s : m_seriesData)
+        s.clear();
+      for (auto &s : m_sigmaData)
+        s.clear();
       m_stateHist.clear();
     }
     update();
@@ -220,7 +225,8 @@ void RealTimeGraph::clear() {
   for (auto &series : m_seriesData) {
     series.clear();
   }
-  for (auto &s : m_sigmaData) s.clear();
+  for (auto &s : m_sigmaData)
+    s.clear();
   m_stateHist.clear();
   m_idleTicks = 0;
   m_lastPaintStale = false;
@@ -317,16 +323,16 @@ void RealTimeGraph::paintEvent(QPaintEvent *event) {
       newestTs = std::max(newestTs, series.back().timestamp);
   const bool stale = newestTs < startTime;
   if (newestTs == std::numeric_limits<qint64>::min() || stale) {
-    m_lastPaintStale = true;  // let the repaint pump idle until data resumes
+    m_lastPaintStale = true; // let the repaint pump idle until data resumes
     QFont f = painter.font();
     f.setBold(true);
     f.setPixelSize(std::max(18, height() / 3));
     painter.setFont(f);
-    painter.setPen(QColor(0xE8, 0xF0, 0xFE, 40));  // faded watermark
+    painter.setPen(QColor(0xE8, 0xF0, 0xFE, 40)); // faded watermark
     painter.drawText(rect(), Qt::AlignCenter, QStringLiteral("NA"));
     return;
   }
-  m_lastPaintStale = false;  // live data on screen → keep animating
+  m_lastPaintStale = false; // live data on screen → keep animating
 
   // Vehicle-state colour band behind the traces (mockup .g-status). Each cell is
   // painted from its own timestamp to the next on the SAME axis as the traces;
@@ -358,7 +364,7 @@ void RealTimeGraph::paintEvent(QPaintEvent *event) {
       drawMax = -9999999.0f;
       for (size_t i = 0; i < m_seriesData.size(); ++i) {
         if (m_hasRightAxis && m_rightAxis[i])
-          continue;  // right-axis series scale on their own axis below
+          continue; // right-axis series scale on their own axis below
         for (const auto &dp : m_seriesData[i]) {
           drawMin = std::min(drawMin, dp.value);
           drawMax = std::max(drawMax, dp.value);
@@ -475,12 +481,12 @@ void RealTimeGraph::paintEvent(QPaintEvent *event) {
           sMin = std::min(sMin, dp.value);
           sMax = std::max(sMax, dp.value);
         }
-      if (sMin <= sMax) {  // at least one σ sample in the window
+      if (sMin <= sMax) { // at least one σ sample in the window
         float sr = sMax - sMin;
-        if (sr < 1e-6f) {           // flat trace: give it a sliver of range
+        if (sr < 1e-6f) { // flat trace: give it a sliver of range
           sMin -= 1e-4f;
           sMax += 1e-4f;
-        } else {                    // 10% padding top & bottom
+        } else { // 10% padding top & bottom
           sMin -= sr * 0.1f;
           sMax += sr * 0.1f;
         }
@@ -498,8 +504,11 @@ void RealTimeGraph::paintEvent(QPaintEvent *event) {
           for (const auto &dp : m_sigmaData[i]) {
             const float x = toX(dp.timestamp);
             const float y = toYsig(dp.value);
-            if (first) { sp.moveTo(x, y); first = false; }
-            else sp.lineTo(x, y);
+            if (first) {
+              sp.moveTo(x, y);
+              first = false;
+            } else
+              sp.lineTo(x, y);
           }
           QColor sc = m_colors[i];
           sc.setAlpha(140);
@@ -516,8 +525,8 @@ void RealTimeGraph::paintEvent(QPaintEvent *event) {
         for (int k = 0; k <= 4; ++k) {
           const float sval = sMax - (sMax - sMin) * (k / 4.0f);
           const int yPos = static_cast<int>(k / 4.0 * height());
-          const QString lbl = (k == 0 ? "σ " : "") +
-                              QString::number(double(sval), 'f', 2);
+          const QString lbl =
+              (k == 0 ? "σ " : "") + QString::number(double(sval), 'f', 2);
           painter.drawText(QRectF(width() - 42, yPos, 40, 12),
                            Qt::AlignRight | Qt::AlignTop, lbl);
         }
@@ -580,8 +589,9 @@ void RealTimeGraph::paintEvent(QPaintEvent *event) {
         painter.drawText(lx, 12, m_unit);
       }
       for (int i = m_seriesLabels.size() - 1; i >= 0; --i) {
-        painter.setPen(i < static_cast<int>(m_colors.size()) ? m_colors[i]
-                                                             : QColor(200, 200, 200));
+        painter.setPen(i < static_cast<int>(m_colors.size())
+                           ? m_colors[i]
+                           : QColor(200, 200, 200));
         lx -= fm.horizontalAdvance(m_seriesLabels[i]) + 7;
         painter.drawText(lx, 12, m_seriesLabels[i]);
       }
@@ -619,7 +629,8 @@ void RealTimeGraph::paintEvent(QPaintEvent *event) {
   }
 }
 
-int RealTimeGraph::writeCsv(QTextStream &out, const QStringList &headers) const {
+int RealTimeGraph::writeCsv(QTextStream &out,
+                            const QStringList &headers) const {
   const int n = static_cast<int>(m_seriesData.size());
 
   // Header row.
@@ -655,7 +666,8 @@ int RealTimeGraph::writeCsv(QTextStream &out, const QStringList &headers) const 
         next = std::min(next, m_seriesData[i][idx[i]].timestamp);
       }
     }
-    if (!any) break;
+    if (!any)
+      break;
 
     out << next;
     for (int i = 0; i < n; ++i) {

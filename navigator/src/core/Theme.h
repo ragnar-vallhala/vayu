@@ -15,31 +15,31 @@
 namespace Theme {
 
 // ---- Surfaces ---------------------------------------------------------------
-inline const QColor kBg          = QColor("#1A1D27");  // window background
-inline const QColor kSurface     = QColor("#21252B");  // panels / inputs
-inline const QColor kSurfaceAlt  = QColor("#2C313A");  // raised cards / hovers
-inline const QColor kBase        = QColor("#13141B");  // deepest pit (log bg)
-inline const QColor kBorder      = QColor("#2A3347");  // hairlines
-inline const QColor kBorderStrong= QColor("#3E4452");
+inline const QColor kBg = QColor("#1A1D27");         // window background
+inline const QColor kSurface = QColor("#21252B");    // panels / inputs
+inline const QColor kSurfaceAlt = QColor("#2C313A"); // raised cards / hovers
+inline const QColor kBase = QColor("#13141B");       // deepest pit (log bg)
+inline const QColor kBorder = QColor("#2A3347");     // hairlines
+inline const QColor kBorderStrong = QColor("#3E4452");
 
 // ---- Text -------------------------------------------------------------------
-inline const QColor kText        = QColor("#DCDFE4");  // primary text
-inline const QColor kTextMuted   = QColor("#ABB2BF");  // secondary text
-inline const QColor kTextDim     = QColor("#5C6370");  // tertiary / disabled
+inline const QColor kText = QColor("#DCDFE4");      // primary text
+inline const QColor kTextMuted = QColor("#ABB2BF"); // secondary text
+inline const QColor kTextDim = QColor("#5C6370");   // tertiary / disabled
 
 // ---- Semantic accents -------------------------------------------------------
-inline const QColor kAccent      = QColor("#61AFEF");  // info / focus / brand
-inline const QColor kOk          = QColor("#98C379");  // success / connected
-inline const QColor kWarn        = QColor("#D19A66");  // caution
-inline const QColor kDanger      = QColor("#E06C75");  // error / armed / disconnect
+inline const QColor kAccent = QColor("#61AFEF"); // info / focus / brand
+inline const QColor kOk = QColor("#98C379");     // success / connected
+inline const QColor kWarn = QColor("#D19A66");   // caution
+inline const QColor kDanger = QColor("#E06C75"); // error / armed / disconnect
 
 // ---- Attitude axes (chart-friendly distinct hues) ---------------------------
-inline const QColor kAxisRoll    = QColor("#FF6B6B");
-inline const QColor kAxisPitch   = QColor("#4ECDC4");
-inline const QColor kAxisYaw     = QColor("#FFE66D");
+inline const QColor kAxisRoll = QColor("#FF6B6B");
+inline const QColor kAxisPitch = QColor("#4ECDC4");
+inline const QColor kAxisYaw = QColor("#FFE66D");
 
 // Hex helpers — handy when building QSS fragments inline.
-inline QString hex(const QColor& c) { return c.name(QColor::HexRgb).toUpper(); }
+inline QString hex(const QColor &c) { return c.name(QColor::HexRgb).toUpper(); }
 
 // Load the bundled dark.qss into a string. Returns empty on failure;
 // caller should fall back to whatever defaults Qt provides.
@@ -49,4 +49,4 @@ QString loadStyleSheet();
 // before constructing windows.
 void apply();
 
-}  // namespace Theme
+} // namespace Theme

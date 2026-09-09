@@ -25,10 +25,11 @@ void PacketLogModel::enqueue(bool tx, const QByteArray &bytes) {
   const auto *r = reinterpret_cast<const uint8_t *>(bytes.constData());
   // Spaced-hex helper, truncated so a giant payload can't bloat a row.
   auto hexSpaced = [](const QByteArray &b) {
-    constexpr int kMax = 24;  // bytes shown before eliding
+    constexpr int kMax = 24; // bytes shown before eliding
     QByteArray shown = b.left(kMax);
     QString s = QString::fromLatin1(shown.toHex(' '));
-    if (b.size() > kMax) s += " …";
+    if (b.size() > kMax)
+      s += " …";
     return s;
   };
   if (bytes.size() >= 8 && r[0] == 0x56) {
@@ -115,13 +116,20 @@ QVariant PacketLogModel::data(const QModelIndex &index, int role) const {
 
   if (role == Qt::DisplayRole) {
     switch (index.column()) {
-    case ColTime: return e.time;
-    case ColDir: return e.tx ? "TX" : "RX";
-    case ColType: return e.typeName;
-    case ColDev: return e.type == 0xFF ? QString("—") : QString::number(e.dev);
-    case ColLen: return e.len;
-    case ColCrc: return e.crc;
-    case ColPayload: return e.payloadHex;
+    case ColTime:
+      return e.time;
+    case ColDir:
+      return e.tx ? "TX" : "RX";
+    case ColType:
+      return e.typeName;
+    case ColDev:
+      return e.type == 0xFF ? QString("—") : QString::number(e.dev);
+    case ColLen:
+      return e.len;
+    case ColCrc:
+      return e.crc;
+    case ColPayload:
+      return e.payloadHex;
     }
   } else if (role == Qt::ForegroundRole) {
     if (e.type == 0xFF)
@@ -140,13 +148,20 @@ QVariant PacketLogModel::headerData(int section, Qt::Orientation o,
   if (o != Qt::Horizontal || role != Qt::DisplayRole)
     return {};
   switch (section) {
-  case ColTime: return "Time";
-  case ColDir: return "Dir";
-  case ColType: return "Type";
-  case ColDev: return "Dev";
-  case ColLen: return "Len";
-  case ColCrc: return "CRC";
-  case ColPayload: return "Payload (hex)";
+  case ColTime:
+    return "Time";
+  case ColDir:
+    return "Dir";
+  case ColType:
+    return "Type";
+  case ColDev:
+    return "Dev";
+  case ColLen:
+    return "Len";
+  case ColCrc:
+    return "CRC";
+  case ColPayload:
+    return "Payload (hex)";
   }
   return {};
 }

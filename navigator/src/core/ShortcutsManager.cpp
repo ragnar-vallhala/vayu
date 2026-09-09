@@ -39,7 +39,7 @@ void ShortcutsManager::setOverride(const QString &id, const QKeySequence &seq) {
     // Last-bound wins: unbind whoever currently holds this chord.
     const QString other = conflict(seq, id);
     if (!other.isEmpty()) {
-      m_overrides[other] = QKeySequence();  // explicit unbind
+      m_overrides[other] = QKeySequence(); // explicit unbind
       applyTo(other);
       emit displaced(other, id);
       emit changed(other);
@@ -52,7 +52,7 @@ void ShortcutsManager::setOverride(const QString &id, const QKeySequence &seq) {
 
 void ShortcutsManager::clearOverride(const QString &id) {
   if (m_overrides.remove(id) > 0) {
-    applyTo(id);  // re-applies the registry default
+    applyTo(id); // re-applies the registry default
     emit changed(id);
   }
 }
@@ -99,7 +99,7 @@ void ShortcutsManager::load(const QString &iniPath) {
 void ShortcutsManager::save(const QString &iniPath) const {
   QSettings s(iniPath, QSettings::IniFormat);
   s.beginGroup("shortcuts");
-  s.remove("");  // clear stale keys, then rewrite the current overrides
+  s.remove(""); // clear stale keys, then rewrite the current overrides
   for (auto it = m_overrides.constBegin(); it != m_overrides.constEnd(); ++it)
     s.setValue(it.key(), it.value().toString());
   s.endGroup();

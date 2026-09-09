@@ -26,10 +26,10 @@ public slots:
   void updateChannels(const RcData &data);
 
 private:
-  StickGimbal *m_stickL = nullptr;  // Throttle / Yaw
-  StickGimbal *m_stickR = nullptr;  // Pitch / Roll
+  StickGimbal *m_stickL = nullptr; // Throttle / Yaw
+  StickGimbal *m_stickR = nullptr; // Pitch / Roll
   AuxSwitch *m_aux[4] = {nullptr, nullptr, nullptr, nullptr};
-  QVector<QProgressBar *> m_bars;  // 8 named channels
+  QVector<QProgressBar *> m_bars; // 8 named channels
   QVector<QLabel *> m_labels;
-  RealTimeGraph *m_history = nullptr;  // 8-trace channel history (aux dotted)
+  RealTimeGraph *m_history = nullptr; // 8-trace channel history (aux dotted)
 };
