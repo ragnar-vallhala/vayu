@@ -20,7 +20,7 @@
 
 #define HOST_VFS_MAX_FILES   8
 #define HOST_VFS_MAX_HANDLES 8
-#define HOST_VFS_FILE_CAP    4096
+#define HOST_VFS_FILE_CAP    65536  /* was 4096; HSL needs a ring big enough to wrap in test_hslog */
 
 /* Resolve the on-disk backing path for a VFS path, e.g. "0:pid.bin" ->
  * "/tmp/vayu_vfs/0_pid.bin". Non-alnum/._- chars are mapped to '_'. */
