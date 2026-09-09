@@ -1,0 +1,29 @@
+# Derived empirically, not chosen: each option below was measured against the
+# existing sources (10 representative files, 6107 lines) and kept only if it
+# REDUCED the diff a reformat produces. Without any config clang-format falls
+# back to LLVM style and rewrites 19.6% of lines; this gets it to 6.8%.
+#
+# Measured, added one at a time to this baseline — all made it worse, so none
+# of them are here:
+#   AlignConsecutiveAssignments: Consecutive   +512 lines  (aligns designated
+#                                                initialisers the source leaves
+#                                                unaligned — by far the worst)
+#   AlignConsecutiveMacros: Consecutive        +178
+#   AllowShortFunctionsOnASingleLine: None      +76
+#   AlignTrailingComments: Never/Leave       +72/+60
+#   AlignEscapedNewlines: Left/DontAlign        +30
+# And these changed nothing, so they are left at the LLVM default:
+#   BreakBeforeBraces, PointerAlignment, IndentPPDirectives,
+#   SpacesBeforeTrailingComments, MaxEmptyLinesToKeep,
+#   AllowShortIfStatementsOnASingleLine
+#
+# Re-derive with the sweep in the shell history if the codebase style shifts.
+
+BasedOnStyle: LLVM
+ColumnLimit: 80
+
+# The two that actually pay. Includes are grouped by meaning here, not
+# alphabetically; and the comments are hand-broken prose that re-wrapping
+# leaves starting mid-sentence.
+SortIncludes: Never
+ReflowComments: Never
