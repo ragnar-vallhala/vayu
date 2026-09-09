@@ -33,7 +33,10 @@ int main(void) {
 
   /* 2. THE property: centre-stick hovers, at ANY hover value — the expo is
    *    derived from hover and is defined about centre, so it cannot move it. */
-  for (float h = 0.20f; h <= 0.70f; h += 0.10f) {
+  /* Integer induction: 0.10f is not representable, so `h += 0.10f` drifts and
+   * the last step lands just past 0.70f -- silently testing one hover short. */
+  for (int hi = 20; hi <= 70; hi += 10) {
+    const float h = (float)hi / 100.0f;
     char msg[64];
     snprintf(msg, sizeof msg, "centre-stick = hover for hover=%.2f", h);
     check(msg, near(throttle_curve(0.5f, h), h, 1e-3f));

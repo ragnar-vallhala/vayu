@@ -172,20 +172,20 @@ jobs:
       - run: |
           sudo apt-get update
           sudo apt-get install -y cmake clang-tidy gcc-arm-none-eabi jq
-      - name: clang-tidy (ARM target config, all firmware sources)
+      - name: clang-tidy
         continue-on-error: true
         run: |
+          # A database only has to be CONFIGURED, not built. Navigator is left
+          # out here: it needs Qt6 + assimp and a full BUILD (AUTOMOC generates
+          # the tst_*.moc its tests include), which no CI job pays for today --
+          # so run_clang_tidy.sh with no arguments, locally, is the wider pass.
+          # The script's closing "not analysed" list says what CI skipped.
           cmake -S firmware -B firmware/build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
-          tools/dev/run_clang_tidy.sh firmware/build
-      - name: clang-tidy (VAYU_SIM host config)
-        continue-on-error: true
-        run: |
-          cmake -S sim/host -B build_tidy -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
-          cmake --build build_tidy -j --target vayu_sitl_core
-          # Only files the SITL build actually compiles. Running the full
-          # firmware/src list here is what produced the phantom
-          # undeclared-function and parse errors: 11 of the 67 sources are not
-          # in this database, so clang-tidy analysed them with default flags.
-          jq -r '.[].file' build_tidy/compile_commands.json | sort -u \
-            | grep '/firmware/src/' \
-            | xargs -P"$(nproc)" -I{} clang-tidy -p build_tidy --quiet {}
+          cmake -S firmware -B firmware/build_hwtest -DVAYU_HW_TEST=ON \
+                -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+          cmake -S firmware/tests/host -B firmware/tests/host/build \
+                -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+          cmake -S sim/host -B sim/host/build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+          tools/dev/run_clang_tidy.sh \
+            firmware/build firmware/build_hwtest \
+            firmware/tests/host/build sim/host/build

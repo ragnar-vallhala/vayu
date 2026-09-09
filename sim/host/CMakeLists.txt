@@ -247,7 +247,6 @@ if(VAYU_SITL_RTOS_BUILD)
   )
   target_compile_definitions(vayu_sitl_rtos_core PRIVATE
       VAYU_SITL_RTOS=1 VAIOS_HOST_TEST=1
-      _GNU_SOURCE           # glibc __USE_MISC (int32_t in <stdlib.h>) for the C++ TUs
       HEAP_SIZE=0x180000)   # 1.5 MB: room for the firmware tasks' 8KB stacks on host
   target_include_directories(vayu_sitl_rtos_core
       PRIVATE
@@ -270,7 +269,7 @@ if(VAYU_SITL_RTOS_BUILD)
   # core uses (they don't propagate from a PRIVATE usage requirement).
   add_executable(vayu_sitl_rtos src/host_rtos_main.c)
   target_compile_definitions(vayu_sitl_rtos PRIVATE
-      VAYU_SITL_RTOS=1 VAIOS_HOST_TEST=1 _GNU_SOURCE HEAP_SIZE=0x180000)
+      VAYU_SITL_RTOS=1 VAIOS_HOST_TEST=1 HEAP_SIZE=0x180000)
   target_include_directories(vayu_sitl_rtos PRIVATE
       ${CMAKE_CURRENT_SOURCE_DIR}/include
       ${VAYU_ROOT}/firmware/include

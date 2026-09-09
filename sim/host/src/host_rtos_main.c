@@ -726,7 +726,7 @@ int main(void) {
   const char *scen = getenv("VAYU_RTOS_SCENARIO");
   const uint32_t seed =
       seed_env && *seed_env ? (uint32_t)strtoul(seed_env, 0, 10) : STEP_SEED;
-  const int N = nenv && *nenv ? atoi(nenv) : 5000;
+  const int N = nenv && *nenv ? (int)strtol(nenv, NULL, 10) : 5000;
 
   if (scen && strcmp(scen, "driver") == 0)
     return run_driver();

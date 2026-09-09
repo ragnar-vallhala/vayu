@@ -1,7 +1,7 @@
 /* Bench check: SD/FatFS write -> read-back integrity through the FS owner. */
 #include "hwtest_runner.h"
 #include "storage/fs_owner.h"
-#include "task.h" /* v_delay */
+#include "vaios.h" /* v_delay */
 
 #include <string.h>
 

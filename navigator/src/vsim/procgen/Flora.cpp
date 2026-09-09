@@ -113,7 +113,7 @@ std::vector<FloraInstance> scatterFlora(const TerrainField &f, int cx, int cy,
       // Multiple blades per cell (each with its own jitter/yaw/height) to crank
       // density cheaply. Per-blade salts are spaced 20 apart so they don't
       // collide across blades or with the cell's density salt (3).
-      const int nb = std::max(1, static_cast<int>(p.bladesPerCell + 0.5f));
+      const int nb = std::max(1, static_cast<int>(std::lround(p.bladesPerCell)));
       for (int bi = 0; bi < nb; ++bi) {
         const uint32_t s0 = 10u + static_cast<uint32_t>(bi) * 20u;
         const float jx = (u01(hcell(gx, gy, p.seed, s0)) - 0.5f) * p.jitter;

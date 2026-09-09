@@ -96,6 +96,8 @@ private:
   static constexpr float kPi = 3.14159265358979323846f;
 
   WindConfig cfg_;
+  // Fixed seed: turbulence must be reproducible. seed() sets it per run.
+  // NOLINTNEXTLINE(cert-msc32-c,cert-msc51-cpp)
   std::mt19937_64 rng_{0xC0FFEEu};
   std::normal_distribution<float> norm_{0.0f, 1.0f};
   Vec3 turb_{0.0f, 0.0f, 0.0f};

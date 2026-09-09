@@ -110,7 +110,7 @@ struct BuildTri {
 
 inline void triBounds(const float *verts, const uint32_t *tris, uint32_t t,
                       BuildTri &bt) {
-  const uint32_t *tri = tris + 3 * t;
+  const uint32_t *tri = tris + 3u * static_cast<size_t>(t);
   for (int k = 0; k < 3; ++k) {
     float lo = +1e30f, hi = -1e30f, c = 0.0f;
     for (int j = 0; j < 3; ++j) {
@@ -188,7 +188,7 @@ inline std::vector<uint8_t> buildSerialized(const float *verts, uint32_t nverts,
     std::vector<detail::BuildTri> bt(ntris);
     for (uint32_t t = 0; t < ntris; ++t)
       detail::triBounds(verts, tris, t, bt[t]);
-    nodes.reserve(2 * ntris);
+    nodes.reserve(2u * static_cast<size_t>(ntris));
     detail::build(nodes, bt, 0, static_cast<int>(ntris));
     for (uint32_t i = 0; i < ntris; ++i)
       perm[i] = bt[i].idx;
@@ -249,10 +249,11 @@ struct Bvh {
   bool valid() const { return h != nullptr && h->triangle_count > 0; }
   bool doubleSided() const { return h && (h->flags & kFlagDoubleSided); }
   Vec3 vert(uint32_t i) const {
-    return Vec3(verts[3 * i], verts[3 * i + 1], verts[3 * i + 2]);
+    const size_t b = 3u * static_cast<size_t>(i);
+    return Vec3(verts[b], verts[b + 1], verts[b + 2]);
   }
   void tri(uint32_t t, Vec3 &a, Vec3 &b, Vec3 &c) const {
-    const uint32_t *f = tris + 3 * t;
+    const uint32_t *f = tris + 3u * static_cast<size_t>(t);
     a = vert(f[0]);
     b = vert(f[1]);
     c = vert(f[2]);

@@ -39,7 +39,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#include "task.h"  /* v_delay */
+#include "vaios.h" /* v_delay */
 #include "utils.h" /* v_get_ticks */
 
 /* vsim emits IMU at this rate (sim/vsim/src/main.cpp kImuHz). Each sample
@@ -188,8 +188,6 @@ static void *imu_feeder_thread(void *arg) {
 
   bmx160_all_reading_t sample;
 
-  uint32_t frames = 0;
-  uint32_t last_log_t = 0;
 
   /* IMU transport is FIFO-only as of the vsim_d split. Whether the
    * firmware is the standalone vayu_sitl binary or living inside
@@ -256,15 +254,6 @@ static void *imu_feeder_thread(void *arg) {
       }
     }
 
-    frames++;
-    uint32_t now = v_get_ticks();
-    if (now - last_log_t >= 1000) {
-      //  fprintf(stderr,
-      //         "host_imu_feeder: %u frames, last roll=%.2f pitch=%.2f
-      //         yaw=%.2f\n",
-      //        frames, (double)att.roll, (double)att.pitch, (double)att.yaw);
-      last_log_t = now;
-    }
   }
 
   if (fd >= 0)

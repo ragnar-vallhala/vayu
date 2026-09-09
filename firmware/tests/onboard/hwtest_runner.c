@@ -8,7 +8,7 @@
 #include "comm/channel.h"     /* channel_t, write_channel */
 #include "storage/fs_owner.h" /* fs_owner_enqueue_write_at, *_writeat_* */
 #include "sys/sys_utils.h"    /* get_device_id */
-#include "task.h"             /* v_delay */
+#include "vaios.h" /* v_delay */
 
 #include "navlink_msgs.h" /* test-profile codec (has HW_TEST_*) */
 #include "utils.h" /* vaprint_fmt_buf (bare-metal printf, no newlib stdio) */

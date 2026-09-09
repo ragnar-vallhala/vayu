@@ -76,7 +76,7 @@ void MainStatusBar::setPacketRate(double hz) {
 void MainStatusBar::setHslStatus(const HslStatusData &d) {
   // Percentage of the ring holding data. Once wrapped that is all of it, and
   // the oldest armed time is being overwritten -- worth saying, not an error.
-  const int pct = int(d.fillFraction() * 100.0 + 0.5);
+  const int pct = int(std::lround(d.fillFraction() * 100.0));
   QString text;
   if (d.droppedSectors > 0) {
     text = QString("  SD: %1 %2%% · %3 DROP  ")

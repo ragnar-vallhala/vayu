@@ -45,8 +45,7 @@ void TstCost::perfectTrackingIsCheap() {
   for (int i = 0; i < 20; ++i)
     s.push_back(lvl(10.0, 10.0, 0.5));
   auto c = axisCost(s, 0);
-  QVERIFY(c.has_value());
-  QVERIFY(*c < 0.01);
+  QVERIFY(c.has_value() && *c < 0.01);
 }
 
 void TstCost::divergenceIsBig() {
@@ -55,7 +54,7 @@ void TstCost::divergenceIsBig() {
     s.push_back(lvl(0.0, 95.0, 0.0)); // |angle| > 80
   auto c = axisCost(s, 0);
   QVERIFY(c.has_value());
-  QCOMPARE(*c, kBig);
+  QCOMPARE(c.value_or(0.0), kBig);
 }
 
 void TstCost::chatterRaisesCost() {
@@ -67,8 +66,7 @@ void TstCost::chatterRaisesCost() {
   }
   auto a = axisCost(calm, 0);
   auto b = axisCost(buzz, 0);
-  QVERIFY(a && b);
-  QVERIFY(*b > *a);
+  QVERIFY(a && b && *b > *a);
 }
 
 void TstCost::yawRateScores() {
@@ -81,14 +79,15 @@ void TstCost::yawRateScores() {
     s.push_back(k);
   }
   auto c = yawRateCost(s);
-  QVERIFY(c.has_value());
-  QVERIFY(*c < 0.01);
+  QVERIFY(c.has_value() && *c < 0.01);
 
   // Saturation -> BIG.
   std::vector<Sample> sat(10);
   for (auto &k : sat)
     k.yawRateCurr = 2500.0;
-  QCOMPARE(*yawRateCost(sat), kBig);
+  const auto satCost = yawRateCost(sat);
+  QVERIFY(satCost.has_value());
+  QCOMPARE(satCost.value_or(0.0), kBig);
 }
 
 QTEST_APPLESS_MAIN(TstCost)

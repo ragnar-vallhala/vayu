@@ -130,6 +130,8 @@ QVariant PacketLogModel::data(const QModelIndex &index, int role) const {
       return e.crc;
     case ColPayload:
       return e.payloadHex;
+    default:
+      break; /* unknown column -> empty QVariant */
     }
   } else if (role == Qt::ForegroundRole) {
     if (e.type == 0xFF)
@@ -162,6 +164,8 @@ QVariant PacketLogModel::headerData(int section, Qt::Orientation o,
     return "CRC";
   case ColPayload:
     return "Payload (hex)";
+  default:
+    break; /* unknown section -> empty QVariant */
   }
   return {};
 }

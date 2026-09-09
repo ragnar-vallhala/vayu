@@ -4,6 +4,8 @@
 
 namespace vsim {
 
+// A fixed seed is the point: runs must be reproducible. seed() overrides it.
+// NOLINTNEXTLINE(cert-msc32-c,cert-msc51-cpp)
 SensorModels::SensorModels() : rng_(0xC0FFEE), norm_(0.0f, 1.0f) {}
 
 void SensorModels::seed(uint64_t s) {
