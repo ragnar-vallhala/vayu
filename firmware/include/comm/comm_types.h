@@ -18,17 +18,18 @@ typedef enum {
   PACKET_TYPE_LOG = 0x7,                 // FC -> GCS
   PACKET_TYPE_MOTOR_TELEMETRY = 0x8,     // FC -> GCS
   PACKET_TYPE_PERF_STATS = 0x9,          // FC -> GCS (kernel/observability)
-  PACKET_TYPE_PERF_TASKNAME = 0xA,       // GCS <-> FC (task id -> name, on demand)
-  PACKET_TYPE_TIME_SYNC = 0xB,           // GCS <-> FC (NTP-style clock sync)
+  PACKET_TYPE_PERF_TASKNAME = 0xA, // GCS <-> FC (task id -> name, on demand)
+  PACKET_TYPE_TIME_SYNC = 0xB,     // GCS <-> FC (NTP-style clock sync)
 } packet_type_t;
 
 /**
  * @brief Roles for PACKET_TYPE_TIME_SYNC (docs/telemetry/time_sync.md)
  */
 typedef enum {
-  TIME_SYNC_REQUEST = 0x00,      // GCS -> FC
-  TIME_SYNC_RESPONSE = 0x01,     // FC -> GCS
-  TIME_SYNC_REQUEST_WIDE = 0x02, // GCS -> FC, full 64-bit correction (large dev)
+  TIME_SYNC_REQUEST = 0x00,  // GCS -> FC
+  TIME_SYNC_RESPONSE = 0x01, // FC -> GCS
+  TIME_SYNC_REQUEST_WIDE =
+      0x02, // GCS -> FC, full 64-bit correction (large dev)
 } time_sync_role_t;
 
 /**
@@ -43,14 +44,16 @@ typedef enum {
  * to the FC (applied via time_sync_set_offset); INT32_MIN means "no command".
  */
 typedef struct __attribute__((packed)) {
-  uint8_t role;                   // time_sync_role_t
-  uint8_t seq;                    // request sequence, echoed in the response
-  uint8_t _pad[2];                // reserved, zero
-  uint64_t t1_gcs_tx;             // GCS send    (wall-clock ms)
-  uint64_t t2_fc_rx;              // FC receive  (FC ms)
-  uint64_t t3_fc_tx;              // FC send     (FC ms)
-  int32_t commanded_offset_ms;    // GCS->FC correction (low word if WIDE); INT32_MIN = none
-  int32_t commanded_offset_hi_ms; // high 32 bits when role==REQUEST_WIDE, else 0
+  uint8_t role;       // time_sync_role_t
+  uint8_t seq;        // request sequence, echoed in the response
+  uint8_t _pad[2];    // reserved, zero
+  uint64_t t1_gcs_tx; // GCS send    (wall-clock ms)
+  uint64_t t2_fc_rx;  // FC receive  (FC ms)
+  uint64_t t3_fc_tx;  // FC send     (FC ms)
+  int32_t
+      commanded_offset_ms; // GCS->FC correction (low word if WIDE); INT32_MIN = none
+  int32_t
+      commanded_offset_hi_ms; // high 32 bits when role==REQUEST_WIDE, else 0
 } time_sync_payload_t;
 
 /**
@@ -117,13 +120,15 @@ typedef enum {
  */
 typedef enum {
   CMD_CALIBRATE_IMU = 0x0001,
-  CMD_ARM = 0x0002,    // GCS-initiated arm request (sets the software-arm latch)
+  CMD_ARM = 0x0002, // GCS-initiated arm request (sets the software-arm latch)
   CMD_DISARM = 0x0003, // GCS-initiated disarm (clears the software-arm latch)
   CMD_SET_PID = 0x000A,
-  CMD_SET_GYRO_LPF = 0x000B, // rate-loop gyro low-pass time constant
+  CMD_SET_GYRO_LPF = 0x000B,       // rate-loop gyro low-pass time constant
   CMD_SET_MOTOR_GEOMETRY = 0x000C, // per-motor x,y,spin -> mixer signs
-  CMD_SET_FLIGHT_MODE = 0x000D, // arg0: 0=stabilise/angle, 1=acro, 2=release to RC
-  CMD_SET_D_LPF = 0x000E, // rate-loop derivative (D-term) low-pass time constant
+  CMD_SET_FLIGHT_MODE =
+      0x000D, // arg0: 0=stabilise/angle, 1=acro, 2=release to RC
+  CMD_SET_D_LPF =
+      0x000E, // rate-loop derivative (D-term) low-pass time constant
 } packet_command_type_t;
 
 typedef struct __attribute__((packed)) {

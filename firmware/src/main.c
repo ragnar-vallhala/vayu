@@ -102,11 +102,11 @@ void init_tasks(void) {
   // write-at hop on top of the router's buf[256] — which overflowed the
   // right-sized 2496 and wedged the FC. Restored to the known-good size from
   // feat/centralised-fs-owner (byte-perfect 64 KB round-trips).
-  task_create_named(comm_processor_task, NULL, 4096, 0,
-                    "comm_processor"); // peak 1884 idle; xfer-upload path deeper
-  bmx160_task_id =
-      task_create_named(bmx160_initiate_read, NULL, 768, 2,
-                        "imu_read"); // peak 332
+  task_create_named(
+      comm_processor_task, NULL, 4096, 0,
+      "comm_processor"); // peak 1884 idle; xfer-upload path deeper
+  bmx160_task_id = task_create_named(bmx160_initiate_read, NULL, 768, 2,
+                                     "imu_read"); // peak 332
   // Attitude estimation (fusion), split out of the IMU driver.
   task_create_named(attitude_task, NULL, 1152, 1, "attitude"); // peak 700
   // Vertical estimator (VERT): fuses baro + accel into altitude/climb_rate.
@@ -191,10 +191,9 @@ void system_init_tasks(void) {
   // 1 KiB since it is not in the steady-state perf view (no measured high-water).
   task_create_named(boot_task, NULL, 1024, 0, "boot");
 }
-hal_i2c_config_t i2c_config = {
-    .clock_speed = HAL_I2C_SPEED_FAST,
-    .own_address = I2C_MASTER,
-    .acknowledge = true};
+hal_i2c_config_t i2c_config = {.clock_speed = HAL_I2C_SPEED_FAST,
+                               .own_address = I2C_MASTER,
+                               .acknowledge = true};
 
 /* @noreq top-level boot orchestration: runs the init sequence and starts the
  * scheduler. Cold-boot timing (SYS-TIM-001) is a system-level property

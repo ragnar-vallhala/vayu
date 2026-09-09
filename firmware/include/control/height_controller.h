@@ -147,20 +147,22 @@ typedef enum {
 typedef struct {
   bool engaged;    /**< controller currently driving the collective. */
   bool src_is_tof; /**< which reference alt_sp is expressed in. */
-  bool landed;     /**< LAND has touched down; latched until the switch centres. */
-  bool lifting_off;/**< engaged from the ground and still climbing to the target.
+  bool landed; /**< LAND has touched down; latched until the switch centres. */
+  bool
+      lifting_off; /**< engaged from the ground and still climbing to the target.
                     *   While set, a source handoff must NOT re-anchor alt_sp:
                     *   the setpoint is a fixed target, not a height being held.
                     *   `in_air` cannot serve here — flight_phase declares IN_AIR
                     *   at 0.15 m, so most of the climb to 1.0 m is airborne. */
   bool failed;     /**< runaway detected; latched until the switch centres. */
-  float runaway_t; /**< seconds the height has persisted above the guard band. */
-  bool handback;   /**< holding collective until the pilot's stick catches up. */
+  float
+      runaway_t; /**< seconds the height has persisted above the guard band. */
+  bool handback; /**< holding collective until the pilot's stick catches up. */
   float handback_thr; /**< the collective being held during hand-back. */
-  float last_out;  /**< last collective this controller commanded. */
-  float alt_sp;    /**< held height setpoint (m, in the current source). */
-  float base;      /**< hover-throttle baseline. */
-  float i;         /**< climb-rate integrator (throttle units). */
+  float last_out;     /**< last collective this controller commanded. */
+  float alt_sp;       /**< held height setpoint (m, in the current source). */
+  float base;         /**< hover-throttle baseline. */
+  float i;            /**< climb-rate integrator (throttle units). */
 } height_ctrl_t;
 
 /* Drop to disengaged. Safe to call every loop. */

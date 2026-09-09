@@ -51,8 +51,8 @@ static bool is_stream(const xfer_session_t *s) {
 void xfer_init(const xfer_tx_ops_t *tx) {
   s_tx = tx;
   if (!s_sessions) {
-    s_sessions = (xfer_session_t *)v_malloc(sizeof(xfer_session_t) *
-                                            XFER_MAX_SESSIONS);
+    s_sessions =
+        (xfer_session_t *)v_malloc(sizeof(xfer_session_t) * XFER_MAX_SESSIONS);
   }
   if (s_sessions) {
     for (uint8_t i = 0; i < XFER_MAX_SESSIONS; i++) {
@@ -148,7 +148,8 @@ int xfer_on_open(const xfer_open_args_t *a) {
   /* Capability gate (decidable without touching SD). */
   if (a->dir == XFER_DIR_UPLOAD && p->write == NULL)
     return XFER_RES_DENIED;
-  if (a->dir == XFER_DIR_DOWNLOAD && a->mode == XFER_MODE_FILE && p->read == NULL)
+  if (a->dir == XFER_DIR_DOWNLOAD && a->mode == XFER_MODE_FILE &&
+      p->read == NULL)
     return XFER_RES_DENIED;
   if (a->mode == XFER_MODE_STREAM && p->poll == NULL)
     return XFER_RES_DENIED;
@@ -188,7 +189,8 @@ void xfer_on_data(uint8_t session, uint32_t offset, const uint8_t *buf,
   if (offset == s->cursor && len > 0 && s->provider && s->provider->write) {
     int w = s->provider->write(s, offset, buf, len);
     if (w > 0)
-      s->cursor += (uint32_t)w; /* accepted (enqueued); 0 = backpressure, hold */
+      s->cursor +=
+          (uint32_t)w; /* accepted (enqueued); 0 = backpressure, hold */
   }
   if (flags & XFER_F_EOF) {
     /* Final chunk seen + contiguously received: mark EOF and record the size.
@@ -358,7 +360,8 @@ static int tick_download(xfer_session_t *s, uint32_t now_ms, int budget,
 
 /* Stream: emit one due sample (best-effort, never rewinds).
  * @implements COMM-XFER-002 */
-static int tick_stream(xfer_session_t *s, uint32_t now_ms, uint32_t tx_overflow) {
+static int tick_stream(xfer_session_t *s, uint32_t now_ms,
+                       uint32_t tx_overflow) {
   static uint32_t s_last_overflow;
   if (s->rate_hz == 0)
     return 0;
@@ -395,8 +398,10 @@ static void tick_upload(xfer_session_t *s, uint32_t now_ms) {
    * before the terminal ack. flush==NULL (no async write-back) reads as done. */
   if (s->upload_eof) {
     int fl = (s->provider && s->provider->flush) ? s->provider->flush(s) : 1;
-    if (fl != 0) { /* 1 = fully flushed -> DONE; <0 = a write failed -> FAILED */
-      uint8_t res = (fl > 0) ? (uint8_t)XFER_RES_ACCEPTED : (uint8_t)XFER_RES_FAILED;
+    if (fl !=
+        0) { /* 1 = fully flushed -> DONE; <0 = a write failed -> FAILED */
+      uint8_t res =
+          (fl > 0) ? (uint8_t)XFER_RES_ACCEPTED : (uint8_t)XFER_RES_FAILED;
       if (s_tx && s_tx->ack)
         s_tx->ack(s, XFER_F_DONE, res, s->cursor);
       s->state = XFER_ST_DONE_LINGER;
@@ -458,7 +463,8 @@ int xfer_tick(uint32_t now_ms, uint32_t tx_overflow, int chunk_budget) {
         if (s->mode == XFER_MODE_STREAM)
           emitted += tick_stream(s, now_ms, tx_overflow);
         else
-          emitted += tick_download(s, now_ms, chunk_budget - emitted, tx_overflow);
+          emitted +=
+              tick_download(s, now_ms, chunk_budget - emitted, tx_overflow);
       } else {
         tick_upload(s, now_ms);
       }

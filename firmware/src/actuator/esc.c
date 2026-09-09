@@ -39,7 +39,8 @@ void esc_init(ESC_Handle *esc, hal_timer_t timer, uint32_t channel,
   // Initialize PWM at the required frequency with 0 throttle (min pulse)
   // At 400Hz, the period is 2.5ms.
   // 1ms is 1.0/2.5 = 0.4 fraction duty cycle.
-  float min_duty = (esc->min_pulse_ms / (MS_PER_SECOND / (float)esc->frequency));
+  float min_duty =
+      (esc->min_pulse_ms / (MS_PER_SECOND / (float)esc->frequency));
   hal_pwm_init(&esc->pwm, esc->frequency, min_duty);
 }
 

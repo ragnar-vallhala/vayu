@@ -142,7 +142,8 @@ typedef struct {
   float k_bias;         /**< baro bias-correction gain (per sample). */
   float tof_prev;       /**< previous accepted rangefinder AGL (m). */
   bool tof_have_prev;   /**< tof_prev holds a usable sample. */
-  uint32_t clean_count; /**< consecutive corrections with the bias unsaturated. */
+  uint32_t
+      clean_count; /**< consecutive corrections with the bias unsaturated. */
   bool accel_unhealthy; /**< the bias hit its clamp: the accel disagrees with
                          *   the height sources by more than the filter can
                          *   absorb, so climb_rate is NOT trustworthy. Latches;
@@ -163,16 +164,17 @@ typedef struct {
   float altitude;       /**< fused, m up-positive (absolute/MSL reference). */
   float climb_rate;     /**< fused, m/s up-positive. */
   float vertical_accel; /**< m/s^2 up-positive. */
-  float baro_altitude;  /**< raw baro altitude, m (same reference as altitude). */
-  float agl;            /**< FC-authoritative height above the ground reference
+  float
+      baro_altitude; /**< raw baro altitude, m (same reference as altitude). */
+  float agl;         /**< FC-authoritative height above the ground reference
                          *   (captured while disarmed, frozen at arm), m. */
-  float agl_tof;        /**< tilt-compensated rangefinder height, m. Only
+  float agl_tof;     /**< tilt-compensated rangefinder height, m. Only
                          *   meaningful while tof_valid. Kept SEPARATE from
                          *   `agl` on purpose: different zero, different failure
                          *   modes, and the takeoff/landing detector must keep
                          *   running on the baro reference it was tuned against. */
-  bool tof_valid;       /**< agl_tof is fresh, in range, and near-level. */
-  float hover_est;      /**< measured hover collective (0..1). Seeded from the
+  bool tof_valid;    /**< agl_tof is fresh, in range, and near-level. */
+  float hover_est;   /**< measured hover collective (0..1). Seeded from the
                          *   airframe constant, refined in steady level flight.
                          *   The throttle curve centres the stick on this. */
   bool hover_measured;  /**< true once a real in-flight sample moved it. */

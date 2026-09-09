@@ -35,13 +35,13 @@
 
 /* Sampling gates — all must hold, continuously, for HOVER_EST_SETTLE_S. */
 #ifndef HOVER_EST_CLIMB_MAX_MS
-#define HOVER_EST_CLIMB_MAX_MS 0.30f   /* |climb rate|, m/s */
+#define HOVER_EST_CLIMB_MAX_MS 0.30f /* |climb rate|, m/s */
 #endif
 #ifndef HOVER_EST_ACCEL_MAX
-#define HOVER_EST_ACCEL_MAX 0.50f      /* |vertical accel|, m/s^2 */
+#define HOVER_EST_ACCEL_MAX 0.50f /* |vertical accel|, m/s^2 */
 #endif
 #ifndef HOVER_EST_COS_TILT_MIN
-#define HOVER_EST_COS_TILT_MIN 0.95f   /* ~18 deg; banked samples read high */
+#define HOVER_EST_COS_TILT_MIN 0.95f /* ~18 deg; banked samples read high */
 #endif
 #ifndef HOVER_EST_SETTLE_S
 #define HOVER_EST_SETTLE_S 0.50f

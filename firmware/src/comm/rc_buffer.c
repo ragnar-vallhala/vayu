@@ -26,7 +26,8 @@ void rc_buffer_init(void) {
 int rc_buffer_perf_fifos(perf_fifo_row_t *rows, int max) {
   int n = 0;
   if (n < max)
-    perf_fifo_fill_row(&rows[n++], PERF_FIFO_RC_TELEMETRY, &_rc_telemetry_queue);
+    perf_fifo_fill_row(&rows[n++], PERF_FIFO_RC_TELEMETRY,
+                       &_rc_telemetry_queue);
   if (n < max)
     perf_fifo_fill_row(&rows[n++], PERF_FIFO_RC_CONTROL, &_rc_control_queue);
   return n;

@@ -154,8 +154,8 @@ hal_status_t i2c_manager_read(uint8_t addr, uint8_t *data, uint16_t len) {
 
 /** @implements SNS-I2C-001, SNS-I2C-101 */
 hal_status_t i2c_manager_write_read(uint8_t addr, uint8_t *tx_data,
-                                        uint16_t tx_len, uint8_t *rx_data,
-                                        uint16_t rx_len) {
+                                    uint16_t tx_len, uint8_t *rx_data,
+                                    uint16_t rx_len) {
   if (v_mutex_lock(_i2c_sema, MS_TO_TICKS(5)) != VA_PASS) {
     return HAL_ERR_TIMEOUT;
   }
@@ -172,8 +172,7 @@ hal_status_t i2c_manager_write_read(uint8_t addr, uint8_t *tx_data,
 
 /** @implements SNS-I2C-001 */
 hal_status_t i2c_manager_read_async(uint8_t addr, uint8_t reg_addr,
-                                        uint16_t len,
-                                        void (*callback)(void *)) {
+                                    uint16_t len, void (*callback)(void *)) {
   if (!i2c_manager_acquire_bus()) {
     _consecutive_errors++;
     if (_consecutive_errors > 100) {
@@ -207,8 +206,8 @@ hal_status_t i2c_manager_read_async(uint8_t addr, uint8_t reg_addr,
                                   .priority = HAL_DMA_PRIORITY_VERY_HIGH,
                                   .circular = 0};
 
-  hal_status_t ret = hal_i2c_read_regs_dma(
-      HAL_I2C_1, addr, reg_addr, &i2c_dma_cfg, i2c_manager_callback);
+  hal_status_t ret = hal_i2c_read_regs_dma(HAL_I2C_1, addr, reg_addr,
+                                           &i2c_dma_cfg, i2c_manager_callback);
 
   if (ret != HAL_OK) {
     i2c_manager_release_bus();

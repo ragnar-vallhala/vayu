@@ -13,10 +13,10 @@
 static const fs_query_tx_ops_t *s_tx;
 
 typedef struct {
-  bool active;     /* a request is pending/streaming */
-  bool acked;      /* COMMAND_ACK emitted */
-  bool opened;     /* directory opened (or open attempted) */
-  bool not_found;  /* path is not a listable directory */
+  bool active;    /* a request is pending/streaming */
+  bool acked;     /* COMMAND_ACK emitted */
+  bool opened;    /* directory opened (or open attempted) */
+  bool not_found; /* path is not a listable directory */
   uint8_t req_seq;
   uint8_t gcs_sys, gcs_comp;
   uint16_t start_index;
@@ -138,8 +138,8 @@ static int tick_list(int budget) {
     } else {
       /* End of directory: terminal entry carries the total count + empty name. */
       if (s_tx && s_tx->entry)
-        s_tx->entry(s_list.req_seq, FSQ_RES_OK, s_list.index, s_list.index, 0, 0,
-                    "");
+        s_tx->entry(s_list.req_seq, FSQ_RES_OK, s_list.index, s_list.index, 0,
+                    0, "");
       fs_owner_closedir(s_list.dir);
       s_list.active = false;
       emitted++;

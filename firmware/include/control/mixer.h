@@ -39,11 +39,12 @@ typedef enum {
 } mixer_airmode_t;
 
 typedef struct {
-  uint8_t n;                               /* motor count (<= MIXER_MAX_MOTORS) */
-  float B[MIX_NW][MIXER_MAX_MOTORS];       /* effectiveness: wrench = B · motor */
-  float Bpinv[MIXER_MAX_MOTORS][MIX_NW];   /* allocation:   motor = Bpinv · wrench */
-  float fwd_scale;                         /* B·Bpinv = (1/fwd_scale)·I; realized = fwd_scale·B·motor */
-  float idle_floor;                        /* per-motor minimum while armed */
+  uint8_t n;                         /* motor count (<= MIXER_MAX_MOTORS) */
+  float B[MIX_NW][MIXER_MAX_MOTORS]; /* effectiveness: wrench = B · motor */
+  float Bpinv[MIXER_MAX_MOTORS]
+             [MIX_NW]; /* allocation:   motor = Bpinv · wrench */
+  float fwd_scale; /* B·Bpinv = (1/fwd_scale)·I; realized = fwd_scale·B·motor */
+  float idle_floor; /* per-motor minimum while armed */
   mixer_airmode_t airmode;
 } mixer_t;
 
@@ -66,7 +67,7 @@ void mixer_set_idle_floor(mixer_t *mx, float idle);
  *   realized : optional (may be NULL) — the wrench actually delivered after
  *              clipping (= B · motor), for INDI/PID anti-windup feedback.
  */
-void mixer_allocate(const mixer_t *mx, const float w[MIX_NW],
-                    float *motor, float realized[MIX_NW]);
+void mixer_allocate(const mixer_t *mx, const float w[MIX_NW], float *motor,
+                    float realized[MIX_NW]);
 
 #endif /* VAYU_CONTROL_MIXER_H */

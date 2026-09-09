@@ -79,7 +79,8 @@ uint8_t bme280_is_present(void) { return _initialized; }
 static hal_status_t bme280_read_calibration(void) {
   uint8_t tp[BME280_CALIB_TP_LEN];
   uint8_t h[BME280_CALIB_H_LEN];
-  if (bme280_read_regs(BME280_REG_CALIB_TP, tp, BME280_CALIB_TP_LEN) != HAL_OK) {
+  if (bme280_read_regs(BME280_REG_CALIB_TP, tp, BME280_CALIB_TP_LEN) !=
+      HAL_OK) {
     return HAL_ERR_TIMEOUT;
   }
   if (bme280_read_regs(BME280_REG_CALIB_H, h, BME280_CALIB_H_LEN) != HAL_OK) {
@@ -262,8 +263,8 @@ hal_status_t bme280_init(void) {
                                  (BME280_FILTER_OFF << 2))) != HAL_OK) {
     return HAL_ERR_TIMEOUT;
   }
-  uint8_t ctrl_meas =
-      (uint8_t)((BME280_OSRS_T << 5) | (BME280_OSRS_P << 2) | BME280_MODE_NORMAL);
+  uint8_t ctrl_meas = (uint8_t)((BME280_OSRS_T << 5) | (BME280_OSRS_P << 2) |
+                                BME280_MODE_NORMAL);
   if (bme280_write_reg(BME280_REG_CTRL_MEAS, ctrl_meas) != HAL_OK) {
     return HAL_ERR_TIMEOUT;
   }

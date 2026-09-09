@@ -32,7 +32,7 @@ void flight_mode_release(void);
  * the effective mode + source for telemetry. Call once per outer-loop update. */
 bool flight_mode_resolve_acro(bool rc_acro);
 
-flight_mode_t flight_mode_get(void);          // last resolved effective mode
+flight_mode_t flight_mode_get(void); // last resolved effective mode
 flight_mode_src_t flight_mode_get_source(void);
 
 /* Parse a CMD_SET_FLIGHT_MODE NavLink payload ([cmd:2][argc:1][arg0:f32]).

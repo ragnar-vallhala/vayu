@@ -34,10 +34,12 @@ extern float m_fabsf(float x);
 #define ACC_STILL_TOL_G 0.2f
 #define GYRO_STILL_DPS 0.2f
 #define ACC_STILL_LO_SQ                                                        \
-  ((ACC_STILL_G - ACC_STILL_TOL_G) * (ACC_STILL_G - ACC_STILL_TOL_G)) /* 9.61^2 */
+  ((ACC_STILL_G - ACC_STILL_TOL_G) *                                           \
+   (ACC_STILL_G - ACC_STILL_TOL_G)) /* 9.61^2 */
 #define ACC_STILL_HI_SQ                                                        \
-  ((ACC_STILL_G + ACC_STILL_TOL_G) * (ACC_STILL_G + ACC_STILL_TOL_G)) /* 10.01^2 */
-#define GYRO_STILL_SQ (GYRO_STILL_DPS * GYRO_STILL_DPS)               /* 0.04 */
+  ((ACC_STILL_G + ACC_STILL_TOL_G) *                                           \
+   (ACC_STILL_G + ACC_STILL_TOL_G))                     /* 10.01^2 */
+#define GYRO_STILL_SQ (GYRO_STILL_DPS * GYRO_STILL_DPS) /* 0.04 */
 static int in_init = 1;
 #define IS_FINITE(x) (m_isfinite(x))
 uint8_t tx_buf[2];
@@ -118,8 +120,10 @@ static bmx160_calibration_t bmx160_calib = {
  * estimator reads while the calibration task may write — a torn read is
  * harmless, same R8.6 rationale as the gyro-bias offset). */
 void bmx160_get_board_trim(float *roll_deg, float *pitch_deg) {
-  if (roll_deg) *roll_deg = bmx160_calib.board_trim[0];
-  if (pitch_deg) *pitch_deg = bmx160_calib.board_trim[1];
+  if (roll_deg)
+    *roll_deg = bmx160_calib.board_trim[0];
+  if (pitch_deg)
+    *pitch_deg = bmx160_calib.board_trim[1];
 }
 
 /* Set by bmx160_calib_request_cancel() (CMD_CANCEL_CALIBRATION), polled and
@@ -187,8 +191,7 @@ static bmx160_err_type bmx160_wait_mag_manual_op(void) {
 static bmx160_err_type bmx160_verify_pmu(uint8_t mask, uint8_t expected) {
   uint8_t reg = BMX160_PMU_STAT_ADDR;
 
-  if (i2c_manager_write_read(BMX160_I2C_ADDR, &reg, 1, rx_buf, 1) !=
-      HAL_OK) {
+  if (i2c_manager_write_read(BMX160_I2C_ADDR, &reg, 1, rx_buf, 1) != HAL_OK) {
 
     return ERR0;
   }
@@ -224,7 +227,8 @@ hal_status_t bmx160_init(void) {
       bmx160_calib = loaded;
       vayu_log("[CALIB] Calibration loaded (v%u).", (unsigned)hdr.version);
     } else {
-      vayu_log("[CALIB] Calibration file invalid/old; using identity defaults.");
+      vayu_log(
+          "[CALIB] Calibration file invalid/old; using identity defaults.");
     }
   }
   // 1. Verify Chip ID
@@ -694,8 +698,7 @@ bmx160_err_type bmx160_read_all_converted(bmx160_all_reading_t *data) {
 bmx160_err_type bmx160_read_acc_config(bmx160_config_t *config) {
   // Reading ACC conf
   tx_buf[0] = BMX160_ACC_CONF_ADDR;
-  if (i2c_manager_write_read(BMX160_I2C_ADDR, tx_buf, 1, rx_buf, 1) ==
-      HAL_OK) {
+  if (i2c_manager_write_read(BMX160_I2C_ADDR, tx_buf, 1, rx_buf, 1) == HAL_OK) {
     config->bmx160_acc_us = GET_ACC_US(rx_buf[0]);
     config->bmx160_acc_bwp = GET_ACC_BWP(rx_buf[0]);
     config->bmx160_acc_odr = GET_ACC_ODR(rx_buf[0]);
@@ -703,8 +706,7 @@ bmx160_err_type bmx160_read_acc_config(bmx160_config_t *config) {
     return ERR0;
 
   tx_buf[0] = BMX160_ACC_RANGE_ADDR;
-  if (i2c_manager_write_read(BMX160_I2C_ADDR, tx_buf, 1, rx_buf, 1) ==
-      HAL_OK) {
+  if (i2c_manager_write_read(BMX160_I2C_ADDR, tx_buf, 1, rx_buf, 1) == HAL_OK) {
     config->bmx160_acc_range = GET_ACC_RANGE(rx_buf[0]);
   } else
     return ERR0;
@@ -715,16 +717,14 @@ bmx160_err_type bmx160_read_acc_config(bmx160_config_t *config) {
 bmx160_err_type bmx160_read_gyr_config(bmx160_config_t *config) {
   // Reading GYR conf
   tx_buf[0] = BMX160_GYR_CONF_ADDR;
-  if (i2c_manager_write_read(BMX160_I2C_ADDR, tx_buf, 1, rx_buf, 1) ==
-      HAL_OK) {
+  if (i2c_manager_write_read(BMX160_I2C_ADDR, tx_buf, 1, rx_buf, 1) == HAL_OK) {
     config->bmx160_gyr_bwp = GET_GYR_BWP(rx_buf[0]);
     config->bmx160_gyr_odr = GET_GYR_ODR(rx_buf[0]);
   } else
     return ERR0;
 
   tx_buf[0] = BMX160_GYR_RANGE_ADDR;
-  if (i2c_manager_write_read(BMX160_I2C_ADDR, tx_buf, 1, rx_buf, 1) ==
-      HAL_OK) {
+  if (i2c_manager_write_read(BMX160_I2C_ADDR, tx_buf, 1, rx_buf, 1) == HAL_OK) {
     config->bmx160_gyr_range = GET_GYR_RANGE(rx_buf[0]);
   } else
     return ERR0;
@@ -735,8 +735,7 @@ bmx160_err_type bmx160_read_gyr_config(bmx160_config_t *config) {
 bmx160_err_type bmx160_read_mag_config(bmx160_config_t *config) {
   // Reading MAG conf
   tx_buf[0] = BMX160_MAG_CONF_ADDR;
-  if (i2c_manager_write_read(BMX160_I2C_ADDR, tx_buf, 1, rx_buf, 1) ==
-      HAL_OK) {
+  if (i2c_manager_write_read(BMX160_I2C_ADDR, tx_buf, 1, rx_buf, 1) == HAL_OK) {
     config->bmx160_mag_odr = GET_MAG_ODR(rx_buf[0]);
   } else
     return ERR0;
@@ -780,9 +779,9 @@ bmx160_err_type bmx160_write_config(bmx160_config_t *config) {
 
 /** @noreq Register-field packing helper. */
 static uint8_t bmx160_get_acc_conf(bmx160_config_t *config) {
-  uint8_t val =
-     (uint8_t)(((config->bmx160_acc_us & 1U) << 7U) |
-       ((config->bmx160_acc_bwp & 7U) << 4U) | (config->bmx160_acc_odr & 15U));
+  uint8_t val = (uint8_t)(((config->bmx160_acc_us & 1U) << 7U) |
+                          ((config->bmx160_acc_bwp & 7U) << 4U) |
+                          (config->bmx160_acc_odr & 15U));
   return val;
 }
 
@@ -794,8 +793,8 @@ static uint8_t bmx160_get_acc_range(bmx160_config_t *config) {
 
 /** @noreq Register-field packing helper. */
 static uint8_t bmx160_get_gyr_conf(bmx160_config_t *config) {
-  uint8_t val =
-      (uint8_t)(((config->bmx160_gyr_bwp & 3U) << 4U) | (config->bmx160_gyr_odr & 15U));
+  uint8_t val = (uint8_t)(((config->bmx160_gyr_bwp & 3U) << 4U) |
+                          (config->bmx160_gyr_odr & 15U));
   return val;
 }
 
@@ -995,7 +994,7 @@ void bmx160_initiate_read(void *args) {
 
         // CRITICAL: START DMA MANUALLY
         hal_status_t ret = i2c_manager_read_async(BMX160_I2C_ADDR, 0x0C, 12,
-                                                      bmx160_dma_callback_fast);
+                                                  bmx160_dma_callback_fast);
 
         if (ret != HAL_OK) {
           vayu_log("RESTART FAILED");
@@ -1391,7 +1390,8 @@ void bmx160_process_data(void) {
     _bmx_data.converted.acc[1] = Asi[3] * a0 + Asi[4] * a1 + Asi[5] * a2;
     _bmx_data.converted.acc[2] = Asi[6] * a0 + Asi[7] * a1 + Asi[8] * a2;
     for (int i = 0; i < 3; i++)
-      _bmx_data.converted.acc[i] = lpf_apply(&acc_lpf[i], _bmx_data.converted.acc[i]);
+      _bmx_data.converted.acc[i] =
+          lpf_apply(&acc_lpf[i], _bmx_data.converted.acc[i]);
   }
 
   // Tag the converted sample with its acquisition cycle stamp and fan it out.
@@ -1567,9 +1567,9 @@ static int pose_advances_coverage(const float avg[3], pose_kind_t kind,
       return POSE_REJ_SHAPE; // no axis points along gravity -> not a clean face
     int sign, axis = dom_axis(u, &sign);
     for (int i = 0; i < n_banked; i++) {
-      float bm = m_sqrt(banked[i][0] * banked[i][0] +
-                        banked[i][1] * banked[i][1] +
-                        banked[i][2] * banked[i][2]);
+      float bm =
+          m_sqrt(banked[i][0] * banked[i][0] + banked[i][1] * banked[i][1] +
+                 banked[i][2] * banked[i][2]);
       if (bm < 1.0f)
         continue;
       float bu[3] = {banked[i][0] / bm, banked[i][1] / bm, banked[i][2] / bm};
@@ -1593,14 +1593,13 @@ static int pose_advances_coverage(const float avg[3], pose_kind_t kind,
   if (amid < ACCEL_POSE_EDGE_MIN_SECOND)
     return POSE_REJ_SHAPE; // only one axis loaded -> not a shared-gravity edge
   for (int i = 0; i < n_banked; i++) {
-    float bm = m_sqrt(banked[i][0] * banked[i][0] +
-                      banked[i][1] * banked[i][1] +
-                      banked[i][2] * banked[i][2]);
+    float bm =
+        m_sqrt(banked[i][0] * banked[i][0] + banked[i][1] * banked[i][1] +
+               banked[i][2] * banked[i][2]);
     if (bm < 1.0f)
       continue;
-    float dot = (u[0] * banked[i][0] + u[1] * banked[i][1] +
-                 u[2] * banked[i][2]) /
-                bm;
+    float dot =
+        (u[0] * banked[i][0] + u[1] * banked[i][1] + u[2] * banked[i][2]) / bm;
     if (dot > ACCEL_POSE_MIN_SEP_COS)
       return POSE_REJ_DUP; // within ~30 deg of a pose already taken
   }
@@ -1624,7 +1623,7 @@ static int wait_for_static_pose(uint8_t code, pose_kind_t kind,
 
   const float g = 9.81f;
   const float mag_min2 = (0.45f * g) * (0.45f * g); // reject free-fall / drops
-  const float mag_max2 = (2.0f * g) * (2.0f * g);   // permissive: up to ~2x scale
+  const float mag_max2 = (2.0f * g) * (2.0f * g); // permissive: up to ~2x scale
   const float gyro_still2 = ACCEL_CAL_GYRO_STILL_DPS * ACCEL_CAL_GYRO_STILL_DPS;
 
   const int target = ACCEL_POSE_STILL_SAMPLES;
@@ -1815,24 +1814,26 @@ void calibration_task(void *args) {
       }
       npts++;
       vayu_log("[CALIB] Pose %d recorded.", i);
-      v_delay(CALIBRATION_WAIT_USER_TIME_PRE_CALIBRATION); // user moves the board
+      v_delay(
+          CALIBRATION_WAIT_USER_TIME_PRE_CALIBRATION); // user moves the board
     }
 
     calib_target_t acc_target = {
         .name = "accel",
-        .radius = 9.80665f,              // gravity (m/s^2) — absolute target
+        .radius = 9.80665f, // gravity (m/s^2) — absolute target
 #if ACCEL_CALIB_METHOD == ACCEL_CALIB_SIXPOINT
         .fit = CALIB_FIT_SIXPOINT,
         .min_samples = ACCEL_CAL_FACE_POSES, // needs all 6 sides
 #else
         .fit = CALIB_FIT_ELLIPSOID,
         .min_samples = ACCEL_CAL_MIN_POSES,
-        .normalize_radius = true,        // rescale so |a_cal| == g exactly
+        .normalize_radius = true, // rescale so |a_cal| == g exactly
 #endif
         .commit = acc_commit,
         .ctx = NULL,
     };
-    if (calib_engine_fit_points(&acc_target, (const float (*)[3])pts, npts) != 0) {
+    if (calib_engine_fit_points(&acc_target, (const float (*)[3])pts, npts) !=
+        0) {
       vayu_log("[CALIB] Accel fit failed; keeping old calibration.");
       goto done;
     }
@@ -1886,7 +1887,8 @@ void calibration_task(void *args) {
         .ctx = NULL,
     };
     if (calib_engine_run(&mag_target) != 0) {
-      vayu_log("[CALIB] Mag calibration not committed; keeping old calibration.");
+      vayu_log(
+          "[CALIB] Mag calibration not committed; keeping old calibration.");
       goto done;
     }
 
@@ -1895,14 +1897,16 @@ void calibration_task(void *args) {
      * store it as board_trim. The estimator subtracts this from its euler output
      * (attitude_task), so a cushion-tilted FC whose level != the prop plane still
      * reports and holds true level. Uses CALIBRATED accel (post accel-cal). */
-    vayu_log("[CALIB] Board-level (trim) calibration — hold the FRAME level...");
+    vayu_log(
+        "[CALIB] Board-level (trim) calibration — hold the FRAME level...");
     calib_telemetry(CALIB_UPDATE_BOARD_LEVEL, 0.0f);
     v_delay(CALIBRATION_WAIT_USER_TIME_PRE_CALIBRATION);
 
     const int target = ACCEL_POSE_STILL_SAMPLES; /* contiguous still samples */
     const int max_ticks = 1500;                  /* generous cap (~15 s) */
     const float gg = 9.81f;
-    const float gyro_still2 = ACCEL_CAL_GYRO_STILL_DPS * ACCEL_CAL_GYRO_STILL_DPS;
+    const float gyro_still2 =
+        ACCEL_CAL_GYRO_STILL_DPS * ACCEL_CAL_GYRO_STILL_DPS;
     const float amin2 = (0.6f * gg) * (0.6f * gg);
     const float amax2 = (1.4f * gg) * (1.4f * gg);
     float sum[3] = {0.0f, 0.0f, 0.0f};
@@ -1964,7 +1968,8 @@ void calibration_task(void *args) {
     /* Sanity: a real mount tilt is small; reject an absurd capture (frame wasn't
      * actually level) so we never latch a huge trim. */
     if (FABS_F(roll) > 30.0f || FABS_F(pitch) > 30.0f) {
-      vayu_log("[CALIB] Board-level: %.1f/%.1f deg too large (not level?); kept old.",
+      vayu_log("[CALIB] Board-level: %.1f/%.1f deg too large (not level?); "
+               "kept old.",
                roll, pitch);
       goto done;
     }

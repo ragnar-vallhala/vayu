@@ -2,8 +2,8 @@
 #include "maths/maths_interface.h"
 #include "navhal.h"
 #include "sys/state.h"
-#include "utils.h"              /* v_get_ticks (vaios) */
-#include "storage/fs_owner.h"        /* vayu_log */
+#include "utils.h"            /* v_get_ticks (vaios) */
+#include "storage/fs_owner.h" /* vayu_log */
 #include "vaios_config_default.h"
 #include "variables.h"
 
@@ -15,9 +15,9 @@
  * volatile load/store is atomic on Cortex-M4 (R8.6: no locks in hot
  * loops).
  * --------------------------------------------------------------------------*/
-static volatile bool     s_in_rejection      = false;
+static volatile bool s_in_rejection = false;
 static volatile uint32_t s_rejection_start_ms = 0;
-static volatile bool     s_degraded          = false;
+static volatile bool s_degraded = false;
 
 /**
  * @implements EST-MAH-002
@@ -28,12 +28,12 @@ void estimator_mark_sample(bool valid) {
       vayu_log("[EST] degraded CLEARED");
     }
     s_in_rejection = false;
-    s_degraded     = false;
+    s_degraded = false;
     return;
   }
   uint32_t now = v_get_ticks();
   if (!s_in_rejection) {
-    s_in_rejection       = true;
+    s_in_rejection = true;
     s_rejection_start_ms = now;
     return;
   }
@@ -47,9 +47,7 @@ void estimator_mark_sample(bool valid) {
 /**
  * @implements EST-MAH-002, SYS-SAFE-003
  */
-bool estimator_is_degraded(void) {
-  return s_degraded;
-}
+bool estimator_is_degraded(void) { return s_degraded; }
 
 /* States in which an estimator failure should drive FAILSAFE. Mirrors
  * the RC watchdog gating in src/comm/rc_task.c — INIT and CALIBRATING
@@ -57,7 +55,7 @@ bool estimator_is_degraded(void) {
  * @noreq internal predicate for estimator_safety_step (SYS-SAFE-003). */
 static bool estimator_safety_state_active(sys_state_t s) {
   return s == SYSTEM_STATE_STANDBY || s == SYSTEM_STATE_PREARM ||
-         s == SYSTEM_STATE_ARMED   || s == SYSTEM_STATE_IN_AIR;
+         s == SYSTEM_STATE_ARMED || s == SYSTEM_STATE_IN_AIR;
 }
 
 /**
@@ -240,8 +238,8 @@ void estimator_reset(void) {
  */
 void m_mahony_filter(const float ax, const float ay, const float az,
                      const float gx, const float gy, const float gz,
-                     const float mx, const float my, const float mz,
-                     float dt, attitude_t *ori) {
+                     const float mx, const float my, const float mz, float dt,
+                     attitude_t *ori) {
   float q0 = ori->q.w, q1 = ori->q.x, q2 = ori->q.y, q3 = ori->q.z;
   float norm;
   float hx, hy;
@@ -323,12 +321,18 @@ void m_mahony_filter(const float ax, const float ay, const float az,
     integralFBz += Ki * ez * dt;
 
     /* EST-MAH-105: clamp each axis to ±SF_MAHONY_INTEGRAL_LIMIT rad/s. */
-    if (integralFBx > SF_MAHONY_INTEGRAL_LIMIT)  integralFBx = SF_MAHONY_INTEGRAL_LIMIT;
-    if (integralFBx < -SF_MAHONY_INTEGRAL_LIMIT) integralFBx = -SF_MAHONY_INTEGRAL_LIMIT;
-    if (integralFBy > SF_MAHONY_INTEGRAL_LIMIT)  integralFBy = SF_MAHONY_INTEGRAL_LIMIT;
-    if (integralFBy < -SF_MAHONY_INTEGRAL_LIMIT) integralFBy = -SF_MAHONY_INTEGRAL_LIMIT;
-    if (integralFBz > SF_MAHONY_INTEGRAL_LIMIT)  integralFBz = SF_MAHONY_INTEGRAL_LIMIT;
-    if (integralFBz < -SF_MAHONY_INTEGRAL_LIMIT) integralFBz = -SF_MAHONY_INTEGRAL_LIMIT;
+    if (integralFBx > SF_MAHONY_INTEGRAL_LIMIT)
+      integralFBx = SF_MAHONY_INTEGRAL_LIMIT;
+    if (integralFBx < -SF_MAHONY_INTEGRAL_LIMIT)
+      integralFBx = -SF_MAHONY_INTEGRAL_LIMIT;
+    if (integralFBy > SF_MAHONY_INTEGRAL_LIMIT)
+      integralFBy = SF_MAHONY_INTEGRAL_LIMIT;
+    if (integralFBy < -SF_MAHONY_INTEGRAL_LIMIT)
+      integralFBy = -SF_MAHONY_INTEGRAL_LIMIT;
+    if (integralFBz > SF_MAHONY_INTEGRAL_LIMIT)
+      integralFBz = SF_MAHONY_INTEGRAL_LIMIT;
+    if (integralFBz < -SF_MAHONY_INTEGRAL_LIMIT)
+      integralFBz = -SF_MAHONY_INTEGRAL_LIMIT;
   } else {
     integralFBx = 0.0f; // prevent integral windup
     integralFBy = 0.0f;

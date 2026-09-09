@@ -13,7 +13,8 @@
 static int fails = 0;
 static void check(const char *what, int ok) {
   printf("  [%s] %s\n", ok ? "PASS" : "FAIL", what);
-  if (!ok) fails++;
+  if (!ok)
+    fails++;
 }
 static int near(float a, float b, float tol) { return fabsf(a - b) < tol; }
 
@@ -43,7 +44,8 @@ int main(void) {
     hover_est_t h;
     hover_est_init(&h, SEED);
     steady(&h, 0.30f, 30.0f);
-    check("converges toward the observed hover", near(h.estimate, 0.30f, 0.01f));
+    check("converges toward the observed hover",
+          near(h.estimate, 0.30f, 0.01f));
     check("flagged as measured", h.measured);
   }
 
@@ -52,7 +54,7 @@ int main(void) {
   {
     hover_est_t h;
     hover_est_init(&h, SEED);
-    steady(&h, 0.38f, HOVER_EST_SETTLE_S + 0.01f);  /* clear the settle gate */
+    steady(&h, 0.38f, HOVER_EST_SETTLE_S + 0.01f); /* clear the settle gate */
     float before = h.estimate;
     hover_est_update(&h, true, 0.80f, 0.0f, 0.0f, 1.0f, DT);
     check("one sample moves it by at most slew*dt",
@@ -62,14 +64,14 @@ int main(void) {
   /* 4. THE GATES. None of these may teach it anything. */
   {
     float bad[][5] = {
-      /* in_air, climb,  accel, cos_tilt, note-index */
-      {0.0f,     0.0f,   0.0f,  1.00f, 0},   /* on the ground */
-      {1.0f,     2.0f,   0.0f,  1.00f, 1},   /* climbing */
-      {1.0f,     0.0f,   3.0f,  1.00f, 2},   /* accelerating */
-      {1.0f,     0.0f,   0.0f,  0.80f, 3},   /* banked ~37 deg */
+        /* in_air, climb,  accel, cos_tilt, note-index */
+        {0.0f, 0.0f, 0.0f, 1.00f, 0}, /* on the ground */
+        {1.0f, 2.0f, 0.0f, 1.00f, 1}, /* climbing */
+        {1.0f, 0.0f, 3.0f, 1.00f, 2}, /* accelerating */
+        {1.0f, 0.0f, 0.0f, 0.80f, 3}, /* banked ~37 deg */
     };
-    const char *why[] = {"on the ground", "while climbing", "while accelerating",
-                         "while banked"};
+    const char *why[] = {"on the ground", "while climbing",
+                         "while accelerating", "while banked"};
     for (int i = 0; i < 4; i++) {
       hover_est_t h;
       hover_est_init(&h, SEED);
@@ -103,8 +105,8 @@ int main(void) {
     hover_est_init(&h, SEED);
     for (int cycle = 0; cycle < 50; cycle++) {
       for (int i = 0; i < (int)(HOVER_EST_SETTLE_S / DT) - 5; i++)
-        hover_est_update(&h, true, 0.30f, 0.0f, 0.0f, 1.0f, DT);   /* nearly */
-      hover_est_update(&h, true, 0.30f, 5.0f, 0.0f, 1.0f, DT);      /* broken */
+        hover_est_update(&h, true, 0.30f, 0.0f, 0.0f, 1.0f, DT); /* nearly */
+      hover_est_update(&h, true, 0.30f, 5.0f, 0.0f, 1.0f, DT);   /* broken */
     }
     check("a transient never completes the settle window",
           near(h.estimate, SEED, 1e-6f) && !h.measured);

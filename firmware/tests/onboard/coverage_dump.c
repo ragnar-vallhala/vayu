@@ -22,7 +22,8 @@ extern void __gcov_info_to_gcda(const struct gcov_info *info,
                                 void *(*allocate_fn)(unsigned, void *),
                                 void *arg);
 extern void __gcov_filename_to_gcfn(const char *filename,
-                                    void (*dump_fn)(const void *, unsigned, void *),
+                                    void (*dump_fn)(const void *, unsigned,
+                                                    void *),
                                     void *arg);
 
 /* 8.3 name only: FatFS here is FF_USE_LFN=0, so the extension must be <=3 chars.
@@ -97,9 +98,10 @@ void coverage_dump(void) {
   for (int i = 0; i < 500 && fs_owner_writeat_pending(0); i++) {
     v_delay(10);
   }
-  vayu_log("[HWTEST] coverage dumped to %s: %u bytes", COV_PATH, (unsigned)s_off);
+  vayu_log("[HWTEST] coverage dumped to %s: %u bytes", COV_PATH,
+           (unsigned)s_off);
 }
 
-#else  /* !VAYU_HW_TEST_COV */
+#else /* !VAYU_HW_TEST_COV */
 void coverage_dump(void) {}
 #endif

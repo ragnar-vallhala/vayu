@@ -181,8 +181,10 @@ static inline rc_data_t normalize_rc_data(ibus_data_t rc_data) {
   // throw (throttle 0..1), so a bad sample can't inject a runaway setpoint.
   for (int i = 0; i < 4; i++) {
     const float lo = (i == 2) ? 0.0f : -1.0f;
-    if (normalized_rc_data.channels[i] > 1.0f) normalized_rc_data.channels[i] = 1.0f;
-    if (normalized_rc_data.channels[i] < lo) normalized_rc_data.channels[i] = lo;
+    if (normalized_rc_data.channels[i] > 1.0f)
+      normalized_rc_data.channels[i] = 1.0f;
+    if (normalized_rc_data.channels[i] < lo)
+      normalized_rc_data.channels[i] = lo;
   }
 
   switch (PID_RC2ANGLE_RATE_MODE) {
@@ -413,8 +415,8 @@ void angle_controller_task(void *arg) {
        * through the same OFF path (and so the same throttle re-sync) rather
        * than a cold reset that would dump it on a possibly-idle stick. */
       target_throttle =
-          height_ctrl_update(&s_height, HEIGHT_MODE_OFF, in_air, target_throttle,
-                             0.0f, false, 0.0f, dt, hover_now);
+          height_ctrl_update(&s_height, HEIGHT_MODE_OFF, in_air,
+                             target_throttle, 0.0f, false, 0.0f, dt, hover_now);
     }
 
     /* Recovery outranks everything, and has to be applied LAST to actually mean
@@ -436,7 +438,8 @@ void angle_controller_task(void *arg) {
                   (s_height.handback ? HEIGHT_STATE_HANDBACK : 0u) |
                   (s_mode_seen_centre ? HEIGHT_STATE_ARMED_OK : 0u) |
                   ((hmode_vetoed && hmode_req != HEIGHT_MODE_OFF)
-                       ? HEIGHT_STATE_BLOCKED : 0u));
+                       ? HEIGHT_STATE_BLOCKED
+                       : 0u));
     // Calculate target rates
     float current_angles[NUM_AXES];
     current_angles[0] = attitude.roll;
@@ -460,8 +463,9 @@ void angle_controller_task(void *arg) {
        * absolute heading of 0, and the mag-less sim yaw estimate drifts anyway,
        * so heading-hold-to-zero is both wrong and unstable. */
       for (int i = 0; i < 2; i++) { /* roll, pitch */
-        angle_controller_outputs.angle_rates[i] = v_pid_update(
-            &angle_controller.pid[i], target_angles[i], current_angles[i], 0, dt);
+        angle_controller_outputs.angle_rates[i] =
+            v_pid_update(&angle_controller.pid[i], target_angles[i],
+                         current_angles[i], 0, dt);
       }
       angle_controller_outputs.angle_rates[2] =
           normalized_rc_data.channels[3] * DEAFULT_YAW_ACRO_RATE_MAX;

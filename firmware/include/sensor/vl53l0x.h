@@ -46,10 +46,10 @@
 
 /* Register map (ST API register names). */
 #define VL53L0X_REG_SYSRANGE_START 0x00
-#define VL53L0X_REG_INT_CONFIG_GPIO 0x0A  /* 0 = interrupt disabled */
+#define VL53L0X_REG_INT_CONFIG_GPIO 0x0A /* 0 = interrupt disabled */
 #define VL53L0X_REG_INT_CLEAR 0x0B
 #define VL53L0X_REG_RESULT_INT_STATUS 0x13
-#define VL53L0X_REG_RESULT_RANGE 0x14     /* 12-byte block 0x14..0x1F */
+#define VL53L0X_REG_RESULT_RANGE 0x14 /* 12-byte block 0x14..0x1F */
 #define VL53L0X_REG_MODEL_ID 0xC0
 
 /* SYSRANGE_START bits: 0x01 = single shot, 0x02 = back-to-back continuous. */

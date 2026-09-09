@@ -16,7 +16,7 @@
  * src/est/vertical_estimator.c and is unit-tested headlessly
  * (sim/host/tests/test_vertical_est.c). This file is just the I/O wrapper.
  */
-#include "control/angle_controller.h" /* angle_controller_last_throttle */
+#include "control/angle_controller.h"  /* angle_controller_last_throttle */
 #include "control/height_controller.h" /* HEIGHT_HOVER_GUESS (initial seed) */
 #include "est/flight_phase.h"
 #include "storage/imu_hs_log.h"
@@ -85,8 +85,8 @@ void vertical_estimator_task(void *args) {
   uint32_t tof_age_steps = VERT_TOF_STALE_STEPS;
   float agl_tof = 0.0f;
   bool tof_valid = false;
-  bool tof_fresh = false;    /* this iteration carries a NEW range sample */
-  float tof_dt = 0.0f;       /* seconds since the last sample fed to the aiding */
+  bool tof_fresh = false; /* this iteration carries a NEW range sample */
+  float tof_dt = 0.0f;    /* seconds since the last sample fed to the aiding */
 
   while (1) {
     /* Block until the attitude task hands over the next synchronized triple
@@ -247,10 +247,12 @@ void vertical_estimator_task(void *args) {
           .altitude = out.altitude,
           .climb_rate = out.climb_rate,
           .accel_bias = out.accel_bias,
-          .flags = (uint16_t)((out.tof_valid ? HSL_VRT_F_TOF_VALID : 0u) |
-                              (out.accel_unhealthy ? HSL_VRT_F_ACCEL_UNHEALTHY : 0u) |
-                              (out.valid ? HSL_VRT_F_VALID : 0u) |
-                              (out.hover_measured ? HSL_VRT_F_HOVER_MEASURED : 0u)),
+          .flags =
+              (uint16_t)((out.tof_valid ? HSL_VRT_F_TOF_VALID : 0u) |
+                         (out.accel_unhealthy ? HSL_VRT_F_ACCEL_UNHEALTHY
+                                              : 0u) |
+                         (out.valid ? HSL_VRT_F_VALID : 0u) |
+                         (out.hover_measured ? HSL_VRT_F_HOVER_MEASURED : 0u)),
       };
       imu_hs_log_vert(&hv, out.timestamp);
     }

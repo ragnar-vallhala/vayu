@@ -10,7 +10,9 @@
  * trigger while a blink is running is ignored). Real handlers (e.g. CMD_SET_PID)
  * are registered in navlink_router_init(); switching one is a one-line edit
  * there. See navlink/INTEGRATION.md. */
-void navlink_router_init(void);   /* build the parser + handler table; call once */
-void navlink_router_poll(void);   /* drain RX bytes -> dispatch; service the blink */
+void navlink_router_init(
+    void); /* build the parser + handler table; call once */
+void navlink_router_poll(
+    void); /* drain RX bytes -> dispatch; service the blink */
 
 #endif /* VAYU_NAVLINK_ROUTER_H */

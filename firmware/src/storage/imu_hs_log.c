@@ -32,12 +32,12 @@
  * is shared, so there are no locks.
  * =========================================================================== */
 typedef struct {
-  uint8_t *bufs;       /* n_bufs * HSL_SECTOR_BYTES                          */
+  uint8_t *bufs; /* n_bufs * HSL_SECTOR_BYTES                          */
   uint8_t n_bufs;
   uint8_t stream_id;
   uint8_t rec_bytes;
-  uint16_t cap;        /* records per sector                                 */
-  uint32_t decim_cyc;  /* min cycles between records (0 = take everything)   */
+  uint16_t cap;       /* records per sector                                 */
+  uint32_t decim_cyc; /* min cycles between records (0 = take everything)   */
   /* producer-owned */
   volatile uint8_t head;
   uint16_t fill;
@@ -152,8 +152,7 @@ static uint8_t *stream_claim(hsl_stream_t *st, uint32_t t_cyc) {
   }
   /* Decimate on the cycle stamp, so the rate holds whatever rate the caller
    * happens to run at. Wrap-safe unsigned delta. */
-  if (st->decim_cyc != 0u &&
-      (uint32_t)(t_cyc - st->last_cyc) < st->decim_cyc) {
+  if (st->decim_cyc != 0u && (uint32_t)(t_cyc - st->last_cyc) < st->decim_cyc) {
     return NULL;
   }
 
@@ -252,7 +251,8 @@ void imu_hs_log_vert(const hsl_vert_sample_t *v, uint32_t t_cyc) {
  * Consumer -- FS task.
  * =========================================================================== */
 /** @noreq lays one FMT field descriptor */
-static void put_field(uint8_t *p, const char *name, uint8_t ftype, float scale) {
+static void put_field(uint8_t *p, const char *name, uint8_t ftype,
+                      float scale) {
   uint32_t i = 0;
   for (; i < 8u && name[i] != '\0'; i++) {
     p[i] = (uint8_t)name[i];
@@ -330,7 +330,8 @@ static void build_preamble(void) {
   const float u16fs = 1.0f / 65535.0f; /* u16 full scale -> 0..1 */
   uint8_t *f = &s_preamble[HSL_FILE_HDR_BYTES];
 
-  f = emit_fmt(f, HSL_STREAM_IMU, HSL_IMU_REC_BYTES, (uint16_t)IMU_SAMPLE_FREQ_HZ,
+  f = emit_fmt(f, HSL_STREAM_IMU, HSL_IMU_REC_BYTES,
+               (uint16_t)IMU_SAMPLE_FREQ_HZ,
                (const hsl_field_t[]){{"gx", HSL_FTYPE_I16, -gs},
                                      {"gy", HSL_FTYPE_I16, gs},
                                      {"gz", HSL_FTYPE_I16, -gs},

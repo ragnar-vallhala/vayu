@@ -17,11 +17,12 @@
 static int fails = 0;
 static void check(const char *what, int ok) {
   printf("  [%s] %s\n", ok ? "PASS" : "FAIL", what);
-  if (!ok) fails++;
+  if (!ok)
+    fails++;
 }
 static int near(float a, float b, float tol) { return fabsf(a - b) < tol; }
 
-#define HOVER 0.38f       /* the 5in racer */
+#define HOVER 0.38f /* the 5in racer */
 
 int main(void) {
   printf("throttle curve\n");
@@ -40,10 +41,14 @@ int main(void) {
 
   /* 2b. Expo is DERIVED from hover, ArduPilot's formula: lower hover -> more
    *     expo, hover at mid -> none, high hover -> negative. */
-  check("expo derived: hover 0.38 -> ~0.32", near(throttle_curve_expo(0.38f), 0.32f, 0.01f));
-  check("expo derived: hover 0.50 -> 0", near(throttle_curve_expo(0.50f), 0.0f, 1e-6f));
-  check("expo derived: hover 0.60 -> negative", throttle_curve_expo(0.60f) < 0.0f);
-  check("expo derived: clamped at the low end", throttle_curve_expo(0.05f) <= 1.0f);
+  check("expo derived: hover 0.38 -> ~0.32",
+        near(throttle_curve_expo(0.38f), 0.32f, 0.01f));
+  check("expo derived: hover 0.50 -> 0",
+        near(throttle_curve_expo(0.50f), 0.0f, 1e-6f));
+  check("expo derived: hover 0.60 -> negative",
+        throttle_curve_expo(0.60f) < 0.0f);
+  check("expo derived: clamped at the low end",
+        throttle_curve_expo(0.05f) <= 1.0f);
 
   /* 3. Monotonic — a stick push must never reduce collective. */
   {
@@ -51,7 +56,8 @@ int main(void) {
     float prev = -1.0f;
     for (int i = 0; i <= 200; i++) {
       float v = throttle_curve(i / 200.0f, HOVER);
-      if (v < prev - 1e-6f) mono = 0;
+      if (v < prev - 1e-6f)
+        mono = 0;
       prev = v;
     }
     check("monotonic across the whole stick", mono);
@@ -61,8 +67,9 @@ int main(void) {
    *    1.0 everywhere; here the mid-stick slope must be gentler). */
   {
     const float d = 0.02f;
-    float slope = (throttle_curve(0.5f + d, HOVER) -
-                   throttle_curve(0.5f - d, HOVER)) / (2.0f * d);
+    float slope =
+        (throttle_curve(0.5f + d, HOVER) - throttle_curve(0.5f - d, HOVER)) /
+        (2.0f * d);
     check("mid-stick slope is gentler than the raw 1.0 map", slope < 1.0f);
     printf("        (mid-stick slope %.2f collective per unit stick)\n", slope);
   }
@@ -77,7 +84,8 @@ int main(void) {
     check("lower hover derives more expo",
           throttle_curve_expo(0.25f) > throttle_curve_expo(0.45f));
     check("expo shrinks the stick gain at centre by (1-expo)",
-          throttle_curve_expo(0.38f) > 0.0f && throttle_curve_expo(0.38f) < 1.0f);
+          throttle_curve_expo(0.38f) > 0.0f &&
+              throttle_curve_expo(0.38f) < 1.0f);
   }
 
   /* 6. The underlying map is linear in THRUST: equal stick steps give equal
@@ -104,11 +112,14 @@ int main(void) {
 
   /* 8. A nonsensical hover constant degrades to the old linear map rather than
    *    to something surprising. */
-  check("hover_duty 0 -> pass-through", near(throttle_curve(0.42f, 0.0f), 0.42f, 1e-6f));
-  check("hover_duty 1 -> pass-through", near(throttle_curve(0.42f, 1.0f), 0.42f, 1e-6f));
+  check("hover_duty 0 -> pass-through",
+        near(throttle_curve(0.42f, 0.0f), 0.42f, 1e-6f));
+  check("hover_duty 1 -> pass-through",
+        near(throttle_curve(0.42f, 1.0f), 0.42f, 1e-6f));
 
   /* 9. Out-of-range stick is clamped, not extrapolated. */
-  check("stick below 0 clamps", near(throttle_curve(-0.5f, HOVER), 0.0f, 1e-6f));
+  check("stick below 0 clamps",
+        near(throttle_curve(-0.5f, HOVER), 0.0f, 1e-6f));
   check("stick above 1 clamps", near(throttle_curve(1.5f, HOVER), 1.0f, 1e-6f));
 
   printf(fails ? "\nFAILED (%d)\n" : "\nALL PASS\n", fails);
