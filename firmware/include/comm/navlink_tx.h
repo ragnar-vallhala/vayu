@@ -27,6 +27,9 @@ void navlink_tx_health(uint32_t tx_overflow, uint32_t imu_drop,
                        uint32_t log_wrap);                    /* v2 SYSTEM_HEALTH */
 void navlink_tx_pid_error(const control_telemetry_t *c);      /* v2 CONTROL_TRACE */
 void navlink_tx_notch_status(void);                           /* v2 NOTCH_STATUS */
+
+/* HSL_STATUS: high-speed SD recorder status (ring position, wraps, drops). */
+void navlink_tx_hsl_status(void);                           /* v2 NOTCH_STATUS */
 void navlink_tx_est_perf(const est_perf_telemetry_t *e);      /* v2 EST_PERF */
 void navlink_tx_imu_full(const float floats10[10]);           /* v2 IMU_RAW */
 /* v2 SYSID_SAMPLE: one chunk (<=10 samples) of the system-ID capture dump. */

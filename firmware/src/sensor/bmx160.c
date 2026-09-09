@@ -1,4 +1,5 @@
 #include "sensor/bmx160.h"
+#include "storage/imu_hs_log.h"
 #include "calib/calib_engine.h"
 #include "comm/comm.h"
 #include "sensor/bme280.h"
@@ -290,6 +291,7 @@ hal_status_t bmx160_init(void) {
   acc_scale = g_range * 9.80665f / 32768.0f;
   float dps_range = bmx160_range_code_to_dps(bmx160_cfg.bmx160_gyr_range);
   gyr_scale = dps_range / 32768.0f;
+  imu_hs_log_set_scale(gyr_scale, acc_scale);
 
   // 6. Configure Magnetometer (BMM150 setup)
   if (bmx160_set_mag_conf() != NO_ERR) {
@@ -766,11 +768,12 @@ bmx160_err_type bmx160_write_config(bmx160_config_t *config) {
   bmx160_set_current_config(config);
 
   // Pre-calculate scales
-  float g_range = bmx160_range_code_to_g(config->bmx160_acc_range);
+  float g_range = bmx160_range_code_to_g((uint8_t)config->bmx160_acc_range);
   acc_scale = g_range * 9.80665f / 32768.0f;
 
-  float dps_range = bmx160_range_code_to_dps(config->bmx160_gyr_range);
+  float dps_range = bmx160_range_code_to_dps((uint8_t)config->bmx160_gyr_range);
   gyr_scale = dps_range / 32768.0f;
+  imu_hs_log_set_scale(gyr_scale, acc_scale);
 
   return NO_ERR;
 }
@@ -778,7 +781,7 @@ bmx160_err_type bmx160_write_config(bmx160_config_t *config) {
 /** @noreq Register-field packing helper. */
 static uint8_t bmx160_get_acc_conf(bmx160_config_t *config) {
   uint8_t val =
-      (((config->bmx160_acc_us & 1U) << 7U) |
+     (uint8_t)(((config->bmx160_acc_us & 1U) << 7U) |
        ((config->bmx160_acc_bwp & 7U) << 4U) | (config->bmx160_acc_odr & 15U));
   return val;
 }
@@ -792,7 +795,7 @@ static uint8_t bmx160_get_acc_range(bmx160_config_t *config) {
 /** @noreq Register-field packing helper. */
 static uint8_t bmx160_get_gyr_conf(bmx160_config_t *config) {
   uint8_t val =
-      (((config->bmx160_gyr_bwp & 3U) << 4U) | (config->bmx160_gyr_odr & 15U));
+      (uint8_t)(((config->bmx160_gyr_bwp & 3U) << 4U) | (config->bmx160_gyr_odr & 15U));
   return val;
 }
 
@@ -1294,6 +1297,12 @@ void bmx160_process_data(void) {
   _bmx_data.raw.mag[2] = mz;
   _bmx_data.raw.rhall = rhall;
   _bmx_data.raw.temp = raw_temp;
+
+  /* High-speed SD stream, tapped HERE: sensor-native counts, before the LPF,
+   * the bias correction and the axis remap below. Pre-filter is the entire
+   * point -- the recording exists to show what the filters should be removing.
+   * RAM-only, ~12 bytes of memcpy, no-op unless armed. */
+  imu_hs_log_sample(_bmx_data.raw.gyr, _bmx_data.raw.acc, _sample_cyc);
 
   // Convert to units (for local attitude fusion and telemetry)
   _bmx_data.converted.acc_raw[0] = -bmx160_raw_acc_to_mps2(ax);

@@ -134,6 +134,21 @@ if(VAYU_HW_TEST)
   message(STATUS "VAYU_HW_TEST: building on-hardware bench firmware (hwtest)")
 endif()
 add_executable(main ${STARTUP_FILE} ${VAYU_SOURCES} ${NAVLINK_SOURCES})
+
+# Force the FFT gyro notch enabled at boot, overriding whatever pid.bin holds.
+# OFF ships: the enable is normally owned by CMD_SET_GYRO_NOTCH and persisted,
+# and a build that silently overrides persisted state is a trap. ON is for a
+# test airframe where the notch must be known-on without a working uplink to
+# send the command -- it logs "notch: FORCED ON by build" at boot so the
+# override is visible in telemetry rather than assumed.
+#   cmake -S firmware -B firmware/build-notch -DVAYU_GYRO_NOTCH_FORCE_ON=ON
+# [TEMP BLOCK TODO: REMOVE]
+option(VAYU_GYRO_NOTCH_FORCE_ON
+       "Force the gyro notch on at boot, ignoring the persisted enable" OFF)
+if(VAYU_GYRO_NOTCH_FORCE_ON)
+  target_compile_definitions(main PRIVATE GYRO_NOTCH_FORCE_ON=1)
+  message(STATUS "gyro notch: FORCED ON at boot (overrides pid.bin)")
+endif()
 target_compile_options(main PRIVATE ${BASE_C_FLAGS})
 set_target_properties(main PROPERTIES COMPILE_FLAGS "${BASE_C_FLAGS}")
 if(VAYU_HW_TEST)

@@ -95,6 +95,11 @@ void imu_telemetry_task(void *args) {
      * ~7 samples across the whole transient, before 26% loss took its cut. */
     bool send_vert    = TELEM_GATE(packet_counter, 50, 10);  // 20 Hz
     bool send_notch   = TELEM_GATE(packet_counter, 1000, 150);// 1 Hz (NOTCH_STATUS)
+    /* 1 Hz, ~25 B: cheap enough not to matter and the only way to see the SD
+     * recorder from the ground. dropped_sectors is the point -- whether the
+     * card sustains the stream is otherwise unknowable until the card is
+     * pulled, by which time the flight is over. */
+    bool send_hsl     = TELEM_GATE(packet_counter, 1000, 400);// 1 Hz (HSL_STATUS)
     bool send_status  = TELEM_GATE(packet_counter, 300, 12); // ~3.3 Hz
     bool send_log     = TELEM_GATE(packet_counter, 60, 30);  // ~17 Hz
 
@@ -103,7 +108,7 @@ void imu_telemetry_task(void *args) {
      * crowded out and dropped (this is a deliberate post-run, bench-only op). */
     if (sysid_dump_active()) {
       send_full = send_comp = send_att = send_rc = send_motor = send_pid_err =
-          send_baro = send_vert = send_notch = false;
+      send_baro = send_vert = send_notch = send_hsl = false;
     }
     (void)send_pid_err; /* constant false above; kept so re-enabling is one line */
     /* A big file download is a deliberate ground op; hand it the link by
@@ -214,6 +219,10 @@ void imu_telemetry_task(void *args) {
     if (send_notch) {
       /* No queue: the seam reads the live gyro_notch center freqs directly. */
       navlink_tx_notch_status();
+    }
+    if (send_hsl) {
+      /* No queue either: the seam reads the recorder's counters directly. */
+      navlink_tx_hsl_status();
     }
     packet_counter++;
     /* Loop/flush granularity (~500 Hz at TELEM_BASE_MS=2). Per-stream rates are set by

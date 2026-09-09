@@ -79,6 +79,9 @@ void fs_owner_task(void *args);
  */
 void fs_owner_suppress_logs(bool suppress);
 
+/** @brief Is best-effort SD logging currently quiesced for a bulk transfer? */
+bool fs_owner_logs_suppressed(void);
+
 /**
  * @brief Drain everything currently queued, synchronously, in the caller's
  *        context (saves first, then all pending logs). Used by tests to run

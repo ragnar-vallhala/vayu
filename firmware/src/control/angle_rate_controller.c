@@ -9,6 +9,14 @@
 #include "control/rate_indi.h"   /* optional INDI inner loop (RATE_CTRL_ALGO_USED) */
 #include "control/sysid.h"
 #include "dsp/gyro_notch.h"      /* FFT-driven dynamic gyro notch (off by default) */
+#include "storage/fs_owner.h" /* vayu_log */
+#include "storage/imu_hs_log.h"
+
+/* Build-time override for the persisted gyro-notch enable. 0 = honour SD (the
+ * shipped default); 1 = force the notch on at boot for a test airframe. */
+#ifndef GYRO_NOTCH_FORCE_ON
+#define GYRO_NOTCH_FORCE_ON 0
+#endif
 #include "memory.h"   /* v_memcpy */
 #include "navhal.h"
 #include "sensor/sensor.h"
@@ -275,6 +283,22 @@ void angle_rate_controller_init(void) {
       gyro_notch_set_params(nq, nfmin, nfmax, nratio);
       gyro_notch_set_enabled(nen);
     }
+#if GYRO_NOTCH_FORCE_ON
+    /* Test build: force the notch ON regardless of what SD holds.
+     *
+     * The enable is normally persisted (CMD_SET_GYRO_NOTCH -> pid.bin) and the
+     * restore above applies it, so a stored `disabled` would otherwise beat any
+     * compiled default and the notch would come up off with nothing to say so.
+     * That is precisely how it sat through the 2026-09-06 flight and the
+     * 2026-09-07 flyaway: implemented, and never once switched on
+     * (NOTCH_STATUS enabled=0 in every sample of both logs).
+     *
+     * Applied AFTER the restore so it wins, and only the ENABLE is forced --
+     * a persisted Q/band tune is still honoured. Logged, because a silent
+     * override is worse than no override. */
+    gyro_notch_set_enabled(true);
+    vayu_log("notch: FORCED ON by build (GYRO_NOTCH_FORCE_ON)");
+#endif
   }
 }
 
@@ -596,6 +620,25 @@ void angle_rate_controller_task(void *arg) {
      * touched. Pushing only while armed eliminates that stale slot. */
     if (state == SYSTEM_STATE_ARMED || state == SYSTEM_STATE_IN_AIR) {
       motor_set_outputs(motor_outputs);
+    }
+
+    /* High-speed SD stream, "act": the per-motor command and the collective
+     * setpoint that produced it, on the same timebase as the raw gyro. This is
+     * what lets an offline spectrum be binned by throttle (prop frequency
+     * tracks motor command) and what separates a commanded climb from the
+     * collective shift MIXER_AIRMODE_RP applies under saturation. Decimated
+     * internally to 400 Hz -- the ESC PWM rate -- and a no-op unless armed. */
+    {
+      const float mo[4] = {motor_outputs.m1, motor_outputs.m2,
+                           motor_outputs.m3, motor_outputs.m4};
+      uint16_t hf = 0u;
+      if (state == SYSTEM_STATE_ARMED) {
+        hf |= HSL_ACT_F_ARMED;
+      }
+      if (state == SYSTEM_STATE_IN_AIR) {
+        hf |= HSL_ACT_F_IN_AIR;
+      }
+      imu_hs_log_act(mo, target_throttle, hf, imu_data.converted.timestamp);
     }
 
     control_telemetry_t telemetry = {

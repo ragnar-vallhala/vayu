@@ -1,4 +1,5 @@
 #include "comm/navlink_tx.h"
+#include "storage/imu_hs_log.h"
 #include "comm/channel.h"     /* write_channel, channel_t */
 #include "dsp/gyro_notch.h"   /* gyro_notch_enabled / _center_hz (NOTCH_STATUS) */
 #include "sys/state.h"        /* system_state_get, sys_state_t */
@@ -113,6 +114,25 @@ void navlink_tx_notch_status(void) {
   s.yaw_hz2 = gyro_notch_center_hz(2, 2);
   uint8_t frame[NAVLINK_MAX_FRAME];
   size_t n = navlink_notch_status_encode(frame, &s, seq++, get_device_id(), 1);
+  write_channel(g_telemetry_channel, frame, (uint16_t)n);
+}
+
+/** @noreq high-speed SD stream status (observability) */
+void navlink_tx_hsl_status(void) {
+  /* v2 HSL_STATUS (msgid 1048). Lets the recorder be checked over the link
+   * instead of by pulling the card -- above all dropped_sectors, which is the
+   * only in-flight evidence that the card is not keeping up with 31 KB/s. */
+  static uint8_t seq = 0;
+  navlink_hsl_status_t s = {0};
+  s.recording = imu_hs_log_active() ? 1u : 0u;
+  s.session = imu_hs_log_session();
+  s.head_slot = imu_hs_log_head_slot();
+  s.ring_sectors = imu_hs_log_ring_sectors();
+  s.wraps = imu_hs_log_wraps();
+  s.dropped_sectors = imu_hs_log_dropped();
+  s.seq = imu_hs_log_seq();
+  uint8_t frame[NAVLINK_MAX_FRAME];
+  size_t n = navlink_hsl_status_encode(frame, &s, seq++, get_device_id(), 1);
   write_channel(g_telemetry_channel, frame, (uint16_t)n);
 }
 

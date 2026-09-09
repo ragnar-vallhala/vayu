@@ -461,6 +461,28 @@ extern channel_t g_telemetry_channel;
 #define SYS_LOGGING_FILE_SIZE 1024 * 1024 * 10 // 10MB Preallocated
 #define GENERAL_LOGGING_FILE_SIZE 1024 * 1024 * 10 // 10MB Preallocated
 #endif
+/* High-speed IMU stream (see include/storage/imu_hs_log.h). Its own file, so
+ * the 24 KB/s never competes with the circular blackbox rings. 8.3 name --
+ * FF_USE_LFN is 0 and a longer name fails vfs_open with FR_INVALID_NAME. */
+#define HSL_FILENAME "0:imuhs.bin"
+#ifdef VAYU_SIM
+/* 64 sectors -> a 63-slot ring: small enough that test_hslog can drive it all
+ * the way round, big enough to hold two multi-stream sessions first. Bounded by
+ * the host VFS's per-file cap (sim/host/src/host_vfs.c HOST_VFS_FILE_CAP). */
+#define HSL_FILE_SIZE (32 * 1024)
+#else
+/* Sized by the longest SINGLE armed period, not by a day's flying: every arm
+ * rewinds to offset 0, so the file never holds more than one session.
+ * 32 MB = ~22 min at 2 kHz x 12 B -- a whole props-on bench session, not just
+ * one pack. The only cost of size is a ONE-TIME boot stall the first time the
+ * card is used (v_preallocate zero-fills sector by sector, then FR_EXIST skips
+ * it forever after), and the three 10 MB blackbox rings already dominate that.
+ *
+ * NB raising this later still works -- imu_hs_log_boot_init() extends an
+ * existing short file -- but LOWERING it does not shrink one. */
+#define HSL_FILE_SIZE (32 * 1024 * 1024)
+#endif
+
 #define NAVLINK_HEADER_SIZE 8
 #define NAVLINK_MAX_PAYLOAD_SIZE 256
 #define NAVLINK_CRC_SIZE 4

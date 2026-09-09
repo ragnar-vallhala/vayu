@@ -7,6 +7,7 @@
 #include "control/flight_mode.h"
 #include "memory.h"
 #include "sensor/sensor.h"
+#include "storage/fs_owner.h" /* vayu_log */
 #include "sys/state.h"
 #include "task.h"
 #include "utils.h"
@@ -94,14 +95,28 @@ void comm_processor_dispatch(const packet_t *pkt) {
        * payload long enough to actually hold them. */
       if (system_state_get() != SYSTEM_STATE_CALIBRATING &&
           command_payload_valid(pkt->length, argc, 2)) {
+        /* 
+         * Stack: 3072, about 2x the measured requirement. The deepest chain is
+         * calibration_task(400) -> calib_engine_run(104) -> run_ellipsoid(488)
+         * -> calib_fit_ellipsoid(272) = 1264 B by -fstack-usage, plus ~200 B of
+         * exception frame.*/
         calibration_args_t *cal_args =
             (calibration_args_t *)v_malloc(sizeof(calibration_args_t));
-        if (cal_args != NULL) {
+        if (cal_args == NULL) {
+          vayu_log("[CALIB] out of heap for args; not starting");
+        } else {
           v_memcpy(&cal_args->imu_id, &pkt->payload[3], 4);
           v_memcpy(&cal_args->type, &pkt->payload[7], 4);
+          _calibration_task_handle =
+              task_create(calibration_task, cal_args, 3072, 0);
+          if (_calibration_task_handle == 0) {
+            /* task_create returns 0 when the TCB alloc fails (a failed STACK
+             * alloc panics inside the kernel). Nothing will ever free the arg
+             * block, so do it here. */
+            v_free(cal_args);
+            vayu_log("[CALIB] out of heap for task; not starting");
+          }
         }
-        _calibration_task_handle =
-            task_create(calibration_task, cal_args, 8192, 0);
       }
     } else if (cmd_id == 0x0009) { // CMD_CANCEL_CALIBRATION
       /* Cooperative cancel: raise the flag the calibration task polls at each
