@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Run clang-tidy over every source in the repo that some build actually
-# compiles, and name the ones nothing does.
+# compiles, and name the ones nothing does. Exits non-zero on any finding --
+# .clang-tidy sets WarningsAsErrors, so this is a gate, not a report.
 #
 # Scope is taken from compile databases, not from a hand-maintained file list,
 # so it grows with the builds. The last thing the script prints is the set of
@@ -38,6 +39,11 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
+
+# .clang-tidy is a gate (WarningsAsErrors), so a version difference between a
+# developer and CI turns a toolchain bump into a red build on someone else's
+# PR. CI pins this; locally it is whatever is on PATH.
+TIDY="${CLANG_TIDY:-clang-tidy}"
 
 # Configure with cmake -S <src> -B <dir> -DCMAKE_EXPORT_COMPILE_COMMANDS=ON.
 # A database only has to be CONFIGURED, not built -- clang-tidy reads the
@@ -123,7 +129,7 @@ for build in "${BUILDS[@]}"; do
   args=()
   if grep -q 'arm-none-eabi' "$db"; then args=("${ARM_ARGS[@]}"); fi
   echo "== $build ($(wc -l <<<"$files") files, $([ ${#args[@]} -gt 0 ] && echo arm || echo host))" >&2
-  xargs -P"$(nproc)" -I{} clang-tidy -p "$build" --quiet "${args[@]}" {} <<<"$files" || rc=1
+  xargs -P"$(nproc)" -I{} "$TIDY" -p "$build" --quiet "${args[@]}" {} <<<"$files" || rc=1
   cat >>"$analysed" <<<"$files"
 done
 
@@ -133,15 +139,20 @@ for entry in "${NODB[@]}"; do
   if [ -z "$files" ]; then continue; fi
   echo "== $spec ($(wc -l <<<"$files") files, no database)" >&2
   # shellcheck disable=SC2086 -- flags are a deliberate word list
-  xargs -P"$(nproc)" -I{} clang-tidy --quiet {} -- $flags <<<"$files" || rc=1
+  xargs -P"$(nproc)" -I{} "$TIDY" --quiet {} -- $flags <<<"$files" || rc=1
   cat >>"$analysed" <<<"$files"
 done
 
 # Anything left is unanalysed: wire up its build, add it to NODB, or delete it
 # if nothing builds it any more. firmware/docs carries scratch sources attached
 # to log-analysis journals; those are archive, not tree.
-echo "== not analysed by anything above" >&2
-git ls-files '*.c' '*.cpp' | grep -vE '^(extern|firmware/docs)/' | sort -u \
-  | comm -13 <(sort -u "$analysed") - >&2
+missed="$(git ls-files '*.c' '*.cpp' | grep -vE '^(extern|firmware/docs)/' | sort -u \
+           | comm -13 <(sort -u "$analysed") -)"
+if [ -z "$missed" ]; then
+  echo "== not analysed by anything above: none" >&2
+else
+  echo "== not analysed by anything above ($(wc -l <<<"$missed") files)" >&2
+  echo "$missed" >&2
+fi
 
 exit $rc

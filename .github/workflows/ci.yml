@@ -11,7 +11,7 @@
 #       - sitl-tests    : host unit tests (R12.1)
 #       - sanitizers    : ASan + UBSan unit tests (R12.2)
 #       - coverage      : gcov/gcovr summary on CTRL/EST/COMM (R12.4)
-#       - clang-tidy    : .clang-tidy ruleset (report-only, CONV-04 / R12.3)
+#       - clang-tidy    : .clang-tidy ruleset, whole tree, GATING (CONV-04 / R12.3)
 #
 # Deferred (heavy, tracked separately): Renode ISR/timing (R12.6),
 # state-machine SITL transition coverage (R12.7).
@@ -163,7 +163,7 @@ jobs:
           cmake --build build_cov --target coverage-gate
 
   clang-tidy:
-    name: clang-tidy (.clang-tidy, baseline)
+    name: clang-tidy (.clang-tidy, gate)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -171,9 +171,12 @@ jobs:
           submodules: recursive
       - run: |
           sudo apt-get update
-          sudo apt-get install -y cmake clang-tidy gcc-arm-none-eabi jq
+          # Pinned: .clang-tidy is a gate, so a toolchain bump must not land as
+          # a red build on an unrelated PR. Match this when bumping locally.
+          sudo apt-get install -y cmake clang-tidy-18 gcc-arm-none-eabi jq
       - name: clang-tidy
-        continue-on-error: true
+        env:
+          CLANG_TIDY: clang-tidy-18
         run: |
           # A database only has to be CONFIGURED, not built. Navigator is left
           # out here: it needs Qt6 + assimp and a full BUILD (AUTOMOC generates

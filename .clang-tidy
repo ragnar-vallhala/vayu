@@ -43,9 +43,10 @@ CheckOptions:
 # Under this set the tree is at zero findings — all 240 non-vendored sources,
 # ARM and host, with nothing left in the runner's "not analysed" list.
 
-# Treat nothing as an error yet — the CI clang-tidy job reports findings
-# (does not fail the build) until the existing baseline is burned down,
-# then flips to warnings-as-errors. New code should land clean.
-WarningsAsErrors: ''
+# The baseline is burned down, so this is now a gate (CONV-04 / R12.3): every
+# check listed above fails the build. Held-out checks are held out in `Checks:`
+# above, with the reason; a genuine one-off exception is a NOLINT naming the
+# check and saying why, not a line added here.
+WarningsAsErrors: '*'
 
 HeaderFilterRegex: '.*/(src|include)/.*'
