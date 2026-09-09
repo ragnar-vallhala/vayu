@@ -1,5 +1,7 @@
 #include "control/sysid.h"
 
+#include <stddef.h> /* size_t (was reached transitively) */
+
 #include "maths/maths_interface.h"
 
 /* Hard safety caps (the physical rig should also have soft-stops). These bound
@@ -147,7 +149,7 @@ void sysid_capture(const float u[3], const float gyro[3]) {
   s_decim = 0;
   if (s_cap_n >= SYSID_CAP_N)
     return; // buffer full (run capped at 2 s of capture)
-  s_cap[s_cap_n * 2] = to_i16(u[s_axis], SYSID_U_SCALE);
+  s_cap[(size_t)s_cap_n * 2] = to_i16(u[s_axis], SYSID_U_SCALE);
   s_cap[s_cap_n * 2 + 1] = to_i16(gyro[s_axis], SYSID_W_SCALE);
   s_cap_n++;
 }
@@ -187,8 +189,12 @@ int sysid_dump_next(uint16_t *start, int16_t *u, int16_t *gyro, int cap) {
     n = cap;
   *start = (uint16_t)s_dump_pos;
   for (int i = 0; i < n; i++) {
-    u[i] = s_cap[(s_dump_pos + i) * 2]; // slot 0 = rate-PID output u (x1000)
-    gyro[i] = s_cap[(s_dump_pos + i) * 2 + 1]; // slot 1 = gyro (0.1 deg/s)
+    /* Both terms are non-negative by construction (s_dump_pos is a cursor, i a
+     * loop counter), so widen once and index from that -- the pair is two slots
+     * of one record, not two independent offsets. */
+    const size_t k = ((size_t)s_dump_pos + (size_t)i) * 2u;
+    u[i] = s_cap[k];        // slot 0 = rate-PID output u (x1000)
+    gyro[i] = s_cap[k + 1u]; // slot 1 = gyro (0.1 deg/s)
   }
   s_dump_pos += n;
   if (s_dump_pos >= s_cap_n)

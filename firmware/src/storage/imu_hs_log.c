@@ -156,7 +156,7 @@ static uint8_t *stream_claim(hsl_stream_t *st, uint32_t t_cyc) {
     return NULL;
   }
 
-  uint8_t *b = st->bufs + (uint32_t)st->head * HSL_SECTOR_BYTES;
+  uint8_t *b = st->bufs + (size_t)st->head * HSL_SECTOR_BYTES;
   if (st->fill == 0u) {
     b[0] = (uint8_t)HSL_TYPE_BLOCK;
     b[1] = (uint8_t)HSL_RING_SENTINEL;
@@ -167,12 +167,12 @@ static uint8_t *stream_claim(hsl_stream_t *st, uint32_t t_cyc) {
     put_u32(&b[12], t_cyc); /* t_first */
   }
   return b + HSL_FRAME_HDR_BYTES + HSL_BLOCK_HDR_BYTES +
-         (uint32_t)st->fill * st->rec_bytes;
+         (size_t)st->fill * st->rec_bytes;
 }
 
 /* Count the record just written and publish the sector if it is full. */
 static void stream_commit(hsl_stream_t *st, uint32_t t_cyc) {
-  uint8_t *b = st->bufs + (uint32_t)st->head * HSL_SECTOR_BYTES;
+  uint8_t *b = st->bufs + (size_t)st->head * HSL_SECTOR_BYTES;
   st->last_cyc = t_cyc;
   st->fill++;
   put_u16(&b[6], st->fill); /* n      */
@@ -214,7 +214,7 @@ void imu_hs_log_act(const float motors[4], float throttle, uint16_t flags,
     return;
   }
   for (uint32_t i = 0; i < 4u; i++) {
-    put_u16(&rec[i * 2u], unit_to_u16(motors[i]));
+    put_u16(&rec[(size_t)i * 2u], unit_to_u16(motors[i]));
   }
   put_u16(&rec[8], unit_to_u16(throttle));
   put_u16(&rec[10], flags);
@@ -292,7 +292,7 @@ static uint8_t *emit_fmt(uint8_t *f, uint8_t stream_id, uint8_t rec_bytes,
   f[11] = 0u;
   uint8_t *fld = &f[HSL_FRAME_HDR_BYTES + 8u];
   for (uint32_t i = 0; i < n; i++) {
-    put_field(fld + i * HSL_FMT_FIELD_BYTES, fields[i].name, fields[i].ftype,
+    put_field(fld + (size_t)i * HSL_FMT_FIELD_BYTES, fields[i].name, fields[i].ftype,
               fields[i].scale);
   }
   return f + HSL_FRAME_HDR_BYTES + pay;
@@ -513,7 +513,7 @@ static void session_stop(void) {
     for (uint32_t i = 0; i < HSL_N_STREAMS; i++) {
       hsl_stream_t *st = &s_streams[i];
       if (st->fill > 0u) {
-        (void)ring_write(st->bufs + (uint32_t)st->head * HSL_SECTOR_BYTES);
+        (void)ring_write(st->bufs + (size_t)st->head * HSL_SECTOR_BYTES);
         st->fill = 0u;
       }
     }
@@ -560,7 +560,7 @@ void imu_hs_log_drain(void) {
   for (uint32_t i = 0; i < HSL_N_STREAMS; i++) {
     hsl_stream_t *st = &s_streams[i];
     while (st->tail != st->head) {
-      if (!ring_write(st->bufs + (uint32_t)st->tail * HSL_SECTOR_BYTES)) {
+      if (!ring_write(st->bufs + (size_t)st->tail * HSL_SECTOR_BYTES)) {
         session_stop(); /* the card is unhappy; do not spin on it */
         return;
       }

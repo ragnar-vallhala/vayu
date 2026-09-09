@@ -19,6 +19,7 @@
 #include "control/angle_controller.h"  /* angle_controller_last_throttle */
 #include "control/height_controller.h" /* HEIGHT_HOVER_GUESS (initial seed) */
 #include "est/flight_phase.h"
+#include "storage/fs_owner.h" /* vayu_log */
 #include "storage/imu_hs_log.h"
 #include "est/hover_estimate.h"
 #include "storage/hover_store.h"

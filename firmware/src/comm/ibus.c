@@ -59,7 +59,8 @@ bool ibus_parse_byte(uint8_t b, ibus_data_t *data) {
       // Packet valid!
       if (data) {
         for (int i = 0; i < IBUS_MAX_CHANNELS; i++) {
-          data->channels[i] = buffer[2 + i * 2] | (buffer[3 + i * 2] << 8);
+          data->channels[i] =
+              (uint16_t)(buffer[2 + i * 2] | (buffer[3 + i * 2] << 8));
         }
         /* FlySky has no in-protocol failsafe flag — link-loss is inferred from
          * the throttle channel (rc_throttle_failsafe_step) and the staleness

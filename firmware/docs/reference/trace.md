@@ -10,7 +10,7 @@
 - Dropped: **4**
 - Deferred: **2**
 - Active with implementer: **130 / 168**
-- Active with verifier (or verified-upstream): **31 / 168**
+- Active with verifier (or verified-upstream): **32 / 168**
 
 ## Trace
 
@@ -27,7 +27,7 @@
 | `COMM-CMD-001` | active | Calibration commands | `firmware/src/comm/comm_processor.c`<br>`firmware/src/comm/navlink_router.c` | — |
 | `COMM-CMD-002` | active | Command payload validation | `firmware/include/control/pid_config.h`<br>`firmware/src/comm/comm_processor.c`<br>`firmware/src/control/angle_rate_controller.c`<br>`firmware/src/control/flight_mode.c`<br>`firmware/src/control/pid_config.c` | `sim/host/tests/test_phase3_comm.c` |
 | `COMM-CMD-003` | active | CMD_SET_PID | `firmware/include/control/angle_controller.h`<br>`firmware/include/control/angle_rate_controller.h`<br>`firmware/include/control/pid_config.h`<br>`firmware/src/comm/comm_processor.c`<br>`firmware/src/comm/navlink_router.c`<br>`firmware/src/control/angle_controller.c`<br>`firmware/src/control/angle_rate_controller.c`<br>`firmware/src/control/pid_config.c` | `sim/host/tests/test_phase3_comm.c` |
-| `COMM-CMD-004` | active | Live tuning command set | `firmware/src/comm/navlink_router.c` | — |
+| `COMM-CMD-004` | active | Live tuning command set | `firmware/src/comm/navlink_router.c` | `sim/host/tests/test_phase3_comm.c` |
 | `COMM-CMD-006` | active | GCS software arm/disarm command | `firmware/src/comm/navlink_router.c` | — |
 | `COMM-FLUSH-001` | active | Flush task | `firmware/src/comm/channel.c` | — |
 | `COMM-FS-001` | active | Filesystem navigation | `firmware/src/comm/xfer/fs_query.c` | — |
@@ -114,7 +114,7 @@
 | `LOG-OWN-001` | active | Single runtime filesystem owner | `firmware/src/storage/fs_owner.c` | `firmware/tests/onboard/checks/check_persist.c` |
 | `LOG-PERSIST-001` | active | Off-critical-path PID/calib persistence | `firmware/src/storage/fs_owner.c` | — |
 | `LOG-RATE-001` | active | Bounded log rate | — | — |
-| `LOG-SD-001` | active | SD-card ring-buffer logs | `firmware/src/storage/fs_owner.c` | `firmware/tests/onboard/checks/check_persist.c` |
+| `LOG-SD-001` | active | SD-card ring-buffer logs | `firmware/src/storage/fs_owner.c`<br>`firmware/src/storage/imu_hs_log.c` | `firmware/tests/onboard/checks/check_persist.c` |
 | `LOG-SD-002` | active | Wrap-on-full | `firmware/src/comm/navlink_tx.c`<br>`firmware/src/storage/fs_owner.c` | — |
 | `LOG-SD-101` | active | Per-file mutex | — | — |
 | `LOG-SD-102` | active | Sync on every write | `firmware/src/storage/fs_owner.c` | — |
