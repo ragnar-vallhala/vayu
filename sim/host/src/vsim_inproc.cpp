@@ -176,13 +176,13 @@ void packImu(const vsim::ImuSample &s, uint8_t out[88]) {
 // Returns true if any imperfection was enabled. Defaults (unset) = ideal no-op.
 bool applyActuatorEnv(vsim::MotorParams &motor) {
   if (const char *e = std::getenv("VSIM_MOTOR_DELAY_MS"))
-    motor.transport_delay = std::atof(e) * 1e-3f;
+    motor.transport_delay = std::strtof(e, nullptr) * 1e-3f;
   if (const char *e = std::getenv("VSIM_STALL_DUTY"))
-    motor.stall_duty = std::atof(e);
+    motor.stall_duty = std::strtof(e, nullptr);
   if (const char *e = std::getenv("VSIM_RESPIN_TAU"))
-    motor.respin_tau = std::atof(e);
+    motor.respin_tau = std::strtof(e, nullptr);
   if (const char *e = std::getenv("VSIM_VIBE_G"))
-    g_ctl.setVibeGain(std::atof(e));
+    g_ctl.setVibeGain(std::strtof(e, nullptr));
   bool on = motor.transport_delay > 0.0f || motor.stall_duty > 0.0f;
   if (on)
     std::fprintf(stderr,

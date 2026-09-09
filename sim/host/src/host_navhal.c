@@ -281,12 +281,12 @@ static void *uart2_rx_thread(void *arg) {
       uart2_packet_recv_callback();
     } else if (r == 0) {
       /* slave not open yet / hung up — back off briefly */
-      struct timespec ts = {0, 2 * 1000 * 1000};
+      struct timespec ts = {0, 2L * 1000 * 1000};
       nanosleep(&ts, NULL);
     } else {
       if (errno == EINTR)
         continue;
-      struct timespec ts = {0, 2 * 1000 * 1000};
+      struct timespec ts = {0, 2L * 1000 * 1000};
       nanosleep(&ts, NULL);
     }
   }

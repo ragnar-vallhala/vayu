@@ -123,7 +123,7 @@ void RealTimeGraph::appendSigma(float sigma, int index) {
   if (sigma > m_sigmaMax)
     m_sigmaMax = sigma * 1.15f;
   const qint64 cutoff =
-      QDateTime::currentMSecsSinceEpoch() - m_windowSeconds * 1000;
+      QDateTime::currentMSecsSinceEpoch() - m_windowSeconds * 1000LL;
   while (!m_sigmaData[index].empty() &&
          m_sigmaData[index].front().timestamp < cutoff)
     m_sigmaData[index].pop_front();
@@ -244,7 +244,7 @@ void RealTimeGraph::setDynamicYAxis(bool enabled) {
 
 void RealTimeGraph::pruneData() {
   qint64 now = QDateTime::currentMSecsSinceEpoch();
-  qint64 limit = now - (m_windowSeconds * 1000);
+  qint64 limit = now - (m_windowSeconds * 1000LL);
 
   bool minMaxPruned = false;
   bool anyPopped = false;

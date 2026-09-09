@@ -22,6 +22,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+/* rand()/srand() build the test vectors. A fixed seed is the requirement --
+ * a failing FFT case has to be reproducible -- and no output is a secret. */
+// NOLINTBEGIN(cert-msc30-c,cert-msc50-cpp,cert-msc32-c,cert-msc51-cpp)
+
 static int fails = 0;
 static void check(const char *what, int ok) {
   printf("  [%s] %s\n", ok ? "PASS" : "FAIL", what);
@@ -287,3 +291,5 @@ int main(void) {
          fails == 1 ? "" : "s");
   return fails ? 1 : 0;
 }
+
+// NOLINTEND(cert-msc30-c,cert-msc50-cpp,cert-msc32-c,cert-msc51-cpp)

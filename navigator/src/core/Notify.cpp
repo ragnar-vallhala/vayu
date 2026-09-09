@@ -26,7 +26,6 @@ QWidget *findHost(QWidget *anchor) {
 int defaultTimeout(Kind k) {
   switch (k) {
   case Kind::Info:
-    return 3000;
   case Kind::Ok:
     return 3000;
   case Kind::Warn:

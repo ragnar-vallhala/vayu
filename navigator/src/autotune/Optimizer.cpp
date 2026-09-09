@@ -50,6 +50,7 @@ void randomSearch(Evaluator &ev, const Vec &x0, const Bounds &b, Rng &rng) {
       ev.eval(x);
     }
   } catch (const BudgetExhausted &) {
+    /* Budget spent mid-strategy: stop here, keep the best so far. */
   }
 }
 
@@ -81,6 +82,7 @@ void spsa(Evaluator &ev, const Vec &x0, const Bounds &b, Rng &rng) {
       ++k;
     }
   } catch (const BudgetExhausted &) {
+    /* Budget spent mid-strategy: stop here, keep the best so far. */
   }
 }
 
@@ -105,6 +107,7 @@ void fdgd(Evaluator &ev, const Vec &x0, const Bounds &b, Rng &,
       x = clampVec(nx, b);
     }
   } catch (const BudgetExhausted &) {
+    /* Budget spent mid-strategy: stop here, keep the best so far. */
   }
 }
 
@@ -136,6 +139,7 @@ void coordinate(Evaluator &ev, const Vec &x0, const Bounds &b, Rng &,
         s *= shrink;
     }
   } catch (const BudgetExhausted &) {
+    /* Budget spent mid-strategy: stop here, keep the best so far. */
   }
 }
 
@@ -231,6 +235,7 @@ void nelderMead(Evaluator &ev, const Vec &x0, const Bounds &b, Rng &,
       }
     }
   } catch (const BudgetExhausted &) {
+    /* Budget spent mid-strategy: stop here, keep the best so far. */
   }
 }
 
@@ -269,6 +274,7 @@ void structured(Evaluator &ev, const Vec &x0, const Bounds &b, Rng &) {
       x[idx] = bestVal;
     }
   } catch (const BudgetExhausted &) {
+    /* Budget spent mid-strategy: stop here, keep the best so far. */
   }
 }
 
@@ -329,6 +335,7 @@ void portfolio(Evaluator &ev, const Vec &x0, const Bounds &b, Rng &rng) {
     try {
       run(m, sub, x0, b, rng);
     } catch (const BudgetExhausted &) {
+      /* Budget spent mid-strategy: stop here, keep the best so far. */
     }
   }
 }

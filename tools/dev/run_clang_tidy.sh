@@ -1,9 +1,21 @@
 #!/usr/bin/env bash
-# Run clang-tidy over the firmware against the ARM compile database.
+# Run clang-tidy over every source in the repo that some build actually
+# compiles, and name the ones nothing does.
 #
-# The firmware is cross-compiled, so three things have to be handled or the
-# analysis reports noise instead of defects. Each flag below is here because it
-# was measured to remove a whole class of false positives:
+# Scope is taken from compile databases, not from a hand-maintained file list,
+# so it grows with the builds. The last thing the script prints is the set of
+# tracked sources no listed database covers -- that is the gap report, and it
+# is the only reason this stays honest as the tree moves.
+#
+# A file in two databases is analysed under both, deliberately: on ARM
+# `int`, `unsigned` and `size_t` are all 32-bit, so the widening checks that
+# found most of the real defects here (bugprone-implicit-widening-of-
+# multiplication-result) cannot fire. The host pass over the same firmware
+# sources is what catches them.
+#
+# CROSS-COMPILATION. An ARM database needs three things or clang-tidy reports
+# noise instead of defects. Each flag is here because it was measured to
+# remove a whole class of false positives:
 #
 #   --target=arm-none-eabi      without it clang assumes the host ABI
 #   -isystem <gcc>/include      compiler intrinsics (stdint, stdarg)
@@ -18,30 +30,118 @@
 #   -Wno-macro-redefined        NavHAL and vaios both define VERSION*; that is
 #                               a known upstream collision in extern/, not ours
 #
-# Using the SITL database instead (as CI did until 2026-09-09) leaves 11 of the
-# 67 firmware sources with no compile command at all, so clang-tidy analyses
-# them with default flags and invents undeclared-function and parse errors.
+# Databases are ARM or host by inspection (does the compiler name contain
+# arm-none-eabi), so adding a build dir needs no extra configuration here.
+#
+# Usage: run_clang_tidy.sh [build-dir ...]   (default: the list below)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-BUILD="${1:-$ROOT/firmware/build}"
-
-if [ ! -f "$BUILD/compile_commands.json" ]; then
-  echo "no compile_commands.json in $BUILD -- run: cmake -S firmware -B $BUILD" >&2
-  exit 2
-fi
-
-GCC_INC="$(arm-none-eabi-gcc -print-file-name=include)"
-LIBC_INC="$(dirname "$GCC_INC")/../../../arm-none-eabi/include"
-
 cd "$ROOT"
-git ls-files 'firmware/src/*.c' \
-  | xargs -P"$(nproc)" -I{} clang-tidy -p "$BUILD" --quiet \
-      --extra-arg=--target=arm-none-eabi \
-      --extra-arg=-isystem"$GCC_INC" \
-      --extra-arg=-isystem"$LIBC_INC" \
-      --extra-arg=-Wno-error \
-      --extra-arg=-Wno-ignored-optimization-argument \
-      --extra-arg=-Wno-newline-eof \
-      --extra-arg=-Wno-macro-redefined \
-      {}
+
+# Configure with cmake -S <src> -B <dir> -DCMAKE_EXPORT_COMPILE_COMMANDS=ON.
+# A database only has to be CONFIGURED, not built -- clang-tidy reads the
+# compile commands, not the objects.
+#
+#   cmake -S firmware          -B firmware/build
+#   cmake -S firmware          -B firmware/build_hwtest -DVAYU_HW_TEST=ON
+#   cmake -S firmware/tests/host -B firmware/tests/host/build
+#   cmake -S navigator         -B navigator/build-tidy -DNAVIGATOR_SIM_GRASS=ON
+#         ...and BUILD this one: AUTOMOC generates the tst_*.moc that
+#         navigator/tests include, at build time.
+#   cmake -S sim/host          -B sim/host/build
+#   cmake -S navigator/headless-sdk/cpp/worldmesh \
+#         -B navigator/headless-sdk/cpp/worldmesh/build
+#
+# navigator/build-tidy rather than the working navigator/build: grass/flora is
+# an off-by-default option, and with it off GpuGrass.cpp is in no database.
+DEFAULT_BUILDS=(
+  firmware/build             # ARM   firmware/src
+  firmware/build_hwtest      # ARM   firmware/tests/onboard
+  firmware/tests/host/build  # host  firmware/tests/host
+  navigator/build-tidy       # host  navigator, sim/host, sim/vsim, firmware/src
+  sim/host/build             # host  sim/host tests not in the Navigator build
+  navigator/headless-sdk/cpp/worldmesh/build   # host  the headless mesh tool
+)
+
+# Standalone tests and tools built by a single hand-written compiler line
+# recorded in their own header comment, so there is no database to read.
+# Pathspec, then the flags that line uses. Qt comes from pkg-config as
+# -isystem, matching how the Navigator build sees it -- as plain -I, clang-tidy
+# reports Qt's own headers and drowns the file.
+QT_ISYS="$(pkg-config --cflags Qt6Widgets Qt6Gui Qt6Core 2>/dev/null | sed 's/-I/-isystem/g' || true)"
+NODB=(
+  "sim/vsim/tests/trimesh_bvh_test.cpp     -std=c++17 -Isim/vsim/include"
+  "sim/vsim/tests/wind_model_test.cpp      -std=c++17 -Isim/vsim/include"
+  "sim/vsim/tests/world_collision_test.cpp -std=c++17 -Isim/vsim/include"
+  "vtest/vtest.c          -std=c11 -D_POSIX_C_SOURCE=200809L"
+  "navlink/tests/test_c.c -std=c11 -Inavlink/generated/c"
+)
+# Three of those tests reach into navigator/src and so need Qt. Without it they
+# would report "QMutex file not found" and nothing else, which is worse than
+# saying they were skipped.
+NAV_INC="-Inavigator/src -Inavigator/src/vsim -Inavigator/src/ui/widgets"
+if [ -n "$QT_ISYS" ]; then
+  NODB+=(
+    "sim/vsim/tests/massprops_test.cpp  -std=c++17 -Isim/vsim/include $NAV_INC $QT_ISYS"
+    "sim/vsim/tests/hud_render_test.cpp -std=c++17 -Isim/vsim/include $NAV_INC $QT_ISYS"
+    "sim/vsim/tests/rc_bridge_test.cpp  -std=c++17 -Isim/vsim/include $NAV_INC $QT_ISYS"
+  )
+else
+  echo "skip sim/vsim/tests/{massprops,hud_render,rc_bridge} -- no Qt6 pkg-config" >&2
+fi
+BUILDS=("$@")
+if [ ${#BUILDS[@]} -eq 0 ]; then BUILDS=("${DEFAULT_BUILDS[@]}"); fi
+
+GCC_INC="$(arm-none-eabi-gcc -print-file-name=include 2>/dev/null || true)"
+LIBC_INC="${GCC_INC:+$(dirname "$GCC_INC")/../../../arm-none-eabi/include}"
+ARM_ARGS=(
+  --extra-arg=--target=arm-none-eabi
+  --extra-arg=-isystem"$GCC_INC"
+  --extra-arg=-isystem"$LIBC_INC"
+  --extra-arg=-Wno-error
+  --extra-arg=-Wno-ignored-optimization-argument
+  --extra-arg=-Wno-newline-eof
+  --extra-arg=-Wno-macro-redefined
+)
+
+analysed="$(mktemp)"; trap 'rm -f "$analysed"' EXIT
+rc=0
+
+for build in "${BUILDS[@]}"; do
+  db="$build/compile_commands.json"
+  if [ ! -f "$db" ]; then
+    echo "skip $build -- no compile_commands.json" >&2
+    continue
+  fi
+  # Tracked, non-vendored, not a generated file inside a build tree.
+  files="$(jq -r '.[].file' "$db" | sed "s|^$ROOT/||" | sort -u \
+           | grep -v '^extern/' | grep -vE '(^|/)build[^/]*/' \
+           | git check-ignore -nv --stdin 2>/dev/null | sed -n 's/^::\t//p' || true)"
+  if [ -z "$files" ]; then continue; fi
+
+  args=()
+  if grep -q 'arm-none-eabi' "$db"; then args=("${ARM_ARGS[@]}"); fi
+  echo "== $build ($(wc -l <<<"$files") files, $([ ${#args[@]} -gt 0 ] && echo arm || echo host))" >&2
+  xargs -P"$(nproc)" -I{} clang-tidy -p "$build" --quiet "${args[@]}" {} <<<"$files" || rc=1
+  cat >>"$analysed" <<<"$files"
+done
+
+for entry in "${NODB[@]}"; do
+  spec="${entry%% *}"; flags="${entry#* }"
+  files="$(git ls-files "$spec")"
+  if [ -z "$files" ]; then continue; fi
+  echo "== $spec ($(wc -l <<<"$files") files, no database)" >&2
+  # shellcheck disable=SC2086 -- flags are a deliberate word list
+  xargs -P"$(nproc)" -I{} clang-tidy --quiet {} -- $flags <<<"$files" || rc=1
+  cat >>"$analysed" <<<"$files"
+done
+
+# Anything left is unanalysed: wire up its build, add it to NODB, or delete it
+# if nothing builds it any more. firmware/docs carries scratch sources attached
+# to log-analysis journals; those are archive, not tree.
+echo "== not analysed by anything above" >&2
+git ls-files '*.c' '*.cpp' | grep -vE '^(extern|firmware/docs)/' | sort -u \
+  | comm -13 <(sort -u "$analysed") - >&2
+
+exit $rc

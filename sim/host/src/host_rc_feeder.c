@@ -187,8 +187,6 @@ static void *rc_feeder_thread(void *arg) {
 
   int fd = -1;
   char line[128];
-  uint32_t pushed_real = 0, pushed_synth = 0;
-  uint32_t last_log_t = 0;
   int last_open_failed_log = -1;
 
   while (1) {
@@ -209,7 +207,6 @@ static void *rc_feeder_thread(void *arg) {
         fill_hover(&rc);
         rc_queue_control_push(&rc);
         rc_queue_telemetry_push(&rc);
-        pushed_synth++;
         host_wall_delay_ms(20); /* port-reopen retry: real time, not sim time */
         continue;
       }
@@ -241,7 +238,6 @@ static void *rc_feeder_thread(void *arg) {
       apply_arm_logic(&rc);
       rc_queue_control_push(&rc);
       rc_queue_telemetry_push(&rc);
-      pushed_real++;
     } else if (rv == 0) {
       /* NO_SIGNAL: hold last frame; mark failsafe so the firmware
        * downstream can react if it wants to. */
@@ -250,11 +246,6 @@ static void *rc_feeder_thread(void *arg) {
       rc_queue_telemetry_push(&rc);
       rc.is_failsafe = false;
     } /* rv < 0 -> banner / blank, ignore */
-
-    uint32_t now = v_get_ticks();
-    if (now - last_log_t >= 1000) {
-      last_log_t = now;
-    }
   }
   return NULL;
 }

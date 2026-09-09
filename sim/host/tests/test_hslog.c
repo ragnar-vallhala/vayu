@@ -176,10 +176,10 @@ int main(void) {
   /* Every ring slot: sentinel, sector-length frame, a known type, a seq. */
   static uint32_t seq[RING_SLOTS];
   static uint8_t tags[RING_SLOTS];
-  int bad = -1, n_sess = 0, n_ev = 0;
+  int bad = -1, n_ev = 0;
   int per_stream[4] = {0};
   for (uint32_t i = 0; i < RING_SLOTS; i++) {
-    const uint8_t *fr = &buf[HSL_SECTOR_BYTES * (1u + i)];
+    const uint8_t *fr = &buf[(size_t)HSL_SECTOR_BYTES * (1u + i)];
     if (fr[1] != HSL_RING_SENTINEL ||
         rd16(&fr[2]) != HSL_SECTOR_BYTES - HSL_FRAME_HDR_BYTES) {
       bad = (int)i;
@@ -190,7 +190,8 @@ int main(void) {
     tags[i] = p[1];
     switch (fr[0]) {
     case HSL_TYPE_SESSION:
-      n_sess++;
+      /* Not counted: this scan runs after a deliberate wrap, which overwrites
+       * an unknown number of SESSION frames. Only the type is checkable here. */
       break;
     case HSL_TYPE_EVENT:
       n_ev++;
@@ -253,7 +254,7 @@ int main(void) {
   }
   uint32_t resumed = 0xFFFFFFFFu;
   for (uint32_t i = 0; i < RING_SLOTS && n > 0; i++) {
-    const uint8_t *fr = &buf[HSL_SECTOR_BYTES * (1u + i)];
+    const uint8_t *fr = &buf[(size_t)HSL_SECTOR_BYTES * (1u + i)];
     uint32_t sq = rd32(&fr[HSL_FRAME_HDR_BYTES + 4]);
     if (sq > max_seq && sq < resumed) {
       resumed = sq;

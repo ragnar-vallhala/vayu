@@ -39,7 +39,7 @@ extern void host_pwm_get_latest(float out[4]);
 
 double env_f(const char *k, double dflt) {
   const char *v = getenv(k);
-  return v && *v ? atof(v) : dflt;
+  return v && *v ? strtod(v, NULL) : dflt;
 }
 
 /* If VAYU_RTOS_GEOMETRY points at a serialized vsim_ctl_geometry_t, drive BOTH

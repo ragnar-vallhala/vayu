@@ -31,11 +31,12 @@ int main(int argc, char **argv) {
     return 2;
   }
   const QString path = QString::fromLocal8Bit(argv[1]);
-  const float scale = std::atof(argv[2]);
-  const int upAxis = std::atoi(argv[3]);
-  const float ox = std::atof(argv[4]), oy = std::atof(argv[5]),
-              oz = std::atof(argv[6]);
-  const bool doubleSided = std::atoi(argv[7]) != 0;
+  const float scale = std::strtof(argv[2], nullptr);
+  const int upAxis = (int)std::strtol(argv[3], nullptr, 10);
+  const float ox = std::strtof(argv[4], nullptr),
+              oy = std::strtof(argv[5], nullptr),
+              oz = std::strtof(argv[6], nullptr);
+  const bool doubleSided = std::strtol(argv[7], nullptr, 10) != 0;
   const char *out = argv[8];
 
   // Identical to SimulatorWidget::loadWorldMeshToRenderer: translate (NED

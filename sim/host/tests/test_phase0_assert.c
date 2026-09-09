@@ -87,7 +87,7 @@ static void test_assert_requests_failsafe(void) {
       reached = true;
       break;
     }
-    struct timespec ts = {0, 5 * 1000 * 1000}; /* 5 ms */
+    struct timespec ts = {0, 5L * 1000 * 1000}; /* 5 ms */
     nanosleep(&ts, NULL);
   }
   pthread_detach(th); /* leave it spinning; reaped at process exit */
