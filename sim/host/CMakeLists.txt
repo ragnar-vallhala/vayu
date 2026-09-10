@@ -326,6 +326,14 @@ add_test(NAME hslog_decode
                  --selftest-file /tmp/vayu_hslog_test/0_imuhs.bin)
 set_tests_properties(hslog_decode PROPERTIES DEPENDS hslog)
 
+add_executable(test_rc_buffer tests/test_rc_buffer.c)
+target_link_libraries(test_rc_buffer PRIVATE vayu_sitl_core m)
+add_test(NAME rc_buffer COMMAND test_rc_buffer)
+
+add_executable(test_imu_buffer tests/test_imu_buffer.c)
+target_link_libraries(test_imu_buffer PRIVATE vayu_sitl_core m)
+add_test(NAME imu_buffer COMMAND test_imu_buffer)
+
 add_executable(test_fs_owner tests/test_fs_owner.c)
 target_link_libraries(test_fs_owner PRIVATE vayu_sitl_core m)
 add_test(NAME fs_owner COMMAND test_fs_owner)

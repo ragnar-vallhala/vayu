@@ -49,9 +49,10 @@ FLOORS = {
         "est": 77.0,        # ekf / fusion / vertical — protected high-water
         "logger": 90.0,     # tiny (11 lines); band tolerates one new line
         "storage": 69.0,    # fs owner / xfer state machine
-        "comm": 55.0,
+        "comm": 56.0,     # + rc_buffer unit test (the SPSC rings were 0%)
         "sys": 50.0,        # + float32_to_float16 unit test (math_utils)
-        "sensor": 14.0,     # driver code — bulk needs tier-2 (on-target gcov)
+        "sensor": 23.0,     # driver code — bulk needs tier-2 (on-target gcov);
+                            # imu_buffer's rings ARE host-testable and now are
         "maths": 92.0,      # maths_interface + fft + biquad unit tests (firmware/tests/host)
         "dsp": 92.0,        # notch front-end + bank unit-tested; gyro_notch.c glue
                             # is SITL-driven (test_phase3_comm), bar its v_malloc-

@@ -112,6 +112,12 @@ void m_complementary_filter(const float ax, const float ay, const float az,
                             const float mx, const float my, const float mz,
                             float dt, attitude_t *ori);
 
+/* `ori` carries the filter's STATE, not just its output: `ori->q` is read at
+ * entry and integrated in place, so the caller owns it across calls and must
+ * seed it with the identity quaternion (`ori->q.w = 1.0f`) exactly once before
+ * the first call -- see attitude_task.c:72. A zeroed attitude_t is NOT a valid
+ * start: the filter normalises q, and normalising (0,0,0,0) is 0/0, so the
+ * estimate goes NaN on the very first step and never recovers. */
 void m_mahony_filter(const float ax, const float ay, const float az,
                      const float gx, const float gy, const float gz,
                      const float mx, const float my, const float mz, float dt,
