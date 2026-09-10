@@ -50,14 +50,19 @@ static inline float vayu_dt_from_cycles(uint32_t now_cyc, uint32_t prev_cyc) {
 // IMU Sensor
 #define BMX160_I2C_ADDR 0x68
 
-// ODR Configurations (using bmx160_odr_t enums)
+// ODR Configurations (using bmx160_odr_t enums). Written to the chip by
+// bmx160_init;
+// 1600 Hz is the accelerometer's maximum in normal power mode and sits under
+// the IMU_SAMPLE_FREQ_HZ poll rate, so the poll never aliases the sensor.
 #define BMX_ACC_ODR BMX160_ODR_1600HZ
-#define BMX_ACC_BWP BMX_BWP_OSR4
-#define BMX_ACC_RANGE BMX160_ACC_8G
+#define BMX_ACC_BWP BMX_BWP_NORMAL // datasheet-recommended, ~0.4*ODR corner
+#define BMX_ACC_US 0 // undersampling is a low-power-mode feature
+#define BMX_ACC_RANGE BMX160_ACC_16G
 
 #define BMX_GYR_ODR BMX160_ODR_1600HZ
-#define BMX_GYR_BWP BMX_BWP_OSR4
-#define BMX_GYR_RANGE BMX160_GYR_1000
+#define BMX_GYR_BWP BMX_BWP_NORMAL
+// 2000 dps
+#define BMX_GYR_RANGE BMX160_GYR_2000
 
 #define BMX_MAG_ODR BMX160_ODR_50HZ
 
