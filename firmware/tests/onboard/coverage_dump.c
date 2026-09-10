@@ -5,7 +5,7 @@
 
 #include "memory.h"           /* v_malloc */
 #include "storage/fs_owner.h" /* fs_owner write-at + vayu_log */
-#include "vaios.h" /* v_delay */
+#include "vaios.h"            /* v_delay */
 
 #include <stdint.h>
 #include <string.h>

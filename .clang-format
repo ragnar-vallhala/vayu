@@ -19,18 +19,11 @@
 #
 # Re-derive with the sweep in the shell history if the codebase style shifts.
 #
-# TREE-WIDE PASS -- use this command, not a bare `git ls-files | xargs`:
-#
-#   git ls-files ':!:extern/' ':!:firmware/docs/' \
-#     | grep -E '\.(c|h|cpp|hpp|cc)$' | xargs clang-format -i
-#
-# firmware/docs/ must be excluded: the journal archives hold source snapshots
-# that are EVIDENCE of what a file looked like when it was analysed, and
-# reformatting them rewrites the record. extern/vaios is a submodule and is not
-# in this index anyway. A .clang-format-ignore would be the tidy way to express
-# this, but the clang-format on this machine (a pip wheel reporting 22.1.1)
-# silently ignores that file -- verified, including placing it in the target's
-# own directory -- so the exclusion lives here instead.
+# TREE-WIDE PASS -- tools/dev/run_clang_format.sh (--check to verify only).
+# The exclusions moved into that script so CI and a developer cannot drift
+# apart on scope; its header carries the reasons (firmware/docs holds source
+# snapshots that are evidence, .clang-format-ignore is silently ignored by the
+# pip wheel). CI runs `--check` as a gate, pinned to clang-format-18.
 
 BasedOnStyle: LLVM
 ColumnLimit: 80

@@ -301,7 +301,8 @@ hal_status_t bmx160_init(void) {
    * the ODR/range work. */
   float g_range = bmx160_range_code_to_g((uint8_t)bmx160_cfg.bmx160_acc_range);
   acc_scale = g_range * 9.80665f / 32768.0f;
-  float dps_range = bmx160_range_code_to_dps((uint8_t)bmx160_cfg.bmx160_gyr_range);
+  float dps_range =
+      bmx160_range_code_to_dps((uint8_t)bmx160_cfg.bmx160_gyr_range);
   gyr_scale = dps_range / 32768.0f;
   imu_hs_log_set_scale(gyr_scale, acc_scale);
 

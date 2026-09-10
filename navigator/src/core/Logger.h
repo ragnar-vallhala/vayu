@@ -24,9 +24,9 @@
 namespace Logger {
 
 struct Config {
-  QString logDir;                    // "" → AppDataLocation/logs
+  QString logDir;                      // "" → AppDataLocation/logs
   qint64 maxBytes = 5LL * 1024 * 1024; // rotate at ~5 MB
-  int maxFiles = 10;                 // keep last 10 files
+  int maxFiles = 10;                   // keep last 10 files
   bool enabled = true;
 };
 

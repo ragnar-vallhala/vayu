@@ -11,6 +11,7 @@
 #       - sitl-tests    : host unit tests (R12.1)
 #       - sanitizers    : ASan + UBSan unit tests (R12.2)
 #       - coverage      : gcov/gcovr summary on CTRL/EST/COMM (R12.4)
+#       - clang-format  : .clang-format, whole tree, GATING
 #       - clang-tidy    : .clang-tidy ruleset over the firmware + sim databases,
 #                         GATING (CONV-04 / R12.3)
 #       - navigator     : Qt6 GCS build + its 41 ctest cases, and the clang-tidy
@@ -165,6 +166,20 @@ jobs:
           cmake -S sim/host -B build_cov -DVAYU_COVERAGE=ON
           cmake --build build_cov -j
           cmake --build build_cov --target coverage-gate
+
+  clang-format:
+    name: clang-format (gate)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: sudo apt-get update && sudo apt-get install -y clang-format-18
+      - name: tools/dev/run_clang_format.sh --check
+        # Pinned for the same reason clang-tidy is. The tree is clean under
+        # both 18.1.3 and the 22.1.1 pip wheel (measured over all 453 files),
+        # so a developer on either does not fight this gate.
+        env:
+          CLANG_FORMAT: clang-format-18
+        run: tools/dev/run_clang_format.sh --check
 
   clang-tidy:
     name: clang-tidy (.clang-tidy, gate)
