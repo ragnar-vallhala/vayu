@@ -131,7 +131,7 @@ jobs:
       - uses: actions/checkout@v5
         with:
           submodules: recursive
-      - run: sudo apt-get update && sudo apt-get install -y cmake
+      - run: sudo apt-get update && sudo apt-get install -y cmake python3-numpy
       - run: |
           cmake -S sim/host -B build_sitl
           cmake --build build_sitl -j
@@ -144,7 +144,7 @@ jobs:
       - uses: actions/checkout@v5
         with:
           submodules: recursive
-      - run: sudo apt-get update && sudo apt-get install -y cmake
+      - run: sudo apt-get update && sudo apt-get install -y cmake python3-numpy
       - run: |
           cmake -S sim/host -B build_san -DVAYU_SANITIZE=ON
           cmake --build build_san -j
@@ -157,7 +157,7 @@ jobs:
       - uses: actions/checkout@v5
         with:
           submodules: recursive
-      - run: sudo apt-get update && sudo apt-get install -y cmake gcovr python3
+      - run: sudo apt-get update && sudo apt-get install -y cmake gcovr python3 python3-numpy
       - name: Build + coverage ratchet gate
         # Enforcing: tools/coverage_gate.py fails the build if any component's
         # line coverage drops below its committed floor (set at the 2026-06-28
@@ -193,6 +193,10 @@ jobs:
           # Pinned: .clang-tidy is a gate, so a toolchain bump must not land as
           # a red build on an unrelated PR. Match this when bumping locally.
           sudo apt-get install -y cmake clang-tidy-18 gcc-arm-none-eabi jq
+      # The firmware configure runs NavHAL's Kconfig generation; without this
+      # it dies at "No module named 'kconfiglib'" before clang-tidy sees a
+      # single file. The old job hid that behind continue-on-error.
+      - run: pip install kconfiglib
       - name: clang-tidy
         env:
           CLANG_TIDY: clang-tidy-18
@@ -227,7 +231,7 @@ jobs:
           # developer machine does, rather than a variant nobody runs.
           sudo apt-get install -y cmake clang-tidy-18 jq \
             qt6-base-dev qt6-base-dev-tools qt6-serialport-dev \
-            libgl1-mesa-dev libassimp-dev libpulse-dev
+            libgl1-mesa-dev libassimp-dev libpulse-dev python3-numpy
       - name: Configure + build
         # Grass/flora is off by default, which leaves GpuGrass.cpp in no
         # database at all; on here so the analysis below sees it.
