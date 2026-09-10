@@ -83,6 +83,16 @@ NODB=(
   "vtest/vtest.c          -std=c11 -D_POSIX_C_SOURCE=200809L"
   "navlink/tests/test_c.c -std=c11 -Inavlink/generated/c"
 )
+# navlink's C codec is generated from the tracked dialect.json and is NOT in
+# the index, so a fresh checkout has no navlink_msgs.h and test_c.c cannot be
+# parsed. Generate it the same way navlink/tests/run_tests.py step 1 does --
+# idempotent, and it is the only reason CI saw a finding a developer with a
+# warm tree never would.
+if [ ! -f navlink/generated/c/navlink_msgs.h ]; then
+  echo "generating navlink C codec (absent, and not tracked)" >&2
+  python3 navlink/generate.py --lang c >/dev/null
+fi
+
 # Three of those tests reach into navigator/src and so need Qt. Without it they
 # would report "QMutex file not found" and nothing else, which is worse than
 # saying they were skipped.
