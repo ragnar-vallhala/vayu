@@ -10,6 +10,9 @@
 #   - trace-gate    : tools/dev/trace.py --check, unknown-ID fails (R12.5)
 #   - docs-links    : tools/dev/docs_html.py --check, dangling doc link fails
 #   - commit-msgs   : no AI attribution trailers in new commit messages
+#   - clang-format  : .clang-format over the whole tree, GATING -- it is here
+#                     rather than in ci.yml because it formats the GCS sources
+#                     too, so a navigator-only change must not skip it
 
 name: gates
 
@@ -84,3 +87,17 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y pandoc
       - name: docs_html.py --check (a dangling doc-to-doc link fails)
         run: python3 tools/dev/docs_html.py --check
+
+  clang-format:
+    name: clang-format (gate)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: sudo apt-get update && sudo apt-get install -y clang-format-18
+      - name: tools/dev/run_clang_format.sh --check
+        # Pinned for the same reason clang-tidy is. The tree is clean under
+        # both 18.1.3 and the 22.1.1 pip wheel (measured over all 453 files),
+        # so a developer on either does not fight this gate.
+        env:
+          CLANG_FORMAT: clang-format-18
+        run: tools/dev/run_clang_format.sh --check
