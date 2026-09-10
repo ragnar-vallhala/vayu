@@ -1,22 +1,22 @@
-# Vayu firmware CI (R12.1). Runs on every push / PR.
+# Vayu firmware + SITL CI (R12.1).
+#
+# Skipped when a change touches only markdown or only navigator/: nothing here
+# compiles a line of the GCS. The reverse is NOT true -- navigator.yml builds
+# the firmware, because the in-app SITL links it -- so that workflow runs on a
+# firmware change and this one does not run on a GCS change. Whole-tree gates
+# that both sides share (clang-format, docs, trace, commit messages) are in
+# gates.yml, unfiltered.
 #
 # Jobs:
-#   * Always-on gates on the committed tree:
+#   * Gates on the committed tree:
 #       - build-target  : arm-none-eabi build, all modules under -Werror (R1.2)
-#       - trace-gate    : tools/dev/trace.py --check, unknown-ID fails (R12.5)
-#       - docs-links    : tools/dev/docs_html.py --check, dangling doc link fails
-#       - commit-msgs   : no AI attribution trailers in new commit messages
 #       - cppcheck      : static analysis (report-only baseline, R12.3)
 #   * SITL host-harness jobs (sim/host/tests/ is committed):
 #       - sitl-tests    : host unit tests (R12.1)
 #       - sanitizers    : ASan + UBSan unit tests (R12.2)
 #       - coverage      : gcov/gcovr summary on CTRL/EST/COMM (R12.4)
-#       - clang-format  : .clang-format, whole tree, GATING
 #       - clang-tidy    : .clang-tidy ruleset over the firmware + sim databases,
 #                         GATING (CONV-04 / R12.3)
-#       - navigator     : Qt6 GCS build + its 41 ctest cases, and the clang-tidy
-#                         gate over the same database (the two jobs together
-#                         cover every non-vendored source)
 #
 # Deferred (heavy, tracked separately): Renode ISR/timing (R12.6),
 # state-machine SITL transition coverage (R12.7).
@@ -26,7 +26,21 @@ name: ci
 on:
   push:
     branches: [main]
+    # A change that touches nothing but prose cannot break a build, a test or a
+    # lint, and this workflow costs about twenty runner-minutes to say so. The
+    # gates a docs change *can* break are in gates.yml, which carries no filter.
+    # Spelled out twice because Actions does not resolve YAML anchors.
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '**/docs/**'
+      - 'navigator/**'
   pull_request:
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '**/docs/**'
+      - 'navigator/**'
 
 jobs:
   build-target:
@@ -50,72 +64,6 @@ jobs:
         run: |
           cmake -S firmware -B build
           cmake --build build -j
-
-  trace-gate:
-    name: trace gate (--check)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
-        with:
-          python-version: '3.x'
-      - name: trace.py --check (unknown ID fails; R12.5)
-        run: python3 tools/dev/trace.py --check
-
-  commit-msgs:
-    name: commit message gate
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0          # need history to diff against the base
-      - name: No AI attribution trailers
-        env:
-          EVENT: ${{ github.event_name }}
-          PR_BASE: ${{ github.event.pull_request.base.sha }}
-          PUSH_BEFORE: ${{ github.event.before }}
-        run: |
-          set -eu
-          ZERO=0000000000000000000000000000000000000000
-          if [ "$EVENT" = pull_request ]; then
-            BASE="$PR_BASE"
-          else
-            BASE="$PUSH_BEFORE"
-          fi
-          # A new branch or a force push reports an unusable base; fall back to
-          # the tip rather than silently checking nothing.
-          if [ -n "$BASE" ] && [ "$BASE" != "$ZERO" ] && git cat-file -e "$BASE^{commit}" 2>/dev/null; then
-            COMMITS=$(git rev-list "$BASE..HEAD")
-          else
-            COMMITS=$(git rev-list -1 HEAD)
-          fi
-          # Anchored on the trailer syntax, so prose that merely mentions Claude
-          # and a genuine human Co-Authored-By both pass.
-          PAT='co-authored-by:.*(claude|anthropic)|generated with .*claude'
-          RC=0
-          for C in $COMMITS; do
-            if git log -1 --format=%B "$C" | grep -Eqi "$PAT"; then
-              echo "::error::$(git log -1 --format='%h %s' "$C") carries an AI attribution trailer"
-              RC=1
-            fi
-          done
-          [ "$RC" = 0 ] && echo "checked $(echo "$COMMITS" | wc -w) commit(s): no AI attribution trailers"
-          exit $RC
-
-  docs-links:
-    name: docs link gate (--check)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
-        with:
-          python-version: '3.x'
-      # pandoc is the only dependency: mermaid and KaTeX are fetched by the
-      # browser at view time and are not needed to build or check the site.
-      - name: Install pandoc
-        run: sudo apt-get update && sudo apt-get install -y pandoc
-      - name: docs_html.py --check (a dangling doc-to-doc link fails)
-        run: python3 tools/dev/docs_html.py --check
 
   cppcheck:
     name: cppcheck (baseline)
@@ -173,20 +121,6 @@ jobs:
           cmake --build build_cov -j
           cmake --build build_cov --target coverage-gate
 
-  clang-format:
-    name: clang-format (gate)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - run: sudo apt-get update && sudo apt-get install -y clang-format-18
-      - name: tools/dev/run_clang_format.sh --check
-        # Pinned for the same reason clang-tidy is. The tree is clean under
-        # both 18.1.3 and the 22.1.1 pip wheel (measured over all 453 files),
-        # so a developer on either does not fight this gate.
-        env:
-          CLANG_FORMAT: clang-format-18
-        run: tools/dev/run_clang_format.sh --check
-
   clang-tidy:
     name: clang-tidy (.clang-tidy, gate)
     runs-on: ubuntu-latest
@@ -221,50 +155,3 @@ jobs:
           tools/dev/run_clang_tidy.sh \
             firmware/build firmware/build_hwtest \
             firmware/tests/host/build sim/host/build
-
-  navigator:
-    name: navigator (Qt6 build + tests + clang-tidy)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          submodules: recursive
-      - name: Install Qt6 + assimp
-        run: |
-          sudo apt-get update
-          # libpulse-dev is optional to the build (find_library, degrades
-          # gracefully) but is installed so CI compiles the same audio path a
-          # developer machine does, rather than a variant nobody runs.
-          sudo apt-get install -y cmake clang-tidy-18 jq \
-            qt6-base-dev qt6-base-dev-tools qt6-serialport-dev \
-            libgl1-mesa-dev libassimp-dev libpulse-dev python3-numpy
-      - name: Configure + build
-        # Grass/flora is off by default, which leaves GpuGrass.cpp in no
-        # database at all; on here so the analysis below sees it.
-        run: |
-          cmake -S navigator -B navigator/build-tidy \
-                -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DNAVIGATOR_SIM_GRASS=ON
-          cmake --build navigator/build-tidy -j"$(nproc)"
-          # The headless mesh tool is the one source neither job's main
-          # database reaches; it needs the same Qt6 + assimp already installed
-          # here, and a configure is enough.
-          cmake -S navigator/headless-sdk/cpp/worldmesh \
-                -B navigator/headless-sdk/cpp/worldmesh/build \
-                -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
-      - name: ctest
-        # 41 cases: 20 QtTest + the 21 SITL cases this tree registers. Several
-        # construct widgets, so they need a platform plugin; offscreen is what
-        # the headless render test already documents.
-        env:
-          QT_QPA_PLATFORM: offscreen
-        run: ctest --test-dir navigator/build-tidy --output-on-failure
-      - name: clang-tidy (Navigator, sim, and the firmware sources it compiles)
-        # Same gate as the clang-tidy job, over the database only this job can
-        # produce: AUTOMOC generates the tst_*.moc the tests include, so it
-        # needs a real build, not just a configure. Its closing "not analysed"
-        # list is this invocation's -- the clang-tidy job covers the rest.
-        env:
-          CLANG_TIDY: clang-tidy-18
-        run: |
-          tools/dev/run_clang_tidy.sh \
-            navigator/build-tidy navigator/headless-sdk/cpp/worldmesh/build
