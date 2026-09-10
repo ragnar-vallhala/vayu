@@ -111,8 +111,22 @@ ARM_ARGS=(
   --extra-arg=-Wno-macro-redefined
 )
 
-analysed="$(mktemp)"; trap 'rm -f "$analysed"' EXIT
+analysed="$(mktemp)"; errbuf="$(mktemp)"
+trap 'rm -f "$analysed" "$errbuf"' EXIT
 rc=0
+
+# clang-tidy raises diagnostics inside system and Qt headers, then drops them
+# because they are not in HeaderFilterRegex -- but it still prints the count it
+# raised, "291 warnings generated.", once per file. --quiet hides the companion
+# "Suppressed N warnings" note and not that line, so a clean run reads as
+# hundreds of warnings. Nothing there is actionable: a real finding prints as
+# "path:line:col: error:" on stdout. Drop the counts, keep everything else.
+run_tidy() { # args...: passed straight to xargs
+  xargs "$@" 2>"$errbuf" || return 1
+} 
+report_err() {
+  grep -vE '^[0-9]+ (warning|error)s? generated\.$' "$errbuf" >&2 || true
+}
 
 for build in "${BUILDS[@]}"; do
   db="$build/compile_commands.json"
@@ -129,7 +143,8 @@ for build in "${BUILDS[@]}"; do
   args=()
   if grep -q 'arm-none-eabi' "$db"; then args=("${ARM_ARGS[@]}"); fi
   echo "== $build ($(wc -l <<<"$files") files, $([ ${#args[@]} -gt 0 ] && echo arm || echo host))" >&2
-  xargs -P"$(nproc)" -I{} "$TIDY" -p "$build" --quiet "${args[@]}" {} <<<"$files" || rc=1
+  run_tidy -P"$(nproc)" -I{} "$TIDY" -p "$build" --quiet "${args[@]}" {} <<<"$files" || rc=1
+  report_err
   cat >>"$analysed" <<<"$files"
 done
 
@@ -139,7 +154,8 @@ for entry in "${NODB[@]}"; do
   if [ -z "$files" ]; then continue; fi
   echo "== $spec ($(wc -l <<<"$files") files, no database)" >&2
   # shellcheck disable=SC2086 -- flags are a deliberate word list
-  xargs -P"$(nproc)" -I{} "$TIDY" --quiet {} -- $flags <<<"$files" || rc=1
+  run_tidy -P"$(nproc)" -I{} "$TIDY" --quiet {} -- $flags <<<"$files" || rc=1
+  report_err
   cat >>"$analysed" <<<"$files"
 done
 
