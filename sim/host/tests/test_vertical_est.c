@@ -457,6 +457,129 @@ static void test_tof_aiding(void) {
   }
 }
 
+/* The guard branches. Each of these is a path the filter takes only when
+ * something upstream has already gone wrong -- a stalled clock, a rangefinder
+ * dropout, a terrain step -- which is precisely when a silent mistake in it
+ * would be hardest to see in flight. */
+static void test_guards(void) {
+  printf("\n-- guards: degenerate dt, dropouts, terrain steps\n");
+
+  {
+    /* A stalled or backwards clock must not integrate. dt <= 0 makes the
+     * semi-implicit step meaningless (and dt*dt would still add altitude). */
+    vertical_estimator_t ve;
+    vert_est_init_default(&ve);
+    vert_est_correct(&ve, 10.0f); /* seed */
+    const float alt = ve.altitude, vel = ve.climb_rate;
+    vert_est_predict(&ve, 5.0f, 0.0f);
+    vert_est_predict(&ve, 5.0f, -0.01f);
+    check(ve.altitude == alt && ve.climb_rate == vel,
+          "VERT-G1 dt <= 0 leaves the state untouched");
+  }
+
+  {
+    /* Before the first baro fix the origin is unknown, so predict must not
+     * free-run -- otherwise the filter invents an altitude out of accel alone. */
+    vertical_estimator_t ve;
+    vert_est_init_default(&ve);
+    vert_est_predict(&ve, 5.0f, 0.01f);
+    check(ve.altitude == 0.0f && ve.climb_rate == 0.0f,
+          "VERT-G2 predict before the first fix does not free-run");
+  }
+
+  {
+    /* The bias clamp has to hold on BOTH signs; only the positive side was
+     * exercised before. A negative runaway is the accel reading low, which is
+     * the phantom-descent case that caused the double-thrust hover. */
+    vertical_estimator_t ve;
+    vert_est_init_default(&ve);
+    vert_est_correct(&ve, 0.0f);
+    for (int i = 0; i < 20000; i++) {
+      vert_est_predict(&ve, 20.0f, 0.005f); /* huge, sustained accel error */
+      vert_est_correct(&ve, 0.0f);          /* truth says we are not moving */
+    }
+    check(ve.accel_bias <= VERT_ACCEL_BIAS_MAX + 1e-3f &&
+              ve.accel_bias >= -VERT_ACCEL_BIAS_MAX - 1e-3f,
+          "VERT-G3 bias stays inside +/-VERT_ACCEL_BIAS_MAX, positive drive");
+
+    vertical_estimator_t vn;
+    vert_est_init_default(&vn);
+    vert_est_correct(&vn, 0.0f);
+    for (int i = 0; i < 20000; i++) {
+      vert_est_predict(&vn, -20.0f, 0.005f);
+      vert_est_correct(&vn, 0.0f);
+    }
+    check(vn.accel_bias >= -VERT_ACCEL_BIAS_MAX - 1e-3f &&
+              vn.accel_bias <= VERT_ACCEL_BIAS_MAX + 1e-3f,
+          "VERT-G4 bias stays inside the clamp, negative drive");
+  }
+
+  {
+    /* ToF: the first sample after a gap has no usable predecessor. It must be
+     * kept as the base for the NEXT difference and skipped as a velocity --
+     * differencing across a hole is how a dropout becomes a phantom climb. */
+    vertical_estimator_t ve;
+    vert_est_init_default(&ve);
+    vert_est_correct(&ve, 0.0f);
+    const float bias0 = ve.accel_bias;
+    vert_est_correct_tof(&ve, 1.00f, 0.05f); /* first ever: no history */
+    check(ve.accel_bias == bias0, "VERT-G5 the first ToF sample moves no bias");
+
+    /* A gap longer than VERT_TOF_MAX_GAP_S must be treated the same way. */
+    vert_est_correct_tof(&ve, 1.02f, 0.05f); /* now there is history */
+    const float bias1 = ve.accel_bias;
+    vert_est_correct_tof(&ve, 1.30f, VERT_TOF_MAX_GAP_S + 0.05f);
+    check(ve.accel_bias == bias1,
+          "VERT-G6 a sample after a long gap moves no bias");
+
+    /* And an explicit gap notification drops the history the same way. */
+    vert_est_correct_tof(&ve, 1.31f, 0.05f);
+    const float bias2 = ve.accel_bias;
+    vert_est_tof_gap(&ve);
+    vert_est_correct_tof(&ve, 1.33f, 0.05f);
+    check(ve.accel_bias == bias2,
+          "VERT-G7 vert_est_tof_gap() forces the next sample to re-base");
+  }
+
+  {
+    /* A terrain step is not a climb. Crossing a kerb inside the ToF band
+     * produces an impossible one-sample velocity; it must be rejected AND the
+     * history dropped, or the sample after it differences back the other way. */
+    vertical_estimator_t ve;
+    vert_est_init_default(&ve);
+    vert_est_correct(&ve, 0.0f);
+    vert_est_correct_tof(&ve, 1.00f, 0.05f);
+    vert_est_correct_tof(&ve, 1.01f, 0.05f);
+    const float bias = ve.accel_bias;
+    /* 0.5 m in 50 ms = 10 m/s, well past VERT_TOF_VEL_GATE. */
+    vert_est_correct_tof(&ve, 1.51f, 0.05f);
+    check(ve.accel_bias == bias, "VERT-G8 an over-gate ToF step is rejected");
+    vert_est_correct_tof(&ve, 1.52f, 0.05f);
+    check(ve.accel_bias == bias,
+          "VERT-G9 and the sample after it re-bases instead of stepping back");
+  }
+
+  {
+    /* The ToF path has its own clamp, and it is the more aggressive of the two
+     * bias inputs (VERT_K_TOF_BIAS 0.10 at ~21 Hz vs the baro's 0.03 at ~16).
+     * A sustained sub-gate descent must still not drive it out of range. */
+    vertical_estimator_t ve;
+    vert_est_init_default(&ve);
+    vert_est_correct(&ve, 0.0f);
+    float agl = 1.4f;
+    vert_est_correct_tof(&ve, agl, 0.05f);
+    for (int i = 0; i < 4000; i++) {
+      agl -= 0.05f; /* 1 m/s downslope, under the 3 m/s gate */
+      if (agl < 0.05f)
+        agl = 1.4f, vert_est_tof_gap(&ve);
+      vert_est_correct_tof(&ve, agl, 0.05f);
+    }
+    check(ve.accel_bias >= -VERT_ACCEL_BIAS_MAX - 1e-3f &&
+              ve.accel_bias <= VERT_ACCEL_BIAS_MAX + 1e-3f,
+          "VERT-G10 the ToF bias path is clamped too");
+  }
+}
+
 int main(void) {
   printf("== VERT vertical-estimator verification ==\n");
   test_gravity_removal();
@@ -467,6 +590,7 @@ int main(void) {
   test_reset();
   test_accel_unhealthy();
   test_tof_aiding();
+  test_guards();
   printf("\n%d checks, %d failures\n", g_checks, g_fails);
   return g_fails == 0 ? 0 : 1;
 }
