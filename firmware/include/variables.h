@@ -55,10 +55,17 @@ static inline float vayu_dt_from_cycles(uint32_t now_cyc, uint32_t prev_cyc) {
 // 1600 Hz is the accelerometer's maximum in normal power mode and sits under
 // the IMU_SAMPLE_FREQ_HZ poll rate, so the poll never aliases the sensor.
 #define BMX_ACC_ODR BMX160_ODR_1600HZ
-#define BMX_ACC_BWP BMX_BWP_NORMAL // datasheet-recommended, ~0.4*ODR corner
+// Normal is REQUIRED, not preferred: the datasheet's 2.2.1.1 says acc_bwp must
+// be 0b010 whenever acc_us is 0, and an illegal pair raises ERR_REG. 3 dB
+// cutoff at 1600 Hz is 684 Hz, and 353 Hz on Z (datasheet table 13).
+#define BMX_ACC_BWP BMX_BWP_NORMAL
 #define BMX_ACC_US 0 // undersampling is a low-power-mode feature
 #define BMX_ACC_RANGE BMX160_ACC_16G
 
+// The gyro alone can reach 3200 Hz (the accelerometer's ceiling is 1600), which
+// would move its 3 dB cutoff from 523.9 Hz to 890 Hz and cost less filter delay
+// in the rate loop. Not taken: 890 Hz leaves almost no margin under the
+// measured ~1827 Hz poll, whose Nyquist is 913 Hz (datasheet table 15).
 #define BMX_GYR_ODR BMX160_ODR_1600HZ
 #define BMX_GYR_BWP BMX_BWP_NORMAL
 // 2000 dps
