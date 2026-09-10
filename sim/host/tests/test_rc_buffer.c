@@ -12,6 +12,16 @@
 #include "comm/rc_buffer.h"
 #include "comm/perf_telemetry.h"
 
+/* Usable depth is NOT fixed. spsc_init aligns the buffer to a multiple of
+ * elem_size and spends a slot doing it ONLY when the static array's address is
+ * not already aligned (extern/vaios/kernel/structure.c:26-44) -- and none of
+ * these element types is a power of two in size, so which case you get depends
+ * on where the linker happened to put the array. Locally these rings hold
+ * SIZE-1; on the CI runner rc_buffer's held SIZE. Both are correct and the
+ * difference is harmless for an OVERWRITE mailbox, but the depth cannot be
+ * asserted exactly -- so assert the band, and assert the property that
+ * actually matters (below) exactly. */
+
 static int g_checks = 0, g_fails = 0;
 #define CHECK(cond, msg)                                                       \
   do {                                                                         \
@@ -63,7 +73,8 @@ int main(void) {
     }
     for (uint16_t i = 0; i < RC_BUFFER_SIZE - 1; i++) {
       CHECK(rc_queue_control_pop(&out), "pop returned a frame");
-      CHECK(out.channels[0] == (uint16_t)(100 + i), "frames come back in order");
+      CHECK(out.channels[0] == (uint16_t)(100 + i),
+            "frames come back in order");
     }
     CHECK(!rc_queue_control_pop(&out), "queue drained");
   }
@@ -86,7 +97,8 @@ int main(void) {
       last = out.channels[0];
       count++;
     }
-    CHECK(count == RC_BUFFER_SIZE - 1, "ring holds SIZE-1 usable slots");
+    CHECK(count >= RC_BUFFER_SIZE - 1 && count <= RC_BUFFER_SIZE,
+          "ring depth is SIZE-1 or SIZE, per spsc_init's alignment");
     CHECK(last == (uint16_t)(500 + n - 1), "the newest frame survived");
   }
 
@@ -100,8 +112,10 @@ int main(void) {
     uint16_t count = 0;
     while (rc_queue_telemetry_pop(&out))
       count++;
-    CHECK(count == RC_TELEMETRY_BUFFER_SIZE - 1,
-          "telemetry holds SIZE-1 usable slots");
+    CHECK(count >= RC_TELEMETRY_BUFFER_SIZE - 1 &&
+              count <= RC_TELEMETRY_BUFFER_SIZE,
+          "telemetry depth is SIZE-1 or SIZE, and shallower than control");
+    CHECK(count < RC_BUFFER_SIZE, "telemetry is the shallower of the two");
     CHECK(!rc_queue_control_pop(&out), "control was not disturbed");
   }
 
