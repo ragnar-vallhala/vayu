@@ -15,13 +15,13 @@
  */
 #include "vayu_tasks.h"
 
-#include "comm/channel.h"            /* channel_tx_overflow_count */
-#include "comm/xfer/fs_query.h"        /* filesystem navigation */
+#include "comm/channel.h"       /* channel_tx_overflow_count */
+#include "comm/xfer/fs_query.h" /* filesystem navigation */
 #include "comm/xfer/navlink_xfer.h"
 #include "comm/xfer/navlink_xfer_tx.h" /* g_xfer_tx_ops, g_fs_query_tx_ops */
 #include "comm/xfer/xfer_providers.h"  /* xfer_providers_register_all */
 #include "storage/fs_owner.h"          /* fs_owner_suppress_logs */
-#include "utils.h"                   /* v_get_ticks, v_delay */
+#include "utils.h"                     /* v_get_ticks, v_delay */
 #include "vaios.h"
 
 /* Per-tick emission cap shared round-robin across sessions. Keeps a single big

@@ -28,7 +28,7 @@
 #include "sensor/sensor.h"
 
 static int g_checks = 0;
-static int g_fails  = 0;
+static int g_fails = 0;
 
 #define CHECK(cond, msg)                                                       \
   do {                                                                         \
@@ -91,18 +91,18 @@ static void test_estimator_integral(void) {
   memset(&ori, 0, sizeof ori);
   ori.q.w = 1.0f;
   for (int i = 0; i < 20000; i++) {
-    m_mahony_filter(0.5f, 0.0f, 9.81f,   /* tilted accel -> steady error */
-                    0.0f, 0.0f, 0.0f,    /* gyro reports no rotation     */
-                    0.0f, 0.0f, 0.0f,    /* mag invalid -> mag step skipped */
-                    1e-3f,               /* fixed dt for the stability soak */
+    m_mahony_filter(0.5f, 0.0f, 9.81f, /* tilted accel -> steady error */
+                    0.0f, 0.0f, 0.0f,  /* gyro reports no rotation     */
+                    0.0f, 0.0f, 0.0f,  /* mag invalid -> mag step skipped */
+                    1e-3f,             /* fixed dt for the stability soak */
                     &ori);
   }
-  bool finite = isfinite(ori.q.w) && isfinite(ori.q.x) &&
-                isfinite(ori.q.y) && isfinite(ori.q.z);
+  bool finite = isfinite(ori.q.w) && isfinite(ori.q.x) && isfinite(ori.q.y) &&
+                isfinite(ori.q.z);
   CHECK(finite, "quaternion finite after long windup run");
 
-  float n = ori.q.w * ori.q.w + ori.q.x * ori.q.x +
-            ori.q.y * ori.q.y + ori.q.z * ori.q.z;
+  float n = ori.q.w * ori.q.w + ori.q.x * ori.q.x + ori.q.y * ori.q.y +
+            ori.q.z * ori.q.z;
   CHECK(n > 0.9f && n < 1.1f, "quaternion stays unit-norm after windup");
 
   estimator_reset();

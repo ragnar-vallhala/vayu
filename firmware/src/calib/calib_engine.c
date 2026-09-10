@@ -5,9 +5,9 @@
 
 #include "calib/calib_engine.h"
 #include "calib/calib_ellipsoid.h"
-#include "vaios.h"  /* v_delay */
-#include "maths/maths_interface.h"   /* m_sqrt */
-#include <stddef.h> /* NULL */
+#include "vaios.h"                 /* v_delay */
+#include "maths/maths_interface.h" /* m_sqrt */
+#include <stddef.h>                /* NULL */
 
 /* Accumulate one raw 3-vector (scaled by 1/radius) into the normal equations.
  * @noreq Internal normal-equation accumulation helper for the ellipsoid fit. */
@@ -27,8 +27,8 @@ static void accum(float S[81], float t9[9], const float m[3], float inv_r) {
  * the common corrected magnitude). Returns 0 (committed) or -1.
  * @noreq Shared fit solve + optional radius-normalisation + commit; the
  * per-sensor behaviour is carried by the SNS-CAL reqs on the callers. */
-static int finalize(const calib_target_t *t, float S[81], float t9[9], int nvalid,
-                    const float (*pts)[3], int npts) {
+static int finalize(const calib_target_t *t, float S[81], float t9[9],
+                    int nvalid, const float (*pts)[3], int npts) {
   if (nvalid < (int)t->min_samples)
     return -1;
 
@@ -94,8 +94,10 @@ static int run_ellipsoid(const calib_target_t *t) {
       nvalid++;
 
       for (int k = 0; k < 3; k++) {
-        if (m[k] < cmin[k]) cmin[k] = m[k];
-        if (m[k] > cmax[k]) cmax[k] = m[k];
+        if (m[k] < cmin[k])
+          cmin[k] = m[k];
+        if (m[k] > cmax[k])
+          cmax[k] = m[k];
         float c = (cmax[k] - cmin[k]) * cov_scale;
         cov[k] = c < 0.0f ? 0.0f : (c > 100.0f ? 100.0f : c);
       }

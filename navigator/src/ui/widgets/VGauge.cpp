@@ -10,7 +10,7 @@ VGauge::VGauge(const QString &caption, double minVal, double maxVal,
     : QWidget(parent), m_caption(caption), m_unit(unit), m_min(minVal),
       m_max(maxVal), m_value(minVal), m_palette(pal) {
   setMinimumWidth(52);
-  setUnavailable();  // start with no vehicle data → "-"
+  setUnavailable(); // start with no vehicle data → "-"
 }
 
 void VGauge::setValue(double v) {
@@ -44,9 +44,9 @@ void VGauge::paintEvent(QPaintEvent *) {
 
   const int W = width();
   const int H = height();
-  const int capH = 26;   // caption band (two lines fit)
-  const int readH = 16;  // readout band
-  const int tickW = 16;  // tick-label gutter on the left
+  const int capH = 26;  // caption band (two lines fit)
+  const int readH = 16; // readout band
+  const int tickW = 16; // tick-label gutter on the left
 
   QFont f = p.font();
 
@@ -62,7 +62,8 @@ void VGauge::paintEvent(QPaintEvent *) {
   const int y0 = capH + 2;
   const int y1 = H - readH - 2;
   const int midH = y1 - y0;
-  if (midH <= 8) return;
+  if (midH <= 8)
+    return;
 
   const QRectF track(tickW + 3, y0, W - (tickW + 3) - 1, midH);
 
@@ -87,7 +88,7 @@ void VGauge::paintEvent(QPaintEvent *) {
       g.setColorAt(0.35, QColor(0xD1, 0x9A, 0x66));
       g.setColorAt(0.62, QColor(0x98, 0xC3, 0x79));
       g.setColorAt(1.0, QColor(0x98, 0xC3, 0x79));
-    } else {  // Temp
+    } else { // Temp
       g.setColorAt(0.0, QColor(0x3A, 0x5F, 0x8F));
       g.setColorAt(0.25, QColor(0x61, 0xAF, 0xEF));
       g.setColorAt(0.5, QColor(0x98, 0xC3, 0x79));

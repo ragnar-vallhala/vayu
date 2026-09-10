@@ -34,6 +34,7 @@ signals:
   void baroReceived(const BaroData &data);
   void verticalStateReceived(const VerticalStateData &data);
   void notchStatusReceived(const NotchStatusData &data);
+  void hslStatusReceived(const HslStatusData &data);
   void flightModeReceived(quint8 mode, quint8 source);
   void logReceived(const QString &message);
   void statusReceived(const QString &message);

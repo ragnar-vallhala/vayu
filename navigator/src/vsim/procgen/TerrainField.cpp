@@ -6,26 +6,25 @@
 namespace vsim::procgen {
 namespace {
 
-inline float clamp01(float v) { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); }
+inline float clamp01(float v) {
+  return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v);
+}
 
 inline float smoothstep(float e0, float e1, float x) {
   const float t = clamp01((x - e0) / (e1 - e0));
   return t * t * (3.0f - 2.0f * t);
 }
 
-inline PgVec3 mix(const PgVec3& a, const PgVec3& b, float t) {
+inline PgVec3 mix(const PgVec3 &a, const PgVec3 &b, float t) {
   return PgVec3{a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t,
                 a.z + (b.z - a.z) * t};
 }
 
-}  // namespace
+} // namespace
 
-TerrainField::TerrainField(const FieldParams& p)
-    : p_(p),
-      hills_(p.seed),
-      mtn_(p.seed ^ 0x9e3779b9u),
-      macro_(p.seed ^ 0x68bc21ebu),
-      warp_(p.seed ^ 0xb5297a4du),
+TerrainField::TerrainField(const FieldParams &p)
+    : p_(p), hills_(p.seed), mtn_(p.seed ^ 0x9e3779b9u),
+      macro_(p.seed ^ 0x68bc21ebu), warp_(p.seed ^ 0xb5297a4du),
       baseFreq_(p.featureM > 0.0f ? 1.0f / p.featureM : 1.0f / 150.0f),
       macroFreq_(p.macroM > 0.0f ? 1.0f / p.macroM : 1.0f / 1400.0f) {}
 
@@ -34,7 +33,7 @@ float TerrainField::height(float wx, float wy) const {
   // so ranges and valleys span hundreds of metres and never repeat near you.
   const float mx = wx * macroFreq_;
   const float my = wy * macroFreq_;
-  const float macro = macro_.fbm(mx, my, 3, 2.0f, 0.5f) * 0.5f + 0.5f;  // [0,1]
+  const float macro = macro_.fbm(mx, my, 3, 2.0f, 0.5f) * 0.5f + 0.5f; // [0,1]
   const float mountainAmount = smoothstep(0.40f, 0.68f, macro);
 
   // Detail bands. Domain-warp so nothing looks grid-aligned.
@@ -43,27 +42,29 @@ float TerrainField::height(float wx, float wy) const {
   // Strong domain warp so ridgelines meander instead of marching in a regular
   // row (the warp is the main thing that makes the mountains look natural).
   const float wxw = nx + 0.9f * warp_.fbm(nx * 0.5f, ny * 0.5f, 3, 2.0f, 0.5f);
-  const float wyw = ny + 0.9f * warp_.fbm(nx * 0.5f + 5.2f, ny * 0.5f + 1.3f, 3,
-                                          2.0f, 0.5f);
+  const float wyw =
+      ny + 0.9f * warp_.fbm(nx * 0.5f + 5.2f, ny * 0.5f + 1.3f, 3, 2.0f, 0.5f);
 
   const float roll = hills_.fbm(wxw, wyw, p_.octaves, p_.lacunarity, p_.gain);
-  const float rollUnit = roll * 0.5f + 0.5f;                  // [0,1] gentle
+  const float rollUnit = roll * 0.5f + 0.5f; // [0,1] gentle
   // Broad mountain ridges from only a few ridged octaves (more octaves added
   // thin high-frequency spikes). The fbm `roll` above supplies the fine surface
   // texture on the slopes, so the result is wide mountains, not cones.
   const int ridgeOctaves = std::min(p_.octaves, 4);
   const float ridge = mtn_.ridged(wxw, wyw, ridgeOctaves, p_.lacunarity, 0.55f);
-  const float mtnUnit = std::pow(clamp01(ridge), 0.7f);  // round the crests
+  const float mtnUnit = std::pow(clamp01(ridge), 0.7f); // round the crests
 
   // Meadow regions: gentle undulation only. Mountain regions: rounded ridges
   // plus some hill mass so slopes aren't bare. mountainAmount blends between.
-  const float elev = 0.10f * rollUnit +
-                     mountainAmount * (p_.mountainMix * mtnUnit + 0.35f * rollUnit);
+  const float elev =
+      0.10f * rollUnit +
+      mountainAmount * (p_.mountainMix * mtnUnit + 0.35f * rollUnit);
   return clamp01(elev) * p_.heightM;
 }
 
 PgVec3 TerrainField::normal(float wx, float wy, float eps) const {
-  if (eps <= 0.0f) eps = 1.0f;
+  if (eps <= 0.0f)
+    eps = 1.0f;
   const float hl = height(wx - eps, wy);
   const float hr = height(wx + eps, wy);
   const float hd = height(wx, wy - eps);
@@ -73,13 +74,17 @@ PgVec3 TerrainField::normal(float wx, float wy, float eps) const {
   const float dhdy = (hu - hd) / (2.0f * eps);
   float nx = dhdx, ny = dhdy, nz = -1.0f;
   const float len = std::sqrt(nx * nx + ny * ny + nz * nz);
-  if (len > 0.0f) { nx /= len; ny /= len; nz /= len; }
+  if (len > 0.0f) {
+    nx /= len;
+    ny /= len;
+    nz /= len;
+  }
   return PgVec3{nx, ny, nz};
 }
 
 PgVec3 TerrainField::color(float h, float flatness) const {
   const float t = clamp01(p_.heightM > 0.0f ? h / p_.heightM : 0.0f);
-  const float steep = clamp01(1.0f - flatness);   // 0 flat .. 1 vertical
+  const float steep = clamp01(1.0f - flatness); // 0 flat .. 1 vertical
   // Muted, overcast palette to match the moody grass: darker desaturated greens,
   // earthy soil, cool grey rock, and cool (not blown-out) snow.
   // Grassy ground matches the CANOPY-FLOOR colour at the base of the GPU blades
@@ -87,13 +92,14 @@ PgVec3 TerrainField::color(float h, float flatness) const {
   // reads as the same shaded floor, not a lighter gap.
   const PgVec3 green{0.06f, 0.15f, 0.09f};
   const PgVec3 brown{0.29f, 0.23f, 0.15f};
-  const PgVec3 rock {0.33f, 0.33f, 0.32f};
-  const PgVec3 snow {0.80f, 0.83f, 0.88f};
+  const PgVec3 rock{0.33f, 0.33f, 0.32f};
+  const PgVec3 snow{0.80f, 0.83f, 0.88f};
 
   // Altitude band: green valley -> brown mid -> bare rock high. The green holds
   // up to near the grass line so thinning grass blends into green ground (not a
   // bare-soil edge), then browns over a narrow band above it.
-  PgVec3 c = mix(green, brown, smoothstep(p_.colBrownT - 0.12f, p_.colBrownT + 0.10f, t));
+  PgVec3 c = mix(green, brown,
+                 smoothstep(p_.colBrownT - 0.12f, p_.colBrownT + 0.10f, t));
   c = mix(c, rock, smoothstep(p_.colRockT - 0.34f, p_.colRockT, t));
 
   // Slope exposes brown/rock regardless of altitude (steeper = rockier).
@@ -108,10 +114,11 @@ PgVec3 TerrainField::color(float h, float flatness) const {
   return c;
 }
 
-ProcMesh meshFieldChunk(const TerrainField& f, int cx, int cy, float chunkM,
+ProcMesh meshFieldChunk(const TerrainField &f, int cx, int cy, float chunkM,
                         int res) {
   ProcMesh m;
-  if (res < 1 || chunkM <= 0.0f) return m;
+  if (res < 1 || chunkM <= 0.0f)
+    return m;
 
   const float step = chunkM / static_cast<float>(res);
   const float x0 = static_cast<float>(cx) * chunkM;
@@ -130,9 +137,9 @@ ProcMesh meshFieldChunk(const TerrainField& f, int cx, int cy, float chunkM,
   std::vector<float> H(static_cast<std::size_t>(gn) * gn);
   for (int j = 0; j < gn; ++j)
     for (int i = 0; i < gn; ++i)
-      H[static_cast<std::size_t>(j) * gn + i] = f.height(
-          x0 + step * static_cast<float>(i - apron),
-          y0 + step * static_cast<float>(j - apron));
+      H[static_cast<std::size_t>(j) * gn + i] =
+          f.height(x0 + step * static_cast<float>(i - apron),
+                   y0 + step * static_cast<float>(j - apron));
 
   // Slope cap: iteratively pull any cell down to at most maxStep above its
   // lowest 4-neighbour (grayscale erosion). Removes spikes/near-vertical faces
@@ -173,7 +180,11 @@ ProcMesh meshFieldChunk(const TerrainField& f, int cx, int cy, float chunkM,
       const float dhdy = (gh(i, j + 1) - gh(i, j - 1)) * inv2s;
       float nx = dhdx, ny = dhdy, nz = -1.0f;
       const float len = std::sqrt(nx * nx + ny * ny + nz * nz);
-      if (len > 0.0f) { nx /= len; ny /= len; nz /= len; }
+      if (len > 0.0f) {
+        nx /= len;
+        ny /= len;
+        nz /= len;
+      }
       const std::size_t k = static_cast<std::size_t>(j) * verts + i;
       pos[k] = PgVec3{x0 + step * static_cast<float>(i),
                       y0 + step * static_cast<float>(j), -h};
@@ -197,11 +208,15 @@ ProcMesh meshFieldChunk(const TerrainField& f, int cx, int cy, float chunkM,
       const std::size_t k10 = k00 + 1;
       const std::size_t k01 = k00 + verts;
       const std::size_t k11 = k01 + 1;
-      push(k00); push(k10); push(k11);
-      push(k00); push(k11); push(k01);
+      push(k00);
+      push(k10);
+      push(k11);
+      push(k00);
+      push(k11);
+      push(k01);
     }
   }
   return m;
 }
 
-}  // namespace vsim::procgen
+} // namespace vsim::procgen

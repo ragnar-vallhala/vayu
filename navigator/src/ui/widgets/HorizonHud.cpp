@@ -8,7 +8,7 @@
 #include <algorithm>
 #include <cmath>
 
-HorizonHud::HorizonHud(QWidget* parent) : QWidget(parent) {
+HorizonHud::HorizonHud(QWidget *parent) : QWidget(parent) {
   setAttribute(Qt::WA_TransparentForMouseEvents);
 }
 
@@ -19,16 +19,17 @@ void HorizonHud::setAttitude(float rollDeg, float pitchDeg, float yawDeg) {
   update();
 }
 
-void HorizonHud::paintEvent(QPaintEvent*) {
+void HorizonHud::paintEvent(QPaintEvent *) {
   const int W = width(), H = height();
-  if (W < 40 || H < 40) return;
+  if (W < 40 || H < 40)
+    return;
   QPainter p(this);
   p.setRenderHint(QPainter::Antialiasing, true);
 
   const QColor hud(90, 255, 160), dim(90, 255, 160, 120);
   const QColor sky(40, 90, 150), gnd(60, 110, 45), frame(90, 255, 160, 90);
   const QPointF c(W * 0.5, H * 0.5);
-  const double ppd = H / 60.0;            // px per pitch degree
+  const double ppd = H / 60.0; // px per pitch degree
 
   // Rounded frame + clip so the rotating horizon stays inside the box.
   QPainterPath clip;
@@ -41,19 +42,21 @@ void HorizonHud::paintEvent(QPaintEvent*) {
   p.rotate(-roll_);
   p.translate(0, pitch_ * ppd);
   const double BIG = std::hypot(W, H);
-  p.fillRect(QRectF(-BIG, -BIG, 2 * BIG, BIG), sky);   // above horizon
-  p.fillRect(QRectF(-BIG, 0, 2 * BIG, BIG), gnd);      // below horizon
+  p.fillRect(QRectF(-BIG, -BIG, 2 * BIG, BIG), sky); // above horizon
+  p.fillRect(QRectF(-BIG, 0, 2 * BIG, BIG), gnd);    // below horizon
   QPen hp(hud);
   hp.setWidthF(1.6);
   p.setPen(hp);
-  p.drawLine(QPointF(-BIG, 0), QPointF(BIG, 0));       // horizon line
+  p.drawLine(QPointF(-BIG, 0), QPointF(BIG, 0)); // horizon line
   QFont f(QStringLiteral("monospace"));
   f.setPixelSize(9);
   p.setFont(f);
   for (int a = -60; a <= 60; a += 15) {
-    if (a == 0) continue;
+    if (a == 0)
+      continue;
     const double y = -a * ppd;
-    if (std::abs(y) > H * 0.6) continue;
+    if (std::abs(y) > H * 0.6)
+      continue;
     const double half = (a % 30 == 0) ? W * 0.16 : W * 0.10;
     QPen lp(dim);
     lp.setWidthF(1.1);
@@ -76,7 +79,8 @@ void HorizonHud::paintEvent(QPaintEvent*) {
   QPen ap(dim);
   ap.setWidthF(1.2);
   p.setPen(ap);
-  p.drawArc(QRectF(c.x() - R, c.y() - R, 2 * R, 2 * R), (90 - 50) * 16, 100 * 16);
+  p.drawArc(QRectF(c.x() - R, c.y() - R, 2 * R, 2 * R), (90 - 50) * 16,
+            100 * 16);
   for (int a : {-45, -30, -15, 0, 15, 30, 45}) {
     const double sn = std::sin(qDegreesToRadians((double)a));
     const double cs = std::cos(qDegreesToRadians((double)a));
@@ -85,7 +89,8 @@ void HorizonHud::paintEvent(QPaintEvent*) {
                QPointF(c.x() + (R - inset) * sn, c.y() - (R - inset) * cs));
   }
   const double rr = std::clamp((double)roll_, -50.0, 50.0);
-  const double sn = std::sin(qDegreesToRadians(rr)), cs = std::cos(qDegreesToRadians(rr));
+  const double sn = std::sin(qDegreesToRadians(rr)),
+               cs = std::cos(qDegreesToRadians(rr));
   const QPointF tip(c.x() + R * sn, c.y() - R * cs);
   const QPointF dir(sn, -cs), perp(-dir.y(), dir.x());
   QPolygonF tri;

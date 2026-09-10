@@ -18,7 +18,7 @@ enum class SpeedUnit { Mps, Kmh, Mph };
 void setAngleUnit(AngleUnit u);
 void setAltUnit(AltUnit u);
 void setSpeedUnit(SpeedUnit u);
-void setDecimals(int n);  // clamped to [0, 6]
+void setDecimals(int n); // clamped to [0, 6]
 
 int decimals();
 
@@ -28,9 +28,9 @@ double toAltitude(double metres);
 double toSpeed(double mps);
 
 // Unit suffix for tape titles / inline labels.
-QString angleSuffix();  // "°"   | " rad"
-QString altSuffix();    // "m"   | "ft"
-QString speedSuffix();  // "m/s" | "km/h" | "mph"
+QString angleSuffix(); // "°"   | " rad"
+QString altSuffix();   // "m"   | "ft"
+QString speedSuffix(); // "m/s" | "km/h" | "mph"
 
 // Converted value + suffix at the configured precision. fieldWidth pads the
 // number for column alignment (0 = no padding).
@@ -38,4 +38,4 @@ QString angle(double deg, int fieldWidth = 0);
 QString altitude(double metres);
 QString speed(double mps);
 
-}  // namespace Units
+} // namespace Units

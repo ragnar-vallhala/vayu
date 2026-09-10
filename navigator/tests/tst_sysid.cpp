@@ -19,12 +19,12 @@ class TstSysId : public QObject {
   static QVector<double> simPlant(const QVector<double> &u, double K,
                                   double tau, double dt) {
     const double a = std::exp(-dt / tau);
-    const double b = K * (1.0 - a);  // so DC gain accel/u = b/(1-a) = K
+    const double b = K * (1.0 - a); // so DC gain accel/u = b/(1-a) = K
     QVector<double> omega(u.size(), 0.0);
     double accel = 0.0, w = 0.0;
     for (int i = 0; i < u.size(); ++i) {
       omega[i] = w;
-      accel = a * accel + b * u[i];  // u[i] drives accel[i+1]
+      accel = a * accel + b * u[i]; // u[i] drives accel[i+1]
       w += accel * dt;
     }
     return omega;
@@ -51,13 +51,13 @@ private slots:
 };
 
 void TstSysId::recoversKnownPlant() {
-  const double dt = 0.001, K = 50000.0, tau = 0.010;  // 10 ms lag
+  const double dt = 0.001, K = 50000.0, tau = 0.010; // 10 ms lag
   const auto u = excite(3000, dt);
   const auto omega = simPlant(u, K, tau, dt);
 
   const Plant p = identifyPlant(u, omega, dt);
   QVERIFY(p.ok);
-  QVERIFY(p.r2 > 0.99);                       // clean synthetic -> near-perfect
+  QVERIFY(p.r2 > 0.99); // clean synthetic -> near-perfect
   QVERIFY2(std::fabs(p.tau - tau) / tau < 0.05,
            qPrintable(QStringLiteral("tau=%1 want %2").arg(p.tau).arg(tau)));
   QVERIFY2(std::fabs(p.K - K) / K < 0.05,
@@ -66,13 +66,15 @@ void TstSysId::recoversKnownPlant() {
 
 void TstSysId::rejectsShortData() {
   QVector<double> u(10, 0.01), omega(10, 0.0);
-  QVERIFY(!identifyPlant(u, omega, 0.001).ok);  // too few samples
+  QVERIFY(!identifyPlant(u, omega, 0.001).ok); // too few samples
   QVERIFY(!identifyPlant({}, {}, 0.001).ok);
 }
 
 void TstSysId::designPlacesZeroOnActuatorPole() {
   Plant p;
-  p.ok = true; p.K = 50000.0; p.tau = 0.010;
+  p.ok = true;
+  p.K = 50000.0;
+  p.tau = 0.010;
   const double wc = 20.0;
   const DesignGains g = designGains(p, wc);
   // rate_kp = wc/K
@@ -87,7 +89,9 @@ void TstSysId::designPlacesZeroOnActuatorPole() {
 
 void TstSysId::crossoverCapsRateKp() {
   Plant p;
-  p.ok = true; p.K = 50000.0; p.tau = 0.002;  // fast actuator -> high bwFrac/tau
+  p.ok = true;
+  p.K = 50000.0;
+  p.tau = 0.002; // fast actuator -> high bwFrac/tau
   // Unbounded wc = 0.33/tau = 165 -> rate_kp = 165/50000 = 0.0033 (under cap).
   const double wcFree = chooseCrossover(p, 0.33, /*kpMax=*/1.0);
   QVERIFY(std::fabs(wcFree - 0.33 / p.tau) < 1e-6);
@@ -95,19 +99,25 @@ void TstSysId::crossoverCapsRateKp() {
   const double kpMax = 0.001;
   const double wcCapped = chooseCrossover(p, 0.33, kpMax);
   const DesignGains g = designGains(p, wcCapped);
-  QVERIFY2(g.rate_kp <= kpMax * 1.0001,
-           qPrintable(QStringLiteral("rate_kp=%1 > cap %2").arg(g.rate_kp).arg(kpMax)));
+  QVERIFY2(
+      g.rate_kp <= kpMax * 1.0001,
+      qPrintable(
+          QStringLiteral("rate_kp=%1 > cap %2").arg(g.rate_kp).arg(kpMax)));
   QVERIFY(std::fabs(g.rate_kp - kpMax) < 1e-9);
 }
 
 void TstSysId::averageOfIdenticalIsItself() {
-  Plant a; a.ok = true; a.K = 40000; a.tau = 0.008; a.r2 = 0.9;
+  Plant a;
+  a.ok = true;
+  a.K = 40000;
+  a.tau = 0.008;
+  a.r2 = 0.9;
   const Plant avg = averagePlants(a, a);
   QVERIFY(avg.ok);
   QVERIFY(std::fabs(avg.K - a.K) < 1e-6);
   QVERIFY(std::fabs(avg.tau - a.tau) < 1e-9);
   // One bad axis -> falls back to the good one.
-  Plant bad;  // !ok
+  Plant bad; // !ok
   const Plant only = averagePlants(a, bad);
   QVERIFY(std::fabs(only.K - a.K) < 1e-6);
 }

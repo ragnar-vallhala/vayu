@@ -70,7 +70,9 @@ void TstSysIdRtos::identifiesPlausiblePlant() {
   // and does not diverge.
   rtos.setExcitation(1800, 30.0, 1.0, 0.7, 0.6, /*waveform=*/0, 0.5, 18.0);
   RtosEval::Gains vg;
-  vg.rate_kp = g.rate_kp; vg.rate_ki = g.rate_ki; vg.rate_kd = g.rate_kd;
+  vg.rate_kp = g.rate_kp;
+  vg.rate_ki = g.rate_ki;
+  vg.rate_kd = g.rate_kd;
   vg.angle_kp = g.angle_kp;
   const RtosResult vr = rtos.rollout(vg, 12345, /*tuneYaw=*/false);
   QVERIFY2(vr.ok, qPrintable(vr.error));

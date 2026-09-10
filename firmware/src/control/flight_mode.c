@@ -60,15 +60,15 @@ bool flight_mode_apply_command(const uint8_t *payload, uint8_t length) {
   v_memcpy(&v, &payload[3], 4);
   int iv = (int)(v + (v >= 0.0f ? 0.5f : -0.5f));
   switch (iv) {
-    case FLIGHT_MODE_ANGLE:
-      flight_mode_set_override(FLIGHT_MODE_ANGLE);
-      break;
-    case FLIGHT_MODE_ACRO:
-      flight_mode_set_override(FLIGHT_MODE_ACRO);
-      break;
-    default: /* 2 (or anything else) = release back to the RC switch */
-      flight_mode_release();
-      break;
+  case FLIGHT_MODE_ANGLE:
+    flight_mode_set_override(FLIGHT_MODE_ANGLE);
+    break;
+  case FLIGHT_MODE_ACRO:
+    flight_mode_set_override(FLIGHT_MODE_ACRO);
+    break;
+  default: /* 2 (or anything else) = release back to the RC switch */
+    flight_mode_release();
+    break;
   }
   return true;
 }

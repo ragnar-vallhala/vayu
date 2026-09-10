@@ -33,10 +33,10 @@ channel_t g_telemetry_channel = {0};
  *   TELEM_TICKS(ms)              : period in ticks, floored at 1.
  *   TELEM_GATE(cnt, ms, phase_ms): true once per `ms`, phase-shifted by `phase_ms`
  *     so streams that share a period don't all fire on the same tick. */
-#define TELEM_TICKS(ms) \
+#define TELEM_TICKS(ms)                                                        \
   (((uint32_t)(ms) / TELEM_BASE_MS) ? ((uint32_t)(ms) / TELEM_BASE_MS) : 1u)
-#define TELEM_GATE(cnt, ms, phase_ms)              \
-  (((cnt) % TELEM_TICKS(ms)) ==                    \
+#define TELEM_GATE(cnt, ms, phase_ms)                                          \
+  (((cnt) % TELEM_TICKS(ms)) ==                                                \
    (((uint32_t)(phase_ms) / TELEM_BASE_MS) % TELEM_TICKS(ms)))
 
 void imu_telemetry_task(void *args) {
@@ -76,25 +76,43 @@ void imu_telemetry_task(void *args) {
      * are phase-staggered (the phase_ms arg) so a faster loop yields smaller
      * per-tick bursts. Heartbeat rides send_status (>= 1 Hz, COMM-TEL-002 /
      * SYS-TEL-001). */
-    bool send_full    = TELEM_GATE(packet_counter, 600, 0);  // ~1.7 Hz
-    bool send_comp    = TELEM_GATE(packet_counter, 20, 0);   // 50 Hz
-    bool send_att     = TELEM_GATE(packet_counter, 20, 5);   // 50 Hz (staggered)
-    bool send_motor   = TELEM_GATE(packet_counter, 20, 10);  // 50 Hz (staggered)
-    bool send_pid_err = TELEM_GATE(packet_counter, 20, 15);  // 50 Hz (staggered, CONTROL_TRACE)
-    bool send_rc      = TELEM_GATE(packet_counter, 90, 22);  // ~11 Hz
-    bool send_baro    = TELEM_GATE(packet_counter, 200, 0);  // 5 Hz
-    bool send_vert    = TELEM_GATE(packet_counter, 200, 100);// 5 Hz (staggered)
-    bool send_notch   = TELEM_GATE(packet_counter, 200, 150);// 5 Hz (staggered, NOTCH_STATUS)
-    bool send_status  = TELEM_GATE(packet_counter, 300, 12); // ~3.3 Hz
-    bool send_log     = TELEM_GATE(packet_counter, 60, 30);  // ~17 Hz
+    bool send_full = TELEM_GATE(packet_counter, 600, 0);  // ~1.7 Hz
+    bool send_comp = TELEM_GATE(packet_counter, 20, 0);   // 50 Hz
+    bool send_att = TELEM_GATE(packet_counter, 20, 5);    // 50 Hz (staggered)
+    bool send_motor = TELEM_GATE(packet_counter, 20, 10); // 50 Hz (staggered)
+    /* CONTROL_TRACE is OFF. Measured on the bench (2026-09-06 hand-lift log) it
+     * was 42% of all telemetry BYTES and 19% of frames — 84 B/frame at 50 Hz,
+     * the single largest consumer by a wide margin — while the ESP bridge was
+     * dropping 26% of every stream from packet-rate saturation. It is a
+     * rate-PID tuning trace and nothing in the vertical-estimator work reads it.
+     * Turn it back on (and drop send_vert to 200 ms) before a tuning session:
+     * tools/telemetry/analyze_pitch_osc.py and pitch_*.py all need it. */
+    bool send_pid_err = false;                           // CONTROL_TRACE: off
+    bool send_rc = TELEM_GATE(packet_counter, 90, 22);   // ~11 Hz
+    bool send_baro = TELEM_GATE(packet_counter, 200, 0); // 5 Hz
+    /* 20 Hz: the vertical estimator is what the current bench/flight tests are
+     * measuring, and accel_bias converges in ~1.8 s — at the old 5 Hz that was
+     * ~7 samples across the whole transient, before 26% loss took its cut. */
+    bool send_vert = TELEM_GATE(packet_counter, 50, 10); // 20 Hz
+    bool send_notch =
+        TELEM_GATE(packet_counter, 1000, 150); // 1 Hz (NOTCH_STATUS)
+    /* 1 Hz, ~25 B: cheap enough not to matter and the only way to see the SD
+     * recorder from the ground. dropped_sectors is the point -- whether the
+     * card sustains the stream is otherwise unknowable until the card is
+     * pulled, by which time the flight is over. */
+    bool send_hsl = TELEM_GATE(packet_counter, 1000, 400);  // 1 Hz (HSL_STATUS)
+    bool send_status = TELEM_GATE(packet_counter, 300, 12); // ~3.3 Hz
+    bool send_log = TELEM_GATE(packet_counter, 60, 30);     // ~17 Hz
 
     /* While dumping the system-ID capture, hand the bridge's ~150 pkt/s budget
      * to the dump: suppress the heavy periodic telemetry so the chunks aren't
      * crowded out and dropped (this is a deliberate post-run, bench-only op). */
     if (sysid_dump_active()) {
       send_full = send_comp = send_att = send_rc = send_motor = send_pid_err =
-          send_baro = send_vert = send_notch = false;
+          send_baro = send_vert = send_notch = send_hsl = false;
     }
+    (void)
+        send_pid_err; /* constant false above; kept so re-enabling is one line */
     /* A big file download is a deliberate ground op; hand it the link by
      * suppressing the heaviest tuning streams (keep attitude/RC/baro/status/
      * heartbeat for situational awareness). Mirrors the sysid-dump case. */
@@ -106,7 +124,8 @@ void imu_telemetry_task(void *args) {
     if (send_log) {
       /* LOG-TXT-002: drain the text-log queue to the LOG channel. */
       static char log_buf[VAYU_LOG_QUEUE_SIZE];
-      uint8_t len = (uint8_t)mpmc_pop_bulk(&vayu_log_queue, log_buf, sizeof(log_buf));
+      uint8_t len =
+          (uint8_t)mpmc_pop_bulk(&vayu_log_queue, log_buf, sizeof(log_buf));
       if (len > 0) {
         navlink_tx_log(log_buf, len);
       }
@@ -203,6 +222,10 @@ void imu_telemetry_task(void *args) {
     if (send_notch) {
       /* No queue: the seam reads the live gyro_notch center freqs directly. */
       navlink_tx_notch_status();
+    }
+    if (send_hsl) {
+      /* No queue either: the seam reads the recorder's counters directly. */
+      navlink_tx_hsl_status();
     }
     packet_counter++;
     /* Loop/flush granularity (~500 Hz at TELEM_BASE_MS=2). Per-stream rates are set by

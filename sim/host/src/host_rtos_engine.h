@@ -18,7 +18,7 @@
 
 #include "control/control_buffer.h" /* control_telemetry_t */
 #include "sensor/sensor.h"          /* bmx160_all_reading_t, imu_queue_*_push */
-#include "vsim_proto.h"             /* vsim_pose_frame_t (the GCS wire layout) */
+#include "vsim_proto.h" /* vsim_pose_frame_t (the GCS wire layout) */
 
 #ifdef __cplusplus
 extern "C" {
@@ -82,8 +82,8 @@ double env_f(const char *k, double dflt);
  * monotonic target, with catch-up-skip when behind (no busy spiral). */
 #include <time.h>
 typedef struct {
-  struct timespec next;  /* absolute monotonic target for the next step */
-  long behind;           /* count of steps the loop fell behind (diagnostic) */
+  struct timespec next; /* absolute monotonic target for the next step */
+  long behind;          /* count of steps the loop fell behind (diagnostic) */
 } rtos_pacer_t;
 
 /* Anchor the pacer at "now". Call once before the paced loop. */
@@ -116,7 +116,8 @@ void vsim_inproc_set_geometry(const vsim_ctl_geometry_t *g);
 void vsim_inproc_set_world(const vsim_ctl_world_t *w);
 void vsim_inproc_clear_obstacles(void);
 void vsim_inproc_add_obstacle(const vsim_ctl_obstacle_t *b);
-int  vsim_inproc_set_world_mesh(const vsim_ctl_world_mesh_t *m);  /* 1 ok, 0 fail */
+int vsim_inproc_set_world_mesh(
+    const vsim_ctl_world_mesh_t *m); /* 1 ok, 0 fail */
 void vsim_inproc_clear_world_mesh(void);
 void vsim_inproc_set_rates(const vsim_ctl_rates_t *r);
 void vsim_inproc_set_noise(const vsim_ctl_noise_t *n);

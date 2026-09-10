@@ -8,6 +8,7 @@
 #include "maths/maths_interface.h"
 
 #include <math.h>
+#include <stddef.h> /* size_t (was reached transitively) */
 
 /* 2*pi as a single-precision constant (matches -fsingle-precision-constant). */
 #define FFT_TWO_PI 6.28318530717958647692f
@@ -40,8 +41,8 @@ static void fft_bit_reverse(fft_complex_t *x, unsigned n) {
 }
 
 /** @noreq in-place radix-2 DIT complex FFT (maths-interface FFT core). */
-void m_fft_forward(fft_complex_t *x, unsigned n,
-                   const fft_complex_t *tw, unsigned tw_stride) {
+void m_fft_forward(fft_complex_t *x, unsigned n, const fft_complex_t *tw,
+                   unsigned tw_stride) {
   if (n < 2) {
     return;
   }
@@ -56,7 +57,7 @@ void m_fft_forward(fft_complex_t *x, unsigned n,
     unsigned step = (n / len) * tw_stride;
     for (unsigned base = 0; base < n; base += len) {
       for (unsigned j = 0; j < half; j++) {
-        fft_complex_t w = tw[j * step];
+        fft_complex_t w = tw[(size_t)j * step];
         fft_complex_t *a = &x[base + j];
         fft_complex_t *b = &x[base + j + half];
         /* t = w * b */
@@ -72,8 +73,8 @@ void m_fft_forward(fft_complex_t *x, unsigned n,
 }
 
 /** @noreq 1/n-normalized inverse FFT via the conjugate identity. */
-void m_fft_inverse(fft_complex_t *x, unsigned n,
-                   const fft_complex_t *tw, unsigned tw_stride) {
+void m_fft_inverse(fft_complex_t *x, unsigned n, const fft_complex_t *tw,
+                   unsigned tw_stride) {
   if (n < 1) {
     return;
   }
@@ -104,7 +105,7 @@ void m_rfft_forward(const float *in, unsigned n, fft_complex_t *out,
   /* Pack: z[m] = in[2m] + i*in[2m+1], then an nh-point complex FFT. The full-N
    * twiddle table serves the nh-point transform via tw_stride == 2. */
   for (unsigned m = 0; m < nh; m++) {
-    scratch[m].re = in[2 * m];
+    scratch[m].re = in[2u * (size_t)m];
     scratch[m].im = in[2 * m + 1];
   }
   m_fft_forward(scratch, nh, tw, 2);

@@ -59,4 +59,6 @@ static const xfer_provider_t LOG_PROVIDER = {
 };
 
 /** @noreq provider registration */
-int log_provider_register(void) { return xfer_register_provider(&LOG_PROVIDER); }
+int log_provider_register(void) {
+  return xfer_register_provider(&LOG_PROVIDER);
+}

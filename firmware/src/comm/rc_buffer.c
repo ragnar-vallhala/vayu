@@ -3,8 +3,9 @@
 #include "structure.h"
 
 #define RC_BUFFER_INTERNAL_CAPACITY (RC_BUFFER_SIZE + 1)
+#define RC_TELEMETRY_INTERNAL_CAPACITY (RC_TELEMETRY_BUFFER_SIZE + 1)
 
-static ibus_data_t _rc_telemetry_buffer[RC_BUFFER_INTERNAL_CAPACITY];
+static ibus_data_t _rc_telemetry_buffer[RC_TELEMETRY_INTERNAL_CAPACITY];
 static ibus_data_t _rc_control_buffer[RC_BUFFER_INTERNAL_CAPACITY];
 
 static spsc_fifo_t _rc_telemetry_queue;
@@ -13,7 +14,7 @@ static spsc_fifo_t _rc_control_queue;
 /** @noreq SPSC RC queue construction (OVERWRITE policy) */
 void rc_buffer_init(void) {
   spsc_init(&_rc_telemetry_queue, _rc_telemetry_buffer,
-            RC_BUFFER_INTERNAL_CAPACITY, sizeof(ibus_data_t));
+            RC_TELEMETRY_INTERNAL_CAPACITY, sizeof(ibus_data_t));
   spsc_set_policy(&_rc_telemetry_queue, SPSC_POLICY_OVERWRITE);
 
   spsc_init(&_rc_control_queue, _rc_control_buffer, RC_BUFFER_INTERNAL_CAPACITY,
@@ -25,7 +26,8 @@ void rc_buffer_init(void) {
 int rc_buffer_perf_fifos(perf_fifo_row_t *rows, int max) {
   int n = 0;
   if (n < max)
-    perf_fifo_fill_row(&rows[n++], PERF_FIFO_RC_TELEMETRY, &_rc_telemetry_queue);
+    perf_fifo_fill_row(&rows[n++], PERF_FIFO_RC_TELEMETRY,
+                       &_rc_telemetry_queue);
   if (n < max)
     perf_fifo_fill_row(&rows[n++], PERF_FIFO_RC_CONTROL, &_rc_control_queue);
   return n;

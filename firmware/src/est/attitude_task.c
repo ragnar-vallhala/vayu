@@ -146,12 +146,17 @@ void attitude_task(void *args) {
       probe_peak = dc;
     probe_acc += dc;
     if (++probe_cnt >= (uint32_t)ATTITUDE_EST_RATE_HZ) { /* ~1 s of updates */
+      /* Decimation is integral by construction, so report it as the integer it
+       * is and derive the rate FROM it -- (float)ATTITUDE_EST_RATE_HZ reported
+       * the nominal target instead, which diverges from the truth as soon as
+       * the sample rate stops dividing evenly (2000/250 is exact today; a
+       * 1600 Hz IMU would make it 6.4 and silently truncate to 6). */
+      const uint32_t decim = (uint32_t)ATTITUDE_DECIM;
       est_perf_telemetry_t perf = {
           .peak_us = (float)probe_peak / (float)cyc_per_us,
-          .mean_us =
-              ((float)probe_acc / (float)probe_cnt) / (float)cyc_per_us,
-          .decim = (float)ATTITUDE_DECIM,
-          .rate_hz = (float)ATTITUDE_EST_RATE_HZ,
+          .mean_us = ((float)probe_acc / (float)probe_cnt) / (float)cyc_per_us,
+          .decim = (float)decim,
+          .rate_hz = (float)IMU_SAMPLE_FREQ_HZ / (float)decim,
       };
       est_perf_queue_push(&perf); /* drained by the telemetry task -> GCS */
       probe_peak = 0;

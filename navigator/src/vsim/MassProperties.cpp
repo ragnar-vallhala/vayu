@@ -7,8 +7,8 @@ namespace vsim {
 namespace {
 // Eberly's per-axis subexpression helper: from the three vertex
 // coordinates along one axis, produce the projection/face integrals.
-inline void subexpr(float w0, float w1, float w2, float& f1, float& f2,
-                    float& f3, float& g0, float& g1, float& g2) {
+inline void subexpr(float w0, float w1, float w2, float &f1, float &f2,
+                    float &f3, float &g0, float &g1, float &g2) {
   const float t0 = w0 + w1;
   f1 = t0 + w2;
   const float t1 = w0 * w0;
@@ -19,12 +19,13 @@ inline void subexpr(float w0, float w1, float w2, float& f1, float& f2,
   g1 = f2 + w1 * (f1 + w1);
   g2 = f2 + w2 * (f1 + w2);
 }
-}  // namespace
+} // namespace
 
-MassProperties computeMassProperties(const std::vector<QVector3D>& p,
+MassProperties computeMassProperties(const std::vector<QVector3D> &p,
                                      float targetMass) {
   MassProperties out;
-  if (p.size() < 3) return out;
+  if (p.size() < 3)
+    return out;
 
   // integral order: [0]=1, [1..3]=x,y,z, [4..6]=x^2,y^2,z^2,
   // [7..9]=xy,yz,zx (the volume integrals of those monomials).
@@ -32,9 +33,9 @@ MassProperties computeMassProperties(const std::vector<QVector3D>& p,
 
   const size_t triCount = p.size() / 3;
   for (size_t t = 0; t < triCount; ++t) {
-    const QVector3D& v0 = p[3 * t + 0];
-    const QVector3D& v1 = p[3 * t + 1];
-    const QVector3D& v2 = p[3 * t + 2];
+    const QVector3D &v0 = p[3 * t + 0];
+    const QVector3D &v1 = p[3 * t + 1];
+    const QVector3D &v2 = p[3 * t + 2];
 
     const float x0 = v0.x(), y0 = v0.y(), z0 = v0.z();
     const float x1 = v1.x(), y1 = v1.y(), z1 = v1.z();
@@ -80,10 +81,12 @@ MassProperties computeMassProperties(const std::vector<QVector3D>& p,
   // integ[0] is the signed volume (density 1). Inside-out winding flips
   // its sign and that of every other integral; correct by negating all.
   if (integ[0] < 0.0) {
-    for (double& v : integ) v = -v;
+    for (double &v : integ)
+      v = -v;
   }
   const double volume = integ[0];
-  if (volume < 1e-12) return out;  // degenerate / non-closed
+  if (volume < 1e-12)
+    return out; // degenerate / non-closed
 
   // Center of mass (density-independent).
   const double cx = integ[1] / volume;
@@ -124,4 +127,4 @@ MassProperties computeMassProperties(const std::vector<QVector3D>& p,
   return out;
 }
 
-}  // namespace vsim
+} // namespace vsim

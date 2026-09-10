@@ -25,8 +25,8 @@ public slots:
   void setPaused(bool paused);
 
   // ---- Settings ▸ Logging & Recording --------------------------------------
-  void setMaxLines(int maxLines);    // ring-buffer cap
-  void setTimestampMode(int mode);   // Local / UTC / Elapsed (T+)
+  void setMaxLines(int maxLines);  // ring-buffer cap
+  void setTimestampMode(int mode); // Local / UTC / Elapsed (T+)
   // Dump the full session buffer (unfiltered) to a text file. Returns true on
   // success; used by MainWindow's "export on disconnect".
   bool exportToFile(const QString &path) const;
@@ -41,17 +41,17 @@ private:
     QString msg;
   };
 
-  QString stampFor(const Entry &e) const;      // timestamp prefix in the cur mode
-  QString format(const Entry &e) const;        // "[stamp] msg"
-  void rebuildView();                          // re-render m_text from m_entries
+  QString stampFor(const Entry &e) const; // timestamp prefix in the cur mode
+  QString format(const Entry &e) const;   // "[stamp] msg"
+  void rebuildView();                     // re-render m_text from m_entries
 
   QPlainTextEdit *m_text;
   QCheckBox *m_autoScroll;
   QPushButton *m_pauseBtn = nullptr;
   bool m_paused = false;
 
-  std::deque<Entry> m_entries;  // full ring buffer (capped at m_maxLines)
+  std::deque<Entry> m_entries; // full ring buffer (capped at m_maxLines)
   int m_maxLines = 2000;
   int m_tsMode = Local;
-  QElapsedTimer m_clock;  // for Elapsed (T+) timestamps; started at construction
+  QElapsedTimer m_clock; // for Elapsed (T+) timestamps; started at construction
 };

@@ -18,7 +18,8 @@
 static int fails = 0;
 static void check(const char *what, int ok) {
   printf("  [%s] %s\n", ok ? "PASS" : "FAIL", what);
-  if (!ok) fails++;
+  if (!ok)
+    fails++;
 }
 
 int main(void) {
@@ -46,15 +47,18 @@ int main(void) {
                            .duration_s = 0.5f};
     sysid_start(&req);
     check("active after start", sysid_active() != 0);
-    check("inject mode == RATE_SP", sysid_inject_mode() == SYSID_INJECT_RATE_SP);
+    check("inject mode == RATE_SP",
+          sysid_inject_mode() == SYSID_INJECT_RATE_SP);
 
     float maxabs = 0, off_axis = 0;
     int nonzero = 0;
     for (int i = 0; i < 200; i++) { /* 0.2s of a 0.5s run */
       float inj[3] = {0, 0, 0};
       sysid_step(0.001f, zero3, zero3, inj);
-      if (fabsf(inj[1]) > maxabs) maxabs = fabsf(inj[1]);
-      if (inj[1] != 0) nonzero++;
+      if (fabsf(inj[1]) > maxabs)
+        maxabs = fabsf(inj[1]);
+      if (inj[1] != 0)
+        nonzero++;
       off_axis += fabsf(inj[0]) + fabsf(inj[2]);
     }
     check("excited axis perturbed", nonzero > 0);
@@ -74,7 +78,8 @@ int main(void) {
                            .duration_s = 0.1f};
     sysid_start(&req);
     float inj[3];
-    for (int i = 0; i < 150; i++) sysid_step(0.001f, zero3, zero3, inj); /* 0.15s */
+    for (int i = 0; i < 150; i++)
+      sysid_step(0.001f, zero3, zero3, inj); /* 0.15s */
     check("inactive past duration", sysid_active() == 0);
   }
 

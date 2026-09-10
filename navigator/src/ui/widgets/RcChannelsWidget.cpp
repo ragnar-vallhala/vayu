@@ -29,8 +29,8 @@ QWidget *field(const QString &k, const QString &v, const QString &color = {}) {
   l->setContentsMargins(0, 0, 0, 0);
   l->setSpacing(1);
   auto *kl = new QLabel(k);
-  kl->setStyleSheet("font-size:10px; color:" +
-                    QString(Theme::hex(Theme::kTextDim)) + ";");
+  kl->setStyleSheet(
+      "font-size:10px; color:" + QString(Theme::hex(Theme::kTextDim)) + ";");
   auto *vl = new QLabel(v);
   vl->setStyleSheet("font-size:12px; font-weight:600;" +
                     (color.isEmpty() ? QString() : "color:" + color + ";"));
@@ -38,7 +38,7 @@ QWidget *field(const QString &k, const QString &v, const QString &color = {}) {
   l->addWidget(vl);
   return w;
 }
-}  // namespace
+} // namespace
 
 RcChannelsWidget::RcChannelsWidget(QWidget *parent) : QWidget(parent) {
   setWindowTitle("RC Channels Monitor");
@@ -80,8 +80,10 @@ RcChannelsWidget::RcChannelsWidget(QWidget *parent) : QWidget(parent) {
   rssi->setTextVisible(false);
   rssi->setFixedHeight(8);
   rssi->setStyleSheet(
-      "QProgressBar{background:#13141B;border:1px solid #2A3347;border-radius:4px;}"
-      "QProgressBar::chunk{border-radius:3px;background:qlineargradient(x1:0,y1:0,"
+      "QProgressBar{background:#13141B;border:1px solid "
+      "#2A3347;border-radius:4px;}"
+      "QProgressBar::chunk{border-radius:3px;background:qlineargradient(x1:0,"
+      "y1:0,"
       "x2:1,y2:0,stop:0 #E06C75,stop:0.55 #D19A66,stop:1 #98C379);}");
   lv->addWidget(rssi);
   lv->addStretch();
@@ -94,7 +96,8 @@ RcChannelsWidget::RcChannelsWidget(QWidget *parent) : QWidget(parent) {
   m_aux[1] = new AuxSwitch("AUX2 · Arm", {"SAFE", "ARM"}, this);
   m_aux[2] = new AuxSwitch("AUX3 · Beeper", {"OFF", "ON"}, this);
   m_aux[3] = new AuxSwitch("AUX4 · Turtle", {"OFF", "ON"}, this);
-  for (auto *a : m_aux) swv->addWidget(a);
+  for (auto *a : m_aux)
+    swv->addWidget(a);
   swv->addStretch();
   rcTop->addWidget(sw);
 
@@ -124,7 +127,8 @@ RcChannelsWidget::RcChannelsWidget(QWidget *parent) : QWidget(parent) {
     auto *val = new QLabel("—", this);
     val->setFixedWidth(48);
     val->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-    val->setStyleSheet("font-family:'DejaVu Sans Mono',monospace;font-size:11px;");
+    val->setStyleSheet(
+        "font-family:'DejaVu Sans Mono',monospace;font-size:11px;");
     auto *rowW = new QWidget(this);
     auto *rl = new QHBoxLayout(rowW);
     rl->setContentsMargins(0, 0, 0, 0);
@@ -147,7 +151,7 @@ RcChannelsWidget::RcChannelsWidget(QWidget *parent) : QWidget(parent) {
   for (int i = 0; i < 8; ++i) {
     m_history->setColor(i, QColor(kChans[i].color));
     if (i >= 4)
-      m_history->setPenStyle(i, Qt::DotLine);  // aux channels dotted
+      m_history->setPenStyle(i, Qt::DotLine); // aux channels dotted
   }
   hl->addWidget(m_history);
   // Stretch 2 vs the top row's 1 lands the history graph just under half the
@@ -157,7 +161,8 @@ RcChannelsWidget::RcChannelsWidget(QWidget *parent) : QWidget(parent) {
 
 void RcChannelsWidget::updateChannels(const RcData &data) {
   auto norm = [](int us) -> float {
-    if (us <= 0) return NAN;  // failsafe / no data -> N/A
+    if (us <= 0)
+      return NAN; // failsafe / no data -> N/A
     return std::clamp((us - 1500) / 500.0f, -1.0f, 1.0f);
   };
   const int roll = data.channels[0], pitch = data.channels[1];

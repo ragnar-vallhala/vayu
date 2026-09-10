@@ -17,7 +17,7 @@ typedef struct {
   hal_uart_t uart;
   uint16_t timeout;
   byte buffers[2][CHANNEL_TX_BUF_SIZE]; // Ping-Pong buffers
-  uint16_t buf_lens[2];          // Length of data in each buffer
+  uint16_t buf_lens[2];                 // Length of data in each buffer
   uint8_t active_idx;            // Buffer currently being filled (0 or 1)
   volatile uint8_t busy;         // 1 if a DMA transfer is in progress
   uint8_t is_interrupt_attached; // 1 if a attached
@@ -110,7 +110,7 @@ static err_t get_handler_serial(channel_t *handler, void *args,
     }
     hal_irq_t usart_irq = s_args->uart == HAL_UART_1   ? USART1_IRQn
                           : s_args->uart == HAL_UART_6 ? USART6_IRQn
-                                                  : USART2_IRQn;
+                                                       : USART2_IRQn;
     hal_interrupt_attach_callback(usart_irq, callback);
     hal_uart_enable_interrupt(s_args->uart, 1, 0);
     _serial_handlers[slot].is_interrupt_attached = 1;
@@ -186,7 +186,7 @@ static err_t _write_channel(channel_t channel, byte *data, uint16_t length,
     if (s_handle->buf_lens[idx] + length > cap) {
       EXIT_CRITICAL();
       _tx_overflow_count++; // COMM-CH-002
-      return ERROR; // Buffer full, dropping data
+      return ERROR;         // Buffer full, dropping data
     }
 
     // Copy data to active buffer
@@ -342,7 +342,7 @@ err_t del_handler(channel_t *handler) {
       if (s_handle->is_interrupt_attached) {
         hal_irq_t usart_irq = s_handle->uart == HAL_UART_1   ? USART1_IRQn
                               : s_handle->uart == HAL_UART_6 ? USART6_IRQn
-                                                        : USART2_IRQn;
+                                                             : USART2_IRQn;
         if (hal_interrupt_disable(usart_irq) == 1)
           return USAGE;
         hal_interrupt_detach_callback(usart_irq);

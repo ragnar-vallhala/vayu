@@ -35,7 +35,7 @@ private slots:
 
 private:
   RealTimeGraph *m_qualityGraph = nullptr; // 1 series: quality %
-  RealTimeGraph *m_speedGraph = nullptr;    // series 0 = down, 1 = up (KB/s)
+  RealTimeGraph *m_speedGraph = nullptr;   // series 0 = down, 1 = up (KB/s)
   QLabel *m_qualityLabel = nullptr;
   QLabel *m_downLabel = nullptr;
   QLabel *m_upLabel = nullptr;

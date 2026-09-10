@@ -1,6 +1,6 @@
 #include "sensor/imu_buffer.h"
 #include "comm/perf_telemetry.h" /* perf_fifo_fill_row + FIFO ids */
-#include "ipc.h"            /* CTRL-RATE-101: control-queue notify semaphore */
+#include "ipc.h" /* CTRL-RATE-101: control-queue notify semaphore */
 #include "sensor/bmx160.h"
 #include "structure.h"
 
@@ -19,6 +19,7 @@ static SemaphoreHandle_t _attitude_control_sema = NULL;
 static SemaphoreHandle_t _imu_attitude_sema = NULL;
 
 #define IMU_BUFFER_INTERNAL_CAPACITY (IMU_BUFFER_SIZE + 1)
+#define IMU_TELEMETRY_INTERNAL_CAPACITY (IMU_TELEMETRY_BUFFER_SIZE + 1)
 /* Need 2 usable slots. spsc_init() costs one slot to the ring's empty marker
  * (usable = capacity-1) and, because imu_calibration_telemetry_t is 21 B (not a
  * power of two), another to buffer-start alignment (capacity-1 again when the
@@ -27,12 +28,15 @@ static SemaphoreHandle_t _imu_attitude_sema = NULL;
  * a dead queue and CALIBRATION_STATUS never goes out. */
 #define IMU_CALIBRATION_TELEMETRY_CAPACITY 4
 #define EST_PERF_TELEMETRY_CAPACITY 4
-static bmx160_all_reading_t _imu_telemetry_buffer[IMU_BUFFER_INTERNAL_CAPACITY];
-static bmx160_all_reading_t _imu_calibration_buffer[IMU_BUFFER_INTERNAL_CAPACITY];
+static bmx160_all_reading_t
+    _imu_telemetry_buffer[IMU_TELEMETRY_INTERNAL_CAPACITY];
+static bmx160_all_reading_t
+    _imu_calibration_buffer[IMU_TELEMETRY_INTERNAL_CAPACITY];
 static bmx160_all_reading_t _imu_control_buffer[IMU_BUFFER_INTERNAL_CAPACITY];
-static attitude_t _attitude_telemetry_buffer[IMU_BUFFER_INTERNAL_CAPACITY];
+static attitude_t _attitude_telemetry_buffer[IMU_TELEMETRY_INTERNAL_CAPACITY];
 static attitude_t _attitude_control_buffer[IMU_BUFFER_INTERNAL_CAPACITY];
-static imu_calibration_telemetry_t _imu_calibration_telemetry_buffer[IMU_CALIBRATION_TELEMETRY_CAPACITY];
+static imu_calibration_telemetry_t
+    _imu_calibration_telemetry_buffer[IMU_CALIBRATION_TELEMETRY_CAPACITY];
 static bmx160_all_reading_t _imu_attitude_buffer[IMU_BUFFER_INTERNAL_CAPACITY];
 static spsc_fifo_t _imu_telemetry_queue;
 static spsc_fifo_t _imu_calibration_queue;
@@ -67,11 +71,11 @@ static SemaphoreHandle_t _vert_input_sema = NULL;
 /** @implements SNS-BUF-001 */
 void imu_buffer_init(void) {
   spsc_init(&_imu_telemetry_queue, _imu_telemetry_buffer,
-            IMU_BUFFER_INTERNAL_CAPACITY, sizeof(bmx160_all_reading_t));
+            IMU_TELEMETRY_INTERNAL_CAPACITY, sizeof(bmx160_all_reading_t));
   spsc_set_policy(&_imu_telemetry_queue, SPSC_POLICY_OVERWRITE);
 
   spsc_init(&_imu_calibration_queue, _imu_calibration_buffer,
-            IMU_BUFFER_INTERNAL_CAPACITY, sizeof(bmx160_all_reading_t));
+            IMU_TELEMETRY_INTERNAL_CAPACITY, sizeof(bmx160_all_reading_t));
   spsc_set_policy(&_imu_calibration_queue, SPSC_POLICY_OVERWRITE);
 
   spsc_init(&_imu_control_queue, _imu_control_buffer,
@@ -83,15 +87,16 @@ void imu_buffer_init(void) {
   spsc_set_policy(&_imu_attitude_queue, SPSC_POLICY_OVERWRITE);
 
   spsc_init(&_attitude_telemetry_queue, _attitude_telemetry_buffer,
-            IMU_BUFFER_INTERNAL_CAPACITY, sizeof(attitude_t));
+            IMU_TELEMETRY_INTERNAL_CAPACITY, sizeof(attitude_t));
   spsc_set_policy(&_attitude_telemetry_queue, SPSC_POLICY_OVERWRITE);
 
   spsc_init(&_attitude_control_queue, _attitude_control_buffer,
             IMU_BUFFER_INTERNAL_CAPACITY, sizeof(attitude_t));
   spsc_set_policy(&_attitude_control_queue, SPSC_POLICY_OVERWRITE);
 
-  spsc_init(&_imu_calibration_telemetry_queue, _imu_calibration_telemetry_buffer,
-            IMU_CALIBRATION_TELEMETRY_CAPACITY, sizeof(imu_calibration_telemetry_t));
+  spsc_init(
+      &_imu_calibration_telemetry_queue, _imu_calibration_telemetry_buffer,
+      IMU_CALIBRATION_TELEMETRY_CAPACITY, sizeof(imu_calibration_telemetry_t));
   spsc_set_policy(&_imu_calibration_telemetry_queue, SPSC_POLICY_OVERWRITE);
 
   spsc_init(&_est_perf_queue, _est_perf_buffer, EST_PERF_TELEMETRY_CAPACITY,
@@ -132,7 +137,6 @@ int imu_buffer_perf_fifos(perf_fifo_row_t *rows, int max) {
     perf_fifo_fill_row(&rows[n++], fifos[i].id, fifos[i].f);
   return n;
 }
-
 
 /** @noreq Thin SPSC ring accessor. */
 bool imu_queue_telemetry_push(const bmx160_all_reading_t *sample) {
@@ -285,15 +289,18 @@ bool vert_input_queue_wait(uint32_t ticks_to_wait) {
 }
 
 /** @noreq Thin SPSC ring accessor. */
-bool imu_queue_calibration_telemetry_push(const imu_calibration_telemetry_t *sample) {
+bool imu_queue_calibration_telemetry_push(
+    const imu_calibration_telemetry_t *sample) {
   return spsc_write(&_imu_calibration_telemetry_queue, sample, 1);
 }
 /** @noreq Thin SPSC ring accessor. */
-bool imu_queue_calibration_telemetry_pop(imu_calibration_telemetry_t *out_sample) {
+bool imu_queue_calibration_telemetry_pop(
+    imu_calibration_telemetry_t *out_sample) {
   return spsc_read(&_imu_calibration_telemetry_queue, out_sample, 1);
 }
 /** @noreq Thin SPSC ring accessor. */
-bool imu_queue_calibration_telemetry_peek(imu_calibration_telemetry_t *out_sample) {
+bool imu_queue_calibration_telemetry_peek(
+    imu_calibration_telemetry_t *out_sample) {
   return spsc_peek(&_imu_calibration_telemetry_queue, out_sample, 1);
 }
 

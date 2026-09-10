@@ -9,7 +9,7 @@
 namespace {
 constexpr int kOffRole = Qt::UserRole;
 constexpr int kLenRole = Qt::UserRole + 1;
-}
+} // namespace
 
 PacketDetailWidget::PacketDetailWidget(QWidget *parent) : QWidget(parent) {
   setupUi();

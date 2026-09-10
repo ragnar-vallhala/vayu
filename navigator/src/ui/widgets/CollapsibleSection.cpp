@@ -5,13 +5,13 @@
 #include <QToolButton>
 #include <QVBoxLayout>
 
-CollapsibleSection::CollapsibleSection(const QString& title, QWidget* parent,
+CollapsibleSection::CollapsibleSection(const QString &title, QWidget *parent,
                                        bool expanded)
     : QWidget(parent) {
   // Hug content vertically so stacked sections don't grow to fill slack.
   setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
 
-  auto* root = new QVBoxLayout(this);
+  auto *root = new QVBoxLayout(this);
   root->setContentsMargins(0, 0, 0, 0);
   root->setSpacing(0);
 
@@ -44,7 +44,7 @@ CollapsibleSection::CollapsibleSection(const QString& title, QWidget* parent,
   });
 }
 
-void CollapsibleSection::setContentWidget(QWidget* content) {
+void CollapsibleSection::setContentWidget(QWidget *content) {
   content->setParent(body_);
   bodyLayout_->addWidget(content);
 }

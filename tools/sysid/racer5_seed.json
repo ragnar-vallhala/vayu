@@ -1,0 +1,44 @@
+{
+  "_comment": "STARTING gain seed for the 5in racer (650 g, 220 mm, 2400KV/3S, 5x4.3x3). NOT a tune -- a defensible starting point pending bench sysid. Derived by converting ArduPilot's multirotor defaults (AC_ATC_MULTI_RATE_RP_P/I/D 0.135/0.135/0.0036) into vayu units: AP takes rate error in rad/s and emits normalised torque, vayu takes deg/s and emits per-motor duty differential directly, so vayu_gain = ap_gain * cos(45deg) * pi/180 = ap_gain * 0.012341. ROLL AND PITCH ARE EQUAL on purpose: the firmware defaults carry an asymmetry (roll ki 0.00811 vs pitch 0.003) inherited from the 10in S500, whose measured pitch K was 2.45x its roll. This frame has no such measured asymmetry, so starting it symmetric is the honest default. Note AP's defaults target a ~450-class quad; this frame's control effectiveness is estimated ~8.6x higher, which argues these are an UPPER bound. Apply with tools/sysid/apply_tune.py; NOT persisted on the FC, re-apply after each boot. MOTOR GEOMETRY IS DELIBERATELY ABSENT AND MUST STAY SO: verified on the bench 2026-09-05 that the firmware's DEFAULT yaw mix is correct for this build. Right yaw stick raises M1+M3, M1 is CCW (so M3 is too, being its diagonal), and a CCW prop reacts CW on the frame -> the craft yaws right, matching the stick. The S500 tune files carry spin:[-1,1,-1,1] marked REQUIRED, but that note predates the yaw-sign fix that later landed in the firmware default; pushing it now would REINTRODUCE the yaw positive feedback it once cured.",
+  "captured": "2026-09-05",
+  "airframe": "5in racer, 650 g AUW, 220 mm wheelbase, 2400KV on 3S, 5x4.3x3",
+  "rate_pid": {
+    "_comment": "controller=1 (rate). ArduPilot defaults converted; symmetric.",
+    "roll": {
+      "kp": 0.001666,
+      "ki": 0.001666,
+      "kd": 4.443e-05,
+      "kff": 0.0,
+      "status": "AP-default equivalent, unflown"
+    },
+    "pitch": {
+      "kp": 0.001666,
+      "ki": 0.001666,
+      "kd": 4.443e-05,
+      "kff": 0.0,
+      "status": "AP-default equivalent, unflown"
+    },
+    "yaw": {
+      "kp": 0.002221,
+      "ki": 0.001111,
+      "kd": 0.0,
+      "kff": 0.0,
+      "status": "AP-default equivalent, unflown"
+    }
+  },
+  "angle_pid": {
+    "_comment": "controller=0 (angle). Left at the firmware default 3.0 -- AP's angle P is a different formulation and does not convert cleanly. Reduce it FIRST if the craft oscillates in angle mode; the S500 needed 4.14 -> 1.75.",
+    "roll": {
+      "kp": 3.0,
+      "ki": 0.0,
+      "kd": 0.0,
+      "kff": 0.0
+    },
+    "pitch": {
+      "kp": 3.0,
+      "ki": 0.0,
+      "kd": 0.0,
+      "kff": 0.0
+    }
+  }
+}

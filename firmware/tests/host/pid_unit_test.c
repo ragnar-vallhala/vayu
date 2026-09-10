@@ -17,7 +17,8 @@
 static int fails = 0;
 static void check(const char *what, int ok) {
   printf("  [%s] %s\n", ok ? "PASS" : "FAIL", what);
-  if (!ok) fails++;
+  if (!ok)
+    fails++;
 }
 static int near(float a, float b, float tol) { return fabsf(a - b) < tol; }
 
@@ -43,9 +44,11 @@ int main(void) {
     struct PID p;
     v_pid_init(&p, 0, 1.0f, 0, 0, /*i_max*/ 5.0f, 1e6f, 0, -1e6f, 1e6f);
     float u = 0;
-    for (int i = 0; i < 3; i++) u = v_pid_update(&p, 1.0f, 0.0f, 0, 1.0f);
+    for (int i = 0; i < 3; i++)
+      u = v_pid_update(&p, 1.0f, 0.0f, 0, 1.0f);
     check("I = Ki*error*dt*3 = 3", near(u, 3.0f, 1e-4f));
-    for (int i = 0; i < 100; i++) u = v_pid_update(&p, 1.0f, 0.0f, 0, 1.0f);
+    for (int i = 0; i < 100; i++)
+      u = v_pid_update(&p, 1.0f, 0.0f, 0, 1.0f);
     check("I clamps at i_max = 5", near(u, 5.0f, 1e-4f));
   }
 
@@ -55,7 +58,8 @@ int main(void) {
     struct PID p;
     v_pid_init(&p, 1.0f, 1.0f, 0, 0, /*i_max*/ 1e6f, 1e6f, 0,
                /*out_min*/ -1.0f, /*out_max*/ 1.0f);
-    for (int i = 0; i < 50; i++) v_pid_update(&p, 5.0f, 0.0f, 0, 1.0f);
+    for (int i = 0; i < 50; i++)
+      v_pid_update(&p, 5.0f, 0.0f, 0, 1.0f);
     /* P=5 alone exceeds out_max=1, so output_pi is always saturated and the
      * integrator must never have accumulated. */
     check("integral stays 0 while saturated", near(p.integral, 0.0f, 1e-6f));
@@ -66,7 +70,7 @@ int main(void) {
   {
     struct PID p;
     mk(&p, 0, 0, 1.0f, 0);
-    v_pid_update(&p, 0.0f, 0.0f, 0, 0.1f);        /* init: prev_meas=0 */
+    v_pid_update(&p, 0.0f, 0.0f, 0, 0.1f);            /* init: prev_meas=0 */
     float u = v_pid_update(&p, 10.0f, 0.0f, 0, 0.1f); /* sp jumps, meas same */
     check("D == 0 when only sp changes", near(u, 0.0f, 1e-4f));
   }
@@ -76,7 +80,7 @@ int main(void) {
   {
     struct PID p;
     mk(&p, 0, 0, 1.0f, 0);
-    v_pid_update(&p, 0.0f, 0.0f, 0, 0.1f);         /* init prev_meas=0 */
+    v_pid_update(&p, 0.0f, 0.0f, 0, 0.1f);           /* init prev_meas=0 */
     float u = v_pid_update(&p, 0.0f, 1.0f, 0, 0.1f); /* meas 0->1 over 0.1s */
     check("D == -Kd*1/0.1 == -10", near(u, -10.0f, 1e-3f));
   }
@@ -86,8 +90,8 @@ int main(void) {
   {
     struct PID p;
     v_pid_init(&p, 0, 0, 1.0f, 0, 1e6f, 1e6f, /*d_lpf_rc*/ 0.1f, -1e6f, 1e6f);
-    v_pid_update(&p, 0.0f, 0.0f, 0, 0.1f);          /* init, d_filtered=0 */
-    float u = v_pid_update(&p, 0.0f, 1.0f, 0, 0.1f);  /* D_raw=-10, alpha=0.5 */
+    v_pid_update(&p, 0.0f, 0.0f, 0, 0.1f);           /* init, d_filtered=0 */
+    float u = v_pid_update(&p, 0.0f, 1.0f, 0, 0.1f); /* D_raw=-10, alpha=0.5 */
     check("filtered D == 0.5*(-10) == -5", near(u, -5.0f, 1e-3f));
   }
 
@@ -95,9 +99,11 @@ int main(void) {
   printf("Test 7: output saturation\n");
   {
     struct PID p;
-    v_pid_init(&p, 100.0f, 0, 0, 0, 1e6f, 1e6f, 0, /*min*/ -10.0f, /*max*/ 10.0f);
-    float hi = v_pid_update(&p, 1.0f, 0.0f, 0, 0.01f);  /* P=100 -> clamp 10 */
-    float lo = v_pid_update(&p, -1.0f, 0.0f, 0, 0.01f); /* P=-100 -> clamp -10 */
+    v_pid_init(&p, 100.0f, 0, 0, 0, 1e6f, 1e6f, 0, /*min*/ -10.0f,
+               /*max*/ 10.0f);
+    float hi = v_pid_update(&p, 1.0f, 0.0f, 0, 0.01f); /* P=100 -> clamp 10 */
+    float lo =
+        v_pid_update(&p, -1.0f, 0.0f, 0, 0.01f); /* P=-100 -> clamp -10 */
     check("clamps to out_max", near(hi, 10.0f, 1e-4f));
     check("clamps to out_min", near(lo, -10.0f, 1e-4f));
   }
@@ -116,8 +122,10 @@ int main(void) {
   {
     struct PID p;
     mk(&p, 1.0f, 1.0f, 1.0f, 0);
-    check("dt<=1e-6 returns 0", near(v_pid_update(&p, 1, 0, 0, 0.0f), 0.0f, 1e-9f));
-    for (int i = 0; i < 5; i++) v_pid_update(&p, 1.0f, 0.0f, 0, 0.1f);
+    check("dt<=1e-6 returns 0",
+          near(v_pid_update(&p, 1, 0, 0, 0.0f), 0.0f, 1e-9f));
+    for (int i = 0; i < 5; i++)
+      v_pid_update(&p, 1.0f, 0.0f, 0, 0.1f);
     v_pid_reset(&p);
     check("reset zeroes integral", near(p.integral, 0.0f, 1e-9f));
     check("reset clears initialized", p.initialized == false);

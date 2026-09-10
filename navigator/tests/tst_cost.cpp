@@ -11,7 +11,7 @@ class TstCost : public QObject {
   Q_OBJECT
 
   static Sample lvl(double sp, double cur, double out) {
-    Sample s;  // roll axis carries the trace; others left at 0
+    Sample s; // roll axis carries the trace; others left at 0
     s.rollAngleSp = sp;
     s.rollAngleCurr = cur;
     s.rollOut = out;
@@ -35,7 +35,7 @@ void TstCost::chatterIsMeanAbsSwing() {
 }
 
 void TstCost::tooFewSamplesIsNoData() {
-  std::vector<Sample> s(4, lvl(0, 0, 0));  // < 5
+  std::vector<Sample> s(4, lvl(0, 0, 0)); // < 5
   QVERIFY(!axisCost(s, 0).has_value());
 }
 
@@ -45,17 +45,16 @@ void TstCost::perfectTrackingIsCheap() {
   for (int i = 0; i < 20; ++i)
     s.push_back(lvl(10.0, 10.0, 0.5));
   auto c = axisCost(s, 0);
-  QVERIFY(c.has_value());
-  QVERIFY(*c < 0.01);
+  QVERIFY(c.has_value() && *c < 0.01);
 }
 
 void TstCost::divergenceIsBig() {
   std::vector<Sample> s;
   for (int i = 0; i < 10; ++i)
-    s.push_back(lvl(0.0, 95.0, 0.0));  // |angle| > 80
+    s.push_back(lvl(0.0, 95.0, 0.0)); // |angle| > 80
   auto c = axisCost(s, 0);
   QVERIFY(c.has_value());
-  QCOMPARE(*c, kBig);
+  QCOMPARE(c.value_or(0.0), kBig);
 }
 
 void TstCost::chatterRaisesCost() {
@@ -63,12 +62,11 @@ void TstCost::chatterRaisesCost() {
   std::vector<Sample> calm, buzz;
   for (int i = 0; i < 20; ++i) {
     calm.push_back(lvl(5.0, 5.0, 0.0));
-    buzz.push_back(lvl(5.0, 5.0, (i % 2) ? 1.0 : -1.0));  // big swings
+    buzz.push_back(lvl(5.0, 5.0, (i % 2) ? 1.0 : -1.0)); // big swings
   }
   auto a = axisCost(calm, 0);
   auto b = axisCost(buzz, 0);
-  QVERIFY(a && b);
-  QVERIFY(*b > *a);
+  QVERIFY(a && b && *b > *a);
 }
 
 void TstCost::yawRateScores() {
@@ -76,18 +74,20 @@ void TstCost::yawRateScores() {
   for (int i = 0; i < 20; ++i) {
     Sample k;
     k.yawRateSp = 100.0;
-    k.yawRateCurr = 100.0;  // perfect rate tracking
+    k.yawRateCurr = 100.0; // perfect rate tracking
     k.yawOut = 0.2;
     s.push_back(k);
   }
   auto c = yawRateCost(s);
-  QVERIFY(c.has_value());
-  QVERIFY(*c < 0.01);
+  QVERIFY(c.has_value() && *c < 0.01);
 
   // Saturation -> BIG.
   std::vector<Sample> sat(10);
-  for (auto &k : sat) k.yawRateCurr = 2500.0;
-  QCOMPARE(*yawRateCost(sat), kBig);
+  for (auto &k : sat)
+    k.yawRateCurr = 2500.0;
+  const auto satCost = yawRateCost(sat);
+  QVERIFY(satCost.has_value());
+  QCOMPARE(satCost.value_or(0.0), kBig);
 }
 
 QTEST_APPLESS_MAIN(TstCost)

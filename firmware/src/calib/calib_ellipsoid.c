@@ -84,9 +84,15 @@ static void jacobi_eig3(const float Ain[9], float w[3], float V[9]) {
   float a[9];
   for (int i = 0; i < 9; i++)
     a[i] = Ain[i];
-  V[0] = 1; V[1] = 0; V[2] = 0;
-  V[3] = 0; V[4] = 1; V[5] = 0;
-  V[6] = 0; V[7] = 0; V[8] = 1;
+  V[0] = 1;
+  V[1] = 0;
+  V[2] = 0;
+  V[3] = 0;
+  V[4] = 1;
+  V[5] = 0;
+  V[6] = 0;
+  V[7] = 0;
+  V[8] = 1;
   const int pq[3][2] = {{0, 1}, {0, 2}, {1, 2}};
   for (int sweep = 0; sweep < 50; sweep++) {
     if (FABS_F(a[1]) + FABS_F(a[2]) + FABS_F(a[5]) < 1e-12f)
@@ -157,7 +163,8 @@ static int inv3x3(const float m[9], float out[9]) {
  * positive-definite (degenerate / planar data).
  *
  * @implements SNS-CAL-101, SNS-CAL-103 */
-int calib_fit_ellipsoid(float S[81], float t[9], float offset[3], float soft[9]) {
+int calib_fit_ellipsoid(float S[81], float t[9], float offset[3],
+                        float soft[9]) {
   float p[9];
   if (solve9x9(S, t, p) != 0)
     return -1;
@@ -201,7 +208,8 @@ int calib_fit_sixpoint(const float (*pts)[3], int npts, float g,
    * cosine between the pose direction and the axis. A missing side leaves a low
    * best-cosine (caught by COS_MIN); classify by direction so pose order and the
    * exact hold angle don't matter. */
-  const float COS_MIN = 0.80f; /* ~37deg: a genuine face hold clears this easily */
+  const float COS_MIN =
+      0.80f; /* ~37deg: a genuine face hold clears this easily */
   int sel[3][2];
   float bestcos[3][2];
   for (int a = 0; a < 3; a++)
@@ -210,14 +218,21 @@ int calib_fit_sixpoint(const float (*pts)[3], int npts, float g,
       bestcos[a][s] = COS_MIN;
     }
   for (int p = 0; p < npts; p++) {
-    float n2 = pts[p][0] * pts[p][0] + pts[p][1] * pts[p][1] + pts[p][2] * pts[p][2];
+    float n2 =
+        pts[p][0] * pts[p][0] + pts[p][1] * pts[p][1] + pts[p][2] * pts[p][2];
     if (n2 < 1e-6f)
       continue;
     float inv_n = 1.0f / SQRT_F(n2);
     for (int a = 0; a < 3; a++) {
       float c = pts[p][a] * inv_n; /* cosine with +a axis */
-      if (c > bestcos[a][0]) { bestcos[a][0] = c; sel[a][0] = p; }
-      if (-c > bestcos[a][1]) { bestcos[a][1] = -c; sel[a][1] = p; }
+      if (c > bestcos[a][0]) {
+        bestcos[a][0] = c;
+        sel[a][0] = p;
+      }
+      if (-c > bestcos[a][1]) {
+        bestcos[a][1] = -c;
+        sel[a][1] = p;
+      }
     }
   }
 

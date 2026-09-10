@@ -40,5 +40,5 @@ private:
   Palette m_palette;
   QString m_readout;
   bool m_readoutPinned = false;
-  bool m_hasData = false;  // false → empty track + "-" readout (no vehicle data)
+  bool m_hasData = false; // false → empty track + "-" readout (no vehicle data)
 };

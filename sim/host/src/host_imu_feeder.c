@@ -39,7 +39,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#include "task.h"  /* v_delay */
+#include "vaios.h" /* v_delay */
 #include "utils.h" /* v_get_ticks */
 
 /* vsim emits IMU at this rate (sim/vsim/src/main.cpp kImuHz). Each sample
@@ -188,9 +188,6 @@ static void *imu_feeder_thread(void *arg) {
 
   bmx160_all_reading_t sample;
 
-  uint32_t frames = 0;
-  uint32_t last_log_t = 0;
-
   /* IMU transport is FIFO-only as of the vsim_d split. Whether the
    * firmware is the standalone vayu_sitl binary or living inside
    * Navigator, samples arrive on /tmp/vsim_imu in the framed
@@ -248,22 +245,12 @@ static void *imu_feeder_thread(void *arg) {
     host_clock_advance_us((uint64_t)1000000 / SITL_IMU_FEED_HZ);
     {
       extern void increment_high_freq_timer(void);
-      static uint32_t hf_carry = 0; /* fractional-tick accumulator */
-      hf_carry += HIGH_FREQ_TIMER_FREQ;        /* HF ticks per second ... */
-      while (hf_carry >= SITL_IMU_FEED_HZ) {   /* ... emit per-sample share */
+      static uint32_t hf_carry = 0;          /* fractional-tick accumulator */
+      hf_carry += HIGH_FREQ_TIMER_FREQ;      /* HF ticks per second ... */
+      while (hf_carry >= SITL_IMU_FEED_HZ) { /* ... emit per-sample share */
         increment_high_freq_timer();
         hf_carry -= SITL_IMU_FEED_HZ;
       }
-    }
-
-    frames++;
-    uint32_t now = v_get_ticks();
-    if (now - last_log_t >= 1000) {
-      //  fprintf(stderr,
-      //         "host_imu_feeder: %u frames, last roll=%.2f pitch=%.2f
-      //         yaw=%.2f\n",
-      //        frames, (double)att.roll, (double)att.pitch, (double)att.yaw);
-      last_log_t = now;
     }
   }
 
@@ -301,9 +288,10 @@ int host_imu_feeder_pump(void) {
     return 0;
   int rc = read_framed_imu(s_step_imu_fd, &sample.converted);
   if (rc <= 0)
-    return 0;                       /* EOF / wire error */
+    return 0; /* EOF / wire error */
   cyc += (uint32_t)(SYS_CLOCK_FREQ / SITL_IMU_FEED_HZ);
-  sample.converted.timestamp = cyc; /* fixed-ODR sim stamp (drives estimator dt) */
+  sample.converted.timestamp =
+      cyc; /* fixed-ODR sim stamp (drives estimator dt) */
   imu_queue_control_push(&sample);
   imu_queue_telemetry_push(&sample);
   imu_queue_attitude_push(&sample);

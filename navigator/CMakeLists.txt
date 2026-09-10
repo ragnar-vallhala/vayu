@@ -378,5 +378,23 @@ option(NAVIGATOR_BUILD_TESTS "Build Navigator unit tests" ON)
 if(NAVIGATOR_BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)
+
+    # The SITL subtree is pulled in EXCLUDE_FROM_ALL above -- Navigator only
+    # needs its libraries -- but sim/host calls enable_testing() and registers
+    # its 21 cases regardless, so `ctest` here reported every one of them as
+    # "Not Run" against a binary nothing had built. Put just those binaries
+    # back into `all`; the SITL executables stay out, so an app build is
+    # unchanged. Matched by name rather than listed, so a new test in
+    # sim/host/CMakeLists.txt needs no edit here.
+    if(TARGET vayu_sitl_core)
+        get_property(_sitl_targets DIRECTORY "${VAYU_SITL_DIR}"
+                     PROPERTY BUILDSYSTEM_TARGETS)
+        foreach(_t IN LISTS _sitl_targets)
+            if(_t MATCHES "^test_")
+                set_property(TARGET ${_t} PROPERTY EXCLUDE_FROM_ALL OFF)
+            endif()
+        endforeach()
+    endif()
+
     message(STATUS "Navigator: unit tests ON (ctest)")
 endif()

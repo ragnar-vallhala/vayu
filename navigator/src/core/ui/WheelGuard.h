@@ -19,17 +19,18 @@
 namespace ui {
 
 class WheelGuard : public QObject {
- public:
+public:
   using QObject::QObject;
 
- protected:
-  bool eventFilter(QObject* obj, QEvent* ev) override {
-    if (ev->type() == QEvent::Wheel &&
-        (qobject_cast<QAbstractSpinBox*>(obj) || qobject_cast<QComboBox*>(obj))) {
+protected:
+  bool eventFilter(QObject *obj, QEvent *ev) override {
+    if (ev->type() == QEvent::Wheel && (qobject_cast<QAbstractSpinBox *>(obj) ||
+                                        qobject_cast<QComboBox *>(obj))) {
       // Forward the wheel to the parent so a wrapping QScrollArea keeps
       // scrolling, then consume it so the field's value is left untouched.
-      if (auto* w = qobject_cast<QWidget*>(obj)) {
-        if (QWidget* parent = w->parentWidget()) QApplication::sendEvent(parent, ev);
+      if (auto *w = qobject_cast<QWidget *>(obj)) {
+        if (QWidget *parent = w->parentWidget())
+          QApplication::sendEvent(parent, ev);
       }
       return true;
     }
@@ -37,4 +38,4 @@ class WheelGuard : public QObject {
   }
 };
 
-}  // namespace ui
+} // namespace ui

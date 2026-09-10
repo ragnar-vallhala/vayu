@@ -77,8 +77,8 @@ static void op_command_ack(const xfer_session_t *s, uint32_t acked_msgid,
   write_channel(g_telemetry_channel, frame, (uint16_t)n);
 }
 /** @noreq tx-op glue (build + write_channel) */
-static void op_info(const xfer_session_t *s, uint8_t result, uint16_t chunk_size,
-                    uint32_t total_size, uint32_t mtime) {
+static void op_info(const xfer_session_t *s, uint8_t result,
+                    uint16_t chunk_size, uint32_t total_size, uint32_t mtime) {
   uint8_t frame[NAVLINK_MAX_FRAME];
   size_t n = xfer_build_info(frame, s, result, chunk_size, total_size, mtime);
   write_channel(g_telemetry_channel, frame, (uint16_t)n);
@@ -92,8 +92,9 @@ static int op_data(const xfer_session_t *s, uint8_t flags, uint8_t len,
    * can't starve the download. NONE == accepted (will transmit). ERROR == even
    * the reserved headroom is momentarily full -> report it so the SM holds the
    * cursor and retries next tick (no silent chunk loss, self-paced to the link). */
-  return write_channel_xfer(g_telemetry_channel, frame, (uint16_t)n) == NONE ? 1
-                                                                             : 0;
+  return write_channel_xfer(g_telemetry_channel, frame, (uint16_t)n) == NONE
+             ? 1
+             : 0;
 }
 /** @noreq tx-op glue (build + write_channel) */
 static void op_ack(const xfer_session_t *s, uint8_t flags, uint8_t result,

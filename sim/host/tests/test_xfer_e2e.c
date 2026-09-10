@@ -24,18 +24,19 @@
 #include "navlink_msgs.h" /* decode the firmware-encoded frames */
 
 static int g_checks = 0, g_fails = 0;
-#define CHECK(cond, msg)                                                        \
-  do {                                                                          \
-    g_checks++;                                                                 \
-    if (cond)                                                                   \
-      printf("    ok   %s\n", (msg));                                           \
-    else {                                                                      \
-      g_fails++;                                                                \
-      printf("    FAIL %s   (%s:%d)\n", (msg), __FILE__, __LINE__);             \
-    }                                                                           \
+#define CHECK(cond, msg)                                                       \
+  do {                                                                         \
+    g_checks++;                                                                \
+    if (cond)                                                                  \
+      printf("    ok   %s\n", (msg));                                          \
+    else {                                                                     \
+      g_fails++;                                                               \
+      printf("    FAIL %s   (%s:%d)\n", (msg), __FILE__, __LINE__);            \
+    }                                                                          \
   } while (0)
 
-#define NAVLINK_HDR_LEN 10u /* sync,ver,len,incompat,seq,sysid,compid,msgid[3] */
+#define NAVLINK_HDR_LEN                                                        \
+  10u /* sync,ver,len,incompat,seq,sysid,compid,msgid[3] */
 
 /* ---- RAM provider (proves the substrate generalises beyond SD) ----------- */
 #define RAM_CAP 4096u

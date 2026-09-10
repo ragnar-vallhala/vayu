@@ -34,8 +34,8 @@ public:
   // On a conflict, last-bound wins: the command that previously held `seq` is
   // unbound (its override becomes an explicit empty), and displaced() fires.
   void setOverride(const QString &id, const QKeySequence &seq);
-  void clearOverride(const QString &id);  // -> back to default
-  void resetAll();                        // drop every override
+  void clearOverride(const QString &id); // -> back to default
+  void resetAll();                       // drop every override
 
   // The id currently bound to `seq` (other than `exceptId`), or empty string.
   QString conflict(const QKeySequence &seq, const QString &exceptId) const;

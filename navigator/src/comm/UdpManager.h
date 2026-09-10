@@ -42,7 +42,8 @@ private slots:
 private:
   QUdpSocket *m_sock = nullptr;
   quint16 m_port = 0;
-  QHostAddress m_peer;       // bridge address, learned from received telemetry
+  QHostAddress m_peer; // bridge address, learned from received telemetry
   bool m_havePeer = false;
-  QTimer *m_hello = nullptr;  // periodic re-announce so the bridge keeps unicasting
+  QTimer *m_hello =
+      nullptr; // periodic re-announce so the bridge keeps unicasting
 };

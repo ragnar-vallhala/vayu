@@ -19,7 +19,7 @@
 // live and new packet types replay for free.
 namespace RecordFormat {
 
-inline constexpr quint32 kMagic = 0x56524543u;  // "VREC"
+inline constexpr quint32 kMagic = 0x56524543u; // "VREC"
 inline constexpr quint32 kVersion = 1u;
 inline constexpr QDataStream::ByteOrder kByteOrder = QDataStream::LittleEndian;
 
@@ -35,4 +35,4 @@ struct Frame {
   QByteArray bytes;
 };
 
-}  // namespace RecordFormat
+} // namespace RecordFormat

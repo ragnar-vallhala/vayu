@@ -44,23 +44,23 @@
 
 /** Inner-loop algorithm selector (mirrors sensor_fusion_filter_t). */
 typedef enum {
-  RATE_CTRL_PID  = 0, /**< the shipped per-axis PID (default) */
+  RATE_CTRL_PID = 0,  /**< the shipped per-axis PID (default) */
   RATE_CTRL_INDI = 1, /**< incremental dynamic inversion (this file) */
 } rate_ctrl_algo_t;
 
 /** Per-axis INDI state + config. One per roll/pitch/yaw. */
 typedef struct {
   /* config */
-  float b;          /**< control effectiveness wdot/u [deg/s^2 per unit u] */
-  float k;          /**< outer rate-error gain [1/s]: wdot_des = k*(sp-meas) */
-  float lpf_rc;     /**< synchronized LPF time constant [s] (gyro deriv + u) */
-  float out_min;    /**< command clamp (matches the PID's [-1,1] authority) */
+  float b;       /**< control effectiveness wdot/u [deg/s^2 per unit u] */
+  float k;       /**< outer rate-error gain [1/s]: wdot_des = k*(sp-meas) */
+  float lpf_rc;  /**< synchronized LPF time constant [s] (gyro deriv + u) */
+  float out_min; /**< command clamp (matches the PID's [-1,1] authority) */
   float out_max;
   /* state */
-  float gyr_f;      /**< filtered gyro [deg/s] */
-  float wdot_f;     /**< filtered angular acceleration [deg/s^2] */
-  float u_f;        /**< synchronized (filtered) applied command */
-  bool  initialized;
+  float gyr_f;  /**< filtered gyro [deg/s] */
+  float wdot_f; /**< filtered angular acceleration [deg/s^2] */
+  float u_f;    /**< synchronized (filtered) applied command */
+  bool initialized;
 } rate_indi_t;
 
 /**
@@ -84,7 +84,8 @@ void rate_indi_reset(rate_indi_t *c);
  * @param dt         loop interval [s]
  * @return normalized command u in [out_min, out_max].
  */
-float rate_indi_update(rate_indi_t *c, float rate_sp, float rate_meas, float dt);
+float rate_indi_update(rate_indi_t *c, float rate_sp, float rate_meas,
+                       float dt);
 
 /**
  * @brief Feed back the command that was ACTUALLY applied after mixing/anti-
@@ -103,15 +104,16 @@ void rate_indi_set_applied(rate_indi_t *c, float u_applied);
  *    roll/pitch from firmware/docs/store + pitch_tune.json; yaw is a placeholder.
  * k: outer bandwidth ~ desired rate-loop crossover [1/s] (start conservative).
  * lpf_rc: ~30-50 Hz to tame the gyro derivative without killing INDI's lead. */
-#define DEAFULT_ROLL_INDI_B   563.0f
-#define DEAFULT_PITCH_INDI_B  1381.0f
-#define DEAFULT_YAW_INDI_B    400.0f   /* placeholder: identify before relying */
+#define DEAFULT_ROLL_INDI_B 563.0f
+#define DEAFULT_PITCH_INDI_B 1381.0f
+#define DEAFULT_YAW_INDI_B 400.0f /* placeholder: identify before relying */
 /* Conservative seed. k is held ~3x below the rate-loop crossover so there is
  * phase margin against the motor/filter lags (a k set near its own bandwidth
  * has none and hunts at that frequency). b is kept HIGH on purpose so INDI
  * under-actuates (sluggish but stable) rather than over-drives — stable enough
  * to fly a clean sysid chirp and fit the real b. */
-#define DEAFULT_RATE_INDI_K   6.0f     /* [1/s] ~1 Hz bandwidth seed */
-#define DEAFULT_RATE_INDI_LPF 0.010f   /* [s] ~16 Hz, denoise the gyro derivative */
+#define DEAFULT_RATE_INDI_K 6.0f /* [1/s] ~1 Hz bandwidth seed */
+#define DEAFULT_RATE_INDI_LPF                                                  \
+  0.010f /* [s] ~16 Hz, denoise the gyro derivative */
 
 #endif /* VAYU_RATE_INDI_H */

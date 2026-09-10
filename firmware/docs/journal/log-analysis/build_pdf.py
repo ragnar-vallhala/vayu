@@ -24,6 +24,10 @@ import tempfile
 # Reading order of the combined document.
 ORDER = [
     ("README.md", "Overview & provenance"),
+    # Generic name for a single-document findings write-up (an archive that does
+    # not warrant the per-subsystem split below). Listed early so it reads
+    # Overview -> Findings -> Recommendations.
+    ("analysis.md", "Findings"),
     ("session-analysis.md", "Session analysis"),
     ("estimator-analysis.md", "Estimator analysis (estimate vs ground truth)"),
     ("control-loop-analysis.md", "Control-loop analysis"),

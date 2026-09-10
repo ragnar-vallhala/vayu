@@ -22,7 +22,7 @@ public:
   explicit ReplaySource(QObject *parent = nullptr);
   ~ReplaySource() override;
 
-  bool open(const QString &path);  // loads frames + header; seeks to start
+  bool open(const QString &path); // loads frames + header; seeks to start
   bool isOpen() const { return !m_frames.isEmpty(); }
   RecordFormat::Header header() const { return m_header; }
 
@@ -39,14 +39,14 @@ public:
   void setLoop(bool on) { m_loop = on; }
   bool loop() const { return m_loop; }
 
-  void setSpeed(double x);  // clamped > 0
+  void setSpeed(double x); // clamped > 0
   double speed() const { return m_speed; }
 
   void play();
   void pause();
   bool isPlaying() const;
 
-  void seek(qint64 us);  // clamped into the crop range
+  void seek(qint64 us); // clamped into the crop range
 
   // Emit every frame whose timestamp is due at virtual time `targetUs` (capped
   // at the crop end), advance the playhead, and wrap (loop) or stop (finished)
@@ -55,17 +55,17 @@ public:
 
 signals:
   void positionChanged(qint64 us);
-  void finished();  // reached the crop end with loop off
+  void finished(); // reached the crop end with loop off
 
 private:
   void onTick();
-  void resetCursor();  // point the cursor at the first frame >= m_pos
+  void resetCursor(); // point the cursor at the first frame >= m_pos
 
   struct F {
     qint64 tUs;
     QByteArray bytes;
   };
-  QList<F> m_frames;  // normalised to 0-based, ascending tUs
+  QList<F> m_frames; // normalised to 0-based, ascending tUs
   RecordFormat::Header m_header;
   qint64 m_duration = 0;
   qint64 m_pos = 0;

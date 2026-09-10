@@ -15,19 +15,19 @@
 // is found (HAVE_PULSE_SIMPLE); otherwise this is a silent stub so the build and
 // the Settings toggle still work.
 class ChimeAudio {
- public:
+public:
   enum class Kind { Arm, Disarm, Failsafe };
 
   ChimeAudio();
   ~ChimeAudio();
 
-  ChimeAudio(const ChimeAudio&) = delete;
-  ChimeAudio& operator=(const ChimeAudio&) = delete;
+  ChimeAudio(const ChimeAudio &) = delete;
+  ChimeAudio &operator=(const ChimeAudio &) = delete;
 
   void setEnabled(bool on);
-  void play(Kind k);  // no-op while disabled
+  void play(Kind k); // no-op while disabled
 
- private:
+private:
   void run();
 
   std::atomic<bool> alive_{false};

@@ -21,11 +21,11 @@
 #include "SimSource.h"
 #include <functional>
 #include "ViewHistory.h"
-#include "Drone3DWidget.h" // Added
+#include "Drone3DWidget.h"   // Added
 #include "TelemetryEngine.h" // owns DroneProtocol + the VehicleState store
 #include "TimeSyncEstimator.h" // NTP clock-sync filter for the time-sync handshake
 #include "ImuPanel.h"
-#include "ITelemetrySource.h"  // replay feeds the engine via bytesReceived
+#include "ITelemetrySource.h" // replay feeds the engine via bytesReceived
 #include "LogPanel.h"
 #include "MainStatusBar.h"
 #include "MainToolbar.h"
@@ -123,7 +123,7 @@ private:
   // caps; rebuildRecentLogsMenu repopulates the submenu (prunes missing files).
   void addRecentLog(const QString &path);
   void rebuildRecentLogsMenu();
-  void openLastRecentLog();  // replay the most recent existing log
+  void openLastRecentLog(); // replay the most recent existing log
   // Export Log is only meaningful with telemetry coming in; enabled when a live
   // link or the sim is feeding, or while an export is already running (to stop).
   void updateExportEnabled();
@@ -140,8 +140,9 @@ public:
 
 private:
   // Source state machine plumbing (gcs-source-state-machine.md).
-  void buildSourceHooks();  // wire SourceController::Hooks to existing functions
-  void applyFeed(SourceState s);  // point the engine/parser at the state's source
+  void buildSourceHooks(); // wire SourceController::Hooks to existing functions
+  void
+  applyFeed(SourceState s); // point the engine/parser at the state's source
   // Run a deliberate FSM transition, suppressing re-entrant reconcile requests
   // (e.g. a teardown that stops the sim, which fires simRunningChanged).
   void runTransition(const std::function<void()> &body);
@@ -151,7 +152,7 @@ private:
   void sendToFc(const QByteArray &pkt);
 
   // ---- Toolbar / status bar (extracted in Phase-1 1a) ----
-  MainToolbar   *m_toolbar   = nullptr;
+  MainToolbar *m_toolbar = nullptr;
   MainStatusBar *m_statusBar = nullptr;
 
   // ---- Central panels ----
@@ -191,7 +192,7 @@ private:
   // Recent-views (MRU) switcher (Phase-2 2C / FR-UX-21).
   ViewHistory m_viewHistory;
   class RecentViewsOverlay *m_recentOverlay = nullptr;
-  QHash<int, QString> m_viewTitles;  // stacked index -> human label
+  QHash<int, QString> m_viewTitles; // stacked index -> human label
   void buildViewTitles();
   void showRecentViews();
 
@@ -205,7 +206,8 @@ private:
 
   // ---- System-state pill on the attitude page (firmware state, not connection) ----
   QLabel *m_statusLabel = nullptr;
-  QLabel *m_flightModeLabel = nullptr;   // STABILISE / ACRO pill (+ RC/GCS source)
+  QLabel *m_flightModeLabel =
+      nullptr; // STABILISE / ACRO pill (+ RC/GCS source)
 
   // ---- Back-end ----
   // Single processing engine: owns the parser, the live transports (serial +
@@ -221,14 +223,14 @@ private:
   class ReplaySource *m_replaySource = nullptr;
   class ReplayBar *m_replayBar = nullptr;
   QToolBar *m_replayToolbar = nullptr;
-  QMenu *m_recentLogsMenu = nullptr;  // File ▸ Open Recent Log (rebuilt on show)
+  QMenu *m_recentLogsMenu = nullptr; // File ▸ Open Recent Log (rebuilt on show)
   bool m_recordOnConnect = false;
   // Telemetry-source state machine (gcs-source-state-machine.md) — the single
   // authority for the active source, tx-gating, the engine feed, and the pill.
   SourceController m_source;
-  SimSource *m_simSource = nullptr;                   // in-app sim as a source
-  ITelemetrySource *m_activeFeedSource = nullptr;     // source wired to feedBytes
-  bool m_fsmBusy = false;                             // suppress reconcile re-entry
+  SimSource *m_simSource = nullptr;               // in-app sim as a source
+  ITelemetrySource *m_activeFeedSource = nullptr; // source wired to feedBytes
+  bool m_fsmBusy = false;                         // suppress reconcile re-entry
   QTimer *m_uiTimer = nullptr;
   QTimer *m_syncTimer = nullptr;
   QElapsedTimer m_elapsed;
@@ -238,7 +240,7 @@ private:
   // to the FC on the next request (INT32_MIN = "no command", before synced).
   TimeSyncEstimator m_tsEst;
   quint8 m_syncSeq = 0;
-  qint32 m_syncCorrection = (-2147483647 - 1);  // INT32_MIN sentinel
+  qint32 m_syncCorrection = (-2147483647 - 1); // INT32_MIN sentinel
   // When the full correction exceeds int32 ms (cold-start FC uptime vs epoch),
   // send it via the REQUEST_WIDE two-word path instead of the int32 field.
   bool m_syncWide = false;
@@ -247,8 +249,8 @@ private:
   // then fall back to the configured period so the first correction lands in a
   // second or two instead of after several 5 s round-trips.
   bool m_syncLocked = false;
-  int m_syncPeriodMs = 5000;            // steady-state period (from settings)
-  static constexpr int kSyncFastMs = 400;  // acquisition period until locked
+  int m_syncPeriodMs = 5000;              // steady-state period (from settings)
+  static constexpr int kSyncFastMs = 400; // acquisition period until locked
 
   // ---- State ----
   bool m_armed = false;
@@ -256,7 +258,7 @@ private:
   // them directly). Updated from the engine's forwarded signals / at connect.
   bool m_serialOpen = false;
   bool m_udpOpen = false;
-  QString m_currentPort;      // label for the active link (serial port / UDP)
+  QString m_currentPort; // label for the active link (serial port / UDP)
   // Recording lives in the engine (worker thread); the GUI remembers the active
   // path (non-empty = recording) for the start/stop guard + log lines.
   QString m_recordingPath;

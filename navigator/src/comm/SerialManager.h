@@ -25,7 +25,7 @@ public:
   // re-open on the last (port, baud) with a small backoff. Capped at
   // kMaxRetries to avoid spinning if the device is genuinely gone.
   void setAutoReconnect(bool on) { m_autoReconnect = on; }
-  bool autoReconnect() const     { return m_autoReconnect; }
+  bool autoReconnect() const { return m_autoReconnect; }
 
   // Base retry delay for auto-reconnect (the backoff doubles from here). Lets
   // the Settings page tune the cadence; clamped to a sane floor.
@@ -52,15 +52,15 @@ private:
   QByteArray m_buffer;
 
   // Auto-reconnect bookkeeping.
-  bool    m_autoReconnect = false;
-  bool    m_userClose     = false;   // true when close() came from UI
+  bool m_autoReconnect = false;
+  bool m_userClose = false; // true when close() came from UI
   QString m_lastPort;
-  qint32  m_lastBaud      = 0;
-  int     m_retryCount    = 0;
-  QTimer  m_retryTimer;
-  int     m_initialDelayMs = kInitialDelayMs;  // configurable base retry delay
+  qint32 m_lastBaud = 0;
+  int m_retryCount = 0;
+  QTimer m_retryTimer;
+  int m_initialDelayMs = kInitialDelayMs; // configurable base retry delay
 
   static constexpr int kInitialDelayMs = 1000;
-  static constexpr int kMaxDelayMs     = 8000;
-  static constexpr int kMaxRetries     = 5;
+  static constexpr int kMaxDelayMs = 8000;
+  static constexpr int kMaxRetries = 5;
 };

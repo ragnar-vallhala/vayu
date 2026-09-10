@@ -1,22 +1,22 @@
 #include "comm/navlink_router.h"
 #include "comm/channel.h"
 #include "comm/comm_types.h"
-#include "comm/serializer.h"  /* comm_rx_raw_drain */
+#include "comm/serializer.h" /* comm_rx_raw_drain */
 #include "control/pid_config.h"
 #include "control/flight_mode.h"           /* flight_mode_apply_command */
 #include "control/angle_rate_controller.h" /* geometry apply */
-#include "control/sysid.h"                  /* sysid_start/abort (CMD_SYSID_EXCITE) */
-#include "dsp/gyro_notch.h"                 /* dynamic gyro-notch tuning (CMD_SET_GYRO_NOTCH) */
-#include "sys/state.h"                      /* system_state_get, SYSTEM_STATE_* */
-#include "navhal.h"           /* hal_gpio_write, HAL_GPIO_HIGH/LOW */
-#include "sys/sys_utils.h"    /* get_device_id */
-#include "utils.h"            /* v_get_ticks, v_memcpy */
-#include "variables.h"        /* _BLUE_LED_PIN */
+#include "control/sysid.h"  /* sysid_start/abort (CMD_SYSID_EXCITE) */
+#include "dsp/gyro_notch.h" /* dynamic gyro-notch tuning (CMD_SET_GYRO_NOTCH) */
+#include "sys/state.h"      /* system_state_get, SYSTEM_STATE_* */
+#include "navhal.h"         /* hal_gpio_write, HAL_GPIO_HIGH/LOW */
+#include "sys/sys_utils.h"  /* get_device_id */
+#include "utils.h"          /* v_get_ticks, v_memcpy */
+#include "variables.h"      /* _BLUE_LED_PIN */
 #include "vayu_status.h"
-#include "vayu_tasks.h"       /* comm_processor_dispatch */
+#include "vayu_tasks.h"             /* comm_processor_dispatch */
 #include "comm/xfer/navlink_xfer.h" /* bulk-transfer substrate SM (codec-blind) */
 #include "comm/xfer/fs_query.h"     /* filesystem-navigation service */
-#include "navlink_msgs.h"     /* the generated codec — included ONLY here */
+#include "navlink_msgs.h" /* the generated codec — included ONLY here */
 #include <stdint.h>
 
 extern channel_t g_telemetry_channel; /* defined in telemetry_task.c */
@@ -27,7 +27,7 @@ extern channel_t g_telemetry_channel; /* defined in telemetry_task.c */
 #define BLINK_MS 1000u
 #define BLINK_HALF_MS 50u /* 10 Hz blink => 50 ms half-period (toggle) */
 
-static uint32_t s_blink_end;  /* 0 = idle, else v_get_ticks() at which to stop */
+static uint32_t s_blink_end; /* 0 = idle, else v_get_ticks() at which to stop */
 static uint32_t s_blink_last; /* last toggle time */
 static uint8_t s_blink_on;
 
@@ -66,8 +66,8 @@ static void blink_service(void) {
 }
 
 /** @noreq unhandled-leaf default handler (LED blink) */
-static void on_default(void *ctx, const navlink_frame_hdr_t *hdr, uint32_t msgid,
-                       const uint8_t *payload, size_t len) {
+static void on_default(void *ctx, const navlink_frame_hdr_t *hdr,
+                       uint32_t msgid, const uint8_t *payload, size_t len) {
   (void)ctx;
   (void)hdr;
   (void)msgid;
@@ -129,18 +129,22 @@ static void dispatch_v1(uint8_t packet_type, const uint8_t *payload,
 /** @implements COMM-CMD-003 */
 static navlink_ack_t on_cmd_set_pid(void *ctx, const navlink_frame_hdr_t *hdr,
                                     const navlink_cmd_set_pid_t *m) {
-  (void)ctx; (void)hdr;
+  (void)ctx;
+  (void)hdr;
   uint8_t p[3 + 6 * 4];
-  float args[6] = {(float)m->controller, (float)m->axis,
-                   m->kp, m->ki, m->kd, m->kff};
+  float args[6] = {
+      (float)m->controller, (float)m->axis, m->kp, m->ki, m->kd, m->kff};
   uint8_t len = build_cmd(p, (uint16_t)CMD_SET_PID, args, 6);
-  return navlink_ack_result(pid_config_apply_command(p, len) == VAYU_OK ? ACK_OK : ACK_BAD);
+  return navlink_ack_result(
+      pid_config_apply_command(p, len) == VAYU_OK ? ACK_OK : ACK_BAD);
 }
 
 /** @implements CTRL-SID-001 sysid excitation command adapter (bench/diagnostic tooling) */
-static navlink_ack_t on_cmd_sysid_excite(void *ctx, const navlink_frame_hdr_t *hdr,
+static navlink_ack_t on_cmd_sysid_excite(void *ctx,
+                                         const navlink_frame_hdr_t *hdr,
                                          const navlink_cmd_sysid_excite_t *m) {
-  (void)ctx; (void)hdr;
+  (void)ctx;
+  (void)hdr;
   /* axis 0xFF is the abort sentinel; any other out-of-range axis is rejected.
    * Otherwise start a chirp (sysid_start clamps amp/freq/duration to hard caps).
    * Injection only reaches the motors through the controller's ARMED gate, so a
@@ -152,20 +156,24 @@ static navlink_ack_t on_cmd_sysid_excite(void *ctx, const navlink_frame_hdr_t *h
   }
   if (m->axis > 2u)
     return navlink_ack_result(ACK_BAD);
-  sysid_request_t req = {.axis = m->axis,
-                         .mode = m->mode,    /* 0 rate-setpoint (default) / 1 u-injection */
-                         .f0_hz = m->f0_hz,
-                         .f1_hz = m->f1_hz,
-                         .amp_dps = m->amp_dps,
-                         .duration_s = m->duration_s};
+  sysid_request_t req = {
+      .axis = m->axis,
+      .mode = m->mode, /* 0 rate-setpoint (default) / 1 u-injection */
+      .f0_hz = m->f0_hz,
+      .f1_hz = m->f1_hz,
+      .amp_dps = m->amp_dps,
+      .duration_s = m->duration_s};
   sysid_start(&req);
   return navlink_ack_result(ACK_OK);
 }
 
 /** @implements CTRL-SID-102 sysid dump command adapter (bench/diagnostic tooling) */
-static navlink_ack_t on_cmd_sysid_dump(void *ctx, const navlink_frame_hdr_t *hdr,
+static navlink_ack_t on_cmd_sysid_dump(void *ctx,
+                                       const navlink_frame_hdr_t *hdr,
                                        const navlink_cmd_sysid_dump_t *m) {
-  (void)ctx; (void)hdr; (void)m;
+  (void)ctx;
+  (void)hdr;
+  (void)m;
   /* Arm the dump cursor; the telemetry task streams SYSID_SAMPLE chunks. Reads
    * the capture buffer that the (now-finished) run filled, so no race. */
   sysid_dump_request();
@@ -187,7 +195,7 @@ static navlink_ack_t on_xfer_open(void *ctx, const navlink_frame_hdr_t *hdr,
   a.dir = m->dir;
   a.mode = m->mode;
   a.req_seq = m->req_seq;
-  a.gcs_sys = hdr->sysid;   /* stamp the reply target from the frame header */
+  a.gcs_sys = hdr->sysid; /* stamp the reply target from the frame header */
   a.gcs_comp = hdr->compid;
   a.service_id = m->service_id;
   a.offset_start = m->offset_start;
@@ -203,7 +211,8 @@ static navlink_ack_t on_xfer_open(void *ctx, const navlink_frame_hdr_t *hdr,
 /** @noreq xfer-substrate codec adapter (behavior in navlink_xfer.c) */
 static navlink_ack_t on_xfer_close(void *ctx, const navlink_frame_hdr_t *hdr,
                                    const navlink_xfer_close_t *m) {
-  (void)ctx; (void)hdr;
+  (void)ctx;
+  (void)hdr;
   int d = xfer_on_close(m->session, m->req_seq, m->result);
   if (d == XFER_OPEN_DEFERRED)
     return navlink_ack_deferred();
@@ -213,14 +222,16 @@ static navlink_ack_t on_xfer_close(void *ctx, const navlink_frame_hdr_t *hdr,
 /** @noreq xfer-substrate codec adapter (behavior in navlink_xfer.c) */
 static void on_xfer_data(void *ctx, const navlink_frame_hdr_t *hdr,
                          const navlink_xfer_data_t *m) {
-  (void)ctx; (void)hdr;
+  (void)ctx;
+  (void)hdr;
   xfer_on_data(m->session, m->offset, m->data, m->len, m->flags);
 }
 
 /** @noreq xfer-substrate codec adapter (behavior in navlink_xfer.c) */
 static void on_xfer_ack(void *ctx, const navlink_frame_hdr_t *hdr,
                         const navlink_xfer_ack_t *m) {
-  (void)ctx; (void)hdr;
+  (void)ctx;
+  (void)hdr;
   xfer_on_ack(m->session, m->next_offset, m->flags);
 }
 
@@ -251,7 +262,8 @@ static navlink_ack_t on_fs_info(void *ctx, const navlink_frame_hdr_t *hdr,
 /** @implements COMM-CMD-006 */
 static navlink_ack_t on_cmd_arm(void *ctx, const navlink_frame_hdr_t *hdr,
                                 const navlink_cmd_arm_t *m) {
-  (void)ctx; (void)hdr;
+  (void)ctx;
+  (void)hdr;
   uint8_t p[2] = {(uint8_t)CMD_ARM, 0x00}; /* bare cmd_id, no argc (len 2) */
   dispatch_v1(PACKET_TYPE_COMMAND, p, 2);  /* set the latch */
   /* Defer: arming only takes effect (or is gated out) when the RC task next
@@ -266,17 +278,20 @@ static navlink_ack_t on_cmd_arm(void *ctx, const navlink_frame_hdr_t *hdr,
 /** @implements COMM-CMD-006 */
 static navlink_ack_t on_cmd_disarm(void *ctx, const navlink_frame_hdr_t *hdr,
                                    const navlink_cmd_disarm_t *m) {
-  (void)ctx; (void)hdr; (void)m;
+  (void)ctx;
+  (void)hdr;
+  (void)m;
   uint8_t p[2] = {(uint8_t)CMD_DISARM, 0x00};
   dispatch_v1(PACKET_TYPE_COMMAND, p, 2);
   return navlink_ack_result(ACK_OK);
 }
 
 /** @implements COMM-CMD-001 */
-static navlink_ack_t on_cmd_calibrate_imu(void *ctx,
-                                          const navlink_frame_hdr_t *hdr,
-                                          const navlink_cmd_calibrate_imu_t *m) {
-  (void)ctx; (void)hdr;
+static navlink_ack_t
+on_cmd_calibrate_imu(void *ctx, const navlink_frame_hdr_t *hdr,
+                     const navlink_cmd_calibrate_imu_t *m) {
+  (void)ctx;
+  (void)hdr;
   if (m->which == 0xFFu) { /* sentinel: cancel calibration (v1 cmd 0x0009) */
     uint8_t p[2] = {0x09, 0x00};
     dispatch_v1(PACKET_TYPE_COMMAND, p, 2);
@@ -306,37 +321,39 @@ static navlink_ack_t
 /** @implements COMM-CMD-004 */
 on_cmd_set_gyro_lpf(void *ctx, const navlink_frame_hdr_t *hdr,
                     const navlink_cmd_set_gyro_lpf_t *m) {
-  (void)ctx; (void)hdr;
+  (void)ctx;
+  (void)hdr;
   uint8_t p[3 + 2 * 4];
   float args[2] = {(float)m->axis, m->rc};
   uint8_t len = build_cmd(p, (uint16_t)CMD_SET_GYRO_LPF, args, 2);
-  return navlink_ack_result(pid_config_apply_gyro_lpf_command(p, len) == VAYU_OK ? ACK_OK
-                                                                     : ACK_BAD);
+  return navlink_ack_result(
+      pid_config_apply_gyro_lpf_command(p, len) == VAYU_OK ? ACK_OK : ACK_BAD);
 }
 
 static navlink_ack_t
 /** @implements COMM-CMD-004 */
 on_cmd_set_d_lpf(void *ctx, const navlink_frame_hdr_t *hdr,
                  const navlink_cmd_set_d_lpf_t *m) {
-  (void)ctx; (void)hdr;
+  (void)ctx;
+  (void)hdr;
   uint8_t p[3 + 2 * 4];
   float args[2] = {(float)m->axis, m->rc};
   uint8_t len = build_cmd(p, (uint16_t)CMD_SET_D_LPF, args, 2);
-  return navlink_ack_result(pid_config_apply_d_lpf_command(p, len) == VAYU_OK ? ACK_OK
-                                                                   : ACK_BAD);
+  return navlink_ack_result(
+      pid_config_apply_d_lpf_command(p, len) == VAYU_OK ? ACK_OK : ACK_BAD);
 }
 
 static navlink_ack_t
 /** @implements COMM-CMD-004 */
 on_cmd_set_gyro_notch(void *ctx, const navlink_frame_hdr_t *hdr,
                       const navlink_cmd_set_gyro_notch_t *m) {
-  (void)ctx; (void)hdr;
+  (void)ctx;
+  (void)hdr;
   /* Apply live (a <=0 detection field is left unchanged) AND persist to SD, so
    * the tune survives a reboot. pid_config owns the store and reads the effective
    * param set back after applying. */
-  vayu_status_t rc =
-      pid_config_apply_gyro_notch(m->enabled != 0, m->q, m->fmin_hz, m->fmax_hz,
-                                  m->min_ratio);
+  vayu_status_t rc = pid_config_apply_gyro_notch(
+      m->enabled != 0, m->q, m->fmin_hz, m->fmax_hz, m->min_ratio);
   /* autoband is a transient one-shot trigger (not a stored param): arm the learn
    * pass, which characterises the hover spectrum on the next engaged window. */
   if (m->autoband) {
@@ -349,7 +366,8 @@ static navlink_ack_t
 /** @implements COMM-CMD-004 */
 on_cmd_set_motor_geometry(void *ctx, const navlink_frame_hdr_t *hdr,
                           const navlink_cmd_set_motor_geometry_t *m) {
-  (void)ctx; (void)hdr;
+  (void)ctx;
+  (void)hdr;
   uint8_t p[3 + 12 * 4];
   float args[12];
   for (int i = 0; i < 4; i++) {
@@ -358,25 +376,29 @@ on_cmd_set_motor_geometry(void *ctx, const navlink_frame_hdr_t *hdr,
     args[8 + i] = (float)m->spin[i];
   }
   uint8_t len = build_cmd(p, (uint16_t)CMD_SET_MOTOR_GEOMETRY, args, 12);
-  return navlink_ack_result(angle_rate_controller_apply_geometry_command(p, len) ? ACK_OK
-                                                                     : ACK_BAD);
+  return navlink_ack_result(
+      angle_rate_controller_apply_geometry_command(p, len) ? ACK_OK : ACK_BAD);
 }
 
 static navlink_ack_t
 /** @implements COMM-CMD-004 */
 on_cmd_set_flight_mode(void *ctx, const navlink_frame_hdr_t *hdr,
                        const navlink_cmd_set_flight_mode_t *m) {
-  (void)ctx; (void)hdr;
+  (void)ctx;
+  (void)hdr;
   uint8_t p[3 + 1 * 4];
-  float args[1] = {(float)m->mode}; /* v1 carried mode only; source implied GCS */
+  float args[1] = {
+      (float)m->mode}; /* v1 carried mode only; source implied GCS */
   uint8_t len = build_cmd(p, (uint16_t)CMD_SET_FLIGHT_MODE, args, 1);
-  return navlink_ack_result(flight_mode_apply_command(p, len) ? ACK_OK : ACK_BAD);
+  return navlink_ack_result(flight_mode_apply_command(p, len) ? ACK_OK
+                                                              : ACK_BAD);
 }
 
 /** @implements COMM-SYNC-001 */
 static void on_time_sync(void *ctx, const navlink_frame_hdr_t *hdr,
                          const navlink_time_sync_t *m) {
-  (void)ctx; (void)hdr;
+  (void)ctx;
+  (void)hdr;
   time_sync_payload_t in = {0};
   in.role = m->role;
   in.seq = m->seq;
@@ -391,7 +413,8 @@ static void on_time_sync(void *ctx, const navlink_frame_hdr_t *hdr,
 /** @implements COMM-TEL-005 */
 static void on_perf_taskname_request(void *ctx, const navlink_frame_hdr_t *hdr,
                                      const navlink_perf_taskname_request_t *m) {
-  (void)ctx; (void)hdr;
+  (void)ctx;
+  (void)hdr;
   uint8_t p[1] = {m->task_id};
   dispatch_v1(PACKET_TYPE_PERF_TASKNAME, p, 1);
 }
@@ -430,7 +453,8 @@ void navlink_router_init(void) {
   s_handlers.send = router_send; /* required: commands auto-ack via this */
   s_handlers.sysid = get_device_id();
   s_handlers.compid = 1;
-  s_handlers.command_gate = router_command_gate; /* §10.5: reject until synced */
+  s_handlers.command_gate =
+      router_command_gate;            /* §10.5: reject until synced */
   s_handlers.on_default = on_default; /* every unhandled leaf -> blink */
   s_handlers.on_cmd_set_pid = on_cmd_set_pid;
   s_handlers.on_cmd_sysid_excite = on_cmd_sysid_excite;
@@ -461,12 +485,12 @@ static void arm_ack_service(void) {
     return;
   }
   if (system_state_get() == SYSTEM_STATE_ARMED) {
-    navlink_command_ack_send(&s_handlers, NAVLINK_MSGID_CMD_ARM, s_arm_ack_req_seq,
-                             navlink_ack_result(ACK_OK));
+    navlink_command_ack_send(&s_handlers, NAVLINK_MSGID_CMD_ARM,
+                             s_arm_ack_req_seq, navlink_ack_result(ACK_OK));
     s_arm_ack_pending = 0;
   } else if ((int32_t)(v_get_ticks() - s_arm_ack_deadline) >= 0) {
-    navlink_command_ack_send(&s_handlers, NAVLINK_MSGID_CMD_ARM, s_arm_ack_req_seq,
-                             navlink_ack_result(ACK_BUSY));
+    navlink_command_ack_send(&s_handlers, NAVLINK_MSGID_CMD_ARM,
+                             s_arm_ack_req_seq, navlink_ack_result(ACK_BUSY));
     s_arm_ack_pending = 0;
   }
 }

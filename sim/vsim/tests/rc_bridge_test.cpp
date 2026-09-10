@@ -14,10 +14,11 @@
 #include <cstdio>
 #include <cstring>
 
-int main(int argc, char** argv) {
+int main(int argc, char **argv) {
   QCoreApplication app(argc, argv);
   RcBridge rc;
-  if (argc > 1) rc.setJoystickPath(argv[1]);
+  if (argc > 1)
+    rc.setJoystickPath(argv[1]);
 
   QString err;
   if (!rc.openPty(&err)) {
@@ -25,10 +26,10 @@ int main(int argc, char** argv) {
     return 2;
   }
   std::printf("pty slave: %s\n", rc.slavePath().toLocal8Bit().constData());
-  const int sfd = ::open(rc.slavePath().toLocal8Bit().constData(),
-                         O_RDONLY | O_NONBLOCK);
+  const int sfd =
+      ::open(rc.slavePath().toLocal8Bit().constData(), O_RDONLY | O_NONBLOCK);
 
-  QObject::connect(&rc, &RcBridge::logLine, &app, [](const QString& s) {
+  QObject::connect(&rc, &RcBridge::logLine, &app, [](const QString &s) {
     std::printf("[rc] %s\n", s.toLocal8Bit().constData());
   });
   rc.start();
@@ -37,14 +38,19 @@ int main(int argc, char** argv) {
     int frames = 0;
     char lastLine[128] = {0};
     char buf[4096];
-    for (int i = 0; i < 25; ++i) {     // read across the window (tty is line-buffered)
+    for (int i = 0; i < 25;
+         ++i) { // read across the window (tty is line-buffered)
       const ssize_t n = (sfd >= 0) ? ::read(sfd, buf, sizeof(buf) - 1) : -1;
       if (n > 0) {
         buf[n] = 0;
-        for (char* s = buf; (s = std::strchr(s, '\n')); ++s) ++frames;
-        char* p = std::strrchr(buf, '\n');
-        if (p && p != buf) { *p = 0; char* q = std::strrchr(buf, '\n');
-          std::snprintf(lastLine, sizeof(lastLine), "%s", q ? q + 1 : buf); }
+        for (char *s = buf; (s = std::strchr(s, '\n')); ++s)
+          ++frames;
+        char *p = std::strrchr(buf, '\n');
+        if (p && p != buf) {
+          *p = 0;
+          char *q = std::strrchr(buf, '\n');
+          std::snprintf(lastLine, sizeof(lastLine), "%s", q ? q + 1 : buf);
+        }
       }
       ::usleep(20000);
     }

@@ -35,16 +35,16 @@ public:
   // would flag as ambiguous). Returns the QAction for that placement.
   // A duplicate id is a logic error: the existing action is returned and a
   // warning is logged.
-  QAction *add(const QString &id, const QString &title,
-               const QString &category, const QKeySequence &defaultSeq,
-               CmdContext when, std::function<void()> onTrigger);
+  QAction *add(const QString &id, const QString &title, const QString &category,
+               const QKeySequence &defaultSeq, CmdContext when,
+               std::function<void()> onTrigger);
 
-  QAction *action(const QString &id) const;   // nullptr if unknown
+  QAction *action(const QString &id) const; // nullptr if unknown
   const Command *command(const QString &id) const;
-  QList<Command> all() const;                 // registration order
-  QStringList ids() const;                    // registration order
+  QList<Command> all() const; // registration order
+  QStringList ids() const;    // registration order
 
 private:
   QHash<QString, Command> m_byId;
-  QStringList m_order;  // preserves registration order for all()/ids()
+  QStringList m_order; // preserves registration order for all()/ids()
 };

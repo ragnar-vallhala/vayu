@@ -35,8 +35,8 @@ hal_status_t init_i2c_manager(hal_i2c_config_t *cfg);
 hal_status_t i2c_manager_write(uint8_t addr, uint8_t *data, uint16_t len);
 hal_status_t i2c_manager_read(uint8_t addr, uint8_t *data, uint16_t len);
 hal_status_t i2c_manager_write_read(uint8_t addr, uint8_t *tx_data,
-                                        uint16_t tx_len, uint8_t *rx_data,
-                                        uint16_t rx_len);
+                                    uint16_t tx_len, uint8_t *rx_data,
+                                    uint16_t rx_len);
 hal_status_t i2c_manager_read_async(uint8_t addr, uint8_t reg_addr,
-                                        uint16_t len, void (*callback)(void *));
+                                    uint16_t len, void (*callback)(void *));
 #endif // VAYU_I2C_MANAGER_H

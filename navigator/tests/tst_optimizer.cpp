@@ -78,7 +78,7 @@ void TstOptimizer::registryHasEight() {
 void TstOptimizer::everyOptimizerImprovesOnSeed() {
   const Vec target = {1.0, -2.0, 0.5};
   const Bounds bounds = {{-5, 5}, {-5, 5}, {-5, 5}};
-  const Vec x0 = {-5, -5, -5};  // a corner, far from the target
+  const Vec x0 = {-5, -5, -5}; // a corner, far from the target
   const double seedCost = bowl(x0, target);
 
   for (const auto &name : optimizerNames()) {
@@ -122,7 +122,7 @@ void TstOptimizer::allOptimizersConvergeOnRealSpace() {
   const autotune::Space space(false);
   const Bounds bounds = space.bounds();
   const Vec seed = space.seed();
-  const Vec target = {0.006, 0.004, 0.0004, 1.5, 0.004};  // inside the bounds
+  const Vec target = {0.006, 0.004, 0.0004, 1.5, 0.004}; // inside the bounds
   Vec span(bounds.size());
   for (size_t i = 0; i < bounds.size(); ++i)
     span[i] = bounds[i].second - bounds[i].first;
@@ -134,12 +134,12 @@ void TstOptimizer::allOptimizersConvergeOnRealSpace() {
     }
     return s;
   };
-  const double seedCost = nbowl(seed);  // ~0.208
+  const double seedCost = nbowl(seed); // ~0.208
 
   // name -> max normalized cost the optimizer must reach within budget 300.
   const std::map<std::string, double> bound = {
-      {"nelder-mead", 0.005}, {"portfolio", 0.005},  {"coordinate", 0.005},
-      {"spsa", 0.02},         {"hybrid", 0.02},      {"random", 0.15},
+      {"nelder-mead", 0.005}, {"portfolio", 0.005}, {"coordinate", 0.005},
+      {"spsa", 0.02},         {"hybrid", 0.02},     {"random", 0.15},
       {"structured", 0.13},   {"fdgd", 0.19},
   };
 
@@ -159,8 +159,8 @@ void TstOptimizer::allOptimizersConvergeOnRealSpace() {
       worst = std::max(worst, ev.best());
     }
     QVERIFY2(worst < it->second,
-             (name + ": worst normCost " + std::to_string(worst) + " !< bound " +
-              std::to_string(it->second))
+             (name + ": worst normCost " + std::to_string(worst) +
+              " !< bound " + std::to_string(it->second))
                  .c_str());
     QVERIFY2(worst < seedCost,
              (name + ": did not improve on seed " + std::to_string(seedCost))
