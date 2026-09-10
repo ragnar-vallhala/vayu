@@ -22,7 +22,7 @@
 #include <cstdlib>
 #include <vector>
 
-int main(int argc, char** argv) {
+int main(int argc, char **argv) {
   if (argc < 9) {
     std::fprintf(stderr,
                  "usage: %s <mesh> <scale> <upAxis 0|1> <offX> <offY> <offZ> "
@@ -31,19 +31,22 @@ int main(int argc, char** argv) {
     return 2;
   }
   const QString path = QString::fromLocal8Bit(argv[1]);
-  const float scale = std::atof(argv[2]);
-  const int upAxis = std::atoi(argv[3]);
-  const float ox = std::atof(argv[4]), oy = std::atof(argv[5]),
-              oz = std::atof(argv[6]);
-  const bool doubleSided = std::atoi(argv[7]) != 0;
-  const char* out = argv[8];
+  const float scale = std::strtof(argv[2], nullptr);
+  const int upAxis = (int)std::strtol(argv[3], nullptr, 10);
+  const float ox = std::strtof(argv[4], nullptr),
+              oy = std::strtof(argv[5], nullptr),
+              oz = std::strtof(argv[6], nullptr);
+  const bool doubleSided = std::strtol(argv[7], nullptr, 10) != 0;
+  const char *out = argv[8];
 
   // Identical to SimulatorWidget::loadWorldMeshToRenderer: translate (NED
   // offset) then bake the source up-axis into NED (up = -Z). M = T*R.
   QMatrix4x4 xform;
   xform.translate(QVector3D(ox, oy, oz));
-  if (upAxis == 1) xform.rotate(-90.0f, 1, 0, 0);   // Y-up glTF
-  else             xform.rotate(180.0f, 1, 0, 0);   // Z-up Blender
+  if (upAxis == 1)
+    xform.rotate(-90.0f, 1, 0, 0); // Y-up glTF
+  else
+    xform.rotate(180.0f, 1, 0, 0); // Z-up Blender
 
   QString err;
   const vsim::LoadedMesh m = vsim::loadMesh(path, scale, xform, &err);
@@ -55,7 +58,7 @@ int main(int argc, char** argv) {
   const uint32_t nverts = static_cast<uint32_t>(m.positions.size());
   std::vector<float> verts;
   verts.reserve(static_cast<size_t>(nverts) * 3);
-  for (const QVector3D& p : m.positions) {
+  for (const QVector3D &p : m.positions) {
     verts.push_back(p.x());
     verts.push_back(p.y());
     verts.push_back(p.z());
@@ -68,7 +71,7 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  FILE* f = std::fopen(out, "wb");
+  FILE *f = std::fopen(out, "wb");
   if (!f) {
     std::fprintf(stderr, "cannot write %s\n", out);
     return 1;

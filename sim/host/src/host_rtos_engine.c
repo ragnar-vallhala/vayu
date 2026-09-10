@@ -10,35 +10,36 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "comm/comm.h"        /* ibus_data_t, rc_queue_control_push, rc_arm_engaged */
-#include "control/angle_controller.h"      /* angle_controller_set_gains */
+#include "comm/comm.h" /* ibus_data_t, rc_queue_control_push, rc_arm_engaged */
+#include "control/angle_controller.h" /* angle_controller_set_gains */
 #include "control/angle_rate_controller.h" /* angle_rate_controller_set_gains, _set_motor_geometry */
-#include "host_rc_feeder.h"   /* host_rc_feeder_start (serial RC for the GCS) */
-#include "host_rtos.h"        /* host_rtos_tick, host_rtos_run_until_idle */
-#include "sensor/bme280.h"    /* bme280_publish (in-process baro injection) */
-#include "sys/state.h"        /* system_state_get/_set, SYSTEM_STATE_* */
-#include "sys/sys_utils.h"    /* VAYU_DISCARD */
-#include "vaios.h"            /* v_system_init, scheduler_start, vaios_init_config_t */
-#include "variables.h"        /* SYS_CLOCK_FREQ */
+#include "host_rc_feeder.h" /* host_rc_feeder_start (serial RC for the GCS) */
+#include "host_rtos.h"      /* host_rtos_tick, host_rtos_run_until_idle */
+#include "sensor/bme280.h"  /* bme280_publish (in-process baro injection) */
+#include "sys/state.h"      /* system_state_get/_set, SYSTEM_STATE_* */
+#include "sys/sys_utils.h"  /* VAYU_DISCARD */
+#include "vaios.h"     /* v_system_init, scheduler_start, vaios_init_config_t */
+#include "variables.h" /* SYS_CLOCK_FREQ */
 
-extern int vayu_sitl_start(void *iface);        /* host_lifecycle.c */
-extern void increment_high_freq_timer(void);    /* firmware HF timestamp */
+extern int vayu_sitl_start(void *iface);     /* host_lifecycle.c */
+extern void increment_high_freq_timer(void); /* firmware HF timestamp */
 
 /* in-process vsim physics (vsim_inproc.cpp) + PWM read-back (host_navhal.c) */
-extern void vsim_inproc_step(const float duty[4], float dt, uint8_t out_imu[88]);
-extern int  vsim_inproc_load_geometry(const char *path, float out_x[4],
-                                      float out_y[4], int out_spin[4]);
+extern void vsim_inproc_step(const float duty[4], float dt,
+                             uint8_t out_imu[88]);
+extern int vsim_inproc_load_geometry(const char *path, float out_x[4],
+                                     float out_y[4], int out_spin[4]);
 extern void vsim_inproc_apply_actuator_env_default(void);
 extern void vsim_inproc_get_baro(float *pressure_pa, float *temperature_c,
                                  float *humidity_rh);
 extern void host_pwm_get_latest(float out[4]);
 
-#define HF_PER_SAMPLE 10   /* HIGH_FREQ_TIMER_FREQ(10k) / SITL_IMU_FEED_HZ(1k) */
-#define BARO_DECIM    20   /* 1 kHz step / 20 -> ~50 Hz baro (BME280-realistic) */
+#define HF_PER_SAMPLE 10 /* HIGH_FREQ_TIMER_FREQ(10k) / SITL_IMU_FEED_HZ(1k) */
+#define BARO_DECIM 20    /* 1 kHz step / 20 -> ~50 Hz baro (BME280-realistic) */
 
 double env_f(const char *k, double dflt) {
   const char *v = getenv(k);
-  return v && *v ? atof(v) : dflt;
+  return v && *v ? strtod(v, NULL) : dflt;
 }
 
 /* If VAYU_RTOS_GEOMETRY points at a serialized vsim_ctl_geometry_t, drive BOTH
@@ -55,11 +56,15 @@ static int apply_geometry_from_env(void) {
   int gs[4];
   if (vsim_inproc_load_geometry(path, gx, gy, gs)) {
     angle_rate_controller_set_motor_geometry(gx, gy, gs);
-    fprintf(stderr, "vayu_sitl_rtos: geometry from %s applied (physics + firmware mix)\n",
-            path);
+    fprintf(
+        stderr,
+        "vayu_sitl_rtos: geometry from %s applied (physics + firmware mix)\n",
+        path);
     return 1;
   }
-  fprintf(stderr, "vayu_sitl_rtos: WARN could not read geometry %s — using reference quad\n",
+  fprintf(stderr,
+          "vayu_sitl_rtos: WARN could not read geometry %s — using reference "
+          "quad\n",
           path);
   return 0;
 }
@@ -72,9 +77,10 @@ void apply_gains_from_env(void) {
          ykp = env_f("VAYU_YAW_RATE_KP", -1);
   for (int ax = 0; ax <= 1; ax++) {
     if (rkp >= 0 || rki >= 0 || rkd >= 0) {
-      angle_rate_controller_set_gains(
-          (uint8_t)ax, rkp >= 0 ? (float)rkp : 5e-4f,
-          rki >= 0 ? (float)rki : 0.0033333f, rkd >= 0 ? (float)rkd : 0.0f, 0.0f);
+      angle_rate_controller_set_gains((uint8_t)ax,
+                                      rkp >= 0 ? (float)rkp : 5e-4f,
+                                      rki >= 0 ? (float)rki : 0.0033333f,
+                                      rkd >= 0 ? (float)rkd : 0.0f, 0.0f);
     }
     if (akp >= 0)
       angle_controller_set_gains((uint8_t)ax, (float)akp, 0.0f, 0.0f, 0.0f);
@@ -84,7 +90,7 @@ void apply_gains_from_env(void) {
 }
 
 void stepper_init(stepper_t *s) {
-  memset(s, 0, sizeof *s);   /* zero the IMU struct: garbage in unfilled fields
+  memset(s, 0, sizeof *s); /* zero the IMU struct: garbage in unfilled fields
                               * (the parts packImu doesn't write) breaks
                               * determinism — found the hard way. */
 }
@@ -169,7 +175,7 @@ void rtos_pacer_wait(rtos_pacer_t *p, double dt_s) {
   clock_gettime(CLOCK_MONOTONIC, &now);
   if (now.tv_sec > p->next.tv_sec ||
       (now.tv_sec == p->next.tv_sec && now.tv_nsec > p->next.tv_nsec)) {
-    p->behind++;       /* fell behind — reset baseline so we don't busy-spiral */
+    p->behind++; /* fell behind — reset baseline so we don't busy-spiral */
     p->next = now;
     return;
   }
@@ -178,18 +184,20 @@ void rtos_pacer_wait(rtos_pacer_t *p, double dt_s) {
 
 int rtos_engine_boot(void *iface) {
   static int booted = 0;
-  if (booted) return 0;   /* idempotent: the firmware/scheduler boot once per
+  if (booted)
+    return 0; /* idempotent: the firmware/scheduler boot once per
                            * process (GCS Stop/Re-Start resumes the loop, doesn't
                            * re-init the kernel). */
   booted = 1;
   fprintf(stderr, "vayu_sitl_rtos: booting the REAL vaios scheduler on host\n");
   vaios_init_config_t cfg = {0};
-  v_system_init(&cfg);                /* heap + scheduler init */
-  if (vayu_sitl_start(iface) != 0) {  /* iface != NULL: telemetry via its UART2 cb */
+  v_system_init(&cfg); /* heap + scheduler init */
+  if (vayu_sitl_start(iface) !=
+      0) { /* iface != NULL: telemetry via its UART2 cb */
     fprintf(stderr, "vayu_sitl_rtos: vayu_sitl_start failed\n");
     return 1;
   }
-  scheduler_start();                  /* run boot tasks to idle */
+  scheduler_start(); /* run boot tasks to idle */
   /* after boot so the mix isn't re-init'd. With no geometry file, still honour
    * the actuator-imperfection envs against the reference quad (otherwise they'd
    * only apply on the geometry path) — so `disturb` can fly the identified plant. */
@@ -199,7 +207,7 @@ int rtos_engine_boot(void *iface) {
 }
 
 void rtos_engine_enable_serial_rc(void) {
-  host_rc_feeder_start();   /* reads VAYU_UART_RC_PATH; pushes RC + arm SM */
+  host_rc_feeder_start(); /* reads VAYU_UART_RC_PATH; pushes RC + arm SM */
 }
 
 /* ---- type-free interactive run facade --------------------------------
@@ -208,7 +216,7 @@ void rtos_engine_enable_serial_rc(void) {
  * serial feeder thread (rtos_engine_enable_serial_rc), so the loop is just
  * step + pace; the worker reads pose via vsim_inproc_get_pose and pushes config
  * via the vsim_inproc_set_* surface between steps. */
-static stepper_t   g_run_stepper;
+static stepper_t g_run_stepper;
 static rtos_pacer_t g_run_pacer;
 
 void rtos_engine_run_begin(void) {
@@ -220,5 +228,5 @@ void rtos_engine_run_step(void) {
   control_telemetry_t ct;
   int got;
   step_once(&g_run_stepper, &ct, &got);
-  rtos_pacer_wait(&g_run_pacer, 0.001);   /* wall-clock pace to 1 ms/step */
+  rtos_pacer_wait(&g_run_pacer, 0.001); /* wall-clock pace to 1 ms/step */
 }

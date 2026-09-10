@@ -85,7 +85,7 @@ public:
   // Read-only view of the in-memory series buffers. Useful for the
   // shared CSV exporter — single-graph callers should prefer writeCsv()
   // below.
-  const std::vector<std::deque<DataPoint>>& series() const {
+  const std::vector<std::deque<DataPoint>> &series() const {
     return m_seriesData;
   }
 
@@ -136,7 +136,10 @@ private:
   // State band (mockup .g-status): timestamped status colours so the band
   // scrolls on the SAME time axis as the traces (same toX mapping + window).
   bool m_stateBand = false;
-  struct StateCell { qint64 ts; QColor color; };
+  struct StateCell {
+    qint64 ts;
+    QColor color;
+  };
   std::deque<StateCell> m_stateHist;
 
   // Rolling-σ right axis (mockup dotted σ traces + gvR ticks).

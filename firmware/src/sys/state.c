@@ -12,13 +12,14 @@
  */
 #include "sys/state.h"
 
-#include "storage/fs_owner.h"   /* vayu_log */
+#include "storage/fs_owner.h" /* vayu_log */
 #include "vayu_status.h"
 
 #include <stddef.h>
 
 volatile sys_state_t _system_current_status = SYSTEM_STATE_UNINITIALIZED;
-volatile sys_boot_check_state_t _system_boot_check_current_status = BOOT_CHECK_NO_CHECK;
+volatile sys_boot_check_state_t _system_boot_check_current_status =
+    BOOT_CHECK_NO_CHECK;
 volatile sys_imu_health_check_state_t _system_imu_health_check_current_status =
     IMU_HEALTH_NO_CHECK;
 
@@ -29,23 +30,23 @@ volatile sys_imu_health_check_state_t _system_imu_health_check_current_status =
  * pre-arm-check phase doesn't need to revisit this table. */
 static const sys_state_t k_allowed_transitions[][2] = {
     {SYSTEM_STATE_UNINITIALIZED, SYSTEM_STATE_INIT},
-    {SYSTEM_STATE_INIT,          SYSTEM_STATE_STANDBY},
-    {SYSTEM_STATE_STANDBY,       SYSTEM_STATE_PREARM},
-    {SYSTEM_STATE_STANDBY,       SYSTEM_STATE_ARMED},
-    {SYSTEM_STATE_STANDBY,       SYSTEM_STATE_CALIBRATING},
+    {SYSTEM_STATE_INIT, SYSTEM_STATE_STANDBY},
+    {SYSTEM_STATE_STANDBY, SYSTEM_STATE_PREARM},
+    {SYSTEM_STATE_STANDBY, SYSTEM_STATE_ARMED},
+    {SYSTEM_STATE_STANDBY, SYSTEM_STATE_CALIBRATING},
     /* Bench calibration: the FC sits in FAILSAFE whenever there is no RC link
      * (rc_watchdog_step), which is the normal state for a GCS-driven ground
      * calibration. Allow it from there; the task returns to STANDBY on
      * completion (and the watchdog may re-enter FAILSAFE, harmlessly). */
-    {SYSTEM_STATE_FAILSAFE,      SYSTEM_STATE_CALIBRATING},
-    {SYSTEM_STATE_PREARM,        SYSTEM_STATE_ARMED},
-    {SYSTEM_STATE_PREARM,        SYSTEM_STATE_STANDBY},
-    {SYSTEM_STATE_ARMED,         SYSTEM_STATE_IN_AIR},
-    {SYSTEM_STATE_ARMED,         SYSTEM_STATE_STANDBY},
-    {SYSTEM_STATE_IN_AIR,        SYSTEM_STATE_ARMED},
-    {SYSTEM_STATE_IN_AIR,        SYSTEM_STATE_STANDBY},
-    {SYSTEM_STATE_CALIBRATING,   SYSTEM_STATE_STANDBY},
-    {SYSTEM_STATE_FAILSAFE,      SYSTEM_STATE_STANDBY},
+    {SYSTEM_STATE_FAILSAFE, SYSTEM_STATE_CALIBRATING},
+    {SYSTEM_STATE_PREARM, SYSTEM_STATE_ARMED},
+    {SYSTEM_STATE_PREARM, SYSTEM_STATE_STANDBY},
+    {SYSTEM_STATE_ARMED, SYSTEM_STATE_IN_AIR},
+    {SYSTEM_STATE_ARMED, SYSTEM_STATE_STANDBY},
+    {SYSTEM_STATE_IN_AIR, SYSTEM_STATE_ARMED},
+    {SYSTEM_STATE_IN_AIR, SYSTEM_STATE_STANDBY},
+    {SYSTEM_STATE_CALIBRATING, SYSTEM_STATE_STANDBY},
+    {SYSTEM_STATE_FAILSAFE, SYSTEM_STATE_STANDBY},
 };
 
 static const size_t k_allowed_count =
@@ -67,7 +68,7 @@ vayu_status_t system_state_set(sys_state_t new_state) {
       return VAYU_OK;
     }
   }
-  vayu_log("[STATE] rejected transition 0x%x -> 0x%x",
-           (unsigned)cur, (unsigned)new_state);
+  vayu_log("[STATE] rejected transition 0x%x -> 0x%x", (unsigned)cur,
+           (unsigned)new_state);
   return VAYU_ERR_INVALID;
 }

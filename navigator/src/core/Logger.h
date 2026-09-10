@@ -24,22 +24,22 @@
 namespace Logger {
 
 struct Config {
-  QString logDir;            // "" → AppDataLocation/logs
-  qint64  maxBytes  = 5 * 1024 * 1024;  // rotate at ~5 MB
-  int     maxFiles  = 10;               // keep last 10 files
-  bool    enabled   = true;
+  QString logDir;                      // "" → AppDataLocation/logs
+  qint64 maxBytes = 5LL * 1024 * 1024; // rotate at ~5 MB
+  int maxFiles = 10;                   // keep last 10 files
+  bool enabled = true;
 };
 
-void init(const Config& cfg = {});
+void init(const Config &cfg = {});
 void shutdown();
 
 // Append a line. A newline is added if the input doesn't end with one.
 // Thread-safe; the underlying QFile is guarded by a QMutex so the GUI
 // thread and the SITL UART thread can both call this.
-void log(const QString& line);
+void log(const QString &line);
 
 // Where the active file lives (post-init). Useful for the status bar
 // or a "show log file" menu action.
 QString currentFile();
 
-}  // namespace Logger
+} // namespace Logger

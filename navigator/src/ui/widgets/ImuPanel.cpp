@@ -8,6 +8,11 @@
 #include <QLabel>
 #include <QVBoxLayout>
 
+// Accel-bias trace pens: amber while the estimate is trusted, red once it hits
+// its clamp (accel_unhealthy) and the FC stops trusting the climb rate.
+static const QColor kBiasOk("#D19A66");
+static const QColor kBiasBad("#E06C75");
+
 namespace {
 // Per-graph spec: title, unit, fixed Y range and σ-axis max (mockup data-min/
 // data-max/data-stdmax). Colours match the X/Y/Z trace palette.
@@ -16,18 +21,19 @@ const char *const kAxisColors[3] = {"#FF6B6B", "#4ECDC4", "#FFE66D"};
 RealTimeGraph *makeAxisGraph(QWidget *parent, const QString &title,
                              const QString &unit, float sigmaMax) {
   auto *g = new RealTimeGraph(parent, 3);
-  for (int i = 0; i < 3; ++i) g->setColor(i, QColor(kAxisColors[i]));
+  for (int i = 0; i < 3; ++i)
+    g->setColor(i, QColor(kAxisColors[i]));
   // Auto-scale the Y axis so the trace never saturates against fixed rails; the
   // tick labels follow the live range.
   g->setDynamicYAxis(true);
-  g->setSigmaAxis(true, sigmaMax);  // grows to fit (RealTimeGraph::appendSigma)
-  g->setStateBandEnabled(false);    // off by default (Settings can enable it)
+  g->setSigmaAxis(true, sigmaMax); // grows to fit (RealTimeGraph::appendSigma)
+  g->setStateBandEnabled(false);   // off by default (Settings can enable it)
   g->setTitle(title, unit);
   g->setSeriesLabels({"X", "Y", "Z"});
   g->setMinimumHeight(120);
   return g;
 }
-}  // namespace
+} // namespace
 
 ImuPanel::ImuPanel(QWidget *parent) : QWidget(parent) {
   auto *root = new QVBoxLayout(this);
@@ -70,12 +76,13 @@ ImuPanel::ImuPanel(QWidget *parent) : QWidget(parent) {
   // figure from the barometer) and AGL (height above the ground reference
   // captured on the ground; ~0 at rest, rises with climb). Fed by BARO telem.
   m_baroG = new RealTimeGraph(this, 2);
-  m_baroG->setColor(0, QColor("#61AFEF"));  // MSL — blue (right axis)
-  m_baroG->setColor(1, QColor("#98C379"));  // AGL — green (left axis)
+  m_baroG->setColor(0, QColor("#61AFEF")); // MSL — blue (right axis)
+  m_baroG->setColor(1, QColor("#98C379")); // AGL — green (left axis)
   m_baroG->setDynamicYAxis(true);
   m_baroG->setSeriesAxis(0, true);  // MSL on the right axis (sea-level, ~485 m)
   m_baroG->setSeriesAxis(1, false); // AGL on the left axis (above-ground, ~0 m)
-  m_baroG->setStateBandEnabled(false);  // off by default (Settings can enable it)
+  m_baroG->setStateBandEnabled(
+      false); // off by default (Settings can enable it)
   m_baroG->setTitle(tr("Baro Altitude"), QStringLiteral("m"));
   m_baroG->setSeriesLabels({"MSL", "AGL"});
   m_baroG->setMinimumHeight(120);
@@ -84,24 +91,29 @@ ImuPanel::ImuPanel(QWidget *parent) : QWidget(parent) {
   // (orange) overlays the raw baro altitude (blue) on the left axis so estimator
   // lag/divergence is visible at a glance; fused climb rate (green) rides the
   // right axis (m/s). Fed by VERTICAL_STATE telem (setVerticalState).
-  m_vertG = new RealTimeGraph(this, 3);
-  m_vertG->setColor(0, QColor("#E0822E"));  // fused altitude — orange (left axis)
-  m_vertG->setColor(1, QColor("#61AFEF"));  // raw baro altitude — blue (left axis)
-  m_vertG->setColor(2, QColor("#98C379"));  // climb rate — green (right axis, m/s)
+  m_vertG = new RealTimeGraph(this, 4);
+  m_vertG->setColor(0,
+                    QColor("#E0822E")); // fused altitude — orange (left axis)
+  m_vertG->setColor(1,
+                    QColor("#61AFEF")); // raw baro altitude — blue (left axis)
+  m_vertG->setColor(2,
+                    QColor("#98C379")); // climb rate — green (right axis, m/s)
+  m_vertG->setColor(3, kBiasOk);        // accel bias — amber (right axis)
   m_vertG->setDynamicYAxis(true);
-  m_vertG->setSeriesAxis(0, false);  // fused altitude on the left axis (m)
-  m_vertG->setSeriesAxis(1, false);  // raw baro altitude on the left axis (m)
-  m_vertG->setSeriesAxis(2, true);   // climb rate on the right axis (m/s)
+  m_vertG->setSeriesAxis(0, false); // fused altitude on the left axis (m)
+  m_vertG->setSeriesAxis(1, false); // raw baro altitude on the left axis (m)
+  m_vertG->setSeriesAxis(2, true);  // climb rate on the right axis (m/s)
+  m_vertG->setSeriesAxis(3, true);  // accel bias on the right axis (m/s²)
   m_vertG->setStateBandEnabled(false);
   m_vertG->setTitle(tr("Vertical Estimate"), QStringLiteral("m"));
-  m_vertG->setSeriesLabels({"Fused", "Baro", "Climb"});
+  m_vertG->setSeriesLabels({"Fused", "Baro", "Climb", "Bias"});
   m_vertG->setMinimumHeight(120);
 
   grid->addWidget(m_accG, 0, 0);
   grid->addWidget(m_gyrG, 0, 1);
   grid->addWidget(m_magG, 1, 0);
   grid->addWidget(m_baroG, 1, 1);
-  grid->addWidget(m_vertG, 2, 0, 1, 2);  // full-width fused-vs-raw chart
+  grid->addWidget(m_vertG, 2, 0, 1, 2); // full-width fused-vs-raw chart
   leftCol->addLayout(grid, 1);
 
   // Vehicle-state legend (mockup .status-key).
@@ -169,8 +181,8 @@ void ImuPanel::updateImu(const ImuData &data, bool available) {
     }
     graphs[g]->pushState(m_state);
   }
-  m_baroG->pushState(m_state);  // keep the band scrolling; data fed separately
-  m_vertG->pushState(m_state);  // ditto for the fused vertical chart
+  m_baroG->pushState(m_state); // keep the band scrolling; data fed separately
+  m_vertG->pushState(m_state); // ditto for the fused vertical chart
   m_tempGauge->setValue(data.tempC);
 }
 
@@ -186,7 +198,8 @@ void ImuPanel::setBaroAltitude(float mslM, float aglM, bool available) {
 }
 
 void ImuPanel::setVerticalState(float fusedAltM, float baroAltM,
-                                float climbRateMs, bool available) {
+                                float climbRateMs, float accelBiasMs2,
+                                bool accelUnhealthy, bool available) {
   // VERTICAL_STATE arrives independently of the IMU stream (its own NavLink
   // message + freshness/seeded gate), so it has its own slot. When stale/unseeded
   // we stop feeding and the traces age out to NA, matching the other graphs.
@@ -195,10 +208,20 @@ void ImuPanel::setVerticalState(float fusedAltM, float baroAltM,
   m_vertG->appendData(fusedAltM, 0);
   m_vertG->appendData(baroAltM, 1);
   m_vertG->appendData(climbRateMs, 2);
+  m_vertG->appendData(accelBiasMs2, 3);
+  // Recolour rather than add a separate indicator: when the bias saturates it is
+  // already pinned at the clamp and visually obvious, and red says the FC has
+  // stopped trusting climb rate (and vetoed the height mode) without costing a
+  // widget. Only touch the pen when the state actually flips.
+  if (accelUnhealthy != m_biasUnhealthy) {
+    m_biasUnhealthy = accelUnhealthy;
+    m_vertG->setColor(3, accelUnhealthy ? kBiasBad : kBiasOk);
+  }
 }
 
 void ImuPanel::setSensor(const QString &name) {
-  if (m_header) m_header->setText(QString("IMU — %1").arg(name));
+  if (m_header)
+    m_header->setText(QString("IMU — %1").arg(name));
 }
 
 void ImuPanel::setBattery(double pct) { m_battGauge->setValue(pct); }
@@ -215,7 +238,8 @@ void ImuPanel::setGraphDropout(double rate) {
 
 void ImuPanel::setSigmaTraces(bool on) {
   // Only the 3-axis graphs feed σ; baro has no σ overlay.
-  for (RealTimeGraph *g : {m_accG, m_gyrG, m_magG}) g->setSigmaEnabled(on);
+  for (RealTimeGraph *g : {m_accG, m_gyrG, m_magG})
+    g->setSigmaEnabled(on);
 }
 
 void ImuPanel::setStateBand(bool on) {

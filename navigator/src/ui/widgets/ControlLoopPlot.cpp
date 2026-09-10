@@ -19,16 +19,15 @@ ControlLoopPlot::ControlLoopPlot(QWidget *parent) : QWidget(parent) {
 
   auto *header = new QHBoxLayout();
   auto *title = new QLabel("CONTROL LOOP DASHBOARD", this);
-  title->setStyleSheet(
-      QString("font-size: 18px; font-weight: bold; color: %1;")
-          .arg(Theme::hex(Theme::kAccent)));
+  title->setStyleSheet(QString("font-size: 18px; font-weight: bold; color: %1;")
+                           .arg(Theme::hex(Theme::kAccent)));
 
   header->addWidget(title);
   header->addStretch();
 
   auto *scaleLabel = new QLabel("Gyro Scale:", this);
-  scaleLabel->setStyleSheet(
-      QString("color: %1; font-size: 12px;").arg(Theme::hex(Theme::kTextMuted)));
+  scaleLabel->setStyleSheet(QString("color: %1; font-size: 12px;")
+                                .arg(Theme::hex(Theme::kTextMuted)));
   auto *scaleEdit = new QLineEdit("1.0", this);
   scaleEdit->setFixedWidth(60);
   scaleEdit->setValidator(new QDoubleValidator(0.0, 1000.0, 4, this));
@@ -64,15 +63,19 @@ ControlLoopPlot::ControlLoopPlot(QWidget *parent) : QWidget(parent) {
     const QString path = CsvExport::promptAndWriteCombined(
         this, QString("controlloop-%1.csv").arg(stamp),
         {
-          {m_angleGraph,  {"roll_angle_sp", "pitch_angle_sp", "yaw_angle_sp",
-                           "roll_angle_curr", "pitch_angle_curr", "yaw_angle_curr"}},
-          {m_rateGraph,   {"roll_rate_sp", "pitch_rate_sp", "yaw_rate_sp",
-                           "roll_rate_curr", "pitch_rate_curr", "yaw_rate_curr"}},
-          {m_outputGraph, {"roll_out", "pitch_out", "yaw_out", "throttle_out"}},
-          {m_dtGraph,     {"outer_dt", "inner_dt"}},
-          {m_estLatGraph, {"est_peak_us", "est_mean_us"}},
+            {m_angleGraph,
+             {"roll_angle_sp", "pitch_angle_sp", "yaw_angle_sp",
+              "roll_angle_curr", "pitch_angle_curr", "yaw_angle_curr"}},
+            {m_rateGraph,
+             {"roll_rate_sp", "pitch_rate_sp", "yaw_rate_sp", "roll_rate_curr",
+              "pitch_rate_curr", "yaw_rate_curr"}},
+            {m_outputGraph,
+             {"roll_out", "pitch_out", "yaw_out", "throttle_out"}},
+            {m_dtGraph, {"outer_dt", "inner_dt"}},
+            {m_estLatGraph, {"est_peak_us", "est_mean_us"}},
         });
-    if (!path.isEmpty()) Notify::ok(this, tr("Wrote %1").arg(path));
+    if (!path.isEmpty())
+      Notify::ok(this, tr("Wrote %1").arg(path));
   });
   header->addWidget(exportBtn);
 
@@ -282,7 +285,8 @@ void ControlLoopPlot::setProtocol(DroneProtocol *protocol) {
 }
 
 void ControlLoopPlot::onControlLoopDataReceived(const ControlLoopData &data) {
-  if (m_paused) return;
+  if (m_paused)
+    return;
   // Update DT
   m_dtOuterVal->setText(
       QString::number(static_cast<double>(data.outer_dt), 'f', 5));
@@ -363,7 +367,8 @@ void ControlLoopPlot::onControlLoopDataReceived(const ControlLoopData &data) {
 }
 
 void ControlLoopPlot::onEstPerfReceived(const EstPerfData &data) {
-  if (m_paused) return;
+  if (m_paused)
+    return;
   m_estLatGraph->appendData(data.peak_us, 0);
   m_estLatGraph->appendData(data.mean_us, 1);
 
@@ -377,7 +382,8 @@ void ControlLoopPlot::onEstPerfReceived(const EstPerfData &data) {
 }
 
 void ControlLoopPlot::onImuReceived(const ImuData &data) {
-  if (m_paused) return;
+  if (m_paused)
+    return;
   float rollRateCurr = data.gyr[0] * m_gyroScale;
   float pitchRateCurr = data.gyr[1] * m_gyroScale;
   float yawRateCurr = data.gyr[2] * m_gyroScale;

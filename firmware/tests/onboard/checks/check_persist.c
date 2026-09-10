@@ -1,7 +1,7 @@
 /* Bench check: SD/FatFS write -> read-back integrity through the FS owner. */
 #include "hwtest_runner.h"
 #include "storage/fs_owner.h"
-#include "task.h" /* v_delay */
+#include "vaios.h" /* v_delay */
 
 #include <string.h>
 
@@ -19,8 +19,9 @@ hw_result_t check_sd_readback(void) {
    * unverified, so this stays single-file for now.) */
   return hw_skip();
 #endif
-  static const uint8_t pat[16] = {0xA5, 0x5A, 0x01, 0x02, 0x03, 0x04, 0xDE, 0xAD,
-                                  0xBE, 0xEF, 0x10, 0x20, 0x30, 0x40, 0xFF, 0x00};
+  static const uint8_t pat[16] = {0xA5, 0x5A, 0x01, 0x02, 0x03, 0x04,
+                                  0xDE, 0xAD, 0xBE, 0xEF, 0x10, 0x20,
+                                  0x30, 0x40, 0xFF, 0x00};
   fs_owner_writeat_reset(0);
   fs_owner_truncate(SD_TEST_PATH);
   if (!fs_owner_enqueue_write_at(0, SD_TEST_PATH, 0, pat, sizeof pat)) {

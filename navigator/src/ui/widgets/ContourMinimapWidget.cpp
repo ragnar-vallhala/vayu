@@ -10,20 +10,23 @@
 #include <vector>
 
 namespace {
-constexpr int kGrid = 112;  // height samples per side (scaled up to the widget)
+constexpr int kGrid = 112; // height samples per side (scaled up to the widget)
 
 // Hypsometric ramp: low ground green -> meadow yellow -> tan -> rocky grey ->
 // snow white, by normalised elevation t in [0,1].
 QColor hypsometric(float t) {
   t = std::clamp(t, 0.0f, 1.0f);
-  struct Stop { float t; int r, g, b; };
-  static const Stop stops[] = {
-      {0.00f, 36, 74, 38},    {0.30f, 86, 120, 46},  {0.55f, 170, 160, 86},
-      {0.75f, 150, 120, 80},  {0.90f, 130, 120, 116}, {1.00f, 236, 236, 240}};
+  struct Stop {
+    float t;
+    int r, g, b;
+  };
+  static const Stop stops[] = {{0.00f, 36, 74, 38},    {0.30f, 86, 120, 46},
+                               {0.55f, 170, 160, 86},  {0.75f, 150, 120, 80},
+                               {0.90f, 130, 120, 116}, {1.00f, 236, 236, 240}};
   for (int i = 1; i < 6; ++i) {
     if (t <= stops[i].t) {
-      const Stop& a = stops[i - 1];
-      const Stop& b = stops[i];
+      const Stop &a = stops[i - 1];
+      const Stop &b = stops[i];
       const float u = (t - a.t) / (b.t - a.t);
       return QColor(int(a.r + (b.r - a.r) * u), int(a.g + (b.g - a.g) * u),
                     int(a.b + (b.b - a.b) * u));
@@ -31,9 +34,9 @@ QColor hypsometric(float t) {
   }
   return QColor(stops[5].r, stops[5].g, stops[5].b);
 }
-}  // namespace
+} // namespace
 
-ContourMinimapWidget::ContourMinimapWidget(QWidget* parent) : QWidget(parent) {
+ContourMinimapWidget::ContourMinimapWidget(QWidget *parent) : QWidget(parent) {
   // Clicks pass through to the renderer underneath (matches the HUD overlays).
   setAttribute(Qt::WA_TransparentForMouseEvents);
   setMinimumSize(80, 80);
@@ -56,7 +59,7 @@ void ContourMinimapWidget::setRangeM(float r) {
   update();
 }
 
-void ContourMinimapWidget::paintEvent(QPaintEvent*) {
+void ContourMinimapWidget::paintEvent(QPaintEvent *) {
   QPainter p(this);
   p.setRenderHint(QPainter::Antialiasing, true);
   const int side = std::min(width(), height());
@@ -115,10 +118,12 @@ void ContourMinimapWidget::paintEvent(QPaintEvent*) {
       const int bandR = static_cast<int>(std::floor(hr / contourM_));
       const int bandD = static_cast<int>(std::floor(hd / contourM_));
       float k = shade;
-      if (band != bandR || band != bandD) k *= 0.55f;  // contour ink
-      img.setPixel(gx, gy, qRgb(int(std::clamp(col.red() * k, 0.0f, 255.0f)),
-                                int(std::clamp(col.green() * k, 0.0f, 255.0f)),
-                                int(std::clamp(col.blue() * k, 0.0f, 255.0f))));
+      if (band != bandR || band != bandD)
+        k *= 0.55f; // contour ink
+      img.setPixel(gx, gy,
+                   qRgb(int(std::clamp(col.red() * k, 0.0f, 255.0f)),
+                        int(std::clamp(col.green() * k, 0.0f, 255.0f)),
+                        int(std::clamp(col.blue() * k, 0.0f, 255.0f))));
     }
   }
   p.setRenderHint(QPainter::SmoothPixmapTransform, true);

@@ -9,19 +9,19 @@
 
 namespace vsim {
 
-LoadedMesh loadMesh(const QString& path, float scale, QString* error) {
+LoadedMesh loadMesh(const QString &path, float scale, QString *error) {
   return loadMesh(path, scale, QMatrix4x4(), error);
 }
 
-LoadedMesh loadMesh(const QString& path, float scale, const QMatrix4x4& xform,
-                    QString* error) {
+LoadedMesh loadMesh(const QString &path, float scale, const QMatrix4x4 &xform,
+                    QString *error) {
   LoadedMesh out;
 
   Assimp::Importer importer;
   // Triangulate everything, bake node transforms into vertices (so a
   // multi-part assembly lands in one body frame), drop lines/points, and
   // synthesize smooth normals when the file has none.
-  const aiScene* scene = importer.ReadFile(
+  const aiScene *scene = importer.ReadFile(
       path.toStdString(),
       aiProcess_Triangulate | aiProcess_PreTransformVertices |
           aiProcess_JoinIdenticalVertices | aiProcess_GenSmoothNormals |
@@ -29,22 +29,25 @@ LoadedMesh loadMesh(const QString& path, float scale, const QMatrix4x4& xform,
 
   if (!scene || (scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE) ||
       scene->mNumMeshes == 0) {
-    if (error) *error = QString::fromUtf8(importer.GetErrorString());
-    if (error && error->isEmpty()) *error = QStringLiteral("no meshes in file");
+    if (error)
+      *error = QString::fromUtf8(importer.GetErrorString());
+    if (error && error->isEmpty())
+      *error = QStringLiteral("no meshes in file");
     return out;
   }
 
   bool first = true;
   for (unsigned mi = 0; mi < scene->mNumMeshes; ++mi) {
-    const aiMesh* mesh = scene->mMeshes[mi];
-    if ((mesh->mPrimitiveTypes & aiPrimitiveType_TRIANGLE) == 0) continue;
+    const aiMesh *mesh = scene->mMeshes[mi];
+    if ((mesh->mPrimitiveTypes & aiPrimitiveType_TRIANGLE) == 0)
+      continue;
 
     // Resolve one flat RGB for this mesh from its material: prefer the PBR
     // base color (glTF), fall back to legacy diffuse, then neutral grey.
     // Per-vertex colors (mColors[0]) override this when the file has them.
     QVector3D matColor(0.72f, 0.73f, 0.76f);
     if (mesh->mMaterialIndex < scene->mNumMaterials) {
-      const aiMaterial* mat = scene->mMaterials[mesh->mMaterialIndex];
+      const aiMaterial *mat = scene->mMaterials[mesh->mMaterialIndex];
       aiColor4D c;
       if (mat->Get(AI_MATKEY_BASE_COLOR, c) == AI_SUCCESS ||
           mat->Get(AI_MATKEY_COLOR_DIFFUSE, c) == AI_SUCCESS) {
@@ -54,16 +57,17 @@ LoadedMesh loadMesh(const QString& path, float scale, const QMatrix4x4& xform,
     const bool hasVtxColor = mesh->HasVertexColors(0);
 
     for (unsigned fi = 0; fi < mesh->mNumFaces; ++fi) {
-      const aiFace& face = mesh->mFaces[fi];
-      if (face.mNumIndices != 3) continue;  // post-Triangulate: should be 3
+      const aiFace &face = mesh->mFaces[fi];
+      if (face.mNumIndices != 3)
+        continue; // post-Triangulate: should be 3
       for (unsigned k = 0; k < 3; ++k) {
         const unsigned idx = face.mIndices[k];
-        const aiVector3D& v = mesh->mVertices[idx];
+        const aiVector3D &v = mesh->mVertices[idx];
         const QVector3D p = xform.map(QVector3D(v.x, v.y, v.z) * scale);
         out.positions.push_back(p);
 
         if (mesh->HasNormals()) {
-          const aiVector3D& n = mesh->mNormals[idx];
+          const aiVector3D &n = mesh->mNormals[idx];
           out.normals.push_back(
               xform.mapVector(QVector3D(n.x, n.y, n.z)).normalized());
         } else {
@@ -71,7 +75,7 @@ LoadedMesh loadMesh(const QString& path, float scale, const QMatrix4x4& xform,
         }
 
         if (hasVtxColor) {
-          const aiColor4D& vc = mesh->mColors[0][idx];
+          const aiColor4D &vc = mesh->mColors[0][idx];
           out.colors.emplace_back(vc.r, vc.g, vc.b);
         } else {
           out.colors.push_back(matColor);
@@ -93,11 +97,12 @@ LoadedMesh loadMesh(const QString& path, float scale, const QMatrix4x4& xform,
   }
 
   if (out.positions.empty()) {
-    if (error) *error = QStringLiteral("no triangles after import");
+    if (error)
+      *error = QStringLiteral("no triangles after import");
     return out;
   }
   out.valid = true;
   return out;
 }
 
-}  // namespace vsim
+} // namespace vsim

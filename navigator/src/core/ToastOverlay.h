@@ -15,7 +15,7 @@
 class QResizeEvent;
 
 class ToastOverlay : public QWidget {
- public:
+public:
   explicit ToastOverlay(QWidget *host);
 
   // Push a new toast. accent tints the card border; iconText is a short glyph
@@ -26,13 +26,13 @@ class ToastOverlay : public QWidget {
   // Get-or-create the overlay attached to a host window.
   static ToastOverlay *forHost(QWidget *host);
 
- protected:
+protected:
   bool eventFilter(QObject *obj, QEvent *ev) override;
 
- private:
+private:
   void relayout();
 
   QWidget *m_host;
-  QVector<QWidget *> m_toasts;  // newest first
+  QVector<QWidget *> m_toasts; // newest first
   static constexpr int kMaxToasts = 5;
 };

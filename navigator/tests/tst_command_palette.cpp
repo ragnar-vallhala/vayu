@@ -20,7 +20,7 @@ private slots:
 
 void TstCommandPalette::fuzzyMatchesSubsequence() {
   int s = 0;
-  QVERIFY(CommandPalette::fuzzyMatch("hs", "Home Screen", s));   // word starts
+  QVERIFY(CommandPalette::fuzzyMatch("hs", "Home Screen", s)); // word starts
   QVERIFY(CommandPalette::fuzzyMatch("clr", "Clear Log", s));
   QVERIFY(CommandPalette::fuzzyMatch("pa", "Packet Analyzer", s));
 }
@@ -28,7 +28,7 @@ void TstCommandPalette::fuzzyMatchesSubsequence() {
 void TstCommandPalette::fuzzyRejectsNonSubsequence() {
   int s = 0;
   QVERIFY(!CommandPalette::fuzzyMatch("zzz", "Home Screen", s));
-  QVERIFY(!CommandPalette::fuzzyMatch("hx", "Home", s));  // no 'x' after 'h'
+  QVERIFY(!CommandPalette::fuzzyMatch("hx", "Home", s)); // no 'x' after 'h'
 }
 
 void TstCommandPalette::fuzzyRanksContiguousWordStartHigher() {
@@ -58,7 +58,7 @@ void TstCommandPalette::popupFiltersAsTyped() {
   auto *list = pal.findChild<QListWidget *>();
   auto *input = pal.findChild<QLineEdit *>();
   QVERIFY(list && input);
-  QCOMPARE(list->count(), 3);  // empty query lists all
+  QCOMPARE(list->count(), 3); // empty query lists all
 
   input->setText("clear");
   QCOMPARE(list->count(), 1);

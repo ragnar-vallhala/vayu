@@ -69,6 +69,7 @@ void init_sensors(void) {
   control_telemetry_buffer_init();
   bmx160_init();
   bme280_init(); /* baro/humidity on the shared I2C1 bus; logs + degrades if absent */
+  vl53l0x_init(); /* ToF rangefinder, same shared bus; logs + degrades if absent */
   rc_buffer_init();
 
   // Initialize global telemetry — USART6 (PC6 TX / PC7 RX) per Vayu PCB wiring.
@@ -101,26 +102,47 @@ void init_tasks(void) {
   // write-at hop on top of the router's buf[256] — which overflowed the
   // right-sized 2496 and wedged the FC. Restored to the known-good size from
   // feat/centralised-fs-owner (byte-perfect 64 KB round-trips).
-  task_create_named(comm_processor_task, NULL, 4096, 0,
-                    "comm_processor"); // peak 1884 idle; xfer-upload path deeper
-  bmx160_task_id =
-      task_create_named(bmx160_initiate_read, NULL, 768, 2,
-                        "imu_read"); // peak 332
+  task_create_named(
+      comm_processor_task, NULL, 4096, 0,
+      "comm_processor"); // peak 1884 idle; xfer-upload path deeper
+  bmx160_task_id = task_create_named(bmx160_initiate_read, NULL, 768, 2,
+                                     "imu_read"); // peak 332
   // Attitude estimation (fusion), split out of the IMU driver.
   task_create_named(attitude_task, NULL, 1152, 1, "attitude"); // peak 700
   // Vertical estimator (VERT): fuses baro + accel into altitude/climb_rate.
-  task_create_named(vertical_estimator_task, NULL, 832, 1,
-                    "vertical"); // peak 428
+  /* 1024 not 832: the ToF ride-along (range read + quaternion tilt projection)
+   * pushed this task's measured peak 428 -> 484 B, leaving 348 B free against a
+   * 256 B guard band — under one FP exception frame (132 B) of true headroom.
+   * See the rate_ctl note above for what that costs when it runs out. */
+  task_create_named(vertical_estimator_task, NULL, 1280, 1,
+                    "vertical"); // peak 708 measured
+                                 // 484 -> 708 when the hover estimator and its
+                                 // boot-time hover_store_load (vfs_open+read)
+                                 // landed here. At 1024 that left 316 B free
+                                 // against the 256 B guard band -- under one FP
+                                 // exception frame (132 B) of real margin, i.e.
+                                 // the same shape as the rate_ctl panic.
   task_create_named(rc_ibus_task, NULL, 576, 0, "rc_ibus"); // peak 132
   task_create_named(angle_controller_task, NULL, 832, 1,
                     "angle_ctl"); // peak 404, control
-  task_create_named(angle_rate_controller_task, NULL, 1088, 1,
-                    "rate_ctl"); // peak 632, control
+  /* 1088 was marginal: a live SWD dump caught rate_ctl 956 B deep with a full
+   * FP exception context (EXC_RETURN 0xFFFFFFED, S0-S31 = +132 B) on its stack,
+   * inside the 256 B TASK_STACK_OVERFLOW_THRESHOLD guard band -> kernel panic
+   * (task.c:304). It only shows when preemption rises (adding the tof_read task
+   * was enough to expose it); the depth itself is pre-existing. Measured peak
+   * on hardware 2026-09-04: 956 B — at 1088 that left 132 B free, inside the
+   * guard band; 1536 leaves 580 B. */
+  task_create_named(angle_rate_controller_task, NULL, 1536, 1,
+                    "rate_ctl"); // peak 956 measured, control
   task_create_named(motor_task, NULL, 704, 1, "motor"); // peak 284, actuator
   task_create_named(imu_telemetry_task, NULL, 1344, 0,
                     "imu_telemetry"); // peak 908
   task_create_named(bme280_read_task, NULL, 768, 0,
                     "baro_read"); // peak 316, ~20 Hz baro/humidity sampler
+  task_create_named(vl53l0x_read_task, NULL, 1024, 0,
+                    "tof_read"); // peak 468 measured on hardware; 640 would
+                                 // leave 172 B free, inside the 256 B
+                                 // TASK_STACK_OVERFLOW_THRESHOLD guard band.
   task_create_named(flush_task, NULL, 640, 0, "flush"); // peak 188
   task_create_named(perf_telemetry_task, NULL, 1216, 0,
                     "perf_telemetry"); // peak 804
@@ -169,10 +191,9 @@ void system_init_tasks(void) {
   // 1 KiB since it is not in the steady-state perf view (no measured high-water).
   task_create_named(boot_task, NULL, 1024, 0, "boot");
 }
-hal_i2c_config_t i2c_config = {
-    .clock_speed = HAL_I2C_SPEED_FAST,
-    .own_address = I2C_MASTER,
-    .acknowledge = true};
+hal_i2c_config_t i2c_config = {.clock_speed = HAL_I2C_SPEED_FAST,
+                               .own_address = I2C_MASTER,
+                               .acknowledge = true};
 
 /* @noreq top-level boot orchestration: runs the init sequence and starts the
  * scheduler. Cold-boot timing (SYS-TIM-001) is a system-level property

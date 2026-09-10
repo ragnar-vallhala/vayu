@@ -62,7 +62,7 @@ static int file_write(xfer_session_t *s, uint32_t off, const uint8_t *buf,
    * reject here. The write is fire-and-forget into fs_owner; file_flush() below
    * reports its eventual persistence. */
   return fs_owner_enqueue_write_at(s->session, s->arg, off, buf, len) ? (int)len
-                                                                       : 0;
+                                                                      : 0;
 }
 
 /* Upload completion: 1 = every chunk durably written (-> DONE), 0 = still

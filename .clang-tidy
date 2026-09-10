@@ -1,11 +1,13 @@
-# Vayu firmware static-analysis ruleset (CONV-04).
+# Vayu static-analysis ruleset (CONV-04).
+#
+# Applies to the whole tree — firmware, Navigator, the sim, the tools — via
+# tools/dev/run_clang_tidy.sh, which drives every compile database and then
+# names any source no database covered. Vendored code (extern/**) is excluded
+# there, per the §5.3 vendor exemption.
 #
 # Start narrow — high-value bug and security checks — and widen over time
 # as the baseline is burned down (R12.3). Noisy style/complexity checks are
 # disabled for now; re-enable per-family as the tree is cleaned.
-#
-# Vendored code (extern/**) is excluded at the CI invocation (clang-tidy is
-# run only over src/), per the §5.3 vendor exemption.
 Checks: >
   bugprone-*,
   cert-*,
@@ -16,25 +18,55 @@ Checks: >
   -cert-dcl37-c,
   -cert-dcl51-cpp,
   -cert-err33-c,
+  -cert-err58-cpp,
   -clang-analyzer-*
+CheckOptions:
+  # The autotune optimiser throws BudgetExhausted to unwind out of a search
+  # when the evaluation budget runs out; catching it and doing nothing IS the
+  # handling, at seven strategy entry points. Named here rather than NOLINTed
+  # at each, so a genuinely empty catch of anything else still reports.
+  bugprone-empty-catch.AllowEmptyCatchForExceptions: 'BudgetExhausted'
 # Held out as accepted house style (internally consistent, low value to
 # churn across the whole flight tree):
-#   * readability-* — avoid-const-params-in-decls (~576 hits; const-by-value
-#     params document non-mutation), magic-numbers, cognitive-complexity.
 #   * bugprone-reserved-identifier / cert-dcl37-c — the `_name` prefix on
 #     file-static symbols is used pervasively and deliberately.
+#   * clang-analyzer-* — MEASURED across every database, not assumed: 346
+#     findings, and the family does not survive contact with this tree.
+#     194 are security.insecureAPI.DeprecatedOrUnsafeBufferHandling, which
+#     wants C11 Annex K (memset_s/snprintf_s) that neither newlib nor glibc
+#     implements. Of the ~28 left, core.CallAndMessage / core.NullDereference
+#     fire on every capturing lambda passed to a Qt connect() -- the analyser
+#     evaluates the lambda body in isolation, so `this` is unconstrained and
+#     `m_state.imu = d` reads as a null-object call (TelemetryEngine alone: 9)
+#     -- and valist.Uninitialized flags a textbook va_start/vfprintf/va_end in
+#     v_panic. It did find one real defect, an uninitialised BMM150 trim read,
+#     which is fixed; the rest is a modelling mismatch, not a backlog.
+#     Re-measure when the analyser's lambda support improves.
+#   * readability-* — 19,600 of the 20,596 findings the held-out set would
+#     add, and the top three are magic-numbers (5992), identifier-length
+#     (5404, it wants Kp/Ki/Kd renamed) and uppercase-literal-suffix (4757).
+#     A rename campaign, not a bug hunt.
+#   * cert-err58-cpp — 268 hits across Navigator, every one a file-scope
+#     QString / QRegularExpression / QMutex / std::vector constant. The check
+#     wants no static object whose constructor can throw; Qt application code
+#     is built out of them, and the failure it guards against (a throw before
+#     main) is an unrecoverable startup abort either way. Cannot fire on the
+#     firmware, which is C.
 # Re-introduce selected checks as the baseline is cleaned.
 #
-# Under this set the analysable baseline is clean (the genuine findings —
-# bugprone-branch-clone, bugprone-switch-missing-default-case, the
-# MS_TO_TICKS macro redefine — were fixed in the Phase-5 burn-down). A few
-# TUs not present in the host SITL compile_commands (e.g. main.c) report
-# clang-parse artifacts; the authoritative warning gate is the arm
-# -Werror build.
+# Under this set the tree is at zero findings — all 240 non-vendored sources,
+# ARM and host, with nothing left in the runner's "not analysed" list.
 
-# Treat nothing as an error yet — the CI clang-tidy job reports findings
-# (does not fail the build) until the existing baseline is burned down,
-# then flips to warnings-as-errors. New code should land clean.
-WarningsAsErrors: ''
+# The baseline is burned down, so this is now a gate (CONV-04 / R12.3): every
+# check listed above fails the build. Held-out checks are held out in `Checks:`
+# above, with the reason; a genuine one-off exception is a NOLINT naming the
+# check and saying why, not a line added here.
+WarningsAsErrors: '*'
 
-HeaderFilterRegex: '.*/(src|include)/.*'
+# Which headers count as ours. The previous '.*/(src|include)/.*' was wrong in
+# both directions: it missed firmware/tests/onboard/*.h (under neither), and it
+# MATCHED extern/vaios/include/**, so vendored headers were analysed despite the
+# §5.3 exemption -- a vaios bump could have turned upstream's code into our red
+# build. clang-tidy 18 has no ExcludeHeaderFilterRegex, so the exclusion is
+# expressed positively: extern/** carries none of these as a path segment.
+HeaderFilterRegex: '.*/(firmware|navigator|sim|navlink|vtest)/.*\.(h|hpp)$'

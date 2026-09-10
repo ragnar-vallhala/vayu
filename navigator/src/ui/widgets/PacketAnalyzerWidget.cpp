@@ -93,7 +93,8 @@ void PacketAnalyzerWidget::buildUi() {
     b->setCheckable(true);
     b->setMinimumHeight(24);
     b->setFixedWidth(40);
-    if (i == 0) b->setChecked(true);
+    if (i == 0)
+      b->setChecked(true);
     dirGroup->addButton(b, i);
     filterBar->addWidget(b);
   }
@@ -221,8 +222,8 @@ void PacketAnalyzerWidget::resizeColumns() {
     return;
   // Relative weights — every column grows to fill the width in proportion.
   static const double wt[PacketLogModel::ColCount] = {
-      /*Time*/ 1.3, /*Dir*/ 0.5, /*Type*/ 1.7, /*Dev*/ 0.5,
-      /*Len*/ 0.5, /*CRC*/ 1.1, /*Payload*/ 3.2};
+      /*Time*/ 1.3, /*Dir*/ 0.5, /*Type*/ 1.7,   /*Dev*/ 0.5,
+      /*Len*/ 0.5,  /*CRC*/ 1.1, /*Payload*/ 3.2};
   double sum = 0;
   for (double x : wt)
     sum += x;
@@ -238,10 +239,9 @@ void PacketAnalyzerWidget::resizeColumns() {
 void PacketAnalyzerWidget::onExpressionEdited() {
   const QString text = m_exprEdit->text();
   const bool ok = m_proxy->setExpression(text);
-  m_exprEdit->setStyleSheet(
-      (ok || text.trimmed().isEmpty())
-          ? QString()
-          : "QLineEdit { border: 1px solid #E06C75; }");
+  m_exprEdit->setStyleSheet((ok || text.trimmed().isEmpty())
+                                ? QString()
+                                : "QLineEdit { border: 1px solid #E06C75; }");
 }
 
 void PacketAnalyzerWidget::onSelectionChanged() {
@@ -301,14 +301,15 @@ void PacketAnalyzerWidget::onSaveClicked() {
     if (!e)
       continue;
     out << e->no << "," << e->time << "," << (e->tx ? "TX" : "RX") << ","
-        << e->typeName << "," << (e->type == 0xFF ? "" : QString::number(e->dev))
-        << "," << e->len << ",\"" << e->info << "\",\""
+        << e->typeName << ","
+        << (e->type == 0xFF ? "" : QString::number(e->dev)) << "," << e->len
+        << ",\"" << e->info << "\",\""
         << QString::fromLatin1(e->raw.toHex(' ').toUpper()) << "\"\n";
     ++written;
   }
   f.close();
   QMessageBox::information(this, tr("Saved"),
-                          tr("Wrote %1 packets.").arg(written));
+                           tr("Wrote %1 packets.").arg(written));
 }
 
 void PacketAnalyzerWidget::setProtocol(DroneProtocol *protocol) {

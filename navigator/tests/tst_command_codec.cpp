@@ -5,7 +5,7 @@
 #include "crc.h"
 
 extern "C" {
-#include "navlink_msgs.h"  // decode the emitted v2 frames with the real parser
+#include "navlink_msgs.h" // decode the emitted v2 frames with the real parser
 }
 
 // CMD_SET_PID now emits a NavLink v2 frame (10-byte header + truncated payload +
@@ -43,39 +43,39 @@ bool decodePid(const QByteArray &f, navlink_cmd_set_pid_t &out) {
   navlink_parser_init(&p);
   navlink_handlers_t h{};
   h.on_cmd_set_pid = onPid;
-  navlink_parser_push(&p, &h,
-                      reinterpret_cast<const uint8_t *>(f.constData()),
+  navlink_parser_push(&p, &h, reinterpret_cast<const uint8_t *>(f.constData()),
                       size_t(f.size()));
   if (g_pidGot)
     out = g_pid;
   return g_pidGot;
 }
-}  // namespace
+} // namespace
 
 void TstCommandCodec::setPidFrameLayout() {
   // rate controller (1), pitch (1), arbitrary gains; kff=0 is trimmed on the
   // wire (trailing-zero truncation), so the frame size is value-dependent.
   const QByteArray f = CommandCodec::encodeSetPid(1, 1, 0.10f, 0.02f, 0.003f,
                                                   0.0f, /*dev*/ 42, /*ts*/ 7);
-  QCOMPARE(quint8(f[0]), quint8(0x56));          // sync
-  QCOMPARE(quint8(f[1]), quint8(0x02));          // NavLink v2 version byte
-  QCOMPARE(quint8(f[2]), quint8(f.size() - 12)); // payload_len == size - hdr - crc
+  QCOMPARE(quint8(f[0]), quint8(0x56)); // sync
+  QCOMPARE(quint8(f[1]), quint8(0x02)); // NavLink v2 version byte
+  QCOMPARE(quint8(f[2]),
+           quint8(f.size() - 12)); // payload_len == size - hdr - crc
   const quint32 msgid = quint8(f[7]) | (quint32(quint8(f[8])) << 8) |
-                        (quint32(quint8(f[9])) << 16);  // u24 LE
-  QCOMPARE(msgid, quint32(NAVLINK_MSGID_CMD_SET_PID));  // 8195
+                        (quint32(quint8(f[9])) << 16); // u24 LE
+  QCOMPARE(msgid, quint32(NAVLINK_MSGID_CMD_SET_PID)); // 8195
   navlink_cmd_set_pid_t m{};
   QVERIFY(decodePid(f, m));
-  QCOMPARE(quint8(m.target_sys), quint8(42));    // dev id addressed
-  QCOMPARE(quint8(m.controller), quint8(1));     // rate loop
-  QCOMPARE(quint8(m.axis), quint8(1));           // pitch
+  QCOMPARE(quint8(m.target_sys), quint8(42)); // dev id addressed
+  QCOMPARE(quint8(m.controller), quint8(1));  // rate loop
+  QCOMPARE(quint8(m.axis), quint8(1));        // pitch
 }
 
 void TstCommandCodec::crcRejectsCorruptedFrame() {
   QByteArray f = CommandCodec::encodeSetPid(1, 0, 1.0f, 2.0f, 3.0f, 4.0f);
   navlink_cmd_set_pid_t m{};
-  QVERIFY(decodePid(f, m));                  // intact frame decodes (CRC valid)
-  f[10] = char(quint8(f[10]) ^ 0xFF);        // flip a payload byte
-  QVERIFY(!decodePid(f, m));                 // CRC now fails -> no dispatch
+  QVERIFY(decodePid(f, m));           // intact frame decodes (CRC valid)
+  f[10] = char(quint8(f[10]) ^ 0xFF); // flip a payload byte
+  QVERIFY(!decodePid(f, m));          // CRC now fails -> no dispatch
 }
 
 void TstCommandCodec::setPidGainsRoundTrip() {
@@ -83,8 +83,8 @@ void TstCommandCodec::setPidGainsRoundTrip() {
       /*controller=rate*/ 1, /*axis=yaw*/ 2, 0.5f, 0.25f, 0.125f, 0.0625f);
   navlink_cmd_set_pid_t m{};
   QVERIFY(decodePid(f, m));
-  QCOMPARE(quint8(m.controller), quint8(1));  // rate
-  QCOMPARE(quint8(m.axis), quint8(2));        // yaw
+  QCOMPARE(quint8(m.controller), quint8(1)); // rate
+  QCOMPARE(quint8(m.axis), quint8(2));       // yaw
   QCOMPARE(m.kp, 0.5f);
   QCOMPARE(m.ki, 0.25f);
   QCOMPARE(m.kd, 0.125f);
@@ -131,7 +131,7 @@ navlink_ack_t onGeo(void *, const navlink_frame_hdr_t *,
   g_geoGot = true;
   return navlink_ack_t{};
 }
-}  // namespace
+} // namespace
 
 void TstCommandCodec::gyroLpfAndFlightModeIds() {
   navlink_handlers_t h{};
@@ -149,8 +149,8 @@ void TstCommandCodec::gyroLpfAndFlightModeIds() {
   QVERIFY(decodesAs(CommandCodec::encodeSetFlightMode(1),
                     NAVLINK_MSGID_CMD_SET_FLIGHT_MODE, h));
   QVERIFY(g_fmGot);
-  QCOMPARE(quint8(g_fm.mode), quint8(1));    // acro
-  QCOMPARE(quint8(g_fm.source), quint8(1));  // GCS
+  QCOMPARE(quint8(g_fm.mode), quint8(1));   // acro
+  QCOMPARE(quint8(g_fm.source), quint8(1)); // GCS
 
   const float x[4] = {0.1f, -0.1f, -0.1f, 0.1f};
   const float y[4] = {0.1f, 0.1f, -0.1f, -0.1f};
@@ -172,7 +172,7 @@ navlink_ack_t onNotch(void *, const navlink_frame_hdr_t *,
   g_notchGot = true;
   return navlink_ack_t{};
 }
-}  // namespace
+} // namespace
 
 void TstCommandCodec::setGyroNotchRoundTrip() {
   navlink_handlers_t h{};

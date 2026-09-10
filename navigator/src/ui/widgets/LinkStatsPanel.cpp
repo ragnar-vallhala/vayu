@@ -75,8 +75,7 @@ LinkStatsPanel::LinkStatsPanel(QWidget *parent) : QWidget(parent) {
 
   auto *rightCol = new QVBoxLayout();
   rightCol->setSpacing(1);
-  rightCol->addWidget(
-      caption(this, tr("Throughput KB/s   ↓ down   ↑ up")));
+  rightCol->addWidget(caption(this, tr("Throughput KB/s   ↓ down   ↑ up")));
   m_speedGraph = new RealTimeGraph(this, 2);
   m_speedGraph->setWindowSeconds(60);
   m_speedGraph->setDynamicYAxis(true); // speeds vary widely — auto-scale
@@ -142,7 +141,8 @@ void LinkStatsPanel::onTick() {
   m_downLabel->setText("↓ " + humanRate(downBps));
   m_upLabel->setText("↑ " + humanRate(upBps));
   m_totalLabel->setText("RX " + humanBytes(static_cast<double>(m_totalRx)) +
-                        "  ·  TX " + humanBytes(static_cast<double>(m_totalTx)));
+                        "  ·  TX " +
+                        humanBytes(static_cast<double>(m_totalTx)));
 
   // Link quality only when there were RX bytes to judge.
   if (rxBytes == 0) {
@@ -152,7 +152,9 @@ void LinkStatsPanel::onTick() {
   }
   const double pct = 100.0 * static_cast<double>(good) / rxBytes;
   m_qualityGraph->appendData(static_cast<float>(pct));
-  const char *qc = pct >= 90.0 ? "#98C379" : pct >= 70.0 ? "#FFE66D" : "#FF6B6B";
+  const char *qc = pct >= 90.0   ? "#98C379"
+                   : pct >= 70.0 ? "#FFE66D"
+                                 : "#FF6B6B";
   m_qualityLabel->setText("Link " + QString::number(pct, 'f', 1) + "%");
   m_qualityLabel->setStyleSheet(pill(qc));
 }

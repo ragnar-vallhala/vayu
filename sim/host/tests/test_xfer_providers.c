@@ -25,15 +25,15 @@
 #include "variables.h" /* NAVLINK_LOGGING_FILENAME */
 
 static int g_checks = 0, g_fails = 0;
-#define CHECK(cond, msg)                                                        \
-  do {                                                                          \
-    g_checks++;                                                                 \
-    if (cond)                                                                   \
-      printf("    ok   %s\n", (msg));                                           \
-    else {                                                                      \
-      g_fails++;                                                                \
-      printf("    FAIL %s   (%s:%d)\n", (msg), __FILE__, __LINE__);             \
-    }                                                                           \
+#define CHECK(cond, msg)                                                       \
+  do {                                                                         \
+    g_checks++;                                                                \
+    if (cond)                                                                  \
+      printf("    ok   %s\n", (msg));                                          \
+    else {                                                                     \
+      g_fails++;                                                               \
+      printf("    FAIL %s   (%s:%d)\n", (msg), __FILE__, __LINE__);            \
+    }                                                                          \
   } while (0)
 
 /* ---- capturing emitter (reassembles downloaded/streamed data) ------------ */
@@ -50,18 +50,26 @@ static void cap_reset(void) { memset(&CAP, 0, sizeof CAP); }
 
 static void e_cmd_ack(const xfer_session_t *s, uint32_t msgid, uint8_t req,
                       uint8_t result, int32_t p2) {
-  (void)s; (void)msgid; (void)req; (void)p2;
+  (void)s;
+  (void)msgid;
+  (void)req;
+  (void)p2;
   CAP.last_open_result = result;
   CAP.n_cmd_ack++;
 }
 static void e_info(const xfer_session_t *s, uint8_t result, uint16_t cs,
                    uint32_t total, uint32_t mtime) {
-  (void)s; (void)result; (void)cs; (void)total; (void)mtime;
+  (void)s;
+  (void)result;
+  (void)cs;
+  (void)total;
+  (void)mtime;
   CAP.n_info++;
 }
 static int e_data(const xfer_session_t *s, uint8_t flags, uint8_t len,
                   uint32_t offset, const uint8_t *buf) {
-  (void)s; (void)flags;
+  (void)s;
+  (void)flags;
   if (CAP.n_data < 256) {
     CAP.data_offsets[CAP.n_data] = offset;
     CAP.data_lens[CAP.n_data] = len;
@@ -76,7 +84,10 @@ static int e_data(const xfer_session_t *s, uint8_t flags, uint8_t len,
 }
 static void e_ack(const xfer_session_t *s, uint8_t flags, uint8_t result,
                   uint32_t next_offset) {
-  (void)s; (void)flags; (void)result; (void)next_offset;
+  (void)s;
+  (void)flags;
+  (void)result;
+  (void)next_offset;
 }
 static const xfer_tx_ops_t CAP_TX = {e_cmd_ack, e_info, e_data, e_ack};
 
@@ -115,8 +126,8 @@ static void test_file_roundtrip(void) {
   /* upload */
   xfer_reset_all();
   cap_reset();
-  xfer_open_args_t up = mkargs(0, XFER_DIR_UPLOAD, XFER_MODE_FILE, XFER_SVC_FILE,
-                               path, 0);
+  xfer_open_args_t up =
+      mkargs(0, XFER_DIR_UPLOAD, XFER_MODE_FILE, XFER_SVC_FILE, path, 0);
   CHECK(xfer_on_open(&up) == XFER_OPEN_DEFERRED, "FILE upload open deferred");
   xfer_tick(0, 0, 8); /* provider->open truncates */
   CHECK(CAP.last_open_result == XFER_RES_ACCEPTED, "FILE upload ACCEPTED");
@@ -137,12 +148,13 @@ static void test_file_roundtrip(void) {
 
   /* download the same file back */
   cap_reset();
-  xfer_open_args_t dn = mkargs(1, XFER_DIR_DOWNLOAD, XFER_MODE_FILE,
-                               XFER_SVC_FILE, path, 0);
+  xfer_open_args_t dn =
+      mkargs(1, XFER_DIR_DOWNLOAD, XFER_MODE_FILE, XFER_SVC_FILE, path, 0);
   xfer_on_open(&dn);
   run_download(1, 100);
   CHECK(CAP.assembled == sizeof src, "FILE download fetched every byte");
-  CHECK(memcmp(CAP.blob, src, sizeof src) == 0, "FILE round-trip byte-identical");
+  CHECK(memcmp(CAP.blob, src, sizeof src) == 0,
+        "FILE round-trip byte-identical");
 }
 
 /* ================================ LOG =================================== */
@@ -153,7 +165,8 @@ static void test_log_provider(void) {
   uint8_t rec[200]; /* one write-at chunk (<= FS_WRITEAT_PAYLOAD_MAX) */
   for (uint32_t i = 0; i < sizeof rec; i++)
     rec[i] = (uint8_t)(0x40u + (i & 0x3Fu));
-  CHECK(fs_owner_enqueue_write_at(0, NAVLINK_LOGGING_FILENAME, 0, rec, sizeof rec),
+  CHECK(fs_owner_enqueue_write_at(0, NAVLINK_LOGGING_FILENAME, 0, rec,
+                                  sizeof rec),
         "seed navlink log record");
   fs_owner_pump();
 

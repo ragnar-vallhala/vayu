@@ -11,8 +11,8 @@ void rate_indi_init(rate_indi_t *c, float b, float k, float lpf_rc,
                     float out_min, float out_max) {
   /* b must be non-zero (we divide by it); guard a misconfig so the loop
    * degrades to "no command" rather than producing NaN that poisons the mix. */
-  c->b      = (m_fabsf(b) > 1e-6f) ? b : 1e-6f;
-  c->k      = k;
+  c->b = (m_fabsf(b) > 1e-6f) ? b : 1e-6f;
+  c->k = k;
   c->lpf_rc = (lpf_rc > 0.0f) ? lpf_rc : 0.0f;
   c->out_min = (out_min < out_max) ? out_min : out_max;
   c->out_max = (out_min < out_max) ? out_max : out_min;
@@ -21,9 +21,9 @@ void rate_indi_init(rate_indi_t *c, float b, float k, float lpf_rc,
 
 /** @noreq INDI filter/feedback state reset (glue). */
 void rate_indi_reset(rate_indi_t *c) {
-  c->gyr_f       = 0.0f;
-  c->wdot_f      = 0.0f;
-  c->u_f         = 0.0f;
+  c->gyr_f = 0.0f;
+  c->wdot_f = 0.0f;
+  c->u_f = 0.0f;
   c->initialized = false;
 }
 
@@ -34,8 +34,8 @@ float rate_indi_update(rate_indi_t *c, float rate_sp, float rate_meas,
    * and emit nothing. Derivative needs a previous sample; without this the
    * first wdot would be a huge (gyr - 0)/dt spike. */
   if (!c->initialized || dt <= 0.0f) {
-    c->gyr_f       = rate_meas;
-    c->wdot_f      = 0.0f;
+    c->gyr_f = rate_meas;
+    c->wdot_f = 0.0f;
     /* u_f left as-is (0 after reset) — the first command is just (wdot_des)/b */
     c->initialized = true;
     return 0.0f;
@@ -60,8 +60,10 @@ float rate_indi_update(rate_indi_t *c, float rate_sp, float rate_meas,
   float u = c->u_f + (wdot_des - c->wdot_f) / c->b;
 
   /* 4. clamp to the mixer's authority. */
-  if (u < c->out_min) u = c->out_min;
-  if (u > c->out_max) u = c->out_max;
+  if (u < c->out_min)
+    u = c->out_min;
+  if (u > c->out_max)
+    u = c->out_max;
 
   /* 5. synchronized actuator feedback. Default to the clamped command; a caller
    *    that knows the post-mix realized differential can override via
@@ -76,7 +78,9 @@ void rate_indi_set_applied(rate_indi_t *c, float u_applied) {
   /* Replace the synchronized feedback with the actually-applied command. Use
    * the same alpha-blend semantics as update()'s step 5 would have, but anchor
    * on the realized value. Kept simple: snap u_f toward the applied command. */
-  if (!m_isfinite(u_applied)) return;
-  const float a = (c->lpf_rc > 1e-6f) ? 0.5f : 1.0f; /* light blend if filtering */
+  if (!m_isfinite(u_applied))
+    return;
+  const float a =
+      (c->lpf_rc > 1e-6f) ? 0.5f : 1.0f; /* light blend if filtering */
   c->u_f += a * (u_applied - c->u_f);
 }

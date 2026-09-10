@@ -144,8 +144,10 @@ unsigned notch_fft_analyze(notch_fft_t *nf, notch_peak_t *peaks,
     peaks[found].power = vp;
     found++;
 
-    unsigned lo = (kp > a + NOTCH_FFT_PEAK_GUARD) ? kp - NOTCH_FFT_PEAK_GUARD : a;
-    unsigned hi = (kp + NOTCH_FFT_PEAK_GUARD < b) ? kp + NOTCH_FFT_PEAK_GUARD : b;
+    unsigned lo =
+        (kp > a + NOTCH_FFT_PEAK_GUARD) ? kp - NOTCH_FFT_PEAK_GUARD : a;
+    unsigned hi =
+        (kp + NOTCH_FFT_PEAK_GUARD < b) ? kp + NOTCH_FFT_PEAK_GUARD : b;
     for (unsigned k = lo; k <= hi; k++) {
       nf->bins[k].re = 0.0f;
     }

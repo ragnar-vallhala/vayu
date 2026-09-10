@@ -11,10 +11,10 @@
  * via the declarations in comm/ibus.h.
  */
 #include "comm/ibus.h"
-#include "est/est.h"   /* estimator_is_degraded */
+#include "est/est.h" /* estimator_is_degraded */
 #include "sys/state.h"
-#include "utils.h"                 /* v_get_ticks (vaios) */
-#include "vayu_status.h"           /* VAYU_DISCARD */
+#include "utils.h"       /* v_get_ticks (vaios) */
+#include "vayu_status.h" /* VAYU_DISCARD */
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -31,9 +31,7 @@ static volatile uint32_t s_last_valid_frame_ms = 0;
 /**
  * @implements COMM-RC-002
  */
-void rc_mark_frame_valid(void) {
-  s_last_valid_frame_ms = v_get_ticks();
-}
+void rc_mark_frame_valid(void) { s_last_valid_frame_ms = v_get_ticks(); }
 
 /**
  * @implements SYS-SAFE-002
@@ -74,8 +72,8 @@ bool rc_loss(void) {
  * Single-task state (RC task), no locks (R8.6).
  * --------------------------------------------------------------------------*/
 static uint16_t s_prev_throttle = RC_THROTTLE_MIN_RAW;
-static uint8_t  s_throttle_high_frames = 0;
-static bool     s_throttle_failsafe = false;
+static uint8_t s_throttle_high_frames = 0;
+static bool s_throttle_failsafe = false;
 
 /** @noreq throttle-failsafe detector state reset (boot/tests) */
 void rc_throttle_failsafe_reset(void) {
@@ -86,8 +84,9 @@ void rc_throttle_failsafe_reset(void) {
 
 bool rc_throttle_failsafe_step(uint16_t throttle_raw) {
   bool high = throttle_raw > RC_FAILSAFE_THROTTLE_RAW;
-  bool jumped = high && throttle_raw > s_prev_throttle &&
-                (uint16_t)(throttle_raw - s_prev_throttle) >= RC_FAILSAFE_JUMP_DELTA;
+  bool jumped =
+      high && throttle_raw > s_prev_throttle &&
+      (uint16_t)(throttle_raw - s_prev_throttle) >= RC_FAILSAFE_JUMP_DELTA;
   s_prev_throttle = throttle_raw;
 
   if (!high) {
@@ -118,7 +117,7 @@ bool rc_throttle_failsafe_step(uint16_t throttle_raw) {
 /** @noreq state-set predicate helper for rc_watchdog_step (SYS-SAFE-002) */
 static bool rc_watchdog_active_for(sys_state_t s) {
   return s == SYSTEM_STATE_STANDBY || s == SYSTEM_STATE_PREARM ||
-         s == SYSTEM_STATE_ARMED   || s == SYSTEM_STATE_IN_AIR;
+         s == SYSTEM_STATE_ARMED || s == SYSTEM_STATE_IN_AIR;
 }
 
 /* ----------------------------------------------------------------------------
@@ -141,8 +140,7 @@ static bool rc_watchdog_active_for(sys_state_t s) {
  * @implements SYS-SAFE-005, CTRL-ARM-001
  */
 bool arm_preconditions_met(const ibus_data_t *rc) {
-  return rc->channels[2] < ARM_THROTTLE_MAX_RAW &&
-         rc_has_signal() &&
+  return rc->channels[2] < ARM_THROTTLE_MAX_RAW && rc_has_signal() &&
          !estimator_is_degraded();
 }
 

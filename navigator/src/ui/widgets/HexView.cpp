@@ -8,9 +8,9 @@ constexpr int kBytesPerRow = 16;
 constexpr int kPad = 6;
 // Column layout (in character cells): "OOOO  " offset(4)+2sp, then 16×"HH "
 // (3 each), then 1 gap, then 16 ascii chars.
-constexpr int kHexCol = 6;                       // first hex pair column
-constexpr int kAsciiCol = kHexCol + 16 * 3 + 1;  // first ascii column
-constexpr int kTotalCols = kAsciiCol + 16;       // line width in chars
+constexpr int kHexCol = 6;                      // first hex pair column
+constexpr int kAsciiCol = kHexCol + 16 * 3 + 1; // first ascii column
+constexpr int kTotalCols = kAsciiCol + 16;      // line width in chars
 } // namespace
 
 HexView::HexView(QWidget *parent) : QWidget(parent) {
@@ -78,8 +78,8 @@ void HexView::paintEvent(QPaintEvent *) {
     // Hex + ASCII.
     for (int k = 0; k < kBytesPerRow && base + k < m_data.size(); ++k) {
       const uint8_t b = raw[base + k];
-      const bool lit = (m_hlOff >= 0 && base + k >= m_hlOff &&
-                        base + k < m_hlOff + m_hlLen);
+      const bool lit =
+          (m_hlOff >= 0 && base + k >= m_hlOff && base + k < m_hlOff + m_hlLen);
       pnt.setPen(lit ? QColor(232, 240, 254) : QColor(171, 178, 191));
       pnt.drawText(cellX(kHexCol + k * 3), y, cw * 2, lh,
                    Qt::AlignLeft | Qt::AlignVCenter,

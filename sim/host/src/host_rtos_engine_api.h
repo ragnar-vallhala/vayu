@@ -22,10 +22,10 @@ extern "C" {
 #endif
 
 /* Lifecycle (see host_rtos_engine.h for full docs). boot is idempotent. */
-int  rtos_engine_boot(void *iface);          /* iface = vsim_iface_t* (telemetry cb) */
-void rtos_engine_enable_serial_rc(void);     /* RC from VAYU_UART_RC_PATH */
-void rtos_engine_run_begin(void);            /* reset internal stepper + pacer */
-void rtos_engine_run_step(void);             /* one 1 ms step, wall-clock paced */
+int rtos_engine_boot(void *iface); /* iface = vsim_iface_t* (telemetry cb) */
+void rtos_engine_enable_serial_rc(void); /* RC from VAYU_UART_RC_PATH */
+void rtos_engine_run_begin(void);        /* reset internal stepper + pacer */
+void rtos_engine_run_step(void);         /* one 1 ms step, wall-clock paced */
 
 /* Latest pose snapshot for the renderer (seqlock; safe off-thread). */
 void vsim_inproc_get_pose(vsim_pose_frame_t *out);
@@ -38,7 +38,7 @@ void vsim_inproc_set_geometry(const vsim_ctl_geometry_t *g);
 void vsim_inproc_set_world(const vsim_ctl_world_t *w);
 void vsim_inproc_clear_obstacles(void);
 void vsim_inproc_add_obstacle(const vsim_ctl_obstacle_t *b);
-int  vsim_inproc_set_world_mesh(const vsim_ctl_world_mesh_t *m);
+int vsim_inproc_set_world_mesh(const vsim_ctl_world_mesh_t *m);
 void vsim_inproc_clear_world_mesh(void);
 void vsim_inproc_set_rates(const vsim_ctl_rates_t *r);
 void vsim_inproc_set_noise(const vsim_ctl_noise_t *n);

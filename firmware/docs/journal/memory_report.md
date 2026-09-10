@@ -1,16 +1,29 @@
 # Vayu Memory Analysis Report
 
-**Date**: 2026-03-24 (figures regenerated against the post-refactor tree)
-**Hardware**: STM32F401RD (96 KB SRAM)
-**Kernel**: VAIOS v1.0
-
-> **Figures regenerated.** Heap and task-stack numbers below were updated to
-> match the live tree: `HEAP_SIZE = 0xE000` (**56 KB**, from
-> `include/vaios_app_config.h`) and the actual `task_create_named` calls in
-> `src/main.c` (the modular-refactor split replaced `control_task` /
-> `i2c_manager_task` / `imu_read_task` with `angle_controller_task`,
-> `angle_rate_controller_task`, `attitude_task`, etc.). If you re-tune stacks,
-> regenerate from those two sources.
+> **SUPERSEDED (2026-09-09) — the figures below are stale and hand-maintained.**
+> This document says `HEAP_SIZE = 0xE000` (56 KB); it has been `0xA000` (40 KB)
+> for some time, and the task list predates several tasks. Hand-copied memory
+> numbers drift the moment anyone adds a buffer, which is how an 8 KB
+> calibration stack came to be requested from a heap with 4.4 KB free.
+>
+> Generate the numbers instead:
+>
+> ```sh
+> tools/dev/alloc_budget.py                              # firmware/build/main
+> tools/dev/alloc_budget.py --elf firmware/build-notch/main --measured 34520
+> tools/dev/alloc_budget.py --fit 8192                   # would this allocation fit?
+> ```
+>
+> It reads the linked ELF, so macros, `sizeof()` and the optimiser are already
+> resolved; walks the call graph from `main` and the task entries; recovers each
+> allocation size from the instruction that loaded it; and multiplies by the
+> number of static call sites, because `init_axis()` holds four allocations but
+> runs three times and `task_create_named()`'s TCB malloc runs once per task.
+> Validated against the live `PerfGlobal.heap_peak_bytes` off the hardware:
+> **+2.8%, erring high**.
+>
+> The prose below is kept for its rationale (why the heap was cut from 0x16000,
+> what the regions are for), not its arithmetic.
 
 ## 1. SRAM Footprint Overview
 

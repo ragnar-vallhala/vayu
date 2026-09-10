@@ -24,6 +24,9 @@ DroneProtocol::DroneProtocol(QObject *parent) : QObject(parent) {
   m_v2Router.onNotchStatus = [this](const NotchStatusData &d) {
     emit notchStatusReceived(d);
   };
+  m_v2Router.onHslStatus = [this](const HslStatusData &d) {
+    emit hslStatusReceived(d);
+  };
   m_v2Router.onFlightMode = [this](uint8_t mode, uint8_t source) {
     emit flightModeReceived(mode, source);
   };
@@ -31,9 +34,8 @@ DroneProtocol::DroneProtocol(QObject *parent) : QObject(parent) {
     // nav_state enum index -> the state name TelemetryEngine matches on (same
     // order as the firmware's one-hot sys_state, folded into HEARTBEAT).
     static const char *const kStateNames[] = {
-        "UNINITIALIZED", "INIT",     "STANDBY",    "PREARM",
-        "ARMED",         "IN_AIR",   "FAILSAFE",   "TERMINATED",
-        "CALIBRATING"};
+        "UNINITIALIZED", "INIT",     "STANDBY",    "PREARM",     "ARMED",
+        "IN_AIR",        "FAILSAFE", "TERMINATED", "CALIBRATING"};
     if (navState < 9)
       emit statusReceived(QString::fromLatin1(kStateNames[navState]));
     emit heartbeatReceived(ts, dev);
@@ -52,11 +54,11 @@ DroneProtocol::DroneProtocol(QObject *parent) : QObject(parent) {
   };
   m_v2Router.onCommandAck = [this](uint32_t command, uint8_t reqSeq,
                                    uint8_t result) {
-    static const char *const kRes[] = {"ACCEPTED",    "TEMPORARILY_REJECTED",
-                                       "DENIED",      "UNSUPPORTED",
-                                       "FAILED",      "IN_PROGRESS"};
-    const QString res =
-        result < 6 ? QString::fromLatin1(kRes[result]) : QString::number(result);
+    static const char *const kRes[] = {"ACCEPTED", "TEMPORARILY_REJECTED",
+                                       "DENIED",   "UNSUPPORTED",
+                                       "FAILED",   "IN_PROGRESS"};
+    const QString res = result < 6 ? QString::fromLatin1(kRes[result])
+                                   : QString::number(result);
     emit commandAckReceived(command, reqSeq, result);
     emit logReceived(QStringLiteral("[ack] cmd %1 #%2 → %3")
                          .arg(command)
@@ -96,9 +98,9 @@ void DroneProtocol::parseBuffer() {
       m_buffer.remove(0, syncIdx);
     }
 
-    constexpr int kV2HeaderLen = 10;  // sync,ver,len,flags,seq,sys,comp,msgid(3)
+    constexpr int kV2HeaderLen = 10; // sync,ver,len,flags,seq,sys,comp,msgid(3)
     if (m_buffer.size() < kV2HeaderLen)
-      break;  // wait for a full header (payload_len at [2])
+      break; // wait for a full header (payload_len at [2])
 
     if (static_cast<quint8>(m_buffer[1]) != 0x02) {
       // Not a NavLink v2 frame — drop the false sync byte and rescan.
@@ -108,13 +110,13 @@ void DroneProtocol::parseBuffer() {
     }
 
     const int total =
-        kV2HeaderLen + static_cast<uint8_t>(m_buffer[2]) + 2;  // + CRC-16
+        kV2HeaderLen + static_cast<uint8_t>(m_buffer[2]) + 2; // + CRC-16
     if (m_buffer.size() < total)
-      break;  // wait for the rest of the frame
+      break; // wait for the rest of the frame
 
     const QByteArray frame = m_buffer.left(total);
     emit packetReceived(frame);
-    m_v2Router.feed(frame);  // CRC-check + typed dispatch (codec lives here)
+    m_v2Router.feed(frame); // CRC-check + typed dispatch (codec lives here)
     m_buffer.remove(0, total);
   }
 }

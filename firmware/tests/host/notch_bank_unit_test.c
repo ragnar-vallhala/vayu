@@ -24,7 +24,8 @@
 static int fails = 0;
 static void check(const char *what, int ok) {
   printf("  [%s] %s\n", ok ? "PASS" : "FAIL", what);
-  if (!ok) fails++;
+  if (!ok)
+    fails++;
 }
 
 /* Caller-owned analyzer buffers. */
@@ -33,7 +34,9 @@ static float g_frame[N];
 static fft_complex_t g_bins[N / 2 + 1];
 static fft_complex_t g_scratch[N / 2];
 
-typedef struct { float f, a; } tone_t;
+typedef struct {
+  float f, a;
+} tone_t;
 
 static void setup(notch_bank_t *nb, float filter_fs, unsigned num_notches,
                   float q, float fmin, float fmax, float ratio) {
@@ -54,7 +57,8 @@ static unsigned tune(notch_bank_t *nb, const tone_t *tones, unsigned ntones) {
     float x = 0.0f;
     for (unsigned t = 0; t < ntones; t++)
       x += tones[t].a * sinf(2.0f * PI * tones[t].f * (float)k / FS);
-    if (notch_bank_observe(nb, x)) active = notch_bank_update(nb);
+    if (notch_bank_observe(nb, x))
+      active = notch_bank_update(nb);
   }
   return active;
 }
@@ -64,9 +68,10 @@ static unsigned tune(notch_bank_t *nb, const tone_t *tones, unsigned ntones) {
  * cycles — RMS, not peak, so it stays accurate even at a few samples/cycle. */
 static float filtered_gain(notch_bank_t *nb, float freq, float filter_fs) {
   unsigned per_cycle = (unsigned)(filter_fs / freq);
-  if (per_cycle < 1u) per_cycle = 1u;
-  unsigned settle = per_cycle * 40u;   /* let the biquads reach steady state */
-  unsigned window = per_cycle * 20u;   /* whole cycles -> stable RMS */
+  if (per_cycle < 1u)
+    per_cycle = 1u;
+  unsigned settle = per_cycle * 40u; /* let the biquads reach steady state */
+  unsigned window = per_cycle * 20u; /* whole cycles -> stable RMS */
   float sx2 = 0.0f, sy2 = 0.0f;
   for (unsigned k = 0; k < settle + window; k++) {
     float x = sinf(2.0f * PI * freq * (float)k / filter_fs);
@@ -98,14 +103,17 @@ int main(void) {
     tone_t tones[] = {{200.0f, 1.0f}};
     unsigned active = tune(&nb, tones, 1);
     float notch_g = filtered_gain(&nb, 200.0f, FS);
-    setup(&nb, FS, 3u, 8.0f, 50.0f, 400.0f, 4.0f); /* re-tune for clean passband probe */
+    setup(&nb, FS, 3u, 8.0f, 50.0f, 400.0f,
+          4.0f); /* re-tune for clean passband probe */
     tune(&nb, tones, 1);
     float pass_g = filtered_gain(&nb, 380.0f, FS);
-    printf("    active=%u  notch_gain=%.3f  pass_gain=%.3f\n", active, notch_g, pass_g);
+    printf("    active=%u  notch_gain=%.3f  pass_gain=%.3f\n", active, notch_g,
+           pass_g);
     check("one notch active", active == 1);
     check("tone at notch strongly attenuated (< -12 dB)", notch_g < 0.25f);
     check("far passband tone near unity", pass_g > 0.85f);
-    check("tuned center freq recorded (~200 Hz)", fabsf(nb.freqs[0] - 200.0f) < 3.0f);
+    check("tuned center freq recorded (~200 Hz)",
+          fabsf(nb.freqs[0] - 200.0f) < 3.0f);
     check("bypassed slot reports 0 Hz", nb.freqs[2] == 0.0f);
   }
 
@@ -150,17 +158,20 @@ int main(void) {
     /* Default (no hold): silence after tuning bypasses the slot. */
     setup(&nb, FS, 3u, 8.0f, 50.0f, 400.0f, 4.0f);
     tune(&nb, tone, 1);
-    for (unsigned k = 0; k < 4u * N; k++)      /* feed silence, retune */
-      if (notch_bank_observe(&nb, 0.0f)) notch_bank_update(&nb);
+    for (unsigned k = 0; k < 4u * N; k++) /* feed silence, retune */
+      if (notch_bank_observe(&nb, 0.0f))
+        notch_bank_update(&nb);
     check("without hold, silence bypasses the notch", nb.active == 0);
     /* With hold: the same silence keeps the notch tuned. */
     setup(&nb, FS, 3u, 8.0f, 50.0f, 400.0f, 4.0f);
     notch_bank_set_hold(&nb, 1);
     tune(&nb, tone, 1);
     for (unsigned k = 0; k < 4u * N; k++)
-      if (notch_bank_observe(&nb, 0.0f)) notch_bank_update(&nb);
+      if (notch_bank_observe(&nb, 0.0f))
+        notch_bank_update(&nb);
     check("with hold, notch stays active on silence", nb.active == 1);
-    check("held center freq retained (~200 Hz)", fabsf(nb.freqs[0] - 200.0f) < 3.0f);
+    check("held center freq retained (~200 Hz)",
+          fabsf(nb.freqs[0] - 200.0f) < 3.0f);
   }
 
   /* 5c. Reset drops all tuning: bank goes back to identity passthrough. */
@@ -203,7 +214,8 @@ int main(void) {
     setup(&nb, 2000.0f, 3u, 8.0f, 50.0f, 400.0f, 4.0f);
     tone_t tones[] = {{200.0f, 1.0f}}; /* analyzer sees it at FS=1000 */
     unsigned active = tune(&nb, tones, 1);
-    float notch_g = filtered_gain(&nb, 200.0f, 2000.0f); /* filter runs at 2 kHz */
+    float notch_g =
+        filtered_gain(&nb, 200.0f, 2000.0f); /* filter runs at 2 kHz */
     printf("    active=%u  notch_gain@2k=%.3f\n", active, notch_g);
     check("notch active", active == 1);
     check("200 Hz attenuated at the 2 kHz filter rate", notch_g < 0.3f);

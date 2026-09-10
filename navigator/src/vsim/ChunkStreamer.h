@@ -11,7 +11,7 @@
 // caller), so crossing a chunk boundary no longer re-generates terrain.
 #pragma once
 
-#include "MeshLoader.h"  // vsim::LoadedMesh
+#include "MeshLoader.h" // vsim::LoadedMesh
 #include "procgen/TerrainField.h"
 
 #include <QVector3D>
@@ -52,21 +52,21 @@ struct StreamPlan {
 };
 
 class ChunkStreamer {
- public:
+public:
   struct Config {
     procgen::FieldParams field;
-    float chunkM = 192.0f;       // world metres per chunk side
-    int resolution = 100;        // visual tessellation (grid cells per side)
-    int collisionResolution = 48;  // coarse mesh for the collision BVH (cheap)
-    int renderRadius = 3;        // Chebyshev chunk radius kept loaded (visual)
-    int collisionRadius = 1;     // chunk radius shipped to the daemon as a BVH
-    int maxInFlight = 6;       // cap on concurrent off-thread chunk builds
+    float chunkM = 192.0f;        // world metres per chunk side
+    int resolution = 100;         // visual tessellation (grid cells per side)
+    int collisionResolution = 48; // coarse mesh for the collision BVH (cheap)
+    int renderRadius = 3;         // Chebyshev chunk radius kept loaded (visual)
+    int collisionRadius = 1;      // chunk radius shipped to the daemon as a BVH
+    int maxInFlight = 6;          // cap on concurrent off-thread chunk builds
   };
 
-  void configure(const Config& c);
+  void configure(const Config &c);
   void deactivate();
   bool active() const { return active_; }
-  const Config& config() const { return cfg_; }
+  const Config &config() const { return cfg_; }
 
   // The live infinite field (null when inactive). Shared so off-thread builds
   // and the minimap can sample it concurrently (read-only -> safe), and an
@@ -79,8 +79,8 @@ class ChunkStreamer {
   StreamPlan plan(float wx, float wy);
 
   bool wanted(qint64 key) const { return desired_.count(key) > 0; }
-  void markBuilt(qint64 key);   // a build resolved -> loaded
-  void forget(qint64 key);      // dropped from the renderer -> untrack
+  void markBuilt(qint64 key); // a build resolved -> loaded
+  void forget(qint64 key);    // dropped from the renderer -> untrack
 
   // The chunk cells the current collision neighbourhood needs (so the caller
   // can check its mesh cache has them all before building the BVH).
@@ -91,14 +91,16 @@ class ChunkStreamer {
            static_cast<qint64>(static_cast<uint32_t>(cy));
   }
   static int cxOf(qint64 k) { return static_cast<int>(k >> 32); }
-  static int cyOf(qint64 k) { return static_cast<int>(static_cast<uint32_t>(k)); }
+  static int cyOf(qint64 k) {
+    return static_cast<int>(static_cast<uint32_t>(k));
+  }
 
- private:
+private:
   Config cfg_;
   std::shared_ptr<const procgen::TerrainField> field_;
-  std::set<qint64> loaded_;    // uploaded to the renderer
-  std::set<qint64> inflight_;  // meshing off-thread
-  std::set<qint64> desired_;   // should be loaded for the current cell
+  std::set<qint64> loaded_;   // uploaded to the renderer
+  std::set<qint64> inflight_; // meshing off-thread
+  std::set<qint64> desired_;  // should be loaded for the current cell
   int curCx_ = INT_MIN, curCy_ = INT_MIN;
   int colCx_ = INT_MIN, colCy_ = INT_MIN;
   bool active_ = false;
@@ -106,11 +108,11 @@ class ChunkStreamer {
 };
 
 // Convert a meshed chunk (procgen soup) into renderer form (QVector3D arrays).
-ChunkMeshData toChunkMeshData(qint64 key, const procgen::ProcMesh& m);
+ChunkMeshData toChunkMeshData(qint64 key, const procgen::ProcMesh &m);
 
 // Concatenate a set of chunk meshes into one collision LoadedMesh (NED world
 // frame, positions + normals). Used to feed buildWorldBvh from cached chunks.
-LoadedMesh collisionMeshFromChunks(
-    const std::vector<const procgen::ProcMesh*>& chunks);
+LoadedMesh
+collisionMeshFromChunks(const std::vector<const procgen::ProcMesh *> &chunks);
 
-}  // namespace vsim
+} // namespace vsim

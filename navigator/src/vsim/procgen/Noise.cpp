@@ -26,13 +26,15 @@ inline uint32_t hash2(int ix, int iy, uint32_t seed) {
 
 // Quintic smootherstep (Perlin's improved interpolant): C2-continuous, so the
 // terrain has no second-derivative creases at lattice lines.
-inline float fade(float t) { return t * t * t * (t * (t * 6.0f - 15.0f) + 10.0f); }
+inline float fade(float t) {
+  return t * t * t * (t * (t * 6.0f - 15.0f) + 10.0f);
+}
 
 inline float lerp(float a, float b, float t) { return a + t * (b - a); }
 
-}  // namespace
+} // namespace
 
-void Noise::cornerGradient(int ix, int iy, float& gx, float& gy) const {
+void Noise::cornerGradient(int ix, int iy, float &gx, float &gy) const {
   // Map the lattice hash to an angle on the unit circle -> unit gradient. Using
   // a full continuum of directions (not 8 fixed ones) avoids axis-aligned
   // artefacts that show up as grid-shaped ridges on terrain.
@@ -77,7 +79,8 @@ float Noise::fbm(float x, float y, int octaves, float lacunarity,
   float amp = 1.0f;
   float freq = 1.0f;
   float norm = 0.0f;
-  if (octaves < 1) octaves = 1;
+  if (octaves < 1)
+    octaves = 1;
   for (int o = 0; o < octaves; ++o) {
     sum += amp * gradient(x * freq, y * freq);
     norm += amp;
@@ -93,7 +96,8 @@ float Noise::ridged(float x, float y, int octaves, float lacunarity,
   float amp = 1.0f;
   float freq = 1.0f;
   float norm = 0.0f;
-  if (octaves < 1) octaves = 1;
+  if (octaves < 1)
+    octaves = 1;
   for (int o = 0; o < octaves; ++o) {
     // 1 - |noise| peaks (=1) where the noise crosses zero -> sharp ridge lines;
     // squaring sharpens the ridge and rounds the valley floor.
@@ -107,4 +111,4 @@ float Noise::ridged(float x, float y, int octaves, float lacunarity,
   return norm > 0.0f ? sum / norm : 0.0f;
 }
 
-}  // namespace vsim::procgen
+} // namespace vsim::procgen

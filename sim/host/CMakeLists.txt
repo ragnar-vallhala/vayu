@@ -75,6 +75,8 @@ set(VAYU_SOURCES
     ${VAYU_ROOT}/firmware/src/actuator/esc.c
     ${VAYU_ROOT}/firmware/src/actuator/motor.c
     ${VAYU_ROOT}/firmware/src/control/angle_controller.c
+    ${VAYU_ROOT}/firmware/src/control/height_controller.c
+    ${VAYU_ROOT}/firmware/src/control/throttle_curve.c
     ${VAYU_ROOT}/firmware/src/control/angle_rate_controller.c
     ${VAYU_ROOT}/firmware/src/control/mixer.c        # control allocation (mix + airmode desaturation)
     ${VAYU_ROOT}/firmware/src/control/sysid.c        # rate-loop system-ID excite/capture (angle_rate_controller + navlink refs)
@@ -82,6 +84,8 @@ set(VAYU_SOURCES
     ${VAYU_ROOT}/firmware/src/control/flight_mode.c  # stabilise/acro arbitration (RC + GCS)
     ${VAYU_ROOT}/firmware/src/control/control_buffer.c
     ${VAYU_ROOT}/firmware/src/est/lpf.c
+    ${VAYU_ROOT}/firmware/src/est/hover_estimate.c
+    ${VAYU_ROOT}/firmware/src/storage/hover_store.c
     ${VAYU_ROOT}/firmware/src/maths/maths_interface.c
     ${VAYU_ROOT}/firmware/src/maths/fft.c              # m_rfft_* (dynamic-notch FFT analysis)
     ${VAYU_ROOT}/firmware/src/maths/biquad.c           # m_biquad_* (notch bank design/apply)
@@ -100,7 +104,9 @@ set(VAYU_SOURCES
     ${VAYU_ROOT}/firmware/src/est/flight_phase.c        # takeoff/landing detector + FC-owned AGL (IN_AIR)
     ${VAYU_ROOT}/firmware/src/sensor/imu_buffer.c
     ${VAYU_ROOT}/firmware/src/sensor/bme280.c   # real FC baro driver (altitude/publish/getters); host_baro.c feeds it
+    ${VAYU_ROOT}/firmware/src/sensor/vl53l0x.c  # real FC ToF driver; no host feeder, so its boot probe fails on the i2c stubs and it reports absent (tof_valid=0 -> the height loop falls back to baro AGL)
     ${VAYU_ROOT}/firmware/src/storage/fs_owner.c # centralised FS owner (absorbs logger.c)
+    ${VAYU_ROOT}/firmware/src/storage/imu_hs_log.c # high-speed IMU->SD stream (HSL), drained by the FS task
     ${VAYU_ROOT}/firmware/src/logger/log_text.c  # vayu_log + queue (moved from utils.c)
     ${VAYU_ROOT}/firmware/src/sys/state.c
     ${VAYU_ROOT}/firmware/src/sys/assert.c
@@ -241,7 +247,6 @@ if(VAYU_SITL_RTOS_BUILD)
   )
   target_compile_definitions(vayu_sitl_rtos_core PRIVATE
       VAYU_SITL_RTOS=1 VAIOS_HOST_TEST=1
-      _GNU_SOURCE           # glibc __USE_MISC (int32_t in <stdlib.h>) for the C++ TUs
       HEAP_SIZE=0x180000)   # 1.5 MB: room for the firmware tasks' 8KB stacks on host
   target_include_directories(vayu_sitl_rtos_core
       PRIVATE
@@ -264,7 +269,7 @@ if(VAYU_SITL_RTOS_BUILD)
   # core uses (they don't propagate from a PRIVATE usage requirement).
   add_executable(vayu_sitl_rtos src/host_rtos_main.c)
   target_compile_definitions(vayu_sitl_rtos PRIVATE
-      VAYU_SITL_RTOS=1 VAIOS_HOST_TEST=1 _GNU_SOURCE HEAP_SIZE=0x180000)
+      VAYU_SITL_RTOS=1 VAIOS_HOST_TEST=1 HEAP_SIZE=0x180000)
   target_include_directories(vayu_sitl_rtos PRIVATE
       ${CMAKE_CURRENT_SOURCE_DIR}/include
       ${VAYU_ROOT}/firmware/include
@@ -310,6 +315,25 @@ add_test(NAME phase3_slog COMMAND test_phase3_slog)
 
 # Centralised FS owner: snapshot/torn-read, reserved save lane, drop accounting,
 # log round-trip (src/storage/fs_owner.c, in vayu_sitl_core).
+# HSL wire format: the real encoder's bytes, then decoded by hslog.py below —
+# the encoder has no runtime consumer that would ever notice a layout mistake.
+add_executable(test_hslog tests/test_hslog.c)
+target_link_libraries(test_hslog PRIVATE vayu_sitl_core m)
+add_test(NAME hslog COMMAND test_hslog)
+add_test(NAME hslog_decode
+         COMMAND ${CMAKE_COMMAND} -E env python3
+                 ${VAYU_ROOT}/tools/telemetry/hslog.py
+                 --selftest-file /tmp/vayu_hslog_test/0_imuhs.bin)
+set_tests_properties(hslog_decode PROPERTIES DEPENDS hslog)
+
+add_executable(test_rc_buffer tests/test_rc_buffer.c)
+target_link_libraries(test_rc_buffer PRIVATE vayu_sitl_core m)
+add_test(NAME rc_buffer COMMAND test_rc_buffer)
+
+add_executable(test_imu_buffer tests/test_imu_buffer.c)
+target_link_libraries(test_imu_buffer PRIVATE vayu_sitl_core m)
+add_test(NAME imu_buffer COMMAND test_imu_buffer)
+
 add_executable(test_fs_owner tests/test_fs_owner.c)
 target_link_libraries(test_fs_owner PRIVATE vayu_sitl_core m)
 add_test(NAME fs_owner COMMAND test_fs_owner)

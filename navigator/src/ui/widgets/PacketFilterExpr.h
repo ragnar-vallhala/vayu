@@ -8,13 +8,13 @@
  * PacketEntry by the proxy).
  */
 struct FilterCtx {
-  int type = 0xFF;     // type nibble, 0xFF = RAW
-  QString typeName;    // lower-cased, e.g. "attitude"
+  int type = 0xFF;  // type nibble, 0xFF = RAW
+  QString typeName; // lower-cased, e.g. "attitude"
   bool tx = false;
   int dev = 0;
   int len = 0;
-  int origin = -1;     // SYSTEM_STATUS origin, else -1
-  QString info;        // lower-cased one-line summary
+  int origin = -1; // SYSTEM_STATUS origin, else -1
+  QString info;    // lower-cased one-line summary
 };
 
 /**

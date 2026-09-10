@@ -24,10 +24,10 @@ class QWidget;
 namespace Notify {
 
 enum class Kind {
-  Info,   // muted accent
-  Ok,     // green
-  Warn,   // amber
-  Error,  // red
+  Info,  // muted accent
+  Ok,    // green
+  Warn,  // amber
+  Error, // red
 };
 
 // Global on/off (Settings ▸ Alerts ▸ Toast notifications). When disabled,
@@ -36,13 +36,20 @@ void setEnabled(bool on);
 
 // Send a toast. timeout_ms=0 means default per-kind (3000 info/ok,
 // 5000 warn, 7000 error). Pass an explicit ms to override.
-void send(QWidget* anchor, Kind kind, const QString& text,
-          int timeout_ms = 0);
+void send(QWidget *anchor, Kind kind, const QString &text, int timeout_ms = 0);
 
 // Sugar.
-inline void info (QWidget* a, const QString& t, int ms = 0) { send(a, Kind::Info,  t, ms); }
-inline void ok   (QWidget* a, const QString& t, int ms = 0) { send(a, Kind::Ok,    t, ms); }
-inline void warn (QWidget* a, const QString& t, int ms = 0) { send(a, Kind::Warn,  t, ms); }
-inline void error(QWidget* a, const QString& t, int ms = 0) { send(a, Kind::Error, t, ms); }
+inline void info(QWidget *a, const QString &t, int ms = 0) {
+  send(a, Kind::Info, t, ms);
+}
+inline void ok(QWidget *a, const QString &t, int ms = 0) {
+  send(a, Kind::Ok, t, ms);
+}
+inline void warn(QWidget *a, const QString &t, int ms = 0) {
+  send(a, Kind::Warn, t, ms);
+}
+inline void error(QWidget *a, const QString &t, int ms = 0) {
+  send(a, Kind::Error, t, ms);
+}
 
-}  // namespace Notify
+} // namespace Notify

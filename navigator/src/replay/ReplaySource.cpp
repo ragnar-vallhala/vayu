@@ -4,10 +4,10 @@
 
 #include <QTimer>
 
-#include "RecordSink.h"  // RecordReader
+#include "RecordSink.h" // RecordReader
 
 namespace {
-constexpr int kTickMs = 20;  // 50 Hz playback clock
+constexpr int kTickMs = 20; // 50 Hz playback clock
 }
 
 ReplaySource::ReplaySource(QObject *parent) : ITelemetrySource(parent) {
@@ -56,17 +56,14 @@ void ReplaySource::setRange(qint64 t0, qint64 t1) {
     seek(m_r0);
 }
 
-void ReplaySource::setSpeed(double x) {
-  m_speed = x > 0.0 ? x : m_speed;
-}
+void ReplaySource::setSpeed(double x) { m_speed = x > 0.0 ? x : m_speed; }
 
 void ReplaySource::resetCursor() {
   // First frame at or after the playhead.
-  m_cursor = int(std::lower_bound(m_frames.begin(), m_frames.end(), m_pos,
-                                  [](const F &fr, qint64 v) {
-                                    return fr.tUs < v;
-                                  }) -
-                 m_frames.begin());
+  m_cursor =
+      int(std::lower_bound(m_frames.begin(), m_frames.end(), m_pos,
+                           [](const F &fr, qint64 v) { return fr.tUs < v; }) -
+          m_frames.begin());
 }
 
 void ReplaySource::seek(qint64 us) {
@@ -90,7 +87,7 @@ int ReplaySource::advanceTo(qint64 targetUs) {
 
   if (m_pos >= m_r1) {
     if (m_loop) {
-      seek(m_r0);  // wrap; the next tick resumes emitting from the crop start
+      seek(m_r0); // wrap; the next tick resumes emitting from the crop start
     } else {
       pause();
       emit finished();
@@ -103,18 +100,14 @@ void ReplaySource::play() {
   if (m_frames.isEmpty() || m_timer->isActive())
     return;
   if (m_pos >= m_r1)
-    seek(m_r0);  // restart from the crop start if parked at the end
+    seek(m_r0); // restart from the crop start if parked at the end
   m_wall.restart();
   m_timer->start();
 }
 
-void ReplaySource::pause() {
-  m_timer->stop();
-}
+void ReplaySource::pause() { m_timer->stop(); }
 
-bool ReplaySource::isPlaying() const {
-  return m_timer->isActive();
-}
+bool ReplaySource::isPlaying() const { return m_timer->isActive(); }
 
 void ReplaySource::onTick() {
   const qint64 wallUs = m_wall.nsecsElapsed() / 1000;

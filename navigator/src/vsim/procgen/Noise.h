@@ -13,7 +13,7 @@ namespace vsim::procgen {
 // terrain. fbm() and ridged() are the two compositions terrain actually uses;
 // gradient() is exposed for tests and for callers that want a single octave.
 class Noise {
- public:
+public:
   explicit Noise(uint32_t seed) : seed_(seed) {}
 
   // Single-octave gradient noise at continuous (x, y). Range ~[-1, 1], smooth
@@ -28,13 +28,14 @@ class Noise {
   // Ridged multifractal: per-octave (1 - |gradient|)^2, weighted by the running
   // amplitude. Produces sharp ridges and rounded valleys — the mountain look.
   // Range ~[0, 1].
-  float ridged(float x, float y, int octaves, float lacunarity, float gain) const;
+  float ridged(float x, float y, int octaves, float lacunarity,
+               float gain) const;
 
- private:
+private:
   // 2D hash -> pseudo-random unit gradient at lattice corner (ix, iy).
-  void cornerGradient(int ix, int iy, float& gx, float& gy) const;
+  void cornerGradient(int ix, int iy, float &gx, float &gy) const;
 
   uint32_t seed_;
 };
 
-}  // namespace vsim::procgen
+} // namespace vsim::procgen

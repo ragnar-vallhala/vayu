@@ -50,6 +50,7 @@ void randomSearch(Evaluator &ev, const Vec &x0, const Bounds &b, Rng &rng) {
       ev.eval(x);
     }
   } catch (const BudgetExhausted &) {
+    /* Budget spent mid-strategy: stop here, keep the best so far. */
   }
 }
 
@@ -81,11 +82,12 @@ void spsa(Evaluator &ev, const Vec &x0, const Bounds &b, Rng &rng) {
       ++k;
     }
   } catch (const BudgetExhausted &) {
+    /* Budget spent mid-strategy: stop here, keep the best so far. */
   }
 }
 
-void fdgd(Evaluator &ev, const Vec &x0, const Bounds &b, Rng &, double lr = 0.15,
-          double eps = 0.05) {
+void fdgd(Evaluator &ev, const Vec &x0, const Bounds &b, Rng &,
+          double lr = 0.15, double eps = 0.05) {
   const int n = int(x0.size());
   const Vec span = spans(b);
   Vec x = clampVec(x0, b);
@@ -105,6 +107,7 @@ void fdgd(Evaluator &ev, const Vec &x0, const Bounds &b, Rng &, double lr = 0.15
       x = clampVec(nx, b);
     }
   } catch (const BudgetExhausted &) {
+    /* Budget spent mid-strategy: stop here, keep the best so far. */
   }
 }
 
@@ -136,6 +139,7 @@ void coordinate(Evaluator &ev, const Vec &x0, const Bounds &b, Rng &,
         s *= shrink;
     }
   } catch (const BudgetExhausted &) {
+    /* Budget spent mid-strategy: stop here, keep the best so far. */
   }
 }
 
@@ -231,6 +235,7 @@ void nelderMead(Evaluator &ev, const Vec &x0, const Bounds &b, Rng &,
       }
     }
   } catch (const BudgetExhausted &) {
+    /* Budget spent mid-strategy: stop here, keep the best so far. */
   }
 }
 
@@ -269,6 +274,7 @@ void structured(Evaluator &ev, const Vec &x0, const Bounds &b, Rng &) {
       x[idx] = bestVal;
     }
   } catch (const BudgetExhausted &) {
+    /* Budget spent mid-strategy: stop here, keep the best so far. */
   }
 }
 
@@ -291,7 +297,7 @@ void hybrid(Evaluator &ev, const Vec &x0, const Bounds &b, Rng &rng,
 
 void portfolio(Evaluator &ev, const Vec &x0, const Bounds &b, Rng &rng);
 
-}  // namespace
+} // namespace
 
 void run(const std::string &name, Evaluator &ev, const Vec &x0,
          const Bounds &bounds, Rng &rng) {
@@ -310,7 +316,7 @@ void run(const std::string &name, Evaluator &ev, const Vec &x0,
   else if (name == "portfolio")
     portfolio(ev, x0, bounds, rng);
   else
-    randomSearch(ev, x0, bounds, rng);  // "random" + unknown
+    randomSearch(ev, x0, bounds, rng); // "random" + unknown
 }
 
 namespace {
@@ -329,15 +335,16 @@ void portfolio(Evaluator &ev, const Vec &x0, const Bounds &b, Rng &rng) {
     try {
       run(m, sub, x0, b, rng);
     } catch (const BudgetExhausted &) {
+      /* Budget spent mid-strategy: stop here, keep the best so far. */
     }
   }
 }
 
-}  // namespace
+} // namespace
 
 std::vector<std::string> optimizerNames() {
   return {"random",      "spsa",       "fdgd",   "coordinate",
           "nelder-mead", "structured", "hybrid", "portfolio"};
 }
 
-}  // namespace autotune
+} // namespace autotune

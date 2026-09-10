@@ -20,25 +20,28 @@ namespace {
 // Model transform for a helipad at pad=(x,y,terrainHeight): the cylinder mesh
 // (local z in [-1 top .. 0 base]) is scaled to the full height and shifted so
 // the base buries below the surface and the deck sits kHelipadDeckM above it.
-QMatrix4x4 helipadModel(const QVector3D& pad) {
-  const float bury = SimRendererWidget::kHelipadHeightM -
-                     SimRendererWidget::kHelipadDeckM;  // base depth below surface
+QMatrix4x4 helipadModel(const QVector3D &pad) {
+  const float bury =
+      SimRendererWidget::kHelipadHeightM -
+      SimRendererWidget::kHelipadDeckM; // base depth below surface
   QMatrix4x4 m;
-  m.translate(pad.x(), pad.y(), -pad.z() + bury);  // surface z=-h, base sunk by bury
-  m.scale(SimRendererWidget::kHelipadRadiusM, SimRendererWidget::kHelipadRadiusM,
+  m.translate(pad.x(), pad.y(),
+              -pad.z() + bury); // surface z=-h, base sunk by bury
+  m.scale(SimRendererWidget::kHelipadRadiusM,
+          SimRendererWidget::kHelipadRadiusM,
           SimRendererWidget::kHelipadHeightM);
   return m;
 }
 
-constexpr int kGridHalf   = 10;       // m, ground plane extends +/- this
+constexpr int kGridHalf = 10; // m, ground plane extends +/- this
 constexpr float kGridStep = 1.0f;
-constexpr float kBodyL    = 0.40f;    // body extents in X
-constexpr float kBodyW    = 0.30f;    // body extents in Y
-constexpr float kBodyH    = 0.06f;    // body extents in Z
-constexpr float kRotorR   = 0.08f;
-constexpr int   kRotorSeg = 24;
+constexpr float kBodyL = 0.40f; // body extents in X
+constexpr float kBodyW = 0.30f; // body extents in Y
+constexpr float kBodyH = 0.06f; // body extents in Z
+constexpr float kRotorR = 0.08f;
+constexpr int kRotorSeg = 24;
 
-const char* kVertexShader = R"GLSL(
+const char *kVertexShader = R"GLSL(
 #version 330 core
 layout(location=0) in vec3 a_pos;
 uniform mat4 u_mvp;
@@ -47,7 +50,7 @@ void main() {
 }
 )GLSL";
 
-const char* kFragmentShader = R"GLSL(
+const char *kFragmentShader = R"GLSL(
 #version 330 core
 out vec4 o_color;
 uniform vec3 u_color;
@@ -62,7 +65,7 @@ void main() {
 // gradient + a warm sun glow. (No tonemap: the terrain albedo/lighting are
 // already display-referred, so we show them directly — an ACES pass here, with
 // no linear/sRGB management around it, just shifted the colors.)
-const char* kAtmosphereGLSL = R"GLSL(
+const char *kAtmosphereGLSL = R"GLSL(
 uniform vec3 u_sundir;     // unit direction toward the sun (world, NED)
 vec3 skyColor(vec3 dir) {
   float up = -dir.z;        // NED up is -Z
@@ -85,7 +88,7 @@ vec3 skyColor(vec3 dir) {
 // world-space directional Lambert + sky/ground hemispheric ambient, then aerial
 // perspective (distance fog into the sky color) and the shared tonemap. Surface
 // color is u_color * a_color.
-const char* kLitVertexShader = R"GLSL(
+const char *kLitVertexShader = R"GLSL(
 #version 330 core
 layout(location=0) in vec3 a_pos;
 layout(location=1) in vec3 a_normal;
@@ -104,7 +107,7 @@ void main() {
 }
 )GLSL";
 
-const char* kLitFragmentHead = R"GLSL(
+const char *kLitFragmentHead = R"GLSL(
 #version 330 core
 in vec3 v_normal;
 in vec3 v_color;
@@ -118,7 +121,7 @@ uniform float u_sunint;      // sun-intensity look knob (matches grass)
 uniform float u_ambstr;      // ambient-strength look knob (matches grass)
 )GLSL";
 
-const char* kLitFragmentMain = R"GLSL(
+const char *kLitFragmentMain = R"GLSL(
 void main() {
   vec3 n = normalize(v_normal);
   vec3 sun = normalize(u_sundir);
@@ -146,7 +149,7 @@ void main() {
 // Sky background: a fullscreen triangle (generated from gl_VertexID, no VBO)
 // shaded by the shared skyColor() along the per-pixel world view ray, tonemapped
 // to match the fogged terrain. Drawn first, depth test off.
-const char* kSkyVertexShader = R"GLSL(
+const char *kSkyVertexShader = R"GLSL(
 #version 330 core
 out vec2 v_ndc;
 void main() {
@@ -156,7 +159,7 @@ void main() {
 }
 )GLSL";
 
-const char* kSkyFragmentHead = R"GLSL(
+const char *kSkyFragmentHead = R"GLSL(
 #version 330 core
 in vec2 v_ndc;
 out vec4 o_color;
@@ -168,7 +171,7 @@ uniform float u_time;   // cloud drift clock
 // sampled on a parallax-projected dome plane (clouds spread toward the horizon)
 // and drifts slowly with u_time. Kept ONLY in the sky shader so per-pixel fog on
 // terrain/grass stays a cheap gradient (it still fades into the overcast base).
-const char* kSkyFragmentMain = R"GLSL(
+const char *kSkyFragmentMain = R"GLSL(
 float h21(vec2 p){ p=fract(p*vec2(123.34,345.45)); p+=dot(p,p+34.345); return fract(p.x*p.y); }
 float vnoise(vec2 p){ vec2 i=floor(p),f=fract(p); f=f*f*(3.0-2.0*f);
   float a=h21(i),b=h21(i+vec2(1,0)),c=h21(i+vec2(0,1)),d=h21(i+vec2(1,1));
@@ -199,13 +202,13 @@ void main() {
 
 // Depth-only program for the shadow pass: terrain transformed into the sun's
 // light-space clip; the rasteriser writes depth, no colour.
-const char* kDepthVertexShader = R"GLSL(
+const char *kDepthVertexShader = R"GLSL(
 #version 330 core
 layout(location = 0) in vec3 a_pos;
 uniform mat4 u_lightmvp;   // lightVP * model
 void main() { gl_Position = u_lightmvp * vec4(a_pos, 1.0); }
 )GLSL";
-const char* kDepthFragmentShader = R"GLSL(
+const char *kDepthFragmentShader = R"GLSL(
 #version 330 core
 void main() {}
 )GLSL";
@@ -213,7 +216,7 @@ void main() {}
 // Shadow-receive helper shared by the lit + (a copy in the) grass shader. Samples
 // the light-space depth map with a 3x3 PCF kernel; returns 1 = lit, 0 = shadow.
 // Guarded by u_shadowon so the scene is unchanged when the map is unavailable.
-const char* kShadowGLSL = R"GLSL(
+const char *kShadowGLSL = R"GLSL(
 uniform sampler2D u_shadowtex;
 uniform mat4 u_lightvp;
 uniform float u_shadowon;
@@ -250,7 +253,7 @@ float shadowFactor(vec3 wpos, vec3 nrm, vec3 lightDir) {
 // the flora edge dissolves (the terrain fog finishes the job). Fragment shades a
 // base->tip AO gradient over the instance tint, then the same distance fog into
 // the sky as the terrain — so grass and ground share one atmosphere.
-const char* kFloraVertexShader = R"GLSL(
+const char *kFloraVertexShader = R"GLSL(
 #version 330 core
 layout(location=0) in vec3 a_local;   // unit blade (z in [-1,0])
 layout(location=1) in vec3 i_pos;     // world base (NED)
@@ -295,7 +298,7 @@ void main() {
 }
 )GLSL";
 
-const char* kFloraFragmentHead = R"GLSL(
+const char *kFloraFragmentHead = R"GLSL(
 #version 330 core
 in vec3 v_color;
 in vec3 v_world;
@@ -308,7 +311,7 @@ uniform float u_fogdensity;
 uniform float u_fogstart;
 )GLSL";
 
-const char* kFloraFragmentMain = R"GLSL(
+const char *kFloraFragmentMain = R"GLSL(
 void main() {
   // Flowers keep a green stem and only bloom their colour near the tip.
   vec3 stem = vec3(0.28, 0.46, 0.18);
@@ -335,21 +338,21 @@ void main() {
   o_color = vec4(mix(col, skyColor(vdir), clamp(fog, 0.0, 1.0)), 1.0);
 }
 )GLSL";
-#endif  // VAYU_SIM_GRASS
+#endif // VAYU_SIM_GRASS
 
-}  // namespace
+} // namespace
 
-SimRendererWidget::SimRendererWidget(QWidget* parent)
-    : QOpenGLWidget(parent) {
+SimRendererWidget::SimRendererWidget(QWidget *parent) : QOpenGLWidget(parent) {
   setMouseTracking(false);
   setMinimumSize(400, 300);
-  setFocusPolicy(Qt::StrongFocus);   // needs key focus for G/R/X/Y/Z/Esc
+  setFocusPolicy(Qt::StrongFocus); // needs key focus for G/R/X/Y/Z/Esc
 }
 
 void SimRendererWidget::setMotorsEditable(bool on) {
   editable_ = on;
-  if (!on) {            // leaving edit mode: drop any selection / live tool
-    if (tool_ != Tool::None) commitTool(false);
+  if (!on) { // leaving edit mode: drop any selection / live tool
+    if (tool_ != Tool::None)
+      commitTool(false);
     selected_ = -1;
   }
   update();
@@ -358,16 +361,20 @@ void SimRendererWidget::setMotorsEditable(bool on) {
 void SimRendererWidget::setObstacleEditMode(bool on) {
   obsMode_ = on;
   if (!on) {
-    if (obsTool_ != Tool::None) commitObsTool(false);
+    if (obsTool_ != Tool::None)
+      commitObsTool(false);
     selObs_ = -1;
   }
   update();
 }
 
 void SimRendererWidget::selectObstacle(int index) {
-  if (index < 0 || index >= obstacles_.size()) index = -1;
-  if (index == selObs_) return;
-  if (obsTool_ != Tool::None) commitObsTool(false);
+  if (index < 0 || index >= obstacles_.size())
+    index = -1;
+  if (index == selObs_)
+    return;
+  if (obsTool_ != Tool::None)
+    commitObsTool(false);
   selObs_ = index;
   update();
 }
@@ -375,10 +382,10 @@ void SimRendererWidget::selectObstacle(int index) {
 SimRendererWidget::~SimRendererWidget() {
   // Need a current context to release GL resources cleanly.
   makeCurrent();
-  for (Mesh* m : {&ground_, &axes_, &body_, &rotor_, &thrustLine_, &comMarker_,
-                  &gizmoArrow_, &gizmoRing_, &digitMesh_[0], &digitMesh_[1],
-                  &digitMesh_[2], &digitMesh_[3], &northArrow_, &glyphN_,
-                  &droneMesh_}) {
+  for (Mesh *m :
+       {&ground_, &axes_, &body_, &rotor_, &thrustLine_, &comMarker_,
+        &gizmoArrow_, &gizmoRing_, &digitMesh_[0], &digitMesh_[1],
+        &digitMesh_[2], &digitMesh_[3], &northArrow_, &glyphN_, &droneMesh_}) {
     m->vbo.destroy();
     m->vao.destroy();
   }
@@ -386,29 +393,29 @@ SimRendererWidget::~SimRendererWidget() {
   doneCurrent();
 }
 
-void SimRendererWidget::setSnapshot(const vsim::SimSnapshot& s) {
+void SimRendererWidget::setSnapshot(const vsim::SimSnapshot &s) {
   snap_ = s;
-  update();   // schedules paintGL on the GUI thread
+  update(); // schedules paintGL on the GUI thread
 }
 
-void SimRendererWidget::setDroneMesh(const std::vector<QVector3D>& positions,
-                                     const std::vector<QVector3D>& normals) {
+void SimRendererWidget::setDroneMesh(const std::vector<QVector3D> &positions,
+                                     const std::vector<QVector3D> &normals) {
   pendingPos_ = positions;
   pendingNrm_ = normals;
-  meshDirty_ = true;          // uploaded lazily in paintGL (needs GL context)
+  meshDirty_ = true; // uploaded lazily in paintGL (needs GL context)
   update();
 }
 
-void SimRendererWidget::setMotorLayout(const std::array<QVector3D, 4>& pos,
-                                       const std::array<QVector3D, 4>& axis,
-                                       const std::array<int, 4>& spin) {
+void SimRendererWidget::setMotorLayout(const std::array<QVector3D, 4> &pos,
+                                       const std::array<QVector3D, 4> &axis,
+                                       const std::array<int, 4> &spin) {
   motorPos_ = pos;
   motorAxis_ = axis;
   motorSpin_ = spin;
   update();
 }
 
-void SimRendererWidget::setComMarker(const QVector3D& com) {
+void SimRendererWidget::setComMarker(const QVector3D &com) {
   comOffset_ = com;
   update();
 }
@@ -419,64 +426,64 @@ void SimRendererWidget::initializeGL() {
   glEnable(GL_DEPTH_TEST);
   glEnable(GL_LINE_SMOOTH);
 
-  prog_.addShaderFromSourceCode(QOpenGLShader::Vertex,   kVertexShader);
+  prog_.addShaderFromSourceCode(QOpenGLShader::Vertex, kVertexShader);
   prog_.addShaderFromSourceCode(QOpenGLShader::Fragment, kFragmentShader);
   prog_.link();
-  u_mvp_   = prog_.uniformLocation("u_mvp");
+  u_mvp_ = prog_.uniformLocation("u_mvp");
   u_color_ = prog_.uniformLocation("u_color");
 
-  progLit_.addShaderFromSourceCode(QOpenGLShader::Vertex,   kLitVertexShader);
+  progLit_.addShaderFromSourceCode(QOpenGLShader::Vertex, kLitVertexShader);
   progLit_.addShaderFromSourceCode(
-      QOpenGLShader::Fragment,
-      QByteArray(kLitFragmentHead) + kAtmosphereGLSL + kShadowGLSL +
-          kLitFragmentMain);
+      QOpenGLShader::Fragment, QByteArray(kLitFragmentHead) + kAtmosphereGLSL +
+                                   kShadowGLSL + kLitFragmentMain);
   progLit_.link();
-  ul_mvp_   = progLit_.uniformLocation("u_mvp");
+  ul_mvp_ = progLit_.uniformLocation("u_mvp");
   ul_model_ = progLit_.uniformLocation("u_model");
-  ul_nmat_  = progLit_.uniformLocation("u_nmat");
+  ul_nmat_ = progLit_.uniformLocation("u_nmat");
   ul_color_ = progLit_.uniformLocation("u_color");
-  ul_sundir_= progLit_.uniformLocation("u_sundir");
-  ul_campos_= progLit_.uniformLocation("u_campos");
+  ul_sundir_ = progLit_.uniformLocation("u_sundir");
+  ul_campos_ = progLit_.uniformLocation("u_campos");
   ul_fogdensity_ = progLit_.uniformLocation("u_fogdensity");
-  ul_fogstart_   = progLit_.uniformLocation("u_fogstart");
-  ul_lightvp_    = progLit_.uniformLocation("u_lightvp");
-  ul_shadowtex_  = progLit_.uniformLocation("u_shadowtex");
-  ul_shadowon_   = progLit_.uniformLocation("u_shadowon");
-  ul_sunint_     = progLit_.uniformLocation("u_sunint");
-  ul_ambstr_     = progLit_.uniformLocation("u_ambstr");
+  ul_fogstart_ = progLit_.uniformLocation("u_fogstart");
+  ul_lightvp_ = progLit_.uniformLocation("u_lightvp");
+  ul_shadowtex_ = progLit_.uniformLocation("u_shadowtex");
+  ul_shadowon_ = progLit_.uniformLocation("u_shadowon");
+  ul_sunint_ = progLit_.uniformLocation("u_sunint");
+  ul_ambstr_ = progLit_.uniformLocation("u_ambstr");
 
-  progDepth_.addShaderFromSourceCode(QOpenGLShader::Vertex,   kDepthVertexShader);
-  progDepth_.addShaderFromSourceCode(QOpenGLShader::Fragment, kDepthFragmentShader);
+  progDepth_.addShaderFromSourceCode(QOpenGLShader::Vertex, kDepthVertexShader);
+  progDepth_.addShaderFromSourceCode(QOpenGLShader::Fragment,
+                                     kDepthFragmentShader);
   progDepth_.link();
   ud_lightmvp_ = progDepth_.uniformLocation("u_lightmvp");
   buildShadowMap();
 
-  progSky_.addShaderFromSourceCode(QOpenGLShader::Vertex,   kSkyVertexShader);
-  progSky_.addShaderFromSourceCode(
-      QOpenGLShader::Fragment,
-      QByteArray(kSkyFragmentHead) + kAtmosphereGLSL + kSkyFragmentMain);
+  progSky_.addShaderFromSourceCode(QOpenGLShader::Vertex, kSkyVertexShader);
+  progSky_.addShaderFromSourceCode(QOpenGLShader::Fragment,
+                                   QByteArray(kSkyFragmentHead) +
+                                       kAtmosphereGLSL + kSkyFragmentMain);
   progSky_.link();
   us_invvp_ = progSky_.uniformLocation("u_invvp");
   us_sundir_ = progSky_.uniformLocation("u_sundir");
   us_time_ = progSky_.uniformLocation("u_time");
-  skyVao_.create();   // core profile needs a bound VAO even with no attributes
+  skyVao_.create(); // core profile needs a bound VAO even with no attributes
 
 #ifdef VAYU_SIM_GRASS
   progFlora_.addShaderFromSourceCode(QOpenGLShader::Vertex, kFloraVertexShader);
-  progFlora_.addShaderFromSourceCode(
-      QOpenGLShader::Fragment,
-      QByteArray(kFloraFragmentHead) + kAtmosphereGLSL + kFloraFragmentMain);
+  progFlora_.addShaderFromSourceCode(QOpenGLShader::Fragment,
+                                     QByteArray(kFloraFragmentHead) +
+                                         kAtmosphereGLSL + kFloraFragmentMain);
   progFlora_.link();
-  uf_vp_        = progFlora_.uniformLocation("u_vp");
-  uf_campos_    = progFlora_.uniformLocation("u_campos");
-  uf_time_      = progFlora_.uniformLocation("u_time");
+  uf_vp_ = progFlora_.uniformLocation("u_vp");
+  uf_campos_ = progFlora_.uniformLocation("u_campos");
+  uf_time_ = progFlora_.uniformLocation("u_time");
   uf_fadestart_ = progFlora_.uniformLocation("u_fadestart");
-  uf_fadeend_   = progFlora_.uniformLocation("u_fadeend");
-  uf_sundir_    = progFlora_.uniformLocation("u_sundir");
-  uf_fogdensity_= progFlora_.uniformLocation("u_fogdensity");
-  uf_fogstart_  = progFlora_.uniformLocation("u_fogstart");
+  uf_fadeend_ = progFlora_.uniformLocation("u_fadeend");
+  uf_sundir_ = progFlora_.uniformLocation("u_sundir");
+  uf_fogdensity_ = progFlora_.uniformLocation("u_fogdensity");
+  uf_fogstart_ = progFlora_.uniformLocation("u_fogstart");
   buildGrassBlade();
-  gpuGrass_.init(this);  // GPU grass if the context supports compute (4.3+)
+  gpuGrass_.init(this); // GPU grass if the context supports compute (4.3+)
 #endif
 
   buildGroundGrid();
@@ -508,22 +515,22 @@ QVector3D SimRendererWidget::freeForward() const {
   // pointing the same way.
   return QVector3D(-std::cos(cam_pitch_) * std::cos(cam_yaw_),
                    -std::cos(cam_pitch_) * std::sin(cam_yaw_),
-                    std::sin(cam_pitch_))
+                   std::sin(cam_pitch_))
       .normalized();
 }
 
 float SimRendererWidget::viewHeadingRad() const {
   if (freeFly_) {
     const QVector3D f = freeForward();
-    return std::atan2(f.y(), f.x());  // NED: x=north, y=east
+    return std::atan2(f.y(), f.x()); // NED: x=north, y=east
   }
   return bodyYawRad();
 }
 
 float SimRendererWidget::bodyYawRad() const {
   // NED yaw (heading about world +Z) from the body->world quaternion.
-  const float w = snap_.att.scalar(), x = snap_.att.x(),
-              y = snap_.att.y(), z = snap_.att.z();
+  const float w = snap_.att.scalar(), x = snap_.att.x(), y = snap_.att.y(),
+              z = snap_.att.z();
   return std::atan2(2.0f * (w * z + x * y), 1.0f - 2.0f * (y * y + z * z));
 }
 
@@ -531,10 +538,9 @@ QVector3D SimRendererWidget::orbitOffset() const {
   // Azimuth = relative drag offset + the drone's heading, so the camera
   // rotates WITH the vehicle. NED up is -Z (pitch>0 lifts the eye above).
   const float az = cam_yaw_ + bodyYawRad();
-  return QVector3D(
-      cam_radius_ * std::cos(cam_pitch_) * std::cos(az),
-      cam_radius_ * std::cos(cam_pitch_) * std::sin(az),
-      -cam_radius_ * std::sin(cam_pitch_));
+  return QVector3D(cam_radius_ * std::cos(cam_pitch_) * std::cos(az),
+                   cam_radius_ * std::cos(cam_pitch_) * std::sin(az),
+                   -cam_radius_ * std::sin(cam_pitch_));
 }
 
 void SimRendererWidget::setFreeFly(bool on) {
@@ -558,9 +564,10 @@ QMatrix4x4 SimRendererWidget::cameraView() const {
     // so it banks with the vehicle, and renders the world below (imported mesh,
     // ground, obstacles). Body +X (forward/north) maps to screen-up.
     const QVector3D down = snap_.att.rotatedVector(QVector3D(0, 0, 1));
-    const QVector3D fwd  = snap_.att.rotatedVector(QVector3D(1, 0, 0));
+    const QVector3D fwd = snap_.att.rotatedVector(QVector3D(1, 0, 0));
     const QVector3D eye =
-        snap_.pos_w + snap_.att.rotatedVector(QVector3D(0.0f, 0.0f, downCamOffset_));
+        snap_.pos_w +
+        snap_.att.rotatedVector(QVector3D(0.0f, 0.0f, downCamOffset_));
     QMatrix4x4 view;
     view.lookAt(eye, eye + down, fwd);
     return view;
@@ -576,7 +583,7 @@ QMatrix4x4 SimRendererWidget::cameraView() const {
     // Onboard camera: sit just ahead of + above the CoM, look along body +X
     // (forward), with the body's up (-Z) as the view up. Rides the airframe.
     const QVector3D fwd = snap_.att.rotatedVector(QVector3D(1, 0, 0));
-    const QVector3D up  = snap_.att.rotatedVector(QVector3D(0, 0, -1));
+    const QVector3D up = snap_.att.rotatedVector(QVector3D(0, 0, -1));
     const QVector3D eye =
         snap_.pos_w + snap_.att.rotatedVector(QVector3D(0.12f, 0.0f, -0.03f));
     QMatrix4x4 view;
@@ -586,25 +593,30 @@ QMatrix4x4 SimRendererWidget::cameraView() const {
   // Third-person orbit, locked to the drone's heading: the eye yaws with the
   // vehicle so it never spins out of frame. The world up (-Z) stays fixed so
   // the horizon doesn't tilt; only a mouse drag re-aims the relative offset.
-  const auto& tgt = snap_.pos_w;
+  const auto &tgt = snap_.pos_w;
   QVector3D eye = tgt + orbitOffset();
   QMatrix4x4 view;
-  view.lookAt(eye, tgt, QVector3D(0.0f, 0.0f, -1.0f));   // NED up = -Z
+  view.lookAt(eye, tgt, QVector3D(0.0f, 0.0f, -1.0f)); // NED up = -Z
   return view;
 }
 
 void SimRendererWidget::paintGL() {
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-  if (meshDirty_) uploadDroneMesh();
-  if (worldMeshDirty_) uploadWorldMesh();
-  if (chunksDirty_) flushChunkUpdates();
+  if (meshDirty_)
+    uploadDroneMesh();
+  if (worldMeshDirty_)
+    uploadWorldMesh();
+  if (chunksDirty_)
+    flushChunkUpdates();
 #ifdef VAYU_SIM_GRASS
-  if (floraDirty_) flushFloraUpdates();
+  if (floraDirty_)
+    flushFloraUpdates();
 #endif
-  floraTime_ += 0.016f;   // ~60 Hz wind + sky clock
+  floraTime_ += 0.016f; // ~60 Hz wind + sky clock
 
   QMatrix4x4 view = cameraView();
-  camEye_ = view.inverted().map(QVector3D(0.0f, 0.0f, 0.0f));  // world eye for fog
+  camEye_ =
+      view.inverted().map(QVector3D(0.0f, 0.0f, 0.0f)); // world eye for fog
 
   // Training mode hides the imported world + obstacles (computed up here so the
   // shadow pass knows what to render as casters).
@@ -634,7 +646,7 @@ void SimRendererWidget::paintGL() {
   // training/showWorld/showChunks were computed above for the shadow pass.
   if (!showWorld && !showChunks)
     drawMesh(ground_, view, QVector3D(0.25f, 0.27f, 0.32f));
-  drawMesh(axes_,   view, QVector3D(1, 1, 1));
+  drawMesh(axes_, view, QVector3D(1, 1, 1));
 
   // World geometry (imported mesh + obstacles) only in World mode; Vehicle
   // mode shows just the airframe.
@@ -645,7 +657,7 @@ void SimRendererWidget::paintGL() {
   // Streaming terrain chunks (lit, world frame). Same lit shader / vertex-color
   // path as the imported mesh, one draw per loaded chunk.
   if (showChunks)
-    for (auto& kv : worldChunks_)
+    for (auto &kv : worldChunks_)
       if (kv.second->vertex_count)
         drawLit(*kv.second, view, QMatrix4x4(), QVector3D(1.0f, 1.0f, 1.0f));
 
@@ -663,39 +675,43 @@ void SimRendererWidget::paintGL() {
 
   // Static world obstacles (lit solids), each scaled/rotated/placed.
   for (int oi = 0; worldVisible_ && !training && oi < obstacles_.size(); ++oi) {
-    const vsim::Obstacle& o = obstacles_[oi];
+    const vsim::Obstacle &o = obstacles_[oi];
     QMatrix4x4 m;
     m.translate(o.pos);
     m.rotate(o.rotate.x(), 1, 0, 0);
     m.rotate(o.rotate.y(), 0, 1, 0);
     m.rotate(o.rotate.z(), 0, 0, 1);
-    const Mesh* mesh = &unitBox_;
+    const Mesh *mesh = &unitBox_;
     QVector3D col(0.40f, 0.45f, 0.55f);
     if (o.type == vsim::Obstacle::Sphere) {
       mesh = &unitSphere_;
-      m.scale(o.size.x(), o.size.x(), o.size.x());   // radius = size.x
+      m.scale(o.size.x(), o.size.x(), o.size.x()); // radius = size.x
       col = QVector3D(0.50f, 0.42f, 0.55f);
     } else if (o.type == vsim::Obstacle::Cylinder) {
       mesh = &unitCyl_;
-      m.scale(o.size.x(), o.size.x(), o.size.z());   // radius, height
+      m.scale(o.size.x(), o.size.x(), o.size.z()); // radius, height
       col = QVector3D(0.42f, 0.52f, 0.46f);
     } else {
-      m.scale(o.size.x(), o.size.y(), o.size.z());   // box full extents
+      m.scale(o.size.x(), o.size.y(), o.size.z()); // box full extents
     }
-    if (obsMode_ && oi == selObs_) col = QVector3D(0.95f, 0.80f, 0.30f);  // selected
+    if (obsMode_ && oi == selObs_)
+      col = QVector3D(0.95f, 0.80f, 0.30f); // selected
     drawLit(*mesh, view, m, col);
   }
 
   // Helipad landing platforms (scattered on flat ground; the drone spawns on one).
   if (worldVisible_ && !training)
-    for (const QVector3D& pad : helipads_) {
+    for (const QVector3D &pad : helipads_) {
       QMatrix4x4 m = helipadModel(pad);
-      drawLit(helipadDisk_, view, m, QVector3D(0.22f, 0.23f, 0.26f));  // grey deck
-      drawLit(helipadMark_, view, m, QVector3D(0.93f, 0.93f, 0.90f));  // white H+ring
+      drawLit(helipadDisk_, view, m,
+              QVector3D(0.22f, 0.23f, 0.26f)); // grey deck
+      drawLit(helipadMark_, view, m,
+              QVector3D(0.93f, 0.93f, 0.90f)); // white H+ring
     }
 
   // Training course halo gates + guidance arrow (World mode / down-cam only).
-  if (worldVisible_) drawTraining(view);
+  if (worldVisible_)
+    drawTraining(view);
 
   // Drone body: apply pos+orientation. Quaternion is normalized by the
   // sim after every step. In FPV / belly-cam the camera is inside the airframe,
@@ -712,57 +728,65 @@ void SimRendererWidget::paintGL() {
   }
   if (!hideBody) {
 
-  // Motor markers (disk colored by spin + activity) and a thrust-axis
-  // line, at the editable body-frame positions/axes.
-  for (int i = 0; i < 4; ++i) {
-    QVector3D axisN = motorAxis_[i];
-    if (axisN.lengthSquared() < 1e-12f) axisN = QVector3D(0, 0, -1);
-    axisN.normalize();
-    const QQuaternion ori = QQuaternion::rotationTo(QVector3D(0, 0, 1), axisN);
+    // Motor markers (disk colored by spin + activity) and a thrust-axis
+    // line, at the editable body-frame positions/axes.
+    for (int i = 0; i < 4; ++i) {
+      QVector3D axisN = motorAxis_[i];
+      if (axisN.lengthSquared() < 1e-12f)
+        axisN = QVector3D(0, 0, -1);
+      axisN.normalize();
+      const QQuaternion ori =
+          QQuaternion::rotationTo(QVector3D(0, 0, 1), axisN);
 
-    QMatrix4x4 mr = model;
-    mr.translate(motorPos_[i]);
-    mr.rotate(ori);
-    const QVector3D base = (motorSpin_[i] >= 0) ? QVector3D(0.30f, 0.85f, 0.30f)
-                                                : QVector3D(0.85f, 0.30f, 0.30f);
-    const float duty = snap_.motor_duty[i];
-    const QVector3D c = (editable_ && i == selected_)
-                            ? QVector3D(1.0f, 0.9f, 0.3f)  // selection highlight
-                            : base * (0.4f + 0.6f * duty);
-    drawMesh(rotor_, view * mr, c);
+      QMatrix4x4 mr = model;
+      mr.translate(motorPos_[i]);
+      mr.rotate(ori);
+      const QVector3D base = (motorSpin_[i] >= 0)
+                                 ? QVector3D(0.30f, 0.85f, 0.30f)
+                                 : QVector3D(0.85f, 0.30f, 0.30f);
+      const float duty = snap_.motor_duty[i];
+      const QVector3D c =
+          (editable_ && i == selected_)
+              ? QVector3D(1.0f, 0.9f, 0.3f) // selection highlight
+              : base * (0.4f + 0.6f * duty);
+      drawMesh(rotor_, view * mr, c);
 
-    // Thrust direction: unit +Z segment rotated onto the axis, shortened.
-    QMatrix4x4 ml = model;
-    ml.translate(motorPos_[i]);
-    ml.rotate(ori);
-    ml.scale(1.0f, 1.0f, 0.18f);
-    drawMesh(thrustLine_, view * ml, QVector3D(0.95f, 0.95f, 0.40f));
-  }
+      // Thrust direction: unit +Z segment rotated onto the axis, shortened.
+      QMatrix4x4 ml = model;
+      ml.translate(motorPos_[i]);
+      ml.rotate(ori);
+      ml.scale(1.0f, 1.0f, 0.18f);
+      drawMesh(thrustLine_, view * ml, QVector3D(0.95f, 0.95f, 0.40f));
+    }
 
-  // Center-of-mass crosshair (body frame, diagnostic).
-  QMatrix4x4 mc = model;
-  mc.translate(comOffset_);
-  drawMesh(comMarker_, view * mc, QVector3D(0.95f, 0.35f, 0.95f));
+    // Center-of-mass crosshair (body frame, diagnostic).
+    QMatrix4x4 mc = model;
+    mc.translate(comOffset_);
+    drawMesh(comMarker_, view * mc, QVector3D(0.95f, 0.35f, 0.95f));
 
-  // Motor gizmo (only when editing and a motor is selected).
-  if (editable_ && selected_ >= 0) drawGizmo(view);
-  // Obstacle gizmo (World mode, an obstacle selected).
-  if (obsMode_ && selObs_ >= 0) drawObsGizmo(view);
+    // Motor gizmo (only when editing and a motor is selected).
+    if (editable_ && selected_ >= 0)
+      drawGizmo(view);
+    // Obstacle gizmo (World mode, an obstacle selected).
+    if (obsMode_ && selObs_ >= 0)
+      drawObsGizmo(view);
 
-  // Motor numbers (1..4): only in Vehicle mode (editable_).
-  if (editable_) drawMotorLabels(view);
+    // Motor numbers (1..4): only in Vehicle mode (editable_).
+    if (editable_)
+      drawMotorLabels(view);
 
-  // Body +X / north arrow: shown in both Vehicle and World modes.
-  drawNorthIndicator(view);
-  }  // end if (!hideBody)
+    // Body +X / north arrow: shown in both Vehicle and World modes.
+    drawNorthIndicator(view);
+  } // end if (!hideBody)
 }
 
-void SimRendererWidget::drawMesh(const Mesh& m, const QMatrix4x4& mvp,
-                                 const QVector3D& color) {
+void SimRendererWidget::drawMesh(const Mesh &m, const QMatrix4x4 &mvp,
+                                 const QVector3D &color) {
   prog_.bind();
   prog_.setUniformValue(u_mvp_, proj_ * mvp);
   prog_.setUniformValue(u_color_, color);
-  QOpenGLVertexArrayObject::Binder b(const_cast<QOpenGLVertexArrayObject*>(&m.vao));
+  QOpenGLVertexArrayObject::Binder b(
+      const_cast<QOpenGLVertexArrayObject *>(&m.vao));
   glDrawArrays(m.primitive, 0, m.vertex_count);
   prog_.release();
 }
@@ -779,8 +803,8 @@ void SimRendererWidget::buildShadowMap() {
   glGenFramebuffers(1, &shadowFbo_);
   glGenTextures(1, &shadowTex_);
   glBindTexture(GL_TEXTURE_2D, shadowTex_);
-  glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT32F, shadowSize_, shadowSize_,
-               0, GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT32F, shadowSize_,
+               shadowSize_, 0, GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -789,7 +813,7 @@ void SimRendererWidget::buildShadowMap() {
   glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D,
                          shadowTex_, 0);
   GLenum none = GL_NONE;
-  glDrawBuffers(1, &none);   // depth-only: no colour draw/read targets
+  glDrawBuffers(1, &none); // depth-only: no colour draw/read targets
   glReadBuffer(GL_NONE);
   shadowReady_ =
       glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
@@ -801,12 +825,13 @@ void SimRendererWidget::buildShadowMap() {
 
 void SimRendererWidget::renderShadowPass(bool showWorld, bool showChunks) {
   shadowOn_ = false;
-  if (!shadowReady_ || (!showWorld && !showChunks)) return;
+  if (!shadowReady_ || (!showWorld && !showChunks))
+    return;
 
   // Orthographic light frustum aimed along -sun, centred on the ground under the
   // camera so it follows the view. NED up is -Z; pick a safe up if sun is steep.
-  const QVector3D fwd = -sunDir_.normalized();              // light view forward
-  const QVector3D center(camEye_.x(), camEye_.y(), 0.0f);   // ground under camera
+  const QVector3D fwd = -sunDir_.normalized();            // light view forward
+  const QVector3D center(camEye_.x(), camEye_.y(), 0.0f); // ground under camera
   const QVector3D lpos = center - fwd * 200.0f;
   const QVector3D up =
       std::abs(fwd.z()) > 0.99f ? QVector3D(1, 0, 0) : QVector3D(0, 0, -1);
@@ -821,20 +846,24 @@ void SimRendererWidget::renderShadowPass(bool showWorld, bool showChunks) {
   glClear(GL_DEPTH_BUFFER_BIT);
   glEnable(GL_DEPTH_TEST);
   progDepth_.bind();
-  auto drawDepth = [&](const Mesh& m) {
-    if (m.vertex_count == 0) return;
-    progDepth_.setUniformValue(ud_lightmvp_, lightVP_);  // model = identity (world)
+  auto drawDepth = [&](const Mesh &m) {
+    if (m.vertex_count == 0)
+      return;
+    progDepth_.setUniformValue(ud_lightmvp_,
+                               lightVP_); // model = identity (world)
     QOpenGLVertexArrayObject::Binder b(
-        const_cast<QOpenGLVertexArrayObject*>(&m.vao));
+        const_cast<QOpenGLVertexArrayObject *>(&m.vao));
     glDrawArrays(GL_TRIANGLES, 0, m.vertex_count);
   };
-  if (showWorld) drawDepth(worldMesh_);
+  if (showWorld)
+    drawDepth(worldMesh_);
   if (showChunks)
-    for (auto& kv : worldChunks_)
-      if (kv.second->vertex_count) drawDepth(*kv.second);
+    for (auto &kv : worldChunks_)
+      if (kv.second->vertex_count)
+        drawDepth(*kv.second);
   // Helipad platforms cast shadows too (each has its own model transform).
   if (helipadDisk_.vertex_count)
-    for (const QVector3D& pad : helipads_) {
+    for (const QVector3D &pad : helipads_) {
       progDepth_.setUniformValue(ud_lightmvp_, lightVP_ * helipadModel(pad));
       QOpenGLVertexArrayObject::Binder b(&helipadDisk_.vao);
       glDrawArrays(GL_TRIANGLES, 0, helipadDisk_.vertex_count);
@@ -846,10 +875,11 @@ void SimRendererWidget::renderShadowPass(bool showWorld, bool showChunks) {
   shadowOn_ = true;
 }
 
-void SimRendererWidget::drawLit(const Mesh& m, const QMatrix4x4& view,
-                                const QMatrix4x4& model,
-                                const QVector3D& color) {
-  if (m.vertex_count == 0) return;
+void SimRendererWidget::drawLit(const Mesh &m, const QMatrix4x4 &view,
+                                const QMatrix4x4 &model,
+                                const QVector3D &color) {
+  if (m.vertex_count == 0)
+    return;
   progLit_.bind();
   progLit_.setUniformValue(ul_mvp_, proj_ * view * model);
   progLit_.setUniformValue(ul_model_, model);
@@ -862,13 +892,14 @@ void SimRendererWidget::drawLit(const Mesh& m, const QMatrix4x4& view,
   progLit_.setUniformValue(ul_fogstart_, 45.0f);
   progLit_.setUniformValue(ul_lightvp_, lightVP_);
   progLit_.setUniformValue(ul_shadowon_, shadowOn_ ? 1.0f : 0.0f);
-  progLit_.setUniformValue(ul_shadowtex_, 1);   // sampler on texture unit 1
+  progLit_.setUniformValue(ul_shadowtex_, 1); // sampler on texture unit 1
   progLit_.setUniformValue(ul_sunint_, litSunInt_);
   progLit_.setUniformValue(ul_ambstr_, litAmbStr_);
   glActiveTexture(GL_TEXTURE1);
   glBindTexture(GL_TEXTURE_2D, shadowTex_);
   glActiveTexture(GL_TEXTURE0);
-  QOpenGLVertexArrayObject::Binder b(const_cast<QOpenGLVertexArrayObject*>(&m.vao));
+  QOpenGLVertexArrayObject::Binder b(
+      const_cast<QOpenGLVertexArrayObject *>(&m.vao));
   // Flat solids leave attribute 2 disabled; feed white as the generic value so
   // u_color*a_color == u_color. Meshes with a real color array (world mesh)
   // enable attribute 2 and override this.
@@ -880,28 +911,31 @@ void SimRendererWidget::drawLit(const Mesh& m, const QMatrix4x4& view,
 void SimRendererWidget::uploadDroneMesh() {
   meshDirty_ = false;
   hasMesh_ = !pendingPos_.empty();
-  if (!hasMesh_) return;
+  if (!hasMesh_)
+    return;
 
   // Interleave [px,py,pz, nx,ny,nz] per vertex (triangle soup).
   std::vector<float> data;
   data.reserve(pendingPos_.size() * 6);
   for (size_t i = 0; i < pendingPos_.size(); ++i) {
-    const QVector3D& p = pendingPos_[i];
-    const QVector3D n = (i < pendingNrm_.size()) ? pendingNrm_[i]
-                                                 : QVector3D(0, 0, 1);
+    const QVector3D &p = pendingPos_[i];
+    const QVector3D n =
+        (i < pendingNrm_.size()) ? pendingNrm_[i] : QVector3D(0, 0, 1);
     data.insert(data.end(), {p.x(), p.y(), p.z(), n.x(), n.y(), n.z()});
   }
 
-  if (!droneMesh_.vao.isCreated()) droneMesh_.vao.create();
+  if (!droneMesh_.vao.isCreated())
+    droneMesh_.vao.create();
   droneMesh_.vao.bind();
-  if (!droneMesh_.vbo.isCreated()) droneMesh_.vbo.create();
+  if (!droneMesh_.vbo.isCreated())
+    droneMesh_.vbo.create();
   droneMesh_.vbo.bind();
   droneMesh_.vbo.allocate(data.data(), int(data.size() * sizeof(float)));
   glEnableVertexAttribArray(0);
   glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), nullptr);
   glEnableVertexAttribArray(1);
   glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float),
-                        reinterpret_cast<void*>(3 * sizeof(float)));
+                        reinterpret_cast<void *>(3 * sizeof(float)));
   droneMesh_.vbo.release();
   droneMesh_.vao.release();
   droneMesh_.vertex_count = int(pendingPos_.size());
@@ -925,14 +959,14 @@ void SimRendererWidget::uploadWorldMesh() {
   std::vector<float> data;
   data.reserve(pendingWorldPos_.size() * 9);
   for (size_t i = 0; i < pendingWorldPos_.size(); ++i) {
-    const QVector3D& p = pendingWorldPos_[i];
+    const QVector3D &p = pendingWorldPos_[i];
     const QVector3D n = (i < pendingWorldNrm_.size()) ? pendingWorldNrm_[i]
                                                       : QVector3D(0, 0, 1);
     const QVector3D c = (i < pendingWorldCol_.size())
                             ? pendingWorldCol_[i]
                             : QVector3D(0.72f, 0.73f, 0.76f);
-    data.insert(data.end(), {p.x(), p.y(), p.z(), n.x(), n.y(), n.z(),
-                             c.x(), c.y(), c.z()});
+    data.insert(data.end(), {p.x(), p.y(), p.z(), n.x(), n.y(), n.z(), c.x(),
+                             c.y(), c.z()});
   }
   uploadColoredMesh(worldMesh_, data);
   pendingWorldPos_.clear();
@@ -942,29 +976,32 @@ void SimRendererWidget::uploadWorldMesh() {
 
 // ---------- geometry generators ----------
 
-void SimRendererWidget::uploadLitMesh(Mesh& m,
-                                      const std::vector<float>& data) {
-  if (!m.vao.isCreated()) m.vao.create();
+void SimRendererWidget::uploadLitMesh(Mesh &m, const std::vector<float> &data) {
+  if (!m.vao.isCreated())
+    m.vao.create();
   m.vao.bind();
-  if (!m.vbo.isCreated()) m.vbo.create();
+  if (!m.vbo.isCreated())
+    m.vbo.create();
   m.vbo.bind();
   m.vbo.allocate(data.data(), int(data.size() * sizeof(float)));
   glEnableVertexAttribArray(0);
   glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), nullptr);
   glEnableVertexAttribArray(1);
   glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float),
-                        reinterpret_cast<void*>(3 * sizeof(float)));
+                        reinterpret_cast<void *>(3 * sizeof(float)));
   m.vbo.release();
   m.vao.release();
   m.vertex_count = int(data.size() / 6);
   m.primitive = GL_TRIANGLES;
 }
 
-void SimRendererWidget::uploadColoredMesh(Mesh& m,
-                                          const std::vector<float>& data) {
-  if (!m.vao.isCreated()) m.vao.create();
+void SimRendererWidget::uploadColoredMesh(Mesh &m,
+                                          const std::vector<float> &data) {
+  if (!m.vao.isCreated())
+    m.vao.create();
   m.vao.bind();
-  if (!m.vbo.isCreated()) m.vbo.create();
+  if (!m.vbo.isCreated())
+    m.vbo.create();
   m.vbo.bind();
   m.vbo.allocate(data.data(), int(data.size() * sizeof(float)));
   const int stride = 9 * sizeof(float);
@@ -972,10 +1009,10 @@ void SimRendererWidget::uploadColoredMesh(Mesh& m,
   glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, nullptr);
   glEnableVertexAttribArray(1);
   glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, stride,
-                        reinterpret_cast<void*>(3 * sizeof(float)));
+                        reinterpret_cast<void *>(3 * sizeof(float)));
   glEnableVertexAttribArray(2);
   glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, stride,
-                        reinterpret_cast<void*>(6 * sizeof(float)));
+                        reinterpret_cast<void *>(6 * sizeof(float)));
   m.vbo.release();
   m.vao.release();
   m.vertex_count = int(data.size() / 9);
@@ -983,10 +1020,10 @@ void SimRendererWidget::uploadColoredMesh(Mesh& m,
 }
 
 void SimRendererWidget::buildObstacleMeshes() {
-  auto tri = [](std::vector<float>& v, const QVector3D& a, const QVector3D& b,
-                const QVector3D& c) {
+  auto tri = [](std::vector<float> &v, const QVector3D &a, const QVector3D &b,
+                const QVector3D &c) {
     const QVector3D n = QVector3D::crossProduct(b - a, c - a).normalized();
-    for (const QVector3D& p : {a, b, c})
+    for (const QVector3D &p : {a, b, c})
       v.insert(v.end(), {p.x(), p.y(), p.z(), n.x(), n.y(), n.z()});
   };
 
@@ -994,12 +1031,11 @@ void SimRendererWidget::buildObstacleMeshes() {
   {
     std::vector<float> v;
     const float h = 0.5f;
-    const QVector3D c[8] = {
-        {-h, -h, -h}, {h, -h, -h}, {h, h, -h}, {-h, h, -h},
-        {-h, -h, h},  {h, -h, h},  {h, h, h},  {-h, h, h}};
+    const QVector3D c[8] = {{-h, -h, -h}, {h, -h, -h}, {h, h, -h}, {-h, h, -h},
+                            {-h, -h, h},  {h, -h, h},  {h, h, h},  {-h, h, h}};
     const int f[6][4] = {{0, 1, 2, 3}, {5, 4, 7, 6}, {4, 0, 3, 7},
                          {1, 5, 6, 2}, {4, 5, 1, 0}, {3, 2, 6, 7}};
-    for (auto& q : f) {
+    for (auto &q : f) {
       tri(v, c[q[0]], c[q[1]], c[q[2]]);
       tri(v, c[q[0]], c[q[2]], c[q[3]]);
     }
@@ -1021,9 +1057,9 @@ void SimRendererWidget::buildObstacleMeshes() {
         const QVector3D a = sph(la0, lo0), b = sph(la1, lo0),
                         c2 = sph(la1, lo1), d = sph(la0, lo1);
         // normals == positions for a unit sphere.
-        for (const QVector3D& p : {a, b, c2})
+        for (const QVector3D &p : {a, b, c2})
           v.insert(v.end(), {p.x(), p.y(), p.z(), p.x(), p.y(), p.z()});
-        for (const QVector3D& p : {a, c2, d})
+        for (const QVector3D &p : {a, c2, d})
           v.insert(v.end(), {p.x(), p.y(), p.z(), p.x(), p.y(), p.z()});
       }
     uploadLitMesh(unitSphere_, v);
@@ -1040,11 +1076,15 @@ void SimRendererWidget::buildObstacleMeshes() {
           n1(std::cos(a1), std::sin(a1), 0);
       const QVector3D bt0(n0.x(), n0.y(), zt), bb0(n0.x(), n0.y(), zb),
           bt1(n1.x(), n1.y(), zt), bb1(n1.x(), n1.y(), zb);
-      auto side = [&](const QVector3D& p, const QVector3D& n) {
+      auto side = [&](const QVector3D &p, const QVector3D &n) {
         v.insert(v.end(), {p.x(), p.y(), p.z(), n.x(), n.y(), n.z()});
       };
-      side(bb0, n0); side(bb1, n1); side(bt1, n1);
-      side(bb0, n0); side(bt1, n1); side(bt0, n0);
+      side(bb0, n0);
+      side(bb1, n1);
+      side(bt1, n1);
+      side(bb0, n0);
+      side(bt1, n1);
+      side(bt0, n0);
       // caps (fan from axis point)
       tri(v, QVector3D(0, 0, zt), bt0, bt1);
       tri(v, QVector3D(0, 0, zb), bb1, bb0);
@@ -1054,8 +1094,9 @@ void SimRendererWidget::buildObstacleMeshes() {
 }
 
 void SimRendererWidget::buildHelipadMeshes() {
-  const QVector3D up(0, 0, -1);  // NED up
-  auto pushUp = [](std::vector<float>& v, const QVector3D& p, const QVector3D& n) {
+  const QVector3D up(0, 0, -1); // NED up
+  auto pushUp = [](std::vector<float> &v, const QVector3D &p,
+                   const QVector3D &n) {
     v.insert(v.end(), {p.x(), p.y(), p.z(), n.x(), n.y(), n.z()});
   };
   // --- platform: radius 1, local z in [-1 (top/landing) .. 0 (base/terrain)] ---
@@ -1070,10 +1111,16 @@ void SimRendererWidget::buildHelipadMeshes() {
       const QVector3D bt0(n0.x(), n0.y(), zt), bb0(n0.x(), n0.y(), zb),
           bt1(n1.x(), n1.y(), zt), bb1(n1.x(), n1.y(), zb);
       // side wall (outward normals)
-      pushUp(v, bb0, n0); pushUp(v, bb1, n1); pushUp(v, bt1, n1);
-      pushUp(v, bb0, n0); pushUp(v, bt1, n1); pushUp(v, bt0, n0);
+      pushUp(v, bb0, n0);
+      pushUp(v, bb1, n1);
+      pushUp(v, bt1, n1);
+      pushUp(v, bb0, n0);
+      pushUp(v, bt1, n1);
+      pushUp(v, bt0, n0);
       // top cap (up-facing)
-      pushUp(v, QVector3D(0, 0, zt), up); pushUp(v, bt0, up); pushUp(v, bt1, up);
+      pushUp(v, QVector3D(0, 0, zt), up);
+      pushUp(v, bt0, up);
+      pushUp(v, bt1, up);
     }
     uploadLitMesh(helipadDisk_, v);
   }
@@ -1086,14 +1133,16 @@ void SimRendererWidget::buildHelipadMeshes() {
     const float z = -1.0f - 0.02f / kHelipadHeightM;
     auto quad = [&](float x0, float x1, float y0, float y1) {
       const QVector3D a(x0, y0, z), b(x1, y0, z), c(x1, y1, z), d(x0, y1, z);
-      for (const QVector3D& p : {a, b, c}) pushUp(v, p, up);
-      for (const QVector3D& p : {a, c, d}) pushUp(v, p, up);
+      for (const QVector3D &p : {a, b, c})
+        pushUp(v, p, up);
+      for (const QVector3D &p : {a, c, d})
+        pushUp(v, p, up);
     };
-    quad(-0.40f, -0.20f, -0.55f, 0.55f);  // H left bar
-    quad(0.20f, 0.40f, -0.55f, 0.55f);    // H right bar
-    quad(-0.20f, 0.20f, -0.12f, 0.12f);   // H crossbar
+    quad(-0.40f, -0.20f, -0.55f, 0.55f); // H left bar
+    quad(0.20f, 0.40f, -0.55f, 0.55f);   // H right bar
+    quad(-0.20f, 0.20f, -0.12f, 0.12f);  // H crossbar
     const int N = 48;
-    const float ri = 0.80f, ro = 0.92f;   // ring border annulus
+    const float ri = 0.80f, ro = 0.92f; // ring border annulus
     auto rv = [&](float r, double a) {
       return QVector3D(r * std::cos(a), r * std::sin(a), z);
     };
@@ -1101,55 +1150,57 @@ void SimRendererWidget::buildHelipadMeshes() {
       const double a0 = 2 * M_PI * j / N, a1 = 2 * M_PI * (j + 1) / N;
       const QVector3D i0 = rv(ri, a0), o0 = rv(ro, a0), i1 = rv(ri, a1),
                       o1 = rv(ro, a1);
-      for (const QVector3D& p : {i0, o0, o1}) pushUp(v, p, up);
-      for (const QVector3D& p : {i0, o1, i1}) pushUp(v, p, up);
+      for (const QVector3D &p : {i0, o0, o1})
+        pushUp(v, p, up);
+      for (const QVector3D &p : {i0, o1, i1})
+        pushUp(v, p, up);
     }
     uploadLitMesh(helipadMark_, v);
   }
 }
 
-void SimRendererWidget::setHelipads(const std::vector<QVector3D>& pads) {
+void SimRendererWidget::setHelipads(const std::vector<QVector3D> &pads) {
   helipads_ = pads;
   update();
 }
 
-void SimRendererWidget::setObstacles(const QVector<vsim::Obstacle>& obs) {
+void SimRendererWidget::setObstacles(const QVector<vsim::Obstacle> &obs) {
   obstacles_ = obs;
   update();
 }
 
-void SimRendererWidget::setTrainingGates(const QVector<vsim::RingGate>& gates) {
+void SimRendererWidget::setTrainingGates(const QVector<vsim::RingGate> &gates) {
   gates_ = gates;
   update();
 }
 
 void SimRendererWidget::setTrainingActive(int activeIndex, bool showArrow) {
   trainActive_ = activeIndex;
-  trainArrow_  = showArrow;
+  trainArrow_ = showArrow;
   update();
 }
 
-void SimRendererWidget::setWorldMesh(const std::vector<QVector3D>& positions,
-                                     const std::vector<QVector3D>& normals,
-                                     const std::vector<QVector3D>& colors) {
+void SimRendererWidget::setWorldMesh(const std::vector<QVector3D> &positions,
+                                     const std::vector<QVector3D> &normals,
+                                     const std::vector<QVector3D> &colors) {
   pendingWorldPos_ = positions;
   pendingWorldNrm_ = normals;
   pendingWorldCol_ = colors;
-  worldMeshDirty_ = true;   // uploaded in paintGL (needs GL context)
+  worldMeshDirty_ = true; // uploaded in paintGL (needs GL context)
   update();
 }
 
 void SimRendererWidget::setWorldChunk(qint64 key,
-                                      const std::vector<QVector3D>& positions,
-                                      const std::vector<QVector3D>& normals,
-                                      const std::vector<QVector3D>& colors) {
+                                      const std::vector<QVector3D> &positions,
+                                      const std::vector<QVector3D> &normals,
+                                      const std::vector<QVector3D> &colors) {
   // Interleave [px,py,pz, nx,ny,nz, r,g,b] now (UI thread, no GL) and queue the
   // VBO upload for paintGL.
   PendingChunk pc;
   pc.key = key;
   pc.data.reserve(positions.size() * 9);
   for (size_t i = 0; i < positions.size(); ++i) {
-    const QVector3D& p = positions[i];
+    const QVector3D &p = positions[i];
     const QVector3D n = (i < normals.size()) ? normals[i] : QVector3D(0, 0, -1);
     const QVector3D c =
         (i < colors.size()) ? colors[i] : QVector3D(0.4f, 0.5f, 0.3f);
@@ -1176,18 +1227,20 @@ void SimRendererWidget::clearWorldChunks() {
 void SimRendererWidget::flushChunkUpdates() {
   chunksDirty_ = false;
   if (clearAllChunks_) {
-    worldChunks_.clear();          // GL context current here -> safe to destroy
+    worldChunks_.clear(); // GL context current here -> safe to destroy
     pendingChunkRemovals_.clear();
     clearAllChunks_ = false;
     // NOTE: pendingChunkUploads_ is intentionally NOT cleared — uploads queued
     // after a clear request (e.g. reconfiguring the streamer: clear old set,
     // then stream the new one) are the fresh set and must still apply.
   }
-  for (qint64 key : pendingChunkRemovals_) worldChunks_.erase(key);
+  for (qint64 key : pendingChunkRemovals_)
+    worldChunks_.erase(key);
   pendingChunkRemovals_.clear();
-  for (PendingChunk& pc : pendingChunkUploads_) {
-    std::unique_ptr<Mesh>& mesh = worldChunks_[pc.key];
-    if (!mesh) mesh = std::make_unique<Mesh>();
+  for (PendingChunk &pc : pendingChunkUploads_) {
+    std::unique_ptr<Mesh> &mesh = worldChunks_[pc.key];
+    if (!mesh)
+      mesh = std::make_unique<Mesh>();
     uploadColoredMesh(*mesh, pc.data);
   }
   pendingChunkUploads_.clear();
@@ -1200,42 +1253,49 @@ void SimRendererWidget::buildGrassBlade() {
   // at 3 LODs (4/2/1 segments) so distant chunks draw far fewer verts/blade.
   // Local space: base at origin, up = -Z, arc leans toward +X.
   const float wb = 0.05f;
-  const float P0x = 0.0f,  P0z = 0.0f;
+  const float P0x = 0.0f, P0z = 0.0f;
   const float P1x = 0.14f, P1z = -0.55f;
   const float P2x = 0.42f, P2z = -1.0f;
-  auto bez = [&](float t, float& x, float& z) {
+  auto bez = [&](float t, float &x, float &z) {
     const float u = 1.0f - t;
     x = u * u * P0x + 2.0f * u * t * P1x + t * t * P2x;
     z = u * u * P0z + 2.0f * u * t * P1z + t * t * P2z;
   };
   // Spine tangent (derivative); the ribbon normal is perpendicular to it and Y,
   // biased toward up (-Z) so blades catch overhead sun/sky (softer, UE5-like).
-  auto normal = [&](float t, float& nx, float& nz) {
+  auto normal = [&](float t, float &nx, float &nz) {
     const float tx = 2.0f * (1.0f - t) * (P1x - P0x) + 2.0f * t * (P2x - P1x);
     const float tz = 2.0f * (1.0f - t) * (P1z - P0z) + 2.0f * t * (P2z - P1z);
-    float rx = -tz, rz = tx;             // cross(T, +Y) in the X-Z plane
-    rz -= 0.9f;                          // up-bias (NED up is -Z)
+    float rx = -tz, rz = tx; // cross(T, +Y) in the X-Z plane
+    rz -= 0.9f;              // up-bias (NED up is -Z)
     const float l = std::sqrt(rx * rx + rz * rz);
-    nx = rx / l; nz = rz / l;
+    nx = rx / l;
+    nz = rz / l;
   };
-  auto width = [&](float t) { return wb * (0.06f + 0.94f * std::pow(1.0f - t, 0.7f)); };
+  auto width = [&](float t) {
+    return wb * (0.06f + 0.94f * std::pow(1.0f - t, 0.7f));
+  };
 
   const int segCounts[3] = {4, 2, 1};
   for (int lod = 0; lod < 3; ++lod) {
     const int kSeg = segCounts[lod];
-    std::vector<float> v;  // [px,py,pz, nx,ny,nz] per vertex
+    std::vector<float> v; // [px,py,pz, nx,ny,nz] per vertex
     auto vert = [&](float x, float y, float z, float nx, float nz) {
       v.insert(v.end(), {x, y, z, nx, 0.0f, nz});
     };
     for (int s = 0; s < kSeg; ++s) {
       const float t0 = float(s) / kSeg, t1 = float(s + 1) / kSeg;
       float x0, z0, x1, z1, n0x, n0z, n1x, n1z;
-      bez(t0, x0, z0); bez(t1, x1, z1);
-      normal(t0, n0x, n0z); normal(t1, n1x, n1z);
+      bez(t0, x0, z0);
+      bez(t1, x1, z1);
+      normal(t0, n0x, n0z);
+      normal(t1, n1x, n1z);
       const float w0 = width(t0), w1 = width(t1);
-      vert(x0, +w0, z0, n0x, n0z); vert(x0, -w0, z0, n0x, n0z);
+      vert(x0, +w0, z0, n0x, n0z);
+      vert(x0, -w0, z0, n0x, n0z);
       vert(x1, -w1, z1, n1x, n1z);
-      vert(x0, +w0, z0, n0x, n0z); vert(x1, -w1, z1, n1x, n1z);
+      vert(x0, +w0, z0, n0x, n0z);
+      vert(x1, -w1, z1, n1x, n1z);
       vert(x1, +w1, z1, n1x, n1z);
     }
     grassVbo_[lod].create();
@@ -1248,7 +1308,7 @@ void SimRendererWidget::buildGrassBlade() {
 }
 
 void SimRendererWidget::setChunkFlora(qint64 key,
-                                      const std::vector<float>& interleaved,
+                                      const std::vector<float> &interleaved,
                                       int count, float centerX, float centerY,
                                       float halfExtent) {
   pendingFloraUploads_.push_back(
@@ -1277,13 +1337,19 @@ void SimRendererWidget::flushFloraUpdates() {
     clearAllFlora_ = false;
     // (queued uploads are kept — fresh set after a reconfigure)
   }
-  for (qint64 key : pendingFloraRemovals_) floraChunks_.erase(key);
+  for (qint64 key : pendingFloraRemovals_)
+    floraChunks_.erase(key);
   pendingFloraRemovals_.clear();
-  for (PendingFlora& pf : pendingFloraUploads_) {
-    if (pf.count <= 0) { floraChunks_.erase(pf.key); continue; }
-    std::unique_ptr<FloraChunk>& fc = floraChunks_[pf.key];
-    if (!fc) fc = std::make_unique<FloraChunk>();
-    if (!fc->inst.isCreated()) fc->inst.create();
+  for (PendingFlora &pf : pendingFloraUploads_) {
+    if (pf.count <= 0) {
+      floraChunks_.erase(pf.key);
+      continue;
+    }
+    std::unique_ptr<FloraChunk> &fc = floraChunks_[pf.key];
+    if (!fc)
+      fc = std::make_unique<FloraChunk>();
+    if (!fc->inst.isCreated())
+      fc->inst.create();
     fc->inst.bind();
     fc->inst.allocate(pf.data.data(), int(pf.data.size() * sizeof(float)));
     fc->inst.release();
@@ -1295,8 +1361,9 @@ void SimRendererWidget::flushFloraUpdates() {
   pendingFloraUploads_.clear();
 }
 
-void SimRendererWidget::drawFlora(const QMatrix4x4& view) {
-  if (floraChunks_.empty() || grassVerts_[0] == 0) return;
+void SimRendererWidget::drawFlora(const QMatrix4x4 &view) {
+  if (floraChunks_.empty() || grassVerts_[0] == 0)
+    return;
   progFlora_.bind();
   progFlora_.setUniformValue(uf_vp_, proj_ * view);
   progFlora_.setUniformValue(uf_campos_, camEye_);
@@ -1307,15 +1374,16 @@ void SimRendererWidget::drawFlora(const QMatrix4x4& view) {
   progFlora_.setUniformValue(uf_fogdensity_, 1.0f / 420.0f);
   progFlora_.setUniformValue(uf_fogstart_, 45.0f);
   floraVao_.bind();
-  for (auto& kv : floraChunks_) {
-    FloraChunk* fc = kv.second.get();
-    if (fc->count == 0) continue;
+  for (auto &kv : floraChunks_) {
+    FloraChunk *fc = kv.second.get();
+    if (fc->count == 0)
+      continue;
     // Per-chunk LOD by distance to the NEAREST point of the chunk (so the chunk
     // you're standing in stays full detail): fewer verts/blade the farther it is.
-    const float nx = std::max(fc->cx - fc->half,
-                              std::min(camEye_.x(), fc->cx + fc->half));
-    const float ny = std::max(fc->cy - fc->half,
-                              std::min(camEye_.y(), fc->cy + fc->half));
+    const float nx =
+        std::max(fc->cx - fc->half, std::min(camEye_.x(), fc->cx + fc->half));
+    const float ny =
+        std::max(fc->cy - fc->half, std::min(camEye_.y(), fc->cy + fc->half));
     const float dx = nx - camEye_.x(), dy = ny - camEye_.y();
     const float dist = std::sqrt(dx * dx + dy * dy);
     const int lod = dist < 40.0f ? 0 : (dist < 90.0f ? 1 : 2);
@@ -1328,7 +1396,7 @@ void SimRendererWidget::drawFlora(const QMatrix4x4& view) {
     glVertexAttribDivisor(0, 0);
     glEnableVertexAttribArray(4);
     glVertexAttribPointer(4, 3, GL_FLOAT, GL_FALSE, gstride,
-                          reinterpret_cast<void*>(3 * sizeof(float)));
+                          reinterpret_cast<void *>(3 * sizeof(float)));
     glVertexAttribDivisor(4, 0);
     // Bind this chunk's instance data (9 floats/instance, divisor 1).
     fc->inst.bind();
@@ -1338,18 +1406,18 @@ void SimRendererWidget::drawFlora(const QMatrix4x4& view) {
     glVertexAttribDivisor(1, 1);
     glEnableVertexAttribArray(2);
     glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, istride,
-                          reinterpret_cast<void*>(3 * sizeof(float)));
+                          reinterpret_cast<void *>(3 * sizeof(float)));
     glVertexAttribDivisor(2, 1);
     glEnableVertexAttribArray(3);
     glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, istride,
-                          reinterpret_cast<void*>(6 * sizeof(float)));
+                          reinterpret_cast<void *>(6 * sizeof(float)));
     glVertexAttribDivisor(3, 1);
     glDrawArraysInstanced(GL_TRIANGLES, 0, grassVerts_[lod], fc->count);
   }
   floraVao_.release();
   progFlora_.release();
 }
-#endif  // VAYU_SIM_GRASS
+#endif // VAYU_SIM_GRASS
 
 void SimRendererWidget::buildGroundGrid() {
   std::vector<float> verts;
@@ -1366,8 +1434,7 @@ void SimRendererWidget::buildGroundGrid() {
   ground_.vao.bind();
   ground_.vbo.create();
   ground_.vbo.bind();
-  ground_.vbo.allocate(verts.data(),
-                       int(verts.size() * sizeof(float)));
+  ground_.vbo.allocate(verts.data(), int(verts.size() * sizeof(float)));
   glEnableVertexAttribArray(0);
   glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), nullptr);
   ground_.vbo.release();
@@ -1382,9 +1449,9 @@ void SimRendererWidget::buildAxes() {
   // segments and we'll re-tint per-axis later. For simplicity ship a
   // single white set; per-axis color would need separate draws.
   float verts[] = {
-    0,0,0,  L,0,0,    // +X (north)
-    0,0,0,  0,L,0,    // +Y (east)
-    0,0,0,  0,0,L,    // +Z (down)
+      0, 0, 0, L, 0, 0, // +X (north)
+      0, 0, 0, 0, L, 0, // +Y (east)
+      0, 0, 0, 0, 0, L, // +Z (down)
   };
   axes_.vao.create();
   axes_.vao.bind();
@@ -1405,21 +1472,117 @@ void SimRendererWidget::buildDroneBody() {
   // draw a thin plate so the orientation reads cleanly from above.
   const float x = kBodyL * 0.5f, y = kBodyW * 0.5f, z = kBodyH * 0.5f;
   float v[] = {
-    // top
-    -x,-y,-z,  x,-y,-z,  x, y,-z,
-    -x,-y,-z,  x, y,-z, -x, y,-z,
-    // bottom
-    -x,-y, z,  x, y, z,  x,-y, z,
-    -x,-y, z, -x, y, z,  x, y, z,
-    // sides
-    -x,-y,-z, -x, y,-z, -x, y, z,
-    -x,-y,-z, -x, y, z, -x,-y, z,
-     x,-y,-z,  x,-y, z,  x, y, z,
-     x,-y,-z,  x, y, z,  x, y,-z,
-    -x,-y,-z, -x,-y, z,  x,-y, z,
-    -x,-y,-z,  x,-y, z,  x,-y,-z,
-    -x, y,-z,  x, y,-z,  x, y, z,
-    -x, y,-z,  x, y, z, -x, y, z,
+      // top
+      -x,
+      -y,
+      -z,
+      x,
+      -y,
+      -z,
+      x,
+      y,
+      -z,
+      -x,
+      -y,
+      -z,
+      x,
+      y,
+      -z,
+      -x,
+      y,
+      -z,
+      // bottom
+      -x,
+      -y,
+      z,
+      x,
+      y,
+      z,
+      x,
+      -y,
+      z,
+      -x,
+      -y,
+      z,
+      -x,
+      y,
+      z,
+      x,
+      y,
+      z,
+      // sides
+      -x,
+      -y,
+      -z,
+      -x,
+      y,
+      -z,
+      -x,
+      y,
+      z,
+      -x,
+      -y,
+      -z,
+      -x,
+      y,
+      z,
+      -x,
+      -y,
+      z,
+      x,
+      -y,
+      -z,
+      x,
+      -y,
+      z,
+      x,
+      y,
+      z,
+      x,
+      -y,
+      -z,
+      x,
+      y,
+      z,
+      x,
+      y,
+      -z,
+      -x,
+      -y,
+      -z,
+      -x,
+      -y,
+      z,
+      x,
+      -y,
+      z,
+      -x,
+      -y,
+      -z,
+      x,
+      -y,
+      z,
+      x,
+      -y,
+      -z,
+      -x,
+      y,
+      -z,
+      x,
+      y,
+      -z,
+      x,
+      y,
+      z,
+      -x,
+      y,
+      -z,
+      x,
+      y,
+      z,
+      -x,
+      y,
+      z,
   };
   body_.vao.create();
   body_.vao.bind();
@@ -1440,9 +1603,7 @@ void SimRendererWidget::buildRotorDisk() {
   v.insert(v.end(), {0.0f, 0.0f, 0.0f});
   for (int i = 0; i <= kRotorSeg; ++i) {
     float a = float(i) / kRotorSeg * 2.0f * float(M_PI);
-    v.insert(v.end(), {kRotorR * std::cos(a),
-                       kRotorR * std::sin(a),
-                       0.0f});
+    v.insert(v.end(), {kRotorR * std::cos(a), kRotorR * std::sin(a), 0.0f});
   }
   rotor_.vao.create();
   rotor_.vao.bind();
@@ -1477,9 +1638,7 @@ void SimRendererWidget::buildComMarker() {
   // Small 3-axis crosshair centered at origin.
   const float s = 0.06f;
   float v[] = {
-      -s, 0, 0,  s, 0, 0,
-       0,-s, 0,  0, s, 0,
-       0, 0,-s,  0, 0, s,
+      -s, 0, 0, s, 0, 0, 0, -s, 0, 0, s, 0, 0, 0, -s, 0, 0, s,
   };
   comMarker_.vao.create();
   comMarker_.vao.bind();
@@ -1537,23 +1696,24 @@ void SimRendererWidget::buildDigits() {
   // cell, expanded to (x,y,0) vertices and drawn billboarded as GL_LINES.
   const std::vector<std::vector<float>> strokes = {
       // "1"
-      {0, -0.5f, 0, 0.5f,  -0.18f, 0.32f, 0, 0.5f,  -0.2f, -0.5f, 0.2f, -0.5f},
+      {0, -0.5f, 0, 0.5f, -0.18f, 0.32f, 0, 0.5f, -0.2f, -0.5f, 0.2f, -0.5f},
       // "2"
-      {-0.3f, 0.5f, 0.3f, 0.5f,  0.3f, 0.5f, 0.3f, 0.0f,  0.3f, 0.0f, -0.3f, 0.0f,
-       -0.3f, 0.0f, -0.3f, -0.5f,  -0.3f, -0.5f, 0.3f, -0.5f},
+      {-0.3f, 0.5f, 0.3f,  0.5f, 0.3f,  0.5f,  0.3f,  0.0f,  0.3f, 0.0f,
+       -0.3f, 0.0f, -0.3f, 0.0f, -0.3f, -0.5f, -0.3f, -0.5f, 0.3f, -0.5f},
       // "3"
-      {-0.3f, 0.5f, 0.3f, 0.5f,  0.3f, 0.5f, 0.3f, -0.5f,  -0.25f, 0.0f, 0.3f, 0.0f,
-       -0.3f, -0.5f, 0.3f, -0.5f},
+      {-0.3f, 0.5f, 0.3f, 0.5f, 0.3f, 0.5f, 0.3f, -0.5f, -0.25f, 0.0f, 0.3f,
+       0.0f, -0.3f, -0.5f, 0.3f, -0.5f},
       // "4"
-      {-0.3f, 0.5f, -0.3f, 0.0f,  -0.3f, 0.0f, 0.3f, 0.0f,  0.3f, 0.5f, 0.3f, -0.5f},
+      {-0.3f, 0.5f, -0.3f, 0.0f, -0.3f, 0.0f, 0.3f, 0.0f, 0.3f, 0.5f, 0.3f,
+       -0.5f},
   };
   for (int d = 0; d < 4; ++d) {
     std::vector<float> v;
-    const auto& s = strokes[d];
+    const auto &s = strokes[d];
     for (size_t k = 0; k + 1 < s.size(); k += 2) {
       v.insert(v.end(), {s[k], s[k + 1], 0.0f});
     }
-    Mesh& m = digitMesh_[d];
+    Mesh &m = digitMesh_[d];
     m.vao.create();
     m.vao.bind();
     m.vbo.create();
@@ -1568,28 +1728,29 @@ void SimRendererWidget::buildDigits() {
   }
 }
 
-void SimRendererWidget::drawMotorLabels(const QMatrix4x4& view) {
+void SimRendererWidget::drawMotorLabels(const QMatrix4x4 &view) {
   QVector3D eye, tgt;
   cameraEyeTarget(&eye, &tgt);
   const QVector3D fwd = (tgt - eye).normalized();
-  const QVector3D worldUp(0, 0, -1);   // NED up
+  const QVector3D worldUp(0, 0, -1); // NED up
   QVector3D right = QVector3D::crossProduct(fwd, worldUp);
-  if (right.lengthSquared() < 1e-6f) right = QVector3D(1, 0, 0);
+  if (right.lengthSquared() < 1e-6f)
+    right = QVector3D(1, 0, 0);
   right.normalize();
   const QVector3D up = QVector3D::crossProduct(right, fwd).normalized();
 
   const QMatrix4x4 model = modelMatrix();
-  const float s = 0.07f;   // glyph size [m]
+  const float s = 0.07f; // glyph size [m]
   glDisable(GL_DEPTH_TEST);
   for (int i = 0; i < 4; ++i) {
-    const QVector3D pos = model.map(motorPos_[i]) + up * 0.12f;  // above marker
+    const QVector3D pos = model.map(motorPos_[i]) + up * 0.12f; // above marker
     QMatrix4x4 m;
     m.setColumn(0, QVector4D(right * s, 0));
     m.setColumn(1, QVector4D(up * s, 0));
     m.setColumn(2, QVector4D(-fwd * s, 0));
     m.setColumn(3, QVector4D(pos, 1));
     const QVector3D col = (editable_ && i == selected_)
-                              ? QVector3D(1.0f, 0.95f, 0.4f)   // selected
+                              ? QVector3D(1.0f, 0.95f, 0.4f) // selected
                               : QVector3D(0.92f, 0.92f, 0.96f);
     drawMesh(digitMesh_[i], view * m, col);
   }
@@ -1601,8 +1762,8 @@ void SimRendererWidget::buildNorth() {
   // segments. Drawn through the model matrix so it rotates with the body.
   {
     float v[] = {
-        0.0f, 0.0f, 0.0f,  0.35f, 0.0f, 0.0f,     // shaft
-        0.35f, 0.0f, 0.0f, 0.27f, 0.05f, 0.0f,    // head
+        0.0f,  0.0f, 0.0f, 0.35f, 0.0f,   0.0f, // shaft
+        0.35f, 0.0f, 0.0f, 0.27f, 0.05f,  0.0f, // head
         0.35f, 0.0f, 0.0f, 0.27f, -0.05f, 0.0f,
     };
     northArrow_.vao.create();
@@ -1620,9 +1781,9 @@ void SimRendererWidget::buildNorth() {
   // "N" glyph (billboarded at the tip).
   {
     float v[] = {
-        -0.3f, -0.5f, 0.0f, -0.3f, 0.5f, 0.0f,    // left vertical
-        -0.3f, 0.5f, 0.0f,  0.3f, -0.5f, 0.0f,    // diagonal
-        0.3f, -0.5f, 0.0f,  0.3f, 0.5f, 0.0f,     // right vertical
+        -0.3f, -0.5f, 0.0f, -0.3f, 0.5f,  0.0f, // left vertical
+        -0.3f, 0.5f,  0.0f, 0.3f,  -0.5f, 0.0f, // diagonal
+        0.3f,  -0.5f, 0.0f, 0.3f,  0.5f,  0.0f, // right vertical
     };
     glyphN_.vao.create();
     glyphN_.vao.bind();
@@ -1638,9 +1799,9 @@ void SimRendererWidget::buildNorth() {
   }
 }
 
-void SimRendererWidget::drawNorthIndicator(const QMatrix4x4& view) {
+void SimRendererWidget::drawNorthIndicator(const QMatrix4x4 &view) {
   const QMatrix4x4 model = modelMatrix();
-  const QVector3D north(1.0f, 0.45f, 0.45f);   // matches +X axis colouring
+  const QVector3D north(1.0f, 0.45f, 0.45f); // matches +X axis colouring
   glDisable(GL_DEPTH_TEST);
 
   // Arrow points along body +X in 3D (not billboarded — it shows heading).
@@ -1651,7 +1812,8 @@ void SimRendererWidget::drawNorthIndicator(const QMatrix4x4& view) {
   cameraEyeTarget(&eye, &tgt);
   const QVector3D fwd = (tgt - eye).normalized();
   QVector3D right = QVector3D::crossProduct(fwd, QVector3D(0, 0, -1));
-  if (right.lengthSquared() < 1e-6f) right = QVector3D(1, 0, 0);
+  if (right.lengthSquared() < 1e-6f)
+    right = QVector3D(1, 0, 0);
   right.normalize();
   const QVector3D up = QVector3D::crossProduct(right, fwd).normalized();
   const float s = 0.055f;
@@ -1671,17 +1833,16 @@ void SimRendererWidget::buildRing() {
   // (tube) radius small so it reads as a thin glowing halo. Per-gate scale sets
   // the real radius. Interleaved pos+normal for the lit shader.
   const int kMajor = 40, kMinor = 12;
-  const float kTube = 0.09f;   // tube radius relative to the unit major radius
+  const float kTube = 0.09f; // tube radius relative to the unit major radius
   std::vector<float> v;
   v.reserve(static_cast<size_t>(kMajor) * kMinor * 6 * 6);
   auto vert = [&](int i, int j) {
-    const float u  = float(i % kMajor) / kMajor * 2.0f * float(M_PI);
+    const float u = float(i % kMajor) / kMajor * 2.0f * float(M_PI);
     const float vv = float(j % kMinor) / kMinor * 2.0f * float(M_PI);
     const float cu = std::cos(u), su = std::sin(u);
     const float cv = std::cos(vv), sv = std::sin(vv);
     // Position on the torus ring of major radius 1.
-    const QVector3D p((1.0f + kTube * cv) * cu,
-                      (1.0f + kTube * cv) * su,
+    const QVector3D p((1.0f + kTube * cv) * cu, (1.0f + kTube * cv) * su,
                       kTube * sv);
     // Outward normal points away from the ring centreline.
     const QVector3D n(cv * cu, cv * su, sv);
@@ -1689,8 +1850,12 @@ void SimRendererWidget::buildRing() {
   };
   for (int i = 0; i < kMajor; ++i)
     for (int j = 0; j < kMinor; ++j) {
-      vert(i, j);   vert(i + 1, j);   vert(i + 1, j + 1);   // tri 1
-      vert(i, j);   vert(i + 1, j + 1); vert(i, j + 1);     // tri 2
+      vert(i, j);
+      vert(i + 1, j);
+      vert(i + 1, j + 1); // tri 1
+      vert(i, j);
+      vert(i + 1, j + 1);
+      vert(i, j + 1); // tri 2
     }
   uploadLitMesh(ring_, v);
 }
@@ -1699,26 +1864,32 @@ void SimRendererWidget::buildGuideArrow() {
   // A solid arrow along +X: a thin square shaft (0..0.7) plus a cone head
   // (0.7..1.0). Built as flat-shaded triangles (pos+normal) for the lit shader.
   std::vector<float> v;
-  auto tri = [&](const QVector3D& a, const QVector3D& b, const QVector3D& c) {
+  auto tri = [&](const QVector3D &a, const QVector3D &b, const QVector3D &c) {
     QVector3D n = QVector3D::crossProduct(b - a, c - a);
-    if (n.lengthSquared() > 1e-12f) n.normalize();
-    for (const QVector3D& p : {a, b, c})
+    if (n.lengthSquared() > 1e-12f)
+      n.normalize();
+    for (const QVector3D &p : {a, b, c})
       v.insert(v.end(), {p.x(), p.y(), p.z(), n.x(), n.y(), n.z()});
   };
-  const float sh = 0.05f;   // shaft half-width
-  const float L  = 0.7f;    // shaft length (head from L..1.0)
-  const float hr = 0.14f;   // head base radius
+  const float sh = 0.05f; // shaft half-width
+  const float L = 0.7f;   // shaft length (head from L..1.0)
+  const float hr = 0.14f; // head base radius
   // Shaft: a thin box from x=0 to x=L, square cross-section in y/z.
-  const QVector3D s0(0, -sh, -sh), s1(0, sh, -sh), s2(0, sh, sh), s3(0, -sh, sh);
-  const QVector3D e0(L, -sh, -sh), e1(L, sh, -sh), e2(L, sh, sh), e3(L, -sh, sh);
-  auto quad = [&](const QVector3D& a, const QVector3D& b,
-                  const QVector3D& c, const QVector3D& d) { tri(a, b, c); tri(a, c, d); };
-  quad(s0, s1, s2, s3);            // back cap
-  quad(e3, e2, e1, e0);            // front cap (shaft/head junction filled by cone base)
-  quad(s0, s3, e3, e0);            // -y
-  quad(s1, s0, e0, e1);            // -z
-  quad(s2, s1, e1, e2);            // +y
-  quad(s3, s2, e2, e3);            // +z
+  const QVector3D s0(0, -sh, -sh), s1(0, sh, -sh), s2(0, sh, sh),
+      s3(0, -sh, sh);
+  const QVector3D e0(L, -sh, -sh), e1(L, sh, -sh), e2(L, sh, sh),
+      e3(L, -sh, sh);
+  auto quad = [&](const QVector3D &a, const QVector3D &b, const QVector3D &c,
+                  const QVector3D &d) {
+    tri(a, b, c);
+    tri(a, c, d);
+  };
+  quad(s0, s1, s2, s3); // back cap
+  quad(e3, e2, e1, e0); // front cap (shaft/head junction filled by cone base)
+  quad(s0, s3, e3, e0); // -y
+  quad(s1, s0, e0, e1); // -z
+  quad(s2, s1, e1, e2); // +y
+  quad(s3, s2, e2, e3); // +z
   // Cone head: apex at x=1, base ring of radius hr at x=L.
   const QVector3D apex(1.0f, 0, 0);
   const int seg = 16;
@@ -1727,14 +1898,15 @@ void SimRendererWidget::buildGuideArrow() {
     const float a1 = float(i + 1) / seg * 2.0f * float(M_PI);
     const QVector3D b0(L, hr * std::cos(a0), hr * std::sin(a0));
     const QVector3D b1(L, hr * std::cos(a1), hr * std::sin(a1));
-    tri(b0, b1, apex);     // side
-    tri(L * QVector3D(1, 0, 0) + QVector3D(0, 0, 0), b1, b0);  // base
+    tri(b0, b1, apex);                                        // side
+    tri(L * QVector3D(1, 0, 0) + QVector3D(0, 0, 0), b1, b0); // base
   }
   uploadLitMesh(guideArrow_, v);
 }
 
-void SimRendererWidget::drawTraining(const QMatrix4x4& view) {
-  if (gates_.isEmpty()) return;
+void SimRendererWidget::drawTraining(const QMatrix4x4 &view) {
+  if (gates_.isEmpty())
+    return;
   glowPhase_ += 0.08f;
   const float pulse = 0.5f + 0.5f * std::sin(glowPhase_);
 
@@ -1742,21 +1914,22 @@ void SimRendererWidget::drawTraining(const QMatrix4x4& view) {
   // pulse); the very next gate shows as a faint ghost so the pilot can read
   // ahead. Cleared and far-future gates are hidden so the arena stays clean.
   for (int i = trainActive_; i <= trainActive_ + 1 && i < gates_.size(); ++i) {
-    const vsim::RingGate& g = gates_[i];
+    const vsim::RingGate &g = gates_[i];
     QMatrix4x4 m;
     m.translate(g.center);
     // Orient the torus axis (local +Z) onto the gate normal.
     m.rotate(QQuaternion::rotationTo(QVector3D(0, 0, 1), g.normal));
     m.scale(g.radius);
-    const QVector3D col = (i == trainActive_)
-        ? QVector3D(0.20f + 0.6f * pulse, 0.85f, 0.95f)   // active target
-        : QVector3D(0.18f, 0.24f, 0.42f);                 // faint next-gate ghost
+    const QVector3D col =
+        (i == trainActive_)
+            ? QVector3D(0.20f + 0.6f * pulse, 0.85f, 0.95f) // active target
+            : QVector3D(0.18f, 0.24f, 0.42f); // faint next-gate ghost
     drawLit(ring_, view, m, col);
   }
 
   // Guidance arrow: floats just above the drone, points at the active gate.
   if (trainArrow_ && trainActive_ >= 0 && trainActive_ < gates_.size()) {
-    const QVector3D from = snap_.pos_w + QVector3D(0, 0, -0.35f);  // above drone
+    const QVector3D from = snap_.pos_w + QVector3D(0, 0, -0.35f); // above drone
     QVector3D dir = gates_[trainActive_].center - snap_.pos_w;
     if (dir.lengthSquared() > 1e-6f) {
       dir.normalize();
@@ -1764,7 +1937,7 @@ void SimRendererWidget::drawTraining(const QMatrix4x4& view) {
       m.translate(from);
       m.rotate(QQuaternion::rotationTo(QVector3D(1, 0, 0), dir));
       m.scale(0.8f);
-      glDisable(GL_DEPTH_TEST);   // always visible, never buried in geometry
+      glDisable(GL_DEPTH_TEST); // always visible, never buried in geometry
       drawLit(guideArrow_, view, m,
               QVector3D(1.0f, 0.85f, 0.15f + 0.3f * pulse));
       glEnable(GL_DEPTH_TEST);
@@ -1774,15 +1947,17 @@ void SimRendererWidget::drawTraining(const QMatrix4x4& view) {
 
 // ---------- camera controls ----------
 
-void SimRendererWidget::mousePressEvent(QMouseEvent* e) {
+void SimRendererWidget::mousePressEvent(QMouseEvent *e) {
   setFocus();
   last_mouse_ = e->pos();
 
   // Obstacle editing (World mode) takes precedence over camera orbit.
   if (obsMode_) {
     if (obsTool_ != Tool::None) {
-      if (e->button() == Qt::LeftButton)       commitObsTool(true);
-      else if (e->button() == Qt::RightButton) commitObsTool(false);
+      if (e->button() == Qt::LeftButton)
+        commitObsTool(true);
+      else if (e->button() == Qt::RightButton)
+        commitObsTool(false);
       return;
     }
     if (e->button() == Qt::LeftButton) {
@@ -1791,17 +1966,23 @@ void SimRendererWidget::mousePressEvent(QMouseEvent* e) {
         selObs_ = idx;
         emit obstacleSelected(idx);
         update();
-        return;  // consumed — don't orbit
+        return; // consumed — don't orbit
       }
-      if (selObs_ != -1) { selObs_ = -1; emit obstacleSelected(-1); update(); }
+      if (selObs_ != -1) {
+        selObs_ = -1;
+        emit obstacleSelected(-1);
+        update();
+      }
     }
-    return;  // empty click: mouseMove (button held) orbits the camera
+    return; // empty click: mouseMove (button held) orbits the camera
   }
 
   // A live tool: left-click confirms the transform, right-click cancels.
   if (editable_ && tool_ != Tool::None) {
-    if (e->button() == Qt::LeftButton)       commitTool(true);
-    else if (e->button() == Qt::RightButton) commitTool(false);
+    if (e->button() == Qt::LeftButton)
+      commitTool(true);
+    else if (e->button() == Qt::RightButton)
+      commitTool(false);
     return;
   }
 
@@ -1813,13 +1994,16 @@ void SimRendererWidget::mousePressEvent(QMouseEvent* e) {
       selected_ = idx;
       emit motorSelected(idx);
       update();
-      return;   // consumed — don't orbit
+      return; // consumed — don't orbit
     }
-    if (selected_ != -1) { selected_ = -1; update(); }
+    if (selected_ != -1) {
+      selected_ = -1;
+      update();
+    }
   }
 }
 
-void SimRendererWidget::mouseMoveEvent(QMouseEvent* e) {
+void SimRendererWidget::mouseMoveEvent(QMouseEvent *e) {
   // While a tool is live the mouse drives it (no button held, Blender-style).
   if (obsMode_ && obsTool_ != Tool::None) {
     updateObsToolFromMouse(e->pos());
@@ -1832,11 +2016,13 @@ void SimRendererWidget::mouseMoveEvent(QMouseEvent* e) {
   QPoint d = e->pos() - last_mouse_;
   last_mouse_ = e->pos();
   if (e->buttons() & Qt::LeftButton) {
-    cam_yaw_   -= d.x() * 0.01f;
+    cam_yaw_ -= d.x() * 0.01f;
     cam_pitch_ += d.y() * 0.01f;
     const float lim = 1.4f;
-    if (cam_pitch_ >  lim) cam_pitch_ =  lim;
-    if (cam_pitch_ < -lim) cam_pitch_ = -lim;
+    if (cam_pitch_ > lim)
+      cam_pitch_ = lim;
+    if (cam_pitch_ < -lim)
+      cam_pitch_ = -lim;
     update();
   }
 }
@@ -1844,92 +2030,193 @@ void SimRendererWidget::mouseMoveEvent(QMouseEvent* e) {
 bool SimRendererWidget::freeFlyMove(int key, bool fast) {
   const float step = (fast ? 2.0f : 0.5f);
   const QVector3D fwd = freeForward();
-  const QVector3D worldUp(0.0f, 0.0f, -1.0f);   // NED up
+  const QVector3D worldUp(0.0f, 0.0f, -1.0f); // NED up
   QVector3D right = QVector3D::crossProduct(fwd, worldUp);
-  if (right.lengthSquared() < 1e-9f) right = QVector3D(0, 1, 0);
+  if (right.lengthSquared() < 1e-9f)
+    right = QVector3D(0, 1, 0);
   right.normalize();
   switch (key) {
-    case Qt::Key_W: camPos_ += fwd   * step; break;
-    case Qt::Key_S: camPos_ -= fwd   * step; break;
-    case Qt::Key_D: camPos_ += right * step; break;
-    case Qt::Key_A: camPos_ -= right * step; break;
-    case Qt::Key_E: camPos_ += worldUp * step; break;  // up
-    case Qt::Key_Q: camPos_ -= worldUp * step; break;  // down
-    default: return false;
+  case Qt::Key_W:
+    camPos_ += fwd * step;
+    break;
+  case Qt::Key_S:
+    camPos_ -= fwd * step;
+    break;
+  case Qt::Key_D:
+    camPos_ += right * step;
+    break;
+  case Qt::Key_A:
+    camPos_ -= right * step;
+    break;
+  case Qt::Key_E:
+    camPos_ += worldUp * step;
+    break; // up
+  case Qt::Key_Q:
+    camPos_ -= worldUp * step;
+    break; // down
+  default:
+    return false;
   }
   update();
   return true;
 }
 
-void SimRendererWidget::keyPressEvent(QKeyEvent* e) {
+void SimRendererWidget::keyPressEvent(QKeyEvent *e) {
   // Free-roam navigation (World mode, sim stopped). WASD/QE fly the camera;
   // obstacle gizmo keys still work so you can edit while roaming: select an
   // obstacle then G/R/S; with nothing selected every movement key flies.
   if (freeFly_) {
     if (obsMode_ && obsTool_ != Tool::None) {
       switch (e->key()) {
-        case Qt::Key_X: obsAxis_ = 0; updateObsToolFromMouse(last_mouse_); break;
-        case Qt::Key_Y: obsAxis_ = 1; updateObsToolFromMouse(last_mouse_); break;
-        case Qt::Key_Z: obsAxis_ = 2; updateObsToolFromMouse(last_mouse_); break;
-        case Qt::Key_Escape: commitObsTool(false); break;
-        case Qt::Key_Return:
-        case Qt::Key_Enter:  commitObsTool(true);  break;
-        default: QOpenGLWidget::keyPressEvent(e); return;
+      case Qt::Key_X:
+        obsAxis_ = 0;
+        updateObsToolFromMouse(last_mouse_);
+        break;
+      case Qt::Key_Y:
+        obsAxis_ = 1;
+        updateObsToolFromMouse(last_mouse_);
+        break;
+      case Qt::Key_Z:
+        obsAxis_ = 2;
+        updateObsToolFromMouse(last_mouse_);
+        break;
+      case Qt::Key_Escape:
+        commitObsTool(false);
+        break;
+      case Qt::Key_Return:
+      case Qt::Key_Enter:
+        commitObsTool(true);
+        break;
+      default:
+        QOpenGLWidget::keyPressEvent(e);
+        return;
       }
       return;
     }
     if (obsMode_ && selObs_ >= 0) {
       switch (e->key()) {
-        case Qt::Key_G: beginObsTool(Tool::Move);   return;
-        case Qt::Key_R: beginObsTool(Tool::Rotate); return;
-        case Qt::Key_S: beginObsTool(Tool::Scale);  return;  // scale selected
-        case Qt::Key_Escape:
-          selObs_ = -1; emit obstacleSelected(-1); update(); return;
-        default: break;  // fall through to movement (W/A/D/Q/E)
+      case Qt::Key_G:
+        beginObsTool(Tool::Move);
+        return;
+      case Qt::Key_R:
+        beginObsTool(Tool::Rotate);
+        return;
+      case Qt::Key_S:
+        beginObsTool(Tool::Scale);
+        return; // scale selected
+      case Qt::Key_Escape:
+        selObs_ = -1;
+        emit obstacleSelected(-1);
+        update();
+        return;
+      default:
+        break; // fall through to movement (W/A/D/Q/E)
       }
     }
-    if (freeFlyMove(e->key(), e->modifiers() & Qt::ShiftModifier)) return;
+    if (freeFlyMove(e->key(), e->modifiers() & Qt::ShiftModifier))
+      return;
     QOpenGLWidget::keyPressEvent(e);
     return;
   }
   if (obsMode_) {
     switch (e->key()) {
-      case Qt::Key_G: if (selObs_ >= 0) beginObsTool(Tool::Move);   break;
-      case Qt::Key_R: if (selObs_ >= 0) beginObsTool(Tool::Rotate); break;
-      case Qt::Key_S: if (selObs_ >= 0) beginObsTool(Tool::Scale);  break;
-      case Qt::Key_X: if (obsTool_ != Tool::None) { obsAxis_ = 0; updateObsToolFromMouse(last_mouse_); } break;
-      case Qt::Key_Y: if (obsTool_ != Tool::None) { obsAxis_ = 1; updateObsToolFromMouse(last_mouse_); } break;
-      case Qt::Key_Z: if (obsTool_ != Tool::None) { obsAxis_ = 2; updateObsToolFromMouse(last_mouse_); } break;
-      case Qt::Key_Escape:
-        if (obsTool_ != Tool::None) commitObsTool(false);
-        else if (selObs_ != -1) { selObs_ = -1; emit obstacleSelected(-1); update(); }
-        break;
-      case Qt::Key_Return:
-      case Qt::Key_Enter:
-        if (obsTool_ != Tool::None) commitObsTool(true);
-        break;
-      default: QOpenGLWidget::keyPressEvent(e); return;
-    }
-    return;
-  }
-  if (!editable_) { QOpenGLWidget::keyPressEvent(e); return; }
-  switch (e->key()) {
-    case Qt::Key_G: if (selected_ >= 0) beginTool(Tool::Move);   break;
-    case Qt::Key_R: if (selected_ >= 0) beginTool(Tool::Rotate); break;
-    case Qt::Key_X: if (tool_ != Tool::None) { axisLock_ = 0; updateToolFromMouse(last_mouse_); } break;
-    case Qt::Key_Y: if (tool_ != Tool::None) { axisLock_ = 1; updateToolFromMouse(last_mouse_); } break;
-    case Qt::Key_Z: if (tool_ != Tool::None) { axisLock_ = 2; updateToolFromMouse(last_mouse_); } break;
+    case Qt::Key_G:
+      if (selObs_ >= 0)
+        beginObsTool(Tool::Move);
+      break;
+    case Qt::Key_R:
+      if (selObs_ >= 0)
+        beginObsTool(Tool::Rotate);
+      break;
+    case Qt::Key_S:
+      if (selObs_ >= 0)
+        beginObsTool(Tool::Scale);
+      break;
+    case Qt::Key_X:
+      if (obsTool_ != Tool::None) {
+        obsAxis_ = 0;
+        updateObsToolFromMouse(last_mouse_);
+      }
+      break;
+    case Qt::Key_Y:
+      if (obsTool_ != Tool::None) {
+        obsAxis_ = 1;
+        updateObsToolFromMouse(last_mouse_);
+      }
+      break;
+    case Qt::Key_Z:
+      if (obsTool_ != Tool::None) {
+        obsAxis_ = 2;
+        updateObsToolFromMouse(last_mouse_);
+      }
+      break;
     case Qt::Key_Escape:
-      if (tool_ != Tool::None) commitTool(false);
-      else if (selected_ != -1) { selected_ = -1; update(); }
+      if (obsTool_ != Tool::None)
+        commitObsTool(false);
+      else if (selObs_ != -1) {
+        selObs_ = -1;
+        emit obstacleSelected(-1);
+        update();
+      }
       break;
     case Qt::Key_Return:
     case Qt::Key_Enter:
-      if (tool_ != Tool::None) commitTool(true);
+      if (obsTool_ != Tool::None)
+        commitObsTool(true);
       break;
     default:
       QOpenGLWidget::keyPressEvent(e);
       return;
+    }
+    return;
+  }
+  if (!editable_) {
+    QOpenGLWidget::keyPressEvent(e);
+    return;
+  }
+  switch (e->key()) {
+  case Qt::Key_G:
+    if (selected_ >= 0)
+      beginTool(Tool::Move);
+    break;
+  case Qt::Key_R:
+    if (selected_ >= 0)
+      beginTool(Tool::Rotate);
+    break;
+  case Qt::Key_X:
+    if (tool_ != Tool::None) {
+      axisLock_ = 0;
+      updateToolFromMouse(last_mouse_);
+    }
+    break;
+  case Qt::Key_Y:
+    if (tool_ != Tool::None) {
+      axisLock_ = 1;
+      updateToolFromMouse(last_mouse_);
+    }
+    break;
+  case Qt::Key_Z:
+    if (tool_ != Tool::None) {
+      axisLock_ = 2;
+      updateToolFromMouse(last_mouse_);
+    }
+    break;
+  case Qt::Key_Escape:
+    if (tool_ != Tool::None)
+      commitTool(false);
+    else if (selected_ != -1) {
+      selected_ = -1;
+      update();
+    }
+    break;
+  case Qt::Key_Return:
+  case Qt::Key_Enter:
+    if (tool_ != Tool::None)
+      commitTool(true);
+    break;
+  default:
+    QOpenGLWidget::keyPressEvent(e);
+    return;
   }
 }
 
@@ -1942,49 +2229,62 @@ QMatrix4x4 SimRendererWidget::modelMatrix() const {
   return m;
 }
 
-void SimRendererWidget::cameraEyeTarget(QVector3D* eye, QVector3D* target) const {
+void SimRendererWidget::cameraEyeTarget(QVector3D *eye,
+                                        QVector3D *target) const {
   const QVector3D tgt = snap_.pos_w;
-  if (target) *target = tgt;
-  if (eye)    *eye = tgt + orbitOffset();
+  if (target)
+    *target = tgt;
+  if (eye)
+    *eye = tgt + orbitOffset();
 }
 
-void SimRendererWidget::rayThroughPixel(const QPoint& px, QVector3D* o,
-                                        QVector3D* d) const {
+void SimRendererWidget::rayThroughPixel(const QPoint &px, QVector3D *o,
+                                        QVector3D *d) const {
   const float w = std::max(1, width()), h = std::max(1, height());
   const float ndcx = 2.0f * px.x() / w - 1.0f;
   const float ndcy = 1.0f - 2.0f * px.y() / h;
   bool ok = false;
   const QMatrix4x4 inv = (proj_ * cameraView()).inverted(&ok);
-  const QVector3D np = (inv * QVector4D(ndcx, ndcy, -1.0f, 1.0f)).toVector3DAffine();
-  const QVector3D fp = (inv * QVector4D(ndcx, ndcy,  1.0f, 1.0f)).toVector3DAffine();
-  if (o) *o = np;
-  if (d) *d = (fp - np).normalized();
+  const QVector3D np =
+      (inv * QVector4D(ndcx, ndcy, -1.0f, 1.0f)).toVector3DAffine();
+  const QVector3D fp =
+      (inv * QVector4D(ndcx, ndcy, 1.0f, 1.0f)).toVector3DAffine();
+  if (o)
+    *o = np;
+  if (d)
+    *d = (fp - np).normalized();
 }
 
-bool SimRendererWidget::pickMotor(const QPoint& px, int* outIndex) const {
+bool SimRendererWidget::pickMotor(const QPoint &px, int *outIndex) const {
   const QMatrix4x4 vp = proj_ * cameraView();
   const QMatrix4x4 model = modelMatrix();
   const float w = std::max(1, width()), h = std::max(1, height());
-  float best = 22.0f;   // pixel radius
+  float best = 22.0f; // pixel radius
   int bestI = -1;
   for (int i = 0; i < 4; ++i) {
     const QVector3D wp = model.map(motorPos_[i]);
     const QVector4D clip = vp * QVector4D(wp, 1.0f);
-    if (clip.w() <= 0.0f) continue;
+    if (clip.w() <= 0.0f)
+      continue;
     const float sx = (clip.x() / clip.w() * 0.5f + 0.5f) * w;
     const float sy = (1.0f - (clip.y() / clip.w() * 0.5f + 0.5f)) * h;
     const float dpix = std::hypot(sx - px.x(), sy - px.y());
-    if (dpix < best) { best = dpix; bestI = i; }
+    if (dpix < best) {
+      best = dpix;
+      bestI = i;
+    }
   }
-  if (bestI >= 0 && outIndex) *outIndex = bestI;
+  if (bestI >= 0 && outIndex)
+    *outIndex = bestI;
   return bestI >= 0;
 }
 
 void SimRendererWidget::beginTool(Tool t) {
-  if (selected_ < 0) return;
+  if (selected_ < 0)
+    return;
   tool_ = t;
   axisLock_ = -1;
-  startPos_  = motorPos_[selected_];
+  startPos_ = motorPos_[selected_];
   startAxis_ = motorAxis_[selected_];
   toolStartMouse_ = last_mouse_ = mapFromGlobal(QCursor::pos());
   startWorld_ = modelMatrix().map(startPos_);
@@ -2003,8 +2303,9 @@ void SimRendererWidget::beginTool(Tool t) {
   update();
 }
 
-void SimRendererWidget::updateToolFromMouse(const QPoint& px) {
-  if (selected_ < 0 || tool_ == Tool::None) return;
+void SimRendererWidget::updateToolFromMouse(const QPoint &px) {
+  if (selected_ < 0 || tool_ == Tool::None)
+    return;
   last_mouse_ = px;
   const QMatrix4x4 model = modelMatrix();
 
@@ -2020,41 +2321,45 @@ void SimRendererWidget::updateToolFromMouse(const QPoint& px) {
                          : 0.0f;
     QVector3D delta = (o + d * tt) - planeHit0_;
     if (axisLock_ >= 0) {
-      const QVector3D axisB(axisLock_ == 0 ? 1.f : 0.f, axisLock_ == 1 ? 1.f : 0.f,
+      const QVector3D axisB(axisLock_ == 0 ? 1.f : 0.f,
+                            axisLock_ == 1 ? 1.f : 0.f,
                             axisLock_ == 2 ? 1.f : 0.f);
       const QVector3D axisW = model.mapVector(axisB).normalized();
       delta = axisW * QVector3D::dotProduct(delta, axisW);
     }
     motorPos_[selected_] = model.inverted().map(startWorld_ + delta);
-  } else {  // Rotate the thrust axis about a body axis (default X).
+  } else { // Rotate the thrust axis about a body axis (default X).
     const int k = (axisLock_ >= 0) ? axisLock_ : 0;
-    const QVector3D kk(k == 0 ? 1.f : 0.f, k == 1 ? 1.f : 0.f, k == 2 ? 1.f : 0.f);
-    const float ang = (px.x() - toolStartMouse_.x()) * 0.01f;  // rad
+    const QVector3D kk(k == 0 ? 1.f : 0.f, k == 1 ? 1.f : 0.f,
+                       k == 2 ? 1.f : 0.f);
+    const float ang = (px.x() - toolStartMouse_.x()) * 0.01f; // rad
     const QVector3D a = startAxis_;
-    const QVector3D r = a * std::cos(ang) +
-                        QVector3D::crossProduct(kk, a) * std::sin(ang) +
-                        kk * QVector3D::dotProduct(kk, a) * (1.0f - std::cos(ang));
+    const QVector3D r =
+        a * std::cos(ang) + QVector3D::crossProduct(kk, a) * std::sin(ang) +
+        kk * QVector3D::dotProduct(kk, a) * (1.0f - std::cos(ang));
     motorAxis_[selected_] = r.normalized();
   }
   update();
 }
 
 void SimRendererWidget::commitTool(bool confirm) {
-  if (tool_ == Tool::None) return;
+  if (tool_ == Tool::None)
+    return;
   tool_ = Tool::None;
   axisLock_ = -1;
   setMouseTracking(false);
   if (confirm && selected_ >= 0) {
     emit motorEdited(selected_, motorPos_[selected_], motorAxis_[selected_]);
-  } else if (selected_ >= 0) {     // cancelled: restore the working copy
-    motorPos_[selected_]  = startPos_;
+  } else if (selected_ >= 0) { // cancelled: restore the working copy
+    motorPos_[selected_] = startPos_;
     motorAxis_[selected_] = startAxis_;
   }
   update();
 }
 
-void SimRendererWidget::drawGizmo(const QMatrix4x4& view) {
-  if (selected_ < 0) return;
+void SimRendererWidget::drawGizmo(const QMatrix4x4 &view) {
+  if (selected_ < 0)
+    return;
   QMatrix4x4 base = modelMatrix();
   base.translate(motorPos_[selected_]);
   const float L = 0.18f;
@@ -2064,43 +2369,77 @@ void SimRendererWidget::drawGizmo(const QMatrix4x4& view) {
   // Gizmo draws on top of the body for grabbability.
   glDisable(GL_DEPTH_TEST);
   if (tool_ == Tool::Rotate) {
-    { QMatrix4x4 m = base; m.scale(L); drawMesh(gizmoRing_, view * m, axisLock_ == 2 ? hi : cZ); }
-    { QMatrix4x4 m = base; m.rotate(90, 1, 0, 0); m.scale(L); drawMesh(gizmoRing_, view * m, axisLock_ == 1 ? hi : cY); }
-    { QMatrix4x4 m = base; m.rotate(90, 0, 1, 0); m.scale(L); drawMesh(gizmoRing_, view * m, axisLock_ == 0 ? hi : cX); }
-  } else {  // Move (or just-selected): three axis arrows.
-    { QMatrix4x4 m = base; m.scale(L); drawMesh(gizmoArrow_, view * m, axisLock_ == 0 ? hi : cX); }
-    { QMatrix4x4 m = base; m.rotate(90, 0, 0, 1); m.scale(L); drawMesh(gizmoArrow_, view * m, axisLock_ == 1 ? hi : cY); }
-    { QMatrix4x4 m = base; m.rotate(-90, 0, 1, 0); m.scale(L); drawMesh(gizmoArrow_, view * m, axisLock_ == 2 ? hi : cZ); }
+    {
+      QMatrix4x4 m = base;
+      m.scale(L);
+      drawMesh(gizmoRing_, view * m, axisLock_ == 2 ? hi : cZ);
+    }
+    {
+      QMatrix4x4 m = base;
+      m.rotate(90, 1, 0, 0);
+      m.scale(L);
+      drawMesh(gizmoRing_, view * m, axisLock_ == 1 ? hi : cY);
+    }
+    {
+      QMatrix4x4 m = base;
+      m.rotate(90, 0, 1, 0);
+      m.scale(L);
+      drawMesh(gizmoRing_, view * m, axisLock_ == 0 ? hi : cX);
+    }
+  } else { // Move (or just-selected): three axis arrows.
+    {
+      QMatrix4x4 m = base;
+      m.scale(L);
+      drawMesh(gizmoArrow_, view * m, axisLock_ == 0 ? hi : cX);
+    }
+    {
+      QMatrix4x4 m = base;
+      m.rotate(90, 0, 0, 1);
+      m.scale(L);
+      drawMesh(gizmoArrow_, view * m, axisLock_ == 1 ? hi : cY);
+    }
+    {
+      QMatrix4x4 m = base;
+      m.rotate(-90, 0, 1, 0);
+      m.scale(L);
+      drawMesh(gizmoArrow_, view * m, axisLock_ == 2 ? hi : cZ);
+    }
   }
   glEnable(GL_DEPTH_TEST);
 }
 
 // ---------- obstacle gizmo editing ----------
 
-bool SimRendererWidget::pickObstacle(const QPoint& px, int* outIndex) const {
+bool SimRendererWidget::pickObstacle(const QPoint &px, int *outIndex) const {
   const QMatrix4x4 vp = proj_ * cameraView();
   const float w = std::max(1, width()), h = std::max(1, height());
-  float best = 40.0f;   // pixel radius (obstacles are larger than motors)
+  float best = 40.0f; // pixel radius (obstacles are larger than motors)
   int bestI = -1;
   for (int i = 0; i < obstacles_.size(); ++i) {
     const QVector4D clip = vp * QVector4D(obstacles_[i].pos, 1.0f);
-    if (clip.w() <= 0.0f) continue;
+    if (clip.w() <= 0.0f)
+      continue;
     const float sx = (clip.x() / clip.w() * 0.5f + 0.5f) * w;
     const float sy = (1.0f - (clip.y() / clip.w() * 0.5f + 0.5f)) * h;
     const float dpix = std::hypot(sx - px.x(), sy - px.y());
-    if (dpix < best) { best = dpix; bestI = i; }
+    if (dpix < best) {
+      best = dpix;
+      bestI = i;
+    }
   }
-  if (bestI >= 0 && outIndex) *outIndex = bestI;
+  if (bestI >= 0 && outIndex)
+    *outIndex = bestI;
   return bestI >= 0;
 }
 
 void SimRendererWidget::beginObsTool(Tool t) {
-  if (selObs_ < 0 || selObs_ >= obstacles_.size()) return;
+  if (selObs_ < 0 || selObs_ >= obstacles_.size())
+    return;
   obsTool_ = t;
   obsAxis_ = -1;
-  obsStartPos_  = obstacles_[selObs_].pos;
+  obsStartPos_ = obstacles_[selObs_].pos;
   obsStartSize_ = obstacles_[selObs_].size;
-  obsStartRot_  = obstacles_[selObs_].rotate;
+  obsStartRot_ = obstacles_[selObs_].rotate;
   obsStartMouse_ = last_mouse_ = mapFromGlobal(QCursor::pos());
   // Drag plane: through the obstacle, facing the camera (world frame).
   QVector3D eye, tgt;
@@ -2117,10 +2456,11 @@ void SimRendererWidget::beginObsTool(Tool t) {
   update();
 }
 
-void SimRendererWidget::updateObsToolFromMouse(const QPoint& px) {
-  if (selObs_ < 0 || obsTool_ == Tool::None) return;
+void SimRendererWidget::updateObsToolFromMouse(const QPoint &px) {
+  if (selObs_ < 0 || obsTool_ == Tool::None)
+    return;
   last_mouse_ = px;
-  vsim::Obstacle& ob = obstacles_[selObs_];
+  vsim::Obstacle &ob = obstacles_[selObs_];
 
   if (obsTool_ == Tool::Move) {
     QVector3D eye, tgt;
@@ -2140,32 +2480,34 @@ void SimRendererWidget::updateObsToolFromMouse(const QPoint& px) {
     }
     ob.pos = obsStartPos_ + delta;
   } else if (obsTool_ == Tool::Rotate) {
-    const int k = (obsAxis_ >= 0) ? obsAxis_ : 2;  // default about Z
+    const int k = (obsAxis_ >= 0) ? obsAxis_ : 2; // default about Z
     const float deg = (px.x() - obsStartMouse_.x()) * 0.5f;
     ob.rotate = obsStartRot_;
     ob.rotate[k] = obsStartRot_[k] + deg;
-  } else {  // Scale
-    const float f = std::clamp(1.0f + (px.x() - obsStartMouse_.x()) * 0.01f,
-                               0.05f, 20.0f);
+  } else { // Scale
+    const float f =
+        std::clamp(1.0f + (px.x() - obsStartMouse_.x()) * 0.01f, 0.05f, 20.0f);
     if (obsAxis_ >= 0) {
       ob.size = obsStartSize_;
       ob.size[obsAxis_] = std::max(0.05f, obsStartSize_[obsAxis_] * f);
     } else {
       ob.size = obsStartSize_ * f;
-      for (int i = 0; i < 3; ++i) ob.size[i] = std::max(0.05f, ob.size[i]);
+      for (int i = 0; i < 3; ++i)
+        ob.size[i] = std::max(0.05f, ob.size[i]);
     }
   }
   update();
 }
 
 void SimRendererWidget::commitObsTool(bool confirm) {
-  if (obsTool_ == Tool::None) return;
+  if (obsTool_ == Tool::None)
+    return;
   obsTool_ = Tool::None;
   obsAxis_ = -1;
   setMouseTracking(false);
   if (selObs_ >= 0 && selObs_ < obstacles_.size()) {
     if (confirm) {
-      const vsim::Obstacle& o = obstacles_[selObs_];
+      const vsim::Obstacle &o = obstacles_[selObs_];
       emit obstacleEdited(selObs_, o.pos, o.size, o.rotate);
     } else {
       obstacles_[selObs_].pos = obsStartPos_;
@@ -2176,8 +2518,9 @@ void SimRendererWidget::commitObsTool(bool confirm) {
   update();
 }
 
-void SimRendererWidget::drawObsGizmo(const QMatrix4x4& view) {
-  if (selObs_ < 0 || selObs_ >= obstacles_.size()) return;
+void SimRendererWidget::drawObsGizmo(const QMatrix4x4 &view) {
+  if (selObs_ < 0 || selObs_ >= obstacles_.size())
+    return;
   QMatrix4x4 base;
   base.translate(obstacles_[selObs_].pos);
   const float L = 0.7f;
@@ -2185,18 +2528,46 @@ void SimRendererWidget::drawObsGizmo(const QMatrix4x4& view) {
       cZ(0.30f, 0.55f, 1.0f), hi(1.0f, 0.95f, 0.40f);
   glDisable(GL_DEPTH_TEST);
   if (obsTool_ == Tool::Rotate) {
-    { QMatrix4x4 m = base; m.scale(L); drawMesh(gizmoRing_, view * m, obsAxis_ == 2 ? hi : cZ); }
-    { QMatrix4x4 m = base; m.rotate(90, 1, 0, 0); m.scale(L); drawMesh(gizmoRing_, view * m, obsAxis_ == 1 ? hi : cY); }
-    { QMatrix4x4 m = base; m.rotate(90, 0, 1, 0); m.scale(L); drawMesh(gizmoRing_, view * m, obsAxis_ == 0 ? hi : cX); }
-  } else {  // Move / Scale / just-selected: three axis arrows.
-    { QMatrix4x4 m = base; m.scale(L); drawMesh(gizmoArrow_, view * m, obsAxis_ == 0 ? hi : cX); }
-    { QMatrix4x4 m = base; m.rotate(90, 0, 0, 1); m.scale(L); drawMesh(gizmoArrow_, view * m, obsAxis_ == 1 ? hi : cY); }
-    { QMatrix4x4 m = base; m.rotate(-90, 0, 1, 0); m.scale(L); drawMesh(gizmoArrow_, view * m, obsAxis_ == 2 ? hi : cZ); }
+    {
+      QMatrix4x4 m = base;
+      m.scale(L);
+      drawMesh(gizmoRing_, view * m, obsAxis_ == 2 ? hi : cZ);
+    }
+    {
+      QMatrix4x4 m = base;
+      m.rotate(90, 1, 0, 0);
+      m.scale(L);
+      drawMesh(gizmoRing_, view * m, obsAxis_ == 1 ? hi : cY);
+    }
+    {
+      QMatrix4x4 m = base;
+      m.rotate(90, 0, 1, 0);
+      m.scale(L);
+      drawMesh(gizmoRing_, view * m, obsAxis_ == 0 ? hi : cX);
+    }
+  } else { // Move / Scale / just-selected: three axis arrows.
+    {
+      QMatrix4x4 m = base;
+      m.scale(L);
+      drawMesh(gizmoArrow_, view * m, obsAxis_ == 0 ? hi : cX);
+    }
+    {
+      QMatrix4x4 m = base;
+      m.rotate(90, 0, 0, 1);
+      m.scale(L);
+      drawMesh(gizmoArrow_, view * m, obsAxis_ == 1 ? hi : cY);
+    }
+    {
+      QMatrix4x4 m = base;
+      m.rotate(-90, 0, 1, 0);
+      m.scale(L);
+      drawMesh(gizmoArrow_, view * m, obsAxis_ == 2 ? hi : cZ);
+    }
   }
   glEnable(GL_DEPTH_TEST);
 }
 
-void SimRendererWidget::wheelEvent(QWheelEvent* e) {
+void SimRendererWidget::wheelEvent(QWheelEvent *e) {
   if (freeFly_ && !fpv_) {
     // Free-roam: scroll dollies the camera along its view direction.
     const float d = (e->angleDelta().y() > 0) ? 1.0f : -1.0f;
@@ -2206,9 +2577,11 @@ void SimRendererWidget::wheelEvent(QWheelEvent* e) {
   }
   const float k = (e->angleDelta().y() > 0) ? 0.9f : 1.1f;
   cam_radius_ *= k;
-  if (cam_radius_ < 0.5f)  cam_radius_ = 0.5f;
-  if (cam_radius_ > 50.0f) cam_radius_ = 50.0f;
+  if (cam_radius_ < 0.5f)
+    cam_radius_ = 0.5f;
+  if (cam_radius_ > 50.0f)
+    cam_radius_ = 50.0f;
   update();
 }
 
-}  // namespace vsim
+} // namespace vsim

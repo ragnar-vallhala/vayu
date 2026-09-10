@@ -8,10 +8,10 @@
 #include "comm/channel.h"     /* channel_t, write_channel */
 #include "storage/fs_owner.h" /* fs_owner_enqueue_write_at, *_writeat_* */
 #include "sys/sys_utils.h"    /* get_device_id */
-#include "task.h"             /* v_delay */
+#include "vaios.h"            /* v_delay */
 
 #include "navlink_msgs.h" /* test-profile codec (has HW_TEST_*) */
-#include "utils.h"        /* vaprint_fmt_buf (bare-metal printf, no newlib stdio) */
+#include "utils.h" /* vaprint_fmt_buf (bare-metal printf, no newlib stdio) */
 
 #include <stdarg.h> /* va_list */
 
@@ -95,8 +95,9 @@ void hwtest_run_all(void) {
   uint16_t passed = 0, failed = 0, skipped = 0;
   for (uint16_t i = 0; i < total; i++) {
     hw_result_t r = hwtest_registry[i].fn();
-    const char *tag =
-        r.status == HW_PASS ? "PASS" : r.status == HW_SKIP ? "SKIP" : "FAIL";
+    const char *tag = r.status == HW_PASS   ? "PASS"
+                      : r.status == HW_SKIP ? "SKIP"
+                                            : "FAIL";
     report_line("[%s] %s = %d %s\n", tag, hwtest_registry[i].name, (int)r.value,
                 r.units ? r.units : "");
     if (r.status == HW_PASS) {

@@ -34,9 +34,11 @@ CalibrationWidget::CalibrationWidget(QWidget *parent) : QWidget(parent) {
   }
   m_accBtn->setToolTip(tr("Accelerometer — pose-tolerant full 3×3 (12 holds)"));
   m_gyrBtn->setToolTip(tr("Gyroscope — stillness-gated bias zeroing"));
-  m_magBtn->setToolTip(tr("Magnetometer — rotate the airframe for axis coverage"));
-  m_lvlBtn->setToolTip(tr("Board Level — one level hold; trims a tilted FC mount "
-                          "so 'level' matches the prop plane"));
+  m_magBtn->setToolTip(
+      tr("Magnetometer — rotate the airframe for axis coverage"));
+  m_lvlBtn->setToolTip(
+      tr("Board Level — one level hold; trims a tilted FC mount "
+         "so 'level' matches the prop plane"));
 
   m_typeGroup = new QButtonGroup(this);
   m_typeGroup->addButton(m_accBtn, 1);
@@ -71,8 +73,7 @@ CalibrationWidget::CalibrationWidget(QWidget *parent) : QWidget(parent) {
   const QString axisStyle =
       QString("QLabel { background: %1; color: %2; border: 1px solid %3; "
               "border-radius: 4px; padding: 5px; font-weight: bold; }")
-          .arg(Theme::hex(Theme::kSurface),
-               Theme::hex(Theme::kTextDim),
+          .arg(Theme::hex(Theme::kSurface), Theme::hex(Theme::kTextDim),
                Theme::hex(Theme::kBorderStrong));
 
   m_axisLabelX = new QLabel("X", this);
@@ -129,8 +130,7 @@ CalibrationWidget::CalibrationWidget(QWidget *parent) : QWidget(parent) {
       QString("QProgressBar { background: %1; border: 1px solid %2; "
               "border-radius: 6px; } "
               "QProgressBar::chunk { background: %3; border-radius: 5px; }")
-          .arg(Theme::hex(Theme::kSurface),
-               Theme::hex(Theme::kBorderStrong),
+          .arg(Theme::hex(Theme::kSurface), Theme::hex(Theme::kBorderStrong),
                Theme::hex(Theme::kOk)));
   instrVBox->addWidget(m_progressBar);
 
@@ -142,8 +142,7 @@ CalibrationWidget::CalibrationWidget(QWidget *parent) : QWidget(parent) {
   m_stepList->setStyleSheet(
       QString("QListWidget { background: %1; border: 1px solid %2; "
               "border-radius: 6px; } QListWidget::item { padding: 3px; }")
-          .arg(Theme::hex(Theme::kSurface),
-               Theme::hex(Theme::kBorderStrong)));
+          .arg(Theme::hex(Theme::kSurface), Theme::hex(Theme::kBorderStrong)));
   instrVBox->addWidget(m_stepList);
 
   mainLayout->addWidget(m_instructionGroup);
@@ -181,23 +180,24 @@ CalibrationWidget::CalibrationWidget(QWidget *parent) : QWidget(parent) {
 
 void CalibrationWidget::setConnected(bool connected) {
   m_connected = connected;
-  if (m_sensorSelectArea) m_sensorSelectArea->setEnabled(connected);
-  if (m_configGroup)      m_configGroup->setEnabled(connected);
-  if (m_startBtn)         m_startBtn->setEnabled(connected);
+  if (m_sensorSelectArea)
+    m_sensorSelectArea->setEnabled(connected);
+  if (m_configGroup)
+    m_configGroup->setEnabled(connected);
+  if (m_startBtn)
+    m_startBtn->setEnabled(connected);
   // Cancel only makes sense mid-calibration, which can't happen while
   // disconnected — leave it visibility-driven elsewhere.
   if (!connected && m_statusLabel) {
     m_statusLabel->setText(tr("NOT CONNECTED"));
-    m_statusLabel->setStyleSheet(
-        QString("color: %1; font-weight: bold;")
-            .arg(Theme::hex(Theme::kDanger)));
+    m_statusLabel->setStyleSheet(QString("color: %1; font-weight: bold;")
+                                     .arg(Theme::hex(Theme::kDanger)));
     if (m_instructionText)
       m_instructionText->setText(tr("CONNECT A DRONE TO CALIBRATE"));
   } else if (connected && m_statusLabel) {
     m_statusLabel->setText(tr("SYSTEM READY"));
-    m_statusLabel->setStyleSheet(
-        QString("color: %1; font-weight: bold;")
-            .arg(Theme::hex(Theme::kAccent)));
+    m_statusLabel->setStyleSheet(QString("color: %1; font-weight: bold;")
+                                     .arg(Theme::hex(Theme::kAccent)));
     if (m_instructionText)
       m_instructionText->setText(tr("SELECT A SENSOR AND PRESS START"));
   }
@@ -214,8 +214,9 @@ void CalibrationWidget::setProtocol(DroneProtocol *protocol) {
             } else if (update.type == CalibUpdateType::MagAxisCoverage) {
               // One coverage frame drives both the per-axis readout and the bar
               // (mean of the three) — the FC derives progress from coverage now.
-              const float avg = (update.values[0] + update.values[1] +
-                                 update.values[2]) / 3.0f;
+              const float avg =
+                  (update.values[0] + update.values[1] + update.values[2]) /
+                  3.0f;
               m_progressBar->setValue(static_cast<int>(avg));
               m_statusLabel->setText(QString("COVERAGE  X:%1%  Y:%2%  Z:%3%")
                                          .arg(update.values[0], 0, 'f', 0)
@@ -286,10 +287,10 @@ void CalibrationWidget::onStartClicked() {
   const QString idle =
       QString("background: %1; color: %2; border: 1px solid %3; "
               "border-radius: 4px; padding: 5px; font-weight: bold;")
-          .arg(Theme::hex(Theme::kSurface),
-               Theme::hex(Theme::kTextDim),
+          .arg(Theme::hex(Theme::kSurface), Theme::hex(Theme::kTextDim),
                Theme::hex(Theme::kBorderStrong));
-  for (auto *lbl : m_axisMap) lbl->setStyleSheet(idle);
+  for (auto *lbl : m_axisMap)
+    lbl->setStyleSheet(idle);
 
   int calType = m_fullCalibRadio->isChecked() ? 1 : 0;
   sendCalibrationCommand(m_selectedImuId, calType);
@@ -301,35 +302,36 @@ void CalibrationWidget::onStartClicked() {
 
 CalibMode CalibrationWidget::currentMode() const {
   switch (m_selectedImuId) {
-    case 1:  // accelerometer
-      // One routine now: a pose-tolerant full-3x3 ellipsoid fit over 6 faces +
-      // 6 edges/corners. The firmware ignores the command's mode nibble for
-      // accel (there is no bias-only accel anymore), so we always run this flow.
-      return CalibMode::Accel6Axis;
-    case 3:  // magnetometer
-      return CalibMode::Mag;
-    case 4:  // board level / mounting-tilt trim
-      return CalibMode::BoardLevel;
-    case 2:  // gyroscope
-    default:
-      return CalibMode::Gyro;
+  case 1: // accelerometer
+    // One routine now: a pose-tolerant full-3x3 ellipsoid fit over 6 faces +
+    // 6 edges/corners. The firmware ignores the command's mode nibble for
+    // accel (there is no bias-only accel anymore), so we always run this flow.
+    return CalibMode::Accel6Axis;
+  case 3: // magnetometer
+    return CalibMode::Mag;
+  case 4: // board level / mounting-tilt trim
+    return CalibMode::BoardLevel;
+  case 2: // gyroscope
+  default:
+    return CalibMode::Gyro;
   }
 }
 
 void CalibrationWidget::refreshSteps() {
-  if (!m_stepList) return;
+  if (!m_stepList)
+    return;
   m_stepList->clear();
   const QVector<CalibStep> &steps = m_wizard.steps();
   for (int i = 0; i < steps.size(); ++i) {
     QString mark;
     if (m_wizard.isComplete() || i < m_wizard.doneCount())
-      mark = QStringLiteral("✓  ");  // ✓ done
+      mark = QStringLiteral("✓  "); // ✓ done
     else if (i == m_wizard.currentIndex())
-      mark = QStringLiteral("▶  ");  // ▶ current
+      mark = QStringLiteral("▶  "); // ▶ current
     else
-      mark = QStringLiteral("○  ");  // ○ pending
-    auto *it = new QListWidgetItem(mark + steps[i].label + " — " + steps[i].hint,
-                                   m_stepList);
+      mark = QStringLiteral("○  "); // ○ pending
+    auto *it = new QListWidgetItem(
+        mark + steps[i].label + " — " + steps[i].hint, m_stepList);
     if (i == m_wizard.currentIndex() && !m_wizard.isComplete()) {
       QFont f = it->font();
       f.setBold(true);
@@ -486,7 +488,7 @@ void CalibrationWidget::finishCalibration(bool success) {
                 "subcontrol-position: top center; }")
             .arg(Theme::hex(Theme::kOk)));
     m_progressBar->setValue(100);
-    m_wizard.markComplete();  // tick every step done
+    m_wizard.markComplete(); // tick every step done
   } else {
     m_statusLabel->setText("FAILED");
     m_instructionText->setText("CALIBRATION FAILED — SEE LOG");

@@ -20,7 +20,9 @@ public:
 
   void setTypeEnabled(int typeNibble, bool on); // 0xFF = RAW
   void setAllTypes(bool on);
-  bool typeEnabled(int typeNibble) const { return m_types.contains(typeNibble); }
+  bool typeEnabled(int typeNibble) const {
+    return m_types.contains(typeNibble);
+  }
 
   void setDirection(Direction d);
   void setDeviceFilter(int dev); // -1 = any
@@ -32,10 +34,10 @@ protected:
   bool filterAcceptsRow(int row, const QModelIndex &parent) const override;
 
 private:
-  QSet<int> m_types;          // enabled type nibbles (+0xFF)
+  QSet<int> m_types; // enabled type nibbles (+0xFF)
   Direction m_dir = Both;
   int m_dev = -1;
-  QString m_search;           // normalized lower-case
-  QString m_searchHex;        // search with spaces stripped (for hex match)
+  QString m_search;    // normalized lower-case
+  QString m_searchHex; // search with spaces stripped (for hex match)
   PacketFilterExpr m_expr;
 };

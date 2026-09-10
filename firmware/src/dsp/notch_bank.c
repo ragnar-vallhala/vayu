@@ -12,7 +12,8 @@
 void notch_bank_init(notch_bank_t *nb, const notch_fft_cfg_t *fft_cfg,
                      float filter_fs_hz, unsigned num_notches, float q,
                      const float *window, const fft_complex_t *tw, float *ring,
-                     float *frame, fft_complex_t *bins, fft_complex_t *scratch) {
+                     float *frame, fft_complex_t *bins,
+                     fft_complex_t *scratch) {
   notch_fft_init(&nb->fft, fft_cfg, window, tw, ring, frame, bins, scratch);
   nb->filter_fs_hz = filter_fs_hz;
   nb->q = q;
