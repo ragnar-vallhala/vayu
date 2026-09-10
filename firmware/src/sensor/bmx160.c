@@ -362,6 +362,12 @@ static bmx160_err_type bmx160_write_bmm150_reg(uint8_t reg, uint8_t data) {
 
 /** @noreq BMM150 indirect register read via the BMX160 mag interface. */
 static bmx160_err_type bmx160_read_bmm150_reg(uint8_t reg, uint8_t *data) {
+  /* Every error path below returns WITHOUT writing *data, and all 19 call
+   * sites ignore the return -- so an I2C hiccup during init left the BMM150
+   * trim table built from stack garbage, and `tmp[1] << 8` in
+   * bmx160_read_mag_trim_data was undefined behaviour on an uninitialised
+   * value. Land a defined 0 first: it is what the callers already assume. */
+  *data = 0;
   tx_buf[0] = BMX160_MAG_IF_1_READ_ADDR;
   tx_buf[1] = reg;
 
