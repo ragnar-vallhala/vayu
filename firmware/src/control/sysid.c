@@ -193,7 +193,7 @@ int sysid_dump_next(uint16_t *start, int16_t *u, int16_t *gyro, int cap) {
      * loop counter), so widen once and index from that -- the pair is two slots
      * of one record, not two independent offsets. */
     const size_t k = ((size_t)s_dump_pos + (size_t)i) * 2u;
-    u[i] = s_cap[k];        // slot 0 = rate-PID output u (x1000)
+    u[i] = s_cap[k];         // slot 0 = rate-PID output u (x1000)
     gyro[i] = s_cap[k + 1u]; // slot 1 = gyro (0.1 deg/s)
   }
   s_dump_pos += n;

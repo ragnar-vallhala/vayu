@@ -292,8 +292,8 @@ static uint8_t *emit_fmt(uint8_t *f, uint8_t stream_id, uint8_t rec_bytes,
   f[11] = 0u;
   uint8_t *fld = &f[HSL_FRAME_HDR_BYTES + 8u];
   for (uint32_t i = 0; i < n; i++) {
-    put_field(fld + (size_t)i * HSL_FMT_FIELD_BYTES, fields[i].name, fields[i].ftype,
-              fields[i].scale);
+    put_field(fld + (size_t)i * HSL_FMT_FIELD_BYTES, fields[i].name,
+              fields[i].ftype, fields[i].scale);
   }
   return f + HSL_FRAME_HDR_BYTES + pay;
 }

@@ -188,7 +188,6 @@ static void *imu_feeder_thread(void *arg) {
 
   bmx160_all_reading_t sample;
 
-
   /* IMU transport is FIFO-only as of the vsim_d split. Whether the
    * firmware is the standalone vayu_sitl binary or living inside
    * Navigator, samples arrive on /tmp/vsim_imu in the framed
@@ -253,7 +252,6 @@ static void *imu_feeder_thread(void *arg) {
         hf_carry -= SITL_IMU_FEED_HZ;
       }
     }
-
   }
 
   if (fd >= 0)
