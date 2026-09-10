@@ -39,7 +39,13 @@ jobs:
       - name: Install toolchain
         run: sudo apt-get update && sudo apt-get install -y gcc-arm-none-eabi cmake
       - name: Install kconfiglib
-        run: pip install kconfiglib
+        # --break-system-packages: the runner image is Debian-based and its
+        # python3 is PEP 668 externally-managed, so a bare `pip install` is
+        # refused. Harmless on a throwaway CI container, and the flag is a
+        # no-op where the environment is not marked. Needed to run this
+        # workflow under `act` (catthehacker/ubuntu:act-latest), which is
+        # otherwise the same image GitHub uses.
+        run: pip install --break-system-packages kconfiglib
       - name: Configure + build
         run: |
           cmake -S firmware -B build
@@ -196,7 +202,7 @@ jobs:
       # The firmware configure runs NavHAL's Kconfig generation; without this
       # it dies at "No module named 'kconfiglib'" before clang-tidy sees a
       # single file. The old job hid that behind continue-on-error.
-      - run: pip install kconfiglib
+      - run: pip install --break-system-packages kconfiglib  # PEP 668, see build-target
       - name: clang-tidy
         env:
           CLANG_TIDY: clang-tidy-18
