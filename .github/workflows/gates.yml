@@ -1,0 +1,86 @@
+# Gates that are cheap and that a docs-only change can still break (R12.5).
+#
+# Split out of ci.yml so it can carry no path filter: ci.yml skips its build,
+# test and lint jobs when a change touches nothing but markdown, and these three
+# are exactly the ones that must keep running when it does -- docs-links checks
+# the markdown itself, trace-gate maps requirements in the docs onto code, and
+# commit-msgs reads commit messages, which every change has. Together they cost
+# about a minute; ci.yml costs twenty.
+#
+#   - trace-gate    : tools/dev/trace.py --check, unknown-ID fails (R12.5)
+#   - docs-links    : tools/dev/docs_html.py --check, dangling doc link fails
+#   - commit-msgs   : no AI attribution trailers in new commit messages
+
+name: gates
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  trace-gate:
+    name: trace gate (--check)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+      - name: trace.py --check (unknown ID fails; R12.5)
+        run: python3 tools/dev/trace.py --check
+
+  commit-msgs:
+    name: commit message gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0          # need history to diff against the base
+      - name: No AI attribution trailers
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          set -eu
+          ZERO=0000000000000000000000000000000000000000
+          if [ "$EVENT" = pull_request ]; then
+            BASE="$PR_BASE"
+          else
+            BASE="$PUSH_BEFORE"
+          fi
+          # A new branch or a force push reports an unusable base; fall back to
+          # the tip rather than silently checking nothing.
+          if [ -n "$BASE" ] && [ "$BASE" != "$ZERO" ] && git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            COMMITS=$(git rev-list "$BASE..HEAD")
+          else
+            COMMITS=$(git rev-list -1 HEAD)
+          fi
+          # Anchored on the trailer syntax, so prose that merely mentions Claude
+          # and a genuine human Co-Authored-By both pass.
+          PAT='co-authored-by:.*(claude|anthropic)|generated with .*claude'
+          RC=0
+          for C in $COMMITS; do
+            if git log -1 --format=%B "$C" | grep -Eqi "$PAT"; then
+              echo "::error::$(git log -1 --format='%h %s' "$C") carries an AI attribution trailer"
+              RC=1
+            fi
+          done
+          [ "$RC" = 0 ] && echo "checked $(echo "$COMMITS" | wc -w) commit(s): no AI attribution trailers"
+          exit $RC
+
+  docs-links:
+    name: docs link gate (--check)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+      # pandoc is the only dependency: mermaid and KaTeX are fetched by the
+      # browser at view time and are not needed to build or check the site.
+      - name: Install pandoc
+        run: sudo apt-get update && sudo apt-get install -y pandoc
+      - name: docs_html.py --check (a dangling doc-to-doc link fails)
+        run: python3 tools/dev/docs_html.py --check
