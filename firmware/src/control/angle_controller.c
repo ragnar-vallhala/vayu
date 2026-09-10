@@ -282,8 +282,15 @@ void angle_controller_task(void *arg) {
      * High -> sticks command body rate directly, attitude loop bypassed. The
      * RC request is arbitrated with any GCS CMD_SET_FLIGHT_MODE override (GCS
      * wins while active); the resolved mode is published as telemetry. */
-    bool rc_acro = (ACRO_SWITCH_CH < IBUS_MAX_CHANNELS) &&
-                   (rc_data.channels[ACRO_SWITCH_CH] > ACRO_SWITCH_US);
+    /* Out-of-range ACRO_SWITCH_CH is how the toggle is disabled (0xFF today,
+     * since ch6 carries the height mode). The runtime && short-circuits, but
+     * cppcheck evaluates the index anyway and reports channels[255] as out of
+     * bounds, so gate it at compile time -- which is when the answer is known. */
+#if ACRO_SWITCH_CH < IBUS_MAX_CHANNELS
+    bool rc_acro = rc_data.channels[ACRO_SWITCH_CH] > ACRO_SWITCH_US;
+#else
+    bool rc_acro = false;
+#endif
     bool acro_mode = flight_mode_resolve_acro(rc_acro);
 
     /* Freshest attitude estimate (drain the OVERWRITE ring; the estimator runs
