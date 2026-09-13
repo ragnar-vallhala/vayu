@@ -49,8 +49,9 @@ typedef struct {
 static uint8_t s_imu_bufs[HSL_IMU_BUFFERS][HSL_SECTOR_BYTES];
 static uint8_t s_act_bufs[HSL_ACT_BUFFERS][HSL_SECTOR_BYTES];
 static uint8_t s_vrt_bufs[HSL_VRT_BUFFERS][HSL_SECTOR_BYTES];
+static uint8_t s_ctl_bufs[HSL_CTL_BUFFERS][HSL_SECTOR_BYTES];
 
-enum { HSL_S_IMU = 0, HSL_S_ACT, HSL_S_VRT, HSL_N_STREAMS };
+enum { HSL_S_IMU = 0, HSL_S_ACT, HSL_S_VRT, HSL_S_CTL, HSL_N_STREAMS };
 
 static hsl_stream_t s_streams[HSL_N_STREAMS] = {
     [HSL_S_IMU] = {.bufs = &s_imu_bufs[0][0],
@@ -71,6 +72,19 @@ static hsl_stream_t s_streams[HSL_N_STREAMS] = {
                    .rec_bytes = HSL_VRT_REC_BYTES,
                    .cap = HSL_BLOCK_PAYLOAD_BYTES / HSL_VRT_REC_BYTES,
                    .decim_cyc = (uint32_t)SYS_CLOCK_FREQ / HSL_VRT_RATE_HZ},
+    [HSL_S_CTL] = {.bufs = &s_ctl_bufs[0][0],
+                   .n_bufs = HSL_CTL_BUFFERS,
+                   .stream_id = HSL_STREAM_CTL,
+                   .rec_bytes = HSL_CTL_REC_BYTES,
+                   .cap = HSL_BLOCK_PAYLOAD_BYTES / HSL_CTL_REC_BYTES,
+                   /* Not decimated, for the same reason "imu" is not: the
+                    * producer already runs at this stream's rate. A decimator
+                    * set to the rate its own producer runs at beats against
+                    * it -- the test is `delta < decim`, and last_cyc only
+                    * advances on an accept, so one short interval costs a
+                    * whole record and the stream lands well under its target.
+                    * That is why "act" asks for 400 Hz and records 311. */
+                   .decim_cyc = 0u},
 };
 
 /* Consumer-owned. */
@@ -130,6 +144,28 @@ static uint32_t get_u32(const uint8_t *p) {
 }
 
 /* 0..1 -> full-scale u16, clamped. */
+/* Float -> i16 at `per_lsb` units per count, saturating. NaN lands at 0: a
+ * zero in a trace reads as "nothing here", where a wrapped int16 reads as a
+ * full-scale excursion that never happened. */
+static int16_t scaled_to_i16(float v, float per_lsb) {
+  if (!(v == v) || !(per_lsb > 0.0f)) { /* v != v catches NaN */
+    return 0;
+  }
+  /* Round, don't truncate. A cast truncates toward zero, which biases every
+   * sample low by up to a count -- and this stream exists to be differenced
+   * against "imu", where a systematic shrink reads as filter attenuation that
+   * is not there. */
+  float c = v / per_lsb;
+  c += (c >= 0.0f) ? 0.5f : -0.5f;
+  if (c >= 32767.0f) {
+    return 32767;
+  }
+  if (c <= -32767.0f) {
+    return -32767;
+  }
+  return (int16_t)c;
+}
+
 static uint16_t unit_to_u16(float v) {
   if (!(v > 0.0f)) { /* also catches NaN */
     return 0u;
@@ -221,6 +257,29 @@ void imu_hs_log_act(const float motors[4], float throttle, uint16_t flags,
   stream_commit(st, t_cyc);
 }
 
+/** @noreq rate-loop capture; RAM-only, decimated to HSL_CTL_RATE_HZ */
+void imu_hs_log_ctl(const float rate_filt[3], const float u[3],
+                    uint32_t t_cyc) {
+  if (rate_filt == NULL || u == NULL) {
+    return;
+  }
+  hsl_stream_t *st = &s_streams[HSL_S_CTL];
+  uint8_t *rec = stream_claim(st, t_cyc);
+  if (rec == NULL) {
+    return;
+  }
+  /* Rates share the gyro's count scale, so this stream and "imu" decode to the
+   * same units and can be differenced sample for sample -- which is the point
+   * of carrying it. */
+  for (uint32_t i = 0; i < 3u; i++) {
+    put_u16(&rec[(size_t)i * 2u],
+            (uint16_t)scaled_to_i16(rate_filt[i], s_gyr_scale));
+    put_u16(&rec[6u + (size_t)i * 2u],
+            (uint16_t)scaled_to_i16(u[i], HSL_CTL_U_PER_LSB));
+  }
+  stream_commit(st, t_cyc);
+}
+
 /** @noreq vertical-estimator capture; RAM-only, decimated to HSL_VRT_RATE_HZ */
 void imu_hs_log_vert(const hsl_vert_sample_t *v, uint32_t t_cyc) {
   if (v == NULL) {
@@ -304,6 +363,18 @@ static uint8_t *emit_fmt(uint8_t *f, uint8_t stream_id, uint8_t rec_bytes,
  * F401 will not absorb 512 B for a buffer used a few times a second. */
 static uint8_t s_preamble[HSL_SECTOR_BYTES];
 
+/* build_preamble writes the file header then one FMT per stream into the
+ * sector above, with no bound check on the way past -- a fifth stream, or a
+ * wider field list on an existing one, would run off the end of s_preamble and
+ * into whatever .bss follows it. One FMT is 12 B plus 16 B per field. */
+#define HSL_FMT_BYTES(n) (HSL_FRAME_HDR_BYTES + 8u + (n) * HSL_FMT_FIELD_BYTES)
+_Static_assert(HSL_FILE_HDR_BYTES + HSL_FMT_BYTES(6u) /* imu */
+                       + HSL_FMT_BYTES(6u)            /* act */
+                       + HSL_FMT_BYTES(6u)            /* ctl */
+                       + HSL_FMT_BYTES(8u)            /* vrt */
+                   <= HSL_SECTOR_BYTES,
+               "FMT declarations no longer fit the preamble sector");
+
 /** @noreq builds sector 0 from the current cursor */
 static void build_preamble(void) {
   for (uint32_t i = 0; i < HSL_SECTOR_BYTES; i++) {
@@ -357,6 +428,16 @@ static void build_preamble(void) {
                                      {"flags", HSL_FTYPE_U16, 1.0f},
                                      {"pad", HSL_FTYPE_U16, 1.0f}},
                8u);
+  /* No sign flips here, unlike "imu": the rate loop works in body axes, so the
+   * sensor -> body map has already been applied by the time this is captured. */
+  f = emit_fmt(f, HSL_STREAM_CTL, HSL_CTL_REC_BYTES, (uint16_t)HSL_CTL_RATE_HZ,
+               (const hsl_field_t[]){{"rfx", HSL_FTYPE_I16, gs},
+                                     {"rfy", HSL_FTYPE_I16, gs},
+                                     {"rfz", HSL_FTYPE_I16, gs},
+                                     {"ux", HSL_FTYPE_I16, HSL_CTL_U_PER_LSB},
+                                     {"uy", HSL_FTYPE_I16, HSL_CTL_U_PER_LSB},
+                                     {"uz", HSL_FTYPE_I16, HSL_CTL_U_PER_LSB}},
+               6u);
 
   /* PAD out to the sector. Skipped by the generic `len` rule, so no decoder
    * needs to know it exists. */
