@@ -7,7 +7,7 @@
  * is an offline decoder in another language -- nothing at runtime would ever
  * notice a layout mistake.
  *
- * Under VAYU_SIM the ring is 63 slots, so two armed sessions of three streams
+ * Under VAYU_SIM the ring is 63 slots, so two armed sessions of four streams
  * overrun it and it actually WRAPS. That is the case worth testing: slot order
  * stops being time order, and a session's own SESSION frame can be overwritten
  * while its blocks are still live.
@@ -17,7 +17,7 @@
  *   - every frame declares its own length, so an unknown type is skippable
  *   - every ring frame carries the sentinel, the seq and the session tag that
  *     let a reader undo the rotation and split sessions
- *   - the three streams land at their stated rates (cycle-stamp decimation)
+ *   - the decimated streams land at their stated rates (cycle-stamp decimation)
  *   - state changes come out as EVENT frames
  *   - the cursor hint survives for the next boot, and resuming clears the
  *     seq margin that keeps orphaned sectors distinguishable
@@ -87,6 +87,13 @@ static void run_session(int n_samples) {
                            .accel_bias = 6.5f,
                            .flags = HSL_VRT_F_VALID | HSL_VRT_F_TOF_VALID};
     imu_hs_log_vert(&v, t);
+    /* "ctl" is undecimated, so unlike act/vrt the caller sets its rate. The
+     * firmware calls it from the 1 kHz rate loop; halving the 2 kHz sample
+     * rate here reproduces that relationship. */
+    if ((i % 2) == 0) {
+      imu_hs_log_ctl((const float[3]){10.0f, -20.0f, 30.0f},
+                     (const float[3]){0.25f, -0.5f, 0.125f}, t);
+    }
     if ((i % 41) == 40) {
       imu_hs_log_drain(); /* the FS task runs far more often than this */
     }
@@ -109,9 +116,9 @@ int main(void) {
   CHECK(!imu_hs_log_active(), "disarmed: nothing recorded");
   CHECK(imu_hs_log_wraps() == 0, "fresh file starts unwrapped");
 
-  run_session(1230);
+  run_session(860);
   CHECK(imu_hs_log_wraps() == 0, "one session fits without wrapping");
-  run_session(1230); /* pushes past 63 slots: must wrap */
+  run_session(860); /* pushes past 63 slots: must wrap */
   CHECK(imu_hs_log_wraps() == 1u, "second session wraps the ring");
   CHECK(imu_hs_log_dropped() == 0u, "no sectors dropped when drained promptly");
   CHECK(!imu_hs_log_active(), "disarm closes the recording");
@@ -160,7 +167,7 @@ int main(void) {
     }
     off += HSL_FRAME_HDR_BYTES + len;
   }
-  CHECK(n_fmt == 3, "preamble declares all three streams");
+  CHECK(n_fmt == 4, "preamble declares all four streams");
   CHECK(pad_seen, "preamble is padded");
   CHECK(off == HSL_SECTOR_BYTES, "preamble frames fill exactly one sector");
   CHECK(fmt_stream[0] == HSL_STREAM_IMU && fmt_recb[0] == HSL_IMU_REC_BYTES &&
@@ -172,12 +179,15 @@ int main(void) {
   CHECK(fmt_stream[2] == HSL_STREAM_VRT && fmt_recb[2] == HSL_VRT_REC_BYTES &&
             fmt_rate[2] == HSL_VRT_RATE_HZ,
         "FMT[vrt] 28 B @ 20 Hz");
+  CHECK(fmt_stream[3] == HSL_STREAM_CTL && fmt_recb[3] == HSL_CTL_REC_BYTES &&
+            fmt_rate[3] == HSL_CTL_RATE_HZ,
+        "FMT[ctl] 12 B @ 1000 Hz");
 
   /* Every ring slot: sentinel, sector-length frame, a known type, a seq. */
   static uint32_t seq[RING_SLOTS];
   static uint8_t tags[RING_SLOTS];
   int bad = -1, n_ev = 0;
-  int per_stream[4] = {0};
+  int per_stream[5] = {0};
   for (uint32_t i = 0; i < RING_SLOTS; i++) {
     const uint8_t *fr = &buf[(size_t)HSL_SECTOR_BYTES * (1u + i)];
     if (fr[1] != HSL_RING_SENTINEL ||
@@ -197,7 +207,7 @@ int main(void) {
       n_ev++;
       break;
     case HSL_TYPE_BLOCK:
-      if (p[0] < 4) {
+      if (p[0] < 5) {
         per_stream[p[0]]++;
       }
       break;
@@ -211,9 +221,10 @@ int main(void) {
   }
   CHECK(bad < 0, "every ring slot carries the sentinel and a known frame type");
   CHECK(n_ev > 0, "state changes produced EVENT frames");
-  CHECK(per_stream[HSL_STREAM_IMU] > per_stream[HSL_STREAM_ACT] &&
+  CHECK(per_stream[HSL_STREAM_IMU] > per_stream[HSL_STREAM_CTL] &&
+            per_stream[HSL_STREAM_CTL] > per_stream[HSL_STREAM_ACT] &&
             per_stream[HSL_STREAM_ACT] > per_stream[HSL_STREAM_VRT],
-        "sector counts follow the three streams' rates");
+        "sector counts follow the four streams' rates");
 
   /* The ring wrapped, so exactly one slot boundary goes backwards in seq --
    * that boundary is where the newest data abuts the oldest. */
@@ -246,7 +257,7 @@ int main(void) {
   CHECK(imu_hs_log_head_slot() == slot_before, "boot recovers the ring slot");
   CHECK(imu_hs_log_wraps() == wraps_before, "boot recovers the wrap count");
 
-  run_session(200);
+  run_session(860);
   fd = vfs_open(HSL_FILENAME, VFS_O_RDONLY);
   n = (fd < 0) ? -1 : vfs_read(fd, buf, sizeof(buf));
   if (fd >= 0) {

@@ -647,6 +647,9 @@ void angle_rate_controller_task(void *arg) {
         hf |= HSL_ACT_F_IN_AIR;
       }
       imu_hs_log_act(mo, target_throttle, hf, imu_data.converted.timestamp);
+      /* current_rates is post-LPF and post-notch by this point -- the PID's own
+       * input -- and outputs is its response before the mixer touches it. */
+      imu_hs_log_ctl(current_rates, outputs, imu_data.converted.timestamp);
     }
 
     control_telemetry_t telemetry = {
