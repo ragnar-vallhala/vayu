@@ -259,6 +259,16 @@ static navlink_ack_t on_fs_info(void *ctx, const navlink_frame_hdr_t *hdr,
   return navlink_ack_result((uint8_t)d);
 }
 
+/** @noreq fs-navigation codec adapter (behavior in fs_query.c) */
+static navlink_ack_t on_fs_delete(void *ctx, const navlink_frame_hdr_t *hdr,
+                                  const navlink_fs_delete_t *m) {
+  (void)ctx;
+  int d = fs_query_on_delete(m->req_seq, hdr->sysid, hdr->compid, m->path);
+  if (d == FS_QUERY_DEFERRED)
+    return navlink_ack_deferred();
+  return navlink_ack_result((uint8_t)d);
+}
+
 /** @implements COMM-CMD-006 */
 static navlink_ack_t on_cmd_arm(void *ctx, const navlink_frame_hdr_t *hdr,
                                 const navlink_cmd_arm_t *m) {
@@ -475,6 +485,7 @@ void navlink_router_init(void) {
   s_handlers.on_xfer_ack = on_xfer_ack;
   s_handlers.on_fs_list = on_fs_list;
   s_handlers.on_fs_info = on_fs_info;
+  s_handlers.on_fs_delete = on_fs_delete;
 }
 
 /* Resolve a deferred CMD_ARM ack from the flight-state machine: ACCEPTED once it

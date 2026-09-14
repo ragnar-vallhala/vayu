@@ -25,10 +25,12 @@
 #define FSQ_RES_OK 0u     /* ACCEPTED */
 #define FSQ_RES_DENIED 2u /* path does not exist */
 #define FSQ_RES_BUSY 1u /* TEMPORARILY_REJECTED (a query is already running) */
+#define FSQ_RES_FAILED 4u /* the operation was allowed but the VFS refused it */
 
 /* wire msgids mirrored from the dialect (for the deferred COMMAND_ACK). */
 #define FS_WIRE_MSGID_LIST 8203u
 #define FS_WIRE_MSGID_INFO 8204u
+#define FS_WIRE_MSGID_DELETE 8207u
 
 /* Sentinel: the request was accepted and deferred to the tick (the router
  * returns navlink_ack_deferred()); any other value is an immediate result. */
@@ -50,6 +52,13 @@ int fs_query_on_list(uint8_t req_seq, uint8_t gcs_sys, uint8_t gcs_comp,
                      const char *path, uint16_t start_index);
 int fs_query_on_info(uint8_t req_seq, uint8_t gcs_sys, uint8_t gcs_comp,
                      const char *path);
+/* Delete one file. Answered with COMMAND_ACK alone -- there is nothing to
+ * report but the result. Two paths are refused, and the distinction is carried
+ * in the result code so the GCS can tell a user to wait from a user to give up:
+ * the calibration and tune stores are DENIED permanently, and the high-speed
+ * IMU recording is BUSY (TEMPORARILY_REJECTED) while a session is recording. */
+int fs_query_on_delete(uint8_t req_seq, uint8_t gcs_sys, uint8_t gcs_comp,
+                       const char *path);
 
 /* XFER task: run pending queries; `budget` caps FS_ENTRY rows emitted this call.
  * Returns rows emitted. */

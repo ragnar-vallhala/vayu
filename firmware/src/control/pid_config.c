@@ -25,7 +25,6 @@
  * the gyro notch). Any older file fails the exact-size/magic check in
  * pid_config_init and resets to defaults (same policy as the earlier bumps). */
 #define PID_CONFIG_MAGIC 0x50494435u /* 'P''I''D''5' */
-#define PID_CONFIG_FILE_PATH "0:pid.bin"
 
 typedef struct {
   float kp, ki, kd, kff;
