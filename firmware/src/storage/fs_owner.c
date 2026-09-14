@@ -490,6 +490,7 @@ static void fs_drain_writeats(void) {
 typedef enum {
   FS_SYNC_READ = 0,
   FS_SYNC_TRUNCATE,
+  FS_SYNC_UNLINK,
   FS_SYNC_STAT,
   FS_SYNC_OPENDIR,
   FS_SYNC_READDIR,
@@ -553,6 +554,18 @@ static int fs_exec_sync(const fs_sync_req_t *req) {
      * fd. */
     read_fd_close();
     return n;
+  }
+  case FS_SYNC_UNLINK: {
+    /* Same stale-handle problem as TRUNCATE, and worse here: unlinking a path
+     * the lazy-write cache still holds open frees clusters a later flush would
+     * write into. Drop both handles before the directory entry goes. */
+    if (wpath_is(req->path)) {
+      writeat_fd_close();
+    }
+    if (rpath_is(req->path)) {
+      read_fd_close();
+    }
+    return (vfs_unlink(req->path) == 0) ? 0 : -1;
   }
   case FS_SYNC_TRUNCATE: {
     /* Drop a lingering lazy-write cache for this path so the truncate doesn't
@@ -843,6 +856,18 @@ int fs_owner_truncate(const char *path) {
     return -1;
   }
   fs_sync_req_t req = {.op = FS_SYNC_TRUNCATE, .path = path};
+  if (s_task_mode) {
+    return fs_sync_call(&req);
+  }
+  return fs_exec_sync(&req);
+}
+
+/** @implements LOG-XFER-002 */
+int fs_owner_unlink(const char *path) {
+  if (path == NULL) {
+    return -1;
+  }
+  fs_sync_req_t req = {.op = FS_SYNC_UNLINK, .path = path};
   if (s_task_mode) {
     return fs_sync_call(&req);
   }

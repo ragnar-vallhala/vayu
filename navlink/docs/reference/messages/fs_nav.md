@@ -1,9 +1,10 @@
-# Filesystem Navigation (`FS_LIST` / `FS_INFO`)
+# Filesystem Navigation (`FS_LIST` / `FS_INFO` / `FS_DELETE`)
 
 > Authoritative wire spec: `navlink/dialect.json` + `../navlink-v2-spec.md`.
 > FC implementation: `src/comm/xfer/fs_query.c` on the fs_owner gateway.
 
-Browse the FC's SD card from the GCS: list a directory, and stat any single path.
+Browse the FC's SD card from the GCS: list a directory, stat any single path,
+and delete a file.
 The companion to the bulk-transfer substrate ([`xfer.md`](xfer.md)) — that moves
 bytes, this navigates. A path that **does not exist** is reported distinctly
 (`result = DENIED`), never as an empty success.
@@ -16,8 +17,9 @@ bytes, this navigates. A path that **does not exist** is reported distinctly
 | `FS_ENTRY`       | 1045 (tlm) | FC→GCS | 27 B | one directory entry: `index`, `type` (0=file/1=dir), `size`, `name` char[16] |
 | `FS_INFO`        | 8204 (cmd) | GCS→FC | 51 B | stat one path; `path` char[48] |
 | `FS_INFO_REPLY`  | 1046 (tlm) | FC→GCS | 12 B | `result`, `type`, `size`, `mtime` (ext) |
+| `FS_DELETE`      | 8207 (cmd) | GCS→FC | 51 B | delete one file; `path` char[48]. Answered by `COMMAND_ACK` alone |
 
-`FS_LIST`/`FS_INFO` are in the command range `0x2000–0x2FFF`, so they are
+`FS_LIST`/`FS_INFO`/`FS_DELETE` are in the command range `0x2000–0x2FFF`, so they are
 §10.5 time-sync-gated and `COMMAND_ACK`-acknowledged. The replies are telemetry
 correlated by `req_seq`.
 
@@ -42,6 +44,36 @@ correlated by `req_seq`.
 GCS sends `FS_INFO{path}`; the FC replies `COMMAND_ACK` then one
 `FS_INFO_REPLY`: `result = ACCEPTED` with `type`/`size`/`mtime` if the path
 exists, or `result = DENIED` if it does not.
+
+## Delete protocol
+
+GCS sends `FS_DELETE{path}`; the FC answers with `COMMAND_ACK` and nothing
+else — there is no outcome to report but the result code:
+
+| result | meaning |
+| ------ | ------- |
+| `ACCEPTED` | the file is gone |
+| `DENIED` | the path is absent, is a directory, or is **protected** |
+| `TEMPORARILY_REJECTED` | the file is in use right now; retry later |
+| `FAILED` | allowed, but the unlink itself errored |
+
+Two classes of path are refused, and the result code is what separates them —
+`DENIED` means stop asking, `TEMPORARILY_REJECTED` means ask again later:
+
+- **`cal.bin` and `pid.bin`, always.** The calibration and tune stores. Losing
+  either costs a full recalibration or retune, and neither is ever the file
+  someone meant to reclaim space with. Matched on the basename,
+  case-insensitively, because FatFS is case-insensitive and a guard that only
+  caught one spelling of `PID.BIN` would be no guard at all.
+- **`imuhs.bin` while a session is recording.** The high-speed recorder holds it
+  open and is writing into it. This one is state-gated rather than permanent,
+  so it succeeds once disarmed. The gate is re-checked at the unlink itself, not
+  only when the request arrives, because a session can start in between.
+
+Policy lives in `fs_query.c`, not in the fs_owner gateway: the owner moves
+bytes, the service decides what may be moved. `fs_owner_unlink` enforces no
+policy of its own, and drops any cached write/read handle on the path first so
+no later flush can write into clusters the unlink has freed.
 
 ## Notes
 

@@ -389,6 +389,10 @@ typedef struct __attribute__((packed)) {
 
 // Calibration
 #define CALIBRATION_FILE_PATH "0:cal.bin"
+/* Alongside the calibration store because the two are a pair: both are the
+ * result of a procedure nobody wants to repeat, and fs_query refuses to delete
+ * either (see the delete policy in comm/xfer/fs_query.c). */
+#define PID_CONFIG_FILE_PATH "0:pid.bin"
 #define CALIBRATION_FILE_SIZE 1024 // 1KB Preallocated
 #define CALIBRATION_WAIT_USER_TIME_PRE_CALIBRATION                             \
   2000 // 2 seconds, waits before recording once user has reached the direction

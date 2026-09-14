@@ -167,6 +167,16 @@ bool fs_owner_writeat_failed(uint8_t session);
 int fs_owner_truncate(const char *path);
 
 /**
+ * @brief Delete a file. **Called ONLY from xfer_service_task** (FS_DELETE).
+ *        Same vfs_mutex-serialised safety as fs_owner_truncate, and it drops
+ *        any cached write/read handle on the path first so no later flush can
+ *        write into clusters the unlink has freed. Returns 0 on success, <0 if
+ *        the path is absent or the unlink failed. Enforces no policy: which
+ *        paths may be deleted is fs_query's business, not the owner's.
+ */
+int fs_owner_unlink(const char *path);
+
+/**
  * @brief Synchronous positioned read. **Called ONLY from xfer_service_task.**
  *
  * fs_owner is the sole *writer* of the SD; this is the one sanctioned reader.
