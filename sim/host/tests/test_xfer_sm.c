@@ -256,6 +256,211 @@ static void test_roundtrip_up_then_down(void) {
   CHECK(saw_eof, "download emitted an EOF marker");
 }
 
+/* Selective repeat, the sibling of the NAK path above. The distinguishing
+ * property is what does NOT happen: a reported hole is refilled without the
+ * cursor moving, so nothing already sent past the hole comes back. */
+static void test_sack_repairs_only_the_gap(void) {
+  printf("  test_sack_repairs_only_the_gap\n");
+  fake_reset();
+  for (uint32_t i = 0; i < 1500; i++)
+    FAKE.buf[i] = (uint8_t)(0x5Au ^ i);
+  FAKE.size = 1500;
+
+  xfer_open_args_t dn = mkargs(0, XFER_DIR_DOWNLOAD, 7, 0);
+  xfer_on_open(&dn);
+  xfer_tick(0, 0, 6); /* open + stream the file out */
+  int streamed = CAP.n_data;
+  CHECK(streamed >= 5, "streamed the file without waiting for acks");
+  uint32_t high = 0;
+  for (int i = 0; i < CAP.n_data; i++)
+    if (CAP.data[i].offset + CAP.data[i].len > high)
+      high = CAP.data[i].offset + CAP.data[i].len;
+
+  /* The receiver got everything except the second chunk. It acks cumulatively
+   * up to the hole and names the hole; it does not NAK. */
+  cap_reset();
+  const uint32_t hole_off = 247, hole_len = 247;
+  uint32_t moff[1] = {hole_off};
+  uint16_t mlen[1] = {(uint16_t)hole_len};
+  xfer_on_sack(0, hole_off, moff, mlen, 1);
+  xfer_tick(5, 0, 6);
+
+  /* The repair goes out, and the stream carries on from where it was. Both are
+   * expected: what must NOT appear is any frame below the high-water mark other
+   * than the repair itself, because that would be data already sent coming back
+   * -- which is precisely what go-back-N does and this does not. */
+  int repairs = 0, replays = 0, fresh = 0;
+  for (int i = 0; i < CAP.n_data; i++) {
+    if (CAP.data[i].offset == hole_off)
+      repairs++;
+    else if (CAP.data[i].offset < high)
+      replays++;
+    else
+      fresh++;
+  }
+  CHECK(repairs == 1, "the reported gap was re-sent exactly once");
+  CHECK(replays == 0, "nothing already sent was re-sent");
+  CHECK(fresh > 0, "streaming continued past the gap instead of rewinding");
+  CHECK(CAP.n_data >= 1 &&
+            memcmp(CAP.data[0].data, FAKE.buf + hole_off, hole_len) == 0,
+        "the repair carries the right bytes");
+
+  /* A gap re-reported while its repair is still queued must not be queued
+   * twice: the receiver keeps naming a hole until it is filled. */
+  cap_reset();
+  const uint32_t hole2 = 494;
+  uint32_t moff2[1] = {hole2};
+  uint16_t mlen2[1] = {247};
+  xfer_on_sack(0, hole2, moff2, mlen2, 1);
+  xfer_on_sack(0, hole2, moff2, mlen2, 1);
+  xfer_tick(6, 0, 6);
+  int r2 = 0;
+  for (int i = 0; i < CAP.n_data; i++)
+    if (CAP.data[i].offset == hole2)
+      r2++;
+  CHECK(r2 == 1, "a gap reported twice is repaired once");
+
+  xfer_on_ack(0, FAKE.size, XFER_F_DONE);
+  (void)high;
+  (void)streamed;
+}
+
+/* Liveness: a repair that is itself lost must still be retried. The receiver
+ * keeps naming the hole -- that is all the sender has to go on, because the
+ * stream has reached EOF and nothing else is flowing. Observed on hardware as a
+ * download that stopped dead at ~70% with both sides waiting on the other. */
+static void test_sack_lost_repair_is_retried(void) {
+  printf("  test_sack_lost_repair_is_retried\n");
+  fake_reset();
+  for (uint32_t i = 0; i < 1000; i++)
+    FAKE.buf[i] = (uint8_t)(0x33u ^ i);
+  FAKE.size = 1000;
+
+  xfer_open_args_t dn = mkargs(0, XFER_DIR_DOWNLOAD, 7, 0);
+  xfer_on_open(&dn);
+  xfer_tick(0, 0, 16); /* stream the whole file out; EOF -> DONE_LINGER */
+
+  const uint32_t hole = 247;
+  uint32_t moff[1] = {hole};
+  uint16_t mlen[1] = {247};
+
+  /* First report: the repair goes out. Pretend it is lost -- never acked. */
+  cap_reset();
+  xfer_on_sack(0, hole, moff, mlen, 1);
+  xfer_tick(1, 0, 16);
+  int first = 0;
+  for (int i = 0; i < CAP.n_data; i++)
+    if (CAP.data[i].offset == hole)
+      first++;
+  CHECK(first == 1, "the first report produces one repair");
+
+  /* The receiver keeps asking, because it still has the hole. Somewhere in
+   * here the sender must conclude the repair was lost and send it again. */
+  cap_reset();
+  int retries = 0;
+  for (int t = 0; t < 40; t++) {
+    xfer_on_sack(0, hole, moff, mlen, 1);
+    xfer_tick(2 + (uint32_t)t, 0, 16);
+    for (int i = 0; i < CAP.n_data; i++)
+      if (CAP.data[i].offset == hole)
+        retries++;
+    cap_reset();
+  }
+  /* The stream has finished here, so reports arrive only at the receiver's
+   * keepalive cadence and a re-report means the repair is lost: retries are
+   * deliberately prompt. What must never happen is a repair per report, which
+   * is the duplication the whole mechanism exists to remove. */
+  CHECK(retries >= 1,
+        "a lost repair is retried when the gap keeps being reported");
+  CHECK(retries < 40, "but not once per report -- that is the duplication");
+  printf("       (retries over 40 reports, stream finished: %d)\n", retries);
+
+  xfer_on_ack(0, FAKE.size, XFER_F_DONE);
+}
+
+/* The queue must not jam. With more holes than it can hold, the ones that get
+ * filled leave the receiver's report, and the room they free has to go to the
+ * holes further on -- otherwise the cumulative ack, stuck behind the lowest
+ * hole, keeps stale entries alive and newly reported gaps never get queued.
+ * That is the download that crawled to a halt at ~70% on hardware. */
+/* The same retry while the stream is STILL RUNNING. Reports then arrive at the
+ * data-frame rate, so the threshold is a round trip's worth and the gap must
+ * not be repaired on every report. */
+static void test_sack_retry_is_paced_while_streaming(void) {
+  printf("  test_sack_retry_is_paced_while_streaming\n");
+  fake_reset();
+  for (uint32_t i = 0; i < 20000; i++)
+    FAKE.buf[i] = (uint8_t)(0x11u ^ i);
+  FAKE.size = 20000;
+
+  xfer_open_args_t dn = mkargs(0, XFER_DIR_DOWNLOAD, 7, 0);
+  xfer_on_open(&dn);
+  xfer_tick(0, 0, 4); /* a few chunks out; plenty left to stream */
+
+  const uint32_t hole = 247;
+  uint32_t moff[1] = {hole};
+  uint16_t mlen[1] = {247};
+  int repairs = 0;
+  for (int t = 0; t < 10; t++) {
+    cap_reset();
+    xfer_on_sack(0, hole, moff, mlen, 1);
+    xfer_tick(1 + (uint32_t)t, 0, 4);
+    for (int i = 0; i < CAP.n_data; i++)
+      if (CAP.data[i].offset == hole)
+        repairs++;
+  }
+  CHECK(repairs >= 1, "the gap was repaired");
+  CHECK(repairs <= 2, "and not re-repaired on every report while streaming");
+  printf("       (repairs over 10 reports, still streaming: %d)\n", repairs);
+  xfer_on_ack(0, FAKE.size, XFER_F_DONE);
+}
+
+static void test_sack_queue_does_not_jam(void) {
+  printf("  test_sack_queue_does_not_jam\n");
+  fake_reset();
+  for (uint32_t i = 0; i < 6000; i++)
+    FAKE.buf[i] = (uint8_t)(0x77u ^ i);
+  FAKE.size = 6000;
+
+  xfer_open_args_t dn = mkargs(0, XFER_DIR_DOWNLOAD, 7, 0);
+  xfer_on_open(&dn);
+  xfer_tick(0, 0, 64); /* stream it all */
+
+  /* The receiver is missing far more than the queue holds, and the lowest hole
+   * stays missing throughout, so the cumulative ack never moves. */
+  const uint32_t low = 247;
+  uint32_t moff[XFER_SACK_MAX_RANGES];
+  uint16_t mlen[XFER_SACK_MAX_RANGES];
+  for (uint8_t i = 0; i < XFER_SACK_MAX_RANGES; i++) {
+    moff[i] = 247u * (uint32_t)(i + 1);
+    mlen[i] = 247;
+  }
+  cap_reset();
+  xfer_on_sack(0, low, moff, mlen, XFER_SACK_MAX_RANGES);
+  xfer_tick(1, 0, 64);
+  CHECK(CAP.n_data >= (int)XFER_SACK_MAX_RANGES,
+        "every reported hole was repaired");
+
+  /* All but the lowest arrived, so the receiver now reports the lowest plus a
+   * fresh set from further along. Those must be accepted, not blocked by the
+   * entries the earlier report left behind. */
+  for (uint8_t i = 1; i < XFER_SACK_MAX_RANGES; i++) {
+    moff[i] = 247u * (uint32_t)(i + 12);
+    mlen[i] = 247;
+  }
+  cap_reset();
+  xfer_on_sack(0, low, moff, mlen, XFER_SACK_MAX_RANGES);
+  xfer_tick(2, 0, 64);
+  int fresh = 0;
+  for (int i = 0; i < CAP.n_data; i++)
+    if (CAP.data[i].offset >= 247u * 13u)
+      fresh++;
+  CHECK(fresh >= (int)XFER_SACK_MAX_RANGES - 1,
+        "holes reported after the queue filled are still repaired");
+
+  xfer_on_ack(0, FAKE.size, XFER_F_DONE);
+}
+
 static void test_resume_after_drop(void) {
   printf("  test_resume_after_drop\n");
   fake_reset();
@@ -495,6 +700,10 @@ int main(void) {
   xfer_register_provider(&RDONLY_PROV);
 
   test_roundtrip_up_then_down();
+  test_sack_repairs_only_the_gap();
+  test_sack_lost_repair_is_retried();
+  test_sack_retry_is_paced_while_streaming();
+  test_sack_queue_does_not_jam();
   test_resume_after_drop();
   test_out_of_order_upload();
   test_rejections();

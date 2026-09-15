@@ -85,6 +85,42 @@ typedef enum {
 
 struct xfer_provider; /* fwd */
 
+/* Selective repeat, the sibling of the NAK's go-back-N recovery.
+ *
+ * Which one a download uses is the RECEIVER's choice and needs no negotiation:
+ * an XFER_ACK with flags=NAK rewinds the sender (cheap to implement, but one
+ * lost chunk re-sends everything in flight), while an XFER_SACK names the
+ * individual gaps and the sender repairs only those, leaving its cursor alone.
+ * A receiver that sends neither gets neither, so old clients are unaffected.
+ *
+ * The queue holds the ranges still owed. It is deliberately small: the repair
+ * for a gap is emitted within a tick or two of the report, and a receiver that
+ * has more outstanding holes than this re-reports the rest on its next SACK --
+ * the protocol is idempotent, so a dropped repair is simply asked for again. */
+#define XFER_SACK_MAX_RANGES 8u
+
+typedef struct {
+  uint32_t off;
+  uint16_t len;
+  uint8_t sent; /* the repair has gone out; awaiting the receiver's ack */
+  uint8_t
+      reports; /* times re-reported since -- a round-trip timer with no clock */
+} xfer_repair_t;
+
+/* A receiver keeps naming a hole until it is filled, and a repair takes a round
+ * trip to arrive, so the same gap is re-reported many times while its repair is
+ * still in the air. Re-sending on each of those is most of what selective
+ * repeat exists to avoid, so an emitted repair stays queued and is suppressed
+ * until either the cumulative ack passes it (it landed) or it has been
+ * re-reported this many times (it did not, so send it again). Reports arrive at
+ * roughly the data-frame rate, which makes this a round trip's worth without
+ * needing a clock on a path that has none. */
+#define XFER_SACK_REPEAT_REPORTS 12u
+/* The same timer once the stream is done and reports arrive only at the
+ * receiver's keepalive cadence: a re-report then means the repair is lost, and
+ * waiting a dozen keepalives would outlast the linger reap. */
+#define XFER_SACK_REPEAT_REPORTS_IDLE 2u
+
 typedef struct xfer_session {
   xfer_state_t state;
   uint8_t session; /* slot id (== array index) */
@@ -103,6 +139,10 @@ typedef struct xfer_session {
   uint16_t chunk_size; /* negotiated emit size (<= XFER_CHUNK_MAX) */
   uint32_t total_size; /* XFER_SIZE_STREAM for streams */
   uint32_t cursor; /* download: next offset to emit; upload: next expected */
+  /* Selective-repeat backlog: ranges the receiver reported missing, served
+   * ahead of the streaming cursor and never disturbing it. */
+  xfer_repair_t repair[XFER_SACK_MAX_RANGES];
+  uint8_t n_repair;
   uint32_t offset_start;
   uint16_t rate_hz;      /* stream cadence */
   uint32_t next_due_ms;  /* stream: next poll; upload: next periodic ACK */
@@ -195,6 +235,11 @@ void xfer_on_data(uint8_t session, uint32_t offset, const uint8_t *buf,
 
 /* COMM task. Flow-control / resume ack for a download (rewinds on NAK/regress). */
 void xfer_on_ack(uint8_t session, uint32_t next_offset, uint8_t flags);
+/* Selective ack: cumulative progress plus the gaps above it. Queues repairs;
+ * unlike a NAK it does NOT move the cursor, so streaming continues undisturbed
+ * and nothing already in flight is re-sent. */
+void xfer_on_sack(uint8_t session, uint32_t next_offset, const uint32_t *off,
+                  const uint16_t *len, uint8_t n);
 
 /* COMM task. Request close/abort; tick emits the COMMAND_ACK and tears down. */
 int xfer_on_close(uint8_t session, uint8_t req_seq, uint8_t result);

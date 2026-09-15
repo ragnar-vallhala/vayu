@@ -17,6 +17,7 @@ streams — plug in as **providers** without rebuilding the transport.
 | `XFER_INFO`  | 1042 (tlm) | FC→GCS | 12 B | open reply: `result`, negotiated `chunk_size`, `total_size` (0xFFFFFFFF = stream) |
 | `XFER_DATA`  | 1043 (tlm) | both   | 254 B| one chunk: `offset`, `len`, `flags` (EOF), `data[247]` |
 | `XFER_ACK`   | 1044 (tlm) | both   | 7 B  | cumulative flow-control: `next_offset` (lowest missing byte), `flags` (NAK/DONE/ABORT) |
+| `XFER_SACK`  | 1049 (tlm) | GCS→FC | 54 B | selective ack: cumulative `next_offset` plus up to 8 `(miss_off, miss_len)` gaps above it |
 | `XFER_CLOSE` | 8202 (cmd) | GCS→FC | 5 B  | close/abort a session |
 
 `XFER_OPEN`/`XFER_CLOSE` are in the command range `0x2000–0x2FFF`, so they are
@@ -45,6 +46,52 @@ FC-side pacing against channel backpressure):
   chunk carries `EOF`.
 - **Stream:** `total_size = 0xFFFFFFFF`; the provider is polled at `rate_hz`; never
   rewinds (best-effort), and rising `tx_overflow` skips stream emission first.
+
+A plain cumulative ack does **not** rewind. Its `next_offset` is behind the
+sender's cursor for as long as anything is in flight — that is the normal state
+of a sender that is ahead, not a request to resend. Only `flags=NAK` rewinds.
+(Treating every ack as a rewind collapsed downloads to stop-and-wait: measured
+on hardware at 266 useful chunks against 911 frames emitted.)
+
+## Reliability model — selective repeat (`XFER_SACK`)
+
+The sibling of the above, and **which one a transfer uses is the receiver's
+choice**. No negotiation, no capability bit: send `XFER_ACK{NAK}` and you get
+go-back-N, send `XFER_SACK` and you get selective repeat, send neither and you
+get neither. A receiver that has never heard of `XFER_SACK` is unaffected.
+
+`XFER_SACK` carries the same cumulative `next_offset` plus up to 8 explicit gaps
+above it. The FC refills exactly those and **leaves its cursor alone**, so
+streaming continues and nothing already in flight is re-sent.
+
+Three properties the FC side must hold, each learned by getting it wrong:
+
+- **A report is authoritative.** A SACK is a complete statement of what the
+  receiver is missing, so the repair backlog is rebuilt from each report rather
+  than accumulated. Otherwise, when the gaps above the lowest one are filled but
+  the cumulative ack cannot advance past that lowest one, the queue stays full of
+  entries that are no longer missing and newly reported gaps are never admitted.
+- **An emitted repair stays queued.** The receiver keeps naming a hole until it is
+  filled, and a repair takes a round trip to land, so it will be re-reported many
+  times while already in flight. Re-sending on each of those is the duplication
+  selective repeat exists to remove.
+- **The retry timer counts reports, not milliseconds** (the handler runs on the
+  comm task, which has no clock), so it must track how fast reports arrive: at the
+  data-frame rate while streaming (`XFER_SACK_REPEAT_REPORTS`), and at the
+  receiver's keepalive cadence once the stream is finished
+  (`XFER_SACK_REPEAT_REPORTS_IDLE`), which is hundreds of times slower.
+
+**The receiver must keep reporting when nothing is arriving.** With the stream
+finished and a repair lost, the FC is waiting on a report and a receiver that only
+reports on arriving data is waiting on the repair — neither moves. A periodic
+re-report in the transfer's own protocol is required, not optional.
+
+Measured on hardware, 64 KiB over the ESP8266 bridge, same client otherwise:
+
+| recovery | throughput | duplicate frames |
+| -------- | ---------- | ---------------- |
+| go-back-N (`NAK`) | 18.1 KiB/s | ~50% |
+| selective repeat (`XFER_SACK`) | 21.7–26.0 KiB/s | 22–33% |
 
 ## Two-phase open
 

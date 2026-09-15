@@ -235,6 +235,15 @@ static void on_xfer_ack(void *ctx, const navlink_frame_hdr_t *hdr,
   xfer_on_ack(m->session, m->next_offset, m->flags);
 }
 
+/** @noreq xfer selective-ack codec adapter (behavior in navlink_xfer.c) */
+static void on_xfer_sack(void *ctx, const navlink_frame_hdr_t *hdr,
+                         const navlink_xfer_sack_t *m) {
+  (void)ctx;
+  (void)hdr;
+  xfer_on_sack(m->session, m->next_offset, m->miss_off, m->miss_len,
+               m->n_ranges);
+}
+
 /* ---- filesystem navigation: list a dir / stat a path ---------------------
  * Deferred like xfer-open: stash on the comm task, do the VFS walk + emit on
  * the xfer task. fs_query results mirror command_result by value. */
@@ -483,6 +492,7 @@ void navlink_router_init(void) {
   s_handlers.on_xfer_close = on_xfer_close;
   s_handlers.on_xfer_data = on_xfer_data;
   s_handlers.on_xfer_ack = on_xfer_ack;
+  s_handlers.on_xfer_sack = on_xfer_sack;
   s_handlers.on_fs_list = on_fs_list;
   s_handlers.on_fs_info = on_fs_info;
   s_handlers.on_fs_delete = on_fs_delete;
