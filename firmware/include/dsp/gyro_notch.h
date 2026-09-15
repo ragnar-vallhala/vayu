@@ -36,6 +36,10 @@ bool gyro_notch_init(void);
  * (so the spectrum is warm on enable); only the filter output is gated. */
 void gyro_notch_set_enabled(bool enabled);
 bool gyro_notch_enabled(void);
+/* Enabled AND past the throttle gate, i.e. actually filtering the gyro. A
+ * recording that only says "enabled" cannot distinguish a notch that did
+ * nothing from one that was never armed. */
+bool gyro_notch_active(void);
 
 /* Feed the current throttle (0..1) each tick. The notch only engages (filters +
  * analyses) above an internal throttle threshold, where the prop vibration it

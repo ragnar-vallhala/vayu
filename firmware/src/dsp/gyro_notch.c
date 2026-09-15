@@ -132,6 +132,10 @@ bool gyro_notch_init(void) {
 
 void gyro_notch_set_enabled(bool enabled) { s_enabled = enabled; }
 bool gyro_notch_enabled(void) { return s_enabled; }
+/** @noreq the three gates together: compiled in, enabled, and past the
+ *  throttle floor. `enabled` alone does not mean the gyro is being filtered,
+ *  which is the distinction a log has to record to be worth anything. */
+bool gyro_notch_active(void) { return engaged(); }
 void gyro_notch_set_throttle(float throttle01) { s_throttle = throttle01; }
 
 float gyro_notch_apply(uint8_t axis, float gyro) {
@@ -288,6 +292,7 @@ unsigned gyro_notch_decimation(void) { return s_bank ? s_decim : 0u; }
 bool gyro_notch_init(void) { return false; }
 void gyro_notch_set_enabled(bool enabled) { (void)enabled; }
 bool gyro_notch_enabled(void) { return false; }
+bool gyro_notch_active(void) { return false; }
 void gyro_notch_set_throttle(float throttle01) { (void)throttle01; }
 float gyro_notch_apply(uint8_t axis, float gyro) {
   (void)axis;
