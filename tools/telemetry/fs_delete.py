@@ -35,8 +35,10 @@ RESULT = {0: "ACCEPTED", 1: "TEMPORARILY_REJECTED", 2: "DENIED",
 WHY = {
     1: "the file is in use -- imuhs.bin is refused while a session is "
        "recording; disarm and retry",
-    2: "absent, a directory, or protected -- cal.bin and pid.bin are refused "
-       "permanently, losing either costs a recalibration or a retune",
+    2: "absent, a directory, or protected -- cal.bin and pid.bin (losing "
+       "either costs a recalibration or a retune) and the v_nav/v_sys/v_gen "
+       "blackbox rings (deleting one costs a 30 MB zero-filling prealloc at "
+       "the next boot) are refused permanently",
     4: "the unlink itself failed (card error?)",
 }
 
