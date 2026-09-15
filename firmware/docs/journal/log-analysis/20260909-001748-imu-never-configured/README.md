@@ -83,9 +83,33 @@ assumption nobody checked":
 | 7e | motor 3 holds a standing 30% deficit; the accelerometer reads 5.2% high at rest |
 | 7f | ToF aiding verified (2-3x faster bias convergence); two oscillation regimes; accel calibration is orientation-dependent by ±8% |
 
+## Post-fix analysis (2026-09-10)
+
+The archive now spans both sides of the fix. `analysis.md` §9-13 is the
+verification, on two further captures in `data/`:
+
+| capture | arms | what it is |
+|---|---|---|
+| `imuhs-20260910-propson-bench.bin` | 2, 18.8 s | props on, bench, notch OFF — the first unaliased vibration spectrum |
+| `imuhs-20260910-hover-attempt.bin` | 11, 57.9 s | hover attempts, notch ON |
+
+| § | finding |
+|---|---|
+| 9 | the fix is confirmed on hardware: 98.5 → 1468 distinct samples/s, Nyquist 49 → 734 Hz, ±16 g verified two ways |
+| 10 | what the props really put in: 89-172 Hz fundamental tracking RPM, blade passing at 456-477 Hz — and the alias table showing all of it used to land in 1.5-45 Hz. The 99.9 Hz fundamental folded to 1.5 Hz is almost certainly the "1.4 Hz pitch cascade" of 2026-06-22 |
+| 11 | why the 2 kHz poll is 1827 Hz: the 1-in-13 ancillary DMA chain, costing 8.2% of samples; the 141 Hz artifact that follows is at or below the noise floor |
+| 12 | the first hover left sideways — `board_trim` is stale after the accel recalibration, and throttle never reached hover. Not the IMU |
+| 13 | **two analysis traps**: the HSL accel stream is uncalibrated, and `hslog.py` applies the newest FMT scale to every arm in a mixed-firmware ring. Both give confident wrong answers |
+
 ## Status
 
-Nothing here is fixed yet. **Do not fly on this firmware** — see
-`recommendations.md` P0. The 20 arms in this capture are bench runs; 6 of them
-ended in FAILSAFE on the accel-health veto, which is the guard working
-correctly against data that should never have looked like that.
+The sensor findings (§1-4) are **fixed and verified on hardware** — see §9.
+The aircraft has not yet flown successfully: the first attempt drifted off on a
+stale `board_trim` (§12), which must be re-run after the accel calibration,
+and hover throttle was never reached.
+
+Everything in the 2026-09-09 sections above still stands as written. The 20 arms in the
+original capture are bench runs; 6 of them ended in FAILSAFE on the
+accel-health veto, which is the guard working correctly against data that
+should never have looked like that. `recommendations.md` P0 is now done; the
+rest of that list is not.

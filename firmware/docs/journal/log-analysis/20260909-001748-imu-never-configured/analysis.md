@@ -867,3 +867,172 @@ per-sample dt: median 550.0 us -> 1818 Hz   (nominal 500 us / 2000 Hz)
   depends on it, but an arm whose `SESSION` frame has been overwritten *and*
   that shares a tag with its predecessor cannot be split. See
   `recommendations.md` P2.
+
+---
+
+# Post-fix analysis — 2026-09-10
+
+Everything above was written against a sensor running on its power-on defaults.
+The fix landed on 2026-09-10 and was flashed to the aircraft the same day; this
+section is the verification, and the two captures it rests on are in `data/`
+alongside the original:
+
+| | |
+|---|---|
+| `data/imuhs-20260910-propson-bench.bin` | 2 arms, 18.8 s. Props on, held on the bench, never airborne. Notch OFF. |
+| `data/imuhs-20260910-hover-attempt.bin` | 11 arms, 57.9 s. The first two are the bench capture above, replayed into a fresh ring; arms 2-10 are hover attempts with the notch ON. |
+| firmware | `fix/imu-config-odr-range`, `bmx160_init` writes ACC_CONF/ACC_RANGE/GYR_CONF/GYR_RANGE from `variables.h` |
+| settings | 1600 Hz ODR both, bwp normal, ±16 g accel, ±2000 dps gyro |
+
+## 9. The fix is confirmed on hardware
+
+`bmx160_init` now writes the four configuration registers. The range enums were
+changed to carry register codes rather than g and dps values — as §1 predicted,
+`BMX160_ACC_16G = 16` packed `16 & 15 == 0`, a reserved range the sensor
+ignores — and four `_Static_assert`s pin the packed bytes to the datasheet.
+
+Sample staleness, the measurement §2 was built on, collapses:
+
+| | poll Hz | distinct samples/s | mean repeat run |
+|---|---|---|---|
+| arms 0-19, pre-fix | 1827 | **98.5** | 18.55 |
+| arm 20, post-fix | 1827 | **1468** | **1.244** |
+
+14.9× more information per second. Nyquist moves from ~49 Hz to ~734 Hz.
+
+Range confirms independently, from the card and from the link:
+
+- quantisation step on the accel is 0.0047 m/s² → full scale 154 m/s² ≈ ±16 g
+- quantisation step on the gyro is 0.0610 dps → full scale 1999 dps ≈ ±2000 dps
+- `|accel|` at rest reads 9.74 m/s² over the telemetry link, which is only
+  possible if the register and the driver's scale agree; had the write failed
+  while the driver believed it, this would read ~78.
+
+## 10. What the props actually put into the gyro
+
+The first vibration measurement this project has ever had that is not folded.
+Props on from 2.9 s to 12.2 s of arm 1, differenced against the props-off
+stretch of the same arm so that hand motion cancels:
+
+| source | frequency | amplitude (gy) |
+|---|---|---|
+| motor fundamental | 89-172 Hz, tracking RPM | 8-22 dps |
+| blade passing (≈3×) | 456-477 Hz | 1.4 dps, 2.5 m/s² on az |
+
+The fundamental tracks throttle — 0.05 → 104 Hz, 0.16 → 148 Hz — so it is a
+rotating source and a *dynamic* notch is the right instrument, not a fixed one.
+
+**Where that energy used to land.** Every peak above, folded by the 98.4 Hz
+sampling §2 measured:
+
+| real | aliased to |
+|---|---|
+| 99.9 Hz | **1.5 Hz** |
+| 89.5 Hz | 8.9 Hz |
+| 110.6 Hz | 12.2 Hz |
+| 476.9 Hz | 15.1 Hz |
+| 170.9 Hz | 25.9 Hz |
+| 456.0 Hz | 36.0 Hz |
+| 139.2 Hz | 40.8 Hz |
+| 151.9 Hz | 44.9 Hz |
+
+All of it inside 1.5-45 Hz — the control band. The 99.9 Hz fundamental landing
+at 1.5 Hz is very likely the "~1.4 Hz pitch cascade" recorded in the
+2026-06-22 on-hardware tune report: not a control mode at all, and no gain
+change could ever have removed it.
+
+## 11. The 2 kHz poll rate is 1827 Hz, and why
+
+§7 noted `IMU_SAMPLE_FREQ_HZ = 2000` achieves 1827 Hz and left it there. The
+cause is in `bmx160.c:1053`: every 13th fast read chains the ancillary sensors
+onto the same single-owner DMA loop — `FAST → MAG → TEMP → (BARO 1-in-10 |
+ToF 1-in-7)` — and the drain-then-wait pacing rounds any overrun up to a whole
+500 µs tick.
+
+Reconstructed from the measurement alone:
+
+```
+13 cycles      = 7115 us
+12 plain FAST  = 6000 us
+the 13th cycle = 1115 us = 2.23 ticks
+                 usually 2 ticks; 3 ticks 23% of the time
+```
+
+That 23% is independently predicted by `1/BARO_READ_DECIM + 1/TOF_READ_DECIM =
+1/10 + 1/7 = 0.243`. The model reproduces the measured 1827.3 Hz.
+
+The same stall explains a second number: during a 1000-1500 µs cycle the
+1600 Hz sensor emits 1.6-2.4 samples and the loop captures one, so **8.2% of
+IMU samples are dropped** — matching the 8.2% measured independently from run
+lengths. The tick is not at fault: `HIGH_FREQ_TIMER_FREQ = 10000` gives
+`us_per_interrupt = 100` exactly and `delay_interrupts = 500/100 = 5`, so the
+tick is exactly 2000 Hz.
+
+The loss is periodic at `1827/13 = 140.6 Hz`, which raises the question of a
+spectral artifact. Measured on the props-off bench data, it is not one:
+
+| axis | signal rms | line at 140.6 Hz | noise floor 100-400 Hz |
+|---|---|---|---|
+| gx | 0.232 dps | 0.0044 | 0.0030 |
+| gy | 0.194 dps | 0.0016 | 0.0023 |
+| gz | 0.180 dps | 0.0012 | 0.0023 |
+
+At or below the floor on three axes. It scales with signal slew, so it will be
+larger in flight, but it sits at 141 Hz — above the rate-loop bandwidth and
+~11 dB down through the 40 Hz D-term LPF. Not worth spending on: a dedicated
+SPI bus for the IMU removes the shared-loop stall entirely.
+
+## 12. First hover attempt: a left drift, and it is not the IMU
+
+The notch was enabled by writing the persisted store (`notch_enabled = 1`,
+q = 8, 60-450 Hz, ratio 4.0) and the aircraft was flown. It left sideways
+immediately. Two independent causes, neither of them the sensor:
+
+**Throttle never approached hover.** 0.16 peak against ~0.38 hover on this
+airframe. It was tipping and sliding, not flying — which is also why the
+controller's sustained roll and pitch corrections (+0.185 / -0.249 in mixer
+units) never resolved: on the ground they cannot.
+
+**`board_trim` is stale.** `CAL.BIN` holds `board_trim roll = -3.781°`, and
+`attitude_task.c:179` does `ori.roll -= trim_roll`, so it *adds* 3.78° to
+reported roll:
+
+```
+aircraft level, calibrated accel says roll  = +0.2 deg
+estimator reports                      roll = +4.0 deg
+controller drives reported roll to zero
+=> aircraft physically holds true roll ~ -3.8 deg
+=> lateral acceleration 9.81 * sin(3.8) = 0.65 m/s^2
+=> ~2.9 m of drift in 3 s, one direction, without settling
+```
+
+The accel calibration itself is sound. Applying the stored `CAL.BIN` to the raw
+logged samples gives `|a|` = 9.824 and 9.864 m/s² (+0.18%, +0.58%) across two
+independent arms, with roll +0.22°/+0.58° and pitch -0.08°/-0.51° — level to
+better than 0.6°.
+
+Board trim and accel calibration are separate procedures and trim depends on
+the accel zero. The accel was recalibrated on 2026-09-10 after the range
+change; the trim captured against the *previous* accel zero was not, and now
+double-corrects a tilt the fresh calibration already reads as absent. **Re-run
+the board-level calibration (`imu_id = 4`) after any accel calibration, in that
+order.**
+
+## 13. Two analysis traps in this archive
+
+Both cost real time on 2026-09-10 and both produce confident, wrong answers.
+
+**The HSL accel stream is uncalibrated.** `bmx160.c:1337` logs
+`_bmx_data.raw.acc` — counts, scaled, with no offset or soft-iron applied.
+Attitude and `|a|` computed straight from the file describe the bare sensor,
+not what the estimator sees. §12's first draft concluded from raw data that the
+accel calibration was stale and the level reference was off by 7.55°; applying
+`CAL.BIN` showed the calibration was fine and the fault was `board_trim`.
+Always apply `CAL.BIN` before drawing an attitude conclusion from HSL.
+
+**`hslog.py` applies the newest FMT to every session.** `decode()` returns one
+stream table, so a ring spanning a scale change decodes its older arms with the
+newer scale. The pre-fix arms in the archive capture read `|a| ≈ 82 m/s²`, 8×
+high, purely because the ±16 g FMT was applied to ±2 g data. Angles are
+unaffected — a common scale cancels in `arctan2` — but magnitudes are not.
+Split a mixed-firmware ring by arm before trusting any magnitude from it.
