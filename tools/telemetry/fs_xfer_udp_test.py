@@ -256,7 +256,7 @@ def upload(br, session, path, payload, rate_bps, window, timeout=60.0):
 
 
 # ── phase 2: download (FC -> GCS), reassemble + cumulative-ack ─────────────────
-def download(br, session, path, expect_n, timeout=60.0):
+def download(br, session, path, expect_n, timeout=60.0, sack=True):
     print(f"[dn ] XFER_OPEN download '{path}'")
     t0 = time.monotonic()
     total = None
@@ -267,6 +267,7 @@ def download(br, session, path, expect_n, timeout=60.0):
     last_ack = 0.0
     t_first = None
     done = False
+    gaps = []
     while not done and time.monotonic() - t0 < timeout:
         t = time.monotonic()
         if total is None and t - last_open >= 0.5:
@@ -303,20 +304,52 @@ def download(br, session, path, expect_n, timeout=60.0):
                             cursor = off + ln
                         elif off == cursor:
                             cursor = off + ln
+                # Holes above the cumulative cursor, as (offset, length) pairs:
+                # the gaps between the runs we do have. Capped at the 8 the
+                # message carries; the rest are re-reported next time.
+                gaps = []
+                if sack:
+                    probe = cursor
+                    for off, ln in have:
+                        if off > probe:
+                            gaps.append((probe, min(off - probe, CHUNK)))
+                            if len(gaps) >= 8:
+                                break
+                        probe = max(probe, off + ln)
                 eof = bool(m.flags & F_EOF)
                 if eof and cursor >= total:
                     br.send(nl.XferAck(session=session, flags=F_DONE,
                                        result=R_OK, next_offset=cursor))
                     done = True
                     break
-                flags = F_NAK if m.offset > cursor else F_NONE
-                br.send(nl.XferAck(session=session, flags=flags, result=R_OK,
-                                   next_offset=cursor))
+                if sack:
+                    # Selective repeat: name the holes above the cumulative
+                    # cursor and let the FC refill only those. It does not
+                    # rewind, so nothing already in flight comes back.
+                    br.send(nl.XferSack(session=session, n_ranges=len(gaps),
+                                        next_offset=cursor,
+                                        miss_off=[g[0] for g in gaps] + [0] * (8 - len(gaps)),
+                                        miss_len=[g[1] for g in gaps] + [0] * (8 - len(gaps))))
+                else:
+                    # Go-back-N: a NAK rewinds the sender to the cursor, so one
+                    # loss re-sends everything since.
+                    flags = F_NAK if m.offset > cursor else F_NONE
+                    br.send(nl.XferAck(session=session, flags=flags, result=R_OK,
+                                       next_offset=cursor))
                 last_ack = t
-        # nudge a refill if the stream stalls below total
+        # Nudge a refill if the stream stalls below total. This MUST speak the
+        # same protocol the transfer is using: a receiver that only reports on
+        # arriving data cannot recover when the sender has gone quiet holding a
+        # repair it believes is in flight -- no data, no report, no repair.
         if total is not None and not done and t - last_ack > 0.3 and cursor < total:
-            br.send(nl.XferAck(session=session, flags=F_NAK, result=R_OK,
-                               next_offset=cursor))
+            if sack:
+                br.send(nl.XferSack(session=session, n_ranges=len(gaps),
+                                    next_offset=cursor,
+                                    miss_off=[g[0] for g in gaps] + [0] * (8 - len(gaps)),
+                                    miss_len=[g[1] for g in gaps] + [0] * (8 - len(gaps))))
+            else:
+                br.send(nl.XferAck(session=session, flags=F_NAK, result=R_OK,
+                                   next_offset=cursor))
             last_ack = t
         time.sleep(0.002)
     if not done:
@@ -381,6 +414,8 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--port", type=int, default=14555, help="UDP bridge port")
     ap.add_argument("--path", default="0:xtest.bin", help="SD path (8.3 name, drive 0)")
+    ap.add_argument("--goback", action="store_true",
+                    help="use go-back-N (XFER_ACK/NAK) instead of selective repeat")
     ap.add_argument("--size", type=int, default=16384, help="payload bytes")
     ap.add_argument("--rate", type=float, default=38000, help="upload byte-rate cap (B/s)")
     ap.add_argument("--window", type=int, default=16384, help="upload in-flight window (B)")
@@ -415,7 +450,7 @@ def main():
 
     fs_probe(br, args.path)
 
-    rx, dn_kbps = download(br, 1, args.path, args.size)
+    rx, dn_kbps = download(br, 1, args.path, args.size, sack=not args.goback)
     if rx is None:
         return 1
     br.send(nl.XferClose(target_sys=FC_SYS, target_comp=FC_COMP, req_seq=10,
