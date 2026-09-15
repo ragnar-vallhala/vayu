@@ -228,13 +228,18 @@ static void test_roundtrip_up_then_down(void) {
   CHECK(CAP.n_info == 1 && CAP.info[0].total == sizeof src,
         "download INFO advertises total size");
 
-  /* Drain with a big budget over a few ticks; ack progress like a GCS. */
+  /* Drain with a big budget over a few ticks; ack progress like a GCS.
+   * Assemble from EVERY captured frame, not only those emitted since the last
+   * tick: the state machine deliberately emits the first chunks in the same
+   * tick that completes the open, so a window starting after that tick misses
+   * them. This test used to pass only because a plain cumulative ack rewound
+   * the sender and it all arrived a second time -- it was asserting the
+   * stop-and-wait bug rather than the transfer. */
   uint8_t got[1000];
   uint32_t assembled = 0;
   for (int t = 0; t < 20 && xfer_session_active(1); t++) {
-    int before = CAP.n_data;
     xfer_tick(20 + (uint32_t)t, 0, 8);
-    for (int i = before; i < CAP.n_data; i++) {
+    for (int i = 0; i < CAP.n_data; i++) {
       memcpy(got + CAP.data[i].offset, CAP.data[i].data, CAP.data[i].len);
       if (CAP.data[i].offset + CAP.data[i].len > assembled)
         assembled = CAP.data[i].offset + CAP.data[i].len;

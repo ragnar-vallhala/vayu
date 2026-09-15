@@ -239,9 +239,15 @@ void xfer_on_ack(uint8_t session, uint32_t next_offset, uint8_t flags) {
     session_free(s);
     return;
   }
-  /* Resume/refill: rewind to the GCS's lowest-missing byte (idempotent re-read).
-   * NAK forces it even if next_offset == cursor. */
-  if (next_offset < s->cursor || (flags & XFER_F_NAK)) {
+  /* Rewind ONLY on an explicit NAK. A plain cumulative ack carries the GCS's
+   * lowest-missing byte, which is BEHIND this cursor for as long as anything is
+   * in flight -- that is the normal condition of a sender that is ahead, not a
+   * request to resend. Treating it as one dragged the cursor back on every ack,
+   * which collapsed the download to stop-and-wait and re-sent everything already
+   * in flight: measured on hardware at 266 useful chunks against 911 frames
+   * emitted, 70% of the link spent on duplicates, and immune to every pacing
+   * knob because the round trip, not the pacing, set the rate. */
+  if (flags & XFER_F_NAK) {
     if (!is_stream(s))
       s->cursor = next_offset;
     if (s->state == XFER_ST_DONE_LINGER)
