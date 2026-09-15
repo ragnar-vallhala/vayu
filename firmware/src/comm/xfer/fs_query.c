@@ -103,6 +103,17 @@ static uint8_t delete_verdict(const char *path) {
       same_file(path, PID_CONFIG_FILE_PATH)) {
     return FSQ_RES_DENIED;
   }
+  /* The blackbox ring files. Deleting one is not the small thing its name
+   * suggests: fs_owner_boot_init preallocates all three at the next boot, and
+   * vfs_preallocate zero-fills 512 B at a time, so 30 MB of re-creation runs
+   * before the scheduler reaches timer_callback_init and the aircraft looks
+   * hung for minutes. They are also ring files -- there is never a reason to
+   * delete one to reclaim space, because the space is already fixed. */
+  if (same_file(path, NAVLINK_LOGGING_FILENAME) ||
+      same_file(path, SYS_LOGGING_FILENAME) ||
+      same_file(path, GENERAL_LOGGING_FILENAME)) {
+    return FSQ_RES_DENIED;
+  }
   /* Temporary: the recorder holds this open and is writing into it. Refusing
    * with BUSY rather than DENIED tells the GCS this succeeds after a disarm. */
   if (same_file(path, HSL_FILENAME) && imu_hs_log_active()) {

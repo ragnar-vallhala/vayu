@@ -65,6 +65,12 @@ Two classes of path are refused, and the result code is what separates them —
   someone meant to reclaim space with. Matched on the basename,
   case-insensitively, because FatFS is case-insensitive and a guard that only
   caught one spelling of `PID.BIN` would be no guard at all.
+- **`v_nav.bin`, `v_sys.bin`, `v_gen.bin`, always.** The blackbox ring files.
+  Deleting one is not the small thing its name suggests: `fs_owner_boot_init`
+  preallocates all three at the next boot and `vfs_preallocate` zero-fills
+  512 B at a time, so 30 MB of re-creation runs before the scheduler reaches
+  `timer_callback_init` — the aircraft looks hung for minutes. They are ring
+  files besides, so deleting one reclaims nothing: the space is already fixed.
 - **`imuhs.bin` while a session is recording.** The high-speed recorder holds it
   open and is writing into it. This one is state-gated rather than permanent,
   so it succeeds once disarmed. The gate is re-checked at the unlink itself, not

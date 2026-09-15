@@ -198,6 +198,18 @@ static void test_delete_protected(void) {
         "FS_DELETE of 0:PID.BIN (upper case) -> DENIED");
   CHECK(exists(PID_CONFIG_FILE_PATH),
         "pid.bin survived the upper-case spelling");
+
+  /* The blackbox ring files. Deleting one costs a 30 MB zero-filling
+   * preallocation at the next boot, during which the aircraft looks hung. */
+  const char *rings[3] = {NAVLINK_LOGGING_FILENAME, SYS_LOGGING_FILENAME,
+                          GENERAL_LOGGING_FILENAME};
+  for (int i = 0; i < 3; i++) {
+    fs_owner_enqueue_write_at(0, rings[i], 0, blob, sizeof blob);
+    fs_owner_pump();
+    CHECK(delete_result((uint8_t)(0x40 + i), rings[i]) == FSQ_RES_DENIED,
+          "FS_DELETE of a blackbox ring file -> DENIED");
+    CHECK(exists(rings[i]), "the blackbox ring file survived");
+  }
 }
 
 static void test_delete_hsl_state_gated(void) {
