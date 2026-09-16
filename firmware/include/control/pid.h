@@ -11,7 +11,14 @@ struct PID {
   float integral;         // accumulated I term
   float prev_meas;        // previous measurement (D-on-meas)
   float out_min, out_max; // output saturation
-  bool initialized;       // initialized flag
+  /* How much of the last output the ACTUATOR could not deliver, in output
+   * units and signed the same way: positive means more positive effort was
+   * asked for than arrived. The PID's own out_min/out_max cannot see this --
+   * a rate axis saturates at the MIXER, which sums three axes onto the
+   * collective and runs out long before any single axis reaches +-1. Fed back
+   * by the caller that owns the allocation; 0 means "no limit reported". */
+  float sat_excess;
+  bool initialized; // initialized flag
 };
 
 void v_pid_init(struct PID *pid, float Kp, float Ki, float Kd, float Kff,
@@ -28,4 +35,8 @@ void v_pid_set_i_max(struct PID *pid, float i_max);
 void v_pid_set_d_lpf_rc(struct PID *pid, float d_lpf_rc);
 void v_pid_set_prev_meas(struct PID *pid, float prev_meas);
 void v_pid_set_integral(struct PID *pid, float integral);
+/* Report what the actuator could not deliver on the previous output, so the
+ * next update stops integrating further INTO that limit (it may still unwind
+ * out of it). Signed in output units: commanded - realised. */
+void v_pid_set_sat_excess(struct PID *pid, float excess);
 #endif // VAYU_PID_H
