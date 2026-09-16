@@ -33,15 +33,15 @@ gyr[i] -= gyr_offset[i];
 
 It works, but it has seven concrete weaknesses versus PX4's `GyroCalibration`:
 
-| # | Weakness | Consequence |
-|---|---|---|
-| 1 | Runs in the **2 kHz hot path** | wasted cycles; the learner has no reason to run per-sample |
-| 2 | **Fixed single-pole EMA** (α=0.0034), no quality metric | low-passes whatever passes the gate; can chase low-freq noise |
-| 3 | **No temperature gate** | a bias learned cold is applied hot (BMX160 gyro bias is strongly T-dependent) |
-| 4 | **Not persisted** | RAM-only — every reboot discards the learned refinement and restarts from the static cal |
-| 5 | **Chicken-and-egg still-gate** | `gyro_sq` is computed on the *pre-subtraction* rate (line 1281, before the `-= offset` at 1304). If the true bias exceeds `GYRO_STILL_DPS` (0.2 °/s) the gate can **never open** — the learner is dead exactly when the bias is large enough to matter |
-| 6 | **Reset-to-zero on \|offset\|>5** | injects a step discontinuity straight into the control gyro mid-operation |
-| 7 | **No commit hysteresis** | writes `gyr_offset` on every still sample → the "calibration" is perpetually drifting, non-deterministic |
+| #   | Weakness                                                | Consequence                                                                                                                                                                                                                                            |
+| --- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | Runs in the **2 kHz hot path**                          | wasted cycles; the learner has no reason to run per-sample                                                                                                                                                                                             |
+| 2   | **Fixed single-pole EMA** (α=0.0034), no quality metric | low-passes whatever passes the gate; can chase low-freq noise                                                                                                                                                                                          |
+| 3   | **No temperature gate**                                 | a bias learned cold is applied hot (BMX160 gyro bias is strongly T-dependent)                                                                                                                                                                          |
+| 4   | **Not persisted**                                       | RAM-only — every reboot discards the learned refinement and restarts from the static cal                                                                                                                                                               |
+| 5   | **Chicken-and-egg still-gate**                          | `gyro_sq` is computed on the _pre-subtraction_ rate (line 1281, before the `-= offset` at 1304). If the true bias exceeds `GYRO_STILL_DPS` (0.2 °/s) the gate can **never open** — the learner is dead exactly when the bias is large enough to matter |
+| 6   | **Reset-to-zero on \|offset\|>5**                       | injects a step discontinuity straight into the control gyro mid-operation                                                                                                                                                                              |
+| 7   | **No commit hysteresis**                                | writes `gyr_offset` on every still sample → the "calibration" is perpetually drifting, non-deterministic                                                                                                                                               |
 
 ### PX4's model (what we copy)
 
@@ -258,7 +258,7 @@ for (int i = 0; i < 3; i++) _bmx_data.converted.gyr[i] -= bmx160_calib.gyr_offse
 #### Notes / decisions
 
 - **Scope = ground/disarmed only** (like PX4's `GyroCalibration` module). The
-  richer PX4 *in-flight* path fuses the EKF's `estimator_sensor_bias`; vayu's EKF
+  richer PX4 _in-flight_ path fuses the EKF's `estimator_sensor_bias`; vayu's EKF
   already estimates a gyro-bias state (`ekf.c`) so an equivalent in-flight learner
   is possible later, but it belongs in the estimator, not the driver — out of
   scope here. See [[indi-rate-loop]] / [[onhw-tune-logreport]] for why a stable
@@ -277,13 +277,13 @@ The accel wizard captures N averaged static poses (coverage-gated by
 (`calib_engine.c:run_ellipsoid`/`finalize` → `calib_fit_ellipsoid`), producing
 `acc_offset[3]` + a **full 3×3** `acc_soft_iron`, then rescales so `|a|=g`.
 
-That fit is strictly *more general* than PX4's (it recovers cross-axis
+That fit is strictly _more general_ than PX4's (it recovers cross-axis
 misalignment, not just diagonal scale), but it pays for it:
 
 - needs **diverse coverage** (the `cov_done`/`pose_advances_coverage` machinery),
 - can **fail on degenerate/planar** pose sets (`calib_fit_ellipsoid` returns −1 if
   Q isn't positive-definite),
-- the outcome depends on *which* orientations the operator happened to hit.
+- the outcome depends on _which_ orientations the operator happened to hit.
 
 ### PX4's model (the closed form)
 
@@ -310,13 +310,14 @@ only diagonal scale.
 ### Proposed vayu function — `calib_fit_sixpoint`
 
 Drop-in for `calib_ellipsoid.{c,h}`, usable as a new `CALIB_FIT_SIXPOINT` target
-or called directly from `calibration_task`. Because vayu's `acc_soft_iron` is a
-**full 3×3**, we can keep the *entire* `accel_T` (misalignment for free) — better
-than PX4's diagonal-only storage. Define `CALIB_SIXPOINT_DIAG_ONLY` for
-PX4-faithful diagonal behavior.
+or called directly from `calibration_task`. vayu's `acc_soft_iron` store is a
+**full 3×3**, but the six-point path fills only its diagonal: six axis-aligned
+faces make the solve exactly determined, so the off-diagonals it can compute are
+pose error rather than measured misalignment. Storage capacity is not
+observability. The 12-pose ellipsoid remains the fit that earns the full 3×3.
 
 > **Transpose subtlety (found during implementation).** PX4 computes
-> `accel_T = inv(A)·g` and keeps only its *diagonal*, applied element-wise. vayu
+> `accel_T = inv(A)·g` and keeps only its _diagonal_, applied element-wise. vayu
 > applies the **full** matrix `soft·(raw − offset)`, and the constraint is
 > `accel_T · Aᵀ = g·I`, so the correct full matrix is
 > `accel_T = g·(A⁻¹)ᵀ = (g/det)·cofactor(A)` — the transpose of PX4's `inv(A)`.
@@ -341,18 +342,18 @@ the six sides itself). It matches vayu's runtime apply exactly:
 
 ### Trade-off & recommendation
 
-| | Ellipsoid LSQ (current) | 6-point closed form (proposed) |
-|---|---|---|
-| Poses | many, diverse (coverage-gated) | exactly 6 axis-aligned |
-| Solve | iterative normal-equations | exact closed form |
-| Captures misalignment | yes (full 3×3) | yes if you keep full `accel_T`; diag = PX4 |
-| Noise robustness | high (over-determined LSQ) | per-pose average only (exactly determined) |
-| Failure mode | −1 on degenerate coverage | −1 only if a side is missing/duplicated |
-| Operator UX | "rotate freely until covered" | "lay it on each of its 6 sides" |
+|                       | Ellipsoid LSQ (current)        | 6-point closed form (proposed)             |
+| --------------------- | ------------------------------ | ------------------------------------------ |
+| Poses                 | many, diverse (coverage-gated) | exactly 6 axis-aligned                     |
+| Solve                 | iterative normal-equations     | exact closed form                          |
+| Captures misalignment | yes (full 3×3)                 | no — zeroed; six faces cannot observe it    |
+| Noise robustness      | high (over-determined LSQ)     | per-pose average only (exactly determined) |
+| Failure mode          | −1 on degenerate coverage      | −1 only if a side is missing/duplicated    |
+| Operator UX           | "rotate freely until covered"  | "lay it on each of its 6 sides"            |
 
-**Recommendation:** *add* `CALIB_FIT_SIXPOINT` as the accel path and drive it from
+**Recommendation:** _add_ `CALIB_FIT_SIXPOINT` as the accel path and drive it from
 a **guided 6-side wizard** (the PX4 UX — clearer for users and impossible to land
 degenerate), while **keeping the ellipsoid fit** for the magnetometer (free
 rotation has no six natural sides) and as a fallback. Don't rip out the
 ellipsoid: it's the more capable fit and the mag needs it. The six-point path is
-the better *default accel* experience; the ellipsoid stays the general tool.
+the better _default accel_ experience; the ellipsoid stays the general tool.

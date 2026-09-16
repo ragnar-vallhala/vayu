@@ -285,9 +285,7 @@ int calib_fit_sixpoint(const float (*pts)[3], int npts, float g,
   soft[7] = (A[2] * A[3] - A[0] * A[5]) * inv; /* C21 */
   soft[8] = (A[0] * A[4] - A[1] * A[3]) * inv; /* C22 */
 
-#ifdef CALIB_SIXPOINT_DIAG_ONLY
   /* PX4-faithful: keep only the per-axis scale, discard misalignment. */
   soft[1] = soft[2] = soft[3] = soft[5] = soft[6] = soft[7] = 0.0f;
-#endif
   return 0;
 }

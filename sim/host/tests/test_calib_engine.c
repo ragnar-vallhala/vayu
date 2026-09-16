@@ -288,7 +288,7 @@ int main(void) {
   CHECK(rc == -1, "noisy window rejected");
   CHECK(s_commits == 0, "no commit when variance too high");
 
-  printf("  [8] six-point closed-form accel fit (offset + misalignment)\n");
+  printf("  [8] six-point closed-form accel fit (offset + per-axis scale)\n");
   {
     const float g = 9.80665f;
     const float b_true[3] = {0.30f, -0.20f, 0.15f};
@@ -315,8 +315,23 @@ int main(void) {
       snprintf(bb, sizeof bb, "offset[%d] ~= true bias", i);
       CHECK(fabsf(offset[i] - b_true[i]) < 0.02f, bb);
     }
-    /* corrected = soft*(raw-offset) must equal g*axis on every face. */
-    int corr_ok = 1;
+    /* The six-point fit solves offset and PER-AXIS SCALE, and nothing else:
+     * six axis-aligned faces do not observe cross-axis misalignment, so the
+     * off-diagonals are zeroed rather than filled with whatever the exactly
+     * determined solve happened to produce. Recovering misalignment is the
+     * 12-pose ellipsoid's job. */
+    int diag_only = 1;
+    const int offdiag[6] = {1, 2, 3, 5, 6, 7};
+    for (int i = 0; i < 6; i++)
+      if (soft[offdiag[i]] != 0.0f)
+        diag_only = 0;
+    CHECK(diag_only, "six-point emits scale only, never cross-axis terms");
+
+    /* On the magnitude that matters: with the sensor's misalignment left in,
+     * each face still comes back within the misalignment's own size -- the fit
+     * does not amplify what it cannot remove. A_sens off-diagonals are <= 0.02,
+     * so <= 2% of g. */
+    float worst = 0.0f;
     for (int p = 0; p < 6; p++) {
       float d[3] = {pts8[p][0] - offset[0], pts8[p][1] - offset[1],
                     pts8[p][2] - offset[2]};
@@ -324,10 +339,40 @@ int main(void) {
       mat3_vec(soft, d, c);
       float want[3] = {g * axes[p][0], g * axes[p][1], g * axes[p][2]};
       for (int k = 0; k < 3; k++)
-        if (fabsf(c[k] - want[k]) > 0.02f)
-          corr_ok = 0;
+        if (fabsf(c[k] - want[k]) > worst)
+          worst = fabsf(c[k] - want[k]);
     }
-    CHECK(corr_ok, "corrected faces == g*axis (offset + misalignment removed)");
+    CHECK(worst < 0.03f * g,
+          "residual is bounded by the misalignment it does not claim to fix");
+
+    /* And with a sensor that has NO misalignment -- the case six faces DO
+     * determine -- the correction is exact. */
+    {
+      const float A_diag[9] = {1.02f, 0, 0, 0, 0.98f, 0, 0, 0, 1.04f};
+      float ptsd[6][3];
+      for (int p = 0; p < 6; p++) {
+        float ta[3] = {g * axes[p][0], g * axes[p][1], g * axes[p][2]};
+        float r[3];
+        mat3_vec(A_diag, ta, r);
+        for (int k = 0; k < 3; k++)
+          ptsd[p][k] = r[k] + b_true[k];
+      }
+      float od[3], sd[9];
+      int rcd = calib_fit_sixpoint((const float (*)[3])ptsd, 6, g, od, sd);
+      int exact = (rcd == 0);
+      for (int p = 0; p < 6 && exact; p++) {
+        float d[3] = {ptsd[p][0] - od[0], ptsd[p][1] - od[1],
+                      ptsd[p][2] - od[2]};
+        float c[3];
+        mat3_vec(sd, d, c);
+        float want[3] = {g * axes[p][0], g * axes[p][1], g * axes[p][2]};
+        for (int k = 0; k < 3; k++)
+          if (fabsf(c[k] - want[k]) > 0.02f)
+            exact = 0;
+      }
+      CHECK(exact,
+            "a purely scaled sensor is corrected exactly on all 6 faces");
+    }
 
     /* dispatch through the engine with CALIB_FIT_SIXPOINT. */
     calib_target_t ts = {.name = "accel",
