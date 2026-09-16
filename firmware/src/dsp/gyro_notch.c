@@ -4,8 +4,8 @@
  * drives one notch_bank per gyro axis, and staggers the FFT retune to one axis
  * per tick. Two gates guard it: the VAYU_FFT_NOTCH COMPILE switch (below —
  * needs the FPU) and a runtime throttle gate (the notch only engages once the
- * props spin up past GYRO_NOTCH_THROTTLE_MIN, where the vibration it targets
- * actually exists). See dsp/gyro_notch.h for the contract and the single-task /
+ * props spin up past GYRO_NOTCH_THROTTLE_MIN, which is now zero -- see the
+ * constant). See dsp/gyro_notch.h for the contract and the single-task /
  * disabled-by-default constraints. Design ref §9.3 / §10. */
 #include "dsp/gyro_notch.h"
 
@@ -27,10 +27,22 @@
 #define GYRO_NOTCH_FMAX_HZ 450.0f /* < INNER_LOOP_FREQ_HZ/2 = 500 Hz Nyquist */
 #define GYRO_NOTCH_MIN_RATIO 4.0f
 
-/* Throttle (0..1) below which the notch stays disengaged: props effectively
- * idle, so there is no prop-wash line to track and analysing sensor noise would
- * only mistune. */
-#define GYRO_NOTCH_THROTTLE_MIN 0.10f
+/* Throttle (0..1) below which the notch stays disengaged.
+ *
+ * Zero, i.e. armed is enough. The gate guarded against tracking sensor noise
+ * when the props are not turning, but it keyed on the STICK collective, which
+ * reads 0.000 while the motors hold the arming idle floor -- and the props are
+ * spinning there. Measured on 2026-09-15 at exactly that point: 100-137 dps of
+ * ~100 Hz vibration on the gyro with the gate holding the notch off, then
+ * 291 dps once the stick moved, which the notch cut by 24.9 dB. The vibration
+ * the gate was meant to wait for is already present before it opens.
+ *
+ * The cost is the props-off case: with no real peak the tracker locks onto
+ * whatever noise bin wins each frame, wandering 55-308 Hz (same date, session
+ * with the props off). That is bench-only noise and it wants an ABSOLUTE
+ * amplitude floor alongside the existing relative min_peak_ratio, not a
+ * throttle gate that cannot tell the two apart. */
+#define GYRO_NOTCH_THROTTLE_MIN 0.0f
 
 /* Target analyzer sample rate. The biquads always run at the full loop rate
  * (INNER_LOOP_FREQ_HZ); the FFT front-end only needs a Nyquist comfortably above
