@@ -54,5 +54,13 @@ Active plans for in-flight firmware work; a plan is deleted once its feature shi
   control-loop/EKF/sysid comments, dead declarations, `calib_step` EDGE codes,
   and a few GCS fixes. Doc/comment edits + one dialect-enum regen; no behavioral
   change.
+- [`battery-voltage-sensing.md`](battery-voltage-sensing.md) — the stack measures
+  no pack voltage at all, so "low battery" and "real thrust deficit" are
+  indistinguishable in every log (this blocked the 2026-09-17 flight analysis).
+  A 33k/10k divider into the free PA0 (ADC1 IN0), NavHAL's existing ADC driver
+  switched on, VREFINT-corrected so VDDA sag can't masquerade as pack sag, and a
+  voltage column on the HSL `act` stream beside throttle. **Blocked on the
+  divider, which is a board mod.** Measurement only — no compensation, no
+  low-battery failsafe.
 
 Add a plan here when starting a new piece of firmware work, and remove it on completion.
