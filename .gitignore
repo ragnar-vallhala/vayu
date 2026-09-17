@@ -22,6 +22,7 @@ tuned_pid.json
 vayu_settings.dat
 
 # Generated roadmap doc PDFs + LaTeX build artifacts (.tex sources are tracked)
+**/*.pdf
 **/*.aux
 **/*.log
 **/*.out
