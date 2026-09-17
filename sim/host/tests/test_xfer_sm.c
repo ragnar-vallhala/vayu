@@ -17,6 +17,7 @@
  *     - offset past EOF -> immediate DONE
  *     - provider open error -> FAILED (deferred ACK carries the result)
  */
+#include <assert.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -112,13 +113,23 @@ static const xfer_tx_ops_t TX = {e_command_ack, e_info, e_data, e_ack};
 
 /* ============================ fake provider ============================== */
 /* One shared in-memory file: upload writes into it, download reads from it. */
-#define FAKE_CAP 4096u
+#define FAKE_CAP 32768u
 static struct {
   uint8_t buf[FAKE_CAP];
   uint32_t size;
   int open_rc; /* injectable: make open() fail */
   int closes;
 } FAKE;
+
+/* Size the fake file and fill it with a seeded pattern. Every test goes through
+ * here: sizing FAKE past its buffer is a silent global overflow that only shows
+ * up under ASan, and two SACK cases did exactly that. */
+static void fake_fill(uint32_t n, uint8_t seed) {
+  assert(n <= FAKE_CAP);
+  for (uint32_t i = 0; i < n; i++)
+    FAKE.buf[i] = (uint8_t)(seed ^ i);
+  FAKE.size = n;
+}
 
 static int fake_open(xfer_session_t *s, const xfer_open_args_t *a,
                      uint32_t *total_out) {
@@ -262,9 +273,7 @@ static void test_roundtrip_up_then_down(void) {
 static void test_sack_repairs_only_the_gap(void) {
   printf("  test_sack_repairs_only_the_gap\n");
   fake_reset();
-  for (uint32_t i = 0; i < 1500; i++)
-    FAKE.buf[i] = (uint8_t)(0x5Au ^ i);
-  FAKE.size = 1500;
+  fake_fill(1500, 0x5Au);
 
   xfer_open_args_t dn = mkargs(0, XFER_DIR_DOWNLOAD, 7, 0);
   xfer_on_open(&dn);
@@ -332,9 +341,7 @@ static void test_sack_repairs_only_the_gap(void) {
 static void test_sack_lost_repair_is_retried(void) {
   printf("  test_sack_lost_repair_is_retried\n");
   fake_reset();
-  for (uint32_t i = 0; i < 1000; i++)
-    FAKE.buf[i] = (uint8_t)(0x33u ^ i);
-  FAKE.size = 1000;
+  fake_fill(1000, 0x33u);
 
   xfer_open_args_t dn = mkargs(0, XFER_DIR_DOWNLOAD, 7, 0);
   xfer_on_open(&dn);
@@ -389,9 +396,7 @@ static void test_sack_lost_repair_is_retried(void) {
 static void test_sack_retry_is_paced_while_streaming(void) {
   printf("  test_sack_retry_is_paced_while_streaming\n");
   fake_reset();
-  for (uint32_t i = 0; i < 20000; i++)
-    FAKE.buf[i] = (uint8_t)(0x11u ^ i);
-  FAKE.size = 20000;
+  fake_fill(20000, 0x11u);
 
   xfer_open_args_t dn = mkargs(0, XFER_DIR_DOWNLOAD, 7, 0);
   xfer_on_open(&dn);
@@ -418,9 +423,7 @@ static void test_sack_retry_is_paced_while_streaming(void) {
 static void test_sack_queue_does_not_jam(void) {
   printf("  test_sack_queue_does_not_jam\n");
   fake_reset();
-  for (uint32_t i = 0; i < 6000; i++)
-    FAKE.buf[i] = (uint8_t)(0x77u ^ i);
-  FAKE.size = 6000;
+  fake_fill(6000, 0x77u);
 
   xfer_open_args_t dn = mkargs(0, XFER_DIR_DOWNLOAD, 7, 0);
   xfer_on_open(&dn);
@@ -464,9 +467,7 @@ static void test_sack_queue_does_not_jam(void) {
 static void test_resume_after_drop(void) {
   printf("  test_resume_after_drop\n");
   fake_reset();
-  for (uint32_t i = 0; i < 800; i++)
-    FAKE.buf[i] = (uint8_t)(0xC0u ^ i);
-  FAKE.size = 800;
+  fake_fill(800, 0xC0u);
 
   xfer_open_args_t dn = mkargs(0, XFER_DIR_DOWNLOAD, 7, 0);
   xfer_on_open(&dn);
@@ -573,9 +574,7 @@ static void test_rejections(void) {
 static void test_offset_past_eof(void) {
   printf("  test_offset_past_eof\n");
   fake_reset();
-  for (uint32_t i = 0; i < 100; i++)
-    FAKE.buf[i] = (uint8_t)i;
-  FAKE.size = 100;
+  fake_fill(100, 0x00u);
 
   /* Open a download starting at offset 100 == total -> immediate DONE. */
   xfer_open_args_t dn = mkargs(0, XFER_DIR_DOWNLOAD, 7, 100);
@@ -653,9 +652,7 @@ static void test_idle_timeout_reaps_stalled_upload(void) {
 static void test_concurrent_budget_fairness(void) {
   printf("  test_concurrent_budget_fairness\n");
   fake_reset();
-  for (uint32_t i = 0; i < 2000; i++)
-    FAKE.buf[i] = (uint8_t)i;
-  FAKE.size = 2000;
+  fake_fill(2000, 0x00u);
 
   xfer_open_args_t a = mkargs(0, XFER_DIR_DOWNLOAD, 7, 0);
   xfer_open_args_t b = mkargs(1, XFER_DIR_DOWNLOAD, 7, 0);
@@ -679,7 +676,7 @@ static void test_concurrent_budget_fairness(void) {
 static void test_download_active_flag(void) {
   printf("  test_download_active_flag\n");
   fake_reset();
-  FAKE.size = 500;
+  fake_fill(500, 0x00u);
   CHECK(!xfer_download_active(), "no download active initially");
   xfer_open_args_t dn = mkargs(0, XFER_DIR_DOWNLOAD, 7, 0);
   xfer_on_open(&dn);
