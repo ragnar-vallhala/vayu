@@ -479,8 +479,8 @@ static bool flush_preamble(void) {
   if (vfs_lseek(s_fd, 0, VFS_SEEK_SET) < 0) {
     return false;
   }
-  if (vfs_write(s_fd, s_preamble, HSL_PREAMBLE_BYTES) !=
-      (int)HSL_PREAMBLE_BYTES) {
+  if (vfs_write(s_fd, s_preamble, sizeof s_preamble) !=
+      (int)sizeof s_preamble) {
     return false;
   }
   s_since_hdr = 0;
