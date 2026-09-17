@@ -1,0 +1,259 @@
+29984 ring slots used, 0 wraps, 26 armed sessions
+seq gaps [(2442, 2475), (3563, 3596), (3706, 3739), (9130, 9163), (10273, 10402), (19363, 19396), (20910, 20975), (22202, 22235), (22464, 22497), (24488, 24521), (29612, 29645), (29974, 30007)] -- a reboot, or sectors lost to a power cut
+
+[0] session 1  started 1970-01-01 05:30:55  (clock never synced -- uptime, not epoch)
+    imu   57295 samples   31.35 s   1827.4 Hz  [gx,gy,gz,ax,ay,az]
+    act    9718 samples   31.22 s    311.3 Hz  [m1,m2,m3,m4,thr,flags]  1 GAP
+    vrt     595 samples   31.31 s     19.0 Hz  [baro,agl,agltof,alt,climb,abias,flags,ntc_hz]
+    ctl   31354 samples   31.35 s   1000.0 Hz  [rfx,rfy,rfz,ux,uy,uz]
+    event: state 0x0 -> ARMED
+    event: flight_mode 4294967295 -> 0
+    event: accel_health recovered
+    event: gyro notch on
+    event: state ARMED -> FAILSAFE
+
+[1] session 1  started 1970-01-01 05:30:07  (clock never synced -- uptime, not epoch)
+    imu    3923 samples    2.15 s   1827.6 Hz  [gx,gy,gz,ax,ay,az]
+    act     668 samples    2.14 s    311.2 Hz  [m1,m2,m3,m4,thr,flags]
+    vrt      41 samples    2.10 s     19.0 Hz  [baro,agl,agltof,alt,climb,abias,flags,ntc_hz]
+    ctl    2146 samples    2.15 s   1000.0 Hz  [rfx,rfy,rfz,ux,uy,uz]
+    event: state 0x0 -> ARMED
+    event: flight_mode 4294967295 -> 0
+    event: accel_health recovered
+    event: gyro notch on
+    event: state ARMED -> STANDBY
+
+[2] session 2  started 1970-01-01 05:30:24  (clock never synced -- uptime, not epoch)
+    imu   21386 samples   11.70 s   1827.3 Hz  [gx,gy,gz,ax,ay,az]
+    act    3644 samples   11.70 s    311.4 Hz  [m1,m2,m3,m4,thr,flags]
+    vrt     223 samples   11.66 s     19.0 Hz  [baro,agl,agltof,alt,climb,abias,flags,ntc_hz]
+    ctl   11704 samples   11.70 s   1000.0 Hz  [rfx,rfy,rfz,ux,uy,uz]
+    event: state STANDBY -> ARMED
+    event: state ARMED -> FAILSAFE
+
+[3] session 1  started 1970-01-01 05:30:08  (clock never synced -- uptime, not epoch)
+    imu    2384 samples    1.30 s   1828.1 Hz  [gx,gy,gz,ax,ay,az]  1 GAP
+    act     414 samples    1.33 s    311.7 Hz  [m1,m2,m3,m4,thr,flags]
+    vrt      26 samples    1.31 s     19.0 Hz  [baro,agl,agltof,alt,climb,abias,flags,ntc_hz]
+    ctl    1327 samples    1.33 s   1000.0 Hz  [rfx,rfy,rfz,ux,uy,uz]
+    event: state 0x0 -> ARMED
+    event: flight_mode 4294967295 -> 0
+    event: accel_health UNHEALTHY
+    event: gyro notch on
+    event: state ARMED -> STANDBY
+
+[4] session 1  started 1970-01-01 05:30:08  (clock never synced -- uptime, not epoch)
+    imu   75343 samples   41.23 s   1827.3 Hz  [gx,gy,gz,ax,ay,az]  1 GAP
+    act   12828 samples   41.21 s    311.2 Hz  [m1,m2,m3,m4,thr,flags]  1 GAP
+    vrt     786 samples   41.32 s     19.0 Hz  [baro,agl,agltof,alt,climb,abias,flags,ntc_hz]
+    ctl   41140 samples   41.14 s   1000.0 Hz  [rfx,rfy,rfz,ux,uy,uz]  2 GAPs
+    event: state 0x0 -> ARMED
+    event: flight_mode 4294967295 -> 0
+    event: accel_health recovered
+    event: gyro notch on
+    event: state ARMED -> IN_AIR
+    event: state IN_AIR -> STANDBY
+
+[5] session 2  started 1970-01-01 05:31:47  (clock never synced -- uptime, not epoch)
+    imu   51225 samples   28.03 s   1827.3 Hz  [gx,gy,gz,ax,ay,az]  1 GAP
+    act    8731 samples   28.05 s    311.2 Hz  [m1,m2,m3,m4,thr,flags]
+    vrt     534 samples   28.03 s     19.0 Hz  [baro,agl,agltof,alt,climb,abias,flags,ntc_hz]
+    ctl   28056 samples   28.05 s   1000.0 Hz  [rfx,rfy,rfz,ux,uy,uz]
+    event: state STANDBY -> ARMED
+    event: state ARMED -> STANDBY
+
+[6] session 1  started 1970-01-01 05:30:06  (clock never synced -- uptime, not epoch)
+    imu   25976 samples   14.21 s   1827.3 Hz  [gx,gy,gz,ax,ay,az]
+    act    4426 samples   14.21 s    311.3 Hz  [m1,m2,m3,m4,thr,flags]
+    vrt     271 samples   14.20 s     19.0 Hz  [baro,agl,agltof,alt,climb,abias,flags,ntc_hz]
+    ctl   14215 samples   14.21 s   1000.0 Hz  [rfx,rfy,rfz,ux,uy,uz]
+    event: state 0x0 -> ARMED
+    event: flight_mode 4294967295 -> 0
+    event: accel_health recovered
+    event: gyro notch on
+    event: state ARMED -> FAILSAFE
+
+[7] session 1  started 1970-01-01 05:30:30  (clock never synced -- uptime, not epoch)
+    imu   32038 samples   17.53 s   1827.3 Hz  [gx,gy,gz,ax,ay,az]
+    act    5456 samples   17.53 s    311.2 Hz  [m1,m2,m3,m4,thr,flags]
+    vrt     334 samples   17.52 s     19.0 Hz  [baro,agl,agltof,alt,climb,abias,flags,ntc_hz]
+    ctl   17492 samples   17.49 s    999.9 Hz  [rfx,rfy,rfz,ux,uy,uz]  1 GAP
+    event: state 0x0 -> ARMED
+    event: flight_mode 4294967295 -> 0
+    event: accel_health recovered
+    event: gyro notch on
+    event: state ARMED -> IN_AIR
+    event: state IN_AIR -> STANDBY
+
+[8] session 2  started 1970-01-01 05:31:22  (clock never synced -- uptime, not epoch)
+    imu    3099 samples    1.70 s   1827.2 Hz  [gx,gy,gz,ax,ay,az]
+    act     530 samples    1.70 s    312.1 Hz  [m1,m2,m3,m4,thr,flags]
+    vrt      33 samples    1.68 s     19.0 Hz  [baro,agl,agltof,alt,climb,abias,flags,ntc_hz]
+    ctl    1696 samples    1.70 s   1000.0 Hz  [rfx,rfy,rfz,ux,uy,uz]
+    event: state STANDBY -> ARMED
+    event: state ARMED -> STANDBY
+
+[9] session 3  started 1970-01-01 05:31:33  (clock never synced -- uptime, not epoch)
+    imu   38312 samples   20.97 s   1827.3 Hz  [gx,gy,gz,ax,ay,az]
+    act    6526 samples   20.96 s    311.3 Hz  [m1,m2,m3,m4,thr,flags]
+    vrt     399 samples   20.91 s     19.0 Hz  [baro,agl,agltof,alt,climb,abias,flags,ntc_hz]
+    ctl   20925 samples   20.92 s   1000.0 Hz  [rfx,rfy,rfz,ux,uy,uz]  1 GAP
+    event: state STANDBY -> ARMED
+    event: state ARMED -> IN_AIR
+    event: state IN_AIR -> STANDBY
+
+[10] session 4  started 1970-01-01 05:32:59  (clock never synced -- uptime, not epoch)
+    imu   39574 samples   21.66 s   1827.3 Hz  [gx,gy,gz,ax,ay,az]  1 GAP
+    act    6748 samples   21.68 s    311.2 Hz  [m1,m2,m3,m4,thr,flags]
+    vrt     413 samples   21.65 s     19.0 Hz  [baro,agl,agltof,alt,climb,abias,flags,ntc_hz]
+    ctl   21680 samples   21.68 s   1000.0 Hz  [rfx,rfy,rfz,ux,uy,uz]
+    event: state STANDBY -> ARMED
+    event: state ARMED -> IN_AIR
+    event: state IN_AIR -> STANDBY
+
+[11] session 5  started 1970-01-01 05:34:01  (clock never synced -- uptime, not epoch)
+    imu   69105 samples   37.82 s   1827.3 Hz  [gx,gy,gz,ax,ay,az]
+    act   11729 samples   37.68 s    311.2 Hz  [m1,m2,m3,m4,thr,flags]  1 GAP
+    vrt     720 samples   37.77 s     19.0 Hz  [baro,agl,agltof,alt,climb,abias,flags,ntc_hz]
+    ctl   37777 samples   37.78 s   1000.0 Hz  [rfx,rfy,rfz,ux,uy,uz]  1 GAP
+    event: state STANDBY -> ARMED
+    event: state ARMED -> IN_AIR
+    event: state IN_AIR -> STANDBY
+
+[12] session 6  started 1970-01-01 05:34:39  (clock never synced -- uptime, not epoch)
+    imu   13642 samples    7.46 s   1827.3 Hz  [gx,gy,gz,ax,ay,az]
+    act    2325 samples    7.46 s    311.3 Hz  [m1,m2,m3,m4,thr,flags]
+    vrt     143 samples    7.46 s     19.0 Hz  [baro,agl,agltof,alt,climb,abias,flags,ntc_hz]
+    ctl    7425 samples    7.42 s   1000.0 Hz  [rfx,rfy,rfz,ux,uy,uz]  1 GAP
+    event: state STANDBY -> ARMED
+    event: state ARMED -> STANDBY
+
+[13] session 7  started 1970-01-01 05:34:56  (clock never synced -- uptime, not epoch)
+    imu   14152 samples    7.74 s   1827.3 Hz  [gx,gy,gz,ax,ay,az]  1 GAP
+    act    2418 samples    7.76 s    311.3 Hz  [m1,m2,m3,m4,thr,flags]
+    vrt     148 samples    7.72 s     19.0 Hz  [baro,agl,agltof,alt,climb,abias,flags,ntc_hz]
+    ctl    7766 samples    7.76 s   1000.0 Hz  [rfx,rfy,rfz,ux,uy,uz]
+    event: state STANDBY -> ARMED
+    event: state ARMED -> STANDBY
+
+[14] session 1  started 1970-01-01 05:31:55  (clock never synced -- uptime, not epoch)
+    imu   35474 samples   19.41 s   1827.4 Hz  [gx,gy,gz,ax,ay,az]  1 GAP
+    act    6050 samples   19.43 s    311.3 Hz  [m1,m2,m3,m4,thr,flags]
+    vrt     370 samples   19.41 s     19.0 Hz  [baro,agl,agltof,alt,climb,abias,flags,ntc_hz]
+    ctl   19354 samples   19.35 s    999.9 Hz  [rfx,rfy,rfz,ux,uy,uz]  2 GAPs
+    event: state 0x0 -> ARMED
+    event: flight_mode 4294967295 -> 0
+    event: accel_health recovered
+    event: gyro notch on
+    event: state ARMED -> STANDBY
+
+[15] session 1  started 1970-01-01 05:30:31  (clock never synced -- uptime, not epoch)
+    imu   28740 samples   15.73 s   1827.3 Hz  [gx,gy,gz,ax,ay,az]
+    act    4896 samples   15.73 s    311.3 Hz  [m1,m2,m3,m4,thr,flags]
+    vrt     299 samples   15.69 s     19.0 Hz  [baro,agl,agltof,alt,climb,abias,flags,ntc_hz]
+    ctl   15688 samples   15.69 s   1000.0 Hz  [rfx,rfy,rfz,ux,uy,uz]  1 GAP
+    event: state 0x0 -> ARMED
+    event: flight_mode 4294967295 -> 0
+    event: accel_health recovered
+    event: gyro notch on
+    event: state ARMED -> STANDBY
+
+[16] session 1  started 2026-09-17 01:03:14
+    imu    5248 samples    2.87 s   1827.9 Hz  [gx,gy,gz,ax,ay,az]  1 GAP
+    act     936 samples    3.00 s    311.1 Hz  [m1,m2,m3,m4,thr,flags]
+    vrt      58 samples    3.00 s     19.0 Hz  [baro,agl,agltof,alt,climb,abias,flags,ntc_hz]
+    ctl    2801 samples    2.80 s   1000.0 Hz  [rfx,rfy,rfz,ux,uy,uz]  1 GAP
+    event: state 0x0 -> ARMED
+    event: flight_mode 4294967295 -> 0
+    event: accel_health recovered
+    event: gyro notch on
+    event: state ARMED -> STANDBY
+
+[17] session 1  started 1970-01-01 05:30:16  (clock never synced -- uptime, not epoch)
+    imu   11008 samples    6.02 s   1827.3 Hz  [gx,gy,gz,ax,ay,az]
+    act    1875 samples    6.02 s    311.1 Hz  [m1,m2,m3,m4,thr,flags]
+    vrt     115 samples    6.00 s     19.0 Hz  [baro,agl,agltof,alt,climb,abias,flags,ntc_hz]
+    ctl    5942 samples    5.94 s   1000.0 Hz  [rfx,rfy,rfz,ux,uy,uz]  2 GAPs
+    event: state 0x0 -> ARMED
+    event: flight_mode 4294967295 -> 0
+    event: accel_health recovered
+    event: gyro notch on
+    event: state ARMED -> IN_AIR
+    event: state IN_AIR -> FAILSAFE
+
+[18] session 2  started 1970-01-01 05:30:47  (clock never synced -- uptime, not epoch)
+    imu   35592 samples   19.48 s   1827.3 Hz  [gx,gy,gz,ax,ay,az]  1 GAP
+    act    6027 samples   19.36 s    311.2 Hz  [m1,m2,m3,m4,thr,flags]
+    vrt     371 samples   19.47 s     19.0 Hz  [baro,agl,agltof,alt,climb,abias,flags,ntc_hz]
+    ctl   19500 samples   19.50 s   1000.0 Hz  [rfx,rfy,rfz,ux,uy,uz]
+    event: state FAILSAFE -> ARMED
+    event: state ARMED -> IN_AIR
+    event: state IN_AIR -> FAILSAFE
+
+[19] session 1  started 1970-01-01 05:30:24  (clock never synced -- uptime, not epoch)
+    imu   46880 samples   25.65 s   1827.3 Hz  [gx,gy,gz,ax,ay,az]
+    act    7986 samples   25.65 s    311.3 Hz  [m1,m2,m3,m4,thr,flags]
+    vrt     488 samples   25.62 s     19.0 Hz  [baro,agl,agltof,alt,climb,abias,flags,ntc_hz]
+    ctl   25655 samples   25.65 s   1000.0 Hz  [rfx,rfy,rfz,ux,uy,uz]
+    event: state 0x0 -> ARMED
+    event: flight_mode 4294967295 -> 0
+    event: accel_health recovered
+    event: gyro notch on
+    event: state ARMED -> IN_AIR
+    event: state IN_AIR -> FAILSAFE
+
+[20] session 2  started 1970-01-01 05:32:09  (clock never synced -- uptime, not epoch)
+    imu   27151 samples   14.86 s   1827.2 Hz  [gx,gy,gz,ax,ay,az]  1 GAP
+    act    4631 samples   14.88 s    311.2 Hz  [m1,m2,m3,m4,thr,flags]
+    vrt     283 samples   14.83 s     19.0 Hz  [baro,agl,agltof,alt,climb,abias,flags,ntc_hz]
+    ctl   14881 samples   14.88 s   1000.0 Hz  [rfx,rfy,rfz,ux,uy,uz]
+    event: state FAILSAFE -> ARMED
+    event: state ARMED -> IN_AIR
+    event: state IN_AIR -> STANDBY
+
+[21] session 3  started 1970-01-01 05:33:05  (clock never synced -- uptime, not epoch)
+    imu   22848 samples   12.50 s   1827.3 Hz  [gx,gy,gz,ax,ay,az]  1 GAP
+    act    3900 samples   12.53 s    311.3 Hz  [m1,m2,m3,m4,thr,flags]
+    vrt     239 samples   12.52 s     19.0 Hz  [baro,agl,agltof,alt,climb,abias,flags,ntc_hz]
+    ctl   12526 samples   12.53 s   1000.0 Hz  [rfx,rfy,rfz,ux,uy,uz]
+    event: state STANDBY -> ARMED
+    event: state ARMED -> IN_AIR
+    event: state IN_AIR -> STANDBY
+
+[22] session 4  started 1970-01-01 05:34:03  (clock never synced -- uptime, not epoch)
+    imu    6011 samples    3.29 s   1827.6 Hz  [gx,gy,gz,ax,ay,az]
+    act     984 samples    3.16 s    311.4 Hz  [m1,m2,m3,m4,thr,flags]
+    vrt      63 samples    3.26 s     19.0 Hz  [baro,agl,agltof,alt,climb,abias,flags,ntc_hz]
+    ctl    3289 samples    3.29 s   1000.0 Hz  [rfx,rfy,rfz,ux,uy,uz]
+    event: state STANDBY -> ARMED
+    event: state ARMED -> STANDBY
+
+[23] session 5  started 1970-01-01 05:34:26  (clock never synced -- uptime, not epoch)
+    imu   16235 samples    8.88 s   1827.3 Hz  [gx,gy,gz,ax,ay,az]
+    act    2765 samples    8.88 s    311.2 Hz  [m1,m2,m3,m4,thr,flags]
+    vrt     153 samples    7.99 s     19.0 Hz  [baro,agl,agltof,alt,climb,abias,flags,ntc_hz]
+    ctl    8884 samples    8.88 s   1000.0 Hz  [rfx,rfy,rfz,ux,uy,uz]
+    event: state STANDBY -> ARMED
+    event: state ARMED -> STANDBY
+
+[24] session 1  started 1970-01-01 05:30:07  (clock never synced -- uptime, not epoch)
+    imu    7552 samples    4.13 s   1827.0 Hz  [gx,gy,gz,ax,ay,az]  1 GAP
+    act    1295 samples    4.15 s    311.5 Hz  [m1,m2,m3,m4,thr,flags]
+    vrt      80 samples    4.15 s     19.0 Hz  [baro,agl,agltof,alt,climb,abias,flags,ntc_hz]
+    ctl    4156 samples    4.15 s   1000.0 Hz  [rfx,rfy,rfz,ux,uy,uz]
+    event: state 0x0 -> ARMED
+    event: flight_mode 4294967295 -> 0
+    event: accel_health recovered
+    event: gyro notch on
+    event: state ARMED -> STANDBY
+
+[25] session 1  started 1970-01-01 05:30:11  (clock never synced -- uptime, not epoch)
+    imu   11326 samples    6.20 s   1827.2 Hz  [gx,gy,gz,ax,ay,az]  1 GAP
+    act    1938 samples    6.22 s    311.4 Hz  [m1,m2,m3,m4,thr,flags]
+    vrt     119 samples    6.20 s     19.0 Hz  [baro,agl,agltof,alt,climb,abias,flags,ntc_hz]
+    ctl    6222 samples    6.22 s   1000.0 Hz  [rfx,rfy,rfz,ux,uy,uz]
+    event: state 0x0 -> ARMED
+    event: flight_mode 4294967295 -> 0
+    event: accel_health recovered
+    event: gyro notch on
+    event: state ARMED -> STANDBY
