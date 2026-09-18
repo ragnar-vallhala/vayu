@@ -96,19 +96,23 @@ typedef enum {
   INVALID_DATA_READ = 8
 } bmx160_err_type;
 // Option enums
+/* REGISTER CODES, not g/dps values. ACC_RANGE<3:0> and GYR_RANGE<2:0> take
+ * codes, the GET_/get_ macros mask to those widths, and range_code_to_g/dps
+ * decode the same codes -- so the enumerators have to be codes for the setter
+ * and the getter to agree.*/
 typedef enum {
-  BMX160_ACC_2G = 2,
-  BMX160_ACC_4G = 4,
-  BMX160_ACC_8G = 8,
-  BMX160_ACC_16G = 16,
+  BMX160_ACC_2G = 0x3,
+  BMX160_ACC_4G = 0x5,
+  BMX160_ACC_8G = 0x8,
+  BMX160_ACC_16G = 0xC,
 } bmx160_acc_range_t;
 
 typedef enum {
-  BMX160_GYR_2000 = 2000,
-  BMX160_GYR_1000 = 1000,
-  BMX160_GYR_500 = 500,
-  BMX160_GYR_250 = 250,
-  BMX160_GYR_125 = 125,
+  BMX160_GYR_2000 = 0x0,
+  BMX160_GYR_1000 = 0x1,
+  BMX160_GYR_500 = 0x2,
+  BMX160_GYR_250 = 0x3,
+  BMX160_GYR_125 = 0x4,
 } bmx160_gyr_range_t;
 
 typedef enum {

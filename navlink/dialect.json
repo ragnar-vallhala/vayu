@@ -604,6 +604,27 @@
       ]
     },
     {
+      "msgid": 1049, "name": "XFER_SACK",
+      "doc": "Selective acknowledgement on a download, the sibling of XFER_ACK's go-back-N recovery. next_offset is the cumulative ack exactly as in XFER_ACK -- the lowest byte not yet received -- and miss_off/miss_len name up to XFER_SACK_MAX_RANGES individual gaps ABOVE it that the receiver is missing. The FC re-sends only those ranges and does NOT rewind its cursor, so data already in flight is not sent twice. Which recovery a transfer uses is the receiver's choice and needs no negotiation: send XFER_ACK with flags=NAK for go-back-N, send XFER_SACK for selective repeat. A receiver that sends neither gets neither. docs/reference/messages/xfer.md.",
+      "fields": [
+        { "index": 0, "name": "session",     "type": "u8" },
+        { "index": 1, "name": "n_ranges",    "type": "u8", "doc": "valid entries in miss_off/miss_len; 0 = a pure cumulative ack" },
+        { "index": 2, "name": "next_offset", "type": "u32", "unit": "bytes", "doc": "lowest byte offset not yet received (cumulative)" },
+        { "index": 3, "name": "miss_off",    "type": "u32", "len": 8, "unit": "bytes", "doc": "start of each missing range" },
+        { "index": 4, "name": "miss_len",    "type": "u16", "len": 8, "unit": "bytes", "doc": "length of each missing range" }
+      ]
+    },
+    {
+      "msgid": 8207, "name": "FS_DELETE",
+      "doc": "Delete one file from the SD card (filesystem navigation). The FC replies with COMMAND_ACK only: ACCEPTED on success, DENIED if the path is absent or protected, TEMPORARILY_REJECTED if the file is in use right now, FAILED if the unlink itself errored. Two classes of path are refused: the calibration and tune stores (cal.bin, pid.bin), permanently, because losing them costs a full recalibration; and the high-speed IMU recording (imuhs.bin) while a session is recording, which is temporary and succeeds once disarmed. docs/reference/messages/fs_nav.md.",
+      "fields": [
+        { "index": 0, "name": "target_sys",  "type": "u8" },
+        { "index": 1, "name": "target_comp", "type": "u8" },
+        { "index": 2, "name": "req_seq",     "type": "u8" },
+        { "index": 3, "name": "path",        "type": "char", "len": 48, "doc": "file to delete; directories are refused" }
+      ]
+    },
+    {
       "msgid": 8197, "name": "CMD_SET_MOTOR_GEOMETRY", "replaces": "0x3/cmd 0x000C",
       "doc": "Reconfigure the 4-motor mixer from per-motor position and spin direction. Persisted to SD (pid.bin) so the mixer layout survives a reboot.",
       "fields": [

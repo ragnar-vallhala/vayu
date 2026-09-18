@@ -12,8 +12,10 @@ import pytest
 # repo root = .../vayu (this file is navigator/headless-sdk/tests/conftest.py)
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
+# build_sitl_rtos/ at the repo root is the shared convention: vayu.sh build,
+# vtest's pytest adapter and tools/autotune all produce and consume it there.
 RTOS_BIN = os.environ.get("VAYU_SITL_RTOS_BIN",
-                          os.path.join(ROOT, "sim/host/build_sitl_rtos/vayu_sitl_rtos"))
+                          os.path.join(ROOT, "build_sitl_rtos/vayu_sitl_rtos"))
 GCS_CONF = os.environ.get("VAYU_GCS_CONF",
                           os.path.expanduser("~/.config/Vayu/Vayu GCS.conf"))
 

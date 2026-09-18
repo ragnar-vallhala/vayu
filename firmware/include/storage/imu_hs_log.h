@@ -37,7 +37,10 @@
  * magic doubles as the check, since it reads as ASCII "HSL1" only when the
  * reader's byte order matches).
  *
- * Layout: sector 0 is the PREAMBLE, every sector after it is one RING slot.
+ * Layout: the first HSL_PREAMBLE_SECTORS sectors are the PREAMBLE, every
+ * sector after them is one RING slot. Readers MUST take the ring's offset from
+ * the header's `ring_start` rather than assuming one sector -- it grew from one
+ * to two when the fourth stream filled the first.
  *
  *   FILE HEADER (32 B, at offset 0, inside the preamble sector)
  *     u32 magic         0x314C5348 = "HSL1"
@@ -46,7 +49,7 @@
  *                          frame; a later header may be longer and old readers
  *                          still land on it
  *     u32 clock_hz      the unit of EVERY cycle stamp in this file
- *     u32 ring_start    byte offset of ring slot 0 (= 512)
+ *     u32 ring_start    byte offset of ring slot 0 (= HSL_PREAMBLE_BYTES)
  *     u32 ring_sectors  slots in the ring
  *     u32 head_slot     HINT: slot the next frame will be written to
  *     u32 next_seq      HINT: seq the next frame will carry
@@ -227,13 +230,24 @@
 #define HSL_STREAM_ACT 2u
 #define HSL_ACT_REC_BYTES 12u /* 4x u16 motor, u16 throttle, u16 flags       */
 #define HSL_STREAM_VRT 3u
-#define HSL_VRT_REC_BYTES 28u /* 6x f32, u16 flags, u16 pad                  */
+#define HSL_VRT_REC_BYTES 28u /* 6x f32, u16 flags, u16 notch centre         */
+#define HSL_STREAM_CTL 4u
+#define HSL_CTL_REC_BYTES 12u /* 3x i16 filtered rate, 3x i16 PID output     */
+/* The PID output is normalised -1..1, so one count is a 32767th of full
+ * authority. Rates need no constant of their own: they reuse the gyro's count
+ * scale so that "ctl" and "imu" decode to identical units. */
+#define HSL_CTL_U_PER_LSB (1.0f / 32767.0f)
 
 /* Emission rates. Decimation is on the CYCLE STAMP, not a call counter, so a
  * stream lands at its stated rate whatever rate its producer happens to run
  * at -- and keeps doing so if that producer is later re-paced. */
 #define HSL_ACT_RATE_HZ 400u /* the ESC PWM rate; nothing above it is real   */
 #define HSL_VRT_RATE_HZ 20u
+/* The rate loop's own frequency: this stream is a trace of that loop, and a
+ * record per iteration is what makes it one. Declared in the FMT so a decoder
+ * knows the nominal rate; the stream itself is undecimated, because the
+ * producer is already paced at exactly this rate (see the stream table). */
+#define HSL_CTL_RATE_HZ 1000u
 
 /* "act" flag bits. */
 #define HSL_ACT_F_ARMED 0x0001u
@@ -244,6 +258,15 @@
 #define HSL_VRT_F_ACCEL_UNHEALTHY 0x0002u
 #define HSL_VRT_F_VALID 0x0004u
 #define HSL_VRT_F_HOVER_MEASURED 0x0008u
+/* Which axis this record's notch centre belongs to, and whether the notch was
+ * actually filtering when it was taken. The centre rides in the u16 that used
+ * to be pure padding, one axis per record: the preamble sector has 16 B spare
+ * and a new FMT needs 28, so a new stream -- or even one more field on this one
+ * -- does not fit. At the 20 Hz "vrt" rate each axis is refreshed every 150 ms,
+ * which is far quicker than a tracked peak moves. */
+#define HSL_VRT_F_NOTCH_AXIS_MASK 0x0030u /* bits 4-5: 0 roll, 1 pitch, 2 yaw */
+#define HSL_VRT_F_NOTCH_AXIS_SHIFT 4u
+#define HSL_VRT_F_NOTCH_ACTIVE 0x0040u /* enabled AND past the throttle gate */
 
 /* EVENT kinds. `a` is the new value, `b` the previous one. */
 #define HSL_EV_STATE 1u        /* sys_state_t                                */
@@ -262,6 +285,15 @@
  * never provokes a read-modify-write. 512 - 4 (frame) - 16 (block) = 492 for
  * records, which is exactly 41 x 12 -- no padding at all. */
 #define HSL_SECTOR_BYTES 512u
+/* The preamble is the file header plus one FMT per stream, and FMTs are not
+ * small: 12 B each plus 16 B per field. Four streams already take 496 of a
+ * sector, which left no room for a fifth or even one more field anywhere.
+ * `ring_start` has always been a header FIELD rather than a constant, so the
+ * format was built for this -- readers take the ring's offset from the header
+ * and need no change. Two sectors buys room for roughly 18 more fields at the
+ * cost of one ring slot and 512 B of .bss for the staging buffer. */
+#define HSL_PREAMBLE_SECTORS 2u
+#define HSL_PREAMBLE_BYTES (HSL_PREAMBLE_SECTORS * HSL_SECTOR_BYTES)
 #define HSL_BLOCK_HDR_BYTES 16u
 #define HSL_BLOCK_PAYLOAD_BYTES                                                \
   (HSL_SECTOR_BYTES - HSL_FRAME_HDR_BYTES - HSL_BLOCK_HDR_BYTES)
@@ -281,6 +313,8 @@
 #define HSL_IMU_BUFFERS 4u
 #define HSL_ACT_BUFFERS 2u
 #define HSL_VRT_BUFFERS 2u
+/* CTL fills a sector every ~41 ms, between IMU's ~20 ms and ACT's ~100 ms. */
+#define HSL_CTL_BUFFERS 2u
 
 /* How often the file header's head_slot/next_seq hint is rewritten, in ring
  * sectors. Data sectors are 512 B and sector-aligned, so f_write hands them
@@ -350,6 +384,32 @@ typedef struct {
   float accel_bias;
   uint16_t flags; /* HSL_VRT_F_* */
 } hsl_vert_sample_t;
+
+/**
+ * @brief Append one rate-loop sample (stream "ctl"). Called from the rate loop.
+ *
+ * The two signals between the raw gyro (stream "imu") and the motor commands
+ * (stream "act"), which are the only two the recorder used to hold. Without
+ * them a recording cannot say what the controller was fed or what it asked
+ * for, only what went in at one end and came out at the other:
+ *
+ *   - `rate_filt` is the rate measurement AFTER the gyro LPF and the dynamic
+ *     notch, i.e. the PID's actual input. Differencing it against stream "imu"
+ *     measures what those two filters did, rather than assuming it.
+ *   - `u` is the PID output BEFORE the mixer. Differencing it against the
+ *     mixer inverse of "act" separates a controller that asked for the wrong
+ *     thing from a mixer that could not deliver it.
+ *
+ * Both are in body axes, unlike "imu" which carries the sensor axes and its
+ * sign map in the FMT scales.
+ *
+ * Decimated internally to HSL_CTL_RATE_HZ.
+ *
+ * @param rate_filt post-LPF, post-notch body rates [deg/s]
+ * @param u         per-axis PID output, normalised -1..1
+ * @param t_cyc     DWT cycle stamp of the driving IMU sample
+ */
+void imu_hs_log_ctl(const float rate_filt[3], const float u[3], uint32_t t_cyc);
 
 /**
  * @brief Append one vertical-estimator sample (stream "vrt"). Called from the

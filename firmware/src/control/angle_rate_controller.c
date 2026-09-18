@@ -587,11 +587,29 @@ void angle_rate_controller_task(void *arg) {
       const float w[MIX_NW] = {outputs[0], outputs[1], outputs[2],
                                target_throttle};
       float m[4];
-      mixer_allocate(&s_mixer, w, m, NULL);
+      float realized[MIX_NW];
+      mixer_allocate(&s_mixer, w, m, realized);
       motor_outputs.m1 = m[0];
       motor_outputs.m2 = m[1];
       motor_outputs.m3 = m[2];
       motor_outputs.m4 = m[3];
+
+      /* Tell each rate PID what the motors could not deliver, so the next tick
+       * stops integrating further into a limit the PID cannot otherwise see:
+       * its own out_min/out_max is per-axis, while authority runs out at the
+       * MIXER, which sums three axes onto the collective. Without this a
+       * sustained attitude error the airframe cannot null -- held by hand, a
+       * gust, ground contact -- winds all three integrators to their clamps and
+       * pins motors at the rails, measured on 2026-09-16. Unwinding stays
+       * allowed, so it recovers the moment the error reverses. INDI already
+       * closes this loop with the realised differential; this is the PID path.
+       *
+       * No-op when nothing clipped: the mixer returns realized == w. */
+      if (RATE_CTRL_ALGO_USED != RATE_CTRL_INDI) {
+        for (int i = 0; i < NUM_AXES; i++)
+          v_pid_set_sat_excess(&angle_rate_controller.pid[i],
+                               w[i] - realized[i]);
+      }
     }
 
     /* INDI saturation-aware feedback: hand each axis the differential the motors
@@ -647,6 +665,9 @@ void angle_rate_controller_task(void *arg) {
         hf |= HSL_ACT_F_IN_AIR;
       }
       imu_hs_log_act(mo, target_throttle, hf, imu_data.converted.timestamp);
+      /* current_rates is post-LPF and post-notch by this point -- the PID's own
+       * input -- and outputs is its response before the mixer touches it. */
+      imu_hs_log_ctl(current_rates, outputs, imu_data.converted.timestamp);
     }
 
     control_telemetry_t telemetry = {

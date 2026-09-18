@@ -289,16 +289,20 @@ hal_status_t bmx160_init(void) {
     lpf_init(&gyr_lpf[i], LPF_GYR_ALPHA); // Filter Gyro as well
   }
 
-  // Pre-calculate scales (calculating here too just in case config write fails
-  // elsewhere)
-  /* NOTE: these fields are TYPED bmx160_acc_range_t / bmx160_gyr_range_t, whose
-   * enumerators are g and dps values (2/4/8/16, 2000/1000/...), but what they
-   * actually hold is the REGISTER CODE read back by GET_ACC_RANGE/GET_GYR_RANGE
-   * (3/5/8/12) -- which is what range_code_to_g/dps expect. The type is a lie
-   * and the mismatch is the trap in configuring the sensor: writing
-   * BMX160_ACC_16G would emit 16 & 15 == 0. Casting explicitly here so the
-   * narrowing is deliberate rather than silent; fixing the type belongs with
-   * the ODR/range work. */
+  /* Configure the accelerometer and the gyro.*/
+  bmx160_cfg.bmx160_acc_odr = BMX_ACC_ODR;
+  bmx160_cfg.bmx160_acc_bwp = BMX_ACC_BWP;
+  bmx160_cfg.bmx160_acc_us = BMX_ACC_US;
+  bmx160_cfg.bmx160_acc_range = BMX_ACC_RANGE;
+  bmx160_cfg.bmx160_gyr_odr = BMX_GYR_ODR;
+  bmx160_cfg.bmx160_gyr_bwp = BMX_GYR_BWP;
+  bmx160_cfg.bmx160_gyr_range = BMX_GYR_RANGE;
+  if (bmx160_write_acc_config(&bmx160_cfg) != NO_ERR ||
+      bmx160_write_gyr_config(&bmx160_cfg) != NO_ERR) {
+    return HAL_ERR_NOT_INITIALIZED; // flying on an unknown IMU config is worse
+  }
+
+  // Scales follow from the range codes just written.
   float g_range = bmx160_range_code_to_g((uint8_t)bmx160_cfg.bmx160_acc_range);
   acc_scale = g_range * 9.80665f / 32768.0f;
   float dps_range =
@@ -791,6 +795,20 @@ bmx160_err_type bmx160_write_config(bmx160_config_t *config) {
 
   return NO_ERR;
 }
+
+/* The register bytes the configuration in variables.h has to pack down to,
+ * from the BMI160 datasheet. This is where the g-value-vs-register-code trap
+ * shows up: with the old enum, ACC_RANGE packed 16 & 15 == 0 -- a reserved
+ * value -- and the sensor silently kept whatever range it already had. Failing
+ * the build is the only way that stays caught, since nothing host-compiles
+ * this driver. */
+_Static_assert((((BMX_ACC_US & 1U) << 7U) | ((BMX_ACC_BWP & 7U) << 4U) |
+                (BMX_ACC_ODR & 15U)) == 0x2C,
+               "ACC_CONF: 1600 Hz ODR, normal bandwidth, no undersampling");
+_Static_assert((BMX_ACC_RANGE & 15U) == 0x0C, "ACC_RANGE: +-16 g");
+_Static_assert((((BMX_GYR_BWP & 3U) << 4U) | (BMX_GYR_ODR & 15U)) == 0x2C,
+               "GYR_CONF: 1600 Hz ODR, normal bandwidth");
+_Static_assert((BMX_GYR_RANGE & 7U) == 0x00, "GYR_RANGE: +-2000 dps");
 
 /** @noreq Register-field packing helper. */
 static uint8_t bmx160_get_acc_conf(bmx160_config_t *config) {

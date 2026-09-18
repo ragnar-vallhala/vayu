@@ -50,14 +50,26 @@ static inline float vayu_dt_from_cycles(uint32_t now_cyc, uint32_t prev_cyc) {
 // IMU Sensor
 #define BMX160_I2C_ADDR 0x68
 
-// ODR Configurations (using bmx160_odr_t enums)
+// ODR Configurations (using bmx160_odr_t enums). Written to the chip by
+// bmx160_init;
+// 1600 Hz is the accelerometer's maximum in normal power mode and sits under
+// the IMU_SAMPLE_FREQ_HZ poll rate, so the poll never aliases the sensor.
 #define BMX_ACC_ODR BMX160_ODR_1600HZ
-#define BMX_ACC_BWP BMX_BWP_OSR4
-#define BMX_ACC_RANGE BMX160_ACC_8G
+// Normal is REQUIRED, not preferred: the datasheet's 2.2.1.1 says acc_bwp must
+// be 0b010 whenever acc_us is 0, and an illegal pair raises ERR_REG. 3 dB
+// cutoff at 1600 Hz is 684 Hz, and 353 Hz on Z (datasheet table 13).
+#define BMX_ACC_BWP BMX_BWP_NORMAL
+#define BMX_ACC_US 0 // undersampling is a low-power-mode feature
+#define BMX_ACC_RANGE BMX160_ACC_16G
 
+// The gyro alone can reach 3200 Hz (the accelerometer's ceiling is 1600), which
+// would move its 3 dB cutoff from 523.9 Hz to 890 Hz and cost less filter delay
+// in the rate loop. Not taken: 890 Hz leaves almost no margin under the
+// measured ~1827 Hz poll, whose Nyquist is 913 Hz (datasheet table 15).
 #define BMX_GYR_ODR BMX160_ODR_1600HZ
-#define BMX_GYR_BWP BMX_BWP_OSR4
-#define BMX_GYR_RANGE BMX160_GYR_1000
+#define BMX_GYR_BWP BMX_BWP_NORMAL
+// 2000 dps
+#define BMX_GYR_RANGE BMX160_GYR_2000
 
 #define BMX_MAG_ODR BMX160_ODR_50HZ
 
@@ -377,6 +389,10 @@ typedef struct __attribute__((packed)) {
 
 // Calibration
 #define CALIBRATION_FILE_PATH "0:cal.bin"
+/* Alongside the calibration store because the two are a pair: both are the
+ * result of a procedure nobody wants to repeat, and fs_query refuses to delete
+ * either (see the delete policy in comm/xfer/fs_query.c). */
+#define PID_CONFIG_FILE_PATH "0:pid.bin"
 #define CALIBRATION_FILE_SIZE 1024 // 1KB Preallocated
 #define CALIBRATION_WAIT_USER_TIME_PRE_CALIBRATION                             \
   2000 // 2 seconds, waits before recording once user has reached the direction

@@ -4,14 +4,10 @@ compile_commands.json
 logs
 .vscode
 .venv
-venv/
 __pycache__
 build_vsim/
 .sessions
 # Docker (tools/docker) out-of-tree build dirs
-build-docker/
-build_sitl-docker/
-navigator/build-docker/
 
 # sim world / vehicle assets + tuner run artifacts (not source)
 *.vveh
@@ -26,19 +22,19 @@ tuned_pid.json
 vayu_settings.dat
 
 # Generated roadmap doc PDFs + LaTeX build artifacts (.tex sources are tracked)
-navigator/docs/roadmap/pdf/
-navigator/docs/roadmap/tex/*.pdf
-navigator/docs/roadmap/tex/*.aux
-navigator/docs/roadmap/tex/*.log
-navigator/docs/roadmap/tex/*.out
-navigator/docs/roadmap/tex/*.toc
-navigator/docs/roadmap/tex/*.fls
-navigator/docs/roadmap/tex/*.fdb_latexmk
-navigator/docs/roadmap/tex/*.synctex.gz
+**/*.pdf
+**/*.aux
+**/*.log
+**/*.out
+**/*.toc
+**/*.fls
+**/*.fdb_latexmk
+**/*.synctex.gz
 
-# Local scratch handoff (autotune optimiser next-session notes); not versioned
-AUTOTUNE-ROLLPITCH-ANALYSIS.md
 
 # Generated sim vehicle geometry (tools/autotune/plant_sweep.py builds these
 # from a .vveh; the .vveh itself is already ignored).
 *.geom
+
+!firmware/docs/reference/datasheet/*.pdf
+!firmware/docs/journal/log-analysis/**/*.pdf

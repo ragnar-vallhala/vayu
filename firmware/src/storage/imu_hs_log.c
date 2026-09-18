@@ -12,6 +12,7 @@
  */
 #include "storage/imu_hs_log.h"
 
+#include "dsp/gyro_notch.h"   /* the tracked centre, recorded per record */
 #include "storage/fs_owner.h" /* vayu_log, fs_owner_logs_suppressed */
 #include "control/flight_mode.h"
 #include "dsp/gyro_notch.h"
@@ -21,7 +22,8 @@
 #include "variables.h"
 #include "vfs.h"
 
-#define HSL_RING_SECTORS ((uint32_t)(HSL_FILE_SIZE / HSL_SECTOR_BYTES) - 1u)
+#define HSL_RING_SECTORS                                                       \
+  ((uint32_t)(HSL_FILE_SIZE / HSL_SECTOR_BYTES) - HSL_PREAMBLE_SECTORS)
 
 /* ===========================================================================
  * Streams
@@ -49,8 +51,9 @@ typedef struct {
 static uint8_t s_imu_bufs[HSL_IMU_BUFFERS][HSL_SECTOR_BYTES];
 static uint8_t s_act_bufs[HSL_ACT_BUFFERS][HSL_SECTOR_BYTES];
 static uint8_t s_vrt_bufs[HSL_VRT_BUFFERS][HSL_SECTOR_BYTES];
+static uint8_t s_ctl_bufs[HSL_CTL_BUFFERS][HSL_SECTOR_BYTES];
 
-enum { HSL_S_IMU = 0, HSL_S_ACT, HSL_S_VRT, HSL_N_STREAMS };
+enum { HSL_S_IMU = 0, HSL_S_ACT, HSL_S_VRT, HSL_S_CTL, HSL_N_STREAMS };
 
 static hsl_stream_t s_streams[HSL_N_STREAMS] = {
     [HSL_S_IMU] = {.bufs = &s_imu_bufs[0][0],
@@ -71,6 +74,19 @@ static hsl_stream_t s_streams[HSL_N_STREAMS] = {
                    .rec_bytes = HSL_VRT_REC_BYTES,
                    .cap = HSL_BLOCK_PAYLOAD_BYTES / HSL_VRT_REC_BYTES,
                    .decim_cyc = (uint32_t)SYS_CLOCK_FREQ / HSL_VRT_RATE_HZ},
+    [HSL_S_CTL] = {.bufs = &s_ctl_bufs[0][0],
+                   .n_bufs = HSL_CTL_BUFFERS,
+                   .stream_id = HSL_STREAM_CTL,
+                   .rec_bytes = HSL_CTL_REC_BYTES,
+                   .cap = HSL_BLOCK_PAYLOAD_BYTES / HSL_CTL_REC_BYTES,
+                   /* Not decimated, for the same reason "imu" is not: the
+                    * producer already runs at this stream's rate. A decimator
+                    * set to the rate its own producer runs at beats against
+                    * it -- the test is `delta < decim`, and last_cyc only
+                    * advances on an accept, so one short interval costs a
+                    * whole record and the stream lands well under its target.
+                    * That is why "act" asks for 400 Hz and records 311. */
+                   .decim_cyc = 0u},
 };
 
 /* Consumer-owned. */
@@ -130,6 +146,28 @@ static uint32_t get_u32(const uint8_t *p) {
 }
 
 /* 0..1 -> full-scale u16, clamped. */
+/* Float -> i16 at `per_lsb` units per count, saturating. NaN lands at 0: a
+ * zero in a trace reads as "nothing here", where a wrapped int16 reads as a
+ * full-scale excursion that never happened. */
+static int16_t scaled_to_i16(float v, float per_lsb) {
+  if (!(v == v) || !(per_lsb > 0.0f)) { /* v != v catches NaN */
+    return 0;
+  }
+  /* Round, don't truncate. A cast truncates toward zero, which biases every
+   * sample low by up to a count -- and this stream exists to be differenced
+   * against "imu", where a systematic shrink reads as filter attenuation that
+   * is not there. */
+  float c = v / per_lsb;
+  c += (c >= 0.0f) ? 0.5f : -0.5f;
+  if (c >= 32767.0f) {
+    return 32767;
+  }
+  if (c <= -32767.0f) {
+    return -32767;
+  }
+  return (int16_t)c;
+}
+
 static uint16_t unit_to_u16(float v) {
   if (!(v > 0.0f)) { /* also catches NaN */
     return 0u;
@@ -221,6 +259,29 @@ void imu_hs_log_act(const float motors[4], float throttle, uint16_t flags,
   stream_commit(st, t_cyc);
 }
 
+/** @noreq rate-loop capture; RAM-only, decimated to HSL_CTL_RATE_HZ */
+void imu_hs_log_ctl(const float rate_filt[3], const float u[3],
+                    uint32_t t_cyc) {
+  if (rate_filt == NULL || u == NULL) {
+    return;
+  }
+  hsl_stream_t *st = &s_streams[HSL_S_CTL];
+  uint8_t *rec = stream_claim(st, t_cyc);
+  if (rec == NULL) {
+    return;
+  }
+  /* Rates share the gyro's count scale, so this stream and "imu" decode to the
+   * same units and can be differenced sample for sample -- which is the point
+   * of carrying it. */
+  for (uint32_t i = 0; i < 3u; i++) {
+    put_u16(&rec[(size_t)i * 2u],
+            (uint16_t)scaled_to_i16(rate_filt[i], s_gyr_scale));
+    put_u16(&rec[6u + (size_t)i * 2u],
+            (uint16_t)scaled_to_i16(u[i], HSL_CTL_U_PER_LSB));
+  }
+  stream_commit(st, t_cyc);
+}
+
 /** @noreq vertical-estimator capture; RAM-only, decimated to HSL_VRT_RATE_HZ */
 void imu_hs_log_vert(const hsl_vert_sample_t *v, uint32_t t_cyc) {
   if (v == NULL) {
@@ -242,8 +303,28 @@ void imu_hs_log_vert(const hsl_vert_sample_t *v, uint32_t t_cyc) {
   put_f32(&rec[12], v->altitude);
   put_f32(&rec[16], v->climb_rate);
   put_f32(&rec[20], v->accel_bias);
-  put_u16(&rec[24], v->flags);
-  put_u16(&rec[26], 0u);
+  /* The dynamic notch's tracked centre, one axis per record, round-robin. Read
+   * here rather than pushed by the producer because the vertical estimator has
+   * no business knowing about the gyro notch, and gyro_notch_center_hz is a
+   * plain getter that returns 0 with the notch compiled out. Without this a log
+   * can show that the notch was ON but never what it was tracking, which is
+   * exactly the question a post-flight vibration analysis asks. */
+  static uint8_t s_ntc_axis = 0u;
+  uint16_t flags = v->flags;
+  flags = (uint16_t)(flags & ~(uint16_t)HSL_VRT_F_NOTCH_AXIS_MASK);
+  flags =
+      (uint16_t)(flags | ((uint16_t)s_ntc_axis << HSL_VRT_F_NOTCH_AXIS_SHIFT));
+  if (gyro_notch_active())
+    flags = (uint16_t)(flags | HSL_VRT_F_NOTCH_ACTIVE);
+  float hz = gyro_notch_center_hz(s_ntc_axis, 0u);
+  if (!(hz > 0.0f))
+    hz = 0.0f;
+  if (hz > 65535.0f)
+    hz = 65535.0f;
+  s_ntc_axis = (uint8_t)((s_ntc_axis + 1u) % 3u);
+
+  put_u16(&rec[24], flags);
+  put_u16(&rec[26], (uint16_t)(hz + 0.5f));
   stream_commit(st, t_cyc);
 }
 
@@ -302,11 +383,26 @@ static uint8_t *emit_fmt(uint8_t *f, uint8_t stream_id, uint8_t rec_bytes,
  * updated, which also keeps FMT's scales current if the IMU range changed.
  * Static, not a local: this runs in the FS task, whose stack budget on the
  * F401 will not absorb 512 B for a buffer used a few times a second. */
-static uint8_t s_preamble[HSL_SECTOR_BYTES];
+static uint8_t s_preamble[HSL_PREAMBLE_BYTES];
+
+/* build_preamble writes the file header then one FMT per stream into the
+ * sector above, with no bound check on the way past -- a fifth stream, or a
+ * wider field list on an existing one, would run off the end of s_preamble and
+ * into whatever .bss follows it. One FMT is 12 B plus 16 B per field, and the
+ * preamble is HSL_PREAMBLE_SECTORS sectors -- raise that (and ring_start comes
+ * with it, since readers take the ring's offset from the header) rather than
+ * trimming a stream to fit. */
+#define HSL_FMT_BYTES(n) (HSL_FRAME_HDR_BYTES + 8u + (n) * HSL_FMT_FIELD_BYTES)
+_Static_assert(HSL_FILE_HDR_BYTES + HSL_FMT_BYTES(6u) /* imu */
+                       + HSL_FMT_BYTES(6u)            /* act */
+                       + HSL_FMT_BYTES(6u)            /* ctl */
+                       + HSL_FMT_BYTES(8u)            /* vrt */
+                   <= HSL_PREAMBLE_BYTES,
+               "FMT declarations no longer fit the preamble");
 
 /** @noreq builds sector 0 from the current cursor */
 static void build_preamble(void) {
-  for (uint32_t i = 0; i < HSL_SECTOR_BYTES; i++) {
+  for (uint32_t i = 0; i < HSL_PREAMBLE_BYTES; i++) {
     s_preamble[i] = 0u;
   }
   uint8_t *h = s_preamble;
@@ -314,10 +410,10 @@ static void build_preamble(void) {
   put_u16(&h[4], (uint16_t)HSL_VERSION);
   put_u16(&h[6], (uint16_t)HSL_FILE_HDR_BYTES);
   put_u32(&h[8], (uint32_t)SYS_CLOCK_FREQ);
-  put_u32(&h[12], HSL_SECTOR_BYTES); /* ring_start   */
-  put_u32(&h[16], HSL_RING_SECTORS); /* ring_sectors */
-  put_u32(&h[20], s_slot);           /* head_slot HINT */
-  put_u32(&h[24], s_seq);            /* next_seq  HINT */
+  put_u32(&h[12], HSL_PREAMBLE_BYTES); /* ring_start   */
+  put_u32(&h[16], HSL_RING_SECTORS);   /* ring_sectors */
+  put_u32(&h[20], s_slot);             /* head_slot HINT */
+  put_u32(&h[24], s_seq);              /* next_seq  HINT */
   put_u32(&h[28], s_wraps);
 
   /* One FMT per stream, so the file describes every stream it contains with
@@ -355,8 +451,18 @@ static void build_preamble(void) {
                                      {"climb", HSL_FTYPE_F32, 1.0f},
                                      {"abias", HSL_FTYPE_F32, 1.0f},
                                      {"flags", HSL_FTYPE_U16, 1.0f},
-                                     {"pad", HSL_FTYPE_U16, 1.0f}},
+                                     {"ntc_hz", HSL_FTYPE_U16, 1.0f}},
                8u);
+  /* No sign flips here, unlike "imu": the rate loop works in body axes, so the
+   * sensor -> body map has already been applied by the time this is captured. */
+  f = emit_fmt(f, HSL_STREAM_CTL, HSL_CTL_REC_BYTES, (uint16_t)HSL_CTL_RATE_HZ,
+               (const hsl_field_t[]){{"rfx", HSL_FTYPE_I16, gs},
+                                     {"rfy", HSL_FTYPE_I16, gs},
+                                     {"rfz", HSL_FTYPE_I16, gs},
+                                     {"ux", HSL_FTYPE_I16, HSL_CTL_U_PER_LSB},
+                                     {"uy", HSL_FTYPE_I16, HSL_CTL_U_PER_LSB},
+                                     {"uz", HSL_FTYPE_I16, HSL_CTL_U_PER_LSB}},
+               6u);
 
   /* PAD out to the sector. Skipped by the generic `len` rule, so no decoder
    * needs to know it exists. */
@@ -364,16 +470,17 @@ static void build_preamble(void) {
   uint32_t used = (uint32_t)(pad - s_preamble);
   pad[0] = (uint8_t)HSL_TYPE_PAD;
   pad[1] = 0u;
-  put_u16(&pad[2], (uint16_t)(HSL_SECTOR_BYTES - used - HSL_FRAME_HDR_BYTES));
+  put_u16(&pad[2], (uint16_t)(HSL_PREAMBLE_BYTES - used - HSL_FRAME_HDR_BYTES));
 }
 
-/** @noreq writes sector 0 and forces it to the card */
+/** @noreq writes the preamble sectors and forces them to the card */
 static bool flush_preamble(void) {
   build_preamble();
   if (vfs_lseek(s_fd, 0, VFS_SEEK_SET) < 0) {
     return false;
   }
-  if (vfs_write(s_fd, s_preamble, HSL_SECTOR_BYTES) != (int)HSL_SECTOR_BYTES) {
+  if (vfs_write(s_fd, s_preamble, sizeof s_preamble) !=
+      (int)sizeof s_preamble) {
     return false;
   }
   s_since_hdr = 0;
@@ -393,7 +500,7 @@ static bool ring_write(uint8_t *sec) {
   sec[5] = (uint8_t)(s_session & 0xFFu);
   put_u32(&sec[8], s_seq);
 
-  const uint32_t off = HSL_SECTOR_BYTES * (1u + s_slot);
+  const uint32_t off = HSL_PREAMBLE_BYTES + HSL_SECTOR_BYTES * s_slot;
   if (vfs_lseek(s_fd, (long)off, VFS_SEEK_SET) < 0) {
     return false;
   }

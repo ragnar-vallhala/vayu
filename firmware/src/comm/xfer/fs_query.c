@@ -9,6 +9,8 @@
 #include "comm/xfer/fs_query.h"
 
 #include "storage/fs_owner.h"
+#include "storage/imu_hs_log.h" /* the recording gate on deleting the HSL file */
+#include "variables.h"          /* the protected paths */
 
 static const fs_query_tx_ops_t *s_tx;
 
@@ -33,8 +35,11 @@ typedef struct {
   char path[FS_QUERY_PATH_MAX];
 } fs_info_t;
 
+typedef fs_info_t fs_delete_t; /* same shape: a path and who asked */
+
 static fs_list_t s_list;
 static fs_info_t s_info;
+static fs_delete_t s_delete;
 
 /** @noreq bounded string-copy helper */
 static void copy_path(char *dst, const char *src) {
@@ -49,10 +54,73 @@ void fs_query_init(const fs_query_tx_ops_t *tx) {
   s_tx = tx;
   s_list.active = false;
   s_info.active = false;
+  s_delete.active = false;
 }
 
 /** @noreq state predicate */
-bool fs_query_busy(void) { return s_list.active || s_info.active; }
+bool fs_query_busy(void) {
+  return s_list.active || s_info.active || s_delete.active;
+}
+
+/* ---- delete policy -------------------------------------------------------
+ * Deliberately here and not in fs_owner: the owner moves bytes, this decides
+ * what may be moved. Paths are compared on the basename, case-insensitively,
+ * because FatFS is 8.3 and case-insensitive -- "0:PID.BIN" and "0:pid.bin" are
+ * the same file, and a guard that only matched one spelling would be no guard.
+ */
+/** @noreq basename of an SD path (after the last '/' or the drive ':') */
+static const char *basename_of(const char *p) {
+  const char *b = p;
+  for (const char *c = p; *c != '\0'; c++) {
+    if (*c == '/' || *c == ':')
+      b = c + 1;
+  }
+  return b;
+}
+
+/** @noreq case-insensitive basename compare */
+static bool same_file(const char *path, const char *known) {
+  const char *a = basename_of(path);
+  const char *b = basename_of(known);
+  for (;; a++, b++) {
+    char ca = *a, cb = *b;
+    if (ca >= 'A' && ca <= 'Z')
+      ca = (char)(ca + 32);
+    if (cb >= 'A' && cb <= 'Z')
+      cb = (char)(cb + 32);
+    if (ca != cb)
+      return false;
+    if (ca == '\0')
+      return true;
+  }
+}
+
+/** @noreq delete policy: OK, or the result code that refuses it */
+static uint8_t delete_verdict(const char *path) {
+  /* Permanent: losing either of these costs a full recalibration or retune,
+   * and neither is ever the file someone meant to clear space with. */
+  if (same_file(path, CALIBRATION_FILE_PATH) ||
+      same_file(path, PID_CONFIG_FILE_PATH)) {
+    return FSQ_RES_DENIED;
+  }
+  /* The blackbox ring files. Deleting one is not the small thing its name
+   * suggests: fs_owner_boot_init preallocates all three at the next boot, and
+   * vfs_preallocate zero-fills 512 B at a time, so 30 MB of re-creation runs
+   * before the scheduler reaches timer_callback_init and the aircraft looks
+   * hung for minutes. They are also ring files -- there is never a reason to
+   * delete one to reclaim space, because the space is already fixed. */
+  if (same_file(path, NAVLINK_LOGGING_FILENAME) ||
+      same_file(path, SYS_LOGGING_FILENAME) ||
+      same_file(path, GENERAL_LOGGING_FILENAME)) {
+    return FSQ_RES_DENIED;
+  }
+  /* Temporary: the recorder holds this open and is writing into it. Refusing
+   * with BUSY rather than DENIED tells the GCS this succeeds after a disarm. */
+  if (same_file(path, HSL_FILENAME) && imu_hs_log_active()) {
+    return FSQ_RES_BUSY;
+  }
+  return FSQ_RES_OK;
+}
 
 /** @implements COMM-FS-001 */
 int fs_query_on_list(uint8_t req_seq, uint8_t gcs_sys, uint8_t gcs_comp,
@@ -92,6 +160,29 @@ int fs_query_on_info(uint8_t req_seq, uint8_t gcs_sys, uint8_t gcs_comp,
   s_info.gcs_sys = gcs_sys;
   s_info.gcs_comp = gcs_comp;
   copy_path(s_info.path, path);
+  return FS_QUERY_DEFERRED;
+}
+
+/** @implements COMM-FS-001 */
+int fs_query_on_delete(uint8_t req_seq, uint8_t gcs_sys, uint8_t gcs_comp,
+                       const char *path) {
+  if (path == NULL)
+    return FSQ_RES_DENIED;
+  /* Policy is evaluated on the comm task, so a refusal is answered in the
+   * inline ack and never occupies the slot. */
+  uint8_t verdict = delete_verdict(path);
+  if (verdict != FSQ_RES_OK)
+    return (int)verdict;
+  if (s_delete.active && s_delete.req_seq == req_seq)
+    return FS_QUERY_DEFERRED;
+  if (s_delete.active)
+    return FSQ_RES_BUSY;
+  s_delete.active = true;
+  s_delete.acked = false;
+  s_delete.req_seq = req_seq;
+  s_delete.gcs_sys = gcs_sys;
+  s_delete.gcs_comp = gcs_comp;
+  copy_path(s_delete.path, path);
   return FS_QUERY_DEFERRED;
 }
 
@@ -173,8 +264,35 @@ static int tick_info(void) {
 }
 
 /** @implements COMM-FS-001 */
+static int tick_delete(void) {
+  if (!s_delete.active)
+    return 0;
+  /* The verdict was taken on the comm task, but the recording could have
+   * started in between, so the state gate is re-checked here where the unlink
+   * actually happens. The permanent cases cannot change and need no recheck. */
+  uint8_t res = delete_verdict(s_delete.path);
+  if (res == FSQ_RES_OK) {
+    vfs_stat_t st;
+    int r = fs_owner_stat(s_delete.path, &st);
+    /* Absent or a directory both answer DENIED: this deletes files, rmdir is
+     * not offered, and neither case is a path worth distinguishing to a GCS
+     * that just wants to know whether the file is gone. */
+    if (r != 0 || !st.exists || st.is_dir) {
+      res = FSQ_RES_DENIED;
+    } else {
+      res = (fs_owner_unlink(s_delete.path) == 0) ? FSQ_RES_OK : FSQ_RES_FAILED;
+    }
+  }
+  if (s_tx && s_tx->command_ack)
+    s_tx->command_ack(FS_WIRE_MSGID_DELETE, s_delete.req_seq, res);
+  s_delete.active = false;
+  return 1;
+}
+
+/** @implements COMM-FS-001 */
 int fs_query_tick(int budget) {
   int emitted = tick_list(budget);
   emitted += tick_info();
+  emitted += tick_delete();
   return emitted;
 }

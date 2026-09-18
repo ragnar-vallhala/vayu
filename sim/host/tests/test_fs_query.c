@@ -1,6 +1,7 @@
 /**
  * @file sim/host/tests/test_fs_query.c
- * @brief SITL test of the filesystem-navigation service (FS_LIST / FS_INFO).
+ * @brief SITL test of the filesystem-navigation service (FS_LIST / FS_INFO /
+ *        FS_DELETE).
  *
  * Drives the real fs_query service (SM + fs_owner + host VFS) through a capturing
  * emitter: list a directory (entries + terminal), stat a file, and confirm a
@@ -14,6 +15,9 @@
 
 #include "comm/xfer/fs_query.h"
 #include "storage/fs_owner.h"
+#include "storage/imu_hs_log.h"
+#include "sys/state.h"
+#include "variables.h"
 
 static int g_checks = 0, g_fails = 0;
 #define CHECK(cond, msg)                                                       \
@@ -135,6 +139,101 @@ static void test_info(void) {
         "FS_INFO of a missing path -> DENIED (does not exist)");
 }
 
+/* The delete guards are the reason this service can be exposed at all, so they
+ * are tested from the refusing side first: a guard that has only ever been seen
+ * to allow is not known to refuse. */
+static uint8_t delete_result(uint8_t seq, const char *path) {
+  cap_reset();
+  int d = fs_query_on_delete(seq, 1, 1, path);
+  if (d != FS_QUERY_DEFERRED) {
+    return (uint8_t)d; /* refused inline, on the comm task */
+  }
+  drain(8);
+  return (CAP.n_ack == 1 && CAP.ack[0].msgid == FS_WIRE_MSGID_DELETE)
+             ? CAP.ack[0].result
+             : 0xFFu;
+}
+
+static bool exists(const char *path) {
+  vfs_stat_t st;
+  return fs_owner_stat(path, &st) == 0 && st.exists;
+}
+
+static void test_delete_ok(void) {
+  printf("  test_delete_ok\n");
+  uint8_t blob[16];
+  memset(blob, 0x5A, sizeof blob);
+  fs_owner_enqueue_write_at(0, "0:q_del.bin", 0, blob, sizeof blob);
+  fs_owner_pump();
+  CHECK(exists("0:q_del.bin"), "seeded the file to delete");
+  CHECK(delete_result(0x30, "0:q_del.bin") == FSQ_RES_OK,
+        "FS_DELETE of an ordinary file -> ACCEPTED");
+  CHECK(!exists("0:q_del.bin"), "the file is actually gone");
+}
+
+static void test_delete_missing(void) {
+  printf("  test_delete_missing\n");
+  CHECK(delete_result(0x31, "0:never_existed.bin") == FSQ_RES_DENIED,
+        "FS_DELETE of a missing path -> DENIED");
+}
+
+static void test_delete_protected(void) {
+  printf("  test_delete_protected\n");
+  uint8_t blob[8];
+  memset(blob, 0x11, sizeof blob);
+  fs_owner_enqueue_write_at(0, CALIBRATION_FILE_PATH, 0, blob, sizeof blob);
+  fs_owner_pump();
+  fs_owner_enqueue_write_at(0, PID_CONFIG_FILE_PATH, 0, blob, sizeof blob);
+  fs_owner_pump();
+
+  CHECK(delete_result(0x32, CALIBRATION_FILE_PATH) == FSQ_RES_DENIED,
+        "FS_DELETE of cal.bin -> DENIED");
+  CHECK(exists(CALIBRATION_FILE_PATH), "cal.bin survived");
+  CHECK(delete_result(0x33, PID_CONFIG_FILE_PATH) == FSQ_RES_DENIED,
+        "FS_DELETE of pid.bin -> DENIED");
+  CHECK(exists(PID_CONFIG_FILE_PATH), "pid.bin survived");
+  /* FatFS is case-insensitive, so a guard that only matched one spelling of
+   * the name would be trivially bypassed. */
+  CHECK(delete_result(0x34, "0:PID.BIN") == FSQ_RES_DENIED,
+        "FS_DELETE of 0:PID.BIN (upper case) -> DENIED");
+  CHECK(exists(PID_CONFIG_FILE_PATH),
+        "pid.bin survived the upper-case spelling");
+
+  /* The blackbox ring files. Deleting one costs a 30 MB zero-filling
+   * preallocation at the next boot, during which the aircraft looks hung. */
+  const char *rings[3] = {NAVLINK_LOGGING_FILENAME, SYS_LOGGING_FILENAME,
+                          GENERAL_LOGGING_FILENAME};
+  for (int i = 0; i < 3; i++) {
+    fs_owner_enqueue_write_at(0, rings[i], 0, blob, sizeof blob);
+    fs_owner_pump();
+    CHECK(delete_result((uint8_t)(0x40 + i), rings[i]) == FSQ_RES_DENIED,
+          "FS_DELETE of a blackbox ring file -> DENIED");
+    CHECK(exists(rings[i]), "the blackbox ring file survived");
+  }
+}
+
+static void test_delete_hsl_state_gated(void) {
+  printf("  test_delete_hsl_state_gated\n");
+  uint8_t blob[8];
+  memset(blob, 0x22, sizeof blob);
+  fs_owner_enqueue_write_at(0, HSL_FILENAME, 0, blob, sizeof blob);
+  fs_owner_pump();
+
+  _system_current_status = SYSTEM_STATE_ARMED;
+  imu_hs_log_drain(); /* opens a session: the recorder now holds the file */
+  CHECK(imu_hs_log_active(), "recorder is active while armed");
+  CHECK(delete_result(0x35, HSL_FILENAME) == FSQ_RES_BUSY,
+        "FS_DELETE of imuhs.bin while recording -> TEMPORARILY_REJECTED");
+  CHECK(exists(HSL_FILENAME), "imuhs.bin survived while recording");
+
+  _system_current_status = SYSTEM_STATE_STANDBY;
+  imu_hs_log_drain(); /* closes the session */
+  CHECK(!imu_hs_log_active(), "recorder stopped on disarm");
+  CHECK(delete_result(0x36, HSL_FILENAME) == FSQ_RES_OK,
+        "FS_DELETE of imuhs.bin once disarmed -> ACCEPTED");
+  CHECK(!exists(HSL_FILENAME), "imuhs.bin deleted once disarmed");
+}
+
 int main(void) {
   printf("== fs_query (filesystem navigation) SITL ==\n");
   setenv("VAYU_VFS_DIR", "/tmp/vayu_fs_query_test", 1);
@@ -152,6 +251,10 @@ int main(void) {
   test_list();
   test_list_missing();
   test_info();
+  test_delete_ok();
+  test_delete_missing();
+  test_delete_protected();
+  test_delete_hsl_state_gated();
 
   printf("\n%d checks, %d failures\n", g_checks, g_fails);
   return g_fails == 0 ? 0 : 1;

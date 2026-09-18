@@ -28,7 +28,7 @@ SENTINEL = 0xA5     # frame `flags` in a ring slot; card garbage rarely has it
 FTYPE = {1: ("h", 2), 2: ("H", 2), 3: ("i", 4), 4: ("f", 4)}
 
 
-STREAM_NAME = {1: "imu", 2: "act", 3: "vrt"}
+STREAM_NAME = {1: "imu", 2: "act", 3: "vrt", 4: "ctl"}
 
 
 class Stream:
@@ -473,7 +473,7 @@ def verify_encoder_file(path):
     firmware writer and this reader to the same format -- everything else
     verifies each half against its own idea of the spec.
 
-    sim/host/tests/test_hslog.c drives three armed sessions of three streams
+    sim/host/tests/test_hslog.c drives three armed sessions of four streams
     through a 63-slot ring with a simulated reboot, so the file exercises
     rotation, an overwritten SESSION frame, per-stream decimation, EVENT frames
     and a reboot seq jump at once."""
@@ -488,15 +488,20 @@ def verify_encoder_file(path):
     assert not hdr["skipped_frames"], hdr["skipped_frames"]
     assert hdr["wraps"] >= 1, "test should have wrapped the ring: %r" % hdr
 
-    # --- all three streams declared, with their rates and layouts -----------
-    assert sorted(streams) == [1, 2, 3], sorted(streams)
-    imu, act, vrt = streams[1], streams[2], streams[3]
+    # --- all four streams declared, with their rates and layouts -----------
+    assert sorted(streams) == [1, 2, 3, 4], sorted(streams)
+    imu, act, vrt, ctl = streams[1], streams[2], streams[3], streams[4]
     assert (imu.rec_bytes, imu.rate_hz) == (12, 2000), vars(imu)
     assert (act.rec_bytes, act.rate_hz) == (12, 400), vars(act)
     assert (vrt.rec_bytes, vrt.rate_hz) == (28, 20), vars(vrt)
+    assert (ctl.rec_bytes, ctl.rate_hz) == (12, 1000), vars(ctl)
     assert imu.names == ["gx", "gy", "gz", "ax", "ay", "az"], imu.names
     assert act.names == ["m1", "m2", "m3", "m4", "thr", "flags"], act.names
     assert vrt.names[:6] == ["baro", "agl", "agltof", "alt", "climb", "abias"], vrt.names
+    assert ctl.names == ["rfx", "rfy", "rfz", "ux", "uy", "uz"], ctl.names
+    # "ctl" rates share the gyro's count scale so the two streams can be
+    # differenced; "imu" carries the sensor->body sign map, "ctl" does not.
+    assert ctl.fields[0][2] == abs(imu.fields[0][2]), (ctl.fields[0], imu.fields[0])
     gscale = imu.fields[0][2]
     assert abs(abs(gscale) - 0.0610351562) < 1e-6, gscale
 
@@ -514,6 +519,27 @@ def verify_encoder_file(path):
     # ordering recovers that; slot order alone would tear it in half.
     assert any(x["blocks"][-1]["slot"] < x["blocks"][0]["slot"] for x in ss), \
         "ring did not actually wrap; the test is not exercising rotation"
+
+    # --- "ctl" round-trips what the encoder was handed ----------------------
+    # test_hslog.c pushes constant rates and outputs, so anything but those
+    # values back means the scale, the rounding or the packing has moved.
+    for x in ss:
+        try:
+            t, sig = samples(hdr, streams, x["blocks"], sid=4)
+        except Exception:
+            continue
+        if not len(t):
+            continue
+        want = {"rfx": 10.0, "rfy": -20.0, "rfz": 30.0,
+                "ux": 0.25, "uy": -0.5, "uz": 0.125}
+        for k, v in want.items():
+            got = sig[k]
+            lsb = abs(dict((f[0], f[2]) for f in ctl.fields)[k])
+            assert abs(got[0] - v) <= lsb, "ctl %s: %r, wanted %r" % (k, got[0], v)
+            assert (got == got[0]).all(), "ctl %s is not constant: %r" % (k, got[:4])
+        fs = (len(t) - 1) / (t[-1] - t[0])
+        assert abs(fs - 1000) < 1.0, "ctl rate %.2f Hz, expected 1000" % fs
+        break
 
     # --- EVENT frames: arm and disarm must both be visible ------------------
     evs = [e for x in ss for e in x["events"]]
@@ -563,7 +589,7 @@ def verify_encoder_file(path):
     assert checked == {1, 2, 3}, "did not see all three streams: %r" % checked
 
     print("encoder round-trip OK: %s, %d frames, %d wraps, %d sessions, "
-          "%d events, 3 streams at 2000/400/20 Hz, reboot gap %d"
+          "%d events, 4 streams at 2000/1000/400/20 Hz, reboot gap %d"
           % (path, len(frames), hdr["wraps"], len(ss), len(evs), b - a))
 
 

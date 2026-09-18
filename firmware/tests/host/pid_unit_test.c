@@ -162,5 +162,53 @@ int main(void) {
 
   printf("\n%s (%d failure%s)\n", fails ? "FAILED" : "ALL PASSED", fails,
          fails == 1 ? "" : "s");
+  /* N. Actuator-saturation anti-windup. The PID's own out_min/out_max is not
+   * the only limit: on a rate axis authority runs out at the MIXER, which sums
+   * three axes onto the collective and saturates while each PID is nowhere
+   * near its own rail. The caller that owns the allocation reports the
+   * shortfall, and integration must stop in THAT direction only. PX4 does the
+   * same from its control allocator (rate_control.cpp, saturation_positive/
+   * negative clamping the rate error); ArduPilot from the motors library
+   * (AC_PID::update_i with motors.limit.roll/pitch/yaw). */
+  printf("Test 13: anti-windup against the actuator limit\n");
+  {
+    struct PID p;
+    v_pid_init(&p, 0, 1.0f, 0, 0, /*i_max*/ 100.0f, 1e6f, 0, -1e6f, 1e6f);
+    /* A sustained positive error the airframe cannot null. Unreported, the
+     * integrator winds -- this is the behaviour measured on the aircraft. */
+    for (int k = 0; k < 100; k++)
+      (void)v_pid_update(&p, 1.0f, 0.0f, 0, 0.01f);
+    float wound = p.integral;
+    check("unreported saturation still winds up (the old behaviour)",
+          wound > 0.9f);
+
+    /* Now report that the actuator could not deliver the positive demand. */
+    v_pid_reset(&p);
+    for (int k = 0; k < 100; k++) {
+      v_pid_set_sat_excess(&p, +0.5f); /* asked for more + than arrived */
+      (void)v_pid_update(&p, 1.0f, 0.0f, 0, 0.01f);
+    }
+    check("reported saturation stops the wind-up",
+          near(p.integral, 0.0f, 1e-6f));
+
+    /* Unwinding out of the limit must still be allowed, or it could never
+     * recover once the error reverses. */
+    v_pid_reset(&p);
+    v_pid_set_integral(&p, 0.5f);
+    for (int k = 0; k < 50; k++) {
+      v_pid_set_sat_excess(&p, +0.5f); /* still saturated positive */
+      (void)v_pid_update(&p, 0.0f, 1.0f, 0, 0.01f); /* error now NEGATIVE */
+    }
+    check("but unwinding out of the limit is still allowed", p.integral < 0.4f);
+
+    /* Saturation on the opposite side must not block a positive error. */
+    v_pid_reset(&p);
+    for (int k = 0; k < 50; k++) {
+      v_pid_set_sat_excess(&p, -0.5f);              /* saturated NEGATIVE */
+      (void)v_pid_update(&p, 1.0f, 0.0f, 0, 0.01f); /* error POSITIVE */
+    }
+    check("the opposite-side limit does not block", p.integral > 0.4f);
+  }
+
   return fails ? 1 : 0;
 }

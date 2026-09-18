@@ -308,12 +308,22 @@ static void test_gyro_notch_runtime(void) {
   float c = gyro_notch_center_hz(0, 0);
   CHECK(c > 150.0f && c < 250.0f, "notch center tracks the 200 Hz tone");
 
-  /* Disengage edge (throttle chopped): the banks reset so no stale notch is left
-   * for the next spool-up. */
+  /* Throttle no longer gates: GYRO_NOTCH_THROTTLE_MIN is 0 because the stick
+   * collective reads zero while the motors hold the arming idle floor, where
+   * the props are already spinning and shaking the airframe. So a chop must
+   * NOT throw the tune away. */
   gyro_notch_set_throttle(0.0f);
+  gyro_notch_service();
+  CHECK(gyro_notch_center_hz(0, 0) > 150.0f,
+        "a throttle chop no longer disengages: the props are still turning");
+
+  /* Disengaging still resets the banks, so no stale notch survives to the next
+   * engage -- it is the master enable that does it now. */
+  gyro_notch_set_enabled(false);
   gyro_notch_service();
   CHECK(gyro_notch_center_hz(0, 0) == 0.0f,
         "disengage clears the tuned center");
+  gyro_notch_set_enabled(true);
 }
 
 /* ----------------------------------------------------------------------------

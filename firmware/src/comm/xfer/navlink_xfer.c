@@ -239,14 +239,113 @@ void xfer_on_ack(uint8_t session, uint32_t next_offset, uint8_t flags) {
     session_free(s);
     return;
   }
-  /* Resume/refill: rewind to the GCS's lowest-missing byte (idempotent re-read).
-   * NAK forces it even if next_offset == cursor. */
-  if (next_offset < s->cursor || (flags & XFER_F_NAK)) {
+  /* Rewind ONLY on an explicit NAK. A plain cumulative ack carries the GCS's
+   * lowest-missing byte, which is BEHIND this cursor for as long as anything is
+   * in flight -- that is the normal condition of a sender that is ahead, not a
+   * request to resend. Treating it as one dragged the cursor back on every ack,
+   * which collapsed the download to stop-and-wait and re-sent everything already
+   * in flight: measured on hardware at 266 useful chunks against 911 frames
+   * emitted, 70% of the link spent on duplicates, and immune to every pacing
+   * knob because the round trip, not the pacing, set the rate. */
+  if (flags & XFER_F_NAK) {
     if (!is_stream(s))
       s->cursor = next_offset;
     if (s->state == XFER_ST_DONE_LINGER)
       s->state = XFER_ST_ACTIVE; /* reopened the tail */
   }
+}
+
+/** @implements COMM-XFER-001 */
+void xfer_on_sack(uint8_t session, uint32_t next_offset, const uint32_t *off,
+                  const uint16_t *len, uint8_t n) {
+  if (!s_ready || session >= XFER_MAX_SESSIONS)
+    return;
+  xfer_session_t *s = &s_sessions[session];
+  if (s->dir != XFER_DIR_DOWNLOAD || is_stream(s))
+    return;
+  if (s->state != XFER_ST_ACTIVE && s->state != XFER_ST_DONE_LINGER)
+    return;
+
+  s->rx_activity = true;
+  s->info_acked = true;
+
+  /* Rebuild the backlog from this report. A SACK is a COMPLETE statement of
+   * what the receiver is missing, so anything queued that it no longer names
+   * has arrived -- by the repair, or by a copy that was merely late. Carrying
+   * such entries forward instead jams the queue: the cumulative ack cannot pass
+   * the lowest hole, so an ack-only prune never clears the ones above it, and
+   * newly discovered gaps can never be queued behind them. On hardware that
+   * showed up as a download crawling to a halt around 70% with 36 holes
+   * outstanding and room for 8.
+   *
+   * sent/reports carry over for a gap that is still named, so an in-flight
+   * repair stays suppressed and its retry timer is not reset by the re-report
+   * that is asking for it. */
+  xfer_repair_t prev[XFER_SACK_MAX_RANGES];
+  uint8_t n_prev = s->n_repair;
+  for (uint8_t j = 0; j < n_prev; j++)
+    prev[j] = s->repair[j];
+  s->n_repair = 0;
+
+  for (uint8_t i = 0; i < n && i < XFER_SACK_MAX_RANGES; i++) {
+    if (off[i] < next_offset || len[i] == 0u)
+      continue; /* already covered by the cumulative ack, or empty */
+    if (off[i] >= s->total_size)
+      continue;
+    uint16_t want = len[i];
+    if ((uint32_t)want > s->total_size - off[i])
+      want = (uint16_t)(s->total_size - off[i]);
+
+    xfer_repair_t e = {off[i], want, 0u, 0u};
+    for (uint8_t j = 0; j < n_prev; j++) {
+      if (prev[j].off == off[i]) {
+        /* Still missing. Keep the in-flight state, and count this re-report
+         * towards presuming the repair lost -- the receiver only keeps asking
+         * because it still has not arrived. */
+        e.sent = prev[j].sent;
+        e.reports = prev[j].reports;
+        /* The threshold counts REPORTS, not milliseconds, so it has to track
+         * how fast reports arrive. While data is streaming they come at the
+         * frame rate and a dozen is about a round trip. Once the stream has
+         * finished there is nothing left to report on, so they arrive only at
+         * the receiver's keepalive cadence -- hundreds of times slower -- and
+         * the same threshold would put the retry far beyond the linger reap.
+         * A re-report with nothing left to send means the repair was lost. */
+        uint8_t limit = (s->cursor >= s->total_size)
+                            ? XFER_SACK_REPEAT_REPORTS_IDLE
+                            : XFER_SACK_REPEAT_REPORTS;
+        if (e.sent && ++e.reports >= limit) {
+          e.sent = 0u;
+          e.reports = 0u;
+        }
+        break;
+      }
+    }
+    bool dup = false;
+    for (uint8_t j = 0; j < s->n_repair; j++) {
+      if (s->repair[j].off == e.off) {
+        dup = true;
+        break;
+      }
+    }
+    if (!dup && s->n_repair < XFER_SACK_MAX_RANGES)
+      s->repair[s->n_repair++] = e;
+  }
+
+  /* Reopen a finished stream only when there is a repair actually owed, i.e.
+   * one not already in flight. Reopening for a repair that has been sent costs
+   * an EOF marker per report -- the receiver reports on every frame it gets, so
+   * that alone can fill the link with markers and starve the repairs it is
+   * asking for. */
+  bool owed = false;
+  for (uint8_t j = 0; j < s->n_repair; j++) {
+    if (!s->repair[j].sent) {
+      owed = true;
+      break;
+    }
+  }
+  if (owed && s->state == XFER_ST_DONE_LINGER)
+    s->state = XFER_ST_ACTIVE;
 }
 
 /** @implements COMM-XFER-001 */
@@ -310,6 +409,41 @@ static int tick_download(xfer_session_t *s, uint32_t now_ms, int budget,
   (void)tx_overflow;
   int emitted = 0;
   uint8_t buf[XFER_CHUNK_MAX];
+
+  /* Selective repeat first: a receiver waiting on a hole cannot advance its
+   * cumulative ack until that hole is filled, so the backlog is what unblocks
+   * it. A repair stays queued after it is sent so the receiver's re-reports
+   * while it is in flight do not send it again. */
+  while (budget > 0 && s->state == XFER_ST_ACTIVE) {
+    uint8_t r = XFER_SACK_MAX_RANGES;
+    for (uint8_t i = 0; i < s->n_repair; i++) {
+      if (!s->repair[i].sent) {
+        r = i;
+        break;
+      }
+    }
+    if (r == XFER_SACK_MAX_RANGES)
+      break; /* nothing owed that is not already in flight */
+    uint32_t roff = s->repair[r].off;
+    uint16_t rlen = s->repair[r].len;
+    int rn = s->provider->read ? s->provider->read(s, roff, buf, rlen) : -1;
+    if (rn <= 0)
+      break;
+    bool rlast = (roff + (uint32_t)rn) >= s->total_size;
+    if (s_tx && s_tx->data &&
+        !s_tx->data(s, rlast ? XFER_F_EOF : XFER_F_NONE, (uint8_t)rn, roff,
+                    buf))
+      break; /* ring full: keep the repair queued, retry next tick */
+    /* Stays queued: not owed again until the ack passes it, or it has been
+     * re-reported often enough to be presumed lost. */
+    s->repair[r].sent = 1u;
+    s->repair[r].reports = 0u;
+    s->last_emit_ms = now_ms;
+    s->last_rx_ms = now_ms;
+    emitted++;
+    budget--;
+  }
+
   while (budget > 0 && s->state == XFER_ST_ACTIVE) {
     if (s->cursor >= s->total_size) {
       /* Nothing left: send a zero-length EOF marker and linger for the ack. Only
@@ -483,6 +617,13 @@ int xfer_tick(uint32_t now_ms, uint32_t tx_overflow, int chunk_budget) {
       }
       break;
     case XFER_ST_DONE_LINGER:
+      /* A receiver that is still reporting holes is alive and waiting on us;
+       * reaping the session under it strands it re-requesting a slot that no
+       * longer exists until its own timeout. */
+      if (s->rx_activity) {
+        s->rx_activity = false;
+        s->last_emit_ms = now_ms;
+      }
       if ((uint32_t)(now_ms - s->last_emit_ms) >= XFER_DONE_LINGER_MS) {
         if (s->provider && s->provider->close)
           s->provider->close(s, XFER_RES_ACCEPTED);
