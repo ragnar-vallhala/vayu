@@ -1,3 +1,6 @@
 [submodule "extern/vaios"]
 	path = extern/vaios
 	url = https://github.com/ragnar-vallhala/vaios.git
+[submodule "vtest"]
+	path = vtest
+	url = ../vtest

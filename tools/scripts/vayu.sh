@@ -88,6 +88,9 @@ build_gcs() {
 }
 build_vtest() {
   say "vtest -> build_vtest/vtest (host C orchestrator)"
+  if [ ! -f vtest/vtest.c ]; then
+    die "vtest/ is empty -- run: git submodule update --init vtest"
+  fi
   mkdir -p build_vtest
   cc -std=c11 -O2 -Wall -Wextra vtest/vtest.c -o build_vtest/vtest
 }
