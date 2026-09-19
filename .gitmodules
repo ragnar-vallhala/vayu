@@ -3,4 +3,4 @@
 	url = https://github.com/ragnar-vallhala/vaios.git
 [submodule "vtest"]
 	path = vtest
-	url = ../vtest
+	url = https://github.com/ragnar-vallhala/vtest.git
