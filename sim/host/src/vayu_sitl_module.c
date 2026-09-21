@@ -49,8 +49,16 @@ static void module_shutdown(void) {
   g_iface_live = 0;
 }
 
+/* Stamped by the build (see sim/host/CMakeLists.txt). Defaulted so the file
+ * still compiles outside it -- an honest "unknown" beats a build error, and
+ * beats a stale identity baked in by hand. */
+#ifndef VAYU_SITL_BUILD_ID
+#define VAYU_SITL_BUILD_ID "unknown"
+#endif
+
 static const vayu_sitl_api_t API = {
     .abi_version = VAYU_SITL_ABI_VERSION,
+    .build_id = VAYU_SITL_BUILD_ID,
 
     .boot = module_boot,
     .set_telemetry_sink = module_set_telemetry_sink,

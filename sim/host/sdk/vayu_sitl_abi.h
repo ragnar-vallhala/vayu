@@ -41,7 +41,7 @@ extern "C" {
  * changed struct in vsim_proto.h. The loader passes the version it was built
  * against and gets NULL if the module cannot serve it -- an honest failure to
  * load beats a silently mismatched struct layout. */
-#define VAYU_SITL_ABI_VERSION 2u
+#define VAYU_SITL_ABI_VERSION 3u
 
 /* The name the loader resolves, and the module's file name without the
  * platform's prefix/suffix (libvayu_sitl.so, vayu_sitl.dll). */
@@ -56,6 +56,20 @@ typedef void (*vayu_sitl_telemetry_fn)(void *user, const uint8_t *data,
 typedef struct vayu_sitl_api {
   /* Mirrors the version the loader asked for; re-checkable after the call. */
   uint32_t abi_version;
+
+  /* WHICH firmware this is: a NUL-terminated build identity, normally
+   * `git describe --always --dirty` plus the build date, or "unknown" if the
+   * module was built outside a git tree.
+   *
+   * abi_version gates struct layout, not identity -- any firmware built
+   * against this ABI loads, which is the point of shipping the engine
+   * separately. The cost is that a host can be driving a months-old engine
+   * with nothing on screen to say so, the same blind spot as a real board,
+   * which carries no version on the wire either. So the module states it, and
+   * a host should log it at load and show it wherever it names the sim.
+   *
+   * Static storage owned by the module; valid until unload, never freed. */
+  const char *build_id;
 
   /* ---- lifecycle ----
    * boot wires telemetry to `cb` and starts the vaios scheduler. It is

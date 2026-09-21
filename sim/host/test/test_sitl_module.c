@@ -116,6 +116,17 @@ int main(int argc, char **argv) {
   }
   CHECK("api->abi_version matches", api->abi_version == VAYU_SITL_ABI_VERSION);
 
+  /* The build stamp must be present and actually stamped. "unknown" is a legal
+   * value for a module built outside a git tree, but not for one built here --
+   * a stamp that quietly stops updating is worse than none, since it reads as
+   * authoritative. */
+  CHECK("build_id is set", api->build_id != NULL && api->build_id[0] != '\0');
+  if (api->build_id) {
+    printf("         build_id: %s\n", api->build_id);
+    CHECK("build_id was stamped by the build",
+          strcmp(api->build_id, "unknown") != 0);
+  }
+
   /* 4) Every slot is filled. A designated initialiser that misses one leaves a
    *    NULL that would only crash on the call that happens to need it. */
   const void *const slots[] = {

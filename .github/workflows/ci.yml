@@ -91,6 +91,46 @@ jobs:
           cmake --build build_sitl -j
           ctest --test-dir build_sitl --output-on-failure
 
+  sitl-module:
+    name: SITL loadable module + SDK tarball
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+          fetch-depth: 0   # git describe needs tags for the build id
+      - run: sudo apt-get update && sudo apt-get install -y cmake
+      - name: Build the module and package the SDK
+        run: |
+          cmake -S sim/host -B build_sitl_rtos -DVAYU_SITL_RTOS_BUILD=ON
+          cmake --build build_sitl_rtos --target vayu_sitl_package -j
+      - name: Prove it loads and drives the firmware
+        # Not just "it built": the module test dlopens it with no firmware
+        # linked, checks the ABI gate both ways, and asserts an injected
+        # NavLink command reaches the real command path. A module that builds
+        # but cannot be loaded is the failure this job exists to catch.
+        run: ctest --test-dir build_sitl_rtos -R sitl_module --output-on-failure
+      - name: Check the tarball holds exactly the shipping surface
+        # The contract a host depends on is one .so and two headers. If that
+        # set ever changes, it should change deliberately, not by someone
+        # adding a file to sdk/.
+        run: |
+          actual=$(tar tzf build_sitl_rtos/vayu-sitl-sdk.tar.gz \
+                   | grep -v '/$' | sort | tr '\n' ' ')
+          expected='vayu-sitl-sdk/BUILD_ID vayu-sitl-sdk/include/vayu_sitl_abi.h vayu-sitl-sdk/include/vsim_proto.h vayu-sitl-sdk/lib/libvayu_sitl.so '
+          if [ "$actual" != "$expected" ]; then
+            echo "SDK tarball contents changed."
+            echo "  expected: $expected"
+            echo "  actual:   $actual"
+            exit 1
+          fi
+          echo "build id: $(tar xzf build_sitl_rtos/vayu-sitl-sdk.tar.gz -O vayu-sitl-sdk/BUILD_ID)"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vayu-sitl-sdk-linux-x86_64
+          path: build_sitl_rtos/vayu-sitl-sdk.tar.gz
+          if-no-files-found: error
+
   sanitizers:
     name: SITL ASan + UBSan (R12.2)
     runs-on: ubuntu-latest

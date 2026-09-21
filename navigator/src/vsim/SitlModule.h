@@ -39,6 +39,12 @@ public:
   // Absolute path of the module actually loaded; empty if none was.
   QString path() const { return path_; }
 
+  // Which firmware this module is, as it stamped itself at build time. Empty
+  // if nothing is loaded. Worth showing wherever the UI names the sim: the ABI
+  // check only proves the layout matches, so without this a stale engine looks
+  // exactly like a current one.
+  QString buildId() const { return buildId_; }
+
   // Hand a NavLink frame to the loaded sim, exactly as it would go out on the
   // wire to a real board: the firmware's own parser, router and command gates
   // see it. Returns false if no module is loaded.
@@ -57,4 +63,5 @@ private:
   const vayu_sitl_api_t *api_ = nullptr;
   QString error_;
   QString path_;
+  QString buildId_;
 };

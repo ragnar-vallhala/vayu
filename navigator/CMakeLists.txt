@@ -275,8 +275,19 @@ qt_add_executable(Navigator
 )
 
 # Headers for the runtime-loaded SITL module. Defined here because the include
-# block below expands it -- CMake reads top-down. Point it at an unpacked
-# firmware release to build against one instead of the in-tree copy.
+# block below expands it -- CMake reads top-down.
+#
+# Consuming a firmware RELEASE instead of this tree:
+#   tar xzf vayu-sitl-sdk.tar.gz
+#   cmake -S navigator -B build -DVAYU_SITL_SDK=$PWD/vayu-sitl-sdk/include
+# then put lib/libvayu_sitl.so next to the Navigator executable, or point
+# $VAYU_SITL_MODULE at it. The whole contract is that one .so and these two
+# headers; nothing else from the firmware tree is needed to build or run.
+#
+# The module is searched for at runtime in this order (SitlModule.cpp):
+# $VAYU_SITL_MODULE, beside the executable, ../lib, then a sibling build dir.
+# A shipped module therefore wins over a stale dev build, and the env var wins
+# over both.
 set(VAYU_SITL_SDK "${CMAKE_CURRENT_SOURCE_DIR}/../sim/host/sdk"
     CACHE PATH "Directory holding vayu_sitl_abi.h + vsim_proto.h")
 

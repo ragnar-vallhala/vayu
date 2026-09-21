@@ -303,8 +303,29 @@ if(VAYU_SITL_RTOS_BUILD)
   # Only vayu_sitl_get_api is exported. Hiding the rest keeps the firmware's
   # ~hundreds of globals (and its malloc/assert shims) out of the loader's
   # symbol namespace, where they would otherwise be free to collide.
+  # Build identity, so a host can say WHICH firmware it loaded. The ABI version
+  # only promises the struct layout matches; it says nothing about which engine
+  # this is, and a module ships separately from whatever loads it.
+  #
+  # Resolved at configure time, not build time: it is one git call, and a stamp
+  # that silently stopped updating would be worse than no stamp at all. Re-run
+  # cmake to refresh it.
+  execute_process(
+      COMMAND git -C "${VAYU_ROOT}" describe --always --dirty --tags
+      OUTPUT_VARIABLE VAYU_SITL_GIT_ID
+      OUTPUT_STRIP_TRAILING_WHITESPACE
+      ERROR_QUIET)
+  if(NOT VAYU_SITL_GIT_ID)
+    set(VAYU_SITL_GIT_ID "unknown")   # tarball export, or no git on PATH
+  endif()
+  string(TIMESTAMP VAYU_SITL_BUILD_DATE "%Y-%m-%d" UTC)
+  set(VAYU_SITL_BUILD_ID "${VAYU_SITL_GIT_ID} ${VAYU_SITL_BUILD_DATE}")
+  message(STATUS "vayu_sitl build id: ${VAYU_SITL_BUILD_ID}")
+
   add_library(vayu_sitl MODULE src/vayu_sitl_module.c)
-  target_compile_definitions(vayu_sitl PRIVATE VAYU_SITL_BUILDING_MODULE=1)
+  target_compile_definitions(vayu_sitl PRIVATE
+      VAYU_SITL_BUILDING_MODULE=1
+      VAYU_SITL_BUILD_ID="${VAYU_SITL_BUILD_ID}")
   target_link_libraries(vayu_sitl PRIVATE vayu_sitl_rtos_core)
   set_target_properties(vayu_sitl PROPERTIES
       C_VISIBILITY_PRESET hidden
@@ -319,6 +340,31 @@ if(VAYU_SITL_RTOS_BUILD)
     set_target_properties(vayu_sitl PROPERTIES
         LINK_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/vayu_sitl.map)
   endif()
+
+  # The shippable form of the module: the .so plus the two headers a loader
+  # compiles against, and nothing else. A host needs no other part of this tree.
+  #
+  # A target rather than CI-only shell, so the tarball a developer can inspect
+  # is byte-for-byte the one CI uploads -- a packaging step that only ever runs
+  # in CI is a packaging step nobody can debug.
+  set(VAYU_SITL_SDK_STAGE "${CMAKE_BINARY_DIR}/vayu-sitl-sdk")
+  add_custom_target(vayu_sitl_package
+      COMMAND ${CMAKE_COMMAND} -E rm -rf "${VAYU_SITL_SDK_STAGE}"
+      COMMAND ${CMAKE_COMMAND} -E make_directory "${VAYU_SITL_SDK_STAGE}/lib"
+                                                 "${VAYU_SITL_SDK_STAGE}/include"
+      COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:vayu_sitl>
+                                       "${VAYU_SITL_SDK_STAGE}/lib/"
+      COMMAND ${CMAKE_COMMAND} -E copy
+                  "${CMAKE_CURRENT_SOURCE_DIR}/sdk/vayu_sitl_abi.h"
+                  "${CMAKE_CURRENT_SOURCE_DIR}/sdk/vsim_proto.h"
+                  "${VAYU_SITL_SDK_STAGE}/include/"
+      COMMAND ${CMAKE_COMMAND} -E echo "${VAYU_SITL_BUILD_ID}"
+              > "${VAYU_SITL_SDK_STAGE}/BUILD_ID"
+      COMMAND ${CMAKE_COMMAND} -E chdir "${CMAKE_BINARY_DIR}"
+              ${CMAKE_COMMAND} -E tar czf "vayu-sitl-sdk.tar.gz" "vayu-sitl-sdk"
+      DEPENDS vayu_sitl
+      COMMENT "Packaging vayu-sitl-sdk.tar.gz (${VAYU_SITL_BUILD_ID})"
+      VERBATIM)
 
   # GCS-integration test (#12): drives the SAME slim engine API SimWorker uses,
   # from a non-firmware C++ TU (only host_rtos_engine_api.h + vsim_iface.h) — no

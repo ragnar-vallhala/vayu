@@ -50,7 +50,12 @@ SitlModule::SitlModule() {
     // missing symbol.
     lib.setLoadHints(QLibrary::ResolveAllSymbolsHint);
     if (!lib.load()) {
-      tried << QStringLiteral("%1: %2").arg(candidate, lib.errorString());
+      // QLibrary tries several names around the base (libX.so, X.so, ...) and
+      // its errorString reports only the last, so quoting it verbatim prints a
+      // path nobody passed. The candidate is what the user can act on.
+      tried << (QFileInfo(QFileInfo(candidate).path()).isDir()
+                    ? QStringLiteral("%1 (not found)").arg(candidate)
+                    : QStringLiteral("%1 (no such directory)").arg(candidate));
       continue;
     }
 
@@ -80,10 +85,14 @@ SitlModule::SitlModule() {
     // crash; there is nothing to gain by trying.
     api_ = api;
     path_ = QFileInfo(lib.fileName()).absoluteFilePath();
+    buildId_ = api->build_id ? QString::fromUtf8(api->build_id)
+                             : QStringLiteral("unknown");
     return;
   }
 
-  error_ = QStringLiteral("could not load the SITL module (lib%1). Tried:\n  %2")
+  error_ = QStringLiteral(
+               "no SITL module found (lib%1). Build the firmware, or set "
+               "VAYU_SITL_MODULE. Looked in:\n  %2")
                .arg(QLatin1String(VAYU_SITL_MODULE_NAME), tried.join("\n  "));
 }
 
