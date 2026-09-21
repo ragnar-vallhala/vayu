@@ -33,7 +33,8 @@
 #include <stdint.h>
 
 #include "control/control_buffer.h" /* control_telemetry_t */
-#include "driver/driver.h"          /* bmx160_all_reading_t, imu_queue_*_push */
+#include "driver/bmx160.h"
+#include "driver/imu_buffer.h"
 #include "vsim_proto.h" /* vsim_pose_frame_t (the GCS wire layout) */
 
 #ifdef __cplusplus

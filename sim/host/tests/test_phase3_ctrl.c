@@ -41,7 +41,8 @@
 #include <string.h>
 
 #include "est/est.h"
-#include "driver/driver.h"
+#include "driver/bmx160.h"
+#include "driver/imu_buffer.h"
 
 static int g_checks = 0;
 static int g_fails = 0;

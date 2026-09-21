@@ -45,9 +45,42 @@ DIRS=(
 
 # Each pattern is a class of silicon fact, not a blocklist of names -- a new
 # NavHAL call or a new pin macro is caught without touching this file.
-PATTERN='#include[[:space:]]*"(navhal|hal_)[^"]*"|\bhal_[a-z0-9_]+[[:space:]]*\(|\bGPIO_P[A-Z][0-9]|\bHAL_(I2C|UART|SPI|GPIO|PWM|TIM|DMA)|\bTIM[0-9]+\b'
+#
+# driver/ is in here because a device header reaches silicon on the logic
+# layer's behalf: driver/bmx160.h includes navhal.h, so a control TU that
+# includes it gets the whole register map without ever typing "hal_". An
+# umbrella header made that invisible -- this check reported clean while
+# control/ transitively included navhal.h through driver/driver.h. Naming a
+# driver is itself the violation; logic takes SI samples, not devices.
+PATTERN='#include[[:space:]]*"(navhal|hal_|driver/)[^"]*"|\bhal_[a-z0-9_]+[[:space:]]*\(|\bGPIO_P[A-Z][0-9]|\bHAL_(I2C|UART|SPI|GPIO|PWM|TIM|DMA)|\bTIM[0-9]+\b'
 
-hits="$(grep -rnE "$PATTERN" "${DIRS[@]}" 2>/dev/null || true)"
+# Known debt, frozen when driver/ headers were added to the rule above. This
+# list may only SHRINK: a new violation fails, and so does a resolved one that
+# is still listed, so it cannot quietly drift out of date. Each entry goes away
+# when its consumer takes an SI sample instead of a device type -- fault line
+# F11 in docs/analysis/navhal-hardware-logic-separation.md. Line numbers are
+# deliberately omitted so ordinary edits do not churn the list.
+KNOWN='firmware/src/control/angle_controller.c|#include "driver/imu_buffer.h"
+firmware/src/control/angle_rate_controller.c|#include "driver/bmx160.h"
+firmware/src/control/angle_rate_controller.c|#include "driver/imu_buffer.h"
+firmware/src/est/attitude_task.c|#include "driver/bmx160.h"
+firmware/src/est/attitude_task.c|#include "driver/imu_buffer.h"
+firmware/src/est/vertical_task.c|#include "driver/bme280.h"
+firmware/src/est/vertical_task.c|#include "driver/imu_buffer.h"
+firmware/src/est/vertical_task.c|#include "driver/vl53l0x.h"'
+
+raw="$(grep -rnE "$PATTERN" "${DIRS[@]}" 2>/dev/null || true)"
+seen="$(printf '%s' "$raw" | sed 's/:[0-9][0-9]*:/|/' | sort -u)"
+known="$(printf '%s' "$KNOWN" | sort -u)"
+
+hits="$(comm -23 <(printf '%s\n' "$seen") <(printf '%s\n' "$known") | sed '/^$/d')"
+fixed="$(comm -13 <(printf '%s\n' "$seen") <(printf '%s\n' "$known") | sed '/^$/d')"
+
+if [ -n "$fixed" ]; then
+  echo "These are no longer violations -- delete them from KNOWN in $0:" >&2
+  echo "$fixed" >&2
+  exit 1
+fi
 
 if [ -n "$hits" ]; then
   cat >&2 <<'EOF'
@@ -56,10 +89,13 @@ Layering violation: silicon named inside control/ est/ maths/.
 These layers take SI quantities and dt, and must compile without a HAL.
   - need a cycle stamp or the CPU rate?  -> sys/clock.h
   - need a pin, bus, timer or hal_ call? -> it belongs in a driver, not here
+  - need sensor data?                    -> take it as an SI sample, not a
+                                            driver header (driver/*.h pulls
+                                            navhal.h in behind you)
 
 EOF
   echo "$hits" >&2
   exit 1
 fi
 
-echo "layering: control/ est/ maths/ name no silicon"
+echo "layering: control/ est/ maths/ name no new silicon ($(printf '%s' "$KNOWN" | grep -c . ) known, ratcheting down)"

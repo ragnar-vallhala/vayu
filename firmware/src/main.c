@@ -16,7 +16,10 @@
  */
 #include "comm/comm.h"
 #include "control/control.h"
-#include "driver/driver.h"
+#include "driver/bme280.h"
+#include "driver/bmx160.h"
+#include "driver/i2c_manager.h"
+#include "driver/vl53l0x.h"
 #include "storage/fs_owner.h"
 #include "navhal.h"
 #include "sys/clock.h"

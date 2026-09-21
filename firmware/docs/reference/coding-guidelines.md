@@ -37,7 +37,7 @@ up the firmware engineering standard.
 
 | ID    | Rule | Status |
 |-------|------|--------|
-| R2.1  | Each module exposes exactly one public umbrella header in `include/<module>/<module>.h` (e.g. `include/driver/driver.h`) and may have any number of private headers in its source directory. | ✅ Phase 4 — every owned module has its umbrella: actuator.h, est.h, sensor.h, control.h, comm.h, logger.h, sys.h. |
+| R2.1  | Each module exposes exactly one public umbrella header in `include/<module>/<module>.h` (e.g. `include/est/est.h`) and may have any number of private headers in its source directory. | ✅ Phase 4 — umbrellas: est.h, control.h, comm.h, logger.h, sys.h, actuator/motor.h. `driver/` is deliberately exempt -- it is a category of unrelated devices, not a module with one surface, and an umbrella there made every consumer depend on every device (and hid navhal.h from the layering gate). |
 | R2.2  | Public headers must be self-contained (compile when included in isolation) and idempotent (`#pragma once` or a unique include guard). |  |
 | R2.3  | A public header must not include another module's *private* header. |  |
 | R2.4  | **Layering rule.** Dependencies flow downward only: `LOG → COMM → CTRL → EST → SNS → SNS-drivers → HAL → VOS`. SYS sits above CTRL; ACT depends on CTRL + HAL. No upward edges. |  |

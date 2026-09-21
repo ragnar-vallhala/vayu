@@ -41,7 +41,8 @@
 #include "vsim_proto.h"
 
 #include "est/est.h"
-#include "driver/driver.h"
+#include "driver/bmx160.h"
+#include "driver/imu_buffer.h"
 #include "variables.h" /* vayu_dt_from_cycles, SYS_CLOCK_FREQ */
 
 #include <errno.h>

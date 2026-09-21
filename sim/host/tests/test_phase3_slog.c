@@ -36,7 +36,8 @@
 #include <string.h>
 
 #include "comm/perf_packet.h" /* perf_fifo_row_t + PERF_FIFO_* ids */
-#include "driver/driver.h"
+#include "driver/bmx160.h"
+#include "driver/imu_buffer.h"
 
 /* Drop accounting moved from a single imu_buffer ring to per-consumer SPSC
  * queues; each queue's overwrite count is exposed through the perf FIFO rows.
