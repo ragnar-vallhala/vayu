@@ -357,6 +357,8 @@ if(VAYU_SITL_RTOS_BUILD)
       COMMAND ${CMAKE_COMMAND} -E copy
                   "${CMAKE_CURRENT_SOURCE_DIR}/sdk/vayu_sitl_abi.h"
                   "${CMAKE_CURRENT_SOURCE_DIR}/sdk/vsim_proto.h"
+                  "${CMAKE_CURRENT_SOURCE_DIR}/sdk/trimesh_bvh.h"
+                  "${CMAKE_CURRENT_SOURCE_DIR}/sdk/vsim_math.h"
                   "${VAYU_SITL_SDK_STAGE}/include/"
       COMMAND ${CMAKE_COMMAND} -E echo "${VAYU_SITL_BUILD_ID}"
               > "${VAYU_SITL_SDK_STAGE}/BUILD_ID"

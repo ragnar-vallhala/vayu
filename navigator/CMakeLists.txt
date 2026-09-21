@@ -289,7 +289,7 @@ qt_add_executable(Navigator
 # A shipped module therefore wins over a stale dev build, and the env var wins
 # over both.
 set(VAYU_SITL_SDK "${CMAKE_CURRENT_SOURCE_DIR}/../sim/host/sdk"
-    CACHE PATH "Directory holding vayu_sitl_abi.h + vsim_proto.h")
+    CACHE PATH "The firmware SITL SDK include dir (4 headers)")
 
 target_include_directories(Navigator PRIVATE
     src
@@ -302,8 +302,8 @@ target_include_directories(Navigator PRIVATE
     src/ui/main
     src/ui/widgets
     src/vsim
-    ${VAYU_SITL_SDK}                                 # vayu_sitl_abi.h + vsim_proto.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/../sim/vsim/include  # trimesh_bvh.h (world-mesh file format)
+    ${VAYU_SITL_SDK}   # the whole firmware-facing surface: the engine ABI, the
+                       # wire structs, and the world-mesh file format
 )
 
 target_link_libraries(Navigator PRIVATE

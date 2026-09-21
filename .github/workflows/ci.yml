@@ -117,7 +117,7 @@ jobs:
         run: |
           actual=$(tar tzf build_sitl_rtos/vayu-sitl-sdk.tar.gz \
                    | grep -v '/$' | sort | tr '\n' ' ')
-          expected='vayu-sitl-sdk/BUILD_ID vayu-sitl-sdk/include/vayu_sitl_abi.h vayu-sitl-sdk/include/vsim_proto.h vayu-sitl-sdk/lib/libvayu_sitl.so '
+          expected='vayu-sitl-sdk/BUILD_ID vayu-sitl-sdk/include/trimesh_bvh.h vayu-sitl-sdk/include/vayu_sitl_abi.h vayu-sitl-sdk/include/vsim_math.h vayu-sitl-sdk/include/vsim_proto.h vayu-sitl-sdk/lib/libvayu_sitl.so '
           if [ "$actual" != "$expected" ]; then
             echo "SDK tarball contents changed."
             echo "  expected: $expected"

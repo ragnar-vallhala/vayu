@@ -11,8 +11,12 @@
  * reached through the returned vtable, so adding a call is an ABI version bump
  * in one place rather than another symbol for each loader to resolve.
  *
- * This header and vsim_proto.h are the whole compile-time surface: a loader
- * needs these two files and nothing else from the firmware tree. In particular
+ * This header, vsim_proto.h and the world-mesh pair (trimesh_bvh.h +
+ * vsim_math.h) are the whole compile-time surface: a loader needs those files
+ * and nothing else from the firmware tree. The world-mesh pair is here because
+ * it is a two-way contract -- the host BUILDS a BVH file and the module mmaps
+ * it (VSIM_CTL_SET_WORLD_MESH passes a path, not the data) -- so both sides
+ * must agree on the layout. In particular
  * it must NOT reach into sim/host/include -- those are NavHAL port shims that
  * shadow system headers (atomic.h, family) and will break a C++ translation
  * unit that picks them up. That is also why telemetry is delivered to a plain

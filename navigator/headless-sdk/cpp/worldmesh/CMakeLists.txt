@@ -18,9 +18,12 @@ add_executable(vsim_worldmesh
     ${_root}/navigator/src/vsim/WorldMeshBuilder.cpp
 )
 
+set(VAYU_SITL_SDK "${_root}/sim/host/sdk"
+    CACHE PATH "The firmware SITL SDK include dir")
+
 target_include_directories(vsim_worldmesh PRIVATE
     ${_root}/navigator/src/vsim
-    ${_root}/sim/vsim/include
+    ${VAYU_SITL_SDK}   # trimesh_bvh.h + vsim_math.h (world-mesh file format)
 )
 
 target_link_libraries(vsim_worldmesh PRIVATE Qt6::Core Qt6::Gui assimp::assimp)
