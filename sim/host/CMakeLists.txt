@@ -310,8 +310,14 @@ if(VAYU_SITL_RTOS_BUILD)
   # Resolved at configure time, not build time: it is one git call, and a stamp
   # that silently stopped updating would be worse than no stamp at all. Re-run
   # cmake to refresh it.
+  # --exclude: the rolling sitl-sdk-latest release tag moves with main, so an
+  # unfiltered describe stamps the module "sitl-sdk-latest-1-gNNNNNNN" -- it
+  # names the release rather than the commit, and its meaning changes every
+  # time the tag moves. The whole point of this string is to identify WHICH
+  # firmware a host loaded, so the rolling tag must not be a candidate.
   execute_process(
       COMMAND git -C "${VAYU_ROOT}" describe --always --dirty --tags
+              --exclude "sitl-sdk-*"
       OUTPUT_VARIABLE VAYU_SITL_GIT_ID
       OUTPUT_STRIP_TRAILING_WHITESPACE
       ERROR_QUIET)
