@@ -5,6 +5,34 @@
 > monorepo restructure — `src/` is now `firmware/src/`, `software/` is `navigator/`,
 > `tools/sim_host/` is `sim/host/`.
 
+## Status, re-measured 2026-09-22
+
+Five of the thirteen are closed. The rest are open and the paths below still
+find them.
+
+| | Fault line | State |
+|---|---|---|
+| F4 | telemetry byte-bangs the UART | **fixed** — `channel.c` DMAs UART6 |
+| F6 | no hardware motor-kill | **closed by decision** — `esc_disarm` is a `@noreq` primitive; disarm is ACT-FAIL-001's zero-PWM-in-one-iteration |
+| F9 | no timebase seam | **fixed for the logic layers** — `sys/clock.h`. Drivers still call `hal_cycle_counter_get` directly, which the rule allows |
+| F10 | `SYS_CLOCK_FREQ` duplicated vs the PLL | **fixed** — the rate is measured at boot; the macro is now only what `boot.c` checks against |
+| F13 | ESC band duplicated in the SITL host | **fixed** — one band in `actuator.h`, both sides derive |
+| F1 F2 F3 F5 F7 F8 F11 F12 F2b | god-header, bus ownership, baro-in-IMU, LED owner, TIM1, AF pinmux, chip-named sample type, IRQ registry, `i2c_config` aliasing | **open** |
+
+Between the audit and this re-measurement three fault lines had *grown* — raw
+cycle-counter sites went 4 → 7, `SYS_CLOCK_FREQ` gained consumers, and
+`variables.h` reached 525 lines and picked up `comm/channel.h` + `ipc.h`.
+Nothing was watching, so §6 Option E now exists: `tools/dev/check_layering.sh`,
+gated in CI, fails if anything under `control/`, `est/` or `maths/` names a pin,
+bus, timer or `hal_` function. That freezes the layers the audit found clean; it
+does not clean up the ones it found dirty.
+
+The remaining nine are all in the plumbing, and none of them is wrong *today* —
+they are blast-radius on a hardware change that is not currently planned (the
+board is fixed at navixsmf401 v0.0.4). F2/F3 in particular describe the
+single-owner I2C DMA loop, which works and was expensive to get right; the
+ownership inversion is real but rewriting it trades a working bus for a diagram.
+
 > Branch `analysis/navhal-coupling`, cut from `main@1e58df2`. Pure analysis — no
 > firmware behaviour is changed here. Goal: find the real fault lines where vayu's
 > logic is welded to silicon, and decide the separation mechanism (BSP vs.
