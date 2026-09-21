@@ -14,8 +14,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#include "sensor/vl53l0x.h"
-#include "sensor/i2c_manager.h"
+#include "driver/vl53l0x.h"
+#include "driver/i2c_manager.h"
 #include "storage/fs_owner.h"
 #include "vaios.h"
 #include <stdint.h>

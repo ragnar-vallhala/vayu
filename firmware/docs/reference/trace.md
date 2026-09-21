@@ -16,12 +16,12 @@
 
 | ID | Status | Title | Implementers | Verifiers |
 |----|--------|-------|--------------|-----------|
-| `ACT-ESC-001` | active | ESC PWM frequency | `firmware/include/actuator/actuator.h` | — |
-| `ACT-ESC-002` | active | ESC arming sequence | `firmware/include/actuator/actuator.h` | — |
-| `ACT-FAIL-001` | active | Disarm output | `firmware/include/actuator/actuator.h` | — |
-| `ACT-MOT-001` | active | Motor output range | `firmware/include/actuator/actuator.h` | — |
-| `ACT-MOT-002` | active | Motor task period | `firmware/include/actuator/actuator.h` | — |
-| `ACT-MOT-003` | active | Per-motor channel mapping | `firmware/include/actuator/actuator.h` | — |
+| `ACT-ESC-001` | active | ESC PWM frequency | `firmware/include/driver/esc.h` | — |
+| `ACT-ESC-002` | active | ESC arming sequence | `firmware/include/actuator/motor.h` | — |
+| `ACT-FAIL-001` | active | Disarm output | `firmware/include/actuator/motor.h` | — |
+| `ACT-MOT-001` | active | Motor output range | `firmware/include/driver/esc.h` | — |
+| `ACT-MOT-002` | active | Motor task period | `firmware/include/actuator/motor.h` | — |
+| `ACT-MOT-003` | active | Per-motor channel mapping | `firmware/include/actuator/motor.h` | — |
 | `COMM-CH-001` | active | UART TX ping-pong buffer | `firmware/src/comm/channel.c` | — |
 | `COMM-CH-002` | active | UART backpressure | `firmware/include/comm/channel.h`<br>`firmware/src/comm/channel.c`<br>`firmware/src/comm/navlink_tx.c` | `sim/host/tests/test_phase3_comm.c` |
 | `COMM-CMD-001` | active | Calibration commands | `firmware/src/comm/comm_processor.c`<br>`firmware/src/comm/navlink_router.c` | — |
@@ -68,7 +68,7 @@
 | `CTRL-PID-102` | active | PID reset on ARM transition | `firmware/src/control/angle_rate_controller.c` | — |
 | `CTRL-PID-103` | active | PID integrator gating | `firmware/src/control/angle_rate_controller.c` | — |
 | `CTRL-RATE-001` | active | Rate-loop frequency | `firmware/src/control/angle_rate_controller.c` | — |
-| `CTRL-RATE-101` | active | Rate-loop trigger | `firmware/include/sensor/imu_buffer.h`<br>`firmware/src/sensor/imu_buffer.c` | `sim/host/tests/test_phase3_ctrl.c` |
+| `CTRL-RATE-101` | active | Rate-loop trigger | `firmware/include/driver/imu_buffer.h`<br>`firmware/src/driver/imu_buffer.c` | `sim/host/tests/test_phase3_ctrl.c` |
 | `CTRL-RATE-102` | active | Rate PID gains (hardware) | — | — |
 | `CTRL-RATE-103` | active | Rate PID gains (SITL) | — | — |
 | `CTRL-RATE-104` | active | Optional INDI inner loop | `firmware/src/control/rate_indi.c` | — |
@@ -122,36 +122,36 @@
 | `LOG-TXT-002` | active | Log queue drain | — | — |
 | `LOG-XFER-001` | active | Bulk file upload (positioned async writes) | `firmware/src/storage/fs_owner.c` | — |
 | `LOG-XFER-002` | active | Bulk file download (held-open positioned reads) | `firmware/src/storage/fs_owner.c` | — |
-| `SNS-BARO-001` | active | Baro acquisition and publish | `firmware/src/sensor/bme280.c` | `firmware/tests/onboard/checks/check_sensors.c` |
-| `SNS-BARO-101` | active | Datasheet compensation | `firmware/src/sensor/bme280.c` | — |
-| `SNS-BARO-102` | active | Altitude derivation | `firmware/src/sensor/bme280.c` | — |
-| `SNS-BMX-101` | active | Init sequence | `firmware/src/sensor/bmx160.c` | `firmware/tests/onboard/checks/check_sensors.c` |
-| `SNS-BMX-102` | active | Sensor ranges | `firmware/src/sensor/bmx160.c` | — |
-| `SNS-BMX-103` | active | Scale factors | `firmware/src/sensor/bmx160.c` | — |
-| `SNS-BMX-104` | active | Read state machine | `firmware/src/sensor/bmx160.c` | `firmware/tests/onboard/checks/check_sensors.c` |
-| `SNS-BMX-105` | active | DMA + semaphore handshake | `firmware/src/sensor/bmx160.c` | — |
-| `SNS-BMX-106` | active | Axis-frame remap | `firmware/src/sensor/bmx160.c` | — |
-| `SNS-BUF-001` | active | IMU buffer SPSC ring | `firmware/src/sensor/imu_buffer.c` | — |
-| `SNS-BUF-002` | active | Drop accounting | `firmware/src/comm/navlink_tx.c`<br>`firmware/src/sensor/imu_buffer.c` | `sim/host/tests/test_phase3_slog.c` |
-| `SNS-CAL-001` | active | Persistent calibration store | `firmware/src/sensor/bmx160.c` | — |
-| `SNS-CAL-002` | active | Online gyro bias estimator | `firmware/src/sensor/bmx160.c` | — |
-| `SNS-CAL-101` | active | Accel ellipsoid calibration | `firmware/src/calib/calib_ellipsoid.c`<br>`firmware/src/calib/calib_engine.c`<br>`firmware/src/sensor/bmx160.c` | — |
-| `SNS-CAL-102` | active | Gyro bias calibration | `firmware/src/calib/calib_engine.c`<br>`firmware/src/sensor/bmx160.c` | — |
-| `SNS-CAL-103` | active | Mag free-rotation calibration | `firmware/src/calib/calib_ellipsoid.c`<br>`firmware/src/calib/calib_engine.c`<br>`firmware/src/sensor/bmx160.c` | — |
-| `SNS-CAL-104` | active | Accel pose-coverage gate | `firmware/src/sensor/bmx160.c` | — |
-| `SNS-I2C-001` | active | I2C bus contract | `firmware/src/sensor/i2c_manager.c` | — |
-| `SNS-I2C-101` | active | Bus-acquire timeout | `firmware/src/sensor/i2c_manager.c` | — |
-| `SNS-I2C-102` | active | Unstick procedure | `firmware/src/sensor/i2c_manager.c` | — |
-| `SNS-IMU-001` | active | IMU sample availability | `firmware/src/sensor/bmx160.c` | `firmware/tests/onboard/checks/check_sensors.c` |
-| `SNS-IMU-002` | active | Sample validity | `firmware/src/sensor/bmx160.c` | — |
-| `SNS-LPF-101` | active | First-order LPF | `firmware/src/sensor/bmx160.c` | — |
+| `SNS-BARO-001` | active | Baro acquisition and publish | `firmware/src/driver/bme280.c` | `firmware/tests/onboard/checks/check_sensors.c` |
+| `SNS-BARO-101` | active | Datasheet compensation | `firmware/src/driver/bme280.c` | — |
+| `SNS-BARO-102` | active | Altitude derivation | `firmware/src/driver/bme280.c` | — |
+| `SNS-BMX-101` | active | Init sequence | `firmware/src/driver/bmx160.c` | `firmware/tests/onboard/checks/check_sensors.c` |
+| `SNS-BMX-102` | active | Sensor ranges | `firmware/src/driver/bmx160.c` | — |
+| `SNS-BMX-103` | active | Scale factors | `firmware/src/driver/bmx160.c` | — |
+| `SNS-BMX-104` | active | Read state machine | `firmware/src/driver/bmx160.c` | `firmware/tests/onboard/checks/check_sensors.c` |
+| `SNS-BMX-105` | active | DMA + semaphore handshake | `firmware/src/driver/bmx160.c` | — |
+| `SNS-BMX-106` | active | Axis-frame remap | `firmware/src/driver/bmx160.c` | — |
+| `SNS-BUF-001` | active | IMU buffer SPSC ring | `firmware/src/driver/imu_buffer.c` | — |
+| `SNS-BUF-002` | active | Drop accounting | `firmware/src/comm/navlink_tx.c`<br>`firmware/src/driver/imu_buffer.c` | `sim/host/tests/test_phase3_slog.c` |
+| `SNS-CAL-001` | active | Persistent calibration store | `firmware/src/driver/bmx160.c` | — |
+| `SNS-CAL-002` | active | Online gyro bias estimator | `firmware/src/driver/bmx160.c` | — |
+| `SNS-CAL-101` | active | Accel ellipsoid calibration | `firmware/src/calib/calib_ellipsoid.c`<br>`firmware/src/calib/calib_engine.c`<br>`firmware/src/driver/bmx160.c` | — |
+| `SNS-CAL-102` | active | Gyro bias calibration | `firmware/src/calib/calib_engine.c`<br>`firmware/src/driver/bmx160.c` | — |
+| `SNS-CAL-103` | active | Mag free-rotation calibration | `firmware/src/calib/calib_ellipsoid.c`<br>`firmware/src/calib/calib_engine.c`<br>`firmware/src/driver/bmx160.c` | — |
+| `SNS-CAL-104` | active | Accel pose-coverage gate | `firmware/src/driver/bmx160.c` | — |
+| `SNS-I2C-001` | active | I2C bus contract | `firmware/src/driver/i2c_manager.c` | — |
+| `SNS-I2C-101` | active | Bus-acquire timeout | `firmware/src/driver/i2c_manager.c` | — |
+| `SNS-I2C-102` | active | Unstick procedure | `firmware/src/driver/i2c_manager.c` | — |
+| `SNS-IMU-001` | active | IMU sample availability | `firmware/src/driver/bmx160.c` | `firmware/tests/onboard/checks/check_sensors.c` |
+| `SNS-IMU-002` | active | Sample validity | `firmware/src/driver/bmx160.c` | — |
+| `SNS-LPF-101` | active | First-order LPF | `firmware/src/driver/bmx160.c` | — |
 | `SNS-MAG-001` | active | Mag sample availability | — | — |
-| `SNS-MAG-002` | active | Mag disturbance rejection | `firmware/src/sensor/bmx160.c` | — |
-| `SNS-MAG-101` | active | Trim-data compensation | `firmware/src/sensor/bmx160.c` | — |
-| `SYS-CAL-001` | active | Gyro bias calibration | `firmware/src/sensor/bmx160.c` | — |
-| `SYS-CAL-002` | active | Accel calibration | `firmware/src/comm/navlink_tx.c`<br>`firmware/src/sensor/bmx160.c` | — |
-| `SYS-CAL-003` | active | Magnetometer axis coverage | `firmware/src/comm/navlink_tx.c`<br>`firmware/src/sensor/bmx160.c` | — |
-| `SYS-CAL-004` | active | Calibration persistence | `firmware/src/sensor/bmx160.c` | — |
+| `SNS-MAG-002` | active | Mag disturbance rejection | `firmware/src/driver/bmx160.c` | — |
+| `SNS-MAG-101` | active | Trim-data compensation | `firmware/src/driver/bmx160.c` | — |
+| `SYS-CAL-001` | active | Gyro bias calibration | `firmware/src/driver/bmx160.c` | — |
+| `SYS-CAL-002` | active | Accel calibration | `firmware/src/comm/navlink_tx.c`<br>`firmware/src/driver/bmx160.c` | — |
+| `SYS-CAL-003` | active | Magnetometer axis coverage | `firmware/src/comm/navlink_tx.c`<br>`firmware/src/driver/bmx160.c` | — |
+| `SYS-CAL-004` | active | Calibration persistence | `firmware/src/driver/bmx160.c` | — |
 | `SYS-CTRL-001` | active | Manual rate mode (acro) | `firmware/src/control/angle_controller.c` | — |
 | `SYS-CTRL-002` | active | Stabilised angle mode | `firmware/src/control/angle_controller.c` | — |
 | `SYS-CTRL-003` | active | Mode selection via RC | `firmware/src/control/angle_controller.c` | — |

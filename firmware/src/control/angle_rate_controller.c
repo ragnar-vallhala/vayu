@@ -15,7 +15,8 @@
  * limitations under the License.
  */
 #include "control/angle_rate_controller.h"
-#include "actuator/actuator.h"
+#include "actuator/motor.h"
+#include "driver/esc.h"
 #include "comm/comm.h"
 #include "control/angle_controller.h"
 #include "control/pid_config.h"
@@ -34,7 +35,7 @@
 #define GYRO_NOTCH_FORCE_ON 0
 #endif
 #include "memory.h" /* v_memcpy */
-#include "sensor/sensor.h"
+#include "driver/driver.h"
 #include "sys/state.h"
 #include "vaios.h"
 #include "variables.h"

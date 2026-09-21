@@ -24,10 +24,10 @@
  * file is deleted rather than edited.
  */
 
-#include "sensor/ride_along.h"
+#include "driver/ride_along.h"
 
-#include "sensor/bme280.h"
-#include "sensor/vl53l0x.h"
+#include "driver/bme280.h"
+#include "driver/vl53l0x.h"
 
 /* Contention order: the barometer is first because it is the slower device and
  * the one the vertical estimator depends on; a ToF slot that loses a collision

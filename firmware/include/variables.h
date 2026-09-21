@@ -22,7 +22,7 @@
 #define CORTEX_M4
 #endif // !CORTEX_M4
 #include "navhal.h"
-#include "sensor/bmx160.h"
+#include "driver/bmx160.h"
 
 /* Clock Freq -- the rate the PLL is configured to produce, which boot.c checks
  * the live clock against. It is NOT what cycle-stamp maths divides by: see

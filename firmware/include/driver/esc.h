@@ -15,22 +15,19 @@
  * limitations under the License.
  */
 /**
- * @file actuator.h
- * @brief Public umbrella header for the actuator module (ESC + motor mixer).
+ * @file driver/esc.h
+ * @brief Electronic Speed Controller driven over PWM.
  *
- * @implements R2.1
- *
- * Single public surface for the module per R2.1 — external code includes
- * only this header, never the per-type sources.
+ * A device driver: it owns the pulse band the ESC expects and the PWM channel
+ * that carries it. The mixer that decides what to send lives in
+ * actuator/motor.h and is not a driver.
  *
  * @copyright © NAVROBOTEC PVT. LTD.
  */
-#ifndef VAYU_ACTUATOR_H
-#define VAYU_ACTUATOR_H
+#ifndef VAYU_DRIVER_ESC_H
+#define VAYU_DRIVER_ESC_H
 
 #include "navhal.h"
-#include "structure.h"
-#include <stdbool.h>
 #include <stdint.h>
 
 /* ----------------------------------------------------------------------------
@@ -90,31 +87,4 @@ void esc_disarm(ESC_Handle *esc);
  */
 void esc_set_throttle(ESC_Handle *esc, float throttle);
 
-/* ----------------------------------------------------------------------------
- * Motor mixer — the four-rotor output stage.
- * --------------------------------------------------------------------------*/
-
-#define NUM_MOTORS 4
-#define MOTOR_QUEUE_SIZE 4
-
-typedef struct {
-  float m1;
-  float m2;
-  float m3;
-  float m4;
-} motor_outputs_t;
-
-/** @implements ACT-ESC-002, ACT-MOT-003 */
-void motor_init(void);
-/** @noreq trivial motor-ready flag setter */
-void set_motor_ready(bool ready);
-/** @noreq trivial motor-ready flag getter */
-bool get_motor_ready(void);
-/** @noreq motor-output FIFO producer; thin spsc_write wrapper */
-void motor_set_outputs(motor_outputs_t motor_outputs);
-/** @implements ACT-MOT-002, ACT-FAIL-001 */
-void motor_task(void *arg);
-/** @noreq motor-telemetry FIFO accessor; thin spsc_read wrapper */
-bool motor_telemetry_queue_pop(motor_outputs_t *out_data);
-
-#endif // VAYU_ACTUATOR_H
+#endif /* VAYU_DRIVER_ESC_H */

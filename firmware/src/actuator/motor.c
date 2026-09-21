@@ -14,7 +14,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#include "actuator/actuator.h"
+#include "actuator/motor.h"
+#include "driver/esc.h"
 #include "structure.h"
 #include "sys/state.h"
 #include "vaios.h"

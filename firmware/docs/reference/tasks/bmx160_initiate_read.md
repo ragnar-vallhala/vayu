@@ -1,6 +1,6 @@
 # BMX160 IMU Task (`bmx160_initiate_read`)
 
-**Source File**: `src/sensor/bmx160.c`
+**Source File**: `src/driver/bmx160.c`
 **Stack Size**: 2048
 **Priority**: 0
 **Loop Rate**: Governed by the `wake_imu_read_task` High-Frequency Timer

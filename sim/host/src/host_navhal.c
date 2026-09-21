@@ -37,7 +37,8 @@
  * host_imu_feeder.c) that write directly to the vayu queues.
  */
 #define _GNU_SOURCE
-#include "actuator/actuator.h" /* VAYU_ESC_MIN_DUTY / MAX_DUTY -- one band, both sides */
+#include "actuator/motor.h"
+#include "driver/esc.h" /* VAYU_ESC_MIN_DUTY / MAX_DUTY -- one band, both sides */
 #include "navhal.h"
 #include "vsim_iface.h"
 #include "vsim_proto.h"

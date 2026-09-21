@@ -90,7 +90,7 @@ line by line.
 
 ### Sensors / estimation
 
-12. **Dead baro/ToF knocks out the IMU** — `src/sensor/bmx160.c:1025-1030`,
+12. **Dead baro/ToF knocks out the IMU** — `src/driver/bmx160.c:1025-1030`,
     `i2c_manager.c:228-233`. Each secondary-device failure calls
     `i2c_manager_unstick()`, leaving PB8/PB9 as GPIO until the 50-tick watchdog.
     `*_is_present()` is never cleared, so a loose ToF gives a ~50 ms gyro gap
@@ -158,7 +158,7 @@ line by line.
 
 ### Sensors / calibration
 
-- **✔ PMU "normal" codes wrong** — `include/sensor/bmx160.h:30-32` use
+- **✔ PMU "normal" codes wrong** — `include/driver/bmx160.h:30-32` use
   `0x02<<n`; the datasheet encodes normal as `01`. `bmx160_verify_pmu` can never
   pass (~1.1 s wasted at boot; result ignored).
 - **Online gyro-bias tracker never runs** — `bmx160.c:1388-1392` tests stillness

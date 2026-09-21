@@ -41,7 +41,7 @@
 #include <string.h>
 
 #include "est/est.h"
-#include "sensor/sensor.h"
+#include "driver/driver.h"
 
 static int g_checks = 0;
 static int g_fails = 0;

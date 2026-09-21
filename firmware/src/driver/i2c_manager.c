@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#include "sensor/i2c_manager.h"
+#include "driver/i2c_manager.h"
 #include "ipc.h"
 #include "navhal.h"
 #include "port.h"

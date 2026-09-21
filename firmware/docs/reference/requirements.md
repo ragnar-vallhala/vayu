@@ -93,7 +93,7 @@ Nine prefixes, mapped to the actual source layout:
 | `SYS`  | Vehicle-level / cross-cutting behaviour.     | `src/sys/`, top-level integration.                              | owned          |
 | `HAL`  | Hardware Abstraction Layer (drivers, MCU peripherals). | `extern/vaios/extern/NavHAL/`                          | vendored       |
 | `VOS`  | RTOS — scheduler, IPC, memory, time.         | `extern/vaios/kernel/`, `extern/vaios/portable/cortex-m4/`      | vendored       |
-| `SNS`  | Sensor drivers + sample buffering.            | `src/sensor/` (BMX160, IMU buffer, I2C manager)                 | owned          |
+| `SNS`  | Sensor drivers + sample buffering.            | `src/driver/` (BMX160, IMU buffer, I2C manager)                 | owned          |
 | `EST`  | State estimation (attitude / position).      | `src/est/` (sensor_fusion, lpf)                                 | owned          |
 | `CTRL` | Control loops + mixing + PID.                | `src/control/` (controllers, PID core, control buffer)         | owned          |
 | `ACT`  | Actuator output (motors, ESCs).              | `src/actuator/` (esc, motor)                                    | owned          |
@@ -290,7 +290,7 @@ ISR-safe API subset, timing, watchdog.
 
 ### 4.3 SNS — Sensor drivers
 
-**Scope.** `src/sensor/` (BMX160 driver, IMU buffer, I2C manager —
+**Scope.** `src/driver/` (BMX160 driver, IMU buffer, I2C manager —
 `drivers/` folded in per Phase 4 R2.6). Concerned with raw sample acquisition + sample buffering,
 *not* with fusion or control.
 

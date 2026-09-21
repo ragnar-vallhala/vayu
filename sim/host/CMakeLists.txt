@@ -78,7 +78,7 @@ set(HOST_SOURCES
 set(VAYU_SOURCES
     ${VAYU_ROOT}/firmware/src/calib/calib_ellipsoid.c # shared sensor-agnostic ellipsoid fit
     ${VAYU_ROOT}/firmware/src/calib/calib_engine.c    # calibration engine (acquire + fit + commit)
-    ${VAYU_ROOT}/firmware/src/actuator/esc.c
+    ${VAYU_ROOT}/firmware/src/driver/esc.c
     ${VAYU_ROOT}/firmware/src/actuator/motor.c
     ${VAYU_ROOT}/firmware/src/control/angle_controller.c
     ${VAYU_ROOT}/firmware/src/control/height_controller.c
@@ -109,9 +109,9 @@ set(VAYU_SOURCES
     ${VAYU_ROOT}/firmware/src/est/vertical_estimator.c  # 2-state baro+accel vertical estimator (VERT)
     ${VAYU_ROOT}/firmware/src/est/vertical_task.c       # VERT task I/O wrapper (sibling of attitude_task)
     ${VAYU_ROOT}/firmware/src/est/flight_phase.c        # takeoff/landing detector + FC-owned AGL (IN_AIR)
-    ${VAYU_ROOT}/firmware/src/sensor/imu_buffer.c
-    ${VAYU_ROOT}/firmware/src/sensor/bme280.c   # real FC baro driver (altitude/publish/getters); host_baro.c feeds it
-    ${VAYU_ROOT}/firmware/src/sensor/vl53l0x.c  # real FC ToF driver; no host feeder, so its boot probe fails on the i2c stubs and it reports absent (tof_valid=0 -> the height loop falls back to baro AGL)
+    ${VAYU_ROOT}/firmware/src/driver/imu_buffer.c
+    ${VAYU_ROOT}/firmware/src/driver/bme280.c   # real FC baro driver (altitude/publish/getters); host_baro.c feeds it
+    ${VAYU_ROOT}/firmware/src/driver/vl53l0x.c  # real FC ToF driver; no host feeder, so its boot probe fails on the i2c stubs and it reports absent (tof_valid=0 -> the height loop falls back to baro AGL)
     ${VAYU_ROOT}/firmware/src/storage/fs_owner.c # centralised FS owner (absorbs logger.c)
     ${VAYU_ROOT}/firmware/src/storage/imu_hs_log.c # high-speed IMU->SD stream (HSL), drained by the FS task
     ${VAYU_ROOT}/firmware/src/logger/log_text.c  # vayu_log + queue (moved from utils.c)

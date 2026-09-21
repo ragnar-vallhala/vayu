@@ -179,7 +179,7 @@ set(VAYU_R12_CLEAN_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/calib/calib_ellipsoid.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/calib/calib_engine.c
     # ACT module (Phase 4)
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/actuator/esc.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/driver/esc.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/actuator/motor.c
     # EST module (Phase 4)
     ${CMAKE_CURRENT_SOURCE_DIR}/src/est/sensor_fusion.c
@@ -188,12 +188,12 @@ set(VAYU_R12_CLEAN_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/est/hover_estimate.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/storage/hover_store.c
     # SNS module (Phase 4)
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/sensor/bmx160.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/sensor/bme280.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/sensor/vl53l0x.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/sensor/ride_along.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/sensor/imu_buffer.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/sensor/i2c_manager.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/driver/bmx160.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/driver/bme280.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/driver/vl53l0x.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/driver/ride_along.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/driver/imu_buffer.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/driver/i2c_manager.c
     # CTRL module (Phase 4)
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/angle_controller.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/angle_rate_controller.c
@@ -247,7 +247,7 @@ set_source_files_properties(${VAYU_R12_CLEAN_SOURCES}
 # bmx160.c / bme280.c (which are also in VAYU_R12_CLEAN_SOURCES).
 #   cmake -S firmware -B build_hwtest_cov -DVAYU_HW_TEST=ON -DVAYU_HW_TEST_COV=ON
 option(VAYU_HW_TEST_COV "Instrument selected modules with on-target gcov (needs VAYU_HW_TEST)" OFF)
-set(VAYU_HW_TEST_COV_MODULES "sensor/bmx160.c;sensor/bme280.c;sensor/i2c_manager.c"
+set(VAYU_HW_TEST_COV_MODULES "driver/bmx160.c;driver/bme280.c;driver/i2c_manager.c"
     CACHE STRING "Sources (relative to src/) compiled with --coverage in the hwtest image")
 if(VAYU_HW_TEST AND VAYU_HW_TEST_COV)
   add_compile_definitions(VAYU_HW_TEST_COV)

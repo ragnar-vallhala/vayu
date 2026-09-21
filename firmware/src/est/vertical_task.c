@@ -41,9 +41,9 @@
 #include "storage/hover_store.h"
 #include "est/vertical_estimator.h"
 #include "maths/linalg.h" /* m_quat_rotate */
-#include "sensor/bme280.h"
-#include "sensor/vl53l0x.h"
-#include "sensor/imu_buffer.h"
+#include "driver/bme280.h"
+#include "driver/vl53l0x.h"
+#include "driver/imu_buffer.h"
 #include "sys/state.h" /* system_state_get/set, SYSTEM_STATE_* */
 #include "vaios.h"
 #include "vaios_app_config.h"

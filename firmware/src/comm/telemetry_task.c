@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 #include "vayu_tasks.h"
-#include "actuator/actuator.h"
+#include "actuator/motor.h"
 #include "comm/channel.h"
 #include "comm/comm_types.h"
 #include "comm/ibus.h"
@@ -27,7 +27,7 @@
 #include "control/flight_mode.h"
 #include "control/sysid.h"
 #include "est/est.h"
-#include "sensor/sensor.h"
+#include "driver/driver.h"
 #include "sys/state.h"
 #include "sys/sys_utils.h"
 #include "utils.h"

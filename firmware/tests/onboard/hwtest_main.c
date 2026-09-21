@@ -24,7 +24,7 @@
 #include "comm/comm.h"
 #include "control/control.h"
 #include "navhal.h"
-#include "sensor/sensor.h"
+#include "driver/driver.h"
 #include "storage/fs_owner.h"
 #include "sys/state.h"
 #include "sys/sys_utils.h"

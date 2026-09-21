@@ -19,8 +19,8 @@
  * timeout is the safety net: an absent/dead sensor returns an error fast, never
  * hangs the bench. */
 #include "hwtest_runner.h"
-#include "sensor/bmx160.h"
-#include "sensor/bme280.h"
+#include "driver/bmx160.h"
+#include "driver/bme280.h"
 
 static int iabs(int v) { return v < 0 ? -v : v; }
 

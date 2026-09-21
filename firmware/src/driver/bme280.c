@@ -14,8 +14,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#include "sensor/bme280.h"
-#include "sensor/i2c_manager.h"
+#include "driver/bme280.h"
+#include "driver/i2c_manager.h"
 #include "maths/maths_interface.h"
 #include "storage/fs_owner.h"
 #include "vaios.h"

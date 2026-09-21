@@ -47,7 +47,7 @@
 #include "control/control_buffer.h" /* control_telemetry_t */
 #include "est/est.h"                /* attitude_t */
 #include "host_rtos_engine.h" /* the reusable step engine (boot/set_rc/step_once/...) */
-#include "sensor/imu_buffer.h" /* attitude_queue_telemetry_peek */
+#include "driver/imu_buffer.h" /* attitude_queue_telemetry_peek */
 #include "sys/state.h"         /* system_state_get, SYSTEM_STATE_* */
 
 extern uint32_t get_context_switch_count(void); /* kernel task.c */

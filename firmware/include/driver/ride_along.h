@@ -42,10 +42,10 @@
 
 /** One device's turn on the owner's bus. */
 typedef struct {
-  uint8_t addr;    /**< I2C device address                                  */
-  uint8_t reg;     /**< first register of the burst                         */
-  uint16_t len;    /**< bytes to read in one burst                          */
-  uint16_t every_n;/**< slots between reads; the device's own cadence        */
+  uint8_t addr;     /**< I2C device address                                  */
+  uint8_t reg;      /**< first register of the burst                         */
+  uint16_t len;     /**< bytes to read in one burst                          */
+  uint16_t every_n; /**< slots between reads; the device's own cadence        */
   /** Skip the slot when absent -- a read to a missing device NACKs, and that
    *  trips the owner's bus-recovery path. */
   uint8_t (*present)(void);

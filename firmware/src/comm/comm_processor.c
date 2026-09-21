@@ -22,7 +22,7 @@
 #include "control/control.h"
 #include "control/flight_mode.h"
 #include "memory.h"
-#include "sensor/sensor.h"
+#include "driver/driver.h"
 #include "storage/fs_owner.h" /* vayu_log */
 #include "sys/state.h"
 #include "task.h"

@@ -44,7 +44,7 @@ All shims live in `sim/host/src/`. FIFOs/pty paths are suffixed with
 
 | | |
 |---|---|
-| Replaces | The BMX160 I2C IMU driver (`src/sensor/bmx160.c`, *not* compiled) |
+| Replaces | The BMX160 I2C IMU driver (`src/driver/bmx160.c`, *not* compiled) |
 | Mechanism | Dedicated pthread reads framed `vsim_imu_frame_t` from FIFO `/tmp/vsim_imu$SUFFIX` produced by `vsim_d`; pushes **raw** samples into the firmware's three IMU queues: `imu_queue_control_push`, `imu_queue_telemetry_push`, `imu_queue_attitude_push` |
 | Wire frame | 16 B `vsim_hdr_t` + 88 B payload (`VSIM_IMU_PAYLOAD_BYTES`, 22 floats: acc/gyr/mag triplets + raw/compensated/fusion mirrors + temp). Gyro is **deg/s on the wire**, accel m/s², mag µT |
 | **Data rate** | **1000 Hz** (`SITL_IMU_FEED_HZ`, must track `vsim_d`'s `kImuHz = 1000`) |

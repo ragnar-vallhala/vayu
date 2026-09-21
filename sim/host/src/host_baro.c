@@ -30,8 +30,8 @@
  */
 #define _GNU_SOURCE
 #include "host_baro.h"
-#include "sensor/bme280.h"
-#include "sensor/i2c_manager.h"
+#include "driver/bme280.h"
+#include "driver/i2c_manager.h"
 #include "vsim_proto.h"
 
 #include <errno.h>

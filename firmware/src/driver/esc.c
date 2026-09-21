@@ -21,7 +21,7 @@
  * @copyright © NAVROBOTEC PVT. LTD.
  */
 
-#include "actuator/actuator.h"
+#include "driver/esc.h"
 #include "navhal.h"
 #include <stdint.h>
 

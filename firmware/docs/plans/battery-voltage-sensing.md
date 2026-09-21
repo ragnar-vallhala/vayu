@@ -68,7 +68,7 @@ voltage read. It is simply not enabled here.
 1. **`firmware/navhal.config`** — add `CONFIG_DRV_ADC=y`. One line; the driver
    set is otherwise unchanged.
 
-2. **New `firmware/src/sensor/battery.c`** — a small module, polled from an
+2. **New `firmware/src/driver/battery.c`** — a small module, polled from an
    existing low-rate task. Do **not** give it its own task: `rate_ctl` stack
    headroom is finite and every added preemption is a boot-panic risk (see
    `memory/rate-ctl-stack-marginal.md`). Sampling at the `vrt` stream's 19 Hz,

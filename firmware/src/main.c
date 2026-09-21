@@ -16,7 +16,7 @@
  */
 #include "comm/comm.h"
 #include "control/control.h"
-#include "sensor/sensor.h"
+#include "driver/driver.h"
 #include "storage/fs_owner.h"
 #include "navhal.h"
 #include "sys/clock.h"

@@ -41,7 +41,7 @@
 #include "vsim_proto.h"
 
 #include "est/est.h"
-#include "sensor/sensor.h"
+#include "driver/driver.h"
 #include "variables.h" /* vayu_dt_from_cycles, SYS_CLOCK_FREQ */
 
 #include <errno.h>

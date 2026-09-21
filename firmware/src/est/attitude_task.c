@@ -38,9 +38,9 @@
  * loses nothing. Cheaper filters keep running on every sample (decim = 1).
  */
 #include "est/est.h"
-#include "sensor/bmx160.h"
+#include "driver/bmx160.h"
 #include "sys/clock.h"
-#include "sensor/imu_buffer.h"
+#include "driver/imu_buffer.h"
 #include "vaios.h"
 #include "vaios_app_config.h"
 #include "variables.h"

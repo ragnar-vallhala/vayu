@@ -25,7 +25,7 @@
 #include "maths/maths_interface.h"
 #include "control/pid.h"
 #include "est/est.h"
-#include "sensor/sensor.h"
+#include "driver/driver.h"
 #include "structure.h"
 #include "sys/state.h"
 #include "vaios.h"

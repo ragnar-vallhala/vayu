@@ -14,10 +14,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#include "sensor/imu_buffer.h"
+#include "driver/imu_buffer.h"
 #include "comm/perf_telemetry.h" /* perf_fifo_fill_row + FIFO ids */
 #include "ipc.h" /* CTRL-RATE-101: control-queue notify semaphore */
-#include "sensor/bmx160.h"
+#include "driver/bmx160.h"
 #include "structure.h"
 
 /* CTRL-RATE-101: binary semaphore the rate loop blocks on. Given once

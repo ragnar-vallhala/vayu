@@ -66,7 +66,7 @@ backwards from where the risk lives.
 | `est/attitude_task.c` | **0%** | attitude estimation task |
 | `est/lpf.c` | **0%** | filter used in the control path |
 | `comm/navlink_router.c` / `navlink_tx.c` | **0%** | command + telemetry plumbing |
-| `sensor/bme280.c` | **0%** | baro driver (just landed) |
+| `driver/bme280.c` | **0%** | baro driver (just landed) |
 
 ### Never compiled into any test (no instrumentation at all)
 `rc_task.c`, `ibus.c` (RC input decode), `i2c_manager.c`, `bmx160.c` (IMU

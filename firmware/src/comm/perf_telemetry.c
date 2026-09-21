@@ -39,7 +39,7 @@
 #include "control/control_buffer.h"
 #include "memory.h"
 #include "perf.h"
-#include "sensor/imu_buffer.h"
+#include "driver/imu_buffer.h"
 #include "structure.h"
 #include "task.h"
 #include "vaios.h"

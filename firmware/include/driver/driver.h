@@ -33,10 +33,10 @@
 #ifndef VAYU_SENSOR_H
 #define VAYU_SENSOR_H
 
-#include "sensor/bme280.h" /* barometer/humidity (pressure/temp/RH/alt) driver */
-#include "sensor/bmx160.h"      /* IMU driver + reading/calibration types */
-#include "sensor/i2c_manager.h" /* shared I2C bus manager */
-#include "sensor/imu_buffer.h"  /* IMU sample + attitude queues */
-#include "sensor/vl53l0x.h"     /* ToF rangefinder (I2C1 ride-along) */
+#include "driver/bme280.h" /* barometer/humidity (pressure/temp/RH/alt) driver */
+#include "driver/bmx160.h"      /* IMU driver + reading/calibration types */
+#include "driver/i2c_manager.h" /* shared I2C bus manager */
+#include "driver/imu_buffer.h"  /* IMU sample + attitude queues */
+#include "driver/vl53l0x.h"     /* ToF rangefinder (I2C1 ride-along) */
 
 #endif // VAYU_SENSOR_H

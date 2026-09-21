@@ -109,7 +109,7 @@ only by coincidence; breaks on the next change.
 
 ### F1 🔴🔴 — `variables.h` is a god-header that welds the whole tree to silicon
 `include/variables.h:8-9` opens with `#include "navhal.h"` + `#include
-"sensor/bmx160.h"`, then interleaves three unrelated concerns in one file that is
+"driver/bmx160.h"`, then interleaves three unrelated concerns in one file that is
 included **26×**, including by every control/est TU:
 
 - pure tuning constants: PID gains, `SF_COMPLEMENTARY_ALPHA`, loop rates, the
@@ -147,7 +147,7 @@ There is no bus owner that survives changing the IMU. *(See F2b for the related
 
 ### F3 🔴🔴 — Cross-driver coupling: the IMU driver reads the barometer
 The baro's entire runtime read path is hard-wired inside the IMU driver:
-`bmx160.c:3` `#include "sensor/bme280.h"`; `bmx160.c:896-902` issues
+`bmx160.c:3` `#include "driver/bme280.h"`; `bmx160.c:896-902` issues
 `i2c_manager_read_async(BME280_I2C_ADDR, BME280_REG_DATA, BME280_DATA_LEN, …)`;
 the IMU's TEMP ISR decides *when* the baro is sampled
 (`bmx160.c:979-994`, gated by `BARO_READ_DECIM 10` — the baro's sample rate is a

@@ -14,17 +14,17 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#include "sensor/bmx160.h"
+#include "driver/bmx160.h"
 #include "storage/imu_hs_log.h"
 #include "calib/calib_engine.h"
 #include "comm/comm.h"
-#include "sensor/i2c_manager.h"
-#include "sensor/ride_along.h"
+#include "driver/i2c_manager.h"
+#include "driver/ride_along.h"
 #include "navhal.h"
 #include "ipc.h"
 #include "est/est.h"
 #include "memory.h"
-#include "sensor/imu_buffer.h"
+#include "driver/imu_buffer.h"
 #include "sys/state.h"
 #include "task.h"
 #include "utils.h"

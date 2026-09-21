@@ -31,7 +31,7 @@
 #include "control/angle_rate_controller.h" /* angle_rate_controller_set_gains, _set_motor_geometry */
 #include "host_rc_feeder.h" /* host_rc_feeder_start (serial RC for the GCS) */
 #include "host_rtos.h"      /* host_rtos_tick, host_rtos_run_until_idle */
-#include "sensor/bme280.h"  /* bme280_publish (in-process baro injection) */
+#include "driver/bme280.h"  /* bme280_publish (in-process baro injection) */
 #include "sys/state.h"      /* system_state_get/_set, SYSTEM_STATE_* */
 #include "sys/sys_utils.h"  /* VAYU_DISCARD */
 #include "vaios.h"     /* v_system_init, scheduler_start, vaios_init_config_t */

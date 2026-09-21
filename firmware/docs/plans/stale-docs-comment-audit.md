@@ -130,10 +130,10 @@ residue.
   no-op on SD). Update both doc-comments.
 
 ### B6. Dead / mismatched declarations (tiny code cleanups — plain delete)
-- `include/sensor/bmx160.h:241` — delete the `bmx160_raw_mag_to_uT` decl (impl
+- `include/driver/bmx160.h:241` — delete the `bmx160_raw_mag_to_uT` decl (impl
   removed).
-- `include/sensor/bmx160.h:246` — delete the `bmx160_get_attitude` decl (no impl).
-- `src/sensor/bmx160.c:863` — delete the unused `extern uint32_t bmx160_task_id`.
+- `include/driver/bmx160.h:246` — delete the `bmx160_get_attitude` decl (no impl).
+- `src/driver/bmx160.c:863` — delete the unused `extern uint32_t bmx160_task_id`.
 - `include/maths/maths_interface.h:1-2` — header guard `MATHS_SENSOR_FUSION_H` →
   `MATHS_INTERFACE_H` (match filename).
 
@@ -179,7 +179,7 @@ markers — all accurate.
 - **Firmware code/comments**: `src/comm/channel.c`,
   `src/control/angle_controller.c`, `src/control/angle_rate_controller.c`,
   `src/est/attitude_task.c`, `include/control/sysid.h`,
-  `include/sensor/bmx160.h`, `src/sensor/bmx160.c`,
+  `include/driver/bmx160.h`, `src/driver/bmx160.c`,
   `include/maths/maths_interface.h`
 - **NavLink**: `navlink/docs/reference/messages/command.md`,
   `.../messages/system_status.md`, `navlink/docs/reference/navlink-v2-spec.md`,

@@ -33,7 +33,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "sensor/imu_buffer.h"
+#include "driver/imu_buffer.h"
 #include "comm/perf_telemetry.h"
 
 /* Usable depth is NOT fixed. spsc_init aligns the buffer to a multiple of

@@ -20,7 +20,7 @@
 #include "comm/perf_packet.h"
 #include "est/est.h"
 #include "est/vertical_estimator.h"
-#include "sensor/bmx160.h"
+#include "driver/bmx160.h"
 #include <stdbool.h>
 #include <stdint.h>
 
