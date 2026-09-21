@@ -55,7 +55,10 @@ TIDY="${CLANG_TIDY:-clang-tidy}"
 #   cmake -S navigator         -B navigator/build-tidy -DNAVIGATOR_SIM_GRASS=ON
 #         ...and BUILD this one: AUTOMOC generates the tst_*.moc that
 #         navigator/tests include, at build time.
-#   cmake -S sim/host          -B sim/host/build
+#   cmake -S sim/host          -B sim/host/build -DVAYU_SITL_RTOS_BUILD=ON
+#         The flag matters: without it the RTOS engine, the loadable module and
+#         sim/vsim's physics are in no database at all. They used to ride in via
+#         navigator/build-tidy, which no longer compiles any of it.
 #   cmake -S navigator/headless-sdk/cpp/worldmesh \
 #         -B navigator/headless-sdk/cpp/worldmesh/build
 #
@@ -65,21 +68,15 @@ DEFAULT_BUILDS=(
   firmware/build             # ARM   firmware/src
   firmware/build_hwtest      # ARM   firmware/tests/onboard
   firmware/tests/host/build  # host  firmware/tests/host
-  navigator/build-tidy       # host  navigator, sim/host, sim/vsim, firmware/src
-  sim/host/build             # host  sim/host tests not in the Navigator build
+  navigator/build-tidy       # host  navigator only (it no longer builds the firmware)
+  sim/host/build             # host  sim/host + sim/vsim (configure with RTOS on)
   navigator/headless-sdk/cpp/worldmesh/build   # host  the headless mesh tool
 )
 
 # Standalone tests and tools built by a single hand-written compiler line
 # recorded in their own header comment, so there is no database to read.
-# Pathspec, then the flags that line uses. Qt comes from pkg-config as
-# -isystem, matching how the Navigator build sees it -- as plain -I, clang-tidy
-# reports Qt's own headers and drowns the file.
-QT_ISYS="$(pkg-config --cflags Qt6Widgets Qt6Gui Qt6Core 2>/dev/null | sed 's/-I/-isystem/g' || true)"
+# Pathspec, then the flags that line uses.
 NODB=(
-  "sim/vsim/tests/trimesh_bvh_test.cpp     -std=c++17 -Isim/vsim/include"
-  "sim/vsim/tests/wind_model_test.cpp      -std=c++17 -Isim/vsim/include"
-  "sim/vsim/tests/world_collision_test.cpp -std=c++17 -Isim/vsim/include"
   "vtest/vtest.c          -std=c11 -D_POSIX_C_SOURCE=200809L"
   "navlink/tests/test_c.c -std=c11 -Inavlink/generated/c"
 )
@@ -93,19 +90,6 @@ if [ ! -f navlink/generated/c/navlink_msgs.h ]; then
   python3 navlink/generate.py --lang c >/dev/null
 fi
 
-# Three of those tests reach into navigator/src and so need Qt. Without it they
-# would report "QMutex file not found" and nothing else, which is worse than
-# saying they were skipped.
-NAV_INC="-Inavigator/src -Inavigator/src/vsim -Inavigator/src/ui/widgets -Isim/host/sdk"
-if [ -n "$QT_ISYS" ]; then
-  NODB+=(
-    "sim/vsim/tests/massprops_test.cpp  -std=c++17 -Isim/vsim/include $NAV_INC $QT_ISYS"
-    "sim/vsim/tests/hud_render_test.cpp -std=c++17 -Isim/vsim/include $NAV_INC $QT_ISYS"
-    "sim/vsim/tests/rc_bridge_test.cpp  -std=c++17 -Isim/vsim/include $NAV_INC $QT_ISYS"
-  )
-else
-  echo "skip sim/vsim/tests/{massprops,hud_render,rc_bridge} -- no Qt6 pkg-config" >&2
-fi
 BUILDS=("$@")
 if [ ${#BUILDS[@]} -eq 0 ]; then BUILDS=("${DEFAULT_BUILDS[@]}"); fi
 

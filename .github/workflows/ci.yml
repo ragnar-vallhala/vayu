@@ -151,7 +151,11 @@ jobs:
                 -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
           cmake -S firmware/tests/host -B firmware/tests/host/build \
                 -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
-          cmake -S sim/host -B sim/host/build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+          # RTOS on: otherwise the SITL engine, the loadable module and
+          # sim/vsim's physics are in no database. Navigator used to cover them
+          # by compiling the firmware itself; it no longer does.
+          cmake -S sim/host -B sim/host/build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+                -DVAYU_SITL_RTOS_BUILD=ON
           tools/dev/run_clang_tidy.sh \
             firmware/build firmware/build_hwtest \
             firmware/tests/host/build sim/host/build
