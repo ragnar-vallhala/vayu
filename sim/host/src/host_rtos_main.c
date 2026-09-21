@@ -419,7 +419,9 @@ static int run_hold(uint32_t seed, int N, double *out_wall, double *out_x) {
     set_rc(1500, 1500, 1000, 1500, 1000); /* neutral, disarmed */
     imu_fp += (double)s.sample.acc[0];    /* pre-step value of last sample */
     step_once(&s, &ct, &got);
-    imu_fp += (double)s.sample.gyr[0] + s.sample.mag[0];
+    mag_sample_t fp_mag = {0};
+    (void)mag_latest(&fp_mag);
+    imu_fp += (double)s.sample.gyr[0] + fp_mag.mag[0];
     if (attitude_queue_telemetry_peek(&att))
       fp += (double)att.roll + att.pitch + att.yaw;
     if (realtime)

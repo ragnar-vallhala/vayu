@@ -143,9 +143,12 @@ void set_rc(int roll, int pitch, int thr, int yaw, int arm) {
 void step_once(stepper_t *s, control_telemetry_t *ct, int *got) {
   float wire[HOST_IMU_WIRE_FLOATS];
   vsim_inproc_step(s->duty, 0.001f, (uint8_t *)wire);
-  host_imu_unpack(wire, &s->sample);
+  mag_sample_t magsm = {0};
+  host_imu_unpack(wire, &s->sample, &magsm);
   s->cyc += (uint32_t)(SYS_CLOCK_FREQ / 1000);
   s->sample.t_cyc = s->cyc;
+  magsm.t_cyc = s->cyc;
+  mag_publish(&magsm);
   imu_queue_control_push(&s->sample);
   imu_queue_telemetry_push(&s->sample);
   imu_queue_attitude_push(&s->sample);

@@ -1414,6 +1414,19 @@ void bmx160_process_data(void) {
   if (_mag_fresh) {
     bmx160_process_mag(mx, my, mz, rhall, _is_mag_invalid);
     _mag_fresh = 0;
+    /* Publish on arrival, not on every inertial sample: the field only
+     * changed here, and a consumer watching t_cyc can now tell a new reading
+     * from the same one seen again. temp_c is the package temperature -- one
+     * die reports it today, but the compass carries its own so a future
+     * compensation curve has the input it needs without a wider change. */
+    mag_sample_t ms = {0};
+    for (int i = 0; i < 3; i++)
+      ms.mag[i] = _bmx_data.converted.mag[i];
+    ms.temp_c = _bmx_data.converted.temp;
+    ms.t_cyc = hal_cycle_counter_get();
+    ms.valid = _mag_valid;
+    ms.instance = 0;
+    mag_publish(&ms);
   }
   // Temperature drifts slowly and only refreshes on a TEMP read (~1/13 of the
   // FAST cadence); convert only when fresh, else keep the last value.
@@ -1450,11 +1463,9 @@ void bmx160_process_data(void) {
   for (int i = 0; i < 3; i++) {
     out.acc[i] = _bmx_data.converted.acc[i];
     out.gyr[i] = _bmx_data.converted.gyr[i];
-    out.mag[i] = _bmx_data.converted.mag[i];
   }
   out.temp_c = _bmx_data.converted.temp;
   out.t_cyc = _sample_cyc;
-  out.mag_valid = _mag_valid;
   out.instance = 0;
 
   imu_queue_telemetry_push(&out);

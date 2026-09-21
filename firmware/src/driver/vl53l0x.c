@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 #include "driver/vl53l0x.h"
+#include "hub/hub.h"
 #include "driver/i2c_manager.h"
 #include "storage/fs_owner.h"
 #include "vaios.h"
@@ -118,6 +119,12 @@ static void vl53l0x_decode_and_publish(const uint8_t *d) {
     _last.range_m = (float)mm * 0.001f;
     _last.timestamp = hal_cycle_counter_get();
     _have_sample = 1;
+
+    range_sample_t rs = {.range_m = _last.range_m,
+                         .t_cyc = _last.timestamp,
+                         .valid = 1,
+                         .instance = 0};
+    range_publish(&rs);
   }
 }
 

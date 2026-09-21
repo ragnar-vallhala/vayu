@@ -84,10 +84,18 @@ void imu_telemetry_task(void *args) {
       current_floats[3] = (float)samples.gyr[0];
       current_floats[4] = (float)samples.gyr[1];
       current_floats[5] = (float)samples.gyr[2];
-      current_floats[6] = (float)samples.mag[0];
-      current_floats[7] = (float)samples.mag[1];
-      current_floats[8] = (float)samples.mag[2];
       current_floats[9] = (float)samples.temp_c;
+    }
+    /* The compass reports on its own topic at its own rate, so it is read
+     * separately rather than riding the inertial sample. Keeps its last value
+     * between readings, which is what this telemetry frame showed before. */
+    {
+      mag_sample_t mag;
+      if (mag_latest(&mag)) {
+        current_floats[6] = (float)mag.mag[0];
+        current_floats[7] = (float)mag.mag[1];
+        current_floats[8] = (float)mag.mag[2];
+      }
     }
 
     /* Per-stream emission gating in ms (see TELEM_GATE above). Same-period streams

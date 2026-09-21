@@ -18,6 +18,8 @@
 #include "comm/perf_telemetry.h" /* perf_fifo_fill_row + FIFO ids */
 #include "ipc.h" /* CTRL-RATE-101: control-queue notify semaphore */
 #include "structure.h"
+#include "maths/maths_interface.h" /* m_pow, for hub_altitude_m */
+#include "port.h"                  /* ENTER/EXIT_CRITICAL */
 
 /* CTRL-RATE-101: binary semaphore the rate loop blocks on. Given once
  * per control-queue push so the loop is woken by IMU-sample arrival
@@ -124,6 +126,49 @@ void imu_buffer_init(void) {
   _attitude_control_sema = v_semaphore_create_binary();
   _imu_attitude_sema = v_semaphore_create_binary();
   _vert_input_sema = v_semaphore_create_binary();
+}
+
+/* ---------------------------------------------------------------------------
+ * Latest-value topics (see hub.h). One slot each, written by the producing
+ * driver and read by whoever needs the newest reading.
+ *
+ * The copy runs in a critical section. These publish at tens of Hz so the cost
+ * is nothing, and without it a reader can splice two readings together -- the
+ * new pressure against the old timestamp, which is precisely the pair that
+ * makes a stale sample look fresh.
+ * ------------------------------------------------------------------------- */
+#define HUB_DEFINE_LATEST(name, type)                                          \
+  static type _##name##_latest;                                                \
+  static volatile bool _##name##_have;                                         \
+  void name##_publish(const type *sample) {                                    \
+    if (sample == NULL)                                                        \
+      return;                                                                  \
+    ENTER_CRITICAL();                                                          \
+    _##name##_latest = *sample;                                                \
+    _##name##_have = true;                                                     \
+    EXIT_CRITICAL();                                                           \
+  }                                                                            \
+  bool name##_latest(type *out) {                                              \
+    if (out == NULL)                                                           \
+      return false;                                                            \
+    bool had;                                                                  \
+    ENTER_CRITICAL();                                                          \
+    had = _##name##_have;                                                      \
+    if (had)                                                                   \
+      *out = _##name##_latest;                                                 \
+    EXIT_CRITICAL();                                                           \
+    return had;                                                                \
+  }
+
+HUB_DEFINE_LATEST(mag, mag_sample_t)
+HUB_DEFINE_LATEST(baro, baro_sample_t)
+HUB_DEFINE_LATEST(range, range_sample_t)
+
+/** @noreq ISA barometric altitude; pure maths, see hub/sample.h. */
+float hub_altitude_m(float pressure_pa, float sea_level_pa) {
+  if (sea_level_pa <= 0.0f)
+    sea_level_pa = HUB_SEA_LEVEL_PA_DEFAULT;
+  return 44330.0f * (1.0f - m_pow(pressure_pa / sea_level_pa, 0.190294957f));
 }
 
 /* A driver keeps queues the hub cannot know about -- the IMU's calibration

@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 #include "driver/bme280.h"
+#include "hub/hub.h"
 #include "driver/i2c_manager.h"
 #include "maths/maths_interface.h"
 #include "storage/fs_owner.h"
@@ -222,6 +223,16 @@ void bme280_publish(float pressure_pa, float temperature_c, float humidity_rh) {
   _last.altitude_m = altitude_m;
   _last.timestamp = hal_cycle_counter_get();
   _have_sample = 1;
+
+  /* Hand the core the measurement, not the derived altitude: turning pressure
+   * into height needs a datum, which is navigation state and not a barometer's
+   * to hold (see hub_altitude_m). */
+  baro_sample_t bs = {.pressure_pa = pressure_pa,
+                      .temp_c = temperature_c,
+                      .t_cyc = _last.timestamp,
+                      .valid = 1,
+                      .instance = 0};
+  baro_publish(&bs);
 }
 
 /** @implements SNS-BARO-001 */

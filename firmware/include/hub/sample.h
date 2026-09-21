@@ -45,24 +45,47 @@
 
 #include <stdint.h>
 
-/** One inertial measurement. */
+/*
+ * Every sample carries its own `temp_c`. A die's temperature is the input a
+ * temperature-compensation curve needs, and each die has its own -- an
+ * accelerometer's bias drift and a magnetometer's scale drift are different
+ * curves against different temperatures. Today the BMX160 reports one
+ * temperature for the whole package, so the IMU and compass samples carry the
+ * same number; on a board whose compass is a separate chip they will not, and
+ * nothing downstream has to change for that to start being true.
+ */
+
+/** One inertial measurement: accelerometer and rate gyro. */
 typedef struct {
-  float acc[3];  /**< m/s^2, calibrated (bias + soft-iron corrected)      */
-  float gyr[3];  /**< deg/s, calibrated (bias corrected)                  */
-  float mag[3];  /**< uT, calibrated (hard- + soft-iron corrected)        */
-  float temp_c;  /**< die temperature, degrees Celsius                    */
-  uint32_t t_cyc;/**< cycle stamp at acquisition; dt comes from deltas of
-                  *   this, never from reading the counter at use time --
-                  *   see vayu_dt_from_cycles() in sys/clock.h            */
-  /** Driver's verdict on mag[]: finite, Earth-field magnitude, and no
-   *  detected disturbance. 0 means measured but not trustworthy, which is
-   *  not the same as absent -- the estimator coasts rather than resets. */
-  uint8_t mag_valid;
-  /** Which sensor of this kind produced it. 0 is the primary; a board
-   *  carrying two or three IMUs publishes one stream per instance and the
-   *  estimator decides what to do with the extras. */
-  uint8_t instance;
+  float acc[3];     /**< m/s^2, calibrated (bias + soft-iron corrected)     */
+  float gyr[3];     /**< deg/s, calibrated (bias corrected)                 */
+  float temp_c;     /**< the inertial die's temperature                     */
+  uint32_t t_cyc;   /**< cycle stamp at acquisition; dt comes from deltas of
+                   *   this, never from reading the counter at use time --
+                   *   see vayu_dt_from_cycles() in sys/clock.h           */
+  uint8_t instance; /**< 0 is the primary; boards may carry two or three  */
 } imu_sample_t;
+
+/**
+ * One magnetic field measurement.
+ *
+ * Separate from the inertial sample because a compass is a separate sensor --
+ * separate die inside the BMX160, and on other boards a separate chip on a
+ * separate bus. It runs at its own rate (tens of Hz against the gyro's
+ * thousands), so pinning it to the inertial sample meant republishing an
+ * unchanged field thousands of times a second and gave an estimator no way to
+ * tell a fresh reading from a repeat.
+ */
+typedef struct {
+  float mag[3]; /**< uT, calibrated (hard- + soft-iron corrected)       */
+  float temp_c; /**< the magnetometer die's temperature                 */
+  uint32_t t_cyc;
+  /** Driver's verdict: finite, Earth-field magnitude, no detected
+   *  disturbance. 0 means measured but not trustworthy, which is not the
+   *  same as absent -- the estimator coasts rather than resets. */
+  uint8_t valid;
+  uint8_t instance;
+} mag_sample_t;
 
 /** One barometric measurement. */
 typedef struct {
@@ -80,5 +103,16 @@ typedef struct {
   uint8_t valid;
   uint8_t instance;
 } range_sample_t;
+
+/** ISA standard sea-level pressure, the default altitude datum. */
+#define HUB_SEA_LEVEL_PA_DEFAULT 101325.0f
+
+/**
+ * Barometric altitude from pressure. Pure maths with no device in it, so it
+ * belongs beside the sample rather than inside whichever barometer produced
+ * it -- a driver holding the altitude datum is a driver holding navigation
+ * state.
+ */
+float hub_altitude_m(float pressure_pa, float sea_level_pa);
 
 #endif /* VAYU_HUB_SAMPLE_H */

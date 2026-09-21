@@ -245,10 +245,13 @@ static void *imu_feeder_thread(void *arg) {
      * wall-clock, which jitters dt and COLLAPSES it when the vsim FIFO bursts
      * (the sim isn't perfectly real-time paced) — that under-integrated the
      * gyro ~10x in the estimator. SITL_IMU_FEED_HZ must match vsim's emit rate. */
-    host_imu_unpack(wire, &sample);
+    mag_sample_t magsm = {0};
+    host_imu_unpack(wire, &sample, &magsm);
     static uint32_t s_imu_cyc = 0;
     s_imu_cyc += (uint32_t)(SYS_CLOCK_FREQ / SITL_IMU_FEED_HZ);
     sample.t_cyc = s_imu_cyc;
+    magsm.t_cyc = s_imu_cyc;
+    mag_publish(&magsm);
 
     /* Inject RAW IMU ONLY — exactly what a real sensor provides. The firmware's
      * own attitude_task/EKF does the estimation (the previous host-side mahony
@@ -311,9 +314,12 @@ int host_imu_feeder_pump(void) {
   int rc = read_framed_imu(s_step_imu_fd, wire);
   if (rc <= 0)
     return 0; /* EOF / wire error */
-  host_imu_unpack(wire, &sample);
+  mag_sample_t magsm = {0};
+  host_imu_unpack(wire, &sample, &magsm);
   cyc += (uint32_t)(SYS_CLOCK_FREQ / SITL_IMU_FEED_HZ);
   sample.t_cyc = cyc; /* fixed-ODR sim stamp (drives estimator dt) */
+  magsm.t_cyc = cyc;
+  mag_publish(&magsm);
   imu_queue_control_push(&sample);
   imu_queue_telemetry_push(&sample);
   imu_queue_attitude_push(&sample);

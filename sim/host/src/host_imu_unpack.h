@@ -33,7 +33,7 @@
 #ifndef VAYU_HOST_IMU_UNPACK_H
 #define VAYU_HOST_IMU_UNPACK_H
 
-#include "hub/sample.h"
+#include "hub/hub.h"
 
 /** Number of floats in a VSIM_FRAME_IMU payload (88 bytes). */
 #define HOST_IMU_WIRE_FLOATS 22
@@ -41,32 +41,38 @@
 /* Field offsets within the payload, named so a wire change is a one-line edit
  * here rather than a hunt through three call sites. */
 enum {
-  HOST_IMU_W_ACC = 0,        /* [0..2]   m/s^2                */
-  HOST_IMU_W_GYR = 3,        /* [3..5]   deg/s                */
-  HOST_IMU_W_MAG = 6,        /* [6..8]   uT                   */
-  HOST_IMU_W_MAG_FUSION = 18,/* [18..20] unit-normalised mag  */
-  HOST_IMU_W_TEMP = 21       /* [21]     degrees Celsius      */
+  HOST_IMU_W_ACC = 0,         /* [0..2]   m/s^2                */
+  HOST_IMU_W_GYR = 3,         /* [3..5]   deg/s                */
+  HOST_IMU_W_MAG = 6,         /* [6..8]   uT                   */
+  HOST_IMU_W_MAG_FUSION = 18, /* [18..20] unit-normalised mag  */
+  HOST_IMU_W_TEMP = 21        /* [21]     degrees Celsius      */
 };
 
 /**
- * Unpack one wire payload. Leaves `t_cyc` alone -- the caller owns the sim
- * clock and stamps the sample itself.
+ * Unpack one wire payload into the two samples it actually carries.
+ *
+ * The frame predates the inertial/compass split and holds both, so it fills
+ * both. Leaves `t_cyc` alone in each -- the caller owns the sim clock and
+ * stamps them itself.
  */
 static inline void host_imu_unpack(const float f[HOST_IMU_WIRE_FLOATS],
-                                   imu_sample_t *out) {
+                                   imu_sample_t *imu, mag_sample_t *mag) {
   for (int i = 0; i < 3; i++) {
-    out->acc[i] = f[HOST_IMU_W_ACC + i];
-    out->gyr[i] = f[HOST_IMU_W_GYR + i];
-    out->mag[i] = f[HOST_IMU_W_MAG + i];
+    imu->acc[i] = f[HOST_IMU_W_ACC + i];
+    imu->gyr[i] = f[HOST_IMU_W_GYR + i];
+    mag->mag[i] = f[HOST_IMU_W_MAG + i];
   }
-  out->temp_c = f[HOST_IMU_W_TEMP];
+  imu->temp_c = f[HOST_IMU_W_TEMP];
+  imu->instance = 0;
+  /* One package temperature on the wire, as on the real part today. */
+  mag->temp_c = f[HOST_IMU_W_TEMP];
   /* The producer zeroes mag_fusion when the field is unusable, which is the
    * only health signal the wire carries; on hardware the driver decides this
    * from magnitude and disturbance checks it can actually make. */
-  out->mag_valid = (f[HOST_IMU_W_MAG_FUSION + 0] != 0.0f ||
-                    f[HOST_IMU_W_MAG_FUSION + 1] != 0.0f ||
-                    f[HOST_IMU_W_MAG_FUSION + 2] != 0.0f);
-  out->instance = 0;
+  mag->valid = (f[HOST_IMU_W_MAG_FUSION + 0] != 0.0f ||
+                f[HOST_IMU_W_MAG_FUSION + 1] != 0.0f ||
+                f[HOST_IMU_W_MAG_FUSION + 2] != 0.0f);
+  mag->instance = 0;
 }
 
 #endif /* VAYU_HOST_IMU_UNPACK_H */

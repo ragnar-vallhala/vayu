@@ -61,6 +61,29 @@ int imu_buffer_perf_fifos(perf_fifo_row_t *rows, int max);
 #define HUB_PERF_EXTRA_MAX 4
 void hub_perf_register(uint8_t id, const spsc_fifo_t *fifo);
 
+/* ---------------------------------------------------------------------------
+ * Latest-value topics.
+ *
+ * A queue is the right shape for the inertial stream, where the estimator must
+ * integrate every sample and a dropped one is a hole. These sensors are the
+ * other kind: they run at tens of Hz, each reading supersedes the last, and a
+ * consumer wants the most recent one rather than all of them. So each topic is
+ * a single slot the producer overwrites -- which is exactly the semantics the
+ * driver getters had before, now without the consumer naming the driver.
+ *
+ * A reader tells a fresh reading from a repeat by watching t_cyc advance; a
+ * `*_latest` before the first publish returns false rather than zeros, so
+ * "nothing yet" and "a reading of zero" stay distinguishable.
+ * ------------------------------------------------------------------------- */
+void mag_publish(const mag_sample_t *sample);
+bool mag_latest(mag_sample_t *out);
+
+void baro_publish(const baro_sample_t *sample);
+bool baro_latest(baro_sample_t *out);
+
+void range_publish(const range_sample_t *sample);
+bool range_latest(range_sample_t *out);
+
 bool imu_queue_telemetry_push(const imu_sample_t *sample);
 bool imu_queue_telemetry_pop(imu_sample_t *out_sample);
 bool imu_queue_telemetry_peek(imu_sample_t *out_sample);

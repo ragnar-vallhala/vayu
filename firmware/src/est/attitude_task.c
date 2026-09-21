@@ -137,19 +137,21 @@ void attitude_task(void *args) {
     float gx = sample.gyr[0];
     float gy = sample.gyr[1];
     float gz = sample.gyr[2];
-    /* The driver reports microtesla and whether it trusts them; normalising
+    /* The compass is its own sensor on its own topic and its own cadence, so
+     * take the latest reading rather than expecting one per inertial sample.
+     * The driver reports microtesla and whether it trusts them; normalising
      * and deciding what to do with a distrusted reading is fusion policy, so
      * it happens here. A zero vector is how every filter below is told to
      * skip the magnetometer this step. */
     float mx = 0.0f, my = 0.0f, mz = 0.0f;
-    if (sample.mag_valid) {
-      float n =
-          m_sqrt(sample.mag[0] * sample.mag[0] + sample.mag[1] * sample.mag[1] +
-                 sample.mag[2] * sample.mag[2]);
+    mag_sample_t mag;
+    if (mag_latest(&mag) && mag.valid) {
+      float n = m_sqrt(mag.mag[0] * mag.mag[0] + mag.mag[1] * mag.mag[1] +
+                       mag.mag[2] * mag.mag[2]);
       if (n > 0.001f) {
-        mx = sample.mag[0] / n;
-        my = sample.mag[1] / n;
-        mz = sample.mag[2] / n;
+        mx = mag.mag[0] / n;
+        my = mag.mag[1] / n;
+        mz = mag.mag[2] / n;
       }
     }
     float step_dt = dt_sum;
