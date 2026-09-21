@@ -46,13 +46,15 @@
 #include <cstring>
 
 #ifdef NAVIGATOR_HAS_SITL
-// In-process firmware (libvayu_sitl_core) PID apply — the exact function the
-// real FC runs for CMD_SET_PID: validate the payload, push to the live
-// controllers, AND persist to 0:pid.bin (host VFS -> $VAYU_VFS_DIR, default
-// /tmp/vayu_vfs), which host_lifecycle reloads on boot. Returns VAYU_OK (0).
-// Lets "Apply Gains" target the in-app sim persistently, with no FC link.
-extern "C" int pid_config_apply_command(const uint8_t *payload,
-                                        uint16_t payload_len);
+#include "../../vsim/SitlModule.h"
+// In-process firmware PID apply — the exact function the real FC runs for
+// CMD_SET_PID: validate the payload, push to the live controllers, AND persist
+// to 0:pid.bin (host VFS -> $VAYU_VFS_DIR, default /tmp/vayu_vfs), which
+// host_lifecycle reloads on boot. Returns VAYU_OK (0). Lets "Apply Gains"
+// target the in-app sim persistently, with no FC link.
+//
+// Reached through the loaded SITL module's SITL-only section rather than
+// linked: see vayu_sitl_abi.h. On real hardware this is a NavLink command.
 // CMD_SET_PID command id (firmware comm_types.h is not on the GCS include path;
 // the dissector hardcodes the same value).
 static constexpr uint16_t kCmdSetPid = 0x000A;
@@ -372,7 +374,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
                                    c.kd,
                                    c.kff};
             std::memcpy(&buf[3], args, sizeof args);
-            if (pid_config_apply_command(buf, sizeof buf) == 0 /*VAYU_OK*/)
+            if (SitlModule::instance().api()->fw_pid_apply_command(
+                    buf, sizeof buf) == 0 /*VAYU_OK*/)
               ++ok;
           }
           m_logPanel->appendLog(

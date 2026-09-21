@@ -12,30 +12,47 @@
 #include "host_rtos_engine_api.h"
 #include "vsim_iface.h"
 
+/* Firmware entry points Navigator pokes directly (see the SITL-only section of
+ * vayu_sitl_abi.h). Declared here rather than via the firmware headers, which
+ * drag in the whole control-stack include env. */
+void angle_rate_controller_set_motor_geometry(const float pos_x[4],
+                                              const float pos_y[4],
+                                              const int spin[4]);
+void flight_mode_set_override(int mode);
+void flight_mode_release(void);
+int pid_config_apply_command(const uint8_t *payload, uint16_t payload_len);
+
 /* The engine's telemetry plumbing, owned here so no firmware struct crosses the
  * ABI. One instance: the engine is single-instance per process anyway (boot is
  * idempotent), so there is nothing to key a second one off. */
 static vsim_iface_t g_iface;
 static int g_iface_live;
 
-static int module_boot(vayu_sitl_telemetry_fn cb, void *user) {
+static void module_set_telemetry_sink(vayu_sitl_telemetry_fn cb, void *user) {
   if (!g_iface_live) {
     vsim_iface_init(&g_iface);
     g_iface_live = 1;
   }
-  /* Re-pointing the callback on a second boot is deliberate: the engine itself
+  vsim_iface_set_uart2_callback(&g_iface, cb, user);
+}
+
+static int module_boot(vayu_sitl_telemetry_fn cb, void *user) {
+  /* Re-pointing the sink on a second boot is deliberate: the engine itself
    * only boots once, but a host that stops and restarts its worker gets its new
    * sink honoured instead of silently keeping the old one. */
-  vsim_iface_set_uart2_callback(&g_iface, cb, user);
+  module_set_telemetry_sink(cb, user);
   return rtos_engine_boot(&g_iface);
 }
 
+/* Process-exit cleanup only. The firmware's threads keep running and still
+ * reference this plumbing, so tearing it down while the host is merely paused
+ * would pull a live pthread mutex out from under them -- which is why stopping
+ * a worker calls set_telemetry_sink(NULL) instead. */
 static void module_shutdown(void) {
   if (!g_iface_live)
     return;
-  /* Drop the host's callback FIRST. The scheduler's tasks keep running (the
-   * kernel cannot be un-booted), so a frame emitted during teardown would
-   * otherwise reach a sink the host has already destroyed. */
+  /* Drop the host's callback FIRST, so a frame emitted mid-teardown cannot
+   * reach a sink whose owner is already gone. */
   vsim_iface_set_uart2_callback(&g_iface, NULL, NULL);
   vsim_iface_destroy(&g_iface);
   g_iface_live = 0;
@@ -45,6 +62,7 @@ static const vayu_sitl_api_t API = {
     .abi_version = VAYU_SITL_ABI_VERSION,
 
     .boot = module_boot,
+    .set_telemetry_sink = module_set_telemetry_sink,
     .shutdown = module_shutdown,
     .enable_serial_rc = rtos_engine_enable_serial_rc,
     .run_begin = rtos_engine_run_begin,
@@ -65,6 +83,11 @@ static const vayu_sitl_api_t API = {
     .set_faults = vsim_inproc_set_faults,
     .set_wind = vsim_inproc_set_wind,
     .set_pause = vsim_inproc_set_pause,
+
+    .fw_set_motor_geometry = angle_rate_controller_set_motor_geometry,
+    .fw_flight_mode_set_override = flight_mode_set_override,
+    .fw_flight_mode_release = flight_mode_release,
+    .fw_pid_apply_command = pid_config_apply_command,
 };
 
 const vayu_sitl_api_t *vayu_sitl_get_api(uint32_t abi_version) {

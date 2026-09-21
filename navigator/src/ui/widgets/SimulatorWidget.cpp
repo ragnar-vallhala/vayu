@@ -3,6 +3,7 @@
 #include "core/Units.h"
 
 #include "../../vsim/MeshLoader.h"
+#include "../../vsim/SitlModule.h"
 #include "../../vsim/ProceduralWorld.h"
 #include "../../vsim/WorldMeshBuilder.h"
 #include "CollapsibleSection.h"
@@ -63,18 +64,15 @@
 
 #include <unistd.h>
 
-// In-process firmware (libvayu_sitl_core) mixer setter — keeps the firmware
-// roll/pitch/yaw->motor mix consistent with the vehicle geometry the sim uses.
-extern "C" void angle_rate_controller_set_motor_geometry(const float pos_x[4],
-                                                         const float pos_y[4],
-                                                         const int spin[4]);
-
-// In-process firmware flight-mode control (mirrors the geometry forward-decl
-// above; the firmware include path isn't on the GCS). mode arg: 0=stabilise/
-// angle, 1=acro — matching flight_mode_t. Telemetry uses the same values, with
-// source 1 == GCS override.
-extern "C" void flight_mode_set_override(int mode);
-extern "C" void flight_mode_release(void);
+// Firmware pokes reached through the loaded module's SITL-only section (see
+// vayu_sitl_abi.h): the mixer setter keeps the firmware roll/pitch/yaw->motor
+// mix consistent with the vehicle geometry the sim uses, and the flight-mode
+// pair drives the mode directly. mode arg: 0=stabilise/angle, 1=acro —
+// matching flight_mode_t. Telemetry uses the same values, with source 1 ==
+// GCS override.
+//
+// None of these exist on real hardware, where the GCS asks over NavLink; they
+// are a SITL shortcut this file inherited from linking the firmware statically.
 
 // Live step/chirp response plot: the roll-axis setpoint (dashed) vs measured
 // (solid) angle from the latest autotune excitation window. No Q_OBJECT — it's
@@ -225,7 +223,7 @@ void pushFirmwareMotorGeometry(const vsim::GeometryConfig &g) {
     y[i] = g.motors[i].pos.y();
     spin[i] = g.motors[i].spin;
   }
-  angle_rate_controller_set_motor_geometry(x, y, spin);
+  SitlModule::instance().api()->fw_set_motor_geometry(x, y, spin);
 }
 
 // The roll-mix signs this geometry produces (for logging): -sign(y) per motor.
@@ -287,7 +285,7 @@ QString defaultRepoRoot() {
 
 QString defaultLogDir() { return defaultRepoRoot() + "/logs"; }
 
-// C trampoline registered with vsim_iface_set_uart2_callback. Runs
+// C trampoline handed to the module as its telemetry sink. Runs
 // on whichever firmware thread is producing the bytes (telemetry
 // task, flush task, ...). Marshals onto the widget's thread via
 // queued invocation -- Qt does the heavy lifting; we don't share any
@@ -313,19 +311,19 @@ SimulatorWidget::SimulatorWidget(QWidget *parent) : QWidget(parent) {
       settings.value(kRepoRootSettingKey, defaultRepoRoot()).toString();
   m_logDir = settings.value(kLogDirSettingKey, defaultLogDir()).toString();
 
-  // Initialize the shared iface up front. The pthread mutex/cond is
-  // safe to leave constructed for the lifetime of Navigator; the
-  // SimWorker + firmware threads both reference it.
-  vsim_iface_init(&m_iface);
-  m_ifaceInit = true;
-
-  // Route firmware UART2 bytes through our queued slot. Once
-  // vayu_sitl_start spins up the telemetry chain, packets begin
-  // flowing into onUartBytes() on the GUI thread, which re-emits
-  // them as dataReceived(). MainWindow connects that to its existing
-  // DroneProtocol parser so the regular telemetry / log panels light
-  // up automatically.
-  vsim_iface_set_uart2_callback(&m_iface, &uart2_to_widget_trampoline, this);
+  // Route firmware UART2 bytes through our queued slot. Once the module boots
+  // the telemetry chain, packets begin flowing into onUartBytes() on the GUI
+  // thread, which re-emits them as dataReceived(). MainWindow connects that to
+  // its existing DroneProtocol parser so the regular telemetry / log panels
+  // light up automatically.
+  //
+  // The sink is a plain callback: the module owns the telemetry plumbing, so
+  // this widget holds no firmware struct and nothing here has to match the
+  // firmware's layout. Attached to the module rather than to m_sim, which does
+  // not exist until the sim is started.
+  if (SitlModule::instance().available())
+    SitlModule::instance().api()->set_telemetry_sink(&uart2_to_widget_trampoline,
+                                                     this);
 
   buildUi();
 
@@ -402,9 +400,8 @@ SimulatorWidget::~SimulatorWidget() {
   // would otherwise invoke the trampoline on a half-destroyed widget:
   // "QMetaObject::invokeMethod: No such method QWidget::onUartBytes" and a
   // dangling-pointer crash risk.
-  if (m_ifaceInit) {
-    vsim_iface_set_uart2_callback(&m_iface, nullptr, nullptr);
-  }
+  if (SitlModule::instance().available())
+    SitlModule::instance().api()->shutdown();
   stopInAppSim();
 
   // Tear down the autotune machinery synchronously. Normally a tune is stopped
@@ -432,9 +429,8 @@ SimulatorWidget::~SimulatorWidget() {
   closeLogFile(); // belt-and-suspenders: stopInAppSim already does this
   // We do NOT call vayu_sitl_stop()'s teardown completely; the firmware
   // threads keep running until the process exits. See host_lifecycle.c.
-  if (m_ifaceInit) {
-    vsim_iface_destroy(&m_iface);
-  }
+  // The module's shutdown() above already dropped the telemetry sink and
+  // released its plumbing.
 }
 
 // ----------------------------------------------------------------------------
@@ -956,7 +952,8 @@ void SimulatorWidget::buildUi() {
       m_acroChk->setChecked(acroOn);
       if (m_rc)
         m_rc->setAcro(acroOn);
-      flight_mode_release(); // ensure no stale GCS override blocks the switch
+      // ensure no stale GCS override blocks the switch
+      SitlModule::instance().api()->fw_flight_mode_release();
       connect(m_acroChk, &QCheckBox::toggled, this, [this](bool on) {
         QSettings().setValue(QStringLiteral("sim/rcAcro"), on);
         if (m_rc)
@@ -3016,21 +3013,24 @@ void SimulatorWidget::startInAppSim() {
   // Open a fresh per-run log file before the firmware starts emitting.
   openNewLogFile();
 
-  // The SINGLE in-process RTOS engine (libvayu_sitl_rtos_core) runs BOTH the
-  // firmware and the vsim physics in one deterministic stepper — no external
-  // daemon, no FIFO. SimWorker owns that engine on its worker thread:
-  // rtos_engine_boot(&m_iface) boots the firmware once (idempotent across
-  // Stop/Re-Start). Telemetry rides the SAME in-process UART2 callback as
-  // before; RC arrives via the serial feeder reading the RcBridge pty.
+  // The SINGLE in-process RTOS engine (libvayu_sitl, loaded at runtime) runs
+  // BOTH the firmware and the vsim physics in one deterministic stepper — no
+  // external daemon, no FIFO. SimWorker owns that engine on its worker thread
+  // and boots the firmware once (idempotent across Stop/Re-Start). Telemetry
+  // rides the module's callback; RC arrives via the serial feeder reading the
+  // RcBridge pty.
   m_sitlStarted = true;
 
-  // (Re)attach the firmware -> GCS telemetry callback BEFORE the worker boots,
-  // so IMU / attitude / heartbeat flow to the home-screen panels from frame one.
-  // Detached on Stop (the firmware can't truly stop) to silence the LIVE blinker.
-  vsim_iface_set_uart2_callback(&m_iface, &uart2_to_widget_trampoline, this);
+  // (Re)attach the firmware -> GCS telemetry sink BEFORE the worker boots, so
+  // IMU / attitude / heartbeat flow to the home-screen panels from frame one.
+  // Detached on Stop (the firmware can't truly stop) to silence the LIVE
+  // blinker.
+  if (SitlModule::instance().available())
+    SitlModule::instance().api()->set_telemetry_sink(&uart2_to_widget_trampoline,
+                                                     this);
 
   m_sim = new vsim::SimWorker(this);
-  m_sim->setIface(&m_iface); // boot the engine wired to our telemetry iface
+  m_sim->setTelemetrySink(&uart2_to_widget_trampoline, this);
   connect(m_sim, &vsim::SimWorker::stoppedCleanly, this,
           &SimulatorWidget::onSimWorkerExited);
   connect(m_sim, &vsim::SimWorker::poseUpdated, m_renderer,
@@ -3200,11 +3200,13 @@ void SimulatorWidget::attachExternalSim() {
 void SimulatorWidget::stopInAppSim() {
   if (!m_sim)
     return;
-  // Detach the telemetry callback first: the firmware threads keep running
+  // Detach the telemetry sink first: the firmware threads keep running
   // (vayu_sitl is one-shot), so without this they'd keep streaming heartbeats
   // and IMU to the home screen after Stop — the LIVE blinker would never stop.
-  // Dropping the callback makes the display go quiet, consistent with Stopped.
-  vsim_iface_set_uart2_callback(&m_iface, nullptr, nullptr);
+  // Dropping the sink makes the display go quiet, consistent with Stopped.
+  // Detach, not shutdown(): those threads still hold the plumbing.
+  if (SitlModule::instance().available())
+    SitlModule::instance().api()->set_telemetry_sink(nullptr, nullptr);
   m_sim->requestStop();
   if (!m_sim->wait(2000)) {
     m_sim->terminate();

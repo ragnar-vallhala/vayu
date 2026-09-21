@@ -15,7 +15,6 @@
 #include "../../audio/PropAudio.h"
 
 extern "C" {
-#include "vsim_iface.h"
 }
 
 #include <QElapsedTimer>
@@ -54,7 +53,7 @@ struct LoadedMesh;
  * SimulatorWidget - control + monitor page for the SITL.
  *
  * In-process architecture: this widget owns
- *   - a vsim_iface_t (the UART2 telemetry callback that carries firmware
+ *   - a telemetry sink (the UART2 callback that carries firmware
  *     telemetry to the GUI)
  *   - a vsim::SimWorker, which boots the REAL vaios firmware + in-process
  *     vsim physics in one deterministic stepper (no external daemon, no
@@ -243,8 +242,6 @@ private:
   QElapsedTimer m_runClock; // monotonic per-record t_us base
 
   // ---- shared iface + in-app sim ----
-  vsim_iface_t m_iface{};
-  bool m_ifaceInit = false;
 
   // Coalescing buffer for the firmware's UART2 telemetry. The in-process
   // callback fires once per hal_uart_write_char — i.e. PER BYTE in SITL (the

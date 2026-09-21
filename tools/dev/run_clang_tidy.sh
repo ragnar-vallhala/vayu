@@ -96,7 +96,7 @@ fi
 # Three of those tests reach into navigator/src and so need Qt. Without it they
 # would report "QMutex file not found" and nothing else, which is worse than
 # saying they were skipped.
-NAV_INC="-Inavigator/src -Inavigator/src/vsim -Inavigator/src/ui/widgets"
+NAV_INC="-Inavigator/src -Inavigator/src/vsim -Inavigator/src/ui/widgets -Isim/host/sdk"
 if [ -n "$QT_ISYS" ]; then
   NODB+=(
     "sim/vsim/tests/massprops_test.cpp  -std=c++17 -Isim/vsim/include $NAV_INC $QT_ISYS"

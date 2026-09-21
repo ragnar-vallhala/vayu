@@ -71,7 +71,21 @@ typedef struct vayu_sitl_api {
    * pointer and never sees, sizes or allocates a firmware struct, so growing
    * that struct is not an ABI break. */
   int (*boot)(vayu_sitl_telemetry_fn cb, void *user);
-  void (*shutdown)(void);         /* release telemetry plumbing; not a reboot */
+
+  /* Re-point or detach the telemetry sink without touching lifecycle. Pass
+   * NULL to go quiet -- which is what a host wants when it stops its worker,
+   * since the firmware's tasks cannot actually be stopped and would otherwise
+   * keep calling a sink whose owner has moved on.
+   *
+   * This is NOT shutdown(): the plumbing stays constructed, because firmware
+   * threads still reference it. Detaching is safe at any time; tearing down is
+   * only safe as the process exits. */
+  void (*set_telemetry_sink)(vayu_sitl_telemetry_fn cb, void *user);
+
+  /* Release the telemetry plumbing. Call once, as the process is exiting: the
+   * firmware's threads keep running and still hold references, so this is a
+   * last-gasp cleanup rather than something to pair with each boot. */
+  void (*shutdown)(void);
   void (*enable_serial_rc)(void); /* RC from VAYU_UART_RC_PATH */
   void (*run_begin)(void);        /* reset internal stepper + pacer */
   void (*run_step)(void);         /* one 1 ms step, wall-clock paced */
@@ -93,6 +107,30 @@ typedef struct vayu_sitl_api {
   void (*set_faults)(const vsim_ctl_faults_t *f);
   void (*set_wind)(const vsim_ctl_wind_t *w);
   void (*set_pause)(int paused);
+
+  /* ---- direct firmware pokes (SITL-only shortcuts) ----
+   *
+   * These reach into firmware state that a ground station CANNOT touch on real
+   * hardware, where the same effects are asked for over NavLink and the
+   * firmware decides whether to honour them. They are here because Navigator
+   * already called them directly when it linked the firmware statically, and
+   * dropping them would change in-app sim behaviour in the same commit that
+   * changes how the engine is loaded.
+   *
+   * Each has a NavLink equivalent, so the fix is to send the command down the
+   * UART2 pty like a real GCS and delete this section. Until then, treat a
+   * behaviour that works in the in-app sim but not on hardware as suspect --
+   * this shortcut has already caused one such bug, where the geometry command
+   * was gated on a TIME_SYNC the in-process caller never sent, so the firmware
+   * silently flew the default mix.
+   *
+   * Not part of the stable surface: these may go without an ABI bump beyond
+   * the one that removes them. */
+  void (*fw_set_motor_geometry)(const float pos_x[4], const float pos_y[4],
+                                const int spin[4]);
+  void (*fw_flight_mode_set_override)(int mode); /* 0=stabilise/angle, 1=acro */
+  void (*fw_flight_mode_release)(void);
+  int (*fw_pid_apply_command)(const uint8_t *payload, uint16_t payload_len);
 } vayu_sitl_api_t;
 
 /* The module builds with -fvisibility=hidden so the firmware's globals stay out

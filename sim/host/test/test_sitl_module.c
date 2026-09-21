@@ -71,7 +71,8 @@ int main(int argc, char **argv) {
   /* 4) Every slot is filled. A designated initialiser that misses one leaves a
    *    NULL that would only crash on the call that happens to need it. */
   const void *const slots[] = {
-      (const void *)api->boot,          (const void *)api->shutdown,
+      (const void *)api->boot,          (const void *)api->set_telemetry_sink,
+      (const void *)api->shutdown,
       (const void *)api->enable_serial_rc,
       (const void *)api->run_begin,     (const void *)api->run_step,
       (const void *)api->get_pose,      (const void *)api->reset_to,
@@ -81,6 +82,10 @@ int main(int argc, char **argv) {
       (const void *)api->clear_world_mesh, (const void *)api->set_rates,
       (const void *)api->set_noise,     (const void *)api->set_faults,
       (const void *)api->set_wind,      (const void *)api->set_pause,
+      (const void *)api->fw_set_motor_geometry,
+      (const void *)api->fw_flight_mode_set_override,
+      (const void *)api->fw_flight_mode_release,
+      (const void *)api->fw_pid_apply_command,
   };
   int null_slots = 0;
   for (size_t i = 0; i < sizeof slots / sizeof slots[0]; i++)
@@ -106,7 +111,21 @@ int main(int argc, char **argv) {
   const uint64_t t0 = ((uint64_t)p0.tick_hi << 32) | p0.tick_lo;
   const uint64_t t1 = ((uint64_t)p1.tick_hi << 32) | p1.tick_lo;
   CHECK("pose tick advanced through the vtable", t1 > t0);
-  CHECK("firmware telemetry reached the iface", g_telem_bytes > 0);
+  CHECK("firmware telemetry reached the sink", g_telem_bytes > 0);
+
+  /* 6) Detaching goes quiet without tearing anything down -- the path a host
+   *    takes when it stops its worker but leaves the process alive. */
+  api->set_telemetry_sink(NULL, NULL);
+  const size_t at_detach = g_telem_bytes;
+  for (int i = 0; i < 500; i++)
+    api->run_step();
+  CHECK("no telemetry after detach", g_telem_bytes == at_detach);
+
+  /* And re-attaching resumes it, which is what Stop -> Start must do. */
+  api->set_telemetry_sink(&on_uart2, NULL);
+  for (int i = 0; i < 500; i++)
+    api->run_step();
+  CHECK("telemetry resumes after re-attach", g_telem_bytes > at_detach);
 
   /* Deliberately NOT dlclose()d after boot: the engine has started vaios tasks
    * that are still running, and unloading the code under them would be a crash

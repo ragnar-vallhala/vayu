@@ -2,6 +2,8 @@
 
 #include "VsimTypes.h"
 
+#include "vayu_sitl_abi.h" // vayu_sitl_telemetry_fn
+
 #include <QObject>
 #include <QString>
 #include <QThread>
@@ -41,20 +43,25 @@ struct SimSnapshot {
 
 // SimWorker -- in-process RTOS SITL engine driver (+ external pose-stream attach).
 //
+// The engine is the firmware compiled for the host, loaded at runtime from
+// libvayu_sitl (see SitlModule) and driven through its vtable. Navigator links
+// no firmware, so a module that is missing or built against another ABI leaves
+// the simulator unavailable rather than breaking the build or the app.
+//
 // Default (engine) lifecycle:
-//   1. construct on the GUI thread; setIface(&iface) so firmware telemetry
-//      reaches the GUI via the in-process UART2 callback.
-//   2. start() -- worker thread runs rtos_engine_boot(iface) (boots the REAL
-//      vaios firmware + in-process vsim physics, no external daemon, no FIFO),
-//      enables the serial RC feeder (RcBridge pty / remote transmitter), then
-//      loops: drain queued config -> rtos_engine_run_step (1 ms, wall-clock
-//      paced) -> vsim_inproc_get_pose -> poseUpdated (~60 Hz), until requestStop().
+//   1. construct on the GUI thread; setTelemetrySink(cb, user) so firmware
+//      telemetry reaches the GUI.
+//   2. start() -- worker thread boots the module (the REAL vaios firmware +
+//      in-process vsim physics, no external daemon, no FIFO), enables the
+//      serial RC feeder (RcBridge pty / remote transmitter), then loops:
+//      drain queued config -> run_step (1 ms, wall-clock paced) -> get_pose ->
+//      poseUpdated (~60 Hz), until requestStop().
 //   3. requestStop() -- sets the stop flag; the worker exits the loop. The
 //      firmware/scheduler stay booted (idempotent), so Re-Start just resumes.
 //
 // The engine runs firmware AND physics in one deterministic stepper. sendX()
 // (GUI thread) enqueues a config op applied on the worker thread between steps
-// via the vsim_inproc_set_* surface (the engine is single-threaded).
+// via the module's config surface (the engine is single-threaded).
 //
 // startAttach() is a viewer-only mode: read an existing pose FIFO published by
 // an EXTERNAL sim (e.g. a headless vayu_sitl_rtos run) and emit poseUpdated,
@@ -69,9 +76,13 @@ public:
   // no external binary to resolve. No-op.
   void setVsimBinary(const QString &path) { vsim_bin_ = path; }
 
-  // The vsim_iface_t* whose UART2 callback receives firmware telemetry in
-  // process. Set before start() so rtos_engine_boot wires telemetry to the GUI.
-  void setIface(void *iface) { iface_ = iface; }
+  // Sink for firmware telemetry: the engine calls this with each run of UART2
+  // bytes, from the worker thread. Set before start(); the module owns the
+  // plumbing, so the GUI never holds a firmware struct.
+  void setTelemetrySink(vayu_sitl_telemetry_fn cb, void *user) {
+    telemetry_cb_ = cb;
+    telemetry_user_ = user;
+  }
 
   // Snapshot getter for pull-style consumers.
   SimSnapshot snapshot() const;
@@ -150,11 +161,12 @@ private:
   void runAttach(); // legacy: read an existing pose FIFO
   void emitFromFrame(const void *frame_bytes);
   // Queue a config op to run on the worker thread between steps (no-op in
-  // attach mode). The closure typically calls a vsim_inproc_set_* function.
+  // attach mode). The closure typically calls a module config function.
   void enqueue(std::function<void()> op);
 
   QString vsim_bin_;         // retained, unused (engine is in-process)
-  void *iface_ = nullptr;    // vsim_iface_t* for in-process telemetry
+  vayu_sitl_telemetry_fn telemetry_cb_ = nullptr;
+  void *telemetry_user_ = nullptr;
   bool attach_only_ = false; // read an existing pose FIFO, don't run engine
   QString attach_pose_path_; // pose FIFO to attach to in attach-only mode
 

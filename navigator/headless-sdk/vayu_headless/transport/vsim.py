@@ -1,6 +1,6 @@
 """vsim wire protocol: control-frame builders + pose decoding.
 
-Mirrors sim/vsim/include/vsim_proto.h. These are pure functions (no I/O), so
+Mirrors sim/host/sdk/vsim_proto.h. These are pure functions (no I/O), so
 they unit-test without booting anything. Frame layout (carved verbatim from the
 original sim/host/sitl_lab.py so behaviour is identical):
 

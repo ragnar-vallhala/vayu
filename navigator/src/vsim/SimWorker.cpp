@@ -1,6 +1,6 @@
 #include "SimWorker.h"
 
-#include "host_rtos_engine_api.h" // in-process RTOS engine (boot/run_step/get_pose/config)
+#include "SitlModule.h" // runtime-loaded SITL engine (boot/run_step/get_pose/config)
 #include "vsim_proto.h"
 
 #include <QByteArray>
@@ -12,6 +12,15 @@
 #include <sys/stat.h>
 #include <thread>
 #include <unistd.h>
+
+namespace {
+// The loaded engine's vtable. Resolved per call rather than captured into each
+// queued lambda: the module is loaded once and never unloaded, so this is a
+// pointer read, and it keeps the enqueue sites free of loader plumbing.
+// Only ever dereferenced on paths runEngine() has already gated on
+// SitlModule::available().
+inline const vayu_sitl_api_t *sitl() { return SitlModule::instance().api(); }
+} // namespace
 
 namespace vsim {
 
@@ -54,14 +63,14 @@ void SimWorker::sendResetPose(float x, float y, float z) {
   body.pos_w[1] = y;
   body.pos_w[2] = z;        // NED: more negative = higher above ground
   body.quat_wxyz[0] = 1.0f; // identity (level)
-  enqueue([body] { vsim_inproc_reset_to(&body); });
+  enqueue([body] { sitl()->reset_to(&body); });
 }
 
 void SimWorker::sendTestRig(bool on) {
   vsim_ctl_testrig_t body{};
   body.enable = on ? 1 : 0;
   body.pos[2] = -0.05f;
-  enqueue([body] { vsim_inproc_set_testrig(&body); });
+  enqueue([body] { sitl()->set_testrig(&body); });
   emit logLine(
       QStringLiteral("rtos engine: test-rig %1").arg(on ? "ON" : "off"));
 }
@@ -79,7 +88,7 @@ void SimWorker::sendRigPose(float rollDeg, float pitchDeg, float yawDeg) {
   body.quat_wxyz[1] = static_cast<float>(sr * cp * cy - cr * sp * sy);
   body.quat_wxyz[2] = static_cast<float>(cr * sp * cy + sr * cp * sy);
   body.quat_wxyz[3] = static_cast<float>(cr * cp * sy - sr * sp * cy);
-  enqueue([body] { vsim_inproc_reset_to(&body); });
+  enqueue([body] { sitl()->reset_to(&body); });
   emit logLine(QStringLiteral("rig pose sent: r=%1 p=%2 y=%3")
                    .arg(rollDeg, 0, 'f', 0)
                    .arg(pitchDeg, 0, 'f', 0)
@@ -105,7 +114,7 @@ void SimWorker::sendGeometry(const GeometryConfig &g) {
     body.motors[i].max_omega = m.max_omega;
     body.motors[i].tau = m.tau;
   }
-  enqueue([body] { vsim_inproc_set_geometry(&body); });
+  enqueue([body] { sitl()->set_geometry(&body); });
   emit logLine("rtos engine: geometry pushed");
 }
 
@@ -115,7 +124,7 @@ void SimWorker::sendFaults(const std::array<bool, 4> &motorKill,
   for (int i = 0; i < 4; ++i)
     body.motor_kill[i] = motorKill[i] ? 1 : 0;
   body.imu_dropout = imuDropout ? 1 : 0;
-  enqueue([body] { vsim_inproc_set_faults(&body); });
+  enqueue([body] { sitl()->set_faults(&body); });
   emit logLine("rtos engine: faults pushed");
 }
 
@@ -132,7 +141,7 @@ void SimWorker::sendNoise(float accSigma, float accBiasClip, bool accEn,
   body.mag_sigma = magSigma;
   body.mag_bias_clip = magBiasClip;
   body.mag_enable = magEn;
-  enqueue([body] { vsim_inproc_set_noise(&body); });
+  enqueue([body] { sitl()->set_noise(&body); });
   emit logLine("rtos engine: noise pushed");
 }
 
@@ -146,7 +155,7 @@ void SimWorker::sendWind(const WindConfig &w) {
   body.turb_sigma = w.turbSigma;
   body.turb_tau = w.turbTau;
   body.enable = w.enabled ? 1 : 0;
-  enqueue([body] { vsim_inproc_set_wind(&body); });
+  enqueue([body] { sitl()->set_wind(&body); });
   emit logLine("rtos engine: wind pushed");
 }
 
@@ -159,14 +168,14 @@ void SimWorker::sendWorld(const WorldConfig &w) {
   body.angular_drag = w.angular_drag;
   body.ground_right_gain = w.ground_right_gain;
   body.ground_right_damp = w.ground_right_damp;
-  enqueue([body] { vsim_inproc_set_world(&body); });
+  enqueue([body] { sitl()->set_world(&body); });
   emit logLine("rtos engine: world pushed");
 }
 
 void SimWorker::sendObstacles(const QVector<Obstacle> &obs) {
   // Clear, then append each shape — as separate queued ops so they apply in
   // order on the worker thread (CLEAR before each ADD).
-  enqueue([] { vsim_inproc_clear_obstacles(); });
+  enqueue([] { sitl()->clear_obstacles(); });
   for (const Obstacle &o : obs) {
     vsim_ctl_obstacle_t b{};
     b.type = o.type;
@@ -180,7 +189,7 @@ void SimWorker::sendObstacles(const QVector<Obstacle> &obs) {
     b.rot_deg[1] = o.rotate.y();
     b.rot_deg[2] = o.rotate.z();
     b.restitution = o.restitution;
-    enqueue([b] { vsim_inproc_add_obstacle(&b); });
+    enqueue([b] { sitl()->add_obstacle(&b); });
   }
   emit logLine(QString("rtos engine: %1 obstacles pushed").arg(obs.size()));
 }
@@ -190,7 +199,7 @@ void SimWorker::sendRates(int imuHz, int physicsHz, int poseHz) {
   b.imu_hz = static_cast<uint32_t>(imuHz);
   b.physics_hz = static_cast<uint32_t>(physicsHz);
   b.pose_hz = static_cast<uint32_t>(poseHz);
-  enqueue([b] { vsim_inproc_set_rates(&b); });
+  enqueue([b] { sitl()->set_rates(&b); });
   emit logLine(QString("rtos engine: rates imu=%1 physics=%2 pose=%3 Hz")
                    .arg(imuHz)
                    .arg(physicsHz)
@@ -213,13 +222,13 @@ void SimWorker::sendWorldMesh(const QString &path, quint32 verts, quint32 tris,
   b.restitution = restitution;
   b.path_len = static_cast<uint32_t>(pb.size());
   std::memcpy(b.path, pb.constData(), pb.size());
-  enqueue([b] { vsim_inproc_set_world_mesh(&b); });
+  enqueue([b] { sitl()->set_world_mesh(&b); });
   emit logLine(
       QString("rtos engine: world mesh -> %1 (%2 tris)").arg(path).arg(tris));
 }
 
 void SimWorker::clearWorldMesh() {
-  enqueue([] { vsim_inproc_clear_world_mesh(); });
+  enqueue([] { sitl()->clear_world_mesh(); });
   emit logLine("rtos engine: world mesh cleared");
 }
 
@@ -228,13 +237,22 @@ void SimWorker::clearWorldMesh() {
 // and publishing pose at ~60 Hz. The engine stays booted across Stop/Re-Start
 // (boot is idempotent), so this just resumes the loop.
 void SimWorker::runEngine() {
-  if (rtos_engine_boot(iface_) != 0) {
+  // The module is loaded lazily, so this is where a missing or ABI-mismatched
+  // firmware build surfaces. Report the loader's reason rather than a bare
+  // "boot failed": missing file and version mismatch have different fixes.
+  if (!SitlModule::instance().available()) {
+    emit logLine("rtos engine: " + SitlModule::instance().error());
+    emit stoppedCleanly();
+    return;
+  }
+  if (sitl()->boot(telemetry_cb_, telemetry_user_) != 0) {
     emit logLine("rtos engine: boot failed");
     emit stoppedCleanly();
     return;
   }
-  rtos_engine_enable_serial_rc(); // RC from RcBridge pty / remote transmitter
-  rtos_engine_run_begin();
+  emit logLine("rtos engine: loaded " + SitlModule::instance().path());
+  sitl()->enable_serial_rc(); // RC from RcBridge pty / remote transmitter
+  sitl()->run_begin();
   emit logLine("rtos engine: online");
   emit online();
 
@@ -251,9 +269,9 @@ void SimWorker::runEngine() {
       for (auto &op : batch)
         op();
     }
-    rtos_engine_run_step(); // one 1 ms step, wall-clock paced
-    if ((++n & 15) == 0) {  // ~62.5 Hz to the renderer
-      vsim_inproc_get_pose(&pose);
+    sitl()->run_step();    // one 1 ms step, wall-clock paced
+    if ((++n & 15) == 0) { // ~62.5 Hz to the renderer
+      sitl()->get_pose(&pose);
       emitFromFrame(&pose);
     }
   }

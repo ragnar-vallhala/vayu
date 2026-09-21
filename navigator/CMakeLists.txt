@@ -25,7 +25,7 @@ if(NOT NAVLINK_GEN_RC EQUAL 0)
 endif()
 # One shared static lib so Navigator and the host SITL core (which compiles the
 # firmware comm sources, incl. the v2-emitting telemetry_task.c) each link the
-# codec exactly once. Defined before add_subdirectory(sim/host) so that
+# codec exactly once. Defined before the SITL block below so that
 # subdir can link it too.
 add_library(navlink_codec STATIC ${NAVLINK_GEN}/c/navlink_msgs.c)
 target_include_directories(navlink_codec SYSTEM PUBLIC ${NAVLINK_GEN}/c)
@@ -193,13 +193,12 @@ set(GCS_HEADERS
 )
 
 # SITL-only sources. These pull in vsim_iface.h from sim/host and
-# can't compile without it. Added to the target only when sim_host is
-# present (see the add_subdirectory check below).
+# can't compile without it. Added to the target only when the SITL SDK is
+# present (see the NAVIGATOR_SITL block below).
 #
-# After the vsim_d split, Navigator no longer contains the physics
-# simulator -- PhysicsCore/MotorModel/SensorModels/SimController moved
-# to sim/vsim/. SimWorker became a thin process supervisor that
-# spawns vsim_d and decodes pose frames off /tmp/vsim_pose.
+# Navigator contains no physics and no firmware: the engine is loaded at
+# runtime from libvayu_sitl and driven through its vtable (SitlModule), and
+# the physics lives inside that module.
 set(GCS_SITL_SOURCES
     src/autotune/Optimizer.cpp
     src/autotune/Cost.cpp
@@ -215,6 +214,7 @@ set(GCS_SITL_SOURCES
     src/ui/widgets/CollapsibleSection.cpp
     src/ui/widgets/SimHudWidget.cpp
     src/vsim/SimWorker.cpp
+    src/vsim/SitlModule.cpp
     src/vsim/SimRendererWidget.cpp
     src/vsim/MeshLoader.cpp
     src/vsim/WorldMeshBuilder.cpp
@@ -274,6 +274,12 @@ qt_add_executable(Navigator
     ${GCS_RESOURCES}
 )
 
+# Headers for the runtime-loaded SITL module. Defined here because the include
+# block below expands it -- CMake reads top-down. Point it at an unpacked
+# firmware release to build against one instead of the in-tree copy.
+set(VAYU_SITL_SDK "${CMAKE_CURRENT_SOURCE_DIR}/../sim/host/sdk"
+    CACHE PATH "Directory holding vayu_sitl_abi.h + vsim_proto.h")
+
 target_include_directories(Navigator PRIVATE
     src
     src/core
@@ -285,7 +291,8 @@ target_include_directories(Navigator PRIVATE
     src/ui/main
     src/ui/widgets
     src/vsim
-    ${CMAKE_CURRENT_SOURCE_DIR}/../sim/vsim/include  # vsim_proto.h
+    ${VAYU_SITL_SDK}                                 # vayu_sitl_abi.h + vsim_proto.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/../sim/vsim/include  # trimesh_bvh.h (world-mesh file format)
 )
 
 target_link_libraries(Navigator PRIVATE
@@ -317,25 +324,27 @@ else()
 endif()
 
 # -------------------------------------------------------
-# vayu_sitl_rtos_core: the firmware-side SITL built as a static library,
-# running the REAL vaios scheduler + in-process vsim physics in ONE
-# deterministic stepper (no vsim_d daemon, no FIFO). Navigator links it
-# directly so the simulator + firmware + physics live in one process;
-# SimWorker drives it via the host_rtos_engine API.
+# SITL: the REAL vaios scheduler + firmware + in-process vsim physics in ONE
+# deterministic stepper (no vsim_d daemon, no FIFO), shipped as libvayu_sitl
+# and loaded at runtime. SimWorker drives it through the vtable in
+# vayu_sitl_abi.h.
 # -------------------------------------------------------
-set(VAYU_SITL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../sim/host")
-if(NAVIGATOR_SITL AND EXISTS "${VAYU_SITL_DIR}/CMakeLists.txt")
-    # Build the RTOS core (and its in-process physics) for the in-app sim.
-    set(VAYU_SITL_RTOS_BUILD ON CACHE BOOL "" FORCE)
-    add_subdirectory("${VAYU_SITL_DIR}"
-                     "${CMAKE_BINARY_DIR}/vayu_sitl"
-                     EXCLUDE_FROM_ALL)
+# The SITL engine is LOADED AT RUNTIME, not linked: Navigator compiles against
+# two SDK headers and dlopens libvayu_sitl (see src/vsim/SitlModule.cpp). That
+# is why nothing below builds or links a line of firmware.
+#
+# What this buys: the firmware ships on its own cadence, a firmware crash costs
+# the simulator rather than the GCS, and the two can live in separate
+# repositories. What it costs: the module has to be found at runtime, and a
+# version mismatch is a load failure the UI has to report.
+#
+# VAYU_SITL_SDK is defined near the top, before the include block that uses it.
+if(NAVIGATOR_SITL AND EXISTS "${VAYU_SITL_SDK}/vayu_sitl_abi.h")
     # assimp imports the airframe mesh for the geometry/MoI editor; it's
     # only needed on the SITL path, so it's found inside this gate.
     find_package(assimp REQUIRED)
     target_sources(Navigator PRIVATE ${GCS_SITL_SOURCES} ${GCS_SITL_HEADERS})
-    target_link_libraries(Navigator PRIVATE vayu_sitl_rtos_core assimp::assimp)
-    target_include_directories(Navigator PRIVATE "${VAYU_SITL_DIR}/src")  # host_rtos_engine_api.h
+    target_link_libraries(Navigator PRIVATE assimp::assimp)
     target_compile_definitions(Navigator PRIVATE NAVIGATOR_HAS_SITL=1)
     # Grass/flora is opt-in: only then compile GpuGrass + the CPU flora scatter
     # and define the guard so the renderer/UI grass code is live (see the
@@ -347,11 +356,11 @@ if(NAVIGATOR_SITL AND EXISTS "${VAYU_SITL_DIR}/CMakeLists.txt")
         target_compile_definitions(Navigator PRIVATE VAYU_SIM_GRASS=1)
         message(STATUS "Navigator: SITL grass/flora ON (VAYU_SIM_GRASS)")
     endif()
-    message(STATUS "Navigator: linking against vayu_sitl_rtos_core + assimp (SITL ON, in-process RTOS)")
+    message(STATUS "Navigator: SITL ON -- module loaded at runtime, SDK at ${VAYU_SITL_SDK}")
 elseif(NOT NAVIGATOR_SITL)
     message(STATUS "Navigator: SITL OFF (NAVIGATOR_SITL=OFF) -- GCS-only build")
 else()
-    message(WARNING "Navigator: ${VAYU_SITL_DIR} not found; SITL features disabled")
+    message(WARNING "Navigator: no SITL SDK at ${VAYU_SITL_SDK}; SITL features disabled")
 endif()
 
 # Platform-specific settings
@@ -379,22 +388,10 @@ if(NAVIGATOR_BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)
 
-    # The SITL subtree is pulled in EXCLUDE_FROM_ALL above -- Navigator only
-    # needs its libraries -- but sim/host calls enable_testing() and registers
-    # its 21 cases regardless, so `ctest` here reported every one of them as
-    # "Not Run" against a binary nothing had built. Put just those binaries
-    # back into `all`; the SITL executables stay out, so an app build is
-    # unchanged. Matched by name rather than listed, so a new test in
-    # sim/host/CMakeLists.txt needs no edit here.
-    if(TARGET vayu_sitl_core)
-        get_property(_sitl_targets DIRECTORY "${VAYU_SITL_DIR}"
-                     PROPERTY BUILDSYSTEM_TARGETS)
-        foreach(_t IN LISTS _sitl_targets)
-            if(_t MATCHES "^test_")
-                set_property(TARGET ${_t} PROPERTY EXCLUDE_FROM_ALL OFF)
-            endif()
-        endforeach()
-    endif()
+    # Only Navigator's own cases run here. The firmware's host tests used to be
+    # dragged in by add_subdirectory(sim/host) and needed re-enabling by hand;
+    # now that the engine is loaded rather than built, they belong to the
+    # firmware build alone (vtest's [sitl] suite runs them from build_sitl).
 
     message(STATUS "Navigator: unit tests ON (ctest)")
 endif()
