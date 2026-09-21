@@ -341,8 +341,11 @@ if(VAYU_SITL_RTOS_BUILD)
         LINK_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/vayu_sitl.map)
   endif()
 
-  # The shippable form of the module: the .so plus the two headers a loader
-  # compiles against, and nothing else. A host needs no other part of this tree.
+  # The shippable form of the engine. Both front doors onto the SAME engine
+  # ship, because consumers use both: the Qt app loads lib/libvayu_sitl.so in
+  # process, while the headless SDK and the autotuner spawn bin/vayu_sitl_rtos
+  # and talk to it over its FIFOs. Plus the headers a host compiles against,
+  # and nothing else -- a host needs no other part of this tree.
   #
   # A target rather than CI-only shell, so the tarball a developer can inspect
   # is byte-for-byte the one CI uploads -- a packaging step that only ever runs
@@ -351,9 +354,12 @@ if(VAYU_SITL_RTOS_BUILD)
   add_custom_target(vayu_sitl_package
       COMMAND ${CMAKE_COMMAND} -E rm -rf "${VAYU_SITL_SDK_STAGE}"
       COMMAND ${CMAKE_COMMAND} -E make_directory "${VAYU_SITL_SDK_STAGE}/lib"
+                                                 "${VAYU_SITL_SDK_STAGE}/bin"
                                                  "${VAYU_SITL_SDK_STAGE}/include"
       COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:vayu_sitl>
                                        "${VAYU_SITL_SDK_STAGE}/lib/"
+      COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:vayu_sitl_rtos>
+                                       "${VAYU_SITL_SDK_STAGE}/bin/"
       COMMAND ${CMAKE_COMMAND} -E copy
                   "${CMAKE_CURRENT_SOURCE_DIR}/sdk/vayu_sitl_abi.h"
                   "${CMAKE_CURRENT_SOURCE_DIR}/sdk/vsim_proto.h"
@@ -364,7 +370,7 @@ if(VAYU_SITL_RTOS_BUILD)
               > "${VAYU_SITL_SDK_STAGE}/BUILD_ID"
       COMMAND ${CMAKE_COMMAND} -E chdir "${CMAKE_BINARY_DIR}"
               ${CMAKE_COMMAND} -E tar czf "vayu-sitl-sdk.tar.gz" "vayu-sitl-sdk"
-      DEPENDS vayu_sitl
+      DEPENDS vayu_sitl vayu_sitl_rtos
       COMMENT "Packaging vayu-sitl-sdk.tar.gz (${VAYU_SITL_BUILD_ID})"
       VERBATIM)
 

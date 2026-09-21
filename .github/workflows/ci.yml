@@ -115,9 +115,12 @@ jobs:
         # set ever changes, it should change deliberately, not by someone
         # adding a file to sdk/.
         run: |
+          # LC_ALL=C: a case-insensitive locale sorts bin/ before BUILD_ID and
+          # a C locale does the reverse, so an unpinned sort makes this check
+          # pass or fail on the runner's locale rather than on the contents.
           actual=$(tar tzf build_sitl_rtos/vayu-sitl-sdk.tar.gz \
-                   | grep -v '/$' | sort | tr '\n' ' ')
-          expected='vayu-sitl-sdk/BUILD_ID vayu-sitl-sdk/include/trimesh_bvh.h vayu-sitl-sdk/include/vayu_sitl_abi.h vayu-sitl-sdk/include/vsim_math.h vayu-sitl-sdk/include/vsim_proto.h vayu-sitl-sdk/lib/libvayu_sitl.so '
+                   | grep -v '/$' | LC_ALL=C sort | tr '\n' ' ')
+          expected='vayu-sitl-sdk/BUILD_ID vayu-sitl-sdk/bin/vayu_sitl_rtos vayu-sitl-sdk/include/trimesh_bvh.h vayu-sitl-sdk/include/vayu_sitl_abi.h vayu-sitl-sdk/include/vsim_math.h vayu-sitl-sdk/include/vsim_proto.h vayu-sitl-sdk/lib/libvayu_sitl.so '
           if [ "$actual" != "$expected" ]; then
             echo "SDK tarball contents changed."
             echo "  expected: $expected"
