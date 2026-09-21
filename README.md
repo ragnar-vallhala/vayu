@@ -24,3 +24,13 @@ Vayu is a high-performance, real-time operating system for embedded systems. It 
 * Logging
 * Telemetry
 * Debugging
+
+## License
+
+Apache License 2.0 — see [LICENSE.md](LICENSE.md). Copyright (C) 2026
+NAVRobotec Pvt Ltd.
+
+The ground station lives in
+[vayu-navigator](https://github.com/ragnar-vallhala/vayu-navigator); the wire
+protocol in [navlink](https://github.com/ragnar-vallhala/navlink); the RTOS in
+[vaios](https://github.com/ragnar-vallhala/vaios). All Apache-2.0.
