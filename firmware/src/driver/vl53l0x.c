@@ -36,6 +36,8 @@
 
 static volatile uint8_t _initialized = 0;
 static uint8_t _have_sample = 0;
+/* Bring-up diagnostic: the device's interrupt status as of the last decode. */
+static volatile uint8_t _last_int_status = 0;
 
 /* Raw 12-byte result block, fed by the IMU DMA callback (ISR) and consumed by
  * the decode task. _raw_fresh is the single-word handshake (producer sets,
@@ -99,8 +101,10 @@ void vl53l0x_ingest_raw(const uint8_t *data) {
 static void vl53l0x_decode_and_publish(const uint8_t *d) {
   /* Device range status lives in bits [6:3] of the first status byte; the range
    * itself is a big-endian millimetre count at offset 10. */
-  uint8_t status = (uint8_t)((d[0] >> 3) & 0x0F);
-  uint16_t mm = (uint16_t)(((uint16_t)d[10] << 8) | (uint16_t)d[11]);
+  uint8_t status = (uint8_t)((d[VL53L0X_OFF_RANGE_STATUS] >> 3) & 0x0F);
+  uint16_t mm = (uint16_t)(((uint16_t)d[VL53L0X_OFF_RANGE_MM] << 8) |
+                           (uint16_t)d[VL53L0X_OFF_RANGE_MM + 1]);
+  _last_int_status = (uint8_t)(d[VL53L0X_OFF_INT_STATUS] & 0x07);
 
   /* status/range_mm track EVERY decode (the bring-up log wants to see the
    * out-of-range ones too); range_m and timestamp advance only on an in-window
@@ -111,11 +115,13 @@ static void vl53l0x_decode_and_publish(const uint8_t *d) {
   _last.status = status;
   _last.range_mm = mm;
 
-  /* Gate on the value, not the status code: an untuned part reports a mix of
-   * device statuses and the published range must never be a sentinel. Tighten
-   * to a status whitelist once a bench run shows what this unit actually
-   * reports (the 1 Hz bring-up log below prints it). */
-  if (mm >= VL53L0X_RANGE_MIN_MM && mm <= VL53L0X_RANGE_MAX_MM) {
+  /* Gate on the status AND the value. The value alone is not enough: a bench
+   * run caught a 52 mm reading carrying status 8 (min range fail) -- inside
+   * the sanity window, so a value-only gate published it as a good range. A
+   * device-flagged fault that happens to land at a plausible distance is
+   * exactly the reading that puts a phantom floor under an aircraft. */
+  if (status == VL53L0X_DEV_STATUS_VALID && mm >= VL53L0X_RANGE_MIN_MM &&
+      mm <= VL53L0X_RANGE_MAX_MM) {
     _last.range_m = (float)mm * 0.001f;
     _last.timestamp = hal_cycle_counter_get();
     _have_sample = 1;
@@ -182,8 +188,8 @@ void vl53l0x_read_task(void *args) {
       vl53l0x_decode_and_publish(snap);
     }
     if (_initialized && ++ticks % VL53L0X_LOG_EVERY == 0) {
-      vayu_log("VL53L0X: %d mm (status %d)", (int)_last.range_mm,
-               (int)_last.status);
+      vayu_log("VL53L0X: %d mm (status %d, int %d)", (int)_last.range_mm,
+               (int)_last.status, (int)_last_int_status);
     }
     v_delay(VL53L0X_TASK_PERIOD_MS);
   }

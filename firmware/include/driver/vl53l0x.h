@@ -45,14 +45,15 @@
  * Pololu-distilled init sequence into a vl53l0x_apply_tuning() and call it
  * before vl53l0x_start_continuous().
  *
- * ponytail: NO per-sample interrupt clear. The textbook continuous-mode flow
- * writes SYSTEM_INTERRUPT_CLEAR (0x0B) after every sample, but the async
- * i2c_manager path is READ-ONLY (i2c_manager_read_async; its DMA is P2M), so
- * the IMU loop physically cannot write. Instead the GPIO interrupt is disabled
- * at boot and the result registers are polled. Ceiling: UNVERIFIED ON HARDWARE
- * — if range freezes after the first sample, the device is stalling on the
- * latched interrupt, and the fix is an async WRITE op in i2c_manager
- * (i2c_async_t already declares I2C_OP_WRITE; only I2C_OP_READ is implemented).
+ * NO per-sample interrupt clear, and measured to be fine. The textbook
+ * continuous-mode flow writes SYSTEM_INTERRUPT_CLEAR (0x0B) after every
+ * sample, but the async i2c_manager path is READ-ONLY (its DMA is P2M), so the
+ * IMU loop physically cannot write. The GPIO interrupt is disabled at boot and
+ * the result registers are polled instead. This was recorded as an unverified
+ * risk -- "if range freezes after the first sample, the device is stalling on
+ * the latched interrupt". It does not: the burst now carries reg 0x13 and a
+ * 70-sample bench run read interrupt status 0 every single time, with the
+ * range tracking. Nothing is latched, so no async write op is needed for this.
  */
 
 /* 7-bit address. Factory default; re-addressable at runtime via reg 0x8A if a
@@ -71,15 +72,31 @@
 /* SYSRANGE_START bits: 0x01 = single shot, 0x02 = back-to-back continuous. */
 #define VL53L0X_SYSRANGE_CONTINUOUS 0x02
 
-/* Bytes pulled in one burst from VL53L0X_REG_RESULT_RANGE: byte 0 carries the
- * device range status in bits [6:3]; bytes 10..11 are the range in mm (BE). */
-#define VL53L0X_DATA_LEN 12
+/* One burst starting at RESULT_INTERRUPT_STATUS so the block carries its own
+ * freshness: byte 0 is the interrupt status (bits [2:0] -- non-zero means the
+ * device has a result waiting and, in continuous mode, is waiting for the host
+ * to acknowledge it), byte 1 is the range status (bits [6:3]), bytes 11..12
+ * are the range in mm, big-endian. Reading 0x13 costs one extra byte on a slot
+ * that already exists and is the only way to tell a fresh result from the same
+ * one read again. */
+#define VL53L0X_REG_BURST_START VL53L0X_REG_RESULT_INT_STATUS
+#define VL53L0X_DATA_LEN 13
+#define VL53L0X_OFF_INT_STATUS 0
+#define VL53L0X_OFF_RANGE_STATUS 1
+#define VL53L0X_OFF_RANGE_MM 11
 
 /* Read on every Nth slot of the bus owner's rotation: 150/7 ~= 21 Hz,
  * comfortably under this device's ~30 Hz continuous-mode cadence. 7 is coprime
  * with the barometer's period so the two ride-along slots almost never land on
  * the same tick; when they do the barometer wins and this read waits one slot. */
 #define VL53L0X_RIDE_EVERY_N 7u
+
+/* Device range status (reg 0x14 bits [6:3]) that means the measurement is
+ * good. ST's API maps this device code to PAL status 0, "Range Valid"; 8 maps
+ * to "Min range fail", which is what this unit reports when the target is
+ * nearer than it can measure. Observed on the bench: only 11 and 8 occur, so
+ * the gate below accepts 11 and nothing else. */
+#define VL53L0X_DEV_STATUS_VALID 11
 
 /* Sanity window on the decoded range. The device reports 8190/8191 mm as its
  * "no target / out of range" sentinel, and sub-30 mm readings are unreliable. */
