@@ -328,8 +328,8 @@ SimulatorWidget::SimulatorWidget(QWidget *parent) : QWidget(parent) {
   // firmware's layout. Attached to the module rather than to m_sim, which does
   // not exist until the sim is started.
   if (SitlModule::instance().available())
-    SitlModule::instance().api()->set_telemetry_sink(&uart2_to_widget_trampoline,
-                                                     this);
+    SitlModule::instance().api()->set_telemetry_sink(
+        &uart2_to_widget_trampoline, this);
 
   buildUi();
 
@@ -3033,8 +3033,8 @@ void SimulatorWidget::startInAppSim() {
   // Detached on Stop (the firmware can't truly stop) to silence the LIVE
   // blinker.
   if (SitlModule::instance().available())
-    SitlModule::instance().api()->set_telemetry_sink(&uart2_to_widget_trampoline,
-                                                     this);
+    SitlModule::instance().api()->set_telemetry_sink(
+        &uart2_to_widget_trampoline, this);
 
   m_sim = new vsim::SimWorker(this);
   m_sim->setTelemetrySink(&uart2_to_widget_trampoline, this);

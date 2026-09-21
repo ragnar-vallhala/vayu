@@ -29,9 +29,9 @@ QStringList candidatePaths() {
 
   // Development layout: a sibling SITL build dir next to the source tree.
   for (const char *build : {"build_sitl_rtos", "build_sitl"})
-    out << appDir.absoluteFilePath(QStringLiteral("../../%1/lib%2")
-                                       .arg(QLatin1String(build),
-                                            QLatin1String(VAYU_SITL_MODULE_NAME)));
+    out << appDir.absoluteFilePath(
+        QStringLiteral("../../%1/lib%2")
+            .arg(QLatin1String(build), QLatin1String(VAYU_SITL_MODULE_NAME)));
 
   return out;
 }
@@ -59,8 +59,8 @@ SitlModule::SitlModule() {
       continue;
     }
 
-    auto get_api =
-        reinterpret_cast<vayu_sitl_get_api_fn>(lib.resolve(VAYU_SITL_ENTRY_SYMBOL));
+    auto get_api = reinterpret_cast<vayu_sitl_get_api_fn>(
+        lib.resolve(VAYU_SITL_ENTRY_SYMBOL));
     if (!get_api) {
       tried << QStringLiteral("%1: no %2 symbol")
                    .arg(candidate, QLatin1String(VAYU_SITL_ENTRY_SYMBOL));
@@ -90,10 +90,10 @@ SitlModule::SitlModule() {
     return;
   }
 
-  error_ = QStringLiteral(
-               "no SITL module found (lib%1). Build the firmware, or set "
-               "VAYU_SITL_MODULE. Looked in:\n  %2")
-               .arg(QLatin1String(VAYU_SITL_MODULE_NAME), tried.join("\n  "));
+  error_ =
+      QStringLiteral("no SITL module found (lib%1). Build the firmware, or set "
+                     "VAYU_SITL_MODULE. Looked in:\n  %2")
+          .arg(QLatin1String(VAYU_SITL_MODULE_NAME), tried.join("\n  "));
 }
 
 bool SitlModule::send(const QByteArray &frame) const {

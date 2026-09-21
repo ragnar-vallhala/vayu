@@ -250,8 +250,8 @@ void SimWorker::runEngine() {
     emit stoppedCleanly();
     return;
   }
-  emit logLine("rtos engine: loaded " + SitlModule::instance().path() +
-               " [" + SitlModule::instance().buildId() + "]");
+  emit logLine("rtos engine: loaded " + SitlModule::instance().path() + " [" +
+               SitlModule::instance().buildId() + "]");
   sitl()->enable_serial_rc(); // RC from RcBridge pty / remote transmitter
   sitl()->run_begin();
   emit logLine("rtos engine: online");

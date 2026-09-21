@@ -164,7 +164,7 @@ private:
   // attach mode). The closure typically calls a module config function.
   void enqueue(std::function<void()> op);
 
-  QString vsim_bin_;         // retained, unused (engine is in-process)
+  QString vsim_bin_; // retained, unused (engine is in-process)
   vayu_sitl_telemetry_fn telemetry_cb_ = nullptr;
   void *telemetry_user_ = nullptr;
   bool attach_only_ = false; // read an existing pose FIFO, don't run engine

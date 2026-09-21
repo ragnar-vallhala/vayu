@@ -12,7 +12,6 @@
 #include "host_rtos_engine_api.h"
 #include "vsim_iface.h"
 
-
 /* The engine's telemetry plumbing, owned here so no firmware struct crosses the
  * ABI. One instance: the engine is single-instance per process anyway (boot is
  * idempotent), so there is nothing to key a second one off. */

@@ -16,16 +16,33 @@
 #
 # Version: the tree is clean under both apt clang-format-18 (what CI pins) and
 # the 22.1.1 wheel, measured over all 453 files. $CLANG_FORMAT overrides.
+#
+# Scope can be narrowed with trailing pathspecs:
+#   run_clang_format.sh --check firmware sim
+# so one component can be gated on its own. With none it takes the whole index,
+# which is what the monorepo does and what each repo will do after the split --
+# the same script, unchanged, in either shape.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 FMT="${CLANG_FORMAT:-clang-format}"
 
-mapfile -t files < <(git ls-files ':!:extern/' ':!:firmware/docs/' \
+CHECK=0
+if [ "${1:-}" = "--check" ]; then CHECK=1; shift; fi
+
+# Trailing args are pathspecs; none means the whole index.
+mapfile -t files < <(git ls-files ':!:extern/' ':!:firmware/docs/' "$@" \
                      | grep -E '\.(c|h|cpp|hpp|cc)$')
 
-if [ "${1:-}" = "--check" ]; then
+if [ ${#files[@]} -eq 0 ]; then
+  # A pathspec that matches nothing is a typo, not a clean tree. Saying "0
+  # files, all good" would make a mis-scoped gate look green forever.
+  echo "run_clang_format.sh: no sources matched${*:+ for: $*}" >&2
+  exit 1
+fi
+
+if [ "$CHECK" = 1 ]; then
   # --dry-run -Werror reports and exits non-zero; names the files, not the diff.
   if ! printf '%s\n' "${files[@]}" \
        | xargs -P"$(nproc)" -I{} "$FMT" --dry-run -Werror {} 2>&1 \

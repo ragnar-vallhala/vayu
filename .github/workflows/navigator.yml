@@ -58,17 +58,22 @@ jobs:
                 -B navigator/headless-sdk/cpp/worldmesh/build \
                 -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
       - name: ctest
-        # 41 cases: 20 QtTest + the 21 SITL cases this tree registers. Several
-        # construct widgets, so they need a platform plugin; offscreen is what
-        # the headless render test already documents.
+        # 20 QtTest cases. The firmware's 21 SITL cases used to be registered
+        # here too, because Navigator compiled sim/host as a subdirectory; it
+        # loads the engine at runtime now, so those belong to the firmware
+        # build alone. Several cases construct widgets and so need a platform
+        # plugin; offscreen is what the headless render test documents.
         env:
           QT_QPA_PLATFORM: offscreen
         run: ctest --test-dir navigator/build-tidy --output-on-failure
-      - name: clang-tidy (Navigator, sim, and the firmware sources it compiles)
+      - name: clang-tidy (Navigator)
         # Same gate as the clang-tidy job, over the database only this job can
         # produce: AUTOMOC generates the tst_*.moc the tests include, so it
-        # needs a real build, not just a configure. Its closing "not analysed"
-        # list is this invocation's -- the clang-tidy job covers the rest.
+        # needs a real build, not just a configure. Scope is Navigator's own
+        # sources now -- the firmware and sim/vsim sources this database used
+        # to carry moved to the clang-tidy job's sim/host/build, configured
+        # with the RTOS engine on. Its closing "not analysed" list is this
+        # invocation's; the clang-tidy job covers the rest.
         env:
           CLANG_TIDY: clang-tidy-18
         run: |

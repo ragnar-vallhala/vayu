@@ -324,49 +324,48 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   // AT-1: the autotune tab proposes gains; applying to firmware is an explicit
   // operator action. Turn the proposal into CMD_SET_PID frames and send them
   // over the live link (sendToFc refuses in replay; we also require a link).
-  connect(
-      m_simulatorWidget, &SimulatorWidget::applyPidGainsRequested, this,
-      [this](const QVector<PidSetCmd> &cmds) {
-        // Two apply targets, picked by what's live:
-        //   Fc        -> send CMD_SET_PID over the live link (real board).
-        //   sim core  -> apply in-process to the in-app firmware, which
-        //                persists to 0:pid.bin so the tune survives a sim
-        //                restart (same path the real FC uses; no link).
-        // A live FC link wins. Otherwise, if the in-process firmware has
-        // been started this session (true even in the Idle window right
-        // after an autotune run), apply there.
-        const SourceState st = m_source.state();
-        if (st == SourceState::Fc || st == SourceState::Sim) {
-          const uint32_t now =
-              static_cast<uint32_t>(QDateTime::currentMSecsSinceEpoch());
-          for (const PidSetCmd &c : cmds)
-            sendToFc(CommandCodec::encodeSetPid(c.controller, c.axis, c.kp,
-                                                c.ki, c.kd, c.kff, 42, now));
-          const bool sim = st == SourceState::Sim;
-          m_logPanel->appendLog(
-              QString("[GCS] Applied %1 PID slot(s) to %2 (CMD_SET_PID)")
-                  .arg(cmds.size())
-                  .arg(sim ? "sim" : "firmware"));
-          Notify::ok(this, sim ? tr("Applied gains to sim")
-                               : tr("Applied gains to firmware"));
-          return;
-        }
+  connect(m_simulatorWidget, &SimulatorWidget::applyPidGainsRequested, this,
+          [this](const QVector<PidSetCmd> &cmds) {
+            // Two apply targets, picked by what's live:
+            //   Fc        -> send CMD_SET_PID over the live link (real board).
+            //   sim core  -> apply in-process to the in-app firmware, which
+            //                persists to 0:pid.bin so the tune survives a sim
+            //                restart (same path the real FC uses; no link).
+            // A live FC link wins. Otherwise, if the in-process firmware has
+            // been started this session (true even in the Idle window right
+            // after an autotune run), apply there.
+            const SourceState st = m_source.state();
+            if (st == SourceState::Fc || st == SourceState::Sim) {
+              const uint32_t now =
+                  static_cast<uint32_t>(QDateTime::currentMSecsSinceEpoch());
+              for (const PidSetCmd &c : cmds)
+                sendToFc(CommandCodec::encodeSetPid(
+                    c.controller, c.axis, c.kp, c.ki, c.kd, c.kff, 42, now));
+              const bool sim = st == SourceState::Sim;
+              m_logPanel->appendLog(
+                  QString("[GCS] Applied %1 PID slot(s) to %2 (CMD_SET_PID)")
+                      .arg(cmds.size())
+                      .arg(sim ? "sim" : "firmware"));
+              Notify::ok(this, sim ? tr("Applied gains to sim")
+                                   : tr("Applied gains to firmware"));
+              return;
+            }
 #ifdef NAVIGATOR_HAS_SITL
-        // A stopped sim is not commandable. It used to be: the gains were
-        // poked straight into the in-process firmware, which also skipped the
-        // persistence and gating a real apply goes through. Start the sim and
-        // apply again.
-        if (m_simulatorWidget && m_simulatorWidget->sitlCoreStarted()) {
-          m_logPanel->appendLog(
-              "[GCS] Sim is not running — start it to apply gains");
-          Notify::warn(this, tr("Start the sim to apply gains"));
-          return;
-        }
+            // A stopped sim is not commandable. It used to be: the gains were
+            // poked straight into the in-process firmware, which also skipped the
+            // persistence and gating a real apply goes through. Start the sim and
+            // apply again.
+            if (m_simulatorWidget && m_simulatorWidget->sitlCoreStarted()) {
+              m_logPanel->appendLog(
+                  "[GCS] Sim is not running — start it to apply gains");
+              Notify::warn(this, tr("Start the sim to apply gains"));
+              return;
+            }
 #endif
-        m_logPanel->appendLog(
-            "[GCS] Apply gains ignored — connect an FC or start the sim");
-        Notify::warn(this, tr("No FC link or sim — can't apply gains"));
-      });
+            m_logPanel->appendLog(
+                "[GCS] Apply gains ignored — connect an FC or start the sim");
+            Notify::warn(this, tr("No FC link or sim — can't apply gains"));
+          });
   // Reflect the firmware's reported flight mode (stabilise/acro + RC/GCS source)
   // back onto the simulator's Acro toggle.
   connect(m_engine->protocol(), &DroneProtocol::flightModeReceived,

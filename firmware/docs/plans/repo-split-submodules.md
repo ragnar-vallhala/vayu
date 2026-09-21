@@ -21,15 +21,21 @@ chosen to cut that number down, not to mirror the current directory names.
 The obvious split is `firmware/ | navigator/ | sim/ | navlink/`. **That one is
 wrong**, because `sim/` is not one thing:
 
-| | `sim/host` (75 files) | `sim/vsim` (42 files) |
+| | `sim/host` | `sim/vsim` |
 |---|---|---|
-| What it is | SITL — the firmware's own host test rig | physics + renderer the GCS drives |
-| Firmware coupling | **compiles 59 firmware `.c` files** across 12 subsystems | 4 files reference firmware at all |
-| Belongs with | firmware | navigator |
+| What it is | SITL — the firmware's own host test rig | physics + the `vsim_proto` wire structs |
+| Firmware coupling | **compiles 59 firmware `.c` files** across 12 subsystems | none; it is what the SITL links |
+| Belongs with | firmware | **firmware** |
 
-Splitting `sim/` off as its own repo would put a 59-file source dependency across
-a repo boundary — the single worst coupling in the tree, made permanent. Splitting
-it *down the middle* deletes that coupling instead of paying for it forever.
+An earlier draft of this table said `sim/vsim` was "physics + renderer the GCS
+drives" and sent it to navigator. That was wrong on both counts. There is no
+renderer in `sim/vsim` — the renderer is `navigator/src/vsim/` (31 files:
+ChunkStreamer, SimRendererWidget, procgen…). And `sim/host` *compiles* four of
+`sim/vsim`'s `.cpp` files into its physics library, so sending the two halves to
+different repos would have made the dependency **circular**.
+
+Both halves ship with the firmware. `vsim_proto.h` moved to `sim/host/sdk/`,
+where it is part of the published contract rather than an internal header.
 
 ### Proposed repositories
 
@@ -42,8 +48,9 @@ it *down the middle* deletes that coupling instead of paying for it forever.
    of `tools/` (`tools/telemetry`, `tools/calib`). SITL ships with the firmware
    because it *is* the firmware, compiled for host.
 
-3. **`vayu-navigator`** — `navigator/` (incl. `headless-sdk`) + `sim/vsim/` +
-   `tools/autotune`. The likely-private/commercial side.
+3. **`vayu-navigator`** — `navigator/` (incl. `headless-sdk`) + `tools/autotune`.
+   The likely-private/commercial side. `sim/vsim` does **not** come here; see the
+   boundary table above.
 
 4. `vtest/` (3 files) goes wherever it is run from, or becomes a trivial fourth
    repo. It is a cross-repo runner after the split, not a component.
@@ -53,20 +60,38 @@ was an alternative physics backend that never got wired up: nothing outside the
 plan docs referenced it, and its last substantive change was a path sweep during
 the 2026-06 restructure.
 
-## The one real engineering task
+## The one real engineering task — DONE
 
-`navigator` currently **builds `sim/host` in-process** (`navigator/CMakeLists.txt`
-sets `VAYU_SITL_DIR` and `add_subdirectory`s it). Across a repo boundary it must
-instead consume a *released* firmware artifact.
+`navigator` **built `sim/host` in-process** and statically linked
+`vayu_sitl_rtos_core`, which froze the firmware into the GCS binary at build
+time and was the coupling that blocked the split.
 
-The seam already half-exists: `headless-sdk` locates the SITL binary through
-`VAYU_SITL_RTOS_BIN` rather than building it. Widen that to the Qt app and the
-coupling becomes "navigator runs a published `vayu_sitl_rtos`", which is also
-what makes independent release cadence real.
+The fix was not the one sketched here originally ("widen `VAYU_SITL_RTOS_BIN` to
+the Qt app"). That would have turned the in-app sim into a subprocess client and
+undone the 2026-07 consolidation, which deleted the `vsim_d` daemon precisely to
+get one deterministic in-process stepper. The Qt app *links* the engine; the
+headless SDK *runs a binary*. Different couplings, and the looser seam does not
+generalise to the tighter one.
 
-This is the prerequisite for the split, and it is worth doing **before** any repo
-is created — it is a normal refactor inside one repo, and impossible to bisect
-once it spans three.
+Instead the engine is built a third way: **`libvayu_sitl`, a shared module loaded
+at runtime**. It exports one symbol, `vayu_sitl_get_api`, returning a vtable
+behind a single ABI version gate. Navigator compiles against two headers
+(`vayu_sitl_abi.h`, `vsim_proto.h`) and `dlopen`s the rest through `QLibrary`.
+
+That keeps the in-process determinism, and it means navigator needs **no source
+dependency on the firmware at all** — not even a submodule pin. The firmware
+publishes `vayu-sitl-sdk.tar.gz` (the `.so`, the two headers, a build id); the
+GCS consumes it. Independent cadence is then real rather than aspirational.
+
+Two things fell out of doing it:
+
+- Navigator was calling firmware functions directly (mixer geometry, flight-mode
+  release, PID apply), bypassing the firmware's own command gates. Those are
+  gone; it now sends NavLink frames through `uart2_rx` and the firmware's real
+  parser, router and time-sync gate. This is the seam contract, enforced instead
+  of asserted.
+- Navigator had `sim/host/include` on its include path through a PUBLIC usage
+  requirement — a directory of NavHAL port shims that shadow system headers.
 
 ## Blockers to clear first
 
@@ -84,26 +109,57 @@ scoped to its own paths so it inherits only its own history — a naive split gi
 three repos that each still clone 711 MB. Decide separately whether datasheets and
 `.bin` captures belong in git at all, or in LFS / an assets repo.
 
-**Repo-wide gates fracture.** `trace.py` (req↔code, 174 requirements spanning
-firmware + docs), the docs-link gate (199 pages), the coverage ratchet (per-component
-floors in one gate), clang-tidy (four databases spanning firmware/sim/navigator),
-and `vtest` all assume one tree. Each needs a per-repo home, and the trace gate in
-particular needs deciding: requirements currently cross the firmware/navigator line.
+**Repo-wide gates fracture — measured, and smaller than it looked.** Every gate
+was mapped to a side:
+
+| Gate | Spans | Home | Work |
+|---|---|---|---|
+| build (arm), cppcheck | `firmware/` | firmware | none |
+| sitl-tests, sitl-module, sanitizers | `sim/host` | firmware | none |
+| coverage ratchet | floors are all `firmware/src` | firmware | none |
+| trace gate | `firmware/{src,include,tests}`, `sim/host/tests`, `tools/` | firmware | none |
+| clang-tidy | takes build dirs as arguments | both | none — already split |
+| navigator build + tests | `navigator/` | navigator | none |
+| commit-msgs | commit messages | both | duplicate the job |
+| clang-format | whole index | both | takes pathspecs |
+| docs-links | 174 pages | both | 17 links cross the line |
+
+**The trace gate does not cross the firmware/navigator line.** That was the
+stated worry and it is wrong: `navigator/` carries its own
+`docs/reference/requirements.md` and **zero** `@implements`/`@verifies` tags.
+Every tag outside `firmware/` is in `sim/host/tests` or `tools/`, both of which
+ship with the firmware. `OWNED_ROOTS` needs no change.
+
+**What actually splits is documentation.** 17 doc links cross the
+firmware↔navigator boundary and will not resolve once the repos are siblings.
+Links into `navlink`/`vtest` are NOT in that count: those are submodules and sit
+at the same path either side of the split. `docs_html.py --check` now reports
+the sibling crossings and fails if they exceed `MAX_CROSS_REPO_LINKS`, so the
+bill is visible and cannot grow by accident. Converting them to URLs is the
+cheap fix, but it needs the repo URLs, so it waits for the split itself.
+
+Root-level pages (`ARCHITECTURE.md`, `README.md`, `build.md`) are exempt from
+that count and are their own decision: they describe the whole stack, so they
+belong either to whichever repo becomes the entry point, or to neither.
 
 ## Order
 
 0. **`vtest`** — DONE. Its own public repo, pinned here as a submodule (`v1.3.0`).
    It came out first because the test story blocked on it, ahead of the order below.
 1. **Add licensing** — DROPPED for `vayu` (stays private); see the blockers above.
-2. **Break the navigator→`sim/host` source dependency**, in-repo, while it is
-   still bisectable. ← next
+2. **Break the navigator→`sim/host` source dependency.** DONE, via the runtime
+   module rather than a subprocess — see "The one real engineering task". The
+   GCS binary now contains no firmware symbols.
 3. **Extract `vayu-navlink`.** DONE. Public repo, Apache-2.0, pinned here as a
    submodule at `v2.0.0`. It proved the pin-and-generate workflow: the submodule
    mounts at the same `navlink/` path the tree already used, so every consumer
    (firmware, navigator, sim/host, tools) needed no change, and the generated
    codec is byte-identical to the vendored one.
-4. **Split the gates** to per-repo homes; decide the trace-gate boundary.
-5. **Extract `vayu-navigator`** (+ `sim/vsim`, `tools/autotune`).
+4. **Split the gates.** DONE — every gate is mapped to a side (table above),
+   `clang-format` takes pathspecs so one component can be gated alone, and the
+   docs gate now ratchets the 17 sibling-crossing links. The trace-gate question
+   resolved itself: it never crossed the line. ← the split is now unblocked
+5. **Extract `vayu-navigator`** (+ `tools/autotune`). ← next
 6. **`vayu-firmware` last** — it is what everything else pins, so it moves when
    the pins are already proven.
 

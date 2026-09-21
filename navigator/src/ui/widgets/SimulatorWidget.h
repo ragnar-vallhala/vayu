@@ -14,8 +14,7 @@
 #include "AutotuneGains.h"
 #include "../../audio/PropAudio.h"
 
-extern "C" {
-}
+extern "C" {}
 
 #include <QElapsedTimer>
 #include <QFile>

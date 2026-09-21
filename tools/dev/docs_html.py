@@ -535,6 +535,71 @@ class Progress:
             self.stream.flush()
 
 
+# Which future repository each top-level docs tree belongs to, per
+# firmware/docs/plans/repo-split-submodules.md. sim/ ships with the firmware
+# (sim/host IS the firmware compiled for host, and sim/vsim is the physics it
+# links), so it is not a component of its own here.
+SPLIT_SIDE = {
+    "firmware": "firmware",
+    "sim": "firmware",
+    "tools": "firmware",
+    "navigator": "navigator",
+    "navlink": "navlink",
+    "vtest": "vtest",
+}
+
+# Repos that are vendored as a SUBMODULE rather than living beside us. A link
+# into one of these keeps resolving after the split, because the submodule sits
+# at the same path it does today -- so these crossings are not a bill.
+SUBMODULE_SIDES = {"navlink", "vtest"}
+
+# What is left are SIBLING repos: firmware and navigator, which after the split
+# have no path to each other at all. Those links resolve today and will not
+# then. Pinning the count keeps the bill from growing while the split is
+# pending -- a new crossing has to be raised here deliberately, which is the
+# moment to ask whether it should be a URL instead. Lower it as crossings are
+# converted; it is a ceiling, not a target.
+MAX_CROSS_REPO_LINKS = 17
+
+
+def split_side(repo_relative_path):
+    """Which future repo a docs path belongs to; None for root-level pages."""
+    return SPLIT_SIDE.get(repo_relative_path.split("/")[0])
+
+
+def check_cross_repo_links(root):
+    """Doc-to-doc links that leave their component. (src, dst, page, raw) rows.
+
+    Read from the markdown, not the generated HTML: this is a question about
+    the sources, and it must be answerable without building the site.
+
+    Root-level pages (ARCHITECTURE.md, README.md) are exempt -- they describe
+    the whole stack by design, and where they land is its own decision.
+    """
+    files = subprocess.run(["git", "ls-files", "*.md"], cwd=root,
+                           capture_output=True, text=True,
+                           check=True).stdout.split()
+    rows = []
+    for rel in files:
+        src = split_side(rel)
+        if src is None:
+            continue
+        try:
+            text = (Path(root) / rel).read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        for m in re.finditer(r"\]\(([^)#][^)]*)\)", text):
+            raw = m.group(1).split("#")[0].strip()
+            if not raw or raw.startswith(("http://", "https://", "mailto:")):
+                continue
+            target = os.path.normpath(os.path.join(os.path.dirname(rel), raw))
+            dst = split_side(target)
+            if dst is None or dst == src or dst in SUBMODULE_SIDES:
+                continue
+            rows.append((src, dst, rel, raw))
+    return rows
+
+
 def check_links(out):
     """Report every doc-to-doc link that resolves to no generated page.
 
@@ -635,6 +700,23 @@ def main():
     print("           open %s/index.html" % out)
 
     if args.check:
+        # Boundary report first: it explains WHY a link that resolves today is
+        # still a problem, which a plain broken-link list cannot.
+        cross = check_cross_repo_links(root)
+        if cross:
+            print("docs_html: %d link(s) cross a SIBLING repository boundary "
+                  "(ceiling %d)" % (len(cross), MAX_CROSS_REPO_LINKS),
+                  file=sys.stderr)
+            for src, dst, page, raw in sorted(cross):
+                print("  %s -> %s  %s -> %s" % (src, dst, page, raw),
+                      file=sys.stderr)
+        if len(cross) > MAX_CROSS_REPO_LINKS:
+            print("docs_html: cross-repo links rose to %d (ceiling %d). These "
+                  "resolve now and will not once the repos split -- make it a "
+                  "URL, or raise MAX_CROSS_REPO_LINKS deliberately."
+                  % (len(cross), MAX_CROSS_REPO_LINKS), file=sys.stderr)
+            return 1
+
         bad = check_links(out)
         for page, url in bad:
             print("  broken: %s -> %s" % (page, url), file=sys.stderr)
