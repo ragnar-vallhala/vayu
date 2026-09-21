@@ -183,6 +183,14 @@ belong either to whichever repo becomes the entry point, or to neither.
 **The split is complete.** What is left is upkeep, not structure: the GCS pin
 moves when someone chooses to move it, and the gates each live on one side.
 
+**Where whole-stack material lives — decided.** The split left no umbrella
+repo, and `ARCHITECTURE.md`, `build.md`, `docker-compose.yml` and
+`assets/logos/` all describe the stack rather than the firmware. They stay in
+`vayu`, which is the entry point people find first; its README says so and
+links the siblings. The alternative — splitting the logo concepts across three
+repos — would have destroyed the preview page that compares them, which is the
+only reason the set exists.
+
 ## What this costs
 
 Be honest about the tax: a third of commits become multi-repo, `navlink` version
