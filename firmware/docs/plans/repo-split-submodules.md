@@ -48,7 +48,10 @@ it *down the middle* deletes that coupling instead of paying for it forever.
 4. `vtest/` (3 files) goes wherever it is run from, or becomes a trivial fourth
    repo. It is a cross-repo runner after the split, not a component.
 
-`sim/gazebo` (4 files) looks dead — confirm and delete rather than migrate.
+`sim/gazebo` (4 files) was dead — confirmed and deleted rather than migrated. It
+was an alternative physics backend that never got wired up: nothing outside the
+plan docs referenced it, and its last substantive change was a path sweep during
+the 2026-06 restructure.
 
 ## The one real engineering task
 
