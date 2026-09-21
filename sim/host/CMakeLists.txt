@@ -45,14 +45,20 @@ add_compile_definitions(
     VAIOS_CONFIG_FILE="${VAYU_ROOT}/firmware/include/vaios_app_config.h"
 )
 
-# Shadow + firmware + vaios + NavHAL + vsim_proto headers, in priority order.
+# Shadow + firmware + vaios + NavHAL + SDK + vsim headers, in priority order.
+#
+# sdk/ and include/ are NOT interchangeable. include/ holds NavHAL port shims
+# that shadow system headers (atomic.h, family) and is private to this project.
+# sdk/ holds the two headers a runtime loader compiles against -- keep it free
+# of anything that would follow it out of the tree.
 include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/sdk        # vsim_proto.h + vayu_sitl_abi.h
     ${VAYU_ROOT}/firmware/include
     ${VAIOS_ROOT}/include
     ${NAVHAL_ROOT}/include
     ${NAVHAL_ROOT}/include/port/cortex-m4   # utility type-only headers
-    ${VAYU_ROOT}/sim/vsim/include         # vsim_proto.h (shared with vsim_d)
+    ${VAYU_ROOT}/sim/vsim/include         # physics headers (trimesh_bvh.h etc.)
 )
 
 # Host shim sources -- everything that goes into the library.
@@ -175,6 +181,8 @@ if(NOT TARGET navlink_codec)
   endif()
   add_library(navlink_codec STATIC ${NAVLINK_GEN}/c/navlink_msgs.c)
   target_include_directories(navlink_codec SYSTEM PUBLIC ${NAVLINK_GEN}/c)
+  # Also linked into the loadable module, so its objects must be relocatable.
+  set_target_properties(navlink_codec PROPERTIES POSITION_INDEPENDENT_CODE ON)
 endif()
 
 find_package(Threads REQUIRED)
@@ -209,8 +217,10 @@ if(VAYU_SITL_RTOS_BUILD)
       ${VAYU_ROOT}/sim/vsim/src/sensor_models.cpp
   )
   set_target_properties(vsim_phys PROPERTIES
-      INCLUDE_DIRECTORIES "${VAYU_ROOT}/sim/vsim/include")
-  target_include_directories(vsim_phys INTERFACE ${VAYU_ROOT}/sim/vsim/include)
+      INCLUDE_DIRECTORIES "${VAYU_ROOT}/sim/vsim/include;${CMAKE_CURRENT_SOURCE_DIR}/sdk"
+      POSITION_INDEPENDENT_CODE ON)   # linked into the loadable module
+  target_include_directories(vsim_phys INTERFACE
+      ${VAYU_ROOT}/sim/vsim/include ${CMAKE_CURRENT_SOURCE_DIR}/sdk)
 
   # The RTOS SITL as a CORE static library (#11e): everything EXCEPT
   # host_rtos_main.c (the CLI scenarios + main()). Navigator links this and
@@ -248,6 +258,8 @@ if(VAYU_SITL_RTOS_BUILD)
   target_compile_definitions(vayu_sitl_rtos_core PRIVATE
       VAYU_SITL_RTOS=1 VAIOS_HOST_TEST=1
       HEAP_SIZE=0x180000)   # 1.5 MB: room for the firmware tasks' 8KB stacks on host
+  # The same objects are archived into the module below, so build them PIC.
+  set_target_properties(vayu_sitl_rtos_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
   target_include_directories(vayu_sitl_rtos_core
       PRIVATE
         ${VAYU_ROOT}/firmware/include
@@ -257,7 +269,8 @@ if(VAYU_SITL_RTOS_BUILD)
       PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/include
         ${CMAKE_CURRENT_SOURCE_DIR}/src   # host_rtos_engine_api.h (the GCS surface)
-        ${VAYU_ROOT}/sim/vsim/include     # vsim_proto.h + trimesh_bvh.h
+        ${CMAKE_CURRENT_SOURCE_DIR}/sdk   # vsim_proto.h + vayu_sitl_abi.h
+        ${VAYU_ROOT}/sim/vsim/include     # trimesh_bvh.h
   )
   # navlink_codec/vsim_phys are linked PUBLIC (the engine API needs vsim types);
   # the thread/m/rt system libs the consumer also needs at link time.
@@ -279,11 +292,52 @@ if(VAYU_SITL_RTOS_BUILD)
       ${VAYU_ROOT}/sim/vsim/include)
   target_link_libraries(vayu_sitl_rtos PRIVATE vayu_sitl_rtos_core)
 
+  # The SAME engine as a LOADABLE MODULE (libvayu_sitl.so / vayu_sitl.dll).
+  # A host with no build-time knowledge of the firmware dlopens this and drives
+  # it through the vtable in sdk/vayu_sitl_abi.h -- that is how Navigator gets
+  # an in-process simulator without compiling one line of firmware, and what
+  # lets the firmware ship on its own cadence.
+  #
+  # MODULE, not SHARED: it is never linked against, only loaded.
+  #
+  # Only vayu_sitl_get_api is exported. Hiding the rest keeps the firmware's
+  # ~hundreds of globals (and its malloc/assert shims) out of the loader's
+  # symbol namespace, where they would otherwise be free to collide.
+  add_library(vayu_sitl MODULE src/vayu_sitl_module.c)
+  target_compile_definitions(vayu_sitl PRIVATE VAYU_SITL_BUILDING_MODULE=1)
+  target_link_libraries(vayu_sitl PRIVATE vayu_sitl_rtos_core)
+  set_target_properties(vayu_sitl PROPERTIES
+      C_VISIBILITY_PRESET hidden
+      CXX_VISIBILITY_PRESET hidden
+      VISIBILITY_INLINES_HIDDEN ON
+      PREFIX "lib")   # libvayu_sitl.so on every platform, so loaders need no ifdef
+  if(NOT APPLE AND NOT WIN32)
+    # Belt and braces: the visibility presets cover our own TUs, but the static
+    # archives we swallow were compiled without them.
+    target_link_options(vayu_sitl PRIVATE
+        "LINKER:--version-script=${CMAKE_CURRENT_SOURCE_DIR}/vayu_sitl.map")
+    set_target_properties(vayu_sitl PROPERTIES
+        LINK_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/vayu_sitl.map)
+  endif()
+
   # GCS-integration test (#12): drives the SAME slim engine API SimWorker uses,
   # from a non-firmware C++ TU (only host_rtos_engine_api.h + vsim_iface.h) — no
   # Qt, no display. Proves boot+telemetry+pose+config link and behave.
   add_executable(test_gcs_engine_api test/test_gcs_engine_api.cpp)
   target_link_libraries(test_gcs_engine_api PRIVATE vayu_sitl_rtos_core)
+
+  # Module-load test: links NO firmware, only libdl + the SDK headers, so it
+  # fails loudly if the module ever stops being self-contained. Its include
+  # path is the SDK dir plus the one header it needs to build a telemetry
+  # iface -- deliberately NOT the firmware include env.
+  add_executable(test_sitl_module test/test_sitl_module.c)
+  set_target_properties(test_sitl_module PROPERTIES
+      INCLUDE_DIRECTORIES
+        "${CMAKE_CURRENT_SOURCE_DIR}/sdk;${CMAKE_CURRENT_SOURCE_DIR}/src")
+  target_link_libraries(test_sitl_module PRIVATE ${CMAKE_DL_LIBS})
+  add_dependencies(test_sitl_module vayu_sitl)
+  add_test(NAME sitl_module
+           COMMAND test_sitl_module $<TARGET_FILE:vayu_sitl>)
   message(STATUS "vayu_sitl_rtos_core (lib) + vayu_sitl_rtos (bin) + test_gcs_engine_api configured")
 endif()
 

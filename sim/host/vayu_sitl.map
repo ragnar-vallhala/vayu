@@ -1,0 +1,13 @@
+/* Export exactly one symbol from libvayu_sitl.so.
+ *
+ * The module swallows static archives (vayu_sitl_rtos_core, vsim_phys,
+ * navlink_codec) that were built without visibility attributes, so without this
+ * script the whole firmware symbol table -- every global, plus the host shims'
+ * malloc/assert -- would be visible to whatever loaded us and free to collide.
+ * Everything reachable goes through the vtable, so one export is all we need. */
+VAYU_SITL_1 {
+  global:
+    vayu_sitl_get_api;
+  local:
+    *;
+};
