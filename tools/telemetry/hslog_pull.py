@@ -26,13 +26,49 @@ import time
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
-sys.path.insert(0, os.path.join(_HERE, "..", "..", "navigator", "headless-sdk"))
 
 import fs_xfer_udp_test as X  # Bridge, discover_and_sync, the xfer constants
-from vayu_headless.transport import navlink as _hnl
+import frame as _frame        # navlink/sim/frame.py, via fs_xfer_udp_test's path setup
 
 nl = X.nl
 SECTOR = 512
+
+# msgid -> generated message class, for decoding telemetry payloads.
+_MSG_BY_ID = {c.MSGID: c for c in vars(nl).values()
+              if isinstance(c, type) and hasattr(c, "MSGID") and hasattr(c, "unpack")}
+
+
+def _parse_frames(buf, telem, telem_counts):
+    """Consume complete NavLink frames from `buf` (a bytearray, trimmed in
+    place), decoding each into telem[name] and bumping telem_counts[name].
+
+    Inlined rather than imported: this used to come from the headless SDK,
+    which now lives in the vayu-navigator repository. It is 20 lines over
+    navlink/sim/frame.py, which this tree has as a submodule, so carrying it
+    here is cheaper than depending on another repo to read a log off the SD
+    card.
+    """
+    i = 0
+    while i < len(buf):
+        if buf[i] != _frame.SYNC:
+            i += 1
+            continue
+        if i + _frame.HDR_LEN + 2 > len(buf):
+            break
+        total = _frame.HDR_LEN + buf[i + 2] + 2
+        if i + total > len(buf):
+            break
+        d = _frame.decode(bytes(buf[i:i + total]))
+        if d.ok:
+            cls = _MSG_BY_ID.get(d.msgid)
+            if cls:
+                name = cls.__name__
+                telem[name] = cls.unpack(d.payload)
+                telem_counts[name] = telem_counts.get(name, 0) + 1
+            i += total
+        else:
+            i += 1          # bad CRC: resync past this sync byte
+    del buf[:i]
 
 
 def read_status(port, secs):
@@ -51,7 +87,7 @@ def read_status(port, secs):
             except socket.timeout:
                 continue
             buf += d
-            _hnl.parse_frames(buf, msgs, counts)
+            _parse_frames(buf, msgs, counts)
             if "HslStatus" in msgs:
                 return msgs["HslStatus"]
     finally:

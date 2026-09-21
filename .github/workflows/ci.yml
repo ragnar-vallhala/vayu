@@ -1,10 +1,9 @@
 # Vayu firmware + SITL CI (R12.1).
 #
-# Skipped when a change touches only markdown or only navigator/: nothing here
-# compiles a line of the GCS. The reverse is NOT true -- navigator.yml builds
-# the firmware, because the in-app SITL links it -- so that workflow runs on a
-# firmware change and this one does not run on a GCS change. Whole-tree gates
-# that both sides share (clang-format, docs, trace, commit messages) are in
+# Skipped when a change touches only markdown. The GCS lives in its own
+# repository now (vayu-navigator) and has its own CI; it consumes this build's
+# SITL SDK artifact rather than compiling any of it, so nothing here waits on
+# it. Whole-tree gates (clang-format, docs, trace, commit messages) are in
 # gates.yml, unfiltered.
 #
 # Jobs:
@@ -34,13 +33,11 @@ on:
       - '**.md'
       - 'docs/**'
       - '**/docs/**'
-      - 'navigator/**'
   pull_request:
     paths-ignore:
       - '**.md'
       - 'docs/**'
       - '**/docs/**'
-      - 'navigator/**'
 
 jobs:
   build-target:

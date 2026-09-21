@@ -10,9 +10,7 @@
 #   - trace-gate    : tools/dev/trace.py --check, unknown-ID fails (R12.5)
 #   - docs-links    : tools/dev/docs_html.py --check, dangling doc link fails
 #   - commit-msgs   : no AI attribution trailers in new commit messages
-#   - clang-format  : .clang-format over the whole tree, GATING -- it is here
-#                     rather than in ci.yml because it formats the GCS sources
-#                     too, so a navigator-only change must not skip it
+#   - clang-format  : .clang-format over the whole tree, GATING
 
 name: gates
 

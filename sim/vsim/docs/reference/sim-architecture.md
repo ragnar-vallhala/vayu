@@ -8,7 +8,7 @@ script flights with. Verified against `sim/vsim/`, `sim/host/`, and
 
 > Companion docs: firmware internals → [`firmware/docs/reference/software-flow.md`](../../../../firmware/docs/reference/software-flow.md);
 > wire protocol → [`../../include/vsim_proto.h`](../../include/vsim_proto.h);
-> the GCS that also hosts this sim in-process → [`../../../../navigator/docs/reference/gcs-architecture.md`](../../../../navigator/docs/reference/gcs-architecture.md).
+> the GCS that also hosts this sim in-process → [`../../../../navigator/docs/reference/gcs-architecture.md`](https://github.com/ragnar-vallhala/vayu-navigator/blob/main/navigator/docs/reference/gcs-architecture.md).
 
 ## One binary, two processes at run time
 

@@ -16,7 +16,7 @@ minimal — components may *refer* to each other, but each owns its own contract
 |-----------|------------|-----------|
 | **FC** | Flight-controller firmware (`firmware/src/`, `firmware/include/`) | `firmware/docs/` *(here)* |
 | **NavLink** | Wire protocol / generated codec | [`navlink/docs/`](../../navlink/docs/README.md) |
-| **GCS** | Navigator ground-control station (`navigator/`) | [`navigator/docs/`](../../navigator/docs/README.md) |
+| **GCS** | Navigator ground-control station (`navigator/`) | [`navigator/docs/`](https://github.com/ragnar-vallhala/vayu-navigator/blob/main/navigator/docs/README.md) |
 | **Sim** | `vsim_d` physics daemon + SITL harness | [`sim/vsim/docs/`](../../sim/vsim/docs/README.md) |
 
 ## The four layers (lifecycle)

@@ -3,7 +3,7 @@
 Status: 🗺️ gap analysis. What the UI mockup (`navigator/docs/ui-mockup/`,
 `index.html` + `app.js`) shows for the **Simulator** that the real
 `SimulatorWidget` + `sim/vsim` physics do **not** implement yet. Companion to
-[mockup-to-app.md](../../../../navigator/docs/reference/mockup-to-app.md); the broad mockup-parity effort already
+[mockup-to-app.md](https://github.com/ragnar-vallhala/vayu-navigator/blob/main/navigator/docs/reference/mockup-to-app.md); the broad mockup-parity effort already
 shipped the app shell + most pages, so this drills into the sim specifically.
 
 **Headline:** autotune and the core sim are essentially at parity. The gaps
@@ -74,7 +74,7 @@ to be meaningful.
    position/heading estimation is exercised in the sim.
 4. **Power model (#6)** + **RPM/ESC-temp readouts (#13)** — enables the
    battery-sag / thermal realism that the live-rig tuning study flagged as a
-   real-world non-stationarity (see [gcs-live-rig-tuning.md](../../../../navigator/docs/scratch/gcs-live-rig-tuning.md)).
+   real-world non-stationarity (see [gcs-live-rig-tuning.md](https://github.com/ragnar-vallhala/vayu-navigator/blob/main/navigator/docs/scratch/gcs-live-rig-tuning.md)).
 5. **Tier 2/3 polish** — autotune 4-plot dashboard, RC mapping table, spawn-pose
    config, sim-speed selector, copy-coefficients, pause.
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Summarise a VREC telemetry recording (Navigator export or handlift_record.py).
 
-Same on-disk format either way (navigator/src/replay/RecordFormat.h): a
+Same on-disk format either way (RecordFormat.h in vayu-navigator): a
 [magic][fmtVer][protoVer][startWallMs] header then [t_us][len][bytes] records
 holding RAW inbound datagrams — so a file records every field the FC sent, even
 if the app that wrote it predates them.

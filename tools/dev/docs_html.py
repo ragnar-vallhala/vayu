@@ -45,7 +45,6 @@ COMPONENTS = [
     ("Start here", lambda p: "/" not in p),
     ("FC — firmware", lambda p: p.startswith("firmware/")),
     ("NavLink — wire protocol", lambda p: p.startswith("navlink/")),
-    ("GCS — Navigator", lambda p: p.startswith("navigator/")),
     ("Sim", lambda p: p.startswith("sim/")),
     ("Tooling & tests", lambda p: True),
 ]
@@ -543,7 +542,6 @@ SPLIT_SIDE = {
     "firmware": "firmware",
     "sim": "firmware",
     "tools": "firmware",
-    "navigator": "navigator",
     "navlink": "navlink",
     "vtest": "vtest",
 }
@@ -553,13 +551,11 @@ SPLIT_SIDE = {
 # at the same path it does today -- so these crossings are not a bill.
 SUBMODULE_SIDES = {"navlink", "vtest"}
 
-# What is left are SIBLING repos: firmware and navigator, which after the split
-# have no path to each other at all. Those links resolve today and will not
-# then. Pinning the count keeps the bill from growing while the split is
-# pending -- a new crossing has to be raised here deliberately, which is the
-# moment to ask whether it should be a URL instead. Lower it as crossings are
-# converted; it is a ceiling, not a target.
-MAX_CROSS_REPO_LINKS = 17
+# Sibling repos -- ones with no path to us at all -- are now zero: navigator
+# left, and its 14 inbound links became URLs in the same commit. The check
+# stays at 0 so a relative link to a sibling repo cannot creep back in; a
+# reference to one belongs in a URL, which this never counts.
+MAX_CROSS_REPO_LINKS = 0
 
 
 def split_side(repo_relative_path):

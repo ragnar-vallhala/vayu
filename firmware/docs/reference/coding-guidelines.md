@@ -200,7 +200,7 @@ that don't exist in the codebase yet. They become tracked work items.
 | Fuzzing          | libFuzzer, AFL++                                      |
 | Formal methods   | CBMC (PID anti-windup), Frama-C (EVA, WP)             |
 | MCU emulation    | Renode (already used) |
-| Simulation       | In-app C++/OpenGL sim (current — see [`navigator/docs/requirements.md`](../../../navigator/docs/reference/requirements.md) FR-SIM-*); legacy Gazebo/JSBSim if needed |
+| Simulation       | In-app C++/OpenGL sim (current — see [`navigator/docs/requirements.md`](https://github.com/ragnar-vallhala/vayu-navigator/blob/main/navigator/docs/reference/requirements.md) FR-SIM-*); legacy Gazebo/JSBSim if needed |
 | Requirements     | Plain Markdown today; consider Doorstop / StrictDoc / OpenFastTrace if scale demands |
 | CI               | GitHub Actions (host build + unit tests + trace gate); target-arch builds run in containers |
 

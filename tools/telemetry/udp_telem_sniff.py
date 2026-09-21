@@ -137,7 +137,7 @@ def main():
     sock.bind(("0.0.0.0", args.port))
     sock.settimeout(0.2)
 
-    # Optional raw VREC recorder (navigator/src/replay/RecordFormat.h):
+    # Optional raw VREC recorder (RecordFormat.h in vayu-navigator):
     # header [magic u32][fmtVer u32][protoVer u32][startWallMs u64], then per
     # datagram [t_us u64][len u32][bytes]. Each datagram is one "raw chunk".
     raw_f = None

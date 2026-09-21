@@ -52,25 +52,17 @@ TIDY="${CLANG_TIDY:-clang-tidy}"
 #   cmake -S firmware          -B firmware/build
 #   cmake -S firmware          -B firmware/build_hwtest -DVAYU_HW_TEST=ON
 #   cmake -S firmware/tests/host -B firmware/tests/host/build
-#   cmake -S navigator         -B navigator/build-tidy -DNAVIGATOR_SIM_GRASS=ON
 #         ...and BUILD this one: AUTOMOC generates the tst_*.moc that
-#         navigator/tests include, at build time.
 #   cmake -S sim/host          -B sim/host/build -DVAYU_SITL_RTOS_BUILD=ON
 #         The flag matters: without it the RTOS engine, the loadable module and
 #         sim/vsim's physics are in no database at all. They used to ride in via
-#         navigator/build-tidy, which no longer compiles any of it.
-#   cmake -S navigator/headless-sdk/cpp/worldmesh \
-#         -B navigator/headless-sdk/cpp/worldmesh/build
 #
-# navigator/build-tidy rather than the working navigator/build: grass/flora is
 # an off-by-default option, and with it off GpuGrass.cpp is in no database.
 DEFAULT_BUILDS=(
   firmware/build             # ARM   firmware/src
   firmware/build_hwtest      # ARM   firmware/tests/onboard
   firmware/tests/host/build  # host  firmware/tests/host
-  navigator/build-tidy       # host  navigator only (it no longer builds the firmware)
   sim/host/build             # host  sim/host + sim/vsim (configure with RTOS on)
-  navigator/headless-sdk/cpp/worldmesh/build   # host  the headless mesh tool
 )
 
 # Standalone tests and tools built by a single hand-written compiler line

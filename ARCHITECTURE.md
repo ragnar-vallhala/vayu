@@ -11,7 +11,7 @@ Four components, two shared contracts:
 |-----------|----------|------------|-----------|
 | **FC** (firmware) | `src/`, `include/` | STM32F401 @ 84 MHz, vaios RTOS: sensors → EKF → cascade control → motors | [firmware/docs/reference/software-flow.md](firmware/docs/reference/software-flow.md) |
 | **NavLink** (wire) | `navlink/` | The message dialect; one spec generates C / C++ / Python codecs | [navlink/docs/reference/navlink-v2-spec.md](navlink/docs/reference/navlink-v2-spec.md) |
-| **GCS** (Navigator) | `navigator/src/` | Qt6 ground station: telemetry, plots, calibration, replay, autotune | [navigator/docs/reference/gcs-architecture.md](navigator/docs/reference/gcs-architecture.md) |
+| **GCS** (Navigator) | `navigator/src/` | Qt6 ground station: telemetry, plots, calibration, replay, autotune | [navigator/docs/reference/gcs-architecture.md](https://github.com/ragnar-vallhala/vayu-navigator/blob/main/navigator/docs/reference/gcs-architecture.md) |
 | **Sim + Pilot** | `sim/vsim/`, `sim/host/`, `navigator/headless-sdk/` | `vayu_sitl_rtos` — the real firmware **and** the vsim physics fused into one in-process binary — plus the `vayu_headless` Pilot scripting API | [sim/vsim/docs/reference/sim-architecture.md](sim/vsim/docs/reference/sim-architecture.md) |
 
 The two contracts are the seams that keep components decoupled: **NavLink** (the
@@ -236,5 +236,5 @@ sim time.
 
 - New to the firmware? → [firmware/docs/reference/software-flow.md](firmware/docs/reference/software-flow.md)
 - Wire format / adding a message? → [navlink/docs/reference/navlink-v2-spec.md](navlink/docs/reference/navlink-v2-spec.md)
-- Hacking the ground station? → [navigator/docs/reference/gcs-architecture.md](navigator/docs/reference/gcs-architecture.md)
+- Hacking the ground station? → [navigator/docs/reference/gcs-architecture.md](https://github.com/ragnar-vallhala/vayu-navigator/blob/main/navigator/docs/reference/gcs-architecture.md)
 - Scripting a SITL flight? → [sim/vsim/docs/reference/sim-architecture.md](sim/vsim/docs/reference/sim-architecture.md) (§5, the Pilot API)
