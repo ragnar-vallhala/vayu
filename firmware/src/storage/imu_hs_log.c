@@ -72,6 +72,9 @@ static uint8_t s_ctl_bufs[HSL_CTL_BUFFERS][HSL_SECTOR_BYTES];
 
 enum { HSL_S_IMU = 0, HSL_S_ACT, HSL_S_VRT, HSL_S_CTL, HSL_N_STREAMS };
 
+/* decim_cyc below is the NOMINAL interval, used only until
+ * imu_hs_log_boot_init() replaces it with one derived from the measured cycle
+ * rate. 0 means "take every sample". */
 static hsl_stream_t s_streams[HSL_N_STREAMS] = {
     [HSL_S_IMU] = {.bufs = &s_imu_bufs[0][0],
                    .n_bufs = HSL_IMU_BUFFERS,
@@ -749,6 +752,16 @@ bool imu_hs_log_active(void) { return s_active; }
  * @implements LOG-SD-001
  */
 void imu_hs_log_boot_init(void) {
+  /* Decimation is a real time interval, so it divides the MEASURED cycle rate,
+   * not the nominal one -- a clock that did not land on SYS_CLOCK_FREQ would
+   * otherwise shift these streams off their stated rate while the file header
+   * (which records the measured rate) says they are on it. Done here rather
+   * than in the initialiser above because vayu_clock_hz() only tells the truth
+   * after vayu_clock_init(), which main() runs before fs_owner_boot_init(). */
+  const uint32_t hz = vayu_clock_hz();
+  s_streams[HSL_S_ACT].decim_cyc = hz / HSL_ACT_RATE_HZ;
+  s_streams[HSL_S_VRT].decim_cyc = hz / HSL_VRT_RATE_HZ;
+
   vfs_fd_t fd = vfs_open(HSL_FILENAME, VFS_O_RDWR | VFS_O_CREAT);
   if (fd < 0) {
     return; /* not a PANIC: the aircraft flies fine without a recording */

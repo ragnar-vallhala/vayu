@@ -7,15 +7,17 @@
 
 ## Status, re-measured 2026-09-22
 
-Five of the thirteen are closed. The rest are open and the paths below still
-find them.
+Five of the fourteen are closed. The rest are open and the paths below still
+find them. (Fourteen, not thirteen: the severity index carries F2b as its own
+row, but it is numbered as a sub-item of F2, which is where the original count
+of 13 came from.)
 
 | | Fault line | State |
 |---|---|---|
 | F4 | telemetry byte-bangs the UART | **fixed** — `channel.c` DMAs UART6 |
 | F6 | no hardware motor-kill | **closed by decision** — `esc_disarm` is a `@noreq` primitive; disarm is ACT-FAIL-001's zero-PWM-in-one-iteration |
 | F9 | no timebase seam | **fixed for the logic layers** — `sys/clock.h`. Drivers still call `hal_cycle_counter_get` directly, which the rule allows |
-| F10 | `SYS_CLOCK_FREQ` duplicated vs the PLL | **fixed** — the rate is measured at boot; the macro is now only what `boot.c` checks against |
+| F10 | `SYS_CLOCK_FREQ` duplicated vs the PLL | **fixed** — every consumer that needs a real interval divides the rate measured at boot (`vayu_clock_hz()`): the cycle-stamp maths, the HSL file header, and the HSL stream decimation. The macro survives as the value `boot.c` checks the live clock against, and as the pre-boot fallback in `clock.c` |
 | F13 | ESC band duplicated in the SITL host | **fixed** — one band in `actuator.h`, both sides derive |
 | F1 F2 F3 F5 F7 F8 F11 F12 F2b | god-header, bus ownership, baro-in-IMU, LED owner, TIM1, AF pinmux, chip-named sample type, IRQ registry, `i2c_config` aliasing | **open** |
 
