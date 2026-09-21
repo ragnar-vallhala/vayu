@@ -25,6 +25,12 @@ name: ci
 on:
   push:
     branches: [main]
+    # Version tags publish a real release (see the versioned publish step).
+    # The paths-ignore below is written for branch pushes; GitHub does not
+    # apply path filters to tag pushes, so a tag builds whatever it points at
+    # even when the commit under it touched only prose. If a tag ever fails to
+    # trigger this workflow, that assumption is where to look first.
+    tags: ['v[0-9]*']
     # A change that touches nothing but prose cannot break a build, a test or a
     # lint, and this workflow costs about twenty runner-minutes to say so. The
     # gates a docs change *can* break are in gates.yml, which carries no filter.
@@ -168,17 +174,61 @@ jobs:
             echo "(\`bin/vayu_sitl_rtos\`), and the four headers a host compiles"
             echo "against."
             echo
-            echo "Replaced on every push to main, so the download URL is stable"
-            echo "and the contents are not -- pin a version tag if you need a"
-            echo "fixed engine."
+            echo "**This is a moving target.** It is replaced on every push to"
+            echo "main, so the download URL is stable and the contents are not."
+            echo "For a fixed engine, use a version release instead."
           } > notes.md
           gh release view sitl-sdk-latest >/dev/null 2>&1 \
             || gh release create sitl-sdk-latest --prerelease \
                  --title "SITL SDK (rolling)" --notes-file notes.md
           gh release upload sitl-sdk-latest \
             build_sitl_rtos/vayu-sitl-sdk.tar.gz --clobber
-          gh release edit sitl-sdk-latest --notes-file notes.md
+          gh release edit sitl-sdk-latest --prerelease --notes-file notes.md
           echo "published sitl-sdk-latest ($BUILD_ID)"
+
+      # A real release, from a real tag. Not a prerelease, so it is what the
+      # repo's front page and /releases/latest point at -- the rolling one
+      # stays flagged precisely so it never outranks these.
+      #
+      # The asset is versioned in its filename: a release is permanent, and two
+      # files called vayu-sitl-sdk.tar.gz sitting in different releases is a
+      # trap for anyone who downloads both.
+      - name: Publish the versioned SDK release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          BUILD_ID=$(tar xzf build_sitl_rtos/vayu-sitl-sdk.tar.gz -O vayu-sitl-sdk/BUILD_ID)
+          ASSET="vayu-sitl-sdk-${TAG}-linux-x86_64.tar.gz"
+          cp build_sitl_rtos/vayu-sitl-sdk.tar.gz "$ASSET"
+          {
+            echo "## SITL SDK"
+            echo
+            echo "Built from \`$BUILD_ID\`."
+            echo
+            echo "The firmware compiled for the host, for anything that wants to"
+            echo "run the simulator without building firmware:"
+            echo
+            echo "- \`lib/libvayu_sitl.so\` — the engine as a loadable module"
+            echo "  (ABI 3), for an in-process simulator."
+            echo "- \`bin/vayu_sitl_rtos\` — the same engine as a headless"
+            echo "  binary, driven over its FIFOs."
+            echo "- \`include/\` — the four headers a host compiles against."
+            echo
+            echo '```sh'
+            echo "curl -sSLf -O https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${ASSET}"
+            echo "tar xzf ${ASSET}"
+            echo '```'
+            echo
+            echo "Unpack it at the root of a consuming repository and its build"
+            echo "finds \`vayu-sitl-sdk/include\` without further configuration."
+          } > notes.md
+          gh release view "$TAG" >/dev/null 2>&1 \
+            || gh release create "$TAG" --title "$TAG" --notes-file notes.md
+          gh release upload "$TAG" "$ASSET" --clobber
+          echo "published $TAG ($BUILD_ID)"
 
   sanitizers:
     name: SITL ASan + UBSan (R12.2)
