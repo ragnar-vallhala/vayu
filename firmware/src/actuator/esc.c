@@ -25,16 +25,11 @@
 #include "navhal.h"
 #include <stdint.h>
 
-#define DEFAULT_MIN_PULSE_MS 1.0f /**< 1ms for min throttle */
-#define DEFAULT_MAX_PULSE_MS 2.0f /**< 2ms for max throttle */
-#define DEFAULT_PWM_FREQ 400      /**< Typical 400Hz frequency for ESCs */
-#define MS_PER_SECOND 1000.0f     /**< ms<->Hz period conversion (R10.3) */
-
 void esc_init(ESC_Handle *esc, hal_timer_t timer, uint32_t channel,
               hal_gpio_pin_t pin) {
-  esc->min_pulse_ms = DEFAULT_MIN_PULSE_MS;
-  esc->max_pulse_ms = DEFAULT_MAX_PULSE_MS;
-  esc->frequency = DEFAULT_PWM_FREQ;
+  esc->min_pulse_ms = VAYU_ESC_MIN_PULSE_MS;
+  esc->max_pulse_ms = VAYU_ESC_MAX_PULSE_MS;
+  esc->frequency = VAYU_ESC_PWM_FREQ;
 
   esc->pwm.timer = timer;
   esc->pwm.channel = channel;
@@ -56,7 +51,7 @@ void esc_init(ESC_Handle *esc, hal_timer_t timer, uint32_t channel,
   // At 400Hz, the period is 2.5ms.
   // 1ms is 1.0/2.5 = 0.4 fraction duty cycle.
   float min_duty =
-      (esc->min_pulse_ms / (MS_PER_SECOND / (float)esc->frequency));
+      (esc->min_pulse_ms / (VAYU_ESC_MS_PER_SECOND / (float)esc->frequency));
   hal_pwm_init(&esc->pwm, esc->frequency, min_duty);
 }
 
@@ -83,7 +78,7 @@ void esc_set_throttle(ESC_Handle *esc, float throttle) {
   // Convert pulse width ms to duty cycle fraction (0.0 to 1.0)
   // Duty cycle = (pulse_ms / period_ms)
   // period_ms = 1000ms / frequency
-  float period_ms = MS_PER_SECOND / (float)esc->frequency;
+  float period_ms = VAYU_ESC_MS_PER_SECOND / (float)esc->frequency;
   float duty = (pulse_ms / period_ms);
 
   hal_pwm_set_duty_cycle(&esc->pwm, duty);

@@ -45,6 +45,23 @@ typedef struct {
   uint32_t frequency;
 } ESC_Handle;
 
+/* ESC signal band. Exported rather than kept private to esc.c because the SITL
+ * host HAL has to strip this exact band back off to recover the linear motor
+ * command -- it used to re-derive the duty figures by hand, so changing the
+ * band here silently desynced sim from hardware. One definition, both sides. */
+#define VAYU_ESC_MIN_PULSE_MS 1.0f     /**< pulse width at zero throttle */
+#define VAYU_ESC_MAX_PULSE_MS 2.0f     /**< pulse width at full throttle */
+#define VAYU_ESC_PWM_FREQ 400u         /**< typical ESC frame rate */
+#define VAYU_ESC_MS_PER_SECOND 1000.0f /**< ms<->Hz period conversion (R10.3) */
+
+/** Duty cycle (0..1) a given pulse width occupies in one ESC frame. */
+#define VAYU_ESC_DUTY(pulse_ms)                                                \
+  ((pulse_ms) / (VAYU_ESC_MS_PER_SECOND / (float)VAYU_ESC_PWM_FREQ))
+/** Duty at zero throttle (0.4 at 1 ms / 400 Hz). */
+#define VAYU_ESC_MIN_DUTY VAYU_ESC_DUTY(VAYU_ESC_MIN_PULSE_MS)
+/** Duty at full throttle (0.8 at 2 ms / 400 Hz). */
+#define VAYU_ESC_MAX_DUTY VAYU_ESC_DUTY(VAYU_ESC_MAX_PULSE_MS)
+
 /**
  * @brief Initialize an ESC on a specific timer and channel.
  * @param esc Pointer to the ESC handle.

@@ -37,6 +37,7 @@
  * host_imu_feeder.c) that write directly to the vayu queues.
  */
 #define _GNU_SOURCE
+#include "actuator/actuator.h" /* VAYU_ESC_MIN_DUTY / MAX_DUTY -- one band, both sides */
 #include "navhal.h"
 #include "vsim_iface.h"
 #include "vsim_proto.h"
@@ -164,8 +165,8 @@ hal_status_t hal_pwm_set_duty_cycle(hal_pwm_handle_t *pwm, float duty_cycle) {
      * the band here and write the linear motor command (0..1) the
      * controller actually produced. */
   int motor_idx = (int)pwm->channel - 1;
-  const float esc_idle = 0.4f;
-  const float esc_full = 0.8f;
+  const float esc_idle = VAYU_ESC_MIN_DUTY;
+  const float esc_full = VAYU_ESC_MAX_DUTY;
   float cmd = (duty_cycle - esc_idle) / (esc_full - esc_idle);
   if (cmd < 0.0f)
     cmd = 0.0f;
