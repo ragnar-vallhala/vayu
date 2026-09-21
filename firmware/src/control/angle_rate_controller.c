@@ -34,7 +34,6 @@
 #define GYRO_NOTCH_FORCE_ON 0
 #endif
 #include "memory.h" /* v_memcpy */
-#include "navhal.h"
 #include "sensor/sensor.h"
 #include "sys/state.h"
 #include "vaios.h"

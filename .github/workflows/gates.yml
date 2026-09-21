@@ -99,3 +99,13 @@ jobs:
         env:
           CLANG_FORMAT: clang-format-18
         run: tools/dev/run_clang_format.sh --check
+
+  layering:
+    name: hardware/logic layering (gate)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      # No toolchain: the rule is textual by design, so it costs a grep and
+      # cannot be skipped by a build that happens not to compile that module.
+      - name: tools/dev/check_layering.sh
+        run: tools/dev/check_layering.sh
