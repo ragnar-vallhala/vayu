@@ -4,3 +4,6 @@
 [submodule "vtest"]
 	path = vtest
 	url = https://github.com/ragnar-vallhala/vtest.git
+[submodule "navlink"]
+	path = navlink
+	url = https://github.com/ragnar-vallhala/navlink.git
