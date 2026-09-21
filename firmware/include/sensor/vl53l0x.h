@@ -75,6 +75,12 @@
  * device range status in bits [6:3]; bytes 10..11 are the range in mm (BE). */
 #define VL53L0X_DATA_LEN 12
 
+/* Read on every Nth slot of the bus owner's rotation: 150/7 ~= 21 Hz,
+ * comfortably under this device's ~30 Hz continuous-mode cadence. 7 is coprime
+ * with the barometer's period so the two ride-along slots almost never land on
+ * the same tick; when they do the barometer wins and this read waits one slot. */
+#define VL53L0X_RIDE_EVERY_N 7u
+
 /* Sanity window on the decoded range. The device reports 8190/8191 mm as its
  * "no target / out of range" sentinel, and sub-30 mm readings are unreliable. */
 #define VL53L0X_RANGE_MIN_MM 30

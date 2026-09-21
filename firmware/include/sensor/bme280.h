@@ -82,6 +82,12 @@
 /* Number of data bytes read in one burst from BME280_REG_DATA (press+temp+hum). */
 #define BME280_DATA_LEN 8
 
+/* Read on every Nth slot of the bus owner's rotation. The owner's TEMP slot
+ * runs ~1/13 of FAST (2 kHz) ~= 150 Hz, so /10 ~= 15 Hz -- matched to this
+ * device's 62.5 ms normal-mode conversion cadence. Coprime with the ToF's
+ * period so the two rarely come due on the same slot. */
+#define BME280_RIDE_EVERY_N 10u
+
 /* Factory calibration (datasheet §4.2.2). */
 typedef struct {
   uint16_t dig_t1;
