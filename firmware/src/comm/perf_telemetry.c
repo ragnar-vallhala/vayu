@@ -39,7 +39,7 @@
 #include "control/control_buffer.h"
 #include "memory.h"
 #include "perf.h"
-#include "driver/imu_buffer.h"
+#include "hub/hub.h"
 #include "structure.h"
 #include "task.h"
 #include "vaios.h"

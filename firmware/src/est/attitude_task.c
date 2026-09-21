@@ -38,9 +38,9 @@
  * loses nothing. Cheaper filters keep running on every sample (decim = 1).
  */
 #include "est/est.h"
-#include "driver/bmx160.h"
 #include "sys/clock.h"
-#include "driver/imu_buffer.h"
+#include "hub/hub.h"
+#include "maths/maths_interface.h" /* m_sqrt, for the mag normalisation */
 #include "vaios.h"
 #include "vaios_app_config.h"
 #include "variables.h"
@@ -84,7 +84,7 @@
  */
 void attitude_task(void *args) {
   (void)args;
-  static bmx160_all_reading_t sample;
+  static imu_sample_t sample;
   attitude_t ori = {0};
   ori.q.w = 1.0f; /* identity quaternion */
   uint32_t prev_cyc = 0;
@@ -118,7 +118,7 @@ void attitude_task(void *args) {
       continue;
 
     /* dt = time since the previous sample, from acquisition stamps. */
-    uint32_t now_cyc = sample.converted.timestamp;
+    uint32_t now_cyc = sample.t_cyc;
     float dt = have_prev ? vayu_dt_from_cycles(now_cyc, prev_cyc)
                          : (1.0f / (float)IMU_SAMPLE_FREQ_HZ);
     prev_cyc = now_cyc;
@@ -131,15 +131,27 @@ void attitude_task(void *args) {
     /* Estimator step due: feed the LATEST sample directly (lowest latency).
      * dt_sum spans the decimation window so predict integrates the full
      * elapsed interval. */
-    float ax = sample.converted.acc[0];
-    float ay = sample.converted.acc[1];
-    float az = sample.converted.acc[2];
-    float gx = sample.converted.gyr[0];
-    float gy = sample.converted.gyr[1];
-    float gz = sample.converted.gyr[2];
-    float mx = sample.converted.mag_fusion[0];
-    float my = sample.converted.mag_fusion[1];
-    float mz = sample.converted.mag_fusion[2];
+    float ax = sample.acc[0];
+    float ay = sample.acc[1];
+    float az = sample.acc[2];
+    float gx = sample.gyr[0];
+    float gy = sample.gyr[1];
+    float gz = sample.gyr[2];
+    /* The driver reports microtesla and whether it trusts them; normalising
+     * and deciding what to do with a distrusted reading is fusion policy, so
+     * it happens here. A zero vector is how every filter below is told to
+     * skip the magnetometer this step. */
+    float mx = 0.0f, my = 0.0f, mz = 0.0f;
+    if (sample.mag_valid) {
+      float n =
+          m_sqrt(sample.mag[0] * sample.mag[0] + sample.mag[1] * sample.mag[1] +
+                 sample.mag[2] * sample.mag[2]);
+      if (n > 0.001f) {
+        mx = sample.mag[0] / n;
+        my = sample.mag[1] / n;
+        mz = sample.mag[2] / n;
+      }
+    }
     float step_dt = dt_sum;
     dt_sum = 0.0f;
     acc_n = 0;

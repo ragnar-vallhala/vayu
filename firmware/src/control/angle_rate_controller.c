@@ -34,8 +34,7 @@
 #define GYRO_NOTCH_FORCE_ON 0
 #endif
 #include "memory.h" /* v_memcpy */
-#include "driver/bmx160.h"
-#include "driver/imu_buffer.h"
+#include "hub/hub.h"
 #include "sys/state.h"
 #include "vaios.h"
 #include "variables.h"
@@ -361,8 +360,8 @@ bool angle_rate_controller_get_gains(uint8_t axis, float *kp, float *ki,
 void angle_rate_controller_task(void *arg) {
   (void)arg;
   angle_rate_controller_init();
-  static bmx160_all_reading_t imu_data = {0};
-  static bmx160_all_reading_t prev_imu_data = {0};
+  static imu_sample_t imu_data = {0};
+  static imu_sample_t prev_imu_data = {0};
   /* Previous sample's acquisition cycle stamp; dt is the delta of these (the
    * true inter-sample interval), not a DWT read at loop time. */
   static motor_outputs_t motor_outputs = {0};
@@ -403,8 +402,8 @@ void angle_rate_controller_task(void *arg) {
 
     // Applying deadband to the gyro data
     for (int i = 0; i < NUM_AXES; i++) {
-      if (m_fabsf(imu_data.converted.gyr[i]) < PID_GYRO_DEADBAND) {
-        imu_data.converted.gyr[i] = 0;
+      if (m_fabsf(imu_data.gyr[i]) < PID_GYRO_DEADBAND) {
+        imu_data.gyr[i] = 0;
       }
     }
 
@@ -415,11 +414,10 @@ void angle_rate_controller_task(void *arg) {
       float rc = s_gyro_lpf_rc[i];
       if (rc > 1e-6f && dt > 0.0f) {
         float alpha = dt / (dt + rc);
-        s_gyro_lpf_state[i] +=
-            alpha * (imu_data.converted.gyr[i] - s_gyro_lpf_state[i]);
-        imu_data.converted.gyr[i] = s_gyro_lpf_state[i];
+        s_gyro_lpf_state[i] += alpha * (imu_data.gyr[i] - s_gyro_lpf_state[i]);
+        imu_data.gyr[i] = s_gyro_lpf_state[i];
       } else {
-        s_gyro_lpf_state[i] = imu_data.converted.gyr[i];
+        s_gyro_lpf_state[i] = imu_data.gyr[i];
       }
     }
 
@@ -429,8 +427,7 @@ void angle_rate_controller_task(void *arg) {
     // until gyro_notch_set_enabled(true). The heavy FFT retune is amortised to
     // one axis per tick by the gyro_notch_service() call below.
     for (int i = 0; i < NUM_AXES; i++) {
-      imu_data.converted.gyr[i] =
-          gyro_notch_apply((uint8_t)i, imu_data.converted.gyr[i]);
+      imu_data.gyr[i] = gyro_notch_apply((uint8_t)i, imu_data.gyr[i]);
     }
     gyro_notch_service();
 
@@ -443,9 +440,8 @@ void angle_rate_controller_task(void *arg) {
     float target_rates[NUM_AXES] = {angle_controller_outputs.angle_rates[0],
                                     angle_controller_outputs.angle_rates[1],
                                     angle_controller_outputs.angle_rates[2]};
-    float current_rates[NUM_AXES] = {imu_data.converted.gyr[0],
-                                     imu_data.converted.gyr[1],
-                                     imu_data.converted.gyr[2]};
+    float current_rates[NUM_AXES] = {imu_data.gyr[0], imu_data.gyr[1],
+                                     imu_data.gyr[2]};
 
     /* SYS-ID: inject the chirp excitation. Zero unless a run is active.
      * Two injection points (sysid_inject_mode()):
@@ -680,10 +676,10 @@ void angle_rate_controller_task(void *arg) {
       if (state == SYSTEM_STATE_IN_AIR) {
         hf |= HSL_ACT_F_IN_AIR;
       }
-      imu_hs_log_act(mo, target_throttle, hf, imu_data.converted.timestamp);
+      imu_hs_log_act(mo, target_throttle, hf, imu_data.t_cyc);
       /* current_rates is post-LPF and post-notch by this point -- the PID's own
        * input -- and outputs is its response before the mixer touches it. */
-      imu_hs_log_ctl(current_rates, outputs, imu_data.converted.timestamp);
+      imu_hs_log_ctl(current_rates, outputs, imu_data.t_cyc);
     }
 
     control_telemetry_t telemetry = {

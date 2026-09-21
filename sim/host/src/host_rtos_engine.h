@@ -34,7 +34,7 @@
 
 #include "control/control_buffer.h" /* control_telemetry_t */
 #include "driver/bmx160.h"
-#include "driver/imu_buffer.h"
+#include "hub/hub.h"
 #include "vsim_proto.h" /* vsim_pose_frame_t (the GCS wire layout) */
 
 #ifdef __cplusplus
@@ -45,7 +45,7 @@ extern "C" {
  * sample, and the running cycle counter used for the sample timestamp. */
 typedef struct {
   float duty[4];
-  bmx160_all_reading_t sample;
+  imu_sample_t sample;
   uint32_t cyc;
 } stepper_t;
 

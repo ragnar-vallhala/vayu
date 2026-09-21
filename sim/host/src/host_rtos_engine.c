@@ -21,6 +21,7 @@
  */
 #define _GNU_SOURCE
 #include "host_rtos_engine.h"
+#include "host_imu_unpack.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -140,9 +141,11 @@ void set_rc(int roll, int pitch, int thr, int yaw, int arm) {
  * SysTick+1 -> run the real scheduler to idle (firmware writes PWM) -> read PWM
  * back. Drains the control trace to its latest into *ct (got=1 if any). */
 void step_once(stepper_t *s, control_telemetry_t *ct, int *got) {
-  vsim_inproc_step(s->duty, 0.001f, (uint8_t *)&s->sample.converted);
+  float wire[HOST_IMU_WIRE_FLOATS];
+  vsim_inproc_step(s->duty, 0.001f, (uint8_t *)wire);
+  host_imu_unpack(wire, &s->sample);
   s->cyc += (uint32_t)(SYS_CLOCK_FREQ / 1000);
-  s->sample.converted.timestamp = s->cyc;
+  s->sample.t_cyc = s->cyc;
   imu_queue_control_push(&s->sample);
   imu_queue_telemetry_push(&s->sample);
   imu_queue_attitude_push(&s->sample);

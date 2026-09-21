@@ -42,7 +42,7 @@
 
 #include "est/est.h"
 #include "driver/bmx160.h"
-#include "driver/imu_buffer.h"
+#include "hub/hub.h"
 
 static int g_checks = 0;
 static int g_fails = 0;
@@ -73,7 +73,7 @@ static void test_imu_control_notify(void) {
         "wait on empty queue -> timeout (no spurious wake)");
 
   /* A push wakes the waiter immediately: the loop is event-driven. */
-  bmx160_all_reading_t sample;
+  imu_sample_t sample;
   memset(&sample, 0, sizeof sample);
   imu_queue_control_push(&sample);
   CHECK(imu_queue_control_wait(200) == true,
@@ -85,7 +85,7 @@ static void test_imu_control_notify(void) {
         "signal drained -> next wait times out");
 
   /* The pushed sample is actually retrievable from the ring. */
-  bmx160_all_reading_t out;
+  imu_sample_t out;
   CHECK(imu_queue_control_pop(&out) == true, "pushed sample is poppable");
 }
 

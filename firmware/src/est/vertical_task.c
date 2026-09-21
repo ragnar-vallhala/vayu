@@ -43,7 +43,7 @@
 #include "maths/linalg.h" /* m_quat_rotate */
 #include "driver/bme280.h"
 #include "driver/vl53l0x.h"
-#include "driver/imu_buffer.h"
+#include "hub/hub.h"
 #include "sys/state.h" /* system_state_get/set, SYSTEM_STATE_* */
 #include "vaios.h"
 #include "vaios_app_config.h"

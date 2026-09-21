@@ -14,10 +14,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#include "driver/imu_buffer.h"
+#include "hub/hub.h"
 #include "comm/perf_telemetry.h" /* perf_fifo_fill_row + FIFO ids */
 #include "ipc.h" /* CTRL-RATE-101: control-queue notify semaphore */
-#include "driver/bmx160.h"
 #include "structure.h"
 
 /* CTRL-RATE-101: binary semaphore the rate loop blocks on. Given once
@@ -44,18 +43,14 @@ static SemaphoreHandle_t _imu_attitude_sema = NULL;
  * a dead queue and CALIBRATION_STATUS never goes out. */
 #define IMU_CALIBRATION_TELEMETRY_CAPACITY 4
 #define EST_PERF_TELEMETRY_CAPACITY 4
-static bmx160_all_reading_t
-    _imu_telemetry_buffer[IMU_TELEMETRY_INTERNAL_CAPACITY];
-static bmx160_all_reading_t
-    _imu_calibration_buffer[IMU_TELEMETRY_INTERNAL_CAPACITY];
-static bmx160_all_reading_t _imu_control_buffer[IMU_BUFFER_INTERNAL_CAPACITY];
+static imu_sample_t _imu_telemetry_buffer[IMU_TELEMETRY_INTERNAL_CAPACITY];
+static imu_sample_t _imu_control_buffer[IMU_BUFFER_INTERNAL_CAPACITY];
 static attitude_t _attitude_telemetry_buffer[IMU_TELEMETRY_INTERNAL_CAPACITY];
 static attitude_t _attitude_control_buffer[IMU_BUFFER_INTERNAL_CAPACITY];
 static imu_calibration_telemetry_t
     _imu_calibration_telemetry_buffer[IMU_CALIBRATION_TELEMETRY_CAPACITY];
-static bmx160_all_reading_t _imu_attitude_buffer[IMU_BUFFER_INTERNAL_CAPACITY];
+static imu_sample_t _imu_attitude_buffer[IMU_BUFFER_INTERNAL_CAPACITY];
 static spsc_fifo_t _imu_telemetry_queue;
-static spsc_fifo_t _imu_calibration_queue;
 static spsc_fifo_t _imu_control_queue;
 /* IMU samples feeding the dedicated attitude task (estimator input). */
 static spsc_fifo_t _imu_attitude_queue;
@@ -87,19 +82,15 @@ static SemaphoreHandle_t _vert_input_sema = NULL;
 /** @implements SNS-BUF-001 */
 void imu_buffer_init(void) {
   spsc_init(&_imu_telemetry_queue, _imu_telemetry_buffer,
-            IMU_TELEMETRY_INTERNAL_CAPACITY, sizeof(bmx160_all_reading_t));
+            IMU_TELEMETRY_INTERNAL_CAPACITY, sizeof(imu_sample_t));
   spsc_set_policy(&_imu_telemetry_queue, SPSC_POLICY_OVERWRITE);
 
-  spsc_init(&_imu_calibration_queue, _imu_calibration_buffer,
-            IMU_TELEMETRY_INTERNAL_CAPACITY, sizeof(bmx160_all_reading_t));
-  spsc_set_policy(&_imu_calibration_queue, SPSC_POLICY_OVERWRITE);
-
   spsc_init(&_imu_control_queue, _imu_control_buffer,
-            IMU_BUFFER_INTERNAL_CAPACITY, sizeof(bmx160_all_reading_t));
+            IMU_BUFFER_INTERNAL_CAPACITY, sizeof(imu_sample_t));
   spsc_set_policy(&_imu_control_queue, SPSC_POLICY_OVERWRITE);
 
   spsc_init(&_imu_attitude_queue, _imu_attitude_buffer,
-            IMU_BUFFER_INTERNAL_CAPACITY, sizeof(bmx160_all_reading_t));
+            IMU_BUFFER_INTERNAL_CAPACITY, sizeof(imu_sample_t));
   spsc_set_policy(&_imu_attitude_queue, SPSC_POLICY_OVERWRITE);
 
   spsc_init(&_attitude_telemetry_queue, _attitude_telemetry_buffer,
@@ -135,6 +126,24 @@ void imu_buffer_init(void) {
   _vert_input_sema = v_semaphore_create_binary();
 }
 
+/* A driver keeps queues the hub cannot know about -- the IMU's calibration
+ * sample ring, for one. Rather than the hub naming them (which would put a
+ * device back in its header), a driver hands its own rows over at init. */
+static struct {
+  uint8_t id;
+  const spsc_fifo_t *f;
+} _extra_fifos[HUB_PERF_EXTRA_MAX];
+static uint8_t _n_extra_fifos;
+
+/** @noreq driver-contributed diagnostic FIFO row. */
+void hub_perf_register(uint8_t id, const spsc_fifo_t *fifo) {
+  if (fifo != NULL && _n_extra_fifos < HUB_PERF_EXTRA_MAX) {
+    _extra_fifos[_n_extra_fifos].id = id;
+    _extra_fifos[_n_extra_fifos].f = fifo;
+    _n_extra_fifos++;
+  }
+}
+
 /** @implements SNS-BUF-002 */
 int imu_buffer_perf_fifos(perf_fifo_row_t *rows, int max) {
   const struct {
@@ -143,7 +152,6 @@ int imu_buffer_perf_fifos(perf_fifo_row_t *rows, int max) {
   } fifos[] = {
       {PERF_FIFO_IMU_TELEMETRY, &_imu_telemetry_queue},
       {PERF_FIFO_IMU_CONTROL, &_imu_control_queue},
-      {PERF_FIFO_IMU_CALIB, &_imu_calibration_queue},
       {PERF_FIFO_IMU_CALIB_TELEM, &_imu_calibration_telemetry_queue},
       {PERF_FIFO_ATTITUDE_TELEMETRY, &_attitude_telemetry_queue},
       {PERF_FIFO_ATTITUDE_CONTROL, &_attitude_control_queue},
@@ -151,29 +159,31 @@ int imu_buffer_perf_fifos(perf_fifo_row_t *rows, int max) {
   int n = 0;
   for (unsigned i = 0; i < sizeof(fifos) / sizeof(fifos[0]) && n < max; i++)
     perf_fifo_fill_row(&rows[n++], fifos[i].id, fifos[i].f);
+  for (uint8_t i = 0; i < _n_extra_fifos && n < max; i++)
+    perf_fifo_fill_row(&rows[n++], _extra_fifos[i].id, _extra_fifos[i].f);
   return n;
 }
 
 /** @noreq Thin SPSC ring accessor. */
-bool imu_queue_telemetry_push(const bmx160_all_reading_t *sample) {
+bool imu_queue_telemetry_push(const imu_sample_t *sample) {
   return spsc_write(&_imu_telemetry_queue, sample, 1) == 1;
 }
 
 /** @noreq Thin SPSC ring accessor. */
-bool imu_queue_telemetry_pop(bmx160_all_reading_t *out_sample) {
+bool imu_queue_telemetry_pop(imu_sample_t *out_sample) {
   return spsc_read(&_imu_telemetry_queue, out_sample, 1) == 1;
 }
 
 /** @noreq Thin SPSC ring accessor. */
-bool imu_queue_telemetry_peek(bmx160_all_reading_t *out_sample) {
+bool imu_queue_telemetry_peek(imu_sample_t *out_sample) {
   return spsc_peek(&_imu_telemetry_queue, out_sample, 1) == 1;
 }
 
 /** @implements CTRL-RATE-101 */
-bool imu_queue_control_push(const bmx160_all_reading_t *sample) {
+bool imu_queue_control_push(const imu_sample_t *sample) {
   bool ok = spsc_write(&_imu_control_queue, sample, 1) == 1;
   /* CTRL-RATE-101: wake the rate loop on every arrival. Runs in the
-   * IMU task context (bmx160_initiate_read), not an ISR, so the plain
+   * IMU driver task context, not an ISR, so the plain
    * give is correct. A binary sema coalesces bursts to a single wake;
    * the OVERWRITE ring guarantees the loop reads the latest sample. */
   if (_imu_control_sema != NULL) {
@@ -183,12 +193,12 @@ bool imu_queue_control_push(const bmx160_all_reading_t *sample) {
 }
 
 /** @noreq Thin SPSC ring accessor. */
-bool imu_queue_control_pop(bmx160_all_reading_t *out_sample) {
+bool imu_queue_control_pop(imu_sample_t *out_sample) {
   return spsc_read(&_imu_control_queue, out_sample, 1) == 1;
 }
 
 /** @noreq Thin SPSC ring accessor. */
-bool imu_queue_control_peek(bmx160_all_reading_t *out_sample) {
+bool imu_queue_control_peek(imu_sample_t *out_sample) {
   return spsc_peek(&_imu_control_queue, out_sample, 1) == 1;
 }
 
@@ -202,7 +212,7 @@ bool imu_queue_control_wait(uint32_t ticks_to_wait) {
 /* IMU -> attitude task: feeds the estimator. Same event-driven pattern as the
  * control queue; the OVERWRITE ring keeps only the latest sample on overrun. */
 /** @noreq Thin SPSC ring push (+ event wake). */
-bool imu_queue_attitude_push(const bmx160_all_reading_t *sample) {
+bool imu_queue_attitude_push(const imu_sample_t *sample) {
   bool ok = spsc_write(&_imu_attitude_queue, sample, 1) == 1;
   if (_imu_attitude_sema != NULL) {
     v_semaphore_give(_imu_attitude_sema);
@@ -211,7 +221,7 @@ bool imu_queue_attitude_push(const bmx160_all_reading_t *sample) {
 }
 
 /** @noreq Thin SPSC ring accessor. */
-bool imu_queue_attitude_pop(bmx160_all_reading_t *out_sample) {
+bool imu_queue_attitude_pop(imu_sample_t *out_sample) {
   return spsc_read(&_imu_attitude_queue, out_sample, 1) == 1;
 }
 
@@ -318,17 +328,4 @@ bool imu_queue_calibration_telemetry_pop(
 bool imu_queue_calibration_telemetry_peek(
     imu_calibration_telemetry_t *out_sample) {
   return spsc_peek(&_imu_calibration_telemetry_queue, out_sample, 1);
-}
-
-/** @noreq Thin SPSC ring accessor. */
-bool imu_queue_calibration_push(const bmx160_all_reading_t *sample) {
-  return spsc_write(&_imu_calibration_queue, sample, 1) == 1;
-}
-/** @noreq Thin SPSC ring accessor. */
-bool imu_queue_calibration_pop(bmx160_all_reading_t *out_sample) {
-  return spsc_read(&_imu_calibration_queue, out_sample, 1) == 1;
-}
-/** @noreq Thin SPSC ring accessor. */
-bool imu_queue_calibration_peek(bmx160_all_reading_t *out_sample) {
-  return spsc_peek(&_imu_calibration_queue, out_sample, 1) == 1;
 }

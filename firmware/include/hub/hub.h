@@ -20,7 +20,16 @@
 #include "comm/perf_packet.h"
 #include "est/est.h"
 #include "est/vertical_estimator.h"
-#include "driver/bmx160.h"
+#include "hub/sample.h"
+#include "structure.h" /* spsc_fifo_t */
+
+/* Calibration progress on its way to the GCS. An opaque payload -- the hub
+ * neither builds nor reads it -- so it names no device and lives here rather
+ * than in the driver that happens to emit it. */
+typedef struct {
+  uint8_t buffer[20];
+  uint8_t size;
+} imu_calibration_telemetry_t;
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -46,13 +55,19 @@ void imu_buffer_init(void);
  * Returns the number of rows written (<= max). */
 int imu_buffer_perf_fifos(perf_fifo_row_t *rows, int max);
 
-bool imu_queue_telemetry_push(const bmx160_all_reading_t *sample);
-bool imu_queue_telemetry_pop(bmx160_all_reading_t *out_sample);
-bool imu_queue_telemetry_peek(bmx160_all_reading_t *out_sample);
+/* Offer a driver-owned FIFO to the perf view. The hub cannot enumerate queues
+ * that live inside a driver without naming the driver, so the driver offers
+ * them instead -- at init, before perf is first sampled. */
+#define HUB_PERF_EXTRA_MAX 4
+void hub_perf_register(uint8_t id, const spsc_fifo_t *fifo);
 
-bool imu_queue_control_push(const bmx160_all_reading_t *sample);
-bool imu_queue_control_pop(bmx160_all_reading_t *out_sample);
-bool imu_queue_control_peek(bmx160_all_reading_t *out_sample);
+bool imu_queue_telemetry_push(const imu_sample_t *sample);
+bool imu_queue_telemetry_pop(imu_sample_t *out_sample);
+bool imu_queue_telemetry_peek(imu_sample_t *out_sample);
+
+bool imu_queue_control_push(const imu_sample_t *sample);
+bool imu_queue_control_pop(imu_sample_t *out_sample);
+bool imu_queue_control_peek(imu_sample_t *out_sample);
 
 /**
  * @brief Block until a fresh IMU control sample is pushed, or the
@@ -75,8 +90,8 @@ bool imu_queue_control_wait(uint32_t ticks_to_wait);
 
 /* IMU -> attitude task queue (estimator input). push from the IMU driver,
  * pop/wait from the attitude task. */
-bool imu_queue_attitude_push(const bmx160_all_reading_t *sample);
-bool imu_queue_attitude_pop(bmx160_all_reading_t *out_sample);
+bool imu_queue_attitude_push(const imu_sample_t *sample);
+bool imu_queue_attitude_pop(imu_sample_t *out_sample);
 bool imu_queue_attitude_wait(uint32_t ticks_to_wait);
 
 bool attitude_queue_telemetry_push(const attitude_t *attitude);
@@ -125,9 +140,5 @@ bool imu_queue_calibration_telemetry_pop(
     imu_calibration_telemetry_t *out_sample);
 bool imu_queue_calibration_telemetry_peek(
     imu_calibration_telemetry_t *out_sample);
-
-bool imu_queue_calibration_push(const bmx160_all_reading_t *sample);
-bool imu_queue_calibration_pop(bmx160_all_reading_t *out_sample);
-bool imu_queue_calibration_peek(bmx160_all_reading_t *out_sample);
 
 #endif // VAYU_IMU_BUFFER_H

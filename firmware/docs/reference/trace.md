@@ -68,7 +68,7 @@
 | `CTRL-PID-102` | active | PID reset on ARM transition | `firmware/src/control/angle_rate_controller.c` | — |
 | `CTRL-PID-103` | active | PID integrator gating | `firmware/src/control/angle_rate_controller.c` | — |
 | `CTRL-RATE-001` | active | Rate-loop frequency | `firmware/src/control/angle_rate_controller.c` | — |
-| `CTRL-RATE-101` | active | Rate-loop trigger | `firmware/include/driver/imu_buffer.h`<br>`firmware/src/driver/imu_buffer.c` | `sim/host/tests/test_phase3_ctrl.c` |
+| `CTRL-RATE-101` | active | Rate-loop trigger | `firmware/include/hub/hub.h`<br>`firmware/src/hub/hub.c` | `sim/host/tests/test_phase3_ctrl.c` |
 | `CTRL-RATE-102` | active | Rate PID gains (hardware) | — | — |
 | `CTRL-RATE-103` | active | Rate PID gains (SITL) | — | — |
 | `CTRL-RATE-104` | active | Optional INDI inner loop | `firmware/src/control/rate_indi.c` | — |
@@ -131,8 +131,8 @@
 | `SNS-BMX-104` | active | Read state machine | `firmware/src/driver/bmx160.c` | `firmware/tests/onboard/checks/check_sensors.c` |
 | `SNS-BMX-105` | active | DMA + semaphore handshake | `firmware/src/driver/bmx160.c` | — |
 | `SNS-BMX-106` | active | Axis-frame remap | `firmware/src/driver/bmx160.c` | — |
-| `SNS-BUF-001` | active | IMU buffer SPSC ring | `firmware/src/driver/imu_buffer.c` | — |
-| `SNS-BUF-002` | active | Drop accounting | `firmware/src/comm/navlink_tx.c`<br>`firmware/src/driver/imu_buffer.c` | `sim/host/tests/test_phase3_slog.c` |
+| `SNS-BUF-001` | active | IMU buffer SPSC ring | `firmware/src/hub/hub.c` | — |
+| `SNS-BUF-002` | active | Drop accounting | `firmware/src/comm/navlink_tx.c`<br>`firmware/src/hub/hub.c` | `sim/host/tests/test_phase3_slog.c` |
 | `SNS-CAL-001` | active | Persistent calibration store | `firmware/src/driver/bmx160.c` | — |
 | `SNS-CAL-002` | active | Online gyro bias estimator | `firmware/src/driver/bmx160.c` | — |
 | `SNS-CAL-101` | active | Accel ellipsoid calibration | `firmware/src/calib/calib_ellipsoid.c`<br>`firmware/src/calib/calib_engine.c`<br>`firmware/src/driver/bmx160.c` | — |

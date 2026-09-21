@@ -47,8 +47,8 @@
 #include "control/control_buffer.h" /* control_telemetry_t */
 #include "est/est.h"                /* attitude_t */
 #include "host_rtos_engine.h" /* the reusable step engine (boot/set_rc/step_once/...) */
-#include "driver/imu_buffer.h" /* attitude_queue_telemetry_peek */
-#include "sys/state.h"         /* system_state_get, SYSTEM_STATE_* */
+#include "hub/hub.h"          /* attitude_queue_telemetry_peek */
+#include "sys/state.h" /* system_state_get, SYSTEM_STATE_* */
 
 extern uint32_t get_context_switch_count(void); /* kernel task.c */
 
@@ -417,10 +417,9 @@ static int run_hold(uint32_t seed, int N, double *out_wall, double *out_x) {
   clock_gettime(CLOCK_MONOTONIC, &t0);
   for (int n = 0; n < N; n++) {
     set_rc(1500, 1500, 1000, 1500, 1000); /* neutral, disarmed */
-    imu_fp +=
-        (double)s.sample.converted.acc[0]; /* pre-step value of last sample */
+    imu_fp += (double)s.sample.acc[0];    /* pre-step value of last sample */
     step_once(&s, &ct, &got);
-    imu_fp += (double)s.sample.converted.gyr[0] + s.sample.converted.mag[0];
+    imu_fp += (double)s.sample.gyr[0] + s.sample.mag[0];
     if (attitude_queue_telemetry_peek(&att))
       fp += (double)att.roll + att.pitch + att.yaw;
     if (realtime)

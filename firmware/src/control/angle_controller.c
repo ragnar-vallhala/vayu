@@ -25,7 +25,7 @@
 #include "maths/maths_interface.h"
 #include "control/pid.h"
 #include "est/est.h"
-#include "driver/imu_buffer.h"
+#include "hub/hub.h"
 #include "structure.h"
 #include "sys/state.h"
 #include "vaios.h"

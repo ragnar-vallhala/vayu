@@ -29,7 +29,7 @@
 #include "est/est.h"
 #include "driver/bme280.h"
 #include "driver/bmx160.h"
-#include "driver/imu_buffer.h"
+#include "hub/hub.h"
 #include "sys/state.h"
 #include "sys/sys_utils.h"
 #include "utils.h"
@@ -59,7 +59,7 @@ channel_t g_telemetry_channel = {0};
 
 void imu_telemetry_task(void *args) {
   (void)args;
-  static bmx160_all_reading_t samples;
+  static imu_sample_t samples;
   static float current_floats[10];  // Acc[3], Gyr[3], Mag[3], Temp
   static float previous_floats[10]; // For delta calculation
   static bool first_packet = true;
@@ -78,16 +78,16 @@ void imu_telemetry_task(void *args) {
     time_sync_discipline_tick();
 
     if (imu_queue_telemetry_pop(&samples)) {
-      current_floats[0] = (float)samples.converted.acc[0];
-      current_floats[1] = (float)samples.converted.acc[1];
-      current_floats[2] = (float)samples.converted.acc[2];
-      current_floats[3] = (float)samples.converted.gyr[0];
-      current_floats[4] = (float)samples.converted.gyr[1];
-      current_floats[5] = (float)samples.converted.gyr[2];
-      current_floats[6] = (float)samples.converted.mag[0];
-      current_floats[7] = (float)samples.converted.mag[1];
-      current_floats[8] = (float)samples.converted.mag[2];
-      current_floats[9] = (float)samples.converted.temp;
+      current_floats[0] = (float)samples.acc[0];
+      current_floats[1] = (float)samples.acc[1];
+      current_floats[2] = (float)samples.acc[2];
+      current_floats[3] = (float)samples.gyr[0];
+      current_floats[4] = (float)samples.gyr[1];
+      current_floats[5] = (float)samples.gyr[2];
+      current_floats[6] = (float)samples.mag[0];
+      current_floats[7] = (float)samples.mag[1];
+      current_floats[8] = (float)samples.mag[2];
+      current_floats[9] = (float)samples.temp_c;
     }
 
     /* Per-stream emission gating in ms (see TELEM_GATE above). Same-period streams

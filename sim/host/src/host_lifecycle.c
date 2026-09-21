@@ -37,7 +37,7 @@
 #include "comm/comm.h"
 #include "est/est.h"
 #include "driver/bme280.h"
-#include "driver/imu_buffer.h"
+#include "hub/hub.h"
 #include "sys/state.h"
 #include "task.h"
 #include "storage/fs_owner.h"

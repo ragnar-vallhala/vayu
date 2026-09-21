@@ -24,7 +24,8 @@
 #include "ipc.h"
 #include "est/est.h"
 #include "memory.h"
-#include "driver/imu_buffer.h"
+#include "hub/hub.h"
+#include "structure.h" /* the driver-private calibration ring */
 #include "sys/state.h"
 #include "task.h"
 #include "utils.h"
@@ -96,6 +97,26 @@ typedef enum {
 } imu_op_t;
 
 extern hal_i2c_config_t i2c_config;
+/* Calibration consumes RAW data -- rhall and the pre-offset magnetometer --
+ * which the hub's SI sample deliberately does not carry. So this ring stays
+ * inside the driver that produces those fields, where it was always going to
+ * belong: producer and consumer are both in this file. */
+#define BMX160_CALIB_RING_CAP (IMU_TELEMETRY_BUFFER_SIZE + 1)
+static bmx160_all_reading_t _calib_ring_buf[BMX160_CALIB_RING_CAP];
+static spsc_fifo_t _calib_ring;
+
+static bool imu_queue_calibration_push(const bmx160_all_reading_t *sample) {
+  return spsc_write(&_calib_ring, sample, 1) == 1;
+}
+static bool imu_queue_calibration_pop(bmx160_all_reading_t *out_sample) {
+  return spsc_read(&_calib_ring, out_sample, 1) == 1;
+}
+
+/* Driver's verdict on the magnetometer for the CURRENT sample: finite, inside
+ * the Earth-field magnitude window, and no disturbance detected. Set by the
+ * conversion step, read when the sample is published. */
+static volatile uint8_t _mag_valid;
+
 static volatile imu_op_t _next_op = IMU_OP_FAST;
 /* Index into sensor_rides() for IMU_OP_RIDE; mirrors _next_op/_last_op. */
 static volatile uint8_t _next_ride;
@@ -211,6 +232,11 @@ static bmx160_err_type bmx160_verify_pmu(uint8_t mask, uint8_t expected) {
 
 /** @implements SNS-BMX-101, SNS-CAL-001 */
 hal_status_t bmx160_init(void) {
+  spsc_init(&_calib_ring, _calib_ring_buf, BMX160_CALIB_RING_CAP,
+            sizeof(bmx160_all_reading_t));
+  spsc_set_policy(&_calib_ring, SPSC_POLICY_OVERWRITE);
+  /* The hub cannot enumerate a queue that lives in here, so offer it. */
+  hub_perf_register(PERF_FIFO_IMU_CALIB, &_calib_ring);
 
   // Create I2C bus semaphore early. Ensure it starts "given"
   in_init = 1; // Explicitly set it here as well
@@ -1248,6 +1274,7 @@ static void bmx160_process_mag(int16_t mx, int16_t my, int16_t mz,
     _bmx_data.converted.mag_fusion[1] = 0.0f;
     _bmx_data.converted.mag_fusion[2] = 0.0f;
   }
+  _mag_valid = mag_fusion_valid;
 }
 
 /** @implements SNS-IMU-001, SNS-IMU-002, SNS-BMX-106, SNS-LPF-101, SNS-CAL-002 */
@@ -1416,8 +1443,22 @@ void bmx160_process_data(void) {
   // Tag the converted sample with its acquisition cycle stamp and fan it out.
   _bmx_data.converted.timestamp = _sample_cyc;
 
-  imu_queue_telemetry_push(&_bmx_data);
-  imu_queue_control_push(&_bmx_data);
+  /* Hand the core an SI sample: measurement plus the driver's health verdict.
+   * Everything the driver needed to get here -- uncalibrated accel/gyro, the
+   * pre-offset magnetometer, rhall -- stays behind in _bmx_data. */
+  imu_sample_t out = {0};
+  for (int i = 0; i < 3; i++) {
+    out.acc[i] = _bmx_data.converted.acc[i];
+    out.gyr[i] = _bmx_data.converted.gyr[i];
+    out.mag[i] = _bmx_data.converted.mag[i];
+  }
+  out.temp_c = _bmx_data.converted.temp;
+  out.t_cyc = _sample_cyc;
+  out.mag_valid = _mag_valid;
+  out.instance = 0;
+
+  imu_queue_telemetry_push(&out);
+  imu_queue_control_push(&out);
 
   // During calibration the sample goes to the calibration consumer; no
   // attitude estimation runs. Keyed off _calib_active rather than the system
@@ -1438,7 +1479,7 @@ void bmx160_process_data(void) {
 
   /* Attitude estimation runs in its own task now (attitude_task.c): hand off
    * the timestamped sample and let it run fusion + the safety step. */
-  imu_queue_attitude_push(&_bmx_data);
+  imu_queue_attitude_push(&out);
 }
 
 /* Ellipsoid fit (offset + full 3x3) + its float linear-algebra helpers

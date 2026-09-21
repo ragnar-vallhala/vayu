@@ -95,7 +95,7 @@ State and arm latches (`_system_current_status`, `g_sw_arm_request`) are volatil
 globals read across tasks (vaios R8.6 lock-free scalars), shown as dashed influence
 rather than queues.
 
-*Source: `src/main.c:84-123` (task creation), `src/driver/imu_buffer.c` (queues),
+*Source: `src/main.c:84-123` (task creation), `src/hub/hub.c` (queues),
 `src/comm/channel.c` (`g_telemetry_channel`).*
 
 ---
@@ -202,7 +202,7 @@ flowchart TD
 ```
 
 *Source: `src/driver/bmx160.c:852-1275`, `src/driver/i2c_manager.c`,
-`src/driver/imu_buffer.c`. Sample rate `IMU_SAMPLE_FREQ_HZ` (`variables.h:218`).*
+`src/hub/hub.c`. Sample rate `IMU_SAMPLE_FREQ_HZ` (`variables.h:218`).*
 
 ---
 

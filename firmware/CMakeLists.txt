@@ -192,7 +192,7 @@ set(VAYU_R12_CLEAN_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/driver/bme280.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/driver/vl53l0x.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/driver/ride_along.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/driver/imu_buffer.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/hub/hub.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/driver/i2c_manager.c
     # CTRL module (Phase 4)
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/angle_controller.c
