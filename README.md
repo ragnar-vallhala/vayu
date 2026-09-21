@@ -10,7 +10,7 @@ Vayu is a high-performance, real-time operating system for embedded systems. It 
 - [System architecture](ARCHITECTURE.md) — how the firmware, GCS, sim, and Pilot fit together
 - [Building & testing](build.md) — per-component build/test commands, options, CI map
 - [Documentation index](firmware/docs/README.md)
-- [Packet Structure](navlink/docs/reference/messages/data_frame.md)
+- [Packet Structure](https://github.com/ragnar-vallhala/navlink/blob/main/docs/reference/messages/data_frame.md)
 
 ## Features
 

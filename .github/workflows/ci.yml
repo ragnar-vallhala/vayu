@@ -91,6 +91,10 @@ jobs:
   sitl-module:
     name: SITL loadable module + SDK tarball
     runs-on: ubuntu-latest
+    # Needed to publish the rolling SDK release below. Everything else in this
+    # workflow is read-only.
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v5
         with:
@@ -98,9 +102,15 @@ jobs:
           fetch-depth: 0   # git describe needs tags for the build id
       - run: sudo apt-get update && sudo apt-get install -y cmake
       - name: Build the module and package the SDK
+        # test_sitl_module is named explicitly: vayu_sitl_package deliberately
+        # does NOT depend on it (packaging should not need the tests), so
+        # building only the package target leaves no test binary and the step
+        # below reports "Not Run" rather than a pass. That is how this job
+        # failed on its first outing.
         run: |
           cmake -S sim/host -B build_sitl_rtos -DVAYU_SITL_RTOS_BUILD=ON
-          cmake --build build_sitl_rtos --target vayu_sitl_package -j
+          cmake --build build_sitl_rtos -j \
+            --target vayu_sitl_package test_sitl_module
       - name: Prove it loads and drives the firmware
         # Not just "it built": the module test dlopens it with no firmware
         # linked, checks the ABI gate both ways, and asserts an injected
@@ -130,6 +140,45 @@ jobs:
           name: vayu-sitl-sdk-linux-x86_64
           path: build_sitl_rtos/vayu-sitl-sdk.tar.gz
           if-no-files-found: error
+
+      # Publish the SDK where another repository can actually fetch it.
+      #
+      # The artifact above is NOT enough: Actions artifacts need an
+      # authenticated, same-repo token, so vayu-navigator's CI cannot read one
+      # even though this repo is public. A release asset on a public repo
+      # downloads over plain HTTPS with no token at all, which is what the GCS
+      # build needs -- and what a person wanting to run the simulator needs
+      # too.
+      #
+      # One rolling tag rather than a release per commit: the SDK tracks main,
+      # and a consumer that wants a fixed engine pins a real version tag
+      # instead. --clobber replaces the asset in place so the URL is stable.
+      - name: Publish the rolling SDK release
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          BUILD_ID=$(tar xzf build_sitl_rtos/vayu-sitl-sdk.tar.gz -O vayu-sitl-sdk/BUILD_ID)
+          {
+            echo "Built from \`$BUILD_ID\`."
+            echo
+            echo "The Vayu SITL engine built from main: the loadable module"
+            echo "(\`lib/libvayu_sitl.so\`), the headless binary"
+            echo "(\`bin/vayu_sitl_rtos\`), and the four headers a host compiles"
+            echo "against."
+            echo
+            echo "Replaced on every push to main, so the download URL is stable"
+            echo "and the contents are not -- pin a version tag if you need a"
+            echo "fixed engine."
+          } > notes.md
+          gh release view sitl-sdk-latest >/dev/null 2>&1 \
+            || gh release create sitl-sdk-latest --prerelease \
+                 --title "SITL SDK (rolling)" --notes-file notes.md
+          gh release upload sitl-sdk-latest \
+            build_sitl_rtos/vayu-sitl-sdk.tar.gz --clobber
+          gh release edit sitl-sdk-latest --notes-file notes.md
+          echo "published sitl-sdk-latest ($BUILD_ID)"
 
   sanitizers:
     name: SITL ASan + UBSan (R12.2)

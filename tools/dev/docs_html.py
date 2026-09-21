@@ -644,7 +644,19 @@ def main():
     out = Path(args.out)
     if not out.is_absolute():
         out = root / out
-    out.mkdir(parents=True, exist_ok=True)
+    # Start from an empty tree. --check asks "does every link resolve to a page
+    # this build produced", and it answers that by looking for the file in the
+    # output directory -- so a leftover page from a previous run makes a link
+    # that is now dangling look fine. That is not hypothetical: links into the
+    # navlink submodule passed here for weeks against pages generated back when
+    # navlink was vendored, while CI, which always starts clean, failed. A gate
+    # that can pass on stale artifacts is not a gate.
+    if out.exists():
+        if not (out / "index.html").exists() and any(out.iterdir()):
+            sys.exit("docs_html: %s exists and is not a docs build -- "
+                     "refusing to delete it" % out)
+        shutil.rmtree(out)
+    out.mkdir(parents=True)
 
     files = tracked_md(root)
     titles = {rel: title_of(root / rel, rel) for rel in files}

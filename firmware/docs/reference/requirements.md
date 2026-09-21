@@ -27,7 +27,7 @@ GCS doc referring back to them.
 
 Cross-references:
 - [`sensor-fusion/`](sensor-fusion/) — attitude estimator math.
-- [`navlink messages`](../../../navlink/docs/reference/messages/) — wire format authority.
+- [`navlink messages`](https://github.com/ragnar-vallhala/navlink/blob/main/docs/reference/messages) — wire format authority.
 - [`state-machine/`](state-machine/) — system state diagrams.
 - [`coordinate_ref.md`](coordinate_ref.md) — NED conventions.
 - [`gcs-in-app-simulator-and-world-collision.md`](https://github.com/ragnar-vallhala/vayu-navigator/blob/main/navigator/docs/journal/changelog/gcs-in-app-simulator-and-world-collision.md) — SITL design (`vsim_d` daemon).
@@ -184,7 +184,7 @@ for compact transmission.
 
 ### 3.4 Telemetry contract (SYS-TEL)
 
-Authoritative wire spec lives in [`navlink messages`](../../../navlink/docs/reference/messages/);
+Authoritative wire spec lives in [`navlink messages`](https://github.com/ragnar-vallhala/navlink/blob/main/docs/reference/messages);
 these SYS entries pin the cadence and reliability contract.
 
 | ID           | Title                              | Statement                                                                                                                            | Parent       | Verification         |

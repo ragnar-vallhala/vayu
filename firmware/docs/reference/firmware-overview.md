@@ -58,7 +58,7 @@ content:
 
 - [`sensor-fusion/`](sensor-fusion/) — Mahony filter derivation
   and tuning. Owns the math behind `EST-MAH-*` requirements.
-- [`navlink messages`](../../../navlink/docs/reference/messages/) — wire format authority. Owns the
+- [`navlink messages`](https://github.com/ragnar-vallhala/navlink/blob/main/docs/reference/messages) — wire format authority. Owns the
   packet layout referenced by `SYS-TEL-004` and `COMM-PKT-*`.
 - [`state-machine/`](state-machine/) — high-level system states
   and transitions. Owns the diagrams referenced by `SYS-SAFE-005` and
