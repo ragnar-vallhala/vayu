@@ -95,19 +95,27 @@ Two things fell out of doing it:
 
 ## Blockers to clear first
 
-**Licensing — settled: `vayu` stays private, so it needs no license.** Zero
-copyright headers in `firmware/src`, `navigator/src`, `sim`; no `LICENSE` file,
-and none required while nothing here is published. The two repos that *were*
-published carry their own: `navlink` and `vtest` are both Apache-2.0 / NAVRobotec
-Pvt Ltd, headers added at extraction. Any future extraction that is to be public
-adds its license at extraction time, the same way.
+**Licensing — settled, then re-settled.** The first answer was "`vayu` stays
+private, so it needs no license". That held until `vayu` itself was published,
+at which point it would have been readable but all-rights-reserved. Everything
+public now carries Apache-2.0 / NAVRobotec Pvt Ltd — `vayu`, `vayu-navigator`,
+`navlink`, `vtest`, `vaios` — one licence across the stack rather than five
+answers to the same question. `vayu-logs` is private and carries it too.
 
-**History carries ~590 MB of binaries.** `.git` is 711 MB against a 120 MB tracked
-tree. The largest blobs are datasheets (16 MB BMX160, 9.7 MB F401 reference) and
-log captures (15 MB, 3.6 MB, 2.0 MB…). Extract each repo with `git filter-repo`
-scoped to its own paths so it inherits only its own history — a naive split gives
-three repos that each still clone 711 MB. Decide separately whether datasheets and
-`.bin` captures belong in git at all, or in LFS / an assets repo.
+**History carried ~590 MB of binaries — dealt with, and the measurement was
+wrong.** `.git` was 711 MB but a fresh clone was only 44 MB; most of that 711
+was unreachable objects and a stale `refs/oldstrip/main` pinning a previous
+rewrite. The two real weights are gone: the vendor datasheets (30.5 MB of
+Bosch/ST PDFs, which a public repo must not redistribute) were stripped from
+every ref and replaced by a table of download links, and the flight-log archive
+(40.9 MB) moved to `vayu-logs`. A fresh clone is now **40 MB**.
+
+Both strips taught the same lesson twice: a path filter cuts at a rename.
+`firmware/docs/reference/datasheet/` missed the same PDFs under
+`docs/reference/datasheet/` and `docs/datasheet/`, and the first navigator
+extraction lost 257 commits by not mapping `software/` → `navigator/`. Enumerate
+every historical path first, and verify from a *fresh clone* — a rewrite run in
+the working repo leaves refs that hide what a cloner would actually get.
 
 **Repo-wide gates fracture — measured, and smaller than it looked.** Every gate
 was mapped to a side:
@@ -135,8 +143,9 @@ firmware↔navigator boundary and will not resolve once the repos are siblings.
 Links into `navlink`/`vtest` are NOT in that count: those are submodules and sit
 at the same path either side of the split. `docs_html.py --check` now reports
 the sibling crossings and fails if they exceed `MAX_CROSS_REPO_LINKS`, so the
-bill is visible and cannot grow by accident. Converting them to URLs is the
-cheap fix, but it needs the repo URLs, so it waits for the split itself.
+bill is visible and cannot grow by accident. All of them were converted to URLs
+when the repos actually split, and the ceiling is now **0** — a relative link to
+a sibling repo is a defect rather than a pending bill.
 
 Root-level pages (`ARCHITECTURE.md`, `README.md`, `build.md`) are exempt from
 that count and are their own decision: they describe the whole stack, so they
@@ -159,9 +168,20 @@ belong either to whichever repo becomes the entry point, or to neither.
    `clang-format` takes pathspecs so one component can be gated alone, and the
    docs gate now ratchets the 17 sibling-crossing links. The trace-gate question
    resolved itself: it never crossed the line. ← the split is now unblocked
-5. **Extract `vayu-navigator`** (+ `tools/autotune`). ← next
-6. **`vayu-firmware` last** — it is what everything else pins, so it moves when
-   the pins are already proven.
+5. **Extract `vayu-navigator`** (+ `tools/autotune`). DONE. Public,
+   Apache-2.0, full history including its life under `software/`. It builds
+   against a firmware *release* — no firmware source, not even a submodule pin
+   — and its CI pins `v0.1.0`.
+6. **`vayu-firmware`.** DONE by subtraction rather than extraction: once the
+   GCS and the logs left, what remained *was* the firmware repo. `vayu` is now
+   firmware + SITL + tools, public, Apache-2.0, and publishes the SITL SDK that
+   the GCS consumes.
+7. **`vayu-logs`** — not in the original plan. The flight-log archive became its
+   own private repo: evidence rather than source, 40 MB that every firmware
+   clone was carrying, and a record that must not be edited the way code is.
+
+**The split is complete.** What is left is upkeep, not structure: the GCS pin
+moves when someone chooses to move it, and the gates each live on one side.
 
 ## What this costs
 
