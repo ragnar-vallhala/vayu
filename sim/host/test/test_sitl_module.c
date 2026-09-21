@@ -12,6 +12,11 @@
  */
 #include "vayu_sitl_abi.h"
 
+/* The wire codec -- the protocol, not the firmware. A real ground station
+ * links exactly this, which is the point: the test talks to the module the way
+ * a GCS does. */
+#include "navlink_msgs.h"
+
 #include <assert.h>
 #include <dlfcn.h>
 #include <stdio.h>
@@ -19,10 +24,48 @@
 
 static size_t g_telem_bytes = 0;
 
+/* Parser for the firmware's replies, so the test can see what it made of an
+ * injected command rather than guessing from byte counts. */
+static navlink_parser_t g_parser;
+static navlink_handlers_t g_handlers;
+static int g_acks;
+static uint8_t g_last_ack_result;
+static uint32_t g_last_ack_command;
+
+static void on_ack(void *ctx, const navlink_frame_hdr_t *hdr,
+                   const navlink_command_ack_t *msg) {
+  (void)ctx;
+  (void)hdr;
+  ++g_acks;
+  g_last_ack_result = msg->result;
+  g_last_ack_command = msg->command;
+}
+
 static void on_uart2(void *user, const uint8_t *data, size_t n) {
   (void)user;
-  (void)data;
   g_telem_bytes += n;
+  navlink_parser_push(&g_parser, &g_handlers, data, n);
+}
+
+/* One CMD_SET_PID frame, built exactly as a GCS builds it. */
+static size_t make_set_pid(uint8_t *out) {
+  navlink_cmd_set_pid_t m;
+  memset(&m, 0, sizeof m);
+  m.target_sys = 42;
+  m.target_comp = 1;
+  m.req_seq = 7;
+  m.controller = 1; /* rate */
+  m.axis = 0;       /* roll */
+  m.kp = 0.05f;
+  m.ki = 0.0f;
+  m.kd = 0.001f;
+  m.kff = 0.0f;
+  return navlink_cmd_set_pid_encode(out, &m, m.req_seq, 0xFF, 1);
+}
+
+static void step(const vayu_sitl_api_t *api, int n) {
+  for (int i = 0; i < n; i++)
+    api->run_step();
 }
 
 int main(int argc, char **argv) {
@@ -37,6 +80,11 @@ int main(int argc, char **argv) {
     if (!(ok))                                                                 \
       ++failures;                                                              \
   } while (0)
+
+  /* Reply parser, wired before anything can arrive. */
+  navlink_parser_init(&g_parser);
+  memset(&g_handlers, 0, sizeof g_handlers);
+  g_handlers.on_command_ack = on_ack;
 
   /* 1) It loads at all. RTLD_NOW so a missing symbol fails here, loudly,
    *    rather than at the first call through the vtable. */
@@ -82,10 +130,7 @@ int main(int argc, char **argv) {
       (const void *)api->clear_world_mesh, (const void *)api->set_rates,
       (const void *)api->set_noise,     (const void *)api->set_faults,
       (const void *)api->set_wind,      (const void *)api->set_pause,
-      (const void *)api->fw_set_motor_geometry,
-      (const void *)api->fw_flight_mode_set_override,
-      (const void *)api->fw_flight_mode_release,
-      (const void *)api->fw_pid_apply_command,
+      (const void *)api->uart2_rx,
   };
   int null_slots = 0;
   for (size_t i = 0; i < sizeof slots / sizeof slots[0]; i++)
@@ -126,6 +171,25 @@ int main(int argc, char **argv) {
   for (int i = 0; i < 500; i++)
     api->run_step();
   CHECK("telemetry resumes after re-attach", g_telem_bytes > at_detach);
+
+  /* 7) GCS -> FC: an injected command reaches the firmware's real command path.
+   *    The observable is the firmware's own COMMAND_ACK, which also proves the
+   *    §10.5 time-sync gate is being enforced rather than bypassed -- the whole
+   *    reason a host must not poke firmware functions directly. An unsynced FC
+   *    must answer TEMPORARILY_REJECTED, not silently do the thing. */
+  uint8_t frame[NAVLINK_MAX_FRAME];
+  const size_t flen = make_set_pid(frame);
+  CHECK("encoded a CMD_SET_PID frame", flen > 0);
+
+  g_acks = 0;
+  api->uart2_rx(frame, flen);
+  step(api, 200); /* let the comm task drain and reply */
+
+  CHECK("injected command produced an ACK", g_acks > 0);
+  CHECK("unsynced FC rejects the command (time-sync gate enforced)",
+        g_last_ack_result == NAVLINK_COMMAND_RESULT_TEMPORARILY_REJECTED);
+  CHECK("ACK names the command we sent",
+        g_last_ack_command == NAVLINK_MSGID_CMD_SET_PID);
 
   /* Deliberately NOT dlclose()d after boot: the engine has started vaios tasks
    * that are still running, and unloading the code under them would be a crash

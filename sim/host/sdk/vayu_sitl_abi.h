@@ -41,7 +41,7 @@ extern "C" {
  * changed struct in vsim_proto.h. The loader passes the version it was built
  * against and gets NULL if the module cannot serve it -- an honest failure to
  * load beats a silently mismatched struct layout. */
-#define VAYU_SITL_ABI_VERSION 1u
+#define VAYU_SITL_ABI_VERSION 2u
 
 /* The name the loader resolves, and the module's file name without the
  * platform's prefix/suffix (libvayu_sitl.so, vayu_sitl.dll). */
@@ -108,29 +108,16 @@ typedef struct vayu_sitl_api {
   void (*set_wind)(const vsim_ctl_wind_t *w);
   void (*set_pause)(int paused);
 
-  /* ---- direct firmware pokes (SITL-only shortcuts) ----
+  /* ---- GCS -> FC ----
+   * Hand the engine bytes as if a ground station had sent them on the wire.
+   * They go through the firmware's real parser, router and command gates, so
+   * a host drives the simulated FC with the SAME NavLink frames it sends to a
+   * real board -- including the time-sync handshake commands are gated on.
    *
-   * These reach into firmware state that a ground station CANNOT touch on real
-   * hardware, where the same effects are asked for over NavLink and the
-   * firmware decides whether to honour them. They are here because Navigator
-   * already called them directly when it linked the firmware statically, and
-   * dropping them would change in-app sim behaviour in the same commit that
-   * changes how the engine is loaded.
-   *
-   * Each has a NavLink equivalent, so the fix is to send the command down the
-   * UART2 pty like a real GCS and delete this section. Until then, treat a
-   * behaviour that works in the in-app sim but not on hardware as suspect --
-   * this shortcut has already caused one such bug, where the geometry command
-   * was gated on a TIME_SYNC the in-process caller never sent, so the firmware
-   * silently flew the default mix.
-   *
-   * Not part of the stable surface: these may go without an ABI bump beyond
-   * the one that removes them. */
-  void (*fw_set_motor_geometry)(const float pos_x[4], const float pos_y[4],
-                                const int spin[4]);
-  void (*fw_flight_mode_set_override)(int mode); /* 0=stabilise/angle, 1=acro */
-  void (*fw_flight_mode_release)(void);
-  int (*fw_pid_apply_command)(const uint8_t *payload, uint16_t payload_len);
+   * This replaced a set of direct firmware entry points a host used to call.
+   * Those bypassed the gates, which is how a geometry command once appeared to
+   * work in the in-app sim while the firmware silently flew the default mix. */
+  void (*uart2_rx)(const uint8_t *data, size_t len);
 } vayu_sitl_api_t;
 
 /* The module builds with -fvisibility=hidden so the firmware's globals stay out

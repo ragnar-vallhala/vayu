@@ -87,6 +87,14 @@ SitlModule::SitlModule() {
                .arg(QLatin1String(VAYU_SITL_MODULE_NAME), tried.join("\n  "));
 }
 
+bool SitlModule::send(const QByteArray &frame) const {
+  if (!api_ || frame.isEmpty())
+    return false;
+  api_->uart2_rx(reinterpret_cast<const uint8_t *>(frame.constData()),
+                 static_cast<size_t>(frame.size()));
+  return true;
+}
+
 SitlModule &SitlModule::instance() {
   static SitlModule inst;
   return inst;

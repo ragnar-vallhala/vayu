@@ -15,6 +15,8 @@
 #ifndef VAYU_HOST_RTOS_ENGINE_API_H
 #define VAYU_HOST_RTOS_ENGINE_API_H
 
+#include <stddef.h>
+
 #include "vsim_proto.h"
 
 #ifdef __cplusplus
@@ -26,6 +28,10 @@ int rtos_engine_boot(void *iface); /* iface = vsim_iface_t* (telemetry cb) */
 void rtos_engine_enable_serial_rc(void); /* RC from VAYU_UART_RC_PATH */
 void rtos_engine_run_begin(void);        /* reset internal stepper + pacer */
 void rtos_engine_run_step(void);         /* one 1 ms step, wall-clock paced */
+
+/* Feed bytes to the firmware's UART2 receiver, as if a GCS had sent them on
+ * the wire: the real parser, the real router, the real command gates. */
+void rtos_engine_uart2_rx(const uint8_t *data, size_t len);
 
 /* Latest pose snapshot for the renderer (seqlock; safe off-thread). */
 void vsim_inproc_get_pose(vsim_pose_frame_t *out);

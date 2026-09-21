@@ -47,17 +47,11 @@
 
 #ifdef NAVIGATOR_HAS_SITL
 #include "../../vsim/SitlModule.h"
-// In-process firmware PID apply — the exact function the real FC runs for
-// CMD_SET_PID: validate the payload, push to the live controllers, AND persist
-// to 0:pid.bin (host VFS -> $VAYU_VFS_DIR, default /tmp/vayu_vfs), which
-// host_lifecycle reloads on boot. Returns VAYU_OK (0). Lets "Apply Gains"
-// target the in-app sim persistently, with no FC link.
-//
-// Reached through the loaded SITL module's SITL-only section rather than
-// linked: see vayu_sitl_abi.h. On real hardware this is a NavLink command.
-// CMD_SET_PID command id (firmware comm_types.h is not on the GCS include path;
-// the dissector hardcodes the same value).
-static constexpr uint16_t kCmdSetPid = 0x000A;
+// Commands reach the in-app sim as NavLink frames through SitlModule::send(),
+// the same frames a real FC gets. The firmware then runs its own CMD_SET_PID
+// handler, which validates, applies to the live controllers AND persists to
+// 0:pid.bin (host VFS -> $VAYU_VFS_DIR, default /tmp/vayu_vfs), so a tune
+// survives a sim restart.
 #endif
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
@@ -342,51 +336,30 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
         // been started this session (true even in the Idle window right
         // after an autotune run), apply there.
         const SourceState st = m_source.state();
-        if (st == SourceState::Fc) {
+        if (st == SourceState::Fc || st == SourceState::Sim) {
           const uint32_t now =
               static_cast<uint32_t>(QDateTime::currentMSecsSinceEpoch());
           for (const PidSetCmd &c : cmds)
             sendToFc(CommandCodec::encodeSetPid(c.controller, c.axis, c.kp,
                                                 c.ki, c.kd, c.kff, 42, now));
+          const bool sim = st == SourceState::Sim;
           m_logPanel->appendLog(
-              QString("[GCS] Applied %1 PID slot(s) to firmware (CMD_SET_PID)")
-                  .arg(cmds.size()));
-          Notify::ok(this, tr("Applied gains to firmware"));
+              QString("[GCS] Applied %1 PID slot(s) to %2 (CMD_SET_PID)")
+                  .arg(cmds.size())
+                  .arg(sim ? "sim" : "firmware"));
+          Notify::ok(this, sim ? tr("Applied gains to sim")
+                               : tr("Applied gains to firmware"));
           return;
         }
 #ifdef NAVIGATOR_HAS_SITL
+        // A stopped sim is not commandable. It used to be: the gains were
+        // poked straight into the in-process firmware, which also skipped the
+        // persistence and gating a real apply goes through. Start the sim and
+        // apply again.
         if (m_simulatorWidget && m_simulatorWidget->sitlCoreStarted()) {
-          // Build the v1 CMD_SET_PID payload the firmware expects and hand
-          // it to the same apply+persist routine the link path triggers:
-          //   [0..1] cmd_id LE | [2] argc(6) | [3..] 6 LE floats:
-          //   ctrl, axis, kp, ki, kd, kff. Host is little-endian like the
-          //   target FC, so a raw memcpy of the floats is wire-correct.
-          int ok = 0;
-          for (const PidSetCmd &c : cmds) {
-            uint8_t buf[3 + 6 * 4];
-            buf[0] = static_cast<uint8_t>(kCmdSetPid & 0xFF);
-            buf[1] = static_cast<uint8_t>((kCmdSetPid >> 8) & 0xFF);
-            buf[2] = 6; // argc
-            const float args[6] = {static_cast<float>(c.controller),
-                                   static_cast<float>(c.axis),
-                                   c.kp,
-                                   c.ki,
-                                   c.kd,
-                                   c.kff};
-            std::memcpy(&buf[3], args, sizeof args);
-            if (SitlModule::instance().api()->fw_pid_apply_command(
-                    buf, sizeof buf) == 0 /*VAYU_OK*/)
-              ++ok;
-          }
           m_logPanel->appendLog(
-              QString("[GCS] Applied %1/%2 PID slot(s) to sim "
-                      "(persisted to 0:pid.bin)")
-                  .arg(ok)
-                  .arg(cmds.size()));
-          if (ok == cmds.size())
-            Notify::ok(this, tr("Applied gains to sim (persisted)"));
-          else
-            Notify::warn(this, tr("Some sim gains were rejected"));
+              "[GCS] Sim is not running — start it to apply gains");
+          Notify::warn(this, tr("Start the sim to apply gains"));
           return;
         }
 #endif
@@ -909,6 +882,18 @@ void MainWindow::sendToFc(const QByteArray &pkt) {
     Notify::warn(this, tr("Read-only — not connected"));
     return;
   }
+#ifdef NAVIGATOR_HAS_SITL
+  // The in-app sim has no transport: its "wire" is the module's UART2 receiver.
+  // Routing here means ARM, PID, calibrate, flight mode and time-sync all reach
+  // the simulated FC through the SAME frames and the SAME firmware code as a
+  // real board -- so a command that works in the sim works on hardware, and one
+  // the firmware refuses is refused in both.
+  if (m_source.state() == SourceState::Sim) {
+    if (!SitlModule::instance().send(pkt))
+      m_logPanel->appendLog("[GCS] sim tx failed: no SITL module loaded");
+    return;
+  }
+#endif
   // The transports live on the worker thread; route the write there. The engine
   // picks the active transport (UDP-else-serial).
   QMetaObject::invokeMethod(m_engine, "send", Qt::QueuedConnection,
@@ -1700,7 +1685,10 @@ void MainWindow::onHeartbeatReceived(uint64_t timestamp, uint8_t deviceId) {
 }
 
 void MainWindow::onTimeSyncRequested() {
-  if (m_source.state() != SourceState::Fc)
+  // Both commandable sources need this. The firmware's §10.5 gate rejects
+  // EVERY command until the clock is disciplined, and that applies to the
+  // in-app sim, which runs the same router.
+  if (!m_source.txAllowed())
     return;
 
   const quint64 t1 = static_cast<quint64>(QDateTime::currentMSecsSinceEpoch());

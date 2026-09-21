@@ -4,6 +4,7 @@
 
 #include "../../vsim/MeshLoader.h"
 #include "../../vsim/SitlModule.h"
+#include "protocol/CommandCodec.h"
 #include "../../vsim/ProceduralWorld.h"
 #include "../../vsim/WorldMeshBuilder.h"
 #include "CollapsibleSection.h"
@@ -212,18 +213,23 @@ private:
 namespace {
 constexpr int kFmAngle = 0, kFmAcro = 1, kFmSrcGcs = 1;
 
-// Push the vehicle's motor layout into the in-process firmware mixer so the
-// control mix matches the physics (stable for any quad layout, not just the
-// firmware's default numbering).
+// Push the vehicle's motor layout into the firmware mixer so the control mix
+// matches the physics (stable for any quad layout, not just the firmware's
+// default numbering).
+//
+// Sent as CMD_SET_MOTOR_GEOMETRY, the same frame a real GCS sends. That means
+// the firmware's command gate applies: until the time-sync handshake completes
+// this is TEMPORARILY_REJECTED and the mix is NOT changed. Poking the mixer
+// function directly used to hide exactly that, leaving the firmware on its
+// default mix while the UI reported success.
 void pushFirmwareMotorGeometry(const vsim::GeometryConfig &g) {
-  float x[4], y[4];
-  int spin[4];
+  float x[4], y[4], spin[4];
   for (int i = 0; i < 4; ++i) {
     x[i] = g.motors[i].pos.x();
     y[i] = g.motors[i].pos.y();
-    spin[i] = g.motors[i].spin;
+    spin[i] = static_cast<float>(g.motors[i].spin);
   }
-  SitlModule::instance().api()->fw_set_motor_geometry(x, y, spin);
+  SitlModule::instance().send(CommandCodec::encodeSetMotorGeometry(x, y, spin));
 }
 
 // The roll-mix signs this geometry produces (for logging): -sign(y) per motor.
@@ -952,8 +958,9 @@ void SimulatorWidget::buildUi() {
       m_acroChk->setChecked(acroOn);
       if (m_rc)
         m_rc->setAcro(acroOn);
-      // ensure no stale GCS override blocks the switch
-      SitlModule::instance().api()->fw_flight_mode_release();
+      // Release any stale GCS mode override so the ch6 switch is in charge.
+      // Mode 2 is the firmware's "release back to the RC switch" value.
+      SitlModule::instance().send(CommandCodec::encodeSetFlightMode(2));
       connect(m_acroChk, &QCheckBox::toggled, this, [this](bool on) {
         QSettings().setValue(QStringLiteral("sim/rcAcro"), on);
         if (m_rc)

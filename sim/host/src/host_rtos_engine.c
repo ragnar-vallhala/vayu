@@ -206,6 +206,14 @@ int rtos_engine_boot(void *iface) {
   return 0;
 }
 
+/* GCS -> FC. Thin pass-through to the NavHAL shim's injector so the engine API
+ * has one surface and callers need no NavHAL header. */
+void host_navhal_uart2_inject(const uint8_t *data, size_t n);
+
+void rtos_engine_uart2_rx(const uint8_t *data, size_t len) {
+  host_navhal_uart2_inject(data, len);
+}
+
 void rtos_engine_enable_serial_rc(void) {
   host_rc_feeder_start(); /* reads VAYU_UART_RC_PATH; pushes RC + arm SM */
 }

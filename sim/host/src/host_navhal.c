@@ -271,6 +271,23 @@ static volatile unsigned char uart2_rx_byte;
 static int uart2_rx_started;
 extern void uart2_packet_recv_callback(void);
 
+/* In-process GCS -> FC injection: the same two steps the reader thread below
+ * performs per byte, so the firmware cannot tell an injected command from one
+ * that arrived on the pty. Commands therefore run the real comm path and are
+ * subject to the real gates -- including the §10.5 time-sync gate, which a
+ * caller that pokes firmware functions directly would bypass.
+ *
+ * ponytail: shares uart2_rx_byte with the pty reader with no lock, matching
+ * how the single-byte hardware RX register it emulates behaves. Concurrent use
+ * means an external GCS on the pty AND in-app commands at once; serialise here
+ * if that ever becomes a real workflow. */
+void host_navhal_uart2_inject(const uint8_t *data, size_t n) {
+  for (size_t i = 0; i < n; i++) {
+    uart2_rx_byte = data[i];
+    uart2_packet_recv_callback();
+  }
+}
+
 static void *uart2_rx_thread(void *arg) {
   int fd = (int)(intptr_t)arg;
   for (;;) {

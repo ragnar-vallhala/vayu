@@ -334,7 +334,9 @@ if(VAYU_SITL_RTOS_BUILD)
   set_target_properties(test_sitl_module PROPERTIES
       INCLUDE_DIRECTORIES
         "${CMAKE_CURRENT_SOURCE_DIR}/sdk;${CMAKE_CURRENT_SOURCE_DIR}/src")
-  target_link_libraries(test_sitl_module PRIVATE ${CMAKE_DL_LIBS})
+  # navlink_codec is the wire protocol, not the firmware -- a real GCS links
+  # it too, which is exactly the posture this test is checking.
+  target_link_libraries(test_sitl_module PRIVATE ${CMAKE_DL_LIBS} navlink_codec)
   add_dependencies(test_sitl_module vayu_sitl)
   add_test(NAME sitl_module
            COMMAND test_sitl_module $<TARGET_FILE:vayu_sitl>)

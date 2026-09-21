@@ -12,15 +12,6 @@
 #include "host_rtos_engine_api.h"
 #include "vsim_iface.h"
 
-/* Firmware entry points Navigator pokes directly (see the SITL-only section of
- * vayu_sitl_abi.h). Declared here rather than via the firmware headers, which
- * drag in the whole control-stack include env. */
-void angle_rate_controller_set_motor_geometry(const float pos_x[4],
-                                              const float pos_y[4],
-                                              const int spin[4]);
-void flight_mode_set_override(int mode);
-void flight_mode_release(void);
-int pid_config_apply_command(const uint8_t *payload, uint16_t payload_len);
 
 /* The engine's telemetry plumbing, owned here so no firmware struct crosses the
  * ABI. One instance: the engine is single-instance per process anyway (boot is
@@ -84,10 +75,7 @@ static const vayu_sitl_api_t API = {
     .set_wind = vsim_inproc_set_wind,
     .set_pause = vsim_inproc_set_pause,
 
-    .fw_set_motor_geometry = angle_rate_controller_set_motor_geometry,
-    .fw_flight_mode_set_override = flight_mode_set_override,
-    .fw_flight_mode_release = flight_mode_release,
-    .fw_pid_apply_command = pid_config_apply_command,
+    .uart2_rx = rtos_engine_uart2_rx,
 };
 
 const vayu_sitl_api_t *vayu_sitl_get_api(uint32_t abi_version) {

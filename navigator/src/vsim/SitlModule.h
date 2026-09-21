@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QByteArray>
 #include <QString>
 #include <QStringList>
 
@@ -37,6 +38,15 @@ public:
 
   // Absolute path of the module actually loaded; empty if none was.
   QString path() const { return path_; }
+
+  // Hand a NavLink frame to the loaded sim, exactly as it would go out on the
+  // wire to a real board: the firmware's own parser, router and command gates
+  // see it. Returns false if no module is loaded.
+  //
+  // This is the ONLY way a host should drive firmware behaviour. Calling
+  // firmware functions directly skips the gates -- which is how a geometry
+  // command once looked applied while the firmware flew the default mix.
+  bool send(const QByteArray &frame) const;
 
   // The paths that were tried, in order, for a "why can't it find it" message.
   static QStringList searchPaths();
