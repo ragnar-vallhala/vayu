@@ -17,14 +17,14 @@
 # root itself. One entry point for every component (see build.md for the full map).
 #
 # Usage:
-#   vayu.sh build <firmware|sitl|vsim|rtos|vtest|all>  [opts]
+#   vayu.sh build <firmware|sitl|rtos|vtest|all>  [opts]
 #   vayu.sh test  [sitl|all|vtest]                   [opts]   # no target -> vtest TUI
 #   vayu.sh flash                                     [opts]   # firmware build + st-flash
 #   vayu.sh clean                                              # remove all build trees
 #
 # Options:
 #   -j N          parallel jobs (default: nproc)
-#   --release     CMAKE_BUILD_TYPE=Release (sitl/vsim; firmware flags are fixed)
+#   --release     CMAKE_BUILD_TYPE=Release (sitl; firmware flags are fixed)
 #   --debug       CMAKE_BUILD_TYPE=Debug
 #   --sanitize    sitl only: -DVAYU_SANITIZE=ON
 #   --coverage    sitl only: -DVAYU_COVERAGE=ON, then runs the coverage-gate

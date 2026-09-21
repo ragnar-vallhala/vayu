@@ -8,11 +8,14 @@ the same commands.
 
 ```
 firmware/    ARM flight-controller firmware  (target: main ELF)
-navigator/   Qt6 ground-control station      (target: Navigator) + headless-sdk (Python)
-sim/host/    SITL host seam                   (libvayu_sitl_core, vayu_sitl, ctest suite)
-sim/vsim/    standalone physics daemon        (vsim_d)
-navlink/     wire-protocol codec             (no build — codegen, consumed by the others)
+sim/host/    SITL host seam                   (libvayu_sitl, vayu_sitl_rtos, ctest suite)
+sim/vsim/    physics the SITL links           (no target of its own)
+navlink/     wire-protocol codec, submodule  (no build — codegen, consumed by the others)
 extern/vaios git submodule (RTOS kernel + NavHAL drivers)
+
+The ground station is NOT built here. It lives in its own repository and
+consumes this one's SITL SDK release rather than any of its source:
+https://github.com/ragnar-vallhala/vayu-navigator
 ```
 
 ---
@@ -23,8 +26,7 @@ extern/vaios git submodule (RTOS kernel + NavHAL drivers)
 | --- | --- |
 | firmware | `arm-none-eabi-gcc` (+ `binutils`), `cmake` ≥ 3.20, `python3` + `kconfiglib`, `st-flash` (flashing only) |
 | sim/host, sim/vsim | host `gcc`/`g++` (C++17), `cmake`, `python3` |
-| navigator | host C++ compiler, `cmake`, **Qt6** (Core/Widgets/Network/OpenGL/Concurrent/SerialPort/Test), **assimp** (only when SITL is ON) |
-| headless-sdk | `python3` (pip-installable package; tests need `pytest`) |
+| sim/host SDK | nothing extra — `cmake --build build_sitl_rtos --target vayu_sitl_package` packages it |
 
 The `extern/vaios` submodule must be present: `git submodule update --init --recursive`.
 
@@ -68,7 +70,7 @@ cmake --build build_sitl -j
 ctest --test-dir build_sitl --output-on-failure    # host unit-test suite
 ```
 
-**Targets:** `vayu_sitl_core` (static lib — the firmware logic; Navigator links
+**Targets:** `vayu_sitl_core` (static lib — the firmware logic; the host tests link
 this), `vayu_sitl` (standalone host binary), `navlink_codec`, and the test
 executables. **Options:**
 
@@ -84,48 +86,49 @@ Tests (ctest names): `safety_phase2`, `phase3_ctrl`, `phase3_comm`, `phase3_slog
 
 ---
 
-## 3. Physics daemon (`sim/vsim/` → `vsim_d`)
+## 3. Physics (`sim/vsim/`)
 
-```sh
-cmake -S sim/vsim -B build_vsim
-cmake --build build_vsim -j           # -> build_vsim/vsim_d
-```
-Standalone C++17, zero external deps. Rigid-body + sensor/motor models; talks to
-the host seam / GCS over `/tmp/vsim_*` FIFOs (wire: `sim/vsim/include/vsim_proto.h`).
-Has its own ad-hoc tests under `sim/vsim/tests/` (g++ one-liners + python drivers).
+No build of its own. `sim/host` compiles `sim_controller.cpp`,
+`physics_core.cpp`, `motor_model.cpp` and `sensor_models.cpp` into the SITL's
+`vsim_phys` library, so the physics is built as part of §2 and nothing here
+produces a separate target.
+
+The standalone `vsim_d` daemon this section used to document was deleted in the
+2026-07 consolidation, along with the FIFO pair it spoke over: one in-process
+stepper runs firmware and physics together now.
 
 ---
 
-## 4. Ground-control station (`navigator/` → `Navigator`)
+## 4. Ground-control station — not built here
+
+The GCS moved to its own repository and no longer builds from this tree:
+
+    https://github.com/ragnar-vallhala/vayu-navigator
+
+It needs none of this source. It compiles against four headers and loads the
+engine at runtime from the **SITL SDK** this repo publishes as a release
+asset, so the two version independently.
+
+### 4a. Publishing the SDK the GCS consumes
 
 ```sh
-cmake -S navigator -B navigator/build -DCMAKE_BUILD_TYPE=Release
-cmake --build navigator/build -j                              # -> navigator/build/Navigator
-ctest --test-dir navigator/build --output-on-failure         # QtTest suite (headless, offscreen)
+cmake -S sim/host -B build_sitl_rtos -DVAYU_SITL_RTOS_BUILD=ON
+cmake --build build_sitl_rtos --target vayu_sitl_package -j   # -> vayu-sitl-sdk.tar.gz
 ```
 
-**Options:**
+Contents, and the whole surface a host depends on:
 
-| Option | Default | Effect |
-| --- | --- | --- |
-| `NAVIGATOR_SITL` | ON | build the in-app simulator + autotune; links `vayu_sitl_core` + `assimp` from `sim/host`. **OFF** = GCS-only (Windows / no-POSIX) |
-| `NAVIGATOR_BUILD_TESTS` | ON | build the `tst_*` QtTest binaries under `navigator/tests/` |
+| Path | What |
+| --- | --- |
+| `lib/libvayu_sitl.so` | the engine as a loadable module (one exported symbol, ABI-versioned) |
+| `bin/vayu_sitl_rtos` | the same engine as a headless binary, driven over FIFOs |
+| `include/` | `vayu_sitl_abi.h`, `vsim_proto.h`, `trimesh_bvh.h`, `vsim_math.h` |
+| `BUILD_ID` | `git describe` + date — which firmware this is |
 
-A good configure prints `Navigator: linking against vayu_sitl_core + assimp (SITL ON)`
-or `Navigator: SITL OFF (...) -- GCS-only build`. Tests run with
-`QT_QPA_PLATFORM=offscreen` (no display needed). Test names: `tst_time_sync_estimator`,
-`tst_command_codec`, `tst_autotune_gains`, `tst_optimizer`, `tst_cost`, `tst_sysid`, …
-
-### 4b. Headless SDK (`navigator/headless-sdk/` — Python `vayu_headless`)
-
-```sh
-python3 -m venv .venv && ./.venv/bin/pip install -e "navigator/headless-sdk[test]"
-./.venv/bin/python -m pytest navigator/headless-sdk/tests
-```
-Drives the SITL stack headlessly (the Pilot API). It locates the `vsim_d` /
-`vayu_sitl` binaries via `paths.py` (env overrides: `VSIM_BIN_PATH`,
-`VAYU_SITL_BIN`). The optional native worldmesh helper:
-`cmake -B build -S navigator/headless-sdk/cpp/worldmesh` → `vsim_worldmesh`.
+CI publishes it twice: a rolling `sitl-sdk-latest` prerelease on every push to
+main, and a permanent versioned asset on a `v*` tag. Locally, `--target
+vayu_sitl_package` produces the identical tarball, deliberately — packaging
+that only ever runs in CI is packaging nobody can debug.
 
 ---
 
@@ -139,8 +142,6 @@ All build trees are out-of-source and git-ignored. Conventional names:
 | `build_sitl/` | sim/host + tests |
 | `build_san/`, `build_cov/`, `build_tidy/` | sim/host sanitizer / coverage / tidy |
 | `build_sitl_rtos/` | sim/host RTOS variant |
-| `build_vsim/` | vsim_d |
-| `navigator/build/`, `navigator/build-gcsonly/` | GCS |
 | `*-docker/` | docker builds (never clash with host-native) |
 
 ---
@@ -182,7 +183,7 @@ Options: `-j N` (jobs), `--release` / `--debug` (build type), `--no-sitl`
 Notes: `test sitl` (re)builds `build_sitl` incrementally, then `ctest` (the host
 suite); `test gcs` builds the QtTest binaries and runs only the navigator `tst_*`
 tests (the host suite leaks in via `add_subdirectory(sim/host)` — run it through
-`test sitl`); `test headless` also builds `vsim_d` + `vayu_sitl` (the SDK's
+`test sitl`); the SDK's
 integration tests drive the real SITL stack — without the binaries `conftest`
 *silently skips* them), creates/uses `.venv`, installs the SDK editable, and runs
 pytest with `VSIM_BIN_PATH`/`VAYU_SITL_BIN` pointed at those fresh binaries (so a

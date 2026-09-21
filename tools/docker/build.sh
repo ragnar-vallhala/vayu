@@ -19,7 +19,7 @@
 #   tools/docker/build.sh image      # build (or rebuild) the toolchain image
 #   tools/docker/build.sh firmware   # arm-none-eabi STM32 build -> build-docker/
 #   tools/docker/build.sh sitl       # host SITL build + ctest    -> build_sitl-docker/
-#   tools/docker/build.sh all        # firmware + sitl + gcs
+#   tools/docker/build.sh all        # firmware + sitl
 #   tools/docker/build.sh shell      # interactive shell in the container
 #   tools/docker/build.sh clean      # remove the *-docker build dirs
 #
@@ -43,7 +43,7 @@ case "${1:-all}" in
   image)    $DC build ;;
   firmware) run "cmake -S firmware -B build-docker && cmake --build build-docker $J" ;;
   sitl)     run "cmake -S sim/host -B build_sitl-docker && cmake --build build_sitl-docker $J && ctest --test-dir build_sitl-docker --output-on-failure" ;;
-  all)      "$0" firmware && "$0" sitl && "$0" gcs ;;
+  all)      "$0" firmware && "$0" sitl ;;
   shell)    $DC run --rm vayu bash ;;
-  *)        echo "usage: $0 [image|firmware|sitl|gcs|all|shell|clean]"; exit 1 ;;
+  *)        echo "usage: $0 [image|firmware|sitl|all|shell|clean]"; exit 1 ;;
 esac
