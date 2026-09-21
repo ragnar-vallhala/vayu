@@ -288,7 +288,20 @@ qt_add_executable(Navigator
 # $VAYU_SITL_MODULE, beside the executable, ../lib, then a sibling build dir.
 # A shipped module therefore wins over a stale dev build, and the env var wins
 # over both.
-set(VAYU_SITL_SDK "${CMAKE_CURRENT_SOURCE_DIR}/../sim/host/sdk"
+# Where the firmware's SITL SDK lives. Two layouts are supported by the same
+# source, so extracting this tree into its own repository needs no edit here:
+#
+#   monorepo          sim/host/sdk/ -- built from source alongside us
+#   standalone repo   vayu-sitl-sdk/include/ -- an unpacked firmware release
+#                     (tar xzf vayu-sitl-sdk.tar.gz at the repo root)
+#
+# Override the cache variable to point at an SDK unpacked anywhere else.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../sim/host/sdk/vayu_sitl_abi.h")
+    set(_vayu_sitl_sdk_default "${CMAKE_CURRENT_SOURCE_DIR}/../sim/host/sdk")
+else()
+    set(_vayu_sitl_sdk_default "${CMAKE_CURRENT_SOURCE_DIR}/../vayu-sitl-sdk/include")
+endif()
+set(VAYU_SITL_SDK "${_vayu_sitl_sdk_default}"
     CACHE PATH "The firmware SITL SDK include dir (4 headers)")
 
 target_include_directories(Navigator PRIVATE

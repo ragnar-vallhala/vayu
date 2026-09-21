@@ -18,7 +18,13 @@ add_executable(vsim_worldmesh
     ${_root}/navigator/src/vsim/WorldMeshBuilder.cpp
 )
 
-set(VAYU_SITL_SDK "${_root}/sim/host/sdk"
+# Same two layouts as navigator/CMakeLists.txt -- see the note there.
+if(EXISTS "${_root}/sim/host/sdk/vayu_sitl_abi.h")
+    set(_vayu_sitl_sdk_default "${_root}/sim/host/sdk")
+else()
+    set(_vayu_sitl_sdk_default "${_root}/vayu-sitl-sdk/include")
+endif()
+set(VAYU_SITL_SDK "${_vayu_sitl_sdk_default}"
     CACHE PATH "The firmware SITL SDK include dir")
 
 target_include_directories(vsim_worldmesh PRIVATE

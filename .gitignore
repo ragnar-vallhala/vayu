@@ -38,3 +38,6 @@ vayu_settings.dat
 
 !firmware/docs/reference/datasheet/*.pdf
 !firmware/docs/journal/log-analysis/**/*.pdf
+
+# Unpacked firmware SITL SDK release (an artifact, never committed)
+/vayu-sitl-sdk/
