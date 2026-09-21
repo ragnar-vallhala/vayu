@@ -24,26 +24,10 @@
 #include "navhal.h"
 #include "sensor/bmx160.h"
 
-// Clock Freq
+/* Clock Freq -- the rate the PLL is configured to produce, which boot.c checks
+ * the live clock against. It is NOT what cycle-stamp maths divides by: see
+ * vayu_clock_hz() in sys/clock.h for the measured rate. */
 #define SYS_CLOCK_FREQ 84000000 // 84MHz
-
-/* Seconds between two DWT cycle-counter stamps (wrap-safe unsigned delta),
- * clamped to a sane range. IMU samples and attitude estimates carry their
- * acquisition cycle stamp (bmx160_all_converted_reading_t.timestamp,
- * attitude_t.timestamp); the control loops and the fusion step derive dt from
- * deltas of those instead of reading DWT at execution time, so dt is the true
- * inter-sample interval, immune to scheduler jitter. Floor prevents a div-by-0
- * in the PID derivative on a duplicate/first stamp; ceil bounds a wrap or stall.
- */
-static inline float vayu_dt_from_cycles(uint32_t now_cyc, uint32_t prev_cyc) {
-  uint32_t d = now_cyc - prev_cyc; /* wrap-safe */
-  float dt = (float)d / (float)SYS_CLOCK_FREQ;
-  if (dt < 1e-4f)
-    dt = 1e-4f;
-  if (dt > 0.1f)
-    dt = 0.1f;
-  return dt;
-}
 
 // Physical Heartbeat LED
 #define _BLUE_LED_PIN GPIO_PB12

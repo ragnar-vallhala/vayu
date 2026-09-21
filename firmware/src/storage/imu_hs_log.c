@@ -32,6 +32,7 @@
 #include "storage/fs_owner.h" /* vayu_log, fs_owner_logs_suppressed */
 #include "control/flight_mode.h"
 #include "dsp/gyro_notch.h"
+#include "sys/clock.h" /* vayu_clock_hz -- the measured rate, for the header */
 #include "sys/state.h"
 #include "sys/sys_utils.h" /* get_timestamp_unix, time_sync_is_synced */
 #include "utils.h"         /* v_memcpy */
@@ -425,7 +426,7 @@ static void build_preamble(void) {
   put_u32(&h[0], HSL_MAGIC);
   put_u16(&h[4], (uint16_t)HSL_VERSION);
   put_u16(&h[6], (uint16_t)HSL_FILE_HDR_BYTES);
-  put_u32(&h[8], (uint32_t)SYS_CLOCK_FREQ);
+  put_u32(&h[8], vayu_clock_hz());     /* measured: hslog.py divides by this */
   put_u32(&h[12], HSL_PREAMBLE_BYTES); /* ring_start   */
   put_u32(&h[16], HSL_RING_SECTORS);   /* ring_sectors */
   put_u32(&h[20], s_slot);             /* head_slot HINT */

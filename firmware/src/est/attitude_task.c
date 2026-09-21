@@ -39,6 +39,7 @@
  */
 #include "est/est.h"
 #include "sensor/bmx160.h"
+#include "sys/clock.h"
 #include "sensor/imu_buffer.h"
 #include "vaios.h"
 #include "vaios_app_config.h"
@@ -98,7 +99,7 @@ void attitude_task(void *args) {
 
 #if ATTITUDE_CYCLE_PROBE
   uint32_t probe_peak = 0, probe_acc = 0, probe_cnt = 0;
-  uint32_t cyc_per_us = hal_cycle_counter_cycles_per_us();
+  uint32_t cyc_per_us = vayu_clock_hz() / 1000000u;
   if (cyc_per_us == 0)
     cyc_per_us = 1;
 #endif
@@ -144,7 +145,7 @@ void attitude_task(void *args) {
     acc_n = 0;
 
 #if ATTITUDE_CYCLE_PROBE
-    uint32_t c0 = hal_cycle_counter_get();
+    uint32_t c0 = vayu_clock_cycles();
 #endif
 
     if (SF_FILTER_USED == SF_MAHONY) {
@@ -157,7 +158,7 @@ void attitude_task(void *args) {
     }
 
 #if ATTITUDE_CYCLE_PROBE
-    uint32_t dc = hal_cycle_counter_get() - c0; /* wrap-safe 32-bit delta */
+    uint32_t dc = vayu_clock_cycles() - c0; /* wrap-safe 32-bit delta */
     if (dc > probe_peak)
       probe_peak = dc;
     probe_acc += dc;

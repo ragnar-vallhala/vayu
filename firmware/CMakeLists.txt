@@ -228,6 +228,7 @@ set(VAYU_R12_CLEAN_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/sys/boot.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/sys/assert.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/sys/heartbeat.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/sys/clock.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/sys/sys_utils.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/sys/math_utils.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/sys/timer_callbacks.c)

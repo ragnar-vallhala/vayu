@@ -19,6 +19,7 @@
 #include "sensor/sensor.h"
 #include "storage/fs_owner.h"
 #include "navhal.h"
+#include "sys/clock.h"
 #include "sys/state.h"
 #include "task.h"
 #include "utils.h"
@@ -225,6 +226,7 @@ int main() {
 
   clock_setup();
   hal_cycle_counter_init();
+  vayu_clock_init(); /* cache the measured CPU rate for cycle-stamp maths */
   vaios_init_config_t cfg = {.internal_clock_setup = 0,
                              .internal_sd_card_setup = 1};
 
