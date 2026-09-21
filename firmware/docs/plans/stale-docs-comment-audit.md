@@ -19,7 +19,7 @@ make every comment/doc match the current code. These are doc/comment edits + a f
 trivial dead-symbol cleanups + one dialect-enum addition; **no behavioral code
 change**.
 
-Scope note: historical `docs/journal/log-analysis/2026*` archives are
+Scope note: the historical flight-log archives (now in [vayu-logs](https://github.com/ragnar-vallhala/vayu-logs)) are
 point-in-time records and are NOT edited. `navigator/src/vsim/**`
 (renderer/procgen) excluded.
 

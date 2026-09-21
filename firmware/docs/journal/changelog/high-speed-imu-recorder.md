@@ -8,13 +8,13 @@ existing. Newest first.
 Format spec: [`firmware/include/storage/imu_hs_log.h`](../../../include/storage/imu_hs_log.h).
 Decoder: [`tools/telemetry/hslog.py`](../../../../tools/telemetry/hslog.py).
 First archive and its findings:
-[`log-analysis/20260909-001748-imu-never-configured/`](../log-analysis/20260909-001748-imu-never-configured/).
+[`log-analysis/20260909-001748-imu-never-configured/`](https://github.com/ragnar-vallhala/vayu-logs/blob/main/20260909-001748-imu-never-configured).
 
 ---
 
 ## 2026-09-09 — What the recorder found
 
-Written up in full in the log-analysis archive above; summarised here because
+Written up in full in the vayu-logs session linked above; summarised here because
 it is the reason the recorder was worth building.
 
 **The BMX160 has never been configured.** `bmx160_init()` only ever *reads* its

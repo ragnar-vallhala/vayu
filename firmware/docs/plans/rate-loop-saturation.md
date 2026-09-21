@@ -27,7 +27,7 @@ be flown again until at least items 1 and 2 of §4 land.
 ## 0. Prior art — read this first
 
 The 2026-06-25 **pitch/INDI campaign**
-(`firmware/docs/journal/log-analysis/20260625-233852-pitch-indi-campaign/`)
+(the `20260625-233852-pitch-indi-campaign` session in [vayu-logs](https://github.com/ragnar-vallhala/vayu-logs))
 already identified this failure, measured sim-vs-real parity, and ranked the
 fixes. Its conclusions, which this plan defers to:
 

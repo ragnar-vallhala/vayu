@@ -161,7 +161,7 @@ done
 
 # Anything left is unanalysed: wire up its build, add it to NODB, or delete it
 # if nothing builds it any more. firmware/docs carries scratch sources attached
-# to log-analysis journals; those are archive, not tree.
+# to its journals; those are archive, not tree.
 missed="$(git ls-files '*.c' '*.cpp' | grep -vE '^(extern|firmware/docs)/' | sort -u \
            | comm -13 <(sort -u "$analysed") -)"
 if [ -z "$missed" ]; then

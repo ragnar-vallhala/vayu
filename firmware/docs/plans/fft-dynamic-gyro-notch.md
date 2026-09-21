@@ -6,7 +6,7 @@ analog ESCs with **no RPM telemetry**, so an FFT of the live gyro spectrum is th
 only honest source of *where* the vibration actually is — hence "dynamic notch"
 (the center frequency follows the spectrum) rather than a fixed static notch.
 
-Design reference: [`reference-autopilots-comparison.md`](../journal/log-analysis/20260625-233852-pitch-indi-campaign/reference-autopilots-comparison.md)
+Design reference: [`reference-autopilots-comparison.md`](https://github.com/ragnar-vallhala/vayu-logs/blob/main/20260625-233852-pitch-indi-campaign/reference-autopilots-comparison.md)
 §10.5–§10.6 and `recommendations.md` P3 #7. Built bottom-up: FFT engine → biquad
 evaluator → analysis front-end → notch bank → firmware glue → tuning surface.
 

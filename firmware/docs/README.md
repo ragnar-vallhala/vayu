@@ -47,7 +47,7 @@ The FC component is rooted here in `docs/`.
   - subsystems: [tasks/](reference/tasks/README.md) · [state-machine/](reference/state-machine/README.md) · [sensor-fusion/](reference/sensor-fusion/README.md) · [imu/](reference/imu/sensor_data_flow.md) · [datasheet/](reference/datasheet/)
 - **[plans/](plans/README.md)** — active FC plans ([altitude-hold-and-in-air-plan.md](plans/altitude-hold-and-in-air-plan.md))
 - **[journal/](journal/README.md)** — persistent record
-  - [log-analysis/](journal/log-analysis/README.md) (time-ordered flight-log captures) · [deferred/](journal/deferred/) (open findings) · [memory_report.md](journal/memory_report.md) · [changelog/](journal/changelog/)
+  - [log-analysis/](https://github.com/ragnar-vallhala/vayu-logs/blob/main/README.md) (time-ordered flight-log captures) · [deferred/](journal/deferred/) (open findings) · [memory_report.md](journal/memory_report.md) · [changelog/](journal/changelog/)
 - **[scratch/](scratch/README.md)** — exploratory studies ([application-layer-sandbox.md](scratch/application-layer-sandbox.md))
 
 > **Outside the taxonomy:** [`blog/`](blog/pid-autotuning/index.md) holds

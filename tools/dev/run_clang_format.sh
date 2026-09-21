@@ -19,9 +19,9 @@
 # command in a comment: CI and a developer must exclude the same things, and
 # a bare `git ls-files | xargs clang-format` excludes neither.
 #
-#   firmware/docs/  the log-analysis journals archive source snapshots that are
-#                   EVIDENCE of what a file looked like when it was analysed.
-#                   Reformatting them rewrites the record.
+#   firmware/docs/  the journals archive source snapshots that are EVIDENCE of
+#                   what a file looked like when it was analysed. Reformatting
+#                   them rewrites the record.
 #   extern/         vendored; a submodule, so not in this index anyway.
 #
 # A .clang-format-ignore would be the tidy way to say this, but the pip

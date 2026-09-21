@@ -6,7 +6,7 @@ tree are comments about sag in `height_controller.h`, `rate_indi.h` and
 `flight_phase.h`. The consequence is that **"low pack" and "real thrust deficit"
 are indistinguishable in every recording we can make**, which is exactly the
 ambiguity that blocked the 2026-09-17 flight analysis (see
-[`journal/log-analysis/20260917-010314-stable-flights/analysis.md`](../journal/log-analysis/20260917-010314-stable-flights/analysis.md)
+[`journal/log-analysis/20260917-010314-stable-flights/analysis.md`](https://github.com/ragnar-vallhala/vayu-logs/blob/main/20260917-010314-stable-flights/analysis.md)
 §1): hover throttle 0.58–0.69 against a ~0.38 design hover, packs swapped
 mid-session, and no way to attribute any of it.
 
