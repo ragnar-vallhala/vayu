@@ -35,6 +35,7 @@
 #include "variables.h"
 #include "vayu_assert.h"
 #include "vayu_status.h"
+#include "hub/hub.h" /* imu_buffer_init */
 #include "vayu_tasks.h"
 
 #ifdef EKF_SELFTEST

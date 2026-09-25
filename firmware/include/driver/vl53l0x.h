@@ -81,6 +81,11 @@
  * one read again. */
 #define VL53L0X_REG_BURST_START VL53L0X_REG_RESULT_INT_STATUS
 #define VL53L0X_DATA_LEN 13
+/* Read but no longer decoded. The burst starts here because that is what made
+ * the interrupt question answerable -- it came back 0 on every sample, which
+ * is what retired the "needs a per-sample interrupt clear" risk. Keeping the
+ * start address costs one byte and keeps every other offset where a decoder
+ * already expects it. */
 #define VL53L0X_OFF_INT_STATUS 0
 #define VL53L0X_OFF_RANGE_STATUS 1
 #define VL53L0X_OFF_RANGE_MM 11

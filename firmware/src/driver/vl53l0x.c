@@ -30,14 +30,8 @@
  * polling at 20 ms keeps the published value fresh without busy-waiting. */
 #define VL53L0X_TASK_PERIOD_MS 20
 
-/* Bring-up: log status + raw mm once a second so a bench run shows whether the
- * sensor is actually ranging. Delete once a real consumer exists. */
-#define VL53L0X_LOG_EVERY (1000 / VL53L0X_TASK_PERIOD_MS)
-
 static volatile uint8_t _initialized = 0;
 static uint8_t _have_sample = 0;
-/* Bring-up diagnostic: the device's interrupt status as of the last decode. */
-static volatile uint8_t _last_int_status = 0;
 
 /* Raw 12-byte result block, fed by the IMU DMA callback (ISR) and consumed by
  * the decode task. _raw_fresh is the single-word handshake (producer sets,
@@ -104,7 +98,6 @@ static void vl53l0x_decode_and_publish(const uint8_t *d) {
   uint8_t status = (uint8_t)((d[VL53L0X_OFF_RANGE_STATUS] >> 3) & 0x0F);
   uint16_t mm = (uint16_t)(((uint16_t)d[VL53L0X_OFF_RANGE_MM] << 8) |
                            (uint16_t)d[VL53L0X_OFF_RANGE_MM + 1]);
-  _last_int_status = (uint8_t)(d[VL53L0X_OFF_INT_STATUS] & 0x07);
 
   /* status/range_mm track EVERY decode (the bring-up log wants to see the
    * out-of-range ones too); range_m and timestamp advance only on an in-window
@@ -174,7 +167,6 @@ hal_status_t vl53l0x_init(void) {
 /** @noreq Off-ISR decode of the raw result block fed by the IMU loop. */
 void vl53l0x_read_task(void *args) {
   (void)args;
-  uint32_t ticks = 0;
   while (1) {
     if (_raw_fresh) {
       uint8_t snap[VL53L0X_DATA_LEN];
@@ -186,10 +178,6 @@ void vl53l0x_read_task(void *args) {
         snap[i] = _raw[i];
       }
       vl53l0x_decode_and_publish(snap);
-    }
-    if (_initialized && ++ticks % VL53L0X_LOG_EVERY == 0) {
-      vayu_log("VL53L0X: %d mm (status %d, int %d)", (int)_last.range_mm,
-               (int)_last.status, (int)_last_int_status);
     }
     v_delay(VL53L0X_TASK_PERIOD_MS);
   }
