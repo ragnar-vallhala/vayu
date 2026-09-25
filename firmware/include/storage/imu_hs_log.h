@@ -269,6 +269,23 @@
  * whole point -- two files with independent clocks could not be lined up. */
 #define HSL_STREAM_TXT 6u
 #define HSL_TXT_REC_BYTES 1u
+/* The attitude estimate the controller actually acted on. ARMED-gated: it is
+ * a 50 Hz stream and what it explains -- why the rate loop was commanded what
+ * it was -- only exists once the props can turn. Roll/pitch/yaw rather than
+ * the quaternion: analysis is done in Euler angles, and the quaternion costs
+ * twice the bytes to say the same thing. */
+#define HSL_STREAM_ATT 7u
+#define HSL_ATT_REC_BYTES 8u /* 3x i16 rpy, u16 flags                        */
+#define HSL_ATT_DEG_PER_LSB 0.01f
+#define HSL_ATT_F_DEGRADED 0x0001u
+/* Pilot input, as the FC saw it after failsafe substitution. NOT arm-gated:
+ * the arm gesture, the stick positions the preconditions were judged against,
+ * and a failsafe that fires on the ground are all DISARMED events, and an
+ * armed-only record of them would be empty exactly when it mattered. Low
+ * enough rate to leave running -- see the idle-burn note on HSL_FILE_SIZE. */
+#define HSL_STREAM_RC 8u
+#define HSL_RC_REC_BYTES 30u /* 14x u16 channel, u16 flags                   */
+#define HSL_RC_F_FAILSAFE 0x0001u
 /* The PID output is normalised -1..1, so one count is a 32767th of full
  * authority. Rates need no constant of their own: they reuse the gyro's count
  * scale so that "ctl" and "imu" decode to identical units. */
@@ -284,6 +301,14 @@
  * knows the nominal rate; the stream itself is undecimated, because the
  * producer is already paced at exactly this rate (see the stream table). */
 #define HSL_CTL_RATE_HZ 1000u
+/* The estimator runs faster than this; 50 Hz is what the attitude loop and
+ * the telemetry view both work at, and it is plenty to see a divergence. */
+#define HSL_ATT_RATE_HZ 50u
+/* Deliberately below the link's ~11 Hz and the receiver's frame rate: this
+ * stream runs whether or not the aircraft is armed, so its cost is paid
+ * during bench idle too. 10 Hz resolves a stick movement and a switch flip
+ * without burning the ring while nothing is happening. */
+#define HSL_RC_RATE_HZ 10u
 
 /* "act" flag bits. */
 #define HSL_ACT_F_ARMED 0x0001u
@@ -362,6 +387,10 @@
 /* Text is burstier than RX (boot and calibration emit runs of lines) but
  * still nowhere near a rate; 2 plus the idle flush is ample. */
 #define HSL_TXT_BUFFERS 2u
+/* att fills a sector every ~1.2 s, rc every ~1.6 s: both far slower than the
+ * sampled streams, so 2 apiece is ample. */
+#define HSL_ATT_BUFFERS 2u
+#define HSL_RC_BUFFERS 2u
 
 /* A byte stream can sit half-full for a long time: nobody sends a command for
  * minutes, and a sector only publishes when it fills. Flush a partial sector
@@ -502,6 +531,14 @@ void imu_hs_log_wire_rx(const uint8_t *data, uint16_t len, uint32_t t_cyc);
  * is never worth stalling a caller for.
  */
 void imu_hs_log_wire_txt(const uint8_t *data, uint16_t len, uint32_t t_cyc);
+
+/** Attitude estimate, armed-gated. Angles in degrees. */
+void imu_hs_log_att(float roll, float pitch, float yaw, uint8_t degraded,
+                    uint32_t t_cyc);
+
+/** Pilot input as the FC saw it, recorded whether armed or not. */
+void imu_hs_log_rc(const uint16_t *channels, uint8_t n, uint8_t failsafe,
+                   uint32_t t_cyc);
 
 void imu_hs_log_drain(void);
 

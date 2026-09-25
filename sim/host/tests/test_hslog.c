@@ -151,6 +151,34 @@ int main(void) {
     imu_hs_log_sample((int16_t[3]){9, 9, 9}, (int16_t[3]){9, 9, 9}, 0);
     imu_hs_log_drain(); /* queued RX sector must open a session on its own */
     CHECK(imu_hs_log_active(), "disarmed RX opens a recording session");
+
+    /* Pilot input is recorded disarmed -- the arm gesture is a disarmed
+     * event, so an arm-gated RC stream would be empty exactly when it
+     * matters. The attitude estimate is NOT: it is a 50 Hz stream whose
+     * subject only exists once the props can turn. Both are offered here at
+     * the same moment, and only one may be taken. */
+    /* Offer FAR more attitude than the stream's two buffers could hold. If it
+     * were recording while disarmed, the sectors would fill with nothing
+     * draining them and the drop counter would move. It must not. */
+    const uint32_t before = imu_hs_log_dropped();
+    for (int k = 0; k < 4000; k++) {
+      imu_hs_log_att(1.0f, -2.0f, 3.0f, 0u,
+                     (uint32_t)(k + 1) * (CYC_PER_SAMPLE * 40u));
+    }
+    CHECK(imu_hs_log_dropped() == before,
+          "attitude is not recorded while disarmed");
+
+    /* Pilot input at the same moment IS taken: the arm gesture is a disarmed
+     * event, so an arm-gated RC stream would be empty exactly when it
+     * matters. One sector's worth, drained as the FS task would. */
+    const uint16_t ch[14] = {1500, 1500, 1000, 1500, 1000, 1000, 1000,
+                             1000, 1000, 1000, 1000, 1000, 1000, 1000};
+    for (int k = 0; k < (int)(HSL_BLOCK_PAYLOAD_BYTES / HSL_RC_REC_BYTES);
+         k++) {
+      imu_hs_log_rc(ch, 14, 0u, (uint32_t)(k + 1) * (CYC_PER_SAMPLE * 400u));
+    }
+    imu_hs_log_drain();
+    CHECK(imu_hs_log_dropped() == before, "the RC sector was taken, not lost");
     _system_current_status = SYSTEM_STATE_STANDBY;
     imu_hs_log_drain();
     CHECK(!imu_hs_log_active(), "and it closes once the RX sector is written");

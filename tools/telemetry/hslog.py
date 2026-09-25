@@ -503,7 +503,7 @@ def verify_encoder_file(path):
     assert hdr["wraps"] >= 1, "test should have wrapped the ring: %r" % hdr
 
     # --- every stream declared, with its rate and layout -------------------
-    assert sorted(streams) == [1, 2, 3, 4, 5, 6], sorted(streams)
+    assert sorted(streams) == [1, 2, 3, 4, 5, 6, 7, 8], sorted(streams)
     imu, act, vrt, ctl = streams[1], streams[2], streams[3], streams[4]
     assert (imu.rec_bytes, imu.rate_hz) == (12, 2000), vars(imu)
     assert (act.rec_bytes, act.rate_hz) == (12, 400), vars(act)
@@ -526,6 +526,16 @@ def verify_encoder_file(path):
     txt = streams[6]
     assert (txt.rec_bytes, txt.rate_hz) == (1, 0), vars(txt)
     assert txt.names == ["char"], txt.names
+
+    # att is the estimate the controller acted on; rc is pilot input as the FC
+    # saw it after failsafe substitution. rc is NOT arm-gated -- the arm
+    # gesture itself is a disarmed event.
+    att = streams[7]
+    assert (att.rec_bytes, att.rate_hz) == (8, 50), vars(att)
+    assert att.names == ["roll", "pitch", "yaw", "flags"], att.names
+    rc = streams[8]
+    assert (rc.rec_bytes, rc.rate_hz) == (30, 10), vars(rc)
+    assert rc.names[:2] == ["ch1", "ch2"] and rc.names[-1] == "flags", rc.names
     # "ctl" rates share the gyro's count scale so the two streams can be
     # differenced; "imu" carries the sensor->body sign map, "ctl" does not.
     assert ctl.fields[0][2] == abs(imu.fields[0][2]), (ctl.fields[0], imu.fields[0])

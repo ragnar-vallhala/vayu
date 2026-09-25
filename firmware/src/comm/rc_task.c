@@ -16,6 +16,7 @@
  */
 #include "vayu_tasks.h"
 #include "comm/ibus.h"
+#include "storage/imu_hs_log.h" /* blackbox RC stream */
 #include "comm/rc_buffer.h"
 #include "ipc.h"
 #include "navhal.h"
@@ -97,6 +98,12 @@ static void rc_apply_frame(void) {
     }
   }
 
+  /* Blackbox: what the FC saw AFTER failsafe substitution, which is what it
+   * acted on -- not what the receiver sent. Recorded armed or not: the arm
+   * gesture and the stick positions the preconditions were judged against are
+   * disarmed events. Decimated to HSL_RC_RATE_HZ inside the recorder. */
+  imu_hs_log_rc(ibus_raw_data.channels, IBUS_MAX_CHANNELS,
+                ibus_raw_data.is_failsafe ? 1u : 0u, hal_cycle_counter_get());
   rc_queue_control_push(&ibus_raw_data);
   rc_queue_telemetry_push(&ibus_raw_data);
 }
@@ -175,6 +182,13 @@ void rc_ibus_task(void *args) {
       if (!sim_rc_force_loss) {
         rc_mark_frame_valid();
       }
+      /* Blackbox: what the FC saw AFTER failsafe substitution, which is what it
+   * acted on -- not what the receiver sent. Recorded armed or not: the arm
+   * gesture and the stick positions the preconditions were judged against are
+   * disarmed events. Decimated to HSL_RC_RATE_HZ inside the recorder. */
+      imu_hs_log_rc(ibus_raw_data.channels, IBUS_MAX_CHANNELS,
+                    ibus_raw_data.is_failsafe ? 1u : 0u,
+                    hal_cycle_counter_get());
       rc_queue_control_push(&ibus_raw_data);
       rc_queue_telemetry_push(&ibus_raw_data);
       rc_watchdog_step();

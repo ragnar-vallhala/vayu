@@ -75,6 +75,8 @@ static uint8_t s_vrt_bufs[HSL_VRT_BUFFERS][HSL_SECTOR_BYTES];
 static uint8_t s_ctl_bufs[HSL_CTL_BUFFERS][HSL_SECTOR_BYTES];
 static uint8_t s_rx_bufs[HSL_RX_BUFFERS][HSL_SECTOR_BYTES];
 static uint8_t s_txt_bufs[HSL_TXT_BUFFERS][HSL_SECTOR_BYTES];
+static uint8_t s_att_bufs[HSL_ATT_BUFFERS][HSL_SECTOR_BYTES];
+static uint8_t s_rc_bufs[HSL_RC_BUFFERS][HSL_SECTOR_BYTES];
 
 enum {
   HSL_S_IMU = 0,
@@ -83,6 +85,8 @@ enum {
   HSL_S_CTL,
   HSL_S_RX,
   HSL_S_TXT,
+  HSL_S_ATT,
+  HSL_S_RC,
   HSL_N_STREAMS
 };
 
@@ -142,6 +146,20 @@ static hsl_stream_t s_streams[HSL_N_STREAMS] = {
                    .rec_bytes = HSL_TXT_REC_BYTES,
                    .cap = HSL_BLOCK_PAYLOAD_BYTES / HSL_TXT_REC_BYTES,
                    .decim_cyc = 0u},
+    [HSL_S_ATT] = {.armed_only = 1u,
+                   .bufs = &s_att_bufs[0][0],
+                   .n_bufs = HSL_ATT_BUFFERS,
+                   .stream_id = HSL_STREAM_ATT,
+                   .rec_bytes = HSL_ATT_REC_BYTES,
+                   .cap = HSL_BLOCK_PAYLOAD_BYTES / HSL_ATT_REC_BYTES,
+                   .decim_cyc = (uint32_t)SYS_CLOCK_FREQ / HSL_ATT_RATE_HZ},
+    [HSL_S_RC] = {.armed_only = 0u,
+                  .bufs = &s_rc_bufs[0][0],
+                  .n_bufs = HSL_RC_BUFFERS,
+                  .stream_id = HSL_STREAM_RC,
+                  .rec_bytes = HSL_RC_REC_BYTES,
+                  .cap = HSL_BLOCK_PAYLOAD_BYTES / HSL_RC_REC_BYTES,
+                  .decim_cyc = (uint32_t)SYS_CLOCK_FREQ / HSL_RC_RATE_HZ},
 };
 
 /* Set by the FS task from the flight state; read by producers via
@@ -464,8 +482,44 @@ _Static_assert(HSL_FILE_HDR_BYTES + HSL_FMT_BYTES(6u) /* imu */
                        + HSL_FMT_BYTES(8u)            /* vrt */
                        + HSL_FMT_BYTES(1u)            /* rx  */
                        + HSL_FMT_BYTES(1u)            /* txt */
+                       + HSL_FMT_BYTES(4u)            /* att */
+                       + HSL_FMT_BYTES(15u)           /* rc  */
                    <= HSL_PREAMBLE_BYTES,
                "FMT declarations no longer fit the preamble");
+
+/** @noreq attitude capture; RAM-only sector fill */
+void imu_hs_log_att(float roll, float pitch, float yaw, uint8_t degraded,
+                    uint32_t t_cyc) {
+  hsl_stream_t *st = &s_streams[HSL_S_ATT];
+  uint8_t *r = stream_claim(st, t_cyc);
+  if (r == NULL) {
+    return;
+  }
+  put_u16(&r[0], (uint16_t)scaled_to_i16(roll, 1.0f / HSL_ATT_DEG_PER_LSB));
+  put_u16(&r[2], (uint16_t)scaled_to_i16(pitch, 1.0f / HSL_ATT_DEG_PER_LSB));
+  put_u16(&r[4], (uint16_t)scaled_to_i16(yaw, 1.0f / HSL_ATT_DEG_PER_LSB));
+  put_u16(&r[6], degraded ? (uint16_t)HSL_ATT_F_DEGRADED : 0u);
+  stream_commit(st, t_cyc);
+}
+
+/** @noreq pilot-input capture; RAM-only sector fill */
+void imu_hs_log_rc(const uint16_t *channels, uint8_t n, uint8_t failsafe,
+                   uint32_t t_cyc) {
+  if (channels == NULL) {
+    return;
+  }
+  hsl_stream_t *st = &s_streams[HSL_S_RC];
+  uint8_t *r = stream_claim(st, t_cyc);
+  if (r == NULL) {
+    return;
+  }
+  const uint8_t lim = (n > 14u) ? 14u : n;
+  for (uint8_t i = 0; i < 14u; i++) {
+    put_u16(&r[(size_t)i * 2u], (i < lim) ? channels[i] : 0u);
+  }
+  put_u16(&r[28], failsafe ? (uint16_t)HSL_RC_F_FAILSAFE : 0u);
+  stream_commit(st, t_cyc);
+}
 
 /** @noreq byte-stream append; RAM-only sector fill, any task */
 static void wire_append(hsl_stream_t *st, const uint8_t *data, uint16_t len,
@@ -569,6 +623,30 @@ static void build_preamble(void) {
                (const hsl_field_t[]){{"byte", HSL_FTYPE_U8, 1.0f}}, 1u);
   f = emit_fmt(f, HSL_STREAM_TXT, HSL_TXT_REC_BYTES, 0u,
                (const hsl_field_t[]){{"char", HSL_FTYPE_U8, 1.0f}}, 1u);
+  f = emit_fmt(
+      f, HSL_STREAM_ATT, HSL_ATT_REC_BYTES, (uint16_t)HSL_ATT_RATE_HZ,
+      (const hsl_field_t[]){{"roll", HSL_FTYPE_I16, HSL_ATT_DEG_PER_LSB},
+                            {"pitch", HSL_FTYPE_I16, HSL_ATT_DEG_PER_LSB},
+                            {"yaw", HSL_FTYPE_I16, HSL_ATT_DEG_PER_LSB},
+                            {"flags", HSL_FTYPE_U16, 1.0f}},
+      4u);
+  f = emit_fmt(f, HSL_STREAM_RC, HSL_RC_REC_BYTES, (uint16_t)HSL_RC_RATE_HZ,
+               (const hsl_field_t[]){{"ch1", HSL_FTYPE_U16, 1.0f},
+                                     {"ch2", HSL_FTYPE_U16, 1.0f},
+                                     {"ch3", HSL_FTYPE_U16, 1.0f},
+                                     {"ch4", HSL_FTYPE_U16, 1.0f},
+                                     {"ch5", HSL_FTYPE_U16, 1.0f},
+                                     {"ch6", HSL_FTYPE_U16, 1.0f},
+                                     {"ch7", HSL_FTYPE_U16, 1.0f},
+                                     {"ch8", HSL_FTYPE_U16, 1.0f},
+                                     {"ch9", HSL_FTYPE_U16, 1.0f},
+                                     {"ch10", HSL_FTYPE_U16, 1.0f},
+                                     {"ch11", HSL_FTYPE_U16, 1.0f},
+                                     {"ch12", HSL_FTYPE_U16, 1.0f},
+                                     {"ch13", HSL_FTYPE_U16, 1.0f},
+                                     {"ch14", HSL_FTYPE_U16, 1.0f},
+                                     {"flags", HSL_FTYPE_U16, 1.0f}},
+               15u);
 
   /* PAD out to the sector. Skipped by the generic `len` rule, so no decoder
    * needs to know it exists. */

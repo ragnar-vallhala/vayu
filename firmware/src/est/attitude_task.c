@@ -40,6 +40,7 @@
 #include "est/est.h"
 #include "sys/clock.h"
 #include "hub/hub.h"
+#include "storage/imu_hs_log.h"    /* blackbox attitude stream */
 #include "maths/maths_interface.h" /* m_sqrt, for the mag normalisation */
 #include "vaios.h"
 #include "vaios_app_config.h"
@@ -211,6 +212,11 @@ void attitude_task(void *args) {
       ori.pitch -= trim_pitch;
     }
 
+    /* Blackbox: the estimate the controller is about to act on, stamped with
+     * the same acquisition time as the IMU sample behind it. Arm-gated inside
+     * the recorder, and decimated there to HSL_ATT_RATE_HZ. */
+    imu_hs_log_att(ori.roll, ori.pitch, ori.yaw, ori.degraded ? 1u : 0u,
+                   ori.timestamp);
     attitude_queue_telemetry_push(&ori);
     attitude_queue_control_push(&ori);
 
