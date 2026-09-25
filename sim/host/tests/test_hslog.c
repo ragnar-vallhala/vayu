@@ -179,6 +179,7 @@ int main(void) {
     }
     imu_hs_log_drain();
     CHECK(imu_hs_log_dropped() == before, "the RC sector was taken, not lost");
+
     _system_current_status = SYSTEM_STATE_STANDBY;
     imu_hs_log_drain();
     CHECK(!imu_hs_log_active(), "and it closes once the RX sector is written");

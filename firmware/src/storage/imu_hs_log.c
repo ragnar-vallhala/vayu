@@ -163,6 +163,23 @@ static hsl_stream_t s_streams[HSL_N_STREAMS] = {
                   .decim_cyc = (uint32_t)SYS_CLOCK_FREQ / HSL_RC_RATE_HZ},
 };
 
+/* Every stream's records must fit the block payload. cap is derived by
+ * division so this holds by construction today -- it is asserted because the
+ * derivation is per-entry in the table above, and a stream added with a
+ * hand-written cap, or a rec_bytes that does not divide evenly, would
+ * otherwise only show up as a corrupted sector on a card someone pulls after
+ * a flight. */
+#define HSL_FITS(rec)                                                          \
+  ((HSL_BLOCK_PAYLOAD_BYTES / (rec)) * (rec) <= HSL_BLOCK_PAYLOAD_BYTES)
+_Static_assert(HSL_FITS(HSL_IMU_REC_BYTES), "imu records overrun the block");
+_Static_assert(HSL_FITS(HSL_ACT_REC_BYTES), "act records overrun the block");
+_Static_assert(HSL_FITS(HSL_VRT_REC_BYTES), "vrt records overrun the block");
+_Static_assert(HSL_FITS(HSL_CTL_REC_BYTES), "ctl records overrun the block");
+_Static_assert(HSL_FITS(HSL_RX_REC_BYTES), "rx records overrun the block");
+_Static_assert(HSL_FITS(HSL_TXT_REC_BYTES), "txt records overrun the block");
+_Static_assert(HSL_FITS(HSL_ATT_REC_BYTES), "att records overrun the block");
+_Static_assert(HSL_FITS(HSL_RC_REC_BYTES), "rc records overrun the block");
+
 /* Set by the FS task from the flight state; read by producers via
  * stream_claim. One word, one writer. */
 static volatile uint8_t s_armed = 0;
@@ -275,6 +292,19 @@ static uint8_t *stream_claim(hsl_stream_t *st, uint32_t t_cyc) {
   /* Decimate on the cycle stamp, so the rate holds whatever rate the caller
    * happens to run at. Wrap-safe unsigned delta. */
   if (st->decim_cyc != 0u && (uint32_t)(t_cyc - st->last_cyc) < st->decim_cyc) {
+    return NULL;
+  }
+
+  /* Never hand back a pointer past the end of the sector. stream_commit
+   * resets fill at cap, so in correct operation this cannot fire -- it is
+   * here because the cost of being wrong is not a lost record but a write
+   * into whatever .bss follows the buffer, and `fill` is owned by the
+   * producer with no lock. Every stream but one has a single producer and
+   * that is safe; the text stream does not, and the next stream someone adds
+   * might not either. A bound here is cheaper than trusting each new call
+   * site to have got the discipline right. */
+  if (st->fill >= st->cap) {
+    s_dropped++;
     return NULL;
   }
 
