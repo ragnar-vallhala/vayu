@@ -157,6 +157,36 @@ int xfer_on_open(const xfer_open_args_t *a) {
     return XFER_RES_TEMPORARILY_REJECTED; /* slot busy with another transfer */
   }
 
+  /* One direction at a time on the filesystem. A file upload holds the write
+   * fd cache (s_wfd) and a file download holds the read cache (s_rfd), so
+   * allowing both at once puts two of FatFS's four slots in GCS hands for the
+   * length of a transfer -- on top of the HSL recorder's and whatever
+   * transient open the FS task is servicing. That is the whole budget, with
+   * nothing left for a calibration save.
+   *
+   * Only FILE mode counts. A stream session is storage-free (the stream
+   * provider's read is NULL and it never opens anything), so streaming
+   * telemetry while a file uploads costs no slot and stays allowed.
+   *
+   * TEMPORARILY_REJECTED, not DENIED: this succeeds once the other transfer
+   * finishes, and the GCS should retry rather than conclude it lacks the
+   * capability -- same distinction the HSL delete makes with BUSY. */
+  if (a->mode == XFER_MODE_FILE) {
+    for (uint8_t i = 0; i < XFER_MAX_SESSIONS; i++) {
+      const xfer_session_t *o = &s_sessions[i];
+      /* Only a session still moving data holds an fd. A DONE_LINGER session
+       * has already had provider->close called and is being kept purely to
+       * answer late acks, so it must not block the opposite direction -- an
+       * upload immediately followed by a download is the normal GCS pattern,
+       * not a conflict. */
+      if (i == a->session || o->state == XFER_ST_FREE ||
+          o->state == XFER_ST_DONE_LINGER)
+        continue;
+      if (o->mode == XFER_MODE_FILE && o->dir != a->dir)
+        return XFER_RES_TEMPORARILY_REJECTED;
+    }
+  }
+
   const xfer_provider_t *p = find_provider(a->service_id);
   if (p == NULL)
     return XFER_RES_UNSUPPORTED;

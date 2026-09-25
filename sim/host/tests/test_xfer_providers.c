@@ -162,7 +162,10 @@ static void test_file_roundtrip(void) {
   CHECK(n == (int)sizeof src && memcmp(chk, src, sizeof src) == 0,
         "FILE upload persisted to SD via fs_owner");
 
-  /* download the same file back */
+  /* download the same file back. Tick first so the upload goes terminal and
+   * releases the write fd -- one FS direction runs at a time, so a still-ACTIVE
+   * upload rejects the download rather than holding two FatFS slots. */
+  xfer_tick(5, 0, 8);
   cap_reset();
   xfer_open_args_t dn =
       mkargs(1, XFER_DIR_DOWNLOAD, XFER_MODE_FILE, XFER_SVC_FILE, path, 0);
