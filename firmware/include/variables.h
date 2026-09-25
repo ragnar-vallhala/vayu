@@ -74,7 +74,13 @@
 #define BMX_MAG_ODR BMX160_ODR_50HZ
 
 // Comm settings
-#define MAX_SERIAL_HANDLERS 3
+/* One slot per UART that get_handler() is actually asked for. Today that is
+ * telemetry (USART6) and nothing else -- RC drives its UART directly rather
+ * than through a channel. Each slot costs 4112 B of .bss (2 x 2048 B ping-pong
+ * TX), so a spare slot is not free the way an unused #define usually is.
+ * Raise this when a second channel is claimed; get_handler_serial returns
+ * ERROR on exhaustion and main.c checks it. */
+#define MAX_SERIAL_HANDLERS 1
 #define INCOMING_PACKET_BUFFER 3
 
 // Timer Callbacks
