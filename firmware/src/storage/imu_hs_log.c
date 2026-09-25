@@ -35,6 +35,7 @@
 #include "sys/clock.h" /* vayu_clock_hz -- the measured rate, for the header */
 #include "sys/state.h"
 #include "sys/sys_utils.h" /* get_timestamp_unix, time_sync_is_synced */
+#include "port.h"          /* ENTER/EXIT_CRITICAL */
 #include "utils.h"         /* v_memcpy */
 #include "variables.h"
 #include "vfs.h"
@@ -550,7 +551,20 @@ void imu_hs_log_wire_rx(const uint8_t *data, uint16_t len, uint32_t t_cyc) {
 
 /** @noreq vayu_log text capture */
 void imu_hs_log_wire_txt(const uint8_t *data, uint16_t len, uint32_t t_cyc) {
+  /* The ONLY stream with more than one producer. Every other one is filled by
+   * a single task, which is what makes the head/fill pair safe to own without
+   * a lock -- but vayu_log is called from the IMU task, the estimators, comm,
+   * the drivers and the FS task itself. Two of them interleaving between
+   * stream_claim and stream_commit would hand both the same slot and race
+   * `fill`, and a `fill` that slipped past `cap` would have claim return a
+   * pointer past the end of the sector -- a write into whatever .bss follows.
+   *
+   * A critical section rather than a queue: the payload is at most 128 bytes
+   * (log_buf in log_text.c), so this is a couple of microseconds against a
+   * 1 kHz rate loop, and it costs no RAM on a part that has none spare. */
+  ENTER_CRITICAL();
   wire_append(&s_streams[HSL_S_TXT], data, len, t_cyc);
+  EXIT_CRITICAL();
 }
 
 /** @noreq builds sector 0 from the current cursor */
