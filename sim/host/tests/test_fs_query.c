@@ -232,15 +232,15 @@ static void test_delete_hsl_state_gated(void) {
   imu_hs_log_drain(); /* opens a session: the recorder now holds the file */
   CHECK(imu_hs_log_active(), "recorder is active while armed");
   CHECK(delete_result(0x35, HSL_FILENAME) == FSQ_RES_BUSY,
-        "FS_DELETE of imuhs.bin while recording -> TEMPORARILY_REJECTED");
-  CHECK(exists(HSL_FILENAME), "imuhs.bin survived while recording");
+        "FS_DELETE of the blackbox while recording -> TEMPORARILY_REJECTED");
+  CHECK(exists(HSL_FILENAME), "the blackbox survived while recording");
 
   _system_current_status = SYSTEM_STATE_STANDBY;
   imu_hs_log_drain(); /* closes the session */
   CHECK(!imu_hs_log_active(), "recorder stopped on disarm");
   CHECK(delete_result(0x36, HSL_FILENAME) == FSQ_RES_OK,
-        "FS_DELETE of imuhs.bin once disarmed -> ACCEPTED");
-  CHECK(!exists(HSL_FILENAME), "imuhs.bin deleted once disarmed");
+        "FS_DELETE of the blackbox once disarmed -> ACCEPTED");
+  CHECK(!exists(HSL_FILENAME), "the blackbox is deleted once disarmed");
 }
 
 int main(void) {

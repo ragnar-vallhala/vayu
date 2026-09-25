@@ -122,7 +122,7 @@ static void run_session(int n_samples) {
 int main(void) {
   printf("== HSL wire-format verification ==\n");
   setenv("VAYU_VFS_DIR", "/tmp/vayu_hslog_test", 1);
-  remove("/tmp/vayu_hslog_test/0_imuhs.bin"); /* isolate from a previous run */
+  remove("/tmp/vayu_hslog_test/0_blackbox.bin"); /* isolate from a prior run */
 
   imu_hs_log_set_scale(0.0610351562f, 0.0047884034f); /* 2000 dps, 16 g */
   imu_hs_log_boot_init();

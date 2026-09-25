@@ -477,7 +477,7 @@ extern channel_t g_telemetry_channel;
  * wrote to; those are gone and their one live use, the text log, is a stream
  * in here instead. 8.3 name -- FF_USE_LFN is 0 and a longer name fails
  * vfs_open with FR_INVALID_NAME. */
-#define HSL_FILENAME "0:imuhs.bin"
+#define HSL_FILENAME "0:blackbox.bin"
 #ifdef VAYU_SIM
 /* 64 sectors -> a 63-slot ring: small enough that test_hslog can drive it all
  * the way round, big enough to hold two multi-stream sessions first. Bounded by
@@ -489,9 +489,12 @@ extern channel_t g_telemetry_channel;
  * resumes across power cycles, so the file holds the last HSL_FILE_SIZE of
  * armed time however many arms and boots that spans.
  * 32 MB = ~22 min at 2 kHz x 12 B -- a whole props-on bench session, not just
- * one pack. The only cost of size is a ONE-TIME boot stall the first time the
- * card is used (v_preallocate zero-fills sector by sector, then FR_EXIST skips
- * it forever after), and the three 10 MB blackbox rings already dominate that.
+ * one pack. Size is close to free here: imu_hs_log_boot_init() creates the
+ * file by seeking past EOF and writing one byte, which allocates the cluster
+ * chain in ~8 FAT sector writes and never touches the data sectors. It does
+ * NOT use vfs_preallocate, which would zero-fill all 65536 of them -- see the
+ * note in imu_hs_log.c. The clusters therefore come back holding whatever the
+ * card had before, which is what HSL_RING_SENTINEL is for.
  *
  * NB raising this later still works -- imu_hs_log_boot_init() extends an
  * existing short file -- but LOWERING it does not shrink one. */
