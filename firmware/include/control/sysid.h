@@ -63,7 +63,10 @@ typedef struct {
 } sysid_request_t;
 
 // Start an excitation (replaces any in progress). Params are validated/clamped.
-void sysid_start(const sysid_request_t *req);
+// Returns non-zero if the run started. Zero means it did not and the motors
+// were not touched: a bad request, or the capture buffer could not be
+// allocated (it is heap, claimed on the first run of a boot).
+int sysid_start(const sysid_request_t *req);
 // Abort immediately; the injection returns to zero on the next tick.
 void sysid_abort(void);
 // Non-zero while an excitation is active.

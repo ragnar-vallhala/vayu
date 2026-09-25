@@ -535,6 +535,13 @@ add_executable(test_flight_phase tests/test_flight_phase.c)
 target_link_libraries(test_flight_phase PRIVATE vayu_sitl_core m)
 add_test(NAME flight_phase COMMAND test_flight_phase)
 
+# sysid: the rate-loop excite/capture buffer, which is heap rather than .bss --
+# so the start/refuse contract and the pre-allocation capture path are what this
+# pins (in vayu_sitl_core).
+add_executable(test_sysid tests/test_sysid.c)
+target_link_libraries(test_sysid PRIVATE vayu_sitl_core m)
+add_test(NAME sysid COMMAND test_sysid)
+
 add_executable(test_phase0_assert
     tests/test_phase0_assert.c
     ${VAYU_ROOT}/firmware/src/sys/assert.c)

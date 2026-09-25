@@ -179,8 +179,10 @@ static navlink_ack_t on_cmd_sysid_excite(void *ctx,
       .f1_hz = m->f1_hz,
       .amp_dps = m->amp_dps,
       .duration_s = m->duration_s};
-  sysid_start(&req);
-  return navlink_ack_result(ACK_OK);
+  /* ACK_BAD if the run did not start -- the capture buffer is claimed from the
+   * heap on the first excite of a boot, and an operator needs to know the
+   * chirp never ran rather than wait on a dump that will never arrive. */
+  return navlink_ack_result(sysid_start(&req) ? ACK_OK : ACK_BAD);
 }
 
 /** @implements CTRL-SID-102 sysid dump command adapter (bench/diagnostic tooling) */

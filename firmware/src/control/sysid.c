@@ -19,6 +19,7 @@
 #include <stddef.h> /* size_t (was reached transitively) */
 
 #include "maths/maths_interface.h"
+#include "memory.h" /* v_malloc */
 
 /* Hard safety caps (the physical rig should also have soft-stops). These bound
  * what any CMD_SYSID_EXCITE can do regardless of the requested values. */
@@ -50,8 +51,16 @@ static float s_phase; // chirp phase (rad)
 
 /* Interleaved (u, gyro) i16: slot 0 = rate-PID output u (x1000, SYSID_U_SCALE),
  * slot 1 = gyro (0.1 deg/s, SYSID_W_SCALE). Written by the 1 kHz control loop,
- * read back by the telemetry task only AFTER the run ends (no concurrent access). */
-static int16_t s_cap[SYSID_CAP_N * 2];
+ * read back by the telemetry task only AFTER the run ends (no concurrent access).
+ *
+ * Heap, not .bss: 4000 B held for the whole flight to serve a bench command
+ * that a flying aircraft never sends. Allocated on the first sysid_start and
+ * kept for the life of the boot -- the same allocate-once shape gyro_notch.c
+ * uses, and it sidesteps freeing a buffer the 1 kHz control loop may be
+ * writing. A boot that never runs system-ID never pays.
+ * ponytail: never freed; add a free path only if something else needs those
+ * 4 KB back mid-session, and then it must be gated on !s_active. */
+static int16_t *s_cap = NULL;
 static int s_cap_n = 0; // samples captured this run
 static int s_decim = 0;
 
@@ -76,9 +85,18 @@ static int16_t to_i16(float v, float scale) { // v*scale, clamped to i16
 #define SYSID_W_SCALE 10.0f
 
 /* @implements CTRL-SID-001, CTRL-SID-101 */
-void sysid_start(const sysid_request_t *req) {
+int sysid_start(const sysid_request_t *req) {
   if (req == 0 || req->axis > 2)
-    return;
+    return 0;
+  /* Refuse the run rather than move the motors with nowhere to put the data:
+   * a chirp whose response is not captured is all of the risk and none of the
+   * point. The operator gets ACK_BAD instead of waiting on a dump that will
+   * never come. */
+  if (s_cap == NULL) {
+    s_cap = (int16_t *)v_malloc(sizeof(int16_t) * SYSID_CAP_N * 2);
+    if (s_cap == NULL)
+      return 0;
+  }
   s_axis = req->axis;
   s_mode =
       (req->mode == SYSID_INJECT_U) ? SYSID_INJECT_U : SYSID_INJECT_RATE_SP;
@@ -96,6 +114,7 @@ void sysid_start(const sysid_request_t *req) {
   s_decim = 0;
   s_dump_active = 0;
   s_active = 1;
+  return 1;
 }
 
 /** @noreq abort-flag setter. */
@@ -158,7 +177,7 @@ void sysid_step(float dt, const float angles_deg[3], const float rates_dps[3],
  * output (control effort); `gyro` the measured body rate (deg/s). ---
  * @implements CTRL-SID-102 */
 void sysid_capture(const float u[3], const float gyro[3]) {
-  if (!s_active)
+  if (!s_active || s_cap == NULL)
     return;
   if (++s_decim < SYSID_DECIM)
     return;
