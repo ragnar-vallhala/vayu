@@ -116,7 +116,7 @@
  *     u8  reserved[3]
  *     then n_fields x 16 B, in record order:
  *       char name[8]    NUL-padded
- *       u8   ftype      1=i16 2=u16 3=i32 4=f32
+ *       u8   ftype      1=i16 2=u16 3=i32 4=f32 5=u8
  *       u8   reserved[3]
  *       f32  scale      multiplier from stored units to SI
  *
@@ -249,6 +249,26 @@
 #define HSL_VRT_REC_BYTES 28u /* 6x f32, u16 flags, u16 notch centre         */
 #define HSL_STREAM_CTL 4u
 #define HSL_CTL_REC_BYTES 12u /* 3x i16 filtered rate, 3x i16 PID output     */
+/* NavLink received from the GCS, verbatim. A BYTE STREAM: rec_bytes 1, so it
+ * is an ordinary BLOCK and needs no new frame type -- `n` counts bytes rather
+ * than samples and the payload is the raw wire. Decode it by feeding those
+ * bytes back through the NavLink parser offline.
+ *
+ * This is the only record of what the OPERATOR asked for. Everything else in
+ * this file is what the aircraft did; without this, reconstructing an incident
+ * means inferring intent from behaviour. Logged inbound only -- outbound
+ * telemetry is a downsampled view of streams already recorded here at higher
+ * rate, and would cost ~9.6 KB/s to duplicate them. */
+#define HSL_STREAM_RX 5u
+#define HSL_RX_REC_BYTES 1u
+/* vayu_log() text, verbatim, newline-free -- each call appends its formatted
+ * bytes. Also a byte stream. This used to be its own 10 MB SD file written a
+ * record at a time through fs_owner; it is here instead so the text sits in
+ * the same ring, on the same timebase, as the numbers it explains. Reading
+ * "[EST] degraded RAISED" next to the vertical estimator's own samples is the
+ * whole point -- two files with independent clocks could not be lined up. */
+#define HSL_STREAM_TXT 6u
+#define HSL_TXT_REC_BYTES 1u
 /* The PID output is normalised -1..1, so one count is a 32767th of full
  * authority. Rates need no constant of their own: they reuse the gyro's count
  * scale so that "ctl" and "imu" decode to identical units. */
@@ -296,6 +316,11 @@
 #define HSL_FTYPE_U16 2u
 #define HSL_FTYPE_I32 3u
 #define HSL_FTYPE_F32 4u
+/* A raw byte. Carries no scale and no meaning of its own -- it exists so a
+ * byte stream can declare itself through the same FMT mechanism as every
+ * other stream, rather than being a special case a decoder has to know
+ * about out of band. */
+#define HSL_FTYPE_U8 5u
 
 /* One frame is one SD sector, so a write never straddles a sector boundary and
  * never provokes a read-modify-write. 512 - 4 (frame) - 16 (block) = 492 for
@@ -331,6 +356,20 @@
 #define HSL_VRT_BUFFERS 2u
 /* CTL fills a sector every ~41 ms, between IMU's ~20 ms and ACT's ~100 ms. */
 #define HSL_CTL_BUFFERS 2u
+/* RX is sporadic -- a few commands a minute, not a rate. 2 is plenty; what
+ * this stream needs is not depth but the idle flush below. */
+#define HSL_RX_BUFFERS 2u
+/* Text is burstier than RX (boot and calibration emit runs of lines) but
+ * still nowhere near a rate; 2 plus the idle flush is ample. */
+#define HSL_TXT_BUFFERS 2u
+
+/* A byte stream can sit half-full for a long time: nobody sends a command for
+ * minutes, and a sector only publishes when it fills. Flush a partial sector
+ * once it has gone this long without a new byte, so a power-off loses at most
+ * this much rather than everything since the last full sector. Costs one
+ * mostly-empty ring slot per burst of traffic, which is the right trade for a
+ * stream whose whole value is that it is there after a crash. */
+#define HSL_WIRE_IDLE_FLUSH_MS 2000u
 
 /* How often the file header's head_slot/next_seq hint is rewritten, in ring
  * sectors. Data sectors are 512 B and sector-aligned, so f_write hands them
@@ -438,6 +477,32 @@ void imu_hs_log_vert(const hsl_vert_sample_t *v, uint32_t t_cyc);
  *        completed sectors. Call once per fs_owner_task loop -- it is the FS
  *        task context that keeps SD/VFS single-owner.
  */
+/**
+ * Record NavLink bytes received from the GCS, verbatim.
+ *
+ * Called from the comm task with whatever the UART drained -- frame
+ * boundaries are not required and not preserved, because the offline decoder
+ * re-parses the stream anyway and a partial frame at a ring wrap must be
+ * skippable regardless.
+ *
+ * UNLIKE every other stream, this one records while DISARMED. Config, PID
+ * changes, calibration and the arm command itself all happen before the props
+ * turn, and an armed-only record of operator intent would miss nearly all of
+ * it. The sampled streams stay armed-gated -- recording IMU at 2 kHz while
+ * the aircraft sits on a bench would overwrite the ring with idle time.
+ */
+void imu_hs_log_wire_rx(const uint8_t *data, uint16_t len, uint32_t t_cyc);
+
+/**
+ * Record one vayu_log() line, verbatim. Like RX, records while DISARMED --
+ * boot, calibration and failure messages all arrive before the props turn.
+ *
+ * Non-blocking and lossy under pressure: a full buffer drops the line and
+ * counts it, because vayu_log is called from the control path and a text log
+ * is never worth stalling a caller for.
+ */
+void imu_hs_log_wire_txt(const uint8_t *data, uint16_t len, uint32_t t_cyc);
+
 void imu_hs_log_drain(void);
 
 /** @brief Sectors dropped because the ring was full (SD could not keep up). */

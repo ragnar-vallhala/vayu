@@ -112,9 +112,9 @@
 | `HAL-TIME-001` | active | Monotonic time | — | — |
 | `LOG-FS-001` | active | Filesystem navigation (stat / directory browse) | `firmware/src/storage/fs_owner.c` | — |
 | `LOG-OWN-001` | active | Single runtime filesystem owner | `firmware/src/storage/fs_owner.c` | `firmware/tests/onboard/checks/check_persist.c` |
-| `LOG-PERSIST-001` | active | Off-critical-path PID/calib persistence | `firmware/src/storage/fs_owner.c` | — |
+| `LOG-PERSIST-001` | active | Off-critical-path PID/calib persistence | `firmware/src/logger/log_text.c`<br>`firmware/src/storage/fs_owner.c` | — |
 | `LOG-RATE-001` | active | Bounded log rate | — | — |
-| `LOG-SD-001` | active | SD-card ring-buffer logs | `firmware/src/storage/fs_owner.c`<br>`firmware/src/storage/imu_hs_log.c` | `firmware/tests/onboard/checks/check_persist.c` |
+| `LOG-SD-001` | active | SD-card ring-buffer logs | `firmware/src/storage/imu_hs_log.c` | `firmware/tests/onboard/checks/check_persist.c` |
 | `LOG-SD-002` | active | Wrap-on-full | `firmware/src/comm/navlink_tx.c`<br>`firmware/src/storage/fs_owner.c` | — |
 | `LOG-SD-101` | active | Per-file mutex | — | — |
 | `LOG-SD-102` | active | Sync on every write | `firmware/src/storage/fs_owner.c` | — |

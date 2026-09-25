@@ -133,6 +133,29 @@ int main(void) {
   CHECK(!imu_hs_log_active(), "disarmed: nothing recorded");
   CHECK(imu_hs_log_wraps() == 0, "fresh file starts unwrapped");
 
+  /* The RX byte stream is the one exception to arm-gating: operator traffic
+   * arrives before the props turn -- config, calibration, the arm command
+   * itself -- so recording it only while armed would miss nearly all of it.
+   * A sampled stream offered at the same moment must still be ignored. */
+  {
+    /* A whole sector's worth, so the stream publishes on fill rather than on
+     * the idle timer -- the timer is real-time and this test has no clock to
+     * advance. Same code path either way: stream_commit publishes, and the
+     * drain below sees a queued sector. */
+    uint8_t cmd[HSL_BLOCK_PAYLOAD_BYTES + 8];
+    for (unsigned i = 0; i < sizeof cmd; i++)
+      cmd[i] = (uint8_t)(0xFDu ^ i);
+    imu_hs_log_wire_rx(cmd, (uint16_t)sizeof cmd, 0u);
+    /* Offered at the same moment and must be ignored: sampled streams stay
+     * armed-gated, or a disarmed bench session would overwrite the ring. */
+    imu_hs_log_sample((int16_t[3]){9, 9, 9}, (int16_t[3]){9, 9, 9}, 0);
+    imu_hs_log_drain(); /* queued RX sector must open a session on its own */
+    CHECK(imu_hs_log_active(), "disarmed RX opens a recording session");
+    _system_current_status = SYSTEM_STATE_STANDBY;
+    imu_hs_log_drain();
+    CHECK(!imu_hs_log_active(), "and it closes once the RX sector is written");
+  }
+
   run_session(860);
   CHECK(imu_hs_log_wraps() == 0, "one session fits without wrapping");
   run_session(860); /* pushes past 63 slots: must wrap */

@@ -179,17 +179,18 @@ static void test_file_roundtrip(void) {
 /* ================================ LOG =================================== */
 static void test_log_provider(void) {
   printf("  test_log_provider\n");
-  /* Seed a small record at the navlink blackbox path (the 64 KB prealloc is
-   * skipped on host; we just write a sub-4KB file there directly). */
+  /* Seed a small record at the blackbox path (the 64 KB prealloc is skipped
+   * on host; we just write a sub-4KB file there directly). */
   uint8_t rec[200]; /* one write-at chunk (<= FS_WRITEAT_PAYLOAD_MAX) */
   for (uint32_t i = 0; i < sizeof rec; i++)
     rec[i] = (uint8_t)(0x40u + (i & 0x3Fu));
-  CHECK(fs_owner_enqueue_write_at(0, NAVLINK_LOGGING_FILENAME, 0, rec,
-                                  sizeof rec),
-        "seed navlink log record");
+  CHECK(fs_owner_enqueue_write_at(0, HSL_FILENAME, 0, rec, sizeof rec),
+        "seed blackbox log record");
   fs_owner_pump();
 
-  /* download via the LOG provider (arg selects "navlink") */
+  /* Download via the LOG provider. There is one blackbox now, so a legacy arg
+   * naming one of the retired files still resolves to it rather than failing
+   * the open -- which is what this asks for. */
   xfer_reset_all();
   cap_reset();
   xfer_open_args_t dn =

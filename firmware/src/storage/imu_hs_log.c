@@ -55,6 +55,10 @@ typedef struct {
   uint8_t n_bufs;
   uint8_t stream_id;
   uint8_t rec_bytes;
+  /* Armed-gated streams are the sampled ones: recording them while the
+   * aircraft sits disarmed would overwrite the ring with idle time. A byte
+   * stream clears this and records from boot. */
+  uint8_t armed_only;
   uint16_t cap;       /* records per sector                                 */
   uint32_t decim_cyc; /* min cycles between records (0 = take everything)   */
   /* producer-owned */
@@ -69,32 +73,46 @@ static uint8_t s_imu_bufs[HSL_IMU_BUFFERS][HSL_SECTOR_BYTES];
 static uint8_t s_act_bufs[HSL_ACT_BUFFERS][HSL_SECTOR_BYTES];
 static uint8_t s_vrt_bufs[HSL_VRT_BUFFERS][HSL_SECTOR_BYTES];
 static uint8_t s_ctl_bufs[HSL_CTL_BUFFERS][HSL_SECTOR_BYTES];
+static uint8_t s_rx_bufs[HSL_RX_BUFFERS][HSL_SECTOR_BYTES];
+static uint8_t s_txt_bufs[HSL_TXT_BUFFERS][HSL_SECTOR_BYTES];
 
-enum { HSL_S_IMU = 0, HSL_S_ACT, HSL_S_VRT, HSL_S_CTL, HSL_N_STREAMS };
+enum {
+  HSL_S_IMU = 0,
+  HSL_S_ACT,
+  HSL_S_VRT,
+  HSL_S_CTL,
+  HSL_S_RX,
+  HSL_S_TXT,
+  HSL_N_STREAMS
+};
 
 /* decim_cyc below is the NOMINAL interval, used only until
  * imu_hs_log_boot_init() replaces it with one derived from the measured cycle
  * rate. 0 means "take every sample". */
 static hsl_stream_t s_streams[HSL_N_STREAMS] = {
-    [HSL_S_IMU] = {.bufs = &s_imu_bufs[0][0],
+    [HSL_S_IMU] = {.armed_only = 1u,
+                   .bufs = &s_imu_bufs[0][0],
                    .n_bufs = HSL_IMU_BUFFERS,
                    .stream_id = HSL_STREAM_IMU,
                    .rec_bytes = HSL_IMU_REC_BYTES,
                    .cap = HSL_BLOCK_PAYLOAD_BYTES / HSL_IMU_REC_BYTES,
                    .decim_cyc = 0u},
-    [HSL_S_ACT] = {.bufs = &s_act_bufs[0][0],
+    [HSL_S_ACT] = {.armed_only = 1u,
+                   .bufs = &s_act_bufs[0][0],
                    .n_bufs = HSL_ACT_BUFFERS,
                    .stream_id = HSL_STREAM_ACT,
                    .rec_bytes = HSL_ACT_REC_BYTES,
                    .cap = HSL_BLOCK_PAYLOAD_BYTES / HSL_ACT_REC_BYTES,
                    .decim_cyc = (uint32_t)SYS_CLOCK_FREQ / HSL_ACT_RATE_HZ},
-    [HSL_S_VRT] = {.bufs = &s_vrt_bufs[0][0],
+    [HSL_S_VRT] = {.armed_only = 1u,
+                   .bufs = &s_vrt_bufs[0][0],
                    .n_bufs = HSL_VRT_BUFFERS,
                    .stream_id = HSL_STREAM_VRT,
                    .rec_bytes = HSL_VRT_REC_BYTES,
                    .cap = HSL_BLOCK_PAYLOAD_BYTES / HSL_VRT_REC_BYTES,
                    .decim_cyc = (uint32_t)SYS_CLOCK_FREQ / HSL_VRT_RATE_HZ},
-    [HSL_S_CTL] = {.bufs = &s_ctl_bufs[0][0],
+    [HSL_S_CTL] = {.armed_only = 1u,
+                   .bufs = &s_ctl_bufs[0][0],
                    .n_bufs = HSL_CTL_BUFFERS,
                    .stream_id = HSL_STREAM_CTL,
                    .rec_bytes = HSL_CTL_REC_BYTES,
@@ -107,7 +125,28 @@ static hsl_stream_t s_streams[HSL_N_STREAMS] = {
                     * whole record and the stream lands well under its target.
                     * That is why "act" asks for 400 Hz and records 311. */
                    .decim_cyc = 0u},
+    /* rec_bytes 1 makes this a byte stream: an ordinary BLOCK whose `n` counts
+     * bytes. Not decimated and not armed-gated -- every received byte is
+     * wanted, and most of them arrive before the props turn. */
+    [HSL_S_RX] = {.armed_only = 0u,
+                  .bufs = &s_rx_bufs[0][0],
+                  .n_bufs = HSL_RX_BUFFERS,
+                  .stream_id = HSL_STREAM_RX,
+                  .rec_bytes = HSL_RX_REC_BYTES,
+                  .cap = HSL_BLOCK_PAYLOAD_BYTES / HSL_RX_REC_BYTES,
+                  .decim_cyc = 0u},
+    [HSL_S_TXT] = {.armed_only = 0u,
+                   .bufs = &s_txt_bufs[0][0],
+                   .n_bufs = HSL_TXT_BUFFERS,
+                   .stream_id = HSL_STREAM_TXT,
+                   .rec_bytes = HSL_TXT_REC_BYTES,
+                   .cap = HSL_BLOCK_PAYLOAD_BYTES / HSL_TXT_REC_BYTES,
+                   .decim_cyc = 0u},
 };
+
+/* Set by the FS task from the flight state; read by producers via
+ * stream_claim. One word, one writer. */
+static volatile uint8_t s_armed = 0;
 
 /* Consumer-owned. */
 static vfs_fd_t s_fd = -1;
@@ -205,9 +244,15 @@ static uint16_t unit_to_u16(float v) {
 /* Claim room for one record, or NULL if the stream is closed, decimated away,
  * or its ring is full. Fills in the frame/block header on a fresh sector. */
 static uint8_t *stream_claim(hsl_stream_t *st, uint32_t t_cyc) {
-  if (!s_active) {
-    return NULL;
+  if (st->armed_only) {
+    /* A sampled stream needs an open session AND the props able to turn. */
+    if (!s_active || !s_armed) {
+      return NULL;
+    }
   }
+  /* A byte stream fills its RAM buffer whether or not a session is open: the
+   * arrival of its data is what ASKS the FS task to open one, so gating it on
+   * s_active here would deadlock the two against each other. */
   /* Decimate on the cycle stamp, so the rate holds whatever rate the caller
    * happens to run at. Wrap-safe unsigned delta. */
   if (st->decim_cyc != 0u && (uint32_t)(t_cyc - st->last_cyc) < st->decim_cyc) {
@@ -417,8 +462,42 @@ _Static_assert(HSL_FILE_HDR_BYTES + HSL_FMT_BYTES(6u) /* imu */
                        + HSL_FMT_BYTES(6u)            /* act */
                        + HSL_FMT_BYTES(6u)            /* ctl */
                        + HSL_FMT_BYTES(8u)            /* vrt */
+                       + HSL_FMT_BYTES(1u)            /* rx  */
+                       + HSL_FMT_BYTES(1u)            /* txt */
                    <= HSL_PREAMBLE_BYTES,
                "FMT declarations no longer fit the preamble");
+
+/** @noreq byte-stream append; RAM-only sector fill, any task */
+static void wire_append(hsl_stream_t *st, const uint8_t *data, uint16_t len,
+                        uint32_t t) {
+  if (data == NULL || len == 0u) {
+    return;
+  }
+
+  /* Copy across as many sectors as it takes. stream_claim hands back a
+   * pointer to the next free record; with rec_bytes 1 that is the next free
+   * BYTE, and stream_commit publishes the sector when it fills. Looping keeps
+   * the sector-crossing logic in one place rather than duplicating it. */
+  for (uint16_t i = 0; i < len; i++) {
+    uint8_t *slot = stream_claim(st, t);
+    if (slot == NULL) {
+      s_dropped++; /* buffers full: SD is not keeping up, or absent */
+      return;
+    }
+    *slot = data[i];
+    stream_commit(st, t);
+  }
+}
+
+/** @noreq NavLink RX capture */
+void imu_hs_log_wire_rx(const uint8_t *data, uint16_t len, uint32_t t_cyc) {
+  wire_append(&s_streams[HSL_S_RX], data, len, t_cyc);
+}
+
+/** @noreq vayu_log text capture */
+void imu_hs_log_wire_txt(const uint8_t *data, uint16_t len, uint32_t t_cyc) {
+  wire_append(&s_streams[HSL_S_TXT], data, len, t_cyc);
+}
 
 /** @noreq builds sector 0 from the current cursor */
 static void build_preamble(void) {
@@ -483,6 +562,13 @@ static void build_preamble(void) {
                                      {"uy", HSL_FTYPE_I16, HSL_CTL_U_PER_LSB},
                                      {"uz", HSL_FTYPE_I16, HSL_CTL_U_PER_LSB}},
                6u);
+  /* rate_hz 0: this stream has no rate. It is whatever the GCS sent, when it
+   * sent it, and a decoder must read the block stamps rather than assume a
+   * cadence it can interpolate. */
+  f = emit_fmt(f, HSL_STREAM_RX, HSL_RX_REC_BYTES, 0u,
+               (const hsl_field_t[]){{"byte", HSL_FTYPE_U8, 1.0f}}, 1u);
+  f = emit_fmt(f, HSL_STREAM_TXT, HSL_TXT_REC_BYTES, 0u,
+               (const hsl_field_t[]){{"char", HSL_FTYPE_U8, 1.0f}}, 1u);
 
   /* PAD out to the sector. Skipped by the generic `len` rule, so no decoder
    * needs to know it exists. */
@@ -653,13 +739,62 @@ static void session_stop(void) {
   }
 }
 
+/* Publish a byte stream's partially-filled sector when it has been idle long
+ * enough. FS task only; the producer owns head and fill, so this advances head
+ * exactly as stream_commit would and touches nothing else. */
+/** @noreq idle flush for the variable-rate byte streams */
+static void wire_idle_flush(void) {
+  const uint32_t hz = vayu_clock_hz();
+  const uint32_t idle_cyc = (hz / 1000u) * HSL_WIRE_IDLE_FLUSH_MS;
+  const uint32_t now = hal_cycle_counter_get();
+
+  for (uint32_t i = 0; i < HSL_N_STREAMS; i++) {
+    hsl_stream_t *st = &s_streams[i];
+    if (st->armed_only || st->fill == 0u) {
+      continue;
+    }
+    if ((uint32_t)(now - st->last_cyc) < idle_cyc) {
+      continue;
+    }
+    st->fill = 0u;
+    uint8_t next = (uint8_t)((st->head + 1u) % st->n_bufs);
+    if (next == st->tail) {
+      s_dropped++;
+      continue;
+    }
+    st->head = next;
+  }
+}
+
 /** @noreq per-loop service: arm-state gating + sector writes */
 void imu_hs_log_drain(void) {
   /* Record whenever the props can be spinning. Nothing else needs to know this
    * module exists -- no command and no GCS work; each arm simply appends
    * another session to the ring. */
   const sys_state_t st = system_state_get();
-  const bool want = (st == SYSTEM_STATE_ARMED) || (st == SYSTEM_STATE_IN_AIR);
+  const bool armed = (st == SYSTEM_STATE_ARMED) || (st == SYSTEM_STATE_IN_AIR);
+  s_armed = armed ? 1u : 0u;
+
+  /* Age out a byte stream's partial sector first, so a burst of traffic that
+   * never fills 492 bytes still reaches the card. This runs whether or not a
+   * session is open -- it is what CREATES the work that opens one. */
+  wire_idle_flush();
+
+  /* A byte stream with a PUBLISHED sector also asks for a session, so operator
+   * traffic is recorded before the props ever turn. Its producers fill their
+   * RAM buffers regardless of s_active -- see stream_claim -- and this is what
+   * turns a filled sector into a file write. Deliberately not counting a
+   * partial sector: that would hold the file open continuously from the first
+   * byte received, where the point is to batch and let it close. */
+  bool wire_pending = false;
+  for (uint32_t i = 0; i < HSL_N_STREAMS; i++) {
+    const hsl_stream_t *w = &s_streams[i];
+    if (!w->armed_only && w->tail != w->head) {
+      wire_pending = true;
+      break;
+    }
+  }
+  const bool want = armed || wire_pending;
 
   if (!want || fs_owner_logs_suppressed()) {
     /* Also stop for a bulk transfer: a held fd would occupy one of FatFS's four

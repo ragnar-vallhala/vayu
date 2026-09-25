@@ -39,7 +39,7 @@ STATE_NAME = {0x01: "UNINIT", 0x02: "INIT", 0x04: "STANDBY", 0x08: "PREARM",
               0x10: "ARMED", 0x20: "IN_AIR", 0x40: "FAILSAFE",
               0x80: "TERMINATED", 0x100: "CALIBRATING"}
 SENTINEL = 0xA5     # frame `flags` in a ring slot; card garbage rarely has it
-FTYPE = {1: ("h", 2), 2: ("H", 2), 3: ("i", 4), 4: ("f", 4)}
+FTYPE = {1: ("h", 2), 2: ("H", 2), 3: ("i", 4), 4: ("f", 4), 5: ("B", 1)}
 
 
 STREAM_NAME = {1: "imu", 2: "act", 3: "vrt", 4: "ctl"}
@@ -502,8 +502,8 @@ def verify_encoder_file(path):
     assert not hdr["skipped_frames"], hdr["skipped_frames"]
     assert hdr["wraps"] >= 1, "test should have wrapped the ring: %r" % hdr
 
-    # --- all four streams declared, with their rates and layouts -----------
-    assert sorted(streams) == [1, 2, 3, 4], sorted(streams)
+    # --- every stream declared, with its rate and layout -------------------
+    assert sorted(streams) == [1, 2, 3, 4, 5, 6], sorted(streams)
     imu, act, vrt, ctl = streams[1], streams[2], streams[3], streams[4]
     assert (imu.rec_bytes, imu.rate_hz) == (12, 2000), vars(imu)
     assert (act.rec_bytes, act.rate_hz) == (12, 400), vars(act)
@@ -513,6 +513,19 @@ def verify_encoder_file(path):
     assert act.names == ["m1", "m2", "m3", "m4", "thr", "flags"], act.names
     assert vrt.names[:6] == ["baro", "agl", "agltof", "alt", "climb", "abias"], vrt.names
     assert ctl.names == ["rfx", "rfy", "rfz", "ux", "uy", "uz"], ctl.names
+
+    # rx is a BYTE stream: one 1-byte record per received byte, and no rate --
+    # it carries whatever the GCS sent, whenever it sent it, so a decoder must
+    # read the block stamps instead of interpolating a cadence.
+    rx = streams[5]
+    assert (rx.rec_bytes, rx.rate_hz) == (1, 0), vars(rx)
+    assert rx.names == ["byte"], rx.names
+
+    # txt is the other byte stream: vayu_log() lines, in the same ring and on
+    # the same timebase as the samples they explain.
+    txt = streams[6]
+    assert (txt.rec_bytes, txt.rate_hz) == (1, 0), vars(txt)
+    assert txt.names == ["char"], txt.names
     # "ctl" rates share the gyro's count scale so the two streams can be
     # differenced; "imu" carries the sensor->body sign map, "ctl" does not.
     assert ctl.fields[0][2] == abs(imu.fields[0][2]), (ctl.fields[0], imu.fields[0])

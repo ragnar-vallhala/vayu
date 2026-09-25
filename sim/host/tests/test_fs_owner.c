@@ -75,11 +75,8 @@ static void test_not_ready_drops(void) {
   uint8_t blob[16];
   memset(blob, 0xA5, sizeof blob);
 
-  bool log_ok = fs_owner_enqueue_log(GENERAL_LOGGER, blob, sizeof blob);
   bool pid_ok = fs_owner_enqueue_pid_save(blob, sizeof blob);
-  CHECK(!log_ok, "log enqueue refused before init");
   CHECK(!pid_ok, "save enqueue refused before init");
-  CHECK(fs_owner_dropped_logs() >= 1, "pre-init log drop counted");
   CHECK(fs_owner_dropped_saves() >= 1, "pre-init save drop counted");
 }
 
@@ -142,33 +139,39 @@ static void test_calib_snapshot_round_trip(void) {
 }
 
 /* ----------------------------------------------------------------------------
- * Reserved save lane: a full log lane must NOT block or drop a save. This is
- * the "reserved save slots" decision — the whole reason logs and saves use
- * separate queues.
+ * Reserved save lane: a full lower-priority lane must NOT block or drop a
+ * save. This is the "reserved save slots" decision — the whole reason saves
+ * have a queue of their own.
+ *
+ * The lane doing the flooding used to be the SD log lane; that lane is gone
+ * (text logs are a stream in the blackbox recorder now), so the flood comes
+ * from the upload write-at lane instead — which is the remaining lane the
+ * drain order puts after saves.
  * --------------------------------------------------------------------------*/
 static void test_reserved_save_lane(void) {
   printf("  test_reserved_save_lane\n");
 
   fs_owner_pump(); /* start from drained queues */
 
-  uint32_t logs0 = fs_owner_dropped_logs();
+  uint32_t wa0 = fs_owner_dropped_writeats();
   uint32_t saves0 = fs_owner_dropped_saves();
 
-  /* Flood the log lane far past capacity WITHOUT draining. */
+  /* Flood the write-at lane far past capacity WITHOUT draining. */
   uint8_t rec[64];
   memset(rec, 0x5A, sizeof rec);
   int accepted = 0;
   const int flood = 200;
   for (int i = 0; i < flood; i++)
-    if (fs_owner_enqueue_log(GENERAL_LOGGER, rec, sizeof rec))
+    if (fs_owner_enqueue_write_at(0, "0:flood.bin", (uint32_t)i * 64u, rec,
+                                  sizeof rec))
       accepted++;
 
   CHECK(accepted >= 1 && accepted <= 32,
-        "log lane bounded by its capacity (<=32)");
-  CHECK(fs_owner_dropped_logs() == logs0 + (uint32_t)(flood - accepted),
-        "every over-capacity log is counted as a drop");
+        "write-at lane bounded by its capacity (<=32)");
+  CHECK(fs_owner_dropped_writeats() == wa0 + (uint32_t)(flood - accepted),
+        "every over-capacity write-at is counted as a drop");
 
-  /* With the log lane jammed full, a save must still be accepted. */
+  /* With that lane jammed full, a save must still be accepted. */
   uint8_t pid[140];
   memset(pid, 0x11, sizeof pid);
   bool saved = fs_owner_enqueue_pid_save(pid, sizeof pid);
@@ -176,28 +179,6 @@ static void test_reserved_save_lane(void) {
   CHECK(fs_owner_dropped_saves() == saves0, "no save dropped");
 
   fs_owner_pump(); /* drain everything we queued */
-}
-
-/* ----------------------------------------------------------------------------
- * Wrap accounting wiring (LOG-SD-002). Forcing an actual wrap is infeasible
- * with bounded (<=256B) records against the 64KB sim file — the circular
- * modulo wraps write_pos silently for constant/bounded len, so the counter is
- * a bench-only signal (the prior slog suite punted on it for the same reason).
- * The blackbox log *file* round-trip is also not SITL-testable: the host VFS
- * backs each file with a 4 KB in-memory buffer, so the 64KB blackbox files
- * (and fs_owner_boot_init's prealloc) can't be modelled here. The circular
- * write path is unchanged from the shipped logger.c and is exercised on-target;
- * the vfs open/write/sync/close path *is* covered end-to-end by the save tests
- * above (pid.bin / cal.bin are small enough for the host VFS). We assert the
- * wrap getters are wired and consistent.
- * --------------------------------------------------------------------------*/
-static void test_wrap_accounting_wired(void) {
-  printf("  test_wrap_accounting_wired\n");
-  uint32_t nav = fs_owner_log_wrap_count(NAVLINK_LOGGER);
-  uint32_t sys = fs_owner_log_wrap_count(SYSTEM_LOGGER);
-  uint32_t gen = fs_owner_log_wrap_count(GENERAL_LOGGER);
-  CHECK(fs_owner_log_wrap_count_total() == nav + sys + gen,
-        "wrap total equals the per-log sum");
 }
 
 /* ----------------------------------------------------------------------------
@@ -351,7 +332,6 @@ int main(void) {
   test_pid_snapshot_round_trip();
   test_calib_snapshot_round_trip();
   test_reserved_save_lane();
-  test_wrap_accounting_wired();
   test_writeat_roundtrip();
   test_writeat_lane_bounds_and_reservation();
   test_dir_browse_and_stat();

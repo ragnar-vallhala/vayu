@@ -23,6 +23,7 @@
 #include "comm/rc_buffer.h"
 #include "comm/xfer/navlink_xfer.h"
 #include "storage/fs_owner.h"
+#include "storage/imu_hs_log.h"
 #include "control/control.h"
 #include "control/flight_mode.h"
 #include "control/sysid.h"
@@ -165,9 +166,11 @@ void imu_telemetry_task(void *args) {
       navlink_tx_flight_mode((uint8_t)flight_mode_get(),
                              (uint8_t)flight_mode_get_source());
       /* Health counters (COMM-CH-002, SNS-BUF-002, LOG-SD-002). imu_drop is
-       * unused; it stays 0 to hold its slot in the wire layout. */
-      navlink_tx_health(channel_tx_overflow_count(), 0u,
-                        fs_owner_log_wrap_count_total());
+       * unused; it stays 0 to hold its slot in the wire layout. The log-wrap
+       * field now reports the blackbox recorder's own ring, which is where
+       * every log record went when the separate SD log lane was removed --
+       * same meaning on the wire: oldest records have been overwritten. */
+      navlink_tx_health(channel_tx_overflow_count(), 0u, imu_hs_log_wraps());
     }
     if (send_pid_err && control_telemetry_queue_pop(&c_data)) {
       navlink_tx_pid_error(&c_data);

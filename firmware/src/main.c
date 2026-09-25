@@ -26,7 +26,6 @@
 #include "sys/state.h"
 #include "task.h"
 #include "utils.h"
-#include "utils/test_file.h"
 #include "sys/timer_callbacks.h"
 #include "utils/util.h"
 #include "sys/sys_utils.h"

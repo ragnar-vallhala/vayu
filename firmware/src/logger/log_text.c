@@ -25,6 +25,8 @@
  * utils/utils.h.
  */
 #include "storage/fs_owner.h"
+#include "storage/imu_hs_log.h" /* imu_hs_log_wire_txt (blackbox text stream) */
+#include "navhal.h"             /* hal_cycle_counter_get */
 
 #include "ipc.h"
 #include "structure.h"
@@ -58,5 +60,20 @@ void vayu_log(const char *fmt, ...) {
 
   if (len > 0) {
     mpmc_push_bulk(&vayu_log_queue, log_buf, (uint8_t)len);
+    /* Same line to the card, as a byte stream in the blackbox. Teed here at
+     * the producer rather than at the telemetry drain, because the drain only
+     * runs at the telemetry cadence and only while a link is up -- and the
+     * flight whose log you actually need is the one that ended with the link
+     * already gone.
+     *
+     * It lands in the same ring, on the same cycle stamps, as the samples it
+     * explains, which is what lets a reader put "[EST] degraded RAISED" next
+     * to the estimator output that triggered it.
+     *
+     * Non-blocking and lossy under pressure -- vayu_log is called from the
+     * control path and a text log is never worth stalling a caller for.
+     * @implements LOG-PERSIST-001 */
+    imu_hs_log_wire_txt((const uint8_t *)log_buf, (uint16_t)len,
+                        hal_cycle_counter_get());
   }
 }

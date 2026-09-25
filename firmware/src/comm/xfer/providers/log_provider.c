@@ -30,14 +30,17 @@
 #include "variables.h" /* *_LOGGING_FILENAME */
 #include "vfs.h"
 
-/* Resolve the arg name to a blackbox path (default: general). */
+/* Resolve the arg name to a blackbox path.
+ *
+ * There is one blackbox now -- the high-speed recorder's file, which carries
+ * the text log as a stream. Every name resolves to it. The argument is kept
+ * rather than dropped because it is on the wire: a GCS built against the
+ * three-file era still asks for "nav" or "sys", and handing it the log that
+ * does exist beats failing an open it has no way to understand. */
 /** @noreq blackbox-name to path resolver helper */
 static const char *log_path_for(const char *name) {
-  if (name[0] == 'n' || name[0] == 'N')
-    return NAVLINK_LOGGING_FILENAME;
-  if (name[0] == 's' || name[0] == 'S')
-    return SYS_LOGGING_FILENAME;
-  return GENERAL_LOGGING_FILENAME;
+  (void)name;
+  return HSL_FILENAME;
 }
 
 /** @noreq LOG provider open (fs_owner-backed adapter) */

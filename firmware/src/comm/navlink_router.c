@@ -23,11 +23,12 @@
 #include "control/angle_rate_controller.h" /* geometry apply */
 #include "control/sysid.h"  /* sysid_start/abort (CMD_SYSID_EXCITE) */
 #include "dsp/gyro_notch.h" /* dynamic gyro-notch tuning (CMD_SET_GYRO_NOTCH) */
-#include "sys/state.h"      /* system_state_get, SYSTEM_STATE_* */
-#include "navhal.h"         /* hal_gpio_write, HAL_GPIO_HIGH/LOW */
-#include "sys/sys_utils.h"  /* get_device_id */
-#include "utils.h"          /* v_get_ticks, v_memcpy */
-#include "variables.h"      /* _BLUE_LED_PIN */
+#include "storage/imu_hs_log.h" /* imu_hs_log_wire_rx (blackbox RX) */
+#include "sys/state.h"          /* system_state_get, SYSTEM_STATE_* */
+#include "navhal.h"             /* hal_gpio_write, HAL_GPIO_HIGH/LOW */
+#include "sys/sys_utils.h"      /* get_device_id */
+#include "utils.h"              /* v_get_ticks, v_memcpy */
+#include "variables.h"          /* _BLUE_LED_PIN */
 #include "vayu_status.h"
 #include "vayu_tasks.h"             /* comm_processor_dispatch */
 #include "comm/xfer/navlink_xfer.h" /* bulk-transfer substrate SM (codec-blind) */
@@ -539,6 +540,11 @@ void navlink_router_poll(void) {
   uint8_t buf[256];
   uint16_t n = comm_rx_raw_drain(buf, (uint16_t)sizeof(buf));
   if (n > 0) {
+    /* Record the raw wire BEFORE parsing it. What the operator sent is worth
+     * having even when it did not parse -- a malformed or truncated command
+     * is exactly the kind of thing worth seeing afterwards, and a parser that
+     * rejected it would leave no other trace. */
+    imu_hs_log_wire_rx(buf, n, hal_cycle_counter_get());
     navlink_parser_push(&s_parser, &s_handlers, buf, n);
   }
   arm_ack_service();
