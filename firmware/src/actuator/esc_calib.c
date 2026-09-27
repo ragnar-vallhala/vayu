@@ -16,7 +16,8 @@
  */
 #include "actuator/esc_calib.h"
 
-#include "storage/fs_owner.h" /* vayu_log */
+#include "storage/fs_owner.h" /* vayu_log, fs_owner_enqueue_write_at */
+#include "vfs.h"              /* boot-time marker read */
 #include "sys/state.h"
 #include "utils.h" /* v_get_ticks */
 #include "vayu_status.h"
@@ -53,7 +54,6 @@ static bool gesture_close(const ibus_data_t *rc) {
 
 typedef enum {
   ESC_CAL_OFF = 0,
-  ESC_CAL_CUT,    /* PWM off entirely, so a powered ESC stops its motor */
   ESC_CAL_HIGH,   /* holding maximum; operator powers the ESCs */
   ESC_CAL_SETTLE, /* holding minimum after the closing gesture */
 } esc_cal_phase_t;
@@ -61,10 +61,11 @@ typedef enum {
 /* RC-task-owned. motor_task reads s_phase through esc_calib_output(); one
  * writer, one word, so no lock. */
 static volatile esc_cal_phase_t s_phase = ESC_CAL_OFF;
-static uint32_t s_gesture_ms; /* when the gesture currently held began */
-static uint32_t s_phase_ms;   /* when the current phase began          */
-static bool s_holding_enter;  /* the enter gesture is being held       */
-static bool s_holding_close;  /* the close gesture is being held       */
+static bool s_request_written; /* a request is on the card, awaiting a reboot */
+static uint32_t s_gesture_ms;  /* when the gesture currently held began */
+static uint32_t s_phase_ms;    /* when the current phase began          */
+static bool s_holding_enter;   /* the enter gesture is being held       */
+static bool s_holding_close;   /* the close gesture is being held       */
 
 /** @noreq gesture hold timer: returns true once `held` has lasted long enough */
 static bool held_long_enough(bool now, bool *was, uint32_t *since) {
@@ -79,6 +80,58 @@ static bool held_long_enough(bool now, bool *was, uint32_t *since) {
     return false;
   }
   return (uint32_t)(t - *since) >= ESC_CALIB_GESTURE_MS;
+}
+
+/* The marker is a magic word and nothing else: its presence is the request.
+ * Written through fs_owner because that task is the only runtime SD writer;
+ * read and cleared directly at boot, where nothing else is running yet. */
+typedef struct {
+  uint32_t magic;
+} esc_calib_store_t;
+
+/** @noreq write the request marker (runtime; goes through the FS owner) */
+static bool request_write(void) {
+  const esc_calib_store_t s = {ESC_CALIB_STORE_MAGIC};
+  /* Internal slot, never session 0: a write here during a GCS upload would
+   * otherwise corrupt that transfer's pending/committed accounting. */
+  return fs_owner_enqueue_write_at(FS_WA_SESSION_INTERNAL, ESC_CALIB_STORE_PATH,
+                                   0, &s, sizeof s);
+}
+
+/** @noreq read and CLEAR the request marker (boot only, single-threaded) */
+static bool request_take(void) {
+  vfs_fd_t fd = vfs_open(ESC_CALIB_STORE_PATH, VFS_O_RDWR);
+  if (fd < 0) {
+    return false; /* absent = no request; a missing card is not a request */
+  }
+  esc_calib_store_t s = {0};
+  const bool have = vfs_read(fd, &s, sizeof s) == (int)sizeof s &&
+                    s.magic == ESC_CALIB_STORE_MAGIC;
+  if (have) {
+    /* Clear BEFORE calibrating, not after. A power cut while maximum is being
+     * driven must not leave the aircraft doing that on every future boot --
+     * one attempt per request is the safe failure. */
+    const esc_calib_store_t z = {0};
+    vfs_lseek(fd, 0, VFS_SEEK_SET);
+    vfs_write(fd, &z, sizeof z);
+    vfs_sync(fd);
+  }
+  vfs_close(fd);
+  return have;
+}
+
+/** @noreq boot entry: take a pending request and drive maximum from startup */
+void esc_calib_boot_init(void) {
+  if (!request_take()) {
+    return;
+  }
+  if (system_state_set(SYSTEM_STATE_ESC_CALIB) != VAYU_OK) {
+    vayu_log("esc_calib: request found but state refused it");
+    return;
+  }
+  s_phase = ESC_CAL_HIGH;
+  s_phase_ms = v_get_ticks();
+  vayu_log("esc_calib: MAX from boot -- ESCs should beep, props OFF");
 }
 
 /** @noreq leave calibration, motors first */
@@ -125,15 +178,17 @@ void esc_calib_rc_step(const ibus_data_t *rc) {
     if (!held_long_enough(gesture_enter(rc), &s_holding_enter, &s_gesture_ms)) {
       return;
     }
-    if (system_state_set(SYSTEM_STATE_ESC_CALIB) != VAYU_OK) {
-      s_holding_enter = false;
+    /* Do NOT drive the motors here. The ESCs are already powered, so showing
+     * them maximum would just spin them to full; calibration only happens if
+     * they SEE maximum as they wake. Write the request and ask for the power
+     * cycle that makes that possible. */
+    s_holding_enter = false;
+    if (!request_write()) {
+      vayu_log("esc_calib: could not write the request (card?)");
       return;
     }
-    s_phase = ESC_CAL_CUT;
-    s_phase_ms = v_get_ticks();
-    s_holding_enter = false;
-    s_holding_close = false;
-    vayu_log("esc_calib: signal cut -- motors stopping, props OFF");
+    s_request_written = true;
+    vayu_log("esc_calib: request stored -- power-cycle, props OFF");
     return;
   }
 
@@ -151,17 +206,6 @@ void esc_calib_rc_step(const ibus_data_t *rc) {
   /* Backstop, whichever phase we are in. */
   if ((uint32_t)(v_get_ticks() - s_phase_ms) >= ESC_CALIB_TIMEOUT_MS) {
     esc_calib_finish("aborted: timed out");
-    return;
-  }
-
-  if (s_phase == ESC_CAL_CUT) {
-    /* Hold the outputs off long enough for the ESCs to see signal loss and
-     * stop, THEN show maximum. Entering calibration must not spin anything. */
-    if ((uint32_t)(v_get_ticks() - s_phase_ms) >= ESC_CALIB_SIGNAL_CUT_MS) {
-      s_phase = ESC_CAL_HIGH;
-      s_phase_ms = v_get_ticks();
-      vayu_log("esc_calib: MAX -- power-cycle the ESCs now");
-    }
     return;
   }
 
@@ -187,5 +231,5 @@ float esc_calib_output(void) { return (s_phase == ESC_CAL_HIGH) ? 1.0f : 0.0f; }
 /** @noreq state predicate */
 bool esc_calib_active(void) { return s_phase != ESC_CAL_OFF; }
 
-/** @noreq true while the timer outputs should be stopped entirely */
-bool esc_calib_signal_off(void) { return s_phase == ESC_CAL_CUT; }
+/** @noreq request-written predicate */
+bool esc_calib_request_pending(void) { return s_request_written; }

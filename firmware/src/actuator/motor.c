@@ -76,28 +76,6 @@ void motor_task(void *arg) {
      * disarm. Anything else (STANDBY/FAILSAFE/...) forces them to zero. */
     sys_state_t mstate = system_state_get();
 
-    /* Signal-cut phase: no pulses at all, so a powered ESC sees signal loss
-     * and stops its motor before it is ever shown maximum. Entering
-     * calibration must not spin anything. Edge-triggered -- hal_pwm_stop/start
-     * every 2 ms would be pointless churn. */
-    static bool pwm_cut = false;
-    const bool want_cut =
-        (mstate == SYSTEM_STATE_ESC_CALIB) && esc_calib_signal_off();
-    if (want_cut != pwm_cut) {
-      for (int i = 0; i < 4; i++) {
-        if (want_cut) {
-          esc_disarm(&motors[i]);
-        } else {
-          esc_arm(&motors[i]);
-        }
-      }
-      pwm_cut = want_cut;
-    }
-    if (pwm_cut) {
-      v_delay(2); /* outputs are off; nothing to write */
-      continue;
-    }
-
     if (mstate == SYSTEM_STATE_ESC_CALIB) {
       /* ESC endpoint calibration: every motor gets the same endpoint, from the
        * calibration state machine rather than the mixer. This is the ONLY

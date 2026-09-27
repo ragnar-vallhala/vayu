@@ -25,13 +25,19 @@
  *   - a gesture read out of a failsafe-substituted frame
  *   - arming during calibration
  *
- * Plus the two that make it useful: the real gesture does start it, and the
- * closing gesture ends it with the output back at minimum.
+ * And the property that makes the whole thing possible: the gesture does NOT
+ * drive the motors. An ESC only learns endpoints if it sees maximum as it
+ * wakes, which a running FC cannot arrange -- so the gesture writes a request
+ * and the NEXT boot drives maximum. A gesture that spun the motors would be
+ * both useless and dangerous.
  */
+#include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "actuator/esc_calib.h"
+#include "storage/fs_owner.h"
 #include "sys/state.h"
 
 static int g_checks = 0, g_fails = 0;
@@ -86,6 +92,13 @@ static void hold(const ibus_data_t *f, unsigned ms) {
 int main(void) {
   printf("== esc_calib ==\n");
 
+  /* The request marker is a real file, so the host VFS needs a home and the FS
+   * owner has to be running -- the runtime write goes through it, as every
+   * other SD write does. */
+  setenv("VAYU_VFS_DIR", "/tmp/vayu_esccal_test", 1);
+  remove("/tmp/vayu_esccal_test/0_esccal.bin"); /* isolate from a prior run */
+  fs_owner_init();
+
   /* Start disarmed with a healthy link, which is the only way in. */
   _system_current_status = SYSTEM_STATE_STANDBY;
 
@@ -118,32 +131,47 @@ int main(void) {
     _system_current_status = SYSTEM_STATE_STANDBY;
   }
 
-  printf("  [4] entry cuts the signal FIRST, and only then shows maximum\n");
+  printf("  [4] the gesture stores a request and spins NOTHING\n");
   {
     ibus_data_t f = frame_enter();
     hold(&f, ESC_CALIB_GESTURE_MS + 400u);
-    CHECK(esc_calib_active(), "held gesture starts calibration");
-    CHECK(system_state_get() == SYSTEM_STATE_ESC_CALIB, "state is ESC_CALIB");
-    /* The whole point: a powered ESC handed maximum while running just spins
-     * the motor up. Entry must stop the outputs first so it shuts down. */
-    CHECK(esc_calib_signal_off(), "the PWM signal is cut on entry");
-    CHECK(esc_calib_output() == 0.0f,
-          "and nothing is commanded while it is cut");
-
-    ibus_data_t n = frame_neutral();
-    hold(&n, ESC_CALIB_SIGNAL_CUT_MS + 400u);
-    CHECK(!esc_calib_signal_off(), "the signal returns after the cut window");
-    CHECK(esc_calib_output() == 1.0f, "then the MAXIMUM endpoint is shown");
+    fs_owner_pump(); /* the FS task writes the marker */
+    CHECK(esc_calib_request_pending(), "the request is stored");
+    /* The property that matters. Showing a RUNNING ESC maximum spins it to
+     * full; calibration needs it to see maximum as it wakes, so the gesture
+     * must not touch the motors at all. */
+    CHECK(!esc_calib_active(), "calibration does NOT start from the gesture");
+    CHECK(system_state_get() == SYSTEM_STATE_STANDBY, "state stays STANDBY");
+    CHECK(esc_calib_output() == 0.0f, "and nothing is commanded");
   }
 
-  printf("  [5] arming is refused while it runs\n");
+  printf("  [5] the next boot takes the request and drives maximum\n");
+  {
+    esc_calib_boot_init();
+    CHECK(esc_calib_active(), "boot enters calibration");
+    CHECK(system_state_get() == SYSTEM_STATE_ESC_CALIB, "state is ESC_CALIB");
+    CHECK(esc_calib_output() == 1.0f, "maximum is driven from startup");
+  }
+
+  printf("  [6] the request is one-shot\n");
+  {
+    /* Cleared BEFORE calibrating, so a power cut while maximum is driven
+     * cannot latch the aircraft into doing it on every future boot. */
+    _system_current_status = SYSTEM_STATE_STANDBY;
+    esc_calib_boot_init();
+    CHECK(system_state_get() == SYSTEM_STATE_STANDBY,
+          "a second boot does not calibrate again");
+    _system_current_status = SYSTEM_STATE_ESC_CALIB;
+  }
+
+  printf("  [7] arming is refused while it runs\n");
   {
     CHECK(system_state_set(SYSTEM_STATE_ARMED) != VAYU_OK,
           "ESC_CALIB -> ARMED is not an allowed transition");
     CHECK(system_state_get() == SYSTEM_STATE_ESC_CALIB, "still ESC_CALIB");
   }
 
-  printf("  [6] the closing gesture ends it, at minimum\n");
+  printf("  [8] the closing gesture ends it, at minimum\n");
   {
     ibus_data_t f = frame_close();
     hold(&f, ESC_CALIB_GESTURE_MS + 400u);

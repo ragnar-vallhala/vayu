@@ -33,7 +33,8 @@
 #include "driver/timer_callbacks.h"
 #include "vayu_assert.h"
 #include "vayu_status.h"
-#include "hub/hub.h" /* imu_buffer_init */
+#include "actuator/esc_calib.h" /* boot-time ESC calibration entry */
+#include "hub/hub.h"            /* imu_buffer_init */
 #include "vayu_tasks.h"
 
 #ifdef EKF_SELFTEST
@@ -246,6 +247,11 @@ int main() {
 #endif
   pid_config_init(); /* COMM-CMD-003: restore persisted PID tune from SD */
   system_state_init();
+  /* Takes a pending ESC-calibration request and drives maximum from startup.
+   * Must be AFTER system_state_init (it needs STANDBY to transition from) and
+   * BEFORE the scheduler, because the ESCs have to see maximum as they wake --
+   * which is the one moment a running FC cannot recreate. */
+  esc_calib_boot_init();
   init_sensors();
   system_init_tasks();
   init_tasks();

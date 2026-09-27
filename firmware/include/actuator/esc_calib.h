@@ -31,6 +31,15 @@
  * ends up refusing to start at the 15% idle floor while its three siblings
  * spin, the fault this exists to fix.
  *
+ * WHY THIS IS A TWO-BOOT PROCEDURE. "Powered up while already seeing maximum"
+ * is the whole mechanism, and it cannot be arranged at runtime: on a
+ * battery-only aircraft the FC and the ESCs come up together, so by the time
+ * any stick gesture can be performed the ESCs are already running, and showing
+ * a running ESC maximum simply spins the motor to full. So the gesture does
+ * not calibrate anything -- it writes a request to the card and asks for a
+ * power cycle. The next boot drives maximum from startup, while the ESCs are
+ * still waking, which is the only moment that works.
+ *
  * THIS DRIVES EVERY MOTOR TO 100%. It is the only procedure in the firmware
  * that does so from a disarmed aircraft, so it is gated like arming rather
  * than like a setting:
@@ -58,12 +67,6 @@
  * corner on its way somewhere else does not count. */
 #define ESC_CALIB_GESTURE_MS 1500u
 
-/* Entry cuts the PWM signal entirely before showing maximum, so a powered ESC
- * stops its motor first instead of being handed full throttle while running.
- * Long enough for an ESC to register signal loss and shut down -- typical
- * timeouts are a few hundred ms. */
-#define ESC_CALIB_SIGNAL_CUT_MS 2000u
-
 /* How long minimum is held after the closing gesture, so the ESC has time to
  * store the endpoint and acknowledge before the outputs go away. */
 #define ESC_CALIB_SETTLE_MS 2000u
@@ -72,14 +75,32 @@
  * left on a bench -- the motors must not sit at full throttle indefinitely. */
 #define ESC_CALIB_TIMEOUT_MS 60000u
 
+/** Marker file holding a pending calibration request. 8.3 name. */
+#define ESC_CALIB_STORE_PATH "0:esccal.bin"
+#define ESC_CALIB_STORE_MAGIC 0x4C414345u /* 'E''C''A''L' */
+
+/**
+ * Boot-time entry. Call once, before the scheduler, AFTER the filesystem and
+ * the state machine are up.
+ *
+ * Reads the request marker and clears it immediately -- one attempt per
+ * request, so a power cut mid-calibration cannot leave the aircraft latched
+ * into driving maximum on every future boot. If a request was pending, enters
+ * SYSTEM_STATE_ESC_CALIB so the motor task drives maximum from startup.
+ */
+void esc_calib_boot_init(void);
+
 /**
  * Per-RC-frame service. Call from the RC task with the frame the FC acted on.
  *
- * Detects the entry gesture while STANDBY and the closing gesture while
- * ESC_CALIB, drives the phase, and enforces the timeout. Owns every transition
- * into and out of SYSTEM_STATE_ESC_CALIB.
+ * While STANDBY: detects the entry gesture and writes the request marker --
+ * it does NOT drive the motors. While ESC_CALIB (entered at boot): detects the
+ * closing gesture, drives the phase, and enforces the timeout.
  */
 void esc_calib_rc_step(const ibus_data_t *rc);
+
+/** True once a request is written and waiting for the power cycle. */
+bool esc_calib_request_pending(void);
 
 /**
  * Normalised output every motor should be given right now, 0..1.
@@ -92,16 +113,5 @@ float esc_calib_output(void);
 
 /** True while calibration is running. */
 bool esc_calib_active(void);
-
-/**
- * True while the PWM signal should be OFF entirely -- no pulses at all, not a
- * zero-width one.
- *
- * The first phase after entry. A powered ESC that is handed maximum while
- * running just spins the motor up; cutting the signal makes it stop first, so
- * entering calibration does not spin anything. motor_task stops the timer
- * outputs while this is true and restarts them after.
- */
-bool esc_calib_signal_off(void);
 
 #endif /* VAYU_ACTUATOR_ESC_CALIB_H */
