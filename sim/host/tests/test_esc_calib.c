@@ -118,13 +118,22 @@ int main(void) {
     _system_current_status = SYSTEM_STATE_STANDBY;
   }
 
-  printf("  [4] the held gesture starts it, at maximum\n");
+  printf("  [4] entry cuts the signal FIRST, and only then shows maximum\n");
   {
     ibus_data_t f = frame_enter();
     hold(&f, ESC_CALIB_GESTURE_MS + 400u);
     CHECK(esc_calib_active(), "held gesture starts calibration");
     CHECK(system_state_get() == SYSTEM_STATE_ESC_CALIB, "state is ESC_CALIB");
-    CHECK(esc_calib_output() == 1.0f, "output is the MAXIMUM endpoint");
+    /* The whole point: a powered ESC handed maximum while running just spins
+     * the motor up. Entry must stop the outputs first so it shuts down. */
+    CHECK(esc_calib_signal_off(), "the PWM signal is cut on entry");
+    CHECK(esc_calib_output() == 0.0f,
+          "and nothing is commanded while it is cut");
+
+    ibus_data_t n = frame_neutral();
+    hold(&n, ESC_CALIB_SIGNAL_CUT_MS + 400u);
+    CHECK(!esc_calib_signal_off(), "the signal returns after the cut window");
+    CHECK(esc_calib_output() == 1.0f, "then the MAXIMUM endpoint is shown");
   }
 
   printf("  [5] arming is refused while it runs\n");

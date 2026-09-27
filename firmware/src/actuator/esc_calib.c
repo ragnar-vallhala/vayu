@@ -53,6 +53,7 @@ static bool gesture_close(const ibus_data_t *rc) {
 
 typedef enum {
   ESC_CAL_OFF = 0,
+  ESC_CAL_CUT,    /* PWM off entirely, so a powered ESC stops its motor */
   ESC_CAL_HIGH,   /* holding maximum; operator powers the ESCs */
   ESC_CAL_SETTLE, /* holding minimum after the closing gesture */
 } esc_cal_phase_t;
@@ -128,11 +129,11 @@ void esc_calib_rc_step(const ibus_data_t *rc) {
       s_holding_enter = false;
       return;
     }
-    s_phase = ESC_CAL_HIGH;
+    s_phase = ESC_CAL_CUT;
     s_phase_ms = v_get_ticks();
     s_holding_enter = false;
     s_holding_close = false;
-    vayu_log("esc_calib: MAX held -- power the ESCs now, props OFF");
+    vayu_log("esc_calib: signal cut -- motors stopping, props OFF");
     return;
   }
 
@@ -150,6 +151,17 @@ void esc_calib_rc_step(const ibus_data_t *rc) {
   /* Backstop, whichever phase we are in. */
   if ((uint32_t)(v_get_ticks() - s_phase_ms) >= ESC_CALIB_TIMEOUT_MS) {
     esc_calib_finish("aborted: timed out");
+    return;
+  }
+
+  if (s_phase == ESC_CAL_CUT) {
+    /* Hold the outputs off long enough for the ESCs to see signal loss and
+     * stop, THEN show maximum. Entering calibration must not spin anything. */
+    if ((uint32_t)(v_get_ticks() - s_phase_ms) >= ESC_CALIB_SIGNAL_CUT_MS) {
+      s_phase = ESC_CAL_HIGH;
+      s_phase_ms = v_get_ticks();
+      vayu_log("esc_calib: MAX -- power-cycle the ESCs now");
+    }
     return;
   }
 
@@ -174,3 +186,6 @@ float esc_calib_output(void) { return (s_phase == ESC_CAL_HIGH) ? 1.0f : 0.0f; }
 
 /** @noreq state predicate */
 bool esc_calib_active(void) { return s_phase != ESC_CAL_OFF; }
+
+/** @noreq true while the timer outputs should be stopped entirely */
+bool esc_calib_signal_off(void) { return s_phase == ESC_CAL_CUT; }

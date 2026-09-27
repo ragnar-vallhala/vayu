@@ -58,6 +58,12 @@
  * corner on its way somewhere else does not count. */
 #define ESC_CALIB_GESTURE_MS 1500u
 
+/* Entry cuts the PWM signal entirely before showing maximum, so a powered ESC
+ * stops its motor first instead of being handed full throttle while running.
+ * Long enough for an ESC to register signal loss and shut down -- typical
+ * timeouts are a few hundred ms. */
+#define ESC_CALIB_SIGNAL_CUT_MS 2000u
+
 /* How long minimum is held after the closing gesture, so the ESC has time to
  * store the endpoint and acknowledge before the outputs go away. */
 #define ESC_CALIB_SETTLE_MS 2000u
@@ -86,5 +92,16 @@ float esc_calib_output(void);
 
 /** True while calibration is running. */
 bool esc_calib_active(void);
+
+/**
+ * True while the PWM signal should be OFF entirely -- no pulses at all, not a
+ * zero-width one.
+ *
+ * The first phase after entry. A powered ESC that is handed maximum while
+ * running just spins the motor up; cutting the signal makes it stop first, so
+ * entering calibration does not spin anything. motor_task stops the timer
+ * outputs while this is true and restarts them after.
+ */
+bool esc_calib_signal_off(void);
 
 #endif /* VAYU_ACTUATOR_ESC_CALIB_H */
