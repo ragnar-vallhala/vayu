@@ -180,8 +180,12 @@ void rc_implausible_reset(void) { s_implausible_frames = 0; }
  * the operator may legitimately have the transmitter off. */
 /** @noreq state-set predicate helper for rc_watchdog_step (SYS-SAFE-002) */
 static bool rc_watchdog_active_for(sys_state_t s) {
+  /* ESC_CALIB is included: the gesture that ends calibration comes over the
+   * RC link, so losing that link mid-calibration must drop to FAILSAFE and
+   * zero the motors rather than leave them at whatever the last phase set. */
   return s == SYSTEM_STATE_STANDBY || s == SYSTEM_STATE_PREARM ||
-         s == SYSTEM_STATE_ARMED || s == SYSTEM_STATE_IN_AIR;
+         s == SYSTEM_STATE_ARMED || s == SYSTEM_STATE_IN_AIR ||
+         s == SYSTEM_STATE_ESC_CALIB;
 }
 
 /* ----------------------------------------------------------------------------

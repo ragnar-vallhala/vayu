@@ -50,6 +50,12 @@ static const sys_state_t k_allowed_transitions[][2] = {
     {SYSTEM_STATE_STANDBY, SYSTEM_STATE_PREARM},
     {SYSTEM_STATE_STANDBY, SYSTEM_STATE_ARMED},
     {SYSTEM_STATE_STANDBY, SYSTEM_STATE_CALIBRATING},
+    /* ESC calibration drives every motor to full throttle, so entry is from
+     * STANDBY only -- never from ARMED, IN_AIR or FAILSAFE -- and the only way
+     * out is back to STANDBY or to FAILSAFE (always allowed as a target). The
+     * absence of an ESC_CALIB -> ARMED row is what refuses arming during it. */
+    {SYSTEM_STATE_STANDBY, SYSTEM_STATE_ESC_CALIB},
+    {SYSTEM_STATE_ESC_CALIB, SYSTEM_STATE_STANDBY},
     /* Bench calibration: the FC sits in FAILSAFE whenever there is no RC link
      * (rc_watchdog_step), which is the normal state for a GCS-driven ground
      * calibration. Allow it from there; the task returns to STANDBY on

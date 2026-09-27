@@ -90,6 +90,7 @@ set(VAYU_SOURCES
     ${VAYU_ROOT}/firmware/src/driver/indicator.c # LED/buzzer driver; host_navhal records the pin levels
     ${VAYU_ROOT}/firmware/src/driver/esc.c
     ${VAYU_ROOT}/firmware/src/actuator/motor.c
+    ${VAYU_ROOT}/firmware/src/actuator/esc_calib.c   # ESC endpoint calibration gestures/state
     ${VAYU_ROOT}/firmware/src/control/angle_controller.c
     ${VAYU_ROOT}/firmware/src/control/height_controller.c
     ${VAYU_ROOT}/firmware/src/control/throttle_curve.c
@@ -596,6 +597,13 @@ add_test(NAME vertical_est COMMAND test_vertical_est)
 add_executable(test_flight_phase tests/test_flight_phase.c)
 target_link_libraries(test_flight_phase PRIVATE vayu_sitl_core m)
 add_test(NAME flight_phase COMMAND test_flight_phase)
+
+# esc_calib: the only procedure that drives motors to 100% from a disarmed
+# aircraft, so the suite pins the ways IN that must stay shut, not just that it
+# works (in vayu_sitl_core).
+add_executable(test_esc_calib tests/test_esc_calib.c)
+target_link_libraries(test_esc_calib PRIVATE vayu_sitl_core m)
+add_test(NAME esc_calib COMMAND test_esc_calib)
 
 # sysid: the rate-loop excite/capture buffer, which is heap rather than .bss --
 # so the start/refuse contract and the pre-allocation capture path are what this
