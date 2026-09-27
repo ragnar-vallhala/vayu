@@ -339,9 +339,26 @@ endif()
 #-------------------------
 # Post build: binary + size
 #-------------------------
+# Which programmer. With more than one ST-Link attached, st-flash takes
+# whichever enumerates first -- so a bench with a second board on it can send
+# this build to the wrong target, and the only symptom is that the board you
+# meant to flash keeps behaving like the old firmware. Pin it.
+#   cmake -S firmware -B build -DSTLINK_SERIAL=<hex serial from st-info --probe>
+# Left empty, the old first-enumerated behaviour applies and a warning is
+# printed at configure time.
+set(STLINK_SERIAL "" CACHE STRING "ST-Link serial to flash (hex, from st-info --probe)")
+if(STLINK_SERIAL STREQUAL "")
+  message(WARNING
+    "STLINK_SERIAL is not set: 'flash' will use whichever ST-Link enumerates "
+    "first. Set -DSTLINK_SERIAL=<hex> if more than one is ever attached.")
+  set(_FLASH_SERIAL_ARG "")
+else()
+  set(_FLASH_SERIAL_ARG --serial ${STLINK_SERIAL})
+endif()
+
 add_custom_target(flash
   COMMAND ${CMAKE_OBJCOPY} -O binary $<TARGET_FILE:main> ${CMAKE_CURRENT_BINARY_DIR}/main.bin
-  COMMAND ${FLASHER} --connect-under-reset write ${CMAKE_CURRENT_BINARY_DIR}/main.bin ${FLASH_ADDRESS}
+  COMMAND ${FLASHER} ${_FLASH_SERIAL_ARG} --connect-under-reset write ${CMAKE_CURRENT_BINARY_DIR}/main.bin ${FLASH_ADDRESS}
   DEPENDS main
   COMMENT "Convert ELF to BIN and flash"
 )
