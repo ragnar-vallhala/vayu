@@ -187,6 +187,10 @@ _Static_assert(HSL_FITS(HSL_RC_REC_BYTES), "rc records overrun the block");
 /* Set by the FS task from the flight state; read by producers via
  * stream_claim. One word, one writer. */
 static volatile uint8_t s_armed = 0;
+/* Session hold: the tick that last wanted a session, and the armed state as of
+ * the previous tick so a disarm can be seen as the edge it is. FS task only. */
+static uint32_t s_want_ms = 0;
+static bool s_was_armed = false;
 
 /* Consumer-owned. */
 static vfs_fd_t s_fd = -1;
@@ -934,7 +938,28 @@ void imu_hs_log_drain(void) {
       break;
     }
   }
-  const bool want = armed || wire_pending;
+  /* A disarm is a real boundary: close the session there so one flight reads
+   * as one session, even though byte-stream traffic would otherwise hold it
+   * open straight through. The next tick reopens for that traffic. */
+  const bool was_armed = s_was_armed;
+  s_was_armed = armed;
+  if (was_armed && !armed && s_fd >= 0) {
+    emit_changes();
+    session_stop();
+    return;
+  }
+
+  /* Hold the session open for HSL_SESSION_HOLD_MS after the last tick that
+   * wanted it. A queue that momentarily empties is not the end of a recording
+   * period -- closing there is what produced a session every 1.7 s, three ring
+   * slots apiece, and a session_tag that wrapped every 7 minutes. */
+  const bool want_now = armed || wire_pending;
+  if (want_now) {
+    s_want_ms = v_get_ticks();
+  }
+  const bool want =
+      want_now || (s_fd >= 0 &&
+                   (uint32_t)(v_get_ticks() - s_want_ms) < HSL_SESSION_HOLD_MS);
 
   if (!want || fs_owner_logs_suppressed()) {
     /* Also stop for a bulk transfer: a held fd would occupy one of FatFS's four

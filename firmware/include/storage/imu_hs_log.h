@@ -35,7 +35,9 @@
  * So HSL batches samples into 512 B sectors and hands whole sectors to the FS
  * task, ~49 writes/s at 24 KB/s.
  *
- * Only armed time is recorded, and sessions ACCUMULATE into a circular ring:
+ * Armed time is always recorded; so is the operator traffic and log text that
+ * surrounds it (the byte streams below are not arm-gated). Sessions ACCUMULATE
+ * into a circular ring:
  * the file always holds the last ~22 min of armed flight, however many arms
  * that spans, and never stops recording. Nothing is ever deleted or truncated
  * -- the oldest sector is simply overwritten.
@@ -145,8 +147,16 @@
  *     Consecutive frames are ~20 ms apart, so a reader accumulates wrap-safe
  *     u32 deltas and never needs a wider counter on the wire.
  *
- *   type 0x04 SESSION -- opens one armed period. One ring slot, written before
- *                        that period's first BLOCK.
+ *   type 0x04 SESSION -- opens one RECORDING period. One ring slot, written
+ *                        before that period's first BLOCK.
+ *
+ *     A recording period is not the same as an armed period, and has not been
+ *     since the byte streams began recording while disarmed. It starts when
+ *     anything wants the file -- an arm, or queued rc/txt traffic -- and ends
+ *     on a disarm or after HSL_SESSION_HOLD_MS with nothing wanting it. One
+ *     flight is therefore one session, but so is a long disarmed stretch on
+ *     the bench. Find the armed window from the STATE events inside the
+ *     session, not from its boundaries.
  *     [1]      u8  session_tag
  *     [4..7]   u32 seq
  *     [8..11]  u32 session    counter, monotonic for the life of the file
@@ -399,6 +409,21 @@
  * mostly-empty ring slot per burst of traffic, which is the right trade for a
  * stream whose whole value is that it is there after a crash. */
 #define HSL_WIRE_IDLE_FLUSH_MS 2000u
+
+/* How long a session stays open after the last thing that wanted it.
+ *
+ * Without this a session closes the moment the queue drains, and a steady
+ * trickle reopens one immediately: RC at 10 Hz fills a sector every ~1.6 s, so
+ * the file was cycling open/closed every 1.7 s and spending three ring slots
+ * per session -- a SESSION frame and an EVENT frame for every one sector of
+ * data. Two thirds of the ring went on bookkeeping, and worse, `session_tag`
+ * is the LOW 8 BITS of the session counter: at that rate it wrapped every
+ * ~7 minutes, breaking the "adjacent sessions cannot alias" guarantee a
+ * decoder relies on to group frames.
+ *
+ * Longer than the idle flush, so continuous traffic keeps one session open
+ * indefinitely and a session means "a period of recording" again. */
+#define HSL_SESSION_HOLD_MS 10000u
 
 /* How often the file header's head_slot/next_seq hint is rewritten, in ring
  * sectors. Data sectors are 512 B and sector-aligned, so f_write hands them

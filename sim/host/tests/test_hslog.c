@@ -188,9 +188,13 @@ int main(void) {
      * samples belong to no session, but it threw away the very data that asked
      * for the file to be opened. Two slots must move: the SESSION frame and
      * the surviving RC sector. */
-    _system_current_status = SYSTEM_STATE_STANDBY;
+    /* Close it deterministically. The hold window is wall-clock and far longer
+     * than a test run, so lean on the bulk-transfer quiesce, which closes the
+     * session immediately by design. */
+    fs_owner_suppress_logs(true);
     imu_hs_log_drain();
-    CHECK(!imu_hs_log_active(), "session closed before the second RC burst");
+    CHECK(!imu_hs_log_active(), "a bulk transfer closes the session at once");
+    fs_owner_suppress_logs(false);
     const uint32_t slot_closed = imu_hs_log_head_slot();
     for (int k = 0; k < (int)(HSL_BLOCK_PAYLOAD_BYTES / HSL_RC_REC_BYTES);
          k++) {
@@ -200,9 +204,23 @@ int main(void) {
     CHECK(imu_hs_log_head_slot() >= slot_closed + 2u,
           "a sector that opens the session survives session_start");
 
+    /* The session must NOT close just because the queue drained. It used to,
+     * and a steady trickle then reopened one every ~1.7 s -- three ring slots
+     * per session, and a session_tag (low 8 bits of the counter) that wrapped
+     * every 7 minutes, breaking the aliasing guarantee a decoder needs. */
+    const uint32_t sess_held = imu_hs_log_session();
+    for (int k = 0; k < 4; k++) {
+      imu_hs_log_drain(); /* nothing queued, still inside the hold window */
+    }
+    CHECK(imu_hs_log_active(), "an empty queue does not end the session");
+    CHECK(imu_hs_log_session() == sess_held,
+          "and no new session is started while it is held open");
+
     _system_current_status = SYSTEM_STATE_STANDBY;
+    fs_owner_suppress_logs(true);
     imu_hs_log_drain();
-    CHECK(!imu_hs_log_active(), "and it closes once the RX sector is written");
+    CHECK(!imu_hs_log_active(), "a bulk transfer closes it even mid-traffic");
+    fs_owner_suppress_logs(false);
   }
 
   run_session(860);
