@@ -36,7 +36,7 @@
 #include "sys/state.h"
 #include "sys/sys_utils.h" /* get_timestamp_unix, time_sync_is_synced */
 #include "port.h"          /* ENTER/EXIT_CRITICAL */
-#include "utils.h"         /* v_memcpy */
+#include "utils.h"         /* v_memcpy, v_get_ticks */
 #include "variables.h"
 #include "vfs.h"
 
@@ -66,6 +66,10 @@ typedef struct {
   volatile uint8_t head;
   uint16_t fill;
   uint32_t last_cyc;
+  /* Wall-ish milliseconds of the last accepted record. Only the byte streams
+   * use it, for the idle flush; a cycle delta cannot express a 2 s timeout
+   * safely across the DWT's 51 s wrap. */
+  uint32_t last_ms;
   /* consumer-owned */
   volatile uint8_t tail;
 } hsl_stream_t;
@@ -326,6 +330,7 @@ static uint8_t *stream_claim(hsl_stream_t *st, uint32_t t_cyc) {
 static void stream_commit(hsl_stream_t *st, uint32_t t_cyc) {
   uint8_t *b = st->bufs + (size_t)st->head * HSL_SECTOR_BYTES;
   st->last_cyc = t_cyc;
+  st->last_ms = v_get_ticks();
   st->fill++;
   put_u16(&b[6], st->fill); /* n      */
   put_u32(&b[16], t_cyc);   /* t_last */
@@ -829,10 +834,19 @@ static void session_start(void) {
     s_fd = -1;
     return;
   }
-  /* Discard whatever the producers left queued from before this session. Tail
-   * is ours to move, which is why no lock is needed here. */
+  /* Discard what the ARM-GATED producers left queued from before this session:
+   * samples taken before the props could turn belong to no session, and
+   * writing them here would date them to this one.
+   *
+   * NOT the byte streams. Their queued sectors are the whole reason this
+   * session opened -- operator traffic and log lines that arrived while
+   * disarmed are exactly what they exist to keep, and discarding them here
+   * threw away the data that asked for the file to be opened. Tail is ours to
+   * move, which is why no lock is needed either way. */
   for (uint32_t i = 0; i < HSL_N_STREAMS; i++) {
-    s_streams[i].tail = s_streams[i].head;
+    if (s_streams[i].armed_only) {
+      s_streams[i].tail = s_streams[i].head;
+    }
   }
   s_active = true;
 }
@@ -866,16 +880,20 @@ static void session_stop(void) {
  * exactly as stream_commit would and touches nothing else. */
 /** @noreq idle flush for the variable-rate byte streams */
 static void wire_idle_flush(void) {
-  const uint32_t hz = vayu_clock_hz();
-  const uint32_t idle_cyc = (hz / 1000u) * HSL_WIRE_IDLE_FLUSH_MS;
-  const uint32_t now = hal_cycle_counter_get();
+  /* Milliseconds from the RTOS tick, NOT a DWT delta. The cycle counter is
+   * 32-bit and wraps every ~51 s at 84 MHz, so `now - last_cyc` is only
+   * meaningful for gaps shorter than that: a stream idle for 52 s yields a
+   * wrapped delta of 73 Mcyc, which reads as "not idle yet" against a 2 s
+   * threshold of 168 Mcyc. The flush would then skip its window once per
+   * wrap. v_get_ticks is milliseconds and wraps in 49 days. */
+  const uint32_t now_ms = v_get_ticks();
 
   for (uint32_t i = 0; i < HSL_N_STREAMS; i++) {
     hsl_stream_t *st = &s_streams[i];
     if (st->armed_only || st->fill == 0u) {
       continue;
     }
-    if ((uint32_t)(now - st->last_cyc) < idle_cyc) {
+    if ((uint32_t)(now_ms - st->last_ms) < HSL_WIRE_IDLE_FLUSH_MS) {
       continue;
     }
     st->fill = 0u;

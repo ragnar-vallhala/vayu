@@ -177,8 +177,28 @@ int main(void) {
          k++) {
       imu_hs_log_rc(ch, 14, 0u, (uint32_t)(k + 1) * (CYC_PER_SAMPLE * 400u));
     }
+    const uint32_t slot_before = imu_hs_log_head_slot();
     imu_hs_log_drain();
     CHECK(imu_hs_log_dropped() == before, "the RC sector was taken, not lost");
+    CHECK(imu_hs_log_head_slot() > slot_before,
+          "the disarmed RC sector reached the file");
+    /* Now the case that matters: a byte-stream sector queued with NO session
+     * open, so the sector is what OPENS one. session_start used to discard
+     * every queued sector -- right for the arm-gated streams, whose pre-arm
+     * samples belong to no session, but it threw away the very data that asked
+     * for the file to be opened. Two slots must move: the SESSION frame and
+     * the surviving RC sector. */
+    _system_current_status = SYSTEM_STATE_STANDBY;
+    imu_hs_log_drain();
+    CHECK(!imu_hs_log_active(), "session closed before the second RC burst");
+    const uint32_t slot_closed = imu_hs_log_head_slot();
+    for (int k = 0; k < (int)(HSL_BLOCK_PAYLOAD_BYTES / HSL_RC_REC_BYTES);
+         k++) {
+      imu_hs_log_rc(ch, 14, 0u, (uint32_t)(k + 200) * (CYC_PER_SAMPLE * 400u));
+    }
+    imu_hs_log_drain();
+    CHECK(imu_hs_log_head_slot() >= slot_closed + 2u,
+          "a sector that opens the session survives session_start");
 
     _system_current_status = SYSTEM_STATE_STANDBY;
     imu_hs_log_drain();
