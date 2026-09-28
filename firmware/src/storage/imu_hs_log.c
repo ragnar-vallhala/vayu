@@ -541,9 +541,13 @@ void imu_hs_log_att(float roll, float pitch, float yaw, uint8_t degraded,
   if (r == NULL) {
     return;
   }
-  put_u16(&r[0], (uint16_t)scaled_to_i16(roll, 1.0f / HSL_ATT_DEG_PER_LSB));
-  put_u16(&r[2], (uint16_t)scaled_to_i16(pitch, 1.0f / HSL_ATT_DEG_PER_LSB));
-  put_u16(&r[4], (uint16_t)scaled_to_i16(yaw, 1.0f / HSL_ATT_DEG_PER_LSB));
+  /* scaled_to_i16 divides by its second argument, so that argument is the
+   * unit PER COUNT -- the same convention as s_gyr_scale and HSL_CTL_U_PER_LSB
+   * above. Passing the reciprocal here divided by 100 instead of multiplying,
+   * a factor of 10000, so every attitude under 50 deg quantised to zero. */
+  put_u16(&r[0], (uint16_t)scaled_to_i16(roll, HSL_ATT_DEG_PER_LSB));
+  put_u16(&r[2], (uint16_t)scaled_to_i16(pitch, HSL_ATT_DEG_PER_LSB));
+  put_u16(&r[4], (uint16_t)scaled_to_i16(yaw, HSL_ATT_DEG_PER_LSB));
   put_u16(&r[6], degraded ? (uint16_t)HSL_ATT_F_DEGRADED : 0u);
   stream_commit(st, t_cyc);
 }

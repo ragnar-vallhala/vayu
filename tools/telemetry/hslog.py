@@ -608,6 +608,29 @@ def verify_encoder_file(path):
         assert abs(fs - 1000) < 1.0, "ctl rate %.2f Hz, expected 1000" % fs
         break
 
+    # --- "att" round-trips too ---------------------------------------------
+    # Format alone is not enough here. This stream passed every structural
+    # check -- 8 bytes, 50 Hz, the right field names -- while recording zeros,
+    # because its encoder was handed the reciprocal of its scale and divided
+    # where it should have multiplied. Anything under 50 degrees quantised to
+    # 0, and a card pull was what found it. Check the VALUES.
+    att_lsb = dict((f[0], abs(f[2])) for f in att.fields)
+    for x in ss:
+        try:
+            t, sig = samples(hdr, streams, x["blocks"], sid=7)
+        except Exception:
+            continue
+        if not len(t):
+            continue
+        for k, v in (("roll", -12.34), ("pitch", 5.67), ("yaw", 178.9)):
+            got = sig[k]
+            assert abs(got[0] - v) <= att_lsb[k], \
+                "att %s: %r, wanted %r -- check the encoder's scale" % (k, got[0], v)
+            assert (got == got[0]).all(), "att %s is not constant: %r" % (k, got[:4])
+        fs = (len(t) - 1) / (t[-1] - t[0])
+        assert abs(fs - 50) < 2.0, "att rate %.2f Hz, expected 50" % fs
+        break
+
     # --- EVENT frames: arm and disarm must both be visible ------------------
     evs = [e for x in ss for e in x["events"]]
     assert evs, "no EVENT frames survived"

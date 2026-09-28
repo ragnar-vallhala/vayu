@@ -83,6 +83,13 @@ static uint32_t rd32(const uint8_t *p) {
  * cannot pass. */
 static const float MOTORS[4] = {0.1f, 0.2f, 0.3f, 0.4f};
 #define THROTTLE 0.5f
+/* Distinct, signed, and none of them a whole number of degrees, so a scale
+ * error cannot land on the right answer by luck. The decoder re-checks these:
+ * they were logged but never read back, which is how an inverted scale on this
+ * stream survived to a real card pull. */
+#define ATT_ROLL (-12.34f)
+#define ATT_PITCH (5.67f)
+#define ATT_YAW (178.9f)
 
 /* One armed period: N IMU samples, with act/vrt offered at the SAME rate so
  * the module's own cycle-stamp decimation is what produces 400/20 Hz. That is
@@ -112,6 +119,9 @@ static void run_session(int n_samples) {
       imu_hs_log_ctl((const float[3]){10.0f, -20.0f, 30.0f},
                      (const float[3]){0.25f, -0.5f, 0.125f}, t);
     }
+    /* Attitude, at the sample rate: the stream decimates itself to its own
+     * declared rate, as the firmware relies on. */
+    imu_hs_log_att(ATT_ROLL, ATT_PITCH, ATT_YAW, 0u, t);
     if ((i % 41) == 40) {
       imu_hs_log_drain(); /* the FS task runs far more often than this */
     }
