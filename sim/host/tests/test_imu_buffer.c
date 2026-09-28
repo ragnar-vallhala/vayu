@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-/* IMU/attitude SPSC rings (firmware/src/sensor/imu_buffer.c).
+/* IMU/attitude SPSC rings (firmware/src/hub/hub.c).
  *
  * These rings sit between the IMU driver and every consumer of it -- the rate
  * loop, the attitude estimator, the telemetry gate, the calibration engine.
@@ -28,8 +28,8 @@
  * wait-after-push case is checked directly.
  *
  * Driver code (bmx160, bme280, vl53l0x) needs real hardware and is tier-2
- * (on-target gcov) per tools/coverage_gate.py; this ring is the part of
- * firmware/src/sensor that CAN be exercised honestly on the host. */
+ * (on-target gcov) per tools/coverage_gate.py; this ring is the part of the
+ * sensor path that CAN be exercised honestly on the host. */
 #include <stdio.h>
 #include <string.h>
 

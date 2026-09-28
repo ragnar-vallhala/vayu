@@ -589,17 +589,17 @@ uint32_t hal_crc_compute(const uint8_t *data, uint32_t length) {
 }
 
 /* ---- calibration_task stub ---------------------------------------------
- * On hardware, calibration_task lives in src/sensor/bmx160.c (which we
+ * On hardware, calibration_task lives in src/driver/bmx160.c (which we
  * don't compile - it's I2C-driver heavy). The host SITL doesn't expose
  * a calibration flow, so provide a do-nothing task body so comm_processor.c
  * can reference it. */
 void calibration_task(void *args) { (void)args; }
 
-/* Cancel hook (hardware definition is in src/sensor/bmx160.c). No-op here
+/* Cancel hook (hardware definition is in src/driver/bmx160.c). No-op here
  * since the host SITL has no calibration flow. */
 void bmx160_calib_request_cancel(void) {}
 
-/* Board-level / trim (hardware definition in src/sensor/bmx160.c). The sim IMU
+/* Board-level / trim (hardware definition in src/driver/bmx160.c). The sim IMU
  * is perfectly aligned with the airframe, so there is no mounting tilt: always
  * report zero trim. Keeps attitude_task.c's estimator-output trim a no-op in SITL. */
 void bmx160_get_board_trim(float *roll_deg, float *pitch_deg) {

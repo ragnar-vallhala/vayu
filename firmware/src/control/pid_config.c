@@ -22,7 +22,7 @@
  *
  * Owns the persisted PID gain store. Gains set over the link are applied
  * to the live controllers immediately and written to SD (0:pid.bin),
- * mirroring the IMU-calibration persistence in src/sensor/bmx160.c. At
+ * mirroring the IMU-calibration persistence in src/driver/bmx160.c. At
  * boot pid_config_init() reads the file; the controllers consult the
  * store during their own init (pid_config_get_*), so a stored tune
  * survives reboot.
