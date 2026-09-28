@@ -30,7 +30,7 @@
 #include "utils/v_fs.h"
 #include "vaios.h"
 #include "vaios_config_default.h"
-#include "variables.h"
+#include "driver/timer_callbacks.h"
 #include "vayu_assert.h"
 #include "vayu_status.h"
 #include "hub/hub.h" /* imu_buffer_init */

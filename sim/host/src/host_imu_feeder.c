@@ -43,7 +43,8 @@
 #include "est/est.h"
 #include "driver/bmx160.h"
 #include "hub/hub.h"
-#include "variables.h" /* vayu_dt_from_cycles, SYS_CLOCK_FREQ */
+#include "driver/timer_callbacks.h"
+#include "sys/clock.h"
 
 #include <errno.h>
 #include <fcntl.h>

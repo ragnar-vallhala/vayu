@@ -33,7 +33,7 @@
 #include "storage/fs_owner.h"
 #include "storage/imu_hs_log.h"
 #include "sys/state.h"
-#include "variables.h"
+#include "storage/paths.h"
 
 static int g_checks = 0, g_fails = 0;
 #define CHECK(cond, msg)                                                       \

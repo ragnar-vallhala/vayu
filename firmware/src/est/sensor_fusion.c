@@ -20,7 +20,7 @@
 #include "utils.h"            /* v_get_ticks (vaios) */
 #include "storage/fs_owner.h" /* vayu_log */
 #include "vaios_config_default.h"
-#include "variables.h"
+#include "control/tuning.h"
 
 /* ----------------------------------------------------------------------------
  * Estimator health (EST-MAH-002 / SYS-SAFE-003) — see sensor_fusion.h.

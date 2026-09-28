@@ -31,7 +31,6 @@
 #include "ipc.h"
 #include "structure.h"
 #include "utils.h" /* vaios vaprint_fmt_buf */
-#include "variables.h"
 
 #include <stdarg.h>
 #include <stdint.h>

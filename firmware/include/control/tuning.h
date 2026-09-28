@@ -14,45 +14,31 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#ifndef VAYU_VARIABLES_H
-#define VAYU_VARIABLES_H
+#ifndef VAYU_CONTROL_TUNING_H
+#define VAYU_CONTROL_TUNING_H
 
-/* Portable tunables, rates, sizes and filenames -- NO silicon.
+/**
+ * @file control/tuning.h
+ * @brief How this airframe flies: gains, filters, limits and mode bindings.
  *
- * This header is included by 31 translation units across the whole tree, which
- * is exactly why it must not name a pin, a bus, a peripheral or a chip: doing
- * so welded navhal.h and the BMX160 register map into the logic layers
- * (fault line F1). Board facts live in board/board.h, and only the four files
- * that need one include it. Keep it that way.
+ * This was variables.h, which 31 translation units included for whatever they
+ * happened to need -- control gains, loop rates, storage filenames, buffer
+ * sizes and an I2C timeout in one header. Changing a PID default recompiled
+ * the comm layer. Everything that was not a tune has gone to the thing that
+ * owns it:
+ *
+ *   loop rates      -> control/loop_rates.h
+ *   storage paths   -> storage/paths.h
+ *   calibration     -> calib/calib_params.h
+ *   link sizing     -> comm/comm_limits.h
+ *   I2C, timer      -> the drivers that own those peripherals
+ *   clock, heartbeat-> sys/clock.h, sys/heartbeat.h
+ *
+ * What is left is one subject: the numbers you change when the aircraft flies
+ * badly. They are the FALLBACK -- a persisted tune (storage/paths.h,
+ * PID_CONFIG_FILE_PATH) overrides any of them per slot, so the same pid.bin
+ * yields identical behaviour in sim and on the board.
  */
-
-/* Clock Freq -- the rate the PLL is configured to produce, which boot.c checks
- * the live clock against. It is NOT what cycle-stamp maths divides by: see
- * vayu_clock_hz() in sys/clock.h for the measured rate. */
-#define SYS_CLOCK_FREQ 84000000 // 84MHz
-
-// Heartbeat (the pins are board/board.h)
-#define _HEARTBEAT_DEFAULT_TIMEPERIOD 1000 // 1000ms
-
-// I2C Control (the bus, its pins and its DR address are board/board.h)
-#define MAX_I2C_DEVICES 10
-#define I2C_MAX_TX_LEN 32
-#define I2C_MAX_RX_LEN 64
-#define I2C_MANAGER_SEMAPHORE_TIMEOUT 3 // ms
-#define I2C_MANAGER_DMA_TIMEOUT 3       // ms
-// Comm settings
-/* One slot per UART that get_handler() is actually asked for. Today that is
- * telemetry (USART6) and nothing else -- RC drives its UART directly rather
- * than through a channel. Each slot costs 4112 B of .bss (2 x 2048 B ping-pong
- * TX), so a spare slot is not free the way an unused #define usually is.
- * Raise this when a second channel is claimed; get_handler_serial returns
- * ERROR on exhaustion and main.c checks it. */
-#define MAX_SERIAL_HANDLERS 1
-#define INCOMING_PACKET_BUFFER 3
-
-// Timer Callbacks
-#define MAX_TIMER_CALLBACKS 4
-#define HIGH_FREQ_TIMER_FREQ 10000 // 10kHz
 
 // LPF Configurations
 #define LPF_ACC_ALPHA 0.34f
@@ -85,11 +71,7 @@
  * time token-substitution. INDI tunables (b/k/lpf) live in rate_indi.h. */
 #define RATE_CTRL_ALGO_USED RATE_CTRL_PID
 
-#define RADIO_AVOID_BAND 10
-
 // PID
-#define PID_FILE_PATH "0:pid.bin"
-#define PID_FILE_SIZE 1024 // 1KB Preallocated
 #define NUM_AXES 3
 // Gnereric Filtering and Deadbands
 #define PID_GYRO_DEADBAND 0.1f // in deg/sec
@@ -240,42 +222,6 @@
  * into the ceiling. Anything that holds collective must key off the one live
  * hover number. */
 
-/* Control-loop rates. The inner (rate) loop is hard-pinned to INNER_LOOP_FREQ_HZ
- * with a drift-free periodic wait (task_delay_until); the outer (angle) loop
- * runs at inner / OUTER_LOOP_DECIM. Each loop reads the freshest IMU sample /
- * attitude (the producers run at sensor rate and the OVERWRITE rings keep the
- * latest) and integrates with a CONSTANT dt = 1/freq, so the PID sees a fixed
- * timestep regardless of execution jitter or sensor-rate variation.
- *
- * NOTE: with the 1 ms SysTick the loop period is quantised to whole ms, so
- * INNER_LOOP_FREQ_HZ is effectively capped at 1000 and should divide 1000
- * (1000, 500, 250, ...). Override INNER_LOOP_FREQ_HZ before this header to
- * retune. */
-#ifndef INNER_LOOP_FREQ_HZ
-#define INNER_LOOP_FREQ_HZ 1000 /* rate (inner) loop, Hz */
-#endif
-
-/* IMU acquisition rate. The accel/gyro (FAST) reads are paced to this off the
- * HIGH_FREQ_TIMER (the 1 ms SysTick can't time sub-ms periods), decoupling the
- * sensor rate from the I2C free-run speed (~2.8 kHz). Default oversamples the
- * 1 kHz control loop 2x for gyro anti-aliasing / fusion fidelity while freeing
- * the CPU the extra ~0.8 kHz of per-sample work was burning. Must be <= the
- * I2C-bound ceiling (~2.8 kHz) and divide cleanly into 1e6 us. */
-#ifndef IMU_SAMPLE_FREQ_HZ
-#define IMU_SAMPLE_FREQ_HZ 2000
-#endif
-#define IMU_FAST_PERIOD_US (1000000u / IMU_SAMPLE_FREQ_HZ)
-#define OUTER_LOOP_DECIM 4 /* outer = inner / OUTER_LOOP_DECIM */
-#define OUTER_LOOP_FREQ_HZ (INNER_LOOP_FREQ_HZ / OUTER_LOOP_DECIM)
-
-/* Periods in SysTick ticks (1 tick = SYSTICK_PERIOD us = 1 ms by default). */
-#define INNER_LOOP_PERIOD_TICKS MS_TO_TICKS(1000 / INNER_LOOP_FREQ_HZ)
-#define OUTER_LOOP_PERIOD_TICKS (INNER_LOOP_PERIOD_TICKS * OUTER_LOOP_DECIM)
-
-/* Constant integration timesteps (seconds) derived from the pinned rates. */
-#define INNER_LOOP_DT (1.0f / (float)INNER_LOOP_FREQ_HZ)
-#define OUTER_LOOP_DT ((float)OUTER_LOOP_DECIM / (float)INNER_LOOP_FREQ_HZ)
-
 /* Acro (rate) mode: a flight-mode toggle on RC channel ACRO_SWITCH_CH (0-based;
  * 5 == channel 6). When the channel reads above ACRO_SWITCH_US the attitude
  * loop is bypassed and the sticks command body rate directly (deg/s at full
@@ -339,133 +285,4 @@
 #define DEAFULT_PITCH_ACRO_RATE_MAX 200.0f
 #define DEAFULT_YAW_ACRO_RATE_MAX 200.0f
 
-typedef struct __attribute__((packed)) {
-  float roll_angle_sp;
-  float pitch_angle_sp;
-  float yaw_angle_sp;
-  float roll_angle_curr;
-  float pitch_angle_curr;
-  float yaw_angle_curr;
-  float roll_rate_sp;
-  float pitch_rate_sp;
-  float yaw_rate_sp;
-  float roll_rate_curr;
-  float pitch_rate_curr;
-  float yaw_rate_curr;
-  float roll_out;
-  float pitch_out;
-  float yaw_out;
-  float thro_out;
-  float outer_dt;
-  float inner_dt;
-} control_telemetry_t;
-
-// Calibration
-#define CALIBRATION_FILE_PATH "0:cal.bin"
-/* Alongside the calibration store because the two are a pair: both are the
- * result of a procedure nobody wants to repeat, and fs_query refuses to delete
- * either (see the delete policy in comm/xfer/fs_query.c). */
-#define PID_CONFIG_FILE_PATH "0:pid.bin"
-#define CALIBRATION_FILE_SIZE 1024 // 1KB Preallocated
-#define CALIBRATION_WAIT_USER_TIME_PRE_CALIBRATION                             \
-  2000 // 2 seconds, waits before recording once user has reached the direction
-       // orientation
-#define CALIBRATION_WAIT_USER_TIME_POST_CALIBRATION                            \
-  1000 // 1 seconds, waits after recording before saving the calibration
-#define CALIBRATION_SAMPLE_COUNT                                               \
-  500 // Number of samples to take for calibration
-#define MAG_FIT_MIN_SAMPLES                                                    \
-  400 // minimum valid samples required to attempt the mag ellipsoid fit
-
-/* Accel calibration fit method (SNS-CAL). Optional switch between the two fits:
- *   ELLIPSOID — pose-tolerant full-3x3 least-squares over 6 faces + 6 edges
- *               (captures misalignment, needs coverage, can reject degenerate
- *               data). This is the historical default.
- *   SIXPOINT  — PX4-style exact closed form over the 6 faces only
- *               (deterministic, simpler "lay it on each side" UX, cannot land on
- *               a degenerate fit; still recovers the full 3x3 in vayu since the
- *               soft-iron store is 3x3). See docs/plans/imu-calib-improvements.md.
- * The capture flow adapts to the choice (SIXPOINT prompts the 6 faces only). */
-#define ACCEL_CALIB_ELLIPSOID 0
-#define ACCEL_CALIB_SIXPOINT 1
-#ifndef ACCEL_CALIB_METHOD
-#define ACCEL_CALIB_METHOD                                                     \
-  ACCEL_CALIB_SIXPOINT /* 6-side closed-form accel fit */
-#endif
-
-/* Pose-tolerant full-3x3 accel calibration (calib engine, point-set fit). */
-#define ACCEL_CAL_POSES                                                        \
-  12 // 6 faces + 6 edges/corners — enough spread directions for a 9-DOF fit
-#define ACCEL_CAL_MIN_POSES                                                    \
-  9 // minimum captured poses to attempt the fit (9 DOF)
-#define ACCEL_POSE_STILL_SAMPLES                                               \
-  100 // contiguous static samples averaged per pose (~2 s at the 50 Hz cal poll)
-#define ACCEL_CAL_GYRO_STILL_DPS                                               \
-  3.0f // |gyro| below this (per axis sum-of-squares) counts the board as still
-#define ACCEL_CAL_FACE_POSES                                                   \
-  6 // first N of the prompt list are the 6 faces; the rest are edges/corners
-
-/* Pose-coverage gate (full-3x3 accel). A still hold is banked only if it ADVANCES
- * coverage, so the same orientation can't be recorded twice and the 9-DOF
- * ellipsoid always sees directions spanning the sphere. A "face" hold must have
- * one body axis clearly dominate (|a_dom|/|a| >= FACE_DOMINANCE) and land on a
- * signed body axis no prior face used — there are exactly six, so the six face
- * prompts must cover all six. An "edge/corner" hold must instead SHARE gravity
- * (no axis dominates, second-largest component >= EDGE_MIN_SECOND) and sit at
- * least acos(MIN_SEP_COS) from every direction already banked. Matching is by
- * geometric distinctness, not the prompted code, so it is independent of how the
- * board's axes are signed/mounted. */
-#define ACCEL_POSE_FACE_DOMINANCE                                              \
-  0.85f // |a_dom|/|a| for a hold to count as a clean face (~32 deg cone)
-#define ACCEL_POSE_EDGE_MIN_SECOND                                             \
-  0.40f // 2nd-largest |a_i|/|a| required for a shared-gravity edge/corner
-#define ACCEL_POSE_MIN_SEP_COS                                                 \
-  0.866f // edge holds must sit > 30 deg apart (cos 30) to count as distinct
-
-/* Stillness-gated gyro bias capture (calib engine, bias fit). */
-#define GYRO_CAL_STILL_SAMPLES                                                 \
-  300 // still samples to average for the bias (~6 s at the 50 Hz cal poll)
-#define GYRO_CAL_MAX_TICKS                                                     \
-  1500 // ~30 s budget; if the board never settles, fail (keep the old offset)
-#define GYRO_CAL_VAR_MAX                                                       \
-  1.0f // dps^2 per-axis variance ceiling on the accepted window
-
-// Telemetry
-#define ENABLE_BINARY_NAVLINK_PKT 1
-#define ENABLE_BINARY_NAVLINK_PKT_LOGGING 1
-/* The blackbox. Everything recorded in flight lives here: the sampled streams
- * (imu/act/vrt/ctl) plus the byte streams (NavLink RX, vayu_log text). It used
- * to share the card with three 10 MB circular log files that nothing ever
- * wrote to; those are gone and their one live use, the text log, is a stream
- * in here instead. 8.3 name -- FF_USE_LFN is 0 and a longer name fails
- * vfs_open with FR_INVALID_NAME. */
-#define HSL_FILENAME "0:blackbox.bin"
-#ifdef VAYU_SIM
-/* 64 sectors -> a 63-slot ring: small enough that test_hslog can drive it all
- * the way round, big enough to hold two multi-stream sessions first. Bounded by
- * the host VFS's per-file cap (sim/host/src/host_vfs.c HOST_VFS_FILE_CAP). */
-#define HSL_FILE_SIZE (32 * 1024)
-#else
-/* Sized by how much armed history is worth keeping, not by one flight: arms
- * ACCUMULATE into a circular ring (see storage/imu_hs_log.h) and the ring
- * resumes across power cycles, so the file holds the last HSL_FILE_SIZE of
- * armed time however many arms and boots that spans.
- * 32 MB = ~22 min at 2 kHz x 12 B -- a whole props-on bench session, not just
- * one pack. Size is close to free here: imu_hs_log_boot_init() creates the
- * file by seeking past EOF and writing one byte, which allocates the cluster
- * chain in ~8 FAT sector writes and never touches the data sectors. It does
- * NOT use vfs_preallocate, which would zero-fill all 65536 of them -- see the
- * note in imu_hs_log.c. The clusters therefore come back holding whatever the
- * card had before, which is what HSL_RING_SENTINEL is for.
- *
- * NB raising this later still works -- imu_hs_log_boot_init() extends an
- * existing short file -- but LOWERING it does not shrink one. */
-#define HSL_FILE_SIZE (32 * 1024 * 1024)
-#endif
-
-#define NAVLINK_HEADER_SIZE 8
-#define NAVLINK_MAX_PAYLOAD_SIZE 256
-#define NAVLINK_CRC_SIZE 4
-#define NAVLINK_MAX_SIZE                                                       \
-  (NAVLINK_HEADER_SIZE + NAVLINK_MAX_PAYLOAD_SIZE + NAVLINK_CRC_SIZE)
-#endif //! VAYU_VARIABLES_H
+#endif // VAYU_CONTROL_TUNING_H

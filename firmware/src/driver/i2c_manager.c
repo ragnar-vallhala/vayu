@@ -22,7 +22,7 @@
 #include "utils.h"
 #include "storage/fs_owner.h"
 #include "vaios.h"
-#include "variables.h"
+#include "driver/i2c_manager.h"
 #include <stdint.h>
 
 static hal_i2c_config_t i2c_config;

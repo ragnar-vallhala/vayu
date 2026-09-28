@@ -29,4 +29,7 @@
  * restart a blink. Cheap enough for a per-frame call path: two stores. */
 void heartbeat_note_link_activity(void);
 
+/* Default blink period. The task clamps to 250 ms (4 Hz max). */
+#define _HEARTBEAT_DEFAULT_TIMEPERIOD 1000 // 1000ms
+
 #endif // VAYU_HEARTBEAT_H

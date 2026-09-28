@@ -14,11 +14,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+/* Bus limits and timeouts. They lived in variables.h, which every file in
+ * the tree included; they are this driver's numbers and nobody else's. */
 #ifndef VAYU_I2C_MANAGER_H
 #define VAYU_I2C_MANAGER_H
 
 #include "navhal.h"
-#include "variables.h"
+#include "driver/i2c_manager.h"
 
 typedef enum {
   I2C_OP_WRITE,
@@ -55,4 +57,11 @@ hal_status_t i2c_manager_write_read(uint8_t addr, uint8_t *tx_data,
                                     uint16_t rx_len);
 hal_status_t i2c_manager_read_async(uint8_t addr, uint8_t reg_addr,
                                     uint16_t len, void (*callback)(void *));
+
+#define MAX_I2C_DEVICES 10
+#define I2C_MAX_TX_LEN 32
+#define I2C_MAX_RX_LEN 64
+#define I2C_MANAGER_SEMAPHORE_TIMEOUT 3 // ms
+#define I2C_MANAGER_DMA_TIMEOUT 3       // ms
+
 #endif // VAYU_I2C_MANAGER_H

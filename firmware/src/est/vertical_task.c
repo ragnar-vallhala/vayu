@@ -45,7 +45,6 @@
 #include "sys/state.h" /* system_state_get/set, SYSTEM_STATE_* */
 #include "vaios.h"
 #include "vaios_app_config.h"
-#include "variables.h" /* MS_TO_TICKS via the task/config chain */
 #include "vayu_tasks.h"
 #include <stdbool.h>
 

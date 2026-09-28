@@ -43,7 +43,6 @@
 #include "structure.h"
 #include "task.h"
 #include "vaios.h"
-#include "variables.h"
 #include <string.h>
 
 /* Report cadence (ms). 1 Hz is plenty for stack/heap/fifo trend watching and

@@ -42,7 +42,8 @@
 #include "task.h"
 #include "storage/fs_owner.h"
 #include "sys/sys_utils.h"
-#include "variables.h" /* HIGH_FREQ_TIMER_FREQ */
+#include "control/tuning.h"
+#include "driver/timer_callbacks.h"
 #include "vaios.h"
 #include "vayu_tasks.h"
 

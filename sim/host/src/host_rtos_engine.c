@@ -35,8 +35,10 @@
 #include "driver/bme280.h"  /* bme280_publish (in-process baro injection) */
 #include "sys/state.h"      /* system_state_get/_set, SYSTEM_STATE_* */
 #include "sys/sys_utils.h"  /* VAYU_DISCARD */
-#include "vaios.h"     /* v_system_init, scheduler_start, vaios_init_config_t */
-#include "variables.h" /* SYS_CLOCK_FREQ */
+#include "vaios.h" /* v_system_init, scheduler_start, vaios_init_config_t */
+#include "control/control_buffer.h"
+#include "driver/timer_callbacks.h"
+#include "sys/clock.h"
 
 extern int vayu_sitl_start(void *iface);     /* host_lifecycle.c */
 extern void increment_high_freq_timer(void); /* firmware HF timestamp */

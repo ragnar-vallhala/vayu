@@ -36,7 +36,7 @@
 #include "sys/math_utils.h"
 #include "vaios.h"
 #include "vaios_app_config.h"
-#include "variables.h"
+#include "control/control_buffer.h"
 #include "vfs.h"
 #include <stdint.h>
 

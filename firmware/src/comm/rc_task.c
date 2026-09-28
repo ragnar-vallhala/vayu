@@ -26,7 +26,7 @@
 #include "sys/state.h"
 #include "utils.h"
 #include "vaios.h"
-#include "variables.h"
+#include "comm/comm_limits.h"
 #include <stdint.h>
 
 #define IBUS_DMA_BUF_SIZE 128

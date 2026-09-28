@@ -32,7 +32,7 @@
 #include "actuator/motor.h"         /* motor_outputs_t */
 #include "est/est.h"                /* attitude_t, est_perf_telemetry_t */
 #include "est/vertical_estimator.h" /* vertical_state_t */
-#include "variables.h"              /* control_telemetry_t */
+#include "control/control_buffer.h"
 #include <stdint.h>
 
 /* --- periodic telemetry (FC -> GCS) --------------------------------------- */

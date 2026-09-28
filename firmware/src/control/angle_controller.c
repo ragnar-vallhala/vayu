@@ -30,7 +30,8 @@
 #include "structure.h"
 #include "sys/state.h"
 #include "vaios.h"
-#include "variables.h"
+#include "control/loop_rates.h"
+#include "control/tuning.h"
 
 #define ANGLE_CONTROLLER_2_RATE_CONTROLLER_BUFFER_SIZE 4
 
@@ -328,7 +329,7 @@ void angle_controller_task(void *arg) {
      * thrust mid-air (what this did before) is unrecoverable by construction —
      * motor.c zeroes all four motors outside ARMED/IN_AIR and the state table
      * has no way back. ON THE GROUND the cut is kept: there, stopping the props
-     * is right. See the MAX_ANGLE_RECOVER block in variables.h for the incident
+     * is right. See the MAX_ANGLE_RECOVER block in control/tuning.h for the incident
      * this came from.
      *
      * Yaw is intentionally excluded from the condition: a drone can rotate

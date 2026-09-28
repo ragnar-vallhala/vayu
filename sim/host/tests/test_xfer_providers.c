@@ -38,7 +38,7 @@
 #include "comm/xfer/navlink_xfer.h"
 #include "comm/xfer/xfer_providers.h"
 #include "storage/fs_owner.h"
-#include "variables.h" /* NAVLINK_LOGGING_FILENAME */
+#include "storage/paths.h"
 
 static int g_checks = 0, g_fails = 0;
 #define CHECK(cond, msg)                                                       \

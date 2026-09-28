@@ -26,7 +26,7 @@
 
 #include "storage/fs_owner.h"
 #include "storage/imu_hs_log.h" /* the recording gate on deleting the HSL file */
-#include "variables.h"          /* the protected paths */
+#include "storage/paths.h"
 
 static const fs_query_tx_ops_t *s_tx;
 

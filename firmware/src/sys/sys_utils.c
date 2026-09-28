@@ -21,8 +21,8 @@
 #include "sys/sys_utils.h"
 
 #include "ipc.h"
+#include "sys/clock.h"
 #include "driver/crc.h" /* crc32_hw_compute */
-#include "variables.h"
 #include <stdint.h>
 
 static volatile uint64_t _time_stamp_high_freq = 0;

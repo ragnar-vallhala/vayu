@@ -18,8 +18,8 @@
 
 #include "sys/clock.h"
 
-#include "navhal.h"    /* hal_clock_get_sysclk, hal_cycle_counter_get */
-#include "variables.h" /* SYS_CLOCK_FREQ (the expected rate, as a fallback) */
+#include "navhal.h" /* hal_clock_get_sysclk, hal_cycle_counter_get */
+#include "sys/clock.h"
 
 /* Seeded with the expected rate so a caller that runs before vayu_clock_init()
  * gets the old behaviour rather than a divide by zero. */

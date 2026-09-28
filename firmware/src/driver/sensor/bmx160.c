@@ -34,7 +34,10 @@
 #include "utils.h"
 #include "storage/fs_owner.h"
 #include "vaios.h"
-#include "variables.h"
+#include "calib/calib_params.h"
+#include "control/loop_rates.h"
+#include "control/tuning.h"
+#include "storage/paths.h"
 #include "vayu_tasks.h"
 #include "vfs.h"
 #include "maths/maths_interface.h"
@@ -832,7 +835,7 @@ bmx160_err_type bmx160_write_config(bmx160_config_t *config) {
   return NO_ERR;
 }
 
-/* The register bytes the configuration in variables.h has to pack down to,
+/* The register bytes the configuration in board/board.h has to pack down to,
  * from the BMI160 datasheet. This is where the g-value-vs-register-code trap
  * shows up: with the old enum, ACC_RANGE packed 16 & 15 == 0 -- a reserved
  * value -- and the sensor silently kept whatever range it already had. Failing

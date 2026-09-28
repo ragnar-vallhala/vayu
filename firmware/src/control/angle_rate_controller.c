@@ -38,7 +38,9 @@
 #include "hub/hub.h"
 #include "sys/state.h"
 #include "vaios.h"
-#include "variables.h"
+#include "control/control_buffer.h"
+#include "control/loop_rates.h"
+#include "control/tuning.h"
 
 static AngleRateController angle_rate_controller = {
     .pid = {// roll angle rate gains
@@ -514,7 +516,7 @@ void angle_rate_controller_task(void *arg) {
         v_pid_set_integral(&angle_rate_controller.pid[i], 0.0f);
     }
 
-    // Inner rate loop. Algorithm selected by RATE_CTRL_ALGO_USED (variables.h),
+    // Inner rate loop. Algorithm selected by RATE_CTRL_ALGO_USED (control/tuning.h),
     // mirroring the SF_FILTER_USED estimator switch: a runtime compare on a
     // compile-time constant, so -O2 drops the dead branch (enum values aren't
     // preprocessor-visible, so #if can't be used here). Same per-axis contract

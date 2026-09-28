@@ -33,7 +33,8 @@
 #include "dsp/gyro_notch.h"   /* gyro_notch set/get params (notch persist) */
 #include "memory.h"           /* v_memcpy */
 #include "storage/fs_owner.h" /* vayu_log */
-#include "variables.h"        /* NUM_AXES */
+#include "control/tuning.h"
+#include "storage/paths.h"
 #include "vfs.h"
 #include "maths/maths_interface.h"
 

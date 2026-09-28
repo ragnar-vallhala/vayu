@@ -37,7 +37,9 @@
 #include "sys/sys_utils.h" /* get_timestamp_unix, time_sync_is_synced */
 #include "port.h"          /* ENTER/EXIT_CRITICAL */
 #include "utils.h"         /* v_memcpy, v_get_ticks */
-#include "variables.h"
+#include "control/loop_rates.h"
+#include "storage/paths.h"
+#include "sys/clock.h"
 #include "vfs.h"
 
 #define HSL_RING_SECTORS                                                       \

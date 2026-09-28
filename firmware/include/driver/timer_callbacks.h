@@ -39,4 +39,9 @@ uint32_t timer_get_callback_frequency(void);
  */
 int timer_callback_register(void (*fn)(void), uint32_t us_delay);
 
+/* How many callbacks this timer can carry. The RATE it runs at is
+ * HIGH_FREQ_TIMER_FREQ in sys/clock.h: it is a timebase fact that callers
+ * convert ticks with, not a property of this peripheral. */
+#define MAX_TIMER_CALLBACKS 4
+
 #endif // !VAYU_TIMER_CALLBACKS_H

@@ -19,7 +19,7 @@
 #include "sys/irq_registry.h"
 #include "vayu_board.h"
 #include "utils.h"
-#include "variables.h"
+#include "driver/timer_callbacks.h"
 #include <stddef.h>
 #include <stdint.h>
 

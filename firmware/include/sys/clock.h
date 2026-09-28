@@ -58,4 +58,15 @@ uint32_t vayu_clock_cycles(void);
  */
 float vayu_dt_from_cycles(uint32_t now_cyc, uint32_t prev_cyc);
 
+/* Clock Freq -- the rate the PLL is configured to produce, which boot.c checks
+ * the live clock against. It is NOT what cycle-stamp maths divides by: see
+ * vayu_clock_hz() in sys/clock.h for the measured rate. */
+#define SYS_CLOCK_FREQ 84000000 // 84MHz
+
+/* Rate of the high-frequency timebase: the sub-millisecond tick the 1 ms
+ * SysTick cannot serve. driver/timer_callbacks.c configures a timer to it,
+ * and anything converting those ticks to real time divides by it -- which is
+ * why the number lives with the timebase rather than with the peripheral. */
+#define HIGH_FREQ_TIMER_FREQ 10000 // 10kHz
+
 #endif /* VAYU_SYS_CLOCK_H */

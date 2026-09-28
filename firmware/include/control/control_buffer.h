@@ -18,7 +18,7 @@
 #define VAYU_CONTROL_BUFFER_H
 
 #include "comm/perf_packet.h"
-#include "variables.h"
+#include "control/control_buffer.h"
 #include <stdbool.h>
 
 /* Mailbox, not a queue: the control loop pushes at loop rate and the telemetry
@@ -27,6 +27,29 @@
 #define CONTROL_TELEMETRY_BUFFER_SIZE 4
 
 void control_telemetry_buffer_init(void);
+/* One frame of the cascade's working state, for telemetry and the blackbox.
+ * Declared beside its queue rather than in the old variables.h grab-bag. */
+typedef struct __attribute__((packed)) {
+  float roll_angle_sp;
+  float pitch_angle_sp;
+  float yaw_angle_sp;
+  float roll_angle_curr;
+  float pitch_angle_curr;
+  float yaw_angle_curr;
+  float roll_rate_sp;
+  float pitch_rate_sp;
+  float yaw_rate_sp;
+  float roll_rate_curr;
+  float pitch_rate_curr;
+  float yaw_rate_curr;
+  float roll_out;
+  float pitch_out;
+  float yaw_out;
+  float thro_out;
+  float outer_dt;
+  float inner_dt;
+} control_telemetry_t;
+
 bool control_telemetry_queue_push(const control_telemetry_t *data);
 bool control_telemetry_queue_pop(control_telemetry_t *out_data);
 

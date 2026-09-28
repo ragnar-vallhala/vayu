@@ -51,7 +51,7 @@
 #include "storage/fs_owner.h"
 #include "storage/imu_hs_log.h"
 #include "sys/state.h"
-#include "variables.h"
+#include "storage/paths.h"
 #include "vfs.h"
 
 static int g_checks = 0;

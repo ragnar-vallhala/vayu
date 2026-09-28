@@ -44,7 +44,8 @@
 #include "maths/maths_interface.h" /* m_sqrt, for the mag normalisation */
 #include "vaios.h"
 #include "vaios_app_config.h"
-#include "variables.h"
+#include "control/loop_rates.h"
+#include "control/tuning.h"
 #include "vayu_tasks.h"
 #include <stdbool.h>
 

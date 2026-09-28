@@ -22,7 +22,7 @@
 #include "utils.h"
 #include "sys/types.h"
 #include "vaios.h"
-#include "variables.h"
+#include "sys/heartbeat.h"
 #include "vayu_tasks.h"
 /* Link-activity override on the blue LED. The router used to blink this pin
  * itself on a 10 Hz timer of its own while heartbeat drove the same pin from
