@@ -440,7 +440,7 @@ add_test(NAME hslog COMMAND test_hslog)
 add_test(NAME hslog_decode
          COMMAND ${CMAKE_COMMAND} -E env python3
                  ${VAYU_ROOT}/tools/telemetry/hslog.py
-                 --selftest-file /tmp/vayu_hslog_test/0_imuhs.bin)
+                 --selftest-file /tmp/vayu_hslog_test/0_blackbox.bin)
 set_tests_properties(hslog_decode PROPERTIES DEPENDS hslog)
 
 add_executable(test_rc_buffer tests/test_rc_buffer.c)

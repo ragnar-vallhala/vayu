@@ -38,7 +38,22 @@ EV_NAME = {1: "state", 2: "flight_mode", 3: "accel_health", 4: "notch"}
 STATE_NAME = {0x01: "UNINIT", 0x02: "INIT", 0x04: "STANDBY", 0x08: "PREARM",
               0x10: "ARMED", 0x20: "IN_AIR", 0x40: "FAILSAFE",
               0x80: "TERMINATED", 0x100: "CALIBRATING"}
-SENTINEL = 0xA5     # frame `flags` in a ring slot; card garbage rarely has it
+SENTINEL_V1 = 0xA5  # v1: a constant. See sentinel_for() for why that was not enough.
+
+
+def sentinel_for(gen):
+    """The ring sentinel a v2 file's frames carry, derived from its header
+    `gen`. Keep in step with HSL_SENTINEL_FOR in imu_hs_log.h.
+
+    v1 used the constant 0xA5, which separates a written slot from arbitrary
+    card content but NOT from a previous generation of this same format: delete
+    the file, let it be re-created on the same clusters, and the old frames
+    still carry 0xA5 and plausible seq numbers. Measured on hardware, a file
+    whose header said head_slot=6097 decoded as 12301 slots and 29 sessions.
+    0x00, 0xFF and 0xAA are excluded so erased, all-ones and hand-scrubbed
+    sectors can never match."""
+    b = gen & 0xFF
+    return 0xA5 if b in (0x00, 0xFF, 0xAA) else b
 FTYPE = {1: ("h", 2), 2: ("H", 2), 3: ("i", 4), 4: ("f", 4), 5: ("B", 1)}
 
 
@@ -87,9 +102,16 @@ def decode(data):
         raise ValueError("bad magic %#010x (not an HSL file, or byte-swapped)" % magic)
     ring_start, ring_sectors, head_slot, next_seq, wraps = \
         struct.unpack_from("<IIIII", data, 12)
+    # v2 names its own sentinel through `gen`; v1 files have no such field and
+    # use the constant, so they still decode.
+    if version >= 2 and hdr_len >= 36 and len(data) >= 36:
+        gen = struct.unpack_from("<I", data, 32)[0]
+        sentinel = sentinel_for(gen)
+    else:
+        gen, sentinel = None, SENTINEL_V1
     hdr = dict(version=version, clock_hz=clock_hz, ring_start=ring_start,
                ring_sectors=ring_sectors, head_slot=head_slot,
-               next_seq=next_seq, wraps=wraps)
+               next_seq=next_seq, wraps=wraps, gen=gen, sentinel=sentinel)
 
     # --- preamble: generic frames up to the first sector boundary -----------
     streams, skipped = {}, {}
@@ -117,10 +139,10 @@ def decode(data):
         if off + SECTOR > len(data):
             break
         ftype, flags, plen = struct.unpack_from("<BBH", data, off)
-        # A slot the firmware never reached still holds whatever the card had
-        # before these clusters were allocated. The sentinel plus the exact
-        # length is what separates the two.
-        if flags != SENTINEL or plen != SECTOR - 4:
+        # A slot this generation never wrote holds either arbitrary card
+        # content or a PREVIOUS generation's frame. The per-file sentinel plus
+        # the exact length separates ours from both.
+        if flags != sentinel or plen != SECTOR - 4:
             continue
         p = data[off + 4:off + SECTOR]
         seq = struct.unpack_from("<I", p, 4)[0]
@@ -320,7 +342,7 @@ def _ring_frame(ftype, seq, body, stag=0):
     p[1] = stag
     struct.pack_into("<I", p, 4, seq)
     p[8:8 + len(body)] = body
-    return struct.pack("<BBH", ftype, SENTINEL, SECTOR - 4) + bytes(p)
+    return struct.pack("<BBH", ftype, SENTINEL_V1, SECTOR - 4) + bytes(p)
 
 
 def _session_frame(seq, session, unix_ms, cyc0, synced=1):
@@ -337,7 +359,7 @@ def _block_frame(seq, n, t0, t1, gen, stag=1):
     struct.pack_into("<II", p, 8, t0, t1)
     for i in range(n):
         struct.pack_into("<hhhhhh", p, 16 + i * 12, *gen(i))
-    return struct.pack("<BBH", T_BLOCK, SENTINEL, SECTOR - 4) + bytes(p)
+    return struct.pack("<BBH", T_BLOCK, SENTINEL_V1, SECTOR - 4) + bytes(p)
 
 
 def _preamble(head_slot, next_seq, wraps):
@@ -427,7 +449,10 @@ def selftest():
 
     hdr, streams, frames = decode(_build_test_file())
 
+    # The Python encoder still emits a v1 file on purpose: a v1 reader is gone,
+    # but v1 FILES still exist on cards and must keep decoding.
     assert hdr["version"] == 1, hdr
+    assert hdr["sentinel"] == SENTINEL_V1, hdr
     assert hdr["clock_hz"] == 84_000_000, hdr
     assert hdr["ring_sectors"] == RING_SECTORS, hdr
     assert hdr["wraps"] == 1, hdr
@@ -497,7 +522,12 @@ def verify_encoder_file(path):
         data = fh.read()
     hdr, streams, frames = decode(data)
 
-    assert hdr["version"] == 1, hdr
+    assert hdr["version"] == 2, hdr
+    # v2 names its own sentinel. Every accepted frame carried this byte, so a
+    # previous generation left on the same clusters decodes as absent rather
+    # than as ours -- the thing a constant 0xA5 could not do.
+    assert hdr["gen"] is not None, hdr
+    assert hdr["sentinel"] == sentinel_for(hdr["gen"]), hdr
     assert hdr["clock_hz"] == 84_000_000, hdr
     assert not hdr["skipped_frames"], hdr["skipped_frames"]
     assert hdr["wraps"] >= 1, "test should have wrapped the ring: %r" % hdr

@@ -244,6 +244,7 @@ int main(void) {
   }
 
   CHECK(rd32(&buf[0]) == HSL_MAGIC, "file header magic");
+  CHECK(rd16(&buf[6]) == HSL_FILE_HDR_BYTES, "hdr_len matches the v2 header");
   CHECK(rd16(&buf[4]) == HSL_VERSION, "file header version");
   CHECK(rd16(&buf[6]) == HSL_FILE_HDR_BYTES, "file header declares its length");
   CHECK(rd32(&buf[8]) == 84000000u, "clock_hz recorded");
@@ -317,6 +318,11 @@ int main(void) {
           "vrt records cycle the notch centre through all three axes");
   }
 
+  /* The sentinel is per-file in v2: the header names it, and every ring frame
+   * must carry that byte and no other. A frame left by a previous generation
+   * carries a DIFFERENT one, which is the whole point of the field. */
+  const uint8_t expect_sentinel = HSL_SENTINEL_FOR(rd32(&buf[32]));
+
   /* Every ring slot: sentinel, sector-length frame, a known type, a seq. */
   static uint32_t seq[RING_SLOTS];
   static uint8_t tags[RING_SLOTS];
@@ -325,7 +331,7 @@ int main(void) {
   for (uint32_t i = 0; i < RING_SLOTS; i++) {
     const uint8_t *fr =
         &buf[(size_t)HSL_PREAMBLE_BYTES + (size_t)HSL_SECTOR_BYTES * i];
-    if (fr[1] != HSL_RING_SENTINEL ||
+    if (fr[1] != expect_sentinel ||
         rd16(&fr[2]) != HSL_SECTOR_BYTES - HSL_FRAME_HDR_BYTES) {
       bad = (int)i;
       break;

@@ -198,6 +198,10 @@ static uint32_t s_slot = 0;    /* ring slot the next frame goes to         */
 static uint32_t s_seq = 1;     /* seq the next frame will carry            */
 static uint32_t s_wraps = 0;   /* times round the ring                     */
 static uint32_t s_session = 0; /* armed-period counter                     */
+/* Generation of THIS file. Written into the header and folded into every ring
+ * frame's sentinel, so frames left by a previous generation on the same
+ * clusters are rejected rather than decoded as ours. */
+static uint32_t s_gen = 0;
 static uint32_t s_since_hdr = 0;
 
 /* Last values the FS task has already emitted an EVENT for. Single writer
@@ -319,7 +323,7 @@ static uint8_t *stream_claim(hsl_stream_t *st, uint32_t t_cyc) {
   uint8_t *b = st->bufs + (size_t)st->head * HSL_SECTOR_BYTES;
   if (st->fill == 0u) {
     b[0] = (uint8_t)HSL_TYPE_BLOCK;
-    b[1] = (uint8_t)HSL_RING_SENTINEL;
+    b[1] = HSL_SENTINEL_FOR(s_gen);
     put_u16(&b[2], (uint16_t)(HSL_SECTOR_BYTES - HSL_FRAME_HDR_BYTES));
     b[4] = st->stream_id;
     /* b[5] is the session tag and b[8..11] the seq, both stamped by the
@@ -621,6 +625,7 @@ static void build_preamble(void) {
   put_u32(&h[20], s_slot);             /* head_slot HINT */
   put_u32(&h[24], s_seq);              /* next_seq  HINT */
   put_u32(&h[28], s_wraps);
+  put_u32(&h[32], s_gen); /* v2: names the sentinel every ring frame carries */
 
   /* One FMT per stream, so the file describes every stream it contains with
    * no external schema. Scales come from the driver, not a constant here, so
@@ -728,7 +733,7 @@ static bool flush_preamble(void) {
  * No sync: the write is 512 B and sector-aligned, so FatFS hands it straight
  * to the card -- it is durable on return. Only the header hint needs syncing. */
 static bool ring_write(uint8_t *sec) {
-  sec[1] = (uint8_t)HSL_RING_SENTINEL;
+  sec[1] = HSL_SENTINEL_FOR(s_gen);
   /* Session membership goes in EVERY frame, not just the SESSION frame: the
    * ring can overwrite a session's header while its blocks are still live, and
    * those blocks would otherwise read as a continuation of the session before
@@ -1086,9 +1091,15 @@ void imu_hs_log_boot_init(void) {
         s_slot = slot;
         s_seq = get_u32(&hdr[24]) + HSL_SEQ_RESUME_MARGIN;
         s_wraps = get_u32(&hdr[28]);
+        /* Same file, so the frames already in it are ours: keep their
+         * generation or every one of them would read as foreign. */
+        s_gen = get_u32(&hdr[32]);
       }
     } else {
-      fresh = true; /* unreadable header: start the ring over */
+      /* Unreadable header. The ring starts over -- and the clusters may still
+       * hold a PREVIOUS generation's frames, which is exactly the case the
+       * generation exists for, so take a new one below. */
+      fresh = true;
     }
   }
 
@@ -1096,6 +1107,24 @@ void imu_hs_log_boot_init(void) {
     s_slot = 0;
     s_seq = 1;
     s_wraps = 0;
+    /* A new generation, and it must differ from whatever wrote the frames that
+     * may still be sitting in these clusters. Prefer the old header's
+     * generation + 1: when the file was merely re-created its bytes are still
+     * readable, and +1 guarantees a difference from the one generation most
+     * likely to be down there. Otherwise fall back to the cycle counter, which
+     * differs run to run. */
+    uint8_t old[HSL_FILE_HDR_BYTES];
+    vfs_lseek(fd, 0, VFS_SEEK_SET);
+    if (vfs_read(fd, old, sizeof(old)) == (int)sizeof(old) &&
+        get_u32(&old[0]) == HSL_MAGIC) {
+      s_gen = get_u32(&old[32]) + 1u;
+    } else {
+      s_gen = hal_cycle_counter_get();
+    }
+    /* Never collide with the sentinel a scrubbed or erased card would show. */
+    if (HSL_SENTINEL_FOR(s_gen) == HSL_SENTINEL_FOR(s_gen + 1u)) {
+      s_gen++;
+    }
   }
 
   s_fd = fd;

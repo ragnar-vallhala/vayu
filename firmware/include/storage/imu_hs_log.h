@@ -60,10 +60,10 @@
  * the header's `ring_start` rather than assuming one sector -- it grew from one
  * to two when the fourth stream filled the first.
  *
- *   FILE HEADER (32 B, at offset 0, inside the preamble sector)
+ *   FILE HEADER (36 B, at offset 0, inside the preamble sector)
  *     u32 magic         0x314C5348 = "HSL1"
- *     u16 version       1
- *     u16 hdr_len       32 -- skip this many bytes to reach the first preamble
+ *     u16 version       2
+ *     u16 hdr_len       36 -- skip this many bytes to reach the first preamble
  *                          frame; a later header may be longer and old readers
  *                          still land on it
  *     u32 clock_hz      the unit of EVERY cycle stamp in this file
@@ -72,6 +72,13 @@
  *     u32 head_slot     HINT: slot the next frame will be written to
  *     u32 next_seq      HINT: seq the next frame will carry
  *     u32 wraps         how many times the ring has been round
+ *     u32 gen           v2: this file's GENERATION. Every ring frame's `flags`
+ *                       carries the sentinel derived from it, and a reader
+ *                       must reject any frame whose flags do not match. A file
+ *                       deleted and re-created lands on clusters that may
+ *                       still hold a previous generation's frames -- valid
+ *                       sentinels, plausible seq -- and this is the only thing
+ *                       that tells them apart.
  *
  *     head_slot/next_seq are a HINT, not the truth: they are rewritten every
  *     HSL_HDR_SYNC_FRAMES sectors, so a power cut leaves them up to that many
@@ -89,9 +96,11 @@
  *
      In the PREAMBLE, flags is 0 and frames are packed to fill the sector.
  *     In the RING, every frame is exactly one sector (len = 508) and flags is
- *     HSL_RING_SENTINEL. The sentinel is what distinguishes a slot this
- *     firmware wrote from a slot still holding whatever the card had before
- *     the file's clusters were allocated -- see imu_hs_log_boot_init.
+ *     the sentinel named by the header's `gen` -- HSL_SENTINEL_FOR(gen). It
+ *     distinguishes a slot THIS generation wrote both from arbitrary card
+ *     content and from a previous generation of this same format, which a
+ *     constant sentinel could not do. A reader computes the expected byte from
+ *     the header and keeps only the slots carrying it.
  *
  *   COMMON RING-FRAME PREFIX (payload bytes 0..7, every ring type)
  *     u8  [0]     type-specific
@@ -239,11 +248,40 @@
 
 /* Wire constants -- keep in step with tools/telemetry/hslog.py. */
 #define HSL_MAGIC 0x314C5348u /* "HSL1" */
-#define HSL_VERSION 1u
-#define HSL_FILE_HDR_BYTES 32u
+/* v2: the ring sentinel is per-file, derived from a generation word in the
+ * header, instead of the constant 0xA5 v1 used. See HSL_SENTINEL_FOR below. */
+#define HSL_VERSION 2u
+#define HSL_FILE_HDR_BYTES 36u
 
 #define HSL_FRAME_HDR_BYTES 4u
-#define HSL_RING_SENTINEL 0xA5u /* frame `flags` in a ring slot */
+
+/* The ring sentinel: the `flags` byte of a ring frame, and the thing that says
+ * "this file's firmware wrote this slot" as opposed to whatever the clusters
+ * held before.
+ *
+ * In v1 it was the constant 0xA5, and that was not enough. It distinguishes a
+ * written slot from arbitrary card content, but NOT from a PREVIOUS GENERATION
+ * of this same format -- delete the file and let it be recreated on the same
+ * clusters and the old frames still carry 0xA5, still carry plausible seq
+ * numbers, and a reader cannot tell them from the new ones. Measured on
+ * hardware: a fresh file whose header said head_slot=6097 decoded as 12301
+ * slots and 29 sessions, because 6000 slots of the previous generation were
+ * still there. Nor does seq help -- both generations start at 1 and write
+ * sequentially, so their numbers nearly coincide and the usual
+ * seq-descent rule finds no boundary.
+ *
+ * So the sentinel is now derived from a generation word stored in the header,
+ * and a reader accepts only frames carrying the sentinel its header names.
+ * 0x00 and 0xFF are excluded so an erased or all-ones sector can never match,
+ * and 0xAA because it is the pattern used to scrub a card by hand. Three of
+ * 256 values are therefore folded onto 0xA5, which leaves a ~1/253 chance that
+ * a new generation picks the same sentinel as the stale content it is sitting
+ * on -- a large improvement on v1's certainty, not a guarantee. */
+#define HSL_SENTINEL_FOR(gen)                                                  \
+  ((uint8_t)((((gen) & 0xFFu) == 0x00u || ((gen) & 0xFFu) == 0xFFu ||          \
+              ((gen) & 0xFFu) == 0xAAu)                                        \
+                 ? 0xA5u                                                       \
+                 : ((gen) & 0xFFu)))
 
 #define HSL_TYPE_PAD 0x00u
 #define HSL_TYPE_FMT 0x01u
