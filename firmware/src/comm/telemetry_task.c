@@ -236,14 +236,22 @@ void imu_telemetry_task(void *args) {
      * published sample, so this emits only once the sensor has produced one
      * and skips cleanly when the part is absent or mis-wired. */
     if (send_baro) {
-      const baro_ops_t *bar = baro_ops();
-      baro_reading_t baro;
-      if (bar != NULL && bar->read != NULL && bar->read(&baro) == VAYU_OK) {
-        /* has_humidity is not consulted here because the wire message has a
-         * humidity field either way; a part without one reports 0 and says so,
-         * which is the GCS's to interpret. */
-        navlink_tx_baro(baro.pressure_pa, baro.temperature_c, baro.humidity_rh,
-                        baro.altitude_m);
+      baro_sample_t baro;
+      if (baro_latest(&baro) && baro.valid) {
+        /* Humidity is the only part a barometer might not have, so it is the
+         * only part that comes from the device model. A part without one
+         * leaves this 0, and the GCS reads it as such. */
+        float humidity_rh = 0.0f;
+        const baro_ops_t *bar = baro_ops();
+        if (bar != NULL && bar->humidity != NULL) {
+          (void)bar->humidity(&humidity_rh);
+        }
+        /* One derivation, one datum. The driver used to carry its own copy of
+         * the ISA formula and its own sea-level constant, which agreed with
+         * this one only by coincidence. */
+        navlink_tx_baro(
+            baro.pressure_pa, baro.temp_c, humidity_rh,
+            hub_altitude_m(baro.pressure_pa, HUB_SEA_LEVEL_PA_DEFAULT));
       }
     }
     /* Fused vertical estimate (~10 Hz): VERT task output, with raw baro alt

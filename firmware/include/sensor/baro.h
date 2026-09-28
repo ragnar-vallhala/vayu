@@ -23,49 +23,45 @@
  * pressure and temperature, the two things every barometer measures -- and
  * that stays the hot path.
  *
- * This exists for the one thing the hub sample deliberately does not carry:
- * the full reading that goes out on the BARO telemetry message, which also
- * includes humidity and a derived altitude. Humidity is not something a
- * barometer has (a BMP280 or an MS5611 has none), and altitude is computed
- * from pressure against a datum rather than measured. Widening the SI sample
- * to hold either would put a chip-specific field in the type the control core
- * reads, which is the mistake fault line F11 was about.
+ * It exists for exactly one thing: humidity, which not every barometer
+ * measures (a BMP280 or an MS5611 has none) and which the control core has no
+ * use for. Widening `baro_sample_t` to hold it would put a chip-specific
+ * field in the type the control core reads, which is what fault line F11 was
+ * about.
  *
- * So the split is deliberate: measurements the flight code needs go through
- * the hub, and a reporting-only readout is asked for here. `has_humidity` is
- * what keeps that honest -- a chip without one reports 0 AND says so, which is
- * a different statement from "0% relative humidity".
+ * Everything else about a barometer comes from the hub. Pressure and
+ * temperature are `baro_sample_t`. Altitude is NOT a barometer's to report --
+ * turning pressure into height needs a sea-level datum, which is navigation
+ * state; `hub_altitude_m()` is the one derivation and it takes that datum as
+ * an argument.
  */
 #ifndef VAYU_SENSOR_BARO_H
 #define VAYU_SENSOR_BARO_H
 
 #include "vayu_status.h"
-#include <stdint.h>
-
-/** A barometer's full readout, as reported rather than as flown. */
-typedef struct {
-  float pressure_pa;
-  float temperature_c;
-  /** Relative humidity. Meaningless unless `has_humidity`. */
-  float humidity_rh;
-  /** Derived from pressure against the configured sea-level datum. */
-  float altitude_m;
-  /** Cycle stamp at acquisition (see vayu_dt_from_cycles). */
-  uint32_t t_cyc;
-  /** 0 on a part that does not measure humidity. */
-  uint8_t has_humidity;
-} baro_reading_t;
 
 /** The barometer model. Any entry may be NULL. */
 typedef struct {
   /**
-   * The latest full readout.
+   * Relative humidity, for the parts that measure it.
    *
-   * @return VAYU_OK, or VAYU_ERR_NOT_IMPL before the device has produced its
-   *         first sample -- which is a normal state for the first moments
-   *         after boot, and for a board where the part is absent.
+   * This is the ONLY thing the model carries, because it is the only thing
+   * about a barometer the hub deliberately does not: `baro_sample_t` holds
+   * pressure and temperature, which is what every barometer measures and what
+   * the flight code needs.
+   *
+   * There used to be a `baro_reading_t` here that restated pressure,
+   * temperature and the timestamp alongside humidity and an altitude. It was
+   * a second type for one device's output -- it even renamed a field, hub
+   * `temp_c` against model `temperature_c`, which is how two names for one
+   * quantity start drifting apart. Altitude was worse: see the note on
+   * hub_altitude_m in hub/sample.h.
+   *
+   * @return VAYU_OK, VAYU_ERR_NOT_IMPL on a part with no humidity sensor
+   *         (a BMP280, an MS5611), or VAYU_ERR_FAULT before the first sample.
+   *         Reporting 0 with a status is a different statement from "0% RH".
    */
-  vayu_status_t (*read)(baro_reading_t *out);
+  vayu_status_t (*humidity)(float *rh);
 } baro_ops_t;
 
 /** The selected barometer's model, or NULL if this build has no backend. */

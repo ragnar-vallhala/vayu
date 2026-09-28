@@ -106,7 +106,6 @@ typedef struct {
   float temperature_c; /* deg C */
   float pressure_pa;   /* Pa */
   float humidity_rh;   /* %RH */
-  float altitude_m;    /* m above the configured sea-level reference */
   uint32_t
       timestamp; /* DWT cycle stamp at acquisition (see vayu_dt_from_cycles) */
 } bme280_reading_t;
@@ -143,11 +142,9 @@ void bme280_publish(float pressure_pa, float temperature_c, float humidity_rh);
 hal_status_t bme280_read_temperature(float *celsius);
 hal_status_t bme280_read_pressure(float *pascals);
 hal_status_t bme280_read_humidity(float *percent_rh);
-hal_status_t bme280_read_altitude(float *meters);
 hal_status_t bme280_read_all(bme280_reading_t *out);
 
 /* Sea-level reference pressure (Pa) used for the altitude estimate.
  * Defaults to the ISA standard 101325 Pa. */
-void bme280_set_sea_level_pa(float pa);
 
 #endif // VAYU_BME280_H

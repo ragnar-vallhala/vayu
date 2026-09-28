@@ -36,6 +36,7 @@
 #include <string.h>
 
 #include "driver/bme280.h" /* bme280_publish, to give the model data */
+#include "hub/hub.h"
 #include "sensor/baro.h"
 #include "sensor/imu.h"
 #include "sensor/ride_along.h"
@@ -155,49 +156,56 @@ int main(void) {
     }
   }
 
-  printf("  [7] the baro model reports nothing until the device has data\n");
+  printf("  [7] the baro model carries humidity, and nothing the hub has\n");
   {
-    /* Nothing has fed the BME280 on this build yet, so read() must SAY it has
-     * no sample rather than hand back whatever was on the caller's stack --
-     * telemetry would put that on the wire as a real pressure. */
+    /* The model used to hand back a whole reading -- pressure, temperature and
+     * a timestamp that the hub already carries, plus an altitude the hub is
+     * the one place allowed to derive. Now it answers for humidity only, and
+     * says so when it cannot. */
     const baro_ops_t *bar = baro_ops();
     CHECK(bar != NULL, "a baro backend exists on this build");
-    CHECK(bar && bar->read != NULL, "it can be read");
-    if (bar && bar->read) {
-      baro_reading_t r;
-      r.pressure_pa = 12345.0f;
-      CHECK(bar->read(&r) != VAYU_OK, "no sample yet is reported, not faked");
-      CHECK(r.pressure_pa == 12345.0f, "and the caller's buffer is untouched");
-    }
-  }
+    CHECK(bar && bar->humidity != NULL, "it can report humidity");
+    if (bar && bar->humidity) {
+      float rh = -1.0f;
+      CHECK(bar->humidity(&rh) != VAYU_OK, "no sample yet is reported");
+      CHECK(rh == -1.0f, "and the caller's value is untouched");
 
-  printf("  [8] once fed, the readout carries the device's values through\n");
-  {
-    /* The driver's own reading and the portable one are different structs, so
-     * the translation is real code that can drop or transpose a field. Feed
-     * known values and check they arrive. */
-    const baro_ops_t *bar = baro_ops();
-    if (bar && bar->read) {
       bme280_publish(96000.0f, 21.5f, 43.25f);
-      baro_reading_t r;
-      memset(&r, 0, sizeof r);
-      CHECK(bar->read(&r) == VAYU_OK, "a fed device reads OK");
-      CHECK(r.pressure_pa == 96000.0f, "pressure carried through");
-      CHECK(r.temperature_c == 21.5f, "temperature carried through");
-      CHECK(r.humidity_rh == 43.25f, "humidity carried through");
-      CHECK(r.has_humidity != 0, "a BME280 says it measures humidity");
-      /* Altitude is DERIVED from pressure, not copied: below sea-level
-       * pressure it must come out above zero. */
-      CHECK(r.altitude_m > 0.0f, "altitude derived from the pressure");
-
-      /* And now that there IS a sample, the NULL guard is reachable. */
-      CHECK(bar->read(NULL) != VAYU_OK, "a NULL destination is refused");
+      CHECK(bar->humidity(&rh) == VAYU_OK, "a fed device answers");
+      CHECK(rh == 43.25f, "humidity carried through");
+      CHECK(bar->humidity(NULL) != VAYU_OK, "a NULL destination is refused");
     }
-    /* The two models must not alias: each resolves through its own kind. */
     if (bar != NULL && imu_ops() != NULL) {
       CHECK((const void *)bar != (const void *)imu_ops(),
             "the baro and IMU models are different tables");
     }
+  }
+
+  printf(
+      "  [8] pressure and temperature come from the hub, altitude derived\n");
+  {
+    /* What the BARO telemetry message is built from, in one place. The driver
+     * used to hold its own copy of the ISA formula and its own sea-level
+     * constant; they agreed with the hub's only by coincidence. */
+    baro_sample_t s;
+    CHECK(baro_latest(&s) && s.valid, "the hub has the measurement");
+    CHECK(s.pressure_pa == 96000.0f, "pressure from the hub");
+    CHECK(s.temp_c == 21.5f, "temperature from the hub");
+
+    float alt = hub_altitude_m(s.pressure_pa, HUB_SEA_LEVEL_PA_DEFAULT);
+    CHECK(alt > 0.0f, "below sea-level pressure derives a positive altitude");
+    /* 96000 Pa is roughly 450 m on the ISA curve; a wrong exponent or datum
+     * lands nowhere near it. */
+    CHECK(alt > 300.0f && alt < 600.0f, "and a physically sane one");
+    CHECK(hub_altitude_m(HUB_SEA_LEVEL_PA_DEFAULT, HUB_SEA_LEVEL_PA_DEFAULT) ==
+              0.0f,
+          "at the datum, altitude is zero");
+    /* A zero or negative datum is a divide by zero, and the result would go
+     * on the wire as the aircraft's altitude. It must fall back, not diverge. */
+    CHECK(hub_altitude_m(s.pressure_pa, 0.0f) == alt,
+          "a zero datum falls back to the default");
+    CHECK(hub_altitude_m(s.pressure_pa, -5.0f) == alt,
+          "so does a negative one");
   }
 
   printf("\n  %d checks, %d failures\n", g_checks, g_fails);

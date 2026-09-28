@@ -43,7 +43,6 @@ static bme280_calib_t _calib;
 static volatile uint8_t _initialized = 0;
 static uint8_t _have_sample = 0;
 static int32_t _t_fine; /* carries temp into the pressure/humidity comp */
-static float _sea_level_pa = 101325.0f; /* ISA standard sea-level pressure */
 
 /* Raw 8-byte data block, fed by the IMU DMA callback (ISR) and consumed by the
  * compensation task. _raw_fresh is the single-word handshake (producer sets,
@@ -212,18 +211,9 @@ void bme280_ingest_raw(const uint8_t *data) {
 
 /** @implements SNS-BARO-001, SNS-BARO-102 */
 void bme280_publish(float pressure_pa, float temperature_c, float humidity_rh) {
-  /* Derive altitude from physical pressure and publish. The real-hardware path
-   * calls this after compensating raw ADC; SITL calls it directly with vsim_d's
-   * modelled pressure, so the SAME FC altitude derivation + telemetry run in
-   * both (the host never supplies altitude). Barometric formula (ISA):
-   * h = 44330 * (1 - (p/p0)^(1/5.255)). */
-  float altitude_m =
-      44330.0f * (1.0f - m_pow(pressure_pa / _sea_level_pa, 0.190294957f));
-
   _last.pressure_pa = pressure_pa;
   _last.temperature_c = temperature_c;
   _last.humidity_rh = humidity_rh;
-  _last.altitude_m = altitude_m;
   _last.timestamp = hal_cycle_counter_get();
   _have_sample = 1;
 
@@ -254,13 +244,6 @@ static void bme280_compensate_and_publish(const uint8_t *d) {
 }
 
 /* ---- public API ---- */
-
-/** @implements SNS-BARO-102 QNH (sea-level reference) setter. */
-void bme280_set_sea_level_pa(float pa) {
-  if (pa > 1.0f) {
-    _sea_level_pa = pa;
-  }
-}
 
 /** @implements SNS-BARO-001 */
 hal_status_t bme280_init(void) {
@@ -355,14 +338,6 @@ hal_status_t bme280_read_humidity(float *percent_rh) {
 }
 
 /** @noreq Trivial published-value accessor. */
-hal_status_t bme280_read_altitude(float *meters) {
-  if (meters == NULL)
-    return HAL_ERR_INVALID_ARG;
-  if (!_have_sample)
-    return HAL_ERR_NOT_INITIALIZED;
-  *meters = _last.altitude_m;
-  return HAL_OK;
-}
 
 /** @noreq Trivial published-value accessor. */
 hal_status_t bme280_read_all(bme280_reading_t *out) {
@@ -375,27 +350,22 @@ hal_status_t bme280_read_all(bme280_reading_t *out) {
 }
 
 /* ---- The barometer model (sensor/baro.h) --------------------------------
- * A translation, not a second copy of the data: the driver keeps its own
- * reading and hands out the portable view. */
-static vayu_status_t _bme280_read(baro_reading_t *out) {
-  bme280_reading_t r;
-  if (out == NULL) {
+ * Humidity only. Pressure and temperature reach the rest of the firmware as a
+ * baro_sample_t through the hub, and altitude is not a barometer's to report.
+ */
+static vayu_status_t _bme280_humidity(float *rh) {
+  if (rh == NULL) {
     return VAYU_ERR_INVALID;
   }
-  if (bme280_read_all(&r) != HAL_OK) {
-    return VAYU_ERR_NOT_IMPL; /* no sample yet, or the part is absent */
+  if (!_have_sample) {
+    return VAYU_ERR_FAULT;
   }
-  out->pressure_pa = r.pressure_pa;
-  out->temperature_c = r.temperature_c;
-  out->humidity_rh = r.humidity_rh;
-  out->altitude_m = r.altitude_m;
-  out->t_cyc = r.timestamp;
-  out->has_humidity = 1; /* a BME280 measures it; a BMP280 would not */
+  *rh = _last.humidity_rh;
   return VAYU_OK;
 }
 
 static const baro_ops_t _bme280_baro_ops = {
-    .read = _bme280_read,
+    .humidity = _bme280_humidity,
 };
 
 /* ---- Sensor-adapter registration ---------------------------------------
