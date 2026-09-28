@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#include "sensor/baro.h"
 #include "vayu_tasks.h"
 #include "actuator/motor.h"
 #include "comm/channel.h"
@@ -28,7 +29,6 @@
 #include "control/flight_mode.h"
 #include "control/sysid.h"
 #include "est/est.h"
-#include "driver/bme280.h"
 #include "hub/hub.h"
 #include "sys/state.h"
 #include "sys/sys_utils.h"
@@ -231,12 +231,17 @@ void imu_telemetry_task(void *args) {
     if (est_perf_queue_pop(&e_data)) {
       navlink_tx_est_perf(&e_data);
     }
-    /* Barometer (~10 Hz): BME280 pressure/temp/humidity + derived altitude.
-     * bme280_read_all returns the last published sample; only emit once the
-     * sensor has produced one (skips cleanly when absent/mis-wired). */
+    /* Barometer (~10 Hz): pressure/temp/humidity + derived altitude, from
+     * whichever barometer the board carries. The model returns the last
+     * published sample, so this emits only once the sensor has produced one
+     * and skips cleanly when the part is absent or mis-wired. */
     if (send_baro) {
-      bme280_reading_t baro;
-      if (bme280_read_all(&baro) == HAL_OK) {
+      const baro_ops_t *bar = baro_ops();
+      baro_reading_t baro;
+      if (bar != NULL && bar->read != NULL && bar->read(&baro) == VAYU_OK) {
+        /* has_humidity is not consulted here because the wire message has a
+         * humidity field either way; a part without one reports 0 and says so,
+         * which is the GCS's to interpret. */
         navlink_tx_baro(baro.pressure_pa, baro.temperature_c, baro.humidity_rh,
                         baro.altitude_m);
       }

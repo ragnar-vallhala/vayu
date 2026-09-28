@@ -35,6 +35,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "driver/bme280.h" /* bme280_publish, to give the model data */
+#include "sensor/baro.h"
 #include "sensor/imu.h"
 #include "sensor/ride_along.h"
 #include "sensor/sensor.h"
@@ -150,6 +152,51 @@ int main(void) {
     const sensor_driver_t *baro = sensor_backend(SENSOR_BARO);
     if (baro != NULL && baro->ops != NULL) {
       CHECK((const void *)ops != baro->ops, "a baro's ops are not the IMU's");
+    }
+  }
+
+  printf("  [7] the baro model reports nothing until the device has data\n");
+  {
+    /* Nothing has fed the BME280 on this build yet, so read() must SAY it has
+     * no sample rather than hand back whatever was on the caller's stack --
+     * telemetry would put that on the wire as a real pressure. */
+    const baro_ops_t *bar = baro_ops();
+    CHECK(bar != NULL, "a baro backend exists on this build");
+    CHECK(bar && bar->read != NULL, "it can be read");
+    if (bar && bar->read) {
+      baro_reading_t r;
+      r.pressure_pa = 12345.0f;
+      CHECK(bar->read(&r) != VAYU_OK, "no sample yet is reported, not faked");
+      CHECK(r.pressure_pa == 12345.0f, "and the caller's buffer is untouched");
+    }
+  }
+
+  printf("  [8] once fed, the readout carries the device's values through\n");
+  {
+    /* The driver's own reading and the portable one are different structs, so
+     * the translation is real code that can drop or transpose a field. Feed
+     * known values and check they arrive. */
+    const baro_ops_t *bar = baro_ops();
+    if (bar && bar->read) {
+      bme280_publish(96000.0f, 21.5f, 43.25f);
+      baro_reading_t r;
+      memset(&r, 0, sizeof r);
+      CHECK(bar->read(&r) == VAYU_OK, "a fed device reads OK");
+      CHECK(r.pressure_pa == 96000.0f, "pressure carried through");
+      CHECK(r.temperature_c == 21.5f, "temperature carried through");
+      CHECK(r.humidity_rh == 43.25f, "humidity carried through");
+      CHECK(r.has_humidity != 0, "a BME280 says it measures humidity");
+      /* Altitude is DERIVED from pressure, not copied: below sea-level
+       * pressure it must come out above zero. */
+      CHECK(r.altitude_m > 0.0f, "altitude derived from the pressure");
+
+      /* And now that there IS a sample, the NULL guard is reachable. */
+      CHECK(bar->read(NULL) != VAYU_OK, "a NULL destination is refused");
+    }
+    /* The two models must not alias: each resolves through its own kind. */
+    if (bar != NULL && imu_ops() != NULL) {
+      CHECK((const void *)bar != (const void *)imu_ops(),
+            "the baro and IMU models are different tables");
     }
   }
 

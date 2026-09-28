@@ -21,6 +21,7 @@
  * device it is talking to, the descriptor is missing a field. */
 #include "sensor/sensor.h"
 
+#include "sensor/baro.h"
 #include "sensor/imu.h"
 
 #include "storage/fs_owner.h" /* vayu_log */
@@ -166,4 +167,10 @@ vayu_status_t sensor_start_task(sensor_kind_t kind) {
 const imu_ops_t *imu_ops(void) {
   const sensor_driver_t *d = sensor_backend(SENSOR_IMU);
   return d ? (const imu_ops_t *)d->ops : NULL;
+}
+
+/** @noreq registry accessor. */
+const baro_ops_t *baro_ops(void) {
+  const sensor_driver_t *d = sensor_backend(SENSOR_BARO);
+  return d ? (const baro_ops_t *)d->ops : NULL;
 }

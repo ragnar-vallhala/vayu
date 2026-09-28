@@ -74,8 +74,10 @@ typedef struct {
   /** True while a calibration run owns the device. */
   bool (*calibrating)(void);
 
-  /** Chip identity as read from the device, for logs and telemetry. */
-  uint16_t (*chip_id)(void);
+  /* There is no identity entry here. One was added with this header and had no
+ * caller -- the boot log names the backend from the descriptor's compile-time
+ * `name`, which costs no call and cannot fail. Add a chip_id op when something
+ * actually needs the value the device reports, not before. */
 } imu_ops_t;
 
 /**

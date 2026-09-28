@@ -2164,7 +2164,6 @@ static const imu_ops_t _bmx160_imu_ops = {
     .calibrate_start = _bmx160_calibrate_start,
     .calibrate_cancel = _bmx160_calibrate_cancel,
     .calibrating = _bmx160_calibrating,
-    .chip_id = bmx160_get_chip_id,
 };
 
 VAYU_SENSOR_DRIVER(bmx160_sensor) = {

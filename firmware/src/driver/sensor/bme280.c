@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 #include "sensor/ride_along.h"
+#include "sensor/baro.h"
 #include "sensor/sensor.h"
 #include "driver/bme280.h"
 #include "hub/hub.h"
@@ -373,6 +374,30 @@ hal_status_t bme280_read_all(bme280_reading_t *out) {
   return HAL_OK;
 }
 
+/* ---- The barometer model (sensor/baro.h) --------------------------------
+ * A translation, not a second copy of the data: the driver keeps its own
+ * reading and hands out the portable view. */
+static vayu_status_t _bme280_read(baro_reading_t *out) {
+  bme280_reading_t r;
+  if (out == NULL) {
+    return VAYU_ERR_INVALID;
+  }
+  if (bme280_read_all(&r) != HAL_OK) {
+    return VAYU_ERR_NOT_IMPL; /* no sample yet, or the part is absent */
+  }
+  out->pressure_pa = r.pressure_pa;
+  out->temperature_c = r.temperature_c;
+  out->humidity_rh = r.humidity_rh;
+  out->altitude_m = r.altitude_m;
+  out->t_cyc = r.timestamp;
+  out->has_humidity = 1; /* a BME280 measures it; a BMP280 would not */
+  return VAYU_OK;
+}
+
+static const baro_ops_t _bme280_baro_ops = {
+    .read = _bme280_read,
+};
+
 /* ---- Sensor-adapter registration ---------------------------------------
  * Stack 768 words: measured peak 316 on hardware, ~20 Hz baro/humidity. */
 static vayu_status_t _bme280_probe(void) {
@@ -388,6 +413,7 @@ VAYU_SENSOR_DRIVER(bme280_sensor) = {
     .task_name = "baro_read",
     .stack_words = 768,
     .priority = 0,
+    .ops = &_bme280_baro_ops,
 };
 
 /* Rides the IMU's single-owner I2C loop rather than driving the bus itself;

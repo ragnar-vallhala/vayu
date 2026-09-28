@@ -71,9 +71,9 @@ Ledger, 2026-09-28:
 | storage | 0 | `storage/` |
 | actuator | 1 | `actuator/` |
 | internal | 7 | `sys/ logger/` |
-| comm | 25 | `comm/` |
+| comm | 24 | `comm/` |
 
-33 lines total, in 5 files. Where they live:
+32 lines total, in 4 files. Where they live:
 
 | Section | File | Lines | What it is |
 |---|---|---:|---|
@@ -85,7 +85,6 @@ Ledger, 2026-09-28:
 | comm | `comm/channel.c` | 14 | `hal_uart_*` / `hal_interrupt_*` — the transport itself |
 | comm | `comm/rc_task.c` | 5 | `hal_uart_*` — the same, for RC |
 | comm | `comm/serializer.c` | 2 | `hal_uart_read_char` |
-| comm | `comm/telemetry_task.c` | 1 | `driver/bme280.h` — see below |
 | comm | `comm/channel.h` | 1 | `navhal.h`, for `hal_uart_t` |
 
 Four of those are not debt. `sys/clock.c` and `sys/boot.c` are *where* DWT is
@@ -158,7 +157,7 @@ whether or not the gate's pattern happens to catch the line.
 |---|---|---|
 | `main.c` | `bmx160_init`, `bme280_init`, `vl53l0x_init`, `init_i2c_manager` | composition root — correct, stays |
 | `actuator/motor.c` | `esc_init` ×4, `esc_arm`, `esc_set_throttle` ×4 | a thin ESC shim; its board facts are now macros, the calls are its job |
-| `comm/telemetry_task.c` | `bme280_read_all` | **misplaced** — should take an SI sample from `hub/` |
+| `comm/telemetry_task.c` | `bme280_read_all` | **fixed 2026-09-28** — goes through the barometer model |
 
 `est/attitude_task.c` was the fifth and is gone (§3.1).
 
@@ -329,15 +328,21 @@ is a rewrite of the live telemetry and RC paths, both flight-critical and both
 currently working on hardware, for a structural gain. It is worth doing and it
 is not worth doing casually. The floor after that lands is roughly 2–4, not 0.
 
-**The two driver includes are a design question, not a move.**
+**Both driver includes are gone, and the answer was a third thing.**
 
-- `telemetry_task.c` → `bme280_read_all`. The hub already has
-  `baro_latest()`, but `baro_sample_t` carries pressure and temperature, while
-  the baro telemetry message also sends humidity and a derived altitude.
-  Humidity is chip-specific and altitude is estimated, not measured — putting
-  either in the SI sample is the F11 mistake again. Routing through the hub as
-  it stands would silently drop fields from a wire message. Decide what that
-  message is for first.
+`telemetry_task.c` → `bme280_read_all` looked like a choice between routing
+through `hub/` and leaving it alone. The hub's `baro_sample_t` carries
+pressure and temperature; the BARO telemetry message also sends humidity and a
+derived altitude. Widening the SI sample to hold them would put a
+chip-specific field in the type the control core reads — F11 again — and
+routing through the hub as it stood would have silently dropped fields from a
+wire message.
+
+The split that works is by PURPOSE, not by field: measurements the flight code
+needs go through the hub, and a reporting-only readout is asked for through
+the device model (`sensor/baro.h`). A barometer with no humidity sensor
+reports 0 **and says so**, which is a different statement from "0% relative
+humidity".
 - `comm_processor.c` → `bmx160_calib_request_cancel`: **fixed 2026-09-28.**
   It goes through the IMU model now (`sensor/imu.h`), so the command layer
   asks "an IMU" to calibrate itself instead of naming one. It used to allocate

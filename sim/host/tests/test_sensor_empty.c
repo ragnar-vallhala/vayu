@@ -29,6 +29,7 @@
  * zero to discover that is not. */
 #include <stdio.h>
 
+#include "sensor/baro.h"
 #include "sensor/imu.h"
 #include "sensor/ride_along.h"
 #include "sensor/sensor.h"
@@ -73,7 +74,8 @@ int main(void) {
   {
     /* The command layer calls imu_ops() and checks for NULL before every use;
      * this is the build where that branch is the live one. */
-    CHECK(imu_ops() == NULL, "no registry means no model");
+    CHECK(imu_ops() == NULL, "no registry means no IMU model");
+    CHECK(baro_ops() == NULL, "nor a baro model");
   }
 
   printf("\n  %d checks, %d failures\n", g_checks, g_fails);

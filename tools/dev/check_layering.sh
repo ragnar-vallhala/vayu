@@ -73,7 +73,7 @@ SECTIONS=(
   "storage|0|firmware/src/storage firmware/include/storage"
   "actuator|1|firmware/src/actuator firmware/include/actuator"
   "internal|7|firmware/src/sys firmware/src/logger firmware/include/sys"
-  "comm|25|firmware/src/comm firmware/include/comm"
+  "comm|24|firmware/src/comm firmware/include/comm"
 )
 
 # Each pattern is a class of silicon fact, not a blocklist of names -- a new
