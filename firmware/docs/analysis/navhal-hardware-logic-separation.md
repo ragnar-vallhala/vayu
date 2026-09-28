@@ -77,7 +77,7 @@ Ledger, 2026-09-28:
 
 | Section | File | Lines | What it is |
 |---|---|---:|---|
-| actuator | `actuator/motor.c` | 1 | `driver/esc.h` — the pins and the timer are now board macros |
+| actuator | `actuator/motor.c` | 1 | `driver/esc.h` — **its floor**; the pins, timer and AF are board macros |
 | internal | `sys/clock.c` | 3 | DWT — **legitimate**, this is the seam |
 | internal | `sys/boot.c` | 2 | clock verification — legitimate |
 | internal | `sys/heartbeat.c` | 1 | `driver/indicator.h` — it is the annunciator's policy |
@@ -205,24 +205,6 @@ owners: a linkage footgun that reads as a single variable.
 recovery path so `bmx160.c` stops needing the `extern`. This is the last live
 piece of F2.
 
-#### F7 🟠 — TIM1 is re-initialised per channel with no single owner
-
-`firmware/src/actuator/motor.c:41-44` calls `esc_init(..., BOARD_ESC_TIMER, n,
-BOARD_ESC_Mn_PIN)` four times; `esc_init` configures the timer each time. Four
-callers, one timer, no owner — the last call's prescaler wins, and nothing says
-so. The board macros fixed *where the numbers live*, not *who owns the timer*.
-
-**Fix:** a PWM group owner that configures TIM1 once and hands out channels.
-
-#### F8 🟠 — STM32 AF pinmux is hardcoded inside the "generic" ESC driver
-
-`firmware/src/driver/esc.c:39-47` picks `HAL_GPIO_AF1` vs `AF2` from the timer
-instance, with a comment that says "usually". That is an STM32F4 truth living
-in a driver that claims to be portable, and "usually" is doing load-bearing
-work.
-
-**Fix:** AF is a board fact — pass it in, or resolve it in `board_*.h`.
-
 #### F12 🟠 — IRQ wiring is split with no ownership registry
 
 `firmware/src/comm/channel.c:127-156` attaches USART and DMA callbacks by hand;
@@ -248,6 +230,8 @@ with no registry to notice.
 | F10 | `SYS_CLOCK_FREQ` duplicated vs the PLL | every consumer needing a real interval divides the rate measured at boot (`vayu_clock_hz()`). The macro survives only as the value `boot.c` checks against, and as the pre-boot fallback |
 | F11 | Logic consumed `bmx160_all_reading_t` | the hub migration; 0 references remain in `control/` or `est/` |
 | F13 | ESC band duplicated in the SITL host | one band in `actuator.h`, both sides derive |
+| F7 | TIM1 re-inited per channel, no owner | `esc_group_init(timer, freq)` is the only caller of `hal_pwm_init`, so PSC/ARR are written once. `esc_init` sets up its channel with `hal_pwm_set_duty_cycle`, which touches only that channel's CCR. Arm and disarm became channel scoped: `esc_disarm` used to stop the shared timer, which would have cut PWM to all four motors |
+| F8 | AF pinmux hardcoded in the ESC driver | `BOARD_ESC_AF`; `esc.c` names no timer instance at all now |
 | F5 | two owners of the BLUE LED | `driver/indicator.c` owns the four pins and is the only writer. `heartbeat.c` renders flight state; the router calls `heartbeat_note_link_activity()` instead of driving a pin on its own timer, and the activity blink is an explicit override with a defined precedence |
 
 ---
@@ -305,11 +289,34 @@ stopped reading DWT.
 how the 77-header leak into `control/` got in (§3.1), and a dead one is just a
 loaded gun for the next person.
 
-### Step 3 — `actuator` (1 → 0), F7 + F8
+### Step 3 — F7 + F8 ✅ done 2026-09-28
 
-The pins and the timer are already board macros (step 1b). What is left is
-ownership: a PWM group owner that configures `BOARD_ESC_TIMER` once and hands
-out channels (F7), and moving AF selection out of `esc.c` (F8).
+Not a ratchet: `actuator` stays at **1** and that is its floor — the one hit is
+`motor.c` including `driver/esc.h`, which is what `motor.c` is for. An earlier
+draft of this plan said 1 → 0, which was the same mistake as "drain `internal`
+to zero": a section that has reached its floor is finished, and driving the
+number below it would mean hiding a dependency rather than removing one.
+
+What actually changed is ownership:
+
+- **`esc_group_init(timer, freq)`** is now the only caller of `hal_pwm_init`,
+  and therefore the only thing that writes the timer's prescaler and
+  auto-reload. It also starts the timer, once. `esc_init` no longer takes a
+  timer at all; it sets its channel up with `hal_pwm_set_duty_cycle`, which
+  reads the group's ARR and writes only that channel's CCR, mode, preload and
+  output enable — exactly what `hal_pwm_init` did per channel, minus the
+  timer-wide re-init a single channel had no business doing.
+- **Arm and disarm are channel scoped.** They used to be `hal_pwm_start` and
+  `hal_pwm_stop`, and `hal_pwm_stop` stops the timer — so disarming one motor
+  would have cut the PWM to all four. Nothing called `esc_disarm` (F6), which
+  is the only reason that never fired.
+- **`BOARD_ESC_AF`** replaces the `if (timer == TIM1 || timer == TIM2)` ladder
+  whose comment said "usually". `esc.c` names no timer instance now.
+
+The host's PWM stub had to become honest before any of this was testable: it
+modelled `hal_pwm_stop` as channel-local, so the shared-timer hazard was
+invisible and a mutant that reintroduced it passed. It now tracks the timer's
+CEN separately from each channel's output enable, as the silicon does.
 
 ### Step 4 — `comm` (39 → ?), F12
 
@@ -318,7 +325,7 @@ UART/DMA is closer to being a driver than a violation. The valuable part here
 is the IRQ ownership registry, not the count. Decide `comm`'s floor before
 starting — it is probably not 0.
 
-The two misplaced driver calls (§3.2) fall out of steps 2–4: `bme280_read_all`
+The two misplaced driver calls (§3.2) fall out of step 4: `bme280_read_all`
 and `bmx160_calib_request_cancel` should take their data from `hub/` or go
 through a service, not reach for the device — the same move the board trim
 already made.

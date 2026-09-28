@@ -68,11 +68,19 @@ typedef struct {
  *
  * @implements ACT-ESC-001
  */
-void esc_init(ESC_Handle *esc, hal_timer_t timer, uint32_t channel,
-              hal_gpio_pin_t pin);
+/**
+ * @brief Configure the timer every ESC channel shares. Call once, before any
+ *        esc_init. The prescaler and auto-reload belong to the group; no
+ *        per-channel call may change them.
+ */
+void esc_group_init(hal_timer_t timer, uint32_t freq_hz);
+
+void esc_init(ESC_Handle *esc, uint32_t channel, hal_gpio_pin_t pin,
+              hal_gpio_af_t af);
 
 /** @brief Arm the ESC (sends min throttle for a period).
- *  @noreq thin hal_pwm_start primitive; the boot arming sequence is ACT-ESC-002. */
+ *  @noreq thin channel-enable primitive; the boot arming sequence is
+ *  ACT-ESC-002. Channel scoped: it does not start the shared timer. */
 void esc_arm(ESC_Handle *esc);
 
 /** @brief Disarm the ESC (stops PWM or sends a safe signal).

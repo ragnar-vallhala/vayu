@@ -38,10 +38,14 @@ void motor_init(void) {
             sizeof(motor_outputs_t));
   spsc_set_policy(&motor_telemetry_queue, SPSC_POLICY_OVERWRITE);
   // Setup ESCs
-  esc_init(&motors[0], BOARD_ESC_TIMER, 1, BOARD_ESC_M1_PIN); // Motor 1
-  esc_init(&motors[1], BOARD_ESC_TIMER, 2, BOARD_ESC_M2_PIN); // Motor 2
-  esc_init(&motors[2], BOARD_ESC_TIMER, 3, BOARD_ESC_M3_PIN); // Motor 3
-  esc_init(&motors[3], BOARD_ESC_TIMER, 4, BOARD_ESC_M4_PIN); // Motor 4
+  /* The shared timer is configured ONCE, by its owner, before any channel
+   * asks for anything (F7). */
+  esc_group_init(BOARD_ESC_TIMER, VAYU_ESC_PWM_FREQ);
+
+  esc_init(&motors[0], 1, BOARD_ESC_M1_PIN, BOARD_ESC_AF); // Motor 1
+  esc_init(&motors[1], 2, BOARD_ESC_M2_PIN, BOARD_ESC_AF); // Motor 2
+  esc_init(&motors[2], 3, BOARD_ESC_M3_PIN, BOARD_ESC_AF); // Motor 3
+  esc_init(&motors[3], 4, BOARD_ESC_M4_PIN, BOARD_ESC_AF); // Motor 4
 
   for (int i = 0; i < NUM_MOTORS; i++) {
     esc_arm(&motors[i]);

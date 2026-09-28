@@ -76,6 +76,11 @@ extern "C" {
 #define BOARD_ESC_M2_PIN GPIO_PA09 /* TIM1_CH2 */
 #define BOARD_ESC_M3_PIN GPIO_PA10 /* TIM1_CH3 */
 #define BOARD_ESC_M4_PIN GPIO_PA11 /* TIM1_CH4 */
+/* Which alternate function routes the timer to those pins. A package fact:
+ * on STM32F4 TIM1/TIM2 are AF1 and TIM3/4/5 are AF2, and another part may
+ * map it differently. The ESC driver used to guess this from the timer
+ * instance (F8). */
+#define BOARD_ESC_AF HAL_GPIO_AF1
 
 /* ---- Timers -------------------------------------------------------------
  * The general-purpose timer behind driver/timer_callbacks.h: the sub-

@@ -425,6 +425,10 @@ add_executable(test_safety_phase2 tests/test_safety_phase2.c)
 target_link_libraries(test_safety_phase2 PRIVATE vayu_sitl_core)
 add_test(NAME safety_phase2 COMMAND test_safety_phase2)
 
+add_executable(test_esc tests/test_esc.c)
+target_link_libraries(test_esc PRIVATE vayu_sitl_core m)
+add_test(NAME esc COMMAND test_esc)
+
 add_executable(test_indicator tests/test_indicator.c)
 target_link_libraries(test_indicator PRIVATE vayu_sitl_core m)
 add_test(NAME indicator COMMAND test_indicator)
