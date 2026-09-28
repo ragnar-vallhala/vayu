@@ -14,6 +14,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#include "sensor/ride_along.h"
+#include "sensor/sensor.h"
 #include "driver/bme280.h"
 #include "hub/hub.h"
 #include "driver/i2c_manager.h"
@@ -369,3 +371,31 @@ hal_status_t bme280_read_all(bme280_reading_t *out) {
   *out = _last;
   return HAL_OK;
 }
+
+/* ---- Sensor-adapter registration ---------------------------------------
+ * Stack 768 words: measured peak 316 on hardware, ~20 Hz baro/humidity. */
+static vayu_status_t _bme280_probe(void) {
+  return bme280_init() == HAL_OK ? VAYU_OK : VAYU_ERR_FAULT;
+}
+
+VAYU_SENSOR_DRIVER(bme280_sensor) = {
+    .name = "bme280",
+    .kind = SENSOR_BARO,
+    .instance = 0,
+    .probe = _bme280_probe,
+    .task = bme280_read_task,
+    .task_name = "baro_read",
+    .stack_words = 768,
+    .priority = 0,
+};
+
+/* Rides the IMU's single-owner I2C loop rather than driving the bus itself;
+ * see sensor/ride_along.h. */
+VAYU_SENSOR_RIDE(bme280_ride) = {
+    .addr = BME280_I2C_ADDR,
+    .reg = BME280_REG_DATA,
+    .len = BME280_DATA_LEN,
+    .every_n = BME280_RIDE_EVERY_N,
+    .present = bme280_is_present,
+    .ingest = bme280_ingest_raw,
+};

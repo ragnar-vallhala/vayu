@@ -14,6 +14,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#include "sensor/ride_along.h"
+#include "sensor/sensor.h"
 #include "driver/vl53l0x.h"
 #include "hub/hub.h"
 #include "driver/i2c_manager.h"
@@ -202,3 +204,32 @@ hal_status_t vl53l0x_read_all(vl53l0x_reading_t *out) {
   *out = _last;
   return HAL_OK;
 }
+
+/* ---- Sensor-adapter registration ---------------------------------------
+ * Stack 1024 words, not 640: measured peak 468 on hardware (range read plus
+ * the quaternion tilt projection), and 640 would leave only 172 B free --
+ * inside the 256 B TASK_STACK_OVERFLOW_THRESHOLD guard band. */
+static vayu_status_t _vl53l0x_probe(void) {
+  return vl53l0x_init() == HAL_OK ? VAYU_OK : VAYU_ERR_FAULT;
+}
+
+VAYU_SENSOR_DRIVER(vl53l0x_sensor) = {
+    .name = "vl53l0x",
+    .kind = SENSOR_RANGE,
+    .instance = 0,
+    .probe = _vl53l0x_probe,
+    .task = vl53l0x_read_task,
+    .task_name = "tof_read",
+    .stack_words = 1024,
+    .priority = 0,
+};
+
+/* Rides the IMU's single-owner I2C loop; see sensor/ride_along.h. */
+VAYU_SENSOR_RIDE(vl53l0x_ride) = {
+    .addr = VL53L0X_I2C_ADDR,
+    .reg = VL53L0X_REG_BURST_START,
+    .len = VL53L0X_DATA_LEN,
+    .every_n = VL53L0X_RIDE_EVERY_N,
+    .present = vl53l0x_is_present,
+    .ingest = vl53l0x_ingest_raw,
+};

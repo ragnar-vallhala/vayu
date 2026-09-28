@@ -8,7 +8,8 @@ a bus or a timer.
 firmware/board/
   boards.cmake          selection + the NavHAL-board consistency check
   navixdev/             F401 development FC  (current)
-    vayu_board.h
+    vayu_board.h        pins, buses, timers, IRQ vectors
+    board.cmake         which sensor backends this board carries
 ```
 
 Roadmap: `navixdev` → `navixsm_f401re` → `f441` → `h767`. The last is a
@@ -46,6 +47,10 @@ different bus topology) still defines the name — omitting one moves the
 | `BOARD_I2C_DR_ADDR` | that bus's `DR` address, for DMA |
 | `BOARD_IMU_I2C_ADDR` | IMU 7-bit address |
 | `BOARD_ESC_TIMER` `BOARD_ESC_M1_PIN`..`M4_PIN` | motor outputs, mixer order |
+| `BOARD_ESC_AF` | alternate function routing the timer to those pins |
+| `BOARD_HF_TIMER` `BOARD_HF_TIMER_IRQ` | the sub-millisecond scheduler's timer |
+| `BOARD_TELEMETRY_UART` `_IRQ` `BOARD_TELEMETRY_TX_DMA_IRQ` | telemetry link |
+| `BOARD_RC_UART` `_IRQ` `BOARD_RC_TX_DMA_IRQ` | RC receiver link |
 
 Include only the narrow port type headers (`utils/gpio_types.h`,
 `utils/i2c_types.h`, `utils/timer_types.h`), never `navhal.h`. Naming a pin
@@ -55,9 +60,23 @@ NavHAL's own board files use.
 Sensor *tuning* is not a board fact and does not belong here — ODRs, ranges
 and bandwidths live with their driver (`include/driver/bmx160.h`).
 
+## Sensor backends
+
+`board.cmake` lists them by name, and each name is a file in
+`firmware/src/driver/sensor/`. Only the listed ones are compiled: an
+unselected driver contributes no flash, no RAM and no registry entry, because
+it is never built. Naming one that does not exist fails the configure and
+prints what is available.
+
+Nothing in the firmware names these drivers. Each one describes itself through
+`VAYU_SENSOR_DRIVER` (see `sensor/sensor.h`), so `main.c` brings up an IMU
+without knowing which IMU. Swapping a BMX160 for an ICM is editing one word
+here, once a driver for the new part exists beside the old one.
+
 ## Adding a board
 
-1. `cp -r navixdev <name>` and edit every macro in the table.
+1. `cp -r navixdev <name>` and edit every macro in the table, plus the sensor
+   list in its `board.cmake`.
 2. Point `VAYU_BOARD_NAVHAL_BOARD` at the NavHAL board it runs on, and set the
    matching `CONFIG_BOARD` / `CONFIG_BOARD_*` / `CONFIG_FAMILY_*` lines in
    `firmware/navhal.config`.

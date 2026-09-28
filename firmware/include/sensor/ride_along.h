@@ -54,9 +54,28 @@ typedef struct {
 } sensor_ride_t;
 
 /**
- * The ride-along table, in contention order: when two devices come due on the
- * same slot the earlier entry wins and the later one waits a slot. Choosing
- * periods that are coprime makes that collision rare.
+ * Register a ride-along. One per driver file, at file scope -- the driver
+ * states its own bus facts and no central file lists the devices:
+ *
+ *     VAYU_SENSOR_RIDE(bme280_ride) = { .addr = BME280_I2C_ADDR, ... };
+ *
+ * This is the same linker-section mechanism as sensor/sensor.h; see that
+ * header for why the table is const and costs no RAM.
+ */
+#define VAYU_SENSOR_RIDE(sym)                                                  \
+  static const sensor_ride_t sym                                               \
+      __attribute__((used, section("vayu_rides"), aligned(4)))
+
+/**
+ * The ride-along table.
+ *
+ * CONTENTION ORDER IS THE LINKER'S, not the source's. When two devices come
+ * due on the same slot the earlier entry wins and the later one waits a slot,
+ * and which is "earlier" is now decided at link time. That is deliberate and
+ * it is safe: the loser is retried one slot later and loses nothing but a few
+ * hundred microseconds, and each driver's *_RIDE_EVERY_N is chosen coprime to
+ * the others so two devices rarely come due together at all. Nothing may
+ * depend on a particular device being first.
  *
  * @param count out: number of entries.
  */

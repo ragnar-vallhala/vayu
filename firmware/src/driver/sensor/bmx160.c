@@ -14,13 +14,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#include "sensor/sensor.h"
 #include "vayu_board.h"
 #include "driver/bmx160.h"
 #include "storage/imu_hs_log.h"
 #include "calib/calib_engine.h"
 #include "comm/comm.h"
 #include "driver/i2c_manager.h"
-#include "driver/ride_along.h"
+#include "sensor/ride_along.h"
 #include "navhal.h"
 #include "ipc.h"
 #include "est/est.h"
@@ -2103,3 +2104,26 @@ done:
     v_free(cal_args);
   task_exit();
 }
+
+/* ---- Sensor-adapter registration ---------------------------------------
+ * The boot path brings this chip up without naming it; see sensor/sensor.h.
+ * Stack 768 words: measured peak 332 on hardware. */
+static vayu_status_t _bmx160_probe(void) {
+  return bmx160_init() == HAL_OK ? VAYU_OK : VAYU_ERR_FAULT;
+}
+
+VAYU_SENSOR_DRIVER(bmx160_sensor) = {
+    .name = "bmx160",
+    .kind = SENSOR_IMU,
+    .instance = 0,
+    .probe = _bmx160_probe,
+    .task = bmx160_initiate_read,
+    .task_name = "imu_read",
+    .stack_words = 768,
+    .priority = 2,
+    /* Accel/gyro reads are paced off the HF timer, which decouples the sensor
+     * rate from the I2C free-run speed and frees the CPU above what the
+     * control loop needs. */
+    .tick = bmx160_fast_tick_isr,
+    .tick_period_us = IMU_FAST_PERIOD_US,
+};

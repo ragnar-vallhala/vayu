@@ -123,7 +123,19 @@ endif()
 include_directories(SYSTEM ${NAVLINK_GEN}/c)
 set(NAVLINK_SOURCES ${NAVLINK_GEN}/c/navlink_msgs.c)
 
+# Board facts (pins, buses, timers) and the board's sensor-backend list. Must
+# run before the source glob below, which filters on it. The board directory
+# holds only vayu_board.h, so putting it on the include path here does not
+# shadow anything the way include/ would (see the note above).
+include(${CMAKE_CURRENT_SOURCE_DIR}/board/boards.cmake)
+
 FILE(GLOB_RECURSE VAYU_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/*.c)
+# Sensor backends are selected by the board, not by being on disk: drop every
+# file under src/driver/sensor/ and add back only the ones BOARD_SENSOR_DRIVERS
+# names (firmware/board/boards.cmake). An unselected driver is never compiled,
+# so it costs nothing and registers nothing.
+list(FILTER VAYU_SOURCES EXCLUDE REGEX "/src/driver/sensor/")
+list(APPEND VAYU_SOURCES ${VAYU_SENSOR_SOURCES})
 if(VAYU_HW_TEST)
   # Swap the production entry (src/main.c) for the bench harness
   # (tests/onboard/*.c, which provides its own main()).
@@ -309,10 +321,6 @@ if(EXTERNAL_LINKER)
 else()
 set(CMAKE_EXE_LINKER_FLAGS "-T ${LINKER_FILE} -lnosys -lc -mfloat-abi=hard -mfpu=fpv4-sp-d16") # can be
 endif()
-# Board facts (pins, buses, timers) -- puts the selected firmware/board/<name>
-# on the include path so consumers write #include "vayu_board.h".
-include(${CMAKE_CURRENT_SOURCE_DIR}/board/boards.cmake)
-
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include  ${CMAKE_CURRENT_SOURCE_DIR}/drivers ${CMAKE_CURRENT_SOURCE_DIR}/maths)
 
 if(CMAKE_SYSTEM_PROCESSOR STREQUAL "cortex-m4")

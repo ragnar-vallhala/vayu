@@ -21,6 +21,34 @@ SECTIONS {
 
   } > FLASH
 
+  /* Self-registering driver tables. Each entry is a const descriptor placed
+   * by VAYU_SENSOR_DRIVER / VAYU_SENSOR_RIDE; the adapter walks the section
+   * between the __start_/__stop_ symbols the linker provides for any section
+   * with a C-identifier name (no leading dot -- that is what makes them
+   * automatic, and it works the same on the host link, so SITL walks the same
+   * table).
+   *
+   * The start/stop symbols are PROVIDEd by hand here, and must be: ld only
+   * invents them for ORPHAN sections, so naming a section in SECTIONS at all
+   * takes that service away. Placing it without providing them fails the link.
+   *
+   * Orphan placement would put these in FLASH on its own, so this block exists
+   * for the KEEP: the moment anyone turns on --gc-sections (see the note by
+   * VAYU_R12_WARN_FLAGS), nothing references these entries from code the
+   * linker can see, and the registry would go quietly empty -- every sensor
+   * "absent" at boot, with no build error anywhere. */
+  .vayu_registries : {
+    . = ALIGN(4);
+    PROVIDE(__start_vayu_sensors = .);
+    KEEP(*(vayu_sensors))
+    PROVIDE(__stop_vayu_sensors = .);
+    . = ALIGN(4);
+    PROVIDE(__start_vayu_rides = .);
+    KEEP(*(vayu_rides))
+    PROVIDE(__stop_vayu_rides = .);
+    . = ALIGN(4);
+  } > FLASH
+
   /* gcov (on-target coverage, C3): -fprofile-info-section emits each
    * instrumented TU's `struct gcov_info` here; coverage_dump.c walks the list
    * between these symbols. Empty (start == end) for non-coverage builds, so this

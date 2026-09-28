@@ -69,5 +69,30 @@ if(NOT _want STREQUAL _have)
     "firmware/navhal.config to match, or pick a different VAYU_BOARD.")
 endif()
 
+# Which sensor backends this board carries. Everything else under
+# src/driver/sensor/ is left out of the build entirely -- see board.cmake.
+include("${_VAYU_BOARD_DIR}/board.cmake")
+if(NOT DEFINED BOARD_SENSOR_DRIVERS)
+  message(FATAL_ERROR
+    "firmware/board/${VAYU_BOARD}/board.cmake must set BOARD_SENSOR_DRIVERS.")
+endif()
+
+# Turn the names into paths, and fail on one that does not exist rather than
+# silently booting a board with no IMU.
+set(VAYU_SENSOR_SOURCES "")
+foreach(_drv ${BOARD_SENSOR_DRIVERS})
+  set(_src "${CMAKE_CURRENT_LIST_DIR}/../src/driver/sensor/${_drv}.c")
+  if(NOT EXISTS "${_src}")
+    file(GLOB _avail RELATIVE "${CMAKE_CURRENT_LIST_DIR}/../src/driver/sensor"
+         "${CMAKE_CURRENT_LIST_DIR}/../src/driver/sensor/*.c")
+    string(REPLACE ".c" "" _avail "${_avail}")
+    message(FATAL_ERROR
+      "Board ${VAYU_BOARD} wants sensor driver '${_drv}', which has no "
+      "firmware/src/driver/sensor/${_drv}.c.\nAvailable: ${_avail}")
+  endif()
+  list(APPEND VAYU_SENSOR_SOURCES "${_src}")
+endforeach()
+
 message(STATUS "vayu board: ${VAYU_BOARD} (on NavHAL board ${_have})")
+message(STATUS "vayu sensors: ${BOARD_SENSOR_DRIVERS}")
 include_directories(${_VAYU_BOARD_DIR})

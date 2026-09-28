@@ -14,12 +14,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#include "sensor/sensor.h"
 #include "comm/comm.h"
 #include "control/control.h"
-#include "driver/bme280.h"
-#include "driver/bmx160.h"
 #include "driver/i2c_manager.h"
-#include "driver/vl53l0x.h"
 #include "storage/fs_owner.h"
 #include "navhal.h"
 #include "sys/clock.h"
@@ -43,7 +41,6 @@
 #endif
 
 // Global state values
-uint32_t bmx160_task_id = 0;
 
 #ifdef EKF_SELFTEST
 /* On-target EKF self-test: run the shared branch-coverage scenarios and report
@@ -87,9 +84,10 @@ void clock_setup(void) {
 void init_sensors(void) {
   imu_buffer_init();
   control_telemetry_buffer_init();
-  bmx160_init();
-  bme280_init(); /* baro/humidity on the shared I2C1 bus; logs + degrades if absent */
-  vl53l0x_init(); /* ToF rangefinder, same shared bus; logs + degrades if absent */
+  /* Every sensor the build selected, in sensor_kind_t order. Which chips
+   * those are is the board's board.cmake, not this file's business -- an
+   * absent device logs and degrades rather than stopping the boot. */
+  (void)sensor_probe_all();
   rc_buffer_init();
 
   // Initialize global telemetry — USART6 (PC6 TX / PC7 RX) per Vayu PCB wiring.
@@ -125,8 +123,8 @@ void init_tasks(void) {
   task_create_named(
       comm_processor_task, NULL, 4096, 0,
       "comm_processor"); // peak 1884 idle; xfer-upload path deeper
-  bmx160_task_id = task_create_named(bmx160_initiate_read, NULL, 768, 2,
-                                     "imu_read"); // peak 332
+  /* Stack, priority and entry point come from the driver's own descriptor. */
+  VAYU_DISCARD(sensor_start_task(SENSOR_IMU));
   // Attitude estimation (fusion), split out of the IMU driver.
   task_create_named(attitude_task, NULL, 1152, 1, "attitude"); // peak 700
   // Vertical estimator (VERT): fuses baro + accel into altitude/climb_rate.
@@ -157,12 +155,8 @@ void init_tasks(void) {
   task_create_named(motor_task, NULL, 704, 1, "motor"); // peak 284, actuator
   task_create_named(imu_telemetry_task, NULL, 1344, 0,
                     "imu_telemetry"); // peak 908
-  task_create_named(bme280_read_task, NULL, 768, 0,
-                    "baro_read"); // peak 316, ~20 Hz baro/humidity sampler
-  task_create_named(vl53l0x_read_task, NULL, 1024, 0,
-                    "tof_read"); // peak 468 measured on hardware; 640 would
-                                 // leave 172 B free, inside the 256 B
-                                 // TASK_STACK_OVERFLOW_THRESHOLD guard band.
+  VAYU_DISCARD(sensor_start_task(SENSOR_BARO));
+  VAYU_DISCARD(sensor_start_task(SENSOR_RANGE));
   task_create_named(flush_task, NULL, 640, 0, "flush"); // peak 188
   task_create_named(perf_telemetry_task, NULL, 1216, 0,
                     "perf_telemetry"); // peak 804
@@ -186,8 +180,8 @@ void init_tasks(void) {
   task_create_named(xfer_service_task, NULL, 3072, 0, "xfer"); // peak 404 idle
 }
 /**
- * Bring up the 10 kHz high-frequency timer (TIM5) and register its periodic
- * callbacks (HF tick counter + IMU fast-sample tick).
+ * Bring up the high-frequency timer and register its periodic callbacks: the
+ * HF tick counter, plus any sensor that paces its sampling from it.
  *
  * @implements SYS-TIM-005
  */
@@ -197,12 +191,19 @@ void init_timer_callbacks(void) {
     PANIC("Failed to register increment_high_freq_timer");
     return;
   };
-  // Pace the IMU accel/gyro reads to IMU_SAMPLE_FREQ_HZ (decouples the sensor
-  // rate from the I2C free-run speed; frees CPU above the control need).
-  if (timer_callback_register(bmx160_fast_tick_isr, IMU_FAST_PERIOD_US) != 0) {
-    PANIC("Failed to register bmx160_fast_tick_isr");
-    return;
-  };
+  /* Any sensor whose sampling is paced off this timer says so in its own
+   * descriptor; this file wires the service to the description without
+   * knowing which chip is behind it. */
+  for (int k = 0; k < SENSOR_KIND_COUNT; k++) {
+    const sensor_driver_t *d = sensor_backend((sensor_kind_t)k);
+    if (d == NULL || d->tick == NULL) {
+      continue;
+    }
+    if (timer_callback_register(d->tick, d->tick_period_us) != 0) {
+      PANIC("Failed to register a sensor tick");
+      return;
+    }
+  }
 }
 /* @noreq boot plumbing: spawns the heartbeat task + one-shot boot task. */
 void system_init_tasks(void) {

@@ -46,6 +46,12 @@
 # driver/ is deliberately absent. Silicon is what a driver is FOR -- gating it
 # would be gating the thing that exists to hold the hardware.
 #
+# sensor/ is the adapter that brings drivers up without naming them, so its
+# allowance is 0 and starts there: it holds a descriptor and walks a linker
+# section, and the day it needs to know which chip it is talking to, the
+# descriptor is missing a field. That is the whole design, and this is the
+# check that keeps it true.
+#
 # To tighten: run the gate, it prints the new number when a section comes in
 # under. Lower it here in the same commit that did the work.
 #
@@ -62,6 +68,7 @@ cd "$ROOT"
 SECTIONS=(
   "core|0|firmware/src/control firmware/src/est firmware/src/maths firmware/include/control firmware/include/est firmware/include/maths"
   "hub|0|firmware/src/hub firmware/include/hub"
+  "sensor|0|firmware/src/sensor firmware/include/sensor"
   "dsp|0|firmware/src/dsp firmware/src/calib firmware/include/dsp firmware/include/calib"
   "storage|0|firmware/src/storage firmware/include/storage"
   "actuator|1|firmware/src/actuator firmware/include/actuator"
