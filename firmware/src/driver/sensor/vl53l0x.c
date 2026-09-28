@@ -162,7 +162,8 @@ hal_status_t vl53l0x_init(void) {
   }
 
   _initialized = 1; /* IMU loop may now schedule ToF DMA reads */
-  vayu_log("VL53L0X: init ok, continuous ranging (untuned defaults)");
+  /* Configuration detail only -- the adapter announces the outcome. */
+  vayu_log("VL53L0X: continuous ranging (untuned defaults)");
   return HAL_OK;
 }
 

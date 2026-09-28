@@ -62,6 +62,22 @@ const sensor_driver_t *sensor_backend(sensor_kind_t kind) {
   return NULL;
 }
 
+/* Kind names for the boot log. A table rather than a switch so that adding a
+ * kind without naming it yields NULL -- which prints as "?" -- instead of
+ * silently falling through to a wrong label. */
+static const char *const _kind_name[SENSOR_KIND_COUNT] = {
+    [SENSOR_IMU] = "imu",
+    [SENSOR_BARO] = "baro",
+    [SENSOR_RANGE] = "range",
+};
+
+static const char *_kind_str(uint8_t k) {
+  if (k >= SENSOR_KIND_COUNT || _kind_name[k] == NULL) {
+    return "?";
+  }
+  return _kind_name[k];
+}
+
 /* Count the entries claiming a kind. Exactly one is the contract: the build
  * selects a backend per kind, so two means the board's driver list is wrong,
  * and which one wins would then be the linker's choice. */
@@ -101,8 +117,8 @@ uint8_t sensor_probe_all(void) {
       /* Nothing here can resolve this: the table order is the linker's, so
        * the "winner" is not reproducible between builds. Name it at boot
        * rather than let it look like it worked. */
-      vayu_log("[SNS] kind %d has %u drivers; the build must select one", k,
-               (unsigned)claims);
+      vayu_log("[SNS] %s has %u drivers; the build must select one",
+               _kind_str((uint8_t)k), (unsigned)claims);
     }
 
     const sensor_driver_t *d = sensor_backend((sensor_kind_t)k);
@@ -112,11 +128,16 @@ uint8_t sensor_probe_all(void) {
     vayu_status_t st = d->probe();
     if (st == VAYU_OK) {
       ok++;
+      /* One line per sensor, same shape whatever the chip is. Drivers used to
+       * each announce their own success in their own format and the IMU
+       * announced nothing at all, so "did the IMU come up?" could only be
+       * answered by watching for attitude to start streaming. */
+      vayu_log("[SNS] %s %s ok", _kind_str(d->kind), d->name);
     } else {
       /* Not fatal, and deliberately so: a missing barometer or rangefinder
        * degrades the vertical estimate, it does not ground the aircraft.
        * Whether a kind is required is the flight code's call. */
-      vayu_log("[SNS] %s absent (%d)", d->name, (int)st);
+      vayu_log("[SNS] %s %s absent (%d)", _kind_str(d->kind), d->name, (int)st);
     }
   }
   return ok;

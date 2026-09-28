@@ -299,7 +299,8 @@ hal_status_t bme280_init(void) {
   }
 
   _initialized = 1; /* IMU loop may now schedule baro DMA reads */
-  vayu_log("BME280: init ok, normal mode (osrs_p=%d)", BME280_OSRS_P);
+  /* Configuration detail only -- the adapter announces the outcome. */
+  vayu_log("BME280: normal mode (osrs_p=%d)", BME280_OSRS_P);
   return HAL_OK;
 }
 
