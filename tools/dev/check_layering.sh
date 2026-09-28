@@ -16,7 +16,7 @@
 #
 # Keep silicon out of the logic layers.
 #
-# The rule (docs/analysis/navhal-hardware-logic-separation.md §5.1): no
+# The rule (docs/analysis/navhal-hardware-logic-separation.md §1): no
 # translation unit under control/, est/ or maths/ may name a pin, a peripheral
 # instance, a timer, or a NavHAL function. Those layers are pure maths over SI
 # quantities; a hardware change must not recompile them, and they must stay

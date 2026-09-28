@@ -1,445 +1,325 @@
-# NavHAL cross-coupling in vayu — hardware/logic separation audit
+# Hardware/logic decoupling — the guide
 
-> **Archived 2026-09-10.** Written 2026-06-19 on the (now deleted) branch it
-> names, and kept for the reasoning, not as a current map: every path predates the
-> monorepo restructure — `src/` is now `firmware/src/`, `software/` is `navigator/`,
-> `tools/sim_host/` is `sim/host/`.
+**What this is.** The working guide for getting silicon out of vayu's logic
+layers: the rule, the gate that enforces it, what is left, and the order to do
+it in. It replaces the June 2026 audit of the same name, and folds in
+`docs/plans/hardware-abstraction-sweep.md`, which was a second document about
+this one problem.
 
-## Status, re-measured 2026-09-22
+Fault lines keep their original **F-numbers** — commits and notes reference
+them — but every path, count and state below was re-measured on 2026-09-28
+against `main` at `71c23a2`. Where the audit's evidence no longer matches the
+tree, the guide says what closed it rather than preserving the old line
+numbers.
 
-Five of the fourteen are closed. The rest are open and the paths below still
-find them. (Fourteen, not thirteen: the severity index carries F2b as its own
-row, but it is numbered as a sub-item of F2, which is where the original count
-of 13 came from.)
+---
 
-| | Fault line | State |
+## 1. The rule
+
+> A translation unit under `control/`, `est/`, `maths/`, `hub/`, `dsp/` or
+> `calib/` may not name a pin, a bus, a peripheral instance, a timer, a
+> register, or a NavHAL function — and may not include a driver header.
+> Those layers take SI quantities and `dt`. A hardware change must not
+> recompile them, and they must stay host-testable with no HAL present.
+
+`storage/`, `actuator/`, `sys/`, `logger/` and `comm/` are held to the same
+rule; they are simply not there yet, and carry a budget (§2).
+
+`driver/` is exempt. Silicon is what a driver is *for*.
+
+### 1.1 Controlled spill — what may cross, and how
+
+Time is an OS concept and may spill. Pins, buses, chips, timers and registers
+are silicon and may not.
+
+| Symbol class | Allowed in the logic layers? |
+|---|---|
+| vaios portable service (`v_malloc`, `v_get_ticks`, semaphores) | **Yes** — via a vayu-owned `sys/*.h` re-export |
+| vaios *port* layer | No |
+| NavHAL capability API (`hal_*`, `HAL_*`) | No — only `src/driver/**`, `src/port/**` and `board/` |
+| Board facts (`GPIO_PB12`, `HAL_I2C_1`, `TIM1`, AF numbers, register addresses) | No — only `board_*.h` |
+| Sensor data | **Yes**, as an SI sample from `hub/` — never as a driver header |
+| A cycle stamp or the CPU rate | **Yes**, from `sys/clock.h` — never raw DWT |
+
+The four questions the gate's failure message asks, in order:
+
+- need a cycle stamp or the CPU rate? → `sys/clock.h`
+- need sensor data? → take an SI sample from `hub/`, not a driver header
+- need a pin, bus, timer or `hal_` call? → it belongs in a driver
+- need a board constant? → `board_*.h`, not the consumer
+
+---
+
+## 2. How it is enforced
+
+`tools/dev/check_layering.sh`, in CI and runnable alone
+(`check_layering.sh comm` for one section).
+
+Each section carries the count it is **allowed**. The gate fails when a section
+goes *above* it, and prints the new number when a section comes in *under*.
+**The allowance may only go down.** That is what makes a staged sweep
+survivable: a section cleaned this week cannot quietly regress while the next
+one is being worked on.
+
+Ledger, 2026-09-28:
+
+| Section | Allowed | Directories |
+|---|---:|---|
+| core | 0 | `control/ est/ maths/` |
+| hub | 0 | `hub/` |
+| dsp | 0 | `dsp/ calib/` |
+| storage | 3 | `storage/` |
+| actuator | 5 | `actuator/` |
+| internal | 43 | `sys/ logger/` |
+| comm | 44 | `comm/` |
+
+95 lines total, in 16 files. Where they live:
+
+| Section | File | Lines | What it is |
+|---|---|---:|---|
+| storage | `storage/imu_hs_log.c` | 3 | `hal_cycle_counter_get()` — F9 residue |
+| actuator | `actuator/motor.c` | 5 | `TIM1` ×4, pin macros ×4, `driver/esc.h` (F7, F8) |
+| internal | `sys/heartbeat.c` | 21 | GPIO, the LED (F5) |
+| internal | `sys/timer_callbacks.c` | 7 | timers, IRQ wiring (F12) |
+| internal | `sys/sys_utils.c` | 6 | GPIO |
+| internal | `sys/clock.c` | 3 | DWT — **legitimate**, this is the seam |
+| internal | `sys/boot.c` | 2 | clock verification — legitimate |
+| internal | `logger/log_text.c` | 2 | UART |
+| internal | `sys/timer_callbacks.h` | 2 | timer types |
+| comm | `comm/channel.c` | 26 | UART/DMA/IRQ — the whole transport (F12) |
+| comm | `comm/rc_task.c` | 7 | UART |
+| comm | `comm/navlink_router.c` | 5 | the LED again (F5) |
+| comm | `comm/telemetry_task.c` | 2 | `bme280_read_all` |
+| comm | `comm/serializer.c` | 2 | — |
+| comm | `comm/comm_processor.c` | 1 | `bmx160_calib_request_cancel` |
+| comm | `comm/channel.h` | 1 | — |
+
+Two of those are the seam working correctly, not debt: `sys/clock.c` and
+`sys/boot.c` are *where* DWT is allowed to be read. The floor for `internal` is
+5, not 0.
+
+### 2.1 Why the gate is textual, not an include graph
+
+Because an include-graph rule would fail every file and therefore gate nothing:
+`variables.h` pulls `navhal.h` into 31 translation units (F1). Textual is what
+is enforceable *today*, and it is what stopped the growth — between the June
+audit and September the raw-DWT call sites went 4 → 7 and `SYS_CLOCK_FREQ`
+gained consumers, because nothing was watching.
+
+Driver *headers* are in the pattern for the same reason: `driver/bmx160.h`
+includes `navhal.h`, so a TU that names a driver gets the whole register map
+without ever typing `hal_`. An umbrella header once made this invisible — the
+check reported clean while `control/` transitively included `navhal.h` through
+`driver/driver.h`. **Naming a driver is itself the violation.**
+
+---
+
+## 3. What the gate cannot see
+
+The ledger understates the real coupling in two ways. Both matter for the
+order of work.
+
+### 3.1 The invisible include (F1)
+
+`firmware/src/est/attitude_task.c` includes no driver header, and the gate
+scores `core` at **0**. It also calls `bmx160_get_board_trim()` at line 210.
+The declaration arrives through `variables.h`, which includes `navhal.h` and
+`driver/bmx160.h` at lines 24–25.
+
+10 of the 31 files that include `variables.h` are in sections the gate rates
+zero:
+
+```
+control/angle_controller.c      control/pid_config.c
+control/angle_rate_controller.c est/vertical_task.c
+est/attitude_task.c             est/sensor_fusion.c
+dsp/gyro_notch.c                include/control/control_buffer.h
+include/control/angle_controller.h
+include/control/angle_rate_controller.h
+```
+
+Every "0" in the ledger is conditional on F1 until F1 is split.
+
+### 3.2 Driver calls from outside `driver/`
+
+16 sites, 5 files. A driver called from a logic or service layer is coupling
+whether or not the gate's pattern happens to catch the line.
+
+| Caller | Calls |
+|---|---|
+| `main.c` | `bmx160_init`, `bme280_init`, `vl53l0x_init`, `init_i2c_manager` |
+| `actuator/motor.c` | `esc_init` ×4, `esc_arm`, `esc_set_throttle` ×4 |
+| `comm/telemetry_task.c` | `bme280_read_all` |
+| `comm/comm_processor.c` | `bmx160_calib_request_cancel` |
+| `est/attitude_task.c` | `bmx160_get_board_trim` ← the F1 case above |
+
+`main.c` is composition root: wiring drivers there is correct and stays.
+`motor.c` is a thin ESC shim; it is the *board facts* in it (F7, F8) that are
+the problem, not the calls. The three that are genuinely misplaced are the
+last three rows.
+
+---
+
+## 4. Fault-line catalogue
+
+### 4.1 Open
+
+#### F1 🔴🔴 — `variables.h` is a god-header that welds the tree to silicon
+
+`firmware/include/variables.h:24-25` includes `navhal.h` and
+`driver/bmx160.h`. 31 files include it, 10 of them in zero-rated sections
+(§3.1). It also carries pin macros (`_BLUE_LED_PIN`), `SYS_CLOCK_FREQ`,
+filenames and buffer sizes — four unrelated concerns in one header that
+everything takes.
+
+**Worst in the catalogue**, and the cheapest to fix: it is two lines in one
+file. Until it is split, every section count understates real coupling and the
+include-graph gate cannot be written.
+
+**Fix:** drop both includes; let the ~15 files that actually need a HAL type
+include it themselves. Split what remains by concern — `board_pins.h`,
+`sys/clock.h` (already exists), storage filenames where they are used.
+
+#### F2b 🟠 — `i2c_config` is triple-aliased
+
+- `firmware/src/main.c:214` — the definition, external linkage
+- `firmware/src/driver/i2c_manager.c:27` — a **different** object, `static`,
+  same name
+- `firmware/src/driver/bmx160.c:99` — `extern`, binds to main.c's
+
+The IMU driver reaches past the manager to the raw global and re-inits the bus
+with it during recovery (`bmx160.c:1051`). One name, two objects, three
+owners: a linkage footgun that reads as a single variable.
+
+**Fix:** rename the static to `s_cfg`; give `i2c_manager` an accessor for the
+recovery path so `bmx160.c` stops needing the `extern`. This is the last live
+piece of F2.
+
+#### F5 🔴 — Two owners fight over the BLUE status LED
+
+- `firmware/src/sys/heartbeat.c:34,50,65,74` — sets the mode and toggles it
+- `firmware/src/comm/navlink_router.c:63,75,81` — drives it high/low/blinking
+  for link state
+
+Both via `_BLUE_LED_PIN` out of `variables.h`. Whichever ran last wins, so the
+LED means nothing reliable. This is an **active bug**, not just structure.
+
+**Fix:** one owner. A `status_led_set(state)` with a priority order, or give
+the router its own indicator.
+
+#### F7 🟠 — TIM1 is re-initialised per channel with no single owner
+
+`firmware/src/actuator/motor.c:40-43` calls `esc_init(..., TIM1, n, pin)` four
+times; `esc_init` configures the timer each time. Four callers, one timer, no
+owner — the last call's prescaler wins, and nothing says so.
+
+**Fix:** a PWM group owner that configures TIM1 once and hands out channels.
+
+#### F8 🟠 — STM32 AF pinmux is hardcoded inside the "generic" ESC driver
+
+`firmware/src/driver/esc.c:39-47` picks `HAL_GPIO_AF1` vs `AF2` from the timer
+instance, with a comment that says "usually". That is an STM32F4 truth living
+in a driver that claims to be portable, and "usually" is doing load-bearing
+work.
+
+**Fix:** AF is a board fact — pass it in, or resolve it in `board_*.h`.
+
+#### F12 🟠 — IRQ wiring is split with no ownership registry
+
+`firmware/src/comm/channel.c:127-156` attaches USART and DMA callbacks by hand;
+`firmware/src/sys/timer_callbacks.c` wires timers separately. Nothing lists who
+owns which vector.
+
+The cost is already documented in the code: `channel.c:71` notes that the SD
+block-write path "re-grabs the Stream6 completion IRQ on every SD block write",
+which the telemetry path has to work around. Two subsystems claiming one vector
+with no registry to notice.
+
+**Fix:** a single table of vector → owner, checked at init.
+
+### 4.2 Closed
+
+| # | Was | What closed it |
 |---|---|---|
-| F4 | telemetry byte-bangs the UART | **fixed** — `channel.c` DMAs UART6 |
-| F6 | no hardware motor-kill | **closed by decision** — `esc_disarm` is a `@noreq` primitive; disarm is ACT-FAIL-001's zero-PWM-in-one-iteration |
-| F9 | no timebase seam | **fixed for the logic layers** — `sys/clock.h`. Drivers still call `hal_cycle_counter_get` directly, which the rule allows |
-| F10 | `SYS_CLOCK_FREQ` duplicated vs the PLL | **fixed** — every consumer that needs a real interval divides the rate measured at boot (`vayu_clock_hz()`): the cycle-stamp maths, the HSL file header, and the HSL stream decimation. The macro survives as the value `boot.c` checks the live clock against, and as the pre-boot fallback in `clock.c` |
-| F13 | ESC band duplicated in the SITL host | **fixed** — one band in `actuator.h`, both sides derive |
-| F1 F2 F3 F5 F7 F8 F11 F12 F2b | god-header, bus ownership, baro-in-IMU, LED owner, TIM1, AF pinmux, chip-named sample type, IRQ registry, `i2c_config` aliasing | **open** |
-
-Between the audit and this re-measurement three fault lines had *grown* — raw
-cycle-counter sites went 4 → 7, `SYS_CLOCK_FREQ` gained consumers, and
-`variables.h` reached 525 lines and picked up `comm/channel.h` + `ipc.h`.
-Nothing was watching, so §6 Option E now exists: `tools/dev/check_layering.sh`,
-gated in CI, fails if anything under `control/`, `est/` or `maths/` names a pin,
-bus, timer or `hal_` function. That freezes the layers the audit found clean; it
-does not clean up the ones it found dirty.
-
-The remaining nine are all in the plumbing, and none of them is wrong *today* —
-they are blast-radius on a hardware change that is not currently planned (the
-board is fixed at navixsmf401 v0.0.4). F2/F3 in particular describe the
-single-owner I2C DMA loop, which works and was expensive to get right; the
-ownership inversion is real but rewriting it trades a working bus for a diagram.
-
-> Branch `analysis/navhal-coupling`, cut from `main@1e58df2`. Pure analysis — no
-> firmware behaviour is changed here. Goal: find the real fault lines where vayu's
-> logic is welded to silicon, and decide the separation mechanism (BSP vs.
-> alternatives). This is a **call-level** audit (who calls/owns what), not an
-> include-graph audit — every finding below is backed by `file:line` evidence.
->
-> Target hardware: the **navixsmf401 v0.0.4** flight-controller board — a custom
-> PCB carrying the same STM32F401 with a fixed, board-defined pin map. The build's
-> `BOARD nucleo_f401re` (`CMakeLists.txt`) is just the matching MCU/pin target and
-> is fine as-is. Because the board layout is fixed, the BSP below is a single
-> concrete board descriptor, not a multi-board abstraction — the value is one
-> source of truth for the fixed pins/timers/DMA, not runtime portability.
-
-## 0. The question
-
-> "Keep a proper hardware/logic separation so a future hardware change (MCU /
-> pin / sensor) doesn't create havoc. Vaios' non-port *logical* things may spill
-> through in a controlled manner, but the hardware-dependent ones must not."
-
-Two axes are currently tangled and must be separated:
-
-- **Hardware-dependent** (must be quarantined behind one seam): pin maps,
-  peripheral instance IDs (`HAL_I2C_1`, `HAL_UART_6`, `TIM1`), DMA stream/channel
-  IDs, register addresses, AF numbers, MCU clock facts, the DWT.
-- **Logical** (may spill, in a controlled way): vaios' OS services that are
-  portable by construction — ticks (`v_get_ticks`), tasks/scheduling
-  (`task_delay_until`), IPC, memory. Free of silicon, so a *controlled*
-  dependency is acceptable.
-
-## 1. Headline verdict
-
-The **dependency layering is structurally sound** (vayu → vaios → NavHAL; NavHAL
-is already a capability HAL you own; vaios already has a clean `portable/cortex-m4`
-port that does *not* leak into logic). The control/estimation **math** is genuinely
-pure — `pid.c`, `ekf.c`, `lpf.c`, and the Mahony/complementary filter bodies make
-zero hardware calls and take `dt`+samples as parameters.
-
-But **everything between the math and the silicon is coupled by convention, not by
-a seam.** There is:
-
-- **No board seam.** No `board.h` / `bsp_init()`. `main()` is the de-facto BSP, and
-  pin/timer/DMA/register facts are *additionally* scattered across `variables.h`
-  and a dozen driver/task bodies — and **duplicated again in the SITL host HAL**.
-- **No single owner for shared peripherals.** The I2C bus is really owned by the
-  *IMU driver*, not `i2c_manager`. A UART and a status LED each have **two**
-  owners that actively fight.
-- **No timebase seam.** The DWT cycle counter is read raw in 4 modules, and the
-  clock frequency exists as two independent constants that can silently disagree.
-
-The result is exactly the "havoc on hardware change" you want to prevent: an MCU,
-pin, UART, timer, DMA-stream, or sensor change forces coordinated edits across 3–5
-unrelated translation units that **the compiler cannot keep consistent** — and
-three of these tangles are *active bugs today*, not just future risk.
-
-## 2. The dependency stack (context)
-
-```
-vayu  (control, est, sensor-drivers, comm, sys glue)
-  └─ extern/vaios            RTOS: kernel + IPC + VFS + timing (v_get_ticks/v_delay = SysTick)
-       ├─ portable/cortex-m4 vaios PORT layer   ← clean; does NOT leak into vayu logic
-       └─ extern/NavHAL       capability HAL: hal_{gpio,uart,i2c,spi,pwm,timer,dwt,dma,clock}.h
-```
-
-NavHAL is authored under NAVRobotec (yours) — the abstraction seam is yours to
-move, not a vendor SDK to wrap blindly. That matters for §6.
-
-## 3. Fault-line catalogue (worst first, with evidence)
-
-Severity = blast radius on a hardware change × whether it's wrong *today*.
-**🔴 ACTIVE** = a real defect in the current build. **🟠 LATENT** = correct today
-only by coincidence; breaks on the next change.
-
-### F1 🔴🔴 — `variables.h` is a god-header that welds the whole tree to silicon
-`include/variables.h:8-9` opens with `#include "navhal.h"` + `#include
-"driver/bmx160.h"`, then interleaves three unrelated concerns in one file that is
-included **26×**, including by every control/est TU:
-
-- pure tuning constants: PID gains, `SF_COMPLEMENTARY_ALPHA`, loop rates, the
-  `vayu_dt_from_cycles()` inline;
-- board pin map: `_BLUE_LED_PIN GPIO_PB12`, `_BUZZER_PIN GPIO_PA05`,
-  `I2C_PIN_1 GPIO_PB08` (`variables.h:33-47`);
-- raw silicon: `SYS_CLOCK_FREQ 84000000` (`:12`), `I2C_BUS HAL_I2C_1`,
-  `I2C_DR_REG_ADDR (uint32_t)(0x40005400 + 0x10)` — **a literal STM32 I2C1 data
-  register address** (`:47`), and BMX160 driver enums (`:51-62`).
-
-So `pid.c` and `ekf.c` transitively `#include` the full HAL register map and the
-IMU driver header **just to read a gain**. A sensor or MCU change recompiles the
-control math. This single file is the largest cause of "hardware change → havoc":
-the blast radius of a pin or peripheral edit is the entire firmware, by
-construction. *(Confirmed: control/est call-level is clean; the coupling is
-entirely this transitive include backbone.)*
-
-### F2 🔴🔴 — The I2C bus is owned by the IMU driver, not `i2c_manager`
-`i2c_manager` is structurally a thin single-transaction executor
-(`i2c_manager.c:14-16` — one `static i2c_async_t _current_trans`, one shared
-`_rx_data[]` buffer; `:195` hard-codes `hal_i2c_read_regs_dma(HAL_I2C_1, …)`). The
-*actual* bus owner — the "who's next on the bus" state machine, decimation,
-recovery, and DMA-completion fan-out — lives in `bmx160.c`:
-
-- bus arbitration state machine `imu_op_t {FAST,MAG,TEMP,BARO}` + `_next_op`
-  is private to the IMU driver (`bmx160.c:72-85`);
-- `bmx160_initiate_read` (`bmx160.c:859-940`) is the **only** thing that pumps the
-  bus at runtime;
-- the IMU driver even **re-initialises the whole bus** on recovery —
-  `init_i2c_manager(&i2c_config)` + `i2c_manager_unstick()` (`bmx160.c:906-936`).
-
-**Havoc:** swap or remove the IMU and the entire bus dies — nothing else pumps it.
-There is no bus owner that survives changing the IMU. *(See F2b for the related
-`i2c_config` aliasing footgun.)*
-
-### F3 🔴🔴 — Cross-driver coupling: the IMU driver reads the barometer
-The baro's entire runtime read path is hard-wired inside the IMU driver:
-`bmx160.c:3` `#include "driver/bme280.h"`; `bmx160.c:896-902` issues
-`i2c_manager_read_async(BME280_I2C_ADDR, BME280_REG_DATA, BME280_DATA_LEN, …)`;
-the IMU's TEMP ISR decides *when* the baro is sampled
-(`bmx160.c:979-994`, gated by `BARO_READ_DECIM 10` — the baro's sample rate is a
-constant inside the IMU driver); the IMU ISR hands raw bytes to the baro via
-`bme280_ingest_raw()` (`bmx160.c:1006-1011`).
-
-The single-owner-DMA invariant (from memory: "the baro must ride the IMU's loop")
-*is* upheld at runtime — but it's upheld by **welding the baro into the IMU's
-source file** instead of living in the bus owner. Swap the baro (BME280 → DPS310:
-different addr/reg/len/cadence) and you edit **bmx160.c**, not just a baro driver.
-
-### F4 🔴 ACTIVE — Telemetry TX byte-bangs the UART because channel.c is hardcoded to the wrong peripheral
-Telemetry is created on `HAL_UART_6` (`main.c:72`), but every fast-path branch in
-`channel.c` is hardcoded to `HAL_UART_2` / `DMA1_Stream6`:
-`_dma_complete_callback` only clears `busy` for `== HAL_UART_2` (`channel.c:35`);
-the DMA-IRQ attach is `if (uart == HAL_UART_2)` (`:110`); and `flush_channel`'s DMA
-write is `if (uart == HAL_UART_2) hal_uart_write_dma(...)` else **"Other UARTs
-(currently blocking)"** byte-bang `hal_uart_write_char` loop (`:196-208`).
-
-**Active defect:** the real telemetry path (UART6) takes the `else` branch and
-**busy-waits the flush_task byte-by-byte at 230400 baud** (~22 ms for a 512 B
-flush). The entire ping-pong/`busy`/DMA-complete machinery is dead code for the
-peripheral it's supposed to serve. The telemetry transport identity is also
-duplicated and must be kept in sync by hand across `main.c:72`,
-`serializer.c:40`, and `channel.c`.
-
-### F5 🔴 ACTIVE — Two owners fight over the BLUE status LED
-`heartbeat.c` owns the LEDs/buzzer as a state indicator (sets pin modes `:32`,
-toggles/writes `_BLUE_LED_PIN` at `:46,53,78-80,111,146`, with a cached
-`_blue_led_state` at `:11`). But `navlink_router.c` — pure protocol routing —
-*also* drives the same pin directly for a "command received" blink:
-`hal_gpio_write(_BLUE_LED_PIN, …)` at `navlink_router.c:41,52,58`.
-
-**Active defect:** two subsystems write PB12 with **separate, unsynchronised shadow
-state**. The router writes behind heartbeat's back, desyncing heartbeat's cached
-`_blue_led_state`, so its next toggle produces the wrong level; the state-transition
-clear at `heartbeat.c:111` can stomp the router's blink mid-window. Protocol code
-also can't be host-tested without a GPIO HAL.
-
-### F6 🔴 — No true hardware motor-kill; disarm is a logic-side zeroing only
-`esc_disarm()` (which calls `hal_pwm_stop`, `esc.c:51-54`) is **defined but never
-called** (grep: declaration + definition only, zero call sites). Disarm is done
-purely in logic by writing `motor_outputs.m* = 0` (`motor.c:52-57`), which
-`esc_set_throttle` maps to the **minimum pulse (~1 ms), not a stopped signal**. The
-only thing between a fault and spinning props is a `system_state_get()` check
-*inside the same task that drives the ESCs* — there is no independent hardware
-disable path even though the HAL supports one.
-
-### F7 🟠 — One hardware timer (TIM1) is re-initialised per-channel with no single owner
-The motor map is hand-unrolled inline in the actuator module:
-`motor.c:23-26` `esc_init(&motors[i], TIM1, ch, GPIO_PA08…PA11)`. Each `esc_init`
-calls `hal_pwm_init` against the **same** TIM1 (`esc.c:43`), so the timer base
-(PSC/ARR) is redundantly driven four times, and each channel keeps its **own**
-`esc->frequency` copy (`actuator.h:30`). If two channels ever hold different
-frequencies the last init silently re-periods channels already configured, and
-their duty math (`esc.c:69`) then emits wrong pulse widths. No "one owner sets the
-timer base, channels attach" structure.
-
-### F8 🟠 — STM32 pinmux AF truth is hardcoded inside the "generic" ESC driver
-`esc.c:31-37` branches `if (timer == TIM1 || TIM2) AF1 else if (TIM3/4/5) AF2`.
-AF routing is a per-**pin** property on STM32, not per-timer; the comment even
-hedges "usually". A timer outside TIM1–TIM5 (TIM9/10/11 exist on F401) sets the pin
-to AF mode (`:28`) with **no AF selected** → dead output, no error. Silicon pinmux
-belongs in a board table keyed by pin, not in the ESC abstraction.
-
-### F9 🟠 — The DWT cycle counter is read raw in 4 modules with no timebase seam
-`hal_cycle_counter_get()` is called directly in `bmx160.c:1141`, `bme280.c:196`,
-and `attitude_task.c:122,135` (init at `main.c:142`). There is no
-`vayu_timebase_now()` wrapper. The 32-bit-cycles-at-SYS_CLOCK_FREQ timestamp
-*semantics* are an undocumented contract shared across `bmx160.h`, `bme280.h`,
-`est.h` structs and `vayu_dt_from_cycles()` — coupled by convention. On a part
-without DWT, or a different HAL, all four sites break independently. *(Note:
-`attitude_task.c:122,135` is also a `hal_*` reach inside the estimation layer — a
-direct logic→silicon call, `#if ATTITUDE_CYCLE_PROBE`, on by default.)*
-
-### F10 🟠 — `SYS_CLOCK_FREQ` exists twice and can silently disagree
-`vayu_dt_from_cycles()` divides DWT deltas by the hardcoded `SYS_CLOCK_FREQ = 84e6`
-(`variables.h:12,24`) — and this dt feeds the **entire attitude/EKF/PID chain**
-(`attitude_task.c:96`). But the real clock is set by an independent literal PLL
-config in `main.c:42-61` with no compile-time link to the macro. Retune the PLL (or
-hit the HSI fallback with a different M) and every gyro integration, derivative,
-and integral is scaled wrong with **no error** — `boot.c:25` only flags the
-mismatch and goes to FAILSAFE, it doesn't fix the math. Tellingly,
-`attitude_task.c:76` already does it right with the runtime
-`hal_cycle_counter_cycles_per_us()` — two notions of "cycles per second" coexist 20
-lines apart.
-
-### F11 🟠 — The logic core consumes the driver's chip-named sample type
-The rate loop and attitude task pull `bmx160_all_reading_t` —
-a type *named after and defined by* the BMX160 driver, which itself
-`#include "navhal.h"` (`bmx160.h:4`) — e.g. `angle_rate_controller.c:177`,
-`attitude_task.c:61`. Mitigation: it's a union and consumers only read the
-`.converted` arm, whose fields are SI units, so the *data* is clean. But the
-*type*, the `mag_fusion` layout, and its transitive `navhal.h` are the driver's, so
-an IMU swap recompiles (and may force edits to) the control/est seam.
-
-### F12 🟠 — IRQ wiring is split across subsystems with no ownership registry
-USART1/6/2 + `DMA1_Stream6` + the global interrupt mask are owned by
-`comm/channel.c` (`:85-88,114-115,248-251`); TIM5 (+ the HF tick + IMU pacing ISR)
-by `sys/timer_callbacks.c` via `main.c:112,118`. Nothing answers "who owns IRQn
-X", and nothing prevents two modules claiming the same vector — F4 is exactly a
-latent version of that (channel.c would re-point `DMA1_Stream6_IRQn` away from the
-iBus RX path that `rc_task.c` independently owns on USART2).
-
-### F2b 🟠 — `i2c_config` is triple-aliased (a linkage footgun)
-`hal_i2c_config_t i2c_config` is a global in `main.c:127`, a separate file-`static`
-of the same name in `i2c_manager.c:11`, and an `extern` in `bmx160.c:83` (resolving
-to main's global). They hold equal values *today*; edit one (e.g. tune
-`clock_speed`) and the IMU recovery path may re-init the bus from a stale copy. A
-driver reaching for a global bus-config object to re-init the bus is itself the
-ownership inversion of F2.
-
-### F13 — Hardware constants duplicated across the firmware/sim boundary
-The ESC pulse band (`DEFAULT_MIN/MAX_PULSE_MS = 1.0/2.0`, `DEFAULT_PWM_FREQ 400`,
-`esc.c:12-14`) is **re-derived by hand** in the SITL host HAL
-(`host_navhal.c:144-146`, `esc_idle=0.4f`, `esc_full=0.8f`). Change the band in
-`esc.c` and SITL silently diverges from hardware. This is the proof that "scattered
-hardware facts" already costs you correctness across the sim seam, not just
-portability.
-
-## 4. The patterns underneath the catalogue
-
-Every finding is an instance of one of four missing structures:
-
-1. **No board seam (BSP).** F1, F7, F8, F10, F13 — board facts live in
-   `variables.h` + driver bodies + task bodies + the sim, never one place. The
-   compiler can't keep them consistent; the sim already drifts.
-2. **No single peripheral owner.** F2, F3, F4, F5, F12, F2b — the I2C bus, a UART,
-   a status LED, and the IRQ table each have a *de facto* owner that is the wrong
-   module, or two owners that collide.
-3. **No timebase seam.** F9, F10 — raw DWT reads + a duplicated clock constant.
-4. **No capability port between logic and drivers.** F11 — logic speaks the
-   driver's chip struct instead of an SI sample contract.
-
-The control *algorithms* are clean; the **plumbing around them** is the problem.
-
-## 5. The target seam
-
-Three rules, each turning a pattern in §4 into something checkable:
-
-1. **No `GPIO_*`, `HAL_*`, `TIM*`, `navhal.h`, AF number, or register literal
-   appears above the driver/adapter layer.** Logic, control, est, protocol never
-   name silicon.
-2. **Every board fact is stated once.** "blue LED = PB12", "IMU = `HAL_I2C_1`@0x68",
-   "sysclk = 84 MHz", "telemetry = UART6", "motor 1 = TIM1/CH1/PA08, AF1", "I2C1 RX
-   = DMA1/S0/C1" — one board descriptor, referenced by symbolic role everywhere
-   (including the sim, so F13 can't recur).
-3. **Each shared peripheral has exactly one owner, and the allowed vaios spill goes
-   through one vayu header.** The bus owner is `i2c_manager`, not the IMU. The LED
-   has one arbiter, not heartbeat + router. Logic gets time from `sys/clock.h`, not
-   raw `vaios.h`/DWT.
-
-## 6. Mechanism: BSP, and what beats it
-
-### Option A — a classic BSP (board support package)
-One `board/<board>/` module owning the pin map, peripheral-instance assignment,
-clock tree, DMA/IRQ assignment, and `board_init()`, exposing symbolic roles.
-
-**Fit:** necessary — it directly dissolves F1/F7/F8/F10/F13 (scattered board
-facts). A `board_navixsmf401.h` replacing the hardware half of `variables.h`
-collapses a pin change to one file and gives the sim a single source to compile
-against.
-
-**Limit:** a BSP is a *data* fix. It does not by itself stop logic `#include`-ing
-NavHAL, and re-wrapping every `hal_*` in a `board_*` is the **two-HALs problem**
-(NavHAL is *already* a HAL — don't wrap a HAL in a HAL). A BSP also says nothing
-about F2/F3/F4/F5 (ownership) — those are about *who calls*, not *where constants
-live*. So: necessary, not sufficient.
-
-### Option B — Ports & Adapters (hexagonal) — the better primary mechanism
-Invert the dependency: logic declares the **narrow** interface it needs in
-vayu-owned headers using plain C / SI types; thin adapters implement them against
-NavHAL. Logic then compiles with NavHAL *off the include path*.
-
-```
-include/port/clock.h     uint32_t now_ticks(void);  float dt_seconds(uint32_t,uint32_t);
-include/port/imu.h        bool imu_read(imu_sample_t *out);   // SI units, no chip struct  → kills F11
-include/port/motors.h     void motors_write(const float duty[]);  // normalized, no TIM/pin → F7/F8
-include/port/status_io.h  void status_led(led_id_t, bool);    // roles, one arbiter         → kills F5
-include/port/i2c_bus.h    bus owner API; baro is a client, not a guest in the IMU  → F2/F3
-                          ─────────────────────────────────────────────────────────────
-src/port/stm32/*_adapter.c  // the ONLY firmware files (besides board/) that include navhal.h
-```
-
-Why it beats a BSP *here*: it enforces rule §5.1 mechanically (silicon headers
-aren't reachable from logic — checkable with `grep`), and it sizes interfaces by
-the *consumer's* need (4 floats, SI sample) so a sensor or MCU swap is one new
-adapter, not a tree-wide recompile. It is also the seam your **SITL host already
-needs** — `host_navhal.c` is *already* an alternate adapter; today it re-derives
-constants (F13) because there's no shared port contract to implement.
-
-### Option C — thin capability facade (the pragmatic overlap)
-For the GPIO/LED/buzzer/UART-select concerns, expose only the *roles* vayu uses
-(`status_led(STATUS_ARMED,true)`), not all of NavHAL. This is the minimal form of A∩B
-and is the right weight for F5/F8.
-
-### Option D — compile-time adapter selection (what vaios already does)
-Pick `src/port/${VENDOR}/` at configure time off the existing `BOARD`/`VENDOR`
-CMake vars — zero runtime indirection, the linker proves exactly one adapter is
-bound. Right cost model for a single-airframe FC; don't reach for runtime vtables.
-
-### Option E — build-enforced layering (the guardrail)
-A CI/clang-tidy rule: no TU under `src/{control,est,maths}` may include `navhal.h`,
-`hal_*.h`, or match `GPIO_|HAL_I2C|HAL_UART|TIM[0-9]`. You already gate warnings
-per-module in `CMakeLists.txt`, so the rollout mechanism exists. This turns the
-cleanup into an invariant instead of a one-off.
-
-### Recommendation — layer them, smallest mechanism per concern
-- **Thin BSP** (`include/board/board_navixsmf401.h`) for *board facts* — the one
-  place pins/timers/DMA/IRQ/clock live (A+C). Fixes F1/F7/F8/F10/F13.
-- **Hexagonal ports** for the *data path and shared peripherals* — `port/imu.h`,
-  `port/motors.h`, `port/clock.h`, `port/status_io.h`, `port/i2c_bus.h`, with
-  `src/port/stm32/` adapters as the only NavHAL includers (B). Fixes
-  F2/F3/F5/F11 and makes the SITL host a real adapter (kills F13's duplication).
-- **Compile-time selection** (D) keyed off `BOARD`/`VENDOR`.
-- **One vaios-spill header** `sys/clock.h` so logic never includes `vaios.h` for
-  time, and a single timebase wrapper for the DWT (fixes F9; pairs with F10).
-- **CI layering guard** (E) so it can't regress.
-
-## 7. Migration plan — fix the active bugs first, then the structure
-
-Ordered by (active-defect first) then (highest blast-radius), each step
-independently shippable:
-
-1. **Active bug F4** — make `flush_channel` peripheral-agnostic (drive
-   `s_handle->uart` via the HAL's DMA path) so telemetry stops byte-banging. Pure
-   transport fix, no architecture needed.
-2. **Active bug F5** — give the BLUE LED one owner: route the router's blink
-   request *through* heartbeat (a `status_request()` call), delete the direct
-   `hal_gpio_write` from `navlink_router.c`.
-3. **Active gap F6** — wire `esc_disarm()`/`hal_pwm_stop` into the disarm path so
-   there is a real hardware kill.
-4. **Free wins** — delete the dead `navhal.h` includes in
-   `angle_rate_controller.c:10` / `sensor_fusion.c:3`; collapse the `i2c_config`
-   aliasing (F2b) to one definition.
-5. **Split `variables.h`** (F1) into `tuning.h` (pure, no NavHAL) +
-   `board_navixsmf401.h` (hardware); repoint the 26 includers. Most only want
-   tuning and immediately stop pulling silicon. Add the CI guard (E) scoped to
-   `control/est/maths`.
-6. **Timebase seam** (F9/F10): `port/clock.h` + `sys/clock.h`; one DWT wrapper that
-   derives its rate at runtime (follow `attitude_task.c:76`); move logic off
-   `vaios.h`-for-time.
-7. **`port/imu.h` + bmx160 adapter** (F11): hand the control/est seam an SI
-   `imu_sample_t`; `est/` compiles NavHAL-free.
-8. **Make `i2c_manager` the real bus owner** (F2/F3): move the FAST/MAG/TEMP/BARO
-   scheduling + DMA fan-out out of `bmx160.c` into the manager; the baro becomes a
-   registered bus client, not a guest hard-wired into the IMU's source.
-9. **`port/motors.h` + board motor table** (F7/F8): one timer owner sets the base,
-   channels attach; AF/pin/channel map moves to `board_*.h`.
-10. **Widen the CI guard to the whole logic tree** once it's clean.
-
-## 8. The "controlled spill" rule, written down
-
-| Symbol class | Example | Allowed in `control`/`est`/`maths`? |
-|---|---|---|
-| vaios portable service | `v_get_ticks`, `task_delay_until`, IPC, `memory.h` | **Yes**, via a vayu-owned `sys/*.h` re-export, not raw `vaios.h` |
-| vaios port | `portable/cortex-m4`, `port.h` | **No** (already clean — keep it) |
-| NavHAL capability API | `hal_i2c_*`, `hal_gpio_*`, `hal_cycle_counter_get` | **No** — only in `src/port/**` adapters + `board/` |
-| Board facts | `GPIO_PB12`, `HAL_I2C_1`, `TIM1`, register addrs, AF | **No** — only in `board_*.h` |
-
-The line is: *time and scheduling are OS concepts and may spill; pins, buses,
-chips, timers, and registers are silicon and may not.* Exactly the policy you
-stated — now checkable in CI.
-
-## 9. Bottom line
-
-- The architecture (vayu → vaios → NavHAL, NavHAL already a HAL, vaios cleanly
-  ported) is sound, and the **control/estimation math is genuinely portable**. You
-  do **not** need a heavyweight framework.
-- The damage is concentrated in the **plumbing**: no board seam, no single
-  peripheral owners, no timebase seam. A **thin BSP** (board data) + **hexagonal
-  ports** (driver data-path & shared peripherals) + **compile-time adapter
-  selection** + **CI-enforced layering** closes all 13 fault lines and turns the
-  SITL host from a copy-paste twin into a real second adapter.
-- **Three of the fault lines are bugs today** — telemetry byte-banging (F4), the
-  BLUE-LED owner collision (F5), and the absent hardware motor-kill (F6) — and they
-  are fixable independently, before any structural work. Do those first.
-
-### Severity index
-| # | Fault line | Evidence | Class |
-|---|---|---|---|
-| F1 | `variables.h` god-header welds tree to silicon | variables.h:8-12,33-62 (26 includers) | 🔴🔴 structural |
-| F2 | I2C bus owned by IMU driver, not i2c_manager | bmx160.c:72-85,859-940 | 🔴🔴 structural |
-| F3 | IMU driver reads the barometer (cross-driver) | bmx160.c:3,896-902,1006-1011 | 🔴🔴 structural |
-| F4 | Telemetry TX byte-bangs (channel hardcoded UART2) | main.c:72 vs channel.c:196-208 | 🔴 ACTIVE bug |
-| F5 | Two owners fight over BLUE LED | heartbeat.c vs navlink_router.c:41,52,58 | 🔴 ACTIVE bug |
-| F6 | No hardware motor-kill; esc_disarm dead | esc.c:51 (no callers), motor.c:52-57 | 🔴 ACTIVE gap |
-| F7 | TIM1 re-inited per-channel, no single owner | motor.c:23-26, esc.c:43 | 🟠 latent |
-| F8 | STM32 AF pinmux hardcoded in ESC driver | esc.c:31-37 | 🟠 latent |
-| F9 | Raw DWT read in 4 modules, no timebase seam | bmx160.c:1141, bme280.c:196, attitude_task.c:122,135 | 🟠 structural |
-| F10 | SYS_CLOCK_FREQ duplicated vs PLL config | variables.h:12,24 vs main.c:42-61 | 🟠 latent |
-| F11 | Logic consumes chip-named `bmx160_all_reading_t` | angle_rate_controller.c:177, attitude_task.c:61 | 🟠 structural |
-| F12 | IRQ wiring split, no ownership registry | channel.c:85-115 vs timer_callbacks.c | 🟠 structural |
-| F2b | `i2c_config` triple-aliased | main.c:127, i2c_manager.c:11, bmx160.c:83 | 🟠 latent |
-| F13 | Hardware constants duplicated in SITL host | esc.c:12-14 vs host_navhal.c:144-146 | 🟠 correctness |
+| F2 | I2C bus owned by the IMU driver | `bmx160.c` no longer calls `hal_i2c_*` at all; it goes through `i2c_manager`. Residue is F2b |
+| F3 | IMU driver read the barometer | zero `bme280`/`baro` references remain in `bmx160.c` |
+| F4 | Telemetry byte-banged the UART | `channel.c` DMAs UART6 |
+| F6 | No hardware motor-kill | closed by decision — `esc_disarm` is a `@noreq` primitive; disarm is ACT-FAIL-001's zero-PWM-in-one-iteration. 0 call sites outside the driver is correct, not a gap |
+| F9 | Raw DWT in 4 modules | `sys/clock.h` is the seam. `clock.c`/`boot.c` read DWT legitimately; `storage/imu_hs_log.c` ×3 is the last consumer that should be repointed |
+| F10 | `SYS_CLOCK_FREQ` duplicated vs the PLL | every consumer needing a real interval divides the rate measured at boot (`vayu_clock_hz()`). The macro survives only as the value `boot.c` checks against, and as the pre-boot fallback |
+| F11 | Logic consumed `bmx160_all_reading_t` | the hub migration; 0 references remain in `control/` or `est/` |
+| F13 | ESC band duplicated in the SITL host | one band in `actuator.h`, both sides derive |
+
+---
+
+## 5. Order of work
+
+Not the obvious order. Cheapest-with-widest-blast-radius first, because each
+step makes the next step's measurement honest.
+
+### Step 0 — F1, the god-header
+
+Two lines in one file, 31 dependents. Do this before anything else: it is the
+only change that makes every other count *true*, and it is a prerequisite for
+ever replacing the textual gate with an include-graph one.
+
+**Accept when:** `variables.h` includes neither `navhal.h` nor a driver header;
+`core`, `hub` and `dsp` still read 0 with the transitive path gone; the
+`bmx160_get_board_trim` call in `attitude_task.c` is either routed through
+`hub/` or made an explicit include that the gate counts.
+
+### Step 1 — finish F9: `vayu_clock_now()`
+
+Repoint the remaining `hal_cycle_counter_get()` consumers at `sys/clock.h`.
+3 lines in `storage/imu_hs_log.c`, plus the driver sites (which the rule
+allows to stay).
+
+**Accept when:** `storage` ratchets 3 → 0.
+
+### Step 2 — `internal` (43 → 5)
+
+`heartbeat.c` (21) is the bulk and carries F5. Resolving the LED owner
+collapses the heartbeat and router cases together.
+
+**Accept when:** `internal` is at 5 — `clock.c` (3) and `boot.c` (2), the
+legitimate seam. Lower the allowance to 5 in the same commit.
+
+### Step 3 — `actuator` (5 → 0), F7 + F8
+
+`motor.c` stops naming `TIM1` and pins; a PWM group owner takes them.
+AF selection leaves `esc.c`.
+
+### Step 4 — `comm` (44 → ?), F12
+
+Largest and least urgent: `channel.c` is transport, and transport touching
+UART/DMA is closer to being a driver than a violation. The valuable part here
+is the IRQ ownership registry, not the count. Decide `comm`'s floor before
+starting — it is probably not 0.
+
+The three misplaced driver calls (§3.2) fall out of steps 2–4: `bme280_read_all`
+and `bmx160_calib_request_cancel` should take their data from `hub/` or go
+through a service, not reach for the device.
+
+---
+
+## 6. Doing a step
+
+1. `./tools/dev/check_layering.sh <section>` — see the current number.
+2. Make the change.
+3. Re-run. The gate prints `ratchet: lower it to N`.
+4. **Lower the allowance in `check_layering.sh` in the same commit as the
+   work.** A step that does not ratchet has not landed.
+5. Build both trees — the firmware and the host tests. The host build is the
+   real proof: a layer that still needs a HAL will not link without one.
+
+---
+
+## 7. Not in scope
+
+- **A BSP.** Tempting, and it does dissolve F1/F7/F8 — but it is a large
+  mechanism bought up front for problems that a header split and a PWM owner
+  close individually. Revisit if a second board appears.
+- **Porting `driver/` to anything.** Drivers name silicon. That is the job.
+- **Driving `comm` to 0.** See step 4.
+- **Replacing the textual gate with an include-graph one.** Possible only
+  after F1, and worth doing only if textual starts missing things.
