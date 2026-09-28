@@ -29,7 +29,6 @@
 #include "control/sysid.h"
 #include "est/est.h"
 #include "driver/bme280.h"
-#include "driver/bmx160.h"
 #include "hub/hub.h"
 #include "sys/state.h"
 #include "sys/sys_utils.h"

@@ -110,6 +110,7 @@ set(VAYU_SOURCES
     ${VAYU_ROOT}/firmware/src/sys/math_utils.c
     ${VAYU_ROOT}/firmware/src/sys/clock.c
     ${VAYU_ROOT}/firmware/src/sys/sys_utils.c
+    ${VAYU_ROOT}/firmware/src/sys/irq_registry.c
     ${VAYU_ROOT}/firmware/src/est/sensor_fusion.c
     ${VAYU_ROOT}/firmware/src/est/ekf.c
     ${VAYU_ROOT}/firmware/src/est/attitude_task.c   # the REAL firmware estimator task (now run in SITL)
@@ -424,6 +425,10 @@ enable_testing()
 add_executable(test_safety_phase2 tests/test_safety_phase2.c)
 target_link_libraries(test_safety_phase2 PRIVATE vayu_sitl_core)
 add_test(NAME safety_phase2 COMMAND test_safety_phase2)
+
+add_executable(test_irq_registry tests/test_irq_registry.c)
+target_link_libraries(test_irq_registry PRIVATE vayu_sitl_core m)
+add_test(NAME irq_registry COMMAND test_irq_registry)
 
 add_executable(test_esc tests/test_esc.c)
 target_link_libraries(test_esc PRIVATE vayu_sitl_core m)

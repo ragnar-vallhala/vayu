@@ -20,6 +20,9 @@
 #include "comm/rc_buffer.h"
 #include "ipc.h"
 #include "navhal.h"
+#include "sys/clock.h" /* vayu_clock_cycles */
+#include "sys/irq_registry.h"
+#include "vayu_board.h"
 #include "sys/state.h"
 #include "utils.h"
 #include "vaios.h"
@@ -103,7 +106,7 @@ static void rc_apply_frame(void) {
    * gesture and the stick positions the preconditions were judged against are
    * disarmed events. Decimated to HSL_RC_RATE_HZ inside the recorder. */
   imu_hs_log_rc(ibus_raw_data.channels, IBUS_MAX_CHANNELS,
-                ibus_raw_data.is_failsafe ? 1u : 0u, hal_cycle_counter_get());
+                ibus_raw_data.is_failsafe ? 1u : 0u, vayu_clock_cycles());
   rc_queue_control_push(&ibus_raw_data);
   rc_queue_telemetry_push(&ibus_raw_data);
 }
@@ -134,10 +137,11 @@ void rc_ibus_task(void *args) {
 
   // iBus on USART2 (PA2/PA3 per Vayu PCB; 115200 baud). Telemetry owns USART6.
   hal_uart_config_t ibus_uart_cfg = {.baudrate = 115200};
-  hal_uart_init(HAL_UART_2, &ibus_uart_cfg);
-  hal_uart_init_dma_rx(HAL_UART_2, ibus_dma_buf, IBUS_DMA_BUF_SIZE);
+  hal_uart_init(BOARD_RC_UART, &ibus_uart_cfg);
+  hal_uart_init_dma_rx(BOARD_RC_UART, ibus_dma_buf, IBUS_DMA_BUF_SIZE);
   /* Wake on the inter-frame idle gap instead of polling NDTR. */
-  hal_uart_attach_idle_callback(HAL_UART_2, ibus_idle_isr);
+  irq_registry_claim((uint32_t)BOARD_RC_UART_IRQ, "rc:ibus-idle");
+  hal_uart_attach_idle_callback(BOARD_RC_UART, ibus_idle_isr);
 
   /* Seed the watchdog clock so a cold-booted vehicle has the full
    * RC_LOSS_TIMEOUT_MS to receive the first frame before FAILSAFE. */
@@ -187,8 +191,7 @@ void rc_ibus_task(void *args) {
    * gesture and the stick positions the preconditions were judged against are
    * disarmed events. Decimated to HSL_RC_RATE_HZ inside the recorder. */
       imu_hs_log_rc(ibus_raw_data.channels, IBUS_MAX_CHANNELS,
-                    ibus_raw_data.is_failsafe ? 1u : 0u,
-                    hal_cycle_counter_get());
+                    ibus_raw_data.is_failsafe ? 1u : 0u, vayu_clock_cycles());
       rc_queue_control_push(&ibus_raw_data);
       rc_queue_telemetry_push(&ibus_raw_data);
       rc_watchdog_step();
@@ -203,7 +206,7 @@ void rc_ibus_task(void *args) {
     /* Drain the DMA ring up to where the DMA has written so far. The write
      * index comes from the HAL (correct RX stream) — no DMA-register poke. */
     uint16_t write_ptr = read_ptr;
-    if (hal_uart_dma_rx_index(HAL_UART_2, &write_ptr) != HAL_OK) {
+    if (hal_uart_dma_rx_index(BOARD_RC_UART, &write_ptr) != HAL_OK) {
       write_ptr = read_ptr; /* RX DMA not ready — nothing to drain this pass */
     }
 

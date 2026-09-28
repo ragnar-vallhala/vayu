@@ -15,7 +15,8 @@
  * limitations under the License.
  */
 #include "comm/serializer.h"
-#include "navhal.h" /* hal_uart_read_char, HAL_UART_6 */
+#include "navhal.h"     /* hal_uart_read_char */
+#include "vayu_board.h" /* BOARD_TELEMETRY_UART */
 #include <stdint.h>
 
 /* Telemetry-UART RX path for NavLink v2 (encoded in navlink_tx.c, decoded by
@@ -69,6 +70,6 @@ void comm_rx_raw_inject(const uint8_t *data, uint16_t n) {
  * and mirror it into the raw ring for the v2 parser. */
 /** @noreq telemetry-UART RX ISR: mirrors the received byte into the ring */
 void uart2_packet_recv_callback(void) {
-  uint8_t b = (uint8_t)hal_uart_read_char(HAL_UART_6);
+  uint8_t b = (uint8_t)hal_uart_read_char(BOARD_TELEMETRY_UART);
   rx_raw_push(b);
 }

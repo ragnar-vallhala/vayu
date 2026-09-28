@@ -71,9 +71,9 @@ Ledger, 2026-09-28:
 | storage | 0 | `storage/` |
 | actuator | 1 | `actuator/` |
 | internal | 7 | `sys/ logger/` |
-| comm | 39 | `comm/` |
+| comm | 26 | `comm/` |
 
-47 lines total, in 9 files. Where they live:
+34 lines total, in 6 files. Where they live:
 
 | Section | File | Lines | What it is |
 |---|---|---:|---|
@@ -82,12 +82,12 @@ Ledger, 2026-09-28:
 | internal | `sys/boot.c` | 2 | clock verification — legitimate |
 | internal | `sys/heartbeat.c` | 1 | `driver/indicator.h` — it is the annunciator's policy |
 | internal | `sys/sys_utils.c` | 1 | `driver/crc.h` |
-| comm | `comm/channel.c` | 26 | UART/DMA/IRQ — the whole transport (F12) |
-| comm | `comm/rc_task.c` | 7 | UART |
-| comm | `comm/telemetry_task.c` | 2 | `bme280_read_all` |
-| comm | `comm/serializer.c` | 2 | — |
-| comm | `comm/comm_processor.c` | 1 | `bmx160_calib_request_cancel` |
-| comm | `comm/channel.h` | 1 | — |
+| comm | `comm/channel.c` | 14 | `hal_uart_*` / `hal_interrupt_*` — the transport itself |
+| comm | `comm/rc_task.c` | 5 | `hal_uart_*` — the same, for RC |
+| comm | `comm/serializer.c` | 2 | `hal_uart_read_char` |
+| comm | `comm/telemetry_task.c` | 1 | `driver/bme280.h` — see below |
+| comm | `comm/comm_processor.c` | 1 | `driver/bmx160.h` — see below |
+| comm | `comm/channel.h` | 1 | `navhal.h`, for `hal_uart_t` |
 
 Four of those are not debt. `sys/clock.c` and `sys/boot.c` are *where* DWT is
 allowed to be read; `heartbeat.c` and `sys_utils.c` name a driver because they
@@ -205,19 +205,6 @@ owners: a linkage footgun that reads as a single variable.
 recovery path so `bmx160.c` stops needing the `extern`. This is the last live
 piece of F2.
 
-#### F12 🟠 — IRQ wiring is split with no ownership registry
-
-`firmware/src/comm/channel.c:127-156` attaches USART and DMA callbacks by hand;
-`firmware/src/sys/timer_callbacks.c` wires timers separately. Nothing lists who
-owns which vector.
-
-The cost is already documented in the code: `channel.c:71` notes that the SD
-block-write path "re-grabs the Stream6 completion IRQ on every SD block write",
-which the telemetry path has to work around. Two subsystems claiming one vector
-with no registry to notice.
-
-**Fix:** a single table of vector → owner, checked at init.
-
 ### 4.2 Closed
 
 | # | Was | What closed it |
@@ -230,6 +217,7 @@ with no registry to notice.
 | F10 | `SYS_CLOCK_FREQ` duplicated vs the PLL | every consumer needing a real interval divides the rate measured at boot (`vayu_clock_hz()`). The macro survives only as the value `boot.c` checks against, and as the pre-boot fallback |
 | F11 | Logic consumed `bmx160_all_reading_t` | the hub migration; 0 references remain in `control/` or `est/` |
 | F13 | ESC band duplicated in the SITL host | one band in `actuator.h`, both sides derive |
+| F12 | IRQ wiring split, no registry | `sys/irq_registry.h`. Every vayu claim — the two UART RX vectors, both TX-DMA vectors, the HF timer, the RC idle callback — records an owner first, and a second owner is logged rather than discovered later by the peripheral it evicted. Vector numbers moved to the board. **Gap:** vaios claims vectors too, behind its own build flags, and mirroring another repo's config macros here is the duplication F13 was about — so a vayu-vs-vaios collision still needs reasoning about by hand |
 | F7 | TIM1 re-inited per channel, no owner | `esc_group_init(timer, freq)` is the only caller of `hal_pwm_init`, so PSC/ARR are written once. `esc_init` sets up its channel with `hal_pwm_set_duty_cycle`, which touches only that channel's CCR. Arm and disarm became channel scoped: `esc_disarm` used to stop the shared timer, which would have cut PWM to all four motors |
 | F8 | AF pinmux hardcoded in the ESC driver | `BOARD_ESC_AF`; `esc.c` names no timer instance at all now |
 | F5 | two owners of the BLUE LED | `driver/indicator.c` owns the four pins and is the only writer. `heartbeat.c` renders flight state; the router calls `heartbeat_note_link_activity()` instead of driving a pin on its own timer, and the activity blink is an explicit override with a defined precedence |
@@ -318,19 +306,44 @@ modelled `hal_pwm_stop` as channel-local, so the shared-timer hazard was
 invisible and a mutant that reintroduced it passed. It now tracks the timer's
 CEN separately from each channel's output enable, as the silicon does.
 
-### Step 4 — `comm` (39 → ?), F12
+### Step 4 — `comm` 39 → 26, and F12 ✅ partly done 2026-09-28
 
-Largest and least urgent: `channel.c` is transport, and transport touching
-UART/DMA is closer to being a driver than a violation. The valuable part here
-is the IRQ ownership registry, not the count. Decide `comm`'s floor before
-starting — it is probably not 0.
+**F12 is fixed.** `sys/irq_registry.h` is a flat table of vector → owner, and
+every claim vayu makes goes through it first: both UART RX vectors, both
+TX-DMA vectors, the HF timer, the RC idle callback. A second owner is a log
+line at init instead of a peripheral that stops working months later. The
+vector numbers moved to the board, where they belong.
 
-The two misplaced driver calls (§3.2) fall out of step 4: `bme280_read_all`
-and `bmx160_calib_request_cancel` should take their data from `hub/` or go
-through a service, not reach for the device — the same move the board trim
-already made.
+That matters because the collision it is named for was expensive: the
+telemetry UART's default TX DMA stream is shared with SDIO on this part, SDIO
+re-grabbed the completion IRQ on every card write, and telemetry died after
+the first save — saving a calibration was enough. The board now picks the
+alternate stream, and the registry would have said so at boot.
 
----
+Also done: the UART instances and their vectors became board macros, `rc_task`
+joined the clock seam (which finishes F9's repointing outside `driver/`), and
+a dead `driver/bmx160.h` include came out of `telemetry_task.c`.
+
+**Deferred, deliberately.** The remaining 26 are `hal_uart_*` and
+`hal_interrupt_*` in `channel.c` (14), `rc_task.c` (5), `serializer.c` (2) and
+`channel.h` (1) — the transport itself. Putting a vayu UART driver under them
+is a rewrite of the live telemetry and RC paths, both flight-critical and both
+currently working on hardware, for a structural gain. It is worth doing and it
+is not worth doing casually. The floor after that lands is roughly 2–4, not 0.
+
+**The two driver includes are a design question, not a move.**
+
+- `telemetry_task.c` → `bme280_read_all`. The hub already has
+  `baro_latest()`, but `baro_sample_t` carries pressure and temperature, while
+  the baro telemetry message also sends humidity and a derived altitude.
+  Humidity is chip-specific and altitude is estimated, not measured — putting
+  either in the SI sample is the F11 mistake again. Routing through the hub as
+  it stands would silently drop fields from a wire message. Decide what that
+  message is for first.
+- `comm_processor.c` → `bmx160_calib_request_cancel`. The cancel flag is a
+  *calibration* concern, but `calibration_task` lives inside `bmx160.c`. The
+  honest fix is moving the calibration engine out of the IMU driver, not
+  wrapping the call in a facade that forwards to the same place.
 
 ## 6. Doing a step
 

@@ -39,6 +39,7 @@ extern "C" {
 #include "utils/gpio_types.h"
 #include "utils/i2c_types.h"
 #include "utils/timer_types.h"
+#include "utils/uart_types.h"
 
 /** Identity, and the NavHAL board this one must be built against.
  *  firmware/board/boards.cmake checks the second against navhal.config. */
@@ -87,11 +88,21 @@ extern "C" {
  * millisecond scheduler the 1 ms SysTick cannot serve (IMU pacing, the HF
  * monotonic tick). Separate from BOARD_ESC_TIMER, which is PWM only. */
 #define BOARD_HF_TIMER TIM5
+#define BOARD_HF_TIMER_IRQ TIM5_IRQn
 
-/* The telemetry (USART6) and RC (USART2) instances are NOT here yet: their
- * names are still spelled out across comm/, and a board macro with no consumer
- * is a lie. They move here when comm/ is swept -- see the sweep order in
- * docs/analysis/navhal-hardware-logic-separation.md. */
+/* ---- Serial links -------------------------------------------------------
+ * Telemetry goes out the ESP bridge on USART6; the RC receiver drives USART2.
+ * SITL inverts this pair -- see docs/scratch/resource-ownership-map.md.
+ *
+ * The IRQ vectors belong with them: comm/irq_owner.h wants to know which
+ * vector a link uses, and that is a board fact, not a transport one. */
+#define BOARD_TELEMETRY_UART HAL_UART_6
+#define BOARD_TELEMETRY_UART_IRQ USART6_IRQn
+#define BOARD_TELEMETRY_TX_DMA_IRQ DMA2_Stream7_IRQn
+
+#define BOARD_RC_UART HAL_UART_2
+#define BOARD_RC_UART_IRQ USART2_IRQn
+#define BOARD_RC_TX_DMA_IRQ DMA1_Stream6_IRQn
 
 #ifdef __cplusplus
 } /* extern "C" */

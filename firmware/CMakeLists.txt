@@ -232,6 +232,7 @@ set(VAYU_R12_CLEAN_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/sys/clock.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/sys/sys_utils.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/sys/math_utils.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/sys/irq_registry.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/driver/timer_callbacks.c)
 set_source_files_properties(${VAYU_R12_CLEAN_SOURCES}
     PROPERTIES COMPILE_OPTIONS "${VAYU_R12_WARN_FLAGS}")

@@ -16,6 +16,7 @@
  */
 #include "driver/timer_callbacks.h"
 #include "navhal.h"
+#include "sys/irq_registry.h"
 #include "vayu_board.h"
 #include "utils.h"
 #include "variables.h"
@@ -63,6 +64,7 @@ void timer_callback_init(uint32_t freq_hz) {
   // base clock for the requested update frequency.
   _timer_interrupt_freq = freq_hz;
   hal_timer_init_freq(_timer_inst, freq_hz);
+  irq_registry_claim((uint32_t)BOARD_HF_TIMER_IRQ, "timer_callbacks");
   hal_timer_attach_callback(_timer_inst, _timer_isr_handler);
   hal_timer_enable_interrupt(_timer_inst);
 }

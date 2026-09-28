@@ -16,6 +16,8 @@
  */
 #include "comm/channel.h"
 #include "navhal.h"
+#include "sys/irq_registry.h"
+#include "vayu_board.h"
 #include "port.h" // ENTER_CRITICAL / EXIT_CRITICAL — serialise the ping-pong buffer
 #include "sys/types.h"
 #include "vaios.h"
@@ -55,27 +57,29 @@ static void _dma_complete_callback(void) {
   // Handles only USART2/DMA1_S6; a generic impl would need to know which
   // handler triggered this.
   for (int i = 0; i < MAX_SERIAL_HANDLERS; i++) {
-    if (_serial_handlers[i].uart == HAL_UART_2) {
+    if (_serial_handlers[i].uart == BOARD_RC_UART) {
       _serial_handlers[i].busy = 0;
       break;
     }
   }
 }
 
-/* Telemetry UART (USART6) TX-DMA completion (DMA2_Stream7). NavHAL's stream IRQ
+/* Telemetry TX-DMA completion (BOARD_TELEMETRY_TX_DMA_IRQ). NavHAL's stream IRQ
  * handler clears the DMA flags and dispatches here; we only release the channel
  * so the next flush can ping-pong swap and send. Without DMA, flush_task would
  * block byte-by-byte pushing the whole telemetry stream (~15% CPU).
  *
- * Stream7 (not Stream6): USART6_TX shares DMA2 Stream6 with the SDIO write DMA,
- * which re-grabs the Stream6 completion IRQ on every SD block write and would
- * permanently strand `busy=1` here (flush then always returns ERROR -> telemetry
- * dies after the first SD write, e.g. saving calibration). USART6_TX's alternate
- * mapping is Stream7/Ch5, free of SDIO — see _get_uart_dma_params in NavHAL. */
+ * Which stream that is matters, and is the board's to pick: the telemetry
+ * UART's default TX stream is shared with the SDIO write DMA on this part, and
+ * SDIO re-grabbing it on every card write would strand `busy=1` here -- flush
+ * then always returns ERROR, so telemetry dies after the first SD write, which
+ * saving a calibration is enough to trigger. The board selects the alternate
+ * mapping that SDIO does not use. That whole class of bug is what
+ * sys/irq_registry.h exists to make visible. */
 /** @noreq telemetry-UART TX-DMA completion ISR: releases the channel */
 static void _dma_complete_callback_u6(void) {
   for (int i = 0; i < MAX_SERIAL_HANDLERS; i++) {
-    if (_serial_handlers[i].uart == HAL_UART_6) {
+    if (_serial_handlers[i].uart == BOARD_TELEMETRY_UART) {
       _serial_handlers[i].busy = 0;
       break;
     }
@@ -124,9 +128,10 @@ static err_t get_handler_serial(channel_t *handler, void *args,
     if (_serial_handlers[slot].is_interrupt_attached) {
       // Slot already has an interrupt attached; reattaching overwrites it.
     }
-    hal_irq_t usart_irq = s_args->uart == HAL_UART_1   ? USART1_IRQn
-                          : s_args->uart == HAL_UART_6 ? USART6_IRQn
-                                                       : USART2_IRQn;
+    hal_irq_t usart_irq = s_args->uart == BOARD_TELEMETRY_UART
+                              ? BOARD_TELEMETRY_UART_IRQ
+                              : BOARD_RC_UART_IRQ;
+    irq_registry_claim((uint32_t)usart_irq, "channel:uart-rx");
     hal_interrupt_attach_callback(usart_irq, callback);
     hal_uart_enable_interrupt(s_args->uart, 1, 0);
     _serial_handlers[slot].is_interrupt_attached = 1;
@@ -149,20 +154,24 @@ static err_t get_handler_serial(channel_t *handler, void *args,
   _serial_handlers[slot].busy = 0;
 
   // Attach DMA callback if using USART2
-  if (s_args->uart == HAL_UART_2) {
+  if (s_args->uart == BOARD_RC_UART) {
     // PROTECT: don't overwrite if kernel logging or another task already set
     // it! We should ideally have a multi-callback system, but for now, just
     // don't break existing ones.
-    hal_interrupt_attach_callback(DMA1_Stream6_IRQn, _dma_complete_callback);
-    hal_interrupt_enable(DMA1_Stream6_IRQn);
+    irq_registry_claim((uint32_t)BOARD_RC_TX_DMA_IRQ, "channel:tx-dma-rc");
+    hal_interrupt_attach_callback(BOARD_RC_TX_DMA_IRQ, _dma_complete_callback);
+    hal_interrupt_enable(BOARD_RC_TX_DMA_IRQ);
   }
-  // Telemetry UART (USART6) TX uses DMA2_Stream7 so flush_channel offloads the
+  // The telemetry UART's TX DMA (see the board) so flush_channel offloads the
   // stream to DMA instead of busy-pushing it byte-by-byte; the completion IRQ
   // releases the channel (_dma_complete_callback_u6). Stream7 (not Stream6) to
   // avoid the SDIO TX-DMA conflict that wedges telemetry after an SD write.
-  if (s_args->uart == HAL_UART_6) {
-    hal_interrupt_attach_callback(DMA2_Stream7_IRQn, _dma_complete_callback_u6);
-    hal_interrupt_enable(DMA2_Stream7_IRQn);
+  if (s_args->uart == BOARD_TELEMETRY_UART) {
+    irq_registry_claim((uint32_t)BOARD_TELEMETRY_TX_DMA_IRQ,
+                       "channel:tx-dma-telemetry");
+    hal_interrupt_attach_callback(BOARD_TELEMETRY_TX_DMA_IRQ,
+                                  _dma_complete_callback_u6);
+    hal_interrupt_enable(BOARD_TELEMETRY_TX_DMA_IRQ);
   }
 
   return NONE;
@@ -268,16 +277,19 @@ err_t flush_channel(channel_t channel) {
 
     // Trigger transmission. The telemetry UART (USART6) goes out via DMA so the
     // flush task doesn't busy-push the whole stream a byte at a time (~15% CPU
-    // otherwise); `busy` is cleared by the DMA2_Stream6 completion IRQ. Other
+    // otherwise); `busy` is cleared by that link's TX-DMA completion IRQ. Other
     // UARTs keep the blocking fallback.
-    if (s_handle->uart == HAL_UART_6) {
-      hal_uart_write_dma(HAL_UART_6, s_handle->buffers[flush_idx], flush_len);
-    } else if (s_handle->uart == HAL_UART_2) {
+    if (s_handle->uart == BOARD_TELEMETRY_UART) {
+      hal_uart_write_dma(BOARD_TELEMETRY_UART, s_handle->buffers[flush_idx],
+                         flush_len);
+    } else if (s_handle->uart == BOARD_RC_UART) {
 #ifdef _UART_BACKEND_DMA
-      hal_uart_write_dma(HAL_UART_2, s_handle->buffers[flush_idx], flush_len);
+      hal_uart_write_dma(BOARD_RC_UART, s_handle->buffers[flush_idx],
+                         flush_len);
 #else
       for (uint16_t i = 0; i < flush_len; i++) {
-        hal_uart_write_char(HAL_UART_2, (char)s_handle->buffers[flush_idx][i]);
+        hal_uart_write_char(BOARD_RC_UART,
+                            (char)s_handle->buffers[flush_idx][i]);
       }
       s_handle->busy = 0;
 #endif
@@ -356,12 +368,13 @@ err_t del_handler(channel_t *handler) {
         (serial_channel_handle_t *)handler->handle;
     if (s_handle != NULL) {
       if (s_handle->is_interrupt_attached) {
-        hal_irq_t usart_irq = s_handle->uart == HAL_UART_1   ? USART1_IRQn
-                              : s_handle->uart == HAL_UART_6 ? USART6_IRQn
-                                                             : USART2_IRQn;
+        hal_irq_t usart_irq = s_handle->uart == BOARD_TELEMETRY_UART
+                                  ? BOARD_TELEMETRY_UART_IRQ
+                                  : BOARD_RC_UART_IRQ;
         if (hal_interrupt_disable(usart_irq) == 1)
           return USAGE;
         hal_interrupt_detach_callback(usart_irq);
+        irq_registry_release((uint32_t)usart_irq, "channel:uart-rx");
       }
       s_handle->uart = 0; // Mark slot as free (after detaching its IRQ)
     }
