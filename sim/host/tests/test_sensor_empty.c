@@ -29,6 +29,7 @@
  * zero to discover that is not. */
 #include <stdio.h>
 
+#include "sensor/imu.h"
 #include "sensor/ride_along.h"
 #include "sensor/sensor.h"
 
@@ -66,6 +67,13 @@ int main(void) {
     uint8_t n = 200;
     (void)sensor_rides(&n);
     CHECK(n == 0, "no ride-alongs");
+  }
+
+  printf("  [6] the IMU model is absent, not a null-deref waiting to happen\n");
+  {
+    /* The command layer calls imu_ops() and checks for NULL before every use;
+     * this is the build where that branch is the live one. */
+    CHECK(imu_ops() == NULL, "no registry means no model");
   }
 
   printf("\n  %d checks, %d failures\n", g_checks, g_fails);

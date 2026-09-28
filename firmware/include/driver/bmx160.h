@@ -330,7 +330,6 @@ typedef struct {
 /* Cooperative cancel: CMD_CANCEL_CALIBRATION sets a flag the running
  * calibration task polls at each loop boundary so it can tear down cleanly
  * (restore STANDBY, free args) instead of being killed mid-run. */
-void bmx160_calib_request_cancel(void);
 
 /* Board-level / trim (deg): the mounting-tilt offset captured by the board-level
  * calibration (imu_id 4). The estimator subtracts these from its roll/pitch so a

@@ -71,9 +71,9 @@ Ledger, 2026-09-28:
 | storage | 0 | `storage/` |
 | actuator | 1 | `actuator/` |
 | internal | 7 | `sys/ logger/` |
-| comm | 26 | `comm/` |
+| comm | 25 | `comm/` |
 
-34 lines total, in 6 files. Where they live:
+33 lines total, in 5 files. Where they live:
 
 | Section | File | Lines | What it is |
 |---|---|---:|---|
@@ -86,7 +86,6 @@ Ledger, 2026-09-28:
 | comm | `comm/rc_task.c` | 5 | `hal_uart_*` — the same, for RC |
 | comm | `comm/serializer.c` | 2 | `hal_uart_read_char` |
 | comm | `comm/telemetry_task.c` | 1 | `driver/bme280.h` — see below |
-| comm | `comm/comm_processor.c` | 1 | `driver/bmx160.h` — see below |
 | comm | `comm/channel.h` | 1 | `navhal.h`, for `hal_uart_t` |
 
 Four of those are not debt. `sys/clock.c` and `sys/boot.c` are *where* DWT is
@@ -160,7 +159,6 @@ whether or not the gate's pattern happens to catch the line.
 | `main.c` | `bmx160_init`, `bme280_init`, `vl53l0x_init`, `init_i2c_manager` | composition root — correct, stays |
 | `actuator/motor.c` | `esc_init` ×4, `esc_arm`, `esc_set_throttle` ×4 | a thin ESC shim; its board facts are now macros, the calls are its job |
 | `comm/telemetry_task.c` | `bme280_read_all` | **misplaced** — should take an SI sample from `hub/` |
-| `comm/comm_processor.c` | `bmx160_calib_request_cancel` | **misplaced** — should go through a calibration service |
 
 `est/attitude_task.c` was the fifth and is gone (§3.1).
 
@@ -340,10 +338,15 @@ is not worth doing casually. The floor after that lands is roughly 2–4, not 0.
   either in the SI sample is the F11 mistake again. Routing through the hub as
   it stands would silently drop fields from a wire message. Decide what that
   message is for first.
-- `comm_processor.c` → `bmx160_calib_request_cancel`. The cancel flag is a
-  *calibration* concern, but `calibration_task` lives inside `bmx160.c`. The
-  honest fix is moving the calibration engine out of the IMU driver, not
-  wrapping the call in a facade that forwards to the same place.
+- `comm_processor.c` → `bmx160_calib_request_cancel`: **fixed 2026-09-28.**
+  It goes through the IMU model now (`sensor/imu.h`), so the command layer
+  asks "an IMU" to calibrate itself instead of naming one. It used to allocate
+  the calibration task's arguments, create that task with a stack depth it had
+  measured itself, track the handle, and cancel through a chip-specific
+  function — the command layer knew the stack depth of a routine inside the
+  IMU driver. All of that moved to the driver, where it is a property of that
+  driver's routine rather than of "an IMU". The calibration engine still lives
+  in `bmx160.c`, but nothing outside the driver can tell.
 
 ## 6. Doing a step
 

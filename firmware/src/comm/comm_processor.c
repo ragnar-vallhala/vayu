@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#include "sensor/imu.h"
 #include "comm/comm_types.h"
 #include "comm/ibus.h"
 #include "comm/navlink_tx.h"
@@ -22,7 +23,6 @@
 #include "control/control.h"
 #include "control/flight_mode.h"
 #include "memory.h"
-#include "driver/bmx160.h"
 #include "storage/fs_owner.h" /* vayu_log */
 #include "sys/state.h"
 #include "task.h"
@@ -36,7 +36,6 @@
 #include "comm/navlink_router.h"
 #include <stdbool.h>
 #include <stdint.h>
-static uint32_t _calibration_task_handle = 0;
 
 /* COMM-CMD-002: a command payload is laid out as
  *   [cmd_id:2][argc:1][arg0:4][arg1:4]...
@@ -111,38 +110,32 @@ void comm_processor_dispatch(const packet_t *pkt) {
        * payload long enough to actually hold them. */
       if (system_state_get() != SYSTEM_STATE_CALIBRATING &&
           command_payload_valid(pkt->length, argc, 2)) {
-        /* 
-         * Stack: 3072, about 2x the measured requirement. The deepest chain is
-         * calibration_task(400) -> calib_engine_run(104) -> run_ellipsoid(488)
-         * -> calib_fit_ellipsoid(272) = 1264 B by -fstack-usage, plus ~200 B of
-         * exception frame.*/
-        calibration_args_t *cal_args =
-            (calibration_args_t *)v_malloc(sizeof(calibration_args_t));
-        if (cal_args == NULL) {
-          vayu_log("[CALIB] out of heap for args; not starting");
+        uint32_t imu_id = 0, type = 0;
+        v_memcpy(&imu_id, &pkt->payload[3], 4);
+        v_memcpy(&type, &pkt->payload[7], 4);
+
+        /* Ask the IMU to calibrate itself. Which task that needs, how deep a
+         * stack, and what arguments it takes are the driver's business -- this
+         * layer used to know all three, which meant a second IMU had to match
+         * a BMX160's shape exactly. */
+        const imu_ops_t *imu = imu_ops();
+        if (imu == NULL || imu->calibrate_start == NULL) {
+          vayu_log("[CALIB] no IMU backend to calibrate");
         } else {
-          v_memcpy(&cal_args->imu_id, &pkt->payload[3], 4);
-          v_memcpy(&cal_args->type, &pkt->payload[7], 4);
-          _calibration_task_handle =
-              task_create(calibration_task, cal_args, 3072, 0);
-          if (_calibration_task_handle == 0) {
-            /* task_create returns 0 when the TCB alloc fails (a failed STACK
-             * alloc panics inside the kernel). Nothing will ever free the arg
-             * block, so do it here. */
-            v_free(cal_args);
-            vayu_log("[CALIB] out of heap for task; not starting");
-          }
+          VAYU_DISCARD(imu->calibrate_start(imu_id, type));
         }
       }
     } else if (cmd_id == 0x0009) { // CMD_CANCEL_CALIBRATION
-      /* Cooperative cancel: raise the flag the calibration task polls at each
-       * loop boundary so it tears down cleanly (restores STANDBY, frees args)
-       * instead of being killed mid-run. The task restores state itself. */
-      if (_calibration_task_handle != 0) {
-        bmx160_calib_request_cancel();
-        _calibration_task_handle = 0;
+      /* Cooperative cancel: the driver raises a flag its routine polls at
+       * each loop boundary, so it tears down cleanly -- restoring STANDBY,
+       * freeing its own arguments -- instead of being killed mid-run. */
+      const imu_ops_t *imu = imu_ops();
+      if (imu != NULL && imu->calibrating != NULL && imu->calibrating()) {
+        if (imu->calibrate_cancel != NULL) {
+          imu->calibrate_cancel();
+        }
       } else {
-        // No task running; restore state directly in case it was left stuck.
+        // Nothing running; restore state directly in case it was left stuck.
         VAYU_DISCARD(system_state_set(SYSTEM_STATE_STANDBY));
       }
     } else if (cmd_id == CMD_ARM) {

@@ -21,6 +21,8 @@
  * device it is talking to, the descriptor is missing a field. */
 #include "sensor/sensor.h"
 
+#include "sensor/imu.h"
+
 #include "storage/fs_owner.h" /* vayu_log */
 #include "task.h"
 #include <stddef.h>
@@ -155,4 +157,13 @@ vayu_status_t sensor_start_task(sensor_kind_t kind) {
   (void)task_create_named(d->task, NULL, d->stack_words, d->priority,
                           d->task_name);
   return VAYU_OK;
+}
+
+/* The one place the descriptor's type-erased ops pointer is cast, and only
+ * after sensor_backend has matched the kind -- so an entry filed as an IMU is
+ * the only thing that can ever be read as imu_ops_t. */
+/** @noreq registry accessor. */
+const imu_ops_t *imu_ops(void) {
+  const sensor_driver_t *d = sensor_backend(SENSOR_IMU);
+  return d ? (const imu_ops_t *)d->ops : NULL;
 }

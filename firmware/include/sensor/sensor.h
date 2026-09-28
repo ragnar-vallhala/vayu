@@ -101,6 +101,16 @@ typedef struct {
    */
   void (*tick)(void);
   uint32_t tick_period_us;
+
+  /**
+   * This kind's operation table, or NULL if the driver offers none.
+   *
+   * Type-erased because the type depends on `kind` -- an IMU points this at a
+   * `const imu_ops_t` (sensor/imu.h). Only the accessor for a kind casts it,
+   * and only after checking `kind`, so the erasure never escapes this layer.
+   * It is a pointer into flash; nothing owns or frees it.
+   */
+  const void *ops;
 } sensor_driver_t;
 
 /**

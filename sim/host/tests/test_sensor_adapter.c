@@ -35,6 +35,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "sensor/imu.h"
 #include "sensor/ride_along.h"
 #include "sensor/sensor.h"
 
@@ -129,6 +130,27 @@ int main(void) {
       CHECK(rides[i].every_n > 0, "and has a cadence");
     }
     printf("      %u ride-alongs registered\n", (unsigned)n);
+  }
+
+  printf("  [6] the IMU model resolves only through an IMU entry\n");
+  {
+    /* imu_ops() casts the descriptor's type-erased ops pointer, so the thing
+     * that keeps it safe is that it goes through sensor_backend(SENSOR_IMU)
+     * first. The host compiles no IMU driver, so there is no IMU entry and
+     * the model must come back NULL rather than reinterpreting a barometer's
+     * descriptor as an IMU's. */
+    const sensor_driver_t *imu = sensor_backend(SENSOR_IMU);
+    const imu_ops_t *ops = imu_ops();
+    if (imu == NULL) {
+      CHECK(ops == NULL, "no IMU backend means no model, not a bad cast");
+    } else {
+      CHECK(ops == (const imu_ops_t *)imu->ops, "the model is that entry's");
+    }
+    /* A baro entry carrying ops must never be reachable as an IMU. */
+    const sensor_driver_t *baro = sensor_backend(SENSOR_BARO);
+    if (baro != NULL && baro->ops != NULL) {
+      CHECK((const void *)ops != baro->ops, "a baro's ops are not the IMU's");
+    }
   }
 
   printf("\n  %d checks, %d failures\n", g_checks, g_fails);

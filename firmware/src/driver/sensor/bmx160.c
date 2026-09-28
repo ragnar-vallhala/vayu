@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#include "sensor/imu.h"
 #include "sensor/sensor.h"
 #include "vayu_board.h"
 #include "driver/bmx160.h"
@@ -149,9 +150,9 @@ static bmx160_calibration_t bmx160_calib = {
  * estimator reads while the calibration task may write — a torn read is
  * harmless, same R8.6 rationale as the gyro-bias offset). */
 
-/* Set by bmx160_calib_request_cancel() (CMD_CANCEL_CALIBRATION), polled and
- * cleared by calibration_task. volatile: written from the comm task, read from
- * the calibration task. */
+/* Raised by the IMU model's calibrate_cancel (CMD_CANCEL_CALIBRATION), polled
+ * and cleared by calibration_task. volatile: written from the comm task, read
+ * from the calibration task. */
 static volatile int _calib_cancel = 0;
 
 /* True while a calibration routine owns the IMU stream. The sample diversion in
@@ -163,7 +164,6 @@ static volatile int _calib_cancel = 0;
 static volatile int _calib_active = 0;
 
 /** @noreq Calibration-cancel flag setter; dispatched by COMM-CMD-001. */
-void bmx160_calib_request_cancel(void) { _calib_cancel = 1; }
 
 // LPFs for sensors
 static lpf_t acc_lpf[3];
@@ -2112,6 +2112,61 @@ static vayu_status_t _bmx160_probe(void) {
   return bmx160_init() == HAL_OK ? VAYU_OK : VAYU_ERR_FAULT;
 }
 
+/* ---- The IMU model (sensor/imu.h) --------------------------------------
+ * The command layer used to do all of this: allocate the argument block,
+ * create the task, carry the measured stack depth, and track the handle. None
+ * of that is a property of "an IMU"; it is a property of THIS driver's
+ * calibration routine, so it lives here. */
+static uint32_t _calib_task = 0;
+
+/** @implements SNS-CAL-001 */
+static vayu_status_t _bmx160_calibrate_start(uint32_t imu_id, uint32_t type) {
+  if (_calib_active || _calib_task != 0) {
+    return VAYU_ERR_BUSY;
+  }
+
+  calibration_args_t *args =
+      (calibration_args_t *)v_malloc(sizeof(calibration_args_t));
+  if (args == NULL) {
+    vayu_log("[CALIB] out of heap for args; not starting");
+    return VAYU_ERR_FAULT;
+  }
+  args->imu_id = (float)imu_id;
+  args->type = (float)type;
+
+  /* Stack 3072, about 2x the measured requirement. The deepest chain is
+   * calibration_task(400) -> calib_engine_run(104) -> run_ellipsoid(488) ->
+   * calib_fit_ellipsoid(272) = 1264 B by -fstack-usage, plus ~200 B of
+   * exception frame. That number belongs beside the code it measures. */
+  _calib_task = task_create(calibration_task, args, 3072, 0);
+  if (_calib_task == 0) {
+    /* task_create returns 0 when the TCB alloc fails (a failed STACK alloc
+     * panics inside the kernel). Nothing will ever free the arg block. */
+    v_free(args);
+    vayu_log("[CALIB] out of heap for task; not starting");
+    return VAYU_ERR_FAULT;
+  }
+  return VAYU_OK;
+}
+
+/** @implements SNS-CAL-001 */
+static void _bmx160_calibrate_cancel(void) {
+  _calib_cancel = 1;
+  _calib_task = 0;
+}
+
+/** @noreq state accessor. */
+static bool _bmx160_calibrating(void) {
+  return _calib_active != 0 || _calib_task != 0;
+}
+
+static const imu_ops_t _bmx160_imu_ops = {
+    .calibrate_start = _bmx160_calibrate_start,
+    .calibrate_cancel = _bmx160_calibrate_cancel,
+    .calibrating = _bmx160_calibrating,
+    .chip_id = bmx160_get_chip_id,
+};
+
 VAYU_SENSOR_DRIVER(bmx160_sensor) = {
     .name = "bmx160",
     .kind = SENSOR_IMU,
@@ -2126,4 +2181,5 @@ VAYU_SENSOR_DRIVER(bmx160_sensor) = {
      * control loop needs. */
     .tick = bmx160_fast_tick_isr,
     .tick_period_us = IMU_FAST_PERIOD_US,
+    .ops = &_bmx160_imu_ops,
 };

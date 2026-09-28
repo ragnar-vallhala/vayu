@@ -604,25 +604,18 @@ uint32_t hal_crc_compute(const uint8_t *data, uint32_t length) {
 }
 
 /* ---- calibration_task stub ---------------------------------------------
- * On hardware, calibration_task lives in src/driver/bmx160.c (which we
- * don't compile - it's I2C-driver heavy). The host SITL doesn't expose
- * a calibration flow, so provide a do-nothing task body so comm_processor.c
- * can reference it. */
+ * On hardware calibration_task lives in the IMU driver, which the host does
+ * not compile -- it is I2C-driver heavy and SITL feeds the hub directly. The
+ * symbol still has to exist because vayu_tasks.h declares it.
+ *
+ * The two stubs that used to sit here are gone with the code that needed
+ * them: the cancel hook is now an entry in the IMU model (sensor/imu.h), and
+ * with no IMU backend on the host imu_ops() returns NULL, so the command layer
+ * takes its "no IMU backend" branch instead of calling into nothing. Board
+ * trim went to hub_get_board_trim, which already defaults to a level 0,0 --
+ * which is right for SITL, where the sim IMU is perfectly aligned with the
+ * airframe. */
 void calibration_task(void *args) { (void)args; }
-
-/* Cancel hook (hardware definition is in src/driver/bmx160.c). No-op here
- * since the host SITL has no calibration flow. */
-void bmx160_calib_request_cancel(void) {}
-
-/* Board-level / trim (hardware definition in src/driver/bmx160.c). The sim IMU
- * is perfectly aligned with the airframe, so there is no mounting tilt: always
- * report zero trim. Keeps attitude_task.c's estimator-output trim a no-op in SITL. */
-void bmx160_get_board_trim(float *roll_deg, float *pitch_deg) {
-  if (roll_deg)
-    *roll_deg = 0.0f;
-  if (pitch_deg)
-    *pitch_deg = 0.0f;
-}
 
 /* ---- Timer HAL: stubs (heartbeat uses it via task delays, not real timers) */
 /* Test accessors -- see host_pwm.h. */
