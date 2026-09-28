@@ -144,7 +144,4 @@ hal_status_t bme280_read_pressure(float *pascals);
 hal_status_t bme280_read_humidity(float *percent_rh);
 hal_status_t bme280_read_all(bme280_reading_t *out);
 
-/* Sea-level reference pressure (Pa) used for the altitude estimate.
- * Defaults to the ISA standard 101325 Pa. */
-
 #endif // VAYU_BME280_H
