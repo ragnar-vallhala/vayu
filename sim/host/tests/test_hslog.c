@@ -48,6 +48,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "storage/fs_owner.h"
 #include "storage/imu_hs_log.h"
 #include "sys/state.h"
 #include "variables.h"

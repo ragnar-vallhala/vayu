@@ -63,8 +63,8 @@ SECTIONS=(
   "core|0|firmware/src/control firmware/src/est firmware/src/maths firmware/include/control firmware/include/est firmware/include/maths"
   "hub|0|firmware/src/hub firmware/include/hub"
   "dsp|0|firmware/src/dsp firmware/src/calib firmware/include/dsp firmware/include/calib"
-  "storage|3|firmware/src/storage firmware/include/storage"
-  "actuator|5|firmware/src/actuator firmware/include/actuator"
+  "storage|0|firmware/src/storage firmware/include/storage"
+  "actuator|1|firmware/src/actuator firmware/include/actuator"
   "internal|43|firmware/src/sys firmware/src/logger firmware/include/sys"
   "comm|44|firmware/src/comm firmware/include/comm"
 )

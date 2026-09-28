@@ -308,6 +308,10 @@ if(EXTERNAL_LINKER)
 else()
 set(CMAKE_EXE_LINKER_FLAGS "-T ${LINKER_FILE} -lnosys -lc -mfloat-abi=hard -mfpu=fpv4-sp-d16") # can be
 endif()
+# Board facts (pins, buses, timers) -- puts the selected firmware/board/<name>
+# on the include path so consumers write #include "vayu_board.h".
+include(${CMAKE_CURRENT_SOURCE_DIR}/board/boards.cmake)
+
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include  ${CMAKE_CURRENT_SOURCE_DIR}/drivers ${CMAKE_CURRENT_SOURCE_DIR}/maths)
 
 if(CMAKE_SYSTEM_PROCESSOR STREQUAL "cortex-m4")

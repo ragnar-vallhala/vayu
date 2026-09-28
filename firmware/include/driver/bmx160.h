@@ -156,6 +156,40 @@ typedef enum {
   BMX_BWP_OSR32 = 5,
 } bmx_bandwidth_t;
 
+/* Chip configuration written by bmx160_init. Tuning, not a board fact -- the
+ * board header says which IMU is on which bus, this says how it is driven.
+ * Guarded so a board or a build can override without editing the driver. */
+#ifndef BMX_ACC_ODR
+/* 1600 Hz is the accelerometer's maximum in normal power mode and sits under
+ * the IMU_SAMPLE_FREQ_HZ poll rate, so the poll never aliases the sensor. */
+#define BMX_ACC_ODR BMX160_ODR_1600HZ
+#endif
+#ifndef BMX_ACC_BWP
+/* Normal is REQUIRED, not preferred: datasheet 2.2.1.1 says acc_bwp must be
+ * 0b010 whenever acc_us is 0, and an illegal pair raises ERR_REG. 3 dB cutoff
+ * at 1600 Hz is 684 Hz, and 353 Hz on Z (datasheet table 13). */
+#define BMX_ACC_BWP BMX_BWP_NORMAL
+#endif
+#ifndef BMX_ACC_US
+#define BMX_ACC_US 0 // undersampling is a low-power-mode feature
+#endif
+#ifndef BMX_ACC_RANGE
+#define BMX_ACC_RANGE BMX160_ACC_16G
+#endif
+#ifndef BMX_GYR_ODR
+/* The gyro alone can reach 3200 Hz (the accelerometer's ceiling is 1600), which
+ * would move its 3 dB cutoff from 523.9 Hz to 890 Hz and cost less filter delay
+ * in the rate loop. Not taken: 890 Hz leaves almost no margin under the
+ * measured ~1827 Hz poll, whose Nyquist is 913 Hz (datasheet table 15). */
+#define BMX_GYR_ODR BMX160_ODR_1600HZ
+#endif
+#ifndef BMX_GYR_BWP
+#define BMX_GYR_BWP BMX_BWP_NORMAL
+#endif
+#ifndef BMX_GYR_RANGE
+#define BMX_GYR_RANGE BMX160_GYR_2000 // 2000 dps
+#endif
+
 // BMM150 trim data structure
 typedef struct {
   int8_t dig_x1;
@@ -302,7 +336,6 @@ void bmx160_calib_request_cancel(void);
  * calibration (imu_id 4). The estimator subtracts these from its roll/pitch so a
  * cushion-tilted FC still reports (and holds) the true frame level. Returns 0,0
  * until a board-level calibration has been run. Cheap: two float reads. */
-void bmx160_get_board_trim(float *roll_deg, float *pitch_deg);
 
 typedef struct {
   float imu_id;

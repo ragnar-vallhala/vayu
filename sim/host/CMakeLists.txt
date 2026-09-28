@@ -51,6 +51,11 @@ add_compile_definitions(
 # that shadow system headers (atomic.h, family) and is private to this project.
 # sdk/ holds the two headers a runtime loader compiles against -- keep it free
 # of anything that would follow it out of the tree.
+# Same board selection (and the same navhal.config consistency check) as the
+# firmware build -- SITL compiles the real firmware sources, so it must see the
+# real board's pins.
+include(${VAYU_ROOT}/firmware/board/boards.cmake)
+
 include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/sdk        # vsim_proto.h + vayu_sitl_abi.h

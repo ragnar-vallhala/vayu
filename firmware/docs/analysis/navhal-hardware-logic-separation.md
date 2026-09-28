@@ -37,7 +37,7 @@ are silicon and may not.
 | vaios portable service (`v_malloc`, `v_get_ticks`, semaphores) | **Yes** — via a vayu-owned `sys/*.h` re-export |
 | vaios *port* layer | No |
 | NavHAL capability API (`hal_*`, `HAL_*`) | No — only `src/driver/**`, `src/port/**` and `board/` |
-| Board facts (`GPIO_PB12`, `HAL_I2C_1`, `TIM1`, AF numbers, register addresses) | No — only `board_*.h` |
+| Board facts (`GPIO_PB12`, `HAL_I2C_1`, `TIM1`, AF numbers, register addresses) | No — only the selected `board/<name>/vayu_board.h` |
 | Sensor data | **Yes**, as an SI sample from `hub/` — never as a driver header |
 | A cycle stamp or the CPU rate | **Yes**, from `sys/clock.h` — never raw DWT |
 
@@ -46,7 +46,7 @@ The four questions the gate's failure message asks, in order:
 - need a cycle stamp or the CPU rate? → `sys/clock.h`
 - need sensor data? → take an SI sample from `hub/`, not a driver header
 - need a pin, bus, timer or `hal_` call? → it belongs in a driver
-- need a board constant? → `board_*.h`, not the consumer
+- need a board constant? → `#include "vayu_board.h"`, not the consumer
 
 ---
 
@@ -68,17 +68,16 @@ Ledger, 2026-09-28:
 | core | 0 | `control/ est/ maths/` |
 | hub | 0 | `hub/` |
 | dsp | 0 | `dsp/ calib/` |
-| storage | 3 | `storage/` |
-| actuator | 5 | `actuator/` |
+| storage | 0 | `storage/` |
+| actuator | 1 | `actuator/` |
 | internal | 43 | `sys/ logger/` |
 | comm | 44 | `comm/` |
 
-95 lines total, in 16 files. Where they live:
+88 lines total, in 14 files. Where they live:
 
 | Section | File | Lines | What it is |
 |---|---|---:|---|
-| storage | `storage/imu_hs_log.c` | 3 | `hal_cycle_counter_get()` — F9 residue |
-| actuator | `actuator/motor.c` | 5 | `TIM1` ×4, pin macros ×4, `driver/esc.h` (F7, F8) |
+| actuator | `actuator/motor.c` | 1 | `driver/esc.h` — the pins and the timer are now board macros |
 | internal | `sys/heartbeat.c` | 21 | GPIO, the LED (F5) |
 | internal | `sys/timer_callbacks.c` | 7 | timers, IRQ wiring (F12) |
 | internal | `sys/sys_utils.c` | 6 | GPIO |
@@ -119,66 +118,79 @@ check reported clean while `control/` transitively included `navhal.h` through
 The ledger understates the real coupling in two ways. Both matter for the
 order of work.
 
-### 3.1 The invisible include (F1)
+### 3.1 The invisible include (F1) — closed 2026-09-28
 
-`firmware/src/est/attitude_task.c` includes no driver header, and the gate
-scores `core` at **0**. It also calls `bmx160_get_board_trim()` at line 210.
-The declaration arrives through `variables.h`, which includes `navhal.h` and
-`driver/bmx160.h` at lines 24–25.
+This section used to say that `est/attitude_task.c` includes no driver header,
+scores `core` at 0, and calls `bmx160_get_board_trim()` anyway — the
+declaration arriving through `variables.h`.
 
-10 of the 31 files that include `variables.h` are in sections the gate rates
-zero:
+That is fixed. `variables.h` now includes **nothing at all**, and the board
+trim comes from `hub/` like every other SI quantity. The header still has 31
+includers and still mixes four concerns, so F1 is not fully closed (§4.1), but
+it no longer carries silicon.
 
-```
-control/angle_controller.c      control/pid_config.c
-control/angle_rate_controller.c est/vertical_task.c
-est/attitude_task.c             est/sensor_fusion.c
-dsp/gyro_notch.c                include/control/control_buffer.h
-include/control/angle_controller.h
-include/control/angle_rate_controller.h
-```
+What the compiler's own dependency files say, before and after:
 
-Every "0" in the ledger is conditional on F1 until F1 is split.
+| Translation unit | NavHAL headers before | after |
+|---|---:|---:|
+| `control/angle_controller.c` | 77 | 2 |
+| `control/angle_rate_controller.c` | 77 | 2 |
+| `est/attitude_task.c` | 2 | 2 |
+| `est/vertical_task.c` | 2 | 2 |
+| every other TU in `control/ est/ dsp/ hub/` | 0 | 0 |
+
+`driver/bmx160.h` no longer reaches any of them.
+
+The 2 that remain are `common/hal_types.h` and `common/navhal_compiler.h` —
+types and compiler attributes, no function declarations, arriving through
+vaios. That is the controlled spill of §1.1 working as intended, not debt.
+
+The 77 were the whole HAL, and they came through an umbrella: `comm/comm.h`
+includes `comm/channel.h`, which includes `navhal.h`. Two control files wanted
+`rc_buffer.h` and got the entire peripheral API. They now include what they
+use. **An umbrella header is how this damage always arrives** — it was
+`driver/driver.h` the first time, `variables.h` the second, `comm/comm.h` the
+third.
 
 ### 3.2 Driver calls from outside `driver/`
 
-16 sites, 5 files. A driver called from a logic or service layer is coupling
+12 sites, 4 files. A driver called from a logic or service layer is coupling
 whether or not the gate's pattern happens to catch the line.
 
-| Caller | Calls |
-|---|---|
-| `main.c` | `bmx160_init`, `bme280_init`, `vl53l0x_init`, `init_i2c_manager` |
-| `actuator/motor.c` | `esc_init` ×4, `esc_arm`, `esc_set_throttle` ×4 |
-| `comm/telemetry_task.c` | `bme280_read_all` |
-| `comm/comm_processor.c` | `bmx160_calib_request_cancel` |
-| `est/attitude_task.c` | `bmx160_get_board_trim` ← the F1 case above |
+| Caller | Calls | Verdict |
+|---|---|---|
+| `main.c` | `bmx160_init`, `bme280_init`, `vl53l0x_init`, `init_i2c_manager` | composition root — correct, stays |
+| `actuator/motor.c` | `esc_init` ×4, `esc_arm`, `esc_set_throttle` ×4 | a thin ESC shim; its board facts are now macros, the calls are its job |
+| `comm/telemetry_task.c` | `bme280_read_all` | **misplaced** — should take an SI sample from `hub/` |
+| `comm/comm_processor.c` | `bmx160_calib_request_cancel` | **misplaced** — should go through a calibration service |
 
-`main.c` is composition root: wiring drivers there is correct and stays.
-`motor.c` is a thin ESC shim; it is the *board facts* in it (F7, F8) that are
-the problem, not the calls. The three that are genuinely misplaced are the
-last three rows.
-
----
+`est/attitude_task.c` was the fifth and is gone (§3.1).
 
 ## 4. Fault-line catalogue
 
 ### 4.1 Open
 
-#### F1 🔴🔴 — `variables.h` is a god-header that welds the tree to silicon
+#### F1 🟠 — `variables.h` is still a god-header (no longer a silicon one)
 
-`firmware/include/variables.h:24-25` includes `navhal.h` and
-`driver/bmx160.h`. 31 files include it, 10 of them in zero-rated sections
-(§3.1). It also carries pin macros (`_BLUE_LED_PIN`), `SYS_CLOCK_FREQ`,
-filenames and buffer sizes — four unrelated concerns in one header that
-everything takes.
+**The silicon weld is gone** (2026-09-28). `variables.h` includes nothing; the
+measured effect is in §3.1. What closed it:
 
-**Worst in the catalogue**, and the cheapest to fix: it is two lines in one
-file. Until it is split, every section count understates real coupling and the
-include-graph gate cannot be written.
+- board facts (LEDs, buzzer, I2C bus/pins/DR, IMU address, ESC timer and pins)
+  moved to `board/<name>/vayu_board.h`, selected by `VAYU_BOARD`
+- IMU tuning (ODRs, ranges, bandwidths) moved to `include/driver/bmx160.h`,
+  `#ifndef`-guarded — it is tuning, not a board fact
+- `extern channel_t g_telemetry_channel` moved to `comm/channel.h`, where
+  `channel_t` is declared, which removed the third silicon include
+- the board trim moved from a driver getter to `hub_get_board_trim()`
+- `I2C_MODE` and `BMX_MAG_ODR` were dead and were deleted
 
-**Fix:** drop both includes; let the ~15 files that actually need a HAL type
-include it themselves. Split what remains by concern — `board_pins.h`,
-`sys/clock.h` (already exists), storage filenames where they are used.
+**What remains:** 31 includers, and four unrelated concerns in one header —
+control tunables, loop rates, storage filenames and buffer sizes. Changing a
+PID default still recompiles the comm layer. That is a build-time cost and a
+readability one, not a portability one, which is why it drops from 🔴🔴 to 🟠.
+
+**Fix:** split by concern — `control/tuning.h`, `storage/paths.h`, and leave
+the rates. Not urgent; nothing depends on it now.
 
 #### F2b 🟠 — `i2c_config` is triple-aliased
 
@@ -209,9 +221,10 @@ the router its own indicator.
 
 #### F7 🟠 — TIM1 is re-initialised per channel with no single owner
 
-`firmware/src/actuator/motor.c:40-43` calls `esc_init(..., TIM1, n, pin)` four
-times; `esc_init` configures the timer each time. Four callers, one timer, no
-owner — the last call's prescaler wins, and nothing says so.
+`firmware/src/actuator/motor.c:41-44` calls `esc_init(..., BOARD_ESC_TIMER, n,
+BOARD_ESC_Mn_PIN)` four times; `esc_init` configures the timer each time. Four
+callers, one timer, no owner — the last call's prescaler wins, and nothing says
+so. The board macros fixed *where the numbers live*, not *who owns the timer*.
 
 **Fix:** a PWM group owner that configures TIM1 once and hands out channels.
 
@@ -257,24 +270,29 @@ with no registry to notice.
 Not the obvious order. Cheapest-with-widest-blast-radius first, because each
 step makes the next step's measurement honest.
 
-### Step 0 — F1, the god-header
+### Step 0 — F1, the god-header ✅ done 2026-09-28
 
-Two lines in one file, 31 dependents. Do this before anything else: it is the
-only change that makes every other count *true*, and it is a prerequisite for
-ever replacing the textual gate with an include-graph one.
+The silicon path is closed and the board layer exists. See §4.1 for what
+landed and what is left. `core`, `hub` and `dsp` now read 0 with the
+transitive path genuinely gone, which the dependency files confirm (§3.1) —
+before this, that 0 was conditional.
 
-**Accept when:** `variables.h` includes neither `navhal.h` nor a driver header;
-`core`, `hub` and `dsp` still read 0 with the transitive path gone; the
-`bmx160_get_board_trim` call in `attitude_task.c` is either routed through
-`hub/` or made an explicit include that the gate counts.
+### Step 1 — finish F9: the clock seam ✅ done 2026-09-28
 
-### Step 1 — finish F9: `vayu_clock_now()`
+`storage/imu_hs_log.c`'s three `hal_cycle_counter_get()` calls now go through
+`vayu_clock_cycles()`. `storage` ratcheted 3 → 0.
 
-Repoint the remaining `hal_cycle_counter_get()` consumers at `sys/clock.h`.
-3 lines in `storage/imu_hs_log.c`, plus the driver sites (which the rule
-allows to stay).
+These three were the only thing still proving F1 mattered: once `variables.h`
+stopped including `navhal.h`, they became implicit declarations and the build
+said so. A layering violation that the compiler cannot see is the dangerous
+kind — removing the umbrella is what made it visible.
 
-**Accept when:** `storage` ratchets 3 → 0.
+### Step 1b — `actuator` 5 → 1, partial F7/F8 ✅ done 2026-09-28
+
+`motor.c` no longer names `TIM1` or a pin; it uses the board macros. The
+remaining 1 is `#include "driver/esc.h"`, which is honest — `motor.c` is the
+ESC shim. F7 (nobody owns the timer) and F8 (AF hardcoded in `esc.c`) are
+untouched.
 
 ### Step 2 — `internal` (43 → 5)
 
@@ -284,10 +302,11 @@ collapses the heartbeat and router cases together.
 **Accept when:** `internal` is at 5 — `clock.c` (3) and `boot.c` (2), the
 legitimate seam. Lower the allowance to 5 in the same commit.
 
-### Step 3 — `actuator` (5 → 0), F7 + F8
+### Step 3 — `actuator` (1 → 0), F7 + F8
 
-`motor.c` stops naming `TIM1` and pins; a PWM group owner takes them.
-AF selection leaves `esc.c`.
+The pins and the timer are already board macros (step 1b). What is left is
+ownership: a PWM group owner that configures `BOARD_ESC_TIMER` once and hands
+out channels (F7), and moving AF selection out of `esc.c` (F8).
 
 ### Step 4 — `comm` (44 → ?), F12
 
@@ -296,9 +315,10 @@ UART/DMA is closer to being a driver than a violation. The valuable part here
 is the IRQ ownership registry, not the count. Decide `comm`'s floor before
 starting — it is probably not 0.
 
-The three misplaced driver calls (§3.2) fall out of steps 2–4: `bme280_read_all`
+The two misplaced driver calls (§3.2) fall out of steps 2–4: `bme280_read_all`
 and `bmx160_calib_request_cancel` should take their data from `hub/` or go
-through a service, not reach for the device.
+through a service, not reach for the device — the same move the board trim
+already made.
 
 ---
 
@@ -316,9 +336,14 @@ through a service, not reach for the device.
 
 ## 7. Not in scope
 
-- **A BSP.** Tempting, and it does dissolve F1/F7/F8 — but it is a large
-  mechanism bought up front for problems that a header split and a PWM owner
-  close individually. Revisit if a second board appears.
+- **A full BSP.** A minimal board layer landed with step 0 —
+  `firmware/board/<name>/vayu_board.h` plus a `VAYU_BOARD` selection, modelled
+  on NavHAL's own `src/board/<name>/board.h` so a board can graduate into
+  NavHAL by `git mv` plus a Kconfig entry. That is deliberately as far as it
+  goes: a macro list and a selector, no init hooks, no device tables, no
+  per-board driver registration. See `firmware/board/README.md`. The roadmap
+  (navixdev → navixsm_f401re → f441 → h767) crosses an MCU family, which is
+  what the layer is sized for; anything more is bought when a board needs it.
 - **Porting `driver/` to anything.** Drivers name silicon. That is the job.
 - **Driving `comm` to 0.** See step 4.
 - **Replacing the textual gate with an include-graph one.** Possible only

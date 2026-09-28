@@ -15,7 +15,8 @@
  * limitations under the License.
  */
 #include "control/angle_controller.h"
-#include "comm/comm.h"
+#include "comm/rc_buffer.h"
+#include "comm/comm_types.h"
 #include "control/angle_rate_controller.h"
 #include "control/flight_mode.h"
 #include "control/height_controller.h"

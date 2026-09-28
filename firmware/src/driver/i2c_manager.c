@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#include "vayu_board.h"
 #include "driver/i2c_manager.h"
 #include "ipc.h"
 #include "navhal.h"
@@ -51,31 +52,31 @@ static inline void i2c_manager_release_bus(void) { atomic_set(&_bus_busy, 0); }
 
 /** @implements SNS-I2C-102 */
 void i2c_manager_unstick(void) {
-  hal_gpio_set_mode(I2C_PIN_1, HAL_GPIO_MODE_OUTPUT, HAL_GPIO_PULL_UP);
-  hal_gpio_set_mode(I2C_PIN_2, HAL_GPIO_MODE_OUTPUT, HAL_GPIO_PULL_UP);
-  hal_gpio_set_output_type(I2C_PIN_1, HAL_GPIO_OTYPE_OPEN_DRAIN);
-  hal_gpio_set_output_type(I2C_PIN_2, HAL_GPIO_OTYPE_OPEN_DRAIN);
+  hal_gpio_set_mode(BOARD_I2C_SCL, HAL_GPIO_MODE_OUTPUT, HAL_GPIO_PULL_UP);
+  hal_gpio_set_mode(BOARD_I2C_SDA, HAL_GPIO_MODE_OUTPUT, HAL_GPIO_PULL_UP);
+  hal_gpio_set_output_type(BOARD_I2C_SCL, HAL_GPIO_OTYPE_OPEN_DRAIN);
+  hal_gpio_set_output_type(BOARD_I2C_SDA, HAL_GPIO_OTYPE_OPEN_DRAIN);
 
-  hal_gpio_write(I2C_PIN_2, HAL_GPIO_HIGH);
+  hal_gpio_write(BOARD_I2C_SDA, HAL_GPIO_HIGH);
   for (volatile int i = 0; i < 100; i++)
     ;
 
   for (int i = 0; i < 9; ++i) {
-    hal_gpio_write(I2C_PIN_1, HAL_GPIO_LOW);
+    hal_gpio_write(BOARD_I2C_SCL, HAL_GPIO_LOW);
     for (volatile int j = 0; j < 200; j++)
       ;
-    hal_gpio_write(I2C_PIN_1, HAL_GPIO_HIGH);
+    hal_gpio_write(BOARD_I2C_SCL, HAL_GPIO_HIGH);
     for (volatile int j = 0; j < 200; j++)
       ;
   }
 
-  hal_gpio_write(I2C_PIN_2, HAL_GPIO_LOW);
+  hal_gpio_write(BOARD_I2C_SDA, HAL_GPIO_LOW);
   for (volatile int j = 0; j < 200; j++)
     ;
-  hal_gpio_write(I2C_PIN_1, HAL_GPIO_HIGH);
+  hal_gpio_write(BOARD_I2C_SCL, HAL_GPIO_HIGH);
   for (volatile int j = 0; j < 200; j++)
     ;
-  hal_gpio_write(I2C_PIN_2, HAL_GPIO_HIGH);
+  hal_gpio_write(BOARD_I2C_SDA, HAL_GPIO_HIGH);
   for (volatile int j = 0; j < 200; j++)
     ;
 }
@@ -114,16 +115,16 @@ i2c_init:
    * so a stuck BUSY (HAL_ERR_IO) could never clear and the bus wedged for good.
    * Deinit clears the init bit so the hal_i2c_init() below actually resets +
    * reconfigures the peripheral. */
-  hal_i2c_deinit(I2C_BUS);
+  hal_i2c_deinit(BOARD_I2C_BUS);
 
   // Configure GPIO for I2C1 (PB8=SCL, PB9=SDA)
-  hal_gpio_set_alternate_function(I2C_PIN_1, GPIO_FUNC_I2C);
-  hal_gpio_set_alternate_function(I2C_PIN_2, GPIO_FUNC_I2C);
-  hal_gpio_set_output_type(I2C_PIN_1, HAL_GPIO_OTYPE_OPEN_DRAIN);
-  hal_gpio_set_output_type(I2C_PIN_2, HAL_GPIO_OTYPE_OPEN_DRAIN);
-  hal_gpio_set_output_speed(I2C_PIN_1, HAL_GPIO_SPEED_VERY_HIGH);
-  hal_gpio_set_output_speed(I2C_PIN_2, HAL_GPIO_SPEED_VERY_HIGH);
-  hal_status_t ts = hal_i2c_init(I2C_BUS, &i2c_config);
+  hal_gpio_set_alternate_function(BOARD_I2C_SCL, GPIO_FUNC_I2C);
+  hal_gpio_set_alternate_function(BOARD_I2C_SDA, GPIO_FUNC_I2C);
+  hal_gpio_set_output_type(BOARD_I2C_SCL, HAL_GPIO_OTYPE_OPEN_DRAIN);
+  hal_gpio_set_output_type(BOARD_I2C_SDA, HAL_GPIO_OTYPE_OPEN_DRAIN);
+  hal_gpio_set_output_speed(BOARD_I2C_SCL, HAL_GPIO_SPEED_VERY_HIGH);
+  hal_gpio_set_output_speed(BOARD_I2C_SDA, HAL_GPIO_SPEED_VERY_HIGH);
+  hal_status_t ts = hal_i2c_init(BOARD_I2C_BUS, &i2c_config);
 
   if (ts != HAL_OK && ts != HAL_ERR_NOT_INITIALIZED) {
     return ts;
@@ -147,7 +148,7 @@ hal_status_t i2c_manager_write(uint8_t addr, uint8_t *data, uint16_t len) {
     v_mutex_unlock(_i2c_sema);
     return HAL_ERR_TIMEOUT;
   }
-  hal_status_t ts = hal_i2c_write(I2C_BUS, addr, data, len);
+  hal_status_t ts = hal_i2c_write(BOARD_I2C_BUS, addr, data, len);
   i2c_manager_release_bus();
   v_mutex_unlock(_i2c_sema);
   return ts;
@@ -162,7 +163,7 @@ hal_status_t i2c_manager_read(uint8_t addr, uint8_t *data, uint16_t len) {
     v_mutex_unlock(_i2c_sema);
     return HAL_ERR_TIMEOUT;
   }
-  hal_status_t ts = hal_i2c_read(I2C_BUS, addr, data, len);
+  hal_status_t ts = hal_i2c_read(BOARD_I2C_BUS, addr, data, len);
   i2c_manager_release_bus();
   v_mutex_unlock(_i2c_sema);
   return ts;
@@ -180,7 +181,7 @@ hal_status_t i2c_manager_write_read(uint8_t addr, uint8_t *tx_data,
     return HAL_ERR_TIMEOUT;
   }
   hal_status_t ts =
-      hal_i2c_write_read(I2C_BUS, addr, tx_data, tx_len, rx_data, rx_len);
+      hal_i2c_write_read(BOARD_I2C_BUS, addr, tx_data, tx_len, rx_data, rx_len);
   i2c_manager_release_bus();
   v_mutex_unlock(_i2c_sema);
   return ts;
@@ -213,7 +214,7 @@ hal_status_t i2c_manager_read_async(uint8_t addr, uint8_t reg_addr,
                                   .stream = 0,
                                   .channel = 1,
                                   .direction = HAL_DMA_DIR_P2M,
-                                  .src_addr = I2C_DR_REG_ADDR,
+                                  .src_addr = BOARD_I2C_DR_ADDR,
                                   .dst_addr = (uint32_t)_rx_data,
                                   .data_count = len,
                                   .src_inc = 0,

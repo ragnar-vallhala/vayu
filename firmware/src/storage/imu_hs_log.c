@@ -772,7 +772,7 @@ static bool emit_event(uint8_t kind, uint32_t a, uint32_t b) {
   e[0] = (uint8_t)HSL_TYPE_EVENT;
   put_u16(&e[2], (uint16_t)(HSL_SECTOR_BYTES - HSL_FRAME_HDR_BYTES));
   /* e[8..11] seq, stamped by ring_write */
-  put_u32(&e[12], hal_cycle_counter_get());
+  put_u32(&e[12], vayu_clock_cycles());
   e[16] = kind;
   put_u32(&e[20], a);
   put_u32(&e[24], b);
@@ -835,7 +835,7 @@ static void session_start(void) {
   const uint64_t unix_ms = get_timestamp_unix();
   put_u32(&sf[16], (uint32_t)(unix_ms & 0xFFFFFFFFu));
   put_u32(&sf[20], (uint32_t)(unix_ms >> 32));
-  put_u32(&sf[24], hal_cycle_counter_get());
+  put_u32(&sf[24], vayu_clock_cycles());
   sf[28] = time_sync_is_synced() ? 1u : 0u;
 
   if (!ring_write(sf) || !flush_preamble()) {
@@ -1119,7 +1119,7 @@ void imu_hs_log_boot_init(void) {
         get_u32(&old[0]) == HSL_MAGIC) {
       s_gen = get_u32(&old[32]) + 1u;
     } else {
-      s_gen = hal_cycle_counter_get();
+      s_gen = vayu_clock_cycles();
     }
     /* Never collide with the sentinel a scrubbed or erased card would show. */
     if (HSL_SENTINEL_FOR(s_gen) == HSL_SENTINEL_FOR(s_gen + 1u)) {

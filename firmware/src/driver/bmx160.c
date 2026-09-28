@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#include "vayu_board.h"
 #include "driver/bmx160.h"
 #include "storage/imu_hs_log.h"
 #include "calib/calib_engine.h"
@@ -146,12 +147,6 @@ static bmx160_calibration_t bmx160_calib = {
  * calibration takes effect without a reboot; two float reads, no lock (the
  * estimator reads while the calibration task may write — a torn read is
  * harmless, same R8.6 rationale as the gyro-bias offset). */
-void bmx160_get_board_trim(float *roll_deg, float *pitch_deg) {
-  if (roll_deg)
-    *roll_deg = bmx160_calib.board_trim[0];
-  if (pitch_deg)
-    *pitch_deg = bmx160_calib.board_trim[1];
-}
 
 /* Set by bmx160_calib_request_cancel() (CMD_CANCEL_CALIBRATION), polled and
  * cleared by calibration_task. volatile: written from the comm task, read from
@@ -191,8 +186,8 @@ static bmx160_err_type bmx160_wait_mag_manual_op(void) {
   uint8_t status;
   int timeout = 100;
   do {
-    if (i2c_manager_write_read(BMX160_I2C_ADDR, &status_reg, 1, &status, 1) !=
-        HAL_OK)
+    if (i2c_manager_write_read(BOARD_IMU_I2C_ADDR, &status_reg, 1, &status,
+                               1) != HAL_OK)
       return ERR0;
     if (!(status & 0x04)) // mag_man_op bit clear = operation done
       return NO_ERR;
@@ -202,8 +197,8 @@ static bmx160_err_type bmx160_wait_mag_manual_op(void) {
   // Phase 2: wait for mag_man_op to go LOW (operation complete)
   timeout = 100;
   do {
-    if (i2c_manager_write_read(BMX160_I2C_ADDR, &status_reg, 1, &status, 1) !=
-        HAL_OK)
+    if (i2c_manager_write_read(BOARD_IMU_I2C_ADDR, &status_reg, 1, &status,
+                               1) != HAL_OK)
       return ERR0;
     if (!(status & 0x04))
       return NO_ERR;
@@ -218,7 +213,8 @@ static bmx160_err_type bmx160_wait_mag_manual_op(void) {
 static bmx160_err_type bmx160_verify_pmu(uint8_t mask, uint8_t expected) {
   uint8_t reg = BMX160_PMU_STAT_ADDR;
 
-  if (i2c_manager_write_read(BMX160_I2C_ADDR, &reg, 1, rx_buf, 1) != HAL_OK) {
+  if (i2c_manager_write_read(BOARD_IMU_I2C_ADDR, &reg, 1, rx_buf, 1) !=
+      HAL_OK) {
 
     return ERR0;
   }
@@ -257,6 +253,8 @@ hal_status_t bmx160_init(void) {
         hdr.magic == CALIB_FILE_MAGIC && hdr.version == CALIB_FILE_VERSION &&
         hdr.payload_size == (uint16_t)sizeof(bmx160_calibration_t)) {
       bmx160_calib = loaded;
+      hub_set_board_trim(bmx160_calib.board_trim[0],
+                         bmx160_calib.board_trim[1]);
       vayu_log("[CALIB] Calibration loaded (v%u).", (unsigned)hdr.version);
     } else {
       vayu_log(
@@ -272,7 +270,7 @@ hal_status_t bmx160_init(void) {
   // 2. Soft Reset to ensure clean state
   tx_buf[0] = BMX160_CMD_ADDR;
   tx_buf[1] = 0xB6; // softreset command
-  i2c_manager_write(BMX160_I2C_ADDR, tx_buf, 2);
+  i2c_manager_write(BOARD_IMU_I2C_ADDR, tx_buf, 2);
   v_delay(100);
 
   // 3. Put accelerometer into normal mode
@@ -280,7 +278,7 @@ hal_status_t bmx160_init(void) {
   while (retry--) {
     tx_buf[0] = BMX160_CMD_ADDR;
     tx_buf[1] = BMX160_CMD_ACC_NORMAL;
-    i2c_manager_write(BMX160_I2C_ADDR, tx_buf, 2);
+    i2c_manager_write(BOARD_IMU_I2C_ADDR, tx_buf, 2);
     v_delay(20);
     if (bmx160_verify_pmu(BMX160_PMU_STAT_ACC_MASK,
                           BMX160_PMU_STAT_ACC_NORMAL) == NO_ERR) {
@@ -293,7 +291,7 @@ hal_status_t bmx160_init(void) {
   while (retry--) {
     tx_buf[0] = BMX160_CMD_ADDR;
     tx_buf[1] = BMX160_CMD_GYR_NORMAL;
-    i2c_manager_write(BMX160_I2C_ADDR, tx_buf, 2);
+    i2c_manager_write(BOARD_IMU_I2C_ADDR, tx_buf, 2);
     v_delay(100);
     if (bmx160_verify_pmu(BMX160_PMU_STAT_GYR_MASK,
                           BMX160_PMU_STAT_GYR_NORMAL) == NO_ERR) {
@@ -306,7 +304,7 @@ hal_status_t bmx160_init(void) {
   while (retry--) {
     tx_buf[0] = BMX160_CMD_ADDR;
     tx_buf[1] = BMX160_CMD_MAG_NORMAL;
-    i2c_manager_write(BMX160_I2C_ADDR, tx_buf, 2);
+    i2c_manager_write(BOARD_IMU_I2C_ADDR, tx_buf, 2);
     v_delay(100);
     if (bmx160_verify_pmu(BMX160_PMU_STAT_MAG_MASK,
                           BMX160_PMU_STAT_MAG_NORMAL) == NO_ERR) {
@@ -378,7 +376,7 @@ static bmx160_err_type bmx160_write_bmm150_reg(uint8_t reg, uint8_t data) {
   tx_buf[0] = BMX160_MAG_IF_3_DATA_ADDR;
   tx_buf[1] = data;
 
-  if (i2c_manager_write(BMX160_I2C_ADDR, tx_buf, 2) != HAL_OK) {
+  if (i2c_manager_write(BOARD_IMU_I2C_ADDR, tx_buf, 2) != HAL_OK) {
     return ERR0;
   }
 
@@ -387,7 +385,7 @@ static bmx160_err_type bmx160_write_bmm150_reg(uint8_t reg, uint8_t data) {
   tx_buf[0] = BMX160_MAG_IF_2_REG_ADDR;
   tx_buf[1] = reg;
 
-  if (i2c_manager_write(BMX160_I2C_ADDR, tx_buf, 2) != HAL_OK) {
+  if (i2c_manager_write(BOARD_IMU_I2C_ADDR, tx_buf, 2) != HAL_OK) {
     return ERR0;
   }
 
@@ -408,7 +406,7 @@ static bmx160_err_type bmx160_read_bmm150_reg(uint8_t reg, uint8_t *data) {
   tx_buf[0] = BMX160_MAG_IF_1_READ_ADDR;
   tx_buf[1] = reg;
 
-  if (i2c_manager_write(BMX160_I2C_ADDR, tx_buf, 2) != HAL_OK) {
+  if (i2c_manager_write(BOARD_IMU_I2C_ADDR, tx_buf, 2) != HAL_OK) {
     return ERR0;
   }
 
@@ -417,7 +415,7 @@ static bmx160_err_type bmx160_read_bmm150_reg(uint8_t reg, uint8_t *data) {
 
   uint8_t read_reg = 0x04; // MAG_X_LSB in BMX160 is where IF data appears
 
-  if (i2c_manager_write_read(BMX160_I2C_ADDR, &read_reg, 1, data, 1) !=
+  if (i2c_manager_write_read(BOARD_IMU_I2C_ADDR, &read_reg, 1, data, 1) !=
       HAL_OK) {
     return ERR0;
   }
@@ -460,13 +458,13 @@ static bmx160_err_type bmx160_set_mag_conf(void) {
   // 1. Route secondary I2C interface to Magnetometer (0x6B = 0x20)
   tx_buf[0] = BMX160_IF_CONF_ADDR;
   tx_buf[1] = 0x20;
-  i2c_manager_write(BMX160_I2C_ADDR, tx_buf, 2);
+  i2c_manager_write(BOARD_IMU_I2C_ADDR, tx_buf, 2);
   v_delay(1);
 
   // 2. Enter Manual Mode to allow BMM150 writes/reads
   tx_buf[0] = BMX160_MAG_IF_0_CONF_ADDR;
   tx_buf[1] = 0x80; // manual_en = 1
-  i2c_manager_write(BMX160_I2C_ADDR, tx_buf, 2);
+  i2c_manager_write(BOARD_IMU_I2C_ADDR, tx_buf, 2);
   v_delay(1);
 
   // 3. Take BMM150 out of suspend (Manual write 0x01 to BMM150 Reg 0x4B)
@@ -491,13 +489,13 @@ static bmx160_err_type bmx160_set_mag_conf(void) {
   // 6. Set Mag Read Address to 0x42 (Data X LSB)
   tx_buf[0] = BMX160_MAG_IF_1_READ_ADDR;
   tx_buf[1] = 0x42;
-  i2c_manager_write(BMX160_I2C_ADDR, tx_buf, 2);
+  i2c_manager_write(BOARD_IMU_I2C_ADDR, tx_buf, 2);
   v_delay(1);
 
   // 7. Configure ODR (0x44 = 0x08 for 100Hz)
   tx_buf[0] = BMX160_MAG_CONF_ADDR;
   tx_buf[1] = 0x08;
-  i2c_manager_write(BMX160_I2C_ADDR, tx_buf, 2);
+  i2c_manager_write(BOARD_IMU_I2C_ADDR, tx_buf, 2);
   v_delay(1);
 
   // 8. Verify BMM150 Chip ID (Register 0x40) - MUST BE DONE IN MANUAL MODE
@@ -515,13 +513,13 @@ static bmx160_err_type bmx160_set_mag_conf(void) {
   // bug). Step 6 set this, but the chip-ID check clobbered it.
   tx_buf[0] = BMX160_MAG_IF_1_READ_ADDR;
   tx_buf[1] = 0x42;
-  i2c_manager_write(BMX160_I2C_ADDR, tx_buf, 2);
+  i2c_manager_write(BOARD_IMU_I2C_ADDR, tx_buf, 2);
   v_delay(1);
 
   // 9. Enable Auto-mode (manual_en = 0, burst_read = 8 bytes)
   tx_buf[0] = BMX160_MAG_IF_0_CONF_ADDR;
   tx_buf[1] = 0x03;
-  i2c_manager_write(BMX160_I2C_ADDR, tx_buf, 2);
+  i2c_manager_write(BOARD_IMU_I2C_ADDR, tx_buf, 2);
   v_delay(10);
 
   return NO_ERR;
@@ -532,7 +530,7 @@ uint16_t bmx160_get_chip_id(void) {
   uint8_t reg = BMX160_CHIP_ID_ADDR;
   hal_status_t ret;
 
-  ret = i2c_manager_write_read(BMX160_I2C_ADDR, &reg, 1, rx_buf, 1);
+  ret = i2c_manager_write_read(BOARD_IMU_I2C_ADDR, &reg, 1, rx_buf, 1);
   if (ret != HAL_OK) {
     return 0xFFFF;
   }
@@ -749,7 +747,8 @@ bmx160_err_type bmx160_read_all_converted(bmx160_all_reading_t *data) {
 bmx160_err_type bmx160_read_acc_config(bmx160_config_t *config) {
   // Reading ACC conf
   tx_buf[0] = BMX160_ACC_CONF_ADDR;
-  if (i2c_manager_write_read(BMX160_I2C_ADDR, tx_buf, 1, rx_buf, 1) == HAL_OK) {
+  if (i2c_manager_write_read(BOARD_IMU_I2C_ADDR, tx_buf, 1, rx_buf, 1) ==
+      HAL_OK) {
     config->bmx160_acc_us = GET_ACC_US(rx_buf[0]);
     config->bmx160_acc_bwp = GET_ACC_BWP(rx_buf[0]);
     config->bmx160_acc_odr = GET_ACC_ODR(rx_buf[0]);
@@ -757,7 +756,8 @@ bmx160_err_type bmx160_read_acc_config(bmx160_config_t *config) {
     return ERR0;
 
   tx_buf[0] = BMX160_ACC_RANGE_ADDR;
-  if (i2c_manager_write_read(BMX160_I2C_ADDR, tx_buf, 1, rx_buf, 1) == HAL_OK) {
+  if (i2c_manager_write_read(BOARD_IMU_I2C_ADDR, tx_buf, 1, rx_buf, 1) ==
+      HAL_OK) {
     config->bmx160_acc_range = GET_ACC_RANGE(rx_buf[0]);
   } else
     return ERR0;
@@ -768,14 +768,16 @@ bmx160_err_type bmx160_read_acc_config(bmx160_config_t *config) {
 bmx160_err_type bmx160_read_gyr_config(bmx160_config_t *config) {
   // Reading GYR conf
   tx_buf[0] = BMX160_GYR_CONF_ADDR;
-  if (i2c_manager_write_read(BMX160_I2C_ADDR, tx_buf, 1, rx_buf, 1) == HAL_OK) {
+  if (i2c_manager_write_read(BOARD_IMU_I2C_ADDR, tx_buf, 1, rx_buf, 1) ==
+      HAL_OK) {
     config->bmx160_gyr_bwp = GET_GYR_BWP(rx_buf[0]);
     config->bmx160_gyr_odr = GET_GYR_ODR(rx_buf[0]);
   } else
     return ERR0;
 
   tx_buf[0] = BMX160_GYR_RANGE_ADDR;
-  if (i2c_manager_write_read(BMX160_I2C_ADDR, tx_buf, 1, rx_buf, 1) == HAL_OK) {
+  if (i2c_manager_write_read(BOARD_IMU_I2C_ADDR, tx_buf, 1, rx_buf, 1) ==
+      HAL_OK) {
     config->bmx160_gyr_range = GET_GYR_RANGE(rx_buf[0]);
   } else
     return ERR0;
@@ -786,7 +788,8 @@ bmx160_err_type bmx160_read_gyr_config(bmx160_config_t *config) {
 bmx160_err_type bmx160_read_mag_config(bmx160_config_t *config) {
   // Reading MAG conf
   tx_buf[0] = BMX160_MAG_CONF_ADDR;
-  if (i2c_manager_write_read(BMX160_I2C_ADDR, tx_buf, 1, rx_buf, 1) == HAL_OK) {
+  if (i2c_manager_write_read(BOARD_IMU_I2C_ADDR, tx_buf, 1, rx_buf, 1) ==
+      HAL_OK) {
     config->bmx160_mag_odr = GET_MAG_ODR(rx_buf[0]);
   } else
     return ERR0;
@@ -883,14 +886,14 @@ bmx160_err_type bmx160_write_acc_config(bmx160_config_t *config) {
   val = bmx160_get_acc_conf(config);
   tx_buf[0] = BMX160_ACC_CONF_ADDR;
   tx_buf[1] = val;
-  if (i2c_manager_write(BMX160_I2C_ADDR, tx_buf, 2) != HAL_OK)
+  if (i2c_manager_write(BOARD_IMU_I2C_ADDR, tx_buf, 2) != HAL_OK)
     return ERR0;
 
   // --- ACC_RANGE ---
   val = bmx160_get_acc_range(config);
   tx_buf[0] = BMX160_ACC_RANGE_ADDR;
   tx_buf[1] = val;
-  if (i2c_manager_write(BMX160_I2C_ADDR, tx_buf, 2) != HAL_OK)
+  if (i2c_manager_write(BOARD_IMU_I2C_ADDR, tx_buf, 2) != HAL_OK)
     return ERR0;
 
   return NO_ERR;
@@ -904,14 +907,14 @@ bmx160_err_type bmx160_write_gyr_config(bmx160_config_t *config) {
   val = bmx160_get_gyr_conf(config);
   tx_buf[0] = BMX160_GYR_CONF_ADDR;
   tx_buf[1] = val;
-  if (i2c_manager_write(BMX160_I2C_ADDR, tx_buf, 2) != HAL_OK)
+  if (i2c_manager_write(BOARD_IMU_I2C_ADDR, tx_buf, 2) != HAL_OK)
     return ERR0;
 
   // --- GYR_RANGE ---
   val = bmx160_get_gyr_range(config);
   tx_buf[0] = BMX160_GYR_RANGE_ADDR;
   tx_buf[1] = val;
-  if (i2c_manager_write(BMX160_I2C_ADDR, tx_buf, 2) != HAL_OK)
+  if (i2c_manager_write(BOARD_IMU_I2C_ADDR, tx_buf, 2) != HAL_OK)
     return ERR0;
 
   return NO_ERR;
@@ -925,7 +928,7 @@ bmx160_err_type bmx160_write_mag_config(bmx160_config_t *config) {
   val = bmx160_get_mag_conf(config);
   tx_buf[0] = BMX160_MAG_CONF_ADDR;
   tx_buf[1] = val;
-  if (i2c_manager_write(BMX160_I2C_ADDR, tx_buf, 2) != HAL_OK)
+  if (i2c_manager_write(BOARD_IMU_I2C_ADDR, tx_buf, 2) != HAL_OK)
     return ERR0;
 
   return NO_ERR;
@@ -1011,15 +1014,15 @@ void bmx160_initiate_read(void *args) {
          * keeps the chain alive if the tick source ever stalls. */
         v_semaphore_take(bmx160_fast_tick_sema, 0); /* clear stale */
         v_semaphore_take(bmx160_fast_tick_sema, MS_TO_TICKS(2));
-        ret = i2c_manager_read_async(BMX160_I2C_ADDR, 0x0C, 12,
+        ret = i2c_manager_read_async(BOARD_IMU_I2C_ADDR, 0x0C, 12,
                                      bmx160_dma_callback_fast);
         break;
       case IMU_OP_MAG:
-        ret = i2c_manager_read_async(BMX160_I2C_ADDR, 0x04, 8,
+        ret = i2c_manager_read_async(BOARD_IMU_I2C_ADDR, 0x04, 8,
                                      bmx160_dma_callback_mag);
         break;
       case IMU_OP_TEMP:
-        ret = i2c_manager_read_async(BMX160_I2C_ADDR, 0x20, 2,
+        ret = i2c_manager_read_async(BOARD_IMU_I2C_ADDR, 0x20, 2,
                                      bmx160_dma_callback_temp);
         break;
       case IMU_OP_RIDE: {
@@ -1054,7 +1057,7 @@ void bmx160_initiate_read(void *args) {
         _last_op = IMU_OP_FAST;
 
         // CRITICAL: START DMA MANUALLY
-        hal_status_t ret = i2c_manager_read_async(BMX160_I2C_ADDR, 0x0C, 12,
+        hal_status_t ret = i2c_manager_read_async(BOARD_IMU_I2C_ADDR, 0x0C, 12,
                                                   bmx160_dma_callback_fast);
 
         if (ret != HAL_OK) {
@@ -2046,6 +2049,7 @@ void calibration_task(void *args) {
     }
     bmx160_calib.board_trim[0] = roll;
     bmx160_calib.board_trim[1] = pitch;
+    hub_set_board_trim(roll, pitch);
     vayu_log("[CALIB] Board trim: roll %.2f, pitch %.2f deg", roll, pitch);
 
   } else {

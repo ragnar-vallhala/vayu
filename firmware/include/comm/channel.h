@@ -66,4 +66,10 @@ err_t flush_channel(channel_t channel);
 uint32_t channel_tx_overflow_count(void);
 
 void flush_task(void *args);
+
+/* The telemetry channel, opened by main.c. Declared here rather than in
+ * variables.h because channel_t is declared here: variables.h had to include
+ * this header to name the type, which dragged navhal.h into all 31 of its
+ * includers (fault line F1). */
+extern channel_t g_telemetry_channel;
 #endif // VAYU_CHANNEL_H

@@ -17,62 +17,29 @@
 #ifndef VAYU_VARIABLES_H
 #define VAYU_VARIABLES_H
 
-// Include HAL Layer
-#ifndef CORTEX_M4
-#define CORTEX_M4
-#endif // !CORTEX_M4
-#include "navhal.h"
-#include "driver/bmx160.h"
+/* Portable tunables, rates, sizes and filenames -- NO silicon.
+ *
+ * This header is included by 31 translation units across the whole tree, which
+ * is exactly why it must not name a pin, a bus, a peripheral or a chip: doing
+ * so welded navhal.h and the BMX160 register map into the logic layers
+ * (fault line F1). Board facts live in board/board.h, and only the four files
+ * that need one include it. Keep it that way.
+ */
 
 /* Clock Freq -- the rate the PLL is configured to produce, which boot.c checks
  * the live clock against. It is NOT what cycle-stamp maths divides by: see
  * vayu_clock_hz() in sys/clock.h for the measured rate. */
 #define SYS_CLOCK_FREQ 84000000 // 84MHz
 
-// Physical Heartbeat LED
-#define _BLUE_LED_PIN GPIO_PB12
-#define _GREEN_LED_PIN GPIO_PB13
-#define _RED_LED_PIN GPIO_PB14
-#define _BUZZER_PIN GPIO_PA05
+// Heartbeat (the pins are board/board.h)
 #define _HEARTBEAT_DEFAULT_TIMEPERIOD 1000 // 1000ms
 
-// I2C Control
+// I2C Control (the bus, its pins and its DR address are board/board.h)
 #define MAX_I2C_DEVICES 10
 #define I2C_MAX_TX_LEN 32
 #define I2C_MAX_RX_LEN 64
-#define I2C_BUS HAL_I2C_1
-#define I2C_MODE HAL_I2C_SPEED_FAST
-#define I2C_PIN_1 GPIO_PB08
-#define I2C_PIN_2 GPIO_PB09
-#define I2C_DR_REG_ADDR (uint32_t)(0x40005400 + 0x10)
 #define I2C_MANAGER_SEMAPHORE_TIMEOUT 3 // ms
 #define I2C_MANAGER_DMA_TIMEOUT 3       // ms
-// IMU Sensor
-#define BMX160_I2C_ADDR 0x68
-
-// ODR Configurations (using bmx160_odr_t enums). Written to the chip by
-// bmx160_init;
-// 1600 Hz is the accelerometer's maximum in normal power mode and sits under
-// the IMU_SAMPLE_FREQ_HZ poll rate, so the poll never aliases the sensor.
-#define BMX_ACC_ODR BMX160_ODR_1600HZ
-// Normal is REQUIRED, not preferred: the datasheet's 2.2.1.1 says acc_bwp must
-// be 0b010 whenever acc_us is 0, and an illegal pair raises ERR_REG. 3 dB
-// cutoff at 1600 Hz is 684 Hz, and 353 Hz on Z (datasheet table 13).
-#define BMX_ACC_BWP BMX_BWP_NORMAL
-#define BMX_ACC_US 0 // undersampling is a low-power-mode feature
-#define BMX_ACC_RANGE BMX160_ACC_16G
-
-// The gyro alone can reach 3200 Hz (the accelerometer's ceiling is 1600), which
-// would move its 3 dB cutoff from 523.9 Hz to 890 Hz and cost less filter delay
-// in the rate loop. Not taken: 890 Hz leaves almost no margin under the
-// measured ~1827 Hz poll, whose Nyquist is 913 Hz (datasheet table 15).
-#define BMX_GYR_ODR BMX160_ODR_1600HZ
-#define BMX_GYR_BWP BMX_BWP_NORMAL
-// 2000 dps
-#define BMX_GYR_RANGE BMX160_GYR_2000
-
-#define BMX_MAG_ODR BMX160_ODR_50HZ
-
 // Comm settings
 /* One slot per UART that get_handler() is actually asked for. Today that is
  * telemetry (USART6) and nothing else -- RC drives its UART directly rather
@@ -462,11 +429,6 @@ typedef struct __attribute__((packed)) {
   1500 // ~30 s budget; if the board never settles, fail (keep the old offset)
 #define GYRO_CAL_VAR_MAX                                                       \
   1.0f // dps^2 per-axis variance ceiling on the accepted window
-
-// Global telemetry channel and mutex
-#include "comm/channel.h"
-#include "ipc.h"
-extern channel_t g_telemetry_channel;
 
 // Telemetry
 #define ENABLE_BINARY_NAVLINK_PKT 1

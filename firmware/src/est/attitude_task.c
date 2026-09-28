@@ -207,7 +207,7 @@ void attitude_task(void *args) {
      * only; yaw is unaffected. 0,0 until a board-level calibration is run. */
     {
       float trim_roll, trim_pitch;
-      bmx160_get_board_trim(&trim_roll, &trim_pitch);
+      hub_get_board_trim(&trim_roll, &trim_pitch);
       ori.roll -= trim_roll;
       ori.pitch -= trim_pitch;
     }

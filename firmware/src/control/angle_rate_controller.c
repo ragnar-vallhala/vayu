@@ -16,7 +16,8 @@
  */
 #include "control/angle_rate_controller.h"
 #include "actuator/motor.h"
-#include "comm/comm.h"
+#include "comm/rc_buffer.h"
+#include "comm/comm_types.h"
 #include "control/angle_controller.h"
 #include "control/pid_config.h"
 #include "control/control_buffer.h"

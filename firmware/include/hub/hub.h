@@ -164,4 +164,17 @@ bool imu_queue_calibration_telemetry_pop(
 bool imu_queue_calibration_telemetry_peek(
     imu_calibration_telemetry_t *out_sample);
 
+/* Board mounting tilt (degrees, roll/pitch), published by whoever owns the
+ * calibration store and subtracted from the estimator's euler output so a
+ * tilted FC still reports the TRUE frame level. 0,0 until a board-level
+ * calibration (imu_id 4) has been run.
+ *
+ * It lives here for the same reason the samples do: it is an SI quantity the
+ * estimator needs, and reaching into the IMU driver to fetch it put
+ * driver/bmx160.h -- and with it the whole register map -- inside est/
+ * (fault line F1). Scalars, not a ring: last write wins, and the only writes
+ * are a boot load and the end of a calibration run. */
+void hub_set_board_trim(float roll_deg, float pitch_deg);
+void hub_get_board_trim(float *roll_deg, float *pitch_deg);
+
 #endif // VAYU_IMU_BUFFER_H

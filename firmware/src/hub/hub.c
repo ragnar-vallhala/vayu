@@ -374,3 +374,24 @@ bool imu_queue_calibration_telemetry_peek(
     imu_calibration_telemetry_t *out_sample) {
   return spsc_peek(&_imu_calibration_telemetry_queue, out_sample, 1);
 }
+
+/* Mounting tilt, deg. Written on a calibration load/capture (calibration task
+ * or boot), read by the attitude task each publish. Two independent floats:
+ * a torn pair is not possible on a 32-bit store, and the worst case is one
+ * axis updating a cycle before the other on the one write per calibration. */
+static float _board_trim_roll = 0.0f;
+static float _board_trim_pitch = 0.0f;
+
+/** @noreq Thin accessor. */
+void hub_set_board_trim(float roll_deg, float pitch_deg) {
+  _board_trim_roll = roll_deg;
+  _board_trim_pitch = pitch_deg;
+}
+
+/** @noreq Thin accessor. */
+void hub_get_board_trim(float *roll_deg, float *pitch_deg) {
+  if (roll_deg)
+    *roll_deg = _board_trim_roll;
+  if (pitch_deg)
+    *pitch_deg = _board_trim_pitch;
+}

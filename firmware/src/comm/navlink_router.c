@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#include "vayu_board.h"
 #include "comm/navlink_router.h"
 #include "comm/channel.h"
 #include "comm/comm_types.h"
@@ -28,7 +29,7 @@
 #include "navhal.h"             /* hal_gpio_write, HAL_GPIO_HIGH/LOW */
 #include "sys/sys_utils.h"      /* get_device_id */
 #include "utils.h"              /* v_get_ticks, v_memcpy */
-#include "variables.h"          /* _BLUE_LED_PIN */
+#include "variables.h"          /* BOARD_LED_BLUE */
 #include "vayu_status.h"
 #include "vayu_tasks.h"             /* comm_processor_dispatch */
 #include "comm/xfer/navlink_xfer.h" /* bulk-transfer substrate SM (codec-blind) */
@@ -60,7 +61,7 @@ static void blink_start(void) {
   }
   s_blink_last = now;
   s_blink_on = 1u;
-  hal_gpio_write(_BLUE_LED_PIN, HAL_GPIO_HIGH);
+  hal_gpio_write(BOARD_LED_BLUE, HAL_GPIO_HIGH);
 }
 
 /** @noreq blue-LED activity feedback service */
@@ -72,13 +73,13 @@ static void blink_service(void) {
   if ((int32_t)(now - s_blink_end) >= 0) { /* window elapsed (wrap-safe) */
     s_blink_end = 0u;
     s_blink_on = 0u;
-    hal_gpio_write(_BLUE_LED_PIN, HAL_GPIO_LOW);
+    hal_gpio_write(BOARD_LED_BLUE, HAL_GPIO_LOW);
     return;
   }
   if ((now - s_blink_last) >= BLINK_HALF_MS) {
     s_blink_last = now;
     s_blink_on = (uint8_t)!s_blink_on;
-    hal_gpio_write(_BLUE_LED_PIN, s_blink_on ? HAL_GPIO_HIGH : HAL_GPIO_LOW);
+    hal_gpio_write(BOARD_LED_BLUE, s_blink_on ? HAL_GPIO_HIGH : HAL_GPIO_LOW);
   }
 }
 

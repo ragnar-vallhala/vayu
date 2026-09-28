@@ -213,7 +213,27 @@ int main(void) {
           "the attitude is there");
   }
 
-  printf("  [6] perf rows are reported, and respect the caller's cap\n");
+  printf("  [6] board trim defaults to level and round-trips\n");
+  {
+    /* The estimator subtracts this from its published euler. It must default
+     * to 0,0 -- a garbage trim on an uncalibrated board would tilt every
+     * attitude report and the angle loop would fly the craft to that lie. */
+    float tr = 1.0f, tp = 1.0f;
+    hub_get_board_trim(&tr, &tp);
+    CHECK(tr == 0.0f && tp == 0.0f, "trim starts level");
+
+    hub_set_board_trim(-2.5f, 0.75f);
+    hub_get_board_trim(&tr, &tp);
+    CHECK(tr == -2.5f && tp == 0.75f, "trim round trip");
+
+    /* NULL-tolerant: the driver publishes both, but a caller may want one. */
+    hub_get_board_trim(&tr, NULL);
+    CHECK(tr == -2.5f, "a NULL out-param is ignored, not written");
+
+    hub_set_board_trim(0.0f, 0.0f);
+  }
+
+  printf("  [7] perf rows are reported, and respect the caller's cap\n");
   {
     perf_fifo_row_t rows[16];
     memset(rows, 0, sizeof rows);
