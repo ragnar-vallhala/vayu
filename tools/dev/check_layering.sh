@@ -65,8 +65,8 @@ SECTIONS=(
   "dsp|0|firmware/src/dsp firmware/src/calib firmware/include/dsp firmware/include/calib"
   "storage|0|firmware/src/storage firmware/include/storage"
   "actuator|1|firmware/src/actuator firmware/include/actuator"
-  "internal|43|firmware/src/sys firmware/src/logger firmware/include/sys"
-  "comm|44|firmware/src/comm firmware/include/comm"
+  "internal|7|firmware/src/sys firmware/src/logger firmware/include/sys"
+  "comm|39|firmware/src/comm firmware/include/comm"
 )
 
 # Each pattern is a class of silicon fact, not a blocklist of names -- a new

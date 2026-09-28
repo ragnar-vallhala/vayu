@@ -70,32 +70,30 @@ Ledger, 2026-09-28:
 | dsp | 0 | `dsp/ calib/` |
 | storage | 0 | `storage/` |
 | actuator | 1 | `actuator/` |
-| internal | 43 | `sys/ logger/` |
-| comm | 44 | `comm/` |
+| internal | 7 | `sys/ logger/` |
+| comm | 39 | `comm/` |
 
-88 lines total, in 14 files. Where they live:
+47 lines total, in 9 files. Where they live:
 
 | Section | File | Lines | What it is |
 |---|---|---:|---|
 | actuator | `actuator/motor.c` | 1 | `driver/esc.h` — the pins and the timer are now board macros |
-| internal | `sys/heartbeat.c` | 21 | GPIO, the LED (F5) |
-| internal | `sys/timer_callbacks.c` | 7 | timers, IRQ wiring (F12) |
-| internal | `sys/sys_utils.c` | 6 | GPIO |
 | internal | `sys/clock.c` | 3 | DWT — **legitimate**, this is the seam |
 | internal | `sys/boot.c` | 2 | clock verification — legitimate |
-| internal | `logger/log_text.c` | 2 | UART |
-| internal | `sys/timer_callbacks.h` | 2 | timer types |
+| internal | `sys/heartbeat.c` | 1 | `driver/indicator.h` — it is the annunciator's policy |
+| internal | `sys/sys_utils.c` | 1 | `driver/crc.h` |
 | comm | `comm/channel.c` | 26 | UART/DMA/IRQ — the whole transport (F12) |
 | comm | `comm/rc_task.c` | 7 | UART |
-| comm | `comm/navlink_router.c` | 5 | the LED again (F5) |
 | comm | `comm/telemetry_task.c` | 2 | `bme280_read_all` |
 | comm | `comm/serializer.c` | 2 | — |
 | comm | `comm/comm_processor.c` | 1 | `bmx160_calib_request_cancel` |
 | comm | `comm/channel.h` | 1 | — |
 
-Two of those are the seam working correctly, not debt: `sys/clock.c` and
-`sys/boot.c` are *where* DWT is allowed to be read. The floor for `internal` is
-5, not 0.
+Four of those are not debt. `sys/clock.c` and `sys/boot.c` are *where* DWT is
+allowed to be read; `heartbeat.c` and `sys_utils.c` name a driver because they
+genuinely drive one, the same way `motor.c` does. The floor for `internal` is
+**7**, not 0 — and a section reaching its floor is the end of the work, not a
+failure to finish it.
 
 ### 2.1 Why the gate is textual, not an include graph
 
@@ -207,18 +205,6 @@ owners: a linkage footgun that reads as a single variable.
 recovery path so `bmx160.c` stops needing the `extern`. This is the last live
 piece of F2.
 
-#### F5 🔴 — Two owners fight over the BLUE status LED
-
-- `firmware/src/sys/heartbeat.c:34,50,65,74` — sets the mode and toggles it
-- `firmware/src/comm/navlink_router.c:63,75,81` — drives it high/low/blinking
-  for link state
-
-Both via `_BLUE_LED_PIN` out of `variables.h`. Whichever ran last wins, so the
-LED means nothing reliable. This is an **active bug**, not just structure.
-
-**Fix:** one owner. A `status_led_set(state)` with a priority order, or give
-the router its own indicator.
-
 #### F7 🟠 — TIM1 is re-initialised per channel with no single owner
 
 `firmware/src/actuator/motor.c:41-44` calls `esc_init(..., BOARD_ESC_TIMER, n,
@@ -262,6 +248,7 @@ with no registry to notice.
 | F10 | `SYS_CLOCK_FREQ` duplicated vs the PLL | every consumer needing a real interval divides the rate measured at boot (`vayu_clock_hz()`). The macro survives only as the value `boot.c` checks against, and as the pre-boot fallback |
 | F11 | Logic consumed `bmx160_all_reading_t` | the hub migration; 0 references remain in `control/` or `est/` |
 | F13 | ESC band duplicated in the SITL host | one band in `actuator.h`, both sides derive |
+| F5 | two owners of the BLUE LED | `driver/indicator.c` owns the four pins and is the only writer. `heartbeat.c` renders flight state; the router calls `heartbeat_note_link_activity()` instead of driving a pin on its own timer, and the activity blink is an explicit override with a defined precedence |
 
 ---
 
@@ -294,13 +281,29 @@ remaining 1 is `#include "driver/esc.h"`, which is honest — `motor.c` is the
 ESC shim. F7 (nobody owns the timer) and F8 (AF hardcoded in `esc.c`) are
 untouched.
 
-### Step 2 — `internal` (43 → 5)
+### Step 2 — `internal` 43 → 7, and F5 ✅ done 2026-09-28
 
-`heartbeat.c` (21) is the bulk and carries F5. Resolving the LED owner
-collapses the heartbeat and router cases together.
+Four moves, and three of them were the same realisation: code in `sys/` that
+drives a peripheral is a driver wearing the wrong label.
 
-**Accept when:** `internal` is at 5 — `clock.c` (3) and `boot.c` (2), the
-legitimate seam. Lower the allowance to 5 in the same commit.
+- **`driver/indicator.c`** now owns the three LEDs and the buzzer, and is the
+  only writer. That is F5 (§4.2). `heartbeat.c` kept the policy — what each
+  flight state looks like — and lost all 21 of its silicon lines.
+- **`driver/timer_callbacks.c`** (was `sys/timer_callbacks.c`) owns the
+  high-frequency timer and its ISR. It was always a driver; it moved, and
+  `TIM5` became `BOARD_HF_TIMER`. That took 9 lines out of the section by
+  putting them where the rule already permits them.
+- **`driver/crc.c`** holds the CRC32 peripheral. `sys_utils.c` keeps the mutex
+  that makes the shared accumulator safe, and its two near-identical entry
+  points collapsed into one body with different patience.
+- `logger/log_text.c` joined the clock seam.
+
+`comm` fell 44 → 39 on the way, because the router stopped driving a pin and
+stopped reading DWT.
+
+`sys/sys.h` was an umbrella header with **zero** includers — deleted. That is
+how the 77-header leak into `control/` got in (§3.1), and a dead one is just a
+loaded gun for the next person.
 
 ### Step 3 — `actuator` (1 → 0), F7 + F8
 
@@ -308,7 +311,7 @@ The pins and the timer are already board macros (step 1b). What is left is
 ownership: a PWM group owner that configures `BOARD_ESC_TIMER` once and hands
 out channels (F7), and moving AF selection out of `esc.c` (F8).
 
-### Step 4 — `comm` (44 → ?), F12
+### Step 4 — `comm` (39 → ?), F12
 
 Largest and least urgent: `channel.c` is transport, and transport touching
 UART/DMA is closer to being a driver than a violation. The valuable part here

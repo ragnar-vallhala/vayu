@@ -83,6 +83,8 @@ set(HOST_SOURCES
 set(VAYU_SOURCES
     ${VAYU_ROOT}/firmware/src/calib/calib_ellipsoid.c # shared sensor-agnostic ellipsoid fit
     ${VAYU_ROOT}/firmware/src/calib/calib_engine.c    # calibration engine (acquire + fit + commit)
+    ${VAYU_ROOT}/firmware/src/driver/crc.c     # real CRC driver over the host hal_crc_* stubs
+    ${VAYU_ROOT}/firmware/src/driver/indicator.c # LED/buzzer driver; host_navhal records the pin levels
     ${VAYU_ROOT}/firmware/src/driver/esc.c
     ${VAYU_ROOT}/firmware/src/actuator/motor.c
     ${VAYU_ROOT}/firmware/src/control/angle_controller.c
@@ -422,6 +424,10 @@ enable_testing()
 add_executable(test_safety_phase2 tests/test_safety_phase2.c)
 target_link_libraries(test_safety_phase2 PRIVATE vayu_sitl_core)
 add_test(NAME safety_phase2 COMMAND test_safety_phase2)
+
+add_executable(test_indicator tests/test_indicator.c)
+target_link_libraries(test_indicator PRIVATE vayu_sitl_core m)
+add_test(NAME indicator COMMAND test_indicator)
 
 add_executable(test_phase3_ctrl tests/test_phase3_ctrl.c)
 target_link_libraries(test_phase3_ctrl PRIVATE vayu_sitl_core m)

@@ -21,10 +21,15 @@
 #define VAYU_SIM_NAVHAL_PORT_GPIO_H
 
 #include "common/hal_gpio.h"
+#include "host_gpio.h"
 
+/* Not a no-op like its neighbours: it records. A driver that tracks output
+ * state in software (driver/indicator.c -- a real pin cannot be read back)
+ * can only be checked by asking what it actually drove. See host_gpio.h. */
 static inline void hal_gpio_write(hal_gpio_pin_t pin, hal_gpio_state_t state) {
-  (void)pin;
-  (void)state;
+  if ((unsigned)pin < HOST_GPIO_PIN_MAX) {
+    host_gpio_level[(unsigned)pin] = (state == HAL_GPIO_HIGH) ? 1u : 0u;
+  }
 }
 
 static inline hal_gpio_state_t hal_gpio_read(hal_gpio_pin_t pin) {

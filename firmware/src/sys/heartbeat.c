@@ -14,9 +14,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#include "vayu_board.h"
 #include "comm/comm.h"
-#include "navhal.h"
+#include "driver/indicator.h"
+#include "sys/heartbeat.h"
 #include "sys/state.h"
 #include "task.h"
 #include "utils.h"
@@ -24,34 +24,65 @@
 #include "vaios.h"
 #include "variables.h"
 #include "vayu_tasks.h"
-// State tracking for toggling (since reading output pins is unreliable)
-static uint8_t _blue_led_state = 0;
-static uint8_t _green_led_state = 0;
-static uint8_t _red_led_state = 0;
-static uint8_t _buzzer_state = 0;
+/* Link-activity override on the blue LED. The router used to blink this pin
+ * itself on a 10 Hz timer of its own while heartbeat drove the same pin from
+ * the flight state -- two writers, last one wins (F5). Now the router only
+ * reports that something arrived and this task renders it, so there is one
+ * writer and the override is explicit. */
+#define HEARTBEAT_ACTIVITY_MS 1000u
+#define HEARTBEAT_ACTIVITY_HALF_MS 50u /* 10 Hz blink => 50 ms half-period */
 
-/* @noreq GPIO toggle helper (tracks LED/buzzer pin state in software). */
-static inline void _toggle_pin(hal_gpio_pin_t pin) {
-  if (pin == BOARD_LED_BLUE) {
-    _blue_led_state = !_blue_led_state;
-    hal_gpio_write(pin, _blue_led_state ? HAL_GPIO_HIGH : HAL_GPIO_LOW);
-  } else if (pin == BOARD_LED_GREEN) {
-    _green_led_state = !_green_led_state;
-    hal_gpio_write(pin, _green_led_state ? HAL_GPIO_HIGH : HAL_GPIO_LOW);
-  } else if (pin == BOARD_LED_RED) {
-    _red_led_state = !_red_led_state;
-    hal_gpio_write(pin, _red_led_state ? HAL_GPIO_HIGH : HAL_GPIO_LOW);
-  } else if (pin == BOARD_BUZZER) {
-    _buzzer_state = !_buzzer_state;
-    hal_gpio_write(pin, _buzzer_state ? HAL_GPIO_HIGH : HAL_GPIO_LOW);
-  }
+static uint32_t _activity_until; /* 0 = idle, else deadline in ticks */
+static uint32_t _activity_toggled;
+
+/** @implements SYS-HMI-001 */
+void heartbeat_note_link_activity(void) {
+  uint32_t until = v_get_ticks() + HEARTBEAT_ACTIVITY_MS;
+  _activity_until = until ? until : 1u; /* keep 0 as the idle sentinel */
 }
-/* @noreq GPIO mode init for the LED/buzzer annunciator pins. */
-static inline void _heartbeat_peripheral_init(void) {
-  hal_gpio_set_mode(BOARD_LED_BLUE, HAL_GPIO_MODE_OUTPUT, HAL_GPIO_PULL_NONE);
-  hal_gpio_set_mode(BOARD_LED_GREEN, HAL_GPIO_MODE_OUTPUT, HAL_GPIO_PULL_NONE);
-  hal_gpio_set_mode(BOARD_LED_RED, HAL_GPIO_MODE_OUTPUT, HAL_GPIO_PULL_NONE);
-  hal_gpio_set_mode(BOARD_BUZZER, HAL_GPIO_MODE_OUTPUT, HAL_GPIO_PULL_NONE);
+
+/* True while the activity blink owns the blue LED. Wrap-safe. */
+static inline bool _activity_owns_blue(uint32_t now) {
+  if (_activity_until == 0u) {
+    return false;
+  }
+  if ((int32_t)(now - _activity_until) >= 0) {
+    _activity_until = 0u;
+    return false;
+  }
+  return true;
+}
+
+/* Render the activity override. Runs on the task's 20 ms cadence, AFTER the
+ * flight-state pattern, so while the window is open the blue LED is whatever
+ * this decides -- one writer, and a defined precedence, which is the part the
+ * two-timer version never had.
+ *
+ * On expiry the pin is driven low and the next state tick re-establishes the
+ * pattern, up to `period` later. That is what the router's own blink did too,
+ * so the visible behaviour is unchanged. */
+static void _service_activity(void) {
+  static bool was_active = false;
+  uint32_t now = v_get_ticks();
+
+  if (!_activity_owns_blue(now)) {
+    if (was_active) {
+      was_active = false;
+      indicator_set(IND_LED_BLUE, false);
+    }
+    return;
+  }
+
+  if (!was_active) {
+    was_active = true;
+    _activity_toggled = now;
+    indicator_set(IND_LED_BLUE, true);
+    return;
+  }
+  if ((now - _activity_toggled) >= HEARTBEAT_ACTIVITY_HALF_MS) {
+    _activity_toggled = now;
+    indicator_toggle(IND_LED_BLUE);
+  }
 }
 
 /* @implements SYS-HMI-001 */
@@ -59,32 +90,32 @@ static inline void _system_init(void) {
   static uint8_t _first_time = 1;
   if (_first_time) {
     _first_time = 0;
-    hal_gpio_write(BOARD_BUZZER, HAL_GPIO_HIGH);
+    indicator_set(IND_BUZZER, true);
     v_delay(100);
-    hal_gpio_write(BOARD_BUZZER, HAL_GPIO_LOW);
+    indicator_set(IND_BUZZER, false);
   }
-  _toggle_pin(BOARD_LED_BLUE);
+  indicator_toggle(IND_LED_BLUE);
 }
 
 /* @implements SYS-HMI-001 */
-static inline void _system_standby(void) { _toggle_pin(BOARD_LED_GREEN); }
+static inline void _system_standby(void) { indicator_toggle(IND_LED_GREEN); }
 
 /* @implements SYS-HMI-001 */
 static inline void _system_prearm(void) {
-  _toggle_pin(BOARD_LED_GREEN);
-  _toggle_pin(BOARD_LED_BLUE);
+  indicator_toggle(IND_LED_GREEN);
+  indicator_toggle(IND_LED_BLUE);
 }
 
 /* @implements SYS-HMI-001 */
 static inline void _system_armed(void) {
-  _toggle_pin(BOARD_LED_GREEN);
-  hal_gpio_write(BOARD_LED_RED, HAL_GPIO_HIGH);
+  indicator_toggle(IND_LED_GREEN);
+  indicator_set(IND_LED_RED, true);
 }
 
 /* @implements SYS-HMI-001 */
 static inline void _system_in_air(void) {
-  _toggle_pin(BOARD_LED_GREEN);
-  _toggle_pin(BOARD_LED_RED);
+  indicator_toggle(IND_LED_GREEN);
+  indicator_toggle(IND_LED_RED);
 }
 
 /* @implements SYS-HMI-101 */
@@ -92,31 +123,31 @@ static inline void _system_failsafe(void) {
   uint32_t boot_flags = (uint32_t)system_boot_check_state_get();
 
   // Master Failsafe Blink (Red + Buzzer)
-  _toggle_pin(BOARD_LED_RED);
+  indicator_toggle(IND_LED_RED);
   static uint8_t buzz_cnt = 0;
   if (++buzz_cnt % 2 == 0) {
-    _toggle_pin(BOARD_BUZZER);
+    indicator_toggle(IND_BUZZER);
   }
 
   // Diagnostic: Solid Blue = Clock Mismatch
   if (boot_flags & BOOT_CHECK_SYSTEM_CLOCK_CHECK_FAIL) {
-    hal_gpio_write(BOARD_LED_BLUE, HAL_GPIO_HIGH);
+    indicator_set(IND_LED_BLUE, true);
   } else {
-    hal_gpio_write(BOARD_LED_BLUE, HAL_GPIO_LOW);
+    indicator_set(IND_LED_BLUE, false);
   }
 
   // Diagnostic: Solid Green = SD Card Failure
   if (boot_flags & BOOT_CHECK_SD_CARD_CHECK_FAIL) {
-    hal_gpio_write(BOARD_LED_GREEN, HAL_GPIO_HIGH);
+    indicator_set(IND_LED_GREEN, true);
   } else {
-    hal_gpio_write(BOARD_LED_GREEN, HAL_GPIO_LOW);
+    indicator_set(IND_LED_GREEN, false);
   }
 }
 
 /* @implements SYS-HMI-001 */
 static inline void _system_terminated(void) {
-  hal_gpio_write(BOARD_LED_RED, HAL_GPIO_HIGH);
-  hal_gpio_write(BOARD_BUZZER, HAL_GPIO_HIGH);
+  indicator_set(IND_LED_RED, true);
+  indicator_set(IND_BUZZER, true);
 }
 
 /* @implements SYS-HMI-001 */
@@ -134,12 +165,9 @@ static inline void _run_heartbeat(channel_t *channel, uint32_t period) {
 
   if (current_state != last_state) {
     // Clear all LEDs on transition to ensure a clean slate for the new state
-    hal_gpio_write(BOARD_LED_BLUE, HAL_GPIO_LOW);
-    hal_gpio_write(BOARD_LED_GREEN, HAL_GPIO_LOW);
-    hal_gpio_write(BOARD_LED_RED, HAL_GPIO_LOW);
-    _blue_led_state = 0;
-    _green_led_state = 0;
-    _red_led_state = 0;
+    indicator_set(IND_LED_BLUE, false);
+    indicator_set(IND_LED_GREEN, false);
+    indicator_set(IND_LED_RED, false);
     last_state = current_state;
   }
 
@@ -169,8 +197,8 @@ static inline void _run_heartbeat(channel_t *channel, uint32_t period) {
     _system_terminated();
     break;
   case SYSTEM_STATE_CALIBRATING:
-    _toggle_pin(BOARD_LED_BLUE);
-    _toggle_pin(BOARD_LED_GREEN);
+    indicator_toggle(IND_LED_BLUE);
+    indicator_toggle(IND_LED_GREEN);
     break;
   default:
     break;
@@ -180,7 +208,7 @@ static inline void _run_heartbeat(channel_t *channel, uint32_t period) {
 void heartbeat_task(void *args) {
 
   // Configure Physical Heartbeat
-  _heartbeat_peripheral_init();
+  indicator_init();
   while (g_telemetry_channel.handle == NULL) {
     v_delay(10);
   }
@@ -193,6 +221,7 @@ void heartbeat_task(void *args) {
 
   while (1) {
     _run_heartbeat(&g_telemetry_channel, period);
+    _service_activity();
     v_delay(20);
   }
 }

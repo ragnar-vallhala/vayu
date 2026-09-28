@@ -14,8 +14,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#include "sys/timer_callbacks.h"
+#include "driver/timer_callbacks.h"
 #include "navhal.h"
+#include "vayu_board.h"
 #include "utils.h"
 #include "variables.h"
 #include <stddef.h>
@@ -30,11 +31,11 @@ typedef struct {
 static _callback_t _callbacks[MAX_TIMER_CALLBACKS];
 
 static uint8_t _callback_count = 0;
-static hal_timer_t _timer_inst = TIM5;
+static hal_timer_t _timer_inst = BOARD_HF_TIMER;
 static uint32_t _timer_interrupt_freq = 0;
 static volatile uint64_t _interrupt_count = 0;
 
-/* TIM5 update ISR: dispatches each registered callback at its requested
+/* High-frequency timer update ISR: dispatches each registered callback at its requested
  * sub-millisecond period.
  *
  * @implements SYS-TIM-005 */

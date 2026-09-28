@@ -14,23 +14,17 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-/**
- * @file sys.h
- * @brief Public umbrella header for the system module (SYS).
- *
- * @implements R2.1
- *
- * Single public entry point for the system subsystem: the state machine,
- * boot/assert vocabulary, system utilities (timestamp/device/CRC), and
- * the low-level helpers (math helpers, timer callbacks, shared scalar types).
- */
-#ifndef VAYU_SYS_H
-#define VAYU_SYS_H
+/* See driver/crc.h. Re-initialised per call because the unit keeps a running
+ * accumulator across computes; without the reset the second CRC in a process
+ * continues the first. */
+#include "driver/crc.h"
 
-#include "sys/math_utils.h"
-#include "sys/state.h"
-#include "sys/sys_utils.h"
-#include "sys/timer_callbacks.h"
-#include "sys/types.h"
+#include "navhal.h"
 
-#endif // VAYU_SYS_H
+/** @implements HAL-CRC-001 */
+uint32_t crc32_hw_compute(const uint8_t *data, uint32_t len) {
+  hal_crc_config_t cfg = {.polynomial = HAL_CRC_POLY_CRC32,
+                          .init_value = 0xFFFFFFFF};
+  hal_crc_init(&cfg);
+  return hal_crc_compute(data, len);
+}

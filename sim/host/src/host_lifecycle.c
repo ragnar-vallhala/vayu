@@ -213,3 +213,12 @@ void vayu_sitl_stop(void) {
      * sleeping forever on a clock that will no longer advance. */
   host_clock_stop();
 }
+
+/* ---- Annunciator: no hardware to annunciate on ------------------------
+ * The firmware's sys/heartbeat.c owns the status LEDs and the buzzer, and is
+ * not built for the host -- SITL has no pins to drive. navlink_router.c still
+ * reports link activity to it on every unhandled frame, so the symbol has to
+ * exist. Before the indicator driver landed the router blinked the pin itself
+ * and this resolved to a hal_gpio_write stub instead; the call is just as
+ * inert now, it simply stops here rather than three layers down. */
+void heartbeat_note_link_activity(void) {}

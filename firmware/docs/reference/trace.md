@@ -178,7 +178,7 @@
 | `SYS-TIM-002` | 🟡 active (gap) | Rate-loop closure | — | — |
 | `SYS-TIM-003` | active | Outer-loop closure | — | — |
 | `SYS-TIM-004` | active | System clock | `firmware/src/main.c` | `firmware/tests/onboard/checks/check_boot_os.c` |
-| `SYS-TIM-005` | active | High-frequency timer | `firmware/include/sys/timer_callbacks.h`<br>`firmware/src/main.c`<br>`firmware/src/sys/timer_callbacks.c` | — |
+| `SYS-TIM-005` | active | High-frequency timer | `firmware/include/driver/timer_callbacks.h`<br>`firmware/src/main.c`<br>`firmware/src/sys/timer_callbacks.c` | — |
 | `SYS-TIM-006` | active | Disciplined wall clock | `firmware/src/sys/sys_utils.c` | — |
 | `SYS-TIM-106` | active | Slew-limited clock discipline | `firmware/src/sys/sys_utils.c` | — |
 | `VOS-IPC-001` | active | Message queue API | — | — |

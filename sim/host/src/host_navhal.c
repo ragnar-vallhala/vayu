@@ -37,6 +37,7 @@
  * host_imu_feeder.c) that write directly to the vayu queues.
  */
 #define _GNU_SOURCE
+#include "host_gpio.h"
 #include "actuator/motor.h"
 #include "driver/esc.h" /* VAYU_ESC_MIN_DUTY / MAX_DUTY -- one band, both sides */
 #include "navhal.h"
@@ -122,6 +123,9 @@ static void pwm_fifo_ensure_open(void) {
             pwm_fifo_fd);
   }
 }
+
+/* Defined here so the recording hal_gpio_write inline has one home. */
+uint8_t host_gpio_level[HOST_GPIO_PIN_MAX];
 
 /* ---- PWM HAL ---------------------------------------------------------- */
 hal_status_t hal_pwm_init(hal_pwm_handle_t *pwm, uint32_t frequency,

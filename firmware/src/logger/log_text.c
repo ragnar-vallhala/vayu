@@ -26,7 +26,7 @@
  */
 #include "storage/fs_owner.h"
 #include "storage/imu_hs_log.h" /* imu_hs_log_wire_txt (blackbox text stream) */
-#include "navhal.h"             /* hal_cycle_counter_get */
+#include "sys/clock.h"          /* vayu_clock_cycles */
 
 #include "ipc.h"
 #include "structure.h"
@@ -74,6 +74,6 @@ void vayu_log(const char *fmt, ...) {
      * control path and a text log is never worth stalling a caller for.
      * @implements LOG-PERSIST-001 */
     imu_hs_log_wire_txt((const uint8_t *)log_buf, (uint16_t)len,
-                        hal_cycle_counter_get());
+                        vayu_clock_cycles());
   }
 }

@@ -77,6 +77,12 @@ extern "C" {
 #define BOARD_ESC_M3_PIN GPIO_PA10 /* TIM1_CH3 */
 #define BOARD_ESC_M4_PIN GPIO_PA11 /* TIM1_CH4 */
 
+/* ---- Timers -------------------------------------------------------------
+ * The general-purpose timer behind driver/timer_callbacks.h: the sub-
+ * millisecond scheduler the 1 ms SysTick cannot serve (IMU pacing, the HF
+ * monotonic tick). Separate from BOARD_ESC_TIMER, which is PWM only. */
+#define BOARD_HF_TIMER TIM5
+
 /* The telemetry (USART6) and RC (USART2) instances are NOT here yet: their
  * names are still spelled out across comm/, and a board macro with no consumer
  * is a lie. They move here when comm/ is swept -- see the sweep order in

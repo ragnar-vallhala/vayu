@@ -20,7 +20,7 @@
 #include "navhal.h"
 #include <stdint.h>
 
-// TIM5 is used for timer callbacks
+// The board's high-frequency timer (BOARD_HF_TIMER) drives these callbacks
 /**
  * @brief Initialize the high-frequency timer callback system.
  * @param freq_hz Desired execution frequency in Hertz.
