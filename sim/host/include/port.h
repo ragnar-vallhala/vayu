@@ -63,10 +63,24 @@ static inline void v_exit_critical(void) {
   pthread_mutex_unlock(&host_critical_mutex);
 }
 
+/* The FromISR forms take and return a saved mask on target. Here the mutex IS
+ * the exclusion, so the value is unused -- but the signatures have to match,
+ * because firmware code calls them directly (comm/channel.c guarding the
+ * handler list) and not only through the macros below. */
+static inline uint32_t v_enter_critical_from_isr(void) {
+  v_enter_critical();
+  return 0;
+}
+
+static inline void v_exit_critical_from_isr(uint32_t saved) {
+  (void)saved;
+  v_exit_critical();
+}
+
 #define ENTER_CRITICAL() v_enter_critical()
 #define EXIT_CRITICAL() v_exit_critical()
-#define ENTER_CRITICAL_FROM_ISR() v_enter_critical()
-#define EXIT_CRITICAL_FROM_ISR() v_exit_critical()
+#define ENTER_CRITICAL_FROM_ISR() v_enter_critical_from_isr()
+#define EXIT_CRITICAL_FROM_ISR(saved) v_exit_critical_from_isr(saved)
 #endif
 
 /* Memory barrier macro used by extern/vaios/kernel/structure.c. On host

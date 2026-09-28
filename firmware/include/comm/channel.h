@@ -17,13 +17,14 @@
 #ifndef VAYU_CHANNEL_H
 #define VAYU_CHANNEL_H
 
-#include "navhal.h"
+#include "driver/uart.h"
+#include <stdint.h>
 #include "sys/types.h"
 #include <stdint.h>
 
 typedef struct {
   uint32_t baud_rate;
-  hal_uart_t uart;
+  vuart_t uart; /**< 0 = free slot; values are the board's BOARD_*_UART */
   uint16_t timeout;
 } serial_args_t;
 
@@ -45,7 +46,7 @@ typedef struct channel_s {
 err_t get_handler(channel_type_t channel_type, channel_t *handler, void *args,
                   void (*onRecieve)(void));
 err_t del_handler(channel_t *handler);
-err_t write_channel(channel_t channel, byte *data, uint16_t length);
+err_t write_channel(channel_t channel, uint8_t *data, uint16_t length);
 
 /**
  * @brief Like write_channel, but may use the xfer-reserved tail of the TX ring.
@@ -55,7 +56,7 @@ err_t write_channel(channel_t channel, byte *data, uint16_t length);
  *        and so always makes forward progress instead of stalling behind
  *        telemetry. Same return contract as write_channel (NONE / ERROR-on-full).
  */
-err_t write_channel_xfer(channel_t channel, byte *data, uint16_t length);
+err_t write_channel_xfer(channel_t channel, uint8_t *data, uint16_t length);
 err_t flush_channel(channel_t channel);
 
 /**

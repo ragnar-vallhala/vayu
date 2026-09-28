@@ -71,9 +71,9 @@ Ledger, 2026-09-28:
 | storage | 0 | `storage/` |
 | actuator | 1 | `actuator/` |
 | internal | 7 | `sys/ logger/` |
-| comm | 24 | `comm/` |
+| comm | 4 | `comm/` |
 
-32 lines total, in 4 files. Where they live:
+15 lines total, in 6 files. Where they live:
 
 | Section | File | Lines | What it is |
 |---|---|---:|---|
@@ -82,10 +82,10 @@ Ledger, 2026-09-28:
 | internal | `sys/boot.c` | 2 | clock verification — legitimate |
 | internal | `sys/heartbeat.c` | 1 | `driver/indicator.h` — it is the annunciator's policy |
 | internal | `sys/sys_utils.c` | 1 | `driver/crc.h` |
-| comm | `comm/channel.c` | 14 | `hal_uart_*` / `hal_interrupt_*` — the transport itself |
-| comm | `comm/rc_task.c` | 5 | `hal_uart_*` — the same, for RC |
-| comm | `comm/serializer.c` | 2 | `hal_uart_read_char` |
-| comm | `comm/channel.h` | 1 | `navhal.h`, for `hal_uart_t` |
+| comm | `comm/channel.c` | 1 | `driver/uart.h` — **its floor** |
+| comm | `comm/channel.h` | 1 | `driver/uart.h`, for `vuart_t` |
+| comm | `comm/rc_task.c` | 1 | `driver/uart.h` |
+| comm | `comm/serializer.c` | 1 | `driver/uart.h` |
 
 Four of those are not debt. `sys/clock.c` and `sys/boot.c` are *where* DWT is
 allowed to be read; `heartbeat.c` and `sys_utils.c` name a driver because they
@@ -303,7 +303,7 @@ modelled `hal_pwm_stop` as channel-local, so the shared-timer hazard was
 invisible and a mutant that reintroduced it passed. It now tracks the timer's
 CEN separately from each channel's output enable, as the silicon does.
 
-### Step 4 — `comm` 39 → 26, and F12 ✅ partly done 2026-09-28
+### Step 4 — `comm` 39 → 4, and F12 ✅ done 2026-09-28
 
 **F12 is fixed.** `sys/irq_registry.h` is a flat table of vector → owner, and
 every claim vayu makes goes through it first: both UART RX vectors, both
@@ -321,12 +321,20 @@ Also done: the UART instances and their vectors became board macros, `rc_task`
 joined the clock seam (which finishes F9's repointing outside `driver/`), and
 a dead `driver/bmx160.h` include came out of `telemetry_task.c`.
 
-**Deferred, deliberately.** The remaining 26 are `hal_uart_*` and
-`hal_interrupt_*` in `channel.c` (14), `rc_task.c` (5), `serializer.c` (2) and
-`channel.h` (1) — the transport itself. Putting a vayu UART driver under them
-is a rewrite of the live telemetry and RC paths, both flight-critical and both
-currently working on hardware, for a structural gain. It is worth doing and it
-is not worth doing casually. The floor after that lands is roughly 2–4, not 0.
+**The UART driver landed too.** `driver/uart.h` owns the peripheral and both
+its interrupt vectors; `comm/` asks for a link and gets one. Every vector claim
+goes through the registry, so F12 covers the transport as well.
+
+`comm`'s floor is **4**: one `#include "driver/uart.h"` each in `channel.c`,
+`channel.h`, `rc_task.c` and `serializer.c`. Driving the UART driver is what
+the transport is for — the same floor `motor.c` has against `driver/esc.h`.
+
+Two things fell out that were not the point but were worth having. The vector
+ternary (`uart == TELEMETRY ? USART6_IRQn : USART2_IRQn`) appeared twice and
+is now `_rx_vector()` once, which is why `get_handler` shrank by 52 bytes. And
+`hal_interrupt_disable_global()` guarding the handler list was the HAL standing
+in for a scheduler primitive — it is `v_enter_critical_from_isr()` now, which
+has exactly the save-and-restore-a-local semantics that call had.
 
 **Both driver includes are gone, and the answer was a third thing.**
 

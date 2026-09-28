@@ -40,6 +40,10 @@ extern "C" {
 #include "utils/i2c_types.h"
 #include "utils/timer_types.h"
 #include "utils/uart_types.h"
+/* The IRQ vector numbers below (USART6_IRQn, DMA2_Stream7_IRQn...) are the
+ * part's, not the core's, so they come from the family header rather than a
+ * utils/ type header. Naming a vector is exactly what a board file is for. */
+#include "family/interrupt_reg.h"
 
 /** Identity, and the NavHAL board this one must be built against.
  *  firmware/board/boards.cmake checks the second against navhal.config. */

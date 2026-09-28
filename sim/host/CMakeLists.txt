@@ -84,6 +84,7 @@ set(VAYU_SOURCES
     ${VAYU_ROOT}/firmware/src/calib/calib_ellipsoid.c # shared sensor-agnostic ellipsoid fit
     ${VAYU_ROOT}/firmware/src/calib/calib_engine.c    # calibration engine (acquire + fit + commit)
     ${VAYU_ROOT}/firmware/src/driver/crc.c     # real CRC driver over the host hal_crc_* stubs
+    ${VAYU_ROOT}/firmware/src/driver/uart.c    # real UART driver over the host hal_uart_* stubs
     ${VAYU_ROOT}/firmware/src/sensor/sensor.c     # the sensor adapter; walks the vayu_sensors linker section
     ${VAYU_ROOT}/firmware/src/sensor/ride_along.c # ditto, vayu_rides
     ${VAYU_ROOT}/firmware/src/driver/indicator.c # LED/buzzer driver; host_navhal records the pin levels

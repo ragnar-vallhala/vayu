@@ -15,7 +15,9 @@
  * limitations under the License.
  */
 #include "comm/channel.h"
-#include "navhal.h"
+#include "driver/uart.h"
+#include "vayu_status.h"
+#include "port.h"
 #include "sys/irq_registry.h"
 #include "vayu_board.h"
 #include "port.h" // ENTER_CRITICAL / EXIT_CRITICAL — serialise the ping-pong buffer
@@ -34,8 +36,8 @@ typedef struct {
   uint32_t baud_rate;
   hal_uart_t uart;
   uint16_t timeout;
-  byte buffers[2][CHANNEL_TX_BUF_SIZE]; // Ping-Pong buffers
-  uint16_t buf_lens[2];                 // Length of data in each buffer
+  uint8_t buffers[2][CHANNEL_TX_BUF_SIZE]; // Ping-Pong buffers
+  uint16_t buf_lens[2];                    // Length of data in each buffer
   uint8_t active_idx;            // Buffer currently being filled (0 or 1)
   volatile uint8_t busy;         // 1 if a DMA transfer is in progress
   uint8_t is_interrupt_attached; // 1 if a attached
@@ -67,7 +69,7 @@ static void _dma_complete_callback(void) {
 /* Telemetry TX-DMA completion (BOARD_TELEMETRY_TX_DMA_IRQ). NavHAL's stream IRQ
  * handler clears the DMA flags and dispatches here; we only release the channel
  * so the next flush can ping-pong swap and send. Without DMA, flush_task would
- * block byte-by-byte pushing the whole telemetry stream (~15% CPU).
+ * block uint8_t-by-uint8_t pushing the whole telemetry stream (~15% CPU).
  *
  * Which stream that is matters, and is the board's to pick: the telemetry
  * UART's default TX stream is shared with the SDIO write DMA on this part, and
@@ -84,6 +86,13 @@ static void _dma_complete_callback_u6(void) {
       break;
     }
   }
+}
+
+/* Which RX vector serves a link. The board knows; this is the only place the
+ * mapping is spelled out, instead of a ternary at each use. */
+static uint32_t _rx_vector(vuart_t u) {
+  return u == BOARD_TELEMETRY_UART ? (uint32_t)BOARD_TELEMETRY_UART_IRQ
+                                   : (uint32_t)BOARD_RC_UART_IRQ;
 }
 
 /** @noreq UART channel allocation + peripheral/DMA init glue */
@@ -120,20 +129,14 @@ static err_t get_handler_serial(channel_t *handler, void *args,
     return ERROR;
   }
 
-  // Initialize the UART peripheral
-  hal_uart_config_t _uart_cfg = {.baudrate = s_args->baud_rate};
-  hal_uart_init(s_args->uart, &_uart_cfg);
+  VAYU_DISCARD(vuart_init(s_args->uart, s_args->baud_rate));
 
   if (callback) {
     if (_serial_handlers[slot].is_interrupt_attached) {
       // Slot already has an interrupt attached; reattaching overwrites it.
     }
-    hal_irq_t usart_irq = s_args->uart == BOARD_TELEMETRY_UART
-                              ? BOARD_TELEMETRY_UART_IRQ
-                              : BOARD_RC_UART_IRQ;
-    irq_registry_claim((uint32_t)usart_irq, "channel:uart-rx");
-    hal_interrupt_attach_callback(usart_irq, callback);
-    hal_uart_enable_interrupt(s_args->uart, 1, 0);
+    VAYU_DISCARD(vuart_attach_rx(s_args->uart, _rx_vector(s_args->uart),
+                                 callback, "channel:uart-rx"));
     _serial_handlers[slot].is_interrupt_attached = 1;
   }
   // Store the configuration
@@ -158,20 +161,17 @@ static err_t get_handler_serial(channel_t *handler, void *args,
     // PROTECT: don't overwrite if kernel logging or another task already set
     // it! We should ideally have a multi-callback system, but for now, just
     // don't break existing ones.
-    irq_registry_claim((uint32_t)BOARD_RC_TX_DMA_IRQ, "channel:tx-dma-rc");
-    hal_interrupt_attach_callback(BOARD_RC_TX_DMA_IRQ, _dma_complete_callback);
-    hal_interrupt_enable(BOARD_RC_TX_DMA_IRQ);
+    VAYU_DISCARD(vuart_attach_tx_dma(
+        BOARD_RC_TX_DMA_IRQ, _dma_complete_callback, "channel:tx-dma-rc"));
   }
   // The telemetry UART's TX DMA (see the board) so flush_channel offloads the
-  // stream to DMA instead of busy-pushing it byte-by-byte; the completion IRQ
+  // stream to DMA instead of busy-pushing it uint8_t-by-uint8_t; the completion IRQ
   // releases the channel (_dma_complete_callback_u6). Stream7 (not Stream6) to
   // avoid the SDIO TX-DMA conflict that wedges telemetry after an SD write.
   if (s_args->uart == BOARD_TELEMETRY_UART) {
-    irq_registry_claim((uint32_t)BOARD_TELEMETRY_TX_DMA_IRQ,
-                       "channel:tx-dma-telemetry");
-    hal_interrupt_attach_callback(BOARD_TELEMETRY_TX_DMA_IRQ,
-                                  _dma_complete_callback_u6);
-    hal_interrupt_enable(BOARD_TELEMETRY_TX_DMA_IRQ);
+    VAYU_DISCARD(vuart_attach_tx_dma(BOARD_TELEMETRY_TX_DMA_IRQ,
+                                     _dma_complete_callback_u6,
+                                     "channel:tx-dma-telemetry"));
   }
 
   return NONE;
@@ -188,7 +188,7 @@ static err_t get_handler_serial(channel_t *handler, void *args,
 // Shared core: `cap` is the highest fill level this writer may reach. Normal
 // writers pass the reserved cap; xfer passes the full buffer.
 /** @implements COMM-CH-002 */
-static err_t _write_channel(channel_t channel, byte *data, uint16_t length,
+static err_t _write_channel(channel_t channel, uint8_t *data, uint16_t length,
                             uint16_t cap) {
   // This function is not thread safe
   if (channel.handle == NULL || data == NULL || length == 0) {
@@ -228,13 +228,13 @@ static err_t _write_channel(channel_t channel, byte *data, uint16_t length,
 }
 
 /** @noreq thin wrapper over _write_channel (normal-writer cap) */
-err_t write_channel(channel_t channel, byte *data, uint16_t length) {
+err_t write_channel(channel_t channel, uint8_t *data, uint16_t length) {
   return _write_channel(channel, data, length,
                         CHANNEL_TX_BUF_SIZE - CHANNEL_TX_XFER_RESERVE);
 }
 
 /** @noreq thin wrapper over _write_channel (full cap for bulk xfer) */
-err_t write_channel_xfer(channel_t channel, byte *data, uint16_t length) {
+err_t write_channel_xfer(channel_t channel, uint8_t *data, uint16_t length) {
   return _write_channel(channel, data, length, CHANNEL_TX_BUF_SIZE);
 }
 
@@ -276,28 +276,26 @@ err_t flush_channel(channel_t channel) {
     EXIT_CRITICAL();
 
     // Trigger transmission. The telemetry UART (USART6) goes out via DMA so the
-    // flush task doesn't busy-push the whole stream a byte at a time (~15% CPU
+    // flush task doesn't busy-push the whole stream a uint8_t at a time (~15% CPU
     // otherwise); `busy` is cleared by that link's TX-DMA completion IRQ. Other
     // UARTs keep the blocking fallback.
     if (s_handle->uart == BOARD_TELEMETRY_UART) {
-      hal_uart_write_dma(BOARD_TELEMETRY_UART, s_handle->buffers[flush_idx],
-                         flush_len);
+      VAYU_DISCARD(vuart_write_dma(BOARD_TELEMETRY_UART,
+                                   s_handle->buffers[flush_idx], flush_len));
     } else if (s_handle->uart == BOARD_RC_UART) {
 #ifdef _UART_BACKEND_DMA
-      hal_uart_write_dma(BOARD_RC_UART, s_handle->buffers[flush_idx],
-                         flush_len);
+      VAYU_DISCARD(vuart_write_dma(BOARD_RC_UART, s_handle->buffers[flush_idx],
+                                   flush_len));
 #else
       for (uint16_t i = 0; i < flush_len; i++) {
-        hal_uart_write_char(BOARD_RC_UART,
-                            (char)s_handle->buffers[flush_idx][i]);
+        vuart_write_char(BOARD_RC_UART, (char)s_handle->buffers[flush_idx][i]);
       }
       s_handle->busy = 0;
 #endif
     } else {
       // Other UARTs (blocking fallback)
       for (uint16_t i = 0; i < flush_len; i++) {
-        hal_uart_write_char(s_handle->uart,
-                            (char)s_handle->buffers[flush_idx][i]);
+        vuart_write_char(s_handle->uart, (char)s_handle->buffers[flush_idx][i]);
       }
       s_handle->busy = 0;
     }
@@ -338,10 +336,10 @@ err_t get_handler(channel_type_t channel_type, channel_t *handler, void *args,
 
   if (status == NONE && handler != NULL) {
     // Add to linked list
-    uint32_t state = hal_interrupt_disable_global();
+    uint32_t state = v_enter_critical_from_isr();
     handler->next = active_handlers;
     active_handlers = handler;
-    hal_interrupt_enable_global(state);
+    v_exit_critical_from_isr(state);
   }
   return status;
 }
@@ -368,13 +366,10 @@ err_t del_handler(channel_t *handler) {
         (serial_channel_handle_t *)handler->handle;
     if (s_handle != NULL) {
       if (s_handle->is_interrupt_attached) {
-        hal_irq_t usart_irq = s_handle->uart == BOARD_TELEMETRY_UART
-                                  ? BOARD_TELEMETRY_UART_IRQ
-                                  : BOARD_RC_UART_IRQ;
-        if (hal_interrupt_disable(usart_irq) == 1)
+        if (vuart_detach_rx(s_handle->uart, _rx_vector(s_handle->uart),
+                            "channel:uart-rx") != VAYU_OK) {
           return USAGE;
-        hal_interrupt_detach_callback(usart_irq);
-        irq_registry_release((uint32_t)usart_irq, "channel:uart-rx");
+        }
       }
       s_handle->uart = 0; // Mark slot as free (after detaching its IRQ)
     }
