@@ -145,6 +145,23 @@ static inline void _system_failsafe(void) {
 }
 
 /* @implements SYS-HMI-001 */
+static inline void _system_esc_calib(void) {
+  /* All three together, which no other state does: STANDBY is green alone,
+   * PREARM green+blue, IN_AIR green+red, CALIBRATING blue+green. Without a
+   * case here ESC_CALIB fell to `default:` and left every LED dark, so the one
+   * state in which a disarmed aircraft drives its motors to 100% looked
+   * exactly like a board that had not booted.
+   *
+   * Deliberately NO buzzer, unlike FAILSAFE and TERMINATED. The operator is
+   * listening for the ESCs' own beeps -- that is the only confirmation they
+   * saw maximum as they woke -- and sounding ours on the same tick would mask
+   * the thing the procedure exists to produce. */
+  indicator_toggle(IND_LED_BLUE);
+  indicator_toggle(IND_LED_GREEN);
+  indicator_toggle(IND_LED_RED);
+}
+
+/* @implements SYS-HMI-001 */
 static inline void _system_terminated(void) {
   indicator_set(IND_LED_RED, true);
   indicator_set(IND_BUZZER, true);
@@ -200,8 +217,13 @@ static inline void _run_heartbeat(channel_t *channel, uint32_t period) {
     indicator_toggle(IND_LED_BLUE);
     indicator_toggle(IND_LED_GREEN);
     break;
-  default:
+  case SYSTEM_STATE_ESC_CALIB:
+    _system_esc_calib();
     break;
+    /* No `default:`, deliberately. With one, -Wswitch cannot see a state that
+     * nobody rendered -- which is how ESC_CALIB shipped with every LED dark.
+     * Without it, adding a sys_state_t and forgetting the annunciator is a
+     * build error under -Werror, not something discovered on a bench. */
   }
 }
 /* @implements SYS-HMI-001 */
