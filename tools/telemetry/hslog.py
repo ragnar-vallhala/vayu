@@ -57,7 +57,9 @@ def sentinel_for(gen):
 FTYPE = {1: ("h", 2), 2: ("H", 2), 3: ("i", 4), 4: ("f", 4), 5: ("B", 1)}
 
 
-STREAM_NAME = {1: "imu", 2: "act", 3: "vrt", 4: "ctl"}
+# Stream ids, in the order the header's per-stream drop counters use.
+STREAM_NAME = {1: "imu", 2: "act", 3: "vrt", 4: "ctl",
+               5: "rx", 6: "txt", 7: "att", 8: "rc"}
 
 
 class Stream:
@@ -109,9 +111,19 @@ def decode(data):
         sentinel = sentinel_for(gen)
     else:
         gen, sentinel = None, SENTINEL_V1
+    # Per-stream sectors dropped in the session that was open when the header
+    # was last flushed. Absent from files written before the header grew to 52
+    # bytes -- they declare 36, so `drops` is None there rather than garbage.
+    if hdr_len >= 52 and len(data) >= 52:
+        drops = dict(zip(
+            (STREAM_NAME.get(i + 1, "s%d" % (i + 1)) for i in range(8)),
+            struct.unpack_from("<8H", data, 36)))
+    else:
+        drops = None
     hdr = dict(version=version, clock_hz=clock_hz, ring_start=ring_start,
                ring_sectors=ring_sectors, head_slot=head_slot,
-               next_seq=next_seq, wraps=wraps, gen=gen, sentinel=sentinel)
+               next_seq=next_seq, wraps=wraps, gen=gen, sentinel=sentinel,
+               drops=drops)
 
     # --- preamble: generic frames up to the first sector boundary -----------
     streams, skipped = {}, {}
@@ -714,6 +726,15 @@ def main():
         print("seq gaps %r -- a reboot, or sectors lost to a power cut" % (hdr["gaps"],))
     if hdr["skipped_frames"]:
         print("skipped unknown frame types: %r" % hdr["skipped_frames"])
+    if hdr["drops"] is None:
+        print("per-stream drop counts: not in this file "
+              "(written before the header carried them)")
+    else:
+        lost = {k: v for k, v in hdr["drops"].items() if v}
+        # The header is re-flushed every HSL_HDR_SYNC_FRAMES, so this survives
+        # a power cut -- unlike the close line, which needs a clean shutdown.
+        print("sectors dropped in the last open session: %s"
+              % (lost if lost else "none"))
 
     all_series = {}
     for i, sess in enumerate(ss):
@@ -737,8 +758,23 @@ def main():
             dur = t[-1] - t[0]
             note = ("  %d GAP%s" % (sig["_gaps"], "s" if sig["_gaps"] > 1 else "")
                     if sig.get("_gaps") else "")
-            print("    %-5s %5d samples  %6.2f s  %7.1f Hz  [%s]%s"
-                  % (streams[sid].name, len(t), dur, (len(t) - 1) / dur,
+            # A rateless byte stream (rx, txt: rate_hz 0) has no sample rate to
+            # report, and a burst that lands inside one sector spans no time at
+            # all -- both divide by zero and printed "inf Hz". Say nothing
+            # rather than a number that means nothing.
+            #
+            # Its GAP count is meaningless for the same reason: the detector
+            # calibrates off the previous block's own sample interval, which
+            # for bursty traffic is whatever the last burst happened to do. An
+            # idle uplink scored "20 gaps, 35% loss" on a flight that lost
+            # nothing.
+            rateless = not streams[sid].rate_hz
+            if rateless:
+                note = "  (rateless: gaps and rate do not apply)"
+            rate = ("%7.1f Hz" % ((len(t) - 1) / dur)
+                    if dur > 0 and not rateless else "      -   ")
+            print("    %-5s %5d samples  %6.2f s  %s  [%s]%s"
+                  % (streams[sid].name, len(t), dur, rate,
                      ",".join(streams[sid].names), note))
             all_series[(i, sid)] = (t, sig)
 

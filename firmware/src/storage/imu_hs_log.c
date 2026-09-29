@@ -221,7 +221,31 @@ static float s_acc_scale = 1.0f;
 
 /* Shared: set by the consumer, read by the producers. One flag, one writer. */
 static volatile bool s_active = false;
+/* Sectors discarded because a stream's ring was full when its producer
+ * finished one. Two counters, because one number could not answer the
+ * question it existed for:
+ *
+ *   s_drop[]       per stream, RESET EACH SESSION. Says which stream and how
+ *                  much, for THIS flight. Written into the preamble, so it is
+ *                  re-flushed every HSL_HDR_SYNC_FRAMES and a power cut costs
+ *                  at most that many sectors' worth of count.
+ *   s_dropped      lifetime total since boot, for the HSL_STATUS telemetry
+ *                  message, whose contract is a monotonic counter.
+ *
+ * The single lifetime counter alone read 0 for a flight that dropped 19
+ * sectors: its close line is emitted after the file is closed, so it lands in
+ * the NEXT session, and the number it carries is cumulative anyway. */
 static volatile uint32_t s_dropped = 0;
+static volatile uint16_t s_drop[HSL_N_STREAMS];
+
+/** @noreq attribute one dropped sector to the stream that lost it */
+static void note_drop(const hsl_stream_t *st) {
+  s_dropped++;
+  const size_t i = (size_t)(st - &s_streams[0]);
+  if (i < HSL_N_STREAMS && s_drop[i] != 0xFFFFu) {
+    s_drop[i]++;
+  }
+}
 
 /* ===========================================================================
  * Little-endian stores. The buffers are byte-addressed, which is also what
@@ -318,7 +342,7 @@ static uint8_t *stream_claim(hsl_stream_t *st, uint32_t t_cyc) {
    * might not either. A bound here is cheaper than trusting each new call
    * site to have got the discipline right. */
   if (st->fill >= st->cap) {
-    s_dropped++;
+    note_drop(st);
     return NULL;
   }
 
@@ -353,7 +377,10 @@ static void stream_commit(hsl_stream_t *st, uint32_t t_cyc) {
   /* One buffer always stays empty so head==tail means empty. */
   uint8_t next = (uint8_t)((st->head + 1u) % st->n_bufs);
   if (next == st->tail) {
-    s_dropped++; /* SD is not keeping up; this sector is refilled instead */
+    /* SD is not keeping up; this sector is refilled instead. The 41 records
+     * already in it are lost, which reads back as a hole of exactly one
+     * sector-period between two otherwise normal blocks. */
+    note_drop(st);
     return;
   }
   st->head = next;
@@ -585,7 +612,7 @@ static void wire_append(hsl_stream_t *st, const uint8_t *data, uint16_t len,
   for (uint16_t i = 0; i < len; i++) {
     uint8_t *slot = stream_claim(st, t);
     if (slot == NULL) {
-      s_dropped++; /* buffers full: SD is not keeping up, or absent */
+      note_drop(st); /* buffers full: SD is not keeping up, or absent */
       return;
     }
     *slot = data[i];
@@ -632,6 +659,13 @@ static void build_preamble(void) {
   put_u32(&h[24], s_seq);              /* next_seq  HINT */
   put_u32(&h[28], s_wraps);
   put_u32(&h[32], s_gen); /* v2: names the sentinel every ring frame carries */
+
+  /* Per-stream sectors dropped THIS session. Here rather than only in the
+   * close line because the close line does not survive a power cut, and a
+   * recording whose losses are unknown cannot be reasoned about. */
+  for (uint32_t i = 0; i < HSL_N_STREAMS; i++) {
+    put_u16(&h[HSL_HDR_DROPS_OFF + i * 2u], s_drop[i]);
+  }
 
   /* One FMT per stream, so the file describes every stream it contains with
    * no external schema. Scales come from the driver, not a constant here, so
@@ -862,6 +896,9 @@ static void session_start(void) {
     if (s_streams[i].armed_only) {
       s_streams[i].tail = s_streams[i].head;
     }
+    /* Per-session, so a number describes one flight. The lifetime total that
+     * telemetry reports (s_dropped) keeps counting. */
+    s_drop[i] = 0u;
   }
   s_active = true;
 }
@@ -871,7 +908,39 @@ static void session_stop(void) {
   s_active = false; /* set FIRST: the producers now cannot touch a stream, so
                      * their partial sectors are ours to finish. */
   if (s_fd >= 0) {
-    /* Flush partly-filled sectors. `n` already says how many records they
+    /* Say how it went while the file is still OPEN. This used to run after
+     * vfs_close, so the line could only ever be written into the next
+     * session -- every close line in a card pull describes the session before
+     * the one carrying it, and a flight that ended in a power cut had no line
+     * at all. The counts are per-session now, so this describes this flight
+     * rather than everything since boot. */
+    /* Two lines: log_buf is 128 bytes and eight u16 counters plus their
+     * labels do not fit beside the cursor, and a truncated line would lose
+     * the end -- which is the half worth having. */
+    vayu_log("hsl: session %u closed, slot %u, %u wraps", (unsigned)s_session,
+             (unsigned)s_slot, (unsigned)s_wraps);
+    vayu_log("hsl: dropped imu=%u act=%u vrt=%u ctl=%u rx=%u txt=%u att=%u"
+             " rc=%u",
+             (unsigned)s_drop[HSL_S_IMU], (unsigned)s_drop[HSL_S_ACT],
+             (unsigned)s_drop[HSL_S_VRT], (unsigned)s_drop[HSL_S_CTL],
+             (unsigned)s_drop[HSL_S_RX], (unsigned)s_drop[HSL_S_TXT],
+             (unsigned)s_drop[HSL_S_ATT], (unsigned)s_drop[HSL_S_RC]);
+
+    /* Drain what is already PUBLISHED but not yet written. The per-loop drain
+     * runs at the end of imu_hs_log_drain, and every path that ends a session
+     * returns before reaching it -- so up to one ring per stream was being
+     * abandoned at every disarm, silently. Oldest first. */
+    for (uint32_t i = 0; i < HSL_N_STREAMS; i++) {
+      hsl_stream_t *st = &s_streams[i];
+      while (st->tail != st->head) {
+        if (!ring_write(st->bufs + (size_t)st->tail * HSL_SECTOR_BYTES)) {
+          break; /* card is unhappy; still try to close cleanly below */
+        }
+        st->tail = (uint8_t)((st->tail + 1u) % st->n_bufs);
+      }
+    }
+
+    /* Then the partly-filled sectors. `n` already says how many records they
      * hold, so a short sector is a perfectly ordinary block -- without this a
      * VRT sector would lose up to ~850 ms at the end of every flight. */
     for (uint32_t i = 0; i < HSL_N_STREAMS; i++) {
@@ -884,9 +953,6 @@ static void session_stop(void) {
     (void)flush_preamble();
     vfs_close(s_fd);
     s_fd = -1;
-    vayu_log("hsl: session %u closed, slot %u, %u wraps, %u dropped",
-             (unsigned)s_session, (unsigned)s_slot, (unsigned)s_wraps,
-             (unsigned)s_dropped);
   }
 }
 
@@ -914,7 +980,7 @@ static void wire_idle_flush(void) {
     st->fill = 0u;
     uint8_t next = (uint8_t)((st->head + 1u) % st->n_bufs);
     if (next == st->tail) {
-      s_dropped++;
+      note_drop(st);
       continue;
     }
     st->head = next;

@@ -251,7 +251,14 @@
 /* v2: the ring sentinel is per-file, derived from a generation word in the
  * header, instead of the constant 0xA5 v1 used. See HSL_SENTINEL_FOR below. */
 #define HSL_VERSION 2u
-#define HSL_FILE_HDR_BYTES 36u
+/* Grown from 36 to 52 for the per-stream drop counters at [36..51]. Readers
+ * find the FMT frames at this offset rather than assuming one, so a file that
+ * declares 36 (no counters) and one that declares 52 both parse. */
+#define HSL_FILE_HDR_BYTES 52u
+/** Per-stream sectors dropped THIS SESSION, u16 each, indexed by hsl_stream_t
+ *  order. In the preamble so they are re-flushed every HSL_HDR_SYNC_FRAMES and
+ *  survive the power cut that loses the close line entirely. */
+#define HSL_HDR_DROPS_OFF 36u
 
 #define HSL_FRAME_HDR_BYTES 4u
 

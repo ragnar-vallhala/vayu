@@ -488,6 +488,10 @@ add_test(NAME phase3_slog COMMAND test_phase3_slog)
 # log round-trip (src/storage/fs_owner.c, in vayu_sitl_core).
 # HSL wire format: the real encoder's bytes, then decoded by hslog.py below —
 # the encoder has no runtime consumer that would ever notice a layout mistake.
+add_executable(test_hslog_drops tests/test_hslog_drops.c)
+target_link_libraries(test_hslog_drops PRIVATE vayu_sitl_core m)
+add_test(NAME hslog_drops COMMAND test_hslog_drops)
+
 add_executable(test_hslog tests/test_hslog.c)
 target_link_libraries(test_hslog PRIVATE vayu_sitl_core m)
 add_test(NAME hslog COMMAND test_hslog)
