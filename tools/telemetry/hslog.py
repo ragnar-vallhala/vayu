@@ -695,6 +695,28 @@ def verify_encoder_file(path):
           % (path, len(frames), hdr["wraps"], len(ss), len(evs), b - a))
 
 
+# vrt flag bits (firmware/include/storage/imu_hs_log.h). Bits 7-10 say WHY the
+# rangefinder was not trusted, which "tof_valid 45%" on its own never did.
+VRT_FLAGS = [
+    ("tof_valid", 0x0001), ("accel_unhealthy", 0x0002), ("valid", 0x0004),
+    ("hover_measured", 0x0008), ("tof_fresh", 0x0080), ("tof_stale", 0x0100),
+    ("tof_tilt", 0x0200), ("tof_range", 0x0400),
+]
+
+
+def vrt_flag_report(sig):
+    """-> list of 'name pct%' for a vrt stream's flags column, or []."""
+    f = sig.get("flags")
+    if f is None or not len(f):
+        return []
+    # numpy is imported lazily elsewhere in this module; plain ints are enough
+    # here and keep the tool usable without it.
+    bits = [int(v) for v in f]
+    n = float(len(bits))
+    return ["%s %.0f%%" % (name, 100.0 * sum(1 for b in bits if b & m) / n)
+            for name, m in VRT_FLAGS]
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -777,6 +799,14 @@ def main():
                   % (streams[sid].name, len(t), dur, rate,
                      ",".join(streams[sid].names), note))
             all_series[(i, sid)] = (t, sig)
+
+            # Break the vrt flags out: the ToF-gate bits are the whole reason
+            # they are recorded, and nobody reads a bitmask column by eye.
+            if sid == 3:
+                rep = vrt_flag_report(sig)
+                if rep:
+                    print("          " + "  ".join(rep[:4]))
+                    print("          " + "  ".join(rep[4:]))
 
             if a.fft and sid == 1:
                 peaks, fs = spectrum(t, sig)

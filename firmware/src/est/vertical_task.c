@@ -262,12 +262,25 @@ void vertical_estimator_task(void *args) {
           .altitude = out.altitude,
           .climb_rate = out.climb_rate,
           .accel_bias = out.accel_bias,
+          /* The three estimator-side gates are recorded as they were
+           * evaluated above, so a recording says WHICH one rejected the ToF
+           * rather than only that something did. TOF_FRESH separates those
+           * from the driver rejecting a read before the hub sees it. */
           .flags =
               (uint16_t)((out.tof_valid ? HSL_VRT_F_TOF_VALID : 0u) |
                          (out.accel_unhealthy ? HSL_VRT_F_ACCEL_UNHEALTHY
                                               : 0u) |
                          (out.valid ? HSL_VRT_F_VALID : 0u) |
-                         (out.hover_measured ? HSL_VRT_F_HOVER_MEASURED : 0u)),
+                         (out.hover_measured ? HSL_VRT_F_HOVER_MEASURED : 0u) |
+                         (tof_fresh ? HSL_VRT_F_TOF_FRESH : 0u) |
+                         (tof_age_steps >= VERT_TOF_STALE_STEPS
+                              ? HSL_VRT_F_TOF_STALE
+                              : 0u) |
+                         (cos_tilt <= VERT_TOF_MAX_TILT_COS ? HSL_VRT_F_TOF_TILT
+                                                            : 0u) |
+                         ((agl_tof < VERT_TOF_MIN_M || agl_tof > VERT_TOF_MAX_M)
+                              ? HSL_VRT_F_TOF_RANGE
+                              : 0u)),
       };
       imu_hs_log_vert(&hv, out.timestamp);
     }
