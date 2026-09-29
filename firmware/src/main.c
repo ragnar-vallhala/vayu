@@ -153,7 +153,12 @@ void init_tasks(void) {
    * guard band; 1536 leaves 580 B. */
   task_create_named(angle_rate_controller_task, NULL, 1536, 1,
                     "rate_ctl"); // peak 956 measured, control
-  task_create_named(motor_task, NULL, 704, 1, "motor"); // peak 284, actuator
+  /* 1024 not 704: motor_task drains esc_calib's deferred messages, and
+   * vayu_log panics the kernel with under 320 bytes of stack free. 704 against
+   * a measured peak of 284 left 420 -- over the line, but by less than the
+   * formatter's own frame. Stacks come from the vaios heap, so this does not
+   * move _heap_start. */
+  task_create_named(motor_task, NULL, 1024, 1, "motor"); // peak 284, actuator
   task_create_named(imu_telemetry_task, NULL, 1344, 0,
                     "imu_telemetry"); // peak 908
   VAYU_DISCARD(sensor_start_task(SENSOR_BARO));

@@ -120,6 +120,37 @@ static bool request_take(void) {
   return have;
 }
 
+/* Messages raised on the RC task, emitted on a deeper one.
+ *
+ * vayu_log() reaches vaios's v_log(), which PANICS THE KERNEL if the calling
+ * task has under 320 bytes of stack left -- a deliberate guard, because
+ * formatting a line needs more room than a shallow task has. rc_ibus runs in
+ * 576 bytes, so every log call on that path halted the FC: the gesture was
+ * detected, the request was queued, and the kernel stopped before fs_owner
+ * could drain it. The board went dark with a solid green LED and no telemetry,
+ * which reads as "nothing happened" rather than "it worked and then died".
+ *
+ * So the RC path latches a pointer to a string literal and motor_task -- which
+ * already calls esc_calib_output() every iteration -- emits it. One producer,
+ * one consumer, no formatting on the RC side. A second message raised before
+ * the first is drained replaces it; the messages mark phase transitions that
+ * are ~1.5 s apart against motor_task's loop, so that is a report of an event
+ * that did not happen, not a lost one. */
+static const char *volatile s_pending_msg;
+
+/** @noreq raise a message for the logging task; RC-task side, no formatting */
+static void esc_calib_say(const char *msg) { s_pending_msg = msg; }
+
+/** @noreq emit whatever the RC task raised. Deep-stack task only. */
+void esc_calib_service_log(void) {
+  const char *m = s_pending_msg;
+  if (m == NULL) {
+    return;
+  }
+  s_pending_msg = NULL;
+  vayu_log("%s", m);
+}
+
 /** @noreq boot entry: take a pending request and drive maximum from startup */
 void esc_calib_boot_init(void) {
   if (!request_take()) {
@@ -145,7 +176,7 @@ static void esc_calib_finish(const char *why) {
   if (system_state_get() == SYSTEM_STATE_ESC_CALIB) {
     VAYU_DISCARD(system_state_set(SYSTEM_STATE_STANDBY));
   }
-  vayu_log("esc_calib: %s", why);
+  esc_calib_say(why);
 }
 
 /** @noreq per-frame service; owns entry to and exit from SYSTEM_STATE_ESC_CALIB */
@@ -184,11 +215,11 @@ void esc_calib_rc_step(const ibus_data_t *rc) {
      * cycle that makes that possible. */
     s_holding_enter = false;
     if (!request_write()) {
-      vayu_log("esc_calib: could not write the request (card?)");
+      esc_calib_say("esc_calib: could not write the request (card?)");
       return;
     }
     s_request_written = true;
-    vayu_log("esc_calib: request stored -- power-cycle, props OFF");
+    esc_calib_say("esc_calib: request stored -- power-cycle, props OFF");
     return;
   }
 
@@ -199,7 +230,7 @@ void esc_calib_rc_step(const ibus_data_t *rc) {
     s_phase = ESC_CAL_OFF;
     s_holding_enter = false;
     s_holding_close = false;
-    vayu_log("esc_calib: aborted: state left ESC_CALIB");
+    esc_calib_say("esc_calib: aborted: state left ESC_CALIB");
     return;
   }
 
@@ -214,7 +245,7 @@ void esc_calib_rc_step(const ibus_data_t *rc) {
       s_phase = ESC_CAL_SETTLE;
       s_phase_ms = v_get_ticks();
       s_holding_close = false;
-      vayu_log("esc_calib: MIN held -- endpoints storing");
+      esc_calib_say("esc_calib: MIN held -- endpoints storing");
     }
     return;
   }

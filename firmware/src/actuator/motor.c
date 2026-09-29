@@ -76,6 +76,11 @@ void motor_task(void *arg) {
      * disarm. Anything else (STANDBY/FAILSAFE/...) forces them to zero. */
     sys_state_t mstate = system_state_get();
 
+    /* Emit anything the RC task raised. Here because this task already drives
+     * the calibration output and has the stack vayu_log demands, which the RC
+     * task does not. */
+    esc_calib_service_log();
+
     if (mstate == SYSTEM_STATE_ESC_CALIB) {
       /* ESC endpoint calibration: every motor gets the same endpoint, from the
        * calibration state machine rather than the mixer. This is the ONLY

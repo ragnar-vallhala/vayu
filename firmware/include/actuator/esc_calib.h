@@ -112,6 +112,11 @@ bool esc_calib_request_pending(void);
 float esc_calib_output(void);
 
 /** True while calibration is running. */
+/* Emit any message the RC path raised. Call from a task with a DEEP stack:
+ * vayu_log panics the kernel below 320 bytes free, and the RC task runs in
+ * 576. motor_task owns this call. */
+void esc_calib_service_log(void);
+
 bool esc_calib_active(void);
 
 #endif /* VAYU_ACTUATOR_ESC_CALIB_H */
