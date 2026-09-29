@@ -35,13 +35,24 @@
 # SECTIONS AND THE RATCHET
 #
 # The rule above is the same everywhere; what differs is how far each part of
-# the tree has got. control/ est/ maths/ reached zero and stay there. The rest
-# has not been swept yet, so each section carries the count it is ALLOWED, and
-# the gate fails when a section goes ABOVE it. The number may only come down.
+# the tree has got. Each section carries the count it is ALLOWED, and the gate
+# fails when a section goes ABOVE it. The number may only come down.
 #
 # That is what makes a staged sweep survivable: a section cleaned this week
-# cannot quietly regress while the next one is being worked on, and the
-# numbers below are a ledger of how much is left rather than a wish.
+# cannot quietly regress while the next one is being worked on.
+#
+# FLOORS -- a nonzero allowance is not a backlog
+#
+# The sweep is finished: every section below is at its FLOOR, and the reason
+# is written next to it. A floor is what the section legitimately names
+# because that is the section's job -- sys/clock.c is the DWT seam the logic
+# layers exist to avoid naming, and heartbeat.c drives an annunciator the same
+# way actuator/motor.c drives an ESC. Driving a floor to zero does not remove
+# the hardware dependency, it hides it behind another indirection and makes
+# the gate report clean while the coupling is still there.
+#
+# So: a number going UP is a regression and fails. A number going DOWN is only
+# progress if a dependency actually went away -- check the reason first.
 #
 # driver/ is deliberately absent. Silicon is what a driver is FOR -- gating it
 # would be gating the thing that exists to hold the hardware.
@@ -64,15 +75,21 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 
-# name | allowed | directories
+# name | allowed (== its floor) | directories
 SECTIONS=(
   "core|0|firmware/src/control firmware/src/est firmware/src/maths firmware/include/control firmware/include/est firmware/include/maths"
   "hub|0|firmware/src/hub firmware/include/hub"
   "sensor|0|firmware/src/sensor firmware/include/sensor"
   "dsp|0|firmware/src/dsp firmware/src/calib firmware/include/dsp firmware/include/calib"
   "storage|0|firmware/src/storage firmware/include/storage"
+  # actuator: motor.c includes driver/esc.h. Driving an ESC is what it is for.
   "actuator|1|firmware/src/actuator firmware/include/actuator"
+  # internal: clock.c 3 + boot.c 2 are the DWT/clock seam -- the one place the
+  # CPU rate and the cycle counter are named, so control/ est/ maths/ never
+  # have to. heartbeat.c names driver/indicator.h and sys_utils.c names
+  # driver/crc.h; each drives exactly the device it names. logger/ is at 0.
   "internal|7|firmware/src/sys firmware/src/logger firmware/include/sys"
+  # comm: one driver/uart.h per transport -- a transport owns a port.
   "comm|4|firmware/src/comm firmware/include/comm"
 )
 
@@ -118,9 +135,12 @@ for entry in "${SECTIONS[@]}"; do
     printf '%s\n' "$hits" | sed 's/^/      /' >&2
     rc=1
   elif [ "$n" -lt "$allowed" ]; then
-    printf '  %-9s  %3d < %-3d  ratchet: lower it to %d\n' "$name" "$n" "$allowed" "$n"
+    printf '  %-9s  %3d < %-3d  ratchet: lower it to %d if a dependency went away\n' \
+      "$name" "$n" "$allowed" "$n"
+  elif [ "$allowed" = 0 ]; then
+    printf '  %-9s  %3d        clean\n' "$name" "$n"
   else
-    printf '  %-9s  %3d        at the line\n' "$name" "$n"
+    printf '  %-9s  %3d        at its floor\n' "$name" "$n"
   fi
 done
 
@@ -141,7 +161,9 @@ These layers take SI quantities and dt, and must compile without a HAL.
                                             driver header (driver/*.h pulls
                                             navhal.h in behind you)
 
-The allowance in tools/dev/check_layering.sh may only go DOWN.
+The allowance in tools/dev/check_layering.sh may only go DOWN, and every
+section is already at its floor -- so this is a new dependency, not a
+leftover. Raising the number is not the fix.
 EOF
   exit 1
 fi

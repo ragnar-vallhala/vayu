@@ -61,19 +61,28 @@ goes *above* it, and prints the new number when a section comes in *under*.
 survivable: a section cleaned this week cannot quietly regress while the next
 one is being worked on.
 
-Ledger, 2026-09-28:
+**The sweep is finished.** Every section below is at its **floor**, so these
+numbers are no longer a backlog — they are what each section legitimately
+names because that is its job. A floor driven to zero does not remove the
+hardware dependency, it hides it behind one more indirection and makes the
+gate report clean while the coupling is still there. A number going *up* is a
+new dependency; a number going *down* is progress only if a dependency
+actually went away.
 
-| Section | Allowed | Directories |
+Ledger, 2026-09-29:
+
+| Section | Floor | Directories |
 |---|---:|---|
 | core | 0 | `control/ est/ maths/` |
 | hub | 0 | `hub/` |
+| sensor | 0 | `sensor/` |
 | dsp | 0 | `dsp/ calib/` |
 | storage | 0 | `storage/` |
 | actuator | 1 | `actuator/` |
 | internal | 7 | `sys/ logger/` |
 | comm | 4 | `comm/` |
 
-15 lines total, in 6 files. Where they live:
+12 lines total, in 9 files. Where they live:
 
 | Section | File | Lines | What it is |
 |---|---|---:|---|
@@ -87,11 +96,13 @@ Ledger, 2026-09-28:
 | comm | `comm/rc_task.c` | 1 | `driver/uart.h` |
 | comm | `comm/serializer.c` | 1 | `driver/uart.h` |
 
-Four of those are not debt. `sys/clock.c` and `sys/boot.c` are *where* DWT is
-allowed to be read; `heartbeat.c` and `sys_utils.c` name a driver because they
-genuinely drive one, the same way `motor.c` does. The floor for `internal` is
-**7**, not 0 — and a section reaching its floor is the end of the work, not a
-failure to finish it.
+None of those is debt. `sys/clock.c` and `sys/boot.c` are *where* the CPU rate
+and the cycle counter are allowed to be read — that seam is the reason
+`control/`, `est/` and `maths/` never have to name them. `heartbeat.c` and
+`sys_utils.c` name a driver because they genuinely drive one, the same way
+`motor.c` does. The floor for `internal` is **7**, not 0; `logger/` is already
+at 0 and contributes none of it. A section reaching its floor is the end of
+the work, not a failure to finish it.
 
 ### 2.1 Why the gate is textual, not an include graph
 
