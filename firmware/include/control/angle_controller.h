@@ -70,6 +70,15 @@ float angle_controller_last_throttle(void);
 uint8_t angle_controller_height_state(void);
 
 /**
+ * True while bank-angle recovery is flying the aircraft.
+ *
+ * In that state the FC overrides the stick entirely -- level attitude demand
+ * at the measured hover collective, yaw demand zeroed -- so without this a
+ * recording cannot say whether the pilot or the FC commanded what it shows.
+ */
+bool angle_controller_recovering(void);
+
+/**
  * @brief Set the live angle-PID gains for one axis (0..NUM_AXES-1).
  * @return false if axis is out of range; true on apply.
  * @implements COMM-CMD-003

@@ -679,6 +679,13 @@ void angle_rate_controller_task(void *arg) {
       if (state == SYSTEM_STATE_IN_AIR) {
         hf |= HSL_ACT_F_IN_AIR;
       }
+      /* Attribution for the collective in this record. */
+      if (angle_controller_recovering()) {
+        hf |= HSL_ACT_F_RECOVER;
+      }
+      if (angle_controller_height_state() & HEIGHT_STATE_ENGAGED) {
+        hf |= HSL_ACT_F_HEIGHT;
+      }
       imu_hs_log_act(mo, target_throttle, hf, imu_data.t_cyc);
       /* current_rates is post-LPF and post-notch by this point -- the PID's own
        * input -- and outputs is its response before the mixer touches it. */

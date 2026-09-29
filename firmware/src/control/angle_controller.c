@@ -60,11 +60,20 @@ bool angle_controller_get_outputs(angle_controller_outputs_t *outputs) {
  * (the takeoff/landing detector) don't steal from the rate-controller FIFO. */
 static volatile float _last_throttle = 0.0f;
 static volatile uint8_t _height_state = 0;
+/* Bank-angle recovery: true while the FC is flying the aircraft out of an
+ * upset, overriding the pilot's sticks AND a chopped throttle. Published
+ * because nothing else distinguishes "the pilot is flying" from "the FC took
+ * over" -- a 2026-09-28 card pull had a 247 s flight whose collective could
+ * not be attributed to either, because this bit was not recorded anywhere. */
+static volatile uint8_t _recovering = 0;
 /** @noreq latest-throttle accessor (non-destructive observer). */
 float angle_controller_last_throttle(void) { return _last_throttle; }
 
 /** @noreq Packed height-mode status for telemetry (see the header). */
 uint8_t angle_controller_height_state(void) { return _height_state; }
+
+/** @noreq state accessor */
+bool angle_controller_recovering(void) { return _recovering != 0u; }
 
 static angle_controller_t angle_controller = {
     .pid = {
@@ -453,6 +462,7 @@ void angle_controller_task(void *arg) {
       target_throttle = hover_now;
     }
 
+    _recovering = s_recovering ? 1u : 0u;
     /* Publish what the mode is doing, so "I flipped the switch and nothing
      * happened" is answerable from telemetry instead of a log hunt. */
     _height_state =

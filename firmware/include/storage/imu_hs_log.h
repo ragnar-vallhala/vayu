@@ -361,6 +361,11 @@
 /* "act" flag bits. */
 #define HSL_ACT_F_ARMED 0x0001u
 #define HSL_ACT_F_IN_AIR 0x0002u
+/* Who commanded the collective in this record. Without these, a throttle that
+ * does not match the pilot's stick is unattributable: bank-angle recovery and
+ * height hold both override the stick, and both look identical in the log. */
+#define HSL_ACT_F_RECOVER 0x0004u /* FC flying out of a bank-angle upset */
+#define HSL_ACT_F_HEIGHT 0x0008u  /* height controller owns the collective */
 
 /* "vrt" flag bits. */
 #define HSL_VRT_F_TOF_VALID 0x0001u
