@@ -54,13 +54,13 @@ extern mpmc_queue_t vayu_log_queue;
 void vayu_log(const char *fmt, ...);
 
 /* ===========================================================================
- * Binary blackbox: the 3 circular SD files.
+ * Binary blackbox
+ *
+ * There is no SD log lane here any more. Text logs go to the high-speed
+ * recorder as a byte stream (imu_hs_log_wire_txt), so they share a ring, a
+ * timebase and a decoder with the samples they explain -- rather than living
+ * in a separate 10 MB file written one record at a time through this owner.
  * =========================================================================== */
-typedef enum {
-  NAVLINK_LOGGER,
-  SYSTEM_LOGGER,
-  GENERAL_LOGGER,
-} logger_type_t;
 
 /* ===========================================================================
  * FS owner lifecycle.
@@ -114,7 +114,6 @@ void fs_owner_pump(void);
  * =========================================================================== */
 
 /** @brief Enqueue a blackbox log record (was logger_write). */
-bool fs_owner_enqueue_log(logger_type_t type, const void *data, uint32_t len);
 
 /** @brief Enqueue a snapshot of the PID store for persistence to 0:pid.bin. */
 bool fs_owner_enqueue_pid_save(const void *store, uint32_t len);
@@ -230,11 +229,8 @@ int fs_owner_closedir(vfs_dir_t d);
  * Accounting.
  * =========================================================================== */
 
-/* Wrap accounting (LOG-SD-002): incremented each time a log's circular write
- * position wraps, i.e. the oldest records are overwritten — so the loss is
- * accountable rather than silent. */
-uint32_t fs_owner_log_wrap_count(logger_type_t type);
-uint32_t fs_owner_log_wrap_count_total(void);
+/* Wrap accounting (LOG-SD-002) now lives with the recorder that owns the ring:
+ * imu_hs_log_wraps(). */
 
 /* Drop accounting (mirrors COMM-CH-002): requests lost to a full lane. */
 uint32_t fs_owner_dropped_logs(void);

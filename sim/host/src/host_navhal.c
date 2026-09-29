@@ -37,6 +37,10 @@
  * host_imu_feeder.c) that write directly to the vayu queues.
  */
 #define _GNU_SOURCE
+#include "host_pwm.h"
+#include "host_gpio.h"
+#include "actuator/motor.h"
+#include "driver/esc.h" /* VAYU_ESC_MIN_DUTY / MAX_DUTY -- one band, both sides */
 #include "navhal.h"
 #include "vsim_iface.h"
 #include "vsim_proto.h"
@@ -92,6 +96,11 @@ typedef struct {
 
 static host_pwm_state_t
     pwm_state[PWM_NUM_TIMER_CHANNELS + 1]; /* 1..4 indexed */
+/* The timer's CEN bit. Modelled separately from each channel's output enable
+ * because the four ESCs SHARE this timer: stopping it silences all four, and a
+ * stub that treated stop as channel-local would hide exactly the class of bug
+ * that made esc_disarm dangerous (fault line F7). */
+static int pwm_timer_running;
 static int pwm_fifo_fd = -1;
 static char pwm_fifo_open_failed = 0;
 static uint32_t pwm_seq;
@@ -121,6 +130,9 @@ static void pwm_fifo_ensure_open(void) {
   }
 }
 
+/* Defined here so the recording hal_gpio_write inline has one home. */
+uint8_t host_gpio_level[HOST_GPIO_PIN_MAX];
+
 /* ---- PWM HAL ---------------------------------------------------------- */
 hal_status_t hal_pwm_init(hal_pwm_handle_t *pwm, uint32_t frequency,
                           float duty_cycle) {
@@ -136,6 +148,8 @@ hal_status_t hal_pwm_init(hal_pwm_handle_t *pwm, uint32_t frequency,
 hal_status_t hal_pwm_start(hal_pwm_handle_t *pwm) {
   if (!pwm || pwm->channel < 1 || pwm->channel > 4)
     return HAL_ERR_INVALID_ARG;
+  /* hal_timer_start: CEN for the whole timer, plus this channel's output. */
+  pwm_timer_running = 1;
   pwm_state[pwm->channel].started = 1;
   return HAL_OK;
 }
@@ -143,7 +157,10 @@ hal_status_t hal_pwm_start(hal_pwm_handle_t *pwm) {
 hal_status_t hal_pwm_stop(hal_pwm_handle_t *pwm) {
   if (!pwm || pwm->channel < 1 || pwm->channel > 4)
     return HAL_ERR_INVALID_ARG;
+  /* Mirrors the real HAL: disable THIS channel, then stop the timer -- which
+   * every other channel is also riding. */
   pwm_state[pwm->channel].started = 0;
+  pwm_timer_running = 0;
   return HAL_OK;
 }
 
@@ -164,8 +181,8 @@ hal_status_t hal_pwm_set_duty_cycle(hal_pwm_handle_t *pwm, float duty_cycle) {
      * the band here and write the linear motor command (0..1) the
      * controller actually produced. */
   int motor_idx = (int)pwm->channel - 1;
-  const float esc_idle = 0.4f;
-  const float esc_full = 0.8f;
+  const float esc_idle = VAYU_ESC_MIN_DUTY;
+  const float esc_full = VAYU_ESC_MAX_DUTY;
   float cmd = (duty_cycle - esc_idle) / (esc_full - esc_idle);
   if (cmd < 0.0f)
     cmd = 0.0f;
@@ -587,27 +604,61 @@ uint32_t hal_crc_compute(const uint8_t *data, uint32_t length) {
 }
 
 /* ---- calibration_task stub ---------------------------------------------
- * On hardware, calibration_task lives in src/sensor/bmx160.c (which we
- * don't compile - it's I2C-driver heavy). The host SITL doesn't expose
- * a calibration flow, so provide a do-nothing task body so comm_processor.c
- * can reference it. */
+ * On hardware calibration_task lives in the IMU driver, which the host does
+ * not compile -- it is I2C-driver heavy and SITL feeds the hub directly. The
+ * symbol still has to exist because vayu_tasks.h declares it.
+ *
+ * The two stubs that used to sit here are gone with the code that needed
+ * them: the cancel hook is now an entry in the IMU model (sensor/imu.h), and
+ * with no IMU backend on the host imu_ops() returns NULL, so the command layer
+ * takes its "no IMU backend" branch instead of calling into nothing. Board
+ * trim went to hub_get_board_trim, which already defaults to a level 0,0 --
+ * which is right for SITL, where the sim IMU is perfectly aligned with the
+ * airframe. */
 void calibration_task(void *args) { (void)args; }
 
-/* Cancel hook (hardware definition is in src/sensor/bmx160.c). No-op here
- * since the host SITL has no calibration flow. */
-void bmx160_calib_request_cancel(void) {}
-
-/* Board-level / trim (hardware definition in src/sensor/bmx160.c). The sim IMU
- * is perfectly aligned with the airframe, so there is no mounting tilt: always
- * report zero trim. Keeps attitude_task.c's estimator-output trim a no-op in SITL. */
-void bmx160_get_board_trim(float *roll_deg, float *pitch_deg) {
-  if (roll_deg)
-    *roll_deg = 0.0f;
-  if (pitch_deg)
-    *pitch_deg = 0.0f;
+/* ---- Timer HAL: stubs (heartbeat uses it via task delays, not real timers) */
+/* Test accessors -- see host_pwm.h. */
+float host_pwm_duty(unsigned channel) {
+  return (channel >= 1 && channel <= 4) ? pwm_state[channel].last_duty : 0.0f;
 }
 
-/* ---- Timer HAL: stubs (heartbeat uses it via task delays, not real timers) */
+bool host_pwm_started(unsigned channel) {
+  if (channel < 1 || channel > 4) {
+    return false;
+  }
+  /* A channel emits only if its own output is enabled AND the shared timer is
+   * running. */
+  return pwm_state[channel].started != 0 && pwm_timer_running != 0;
+}
+
+/* Channel enable/disable: what esc_arm and esc_disarm drive now that they are
+ * channel scoped rather than starting and stopping the shared timer. Tracks
+ * the same `started` bookkeeping hal_pwm_start/stop did -- SITL motor output
+ * follows last_duty, so this changes nothing the physics sees, and that is the
+ * point: the seam moved, the behaviour did not. */
+hal_status_t hal_timer_start(hal_timer_t t) {
+  (void)t;
+  pwm_timer_running = 1;
+  return HAL_OK;
+}
+
+hal_status_t hal_timer_enable_channel(hal_timer_t t, uint32_t channel) {
+  (void)t;
+  if (channel >= 1 && channel <= 4) {
+    pwm_state[channel].started = 1;
+  }
+  return HAL_OK;
+}
+
+hal_status_t hal_timer_disable_channel(hal_timer_t t, uint32_t channel) {
+  (void)t;
+  if (channel >= 1 && channel <= 4) {
+    pwm_state[channel].started = 0;
+  }
+  return HAL_OK;
+}
+
 hal_status_t hal_timer_init_freq(hal_timer_t t, uint32_t freq_hz) {
   (void)t;
   (void)freq_hz;

@@ -14,7 +14,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#include "actuator/actuator.h"
+#include "vayu_board.h"
+#include "actuator/motor.h"
+#include "driver/esc.h"
 #include "structure.h"
 #include "sys/state.h"
 #include "vaios.h"
@@ -36,10 +38,14 @@ void motor_init(void) {
             sizeof(motor_outputs_t));
   spsc_set_policy(&motor_telemetry_queue, SPSC_POLICY_OVERWRITE);
   // Setup ESCs
-  esc_init(&motors[0], TIM1, 1, GPIO_PA08); // Motor 1
-  esc_init(&motors[1], TIM1, 2, GPIO_PA09); // Motor 2
-  esc_init(&motors[2], TIM1, 3, GPIO_PA10); // Motor 3
-  esc_init(&motors[3], TIM1, 4, GPIO_PA11); // Motor 4
+  /* The shared timer is configured ONCE, by its owner, before any channel
+   * asks for anything (F7). */
+  esc_group_init(BOARD_ESC_TIMER, VAYU_ESC_PWM_FREQ);
+
+  esc_init(&motors[0], 1, BOARD_ESC_M1_PIN, BOARD_ESC_AF); // Motor 1
+  esc_init(&motors[1], 2, BOARD_ESC_M2_PIN, BOARD_ESC_AF); // Motor 2
+  esc_init(&motors[2], 3, BOARD_ESC_M3_PIN, BOARD_ESC_AF); // Motor 3
+  esc_init(&motors[3], 4, BOARD_ESC_M4_PIN, BOARD_ESC_AF); // Motor 4
 
   for (int i = 0; i < NUM_MOTORS; i++) {
     esc_arm(&motors[i]);

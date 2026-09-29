@@ -30,7 +30,8 @@
 #include "dsp/notch_bank.h"
 #include "maths/fft_tables_N128.h" /* const FFT_HANN_N128 / FFT_TWIDDLE_N128 */
 #include "memory.h"                /* v_malloc */
-#include "variables.h"             /* NUM_AXES, INNER_LOOP_FREQ_HZ */
+#include "control/loop_rates.h"
+#include "control/tuning.h"
 
 /* FFT / band parameters. N is fixed at 128 to reuse the const flash tables (Hann
  * window + twiddles) — the zero-heap-tables path from notch_fft. Band + Q are

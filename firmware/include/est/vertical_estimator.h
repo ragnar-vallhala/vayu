@@ -47,13 +47,15 @@
 #define VAYU_VERTICAL_ESTIMATOR_H
 
 #include "maths/maths_interface.h"
+#include "physics.h"
 #include <stdbool.h>
 #include <stdint.h>
 
-/* Standard gravity (m/s^2). Matches EKF_GRAVITY; kept local so this module does
- * not pull in the EKF header. */
+/* Standard gravity (m/s^2), from the one place that spells it (physics.h) --
+ * which is what lets this module have it without pulling in the EKF header.
+ * Still overridable, for a SITL world that is not Earth. */
 #ifndef VERT_GRAVITY
-#define VERT_GRAVITY 9.80665f
+#define VERT_GRAVITY VAYU_GRAVITY_MPS2
 #endif
 
 /* Default baro-correction gains (per baro sample), a starting point for a

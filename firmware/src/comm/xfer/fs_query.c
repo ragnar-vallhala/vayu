@@ -26,7 +26,7 @@
 
 #include "storage/fs_owner.h"
 #include "storage/imu_hs_log.h" /* the recording gate on deleting the HSL file */
-#include "variables.h"          /* the protected paths */
+#include "storage/paths.h"
 
 static const fs_query_tx_ops_t *s_tx;
 
@@ -117,17 +117,6 @@ static uint8_t delete_verdict(const char *path) {
    * and neither is ever the file someone meant to clear space with. */
   if (same_file(path, CALIBRATION_FILE_PATH) ||
       same_file(path, PID_CONFIG_FILE_PATH)) {
-    return FSQ_RES_DENIED;
-  }
-  /* The blackbox ring files. Deleting one is not the small thing its name
-   * suggests: fs_owner_boot_init preallocates all three at the next boot, and
-   * vfs_preallocate zero-fills 512 B at a time, so 30 MB of re-creation runs
-   * before the scheduler reaches timer_callback_init and the aircraft looks
-   * hung for minutes. They are also ring files -- there is never a reason to
-   * delete one to reclaim space, because the space is already fixed. */
-  if (same_file(path, NAVLINK_LOGGING_FILENAME) ||
-      same_file(path, SYS_LOGGING_FILENAME) ||
-      same_file(path, GENERAL_LOGGING_FILENAME)) {
     return FSQ_RES_DENIED;
   }
   /* Temporary: the recorder holds this open and is writing into it. Refusing

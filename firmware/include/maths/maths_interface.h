@@ -16,7 +16,13 @@
  */
 #ifndef MATHS_INTERFACE_H
 #define MATHS_INTERFACE_H
+/* The circle constants, in one place and at one precision. Both are used far
+ * from here -- the FFT twiddle angles, the biquad's normalised frequency, a
+ * sysid chirp -- and each of those had written its own, at three different
+ * precisions. float carries ~7 significant digits, so the extra ones are for
+ * the compiler to round once rather than for anyone to retype. */
 #define PI 3.14159265358979323846f
+#define TWO_PI 6.28318530717958647692f
 
 float m_sin(float x);
 float m_cos(float x);
@@ -31,8 +37,9 @@ float m_fabsf(float x);
 int m_isnan(float x);
 /* Non-zero iff x is finite (not NaN or +/-inf). */
 int m_isfinite(float x);
-#define to_radians(degrees) (degrees * (PI / 180.0f))
-#define to_degrees(radians) (radians * (180.0f / PI))
+/* Parenthesised: `to_radians(a + b)` would otherwise convert only b. */
+#define to_radians(degrees) ((degrees) * (PI / 180.0f))
+#define to_degrees(radians) ((radians) * (180.0f / PI))
 typedef struct {
   float w;
   float x;

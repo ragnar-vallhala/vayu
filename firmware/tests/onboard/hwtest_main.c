@@ -24,16 +24,20 @@
 #include "comm/comm.h"
 #include "control/control.h"
 #include "navhal.h"
-#include "sensor/sensor.h"
+#include "driver/bme280.h"
+#include "driver/bmx160.h"
+#include "driver/i2c_manager.h"
 #include "storage/fs_owner.h"
 #include "sys/state.h"
 #include "sys/sys_utils.h"
-#include "sys/timer_callbacks.h"
+#include "driver/timer_callbacks.h"
 #include "task.h"
 #include "utils.h"
 #include "utils/util.h"
 #include "vaios.h"
-#include "variables.h"
+#include "control/loop_rates.h" /* IMU_FAST_PERIOD_US */
+#include "hub/hub.h"            /* imu_buffer_init */
+#include "sys/clock.h"          /* SYS_CLOCK_FREQ, HIGH_FREQ_TIMER_FREQ */
 #include "vayu_tasks.h"
 
 #include "coverage_dump.h"
@@ -100,11 +104,11 @@ static void init_timer_callbacks(void) {
   timer_callback_register(bmx160_fast_tick_isr, IMU_FAST_PERIOD_US);
 }
 
-/* Non-static: bmx160.c references this global i2c_config by name (same contract
- * as production src/main.c). */
-hal_i2c_config_t i2c_config = {.clock_speed = HAL_I2C_SPEED_FAST,
-                               .own_address = I2C_MASTER,
-                               .acknowledge = true};
+/* Same contract as production src/main.c: handed to the manager once, which
+ * keeps its own copy. Recovery goes through i2c_manager_recover(). */
+static const hal_i2c_config_t i2c_config = {.clock_speed = HAL_I2C_SPEED_FAST,
+                                            .own_address = I2C_MASTER,
+                                            .acknowledge = true};
 
 /* ---- bench task ----------------------------------------------------------- */
 static void hwtest_task(void *arg) {

@@ -16,15 +16,19 @@
  */
 #include "vayu_tasks.h"
 #include "comm/ibus.h"
+#include "storage/imu_hs_log.h" /* blackbox RC stream */
 #include "comm/rc_buffer.h"
 #include "ipc.h"
-#include "navhal.h"
+#include "driver/uart.h"
+#include "sys/clock.h" /* vayu_clock_cycles */
+#include "vayu_board.h"
 #include "sys/state.h"
 #include "utils.h"
 #include "vaios.h"
-#include "variables.h"
+#include "comm/comm_limits.h"
 #include <stdint.h>
 
+#define IBUS_BAUD 115200u
 #define IBUS_DMA_BUF_SIZE 128
 static uint8_t ibus_dma_buf[IBUS_DMA_BUF_SIZE];
 static ibus_data_t ibus_raw_data;
@@ -58,6 +62,11 @@ static void ibus_idle_isr(void) {
 /** @implements COMM-RC-003 */
 static void rc_apply_frame(void) {
   rc_mark_frame_valid();
+
+  /* Count what the control layer's plausibility guard will silently eat. Runs
+   * before the deadband so it sees the receiver's values, and once per frame,
+   * which is the only rate that sees all of them. */
+  (void)rc_note_implausible(&ibus_raw_data);
 
   /* Centre-deadband roll/pitch/yaw (throttle, ch index 2, is skipped). */
   for (int i = 0; i < 4; i++) {
@@ -97,6 +106,12 @@ static void rc_apply_frame(void) {
     }
   }
 
+  /* Blackbox: what the FC saw AFTER failsafe substitution, which is what it
+   * acted on -- not what the receiver sent. Recorded armed or not: the arm
+   * gesture and the stick positions the preconditions were judged against are
+   * disarmed events. Decimated to HSL_RC_RATE_HZ inside the recorder. */
+  imu_hs_log_rc(ibus_raw_data.channels, IBUS_MAX_CHANNELS,
+                ibus_raw_data.is_failsafe ? 1u : 0u, vayu_clock_cycles());
   rc_queue_control_push(&ibus_raw_data);
   rc_queue_telemetry_push(&ibus_raw_data);
 }
@@ -125,12 +140,12 @@ void rc_ibus_task(void *args) {
   /* Created empty so the first take() blocks until the idle ISR fires. */
   _ibus_frame_sema = v_semaphore_create_binary();
 
-  // iBus on USART2 (PA2/PA3 per Vayu PCB; 115200 baud). Telemetry owns USART6.
-  hal_uart_config_t ibus_uart_cfg = {.baudrate = 115200};
-  hal_uart_init(HAL_UART_2, &ibus_uart_cfg);
-  hal_uart_init_dma_rx(HAL_UART_2, ibus_dma_buf, IBUS_DMA_BUF_SIZE);
+  /* iBus runs at 115200. Which UART carries it is the board's (BOARD_RC_UART);
+   * the telemetry link is a separate one. */
+  VAYU_DISCARD(vuart_init(BOARD_RC_UART, IBUS_BAUD));
+  VAYU_DISCARD(vuart_rx_dma_start(BOARD_RC_UART, ibus_dma_buf,
+                                  IBUS_DMA_BUF_SIZE, ibus_idle_isr));
   /* Wake on the inter-frame idle gap instead of polling NDTR. */
-  hal_uart_attach_idle_callback(HAL_UART_2, ibus_idle_isr);
 
   /* Seed the watchdog clock so a cold-booted vehicle has the full
    * RC_LOSS_TIMEOUT_MS to receive the first frame before FAILSAFE. */
@@ -175,6 +190,12 @@ void rc_ibus_task(void *args) {
       if (!sim_rc_force_loss) {
         rc_mark_frame_valid();
       }
+      /* Blackbox: what the FC saw AFTER failsafe substitution, which is what it
+   * acted on -- not what the receiver sent. Recorded armed or not: the arm
+   * gesture and the stick positions the preconditions were judged against are
+   * disarmed events. Decimated to HSL_RC_RATE_HZ inside the recorder. */
+      imu_hs_log_rc(ibus_raw_data.channels, IBUS_MAX_CHANNELS,
+                    ibus_raw_data.is_failsafe ? 1u : 0u, vayu_clock_cycles());
       rc_queue_control_push(&ibus_raw_data);
       rc_queue_telemetry_push(&ibus_raw_data);
       rc_watchdog_step();
@@ -189,7 +210,7 @@ void rc_ibus_task(void *args) {
     /* Drain the DMA ring up to where the DMA has written so far. The write
      * index comes from the HAL (correct RX stream) — no DMA-register poke. */
     uint16_t write_ptr = read_ptr;
-    if (hal_uart_dma_rx_index(HAL_UART_2, &write_ptr) != HAL_OK) {
+    if (vuart_rx_dma_index(BOARD_RC_UART, &write_ptr) != VAYU_OK) {
       write_ptr = read_ptr; /* RX DMA not ready — nothing to drain this pass */
     }
 

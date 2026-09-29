@@ -21,6 +21,7 @@
  */
 #define _GNU_SOURCE
 #include "host_rtos_engine.h"
+#include "host_imu_unpack.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -31,11 +32,13 @@
 #include "control/angle_rate_controller.h" /* angle_rate_controller_set_gains, _set_motor_geometry */
 #include "host_rc_feeder.h" /* host_rc_feeder_start (serial RC for the GCS) */
 #include "host_rtos.h"      /* host_rtos_tick, host_rtos_run_until_idle */
-#include "sensor/bme280.h"  /* bme280_publish (in-process baro injection) */
+#include "driver/bme280.h"  /* bme280_publish (in-process baro injection) */
 #include "sys/state.h"      /* system_state_get/_set, SYSTEM_STATE_* */
 #include "sys/sys_utils.h"  /* VAYU_DISCARD */
-#include "vaios.h"     /* v_system_init, scheduler_start, vaios_init_config_t */
-#include "variables.h" /* SYS_CLOCK_FREQ */
+#include "vaios.h" /* v_system_init, scheduler_start, vaios_init_config_t */
+#include "control/control_buffer.h"
+#include "driver/timer_callbacks.h"
+#include "sys/clock.h"
 
 extern int vayu_sitl_start(void *iface);     /* host_lifecycle.c */
 extern void increment_high_freq_timer(void); /* firmware HF timestamp */
@@ -140,9 +143,14 @@ void set_rc(int roll, int pitch, int thr, int yaw, int arm) {
  * SysTick+1 -> run the real scheduler to idle (firmware writes PWM) -> read PWM
  * back. Drains the control trace to its latest into *ct (got=1 if any). */
 void step_once(stepper_t *s, control_telemetry_t *ct, int *got) {
-  vsim_inproc_step(s->duty, 0.001f, (uint8_t *)&s->sample.converted);
+  float wire[HOST_IMU_WIRE_FLOATS];
+  vsim_inproc_step(s->duty, 0.001f, (uint8_t *)wire);
+  mag_sample_t magsm = {0};
+  host_imu_unpack(wire, &s->sample, &magsm);
   s->cyc += (uint32_t)(SYS_CLOCK_FREQ / 1000);
-  s->sample.converted.timestamp = s->cyc;
+  s->sample.t_cyc = s->cyc;
+  magsm.t_cyc = s->cyc;
+  mag_publish(&magsm);
   imu_queue_control_push(&s->sample);
   imu_queue_telemetry_push(&s->sample);
   imu_queue_attitude_push(&s->sample);

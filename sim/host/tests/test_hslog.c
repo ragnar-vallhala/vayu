@@ -48,9 +48,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "storage/fs_owner.h"
 #include "storage/imu_hs_log.h"
 #include "sys/state.h"
-#include "variables.h"
+#include "storage/paths.h"
 #include "vfs.h"
 
 static int g_checks = 0;
@@ -82,6 +83,13 @@ static uint32_t rd32(const uint8_t *p) {
  * cannot pass. */
 static const float MOTORS[4] = {0.1f, 0.2f, 0.3f, 0.4f};
 #define THROTTLE 0.5f
+/* Distinct, signed, and none of them a whole number of degrees, so a scale
+ * error cannot land on the right answer by luck. The decoder re-checks these:
+ * they were logged but never read back, which is how an inverted scale on this
+ * stream survived to a real card pull. */
+#define ATT_ROLL (-12.34f)
+#define ATT_PITCH (5.67f)
+#define ATT_YAW (178.9f)
 
 /* One armed period: N IMU samples, with act/vrt offered at the SAME rate so
  * the module's own cycle-stamp decimation is what produces 400/20 Hz. That is
@@ -111,6 +119,9 @@ static void run_session(int n_samples) {
       imu_hs_log_ctl((const float[3]){10.0f, -20.0f, 30.0f},
                      (const float[3]){0.25f, -0.5f, 0.125f}, t);
     }
+    /* Attitude, at the sample rate: the stream decimates itself to its own
+     * declared rate, as the firmware relies on. */
+    imu_hs_log_att(ATT_ROLL, ATT_PITCH, ATT_YAW, 0u, t);
     if ((i % 41) == 40) {
       imu_hs_log_drain(); /* the FS task runs far more often than this */
     }
@@ -122,7 +133,7 @@ static void run_session(int n_samples) {
 int main(void) {
   printf("== HSL wire-format verification ==\n");
   setenv("VAYU_VFS_DIR", "/tmp/vayu_hslog_test", 1);
-  remove("/tmp/vayu_hslog_test/0_imuhs.bin"); /* isolate from a previous run */
+  remove("/tmp/vayu_hslog_test/0_blackbox.bin"); /* isolate from a prior run */
 
   imu_hs_log_set_scale(0.0610351562f, 0.0047884034f); /* 2000 dps, 16 g */
   imu_hs_log_boot_init();
@@ -132,6 +143,96 @@ int main(void) {
   imu_hs_log_drain();
   CHECK(!imu_hs_log_active(), "disarmed: nothing recorded");
   CHECK(imu_hs_log_wraps() == 0, "fresh file starts unwrapped");
+
+  /* The RX byte stream is the one exception to arm-gating: operator traffic
+   * arrives before the props turn -- config, calibration, the arm command
+   * itself -- so recording it only while armed would miss nearly all of it.
+   * A sampled stream offered at the same moment must still be ignored. */
+  {
+    /* A whole sector's worth, so the stream publishes on fill rather than on
+     * the idle timer -- the timer is real-time and this test has no clock to
+     * advance. Same code path either way: stream_commit publishes, and the
+     * drain below sees a queued sector. */
+    uint8_t cmd[HSL_BLOCK_PAYLOAD_BYTES + 8];
+    for (unsigned i = 0; i < sizeof cmd; i++)
+      cmd[i] = (uint8_t)(0xFDu ^ i);
+    imu_hs_log_wire_rx(cmd, (uint16_t)sizeof cmd, 0u);
+    /* Offered at the same moment and must be ignored: sampled streams stay
+     * armed-gated, or a disarmed bench session would overwrite the ring. */
+    imu_hs_log_sample((int16_t[3]){9, 9, 9}, (int16_t[3]){9, 9, 9}, 0);
+    imu_hs_log_drain(); /* queued RX sector must open a session on its own */
+    CHECK(imu_hs_log_active(), "disarmed RX opens a recording session");
+
+    /* Pilot input is recorded disarmed -- the arm gesture is a disarmed
+     * event, so an arm-gated RC stream would be empty exactly when it
+     * matters. The attitude estimate is NOT: it is a 50 Hz stream whose
+     * subject only exists once the props can turn. Both are offered here at
+     * the same moment, and only one may be taken. */
+    /* Offer FAR more attitude than the stream's two buffers could hold. If it
+     * were recording while disarmed, the sectors would fill with nothing
+     * draining them and the drop counter would move. It must not. */
+    const uint32_t before = imu_hs_log_dropped();
+    for (int k = 0; k < 4000; k++) {
+      imu_hs_log_att(1.0f, -2.0f, 3.0f, 0u,
+                     (uint32_t)(k + 1) * (CYC_PER_SAMPLE * 40u));
+    }
+    CHECK(imu_hs_log_dropped() == before,
+          "attitude is not recorded while disarmed");
+
+    /* Pilot input at the same moment IS taken: the arm gesture is a disarmed
+     * event, so an arm-gated RC stream would be empty exactly when it
+     * matters. One sector's worth, drained as the FS task would. */
+    const uint16_t ch[14] = {1500, 1500, 1000, 1500, 1000, 1000, 1000,
+                             1000, 1000, 1000, 1000, 1000, 1000, 1000};
+    for (int k = 0; k < (int)(HSL_BLOCK_PAYLOAD_BYTES / HSL_RC_REC_BYTES);
+         k++) {
+      imu_hs_log_rc(ch, 14, 0u, (uint32_t)(k + 1) * (CYC_PER_SAMPLE * 400u));
+    }
+    const uint32_t slot_before = imu_hs_log_head_slot();
+    imu_hs_log_drain();
+    CHECK(imu_hs_log_dropped() == before, "the RC sector was taken, not lost");
+    CHECK(imu_hs_log_head_slot() > slot_before,
+          "the disarmed RC sector reached the file");
+    /* Now the case that matters: a byte-stream sector queued with NO session
+     * open, so the sector is what OPENS one. session_start used to discard
+     * every queued sector -- right for the arm-gated streams, whose pre-arm
+     * samples belong to no session, but it threw away the very data that asked
+     * for the file to be opened. Two slots must move: the SESSION frame and
+     * the surviving RC sector. */
+    /* Close it deterministically. The hold window is wall-clock and far longer
+     * than a test run, so lean on the bulk-transfer quiesce, which closes the
+     * session immediately by design. */
+    fs_owner_suppress_logs(true);
+    imu_hs_log_drain();
+    CHECK(!imu_hs_log_active(), "a bulk transfer closes the session at once");
+    fs_owner_suppress_logs(false);
+    const uint32_t slot_closed = imu_hs_log_head_slot();
+    for (int k = 0; k < (int)(HSL_BLOCK_PAYLOAD_BYTES / HSL_RC_REC_BYTES);
+         k++) {
+      imu_hs_log_rc(ch, 14, 0u, (uint32_t)(k + 200) * (CYC_PER_SAMPLE * 400u));
+    }
+    imu_hs_log_drain();
+    CHECK(imu_hs_log_head_slot() >= slot_closed + 2u,
+          "a sector that opens the session survives session_start");
+
+    /* The session must NOT close just because the queue drained. It used to,
+     * and a steady trickle then reopened one every ~1.7 s -- three ring slots
+     * per session, and a session_tag (low 8 bits of the counter) that wrapped
+     * every 7 minutes, breaking the aliasing guarantee a decoder needs. */
+    const uint32_t sess_held = imu_hs_log_session();
+    for (int k = 0; k < 4; k++) {
+      imu_hs_log_drain(); /* nothing queued, still inside the hold window */
+    }
+    CHECK(imu_hs_log_active(), "an empty queue does not end the session");
+    CHECK(imu_hs_log_session() == sess_held,
+          "and no new session is started while it is held open");
+
+    _system_current_status = SYSTEM_STATE_STANDBY;
+    fs_owner_suppress_logs(true);
+    imu_hs_log_drain();
+    CHECK(!imu_hs_log_active(), "a bulk transfer closes it even mid-traffic");
+    fs_owner_suppress_logs(false);
+  }
 
   run_session(860);
   CHECK(imu_hs_log_wraps() == 0, "one session fits without wrapping");
@@ -154,6 +255,7 @@ int main(void) {
   }
 
   CHECK(rd32(&buf[0]) == HSL_MAGIC, "file header magic");
+  CHECK(rd16(&buf[6]) == HSL_FILE_HDR_BYTES, "hdr_len matches the v2 header");
   CHECK(rd16(&buf[4]) == HSL_VERSION, "file header version");
   CHECK(rd16(&buf[6]) == HSL_FILE_HDR_BYTES, "file header declares its length");
   CHECK(rd32(&buf[8]) == 84000000u, "clock_hz recorded");
@@ -227,6 +329,11 @@ int main(void) {
           "vrt records cycle the notch centre through all three axes");
   }
 
+  /* The sentinel is per-file in v2: the header names it, and every ring frame
+   * must carry that byte and no other. A frame left by a previous generation
+   * carries a DIFFERENT one, which is the whole point of the field. */
+  const uint8_t expect_sentinel = HSL_SENTINEL_FOR(rd32(&buf[32]));
+
   /* Every ring slot: sentinel, sector-length frame, a known type, a seq. */
   static uint32_t seq[RING_SLOTS];
   static uint8_t tags[RING_SLOTS];
@@ -235,7 +342,7 @@ int main(void) {
   for (uint32_t i = 0; i < RING_SLOTS; i++) {
     const uint8_t *fr =
         &buf[(size_t)HSL_PREAMBLE_BYTES + (size_t)HSL_SECTOR_BYTES * i];
-    if (fr[1] != HSL_RING_SENTINEL ||
+    if (fr[1] != expect_sentinel ||
         rd16(&fr[2]) != HSL_SECTOR_BYTES - HSL_FRAME_HDR_BYTES) {
       bad = (int)i;
       break;

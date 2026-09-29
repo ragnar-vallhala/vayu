@@ -92,7 +92,7 @@ All funnel through the 3 `host_vaios.c` functions. Only the **SITL-live** tasks
 | `comm/channel.c:342` | TX wait | yes (flush/comm) | virtual |
 | `sys/heartbeat.c:43,158,169` | heartbeat | no (not created in SITL) | HW only |
 | `comm/telemetry_task.c:154`, `perf_telemetry.c:124`, `rc_task.c:162` | telem/perf/RC | no | HW only |
-| `sensor/bmx160.c` (~20), `bme280.c` (~6) | driver init/cal waits | no (feeders replace) | HW only — real datasheet timing |
+| `driver/bmx160.c` (~20), `bme280.c` (~6) | driver init/cal waits | no (feeders replace) | HW only — real datasheet timing |
 
 The live SITL delay set is small: the two control loops plus motor/comm. The big
 `bmx160`/`bme280` blocks are HW driver code the host build does not run.

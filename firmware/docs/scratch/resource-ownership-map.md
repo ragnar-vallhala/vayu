@@ -447,7 +447,7 @@ ownership:
 ## References
 - Comm: `src/comm/{channel,serializer,comm_processor,telemetry_task,rc_task}.c`,
   `extern/.../stm32/uart/uart.c`
-- Sensors/bus: `src/sensor/{i2c_manager,bmx160,bme280}.c`, `extern/.../stm32/i2c/i2c.c`
+- Sensors/bus: `src/driver/{i2c_manager,bmx160,bme280}.c`, `extern/.../stm32/i2c/i2c.c`
 - Actuator/GPIO: `src/actuator/{esc,motor}.c`, `src/sys/{heartbeat,timer_callbacks,sys_utils}.c`
 - Storage: `extern/vaios/kernel/vfs.c`, `extern/.../utils/v_fs.c`, `extern/.../stm32/sdio/`,
   `src/control/pid_config.c`, `src/logger/logger.c`

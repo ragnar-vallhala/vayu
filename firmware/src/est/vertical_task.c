@@ -41,13 +41,10 @@
 #include "storage/hover_store.h"
 #include "est/vertical_estimator.h"
 #include "maths/linalg.h" /* m_quat_rotate */
-#include "sensor/bme280.h"
-#include "sensor/vl53l0x.h"
-#include "sensor/imu_buffer.h"
+#include "hub/hub.h"
 #include "sys/state.h" /* system_state_get/set, SYSTEM_STATE_* */
 #include "vaios.h"
 #include "vaios_app_config.h"
-#include "variables.h" /* MS_TO_TICKS via the task/config chain */
 #include "vayu_tasks.h"
 #include <stdbool.h>
 
@@ -124,14 +121,15 @@ void vertical_estimator_task(void *args) {
      * bme280_read_all() returns the last published reading with its own
      * acquisition stamp; we correct only when that stamp advances so each baro
      * sample is used once (latest-wins). */
-    bme280_reading_t baro;
+    baro_sample_t baro;
     float baro_alt = ve.altitude; /* fallback for telemetry before first baro */
-    if (bme280_read_all(&baro) == HAL_OK) {
-      baro_alt = baro.altitude_m;
-      if (!have_baro_stamp || baro.timestamp != last_baro_stamp) {
-        last_baro_stamp = baro.timestamp;
+    if (baro_latest(&baro) && baro.valid) {
+      /* Pressure -> height happens here, where the datum lives. */
+      baro_alt = hub_altitude_m(baro.pressure_pa, HUB_SEA_LEVEL_PA_DEFAULT);
+      if (!have_baro_stamp || baro.t_cyc != last_baro_stamp) {
+        last_baro_stamp = baro.t_cyc;
         have_baro_stamp = true;
-        vert_est_correct(&ve, baro.altitude_m);
+        vert_est_correct(&ve, baro_alt);
       }
     }
 
@@ -175,11 +173,11 @@ void vertical_estimator_task(void *args) {
      * other makes the fused altitude jump on every terrain step and every
      * in/out-of-range transition. Instead it is published alongside, and the
      * height controller picks the better source and re-biases on handoff. */
-    vl53l0x_reading_t tof;
-    if (vl53l0x_read_all(&tof) == HAL_OK) {
+    range_sample_t tof;
+    if (range_latest(&tof) && tof.valid) {
       tof_fresh = false;
-      if (!have_tof_stamp || tof.timestamp != last_tof_stamp) {
-        last_tof_stamp = tof.timestamp;
+      if (!have_tof_stamp || tof.t_cyc != last_tof_stamp) {
+        last_tof_stamp = tof.t_cyc;
         have_tof_stamp = true;
         tof_age_steps = 0;
         tof_fresh = true;

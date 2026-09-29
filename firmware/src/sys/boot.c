@@ -16,8 +16,8 @@
  */
 #include "navhal.h"
 #include "sys/state.h"
-#include "task.h"      // For task_exit
-#include "variables.h" // For SYS_CLOCK_FREQ
+#include "task.h" // For task_exit
+#include "sys/clock.h"
 #include "vayu_tasks.h"
 #include <stdbool.h>
 #include <stddef.h> // For NULL

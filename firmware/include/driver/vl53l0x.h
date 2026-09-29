@@ -1,0 +1,148 @@
+/*
+ * Copyright (C) 2026 NAVRobotec Pvt Ltd
+ * Author: Ragnar Vallhala
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+#ifndef VAYU_VL53L0X_H
+#define VAYU_VL53L0X_H
+
+#include "navhal.h"
+#include <stdint.h>
+
+/*
+ * ST VL53L0X time-of-flight rangefinder — downward AGL height (~30 mm .. 2 m).
+ *
+ * Wiring: THIRD device on I2C1 (PB8=SCL, PB9=SDA), alongside the BMX160 IMU
+ * @0x68 and the BME280 baro @0x76. The bus is already brought up by
+ * init_i2c_manager(); this driver only talks on it. Do NOT fit a second set of
+ * bus pull-ups — the existing devices already have them.
+ *
+ * Bus sharing: identical contract to bme280.h. The VL53L0X does NOT drive the
+ * bus at runtime (that would contend with the IMU's high-rate DMA loop and trip
+ * its recovery path). It is configured ONCE at boot into back-to-back
+ * CONTINUOUS ranging via the BLOCKING i2c_manager API — safe because the IMU
+ * read task has not started yet — and thereafter the BMX160's single-owner DMA
+ * state machine reads its 12-byte result block as one more decimated slot
+ * (alongside MAG/TEMP/BARO) and hands the bytes back via vl53l0x_ingest_raw().
+ * One bus owner => zero contention. Decode runs off-ISR in vl53l0x_read_task.
+ *
+ * ponytail: MINIMAL init — chip-ID probe, GPIO interrupt disabled, start
+ * continuous. Skips ST's SPAD management / tuning-settings blob / reference
+ * calibration (VL53L0X_DataInit + StaticInit, ~200 register writes), running on
+ * the chip's NVM defaults instead. Ceiling: shorter usable range and worse
+ * accuracy under ambient IR than a fully tuned part. Upgrade path: port the
+ * Pololu-distilled init sequence into a vl53l0x_apply_tuning() and call it
+ * before vl53l0x_start_continuous().
+ *
+ * NO per-sample interrupt clear, and measured to be fine. The textbook
+ * continuous-mode flow writes SYSTEM_INTERRUPT_CLEAR (0x0B) after every
+ * sample, but the async i2c_manager path is READ-ONLY (its DMA is P2M), so the
+ * IMU loop physically cannot write. The GPIO interrupt is disabled at boot and
+ * the result registers are polled instead. This was recorded as an unverified
+ * risk -- "if range freezes after the first sample, the device is stalling on
+ * the latched interrupt". It does not: the burst now carries reg 0x13 and a
+ * 70-sample bench run read interrupt status 0 every single time, with the
+ * range tracking. Nothing is latched, so no async write op is needed for this.
+ */
+
+/* 7-bit address. Factory default; re-addressable at runtime via reg 0x8A if a
+ * second unit is ever fitted. No clash with the IMU (0x68) or baro (0x76). */
+#define VL53L0X_I2C_ADDR 0x29
+#define VL53L0X_MODEL_ID 0xEE
+
+/* Register map (ST API register names). */
+#define VL53L0X_REG_SYSRANGE_START 0x00
+#define VL53L0X_REG_INT_CONFIG_GPIO 0x0A /* 0 = interrupt disabled */
+#define VL53L0X_REG_INT_CLEAR 0x0B
+#define VL53L0X_REG_RESULT_INT_STATUS 0x13
+#define VL53L0X_REG_RESULT_RANGE 0x14 /* 12-byte block 0x14..0x1F */
+#define VL53L0X_REG_MODEL_ID 0xC0
+
+/* SYSRANGE_START bits: 0x01 = single shot, 0x02 = back-to-back continuous. */
+#define VL53L0X_SYSRANGE_CONTINUOUS 0x02
+
+/* One burst starting at RESULT_INTERRUPT_STATUS so the block carries its own
+ * freshness: byte 0 is the interrupt status (bits [2:0] -- non-zero means the
+ * device has a result waiting and, in continuous mode, is waiting for the host
+ * to acknowledge it), byte 1 is the range status (bits [6:3]), bytes 11..12
+ * are the range in mm, big-endian. Reading 0x13 costs one extra byte on a slot
+ * that already exists and is the only way to tell a fresh result from the same
+ * one read again. */
+#define VL53L0X_REG_BURST_START VL53L0X_REG_RESULT_INT_STATUS
+#define VL53L0X_DATA_LEN 13
+/* Read but no longer decoded. The burst starts here because that is what made
+ * the interrupt question answerable -- it came back 0 on every sample, which
+ * is what retired the "needs a per-sample interrupt clear" risk. Keeping the
+ * start address costs one byte and keeps every other offset where a decoder
+ * already expects it. */
+#define VL53L0X_OFF_INT_STATUS 0
+#define VL53L0X_OFF_RANGE_STATUS 1
+#define VL53L0X_OFF_RANGE_MM 11
+
+/* Read on every Nth slot of the bus owner's rotation: 150/7 ~= 21 Hz,
+ * comfortably under this device's ~30 Hz continuous-mode cadence. 7 is coprime
+ * with the barometer's period so the two ride-along slots almost never land on
+ * the same tick; when they do the barometer wins and this read waits one slot. */
+#define VL53L0X_RIDE_EVERY_N 7u
+
+/* Device range status (reg 0x14 bits [6:3]) that means the measurement is
+ * good. ST's API maps this device code to PAL status 0, "Range Valid"; 8 maps
+ * to "Min range fail", which is what this unit reports when the target is
+ * nearer than it can measure. Observed on the bench: only 11 and 8 occur, so
+ * the gate below accepts 11 and nothing else. */
+#define VL53L0X_DEV_STATUS_VALID 11
+
+/* Sanity window on the decoded range. The device reports 8190/8191 mm as its
+ * "no target / out of range" sentinel, and sub-30 mm readings are unreliable. */
+#define VL53L0X_RANGE_MIN_MM 30
+#define VL53L0X_RANGE_MAX_MM 2400
+
+/* Latest published sample (single producer: vl53l0x_read_task). */
+typedef struct {
+  float range_m;      /* metres to the target, sanity-window checked */
+  uint8_t status;     /* raw device range status, reg 0x14 bits [6:3] */
+  uint16_t range_mm;  /* undecorated device value, for bring-up logging */
+  uint32_t timestamp; /* DWT cycle stamp at acquisition */
+} vl53l0x_reading_t;
+
+/* Probe the model ID and start continuous ranging. Returns
+ * HAL_ERR_NOT_INITIALIZED if the device is absent / mis-wired — a missing ToF
+ * is NOT fatal, the FC just flies without it. */
+hal_status_t vl53l0x_init(void);
+
+/* Read the model ID (0xEE on a healthy VL53L0X; 0xFF on a bus error). */
+uint8_t vl53l0x_get_model_id(void);
+
+/* True once init succeeded. The IMU read loop checks this before scheduling a
+ * ToF DMA slot, so an absent sensor is never read — without the guard its NACK
+ * would trip the IMU hard-recovery path. ISR-safe (single volatile byte). */
+uint8_t vl53l0x_is_present(void);
+
+/* Hand 12 raw result bytes (regs 0x14..0x1F) to the driver. Called from the IMU
+ * DMA-completion callback (ISR context) — stays cheap: copies the bytes and
+ * sets a "fresh" flag; decode happens later in the read task. */
+void vl53l0x_ingest_raw(const uint8_t *data);
+
+/* Decode task — waits for fresh raw bytes (fed by the IMU loop), decodes and
+ * publishes. Register with task_create_named. */
+void vl53l0x_read_task(void *args);
+
+/* Getters copy the latest published sample. Return HAL_OK, or
+ * HAL_ERR_NOT_INITIALIZED before the first in-window sample. Note there is no
+ * staleness check here: a consumer that acts on range (altitude hold, terrain
+ * follow) MUST age-check `timestamp` itself before trusting it. */
+hal_status_t vl53l0x_read_range(float *meters);
+hal_status_t vl53l0x_read_all(vl53l0x_reading_t *out);
+
+#endif // VAYU_VL53L0X_H

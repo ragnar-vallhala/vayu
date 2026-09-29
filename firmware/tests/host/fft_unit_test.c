@@ -49,7 +49,7 @@ static void check(const char *what, int ok) {
     fails++;
 }
 
-#define TWO_PI 6.283185307179586
+/* TWO_PI comes from maths/maths_interface.h, the one home for it. */
 
 /* Independent ground truth: naive forward DFT, X[k] = sum_n x[n] exp(-i2pi kn/N). */
 static void naive_dft(const fft_complex_t *x, fft_complex_t *X, unsigned n) {

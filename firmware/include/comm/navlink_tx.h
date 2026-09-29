@@ -29,10 +29,10 @@
 #include "comm/comm_types.h" /* time_sync_payload_t, PACKET_TYPE_*, origins */
 #include "comm/ibus.h"       /* ibus_data_t */
 #include "comm/perf_packet.h" /* perf_global_body_t, perf_task_row_t, perf_fifo_row_t */
-#include "actuator/actuator.h"      /* motor_outputs_t */
+#include "actuator/motor.h"         /* motor_outputs_t */
 #include "est/est.h"                /* attitude_t, est_perf_telemetry_t */
 #include "est/vertical_estimator.h" /* vertical_state_t */
-#include "variables.h"              /* control_telemetry_t */
+#include "control/control_buffer.h"
 #include <stdint.h>
 
 /* --- periodic telemetry (FC -> GCS) --------------------------------------- */

@@ -15,7 +15,9 @@
  * limitations under the License.
  */
 #include "control/angle_controller.h"
-#include "comm/comm.h"
+#include "comm/ibus.h" /* rc_channel_implausible */
+#include "comm/rc_buffer.h"
+#include "comm/comm_types.h"
 #include "control/angle_rate_controller.h"
 #include "control/flight_mode.h"
 #include "control/height_controller.h"
@@ -25,11 +27,12 @@
 #include "maths/maths_interface.h"
 #include "control/pid.h"
 #include "est/est.h"
-#include "sensor/sensor.h"
+#include "hub/hub.h"
 #include "structure.h"
 #include "sys/state.h"
 #include "vaios.h"
-#include "variables.h"
+#include "control/loop_rates.h"
+#include "control/tuning.h"
 
 #define ANGLE_CONTROLLER_2_RATE_CONTROLLER_BUFFER_SIZE 4
 
@@ -58,11 +61,20 @@ bool angle_controller_get_outputs(angle_controller_outputs_t *outputs) {
  * (the takeoff/landing detector) don't steal from the rate-controller FIFO. */
 static volatile float _last_throttle = 0.0f;
 static volatile uint8_t _height_state = 0;
+/* Bank-angle recovery: true while the FC is flying the aircraft out of an
+ * upset, overriding the pilot's sticks AND a chopped throttle. Published
+ * because nothing else distinguishes "the pilot is flying" from "the FC took
+ * over" -- a 2026-09-28 card pull had a 247 s flight whose collective could
+ * not be attributed to either, because this bit was not recorded anywhere. */
+static volatile uint8_t _recovering = 0;
 /** @noreq latest-throttle accessor (non-destructive observer). */
 float angle_controller_last_throttle(void) { return _last_throttle; }
 
 /** @noreq Packed height-mode status for telemetry (see the header). */
 uint8_t angle_controller_height_state(void) { return _height_state; }
+
+/** @noreq state accessor */
+bool angle_controller_recovering(void) { return _recovering != 0u; }
 
 static angle_controller_t angle_controller = {
     .pid = {
@@ -162,14 +174,14 @@ typedef struct {
 static inline rc_data_t normalize_rc_data(ibus_data_t rc_data) {
   rc_data_t normalized_rc_data;
   for (int i = 0; i < 4; i++) {
-    // Fail SAFE to centre on an implausible reading. A valid RC pulse is
-    // ~1000..2000 us; a dropout / uninitialised channel (0 at boot, or a glitch
-    // frame) is not a stick position. Without this guard a 0 reading maps to
-    // (0-1500)/500 = -3 and clamps to FULL deflection -> a railed angle setpoint:
-    // the airframe self-commands a full front/right lean and won't self-level
-    // toward it (corrections stop firing for those directions). Treat it as
-    // centred: roll/pitch/yaw -> level, throttle -> min.
-    if (rc_data.channels[i] < 900 || rc_data.channels[i] > 2100) {
+    // Fail SAFE to centre on an implausible reading (band and rationale in
+    // comm/ibus.h; the RC task counts every frame this fires on). Without the
+    // guard a 0 reading maps to (0-1500)/500 = -3 and clamps to FULL
+    // deflection -> a railed angle setpoint: the airframe self-commands a full
+    // front/right lean and won't self-level toward it (corrections stop firing
+    // for those directions). Treat it as centred: roll/pitch/yaw -> level,
+    // throttle -> min.
+    if (rc_channel_implausible(rc_data.channels[i])) {
       normalized_rc_data.channels[i] = 0.0f;
       continue;
     }
@@ -327,7 +339,7 @@ void angle_controller_task(void *arg) {
      * thrust mid-air (what this did before) is unrecoverable by construction —
      * motor.c zeroes all four motors outside ARMED/IN_AIR and the state table
      * has no way back. ON THE GROUND the cut is kept: there, stopping the props
-     * is right. See the MAX_ANGLE_RECOVER block in variables.h for the incident
+     * is right. See the MAX_ANGLE_RECOVER block in control/tuning.h for the incident
      * this came from.
      *
      * Yaw is intentionally excluded from the condition: a drone can rotate
@@ -451,6 +463,7 @@ void angle_controller_task(void *arg) {
       target_throttle = hover_now;
     }
 
+    _recovering = s_recovering ? 1u : 0u;
     /* Publish what the mode is doing, so "I flipped the switch and nothing
      * happened" is answerable from telemetry instead of a log hunt. */
     _height_state =

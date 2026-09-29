@@ -18,7 +18,7 @@
 #define ANGLE_CONTROLLER_H
 
 #include "control/pid.h"
-#include "variables.h"
+#include "control/tuning.h"
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -68,6 +68,15 @@ float angle_controller_last_throttle(void);
 #define HEIGHT_STATE_ARMED_OK 0x40u
 #define HEIGHT_STATE_BLOCKED 0x80u
 uint8_t angle_controller_height_state(void);
+
+/**
+ * True while bank-angle recovery is flying the aircraft.
+ *
+ * In that state the FC overrides the stick entirely -- level attitude demand
+ * at the measured hover collective, yaw demand zeroed -- so without this a
+ * recording cannot say whether the pilot or the FC commanded what it shows.
+ */
+bool angle_controller_recovering(void);
 
 /**
  * @brief Set the live angle-PID gains for one axis (0..NUM_AXES-1).

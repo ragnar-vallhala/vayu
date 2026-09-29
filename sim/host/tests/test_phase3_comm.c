@@ -223,7 +223,7 @@ static void test_tx_overflow(void) {
   CHECK(get_handler(CHANNEL_TYPE_SERIAL, &ch, &args, NULL) == NONE,
         "serial channel opened");
 
-  byte buf[256];
+  uint8_t buf[256];
   memset(buf, 0xAB, sizeof buf);
   uint32_t before = channel_tx_overflow_count();
 

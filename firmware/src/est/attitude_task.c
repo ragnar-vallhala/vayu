@@ -38,11 +38,14 @@
  * loses nothing. Cheaper filters keep running on every sample (decim = 1).
  */
 #include "est/est.h"
-#include "sensor/bmx160.h"
-#include "sensor/imu_buffer.h"
+#include "sys/clock.h"
+#include "hub/hub.h"
+#include "storage/imu_hs_log.h"    /* blackbox attitude stream */
+#include "maths/maths_interface.h" /* m_sqrt, for the mag normalisation */
 #include "vaios.h"
 #include "vaios_app_config.h"
-#include "variables.h"
+#include "control/loop_rates.h"
+#include "control/tuning.h"
 #include "vayu_tasks.h"
 #include <stdbool.h>
 
@@ -83,7 +86,7 @@
  */
 void attitude_task(void *args) {
   (void)args;
-  static bmx160_all_reading_t sample;
+  static imu_sample_t sample;
   attitude_t ori = {0};
   ori.q.w = 1.0f; /* identity quaternion */
   uint32_t prev_cyc = 0;
@@ -98,7 +101,7 @@ void attitude_task(void *args) {
 
 #if ATTITUDE_CYCLE_PROBE
   uint32_t probe_peak = 0, probe_acc = 0, probe_cnt = 0;
-  uint32_t cyc_per_us = hal_cycle_counter_cycles_per_us();
+  uint32_t cyc_per_us = vayu_clock_hz() / 1000000u;
   if (cyc_per_us == 0)
     cyc_per_us = 1;
 #endif
@@ -117,7 +120,7 @@ void attitude_task(void *args) {
       continue;
 
     /* dt = time since the previous sample, from acquisition stamps. */
-    uint32_t now_cyc = sample.converted.timestamp;
+    uint32_t now_cyc = sample.t_cyc;
     float dt = have_prev ? vayu_dt_from_cycles(now_cyc, prev_cyc)
                          : (1.0f / (float)IMU_SAMPLE_FREQ_HZ);
     prev_cyc = now_cyc;
@@ -130,21 +133,35 @@ void attitude_task(void *args) {
     /* Estimator step due: feed the LATEST sample directly (lowest latency).
      * dt_sum spans the decimation window so predict integrates the full
      * elapsed interval. */
-    float ax = sample.converted.acc[0];
-    float ay = sample.converted.acc[1];
-    float az = sample.converted.acc[2];
-    float gx = sample.converted.gyr[0];
-    float gy = sample.converted.gyr[1];
-    float gz = sample.converted.gyr[2];
-    float mx = sample.converted.mag_fusion[0];
-    float my = sample.converted.mag_fusion[1];
-    float mz = sample.converted.mag_fusion[2];
+    float ax = sample.acc[0];
+    float ay = sample.acc[1];
+    float az = sample.acc[2];
+    float gx = sample.gyr[0];
+    float gy = sample.gyr[1];
+    float gz = sample.gyr[2];
+    /* The compass is its own sensor on its own topic and its own cadence, so
+     * take the latest reading rather than expecting one per inertial sample.
+     * The driver reports microtesla and whether it trusts them; normalising
+     * and deciding what to do with a distrusted reading is fusion policy, so
+     * it happens here. A zero vector is how every filter below is told to
+     * skip the magnetometer this step. */
+    float mx = 0.0f, my = 0.0f, mz = 0.0f;
+    mag_sample_t mag;
+    if (mag_latest(&mag) && mag.valid) {
+      float n = m_sqrt(mag.mag[0] * mag.mag[0] + mag.mag[1] * mag.mag[1] +
+                       mag.mag[2] * mag.mag[2]);
+      if (n > 0.001f) {
+        mx = mag.mag[0] / n;
+        my = mag.mag[1] / n;
+        mz = mag.mag[2] / n;
+      }
+    }
     float step_dt = dt_sum;
     dt_sum = 0.0f;
     acc_n = 0;
 
 #if ATTITUDE_CYCLE_PROBE
-    uint32_t c0 = hal_cycle_counter_get();
+    uint32_t c0 = vayu_clock_cycles();
 #endif
 
     if (SF_FILTER_USED == SF_MAHONY) {
@@ -157,7 +174,7 @@ void attitude_task(void *args) {
     }
 
 #if ATTITUDE_CYCLE_PROBE
-    uint32_t dc = hal_cycle_counter_get() - c0; /* wrap-safe 32-bit delta */
+    uint32_t dc = vayu_clock_cycles() - c0; /* wrap-safe 32-bit delta */
     if (dc > probe_peak)
       probe_peak = dc;
     probe_acc += dc;
@@ -191,11 +208,16 @@ void attitude_task(void *args) {
      * only; yaw is unaffected. 0,0 until a board-level calibration is run. */
     {
       float trim_roll, trim_pitch;
-      bmx160_get_board_trim(&trim_roll, &trim_pitch);
+      hub_get_board_trim(&trim_roll, &trim_pitch);
       ori.roll -= trim_roll;
       ori.pitch -= trim_pitch;
     }
 
+    /* Blackbox: the estimate the controller is about to act on, stamped with
+     * the same acquisition time as the IMU sample behind it. Arm-gated inside
+     * the recorder, and decimated there to HSL_ATT_RATE_HZ. */
+    imu_hs_log_att(ori.roll, ori.pitch, ori.yaw, ori.degraded ? 1u : 0u,
+                   ori.timestamp);
     attitude_queue_telemetry_push(&ori);
     attitude_queue_control_push(&ori);
 

@@ -21,12 +21,13 @@
 #include "sys/sys_utils.h"
 
 #include "ipc.h"
-#include "navhal.h" /* hal_crc_* */
-#include "variables.h"
+#include "sys/clock.h"
+#include "driver/crc.h" /* crc32_hw_compute */
 #include <stdint.h>
 
 static volatile uint64_t _time_stamp_high_freq = 0;
-/* @noreq HF monotonic tick increment; runs as a TIM5 callback. */
+/* @noreq HF monotonic tick increment; runs as a high-frequency timer
+ * callback (driver/timer_callbacks.h). */
 void increment_high_freq_timer(void) { _time_stamp_high_freq++; }
 static uint8_t _device_id = 0;
 
@@ -130,37 +131,29 @@ void set_device_id(uint8_t device_id) { _device_id = device_id; }
 
 static MutexHandle_t crc_mutex = NULL;
 
-/* @noreq mutex-guarded wrapper over the HAL CRC32 unit (HAL-CRC-001);
- * shared helper, no standalone SYS requirement. */
-uint32_t utils_compute_crc32(const uint8_t *data, uint32_t len) {
+/* The CRC unit has a single shared accumulator, so the mutex is what makes it
+ * safe to share -- see driver/crc.h. Both public entry points are this, with
+ * different patience. */
+static uint32_t _crc32_locked(const uint8_t *data, uint32_t len,
+                              uint32_t wait_ticks) {
   if (crc_mutex == NULL) {
     crc_mutex = v_mutex_create();
   }
-  if (v_mutex_lock(crc_mutex, 0xFFFFFFFF)) {
-    hal_crc_config_t crc_cfg = {.polynomial = HAL_CRC_POLY_CRC32,
-                                .init_value = 0xFFFFFFFF};
-    hal_crc_init(&crc_cfg);
-    uint32_t computed_crc = hal_crc_compute(data, len);
-
+  if (v_mutex_lock(crc_mutex, wait_ticks)) {
+    uint32_t computed_crc = crc32_hw_compute(data, len);
     v_mutex_unlock(crc_mutex);
     return computed_crc;
   }
   return 0;
 }
 
+/* @noreq mutex-guarded wrapper over the CRC32 unit (HAL-CRC-001);
+ * shared helper, no standalone SYS requirement. */
+uint32_t utils_compute_crc32(const uint8_t *data, uint32_t len) {
+  return _crc32_locked(data, len, 0xFFFFFFFF);
+}
+
 /* @noreq non-blocking (try-lock) variant of utils_compute_crc32. */
 uint32_t utils_try_compute_crc32(const uint8_t *data, uint32_t len) {
-  if (crc_mutex == NULL) {
-    crc_mutex = v_mutex_create();
-  }
-  if (v_mutex_lock(crc_mutex, 0)) {
-    hal_crc_config_t crc_cfg = {.polynomial = HAL_CRC_POLY_CRC32,
-                                .init_value = 0xFFFFFFFF};
-    hal_crc_init(&crc_cfg);
-    uint32_t computed_crc = hal_crc_compute(data, len);
-
-    v_mutex_unlock(crc_mutex);
-    return computed_crc;
-  }
-  return 0;
+  return _crc32_locked(data, len, 0);
 }

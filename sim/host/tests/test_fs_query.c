@@ -33,7 +33,7 @@
 #include "storage/fs_owner.h"
 #include "storage/imu_hs_log.h"
 #include "sys/state.h"
-#include "variables.h"
+#include "storage/paths.h"
 
 static int g_checks = 0, g_fails = 0;
 #define CHECK(cond, msg)                                                       \
@@ -215,17 +215,10 @@ static void test_delete_protected(void) {
   CHECK(exists(PID_CONFIG_FILE_PATH),
         "pid.bin survived the upper-case spelling");
 
-  /* The blackbox ring files. Deleting one costs a 30 MB zero-filling
-   * preallocation at the next boot, during which the aircraft looks hung. */
-  const char *rings[3] = {NAVLINK_LOGGING_FILENAME, SYS_LOGGING_FILENAME,
-                          GENERAL_LOGGING_FILENAME};
-  for (int i = 0; i < 3; i++) {
-    fs_owner_enqueue_write_at(0, rings[i], 0, blob, sizeof blob);
-    fs_owner_pump();
-    CHECK(delete_result((uint8_t)(0x40 + i), rings[i]) == FSQ_RES_DENIED,
-          "FS_DELETE of a blackbox ring file -> DENIED");
-    CHECK(exists(rings[i]), "the blackbox ring file survived");
-  }
+  /* The blackbox is no longer permanently protected: it is one file now, and
+   * the only guard it needs is the recording-in-progress one asserted in
+   * test_delete_hsl_state_gated below. There is nothing else to deny here --
+   * the three circular log files this used to cover are gone. */
 }
 
 static void test_delete_hsl_state_gated(void) {
@@ -239,15 +232,15 @@ static void test_delete_hsl_state_gated(void) {
   imu_hs_log_drain(); /* opens a session: the recorder now holds the file */
   CHECK(imu_hs_log_active(), "recorder is active while armed");
   CHECK(delete_result(0x35, HSL_FILENAME) == FSQ_RES_BUSY,
-        "FS_DELETE of imuhs.bin while recording -> TEMPORARILY_REJECTED");
-  CHECK(exists(HSL_FILENAME), "imuhs.bin survived while recording");
+        "FS_DELETE of the blackbox while recording -> TEMPORARILY_REJECTED");
+  CHECK(exists(HSL_FILENAME), "the blackbox survived while recording");
 
   _system_current_status = SYSTEM_STATE_STANDBY;
   imu_hs_log_drain(); /* closes the session */
   CHECK(!imu_hs_log_active(), "recorder stopped on disarm");
   CHECK(delete_result(0x36, HSL_FILENAME) == FSQ_RES_OK,
-        "FS_DELETE of imuhs.bin once disarmed -> ACCEPTED");
-  CHECK(!exists(HSL_FILENAME), "imuhs.bin deleted once disarmed");
+        "FS_DELETE of the blackbox once disarmed -> ACCEPTED");
+  CHECK(!exists(HSL_FILENAME), "the blackbox is deleted once disarmed");
 }
 
 int main(void) {

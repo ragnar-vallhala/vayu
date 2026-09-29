@@ -91,8 +91,15 @@ target_link_libraries(test_height_ctrl m)
 add_test(NAME height_ctrl COMMAND test_height_ctrl)
 
 # On-hardware system-ID chirp: excite / capture / self-abort (control/sysid.c).
+#
+# sysid.c takes its capture buffer from the vaios heap, so this target needs
+# vaios/include on the quote path -- without it `#include "memory.h"` reaches
+# glibc's legacy <memory.h> instead, v_malloc is implicitly declared as
+# returning int, and the target does not link. The test supplies v_malloc
+# itself (malloc-backed); nothing else of vaios is pulled in.
 add_executable(test_sysid sysid_unit_test.c
     ${FW}/src/control/sysid.c
     ${FW}/src/maths/maths_interface.c)
+target_include_directories(test_sysid PRIVATE ${FW}/../extern/vaios/include)
 target_link_libraries(test_sysid m)
 add_test(NAME sysid COMMAND test_sysid)

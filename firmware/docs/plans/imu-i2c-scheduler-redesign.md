@@ -4,7 +4,7 @@
 
 The I2C1 bus is shared by the IMU (BMX160 @ 0x68) and the barometer (BME280 @
 0x76). Today the **acquisition scheduler lives inside the IMU driver**
-(`src/sensor/bmx160.c`): a hand-rolled `IMU_OP_FAST/MAG/TEMP/BARO` state machine,
+(`src/driver/bmx160.c`): a hand-rolled `IMU_OP_FAST/MAG/TEMP/BARO` state machine,
 driven by DMA-completion callbacks that pick `_next_op`, paced by a 2 kHz tick
 semaphore. That driver also reaches across and reads the **BME280** (a different
 device) inside its own loop. The `i2c_manager` owns the bus primitives (mutex,

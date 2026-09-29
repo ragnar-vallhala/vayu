@@ -386,7 +386,7 @@ per-task notes) as each item completes; note the commit/PR where relevant.
 >
 > **What shipped** (uncommitted working tree, flashed to the bench FC):
 > - A **VL53L0X ToF rangefinder** as a third device on I2C1, riding the IMU's
->   single-owner DMA loop (`sensor/vl53l0x.{c,h}`, slot in `bmx160.c`). Gives
+>   single-owner DMA loop (`driver/vl53l0x.{c,h}`, slot in `bmx160.c`). Gives
 >   tilt-compensated AGL below ~1.5 m, published as `agl_tof`/`tof_valid` on
 >   `VERTICAL_STATE`. Bench-verified: 397-414 mm at device status 11.
 >   Continuous-mode polling needs **no** per-sample interrupt clear — the async

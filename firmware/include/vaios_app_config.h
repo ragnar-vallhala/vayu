@@ -140,7 +140,4 @@
 
 // General macros
 #define PANIC(msg) v_panic(__FILE__, __LINE__, msg)
-#if defined(PANIC) && defined(NAVHAL)
-#include "navhal.h"
-#endif
 #endif // !VAIOS_APP_CONFIG_H

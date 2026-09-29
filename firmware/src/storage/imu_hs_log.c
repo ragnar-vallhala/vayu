@@ -32,10 +32,14 @@
 #include "storage/fs_owner.h" /* vayu_log, fs_owner_logs_suppressed */
 #include "control/flight_mode.h"
 #include "dsp/gyro_notch.h"
+#include "sys/clock.h" /* vayu_clock_hz -- the measured rate, for the header */
 #include "sys/state.h"
 #include "sys/sys_utils.h" /* get_timestamp_unix, time_sync_is_synced */
-#include "utils.h"         /* v_memcpy */
-#include "variables.h"
+#include "port.h"          /* ENTER/EXIT_CRITICAL */
+#include "utils.h"         /* v_memcpy, v_get_ticks */
+#include "control/loop_rates.h"
+#include "storage/paths.h"
+#include "sys/clock.h"
 #include "vfs.h"
 
 #define HSL_RING_SECTORS                                                       \
@@ -54,12 +58,20 @@ typedef struct {
   uint8_t n_bufs;
   uint8_t stream_id;
   uint8_t rec_bytes;
+  /* Armed-gated streams are the sampled ones: recording them while the
+   * aircraft sits disarmed would overwrite the ring with idle time. A byte
+   * stream clears this and records from boot. */
+  uint8_t armed_only;
   uint16_t cap;       /* records per sector                                 */
   uint32_t decim_cyc; /* min cycles between records (0 = take everything)   */
   /* producer-owned */
   volatile uint8_t head;
   uint16_t fill;
   uint32_t last_cyc;
+  /* Wall-ish milliseconds of the last accepted record. Only the byte streams
+   * use it, for the idle flush; a cycle delta cannot express a 2 s timeout
+   * safely across the DWT's 51 s wrap. */
+  uint32_t last_ms;
   /* consumer-owned */
   volatile uint8_t tail;
 } hsl_stream_t;
@@ -68,29 +80,50 @@ static uint8_t s_imu_bufs[HSL_IMU_BUFFERS][HSL_SECTOR_BYTES];
 static uint8_t s_act_bufs[HSL_ACT_BUFFERS][HSL_SECTOR_BYTES];
 static uint8_t s_vrt_bufs[HSL_VRT_BUFFERS][HSL_SECTOR_BYTES];
 static uint8_t s_ctl_bufs[HSL_CTL_BUFFERS][HSL_SECTOR_BYTES];
+static uint8_t s_rx_bufs[HSL_RX_BUFFERS][HSL_SECTOR_BYTES];
+static uint8_t s_txt_bufs[HSL_TXT_BUFFERS][HSL_SECTOR_BYTES];
+static uint8_t s_att_bufs[HSL_ATT_BUFFERS][HSL_SECTOR_BYTES];
+static uint8_t s_rc_bufs[HSL_RC_BUFFERS][HSL_SECTOR_BYTES];
 
-enum { HSL_S_IMU = 0, HSL_S_ACT, HSL_S_VRT, HSL_S_CTL, HSL_N_STREAMS };
+enum {
+  HSL_S_IMU = 0,
+  HSL_S_ACT,
+  HSL_S_VRT,
+  HSL_S_CTL,
+  HSL_S_RX,
+  HSL_S_TXT,
+  HSL_S_ATT,
+  HSL_S_RC,
+  HSL_N_STREAMS
+};
 
+/* decim_cyc below is the NOMINAL interval, used only until
+ * imu_hs_log_boot_init() replaces it with one derived from the measured cycle
+ * rate. 0 means "take every sample". */
 static hsl_stream_t s_streams[HSL_N_STREAMS] = {
-    [HSL_S_IMU] = {.bufs = &s_imu_bufs[0][0],
+    [HSL_S_IMU] = {.armed_only = 1u,
+                   .bufs = &s_imu_bufs[0][0],
                    .n_bufs = HSL_IMU_BUFFERS,
                    .stream_id = HSL_STREAM_IMU,
                    .rec_bytes = HSL_IMU_REC_BYTES,
                    .cap = HSL_BLOCK_PAYLOAD_BYTES / HSL_IMU_REC_BYTES,
                    .decim_cyc = 0u},
-    [HSL_S_ACT] = {.bufs = &s_act_bufs[0][0],
+    [HSL_S_ACT] = {.armed_only = 1u,
+                   .bufs = &s_act_bufs[0][0],
                    .n_bufs = HSL_ACT_BUFFERS,
                    .stream_id = HSL_STREAM_ACT,
                    .rec_bytes = HSL_ACT_REC_BYTES,
                    .cap = HSL_BLOCK_PAYLOAD_BYTES / HSL_ACT_REC_BYTES,
                    .decim_cyc = (uint32_t)SYS_CLOCK_FREQ / HSL_ACT_RATE_HZ},
-    [HSL_S_VRT] = {.bufs = &s_vrt_bufs[0][0],
+    [HSL_S_VRT] = {.armed_only = 1u,
+                   .bufs = &s_vrt_bufs[0][0],
                    .n_bufs = HSL_VRT_BUFFERS,
                    .stream_id = HSL_STREAM_VRT,
                    .rec_bytes = HSL_VRT_REC_BYTES,
                    .cap = HSL_BLOCK_PAYLOAD_BYTES / HSL_VRT_REC_BYTES,
                    .decim_cyc = (uint32_t)SYS_CLOCK_FREQ / HSL_VRT_RATE_HZ},
-    [HSL_S_CTL] = {.bufs = &s_ctl_bufs[0][0],
+    [HSL_S_CTL] = {.armed_only = 1u,
+                   .bufs = &s_ctl_bufs[0][0],
                    .n_bufs = HSL_CTL_BUFFERS,
                    .stream_id = HSL_STREAM_CTL,
                    .rec_bytes = HSL_CTL_REC_BYTES,
@@ -103,7 +136,63 @@ static hsl_stream_t s_streams[HSL_N_STREAMS] = {
                     * whole record and the stream lands well under its target.
                     * That is why "act" asks for 400 Hz and records 311. */
                    .decim_cyc = 0u},
+    /* rec_bytes 1 makes this a byte stream: an ordinary BLOCK whose `n` counts
+     * bytes. Not decimated and not armed-gated -- every received byte is
+     * wanted, and most of them arrive before the props turn. */
+    [HSL_S_RX] = {.armed_only = 0u,
+                  .bufs = &s_rx_bufs[0][0],
+                  .n_bufs = HSL_RX_BUFFERS,
+                  .stream_id = HSL_STREAM_RX,
+                  .rec_bytes = HSL_RX_REC_BYTES,
+                  .cap = HSL_BLOCK_PAYLOAD_BYTES / HSL_RX_REC_BYTES,
+                  .decim_cyc = 0u},
+    [HSL_S_TXT] = {.armed_only = 0u,
+                   .bufs = &s_txt_bufs[0][0],
+                   .n_bufs = HSL_TXT_BUFFERS,
+                   .stream_id = HSL_STREAM_TXT,
+                   .rec_bytes = HSL_TXT_REC_BYTES,
+                   .cap = HSL_BLOCK_PAYLOAD_BYTES / HSL_TXT_REC_BYTES,
+                   .decim_cyc = 0u},
+    [HSL_S_ATT] = {.armed_only = 1u,
+                   .bufs = &s_att_bufs[0][0],
+                   .n_bufs = HSL_ATT_BUFFERS,
+                   .stream_id = HSL_STREAM_ATT,
+                   .rec_bytes = HSL_ATT_REC_BYTES,
+                   .cap = HSL_BLOCK_PAYLOAD_BYTES / HSL_ATT_REC_BYTES,
+                   .decim_cyc = (uint32_t)SYS_CLOCK_FREQ / HSL_ATT_RATE_HZ},
+    [HSL_S_RC] = {.armed_only = 0u,
+                  .bufs = &s_rc_bufs[0][0],
+                  .n_bufs = HSL_RC_BUFFERS,
+                  .stream_id = HSL_STREAM_RC,
+                  .rec_bytes = HSL_RC_REC_BYTES,
+                  .cap = HSL_BLOCK_PAYLOAD_BYTES / HSL_RC_REC_BYTES,
+                  .decim_cyc = (uint32_t)SYS_CLOCK_FREQ / HSL_RC_RATE_HZ},
 };
+
+/* Every stream's records must fit the block payload. cap is derived by
+ * division so this holds by construction today -- it is asserted because the
+ * derivation is per-entry in the table above, and a stream added with a
+ * hand-written cap, or a rec_bytes that does not divide evenly, would
+ * otherwise only show up as a corrupted sector on a card someone pulls after
+ * a flight. */
+#define HSL_FITS(rec)                                                          \
+  ((HSL_BLOCK_PAYLOAD_BYTES / (rec)) * (rec) <= HSL_BLOCK_PAYLOAD_BYTES)
+_Static_assert(HSL_FITS(HSL_IMU_REC_BYTES), "imu records overrun the block");
+_Static_assert(HSL_FITS(HSL_ACT_REC_BYTES), "act records overrun the block");
+_Static_assert(HSL_FITS(HSL_VRT_REC_BYTES), "vrt records overrun the block");
+_Static_assert(HSL_FITS(HSL_CTL_REC_BYTES), "ctl records overrun the block");
+_Static_assert(HSL_FITS(HSL_RX_REC_BYTES), "rx records overrun the block");
+_Static_assert(HSL_FITS(HSL_TXT_REC_BYTES), "txt records overrun the block");
+_Static_assert(HSL_FITS(HSL_ATT_REC_BYTES), "att records overrun the block");
+_Static_assert(HSL_FITS(HSL_RC_REC_BYTES), "rc records overrun the block");
+
+/* Set by the FS task from the flight state; read by producers via
+ * stream_claim. One word, one writer. */
+static volatile uint8_t s_armed = 0;
+/* Session hold: the tick that last wanted a session, and the armed state as of
+ * the previous tick so a disarm can be seen as the edge it is. FS task only. */
+static uint32_t s_want_ms = 0;
+static bool s_was_armed = false;
 
 /* Consumer-owned. */
 static vfs_fd_t s_fd = -1;
@@ -111,6 +200,10 @@ static uint32_t s_slot = 0;    /* ring slot the next frame goes to         */
 static uint32_t s_seq = 1;     /* seq the next frame will carry            */
 static uint32_t s_wraps = 0;   /* times round the ring                     */
 static uint32_t s_session = 0; /* armed-period counter                     */
+/* Generation of THIS file. Written into the header and folded into every ring
+ * frame's sentinel, so frames left by a previous generation on the same
+ * clusters are rejected rather than decoded as ours. */
+static uint32_t s_gen = 0;
 static uint32_t s_since_hdr = 0;
 
 /* Last values the FS task has already emitted an EVENT for. Single writer
@@ -128,7 +221,31 @@ static float s_acc_scale = 1.0f;
 
 /* Shared: set by the consumer, read by the producers. One flag, one writer. */
 static volatile bool s_active = false;
+/* Sectors discarded because a stream's ring was full when its producer
+ * finished one. Two counters, because one number could not answer the
+ * question it existed for:
+ *
+ *   s_drop[]       per stream, RESET EACH SESSION. Says which stream and how
+ *                  much, for THIS flight. Written into the preamble, so it is
+ *                  re-flushed every HSL_HDR_SYNC_FRAMES and a power cut costs
+ *                  at most that many sectors' worth of count.
+ *   s_dropped      lifetime total since boot, for the HSL_STATUS telemetry
+ *                  message, whose contract is a monotonic counter.
+ *
+ * The single lifetime counter alone read 0 for a flight that dropped 19
+ * sectors: its close line is emitted after the file is closed, so it lands in
+ * the NEXT session, and the number it carries is cumulative anyway. */
 static volatile uint32_t s_dropped = 0;
+static volatile uint16_t s_drop[HSL_N_STREAMS];
+
+/** @noreq attribute one dropped sector to the stream that lost it */
+static void note_drop(const hsl_stream_t *st) {
+  s_dropped++;
+  const size_t i = (size_t)(st - &s_streams[0]);
+  if (i < HSL_N_STREAMS && s_drop[i] != 0xFFFFu) {
+    s_drop[i]++;
+  }
+}
 
 /* ===========================================================================
  * Little-endian stores. The buffers are byte-addressed, which is also what
@@ -201,19 +318,38 @@ static uint16_t unit_to_u16(float v) {
 /* Claim room for one record, or NULL if the stream is closed, decimated away,
  * or its ring is full. Fills in the frame/block header on a fresh sector. */
 static uint8_t *stream_claim(hsl_stream_t *st, uint32_t t_cyc) {
-  if (!s_active) {
-    return NULL;
+  if (st->armed_only) {
+    /* A sampled stream needs an open session AND the props able to turn. */
+    if (!s_active || !s_armed) {
+      return NULL;
+    }
   }
+  /* A byte stream fills its RAM buffer whether or not a session is open: the
+   * arrival of its data is what ASKS the FS task to open one, so gating it on
+   * s_active here would deadlock the two against each other. */
   /* Decimate on the cycle stamp, so the rate holds whatever rate the caller
    * happens to run at. Wrap-safe unsigned delta. */
   if (st->decim_cyc != 0u && (uint32_t)(t_cyc - st->last_cyc) < st->decim_cyc) {
     return NULL;
   }
 
+  /* Never hand back a pointer past the end of the sector. stream_commit
+   * resets fill at cap, so in correct operation this cannot fire -- it is
+   * here because the cost of being wrong is not a lost record but a write
+   * into whatever .bss follows the buffer, and `fill` is owned by the
+   * producer with no lock. Every stream but one has a single producer and
+   * that is safe; the text stream does not, and the next stream someone adds
+   * might not either. A bound here is cheaper than trusting each new call
+   * site to have got the discipline right. */
+  if (st->fill >= st->cap) {
+    note_drop(st);
+    return NULL;
+  }
+
   uint8_t *b = st->bufs + (size_t)st->head * HSL_SECTOR_BYTES;
   if (st->fill == 0u) {
     b[0] = (uint8_t)HSL_TYPE_BLOCK;
-    b[1] = (uint8_t)HSL_RING_SENTINEL;
+    b[1] = HSL_SENTINEL_FOR(s_gen);
     put_u16(&b[2], (uint16_t)(HSL_SECTOR_BYTES - HSL_FRAME_HDR_BYTES));
     b[4] = st->stream_id;
     /* b[5] is the session tag and b[8..11] the seq, both stamped by the
@@ -228,6 +364,7 @@ static uint8_t *stream_claim(hsl_stream_t *st, uint32_t t_cyc) {
 static void stream_commit(hsl_stream_t *st, uint32_t t_cyc) {
   uint8_t *b = st->bufs + (size_t)st->head * HSL_SECTOR_BYTES;
   st->last_cyc = t_cyc;
+  st->last_ms = v_get_ticks();
   st->fill++;
   put_u16(&b[6], st->fill); /* n      */
   put_u32(&b[16], t_cyc);   /* t_last */
@@ -240,7 +377,10 @@ static void stream_commit(hsl_stream_t *st, uint32_t t_cyc) {
   /* One buffer always stays empty so head==tail means empty. */
   uint8_t next = (uint8_t)((st->head + 1u) % st->n_bufs);
   if (next == st->tail) {
-    s_dropped++; /* SD is not keeping up; this sector is refilled instead */
+    /* SD is not keeping up; this sector is refilled instead. The 41 records
+     * already in it are lost, which reads back as a hole of exactly one
+     * sector-period between two otherwise normal blocks. */
+    note_drop(st);
     return;
   }
   st->head = next;
@@ -413,8 +553,95 @@ _Static_assert(HSL_FILE_HDR_BYTES + HSL_FMT_BYTES(6u) /* imu */
                        + HSL_FMT_BYTES(6u)            /* act */
                        + HSL_FMT_BYTES(6u)            /* ctl */
                        + HSL_FMT_BYTES(8u)            /* vrt */
+                       + HSL_FMT_BYTES(1u)            /* rx  */
+                       + HSL_FMT_BYTES(1u)            /* txt */
+                       + HSL_FMT_BYTES(4u)            /* att */
+                       + HSL_FMT_BYTES(15u)           /* rc  */
                    <= HSL_PREAMBLE_BYTES,
                "FMT declarations no longer fit the preamble");
+
+/** @noreq attitude capture; RAM-only sector fill */
+void imu_hs_log_att(float roll, float pitch, float yaw, uint8_t degraded,
+                    uint32_t t_cyc) {
+  hsl_stream_t *st = &s_streams[HSL_S_ATT];
+  uint8_t *r = stream_claim(st, t_cyc);
+  if (r == NULL) {
+    return;
+  }
+  /* scaled_to_i16 divides by its second argument, so that argument is the
+   * unit PER COUNT -- the same convention as s_gyr_scale and HSL_CTL_U_PER_LSB
+   * above. Passing the reciprocal here divided by 100 instead of multiplying,
+   * a factor of 10000, so every attitude under 50 deg quantised to zero. */
+  put_u16(&r[0], (uint16_t)scaled_to_i16(roll, HSL_ATT_DEG_PER_LSB));
+  put_u16(&r[2], (uint16_t)scaled_to_i16(pitch, HSL_ATT_DEG_PER_LSB));
+  put_u16(&r[4], (uint16_t)scaled_to_i16(yaw, HSL_ATT_DEG_PER_LSB));
+  put_u16(&r[6], degraded ? (uint16_t)HSL_ATT_F_DEGRADED : 0u);
+  stream_commit(st, t_cyc);
+}
+
+/** @noreq pilot-input capture; RAM-only sector fill */
+void imu_hs_log_rc(const uint16_t *channels, uint8_t n, uint8_t failsafe,
+                   uint32_t t_cyc) {
+  if (channels == NULL) {
+    return;
+  }
+  hsl_stream_t *st = &s_streams[HSL_S_RC];
+  uint8_t *r = stream_claim(st, t_cyc);
+  if (r == NULL) {
+    return;
+  }
+  const uint8_t lim = (n > 14u) ? 14u : n;
+  for (uint8_t i = 0; i < 14u; i++) {
+    put_u16(&r[(size_t)i * 2u], (i < lim) ? channels[i] : 0u);
+  }
+  put_u16(&r[28], failsafe ? (uint16_t)HSL_RC_F_FAILSAFE : 0u);
+  stream_commit(st, t_cyc);
+}
+
+/** @noreq byte-stream append; RAM-only sector fill, any task */
+static void wire_append(hsl_stream_t *st, const uint8_t *data, uint16_t len,
+                        uint32_t t) {
+  if (data == NULL || len == 0u) {
+    return;
+  }
+
+  /* Copy across as many sectors as it takes. stream_claim hands back a
+   * pointer to the next free record; with rec_bytes 1 that is the next free
+   * BYTE, and stream_commit publishes the sector when it fills. Looping keeps
+   * the sector-crossing logic in one place rather than duplicating it. */
+  for (uint16_t i = 0; i < len; i++) {
+    uint8_t *slot = stream_claim(st, t);
+    if (slot == NULL) {
+      note_drop(st); /* buffers full: SD is not keeping up, or absent */
+      return;
+    }
+    *slot = data[i];
+    stream_commit(st, t);
+  }
+}
+
+/** @noreq NavLink RX capture */
+void imu_hs_log_wire_rx(const uint8_t *data, uint16_t len, uint32_t t_cyc) {
+  wire_append(&s_streams[HSL_S_RX], data, len, t_cyc);
+}
+
+/** @noreq vayu_log text capture */
+void imu_hs_log_wire_txt(const uint8_t *data, uint16_t len, uint32_t t_cyc) {
+  /* The ONLY stream with more than one producer. Every other one is filled by
+   * a single task, which is what makes the head/fill pair safe to own without
+   * a lock -- but vayu_log is called from the IMU task, the estimators, comm,
+   * the drivers and the FS task itself. Two of them interleaving between
+   * stream_claim and stream_commit would hand both the same slot and race
+   * `fill`, and a `fill` that slipped past `cap` would have claim return a
+   * pointer past the end of the sector -- a write into whatever .bss follows.
+   *
+   * A critical section rather than a queue: the payload is at most 128 bytes
+   * (log_buf in log_text.c), so this is a couple of microseconds against a
+   * 1 kHz rate loop, and it costs no RAM on a part that has none spare. */
+  ENTER_CRITICAL();
+  wire_append(&s_streams[HSL_S_TXT], data, len, t_cyc);
+  EXIT_CRITICAL();
+}
 
 /** @noreq builds sector 0 from the current cursor */
 static void build_preamble(void) {
@@ -425,12 +652,20 @@ static void build_preamble(void) {
   put_u32(&h[0], HSL_MAGIC);
   put_u16(&h[4], (uint16_t)HSL_VERSION);
   put_u16(&h[6], (uint16_t)HSL_FILE_HDR_BYTES);
-  put_u32(&h[8], (uint32_t)SYS_CLOCK_FREQ);
+  put_u32(&h[8], vayu_clock_hz());     /* measured: hslog.py divides by this */
   put_u32(&h[12], HSL_PREAMBLE_BYTES); /* ring_start   */
   put_u32(&h[16], HSL_RING_SECTORS);   /* ring_sectors */
   put_u32(&h[20], s_slot);             /* head_slot HINT */
   put_u32(&h[24], s_seq);              /* next_seq  HINT */
   put_u32(&h[28], s_wraps);
+  put_u32(&h[32], s_gen); /* v2: names the sentinel every ring frame carries */
+
+  /* Per-stream sectors dropped THIS session. Here rather than only in the
+   * close line because the close line does not survive a power cut, and a
+   * recording whose losses are unknown cannot be reasoned about. */
+  for (uint32_t i = 0; i < HSL_N_STREAMS; i++) {
+    put_u16(&h[HSL_HDR_DROPS_OFF + i * 2u], s_drop[i]);
+  }
 
   /* One FMT per stream, so the file describes every stream it contains with
    * no external schema. Scales come from the driver, not a constant here, so
@@ -479,6 +714,37 @@ static void build_preamble(void) {
                                      {"uy", HSL_FTYPE_I16, HSL_CTL_U_PER_LSB},
                                      {"uz", HSL_FTYPE_I16, HSL_CTL_U_PER_LSB}},
                6u);
+  /* rate_hz 0: this stream has no rate. It is whatever the GCS sent, when it
+   * sent it, and a decoder must read the block stamps rather than assume a
+   * cadence it can interpolate. */
+  f = emit_fmt(f, HSL_STREAM_RX, HSL_RX_REC_BYTES, 0u,
+               (const hsl_field_t[]){{"byte", HSL_FTYPE_U8, 1.0f}}, 1u);
+  f = emit_fmt(f, HSL_STREAM_TXT, HSL_TXT_REC_BYTES, 0u,
+               (const hsl_field_t[]){{"char", HSL_FTYPE_U8, 1.0f}}, 1u);
+  f = emit_fmt(
+      f, HSL_STREAM_ATT, HSL_ATT_REC_BYTES, (uint16_t)HSL_ATT_RATE_HZ,
+      (const hsl_field_t[]){{"roll", HSL_FTYPE_I16, HSL_ATT_DEG_PER_LSB},
+                            {"pitch", HSL_FTYPE_I16, HSL_ATT_DEG_PER_LSB},
+                            {"yaw", HSL_FTYPE_I16, HSL_ATT_DEG_PER_LSB},
+                            {"flags", HSL_FTYPE_U16, 1.0f}},
+      4u);
+  f = emit_fmt(f, HSL_STREAM_RC, HSL_RC_REC_BYTES, (uint16_t)HSL_RC_RATE_HZ,
+               (const hsl_field_t[]){{"ch1", HSL_FTYPE_U16, 1.0f},
+                                     {"ch2", HSL_FTYPE_U16, 1.0f},
+                                     {"ch3", HSL_FTYPE_U16, 1.0f},
+                                     {"ch4", HSL_FTYPE_U16, 1.0f},
+                                     {"ch5", HSL_FTYPE_U16, 1.0f},
+                                     {"ch6", HSL_FTYPE_U16, 1.0f},
+                                     {"ch7", HSL_FTYPE_U16, 1.0f},
+                                     {"ch8", HSL_FTYPE_U16, 1.0f},
+                                     {"ch9", HSL_FTYPE_U16, 1.0f},
+                                     {"ch10", HSL_FTYPE_U16, 1.0f},
+                                     {"ch11", HSL_FTYPE_U16, 1.0f},
+                                     {"ch12", HSL_FTYPE_U16, 1.0f},
+                                     {"ch13", HSL_FTYPE_U16, 1.0f},
+                                     {"ch14", HSL_FTYPE_U16, 1.0f},
+                                     {"flags", HSL_FTYPE_U16, 1.0f}},
+               15u);
 
   /* PAD out to the sector. Skipped by the generic `len` rule, so no decoder
    * needs to know it exists. */
@@ -507,7 +773,7 @@ static bool flush_preamble(void) {
  * No sync: the write is 512 B and sector-aligned, so FatFS hands it straight
  * to the card -- it is durable on return. Only the header hint needs syncing. */
 static bool ring_write(uint8_t *sec) {
-  sec[1] = (uint8_t)HSL_RING_SENTINEL;
+  sec[1] = HSL_SENTINEL_FOR(s_gen);
   /* Session membership goes in EVERY frame, not just the SESSION frame: the
    * ring can overwrite a session's header while its blocks are still live, and
    * those blocks would otherwise read as a continuation of the session before
@@ -546,7 +812,7 @@ static bool emit_event(uint8_t kind, uint32_t a, uint32_t b) {
   e[0] = (uint8_t)HSL_TYPE_EVENT;
   put_u16(&e[2], (uint16_t)(HSL_SECTOR_BYTES - HSL_FRAME_HDR_BYTES));
   /* e[8..11] seq, stamped by ring_write */
-  put_u32(&e[12], hal_cycle_counter_get());
+  put_u32(&e[12], vayu_clock_cycles());
   e[16] = kind;
   put_u32(&e[20], a);
   put_u32(&e[24], b);
@@ -609,7 +875,7 @@ static void session_start(void) {
   const uint64_t unix_ms = get_timestamp_unix();
   put_u32(&sf[16], (uint32_t)(unix_ms & 0xFFFFFFFFu));
   put_u32(&sf[20], (uint32_t)(unix_ms >> 32));
-  put_u32(&sf[24], hal_cycle_counter_get());
+  put_u32(&sf[24], vayu_clock_cycles());
   sf[28] = time_sync_is_synced() ? 1u : 0u;
 
   if (!ring_write(sf) || !flush_preamble()) {
@@ -617,10 +883,22 @@ static void session_start(void) {
     s_fd = -1;
     return;
   }
-  /* Discard whatever the producers left queued from before this session. Tail
-   * is ours to move, which is why no lock is needed here. */
+  /* Discard what the ARM-GATED producers left queued from before this session:
+   * samples taken before the props could turn belong to no session, and
+   * writing them here would date them to this one.
+   *
+   * NOT the byte streams. Their queued sectors are the whole reason this
+   * session opened -- operator traffic and log lines that arrived while
+   * disarmed are exactly what they exist to keep, and discarding them here
+   * threw away the data that asked for the file to be opened. Tail is ours to
+   * move, which is why no lock is needed either way. */
   for (uint32_t i = 0; i < HSL_N_STREAMS; i++) {
-    s_streams[i].tail = s_streams[i].head;
+    if (s_streams[i].armed_only) {
+      s_streams[i].tail = s_streams[i].head;
+    }
+    /* Per-session, so a number describes one flight. The lifetime total that
+     * telemetry reports (s_dropped) keeps counting. */
+    s_drop[i] = 0u;
   }
   s_active = true;
 }
@@ -630,7 +908,39 @@ static void session_stop(void) {
   s_active = false; /* set FIRST: the producers now cannot touch a stream, so
                      * their partial sectors are ours to finish. */
   if (s_fd >= 0) {
-    /* Flush partly-filled sectors. `n` already says how many records they
+    /* Say how it went while the file is still OPEN. This used to run after
+     * vfs_close, so the line could only ever be written into the next
+     * session -- every close line in a card pull describes the session before
+     * the one carrying it, and a flight that ended in a power cut had no line
+     * at all. The counts are per-session now, so this describes this flight
+     * rather than everything since boot. */
+    /* Two lines: log_buf is 128 bytes and eight u16 counters plus their
+     * labels do not fit beside the cursor, and a truncated line would lose
+     * the end -- which is the half worth having. */
+    vayu_log("hsl: session %u closed, slot %u, %u wraps", (unsigned)s_session,
+             (unsigned)s_slot, (unsigned)s_wraps);
+    vayu_log("hsl: dropped imu=%u act=%u vrt=%u ctl=%u rx=%u txt=%u att=%u"
+             " rc=%u",
+             (unsigned)s_drop[HSL_S_IMU], (unsigned)s_drop[HSL_S_ACT],
+             (unsigned)s_drop[HSL_S_VRT], (unsigned)s_drop[HSL_S_CTL],
+             (unsigned)s_drop[HSL_S_RX], (unsigned)s_drop[HSL_S_TXT],
+             (unsigned)s_drop[HSL_S_ATT], (unsigned)s_drop[HSL_S_RC]);
+
+    /* Drain what is already PUBLISHED but not yet written. The per-loop drain
+     * runs at the end of imu_hs_log_drain, and every path that ends a session
+     * returns before reaching it -- so up to one ring per stream was being
+     * abandoned at every disarm, silently. Oldest first. */
+    for (uint32_t i = 0; i < HSL_N_STREAMS; i++) {
+      hsl_stream_t *st = &s_streams[i];
+      while (st->tail != st->head) {
+        if (!ring_write(st->bufs + (size_t)st->tail * HSL_SECTOR_BYTES)) {
+          break; /* card is unhappy; still try to close cleanly below */
+        }
+        st->tail = (uint8_t)((st->tail + 1u) % st->n_bufs);
+      }
+    }
+
+    /* Then the partly-filled sectors. `n` already says how many records they
      * hold, so a short sector is a perfectly ordinary block -- without this a
      * VRT sector would lose up to ~850 ms at the end of every flight. */
     for (uint32_t i = 0; i < HSL_N_STREAMS; i++) {
@@ -643,9 +953,37 @@ static void session_stop(void) {
     (void)flush_preamble();
     vfs_close(s_fd);
     s_fd = -1;
-    vayu_log("hsl: session %u closed, slot %u, %u wraps, %u dropped",
-             (unsigned)s_session, (unsigned)s_slot, (unsigned)s_wraps,
-             (unsigned)s_dropped);
+  }
+}
+
+/* Publish a byte stream's partially-filled sector when it has been idle long
+ * enough. FS task only; the producer owns head and fill, so this advances head
+ * exactly as stream_commit would and touches nothing else. */
+/** @noreq idle flush for the variable-rate byte streams */
+static void wire_idle_flush(void) {
+  /* Milliseconds from the RTOS tick, NOT a DWT delta. The cycle counter is
+   * 32-bit and wraps every ~51 s at 84 MHz, so `now - last_cyc` is only
+   * meaningful for gaps shorter than that: a stream idle for 52 s yields a
+   * wrapped delta of 73 Mcyc, which reads as "not idle yet" against a 2 s
+   * threshold of 168 Mcyc. The flush would then skip its window once per
+   * wrap. v_get_ticks is milliseconds and wraps in 49 days. */
+  const uint32_t now_ms = v_get_ticks();
+
+  for (uint32_t i = 0; i < HSL_N_STREAMS; i++) {
+    hsl_stream_t *st = &s_streams[i];
+    if (st->armed_only || st->fill == 0u) {
+      continue;
+    }
+    if ((uint32_t)(now_ms - st->last_ms) < HSL_WIRE_IDLE_FLUSH_MS) {
+      continue;
+    }
+    st->fill = 0u;
+    uint8_t next = (uint8_t)((st->head + 1u) % st->n_bufs);
+    if (next == st->tail) {
+      note_drop(st);
+      continue;
+    }
+    st->head = next;
   }
 }
 
@@ -655,7 +993,50 @@ void imu_hs_log_drain(void) {
    * module exists -- no command and no GCS work; each arm simply appends
    * another session to the ring. */
   const sys_state_t st = system_state_get();
-  const bool want = (st == SYSTEM_STATE_ARMED) || (st == SYSTEM_STATE_IN_AIR);
+  const bool armed = (st == SYSTEM_STATE_ARMED) || (st == SYSTEM_STATE_IN_AIR);
+  s_armed = armed ? 1u : 0u;
+
+  /* Age out a byte stream's partial sector first, so a burst of traffic that
+   * never fills 492 bytes still reaches the card. This runs whether or not a
+   * session is open -- it is what CREATES the work that opens one. */
+  wire_idle_flush();
+
+  /* A byte stream with a PUBLISHED sector also asks for a session, so operator
+   * traffic is recorded before the props ever turn. Its producers fill their
+   * RAM buffers regardless of s_active -- see stream_claim -- and this is what
+   * turns a filled sector into a file write. Deliberately not counting a
+   * partial sector: that would hold the file open continuously from the first
+   * byte received, where the point is to batch and let it close. */
+  bool wire_pending = false;
+  for (uint32_t i = 0; i < HSL_N_STREAMS; i++) {
+    const hsl_stream_t *w = &s_streams[i];
+    if (!w->armed_only && w->tail != w->head) {
+      wire_pending = true;
+      break;
+    }
+  }
+  /* A disarm is a real boundary: close the session there so one flight reads
+   * as one session, even though byte-stream traffic would otherwise hold it
+   * open straight through. The next tick reopens for that traffic. */
+  const bool was_armed = s_was_armed;
+  s_was_armed = armed;
+  if (was_armed && !armed && s_fd >= 0) {
+    emit_changes();
+    session_stop();
+    return;
+  }
+
+  /* Hold the session open for HSL_SESSION_HOLD_MS after the last tick that
+   * wanted it. A queue that momentarily empties is not the end of a recording
+   * period -- closing there is what produced a session every 1.7 s, three ring
+   * slots apiece, and a session_tag that wrapped every 7 minutes. */
+  const bool want_now = armed || wire_pending;
+  if (want_now) {
+    s_want_ms = v_get_ticks();
+  }
+  const bool want =
+      want_now || (s_fd >= 0 &&
+                   (uint32_t)(v_get_ticks() - s_want_ms) < HSL_SESSION_HOLD_MS);
 
   if (!want || fs_owner_logs_suppressed()) {
     /* Also stop for a bulk transfer: a held fd would occupy one of FatFS's four
@@ -748,6 +1129,16 @@ bool imu_hs_log_active(void) { return s_active; }
  * @implements LOG-SD-001
  */
 void imu_hs_log_boot_init(void) {
+  /* Decimation is a real time interval, so it divides the MEASURED cycle rate,
+   * not the nominal one -- a clock that did not land on SYS_CLOCK_FREQ would
+   * otherwise shift these streams off their stated rate while the file header
+   * (which records the measured rate) says they are on it. Done here rather
+   * than in the initialiser above because vayu_clock_hz() only tells the truth
+   * after vayu_clock_init(), which main() runs before fs_owner_boot_init(). */
+  const uint32_t hz = vayu_clock_hz();
+  s_streams[HSL_S_ACT].decim_cyc = hz / HSL_ACT_RATE_HZ;
+  s_streams[HSL_S_VRT].decim_cyc = hz / HSL_VRT_RATE_HZ;
+
   vfs_fd_t fd = vfs_open(HSL_FILENAME, VFS_O_RDWR | VFS_O_CREAT);
   if (fd < 0) {
     return; /* not a PANIC: the aircraft flies fine without a recording */
@@ -772,9 +1163,15 @@ void imu_hs_log_boot_init(void) {
         s_slot = slot;
         s_seq = get_u32(&hdr[24]) + HSL_SEQ_RESUME_MARGIN;
         s_wraps = get_u32(&hdr[28]);
+        /* Same file, so the frames already in it are ours: keep their
+         * generation or every one of them would read as foreign. */
+        s_gen = get_u32(&hdr[32]);
       }
     } else {
-      fresh = true; /* unreadable header: start the ring over */
+      /* Unreadable header. The ring starts over -- and the clusters may still
+       * hold a PREVIOUS generation's frames, which is exactly the case the
+       * generation exists for, so take a new one below. */
+      fresh = true;
     }
   }
 
@@ -782,6 +1179,24 @@ void imu_hs_log_boot_init(void) {
     s_slot = 0;
     s_seq = 1;
     s_wraps = 0;
+    /* A new generation, and it must differ from whatever wrote the frames that
+     * may still be sitting in these clusters. Prefer the old header's
+     * generation + 1: when the file was merely re-created its bytes are still
+     * readable, and +1 guarantees a difference from the one generation most
+     * likely to be down there. Otherwise fall back to the cycle counter, which
+     * differs run to run. */
+    uint8_t old[HSL_FILE_HDR_BYTES];
+    vfs_lseek(fd, 0, VFS_SEEK_SET);
+    if (vfs_read(fd, old, sizeof(old)) == (int)sizeof(old) &&
+        get_u32(&old[0]) == HSL_MAGIC) {
+      s_gen = get_u32(&old[32]) + 1u;
+    } else {
+      s_gen = vayu_clock_cycles();
+    }
+    /* Never collide with the sentinel a scrubbed or erased card would show. */
+    if (HSL_SENTINEL_FOR(s_gen) == HSL_SENTINEL_FOR(s_gen + 1u)) {
+      s_gen++;
+    }
   }
 
   s_fd = fd;

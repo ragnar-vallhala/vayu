@@ -44,23 +44,15 @@
 #include "memory.h"               /* v_malloc (heap-backed write-at lanes) */
 #include "utils.h"                /* v_memcpy */
 #include "vaios_config_default.h" /* PANIC */
-#include "variables.h" /* *_LOGGING_FILENAME/_FILE_SIZE, CALIBRATION_FILE_PATH */
+#include "storage/paths.h"
 #include "vfs.h"
 #include "storage/imu_hs_log.h"
 
 /* ===========================================================================
  * Sizing
  * =========================================================================== */
-#define FS_LOG_PAYLOAD_MAX 256u /* >= max navlink blackbox record           */
 #define FS_SAVE_PAYLOAD_MAX                                                    \
   216u /* pid_store 216B (PID5 + notch + motor geom); calib hdr(8)+payload(84) */
-/* Log lane depth. KEEP SMALL: each slot is FS_LOG_PAYLOAD_MAX+ bytes of static
- * BSS, and the STM32F401 (96 KiB SRAM) is RAM-starved — a too-large queue pushes
- * _heap_start up until the kernel heap's HEAP_SIZE memset runs off the top of RAM
- * (silent: the linker can't see it), corrupting memory at boot -> HardFault. 4 is
- * ample; do NOT raise without checking _heap_start + HEAP_SIZE <= top-of-RAM. */
-#define FS_LOG_QUEUE_CAP                                                       \
-  4u /* ~1 KiB; a 32-deep lane (8.3 KiB) overflows F401 SRAM. */
 #define FS_SAVE_QUEUE_CAP 4u /* reserved — logs can never occupy this lane */
 #define FS_POLL_TICKS 5u /* save/write-at latency bound while blocked on logs */
 
@@ -102,12 +94,6 @@
 typedef enum { FS_SAVE_PID = 0, FS_SAVE_CALIB } fs_save_type_t;
 
 typedef struct {
-  uint8_t logger_type; /* logger_type_t */
-  uint16_t len;
-  uint8_t payload[FS_LOG_PAYLOAD_MAX];
-} fs_log_req_t;
-
-typedef struct {
   uint8_t type;  /* fs_save_type_t */
   uint8_t tries; /* retry counter */
   uint16_t len;  /* bytes used (calib = hdr+payload concatenated) */
@@ -126,11 +112,9 @@ typedef struct {
 /* ===========================================================================
  * State
  * =========================================================================== */
-static mpmc_queue_t s_log_q;
 static mpmc_queue_t s_save_q;
 static mpmc_queue_t s_writeat_q; /* fresh write-at requests */
 static mpmc_queue_t s_retry_q;   /* failed write-ats awaiting another attempt */
-static fs_log_req_t s_log_buf[FS_LOG_QUEUE_CAP];
 static fs_save_req_t s_save_buf[FS_SAVE_QUEUE_CAP];
 static fs_writeat_req_t *s_writeat_buf; /* heap (v_malloc in fs_owner_init) */
 static fs_writeat_req_t *s_retry_buf;   /* heap (v_malloc in fs_owner_init) */
@@ -166,12 +150,6 @@ static uint32_t
     s_rpos; /* current file position of s_rfd (avoid redundant lseek) */
 
 /* Blackbox file state (open-on-demand; positions persist across writes). */
-static uint32_t navlink_write_pos = 0;
-static uint32_t system_write_pos = 0;
-static uint32_t general_write_pos = 0;
-static volatile uint32_t navlink_wrap_count = 0;
-static volatile uint32_t system_wrap_count = 0;
-static volatile uint32_t general_wrap_count = 0;
 
 static volatile uint32_t s_dropped_logs = 0;
 static volatile uint32_t s_dropped_saves = 0;
@@ -190,46 +168,9 @@ static volatile bool s_logs_suppressed = false;
  * Boot-time file setup — direct vfs_*, scheduler off.
  * Preallocate + size the 3 circular files, then CLOSE them: no fd is held.
  * =========================================================================== */
-/** @implements LOG-SD-001 — extend each ring file to its preallocated size. */
-static void ensure_file_size(const char *path, uint32_t file_size) {
-  vfs_fd_t fd = vfs_open(path, VFS_O_RDWR | VFS_O_CREAT);
-  if (fd < 0) {
-    return;
-  }
-  long current_size = vfs_lseek(fd, 0, VFS_SEEK_END);
-  if (current_size < (long)file_size) {
-    vfs_lseek(fd, (long)(file_size - 1u), VFS_SEEK_SET);
-    uint8_t dummy = 0;
-    vfs_write(fd, &dummy, 1);
-    vfs_sync(fd);
-  }
-  vfs_close(fd);
-}
 
-/** @implements LOG-SD-001 — preallocate + size the 3 circular blackbox files. */
-void fs_owner_boot_init(void) {
-  if (vfs_preallocate(NAVLINK_LOGGING_FILENAME, NAVLINK_LOGGING_FILE_SIZE) !=
-      0) {
-    PANIC("Navlink prealloc failed");
-  }
-  if (vfs_preallocate(SYS_LOGGING_FILENAME, SYS_LOGGING_FILE_SIZE) != 0) {
-    PANIC("System prealloc failed");
-  }
-  if (vfs_preallocate(GENERAL_LOGGING_FILENAME, GENERAL_LOGGING_FILE_SIZE) !=
-      0) {
-    PANIC("General prealloc failed");
-  }
-
-  ensure_file_size(NAVLINK_LOGGING_FILENAME, NAVLINK_LOGGING_FILE_SIZE);
-  ensure_file_size(SYS_LOGGING_FILENAME, SYS_LOGGING_FILE_SIZE);
-  ensure_file_size(GENERAL_LOGGING_FILENAME, GENERAL_LOGGING_FILE_SIZE);
-
-  navlink_write_pos = 0;
-  system_write_pos = 0;
-  general_write_pos = 0;
-
-  imu_hs_log_boot_init();
-}
+/** @noreq boot-time FS owner setup. */
+void fs_owner_boot_init(void) { imu_hs_log_boot_init(); }
 
 /* ===========================================================================
  * Work handlers (run by the FS task / the test pump — never the producer).
@@ -239,54 +180,6 @@ void fs_owner_boot_init(void) {
  * oldest records, counted so the loss is accountable rather than silent. No mutex
  * — single consumer. Logs are best-effort: a failed open just drops the record.
  * @implements LOG-SD-002, LOG-SD-102 */
-static void fs_circular_write(const char *path, uint32_t *write_pos,
-                              volatile uint32_t *wrap_count, uint32_t file_size,
-                              const uint8_t *data, uint32_t len) {
-  if (data == NULL || len == 0u || len > file_size) {
-    return;
-  }
-  vfs_fd_t fd = vfs_open(path, VFS_O_RDWR | VFS_O_CREAT);
-  if (fd < 0) {
-    s_dropped_logs++;
-    return;
-  }
-  if (*write_pos > (file_size - len)) {
-    *write_pos = 0;
-    (*wrap_count)++;
-  }
-  vfs_lseek(fd, (long)(*write_pos), VFS_SEEK_SET);
-  int res = vfs_write(fd, data, len);
-  int sync_res = vfs_sync(fd);
-  vfs_close(fd);
-  if (res >= 0 && sync_res >= 0) {
-    *write_pos = (*write_pos + len) % (file_size - len);
-  } else {
-    s_dropped_logs++;
-  }
-}
-
-/** @noreq routes a blackbox log record to its per-type ring file. */
-static void fs_do_log_req(const fs_log_req_t *req) {
-  switch ((logger_type_t)req->logger_type) {
-  case NAVLINK_LOGGER:
-    fs_circular_write(NAVLINK_LOGGING_FILENAME, &navlink_write_pos,
-                      &navlink_wrap_count, NAVLINK_LOGGING_FILE_SIZE,
-                      req->payload, req->len);
-    break;
-  case SYSTEM_LOGGER:
-    fs_circular_write(SYS_LOGGING_FILENAME, &system_write_pos,
-                      &system_wrap_count, SYS_LOGGING_FILE_SIZE, req->payload,
-                      req->len);
-    break;
-  case GENERAL_LOGGER:
-  default:
-    fs_circular_write(GENERAL_LOGGING_FILENAME, &general_write_pos,
-                      &general_wrap_count, GENERAL_LOGGING_FILE_SIZE,
-                      req->payload, req->len);
-    break;
-  }
-}
-
 /* @return true on success, false on open/write failure (caller retries).
  * @implements LOG-PERSIST-001 */
 static bool fs_do_save(const fs_save_req_t *req) {
@@ -640,8 +533,6 @@ void fs_owner_init(void) {
   if (s_ready) {
     return;
   }
-  mpmc_init(&s_log_q, s_log_buf, FS_LOG_QUEUE_CAP, sizeof(fs_log_req_t));
-  mpmc_set_policy(&s_log_q, MPMC_POLICY_DROP);
   mpmc_init(&s_save_q, s_save_buf, FS_SAVE_QUEUE_CAP, sizeof(fs_save_req_t));
   mpmc_set_policy(&s_save_q, MPMC_POLICY_DROP);
   /* Write-at + retry lanes: heap-backed (keeps .bss flat — RAM budget). If the
@@ -684,10 +575,6 @@ void fs_owner_pump(void) {
   }
   fs_drain_saves();
   fs_drain_writeats();
-  fs_log_req_t req;
-  while (mpmc_try_pop(&s_log_q, &req)) {
-    fs_do_log_req(&req);
-  }
 }
 
 /** @implements LOG-OWN-001 */
@@ -698,20 +585,11 @@ void fs_owner_task(void *args) {
    * stat/dir/truncate from other tasks route here (see fs_sync_call). Must be set
    * only here — in SITL the FS task never runs and those ops stay direct. */
   s_task_mode = true;
-  fs_log_req_t lreq;
   for (;;) {
     /* Reserved save lane drained fully first, then the upload write-at lane
-     * (incl. one retry per loop); logs are best-effort and yield to both. */
+     * (incl. one retry per loop). */
     fs_drain_saves();
     fs_drain_writeats();
-    /* Best-effort logs drain non-blocking (they no longer own the wait), UNLESS a
-     * bulk transfer is active — then logging is quiesced so the transfer is the
-     * sole multi-file SD actor (avoids the interleaved-multi-file corruption). */
-    if (!s_logs_suppressed) {
-      while (mpmc_try_pop(&s_log_q, &lreq)) {
-        fs_do_log_req(&lreq);
-      }
-    }
     /* High-speed IMU stream: whole preallocated sectors, and the only SD writer
      * that must keep a steady 24 KB/s. Serviced here so SD/VFS stays
      * single-owner; it self-gates on the arm state. */
@@ -747,22 +625,6 @@ bool fs_owner_logs_suppressed(void) { return s_logs_suppressed; }
  * Producers — snapshot and return immediately.
  * =========================================================================== */
 /** @noreq blackbox log producer; thin snapshot-and-enqueue onto the log lane. */
-bool fs_owner_enqueue_log(logger_type_t type, const void *data, uint32_t len) {
-  if (!s_ready || data == NULL || len == 0u || len > FS_LOG_PAYLOAD_MAX) {
-    s_dropped_logs++;
-    return false;
-  }
-  fs_log_req_t req;
-  req.logger_type = (uint8_t)type;
-  req.len = (uint16_t)len;
-  v_memcpy(req.payload, data, len);
-  if (!mpmc_try_push(&s_log_q, &req)) {
-    s_dropped_logs++;
-    return false;
-  }
-  return true;
-}
-
 /** @implements LOG-PERSIST-001 */
 bool fs_owner_enqueue_pid_save(const void *store, uint32_t len) {
   if (!s_ready || store == NULL || len == 0u || len > FS_SAVE_PAYLOAD_MAX) {
@@ -944,23 +806,6 @@ int fs_owner_closedir(vfs_dir_t d) {
  * Accounting
  * =========================================================================== */
 /** @implements LOG-SD-002 — per-log wrap counter surfaced to HEALTH status. */
-uint32_t fs_owner_log_wrap_count(logger_type_t type) {
-  switch (type) {
-  case NAVLINK_LOGGER:
-    return navlink_wrap_count;
-  case SYSTEM_LOGGER:
-    return system_wrap_count;
-  case GENERAL_LOGGER:
-  default:
-    return general_wrap_count;
-  }
-}
-
-/** @implements LOG-SD-002 — aggregate wrap counter across the 3 ring logs. */
-uint32_t fs_owner_log_wrap_count_total(void) {
-  return navlink_wrap_count + system_wrap_count + general_wrap_count;
-}
-
 /** @noreq drop-count accessor. */
 uint32_t fs_owner_dropped_logs(void) { return s_dropped_logs; }
 /** @noreq drop-count accessor. */

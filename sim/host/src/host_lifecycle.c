@@ -33,15 +33,17 @@
  */
 #define _GNU_SOURCE
 #include "control/control.h"
-#include "actuator/actuator.h"
+#include "actuator/motor.h"
 #include "comm/comm.h"
 #include "est/est.h"
-#include "sensor/sensor.h"
+#include "driver/bme280.h"
+#include "hub/hub.h"
 #include "sys/state.h"
 #include "task.h"
 #include "storage/fs_owner.h"
 #include "sys/sys_utils.h"
-#include "variables.h" /* HIGH_FREQ_TIMER_FREQ */
+#include "control/tuning.h"
+#include "driver/timer_callbacks.h"
 #include "vaios.h"
 #include "vayu_tasks.h"
 
@@ -212,3 +214,12 @@ void vayu_sitl_stop(void) {
      * sleeping forever on a clock that will no longer advance. */
   host_clock_stop();
 }
+
+/* ---- Annunciator: no hardware to annunciate on ------------------------
+ * The firmware's sys/heartbeat.c owns the status LEDs and the buzzer, and is
+ * not built for the host -- SITL has no pins to drive. navlink_router.c still
+ * reports link activity to it on every unhandled frame, so the symbol has to
+ * exist. Before the indicator driver landed the router blinked the pin itself
+ * and this resolved to a hal_gpio_write stub instead; the call is just as
+ * inert now, it simply stops here rather than three layers down. */
+void heartbeat_note_link_activity(void) {}

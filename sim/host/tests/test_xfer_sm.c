@@ -248,6 +248,13 @@ static void test_roundtrip_up_then_down(void) {
   CHECK(memcmp(FAKE.buf, src, sizeof src) == 0, "uploaded content matches src");
 
   /* ---- download the same file back ---- */
+  /* Let the SM finalise the upload first. In the firmware the comm task and
+   * the xfer task are separate, so a tick always lands between the last chunk
+   * and the next open; here that has to be explicit. It also matters now that
+   * one FS direction runs at a time -- an upload that has not gone terminal
+   * still holds the write fd, and the download is rejected rather than
+   * silently doubling up on FatFS slots. */
+  xfer_tick(5, 0, 8);
   cap_reset();
   xfer_open_args_t dn = mkargs(1, XFER_DIR_DOWNLOAD, 7, 0);
   CHECK(xfer_on_open(&dn) == XFER_OPEN_DEFERRED, "download open deferred");
@@ -587,6 +594,54 @@ static void test_rejections(void) {
         "retransmit same open is idempotent");
 }
 
+/* A file upload holds the FS owner's write-fd cache and a file download holds
+ * the read cache, so running both would put two of FatFS's four slots in GCS
+ * hands at once -- alongside the HSL recorder's and the FS task's transient
+ * open, which is the entire budget. The second direction is TEMPORARILY
+ * rejected (it succeeds once the first finishes), never DENIED. */
+static void test_one_fs_direction_at_a_time(void) {
+  printf("  test_one_fs_direction_at_a_time\n");
+
+  fake_reset();
+  xfer_open_args_t dn = mkargs(0, XFER_DIR_DOWNLOAD, 7, 0);
+  CHECK(xfer_on_open(&dn) == XFER_OPEN_DEFERRED, "file download opens");
+  xfer_open_args_t up = mkargs(1, XFER_DIR_UPLOAD, 7, 0);
+  CHECK(xfer_on_open(&up) == XFER_RES_TEMPORARILY_REJECTED,
+        "upload while a file download is open is TEMPORARILY_REJECTED");
+
+  /* ...and it is genuinely temporary: the slot frees and the upload lands. */
+  xfer_on_close(0, 0x50, 0);
+  xfer_tick(0, 0, 4);
+  CHECK(xfer_on_open(&up) == XFER_OPEN_DEFERRED,
+        "the upload succeeds once the download closes");
+
+  /* The other order is refused too. */
+  fake_reset();
+  xfer_open_args_t up2 = mkargs(0, XFER_DIR_UPLOAD, 7, 0);
+  CHECK(xfer_on_open(&up2) == XFER_OPEN_DEFERRED, "file upload opens");
+  xfer_open_args_t dn2 = mkargs(1, XFER_DIR_DOWNLOAD, 7, 0);
+  CHECK(xfer_on_open(&dn2) == XFER_RES_TEMPORARILY_REJECTED,
+        "download while a file upload is open is TEMPORARILY_REJECTED");
+
+  /* Same direction twice is still fine -- both use the SAME cached fd, so the
+   * slot budget is unaffected. */
+  fake_reset();
+  xfer_open_args_t d1 = mkargs(0, XFER_DIR_DOWNLOAD, 7, 0);
+  xfer_open_args_t d2 = mkargs(1, XFER_DIR_DOWNLOAD, 7, 0);
+  CHECK(xfer_on_open(&d1) == XFER_OPEN_DEFERRED, "first download opens");
+  CHECK(xfer_on_open(&d2) == XFER_OPEN_DEFERRED,
+        "a second download alongside it is allowed");
+
+  /* A stream session is storage-free, so it does not conflict either way. */
+  fake_reset();
+  xfer_open_args_t su = mkargs(0, XFER_DIR_UPLOAD, 7, 0);
+  CHECK(xfer_on_open(&su) == XFER_OPEN_DEFERRED, "file upload opens");
+  xfer_open_args_t st = mkargs(1, XFER_DIR_DOWNLOAD, 7, 0);
+  st.mode = XFER_MODE_STREAM;
+  CHECK(xfer_on_open(&st) != XFER_RES_TEMPORARILY_REJECTED,
+        "a stream download is not blocked by a file upload");
+}
+
 static void test_offset_past_eof(void) {
   printf("  test_offset_past_eof\n");
   fake_reset();
@@ -720,6 +775,7 @@ int main(void) {
   test_resume_after_drop();
   test_out_of_order_upload();
   test_rejections();
+  test_one_fs_direction_at_a_time();
   test_offset_past_eof();
   test_open_error_failed();
   test_close_acks_and_frees();

@@ -20,7 +20,7 @@ result -- and the result code is the whole story:
 
     ACCEPTED              the file is gone
     DENIED                absent, a directory, or protected (cal.bin/pid.bin)
-    TEMPORARILY_REJECTED  in use right now (imuhs.bin while recording); retry
+    TEMPORARILY_REJECTED  in use right now (the blackbox while recording); retry
     FAILED                allowed, but the unlink errored
 
 Reuses the transfer tool's bridge discovery and TIME_SYNC, because FS_DELETE is
@@ -47,7 +47,7 @@ RESULT = {0: "ACCEPTED", 1: "TEMPORARILY_REJECTED", 2: "DENIED",
 
 # Why a refusal happened, so the operator is not left guessing at a bare code.
 WHY = {
-    1: "the file is in use -- imuhs.bin is refused while a session is "
+    1: "the file is in use -- the blackbox is refused while a session is "
        "recording; disarm and retry",
     2: "absent, a directory, or protected -- cal.bin and pid.bin (losing "
        "either costs a recalibration or a retune) and the v_nav/v_sys/v_gen "

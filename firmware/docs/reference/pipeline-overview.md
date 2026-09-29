@@ -5,7 +5,7 @@ This document outlines the high-frequency data processing pipeline for the VaiOS
 > **Updated for the post-refactor IMU path.** The single `_imu_fifo` SPSC ring
 > (drained via `imu_buffer_peek*` by a monolithic `control_task`) is gone. The
 > BMX160 reader now **fans out** each sample with
-> `imu_queue_{telemetry,control,calibration}_push` (`src/sensor/imu_buffer.c`) to
+> `imu_queue_{telemetry,control,calibration}_push` (`src/hub/hub.c`) to
 > independent SPSC queues, and **sensor fusion moved out of the driver** into the
 > dedicated `attitude_task` (`src/est/attitude_task.c`, `src/est/sensor_fusion.c`),
 > which publishes attitude to its own `attitude_queue_{telemetry,control}` queues.
@@ -72,7 +72,7 @@ graph TD
 | `imu_*` / `attitude_*` SPSC queues | SPSC FIFO | Reader Task / `attitude_task` | Consumers | Per-consumer lock-free fan-out (see below); `SPSC_POLICY_OVERWRITE`. |
 
 > The old single `_imu_fifo` SPSC ring is replaced by a **fan-out** in
-> `src/sensor/imu_buffer.c`: separate `_imu_{telemetry,control,calibration}_queue`
+> `src/hub/hub.c`: separate `_imu_{telemetry,control,calibration}_queue`
 > rings for IMU samples and `_attitude_{telemetry,control}_queue` rings for fused
 > attitude, each its own producer→consumer pair (`OVERWRITE` policy so a slow
 > consumer never blocks the producer).
@@ -81,7 +81,7 @@ graph TD
 
 1.  **`_bmx_dma_rx_buffer` (30 bytes)**: Memory-aligned buffer used as the direct destination for DMA transfers from the BMX160 sensor.
 2.  **`_bmx_data` (`bmx160_all_reading_t`)**: Internal task structure where raw data is parsed, converted to SI units, and filtered.
-3.  **`_imu_{telemetry,control,calibration}_queue`** and **`_attitude_{telemetry,control}_queue`** (`src/sensor/imu_buffer.c`): the per-consumer SPSC ring backing arrays, each sized for its consumer's burst needs.
+3.  **`_imu_{telemetry,control,calibration}_queue`** and **`_attitude_{telemetry,control}_queue`** (`src/hub/hub.c`): the per-consumer SPSC ring backing arrays, each sized for its consumer's burst needs.
 
 ## Processing Flow
 

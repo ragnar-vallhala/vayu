@@ -19,7 +19,7 @@
 #include "navhal.h" /* hal_clock_get_sysclk */
 #include "memory.h" /* v_get_heap_size / v_get_heap_allocation_size */
 #include "sys/state.h"
-#include "variables.h" /* SYS_CLOCK_FREQ */
+#include "sys/clock.h" /* SYS_CLOCK_FREQ */
 
 /* System clock read back from the hardware (HSE->PLL = 84 MHz on the target).
  * @verifies SYS-TIM-004 */

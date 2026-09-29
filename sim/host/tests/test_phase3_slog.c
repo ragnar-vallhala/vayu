@@ -36,7 +36,8 @@
 #include <string.h>
 
 #include "comm/perf_packet.h" /* perf_fifo_row_t + PERF_FIFO_* ids */
-#include "sensor/sensor.h"
+#include "driver/bmx160.h"
+#include "hub/hub.h"
 
 /* Drop accounting moved from a single imu_buffer ring to per-consumer SPSC
  * queues; each queue's overwrite count is exposed through the perf FIFO rows.
@@ -72,7 +73,7 @@ static void test_imu_drop_counter(void) {
 
   imu_buffer_init();
 
-  bmx160_all_reading_t sample;
+  imu_sample_t sample;
   memset(&sample, 0, sizeof sample);
 
   uint32_t start = imu_telemetry_drops();

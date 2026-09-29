@@ -13,7 +13,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Pull the live part of the high-speed IMU recording (0:imuhs.bin) off the FC.
+"""Pull the live part of the blackbox recording (0:blackbox.bin) off the FC.
 
 The file is preallocated to its full ring size (32 MB on hardware) and is never
 truncated, so a plain download would transfer tens of megabytes of clusters the
@@ -180,8 +180,8 @@ def bounded_download(br, session, path, want, timeout):
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("-o", "--out", default="imuhs.bin")
-    ap.add_argument("--path", default="0:imuhs.bin")
+    ap.add_argument("-o", "--out", default="blackbox.bin")
+    ap.add_argument("--path", default="0:blackbox.bin")
     ap.add_argument("--port", type=int, default=14555)
     ap.add_argument("--session", type=int, default=3)
     ap.add_argument("--timeout", type=float, default=600.0)

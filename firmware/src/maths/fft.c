@@ -27,13 +27,12 @@
 #include <stddef.h> /* size_t (was reached transitively) */
 
 /* 2*pi as a single-precision constant (matches -fsingle-precision-constant). */
-#define FFT_TWO_PI 6.28318530717958647692f
 
 /** @noreq forward-twiddle table generator for the maths-interface FFT. */
 void m_fft_make_twiddles(fft_complex_t *tw, unsigned n) {
   unsigned half = n >> 1;
   for (unsigned k = 0; k < half; k++) {
-    float ang = -FFT_TWO_PI * (float)k / (float)n;
+    float ang = -TWO_PI * (float)k / (float)n;
     tw[k].re = cosf(ang);
     tw[k].im = sinf(ang);
   }

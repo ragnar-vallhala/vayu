@@ -41,8 +41,10 @@
 #include "vsim_proto.h"
 
 #include "est/est.h"
-#include "sensor/sensor.h"
-#include "variables.h" /* vayu_dt_from_cycles, SYS_CLOCK_FREQ */
+#include "driver/bmx160.h"
+#include "hub/hub.h"
+#include "driver/timer_callbacks.h"
+#include "sys/clock.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -70,6 +72,8 @@
  * reading struct -- 76 B little-endian. The static_assert below couples
  * the wire layout to the firmware's struct so any drift is a build
  * failure, not a runtime mystery. */
+#include "host_imu_unpack.h"
+
 #define EXPECTED_FRAME_BYTES VSIM_IMU_PAYLOAD_BYTES
 
 /* Per-instance IMU FIFO (roadmap sim-integration #1 / HANDOFF §5.1):
@@ -202,7 +206,7 @@ static void *imu_feeder_thread(void *arg) {
                      EXPECTED_FRAME_BYTES,
                  "wire fields of bmx160_all_converted_reading_t must be 76 B");
 
-  bmx160_all_reading_t sample;
+  imu_sample_t sample;
 
   /* IMU transport is FIFO-only as of the vsim_d split. Whether the
    * firmware is the standalone vayu_sitl binary or living inside
@@ -219,7 +223,8 @@ static void *imu_feeder_thread(void *arg) {
   fprintf(stderr, "host_imu_feeder: producer connected, draining frames\n");
 
   while (1) {
-    int rc = read_framed_imu(fd, &sample.converted);
+    float wire[HOST_IMU_WIRE_FLOATS];
+    int rc = read_framed_imu(fd, wire);
     if (rc == 0) {
       /* Producer disconnected -- reopen and keep going. */
       fprintf(stderr, "host_imu_feeder: producer closed, reopening\n");
@@ -241,9 +246,13 @@ static void *imu_feeder_thread(void *arg) {
      * wall-clock, which jitters dt and COLLAPSES it when the vsim FIFO bursts
      * (the sim isn't perfectly real-time paced) — that under-integrated the
      * gyro ~10x in the estimator. SITL_IMU_FEED_HZ must match vsim's emit rate. */
+    mag_sample_t magsm = {0};
+    host_imu_unpack(wire, &sample, &magsm);
     static uint32_t s_imu_cyc = 0;
     s_imu_cyc += (uint32_t)(SYS_CLOCK_FREQ / SITL_IMU_FEED_HZ);
-    sample.converted.timestamp = s_imu_cyc;
+    sample.t_cyc = s_imu_cyc;
+    magsm.t_cyc = s_imu_cyc;
+    mag_publish(&magsm);
 
     /* Inject RAW IMU ONLY — exactly what a real sensor provides. The firmware's
      * own attitude_task/EKF does the estimation (the previous host-side mahony
@@ -298,16 +307,20 @@ int host_imu_feeder_open(void) {
 }
 
 int host_imu_feeder_pump(void) {
-  static bmx160_all_reading_t sample;
+  static imu_sample_t sample;
   static uint32_t cyc = 0;
   if (s_step_imu_fd < 0)
     return 0;
-  int rc = read_framed_imu(s_step_imu_fd, &sample.converted);
+  float wire[HOST_IMU_WIRE_FLOATS];
+  int rc = read_framed_imu(s_step_imu_fd, wire);
   if (rc <= 0)
     return 0; /* EOF / wire error */
+  mag_sample_t magsm = {0};
+  host_imu_unpack(wire, &sample, &magsm);
   cyc += (uint32_t)(SYS_CLOCK_FREQ / SITL_IMU_FEED_HZ);
-  sample.converted.timestamp =
-      cyc; /* fixed-ODR sim stamp (drives estimator dt) */
+  sample.t_cyc = cyc; /* fixed-ODR sim stamp (drives estimator dt) */
+  magsm.t_cyc = cyc;
+  mag_publish(&magsm);
   imu_queue_control_push(&sample);
   imu_queue_telemetry_push(&sample);
   imu_queue_attitude_push(&sample);

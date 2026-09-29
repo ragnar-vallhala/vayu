@@ -187,7 +187,7 @@ touched. Gating eliminates that stale slot.
 ### 4.10 Motor task → ESC → output
 `motor_task` (`src/actuator/motor.c`) reads the FIFO and, if **not** ARMED, forces
 all four to 0 (defence-in-depth with §4.9), then calls `esc_set_throttle` per
-motor. `esc_set_throttle` (`src/actuator/esc.c`) maps the normalized command to a
+motor. `esc_set_throttle` (`src/driver/esc.c`) maps the normalized command to a
 servo pulse and then a timer duty:
 
 $$
@@ -289,7 +289,7 @@ autotuner and HUD consume).
 | `src/control/pid.c` | PID core (§3) |
 | `src/control/pid_config.c` | gain/LPF persistence, `CMD_SET_*` apply |
 | `src/actuator/motor.c` | motor task, arm-state zeroing |
-| `src/actuator/esc.c` | throttle → pulse → duty |
+| `src/driver/esc.c` | throttle → pulse → duty |
 | `sim/host/src/host_navhal.c` | SITL PWM → `/tmp/vsim_pwm` |
 | `include/variables.h` | constants + gain seeds |
 </content>

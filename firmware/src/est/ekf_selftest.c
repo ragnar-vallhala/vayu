@@ -43,8 +43,6 @@
 #include "maths/maths_interface.h"
 
 #define EKF_ST_G EKF_GRAVITY
-#define EKF_ST_DEG 0.017453292519943295f
-#define EKF_ST_2PI 6.2831853071795864f
 
 /* Body-frame accel (m/s^2) and unit mag synthesized from a true attitude.
  * Matches the driver convention: the accelerometer reports the GRAVITY vector
@@ -120,7 +118,7 @@ int ekf_selftest_run(ekf_selftest_report_fn report, void *ctx) {
       m_ekf_filter(acc[0], acc[1], acc[2], bias_dps, 0.0f, 0.0f, mag[0], mag[1],
                    mag[2], dt, &ori);
     ekf_get_gyro_bias(bias);
-    REPORT(m_fabsf(bias[0] / EKF_ST_DEG - bias_dps) < 0.5f,
+    REPORT(m_fabsf(to_degrees(bias[0]) - bias_dps) < 0.5f,
            "6-state gyro-bias converges");
     REPORT(m_fabsf(ori.roll) < 1.0f && m_fabsf(ori.pitch) < 1.0f,
            "6-state attitude steady under gyro bias");
@@ -135,11 +133,11 @@ int ekf_selftest_run(ekf_selftest_report_fn report, void *ctx) {
     ori.q.w = 1.0f;
     float t = 0.0f, er = 0.0f, ep = 0.0f, ey = 0.0f;
     for (int i = 0; i < 12000; i++) {
-      float wx = 60.0f * m_sin(EKF_ST_2PI * 0.30f * t);
-      float wy = 45.0f * m_sin(EKF_ST_2PI * 0.20f * t + 1.0f);
+      float wx = 60.0f * m_sin(TWO_PI * 0.30f * t);
+      float wy = 45.0f * m_sin(TWO_PI * 0.20f * t + 1.0f);
       float wz = 30.0f;
-      float dth[3] = {wx * EKF_ST_DEG * dt, wy * EKF_ST_DEG * dt,
-                      wz * EKF_ST_DEG * dt};
+      float dth[3] = {to_radians(wx) * dt, to_radians(wy) * dt,
+                      to_radians(wz) * dt};
       quaternion_t dq, qn;
       m_quat_exp(dth, &dq);
       m_quat_mul(&qt, &dq, &qn);

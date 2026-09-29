@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#include "vayu_board.h"
 #include "comm/navlink_router.h"
 #include "comm/channel.h"
 #include "comm/comm_types.h"
@@ -23,11 +24,12 @@
 #include "control/angle_rate_controller.h" /* geometry apply */
 #include "control/sysid.h"  /* sysid_start/abort (CMD_SYSID_EXCITE) */
 #include "dsp/gyro_notch.h" /* dynamic gyro-notch tuning (CMD_SET_GYRO_NOTCH) */
-#include "sys/state.h"      /* system_state_get, SYSTEM_STATE_* */
-#include "navhal.h"         /* hal_gpio_write, HAL_GPIO_HIGH/LOW */
-#include "sys/sys_utils.h"  /* get_device_id */
-#include "utils.h"          /* v_get_ticks, v_memcpy */
-#include "variables.h"      /* _BLUE_LED_PIN */
+#include "storage/imu_hs_log.h" /* imu_hs_log_wire_rx (blackbox RX) */
+#include "sys/state.h"          /* system_state_get, SYSTEM_STATE_* */
+#include "sys/sys_utils.h"      /* get_device_id */
+#include "utils.h"              /* v_get_ticks, v_memcpy */
+#include "sys/clock.h"          /* vayu_clock_cycles */
+#include "sys/heartbeat.h"      /* heartbeat_note_link_activity */
 #include "vayu_status.h"
 #include "vayu_tasks.h"             /* comm_processor_dispatch */
 #include "comm/xfer/navlink_xfer.h" /* bulk-transfer substrate SM (codec-blind) */
@@ -38,50 +40,10 @@
 extern channel_t g_telemetry_channel; /* defined in telemetry_task.c */
 
 /* -------------------------------------------------------------------------- */
-/* Default handler: blue-LED blink, 10 Hz for 1 s, non-reentrant.             */
+/* Default handler: report link activity; the annunciator decides what to show */
 /* -------------------------------------------------------------------------- */
-#define BLINK_MS 1000u
-#define BLINK_HALF_MS 50u /* 10 Hz blink => 50 ms half-period (toggle) */
 
-static uint32_t s_blink_end; /* 0 = idle, else v_get_ticks() at which to stop */
-static uint32_t s_blink_last; /* last toggle time */
-static uint8_t s_blink_on;
-
-/** @noreq blue-LED activity feedback */
-static void blink_start(void) {
-  if (s_blink_end != 0u) {
-    return; /* already blinking — a consecutive trigger just expires */
-  }
-  uint32_t now = v_get_ticks();
-  s_blink_end = now + BLINK_MS;
-  if (s_blink_end == 0u) {
-    s_blink_end = 1u; /* keep the idle sentinel free across a tick wrap */
-  }
-  s_blink_last = now;
-  s_blink_on = 1u;
-  hal_gpio_write(_BLUE_LED_PIN, HAL_GPIO_HIGH);
-}
-
-/** @noreq blue-LED activity feedback service */
-static void blink_service(void) {
-  if (s_blink_end == 0u) {
-    return;
-  }
-  uint32_t now = v_get_ticks();
-  if ((int32_t)(now - s_blink_end) >= 0) { /* window elapsed (wrap-safe) */
-    s_blink_end = 0u;
-    s_blink_on = 0u;
-    hal_gpio_write(_BLUE_LED_PIN, HAL_GPIO_LOW);
-    return;
-  }
-  if ((now - s_blink_last) >= BLINK_HALF_MS) {
-    s_blink_last = now;
-    s_blink_on = (uint8_t)!s_blink_on;
-    hal_gpio_write(_BLUE_LED_PIN, s_blink_on ? HAL_GPIO_HIGH : HAL_GPIO_LOW);
-  }
-}
-
-/** @noreq unhandled-leaf default handler (LED blink) */
+/** @noreq unhandled-leaf default handler (link-activity feedback) */
 static void on_default(void *ctx, const navlink_frame_hdr_t *hdr,
                        uint32_t msgid, const uint8_t *payload, size_t len) {
   (void)ctx;
@@ -89,7 +51,7 @@ static void on_default(void *ctx, const navlink_frame_hdr_t *hdr,
   (void)msgid;
   (void)payload;
   (void)len;
-  blink_start();
+  heartbeat_note_link_activity();
 }
 
 /* -------------------------------------------------------------------------- */
@@ -179,8 +141,10 @@ static navlink_ack_t on_cmd_sysid_excite(void *ctx,
       .f1_hz = m->f1_hz,
       .amp_dps = m->amp_dps,
       .duration_s = m->duration_s};
-  sysid_start(&req);
-  return navlink_ack_result(ACK_OK);
+  /* ACK_BAD if the run did not start -- the capture buffer is claimed from the
+   * heap on the first excite of a boot, and an operator needs to know the
+   * chirp never ran rather than wait on a dump that will never arrive. */
+  return navlink_ack_result(sysid_start(&req) ? ACK_OK : ACK_BAD);
 }
 
 /** @implements CTRL-SID-102 sysid dump command adapter (bench/diagnostic tooling) */
@@ -537,8 +501,12 @@ void navlink_router_poll(void) {
   uint8_t buf[256];
   uint16_t n = comm_rx_raw_drain(buf, (uint16_t)sizeof(buf));
   if (n > 0) {
+    /* Record the raw wire BEFORE parsing it. What the operator sent is worth
+     * having even when it did not parse -- a malformed or truncated command
+     * is exactly the kind of thing worth seeing afterwards, and a parser that
+     * rejected it would leave no other trace. */
+    imu_hs_log_wire_rx(buf, n, vayu_clock_cycles());
     navlink_parser_push(&s_parser, &s_handlers, buf, n);
   }
   arm_ack_service();
-  blink_service();
 }

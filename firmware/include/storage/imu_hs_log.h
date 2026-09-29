@@ -35,7 +35,9 @@
  * So HSL batches samples into 512 B sectors and hands whole sectors to the FS
  * task, ~49 writes/s at 24 KB/s.
  *
- * Only armed time is recorded, and sessions ACCUMULATE into a circular ring:
+ * Armed time is always recorded; so is the operator traffic and log text that
+ * surrounds it (the byte streams below are not arm-gated). Sessions ACCUMULATE
+ * into a circular ring:
  * the file always holds the last ~22 min of armed flight, however many arms
  * that spans, and never stops recording. Nothing is ever deleted or truncated
  * -- the oldest sector is simply overwritten.
@@ -58,10 +60,10 @@
  * the header's `ring_start` rather than assuming one sector -- it grew from one
  * to two when the fourth stream filled the first.
  *
- *   FILE HEADER (32 B, at offset 0, inside the preamble sector)
+ *   FILE HEADER (36 B, at offset 0, inside the preamble sector)
  *     u32 magic         0x314C5348 = "HSL1"
- *     u16 version       1
- *     u16 hdr_len       32 -- skip this many bytes to reach the first preamble
+ *     u16 version       2
+ *     u16 hdr_len       36 -- skip this many bytes to reach the first preamble
  *                          frame; a later header may be longer and old readers
  *                          still land on it
  *     u32 clock_hz      the unit of EVERY cycle stamp in this file
@@ -70,6 +72,13 @@
  *     u32 head_slot     HINT: slot the next frame will be written to
  *     u32 next_seq      HINT: seq the next frame will carry
  *     u32 wraps         how many times the ring has been round
+ *     u32 gen           v2: this file's GENERATION. Every ring frame's `flags`
+ *                       carries the sentinel derived from it, and a reader
+ *                       must reject any frame whose flags do not match. A file
+ *                       deleted and re-created lands on clusters that may
+ *                       still hold a previous generation's frames -- valid
+ *                       sentinels, plausible seq -- and this is the only thing
+ *                       that tells them apart.
  *
  *     head_slot/next_seq are a HINT, not the truth: they are rewritten every
  *     HSL_HDR_SYNC_FRAMES sectors, so a power cut leaves them up to that many
@@ -87,9 +96,11 @@
  *
      In the PREAMBLE, flags is 0 and frames are packed to fill the sector.
  *     In the RING, every frame is exactly one sector (len = 508) and flags is
- *     HSL_RING_SENTINEL. The sentinel is what distinguishes a slot this
- *     firmware wrote from a slot still holding whatever the card had before
- *     the file's clusters were allocated -- see imu_hs_log_boot_init.
+ *     the sentinel named by the header's `gen` -- HSL_SENTINEL_FOR(gen). It
+ *     distinguishes a slot THIS generation wrote both from arbitrary card
+ *     content and from a previous generation of this same format, which a
+ *     constant sentinel could not do. A reader computes the expected byte from
+ *     the header and keeps only the slots carrying it.
  *
  *   COMMON RING-FRAME PREFIX (payload bytes 0..7, every ring type)
  *     u8  [0]     type-specific
@@ -116,7 +127,7 @@
  *     u8  reserved[3]
  *     then n_fields x 16 B, in record order:
  *       char name[8]    NUL-padded
- *       u8   ftype      1=i16 2=u16 3=i32 4=f32
+ *       u8   ftype      1=i16 2=u16 3=i32 4=f32 5=u8
  *       u8   reserved[3]
  *       f32  scale      multiplier from stored units to SI
  *
@@ -145,8 +156,16 @@
  *     Consecutive frames are ~20 ms apart, so a reader accumulates wrap-safe
  *     u32 deltas and never needs a wider counter on the wire.
  *
- *   type 0x04 SESSION -- opens one armed period. One ring slot, written before
- *                        that period's first BLOCK.
+ *   type 0x04 SESSION -- opens one RECORDING period. One ring slot, written
+ *                        before that period's first BLOCK.
+ *
+ *     A recording period is not the same as an armed period, and has not been
+ *     since the byte streams began recording while disarmed. It starts when
+ *     anything wants the file -- an arm, or queued rc/txt traffic -- and ends
+ *     on a disarm or after HSL_SESSION_HOLD_MS with nothing wanting it. One
+ *     flight is therefore one session, but so is a long disarmed stretch on
+ *     the bench. Find the armed window from the STATE events inside the
+ *     session, not from its boundaries.
  *     [1]      u8  session_tag
  *     [4..7]   u32 seq
  *     [8..11]  u32 session    counter, monotonic for the life of the file
@@ -229,11 +248,47 @@
 
 /* Wire constants -- keep in step with tools/telemetry/hslog.py. */
 #define HSL_MAGIC 0x314C5348u /* "HSL1" */
-#define HSL_VERSION 1u
-#define HSL_FILE_HDR_BYTES 32u
+/* v2: the ring sentinel is per-file, derived from a generation word in the
+ * header, instead of the constant 0xA5 v1 used. See HSL_SENTINEL_FOR below. */
+#define HSL_VERSION 2u
+/* Grown from 36 to 52 for the per-stream drop counters at [36..51]. Readers
+ * find the FMT frames at this offset rather than assuming one, so a file that
+ * declares 36 (no counters) and one that declares 52 both parse. */
+#define HSL_FILE_HDR_BYTES 52u
+/** Per-stream sectors dropped THIS SESSION, u16 each, indexed by hsl_stream_t
+ *  order. In the preamble so they are re-flushed every HSL_HDR_SYNC_FRAMES and
+ *  survive the power cut that loses the close line entirely. */
+#define HSL_HDR_DROPS_OFF 36u
 
 #define HSL_FRAME_HDR_BYTES 4u
-#define HSL_RING_SENTINEL 0xA5u /* frame `flags` in a ring slot */
+
+/* The ring sentinel: the `flags` byte of a ring frame, and the thing that says
+ * "this file's firmware wrote this slot" as opposed to whatever the clusters
+ * held before.
+ *
+ * In v1 it was the constant 0xA5, and that was not enough. It distinguishes a
+ * written slot from arbitrary card content, but NOT from a PREVIOUS GENERATION
+ * of this same format -- delete the file and let it be recreated on the same
+ * clusters and the old frames still carry 0xA5, still carry plausible seq
+ * numbers, and a reader cannot tell them from the new ones. Measured on
+ * hardware: a fresh file whose header said head_slot=6097 decoded as 12301
+ * slots and 29 sessions, because 6000 slots of the previous generation were
+ * still there. Nor does seq help -- both generations start at 1 and write
+ * sequentially, so their numbers nearly coincide and the usual
+ * seq-descent rule finds no boundary.
+ *
+ * So the sentinel is now derived from a generation word stored in the header,
+ * and a reader accepts only frames carrying the sentinel its header names.
+ * 0x00 and 0xFF are excluded so an erased or all-ones sector can never match,
+ * and 0xAA because it is the pattern used to scrub a card by hand. Three of
+ * 256 values are therefore folded onto 0xA5, which leaves a ~1/253 chance that
+ * a new generation picks the same sentinel as the stale content it is sitting
+ * on -- a large improvement on v1's certainty, not a guarantee. */
+#define HSL_SENTINEL_FOR(gen)                                                  \
+  ((uint8_t)((((gen) & 0xFFu) == 0x00u || ((gen) & 0xFFu) == 0xFFu ||          \
+              ((gen) & 0xFFu) == 0xAAu)                                        \
+                 ? 0xA5u                                                       \
+                 : ((gen) & 0xFFu)))
 
 #define HSL_TYPE_PAD 0x00u
 #define HSL_TYPE_FMT 0x01u
@@ -249,6 +304,43 @@
 #define HSL_VRT_REC_BYTES 28u /* 6x f32, u16 flags, u16 notch centre         */
 #define HSL_STREAM_CTL 4u
 #define HSL_CTL_REC_BYTES 12u /* 3x i16 filtered rate, 3x i16 PID output     */
+/* NavLink received from the GCS, verbatim. A BYTE STREAM: rec_bytes 1, so it
+ * is an ordinary BLOCK and needs no new frame type -- `n` counts bytes rather
+ * than samples and the payload is the raw wire. Decode it by feeding those
+ * bytes back through the NavLink parser offline.
+ *
+ * This is the only record of what the OPERATOR asked for. Everything else in
+ * this file is what the aircraft did; without this, reconstructing an incident
+ * means inferring intent from behaviour. Logged inbound only -- outbound
+ * telemetry is a downsampled view of streams already recorded here at higher
+ * rate, and would cost ~9.6 KB/s to duplicate them. */
+#define HSL_STREAM_RX 5u
+#define HSL_RX_REC_BYTES 1u
+/* vayu_log() text, verbatim, newline-free -- each call appends its formatted
+ * bytes. Also a byte stream. This used to be its own 10 MB SD file written a
+ * record at a time through fs_owner; it is here instead so the text sits in
+ * the same ring, on the same timebase, as the numbers it explains. Reading
+ * "[EST] degraded RAISED" next to the vertical estimator's own samples is the
+ * whole point -- two files with independent clocks could not be lined up. */
+#define HSL_STREAM_TXT 6u
+#define HSL_TXT_REC_BYTES 1u
+/* The attitude estimate the controller actually acted on. ARMED-gated: it is
+ * a 50 Hz stream and what it explains -- why the rate loop was commanded what
+ * it was -- only exists once the props can turn. Roll/pitch/yaw rather than
+ * the quaternion: analysis is done in Euler angles, and the quaternion costs
+ * twice the bytes to say the same thing. */
+#define HSL_STREAM_ATT 7u
+#define HSL_ATT_REC_BYTES 8u /* 3x i16 rpy, u16 flags                        */
+#define HSL_ATT_DEG_PER_LSB 0.01f
+#define HSL_ATT_F_DEGRADED 0x0001u
+/* Pilot input, as the FC saw it after failsafe substitution. NOT arm-gated:
+ * the arm gesture, the stick positions the preconditions were judged against,
+ * and a failsafe that fires on the ground are all DISARMED events, and an
+ * armed-only record of them would be empty exactly when it mattered. Low
+ * enough rate to leave running -- see the idle-burn note on HSL_FILE_SIZE. */
+#define HSL_STREAM_RC 8u
+#define HSL_RC_REC_BYTES 30u /* 14x u16 channel, u16 flags                   */
+#define HSL_RC_F_FAILSAFE 0x0001u
 /* The PID output is normalised -1..1, so one count is a 32767th of full
  * authority. Rates need no constant of their own: they reuse the gyro's count
  * scale so that "ctl" and "imu" decode to identical units. */
@@ -264,10 +356,23 @@
  * knows the nominal rate; the stream itself is undecimated, because the
  * producer is already paced at exactly this rate (see the stream table). */
 #define HSL_CTL_RATE_HZ 1000u
+/* The estimator runs faster than this; 50 Hz is what the attitude loop and
+ * the telemetry view both work at, and it is plenty to see a divergence. */
+#define HSL_ATT_RATE_HZ 50u
+/* Deliberately below the link's ~11 Hz and the receiver's frame rate: this
+ * stream runs whether or not the aircraft is armed, so its cost is paid
+ * during bench idle too. 10 Hz resolves a stick movement and a switch flip
+ * without burning the ring while nothing is happening. */
+#define HSL_RC_RATE_HZ 10u
 
 /* "act" flag bits. */
 #define HSL_ACT_F_ARMED 0x0001u
 #define HSL_ACT_F_IN_AIR 0x0002u
+/* Who commanded the collective in this record. Without these, a throttle that
+ * does not match the pilot's stick is unattributable: bank-angle recovery and
+ * height hold both override the stick, and both look identical in the log. */
+#define HSL_ACT_F_RECOVER 0x0004u /* FC flying out of a bank-angle upset */
+#define HSL_ACT_F_HEIGHT 0x0008u  /* height controller owns the collective */
 
 /* "vrt" flag bits. */
 #define HSL_VRT_F_TOF_VALID 0x0001u
@@ -296,6 +401,11 @@
 #define HSL_FTYPE_U16 2u
 #define HSL_FTYPE_I32 3u
 #define HSL_FTYPE_F32 4u
+/* A raw byte. Carries no scale and no meaning of its own -- it exists so a
+ * byte stream can declare itself through the same FMT mechanism as every
+ * other stream, rather than being a special case a decoder has to know
+ * about out of band. */
+#define HSL_FTYPE_U8 5u
 
 /* One frame is one SD sector, so a write never straddles a sector boundary and
  * never provokes a read-modify-write. 512 - 4 (frame) - 16 (block) = 492 for
@@ -331,6 +441,39 @@
 #define HSL_VRT_BUFFERS 2u
 /* CTL fills a sector every ~41 ms, between IMU's ~20 ms and ACT's ~100 ms. */
 #define HSL_CTL_BUFFERS 2u
+/* RX is sporadic -- a few commands a minute, not a rate. 2 is plenty; what
+ * this stream needs is not depth but the idle flush below. */
+#define HSL_RX_BUFFERS 2u
+/* Text is burstier than RX (boot and calibration emit runs of lines) but
+ * still nowhere near a rate; 2 plus the idle flush is ample. */
+#define HSL_TXT_BUFFERS 2u
+/* att fills a sector every ~1.2 s, rc every ~1.6 s: both far slower than the
+ * sampled streams, so 2 apiece is ample. */
+#define HSL_ATT_BUFFERS 2u
+#define HSL_RC_BUFFERS 2u
+
+/* A byte stream can sit half-full for a long time: nobody sends a command for
+ * minutes, and a sector only publishes when it fills. Flush a partial sector
+ * once it has gone this long without a new byte, so a power-off loses at most
+ * this much rather than everything since the last full sector. Costs one
+ * mostly-empty ring slot per burst of traffic, which is the right trade for a
+ * stream whose whole value is that it is there after a crash. */
+#define HSL_WIRE_IDLE_FLUSH_MS 2000u
+
+/* How long a session stays open after the last thing that wanted it.
+ *
+ * Without this a session closes the moment the queue drains, and a steady
+ * trickle reopens one immediately: RC at 10 Hz fills a sector every ~1.6 s, so
+ * the file was cycling open/closed every 1.7 s and spending three ring slots
+ * per session -- a SESSION frame and an EVENT frame for every one sector of
+ * data. Two thirds of the ring went on bookkeeping, and worse, `session_tag`
+ * is the LOW 8 BITS of the session counter: at that rate it wrapped every
+ * ~7 minutes, breaking the "adjacent sessions cannot alias" guarantee a
+ * decoder relies on to group frames.
+ *
+ * Longer than the idle flush, so continuous traffic keeps one session open
+ * indefinitely and a session means "a period of recording" again. */
+#define HSL_SESSION_HOLD_MS 10000u
 
 /* How often the file header's head_slot/next_seq hint is rewritten, in ring
  * sectors. Data sectors are 512 B and sector-aligned, so f_write hands them
@@ -438,6 +581,40 @@ void imu_hs_log_vert(const hsl_vert_sample_t *v, uint32_t t_cyc);
  *        completed sectors. Call once per fs_owner_task loop -- it is the FS
  *        task context that keeps SD/VFS single-owner.
  */
+/**
+ * Record NavLink bytes received from the GCS, verbatim.
+ *
+ * Called from the comm task with whatever the UART drained -- frame
+ * boundaries are not required and not preserved, because the offline decoder
+ * re-parses the stream anyway and a partial frame at a ring wrap must be
+ * skippable regardless.
+ *
+ * UNLIKE every other stream, this one records while DISARMED. Config, PID
+ * changes, calibration and the arm command itself all happen before the props
+ * turn, and an armed-only record of operator intent would miss nearly all of
+ * it. The sampled streams stay armed-gated -- recording IMU at 2 kHz while
+ * the aircraft sits on a bench would overwrite the ring with idle time.
+ */
+void imu_hs_log_wire_rx(const uint8_t *data, uint16_t len, uint32_t t_cyc);
+
+/**
+ * Record one vayu_log() line, verbatim. Like RX, records while DISARMED --
+ * boot, calibration and failure messages all arrive before the props turn.
+ *
+ * Non-blocking and lossy under pressure: a full buffer drops the line and
+ * counts it, because vayu_log is called from the control path and a text log
+ * is never worth stalling a caller for.
+ */
+void imu_hs_log_wire_txt(const uint8_t *data, uint16_t len, uint32_t t_cyc);
+
+/** Attitude estimate, armed-gated. Angles in degrees. */
+void imu_hs_log_att(float roll, float pitch, float yaw, uint8_t degraded,
+                    uint32_t t_cyc);
+
+/** Pilot input as the FC saw it, recorded whether armed or not. */
+void imu_hs_log_rc(const uint16_t *channels, uint8_t n, uint8_t failsafe,
+                   uint32_t t_cyc);
+
 void imu_hs_log_drain(void);
 
 /** @brief Sectors dropped because the ring was full (SD could not keep up). */

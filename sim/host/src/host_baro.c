@@ -23,15 +23,15 @@
  * SITL exercises the actual FC baro code — no host-side altitude, mirroring how
  * host_imu_feeder hands over physical IMU and lets the FC estimator run.
  *
- * This file also defines the i2c_manager_* stubs: the real src/sensor/bme280.c
+ * This file also defines the i2c_manager_* stubs: the real src/driver/bme280.c
  * is compiled into vayu_sitl_core (for its altitude/publish/getters), and its
  * hardware I2C entry points must resolve at link time even though SITL never
  * calls them (the feeder drives bme280_publish directly).
  */
 #define _GNU_SOURCE
 #include "host_baro.h"
-#include "sensor/bme280.h"
-#include "sensor/i2c_manager.h"
+#include "driver/bme280.h"
+#include "driver/i2c_manager.h"
 #include "vsim_proto.h"
 
 #include <errno.h>

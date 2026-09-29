@@ -38,11 +38,28 @@ EV_NAME = {1: "state", 2: "flight_mode", 3: "accel_health", 4: "notch"}
 STATE_NAME = {0x01: "UNINIT", 0x02: "INIT", 0x04: "STANDBY", 0x08: "PREARM",
               0x10: "ARMED", 0x20: "IN_AIR", 0x40: "FAILSAFE",
               0x80: "TERMINATED", 0x100: "CALIBRATING"}
-SENTINEL = 0xA5     # frame `flags` in a ring slot; card garbage rarely has it
-FTYPE = {1: ("h", 2), 2: ("H", 2), 3: ("i", 4), 4: ("f", 4)}
+SENTINEL_V1 = 0xA5  # v1: a constant. See sentinel_for() for why that was not enough.
 
 
-STREAM_NAME = {1: "imu", 2: "act", 3: "vrt", 4: "ctl"}
+def sentinel_for(gen):
+    """The ring sentinel a v2 file's frames carry, derived from its header
+    `gen`. Keep in step with HSL_SENTINEL_FOR in imu_hs_log.h.
+
+    v1 used the constant 0xA5, which separates a written slot from arbitrary
+    card content but NOT from a previous generation of this same format: delete
+    the file, let it be re-created on the same clusters, and the old frames
+    still carry 0xA5 and plausible seq numbers. Measured on hardware, a file
+    whose header said head_slot=6097 decoded as 12301 slots and 29 sessions.
+    0x00, 0xFF and 0xAA are excluded so erased, all-ones and hand-scrubbed
+    sectors can never match."""
+    b = gen & 0xFF
+    return 0xA5 if b in (0x00, 0xFF, 0xAA) else b
+FTYPE = {1: ("h", 2), 2: ("H", 2), 3: ("i", 4), 4: ("f", 4), 5: ("B", 1)}
+
+
+# Stream ids, in the order the header's per-stream drop counters use.
+STREAM_NAME = {1: "imu", 2: "act", 3: "vrt", 4: "ctl",
+               5: "rx", 6: "txt", 7: "att", 8: "rc"}
 
 
 class Stream:
@@ -87,9 +104,26 @@ def decode(data):
         raise ValueError("bad magic %#010x (not an HSL file, or byte-swapped)" % magic)
     ring_start, ring_sectors, head_slot, next_seq, wraps = \
         struct.unpack_from("<IIIII", data, 12)
+    # v2 names its own sentinel through `gen`; v1 files have no such field and
+    # use the constant, so they still decode.
+    if version >= 2 and hdr_len >= 36 and len(data) >= 36:
+        gen = struct.unpack_from("<I", data, 32)[0]
+        sentinel = sentinel_for(gen)
+    else:
+        gen, sentinel = None, SENTINEL_V1
+    # Per-stream sectors dropped in the session that was open when the header
+    # was last flushed. Absent from files written before the header grew to 52
+    # bytes -- they declare 36, so `drops` is None there rather than garbage.
+    if hdr_len >= 52 and len(data) >= 52:
+        drops = dict(zip(
+            (STREAM_NAME.get(i + 1, "s%d" % (i + 1)) for i in range(8)),
+            struct.unpack_from("<8H", data, 36)))
+    else:
+        drops = None
     hdr = dict(version=version, clock_hz=clock_hz, ring_start=ring_start,
                ring_sectors=ring_sectors, head_slot=head_slot,
-               next_seq=next_seq, wraps=wraps)
+               next_seq=next_seq, wraps=wraps, gen=gen, sentinel=sentinel,
+               drops=drops)
 
     # --- preamble: generic frames up to the first sector boundary -----------
     streams, skipped = {}, {}
@@ -117,10 +151,10 @@ def decode(data):
         if off + SECTOR > len(data):
             break
         ftype, flags, plen = struct.unpack_from("<BBH", data, off)
-        # A slot the firmware never reached still holds whatever the card had
-        # before these clusters were allocated. The sentinel plus the exact
-        # length is what separates the two.
-        if flags != SENTINEL or plen != SECTOR - 4:
+        # A slot this generation never wrote holds either arbitrary card
+        # content or a PREVIOUS generation's frame. The per-file sentinel plus
+        # the exact length separates ours from both.
+        if flags != sentinel or plen != SECTOR - 4:
             continue
         p = data[off + 4:off + SECTOR]
         seq = struct.unpack_from("<I", p, 4)[0]
@@ -320,7 +354,7 @@ def _ring_frame(ftype, seq, body, stag=0):
     p[1] = stag
     struct.pack_into("<I", p, 4, seq)
     p[8:8 + len(body)] = body
-    return struct.pack("<BBH", ftype, SENTINEL, SECTOR - 4) + bytes(p)
+    return struct.pack("<BBH", ftype, SENTINEL_V1, SECTOR - 4) + bytes(p)
 
 
 def _session_frame(seq, session, unix_ms, cyc0, synced=1):
@@ -337,7 +371,7 @@ def _block_frame(seq, n, t0, t1, gen, stag=1):
     struct.pack_into("<II", p, 8, t0, t1)
     for i in range(n):
         struct.pack_into("<hhhhhh", p, 16 + i * 12, *gen(i))
-    return struct.pack("<BBH", T_BLOCK, SENTINEL, SECTOR - 4) + bytes(p)
+    return struct.pack("<BBH", T_BLOCK, SENTINEL_V1, SECTOR - 4) + bytes(p)
 
 
 def _preamble(head_slot, next_seq, wraps):
@@ -427,7 +461,10 @@ def selftest():
 
     hdr, streams, frames = decode(_build_test_file())
 
+    # The Python encoder still emits a v1 file on purpose: a v1 reader is gone,
+    # but v1 FILES still exist on cards and must keep decoding.
     assert hdr["version"] == 1, hdr
+    assert hdr["sentinel"] == SENTINEL_V1, hdr
     assert hdr["clock_hz"] == 84_000_000, hdr
     assert hdr["ring_sectors"] == RING_SECTORS, hdr
     assert hdr["wraps"] == 1, hdr
@@ -497,13 +534,18 @@ def verify_encoder_file(path):
         data = fh.read()
     hdr, streams, frames = decode(data)
 
-    assert hdr["version"] == 1, hdr
+    assert hdr["version"] == 2, hdr
+    # v2 names its own sentinel. Every accepted frame carried this byte, so a
+    # previous generation left on the same clusters decodes as absent rather
+    # than as ours -- the thing a constant 0xA5 could not do.
+    assert hdr["gen"] is not None, hdr
+    assert hdr["sentinel"] == sentinel_for(hdr["gen"]), hdr
     assert hdr["clock_hz"] == 84_000_000, hdr
     assert not hdr["skipped_frames"], hdr["skipped_frames"]
     assert hdr["wraps"] >= 1, "test should have wrapped the ring: %r" % hdr
 
-    # --- all four streams declared, with their rates and layouts -----------
-    assert sorted(streams) == [1, 2, 3, 4], sorted(streams)
+    # --- every stream declared, with its rate and layout -------------------
+    assert sorted(streams) == [1, 2, 3, 4, 5, 6, 7, 8], sorted(streams)
     imu, act, vrt, ctl = streams[1], streams[2], streams[3], streams[4]
     assert (imu.rec_bytes, imu.rate_hz) == (12, 2000), vars(imu)
     assert (act.rec_bytes, act.rate_hz) == (12, 400), vars(act)
@@ -513,6 +555,29 @@ def verify_encoder_file(path):
     assert act.names == ["m1", "m2", "m3", "m4", "thr", "flags"], act.names
     assert vrt.names[:6] == ["baro", "agl", "agltof", "alt", "climb", "abias"], vrt.names
     assert ctl.names == ["rfx", "rfy", "rfz", "ux", "uy", "uz"], ctl.names
+
+    # rx is a BYTE stream: one 1-byte record per received byte, and no rate --
+    # it carries whatever the GCS sent, whenever it sent it, so a decoder must
+    # read the block stamps instead of interpolating a cadence.
+    rx = streams[5]
+    assert (rx.rec_bytes, rx.rate_hz) == (1, 0), vars(rx)
+    assert rx.names == ["byte"], rx.names
+
+    # txt is the other byte stream: vayu_log() lines, in the same ring and on
+    # the same timebase as the samples they explain.
+    txt = streams[6]
+    assert (txt.rec_bytes, txt.rate_hz) == (1, 0), vars(txt)
+    assert txt.names == ["char"], txt.names
+
+    # att is the estimate the controller acted on; rc is pilot input as the FC
+    # saw it after failsafe substitution. rc is NOT arm-gated -- the arm
+    # gesture itself is a disarmed event.
+    att = streams[7]
+    assert (att.rec_bytes, att.rate_hz) == (8, 50), vars(att)
+    assert att.names == ["roll", "pitch", "yaw", "flags"], att.names
+    rc = streams[8]
+    assert (rc.rec_bytes, rc.rate_hz) == (30, 10), vars(rc)
+    assert rc.names[:2] == ["ch1", "ch2"] and rc.names[-1] == "flags", rc.names
     # "ctl" rates share the gyro's count scale so the two streams can be
     # differenced; "imu" carries the sensor->body sign map, "ctl" does not.
     assert ctl.fields[0][2] == abs(imu.fields[0][2]), (ctl.fields[0], imu.fields[0])
@@ -553,6 +618,29 @@ def verify_encoder_file(path):
             assert (got == got[0]).all(), "ctl %s is not constant: %r" % (k, got[:4])
         fs = (len(t) - 1) / (t[-1] - t[0])
         assert abs(fs - 1000) < 1.0, "ctl rate %.2f Hz, expected 1000" % fs
+        break
+
+    # --- "att" round-trips too ---------------------------------------------
+    # Format alone is not enough here. This stream passed every structural
+    # check -- 8 bytes, 50 Hz, the right field names -- while recording zeros,
+    # because its encoder was handed the reciprocal of its scale and divided
+    # where it should have multiplied. Anything under 50 degrees quantised to
+    # 0, and a card pull was what found it. Check the VALUES.
+    att_lsb = dict((f[0], abs(f[2])) for f in att.fields)
+    for x in ss:
+        try:
+            t, sig = samples(hdr, streams, x["blocks"], sid=7)
+        except Exception:
+            continue
+        if not len(t):
+            continue
+        for k, v in (("roll", -12.34), ("pitch", 5.67), ("yaw", 178.9)):
+            got = sig[k]
+            assert abs(got[0] - v) <= att_lsb[k], \
+                "att %s: %r, wanted %r -- check the encoder's scale" % (k, got[0], v)
+            assert (got == got[0]).all(), "att %s is not constant: %r" % (k, got[:4])
+        fs = (len(t) - 1) / (t[-1] - t[0])
+        assert abs(fs - 50) < 2.0, "att rate %.2f Hz, expected 50" % fs
         break
 
     # --- EVENT frames: arm and disarm must both be visible ------------------
@@ -638,6 +726,15 @@ def main():
         print("seq gaps %r -- a reboot, or sectors lost to a power cut" % (hdr["gaps"],))
     if hdr["skipped_frames"]:
         print("skipped unknown frame types: %r" % hdr["skipped_frames"])
+    if hdr["drops"] is None:
+        print("per-stream drop counts: not in this file "
+              "(written before the header carried them)")
+    else:
+        lost = {k: v for k, v in hdr["drops"].items() if v}
+        # The header is re-flushed every HSL_HDR_SYNC_FRAMES, so this survives
+        # a power cut -- unlike the close line, which needs a clean shutdown.
+        print("sectors dropped in the last open session: %s"
+              % (lost if lost else "none"))
 
     all_series = {}
     for i, sess in enumerate(ss):
@@ -661,8 +758,23 @@ def main():
             dur = t[-1] - t[0]
             note = ("  %d GAP%s" % (sig["_gaps"], "s" if sig["_gaps"] > 1 else "")
                     if sig.get("_gaps") else "")
-            print("    %-5s %5d samples  %6.2f s  %7.1f Hz  [%s]%s"
-                  % (streams[sid].name, len(t), dur, (len(t) - 1) / dur,
+            # A rateless byte stream (rx, txt: rate_hz 0) has no sample rate to
+            # report, and a burst that lands inside one sector spans no time at
+            # all -- both divide by zero and printed "inf Hz". Say nothing
+            # rather than a number that means nothing.
+            #
+            # Its GAP count is meaningless for the same reason: the detector
+            # calibrates off the previous block's own sample interval, which
+            # for bursty traffic is whatever the last burst happened to do. An
+            # idle uplink scored "20 gaps, 35% loss" on a flight that lost
+            # nothing.
+            rateless = not streams[sid].rate_hz
+            if rateless:
+                note = "  (rateless: gaps and rate do not apply)"
+            rate = ("%7.1f Hz" % ((len(t) - 1) / dur)
+                    if dur > 0 and not rateless else "      -   ")
+            print("    %-5s %5d samples  %6.2f s  %s  [%s]%s"
+                  % (streams[sid].name, len(t), dur, rate,
                      ",".join(streams[sid].names), note))
             all_series[(i, sid)] = (t, sig)
 

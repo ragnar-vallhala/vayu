@@ -38,7 +38,7 @@
 #include "comm/xfer/navlink_xfer.h"
 #include "comm/xfer/xfer_providers.h"
 #include "storage/fs_owner.h"
-#include "variables.h" /* NAVLINK_LOGGING_FILENAME */
+#include "storage/paths.h"
 
 static int g_checks = 0, g_fails = 0;
 #define CHECK(cond, msg)                                                       \
@@ -162,7 +162,10 @@ static void test_file_roundtrip(void) {
   CHECK(n == (int)sizeof src && memcmp(chk, src, sizeof src) == 0,
         "FILE upload persisted to SD via fs_owner");
 
-  /* download the same file back */
+  /* download the same file back. Tick first so the upload goes terminal and
+   * releases the write fd -- one FS direction runs at a time, so a still-ACTIVE
+   * upload rejects the download rather than holding two FatFS slots. */
+  xfer_tick(5, 0, 8);
   cap_reset();
   xfer_open_args_t dn =
       mkargs(1, XFER_DIR_DOWNLOAD, XFER_MODE_FILE, XFER_SVC_FILE, path, 0);
@@ -176,17 +179,18 @@ static void test_file_roundtrip(void) {
 /* ================================ LOG =================================== */
 static void test_log_provider(void) {
   printf("  test_log_provider\n");
-  /* Seed a small record at the navlink blackbox path (the 64 KB prealloc is
-   * skipped on host; we just write a sub-4KB file there directly). */
+  /* Seed a small record at the blackbox path (the 64 KB prealloc is skipped
+   * on host; we just write a sub-4KB file there directly). */
   uint8_t rec[200]; /* one write-at chunk (<= FS_WRITEAT_PAYLOAD_MAX) */
   for (uint32_t i = 0; i < sizeof rec; i++)
     rec[i] = (uint8_t)(0x40u + (i & 0x3Fu));
-  CHECK(fs_owner_enqueue_write_at(0, NAVLINK_LOGGING_FILENAME, 0, rec,
-                                  sizeof rec),
-        "seed navlink log record");
+  CHECK(fs_owner_enqueue_write_at(0, HSL_FILENAME, 0, rec, sizeof rec),
+        "seed blackbox log record");
   fs_owner_pump();
 
-  /* download via the LOG provider (arg selects "navlink") */
+  /* Download via the LOG provider. There is one blackbox now, so a legacy arg
+   * naming one of the retired files still resolves to it rather than failing
+   * the open -- which is what this asks for. */
   xfer_reset_all();
   cap_reset();
   xfer_open_args_t dn =

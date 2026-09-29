@@ -94,7 +94,7 @@ static void emit_done(uint16_t passed, uint16_t failed, uint16_t skipped) {
   m.skipped = skipped;
   uint8_t fr[NAVLINK_MAX_FRAME];
   size_t n = navlink_hw_test_done_encode(fr, &m, s_seq++, get_device_id(), 1);
-  write_channel(g_telemetry_channel, (byte *)fr, (uint16_t)n);
+  write_channel(g_telemetry_channel, fr, (uint16_t)n);
 }
 
 void hwtest_run_all(void) {

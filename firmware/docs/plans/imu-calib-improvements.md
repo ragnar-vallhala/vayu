@@ -17,7 +17,7 @@ Reference: PX4 `src/modules/gyro_calibration/GyroCalibration.cpp` and
 ### What vayu does today
 
 `bmx160_process_data()` runs an inline EMA learner on **every IMU sample**
-(`firmware/src/sensor/bmx160.c:1284-1304`):
+(`firmware/src/driver/bmx160.c:1284-1304`):
 
 ```c
 if (system_state_get() != SYSTEM_STATE_CALIBRATING) {
@@ -60,7 +60,7 @@ samples; the learner owns the still/temp gates, the Welford accumulator, and the
 commit+persist decision. `bmx160.c` keeps only the one-line apply.
 
 ```c
-/* firmware/include/sensor/gyro_bias_learner.h */
+/* firmware/include/driver/gyro_bias_learner.h */
 #ifndef GYRO_BIAS_LEARNER_H
 #define GYRO_BIAS_LEARNER_H
 #include <stdbool.h>
@@ -95,8 +95,8 @@ bool gyro_bias_learner_update(gyro_bias_learner_t *L, const float gyr[3],
 ```
 
 ```c
-/* firmware/src/sensor/gyro_bias_learner.c */
-#include "sensor/gyro_bias_learner.h"
+/* firmware/src/driver/gyro_bias_learner.c */
+#include "driver/gyro_bias_learner.h"
 #include "variables.h"
 #include "maths/maths_interface.h"   /* m_fabsf, m_sqrt */
 #include <string.h>

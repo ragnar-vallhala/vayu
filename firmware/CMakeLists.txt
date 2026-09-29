@@ -123,7 +123,19 @@ endif()
 include_directories(SYSTEM ${NAVLINK_GEN}/c)
 set(NAVLINK_SOURCES ${NAVLINK_GEN}/c/navlink_msgs.c)
 
+# Board facts (pins, buses, timers) and the board's sensor-backend list. Must
+# run before the source glob below, which filters on it. The board directory
+# holds only vayu_board.h, so putting it on the include path here does not
+# shadow anything the way include/ would (see the note above).
+include(${CMAKE_CURRENT_SOURCE_DIR}/board/boards.cmake)
+
 FILE(GLOB_RECURSE VAYU_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/*.c)
+# Sensor backends are selected by the board, not by being on disk: drop every
+# file under src/driver/sensor/ and add back only the ones BOARD_SENSOR_DRIVERS
+# names (firmware/board/boards.cmake). An unselected driver is never compiled,
+# so it costs nothing and registers nothing.
+list(FILTER VAYU_SOURCES EXCLUDE REGEX "/src/driver/sensor/")
+list(APPEND VAYU_SOURCES ${VAYU_SENSOR_SOURCES})
 if(VAYU_HW_TEST)
   # Swap the production entry (src/main.c) for the bench harness
   # (tests/onboard/*.c, which provides its own main()).
@@ -179,7 +191,7 @@ set(VAYU_R12_CLEAN_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/calib/calib_ellipsoid.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/calib/calib_engine.c
     # ACT module (Phase 4)
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/actuator/esc.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/driver/esc.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/actuator/motor.c
     # EST module (Phase 4)
     ${CMAKE_CURRENT_SOURCE_DIR}/src/est/sensor_fusion.c
@@ -188,11 +200,12 @@ set(VAYU_R12_CLEAN_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/est/hover_estimate.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/storage/hover_store.c
     # SNS module (Phase 4)
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/sensor/bmx160.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/sensor/bme280.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/sensor/vl53l0x.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/sensor/imu_buffer.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/sensor/i2c_manager.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/driver/bmx160.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/driver/bme280.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/driver/vl53l0x.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/driver/ride_along.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/hub/hub.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/driver/i2c_manager.c
     # CTRL module (Phase 4)
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/angle_controller.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/angle_rate_controller.c
@@ -228,9 +241,11 @@ set(VAYU_R12_CLEAN_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/sys/boot.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/sys/assert.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/sys/heartbeat.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/sys/clock.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/sys/sys_utils.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/sys/math_utils.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/sys/timer_callbacks.c)
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/sys/irq_registry.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/driver/timer_callbacks.c)
 set_source_files_properties(${VAYU_R12_CLEAN_SOURCES}
     PROPERTIES COMPILE_OPTIONS "${VAYU_R12_WARN_FLAGS}")
 
@@ -245,7 +260,7 @@ set_source_files_properties(${VAYU_R12_CLEAN_SOURCES}
 # bmx160.c / bme280.c (which are also in VAYU_R12_CLEAN_SOURCES).
 #   cmake -S firmware -B build_hwtest_cov -DVAYU_HW_TEST=ON -DVAYU_HW_TEST_COV=ON
 option(VAYU_HW_TEST_COV "Instrument selected modules with on-target gcov (needs VAYU_HW_TEST)" OFF)
-set(VAYU_HW_TEST_COV_MODULES "sensor/bmx160.c;sensor/bme280.c;sensor/i2c_manager.c"
+set(VAYU_HW_TEST_COV_MODULES "driver/bmx160.c;driver/bme280.c;driver/i2c_manager.c"
     CACHE STRING "Sources (relative to src/) compiled with --coverage in the hwtest image")
 if(VAYU_HW_TEST AND VAYU_HW_TEST_COV)
   add_compile_definitions(VAYU_HW_TEST_COV)
@@ -337,12 +352,60 @@ endif()
 #-------------------------
 # Post build: binary + size
 #-------------------------
-add_custom_target(flash
-  COMMAND ${CMAKE_OBJCOPY} -O binary $<TARGET_FILE:main> ${CMAKE_CURRENT_BINARY_DIR}/main.bin
-  COMMAND ${FLASHER} --connect-under-reset write ${CMAKE_CURRENT_BINARY_DIR}/main.bin ${FLASH_ADDRESS}
-  DEPENDS main
-  COMMENT "Convert ELF to BIN and flash"
-)
+# Which programmer, and it has to be the PHYSICAL PORT, not the serial.
+#
+# The ST-Links on this bench are clones: every one of them reports the serial
+# 303030303030303030303031 (ASCII "000000000001") over the ST-Link protocol,
+# whatever the USB descriptor says. So st-flash --serial cannot tell two of
+# them apart -- it matches the first that claims that serial -- and with the FC
+# and a second board both attached, `flash` silently goes to whichever
+# enumerated first. The only symptom is that the board you meant to flash keeps
+# behaving like the old firmware.
+#
+# OpenOCD can pin the adapter to a USB port path, which a clone cannot spoof.
+# Find the port for the board you want:
+#
+#   for d in /sys/bus/usb/devices/*/; do \
+#     [ "$(cat $d/idVendor 2>/dev/null)" = 0483 ] && echo "$(basename $d)"; done
+#
+#   cmake -S firmware -B build -DSTLINK_USB_PORT=3-2
+#
+# With the port set, `flash` uses OpenOCD and goes to that port and no other.
+# Left empty it falls back to st-flash's first-enumerated behaviour and warns,
+# which is fine only while exactly one adapter is attached.
+set(STLINK_USB_PORT "" CACHE STRING
+    "USB port path of the ST-Link to flash, e.g. 3-2 (see the note above)")
+
+if(STLINK_USB_PORT STREQUAL "")
+  message(WARNING
+    "STLINK_USB_PORT is not set: 'flash' falls back to st-flash and will use "
+    "whichever ST-Link enumerates first. These adapters all report the same "
+    "serial, so with two attached that is a coin toss -- set "
+    "-DSTLINK_USB_PORT=<port> (e.g. 3-2).")
+  add_custom_target(flash
+    COMMAND ${CMAKE_OBJCOPY} -O binary $<TARGET_FILE:main> ${CMAKE_CURRENT_BINARY_DIR}/main.bin
+    COMMAND ${FLASHER} --connect-under-reset write ${CMAKE_CURRENT_BINARY_DIR}/main.bin ${FLASH_ADDRESS}
+    DEPENDS main
+    COMMENT "Convert ELF to BIN and flash (UNPINNED: first ST-Link found)"
+  )
+else()
+  find_program(OPENOCD_BIN openocd REQUIRED)
+  # `verify` reads the image back and compares; `reset` leaves the board
+  # running rather than halted. Both matter here -- a verified write to the
+  # wrong board is still the wrong board, so the port pin above is what makes
+  # the verify meaningful.
+  add_custom_target(flash
+    COMMAND ${CMAKE_OBJCOPY} -O binary $<TARGET_FILE:main> ${CMAKE_CURRENT_BINARY_DIR}/main.bin
+    COMMAND ${OPENOCD_BIN}
+            -f interface/stlink.cfg
+            -c "adapter usb location ${STLINK_USB_PORT}"
+            -c "transport select hla_swd"
+            -f target/stm32f4x.cfg
+            -c "program ${CMAKE_CURRENT_BINARY_DIR}/main.bin ${FLASH_ADDRESS} verify reset exit"
+    DEPENDS main
+    COMMENT "Convert ELF to BIN and flash via OpenOCD on USB port ${STLINK_USB_PORT}"
+  )
+endif()
 
 add_custom_command(
   TARGET main POST_BUILD

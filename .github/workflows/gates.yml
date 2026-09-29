@@ -11,6 +11,8 @@
 #   - docs-links    : tools/dev/docs_html.py --check, dangling doc link fails
 #   - commit-msgs   : no AI attribution trailers in new commit messages
 #   - clang-format  : .clang-format over the whole tree, GATING
+#   - layering      : no silicon in control/ est/ maths/, per-section ratchet
+#   - constants     : one home per physical constant (F13)
 
 name: gates
 
@@ -99,3 +101,18 @@ jobs:
         env:
           CLANG_FORMAT: clang-format-18
         run: tools/dev/run_clang_format.sh --check
+
+  layering:
+    name: hardware/logic layering (gate)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      # No toolchain: the rule is textual by design, so it costs a grep and
+      # cannot be skipped by a build that happens not to compile that module.
+      - name: tools/dev/check_layering.sh
+        run: tools/dev/check_layering.sh
+      # Same shape, different rule: one home per physical constant (F13). Also
+      # textual, and for the same reason -- both copies of a duplicated
+      # constant compile and pass their own tests.
+      - name: tools/dev/check_constants.sh
+        run: tools/dev/check_constants.sh

@@ -33,11 +33,12 @@
  * bumping PID_CONFIG_MAGIC, which resets every persisted tune on the card. A
  * hover estimate is not worth invalidating a tune for.
  *
- * Read directly via vfs_* at task start (the pattern pid_config.c uses -- the
- * kernel vfs ops take the global mutex, so it serialises against fs_owner's
- * writes). Written through fs_owner, the sole runtime SD writer, and only on
- * disarm: the flight's learned value is final by then, it is a naturally rare
- * event, and it keeps SD wear and queue pressure to one write per flight.
+ * Both directions go through fs_owner, the sole runtime SD owner: read at task
+ * start via fs_owner_read_at (the sanctioned reader -- this runs on the
+ * vertical task, after the scheduler, alongside whatever the FS task has
+ * open), and written through the write-at lane on disarm only. The flight's
+ * learned value is final by then, disarm is naturally rare, and it keeps SD
+ * wear and queue pressure to one write per flight.
  */
 
 /* 8.3 name -- FF_USE_LFN is 0, so a longer name fails vfs_open with -6. */

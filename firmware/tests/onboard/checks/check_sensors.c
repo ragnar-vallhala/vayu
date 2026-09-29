@@ -19,8 +19,8 @@
  * timeout is the safety net: an absent/dead sensor returns an error fast, never
  * hangs the bench. */
 #include "hwtest_runner.h"
-#include "sensor/bmx160.h"
-#include "sensor/bme280.h"
+#include "driver/bmx160.h"
+#include "driver/bme280.h"
 
 static int iabs(int v) { return v < 0 ? -v : v; }
 
@@ -122,19 +122,21 @@ hw_result_t check_imu_driver_api(void) {
   return hw_pass((float)ok, "ok"); /* coverage-exercise: always pass */
 }
 
-/* Exercise the BME280 read API (temp/pressure/humidity/altitude/all) plus the
- * sea-level reference setter, for the same C3 coverage reason as the IMU check
- * above. Reports the count of HAL_OK results. */
+/* Exercise the BME280 read API (temp/pressure/humidity/all) for the same C3
+ * coverage reason as the IMU check above. Reports the count of HAL_OK results.
+ *
+ * Altitude is deliberately absent: the driver used to carry its own ISA
+ * formula and sea-level datum alongside hub_altitude_m's, two implementations
+ * of one physical relationship free to diverge (F13). The driver reports
+ * measurements; altitude is derived once, in the hub. */
 hw_result_t check_baro_driver_api(void) {
   bme280_reading_t r;
   float f;
   int ok = 0;
 
-  bme280_set_sea_level_pa(101325.0f); /* standard ref; restores default */
   ok += (bme280_read_temperature(&f) == HAL_OK);
   ok += (bme280_read_pressure(&f) == HAL_OK);
   ok += (bme280_read_humidity(&f) == HAL_OK);
-  ok += (bme280_read_altitude(&f) == HAL_OK);
   ok += (bme280_read_all(&r) == HAL_OK);
 
   return hw_pass((float)ok, "ok"); /* coverage-exercise: always pass */

@@ -67,7 +67,7 @@ checks land in the **Skip** column and the run still passes.
   Perf counters expose stack/heap watermarks, sched switches, ISR latency.
 - Sensors: BMX160 IMU (`WHO_AM_I` 0x00→0xD8) + BME280 baro (0xD0→0x60) share
   I2C1 on a single-owner DMA loop (`memory/i2c-bus-sharing.md`). Still-detector
-  thresholds already defined in `firmware/src/sensor/bmx160.c`.
+  thresholds already defined in `firmware/src/driver/bmx160.c`.
 - Flash/report: `tools/scripts/flash.sh` (objcopy → `st-flash --connect-under-reset`).
 - **Safety:** motors only emit PWM in ARMED/IN_AIR; the bench firmware stays in
   STANDBY and never arms. PWM/ESC checks are duty/GPIO-level with **props-off**

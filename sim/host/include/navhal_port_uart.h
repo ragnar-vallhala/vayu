@@ -24,6 +24,17 @@
 /* Host SITL stub. The DMA-write entry point the firmware calls (e.g. channel.c)
  * is implemented synchronously in host_navhal.c; declared here so host
  * translation units see a real prototype instead of an implicit declaration. */
+/* The RX side of the same shim. host_navhal.c implements all three; without
+ * the declarations driver/uart.c called them implicitly, which links (the
+ * definitions are in the same binary) while assuming an int return in place
+ * of hal_status_t. Signatures match NavHAL's port/cortex-m4 header. */
+hal_status_t hal_uart_init_dma_rx(hal_uart_t uart, uint8_t *buffer,
+                                  uint16_t length);
+hal_status_t hal_uart_attach_idle_callback(hal_uart_t uart,
+                                           void (*callback)(void));
+hal_status_t hal_uart_detach_idle_callback(hal_uart_t uart);
+hal_status_t hal_uart_dma_rx_index(hal_uart_t uart, uint16_t *out_index);
+
 hal_status_t hal_uart_write_dma(hal_uart_t uart, const uint8_t *buf,
                                 uint16_t len);
 

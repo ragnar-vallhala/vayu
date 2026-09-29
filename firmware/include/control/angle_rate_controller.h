@@ -18,7 +18,7 @@
 #define VAYU_ANGLE_RATE_CONTROLLER_H
 
 #include "control/pid.h"
-#include "variables.h"
+#include "control/tuning.h"
 #include <stdbool.h>
 #include <stdint.h>
 

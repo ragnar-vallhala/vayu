@@ -226,7 +226,11 @@ static void test_ram_roundtrip_through_codec(void) {
   CHECK(RAM.size == sizeof src && memcmp(RAM.buf, src, sizeof src) == 0,
         "upload landed in RAM provider");
 
-  /* download back, decoding every emitted frame with the real codec */
+  /* download back, decoding every emitted frame with the real codec. Tick
+   * first so the upload goes terminal: one FS direction runs at a time, and a
+   * still-ACTIVE upload rejects the download rather than holding a second
+   * FatFS slot. */
+  xfer_tick(5, 0, 8);
   cap_reset();
   xfer_open_args_t dn = mkargs(1, XFER_DIR_DOWNLOAD, 9);
   xfer_on_open(&dn);

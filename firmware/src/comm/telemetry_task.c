@@ -14,8 +14,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#include "sensor/baro.h"
 #include "vayu_tasks.h"
-#include "actuator/actuator.h"
+#include "actuator/motor.h"
 #include "comm/channel.h"
 #include "comm/comm_types.h"
 #include "comm/ibus.h"
@@ -23,18 +24,19 @@
 #include "comm/rc_buffer.h"
 #include "comm/xfer/navlink_xfer.h"
 #include "storage/fs_owner.h"
+#include "storage/imu_hs_log.h"
 #include "control/control.h"
 #include "control/flight_mode.h"
 #include "control/sysid.h"
 #include "est/est.h"
-#include "sensor/sensor.h"
+#include "hub/hub.h"
 #include "sys/state.h"
 #include "sys/sys_utils.h"
 #include "utils.h"
 #include "sys/math_utils.h"
 #include "vaios.h"
 #include "vaios_app_config.h"
-#include "variables.h"
+#include "control/control_buffer.h"
 #include "vfs.h"
 #include <stdint.h>
 
@@ -57,7 +59,7 @@ channel_t g_telemetry_channel = {0};
 
 void imu_telemetry_task(void *args) {
   (void)args;
-  static bmx160_all_reading_t samples;
+  static imu_sample_t samples;
   static float current_floats[10];  // Acc[3], Gyr[3], Mag[3], Temp
   static float previous_floats[10]; // For delta calculation
   static bool first_packet = true;
@@ -76,16 +78,24 @@ void imu_telemetry_task(void *args) {
     time_sync_discipline_tick();
 
     if (imu_queue_telemetry_pop(&samples)) {
-      current_floats[0] = (float)samples.converted.acc[0];
-      current_floats[1] = (float)samples.converted.acc[1];
-      current_floats[2] = (float)samples.converted.acc[2];
-      current_floats[3] = (float)samples.converted.gyr[0];
-      current_floats[4] = (float)samples.converted.gyr[1];
-      current_floats[5] = (float)samples.converted.gyr[2];
-      current_floats[6] = (float)samples.converted.mag[0];
-      current_floats[7] = (float)samples.converted.mag[1];
-      current_floats[8] = (float)samples.converted.mag[2];
-      current_floats[9] = (float)samples.converted.temp;
+      current_floats[0] = (float)samples.acc[0];
+      current_floats[1] = (float)samples.acc[1];
+      current_floats[2] = (float)samples.acc[2];
+      current_floats[3] = (float)samples.gyr[0];
+      current_floats[4] = (float)samples.gyr[1];
+      current_floats[5] = (float)samples.gyr[2];
+      current_floats[9] = (float)samples.temp_c;
+    }
+    /* The compass reports on its own topic at its own rate, so it is read
+     * separately rather than riding the inertial sample. Keeps its last value
+     * between readings, which is what this telemetry frame showed before. */
+    {
+      mag_sample_t mag;
+      if (mag_latest(&mag)) {
+        current_floats[6] = (float)mag.mag[0];
+        current_floats[7] = (float)mag.mag[1];
+        current_floats[8] = (float)mag.mag[2];
+      }
     }
 
     /* Per-stream emission gating in ms (see TELEM_GATE above). Same-period streams
@@ -155,9 +165,11 @@ void imu_telemetry_task(void *args) {
       navlink_tx_flight_mode((uint8_t)flight_mode_get(),
                              (uint8_t)flight_mode_get_source());
       /* Health counters (COMM-CH-002, SNS-BUF-002, LOG-SD-002). imu_drop is
-       * unused; it stays 0 to hold its slot in the wire layout. */
-      navlink_tx_health(channel_tx_overflow_count(), 0u,
-                        fs_owner_log_wrap_count_total());
+       * unused; it stays 0 to hold its slot in the wire layout. The log-wrap
+       * field now reports the blackbox recorder's own ring, which is where
+       * every log record went when the separate SD log lane was removed --
+       * same meaning on the wire: oldest records have been overwritten. */
+      navlink_tx_health(channel_tx_overflow_count(), 0u, imu_hs_log_wraps());
     }
     if (send_pid_err && control_telemetry_queue_pop(&c_data)) {
       navlink_tx_pid_error(&c_data);
@@ -219,14 +231,27 @@ void imu_telemetry_task(void *args) {
     if (est_perf_queue_pop(&e_data)) {
       navlink_tx_est_perf(&e_data);
     }
-    /* Barometer (~10 Hz): BME280 pressure/temp/humidity + derived altitude.
-     * bme280_read_all returns the last published sample; only emit once the
-     * sensor has produced one (skips cleanly when absent/mis-wired). */
+    /* Barometer (~10 Hz): pressure/temp/humidity + derived altitude, from
+     * whichever barometer the board carries. The model returns the last
+     * published sample, so this emits only once the sensor has produced one
+     * and skips cleanly when the part is absent or mis-wired. */
     if (send_baro) {
-      bme280_reading_t baro;
-      if (bme280_read_all(&baro) == HAL_OK) {
-        navlink_tx_baro(baro.pressure_pa, baro.temperature_c, baro.humidity_rh,
-                        baro.altitude_m);
+      baro_sample_t baro;
+      if (baro_latest(&baro) && baro.valid) {
+        /* Humidity is the only part a barometer might not have, so it is the
+         * only part that comes from the device model. A part without one
+         * leaves this 0, and the GCS reads it as such. */
+        float humidity_rh = 0.0f;
+        const baro_ops_t *bar = baro_ops();
+        if (bar != NULL && bar->humidity != NULL) {
+          (void)bar->humidity(&humidity_rh);
+        }
+        /* One derivation, one datum. The driver used to carry its own copy of
+         * the ISA formula and its own sea-level constant, which agreed with
+         * this one only by coincidence. */
+        navlink_tx_baro(
+            baro.pressure_pa, baro.temp_c, humidity_rh,
+            hub_altitude_m(baro.pressure_pa, HUB_SEA_LEVEL_PA_DEFAULT));
       }
     }
     /* Fused vertical estimate (~10 Hz): VERT task output, with raw baro alt

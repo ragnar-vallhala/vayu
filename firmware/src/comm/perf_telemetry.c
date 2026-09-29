@@ -39,11 +39,10 @@
 #include "control/control_buffer.h"
 #include "memory.h"
 #include "perf.h"
-#include "sensor/imu_buffer.h"
+#include "hub/hub.h"
 #include "structure.h"
 #include "task.h"
 #include "vaios.h"
-#include "variables.h"
 #include <string.h>
 
 /* Report cadence (ms). 1 Hz is plenty for stack/heap/fifo trend watching and

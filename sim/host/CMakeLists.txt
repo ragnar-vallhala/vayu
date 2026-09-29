@@ -51,6 +51,11 @@ add_compile_definitions(
 # that shadow system headers (atomic.h, family) and is private to this project.
 # sdk/ holds the two headers a runtime loader compiles against -- keep it free
 # of anything that would follow it out of the tree.
+# Same board selection (and the same navhal.config consistency check) as the
+# firmware build -- SITL compiles the real firmware sources, so it must see the
+# real board's pins.
+include(${VAYU_ROOT}/firmware/board/boards.cmake)
+
 include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/sdk        # vsim_proto.h + vayu_sitl_abi.h
@@ -78,7 +83,12 @@ set(HOST_SOURCES
 set(VAYU_SOURCES
     ${VAYU_ROOT}/firmware/src/calib/calib_ellipsoid.c # shared sensor-agnostic ellipsoid fit
     ${VAYU_ROOT}/firmware/src/calib/calib_engine.c    # calibration engine (acquire + fit + commit)
-    ${VAYU_ROOT}/firmware/src/actuator/esc.c
+    ${VAYU_ROOT}/firmware/src/driver/crc.c     # real CRC driver over the host hal_crc_* stubs
+    ${VAYU_ROOT}/firmware/src/driver/uart.c    # real UART driver over the host hal_uart_* stubs
+    ${VAYU_ROOT}/firmware/src/sensor/sensor.c     # the sensor adapter; walks the vayu_sensors linker section
+    ${VAYU_ROOT}/firmware/src/sensor/ride_along.c # ditto, vayu_rides
+    ${VAYU_ROOT}/firmware/src/driver/indicator.c # LED/buzzer driver; host_navhal records the pin levels
+    ${VAYU_ROOT}/firmware/src/driver/esc.c
     ${VAYU_ROOT}/firmware/src/actuator/motor.c
     ${VAYU_ROOT}/firmware/src/control/angle_controller.c
     ${VAYU_ROOT}/firmware/src/control/height_controller.c
@@ -101,16 +111,18 @@ set(VAYU_SOURCES
     ${VAYU_ROOT}/firmware/src/control/pid.c
     ${VAYU_ROOT}/firmware/src/control/rate_indi.c   # optional INDI inner loop (RATE_CTRL_ALGO_USED)
     ${VAYU_ROOT}/firmware/src/sys/math_utils.c
+    ${VAYU_ROOT}/firmware/src/sys/clock.c
     ${VAYU_ROOT}/firmware/src/sys/sys_utils.c
+    ${VAYU_ROOT}/firmware/src/sys/irq_registry.c
     ${VAYU_ROOT}/firmware/src/est/sensor_fusion.c
     ${VAYU_ROOT}/firmware/src/est/ekf.c
     ${VAYU_ROOT}/firmware/src/est/attitude_task.c   # the REAL firmware estimator task (now run in SITL)
     ${VAYU_ROOT}/firmware/src/est/vertical_estimator.c  # 2-state baro+accel vertical estimator (VERT)
     ${VAYU_ROOT}/firmware/src/est/vertical_task.c       # VERT task I/O wrapper (sibling of attitude_task)
     ${VAYU_ROOT}/firmware/src/est/flight_phase.c        # takeoff/landing detector + FC-owned AGL (IN_AIR)
-    ${VAYU_ROOT}/firmware/src/sensor/imu_buffer.c
-    ${VAYU_ROOT}/firmware/src/sensor/bme280.c   # real FC baro driver (altitude/publish/getters); host_baro.c feeds it
-    ${VAYU_ROOT}/firmware/src/sensor/vl53l0x.c  # real FC ToF driver; no host feeder, so its boot probe fails on the i2c stubs and it reports absent (tof_valid=0 -> the height loop falls back to baro AGL)
+    ${VAYU_ROOT}/firmware/src/hub/hub.c
+    ${VAYU_ROOT}/firmware/src/driver/sensor/bme280.c   # real FC baro driver (altitude/publish/getters); host_baro.c feeds it
+    ${VAYU_ROOT}/firmware/src/driver/sensor/vl53l0x.c  # real FC ToF driver; no host feeder, so its boot probe fails on the i2c stubs and it reports absent (tof_valid=0 -> the height loop falls back to baro AGL)
     ${VAYU_ROOT}/firmware/src/storage/fs_owner.c # centralised FS owner (absorbs logger.c)
     ${VAYU_ROOT}/firmware/src/storage/imu_hs_log.c # high-speed IMU->SD stream (HSL), drained by the FS task
     ${VAYU_ROOT}/firmware/src/logger/log_text.c  # vayu_log + queue (moved from utils.c)
@@ -118,6 +130,7 @@ set(VAYU_SOURCES
     ${VAYU_ROOT}/firmware/src/sys/assert.c
     ${VAYU_ROOT}/firmware/src/comm/rc_buffer.c
     ${VAYU_ROOT}/firmware/src/comm/rc_safety.c   # RC watchdog + arm gate (host-buildable)
+    ${VAYU_ROOT}/firmware/src/comm/ibus.c        # iBus frame parser (pure byte SM, host-buildable)
     # Telemetry chain: produces DroneProtocol packets the GCS reads.
     # UART2 in host_navhal pipes them to a pty (for live GCS attach) and
     # tees a raw copy to /tmp/vayu_uart2.log (for post-sim analysis).
@@ -417,6 +430,48 @@ add_executable(test_safety_phase2 tests/test_safety_phase2.c)
 target_link_libraries(test_safety_phase2 PRIVATE vayu_sitl_core)
 add_test(NAME safety_phase2 COMMAND test_safety_phase2)
 
+add_executable(test_sensor_adapter tests/test_sensor_adapter.c)
+# --whole-archive, and it MUST be: the driver descriptors are `static` and
+# nothing references them by name, so a normal archive link pulls no driver
+# object at all and the registry comes out empty. That is the one way this
+# mechanism can fail quietly, so the test that checks the mechanism is linked
+# the way that exposes it.
+target_link_libraries(test_sensor_adapter PRIVATE
+    -Wl,--whole-archive vayu_sitl_core -Wl,--no-whole-archive m)
+add_test(NAME sensor_adapter COMMAND test_sensor_adapter)
+
+# One source, two binaries: the IMU backend is chosen at COMPILE time, exactly
+# as a board choosing its driver does, and each binary asks the adapter which
+# one it got. Linked --whole-archive for the same reason test_sensor_adapter
+# is -- the real drivers' descriptors are static and would not be pulled --
+# while each test object's own fake descriptor comes in with the object.
+foreach(variant a b)
+  add_executable(test_sensor_swap_${variant} tests/test_sensor_swap.c)
+  target_link_libraries(test_sensor_swap_${variant} PRIVATE
+      -Wl,--whole-archive vayu_sitl_core -Wl,--no-whole-archive m)
+  add_test(NAME sensor_swap_${variant} COMMAND test_sensor_swap_${variant})
+endforeach()
+target_compile_definitions(test_sensor_swap_b PRIVATE SWAP_IMU_B)
+
+# Deliberately WITHOUT --whole-archive, unlike test_sensor_adapter: no driver
+# object gets pulled, the section never exists, and the weak section bounds
+# resolve to NULL. That is the path every accessor has to survive.
+add_executable(test_sensor_empty tests/test_sensor_empty.c)
+target_link_libraries(test_sensor_empty PRIVATE vayu_sitl_core m)
+add_test(NAME sensor_empty COMMAND test_sensor_empty)
+
+add_executable(test_irq_registry tests/test_irq_registry.c)
+target_link_libraries(test_irq_registry PRIVATE vayu_sitl_core m)
+add_test(NAME irq_registry COMMAND test_irq_registry)
+
+add_executable(test_esc tests/test_esc.c)
+target_link_libraries(test_esc PRIVATE vayu_sitl_core m)
+add_test(NAME esc COMMAND test_esc)
+
+add_executable(test_indicator tests/test_indicator.c)
+target_link_libraries(test_indicator PRIVATE vayu_sitl_core m)
+add_test(NAME indicator COMMAND test_indicator)
+
 add_executable(test_phase3_ctrl tests/test_phase3_ctrl.c)
 target_link_libraries(test_phase3_ctrl PRIVATE vayu_sitl_core m)
 add_test(NAME phase3_ctrl COMMAND test_phase3_ctrl)
@@ -433,13 +488,17 @@ add_test(NAME phase3_slog COMMAND test_phase3_slog)
 # log round-trip (src/storage/fs_owner.c, in vayu_sitl_core).
 # HSL wire format: the real encoder's bytes, then decoded by hslog.py below —
 # the encoder has no runtime consumer that would ever notice a layout mistake.
+add_executable(test_hslog_drops tests/test_hslog_drops.c)
+target_link_libraries(test_hslog_drops PRIVATE vayu_sitl_core m)
+add_test(NAME hslog_drops COMMAND test_hslog_drops)
+
 add_executable(test_hslog tests/test_hslog.c)
 target_link_libraries(test_hslog PRIVATE vayu_sitl_core m)
 add_test(NAME hslog COMMAND test_hslog)
 add_test(NAME hslog_decode
          COMMAND ${CMAKE_COMMAND} -E env python3
                  ${VAYU_ROOT}/tools/telemetry/hslog.py
-                 --selftest-file /tmp/vayu_hslog_test/0_imuhs.bin)
+                 --selftest-file /tmp/vayu_hslog_test/0_blackbox.bin)
 set_tests_properties(hslog_decode PROPERTIES DEPENDS hslog)
 
 add_executable(test_rc_buffer tests/test_rc_buffer.c)
@@ -449,6 +508,10 @@ add_test(NAME rc_buffer COMMAND test_rc_buffer)
 add_executable(test_imu_buffer tests/test_imu_buffer.c)
 target_link_libraries(test_imu_buffer PRIVATE vayu_sitl_core m)
 add_test(NAME imu_buffer COMMAND test_imu_buffer)
+
+add_executable(test_hover_store tests/test_hover_store.c)
+target_link_libraries(test_hover_store PRIVATE vayu_sitl_core m)
+add_test(NAME hover_store COMMAND test_hover_store)
 
 add_executable(test_fs_owner tests/test_fs_owner.c)
 target_link_libraries(test_fs_owner PRIVATE vayu_sitl_core m)
@@ -533,6 +596,13 @@ add_test(NAME vertical_est COMMAND test_vertical_est)
 add_executable(test_flight_phase tests/test_flight_phase.c)
 target_link_libraries(test_flight_phase PRIVATE vayu_sitl_core m)
 add_test(NAME flight_phase COMMAND test_flight_phase)
+
+# sysid: the rate-loop excite/capture buffer, which is heap rather than .bss --
+# so the start/refuse contract and the pre-allocation capture path are what this
+# pins (in vayu_sitl_core).
+add_executable(test_sysid tests/test_sysid.c)
+target_link_libraries(test_sysid PRIVATE vayu_sitl_core m)
+add_test(NAME sysid COMMAND test_sysid)
 
 add_executable(test_phase0_assert
     tests/test_phase0_assert.c
