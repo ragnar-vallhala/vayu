@@ -47,6 +47,16 @@ int main(void) {
   printf("Test 2: to_radians / to_degrees\n");
   check("180 deg == pi rad", near(to_radians(180.0f), PI));
   check("pi rad == 180 deg", near(to_degrees(PI), 180.0f));
+  /* The argument must be parenthesised inside the macro: unparenthesised,
+   * to_radians(a + b) converts only b and adds a to it. */
+  {
+    float a = 90.0f, b = 90.0f;
+    check("to_radians converts the WHOLE expression",
+          near(to_radians(a + b), PI));
+    check("to_degrees converts the whole expression too",
+          near(to_degrees(PI / 2.0f + PI / 2.0f), 180.0f));
+  }
+  check("TWO_PI is exactly 2 * PI", near(TWO_PI, 2.0f * PI));
 
   /* 3. NaN / finite classification */
   printf("Test 3: m_isnan / m_isfinite\n");

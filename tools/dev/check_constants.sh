@@ -33,6 +33,14 @@
 # a local one is often right. It gates values that would be the same on any
 # vehicle, where two of them disagreeing is never intended.
 #
+# Nor does it gate a number two policies happen to share. calib_params.h and
+# est/vertical_task.c both use 0.866f, and both mean cos(30 deg) -- but one is
+# how far apart two calibration poses must be and the other is how far the
+# vehicle may tilt before the rangefinder is distrusted. They coincide; they
+# are not the same fact, and merging them would couple two thresholds that
+# should be free to move independently. F13 is about one fact written twice,
+# not two facts that currently agree.
+#
 # Test code is excluded: a test that hard-codes 9.80665 to check a conversion
 # is stating an expected value, which is its job.
 #
@@ -49,6 +57,14 @@ CONSTANTS=(
   "gravity|firmware/include/physics.h|9\.80665|9\.81[^0-9]"
   "sea-level pressure|firmware/include/hub/sample.h|101325"
   "ISA altitude coefficient|firmware/src/hub/hub.c|44330"
+  # The circle constants. Three precisions of 2*pi were in the tree -- the FFT
+  # twiddle, the biquad normalised frequency and the EKF self-test -- plus a
+  # truncated pi inlined in the sysid chirp. They round to the same float, so
+  # nothing was wrong; nothing kept them that way either.
+  "pi / two-pi|firmware/include/maths/maths_interface.h|3\.14159|6\.28318"
+  # Degrees to radians. to_radians()/to_degrees() already existed in
+  # maths_interface.h, and two modules open-coded the factor anyway.
+  "degree conversion|firmware/include/maths/maths_interface.h|0\.0174532|57\.29577"
 )
 
 rc=0

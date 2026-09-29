@@ -29,7 +29,6 @@
 #include <math.h>
 
 /* 2*pi as a single-precision constant (matches -fsingle-precision-constant). */
-#define BIQUAD_TWO_PI 6.28318530717958647692f
 
 /** @noreq identity passthrough section (y == x). */
 void m_biquad_bypass(biquad_coeffs_t *c) {
@@ -61,7 +60,7 @@ void m_biquad_notch_design(biquad_coeffs_t *c, float f0_hz, float q,
    * Then normalize every coefficient by a0 so a0 == 1 and drops out of the
    * recurrence. Gives exactly unity gain at DC and Nyquist and a true null at
    * f0. */
-  float w0 = BIQUAD_TWO_PI * f0_hz / fs_hz;
+  float w0 = TWO_PI * f0_hz / fs_hz;
   float cos_w0 = cosf(w0);
   float alpha = sinf(w0) / (2.0f * q);
   float a0 = 1.0f + alpha;

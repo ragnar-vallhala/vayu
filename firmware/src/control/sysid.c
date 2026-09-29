@@ -159,7 +159,7 @@ void sysid_step(float dt, const float angles_deg[3], const float rates_dps[3],
   // integrate it into a phase so the waveform is continuous.
   float frac = s_elapsed / s_dur; // 0..1
   float f = s_f0 + (s_f1 - s_f0) * frac;
-  s_phase += 2.0f * 3.14159265f * f * dt;
+  s_phase += TWO_PI * f * dt;
 
   // Ramp the amplitude in and out over SYSID_TAPER_S so the motors never get a
   // step kick at the start/end of the excitation.

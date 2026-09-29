@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 #include "comm/navlink_tx.h"
+#include "maths/maths_interface.h"    /* to_radians */
 #include "control/angle_controller.h" /* angle_controller_height_state */
 #include "storage/imu_hs_log.h"
 #include "comm/channel.h"   /* write_channel, channel_t */
@@ -26,10 +27,6 @@
 #include <stdint.h>
 
 extern channel_t g_telemetry_channel; /* defined in telemetry_task.c */
-
-/* deg -> rad: attitude_t angles are degrees (est/sensor_fusion.c to_degrees()),
- * NavLink v2 ATTITUDE_EULER carries radians. */
-#define ATT_DEG2RAD 0.017453292519943295f
 
 /* --- periodic telemetry --------------------------------------------------- */
 
@@ -244,9 +241,9 @@ void navlink_tx_attitude(const attitude_t *att_deg) {
   /* v2 ATTITUDE_EULER; angles converted from degrees to radians. */
   static uint8_t s_att_tx_seq = 0;
   navlink_attitude_euler_t a = {0};
-  a.roll = att_deg->roll * ATT_DEG2RAD;
-  a.pitch = att_deg->pitch * ATT_DEG2RAD;
-  a.yaw = att_deg->yaw * ATT_DEG2RAD;
+  a.roll = to_radians(att_deg->roll);
+  a.pitch = to_radians(att_deg->pitch);
+  a.yaw = to_radians(att_deg->yaw);
   uint8_t frame[NAVLINK_MAX_FRAME];
   size_t n = navlink_attitude_euler_encode(frame, &a, s_att_tx_seq++,
                                            get_device_id(), 1);
