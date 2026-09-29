@@ -29,6 +29,9 @@
  * pulls no driver object and the table comes out EMPTY -- which is the one way
  * this mechanism fails quietly, so the test is linked the way that shows it.
  *
+ *   @verifies SNS-BOOT-001  every registered driver is probed, registry walked
+ *   @verifies SNS-BOOT-002  a task-owning descriptor states its own stack
+ *
  * The host does not compile the IMU driver: SITL feeds samples straight into
  * the hub instead. So the entries here are the barometer and the rangefinder,
  * and a NULL IMU backend is correct on this build rather than a fault. */

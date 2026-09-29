@@ -28,6 +28,8 @@
  * driver its own link pulled in. That is the substitution, performed at the
  * only layer that performs it for real.
  *
+ *   @verifies SNS-BOOT-001  the boot probe reaches a substituted backend
+ *
  * The backends are fakes on purpose. A speculative driver for a chip nobody
  * has would be unverifiable against silicon and would still not exercise this
  * -- what is under test is the adapter's selection path, not a device.

@@ -23,6 +23,9 @@
  * the link -- and every accessor then has to cope with NULL bounds instead of
  * differencing two null pointers and walking from address zero.
  *
+ *   @verifies SNS-BOOT-001  an image with NO driver registered says so
+ *   @verifies SNS-BOOT-002  a kind with no backend refuses to start a task
+ *
  * This is not a contrived case. A host test binary that touches the adapter
  * lands here by default, and so would any future build that put the drivers
  * in an archive. The registry being empty is survivable; reading off address

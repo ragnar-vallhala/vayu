@@ -146,7 +146,7 @@ uint8_t sensor_probe_all(void) {
   return ok;
 }
 
-/** @implements SNS-BOOT-001 */
+/** @implements SNS-BOOT-002 */
 vayu_status_t sensor_start_task(sensor_kind_t kind) {
   const sensor_driver_t *d = sensor_backend(kind);
   if (d == NULL) {

@@ -297,7 +297,8 @@ ISR-safe API subset, timing, watchdog.
 **Reserved IDs.** `SNS-*-001..099`, `SNS-*-101..199`.
 
 **Sub-areas.** BMX (driver), IMU (gyr+acc samples), MAG (magnetometer),
-BUF (buffering), CAL (online calibration), I2C (bus manager).
+BUF (buffering), CAL (online calibration), I2C (bus manager),
+BOOT (driver registry and bring-up).
 
 #### 4.3.1 SNS-HLR
 
@@ -313,6 +314,8 @@ BUF (buffering), CAL (online calibration), I2C (bus manager).
 | SNS-BUF-002   | Drop accounting                | The IMU buffer shall expose a drop counter incremented on every overwrite, surfaced through telemetry or the LOG channel.                                                                       | (process)           | Test (unit, fault injection)  | ✅ `imu_buffer_drop_count()` increments on each OVERWRITE; emitted in the HEALTH status (Phase 3 SLOG). |
 | SNS-I2C-001   | I2C bus contract               | The I2C manager shall provide thread-safe synchronous read/write and ISR-driven async read APIs, recovering from a stuck bus via the 9-clock bit-bang procedure after ≥ 100 consecutive acquire failures. | HAL-I2C-001         | Test (unit + target, fault injection) |
 | SNS-BARO-001  | Baro acquisition and publish   | The BME280 (I2C 0x76) shall be read over the shared single-owner IMU DMA loop at ~15 Hz and publish compensated pressure (Pa), temperature (°C), humidity (%RH) and derived altitude; an absent/mis-wired sensor (chip id ≠ 0x60) shall be detected at init and baro reads disabled. | SNS-IMU-001         | Test (SITL + bench)           |
+| SNS-BOOT-001  | Sensor bring-up without naming a driver | At boot the system shall probe every sensor driver compiled into the image, in `sensor_kind_t` order, without any boot-path code naming a specific device; a driver reporting anything but success shall be logged and the boot shall continue, and an image in which NO driver registered shall be reported explicitly (it means arming with no gyro). | SYS-STATE-003 | Test (host: registry walked, empty registry, backend substituted) |
+| SNS-BOOT-002  | Per-kind acquisition task     | A driver that declares an acquisition task shall have that task created with the stack depth and priority the driver itself states, at the point in the boot sequence its kind belongs at; a kind with no registered driver shall refuse the request rather than create a task. | SNS-BOOT-001 | Test (host: task-owning descriptor is self-consistent; missing backend refused) |
 
 #### 4.3.2 SNS-LLR
 
