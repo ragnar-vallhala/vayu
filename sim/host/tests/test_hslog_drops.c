@@ -211,7 +211,8 @@ int main(void) {
      * it loses about twice as much. Bounded rather than exact: the session
      * boundary lands wherever it lands. */
     CHECK(d[D_IMU] > d[D_CTL], "the faster stream lost more");
-    CHECK(d[D_IMU] < 3u * d[D_CTL], "and in proportion to its rate, not wildly");
+    CHECK(d[D_IMU] < 3u * d[D_CTL],
+          "and in proportion to its rate, not wildly");
     CHECK(imu_hs_log_dropped() > life_before,
           "the lifetime total moved as well");
     uint32_t sum = 0;

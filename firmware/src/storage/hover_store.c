@@ -18,7 +18,6 @@
 
 #include "est/hover_estimate.h"
 #include "storage/fs_owner.h"
-#include "vfs.h"
 
 #include <stdint.h>
 
@@ -31,12 +30,14 @@ typedef struct {
 /** @noreq Boot-time load of the persisted hover collective. */
 float hover_store_load(float fallback) {
   hover_store_t s = {0};
-  vfs_fd_t fd = vfs_open(HOVER_STORE_PATH, VFS_O_RDONLY);
-  if (fd < 0) {
-    return fallback; /* no card, or never saved — the guess stands */
-  }
-  int n = vfs_read(fd, &s, sizeof s);
-  vfs_close(fd);
+  /* Through fs_owner, not vfs_* directly. This runs at the top of
+   * vertical_estimator_task -- after the scheduler is up, so concurrently with
+   * the FS task and whatever it has open -- and fs_owner_read_at is the
+   * sanctioned reader for exactly that position. The save side already goes
+   * through fs_owner_enqueue_write_at; this was the asymmetric half.
+   *
+   * A missing card or file comes back <0 and the guess stands. */
+  int n = fs_owner_read_at(HOVER_STORE_PATH, 0, &s, sizeof s);
 
   if (n != (int)sizeof s || s.magic != HOVER_STORE_MAGIC) {
     vayu_log("hover: store absent/bad magic, using %d/1000",
