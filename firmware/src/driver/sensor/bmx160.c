@@ -102,7 +102,6 @@ typedef enum {
   IMU_OP_RIDE  // a registered ride-along device's turn (sensor/ride_along.h)
 } imu_op_t;
 
-extern hal_i2c_config_t i2c_config;
 /* Calibration consumes RAW data -- rhall and the pre-offset magnetometer --
  * which the hub's SI sample deliberately does not carry. So this ring stays
  * inside the driver that produces those fields, where it was always going to
@@ -1053,9 +1052,10 @@ void bmx160_initiate_read(void *args) {
       }
     } else {
       if (v_get_ticks() - last_tick > 50) {
-        // FULL RECOVERY
-        i2c_manager_unstick();
-        init_i2c_manager(&i2c_config);
+        // FULL RECOVERY. The manager kept the configuration it was booted
+        // with, so this driver does not need to hold one -- it used to extern
+        // main.c's `i2c_config` global to get here.
+        (void)i2c_manager_recover();
 
         _next_op = IMU_OP_FAST;
         _last_op = IMU_OP_FAST;

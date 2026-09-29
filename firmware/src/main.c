@@ -212,9 +212,12 @@ void system_init_tasks(void) {
   // 1 KiB since it is not in the steady-state perf view (no measured high-water).
   task_create_named(boot_task, NULL, 1024, 0, "boot");
 }
-hal_i2c_config_t i2c_config = {.clock_speed = HAL_I2C_SPEED_FAST,
-                               .own_address = I2C_MASTER,
-                               .acknowledge = true};
+/* Handed to the manager once at boot, which keeps its own copy -- nothing
+ * else needs to see it. It was non-static so bmx160.c could extern it for bus
+ * recovery; that goes through i2c_manager_recover() now. */
+static const hal_i2c_config_t i2c_config = {.clock_speed = HAL_I2C_SPEED_FAST,
+                                            .own_address = I2C_MASTER,
+                                            .acknowledge = true};
 
 /* @noreq top-level boot orchestration: runs the init sequence and starts the
  * scheduler. Cold-boot timing (SYS-TIM-001) is a system-level property

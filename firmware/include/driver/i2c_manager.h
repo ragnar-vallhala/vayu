@@ -48,8 +48,35 @@ typedef struct {
   i2c_trans_state_t state;
 } i2c_async_t;
 
+/**
+ * Bit-bang up to nine SCL pulses to free a slave holding SDA low.
+ *
+ * Rarely needed on its own: init_i2c_manager() already does this on every
+ * attempt, so a caller that unsticks and then re-inits is pulsing the bus
+ * twice. Use i2c_manager_recover() for that.
+ */
 void i2c_manager_unstick(void);
-hal_status_t init_i2c_manager(hal_i2c_config_t *cfg);
+
+/**
+ * Bring the bus up with @p cfg, and KEEP a copy of it.
+ *
+ * Also the recovery entry point -- it deinits and SWRSTs the peripheral, so
+ * calling it again on a wedged bus actually resets it. The saved copy is what
+ * makes i2c_manager_recover() possible, and the reason no other translation
+ * unit needs to hold the configuration to restart the bus.
+ */
+hal_status_t init_i2c_manager(const hal_i2c_config_t *cfg);
+
+/**
+ * Restart the bus with the configuration it was given at boot.
+ *
+ * The recovery call for anything that is not the boot path. It exists because
+ * the alternative -- every would-be recoverer reaching for the application's
+ * `i2c_config` global -- put three different objects of that name in the tree
+ * (main.c's, this file's static copy, and the onboard test firmware's) and
+ * made a driver depend on a symbol defined in main.c.
+ */
+hal_status_t i2c_manager_recover(void);
 hal_status_t i2c_manager_write(uint8_t addr, uint8_t *data, uint16_t len);
 hal_status_t i2c_manager_read(uint8_t addr, uint8_t *data, uint16_t len);
 hal_status_t i2c_manager_write_read(uint8_t addr, uint8_t *tx_data,

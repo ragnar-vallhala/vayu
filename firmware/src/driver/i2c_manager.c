@@ -25,11 +25,12 @@
 #include "driver/i2c_manager.h"
 #include <stdint.h>
 
-static hal_i2c_config_t i2c_config;
+/* The configuration this bus was brought up with. Held here so recovery
+ * needs nothing from the caller -- see i2c_manager_recover(). */
+static hal_i2c_config_t _boot_config;
 static SemaphoreHandle_t _i2c_sema; // Mutex for synchronous calls
 static atomic_t _bus_busy;          // Atomic flag for bus availability
 static i2c_async_t _current_trans;
-static uint8_t initialized = 0;
 static uint8_t _rx_data[I2C_MAX_RX_LEN]; // current transaction's rx data
 static void i2c_manager_callback(void);
 
@@ -82,8 +83,11 @@ void i2c_manager_unstick(void) {
 }
 
 /** @implements SNS-I2C-001 */
-hal_status_t init_i2c_manager(hal_i2c_config_t *cfg) {
-  i2c_config = *cfg;
+hal_status_t init_i2c_manager(const hal_i2c_config_t *cfg) {
+  if (cfg == NULL) {
+    return HAL_ERR_INVALID_ARG;
+  }
+  _boot_config = *cfg;
 
   // NavHAL's I2C driver enables DMA1 stream 0/5 at HAL_IRQ_PRIORITY_DEFAULT
   // (a BASEPRI-maskable level), so the v_semaphore_give_from_isr in the DMA
@@ -124,17 +128,21 @@ i2c_init:
   hal_gpio_set_output_type(BOARD_I2C_SDA, HAL_GPIO_OTYPE_OPEN_DRAIN);
   hal_gpio_set_output_speed(BOARD_I2C_SCL, HAL_GPIO_SPEED_VERY_HIGH);
   hal_gpio_set_output_speed(BOARD_I2C_SDA, HAL_GPIO_SPEED_VERY_HIGH);
-  hal_status_t ts = hal_i2c_init(BOARD_I2C_BUS, &i2c_config);
+  hal_status_t ts = hal_i2c_init(BOARD_I2C_BUS, &_boot_config);
 
   if (ts != HAL_OK && ts != HAL_ERR_NOT_INITIALIZED) {
     return ts;
   }
   if (ts == HAL_ERR_NOT_INITIALIZED && init_count < 3) {
     goto i2c_init;
-  } else if (ts == HAL_OK) {
-    initialized = 1;
   }
   return ts;
+}
+
+/** @implements SNS-I2C-102 */
+hal_status_t i2c_manager_recover(void) {
+  /* No unstick here: init_i2c_manager() pulses the bus on every attempt. */
+  return init_i2c_manager(&_boot_config);
 }
 
 static uint32_t _consecutive_errors = 0;
@@ -193,8 +201,7 @@ hal_status_t i2c_manager_read_async(uint8_t addr, uint8_t reg_addr,
   if (!i2c_manager_acquire_bus()) {
     _consecutive_errors++;
     if (_consecutive_errors > 100) {
-      i2c_manager_unstick();
-      init_i2c_manager(&i2c_config);
+      (void)i2c_manager_recover();
       _consecutive_errors = 0;
     }
     return HAL_ERR_TIMEOUT;
@@ -229,8 +236,7 @@ hal_status_t i2c_manager_read_async(uint8_t addr, uint8_t reg_addr,
   if (ret != HAL_OK) {
     i2c_manager_release_bus();
     vayu_log("I2C DMA START FAIL: %d", ret);
-    i2c_manager_unstick();
-    init_i2c_manager(&i2c_config);
+    (void)i2c_manager_recover();
     return ret;
   }
 
