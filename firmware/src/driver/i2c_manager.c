@@ -21,6 +21,7 @@
 #include "port.h"
 #include "utils.h"
 #include "storage/fs_owner.h"
+#include "sys/clock.h" /* vayu_clock_hz, vayu_clock_cycles */
 #include "vaios.h"
 #include "driver/i2c_manager.h"
 #include <stdint.h>
@@ -51,6 +52,32 @@ static inline int i2c_manager_acquire_bus(void) {
 // @noreq Internal bus-ownership primitive for the I2C manager.
 static inline void i2c_manager_release_bus(void) { atomic_set(&_bus_busy, 0); }
 
+/* Bus-clear pulse timing.
+ *
+ * These used to be `for (volatile int j = 0; j < 200; j++)` spin loops, which
+ * time out at whatever the core happens to run at -- about 14 us on this
+ * 84 MHz part, so roughly 36 kHz. The same loop on the 400 MHz H7 this tree is
+ * heading for (see firmware/board/README.md) would clock the bus five times
+ * faster and out of spec, and bus-clear is exactly the path where a slave is
+ * already confused.
+ *
+ * So the pulse is stated in microseconds and derived from the measured CPU
+ * rate. 10 us half-period is 50 kHz: inside standard mode, and near where this
+ * board has been running. */
+#define I2C_UNSTICK_HALF_US 10u
+
+/** @noreq bit-bang pulse timing; wrap-safe on the 32-bit cycle counter. */
+static void _bitbang_delay_us(uint32_t us) {
+  uint32_t per_us = vayu_clock_hz() / 1000000u;
+  if (per_us == 0u) {
+    per_us = 1u; /* a sub-MHz core is not a real configuration; do not hang */
+  }
+  const uint32_t ticks = per_us * us;
+  const uint32_t t0 = vayu_clock_cycles();
+  while ((vayu_clock_cycles() - t0) < ticks) {
+  }
+}
+
 /** @implements SNS-I2C-102 */
 void i2c_manager_unstick(void) {
   hal_gpio_set_mode(BOARD_I2C_SCL, HAL_GPIO_MODE_OUTPUT, HAL_GPIO_PULL_UP);
@@ -59,27 +86,25 @@ void i2c_manager_unstick(void) {
   hal_gpio_set_output_type(BOARD_I2C_SDA, HAL_GPIO_OTYPE_OPEN_DRAIN);
 
   hal_gpio_write(BOARD_I2C_SDA, HAL_GPIO_HIGH);
-  for (volatile int i = 0; i < 100; i++)
-    ;
+  _bitbang_delay_us(I2C_UNSTICK_HALF_US);
 
+  /* Nine pulses: enough for a slave stuck mid-byte to finish clocking it out
+   * and release SDA, whichever bit it stopped on. */
   for (int i = 0; i < 9; ++i) {
     hal_gpio_write(BOARD_I2C_SCL, HAL_GPIO_LOW);
-    for (volatile int j = 0; j < 200; j++)
-      ;
+    _bitbang_delay_us(I2C_UNSTICK_HALF_US);
     hal_gpio_write(BOARD_I2C_SCL, HAL_GPIO_HIGH);
-    for (volatile int j = 0; j < 200; j++)
-      ;
+    _bitbang_delay_us(I2C_UNSTICK_HALF_US);
   }
 
+  /* Then a STOP -- SDA low while SCL is high, then SDA released -- so the bus
+   * is left idle rather than mid-transaction. */
   hal_gpio_write(BOARD_I2C_SDA, HAL_GPIO_LOW);
-  for (volatile int j = 0; j < 200; j++)
-    ;
+  _bitbang_delay_us(I2C_UNSTICK_HALF_US);
   hal_gpio_write(BOARD_I2C_SCL, HAL_GPIO_HIGH);
-  for (volatile int j = 0; j < 200; j++)
-    ;
+  _bitbang_delay_us(I2C_UNSTICK_HALF_US);
   hal_gpio_write(BOARD_I2C_SDA, HAL_GPIO_HIGH);
-  for (volatile int j = 0; j < 200; j++)
-    ;
+  _bitbang_delay_us(I2C_UNSTICK_HALF_US);
 }
 
 /** @implements SNS-I2C-001 */
