@@ -143,4 +143,21 @@ vayu_status_t sensor_start_task(sensor_kind_t kind);
 /** How many drivers are registered in this build. */
 uint8_t sensor_count(void);
 
+/*
+ * There is no `range_ops_t`, on purpose.
+ *
+ * A kind gets an ops table when something OUTSIDE the driver needs to ask that
+ * kind a question: the command layer tells an IMU to calibrate itself
+ * (sensor/imu.h), and telemetry asks a barometer for humidity, a
+ * reporting-only readout the hub's SI sample deliberately does not carry
+ * (sensor/baro.h). The rangefinder is asked nothing. Its init and task are in
+ * its descriptor, its bus turn is a ride-along on the IMU's DMA loop, and the
+ * only consumer -- the vertical estimator -- takes range_latest() from the
+ * hub like any other measurement.
+ *
+ * So a range ops table would be a type with no callers, which is how the
+ * speculative `imu_ops.chip_id` got written and then deleted. Add one at the
+ * point a caller exists, and let that caller say what belongs in it.
+ */
+
 #endif // VAYU_SENSOR_H

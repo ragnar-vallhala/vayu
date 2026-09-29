@@ -440,6 +440,19 @@ target_link_libraries(test_sensor_adapter PRIVATE
     -Wl,--whole-archive vayu_sitl_core -Wl,--no-whole-archive m)
 add_test(NAME sensor_adapter COMMAND test_sensor_adapter)
 
+# One source, two binaries: the IMU backend is chosen at COMPILE time, exactly
+# as a board choosing its driver does, and each binary asks the adapter which
+# one it got. Linked --whole-archive for the same reason test_sensor_adapter
+# is -- the real drivers' descriptors are static and would not be pulled --
+# while each test object's own fake descriptor comes in with the object.
+foreach(variant a b)
+  add_executable(test_sensor_swap_${variant} tests/test_sensor_swap.c)
+  target_link_libraries(test_sensor_swap_${variant} PRIVATE
+      -Wl,--whole-archive vayu_sitl_core -Wl,--no-whole-archive m)
+  add_test(NAME sensor_swap_${variant} COMMAND test_sensor_swap_${variant})
+endforeach()
+target_compile_definitions(test_sensor_swap_b PRIVATE SWAP_IMU_B)
+
 # Deliberately WITHOUT --whole-archive, unlike test_sensor_adapter: no driver
 # object gets pulled, the section never exists, and the weak section bounds
 # resolve to NULL. That is the path every accessor has to survive.
