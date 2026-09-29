@@ -24,6 +24,7 @@
 #include "sys/types.h"
 #include "vaios.h"
 #include "comm/comm_limits.h"
+#include <stddef.h> /* NULL, reached through variables.h before it went */
 #include <stdint.h>
 
 /* Per-buffer TX capacity. Must hold the largest single-shot write burst between

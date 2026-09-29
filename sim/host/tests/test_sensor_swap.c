@@ -63,7 +63,9 @@ static int g_checks = 0, g_fails = 0;
 /* Each fake records that IT ran, so "the right ops table" is checked by
  * calling through it rather than by comparing pointers alone. */
 static unsigned g_mark = 0;
+#ifndef SWAP_IMU_B
 static unsigned g_cancelled = 0;
+#endif
 static unsigned g_probed = 0;
 
 #ifndef SWAP_IMU_B

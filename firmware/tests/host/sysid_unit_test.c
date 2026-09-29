@@ -30,6 +30,13 @@
 
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
+
+/* sysid.c allocates its capture buffer from the vaios heap. On the host there
+ * is no kernel, so back it with malloc -- the unit under test only needs the
+ * allocation to succeed (and, in one case, to fail). */
+void *v_malloc(size_t size);
+void *v_malloc(size_t size) { return malloc(size); }
 
 static int fails = 0;
 static void check(const char *what, int ok) {

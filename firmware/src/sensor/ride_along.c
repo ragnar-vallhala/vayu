@@ -37,6 +37,10 @@ extern const sensor_ride_t __stop_vayu_rides[] __attribute__((weak));
 const sensor_ride_t *sensor_rides(uint8_t *count) {
   uint8_t n = 0;
   if (__start_vayu_rides != NULL && __stop_vayu_rides != NULL) {
+    /* cppcheck-suppress comparePointers  -- __start_/__stop_ are the
+     * linker's bounds on ONE contiguous section, which cppcheck cannot see:
+     * it reads them as two unrelated arrays. Walking between them is the
+     * mechanism, not a mistake. */
     n = (uint8_t)(__stop_vayu_rides - __start_vayu_rides);
   }
   if (count != NULL) {

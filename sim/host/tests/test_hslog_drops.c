@@ -73,7 +73,8 @@ enum { D_IMU = 0, D_ACT, D_VRT, D_CTL, D_RX, D_TXT, D_ATT, D_RC, D_N };
 
 static const float RATES[3] = {10.0f, -20.0f, 30.0f};
 static const float U[3] = {0.25f, -0.5f, 0.125f};
-static const uint16_t MOTORS[4] = {1000, 2000, 3000, 4000};
+/* Normalised 0..1, which is what the act stream encodes. */
+static const float MOTORS[4] = {0.1f, 0.2f, 0.3f, 0.4f};
 
 static uint16_t rd16(const uint8_t *p) {
   return (uint16_t)(p[0] | (p[1] << 8));
@@ -156,7 +157,7 @@ static void run_session(int n_samples, int drain_every) {
   for (int i = 0; i < n_samples; i++) {
     const uint32_t t = (uint32_t)i * (84000000u / 2000u);
     imu_hs_log_sample((int16_t[3]){(int16_t)i, 0, 0}, (int16_t[3]){0, 0, 0}, t);
-    imu_hs_log_act(MOTORS, 1234u, HSL_ACT_F_ARMED, t);
+    imu_hs_log_act(MOTORS, 0.5f, HSL_ACT_F_ARMED, t);
     if ((i % 2) == 0) {
       imu_hs_log_ctl(RATES, U, t);
     }

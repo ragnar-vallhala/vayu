@@ -48,6 +48,10 @@ uint8_t sensor_count(void) {
   if (__start_vayu_sensors == NULL || __stop_vayu_sensors == NULL) {
     return 0;
   }
+  /* cppcheck-suppress comparePointers  -- __start_/__stop_ are the
+   * linker's bounds on ONE contiguous section, which cppcheck cannot see:
+   * it reads them as two unrelated arrays. Walking between them is the
+   * mechanism, not a mistake. */
   return (uint8_t)(__stop_vayu_sensors - __start_vayu_sensors);
 }
 
@@ -56,6 +60,10 @@ const sensor_driver_t *sensor_backend(sensor_kind_t kind) {
   if (sensor_count() == 0) {
     return NULL;
   }
+  /* cppcheck-suppress comparePointers  -- __start_/__stop_ are the
+   * linker's bounds on ONE contiguous section, which cppcheck cannot see:
+   * it reads them as two unrelated arrays. Walking between them is the
+   * mechanism, not a mistake. */
   for (const sensor_driver_t *d = __start_vayu_sensors; d < __stop_vayu_sensors;
        d++) {
     if (d->kind == (uint8_t)kind) {
@@ -89,6 +97,10 @@ static uint8_t _claims(sensor_kind_t kind) {
   if (sensor_count() == 0) {
     return 0;
   }
+  /* cppcheck-suppress comparePointers  -- __start_/__stop_ are the
+   * linker's bounds on ONE contiguous section, which cppcheck cannot see:
+   * it reads them as two unrelated arrays. Walking between them is the
+   * mechanism, not a mistake. */
   for (const sensor_driver_t *d = __start_vayu_sensors; d < __stop_vayu_sensors;
        d++) {
     if (d->kind == (uint8_t)kind) {
