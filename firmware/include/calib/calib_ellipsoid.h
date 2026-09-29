@@ -61,7 +61,7 @@ int calib_fit_ellipsoid(float S[81], float t[9], float offset[3],
  * a measurement. Recovering misalignment needs directions that load two axes at
  * once, which is calib_fit_ellipsoid's 12-pose job.
  *
- * `g` is the target magnitude (9.80665). offset[3] + soft[9] (row-major 3x3)
+ * `g` is the target magnitude (VAYU_GRAVITY_MPS2, physics.h). offset[3] + soft[9] (row-major 3x3)
  * receive the result. Returns 0 on success; -1 if a side is missing/duplicated
  * or the 3x3 is singular (caller keeps the previous calibration). */
 int calib_fit_sixpoint(const float (*pts)[3], int npts, float g,

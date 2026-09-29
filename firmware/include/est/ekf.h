@@ -41,10 +41,12 @@
 #ifndef VAYU_EST_EKF_H
 #define VAYU_EST_EKF_H
 
+#include "physics.h"
+
 /* Gravity magnitude (m/s^2) — used by the 9-state accel-bias measurement and
  * by both variants' accel-trust gate. */
 #ifndef EKF_GRAVITY
-#define EKF_GRAVITY 9.80665f
+#define EKF_GRAVITY VAYU_GRAVITY_MPS2
 #endif
 
 /* Process noise (per-second variances; the predict step scales by dt). */

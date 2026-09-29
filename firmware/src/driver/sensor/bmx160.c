@@ -22,6 +22,7 @@
 #include "calib/calib_engine.h"
 #include "comm/comm.h"
 #include "driver/i2c_manager.h"
+#include "physics.h"
 #include "sensor/ride_along.h"
 #include "navhal.h"
 #include "ipc.h"
@@ -52,7 +53,7 @@ extern float m_fabsf(float x);
 /* Gyro-bias "still" detector thresholds, pre-squared at compile time so the
  * per-sample check compares squared magnitudes (no sqrt, no per-loop compute).
  * Stillness = |acc| within ACC_STILL_TOL_G of 1g AND |gyro| < GYRO_STILL_DPS. */
-#define ACC_STILL_G 9.81f
+#define ACC_STILL_G VAYU_GRAVITY_MPS2
 #define ACC_STILL_TOL_G 0.2f
 #define GYRO_STILL_DPS 0.2f
 #define ACC_STILL_LO_SQ                                                        \
@@ -337,7 +338,7 @@ hal_status_t bmx160_init(void) {
 
   // Scales follow from the range codes just written.
   float g_range = bmx160_range_code_to_g((uint8_t)bmx160_cfg.bmx160_acc_range);
-  acc_scale = g_range * 9.80665f / 32768.0f;
+  acc_scale = g_range * VAYU_GRAVITY_MPS2 / 32768.0f;
   float dps_range =
       bmx160_range_code_to_dps((uint8_t)bmx160_cfg.bmx160_gyr_range);
   gyr_scale = dps_range / 32768.0f;
@@ -825,7 +826,7 @@ bmx160_err_type bmx160_write_config(bmx160_config_t *config) {
 
   // Pre-calculate scales
   float g_range = bmx160_range_code_to_g((uint8_t)config->bmx160_acc_range);
-  acc_scale = g_range * 9.80665f / 32768.0f;
+  acc_scale = g_range * VAYU_GRAVITY_MPS2 / 32768.0f;
 
   float dps_range = bmx160_range_code_to_dps((uint8_t)config->bmx160_gyr_range);
   gyr_scale = dps_range / 32768.0f;
@@ -1382,7 +1383,7 @@ void bmx160_process_data(void) {
 
   // Apply gyro bias estimator. Compare squared magnitudes against squared
   // thresholds so the per-sample stillness check needs no sqrt: the magnitude
-  // band |acc_mag - 9.81| < 0.2 (i.e. acc_mag in (9.61, 10.01)) and
+  // band |acc_mag - g| < 0.2 (i.e. acc_mag in ~(9.61, 10.01)) and
   // gyro_norm < 0.2 are monotonic in the squared value, so this is exact.
   // Thresholds are the compile-time GYRO_STILL_SQ / ACC_STILL_*_SQ constants.
   float acc_sq = _bmx_data.converted.acc[0] * _bmx_data.converted.acc[0] +
@@ -1699,7 +1700,7 @@ static int wait_for_static_pose(uint8_t code, pose_kind_t kind,
   calib_telemetry(code, 0.0f); // prompt the operator (advisory)
   v_delay(CALIBRATION_WAIT_USER_TIME_PRE_CALIBRATION);
 
-  const float g = 9.81f;
+  const float g = VAYU_GRAVITY_MPS2;
   const float mag_min2 = (0.45f * g) * (0.45f * g); // reject free-fall / drops
   const float mag_max2 = (2.0f * g) * (2.0f * g); // permissive: up to ~2x scale
   const float gyro_still2 = ACCEL_CAL_GYRO_STILL_DPS * ACCEL_CAL_GYRO_STILL_DPS;
@@ -1793,7 +1794,7 @@ static bool gyr_read_raw_still(float v[3], void *ctx) {
   float gx = s.converted.gyr_raw[0], gy = s.converted.gyr_raw[1],
         gz = s.converted.gyr_raw[2];
   float gyro2 = gx * gx + gy * gy + gz * gz;
-  const float g = 9.81f;
+  const float g = VAYU_GRAVITY_MPS2;
   if (mag2 < (0.45f * g) * (0.45f * g) || mag2 > (2.0f * g) * (2.0f * g))
     return false;
   if (gyro2 >= ACCEL_CAL_GYRO_STILL_DPS * ACCEL_CAL_GYRO_STILL_DPS)
@@ -1898,7 +1899,7 @@ void calibration_task(void *args) {
 
     calib_target_t acc_target = {
         .name = "accel",
-        .radius = 9.80665f, // gravity (m/s^2) — absolute target
+        .radius = VAYU_GRAVITY_MPS2, // absolute target
 #if ACCEL_CALIB_METHOD == ACCEL_CALIB_SIXPOINT
         .fit = CALIB_FIT_SIXPOINT,
         .min_samples = ACCEL_CAL_FACE_POSES, // needs all 6 sides
@@ -1982,7 +1983,7 @@ void calibration_task(void *args) {
 
     const int target = ACCEL_POSE_STILL_SAMPLES; /* contiguous still samples */
     const int max_ticks = 1500;                  /* generous cap (~15 s) */
-    const float gg = 9.81f;
+    const float gg = VAYU_GRAVITY_MPS2;
     const float gyro_still2 =
         ACCEL_CAL_GYRO_STILL_DPS * ACCEL_CAL_GYRO_STILL_DPS;
     const float amin2 = (0.6f * gg) * (0.6f * gg);
