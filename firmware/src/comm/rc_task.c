@@ -63,6 +63,11 @@ static void ibus_idle_isr(void) {
 static void rc_apply_frame(void) {
   rc_mark_frame_valid();
 
+  /* Count what the control layer's plausibility guard will silently eat. Runs
+   * before the deadband so it sees the receiver's values, and once per frame,
+   * which is the only rate that sees all of them. */
+  (void)rc_note_implausible(&ibus_raw_data);
+
   /* Centre-deadband roll/pitch/yaw (throttle, ch index 2, is skipped). */
   for (int i = 0; i < 4; i++) {
     if (i != 2 && (ibus_raw_data.channels[i] > 1500 - RADIO_AVOID_BAND &&

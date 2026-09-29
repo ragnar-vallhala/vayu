@@ -27,7 +27,8 @@
  * via the declarations in comm/ibus.h.
  */
 #include "comm/ibus.h"
-#include "est/est.h" /* estimator_is_degraded */
+#include "est/est.h"          /* estimator_is_degraded */
+#include "storage/fs_owner.h" /* vayu_log */
 #include "sys/state.h"
 #include "utils.h"       /* v_get_ticks (vaios) */
 #include "vayu_status.h" /* VAYU_DISCARD */
@@ -126,6 +127,53 @@ bool rc_throttle_failsafe_step(uint16_t throttle_raw) {
   }
   return s_throttle_failsafe;
 }
+
+/* ----------------------------------------------------------------------------
+ * Channel plausibility (CTRL-ANGLE-103) -- see comm/ibus.h for why it lives
+ * here rather than in the control layer that acts on it.
+ * --------------------------------------------------------------------------*/
+
+/** Log the first offending frame, then one in this many. */
+#define RC_IMPLAUSIBLE_LOG_EVERY 500u
+
+static volatile uint32_t s_implausible_frames = 0;
+
+/** @implements CTRL-ANGLE-103 */
+bool rc_channel_implausible(uint16_t raw) {
+  return raw < RC_RAW_MIN_VALID || raw > RC_RAW_MAX_VALID;
+}
+
+/** @implements CTRL-ANGLE-103 */
+bool rc_note_implausible(const ibus_data_t *data) {
+  if (data == NULL) {
+    return false;
+  }
+  bool bad = false;
+  for (int i = 0; i < 4; i++) {
+    if (rc_channel_implausible(data->channels[i])) {
+      bad = true;
+      break;
+    }
+  }
+  if (!bad) {
+    return false;
+  }
+  uint32_t n = s_implausible_frames + 1u;
+  s_implausible_frames = n;
+  /* First one, then one in RC_IMPLAUSIBLE_LOG_EVERY: a receiver stuck in this
+   * state produces one line a few seconds apart instead of 50 a second. */
+  if (n == 1u || (n % RC_IMPLAUSIBLE_LOG_EVERY) == 0u) {
+    vayu_log("rc: implausible channel, substituted centred (%u frames)\n",
+             (unsigned)n);
+  }
+  return true;
+}
+
+/** @noreq observability accessor */
+uint32_t rc_implausible_frames(void) { return s_implausible_frames; }
+
+/** @noreq test/boot reset */
+void rc_implausible_reset(void) { s_implausible_frames = 0; }
 
 /* States in which RC loss should drive a FAILSAFE transition. INIT and
  * CALIBRATING are excluded by design: the vehicle is on the bench and

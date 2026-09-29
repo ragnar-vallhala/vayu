@@ -44,6 +44,7 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "comm/ibus.h"
 #include "comm/comm.h"
 #include "est/est.h"
 #include "sys/state.h"
@@ -366,6 +367,86 @@ static void test_rc_throttle_failsafe(void) {
         "clears once throttle returns normal");
 }
 
+/* Channel decode + plausibility, driven with the exact bytes a FlySky
+ * receiver emitted in the 20260929 card pull (session [1017], 7354 frames).
+ *
+ * Unmasked those frames decoded to 62943 / 62941 on ch1/ch2, which the
+ * control layer's guard substituted to CENTRED without counting -- and that
+ * silence is what made a receiver failsafe look like a decoder bug for a day.
+ * Both halves are checked here: the mask, and the counter that would have
+ * said so. */
+static void test_ibus_decode_and_plausibility(void) {
+  printf("  test_ibus_decode_and_plausibility\n");
+
+  /* Build a well-formed 0x20/0x40 frame with the recorded channel values. */
+  static const uint16_t recorded[IBUS_MAX_CHANNELS] = {
+      0xF5DF, 0xF5DD, 1000, 1500, 1000, 1000, 1500,
+      1500,   1500,   1500, 1500, 1500, 1500, 1500};
+  uint8_t frame[IBUS_PACKET_SIZE];
+  frame[0] = IBUS_START_BYTE;
+  frame[1] = IBUS_CMD_CHANNELS;
+  for (int i = 0; i < IBUS_MAX_CHANNELS; i++) {
+    frame[2 + i * 2] = (uint8_t)(recorded[i] & 0xFFu);
+    frame[3 + i * 2] = (uint8_t)(recorded[i] >> 8);
+  }
+  uint16_t ck = 0xFFFF;
+  for (int i = 0; i < IBUS_PACKET_SIZE - 2; i++) {
+    ck = (uint16_t)(ck - frame[i]);
+  }
+  frame[30] = (uint8_t)(ck & 0xFFu);
+  frame[31] = (uint8_t)(ck >> 8);
+
+  ibus_data_t rc;
+  ibus_init(&rc);
+  bool parsed = false;
+  for (int i = 0; i < IBUS_PACKET_SIZE; i++) {
+    parsed = ibus_parse_byte(frame[i], &rc);
+  }
+  CHECK(parsed, "a well-formed iBus frame parses");
+
+  /* 0xF5DF & 0x0FFF == 0x5DF == 1503: a centred stick, in band. */
+  CHECK(rc.channels[0] == 1503 && rc.channels[1] == 1501,
+        "12-bit mask strips the extended-channel nibble");
+  for (int i = 0; i < IBUS_MAX_CHANNELS; i++) {
+    CHECK(!rc_channel_implausible(rc.channels[i]),
+          "every masked channel is in the plausible band");
+  }
+
+  /* The guard itself, and that it counts. */
+  rc_implausible_reset();
+  CHECK(rc_channel_implausible(0) && rc_channel_implausible(62943),
+        "0 at boot and an unmasked word are both implausible");
+  CHECK(!rc_channel_implausible(1000) && !rc_channel_implausible(2000),
+        "the ends of a valid pulse are plausible");
+  /* The band is inclusive on both edges -- pin it, or an off-by-one here
+   * quietly re-centres a stick at full deflection. */
+  CHECK(!rc_channel_implausible(RC_RAW_MIN_VALID) &&
+            !rc_channel_implausible(RC_RAW_MAX_VALID),
+        "both band edges are plausible");
+  CHECK(rc_channel_implausible((uint16_t)(RC_RAW_MIN_VALID - 1u)) &&
+            rc_channel_implausible((uint16_t)(RC_RAW_MAX_VALID + 1u)),
+        "one step outside either edge is implausible");
+  CHECK(rc_note_implausible(&rc) == false && rc_implausible_frames() == 0,
+        "a clean frame is not counted");
+
+  ibus_data_t bad = rc;
+  bad.channels[1] = 62941; /* what the unmasked decoder used to hand over */
+  CHECK(rc_note_implausible(&bad) == true && rc_implausible_frames() == 1,
+        "an implausible flight channel is counted once per frame");
+  bad.channels[0] = 0;
+  CHECK(rc_note_implausible(&bad) == true && rc_implausible_frames() == 2,
+        "two bad channels in one frame still count one frame");
+
+  /* Channels 5..14 are not flight channels; the guard does not act on them,
+   * so neither does the counter. */
+  ibus_data_t aux = rc;
+  aux.channels[7] = 62943;
+  CHECK(rc_note_implausible(&aux) == false && rc_implausible_frames() == 2,
+        "an implausible aux channel is not counted");
+  rc_implausible_reset();
+  CHECK(rc_implausible_frames() == 0, "reset clears the counter");
+}
+
 int main(void) {
   printf("== Phase-2 safety SITL verification ==\n");
 
@@ -377,6 +458,7 @@ int main(void) {
   test_arm_preconditions();
   test_software_arm_latch();
   test_rc_throttle_failsafe();
+  test_ibus_decode_and_plausibility();
 
   printf("\n%d checks, %d failures\n", g_checks, g_fails);
   return g_fails == 0 ? 0 : 1;

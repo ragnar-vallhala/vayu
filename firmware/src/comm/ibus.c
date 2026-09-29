@@ -75,8 +75,15 @@ bool ibus_parse_byte(uint8_t b, ibus_data_t *data) {
       // Packet valid!
       if (data) {
         for (int i = 0; i < IBUS_MAX_CHANNELS; i++) {
+          /* iBus carries the channel in the LOW 12 BITS. The top nibble of the
+           * leading channels belongs to the extended 15-18 set, which this
+           * decoder does not read -- so it is masked off rather than folded
+           * into the value. Unmasked it read as 62943 on a receiver whose
+           * failsafe frame sets those bits, which the plausibility guard then
+           * ate silently (rc_channel_implausible, now counted). */
           data->channels[i] =
-              (uint16_t)(buffer[2 + i * 2] | (buffer[3 + i * 2] << 8));
+              (uint16_t)((buffer[2 + i * 2] | (buffer[3 + i * 2] << 8)) &
+                         IBUS_CHANNEL_MASK);
         }
         /* FlySky has no in-protocol failsafe flag — link-loss is inferred from
          * the throttle channel (rc_throttle_failsafe_step) and the staleness

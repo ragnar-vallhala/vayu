@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 #include "control/angle_controller.h"
+#include "comm/ibus.h" /* rc_channel_implausible */
 #include "comm/rc_buffer.h"
 #include "comm/comm_types.h"
 #include "control/angle_rate_controller.h"
@@ -173,14 +174,14 @@ typedef struct {
 static inline rc_data_t normalize_rc_data(ibus_data_t rc_data) {
   rc_data_t normalized_rc_data;
   for (int i = 0; i < 4; i++) {
-    // Fail SAFE to centre on an implausible reading. A valid RC pulse is
-    // ~1000..2000 us; a dropout / uninitialised channel (0 at boot, or a glitch
-    // frame) is not a stick position. Without this guard a 0 reading maps to
-    // (0-1500)/500 = -3 and clamps to FULL deflection -> a railed angle setpoint:
-    // the airframe self-commands a full front/right lean and won't self-level
-    // toward it (corrections stop firing for those directions). Treat it as
-    // centred: roll/pitch/yaw -> level, throttle -> min.
-    if (rc_data.channels[i] < 900 || rc_data.channels[i] > 2100) {
+    // Fail SAFE to centre on an implausible reading (band and rationale in
+    // comm/ibus.h; the RC task counts every frame this fires on). Without the
+    // guard a 0 reading maps to (0-1500)/500 = -3 and clamps to FULL
+    // deflection -> a railed angle setpoint: the airframe self-commands a full
+    // front/right lean and won't self-level toward it (corrections stop firing
+    // for those directions). Treat it as centred: roll/pitch/yaw -> level,
+    // throttle -> min.
+    if (rc_channel_implausible(rc_data.channels[i])) {
       normalized_rc_data.channels[i] = 0.0f;
       continue;
     }

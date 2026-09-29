@@ -130,6 +130,7 @@ set(VAYU_SOURCES
     ${VAYU_ROOT}/firmware/src/sys/assert.c
     ${VAYU_ROOT}/firmware/src/comm/rc_buffer.c
     ${VAYU_ROOT}/firmware/src/comm/rc_safety.c   # RC watchdog + arm gate (host-buildable)
+    ${VAYU_ROOT}/firmware/src/comm/ibus.c        # iBus frame parser (pure byte SM, host-buildable)
     # Telemetry chain: produces DroneProtocol packets the GCS reads.
     # UART2 in host_navhal pipes them to a pty (for live GCS attach) and
     # tees a raw copy to /tmp/vayu_uart2.log (for post-sim analysis).

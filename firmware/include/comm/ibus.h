@@ -25,6 +25,10 @@
 #define IBUS_START_BYTE 0x20
 #define IBUS_CMD_CHANNELS 0x40
 
+/** iBus channels are 12-bit; the top nibble of the leading channels carries
+ *  the extended 15-18 set, which this decoder does not read. */
+#define IBUS_CHANNEL_MASK 0x0FFFu
+
 typedef struct {
   uint16_t channels[IBUS_MAX_CHANNELS];
   bool is_failsafe;
@@ -112,6 +116,46 @@ bool rc_throttle_failsafe_step(uint16_t throttle_raw);
 
 /** @brief Reset the throttle-failsafe detector (boot / tests). */
 void rc_throttle_failsafe_reset(void);
+
+/* ----------------------------------------------------------------------------
+ * Channel plausibility (CTRL-ANGLE-103)
+ *
+ * A valid RC pulse is ~1000..2000 us. Anything outside this band is not a
+ * stick position -- a channel that is still 0 at boot, a glitch frame, or a
+ * receiver emitting something that is not a channel value at all. The control
+ * layer substitutes CENTRED for such a reading rather than mapping it, which
+ * is the right thing to do and was also completely silent: a guard that eats
+ * input without counting is indistinguishable from one that never fires, and
+ * that is exactly how a receiver failsafe got misread as a decoder bug.
+ *
+ * The predicate lives here so the RC layer and the control layer share ONE
+ * definition of "implausible" -- and so it is counted once per FRAME, which
+ * only the RC task sees. The blackbox rc stream is decimated to
+ * HSL_RC_RATE_HZ (10 Hz) and the control loop runs on whatever was last
+ * queued, so neither of those sees every frame.
+ * --------------------------------------------------------------------------*/
+
+#define RC_RAW_MIN_VALID 900U  /**< below this is not a stick position. */
+#define RC_RAW_MAX_VALID 2100U /**< above this is not a stick position. */
+
+/** @brief Is this raw channel value outside the plausible pulse band? */
+bool rc_channel_implausible(uint16_t raw);
+
+/**
+ * @brief Note one parsed frame; returns true if any of the four flight
+ *        channels (roll/pitch/throttle/yaw) was implausible.
+ *
+ * Counts frames, not channels, and logs the first one plus every
+ * RC_IMPLAUSIBLE_LOG_EVERY after it, so a persistent fault reports itself
+ * over the link without flooding it. Single-caller (the RC task).
+ */
+bool rc_note_implausible(const ibus_data_t *data);
+
+/** How many frames carried at least one implausible flight channel. */
+uint32_t rc_implausible_frames(void);
+
+/** @brief Reset the implausible-frame counter (boot / tests). */
+void rc_implausible_reset(void);
 
 /**
  * @brief One RC-watchdog tick: if the link is lost in a flight-relevant
