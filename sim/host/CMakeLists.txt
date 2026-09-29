@@ -509,6 +509,10 @@ add_executable(test_imu_buffer tests/test_imu_buffer.c)
 target_link_libraries(test_imu_buffer PRIVATE vayu_sitl_core m)
 add_test(NAME imu_buffer COMMAND test_imu_buffer)
 
+add_executable(test_hover_store tests/test_hover_store.c)
+target_link_libraries(test_hover_store PRIVATE vayu_sitl_core m)
+add_test(NAME hover_store COMMAND test_hover_store)
+
 add_executable(test_fs_owner tests/test_fs_owner.c)
 target_link_libraries(test_fs_owner PRIVATE vayu_sitl_core m)
 add_test(NAME fs_owner COMMAND test_fs_owner)

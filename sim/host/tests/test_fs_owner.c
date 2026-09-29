@@ -40,9 +40,6 @@
 #include <string.h>
 
 #include "storage/fs_owner.h"
-#include "est/hover_estimate.h"
-#include "control/height_controller.h"
-#include "storage/hover_store.h"
 #include "vfs.h"
 
 static int g_checks = 0;
@@ -318,95 +315,6 @@ static void test_dir_browse_and_stat(void) {
         "opendir of a missing path fails");
 }
 
-/* ----------------------------------------------------------------------------
- * The persisted hover collective: saved through the write-at lane, loaded
- * through fs_owner_read_at. Both halves go through the owner, which is the
- * point -- the load used to call vfs_open/vfs_read directly from
- * vertical_estimator_task, after the scheduler is up and so concurrently with
- * whatever the FS task had open.
- *
- * The guards matter more than the round-trip: this number is what the next
- * lift-off opens the throttle at, so a short read, a foreign file or a wild
- * value must all fall back to the compiled guess rather than be flown.
- * --------------------------------------------------------------------------*/
-static void test_hover_store_roundtrip(void) {
-  printf("  test_hover_store_roundtrip\n");
-  fs_owner_pump();
-
-  const float guess = HEIGHT_HOVER_GUESS;
-
-  (void)fs_owner_unlink(HOVER_STORE_PATH);
-  CHECK(hover_store_load(guess) == guess,
-        "no stored file falls back to the guess");
-
-  CHECK(hover_store_save(0.42f), "a plausible hover is queued");
-  fs_owner_pump();
-  const float got = hover_store_load(guess);
-  CHECK(got > 0.4199f && got < 0.4201f, "and reads back through fs_owner");
-
-  /* Out of band on either side is refused at SAVE time, so a bad estimate
-   * never reaches the card and the previous good one survives. */
-  CHECK(!hover_store_save(HOVER_EST_MAX + 0.1f),
-        "an over-range hover is not saved");
-  CHECK(!hover_store_save(HOVER_EST_MIN - 0.01f), "nor an under-range one");
-  fs_owner_pump();
-  const float still = hover_store_load(guess);
-  CHECK(still > 0.4199f && still < 0.4201f,
-        "the last good value is still what is stored");
-
-  /* A file of the right size with the wrong magic is somebody else's data.
-   * Its VALUE is deliberately in band, so only the magic check can reject it
-   * -- a foreign file whose bytes happen to be out of range would let the
-   * range check pass this for the wrong reason. */
-  {
-    uint8_t foreign[8];
-    const uint32_t not_ours = 0xDEADBEEFu;
-    const float plausible = 0.42f;
-    memcpy(foreign, &not_ours, 4);
-    memcpy(foreign + 4, &plausible, 4);
-    CHECK(fs_owner_enqueue_write_at(FS_WA_SESSION_INTERNAL, HOVER_STORE_PATH, 0,
-                                    foreign, sizeof foreign),
-          "a foreign 8-byte file with an in-band value is written");
-    fs_owner_pump();
-    CHECK(hover_store_load(guess) == guess,
-          "bad magic falls back to the guess");
-  }
-
-  /* A truncated file: right magic, too few bytes. Two things stop it being
-   * flown -- the length check, and the zero-initialised record whose 0.0f the
-   * range check then refuses. Removing EITHER alone still falls back, so this
-   * case holds the pair together rather than isolating one: drop both and the
-   * short read reaches the throttle as uninitialised stack. */
-  {
-    (void)fs_owner_unlink(HOVER_STORE_PATH);
-    const uint32_t magic = HOVER_STORE_MAGIC;
-    CHECK(fs_owner_enqueue_write_at(FS_WA_SESSION_INTERNAL, HOVER_STORE_PATH, 0,
-                                    &magic, sizeof magic),
-          "a 4-byte truncated record is written");
-    fs_owner_pump();
-    CHECK(hover_store_load(guess) == guess,
-          "a short read falls back rather than trusting a partial record");
-  }
-
-  /* Right magic, value outside the band -- the case a plain magic check would
-   * pass straight through to the throttle. */
-  {
-    uint8_t rec[8];
-    const uint32_t magic = HOVER_STORE_MAGIC;
-    const float wild = 0.95f;
-    memcpy(rec, &magic, 4);
-    memcpy(rec + 4, &wild, 4);
-    CHECK(fs_owner_enqueue_write_at(FS_WA_SESSION_INTERNAL, HOVER_STORE_PATH, 0,
-                                    rec, sizeof rec),
-          "a well-formed record with a wild value is written");
-    fs_owner_pump();
-    CHECK(hover_store_load(guess) == guess,
-          "right magic but out-of-band value is still refused");
-  }
-
-  (void)fs_owner_unlink(HOVER_STORE_PATH);
-}
-
 int main(void) {
   printf("== FS owner SITL verification ==\n");
 
@@ -427,7 +335,6 @@ int main(void) {
   test_writeat_roundtrip();
   test_writeat_lane_bounds_and_reservation();
   test_dir_browse_and_stat();
-  test_hover_store_roundtrip();
 
   printf("\n%d checks, %d failures\n", g_checks, g_fails);
   return g_fails == 0 ? 0 : 1;
