@@ -158,7 +158,7 @@ typedef struct __attribute__((packed)) {
 } packet_t;
 
 typedef union {
-  byte b;
+  uint8_t b;
   char c;
 } byte_char_u;
 

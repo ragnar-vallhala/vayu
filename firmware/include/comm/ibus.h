@@ -43,7 +43,11 @@ typedef enum {
 } ibus_state_t;
 
 void ibus_init(ibus_data_t *data);
-bool ibus_parse_byte(uint8_t byte, ibus_data_t *data);
+/* The parameter is `b`, not `byte`: NavHAL's deprecated `#define byte uint8_t`
+ * is in scope in most translation units that include this, and an identifier
+ * of that name preprocesses to `uint8_t uint8_t` -- accepted, because C lets a
+ * parameter shadow a typedef name, so the trap is silent. */
+bool ibus_parse_byte(uint8_t b, ibus_data_t *data);
 
 /* ----------------------------------------------------------------------------
  * RC link watchdog (SYS-SAFE-002 / COMM-RC-002)
