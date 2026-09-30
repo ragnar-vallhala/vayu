@@ -142,10 +142,14 @@ void init_tasks(void) {
                                  // against the 256 B guard band -- under one FP
                                  // exception frame (132 B) of real margin, i.e.
                                  // the same shape as the rate_ctl panic.
-  /* 512: one ADC conversion, a struct copy and a delay. Nothing formats or
-   * logs on this task, which is what keeps it small (see the 320-byte
-   * vayu_log floor the RC task fell foul of). */
-  task_create_named(battery_task, NULL, 512, 0, "battery");
+  /* 1024, not the 512 that looked ample. The work is one conversion, a float
+   * multiply and a struct copy -- but the float is the point: an exception
+   * taken in a task that has touched the FPU stacks 104 bytes of FP context on
+   * top of the ordinary frame, and vaios panics outright below 64 bytes free
+   * (and below 320 for anything that logs). 512 measured 252 bytes free at a
+   * context switch and the kernel halted the whole system. Stacks come from
+   * the vaios heap, so this does not move _heap_start. */
+  task_create_named(battery_task, NULL, 1024, 0, "battery");
   task_create_named(rc_ibus_task, NULL, 576, 0, "rc_ibus"); // peak 132
   task_create_named(angle_controller_task, NULL, 832, 1,
                     "angle_ctl"); // peak 404, control
