@@ -33,8 +33,9 @@
  * this file should shrink to a scale factor and a getter.
  *
  * Deliberately polled and slow. A pack voltage that moves meaningfully inside
- * 100 ms is a pack that is already failing, and a conversion started and
- * finished inside one call costs ~1 us with nothing to schedule around it.
+ * 100 ms is a pack that is already failing, and the whole reading -- sixteen
+ * conversions averaged -- costs under a millisecond with nothing to schedule
+ * around it.
  */
 #ifndef VAYU_DRIVER_BATTERY_H
 #define VAYU_DRIVER_BATTERY_H

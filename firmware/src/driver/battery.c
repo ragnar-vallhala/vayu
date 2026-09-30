@@ -74,6 +74,19 @@ typedef struct {
 /* A conversion takes ~20 us; this is a loop bound, not a timeout to tune. */
 #define ADC_EOC_SPINS 20000u
 
+/* Conversions averaged per reading.
+ *
+ * A single conversion spread 1038..1123 counts -- nearly a volt peak to peak --
+ * against a multimeter that did not move, with the motors STOPPED and a 10 uF
+ * cap on the divider. So it is not the pack, and it is not PWM getting through
+ * the filter: it is per-conversion noise, mostly on the 3.3 V rail this uses as
+ * its reference. Averaging is the only thing that touches that.
+ *
+ * The cap's corner is ~4 Hz (37 ms into the divider's 3.7k), so these sixteen
+ * conversions all land on essentially one point of the filtered signal -- which
+ * is the intent. They average the CONVERTER's noise, not the pack's. */
+#define BATTERY_OVERSAMPLE 16u
+
 static volatile float s_last_volts;
 static volatile uint16_t s_last_counts;
 static uint8_t s_ready;
@@ -130,22 +143,27 @@ vayu_status_t battery_read_volts(float *volts_out) {
   }
   adc_regs_t *a = ADC1_REGS;
 
-  a->SR &= ~ADC_SR_EOC; /* EOC is cleared by writing 0, or by reading DR */
-  a->CR2 |= ADC_CR2_SWSTART;
+  uint32_t acc = 0u;
+  for (uint32_t n = 0; n < BATTERY_OVERSAMPLE; n++) {
+    a->SR &= ~ADC_SR_EOC; /* EOC is cleared by writing 0, or by reading DR */
+    a->CR2 |= ADC_CR2_SWSTART;
 
-  uint32_t spins = 0;
-  while ((a->SR & ADC_SR_EOC) == 0u) {
-    if (++spins >= ADC_EOC_SPINS) {
-      s_last_sr = a->SR;
-      s_last_cr2 = a->CR2;
-      s_timeouts++;
-      s_read_rc = (int32_t)VAYU_ERR_TIMEOUT;
-      return VAYU_ERR_TIMEOUT;
+    uint32_t spins = 0;
+    while ((a->SR & ADC_SR_EOC) == 0u) {
+      if (++spins >= ADC_EOC_SPINS) {
+        s_last_sr = a->SR;
+        s_last_cr2 = a->CR2;
+        s_timeouts++;
+        s_read_rc = (int32_t)VAYU_ERR_TIMEOUT;
+        return VAYU_ERR_TIMEOUT;
+      }
     }
+    acc += (uint32_t)(a->DR & 0x0FFFu); /* reading DR clears EOC */
   }
-
+  /* Rounded, not truncated: half a count is 6 mV of systematic bias, small but
+   * free to avoid. */
   const uint16_t counts =
-      (uint16_t)(a->DR & 0x0FFFu); /* reading DR clears EOC */
+      (uint16_t)((acc + BATTERY_OVERSAMPLE / 2u) / BATTERY_OVERSAMPLE);
   /* Straight from counts. Going via a nominal VREF and a nominal divider ratio
    * gave a reading 9% off a multimeter and invited two wrong conclusions about
    * the battery before the scale was checked. */
