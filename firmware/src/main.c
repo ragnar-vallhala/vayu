@@ -253,9 +253,11 @@ int main() {
   pid_config_init(); /* COMM-CMD-003: restore persisted PID tune from SD */
   system_state_init();
   /* Takes a pending ESC-calibration request and drives maximum from startup.
-   * Must be AFTER system_state_init (it needs STANDBY to transition from) and
-   * BEFORE the scheduler, because the ESCs have to see maximum as they wake --
-   * which is the one moment a running FC cannot recreate. */
+   * Must be AFTER system_state_init, which leaves the state at INIT -- the
+   * transition table carries {INIT, ESC_CALIB} for exactly this call -- and
+   * BEFORE the scheduler, because the ESCs have to see maximum as they wake,
+   * which is the one moment a running FC cannot recreate. STANDBY does not
+   * arrive until boot_task, by which time they are awake. */
   esc_calib_boot_init();
   init_sensors();
   system_init_tasks();

@@ -157,6 +157,13 @@ int main(void) {
 
   printf("  [5] the next boot takes the request and drives maximum\n");
   {
+    /* From INIT, which is what system_state_init() leaves and therefore the
+     * state esc_calib_boot_init() actually runs in -- it is called before the
+     * scheduler, and STANDBY does not arrive until boot_task. This test used to
+     * run it from STANDBY and so passed while the real boot path was refused:
+     * the request was consumed, the transition rejected, and the boot looked
+     * normal. */
+    _system_current_status = SYSTEM_STATE_INIT;
     esc_calib_boot_init();
     CHECK(esc_calib_active(), "boot enters calibration");
     CHECK(system_state_get() == SYSTEM_STATE_ESC_CALIB, "state is ESC_CALIB");
