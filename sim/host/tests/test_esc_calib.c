@@ -135,8 +135,18 @@ int main(void) {
   {
     ibus_data_t f = frame_enter();
     hold(&f, ESC_CALIB_GESTURE_MS + 400u);
-    fs_owner_pump(); /* the FS task writes the marker */
-    CHECK(esc_calib_request_pending(), "the request is stored");
+
+    /* NOT yet. request_write() only enqueues into fs_owner's write-at lane;
+     * until the FS task has drained it the request lives in RAM, and a battery
+     * pull loses it. Reporting success here is what made the feature look like
+     * it was not latching: the operator was told to power-cycle while the
+     * write was still in the queue. */
+    CHECK(!esc_calib_request_pending(),
+          "a queued request is NOT reported as stored");
+
+    fs_owner_pump();       /* the FS task writes the marker */
+    esc_calib_rc_step(&f); /* the next frame observes the commit */
+    CHECK(esc_calib_request_pending(), "the request is stored once committed");
     /* The property that matters. Showing a RUNNING ESC maximum spins it to
      * full; calibration needs it to see maximum as it wakes, so the gesture
      * must not touch the motors at all. */

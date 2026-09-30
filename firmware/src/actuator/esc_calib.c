@@ -16,7 +16,8 @@
  */
 #include "actuator/esc_calib.h"
 
-#include "storage/fs_owner.h" /* vayu_log, fs_owner_enqueue_write_at */
+#include "storage/fs_owner.h" /* vayu_log, fs_owner_enqueue_write_at,
+                                  fs_owner_writeat_committed/_failed */
 #include "vfs.h"              /* boot-time marker read */
 #include "sys/state.h"
 #include "utils.h" /* v_get_ticks */
@@ -138,6 +139,22 @@ static bool request_take(void) {
  * that did not happen, not a lost one. */
 static const char *volatile s_pending_msg;
 
+/* Waiting for the request to become DURABLE, not merely queued.
+ *
+ * request_write() only enqueues into fs_owner's write-at lane; the FS task
+ * drains it some milliseconds later. Confirming "power-cycle now" on the
+ * enqueue told the operator to pull the battery while the write was still in
+ * RAM -- so the request was genuinely not latched, and the next boot came up
+ * normally with nothing to find. The confirmation now waits for fs_owner to
+ * report the commit. */
+static bool s_awaiting_commit;
+static uint32_t s_commit_mark;
+static uint32_t s_commit_wait_ms;
+
+/* Long enough for the FS task to get a turn even behind a blackbox flush,
+ * short enough that a silent failure does not look like success. */
+#define ESC_CALIB_COMMIT_TIMEOUT_MS 3000u
+
 /** @noreq raise a message for the logging task; RC-task side, no formatting */
 static void esc_calib_say(const char *msg) { s_pending_msg = msg; }
 
@@ -198,6 +215,25 @@ void esc_calib_rc_step(const ibus_data_t *rc) {
     return;
   }
 
+  /* Resolve a pending request BEFORE looking for a new gesture: the operator
+   * is waiting on this line to know whether to pull the battery. */
+  if (s_awaiting_commit) {
+    if (fs_owner_writeat_failed(FS_WA_SESSION_INTERNAL)) {
+      s_awaiting_commit = false;
+      esc_calib_say("esc_calib: request FAILED to write -- check the card");
+    } else if (fs_owner_writeat_committed(FS_WA_SESSION_INTERNAL) !=
+               s_commit_mark) {
+      s_awaiting_commit = false;
+      s_request_written = true;
+      esc_calib_say("esc_calib: request ON CARD -- power-cycle now, props OFF");
+    } else if ((uint32_t)(v_get_ticks() - s_commit_wait_ms) >=
+               ESC_CALIB_COMMIT_TIMEOUT_MS) {
+      s_awaiting_commit = false;
+      esc_calib_say("esc_calib: request write TIMED OUT -- not stored");
+    }
+    return; /* one thing at a time; the gesture is already released */
+  }
+
   if (s_phase == ESC_CAL_OFF) {
     /* Entry only from STANDBY: disarmed, RC healthy, nothing else claiming the
      * motors. The transition table refuses it from anywhere else anyway, but
@@ -215,11 +251,13 @@ void esc_calib_rc_step(const ibus_data_t *rc) {
      * cycle that makes that possible. */
     s_holding_enter = false;
     if (!request_write()) {
-      esc_calib_say("esc_calib: could not write the request (card?)");
+      esc_calib_say("esc_calib: request REFUSED by the FS queue (card?)");
       return;
     }
-    s_request_written = true;
-    esc_calib_say("esc_calib: request stored -- power-cycle, props OFF");
+    /* Queued, not stored. Say nothing yet -- the operator acts on this line. */
+    s_awaiting_commit = true;
+    s_commit_mark = fs_owner_writeat_committed(FS_WA_SESSION_INTERNAL);
+    s_commit_wait_ms = v_get_ticks();
     return;
   }
 
