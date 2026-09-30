@@ -301,7 +301,7 @@
 #define HSL_STREAM_ACT 2u
 #define HSL_ACT_REC_BYTES 12u /* 4x u16 motor, u16 throttle, u16 flags       */
 #define HSL_STREAM_VRT 3u
-#define HSL_VRT_REC_BYTES 28u /* 6x f32, u16 flags, u16 notch centre         */
+#define HSL_VRT_REC_BYTES 32u /* 7x f32, u16 flags, u16 notch centre         */
 #define HSL_STREAM_CTL 4u
 #define HSL_CTL_REC_BYTES 12u /* 3x i16 filtered rate, 3x i16 PID output     */
 /* NavLink received from the GCS, verbatim. A BYTE STREAM: rec_bytes 1, so it
@@ -411,6 +411,11 @@
 #define HSL_VRT_F_TOF_STALE 0x0100u
 #define HSL_VRT_F_TOF_TILT 0x0200u
 #define HSL_VRT_F_TOF_RANGE 0x0400u
+
+/** The pack-voltage reading in this record is real. Clear means either no
+ *  conversion has succeeded yet or the last one failed -- which reads
+ *  differently from a genuine 0 V. */
+#define HSL_VRT_F_BATT_VALID 0x0800u
 
 /* EVENT kinds. `a` is the new value, `b` the previous one. */
 #define HSL_EV_STATE 1u        /* sys_state_t                                */
@@ -564,6 +569,11 @@ typedef struct {
   float altitude;
   float climb_rate;
   float accel_bias;
+  /* Pack voltage, on the same timebase as everything it explains. A thrust
+   * question is unanswerable without it: hover collective alone cannot
+   * separate a flat pack from a weak motor, which cost a whole evening. 0.0
+   * when the measurement is invalid -- see HSL_VRT_F_BATT_VALID. */
+  float battery_v;
   uint16_t flags; /* HSL_VRT_F_* */
 } hsl_vert_sample_t;
 

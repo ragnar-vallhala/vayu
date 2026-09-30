@@ -251,6 +251,21 @@ void navlink_tx_attitude(const attitude_t *att_deg) {
 }
 
 /** @implements COMM-TEL-006 */
+/** @implements COMM-TEL-003 */
+void navlink_tx_battery(float volts, uint16_t counts, uint8_t valid) {
+  /* v2 BATTERY (msgid 1050). counts goes on the wire beside the volts because
+   * the scale is a calibrated board constant: if a reading looks wrong, the
+   * raw count is what says whether the ADC or the constant is at fault. */
+  static uint8_t seq = 0;
+  navlink_battery_t b = {0};
+  b.voltage = volts;
+  b.counts = counts;
+  b.valid = valid;
+  uint8_t frame[NAVLINK_MAX_FRAME];
+  size_t n = navlink_battery_encode(frame, &b, seq++, get_device_id(), 1);
+  write_channel(g_telemetry_channel, frame, (uint16_t)n);
+}
+
 void navlink_tx_baro(float pressure_pa, float temperature_c, float humidity_rh,
                      float altitude_m) {
   /* v2 BARO (msgid 1039); BME280 baro/humidity. */

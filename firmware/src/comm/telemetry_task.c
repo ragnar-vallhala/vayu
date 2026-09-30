@@ -116,6 +116,10 @@ void imu_telemetry_task(void *args) {
     bool send_pid_err = false;                           // CONTROL_TRACE: off
     bool send_rc = TELEM_GATE(packet_counter, 90, 22);   // ~11 Hz
     bool send_baro = TELEM_GATE(packet_counter, 200, 0); // 5 Hz
+    /* 2 Hz. The pack is sampled at 4 Hz and a voltage that matters moves in
+     * seconds, so this is about having the number on the link at all rather
+     * than resolving a transient -- the recorder carries the detail. */
+    bool send_batt = TELEM_GATE(packet_counter, 500, 250); // 2 Hz
     /* 20 Hz: the vertical estimator is what the current bench/flight tests are
      * measuring, and accel_bias converges in ~1.8 s — at the old 5 Hz that was
      * ~7 samples across the whole transient, before 26% loss took its cut. */
@@ -136,6 +140,7 @@ void imu_telemetry_task(void *args) {
     if (sysid_dump_active()) {
       send_full = send_comp = send_att = send_rc = send_motor = send_pid_err =
           send_baro = send_vert = send_notch = send_hsl = false;
+      send_batt = false;
     }
     (void)
         send_pid_err; /* constant false above; kept so re-enabling is one line */
@@ -254,6 +259,16 @@ void imu_telemetry_task(void *args) {
             hub_altitude_m(baro.pressure_pa, HUB_SEA_LEVEL_PA_DEFAULT));
       }
     }
+    /* Pack voltage. Published by the battery task whether or not a conversion
+     * succeeded, so `valid` is what separates a flat pack from a dead
+     * measurement -- and the raw counts go with it for the same reason. */
+    if (send_batt) {
+      battery_sample_t batt;
+      if (battery_latest(&batt)) {
+        navlink_tx_battery(batt.volts, batt.counts, batt.valid);
+      }
+    }
+
     /* Fused vertical estimate (~10 Hz): VERT task output, with raw baro alt
      * alongside for a fused-vs-raw chart. Latest-wins ring; skips cleanly until
      * the VERT task has published. */

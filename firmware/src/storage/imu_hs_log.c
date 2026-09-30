@@ -459,6 +459,7 @@ void imu_hs_log_vert(const hsl_vert_sample_t *v, uint32_t t_cyc) {
   put_f32(&rec[12], v->altitude);
   put_f32(&rec[16], v->climb_rate);
   put_f32(&rec[20], v->accel_bias);
+  put_f32(&rec[24], v->battery_v);
   /* The dynamic notch's tracked centre, one axis per record, round-robin. Read
    * here rather than pushed by the producer because the vertical estimator has
    * no business knowing about the gyro notch, and gyro_notch_center_hz is a
@@ -479,8 +480,8 @@ void imu_hs_log_vert(const hsl_vert_sample_t *v, uint32_t t_cyc) {
     hz = 65535.0f;
   s_ntc_axis = (uint8_t)((s_ntc_axis + 1u) % 3u);
 
-  put_u16(&rec[24], flags);
-  put_u16(&rec[26], (uint16_t)(hz + 0.5f));
+  put_u16(&rec[28], flags);
+  put_u16(&rec[30], (uint16_t)(hz + 0.5f));
   stream_commit(st, t_cyc);
 }
 
@@ -701,9 +702,10 @@ static void build_preamble(void) {
                                      {"alt", HSL_FTYPE_F32, 1.0f},
                                      {"climb", HSL_FTYPE_F32, 1.0f},
                                      {"abias", HSL_FTYPE_F32, 1.0f},
+                                     {"vbat", HSL_FTYPE_F32, 1.0f},
                                      {"flags", HSL_FTYPE_U16, 1.0f},
                                      {"ntc_hz", HSL_FTYPE_U16, 1.0f}},
-               8u);
+               9u);
   /* No sign flips here, unlike "imu": the rate loop works in body axes, so the
    * sensor -> body map has already been applied by the time this is captured. */
   f = emit_fmt(f, HSL_STREAM_CTL, HSL_CTL_REC_BYTES, (uint16_t)HSL_CTL_RATE_HZ,

@@ -255,6 +255,16 @@ void vertical_estimator_task(void *args) {
      * and it is meaningless without the raw accel beside it. Decimated
      * internally to 20 Hz, and a no-op unless armed. */
     {
+      /* Pack voltage from the hub, on this record's timebase. Read here rather
+       * than by the recorder because storage/ must not name a device either --
+       * and it belongs beside accel_bias, which is the state a sagging pack
+       * corrupts first. */
+      battery_sample_t batt;
+      float batt_v = 0.0f;
+      bool batt_ok = battery_latest(&batt) && batt.valid;
+      if (batt_ok) {
+        batt_v = batt.volts;
+      }
       hsl_vert_sample_t hv = {
           .baro_altitude = out.baro_altitude,
           .agl = out.agl,
@@ -262,7 +272,13 @@ void vertical_estimator_task(void *args) {
           .altitude = out.altitude,
           .climb_rate = out.climb_rate,
           .accel_bias = out.accel_bias,
-          .flags = vert_log_flags(&out, tof_fresh, tof_age_steps, cos_tilt),
+          .battery_v = batt_v,
+          /* BATT_VALID is added here rather than inside vert_log_flags(): the
+           * pack is not one of the estimator's ToF gates, and folding it in
+           * would couple the estimator's own diagnostics to the power path. */
+          .flags = (uint16_t)(vert_log_flags(&out, tof_fresh, tof_age_steps,
+                                             cos_tilt) |
+                              (batt_ok ? HSL_VRT_F_BATT_VALID : 0u)),
       };
       imu_hs_log_vert(&hv, out.timestamp);
     }

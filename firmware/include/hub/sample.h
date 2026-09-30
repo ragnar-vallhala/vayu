@@ -104,6 +104,27 @@ typedef struct {
   uint8_t instance;
 } range_sample_t;
 
+/** One pack-voltage reading.
+ *
+ * Here rather than read from the driver directly for the same reason every
+ * other measurement is: the things that want it (telemetry, the recorder) are
+ * in gated sections and must not name a device. `valid` is false when no
+ * conversion has succeeded yet, which is how an unplugged pack and a broken
+ * ADC read differently from 0.0 V. */
+typedef struct {
+  float volts;
+  uint32_t t_cyc;
+  /* The raw ADC count the volts came from. Carried in the sample rather than
+   * fetched from the driver, because the consumers that want it -- telemetry
+   * and the recorder -- are in sections that must not name a device. It earns
+   * its place: the scale is a calibrated board constant, so when a reading
+   * looks wrong the count is what says whether the ADC or the constant is at
+   * fault. */
+  uint16_t counts;
+  uint8_t valid;
+  uint8_t instance;
+} battery_sample_t;
+
 /** ISA standard sea-level pressure, the default altitude datum. */
 #define HUB_SEA_LEVEL_PA_DEFAULT 101325.0f
 

@@ -34,6 +34,7 @@
 #include "vayu_assert.h"
 #include "vayu_status.h"
 #include "actuator/esc_calib.h" /* boot-time ESC calibration entry */
+#include "driver/battery.h"     /* pack voltage bring-up */
 #include "hub/hub.h"            /* imu_buffer_init */
 #include "vayu_tasks.h"
 
@@ -141,6 +142,10 @@ void init_tasks(void) {
                                  // against the 256 B guard band -- under one FP
                                  // exception frame (132 B) of real margin, i.e.
                                  // the same shape as the rate_ctl panic.
+  /* 512: one ADC conversion, a struct copy and a delay. Nothing formats or
+   * logs on this task, which is what keeps it small (see the 320-byte
+   * vayu_log floor the RC task fell foul of). */
+  task_create_named(battery_task, NULL, 512, 0, "battery");
   task_create_named(rc_ibus_task, NULL, 576, 0, "rc_ibus"); // peak 132
   task_create_named(angle_controller_task, NULL, 832, 1,
                     "angle_ctl"); // peak 404, control
@@ -258,6 +263,16 @@ int main() {
    * BEFORE the scheduler, because the ESCs have to see maximum as they wake,
    * which is the one moment a running FC cannot recreate. STANDBY does not
    * arrive until boot_task, by which time they are awake. */
+  /* Pack voltage. Read once here, before the scheduler, purely so the boot log
+   * carries a number that can be held against a multimeter -- the divider is
+   * new hardware and its scale is a board fact nobody has checked yet. The
+   * running measurement belongs to the sensor registry, not here. */
+  /* Pack voltage. Brought up here because the ADC has to be alive before its
+   * task runs; the task itself is created with the others below. */
+  if (battery_init() != VAYU_OK) {
+    vayu_log("batt: ADC did not come up");
+  }
+
   esc_calib_boot_init();
   init_sensors();
   system_init_tasks();

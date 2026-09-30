@@ -87,6 +87,38 @@ extern "C" {
  * instance (F8). */
 #define BOARD_ESC_AF HAL_GPIO_AF1
 
+/* ---------------------------------------------------------------------------
+ * Battery sense
+ *
+ * A resistor divider from the pack to an ADC pin. 37k on the high side, 4k on
+ * the low side, tap to PA0 (ADC1_IN0): ratio 4/41, so a full 3S at 12.6 V
+ * reads 1.23 V and the 3.3 V full scale corresponds to 33.8 V -- headroom to
+ * 8S, at the cost of using only 37% of the range on 3S.
+ *
+ * PA0 is also SYS_WKUP1. Nothing here drives it, but a pull-down fitted for
+ * wake-up would sit in parallel with the low-side resistor and read the pack
+ * low, which is why BOARD_VBAT_SCALE is a board fact and not a constant in the
+ * driver: measure the real ratio and correct it here.
+ * -------------------------------------------------------------------------*/
+#define BOARD_VBAT_PIN GPIO_PA00
+#define BOARD_VBAT_ADC_CHANNEL 0u /* PA0 is ADC1_IN0 */
+
+/* Pack volts per ADC count, MEASURED -- not derived from the resistor values.
+ *
+ * The nominal 37k/4k ratio predicts 0.0976 and the bench measures 0.071: a 3S
+ * at 10.83 V lands on 948 counts, not the 1310 the arithmetic wants. So one of
+ * the resistors is not what it says, or something loads the low side -- PA0 is
+ * SYS_WKUP1 and a ~9.4k pull-down would do exactly this.
+ *
+ * Rather than model that, calibrate it. One constant absorbs the divider, the
+ * resistor tolerances, the real VREF (the 3.3 V rail is a regulator, not a
+ * reference) and any stray load, and unlike a computed ratio it can be checked
+ * against a multimeter in one reading. Recalibrate if the divider is rebuilt:
+ *
+ *     BOARD_VBAT_VOLTS_PER_COUNT = (pack volts) / (battery_last_counts())
+ */
+#define BOARD_VBAT_VOLTS_PER_COUNT 0.011424f
+
 /* ---- Timers -------------------------------------------------------------
  * The general-purpose timer behind driver/timer_callbacks.h: the sub-
  * millisecond scheduler the 1 ms SysTick cannot serve (IMU pacing, the HF
