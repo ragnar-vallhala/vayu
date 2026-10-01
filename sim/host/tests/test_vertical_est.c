@@ -45,6 +45,7 @@
 #include <stdio.h>
 
 #include "est/vertical_estimator.h"
+#include "storage/imu_hs_log.h" /* HSL_VRT_F_* */
 #include "maths/linalg.h"
 
 static int g_checks = 0;
@@ -596,6 +597,78 @@ static void test_guards(void) {
   }
 }
 
+/* The blackbox vrt flags word. This is what turns "the flight ran on baro" into
+ * "the ToF was rejected BECAUSE", so each bit has to mean only its own gate --
+ * a bit set by the wrong condition sends the next diagnosis at the wrong part
+ * of the aircraft. The gates are reported as evaluated, so an accepted sample
+ * and a rejected one must both be representable at once. */
+static void test_log_flags(void) {
+  printf("\n[9] blackbox vrt flags\n");
+
+  /* Accepted: fresh, young, level, mid-band. Nothing but the state's own bits. */
+  vertical_state_t s = {0};
+  s.tof_valid = true;
+  s.valid = true;
+  s.agl_tof = 0.5f;
+  uint16_t f = vert_log_flags(&s, true, 0u, 1.0f);
+  check((f & HSL_VRT_F_TOF_VALID) != 0, "VERT-F1 tof_valid mirrored");
+  check((f & HSL_VRT_F_VALID) != 0, "VERT-F1 valid mirrored");
+  check((f & HSL_VRT_F_TOF_FRESH) != 0, "VERT-F1 fresh sample marked");
+  check((f &
+         (HSL_VRT_F_TOF_STALE | HSL_VRT_F_TOF_TILT | HSL_VRT_F_TOF_RANGE)) == 0,
+        "VERT-F1 an accepted sample trips NO reject bit");
+  check((f & (HSL_VRT_F_ACCEL_UNHEALTHY | HSL_VRT_F_HOVER_MEASURED)) == 0,
+        "VERT-F1 unrelated bits stay clear");
+
+  /* Each gate alone, so no bit is standing in for another. */
+  check((vert_log_flags(&s, false, 0u, 1.0f) & HSL_VRT_F_TOF_FRESH) == 0,
+        "VERT-F2 a stepped-over sample is not fresh");
+  check((vert_log_flags(&s, true, VERT_TOF_STALE_STEPS, 1.0f) &
+         HSL_VRT_F_TOF_STALE) != 0,
+        "VERT-F3 stale AT the threshold, not one past it");
+  check((vert_log_flags(&s, true, VERT_TOF_STALE_STEPS - 1u, 1.0f) &
+         HSL_VRT_F_TOF_STALE) == 0,
+        "VERT-F3 one step short is not stale");
+  check((vert_log_flags(&s, true, 0u, VERT_TOF_MAX_TILT_COS) &
+         HSL_VRT_F_TOF_TILT) != 0,
+        "VERT-F4 tilt rejects AT the cosine limit");
+  check((vert_log_flags(&s, true, 0u, 0.5f) & HSL_VRT_F_TOF_TILT) != 0,
+        "VERT-F4 and well past it");
+
+  /* The band is inclusive at both ends -- the floor is the DEVICE floor and a
+   * landed craft reads right at it, which is the one moment the ToF matters
+   * most. A flags word that called that out-of-range would send someone
+   * hunting a sensor fault in a perfectly good landing. */
+  s.agl_tof = VERT_TOF_MIN_M;
+  check((vert_log_flags(&s, true, 0u, 1.0f) & HSL_VRT_F_TOF_RANGE) == 0,
+        "VERT-F5 the device floor is IN range");
+  s.agl_tof = VERT_TOF_MAX_M;
+  check((vert_log_flags(&s, true, 0u, 1.0f) & HSL_VRT_F_TOF_RANGE) == 0,
+        "VERT-F5 the ceiling is in range");
+  s.agl_tof = VERT_TOF_MIN_M - 0.001f;
+  check((vert_log_flags(&s, true, 0u, 1.0f) & HSL_VRT_F_TOF_RANGE) != 0,
+        "VERT-F5 below the floor is out of range");
+  s.agl_tof = VERT_TOF_MAX_M + 0.001f;
+  check((vert_log_flags(&s, true, 0u, 1.0f) & HSL_VRT_F_TOF_RANGE) != 0,
+        "VERT-F5 above the ceiling is out of range");
+
+  /* Several causes at once is the normal case on a bad flight, and the whole
+   * point is that they do not mask each other. */
+  vertical_state_t bad = {0};
+  bad.accel_unhealthy = true;
+  bad.hover_measured = true;
+  bad.agl_tof = 9.0f;
+  f = vert_log_flags(&bad, false, VERT_TOF_STALE_STEPS + 10u, 0.1f);
+  check((f & HSL_VRT_F_TOF_STALE) && (f & HSL_VRT_F_TOF_TILT) &&
+            (f & HSL_VRT_F_TOF_RANGE),
+        "VERT-F6 concurrent causes all survive");
+  check((f & HSL_VRT_F_ACCEL_UNHEALTHY) && (f & HSL_VRT_F_HOVER_MEASURED),
+        "VERT-F6 alongside the state's own bits");
+  check((f & (HSL_VRT_F_TOF_VALID | HSL_VRT_F_VALID | HSL_VRT_F_TOF_FRESH)) ==
+            0,
+        "VERT-F6 and nothing it should not claim");
+}
+
 int main(void) {
   printf("== VERT vertical-estimator verification ==\n");
   test_gravity_removal();
@@ -607,6 +680,7 @@ int main(void) {
   test_accel_unhealthy();
   test_tof_aiding();
   test_guards();
+  test_log_flags();
   printf("\n%d checks, %d failures\n", g_checks, g_fails);
   return g_fails == 0 ? 0 : 1;
 }

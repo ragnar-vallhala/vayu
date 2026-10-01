@@ -147,6 +147,34 @@
 #define VERT_TOF_MAX_GAP_S 0.25f
 #endif
 
+/* Rangefinder acceptance. The VL53L0X measures along the body-down axis, so its
+ * reading is the VERTICAL height only after multiplying by cos(tilt); past ~30
+ * deg both that correction and the beam footprint stop being trustworthy (the
+ * cone is looking sideways at whatever the craft is banked toward). */
+#ifndef VERT_TOF_MAX_TILT_COS
+#define VERT_TOF_MAX_TILT_COS 0.866f /* cos(30 deg) */
+#endif
+/* Usable band. The floor is the DEVICE floor (VL53L0X_RANGE_MIN_MM, 30 mm) and
+ * not a comfort margin above it: the sensor sits ~45 mm off the ground on its
+ * feet, so a floor of 0.05 made tof_valid go false exactly when the craft was
+ * landed — blinding the touchdown detector at the one moment it needs the ToF
+ * most. The mounting offset is removed downstream by flight_phase's own ToF
+ * ground reference, so a low reading here is data, not noise. The ceiling stays
+ * under the sensor's limit so we hand back to baro before it starts reporting
+ * its out-of-range sentinel. */
+#ifndef VERT_TOF_MIN_M
+#define VERT_TOF_MIN_M 0.03f
+#endif
+#ifndef VERT_TOF_MAX_M
+#define VERT_TOF_MAX_M 1.50f
+#endif
+/* Consecutive predict steps (~250 Hz) tolerated without a fresh in-window
+ * range before the ToF is declared stale. ~50 steps ~= 200 ms, an order above
+ * the ~21 Hz ride-along cadence. */
+#ifndef VERT_TOF_STALE_STEPS
+#define VERT_TOF_STALE_STEPS 50u
+#endif
+
 typedef struct {
   float altitude;       /**< m, up-positive (see conventions above). */
   float climb_rate;     /**< m/s, up-positive. */
@@ -205,6 +233,24 @@ typedef struct {
   bool valid;           /**< filter seeded. */
   uint32_t timestamp;   /**< DWT cycle stamp of the driving sample. */
 } vertical_state_t;
+
+/**
+ * @brief Pack a published vertical state, plus the three ToF gate inputs, into
+ *        the blackbox "vrt" flags word.
+ *
+ * Pure: the gates are reported exactly as the task already evaluated them, so
+ * this reads a recording's reason out without re-deciding anything. Separate
+ * from the task so it is testable at all -- the task body is an RTOS loop.
+ *
+ * @param s             the state about to be logged.
+ * @param tof_fresh     a new range sample arrived this step. Clear for a long
+ *                      run means the DRIVER rejected the read before the hub
+ *                      saw it, which points at the sensor, not the estimator.
+ * @param tof_age_steps predict steps since the last fresh in-window range.
+ * @param cos_tilt      cosine of the tilt from vertical.
+ */
+uint16_t vert_log_flags(const vertical_state_t *s, bool tof_fresh,
+                        uint32_t tof_age_steps, float cos_tilt);
 
 /**
  * @brief Initialise a vertical estimator with explicit correction gains.

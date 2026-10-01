@@ -389,6 +389,29 @@
 #define HSL_VRT_F_NOTCH_AXIS_SHIFT 4u
 #define HSL_VRT_F_NOTCH_ACTIVE 0x0040u /* enabled AND past the throttle gate */
 
+/* WHY the rangefinder was not trusted, bits 7-10. HSL_VRT_F_TOF_VALID alone
+ * says a recording spent half its time on baro without saying what rejected
+ * the ToF, and the four causes want different fixes:
+ *
+ *   TOF_FRESH   a NEW range sample arrived this step. Clear for a long run
+ *               means the DRIVER is rejecting reads before the hub ever sees
+ *               them -- device range status != 11, or a value outside its
+ *               30..2400 mm window -- and the answer is in the sensor or its
+ *               mounting, not the estimator.
+ *   TOF_STALE   no new sample for VERT_TOF_STALE_STEPS. The ride-along slot is
+ *               not getting its turn on the I2C loop.
+ *   TOF_TILT    cos(tilt) below VERT_TOF_MAX_TILT_COS: the beam is not looking
+ *               down any more. Expected in aggressive flight, not in a hover.
+ *   TOF_RANGE   the tilt-projected height is outside VERT_TOF_MIN/MAX_M -- out
+ *               of the device's useful band, e.g. above 2.4 m.
+ *
+ * These are diagnosis only: nothing reads them back, and the estimator's
+ * behaviour is unchanged by recording them. */
+#define HSL_VRT_F_TOF_FRESH 0x0080u
+#define HSL_VRT_F_TOF_STALE 0x0100u
+#define HSL_VRT_F_TOF_TILT 0x0200u
+#define HSL_VRT_F_TOF_RANGE 0x0400u
+
 /* EVENT kinds. `a` is the new value, `b` the previous one. */
 #define HSL_EV_STATE 1u        /* sys_state_t                                */
 #define HSL_EV_MODE 2u         /* flight_mode_t                              */
