@@ -52,25 +52,25 @@
  * correcting) even if attitude input stalls; normally it is sample-driven. */
 #define VERT_MAX_PERIOD_MS 50u
 
-/* Rangefinder acceptance. The VL53L0X measures along the body-down axis, so its
- * reading is the VERTICAL height only after multiplying by cos(tilt); past ~30
- * deg both that correction and the beam footprint stop being trustworthy (the
- * cone is looking sideways at whatever the craft is banked toward). */
-#define VERT_TOF_MAX_TILT_COS 0.866f /* cos(30 deg) */
-/* Usable band. The floor is the DEVICE floor (VL53L0X_RANGE_MIN_MM, 30 mm) and
- * not a comfort margin above it: the sensor sits ~45 mm off the ground on its
- * feet, so a floor of 0.05 made tof_valid go false exactly when the craft was
- * landed — blinding the touchdown detector at the one moment it needs the ToF
- * most. The mounting offset is removed downstream by flight_phase's own ToF
- * ground reference, so a low reading here is data, not noise. The ceiling stays
- * under the sensor's limit so we hand back to baro before it starts reporting
- * its out-of-range sentinel. */
-#define VERT_TOF_MIN_M 0.03f
-#define VERT_TOF_MAX_M 1.50f
-/* Consecutive predict steps (~250 Hz) tolerated without a fresh in-window
- * range before the ToF is declared stale. ~50 steps ~= 200 ms, an order above
- * the ~21 Hz ride-along cadence. */
-#define VERT_TOF_STALE_STEPS 50u
+/* The estimator-side gates are recorded as the task evaluated them, so a
+ * recording says WHICH one rejected the ToF rather than only that something
+ * did. TOF_FRESH separates those from the driver rejecting a read before the
+ * hub ever sees it. Here rather than inline in the task so it can be tested. */
+uint16_t vert_log_flags(const vertical_state_t *s, bool tof_fresh,
+                        uint32_t tof_age_steps, float cos_tilt) {
+  return (
+      uint16_t)((s->tof_valid ? HSL_VRT_F_TOF_VALID : 0u) |
+                (s->accel_unhealthy ? HSL_VRT_F_ACCEL_UNHEALTHY : 0u) |
+                (s->valid ? HSL_VRT_F_VALID : 0u) |
+                (s->hover_measured ? HSL_VRT_F_HOVER_MEASURED : 0u) |
+                (tof_fresh ? HSL_VRT_F_TOF_FRESH : 0u) |
+                (tof_age_steps >= VERT_TOF_STALE_STEPS ? HSL_VRT_F_TOF_STALE
+                                                       : 0u) |
+                (cos_tilt <= VERT_TOF_MAX_TILT_COS ? HSL_VRT_F_TOF_TILT : 0u) |
+                ((s->agl_tof < VERT_TOF_MIN_M || s->agl_tof > VERT_TOF_MAX_M)
+                     ? HSL_VRT_F_TOF_RANGE
+                     : 0u));
+}
 
 /* @implements EST-ALT-001 */
 void vertical_estimator_task(void *args) {
@@ -262,25 +262,7 @@ void vertical_estimator_task(void *args) {
           .altitude = out.altitude,
           .climb_rate = out.climb_rate,
           .accel_bias = out.accel_bias,
-          /* The three estimator-side gates are recorded as they were
-           * evaluated above, so a recording says WHICH one rejected the ToF
-           * rather than only that something did. TOF_FRESH separates those
-           * from the driver rejecting a read before the hub sees it. */
-          .flags =
-              (uint16_t)((out.tof_valid ? HSL_VRT_F_TOF_VALID : 0u) |
-                         (out.accel_unhealthy ? HSL_VRT_F_ACCEL_UNHEALTHY
-                                              : 0u) |
-                         (out.valid ? HSL_VRT_F_VALID : 0u) |
-                         (out.hover_measured ? HSL_VRT_F_HOVER_MEASURED : 0u) |
-                         (tof_fresh ? HSL_VRT_F_TOF_FRESH : 0u) |
-                         (tof_age_steps >= VERT_TOF_STALE_STEPS
-                              ? HSL_VRT_F_TOF_STALE
-                              : 0u) |
-                         (cos_tilt <= VERT_TOF_MAX_TILT_COS ? HSL_VRT_F_TOF_TILT
-                                                            : 0u) |
-                         ((agl_tof < VERT_TOF_MIN_M || agl_tof > VERT_TOF_MAX_M)
-                              ? HSL_VRT_F_TOF_RANGE
-                              : 0u)),
+          .flags = vert_log_flags(&out, tof_fresh, tof_age_steps, cos_tilt),
       };
       imu_hs_log_vert(&hv, out.timestamp);
     }
