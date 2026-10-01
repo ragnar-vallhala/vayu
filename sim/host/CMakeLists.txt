@@ -469,6 +469,11 @@ add_executable(test_esc tests/test_esc.c)
 target_link_libraries(test_esc PRIVATE vayu_sitl_core m)
 add_test(NAME esc COMMAND test_esc)
 
+# battery presence floor: pure predicate from driver/battery.h (no ADC needed).
+add_executable(test_battery_present tests/test_battery_present.c)
+target_link_libraries(test_battery_present PRIVATE vayu_sitl_core m)
+add_test(NAME battery_present COMMAND test_battery_present)
+
 add_executable(test_indicator tests/test_indicator.c)
 target_link_libraries(test_indicator PRIVATE vayu_sitl_core m)
 add_test(NAME indicator COMMAND test_indicator)

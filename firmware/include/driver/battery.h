@@ -40,6 +40,8 @@
 #ifndef VAYU_DRIVER_BATTERY_H
 #define VAYU_DRIVER_BATTERY_H
 
+#include "hub/sample.h" /* BATTERY_F_* live with the sample they describe */
+#include "vayu_board.h" /* BOARD_VBAT_PRESENT_MIN_V */
 #include "vayu_status.h"
 #include <stdbool.h>
 #include <stdint.h>
@@ -66,6 +68,57 @@ float battery_last_volts(void);
 /** Raw last ADC count, for divider bring-up and for telling "reads zero"
  *  apart from "reads nothing". */
 uint16_t battery_last_counts(void);
+
+/**
+ * Is the sensed rail carrying a usable pack voltage?
+ *
+ * NOT a battery-detect, and the name is the closest short word rather than a
+ * promise. The divider sees the main power RAIL, so a bench supply or a BEC on
+ * that rail passes this exactly as a pack does -- measured at 10.69 V on this
+ * board with no battery connected. One ADC pin cannot distinguish them.
+ *
+ * What it does exclude is the de-energised case, which is the defect this
+ * exists for: with nothing driving the rail it holds residual charge from the
+ * ESC capacitors (2.65 V measured) and converts perfectly, so a reading alone
+ * would be published as a pack voltage and believed.
+ *
+ * Nor is it a health test: nothing senses cell count, so a dangerously flat
+ * pack passes and its voltage is to be trusted.
+ */
+static inline bool battery_pack_present(float volts) {
+  return volts >= BOARD_VBAT_PRESENT_MIN_V;
+}
+
+/**
+ * Build the BATTERY_F_* mask for one acquisition.
+ *
+ * Pure, and separate from battery_task() so it can be tested at all -- the task
+ * is a while(1) and the ADC is not there on a host. @see hub/sample.h for what
+ * each bit means and why PRESENT and CONVERTED are not the same question.
+ *
+ * @param rc     what battery_read_volts() returned.
+ * @param volts  its reading; ignored unless rc is VAYU_OK.
+ * @param counts the raw count behind it.
+ */
+static inline uint8_t battery_flags_from(vayu_status_t rc, float volts,
+                                         uint16_t counts) {
+  if (rc == VAYU_ERR_TIMEOUT) {
+    return BATTERY_F_TIMEOUT;
+  }
+  if (rc != VAYU_OK) {
+    /* VAYU_ERR_INVALID from a read is only reachable when init failed: that is
+     * the one thing that leaves the driver not ready. */
+    return BATTERY_F_INIT_FAIL;
+  }
+  uint8_t flags = BATTERY_F_CONVERTED;
+  if (battery_pack_present(volts)) {
+    flags |= BATTERY_F_PRESENT;
+  }
+  if (counts >= BATTERY_COUNTS_FULL_SCALE) {
+    flags |= BATTERY_F_RAILED;
+  }
+  return flags;
+}
 
 /** Acquisition task: one conversion every 250 ms, published to the hub.
  *  Started by the composition root; nothing else should sample the ADC. */

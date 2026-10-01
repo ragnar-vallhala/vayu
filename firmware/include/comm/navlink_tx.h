@@ -63,7 +63,7 @@ void navlink_tx_calibration(const uint8_t *buf,
  * derived altitude(m). Passed as plain scalars to keep this seam sensor-blind. */
 /** Pack voltage (BATTERY, 1050). `counts` is the raw ADC value, sent so a
  *  suspect reading can be attributed to the ADC or to the calibration. */
-void navlink_tx_battery(float volts, uint16_t counts, uint8_t valid);
+void navlink_tx_battery(float volts, uint16_t counts, uint8_t flags);
 
 void navlink_tx_baro(float pressure_pa, float temperature_c, float humidity_rh,
                      float altitude_m);

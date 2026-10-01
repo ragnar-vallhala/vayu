@@ -119,6 +119,30 @@ extern "C" {
  */
 #define BOARD_VBAT_VOLTS_PER_COUNT 0.011424f
 
+/* Below this, the sensed rail is not carrying a usable pack voltage.
+ *
+ * NOT a battery-detect. The divider senses the main power RAIL, so it cannot
+ * tell a pack from a bench supply or a BEC feeding the same rail -- measured on
+ * this board reading 10.69 V with no battery connected at all. What it can tell
+ * is whether the rail is energised, which is the question that matters.
+ *
+ * A disconnected pack does NOT read zero. The divider keeps measuring that
+ * rail, and with nothing driving it the rail sits on residual charge in
+ * the ESC bulk capacitors with nothing to drain it: measured 2.65 V on this
+ * board (232 counts), steady, not drifting. So the reading is honest -- it is
+ * just not a battery, and reporting it as one invited exactly the wrong
+ * conclusion once already.
+ *
+ * 5.0 V is chosen to sit in a wide dead band rather than close to either side:
+ * ~1.9x above the measured residual, and far below anything flyable, since a 3S
+ * is scrap by 7.5 V (2.5 V/cell) and the board's own regulator gives up before
+ * that. Nothing here senses cell count, so this is a PRESENCE floor and not a
+ * low-battery warning -- a 2S would pass it.
+ *
+ * Re-measure with the pack disconnected if the divider is rebuilt: the residual
+ * depends on what is on the rail, not on the resistors. */
+#define BOARD_VBAT_PRESENT_MIN_V 5.0f
+
 /* ---- Timers -------------------------------------------------------------
  * The general-purpose timer behind driver/timer_callbacks.h: the sub-
  * millisecond scheduler the 1 ms SysTick cannot serve (IMU pacing, the HF

@@ -43,6 +43,7 @@
 #ifndef VAYU_HUB_SAMPLE_H
 #define VAYU_HUB_SAMPLE_H
 
+#include <stdbool.h>
 #include <stdint.h>
 
 /*
@@ -121,9 +122,60 @@ typedef struct {
    * looks wrong the count is what says whether the ADC or the constant is at
    * fault. */
   uint16_t counts;
-  uint8_t valid;
+  /* BATTERY_F_* (below): whether the volts may be read as a pack
+   * voltage, and when they may not, which reason. A bare boolean could not say
+   * why, and the reasons want different responses -- a de-energised rail is a
+   * disconnected pack, a railed count is a broken reference. */
+  uint8_t flags;
   uint8_t instance;
 } battery_sample_t;
+
+/*
+ * Why the measurement can or cannot be believed.
+ *
+ * PRESENT and CONVERTED must BOTH be set for the volts to be worth reading, and
+ * they are separate because a successful conversion says nothing about the rail
+ * being energised -- see battery_pack_present(), which also explains why
+ * PRESENT is not a battery-detect. TIMEOUT and INIT_FAIL are the reasons
+ * CONVERTED can be clear, so a consumer gets the cause and not just the
+ * symptom. RAILED is the upper counterpart to the presence floor: a collapsed
+ * reference reads near full scale, converts cleanly and sits far ABOVE the
+ * floor, so without its own bit it would be published as a ~47 V pack.
+ *
+ * These values ARE the wire values of navlink's battery_flags. Nothing outside
+ * comm/ may name the codec, so the equality is asserted at the comm boundary
+ * in navlink_tx.c, the one place both are in scope.
+ *
+ * They live beside the sample rather than in driver/battery.h because they are
+ * part of what the SAMPLE means: every consumer -- telemetry, the recorder,
+ * the vertical estimator -- reads them from the hub, and none of those may
+ * include a driver header.
+ */
+#define BATTERY_F_PRESENT 0x01u
+#define BATTERY_F_CONVERTED 0x02u
+#define BATTERY_F_TIMEOUT 0x04u
+#define BATTERY_F_INIT_FAIL 0x08u
+#define BATTERY_F_RAILED 0x10u
+
+/** Full-scale count. A 12-bit right-aligned conversion cannot exceed this, so
+ *  reaching it means the input is over range, not that the pack is enormous. */
+#define BATTERY_COUNTS_FULL_SCALE 4095u
+
+/**
+ * True when the volts may be read as a pack voltage.
+ *
+ * PRESENT and CONVERTED both set, and no fault bit. RAILED has to be excluded
+ * explicitly, because unlike the others it arrives WITH both good bits: a
+ * railed count converts cleanly and sits far above the presence floor, so a
+ * test of the good pair alone would call a collapsed reference a ~47 V pack.
+ * TIMEOUT and INIT_FAIL need no mention -- neither can occur with CONVERTED.
+ */
+static inline bool battery_flags_believable(uint8_t flags) {
+  const uint8_t good = BATTERY_F_PRESENT | BATTERY_F_CONVERTED;
+  const uint8_t faults =
+      BATTERY_F_TIMEOUT | BATTERY_F_INIT_FAIL | BATTERY_F_RAILED;
+  return (flags & good) == good && (flags & faults) == 0u;
+}
 
 /** ISA standard sea-level pressure, the default altitude datum. */
 #define HUB_SEA_LEVEL_PA_DEFAULT 101325.0f

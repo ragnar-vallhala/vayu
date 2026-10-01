@@ -261,7 +261,8 @@ void vertical_estimator_task(void *args) {
        * corrupts first. */
       battery_sample_t batt;
       float batt_v = 0.0f;
-      bool batt_ok = battery_latest(&batt) && batt.valid;
+      bool batt_ok =
+          battery_latest(&batt) && battery_flags_believable(batt.flags);
       if (batt_ok) {
         batt_v = batt.volts;
       }

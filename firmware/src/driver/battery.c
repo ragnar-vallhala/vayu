@@ -215,16 +215,23 @@ void battery_task(void *args) {
 
   while (1) {
     float v = 0.0f;
-    const bool ok = (battery_read_volts(&v) == VAYU_OK);
+    const vayu_status_t rc = battery_read_volts(&v);
+    const uint16_t counts = battery_last_counts();
 
-    /* Published either way. An unplugged pack reads a low but real voltage and
-     * a failed conversion publishes valid=0, so a consumer can tell "the pack
-     * is flat" from "the measurement is broken" -- which reading the value
-     * alone never could. */
-    battery_sample_t s = {.volts = ok ? v : 0.0f,
+    /* The flags say whether the volts may be read as a pack voltage, and when
+     * they may not, which of the four reasons applies. A conversion completing
+     * is NOT enough on its own: with no pack the divider still reports the
+     * battery-side rail sitting on residual capacitor charge, and that converts
+     * perfectly. See driver/battery.h.
+     *
+     * The measured volts and counts go out regardless, because they are the
+     * evidence. A de-energised rail reads a low coherent voltage with plausible
+     * counts; a broken converter reads zero or rails. Suppressing the number
+     * would discard the only thing that separates those. */
+    battery_sample_t s = {.volts = (rc == VAYU_OK) ? v : 0.0f,
                           .t_cyc = vayu_clock_cycles(),
-                          .counts = battery_last_counts(),
-                          .valid = ok ? 1u : 0u,
+                          .counts = counts,
+                          .flags = battery_flags_from(rc, v, counts),
                           .instance = 0u};
     battery_publish(&s);
 

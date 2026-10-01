@@ -265,7 +265,7 @@ void imu_telemetry_task(void *args) {
     if (send_batt) {
       battery_sample_t batt;
       if (battery_latest(&batt)) {
-        navlink_tx_battery(batt.volts, batt.counts, batt.valid);
+        navlink_tx_battery(batt.volts, batt.counts, batt.flags);
       }
     }
 
