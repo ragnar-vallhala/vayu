@@ -188,7 +188,7 @@ int main(void) {
   {
     /* Clamping would be worse than refusing: it would produce a reading that is
      * wrong but in range, which is indistinguishable from a good one. */
-    const float bad_vpc[] = {0.0f,     -0.0114f, BATTERY_CALIB_VPC_MIN,
+    const float bad_vpc[] = {0.0f, -0.0114f, BATTERY_CALIB_VPC_MIN,
                              BATTERY_CALIB_VPC_MAX, 1.0f};
     for (unsigned i = 0; i < sizeof bad_vpc / sizeof bad_vpc[0]; i++) {
       clear_store();
@@ -215,11 +215,13 @@ int main(void) {
     CHECK(!load(&vpc, &off) && IS_COMPILED(vpc, off), "a NaN scale is refused");
     clear_store();
     (void)put_record(BATTERY_CALIB_MAGIC, BATTERY_CALIB_VERSION, 0.0114f, NAN);
-    CHECK(!load(&vpc, &off) && IS_COMPILED(vpc, off), "a NaN offset is refused");
+    CHECK(!load(&vpc, &off) && IS_COMPILED(vpc, off),
+          "a NaN offset is refused");
     clear_store();
     (void)put_record(BATTERY_CALIB_MAGIC, BATTERY_CALIB_VERSION, INFINITY,
                      0.0f);
-    CHECK(!load(&vpc, &off) && IS_COMPILED(vpc, off), "an infinite scale is refused");
+    CHECK(!load(&vpc, &off) && IS_COMPILED(vpc, off),
+          "an infinite scale is refused");
   }
 
   printf("  [5] save refuses what load would refuse\n");
