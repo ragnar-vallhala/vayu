@@ -549,7 +549,9 @@ def verify_encoder_file(path):
     imu, act, vrt, ctl = streams[1], streams[2], streams[3], streams[4]
     assert (imu.rec_bytes, imu.rate_hz) == (12, 2000), vars(imu)
     assert (act.rec_bytes, act.rate_hz) == (12, 400), vars(act)
-    assert (vrt.rec_bytes, vrt.rate_hz) == (28, 20), vars(vrt)
+    assert (vrt.rec_bytes, vrt.rate_hz) == (32, 20), vars(vrt)
+    assert vrt.names == ["baro", "agl", "agltof", "alt", "climb", "abias",
+                         "vbat", "flags", "ntc_hz"], vrt.names
     assert (ctl.rec_bytes, ctl.rate_hz) == (12, 1000), vars(ctl)
     assert imu.names == ["gx", "gy", "gz", "ax", "ay", "az"], imu.names
     assert act.names == ["m1", "m2", "m3", "m4", "thr", "flags"], act.names
@@ -700,7 +702,7 @@ def verify_encoder_file(path):
 VRT_FLAGS = [
     ("tof_valid", 0x0001), ("accel_unhealthy", 0x0002), ("valid", 0x0004),
     ("hover_measured", 0x0008), ("tof_fresh", 0x0080), ("tof_stale", 0x0100),
-    ("tof_tilt", 0x0200), ("tof_range", 0x0400),
+    ("tof_tilt", 0x0200), ("tof_range", 0x0400), ("batt_valid", 0x0800),
 ]
 
 

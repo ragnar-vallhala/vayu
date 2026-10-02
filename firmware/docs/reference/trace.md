@@ -5,12 +5,12 @@
 
 ## Summary
 
-- Total requirements: **176**
-- Active: **170** (of which 1 carry an inline 🟡 gap marker)
+- Total requirements: **177**
+- Active: **171** (of which 1 carry an inline 🟡 gap marker)
 - Dropped: **4**
 - Deferred: **2**
-- Active with implementer: **133 / 170**
-- Active with verifier (or verified-upstream): **34 / 170**
+- Active with implementer: **134 / 171**
+- Active with verifier (or verified-upstream): **35 / 171**
 
 ## Trace
 
@@ -125,6 +125,7 @@
 | `SNS-BARO-001` | active | Baro acquisition and publish | `firmware/src/driver/sensor/bme280.c` | `firmware/tests/onboard/checks/check_sensors.c` |
 | `SNS-BARO-101` | active | Datasheet compensation | `firmware/src/driver/sensor/bme280.c` | — |
 | `SNS-BARO-102` | active | Altitude derivation | `firmware/src/driver/sensor/bme280.c` | — |
+| `SNS-BATT-001` | active | Pack voltage measurement | `firmware/src/driver/battery.c` | `sim/host/tests/test_hslog.c` |
 | `SNS-BMX-101` | active | Init sequence | `firmware/src/driver/sensor/bmx160.c` | `firmware/tests/onboard/checks/check_sensors.c` |
 | `SNS-BMX-102` | active | Sensor ranges | `firmware/src/driver/sensor/bmx160.c` | — |
 | `SNS-BMX-103` | active | Scale factors | `firmware/src/driver/sensor/bmx160.c` | — |

@@ -27,8 +27,7 @@
  * via the declarations in comm/ibus.h.
  */
 #include "comm/ibus.h"
-#include "est/est.h"          /* estimator_is_degraded */
-#include "storage/fs_owner.h" /* vayu_log */
+#include "est/est.h" /* estimator_is_degraded */
 #include "sys/state.h"
 #include "utils.h"       /* v_get_ticks (vaios) */
 #include "vayu_status.h" /* VAYU_DISCARD */
@@ -133,9 +132,6 @@ bool rc_throttle_failsafe_step(uint16_t throttle_raw) {
  * here rather than in the control layer that acts on it.
  * --------------------------------------------------------------------------*/
 
-/** Log the first offending frame, then one in this many. */
-#define RC_IMPLAUSIBLE_LOG_EVERY 500u
-
 static volatile uint32_t s_implausible_frames = 0;
 
 /** @implements CTRL-ANGLE-103 */
@@ -158,14 +154,13 @@ bool rc_note_implausible(const ibus_data_t *data) {
   if (!bad) {
     return false;
   }
-  uint32_t n = s_implausible_frames + 1u;
-  s_implausible_frames = n;
-  /* First one, then one in RC_IMPLAUSIBLE_LOG_EVERY: a receiver stuck in this
-   * state produces one line a few seconds apart instead of 50 a second. */
-  if (n == 1u || (n % RC_IMPLAUSIBLE_LOG_EVERY) == 0u) {
-    vayu_log("rc: implausible channel, substituted centred (%u frames)\n",
-             (unsigned)n);
-  }
+  s_implausible_frames++;
+  /* Counted, not logged. This runs on the RC task, which has 576 bytes of
+   * stack, and vayu_log reaches vaios's v_log -- which panics the kernel below
+   * 320 bytes free. The counter is the durable record anyway: telemetry can
+   * read it through rc_implausible_frames(), and the blackbox rc stream holds
+   * the raw channel values the guard acted on, so nothing is lost by staying
+   * quiet here. */
   return true;
 }
 
@@ -180,8 +175,12 @@ void rc_implausible_reset(void) { s_implausible_frames = 0; }
  * the operator may legitimately have the transmitter off. */
 /** @noreq state-set predicate helper for rc_watchdog_step (SYS-SAFE-002) */
 static bool rc_watchdog_active_for(sys_state_t s) {
+  /* ESC_CALIB is included: the gesture that ends calibration comes over the
+   * RC link, so losing that link mid-calibration must drop to FAILSAFE and
+   * zero the motors rather than leave them at whatever the last phase set. */
   return s == SYSTEM_STATE_STANDBY || s == SYSTEM_STATE_PREARM ||
-         s == SYSTEM_STATE_ARMED || s == SYSTEM_STATE_IN_AIR;
+         s == SYSTEM_STATE_ARMED || s == SYSTEM_STATE_IN_AIR ||
+         s == SYSTEM_STATE_ESC_CALIB;
 }
 
 /* ----------------------------------------------------------------------------

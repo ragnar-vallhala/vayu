@@ -84,6 +84,10 @@ bool baro_latest(baro_sample_t *out);
 void range_publish(const range_sample_t *sample);
 bool range_latest(range_sample_t *out);
 
+/** Pack voltage. Single producer (the battery task). */
+void battery_publish(const battery_sample_t *sample);
+bool battery_latest(battery_sample_t *out);
+
 bool imu_queue_telemetry_push(const imu_sample_t *sample);
 bool imu_queue_telemetry_pop(imu_sample_t *out_sample);
 bool imu_queue_telemetry_peek(imu_sample_t *out_sample);

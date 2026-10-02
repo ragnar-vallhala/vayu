@@ -29,6 +29,14 @@ typedef enum {
   SYSTEM_STATE_FAILSAFE = 0x40,
   SYSTEM_STATE_TERMINATED = 0x80,
   SYSTEM_STATE_CALIBRATING = 0x100,
+  /* ESC endpoint calibration. A SEPARATE state from CALIBRATING, which is
+   * sensor calibration and must never turn a motor: this is the only state
+   * other than ARMED/IN_AIR in which motor_task lets an output leave zero, so
+   * it is deliberately one thing with one gate rather than a sub-mode of
+   * something that already exists. Entered only from STANDBY, only on a
+   * deliberate RC gesture, and left on the closing gesture, a timeout, or any
+   * transition to FAILSAFE. */
+  SYSTEM_STATE_ESC_CALIB = 0x200,
 } sys_state_t;
 
 extern volatile sys_state_t _system_current_status;

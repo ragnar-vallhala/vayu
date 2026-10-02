@@ -149,9 +149,11 @@ bool rc_channel_implausible(uint16_t raw);
  * @brief Note one parsed frame; returns true if any of the four flight
  *        channels (roll/pitch/throttle/yaw) was implausible.
  *
- * Counts frames, not channels, and logs the first one plus every
- * RC_IMPLAUSIBLE_LOG_EVERY after it, so a persistent fault reports itself
- * over the link without flooding it. Single-caller (the RC task).
+ * Counts frames, not channels. It does NOT log: this runs on the RC task,
+ * which has 576 bytes of stack, and vayu_log panics the kernel below 320 free.
+ * Read the count through rc_implausible_frames(); the blackbox rc stream
+ * carries the raw channel values the guard acted on. Single-caller (the RC
+ * task).
  */
 bool rc_note_implausible(const ibus_data_t *data);
 

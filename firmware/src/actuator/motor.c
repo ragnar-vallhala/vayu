@@ -16,6 +16,7 @@
  */
 #include "vayu_board.h"
 #include "actuator/motor.h"
+#include "actuator/esc_calib.h"
 #include "driver/esc.h"
 #include "structure.h"
 #include "sys/state.h"
@@ -74,7 +75,24 @@ void motor_task(void *arg) {
     /* Motors may spin while ARMED *or* IN_AIR — IN_AIR is armed-and-flying, not a
      * disarm. Anything else (STANDBY/FAILSAFE/...) forces them to zero. */
     sys_state_t mstate = system_state_get();
-    if (mstate != SYSTEM_STATE_ARMED && mstate != SYSTEM_STATE_IN_AIR) {
+
+    /* Emit anything the RC task raised. Here because this task already drives
+     * the calibration output and has the stack vayu_log demands, which the RC
+     * task does not. */
+    esc_calib_service_log();
+
+    if (mstate == SYSTEM_STATE_ESC_CALIB) {
+      /* ESC endpoint calibration: every motor gets the same endpoint, from the
+       * calibration state machine rather than the mixer. This is the ONLY
+       * state besides ARMED/IN_AIR in which an output may leave zero, and the
+       * mixer is bypassed entirely so no attitude term can perturb an endpoint
+       * the ESC is trying to learn. */
+      const float lvl = esc_calib_output();
+      motor_outputs.m1 = lvl;
+      motor_outputs.m2 = lvl;
+      motor_outputs.m3 = lvl;
+      motor_outputs.m4 = lvl;
+    } else if (mstate != SYSTEM_STATE_ARMED && mstate != SYSTEM_STATE_IN_AIR) {
       motor_outputs.m1 = 0;
       motor_outputs.m2 = 0;
       motor_outputs.m3 = 0;

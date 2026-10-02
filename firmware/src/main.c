@@ -33,7 +33,9 @@
 #include "driver/timer_callbacks.h"
 #include "vayu_assert.h"
 #include "vayu_status.h"
-#include "hub/hub.h" /* imu_buffer_init */
+#include "actuator/esc_calib.h" /* boot-time ESC calibration entry */
+#include "driver/battery.h"     /* pack voltage bring-up */
+#include "hub/hub.h"            /* imu_buffer_init */
 #include "vayu_tasks.h"
 
 #ifdef EKF_SELFTEST
@@ -140,6 +142,14 @@ void init_tasks(void) {
                                  // against the 256 B guard band -- under one FP
                                  // exception frame (132 B) of real margin, i.e.
                                  // the same shape as the rate_ctl panic.
+  /* 1024, not the 512 that looked ample. The work is one conversion, a float
+   * multiply and a struct copy -- but the float is the point: an exception
+   * taken in a task that has touched the FPU stacks 104 bytes of FP context on
+   * top of the ordinary frame, and vaios panics outright below 64 bytes free
+   * (and below 320 for anything that logs). 512 measured 252 bytes free at a
+   * context switch and the kernel halted the whole system. Stacks come from
+   * the vaios heap, so this does not move _heap_start. */
+  task_create_named(battery_task, NULL, 1024, 0, "battery");
   task_create_named(rc_ibus_task, NULL, 576, 0, "rc_ibus"); // peak 132
   task_create_named(angle_controller_task, NULL, 832, 1,
                     "angle_ctl"); // peak 404, control
@@ -152,7 +162,12 @@ void init_tasks(void) {
    * guard band; 1536 leaves 580 B. */
   task_create_named(angle_rate_controller_task, NULL, 1536, 1,
                     "rate_ctl"); // peak 956 measured, control
-  task_create_named(motor_task, NULL, 704, 1, "motor"); // peak 284, actuator
+  /* 1024 not 704: motor_task drains esc_calib's deferred messages, and
+   * vayu_log panics the kernel with under 320 bytes of stack free. 704 against
+   * a measured peak of 284 left 420 -- over the line, but by less than the
+   * formatter's own frame. Stacks come from the vaios heap, so this does not
+   * move _heap_start. */
+  task_create_named(motor_task, NULL, 1024, 1, "motor"); // peak 284, actuator
   task_create_named(imu_telemetry_task, NULL, 1344, 0,
                     "imu_telemetry"); // peak 908
   VAYU_DISCARD(sensor_start_task(SENSOR_BARO));
@@ -246,6 +261,23 @@ int main() {
 #endif
   pid_config_init(); /* COMM-CMD-003: restore persisted PID tune from SD */
   system_state_init();
+  /* Takes a pending ESC-calibration request and drives maximum from startup.
+   * Must be AFTER system_state_init, which leaves the state at INIT -- the
+   * transition table carries {INIT, ESC_CALIB} for exactly this call -- and
+   * BEFORE the scheduler, because the ESCs have to see maximum as they wake,
+   * which is the one moment a running FC cannot recreate. STANDBY does not
+   * arrive until boot_task, by which time they are awake. */
+  /* Pack voltage. Read once here, before the scheduler, purely so the boot log
+   * carries a number that can be held against a multimeter -- the divider is
+   * new hardware and its scale is a board fact nobody has checked yet. The
+   * running measurement belongs to the sensor registry, not here. */
+  /* Pack voltage. Brought up here because the ADC has to be alive before its
+   * task runs; the task itself is created with the others below. */
+  if (battery_init() != VAYU_OK) {
+    vayu_log("batt: ADC did not come up");
+  }
+
+  esc_calib_boot_init();
   init_sensors();
   system_init_tasks();
   init_tasks();

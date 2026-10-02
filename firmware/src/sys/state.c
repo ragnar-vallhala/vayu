@@ -50,6 +50,27 @@ static const sys_state_t k_allowed_transitions[][2] = {
     {SYSTEM_STATE_STANDBY, SYSTEM_STATE_PREARM},
     {SYSTEM_STATE_STANDBY, SYSTEM_STATE_ARMED},
     {SYSTEM_STATE_STANDBY, SYSTEM_STATE_CALIBRATING},
+    /* ESC calibration drives every motor to full throttle, so entry is from
+     * STANDBY or INIT only -- never from ARMED, IN_AIR or FAILSAFE -- and the
+     * only way out is back to STANDBY or to FAILSAFE (always allowed as a
+     * target). The absence of an ESC_CALIB -> ARMED row is what refuses arming
+     * during it.
+     *
+     * INIT is here because the procedure is a TWO-BOOT one: the ESCs only learn
+     * their endpoints if they SEE maximum as they wake, so the request has to
+     * be taken by esc_calib_boot_init() before the scheduler starts -- and at
+     * that point system_state_init() has left the state at INIT. STANDBY is not
+     * reached until boot_task runs, by which time the ESCs are already awake
+     * and the moment has passed.
+     *
+     * Without this row the request was consumed and then refused: the file was
+     * cleared, the transition rejected, and the boot looked entirely normal.
+     * What keeps that from being a loose gate is everything outside this table
+     * -- a held two-stick gesture, a durable request on the card, and a
+     * deliberate power cycle. boot_task still runs its checks either way. */
+    {SYSTEM_STATE_INIT, SYSTEM_STATE_ESC_CALIB},
+    {SYSTEM_STATE_STANDBY, SYSTEM_STATE_ESC_CALIB},
+    {SYSTEM_STATE_ESC_CALIB, SYSTEM_STATE_STANDBY},
     /* Bench calibration: the FC sits in FAILSAFE whenever there is no RC link
      * (rc_watchdog_step), which is the normal state for a GCS-driven ground
      * calibration. Allow it from there; the task returns to STANDBY on

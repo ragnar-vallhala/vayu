@@ -33,9 +33,19 @@
 void boot_task(void *args) {
   (void)args;
 
+  /* An ESC calibration taken at boot (esc_calib_boot_init, before the
+   * scheduler) already owns the flight state and is driving every motor to
+   * maximum. This task must record its checks without touching that: INIT is
+   * not reachable from ESC_CALIB anyway, and STANDBY is -- which is how the
+   * calibration used to end a few milliseconds after it started, as a flash of
+   * all three LEDs and then a normal boot. */
+  const bool esc_calibrating = (system_state_get() == SYSTEM_STATE_ESC_CALIB);
+
   // Start with a clean status
   system_boot_check_state_init();
-  VAYU_DISCARD(system_state_set(SYSTEM_STATE_INIT));
+  if (!esc_calibrating) {
+    VAYU_DISCARD(system_state_set(SYSTEM_STATE_INIT));
+  }
   // We will accumulate status flags into a local bitmask variable
   // and periodically push it to the global state.
   // The system being alive enough to run this task implies startup checks
@@ -64,13 +74,16 @@ void boot_task(void *args) {
                              BOOT_CHECK_SYSTEM_CLOCK_CHECK_PASS |
                              BOOT_CHECK_SD_CARD_CHECK_PASS;
 
-  if ((boot_status & required_passes) == required_passes) {
+  if ((boot_status & required_passes) != required_passes) {
+    /* A failed check wins over anything, calibration included: FAILSAFE is
+     * always an allowed target and motor_task zeroes the outputs on it. */
+    VAYU_DISCARD(system_state_set(SYSTEM_STATE_FAILSAFE));
+  } else if (!esc_calibrating) {
     // All checks passed! Elevate system state out of INIT
     VAYU_DISCARD(system_state_set(SYSTEM_STATE_STANDBY));
-  } else {
-    // One or more checks failed
-    VAYU_DISCARD(system_state_set(SYSTEM_STATE_FAILSAFE));
   }
+  /* Checks passed and a calibration is running: leave the state alone. It
+   * returns to STANDBY itself, on the closing gesture or its own timeout. */
 
   // The boot sequence is complete. Remove this task from the scheduler.
   task_exit();

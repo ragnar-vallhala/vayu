@@ -298,7 +298,7 @@ ISR-safe API subset, timing, watchdog.
 
 **Sub-areas.** BMX (driver), IMU (gyr+acc samples), MAG (magnetometer),
 BUF (buffering), CAL (online calibration), I2C (bus manager),
-BOOT (driver registry and bring-up).
+BOOT (driver registry and bring-up), BATT (pack voltage).
 
 #### 4.3.1 SNS-HLR
 
@@ -316,6 +316,7 @@ BOOT (driver registry and bring-up).
 | SNS-BARO-001  | Baro acquisition and publish   | The BME280 (I2C 0x76) shall be read over the shared single-owner IMU DMA loop at ~15 Hz and publish compensated pressure (Pa), temperature (°C), humidity (%RH) and derived altitude; an absent/mis-wired sensor (chip id ≠ 0x60) shall be detected at init and baro reads disabled. | SNS-IMU-001         | Test (SITL + bench)           |
 | SNS-BOOT-001  | Sensor bring-up without naming a driver | At boot the system shall probe every sensor driver compiled into the image, in `sensor_kind_t` order, without any boot-path code naming a specific device; a driver reporting anything but success shall be logged and the boot shall continue, and an image in which NO driver registered shall be reported explicitly (it means arming with no gyro). | SYS-STATE-003 | Test (host: registry walked, empty registry, backend substituted) |
 | SNS-BOOT-002  | Per-kind acquisition task     | A driver that declares an acquisition task shall have that task created with the stack depth and priority the driver itself states, at the point in the boot sequence its kind belongs at; a kind with no registered driver shall refuse the request rather than create a task. | SNS-BOOT-001 | Test (host: task-owning descriptor is self-consistent; missing backend refused) |
+| SNS-BATT-001  | Pack voltage measurement      | The system shall measure battery voltage through the board's resistor divider and publish it with a validity flag, at a rate no lower than 1 Hz, such that a failed conversion is distinguishable from a genuinely low pack. The reading shall reach both the telemetry link and the on-board recorder, because thrust and endurance questions are unanswerable from collective alone. | SYS-SAFE-003 | Test (bench: reading held against a multimeter; absent-pack case) |
 
 #### 4.3.2 SNS-LLR
 

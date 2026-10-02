@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 #include "vayu_tasks.h"
+#include "actuator/esc_calib.h"
 #include "comm/ibus.h"
 #include "storage/imu_hs_log.h" /* blackbox RC stream */
 #include "comm/rc_buffer.h"
@@ -110,6 +111,10 @@ static void rc_apply_frame(void) {
    * acted on -- not what the receiver sent. Recorded armed or not: the arm
    * gesture and the stick positions the preconditions were judged against are
    * disarmed events. Decimated to HSL_RC_RATE_HZ inside the recorder. */
+  /* ESC endpoint calibration gestures. Served here, on the frame the FC acted
+   * on, so a failsafe-substituted frame cannot be read as a gesture. */
+  esc_calib_rc_step(&ibus_raw_data);
+
   imu_hs_log_rc(ibus_raw_data.channels, IBUS_MAX_CHANNELS,
                 ibus_raw_data.is_failsafe ? 1u : 0u, vayu_clock_cycles());
   rc_queue_control_push(&ibus_raw_data);

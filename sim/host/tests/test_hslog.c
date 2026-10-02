@@ -301,7 +301,11 @@ int main(void) {
   /* The notch centre rides in the u16 that used to be padding, so the record
    * size and the field count must NOT have moved -- the preamble has 16 B
    * spare and one more FMT field would need 16 of them plus a new frame. */
-  CHECK(HSL_VRT_REC_BYTES == 28u, "vrt record is unchanged at 28 B");
+  CHECK(HSL_VRT_REC_BYTES == 32u,
+        "vrt record is 32 B: 7 floats (battery_v joined them) + 2 u16");
+  /* @verifies SNS-BATT-001  the voltage and its validity flag reach the
+   * recorder, which is half of what that requirement asks for (the telemetry
+   * half is navlink_tx_battery, covered by inspection). */
   CHECK(fmt_stream[3] == HSL_STREAM_CTL && fmt_recb[3] == HSL_CTL_REC_BYTES &&
             fmt_rate[3] == HSL_CTL_RATE_HZ,
         "FMT[ctl] 12 B @ 1000 Hz");
@@ -318,7 +322,10 @@ int main(void) {
       for (uint16_t k = 0; k < n; k++) {
         const uint8_t *r = f + HSL_FRAME_HDR_BYTES + HSL_BLOCK_HDR_BYTES +
                            (size_t)k * HSL_VRT_REC_BYTES;
-        uint16_t fl = rd16(&r[24]);
+        /* flags and ntc_hz are the last two u16 of the record, derived from
+         * its size rather than hardcoded: they were at 24 until battery_v
+         * joined the floats, and a literal offset failed silently-ish. */
+        uint16_t fl = rd16(&r[HSL_VRT_REC_BYTES - 4u]);
         uint8_t ax = (uint8_t)((fl & HSL_VRT_F_NOTCH_AXIS_MASK) >>
                                HSL_VRT_F_NOTCH_AXIS_SHIFT);
         if (ax < 3u)
