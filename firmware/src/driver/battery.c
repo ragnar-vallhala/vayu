@@ -19,9 +19,10 @@
 #include "driver/battery.h"
 
 #include "family/rcc_reg.h"
-#include "hub/hub.h"   /* battery_publish */
-#include "sys/clock.h" /* vayu_clock_cycles */
-#include "vaios.h"     /* v_delay */
+#include "hub/hub.h"               /* battery_publish */
+#include "storage/battery_calib.h" /* the calibration lives on the card */
+#include "sys/clock.h"             /* vayu_clock_cycles */
+#include "vaios.h"                 /* v_delay */
 #include "navhal.h"
 #include "vayu_board.h"
 
@@ -136,6 +137,24 @@ vayu_status_t battery_init(void) {
   return VAYU_OK;
 }
 
+/* The divider calibration in force. Seeded from the board header so a card with
+ * no calibration still reads something sane, then replaced by 0:batcal.bin at
+ * task start. Plain floats read without a lock: each is written once, before any
+ * conversion the task publishes, and a torn float here would at worst misreport
+ * one sample on a card that is being replaced mid-flight. */
+static float s_volts_per_count = BOARD_VBAT_VOLTS_PER_COUNT;
+static float s_offset_counts = BOARD_VBAT_OFFSET_COUNTS;
+
+/** @noreq observability: the calibration a reading was produced with */
+void battery_calibration(float *volts_per_count, float *offset_counts) {
+  if (volts_per_count) {
+    *volts_per_count = s_volts_per_count;
+  }
+  if (offset_counts) {
+    *offset_counts = s_offset_counts;
+  }
+}
+
 /** @implements SNS-BATT-001 */
 vayu_status_t battery_read_volts(float *volts_out) {
   if (volts_out == NULL || !s_ready) {
@@ -164,10 +183,12 @@ vayu_status_t battery_read_volts(float *volts_out) {
    * free to avoid. */
   const uint16_t counts =
       (uint16_t)((acc + BATTERY_OVERSAMPLE / 2u) / BATTERY_OVERSAMPLE);
-  /* Straight from counts. Going via a nominal VREF and a nominal divider ratio
-   * gave a reading 9% off a multimeter and invited two wrong conclusions about
-   * the battery before the scale was checked. */
-  const float pack_v = (float)counts * BOARD_VBAT_VOLTS_PER_COUNT;
+  /* Straight from counts through the two calibration terms. Going via a nominal
+   * VREF and a nominal divider ratio gave a reading 9% off a multimeter and
+   * invited two wrong conclusions about the battery before the scale was
+   * checked -- and the real scale is 37% off nominal, so it cannot be computed,
+   * only measured. Both terms come from 0:batcal.bin when the card has one. */
+  const float pack_v = ((float)counts - s_offset_counts) * s_volts_per_count;
 
   s_last_counts = counts;
   s_last_volts = pack_v;
@@ -210,6 +231,13 @@ void battery_debug(int32_t *init_rc, int32_t *read_rc, uint32_t *sr,
 /** @implements SNS-BATT-001 */
 void battery_task(void *args) {
   (void)args;
+
+  /* The calibration belongs to the aircraft, not to the binary. Loaded here
+   * rather than in battery_init() because that runs before the scheduler and
+   * fs_owner_read_at is only the sanctioned reader from a task. The compiled
+   * board values stand until this returns, which covers at most the first
+   * sample. */
+  (void)battery_calib_load(&s_volts_per_count, &s_offset_counts);
 
   /* Consecutive samples the rail has read above the presence floor. Local to
    * this task -- nothing else may advance it -- and it resets the moment the

@@ -65,6 +65,17 @@ vayu_status_t battery_read_volts(float *volts_out);
  *  Lock-free single float read -- safe from any context. */
 float battery_last_volts(void);
 
+/**
+ * The divider calibration currently in force: volts per ADC count, and the
+ * zero-error offset in counts. Reflects 0:batcal.bin once battery_task has
+ * loaded it, the compiled board defaults before that.
+ *
+ * Worth exposing because a voltage is only interpretable alongside the scale it
+ * was produced with -- a log that records one without the other cannot be
+ * re-derived after a recalibration.
+ */
+void battery_calibration(float *volts_per_count, float *offset_counts);
+
 /** Raw last ADC count, for divider bring-up and for telling "reads zero"
  *  apart from "reads nothing". */
 uint16_t battery_last_counts(void);

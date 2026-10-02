@@ -102,6 +102,7 @@ set(VAYU_SOURCES
     ${VAYU_ROOT}/firmware/src/control/control_buffer.c
     ${VAYU_ROOT}/firmware/src/est/lpf.c
     ${VAYU_ROOT}/firmware/src/est/hover_estimate.c
+    ${VAYU_ROOT}/firmware/src/storage/battery_calib.c
     ${VAYU_ROOT}/firmware/src/storage/hover_store.c
     ${VAYU_ROOT}/firmware/src/maths/maths_interface.c
     ${VAYU_ROOT}/firmware/src/maths/fft.c              # m_rfft_* (dynamic-notch FFT analysis)
@@ -514,6 +515,10 @@ add_test(NAME rc_buffer COMMAND test_rc_buffer)
 add_executable(test_imu_buffer tests/test_imu_buffer.c)
 target_link_libraries(test_imu_buffer PRIVATE vayu_sitl_core m)
 add_test(NAME imu_buffer COMMAND test_imu_buffer)
+
+add_executable(test_battery_calib tests/test_battery_calib.c)
+target_link_libraries(test_battery_calib PRIVATE vayu_sitl_core m)
+add_test(NAME battery_calib COMMAND test_battery_calib)
 
 add_executable(test_hover_store tests/test_hover_store.c)
 target_link_libraries(test_hover_store PRIVATE vayu_sitl_core m)

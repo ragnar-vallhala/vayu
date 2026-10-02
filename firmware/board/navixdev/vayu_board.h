@@ -119,6 +119,17 @@ extern "C" {
  */
 #define BOARD_VBAT_VOLTS_PER_COUNT 0.011424f
 
+/* Zero-error default, in ADC counts. Zero because no two-point calibration has
+ * been taken on this board yet -- a single reference point can only fit the
+ * scale, and assuming the line passes through the origin is what a lone scale
+ * does.
+ *
+ * Both terms are overridden by 0:batcal.bin when it is present; these two are
+ * only the fallback for a card with no calibration on it. See
+ * storage/battery_calib.h -- the compiled values are a last resort, not the
+ * intended source. */
+#define BOARD_VBAT_OFFSET_COUNTS 0.0f
+
 /* Below this, the sensed rail is not carrying a usable pack voltage.
  *
  * NOT a battery-detect. The divider senses the main power RAIL, so it cannot
