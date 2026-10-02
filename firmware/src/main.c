@@ -133,14 +133,14 @@ void init_tasks(void) {
   /* Stack, priority and entry point come from the driver's own descriptor. */
   VAYU_DISCARD(sensor_start_task(SENSOR_IMU));
   // Attitude estimation (fusion), split out of the IMU driver.
-  task_create_named(attitude_task, NULL, 1152, 1, "attitude"); // peak 700
+  task_create_named(attitude_task, NULL, 1216, 1, "attitude"); // peak 732
   // Vertical estimator (VERT): fuses baro + accel into altitude/climb_rate.
   /* 1024 not 832: the ToF ride-along (range read + quaternion tilt projection)
    * pushed this task's measured peak 428 -> 484 B, leaving 348 B free against a
    * 256 B guard band — under one FP exception frame (132 B) of true headroom.
    * See the rate_ctl note above for what that costs when it runs out. */
-  task_create_named(vertical_estimator_task, NULL, 1280, 1,
-                    "vertical"); // peak 708 measured
+  task_create_named(vertical_estimator_task, NULL, 1344, 1,
+                    "vertical"); // peak 844 measured
                                  // 484 -> 708 when the hover estimator and its
                                  // boot-time hover_store_load (vfs_open+read)
                                  // landed here. At 1024 that left 316 B free
@@ -155,9 +155,9 @@ void init_tasks(void) {
    * context switch and the kernel halted the whole system. Stacks come from
    * the vaios heap, so this does not move _heap_start. */
   task_create_named(battery_task, NULL, 1024, 0, "battery");
-  task_create_named(rc_ibus_task, NULL, 576, 0, "rc_ibus"); // peak 132
-  task_create_named(angle_controller_task, NULL, 832, 1,
-                    "angle_ctl"); // peak 404, control
+  task_create_named(rc_ibus_task, NULL, 832, 0, "rc_ibus"); // peak 372
+  task_create_named(angle_controller_task, NULL, 896, 1,
+                    "angle_ctl"); // peak 436, control
   /* 1088 was marginal: a live SWD dump caught rate_ctl 956 B deep with a full
    * FP exception context (EXC_RETURN 0xFFFFFFED, S0-S31 = +132 B) on its stack,
    * inside the 256 B TASK_STACK_OVERFLOW_THRESHOLD guard band -> kernel panic
@@ -173,13 +173,13 @@ void init_tasks(void) {
    * formatter's own frame. Stacks come from the vaios heap, so this does not
    * move _heap_start. */
   task_create_named(motor_task, NULL, 1024, 1, "motor"); // peak 284, actuator
-  task_create_named(imu_telemetry_task, NULL, 1344, 0,
-                    "imu_telemetry"); // peak 908
+  task_create_named(imu_telemetry_task, NULL, 1408, 0,
+                    "imu_telemetry"); // peak 932
   VAYU_DISCARD(sensor_start_task(SENSOR_BARO));
   VAYU_DISCARD(sensor_start_task(SENSOR_RANGE));
-  task_create_named(flush_task, NULL, 640, 0, "flush"); // peak 188
-  task_create_named(perf_telemetry_task, NULL, 1216, 0,
-                    "perf_telemetry"); // peak 804
+  task_create_named(flush_task, NULL, 896, 0, "flush"); // peak 428
+  task_create_named(perf_telemetry_task, NULL, 1472, 0,
+                    "perf_telemetry"); // peak 996
   // Centralised FS owner: sole runtime SD/VFS writer (blackbox logger + PID/calib
   // saves). Lowest band (prio 0); blocks on its queue so it only runs when there
   // is work and never preempts control. Queues are created lazily on first run.
@@ -227,7 +227,7 @@ void init_timer_callbacks(void) {
 }
 /* @noreq boot plumbing: spawns the heartbeat task + one-shot boot task. */
 void system_init_tasks(void) {
-  task_create_named(heartbeat_task, NULL, 576, 0, "heartbeat"); // peak 124
+  task_create_named(heartbeat_task, NULL, 768, 0, "heartbeat"); // peak 260
   // boot_task runs the one-shot boot sequence then exits (stack freed); left at
   // 1 KiB since it is not in the steady-state perf view (no measured high-water).
   task_create_named(boot_task, NULL, 1024, 0, "boot");

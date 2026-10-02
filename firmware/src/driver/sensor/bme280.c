@@ -381,7 +381,7 @@ VAYU_SENSOR_DRIVER(bme280_sensor) = {
     .probe = _bme280_probe,
     .task = bme280_read_task,
     .task_name = "baro_read",
-    .stack_words = 768,
+    .stack_words = 832,
     .priority = 0,
     .ops = &_bme280_baro_ops,
 };

@@ -19,7 +19,14 @@
 # must match. See firmware/docs/plans/link-bandwidth-boost.md.
 CONFIG_CONSOLE_BAUDRATE=460800
 
-# 40 KiB. vaios defaults this to 0x16000 (88 KiB), which does not fit: the kernel
+# 42 KiB. Was 40 KiB (0xA000); raised by 2 KiB on 2026-10-03 when the task stacks
+# were re-measured under vaios 0.2.0 and grew 1664 B in total. Task stacks are
+# v_malloc'd from this heap, so that growth came straight out of the margin:
+# alloc_budget.py's all-paths-coincide figure had fallen from 1984 B to 576 B,
+# and 0xA800 restores it to ~2.6 KiB. The SRAM ceiling has ~20 KiB spare at this
+# size, so this is bought with headroom we measurably have.
+#
+# vaios defaults this to 0x16000 (88 KiB), which does not fit: the kernel
 # memsets HEAP_SIZE bytes from _heap_start at boot under the hard constraint
 #     _heap_start + HEAP_SIZE <= 0x20018000   (top of the F401's 96 KiB SRAM)
 # and overrunning it HardFaults before main(). Holds the boot task stacks + IPC
@@ -29,16 +36,34 @@ CONFIG_CONSOLE_BAUDRATE=460800
 # The host SITL has no 96 KiB limit and needs room for many 8 KiB task stacks,
 # so it passes -DHEAP_SIZE=0x180000; the generated macros are #ifndef-guarded,
 # so that -D still wins over this.
-CONFIG_HEAP_SIZE=0xA000
+CONFIG_HEAP_SIZE=0xA800
 
 # Boot/main stack, well above the 1 KiB default: main() runs the whole
 # composition root (driver init, calibration load, task spawn) before the
 # scheduler takes over.
 CONFIG_MAIN_STACK_SIZE=10240
 
-# 256 B of headroom rather than 64. rate_ctl measured 856 B of an 1536 B stack,
-# and a stack overflow on this part corrupts whatever BSS sits below it.
+# 256 B of headroom rather than 64. A stack overflow on this part corrupts
+# whatever sits below it in the vaios heap, and the kernel's own log formatter
+# needs room to report the fault at all.
+#
+# Every task stack is sized against a MEASURED peak plus this guard band plus one
+# FP exception frame (132 B) -- the peaks are recorded inline at each
+# task_create_named in src/main.c and in the sensor descriptors. They were
+# re-measured on hardware on 2026-10-03 after the vaios 0.2.0 bump, which cost
+# up to +240 B on the paths that reach the kernel console (flush 188 -> 428,
+# rc_ibus 132 -> 372, perf_telemetry 804 -> 996) and panicked the FC at boot on
+# flush_task until the stacks were grown. Method: vaios paints each stack with
+# V_PERF_STACK_FILL at create, so a bench run plus an SRAM dump gives every
+# peak at once -- scan up from the block base to the first non-sentinel word.
+# Re-measure after any vaios or NavHAL bump; a host test cannot see this.
 CONFIG_TASK_STACK_OVERFLOW_THRESHOLD=256
+
+# The idle task runs the log flush and the dead-task GC, and the watermark check
+# applies to it like any other task. Measured peak 236 B on 2026-10-03 under
+# vaios 0.2.0, which leaves only 276 B of the 512 B default -- inside the guard
+# band plus one FP exception frame. 704 leaves 468 B.
+CONFIG_IDLE_TASK_STACK_SIZE=704
 
 # The console is a NavLink byte stream, not a terminal: vaios logging would
 # interleave framed packets with ASCII and desync every peer. Colour codes would
