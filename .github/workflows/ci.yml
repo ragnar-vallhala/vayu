@@ -22,32 +22,60 @@
 
 name: ci
 
+# NO paths-ignore here, deliberately, and it used to be here.
+#
+# A prose-only change still cannot break a build, and this workflow still costs
+# about twenty runner-minutes to say so -- but "CI required" is now a REQUIRED
+# status check, and a workflow that does not TRIGGER never reports its context.
+# A required context that never reports leaves the pull request blocked
+# indefinitely rather than passing it, which presents as CI hanging. A docs-only
+# change was unmergeable until this was moved.
+#
+# So the workflow always triggers and the filter moved into the `changes` job
+# below: the heavy jobs skip on prose, the fan-in still runs, and the fan-in
+# already counts skipped as success. Same runner minutes saved, context always
+# reported.
 on:
   push:
     branches: [main]
-    # Version tags publish a real release (see the versioned publish step).
-    # The paths-ignore below is written for branch pushes; GitHub does not
-    # apply path filters to tag pushes, so a tag builds whatever it points at
-    # even when the commit under it touched only prose. If a tag ever fails to
-    # trigger this workflow, that assumption is where to look first.
+    # Version tags publish a real release (see the versioned publish step), and
+    # a tag must build whatever it points at -- `changes` forces the suite on
+    # for every non-pull_request event for that reason.
     tags: ['v[0-9]*']
-    # A change that touches nothing but prose cannot break a build, a test or a
-    # lint, and this workflow costs about twenty runner-minutes to say so. The
-    # gates a docs change *can* break are in gates.yml, which carries no filter.
-    # Spelled out twice because Actions does not resolve YAML anchors.
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
-      - '**/docs/**'
   pull_request:
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
-      - '**/docs/**'
 
 jobs:
+  # Does anything that can break a build differ from the base? The filter that
+  # used to live on the trigger, moved where it cannot suppress the fan-in's
+  # status report. See tools/dev/ci_code_changed.sh.
+  changes:
+    name: code changed?
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.probe.outputs.code }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # The base commit has to be present to diff against it, and the
+          # default shallow fetch does not have it.
+          fetch-depth: 0
+      - id: probe
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo 'not a pull request -- running the suite regardless'
+            echo 'code=true' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          code=$(tools/dev/ci_code_changed.sh \
+                   '${{ github.event.pull_request.base.sha }}' \
+                   '${{ github.event.pull_request.head.sha }}')
+          echo "code changed: $code"
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+
   build-target:
     name: build (arm-none-eabi, -Werror)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -70,6 +98,8 @@ jobs:
 
   cppcheck:
     name: cppcheck (baseline)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -83,6 +113,8 @@ jobs:
 
   sitl-tests:
     name: SITL unit tests
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -96,6 +128,8 @@ jobs:
 
   sitl-module:
     name: SITL loadable module + SDK tarball
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     # Needed to publish the rolling SDK release below. Everything else in this
     # workflow is read-only.
@@ -232,6 +266,8 @@ jobs:
 
   sanitizers:
     name: SITL ASan + UBSan (R12.2)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -245,6 +281,8 @@ jobs:
 
   coverage:
     name: SITL coverage (R12.4)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -262,6 +300,8 @@ jobs:
 
   clang-tidy:
     name: clang-tidy (.clang-tidy, gate)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -317,6 +357,7 @@ jobs:
     runs-on: ubuntu-latest
     if: always()
     needs:
+      - changes
       - build-target
       - cppcheck
       - sitl-tests
@@ -343,6 +384,9 @@ jobs:
               *)               printf '  \033[31m%-9s\033[0m  %s\n' "$result" "$name"; fail=1 ;;
             esac
           }
+          # `changes` is checked too: if the probe itself fails, every heavy job
+          # skips, and without this line the fan-in would call that green.
+          check changes        "${{ needs.changes.result }}"
           check build-target   "${{ needs.build-target.result }}"
           check cppcheck       "${{ needs.cppcheck.result }}"
           check sitl-tests     "${{ needs.sitl-tests.result }}"
