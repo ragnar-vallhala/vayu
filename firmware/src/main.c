@@ -29,7 +29,7 @@
 #include "sys/sys_utils.h"
 #include "utils/v_fs.h"
 #include "vaios.h"
-#include "vaios_config_default.h"
+#include "vaios_config.h"
 #include "driver/timer_callbacks.h"
 #include "vayu_assert.h"
 #include "vayu_status.h"
@@ -68,17 +68,22 @@ static void run_ekf_selftest(void) {
  * @implements SYS-TIM-004
  */
 void clock_setup(void) {
-  hal_pll_config_t pll_cfg_hse = {
-      .input_src = HAL_CLOCK_SOURCE_HSE, /**< External 8 MHz crystal */
-      .pll_m = 8,                        /**< PLLM divider */
-      .pll_n = 336,                      /**< PLLN multiplier */
-      .pll_p = 4,                        /**< PLLP division factor */
-      .pll_q = 7                         /**< PLLQ division factor */
-  };
+  /* NavHAL 0.3.x folded the PLL parameters into the clock config -- one struct,
+   * one argument -- and exposed the bus dividers (hpre/ppre1/ppre2) that the
+   * backend used to hold privately. They are LEFT UNSET deliberately: the backend
+   * reads 0 as "the values this driver has always programmed" (APB1/2, APB2/2),
+   * so the clock tree is bit-for-bit what the flown firmware ran. Setting
+   * ppre2_div = 1, as some NavHAL samples do, would double APB2 and skew UART6's
+   * baud divisor -- the telemetry link -- for no gain here. */
   hal_clock_config_t cfg = {
-      .source = HAL_CLOCK_SOURCE_PLL /**< Use PLL as system clock */
+      .source = HAL_CLOCK_SOURCE_PLL,            /**< Use PLL as system clock */
+      .pll = {.input_src = HAL_CLOCK_SOURCE_HSE, /**< External 8 MHz crystal */
+              .pll_m = 8,                        /**< PLLM divider */
+              .pll_n = 336,                      /**< PLLN multiplier */
+              .pll_p = 4,                        /**< PLLP division factor */
+              .pll_q = 7}                        /**< PLLQ division factor */
   };
-  hal_clock_init(&cfg, &pll_cfg_hse);
+  hal_clock_init(&cfg);
 }
 
 /* @noreq boot plumbing: brings up sensor buffers + drivers and opens the
@@ -94,7 +99,7 @@ void init_sensors(void) {
 
   // Initialize global telemetry — USART6 (PC6 TX / PC7 RX) per Vayu PCB wiring.
   serial_args_t uart_args = {
-      .baud_rate = UART_BAUDRATE, .uart = HAL_UART_6, .timeout = 100};
+      .baud_rate = CONSOLE_BAUDRATE, .uart = HAL_UART_6, .timeout = 100};
 
   if (get_handler(CHANNEL_TYPE_SERIAL, &g_telemetry_channel, &uart_args,
                   uart2_packet_recv_callback) != NONE) {

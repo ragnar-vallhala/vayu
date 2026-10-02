@@ -133,7 +133,7 @@ int vayu_sitl_start(vsim_iface_t *iface) {
     extern channel_t g_telemetry_channel;
     extern void uart2_packet_recv_callback(void);
     serial_args_t uart_args = {
-        .baud_rate = UART_BAUDRATE,
+        .baud_rate = CONSOLE_BAUDRATE,
         .uart = HAL_UART_2,
         .timeout = 100,
     };

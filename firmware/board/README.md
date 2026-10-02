@@ -44,7 +44,6 @@ different bus topology) still defines the name — omitting one moves the
 | `BOARD_LED_BLUE` `BOARD_LED_GREEN` `BOARD_LED_RED` | status LEDs |
 | `BOARD_BUZZER` | buzzer pin |
 | `BOARD_I2C_BUS` `BOARD_I2C_SCL` `BOARD_I2C_SDA` | the sensor bus |
-| `BOARD_I2C_DR_ADDR` | that bus's `DR` address, for DMA |
 | `BOARD_IMU_I2C_ADDR` | IMU 7-bit address |
 | `BOARD_ESC_TIMER` `BOARD_ESC_M1_PIN`..`M4_PIN` | motor outputs, mixer order |
 | `BOARD_ESC_AF` | alternate function routing the timer to those pins |

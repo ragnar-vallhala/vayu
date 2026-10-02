@@ -41,9 +41,9 @@
  */
 #include "storage/fs_owner.h"
 
-#include "memory.h"               /* v_malloc (heap-backed write-at lanes) */
-#include "utils.h"                /* v_memcpy */
-#include "vaios_config_default.h" /* PANIC */
+#include "memory.h"       /* v_malloc (heap-backed write-at lanes) */
+#include "utils.h"        /* v_memcpy */
+#include "vaios_config.h" /* PANIC */
 #include "storage/paths.h"
 #include "vfs.h"
 #include "storage/imu_hs_log.h"

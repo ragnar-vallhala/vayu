@@ -31,7 +31,7 @@
 #include "control/angle_controller.h"
 #include "control/angle_rate_controller.h"
 #include "dsp/gyro_notch.h"   /* gyro_notch set/get params (notch persist) */
-#include "memory.h"           /* v_memcpy */
+#include "utils.h"            /* v_memcpy */
 #include "storage/fs_owner.h" /* vayu_log */
 #include "control/tuning.h"
 #include "storage/paths.h"

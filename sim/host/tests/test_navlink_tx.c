@@ -37,6 +37,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "navhal.h" /* HAL_UART_2 */
+
 #include "comm/channel.h"
 #include "comm/navlink_tx.h"
 #include "vsim_iface.h"

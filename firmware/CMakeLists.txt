@@ -49,24 +49,28 @@ endif()
 # this is the single source of truth (don't also -D it, or it redefines).
 set(VAIOS_MODULE_VFS ON CACHE BOOL "vayu needs the vaios VFS" FORCE)
 set(NAVHAL ON)
-# Must be a FORCE cache entry: vaios's own `set(VAIOS_CONFIG_FILE "" CACHE ...)`
-# would otherwise clobber a plain variable to empty (CMP0126 OLD), leaving
-# if(VAIOS_CONFIG_FILE) false so vaios never emits -DVAIOS_CONFIG_FILE — then
-# the aggregator can't find this app config and kernel TUs (e.g. memory.c) fall
-# back to the default HEAP_SIZE=0x16000, overrunning the 96KB SRAM at boot.
-set(VAIOS_CONFIG_FILE "${CMAKE_CURRENT_SOURCE_DIR}/include/vaios_app_config.h"
-    CACHE STRING "vaios config header for the vayu firmware" FORCE)
-# NOTE: do NOT add ${CMAKE_CURRENT_SOURCE_DIR}/include here. This block is
-# inherited by add_subdirectory(extern/vaios) below, and vayu's include/sys/
-# types.h (our err_t enum) would shadow the toolchain's standard <sys/types.h>
-# when vaios's kernel/syscalls.c includes it — breaking newlib's <unistd.h>
-# (mode_t/pid_t/off_t undefined). vayu's own targets pick up include/ from the
-# include_directories() call after add_subdirectory(extern/vaios).
-include_directories(
-    ${VAYU_REPO_ROOT}/extern/vaios/include
-    ${VAYU_REPO_ROOT}/extern/vaios/portable/cortex-m4
-)
-
+# The kernel configuration vayu builds with. vaios 0.2.0 replaced the
+# hand-written VAIOS_CONFIG_FILE header with Kconfig: VAIOS_DEFCONFIG seeds
+# <build>/.config, and tools/kconfig.py turns that into vaios_autoconf.h, which is
+# force-included ahead of every TU (ours too — see below). Must be a FORCE cache
+# entry so vaios's own `set(VAIOS_DEFCONFIG ... CACHE)` cannot clobber it; if it
+# did, the build would silently take vaios's defaults, where HEAP_SIZE is 0x16000
+# and overruns the 96KB SRAM at boot.
+set(VAIOS_DEFCONFIG "${CMAKE_CURRENT_SOURCE_DIR}/vaios.defconfig"
+    CACHE FILEPATH "vaios Kconfig defconfig for the vayu firmware" FORCE)
+# vaios seeds <build>/.config from VAIOS_DEFCONFIG (plus navhal.config) only when
+# that file does not yet exist, so in an existing build dir an edit to either
+# source would be silently ignored — the firmware would keep building with the old
+# values and nothing would say so. Drop a stale seed so the two files stay
+# authoritative. The cost is that a `menuconfig` edit does not survive a defconfig
+# change; for vayu that is the right way round, since the defconfig is what gets
+# reviewed and the build .config is a gitignored artifact.
+if(EXISTS "${CMAKE_BINARY_DIR}/.config"
+   AND ("${VAIOS_DEFCONFIG}" IS_NEWER_THAN "${CMAKE_BINARY_DIR}/.config"
+        OR "${CMAKE_CURRENT_SOURCE_DIR}/navhal.config" IS_NEWER_THAN "${CMAKE_BINARY_DIR}/.config"))
+  message(STATUS "vayu: defconfig/navhal.config newer than ${CMAKE_BINARY_DIR}/.config — re-seeding")
+  file(REMOVE "${CMAKE_BINARY_DIR}/.config")
+endif()
 # NavHAL's driver set is owned by vayu (./navhal.config), NOT the vaios submodule.
 # vaios exposes NAVHAL_CONFIG_FILE (defaulting to its own navhal.config); we
 # FORCE-set it to our copy so NavHAL is configured straight from here WITHOUT ever
@@ -86,6 +90,37 @@ set(NAVHAL_CONFIG_FILE "${CMAKE_CURRENT_SOURCE_DIR}/navhal.config"
 set(ENV{srctree} "${VAYU_REPO_ROOT}/extern/vaios/extern/NavHAL")
 
 add_subdirectory(${VAYU_REPO_ROOT}/extern/vaios ${CMAKE_CURRENT_BINARY_DIR}/vaios)
+
+# vaios's own headers, for vayu's TUs. AFTER add_subdirectory for two reasons:
+# VAIOS_PORT is the port directory vaios picked (armv7e-m, derived from the ISA in
+# navhal.config — it was cortex-m4 before 0.2.0, and naming it by hand is how that
+# rename became a build failure); and keeping this out of vaios's inherited scope
+# means vayu's include/sys/types.h (our err_t enum) cannot shadow the toolchain's
+# <sys/types.h> when vaios's kernel/syscalls.c includes it, which breaks newlib's
+# <unistd.h>. Do NOT add ${CMAKE_CURRENT_SOURCE_DIR}/include above this line.
+include_directories(
+    ${VAYU_REPO_ROOT}/extern/vaios/include
+    ${VAYU_REPO_ROOT}/extern/vaios/portable/${VAIOS_PORT}
+)
+
+# Force-include the generated kernel config, exactly as vaios does for its own
+# sources. vaios's add_compile_options() is directory-scoped, so it does not reach
+# us, and without this every vayu TU that pulls in a vaios header fails on a bare
+# config macro (LOG_MSG_MAX_LEN, TICK_PERIOD_US, STACK_ALIGN_SIZE...). The macros
+# are #ifndef-guarded, so a -D on the command line still wins.
+add_compile_options("SHELL:-include ${CMAKE_BINARY_DIR}/vaios_autoconf.h")
+
+# NavHAL ships src/utils/freestanding.c -- its own memcpy/memmove/memset/memcmp
+# -- because a -nostdlib build has no libc to satisfy the calls GCC emits for
+# aggregate copies. vayu is not such a build: it links newlib (-lc -lm), so both
+# definitions reach the linker and it fails on "multiple definition of memset".
+# Drop NavHAL's copies for this build rather than reordering -lc, which leaves
+# newlib's assembly implementations in place -- they matter for the 512-byte SD
+# block copies, where a naive byte loop does not.
+# It rides in via NavHAL's `common` OBJECT library, which libhal absorbs.
+get_target_property(_navhal_common_srcs common SOURCES)
+list(FILTER _navhal_common_srcs EXCLUDE REGEX "utils/freestanding\\.c$")
+set_target_properties(common PROPERTIES SOURCES "${_navhal_common_srcs}")
 
 #-------------------------
 # Project sources
@@ -183,6 +218,7 @@ set(VAYU_R12_WARN_FLAGS
     # §5.3 vendor exemption: treat vaios/NavHAL headers as system so their
     # warnings never fail a vayu module's -Werror build.
     -isystem ${VAYU_REPO_ROOT}/extern/vaios/include
+    -isystem ${VAYU_REPO_ROOT}/extern/vaios/portable/${VAIOS_PORT}
     -isystem ${VAYU_REPO_ROOT}/extern/vaios/extern/NavHAL/include
     -isystem ${VAYU_REPO_ROOT}/extern/vaios/extern/NavHAL/include/port/cortex-m4
     -isystem ${VAYU_REPO_ROOT}/extern/vaios/extern/NavHAL/src/vendor/stm32/family/stm32f4/include)

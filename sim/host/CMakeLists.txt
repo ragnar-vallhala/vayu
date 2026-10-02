@@ -21,6 +21,58 @@ set(NAVHAL_ROOT "${VAIOS_ROOT}/extern/NavHAL")
 
 add_compile_options(-Wall -Wextra -O2 -g -fno-strict-aliasing)
 
+# vaios kernel configuration. vaios 0.2.0 dropped the hand-written config header
+# (VAIOS_CONFIG_FILE) for Kconfig, so the SITL has to run the same generator the
+# firmware build does -- it compiles the real vaios headers, and without the
+# generated macros task.h stops the build on "No vaios arch selected".
+#
+# Standalone (no NAVHAL_KCONFIG): the arch choice then falls through to
+# VAIOS_ARCH_CORTEX_M4, which is what this build has always pretended to be --
+# it shims the ARM port through sim/host/include/ rather than using vaios's own
+# host port. Seeded from firmware/vaios.defconfig so SITL and firmware cannot
+# drift apart on a kernel knob; HEAP_SIZE is then overridden per target below,
+# and a -D still wins because every generated macro is #ifndef-guarded.
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+set(VAIOS_AUTOCONF "${CMAKE_BINARY_DIR}/vaios_autoconf.h")
+set(_vaios_dotconfig "${CMAKE_BINARY_DIR}/.config")
+configure_file("${VAYU_ROOT}/firmware/vaios.defconfig" "${_vaios_dotconfig}" COPYONLY)
+execute_process(
+    COMMAND ${Python3_EXECUTABLE} "${VAIOS_ROOT}/tools/kconfig.py"
+            --kconfig "${VAIOS_ROOT}/Kconfig"
+            --config "${_vaios_dotconfig}"
+            --header-out "${VAIOS_AUTOCONF}"
+    RESULT_VARIABLE _vaios_kconfig_rc)
+if(NOT _vaios_kconfig_rc EQUAL 0)
+    message(FATAL_ERROR "vaios Kconfig generation failed (rc=${_vaios_kconfig_rc})")
+endif()
+add_compile_options("SHELL:-include ${VAIOS_AUTOCONF}")
+
+# NavHAL's configuration, the same way. NavHAL 0.3.x gates its public headers on
+# the Kconfig-derived NAVHAL_CONFIG_DRV_* macros and force-includes
+# navhal_target.h to make them ambient: without it `common/hal_interrupt.h` never
+# reaches the port header and the build fails on an undeclared hal_irq_t, which
+# reads like a missing include but is a driver that was configured off.
+#
+# Generated from firmware/navhal.config -- the same authoritative driver set the
+# firmware uses, so SITL cannot be compiled against a different HAL than the
+# board runs. srctree roots NavHAL's relative `source` directives.
+set(NAVHAL_TARGET_H "${CMAKE_BINARY_DIR}/navhal_target.h")
+set(_navhal_dotconfig "${CMAKE_BINARY_DIR}/navhal.config")
+configure_file("${VAYU_ROOT}/firmware/navhal.config" "${_navhal_dotconfig}" COPYONLY)
+execute_process(
+    COMMAND ${CMAKE_COMMAND} -E env "srctree=${NAVHAL_ROOT}"
+            ${Python3_EXECUTABLE} "${NAVHAL_ROOT}/tools/kconfig.py"
+            --kconfig "${NAVHAL_ROOT}/Kconfig"
+            --config "${_navhal_dotconfig}"
+            --header-out "${CMAKE_BINARY_DIR}/autoconf.h"
+            --navhal-target-out "${NAVHAL_TARGET_H}"
+            --board-header-out "${CMAKE_BINARY_DIR}/navhal_board.h"
+    RESULT_VARIABLE _navhal_kconfig_rc)
+if(NOT _navhal_kconfig_rc EQUAL 0)
+    message(FATAL_ERROR "NavHAL Kconfig generation failed (rc=${_navhal_kconfig_rc})")
+endif()
+add_compile_options("SHELL:-include ${NAVHAL_TARGET_H}")
+
 # Phase 5 — sanitizers (R12.2) and coverage (CONV-05 / R12.4).
 option(VAYU_SANITIZE "Build host SITL + tests with ASan + UBSan" OFF)
 option(VAYU_COVERAGE "Build host SITL + tests with gcov instrumentation" OFF)
@@ -42,7 +94,6 @@ add_compile_definitions(
                        # the FC), so SITL runs the same code as hardware — not
                        # the inert stub. Runtime-disabled until the NOTCH command
                        # enables it + props pass the throttle gate.
-    VAIOS_CONFIG_FILE="${VAYU_ROOT}/firmware/include/vaios_app_config.h"
 )
 
 # Shadow + firmware + vaios + NavHAL + SDK + vsim headers, in priority order.
@@ -266,7 +317,13 @@ if(VAYU_SITL_RTOS_BUILD)
       ${VAIOS_ROOT}/kernel/structure.c
       ${VAIOS_ROOT}/kernel/task.c
       ${VAIOS_ROOT}/kernel/ipc.c
-      ${VAIOS_ROOT}/kernel/memory.c
+      # vaios 0.2.0 split the allocator: memory/memory.c is the public API and
+      # seglist.c / tlsf.c are the two backends, whose bodies gate on the
+      # VAIOS_HEAP_ALGO the Kconfig choice picked -- the unselected one compiles
+      # to nothing, so both are listed and neither needs a condition here.
+      ${VAIOS_ROOT}/kernel/memory/memory.c
+      ${VAIOS_ROOT}/kernel/memory/seglist.c
+      ${VAIOS_ROOT}/kernel/memory/tlsf.c
       ${VAIOS_ROOT}/kernel/vaios.c
       ${VAIOS_ROOT}/kernel/perf.c
   )

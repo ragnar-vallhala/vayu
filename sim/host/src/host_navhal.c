@@ -685,10 +685,9 @@ uint32_t hal_clock_get_apb2clk(void) { return 84000000u; }
  * firmware estimator runs in SITL. */
 uint32_t hal_cycle_counter_cycles_per_us(void) { return 84u; }
 
-hal_status_t hal_clock_init(const hal_clock_config_t *cfg,
-                            const hal_pll_config_t *pll) {
+/* NavHAL 0.3.x folded the PLL config into hal_clock_config_t -- one argument. */
+hal_status_t hal_clock_init(const hal_clock_config_t *cfg) {
   (void)cfg;
-  (void)pll;
   return HAL_OK;
 }
 

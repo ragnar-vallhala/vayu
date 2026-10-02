@@ -174,7 +174,7 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--elf", default=os.path.join(root, "firmware/build/main"))
     ap.add_argument("--heap-size", type=lambda s: int(s, 0), default=None,
-                    help="HEAP_SIZE; default reads it from vaios_app_config.h")
+                    help="HEAP_SIZE; default reads it from firmware/vaios.defconfig")
     ap.add_argument("--ram-top", type=lambda s: int(s, 0), default=RAM_TOP)
     ap.add_argument("--top", type=int, default=15)
     ap.add_argument("--fit", type=int, default=0, metavar="BYTES",
@@ -192,8 +192,12 @@ def main():
 
     heap_size = a.heap_size
     if heap_size is None:
-        cfg = os.path.join(root, "firmware/include/vaios_app_config.h")
-        m = re.search(r"^#define\s+HEAP_SIZE\s+(0x[0-9A-Fa-f]+|\d+)", open(cfg).read(), re.M)
+        # vaios 0.2.0 moved the kernel knobs from a header into Kconfig, so the
+        # authority is now firmware/vaios.defconfig. Read that rather than the
+        # generated <build>/vaios_autoconf.h: the defconfig is what review sees,
+        # and a build dir may not exist when this runs.
+        cfg = os.path.join(root, "firmware/vaios.defconfig")
+        m = re.search(r"^CONFIG_HEAP_SIZE=(0x[0-9A-Fa-f]+|\d+)", open(cfg).read(), re.M)
         heap_size = int(m.group(1), 0) if m else 0
 
     syms = symbols(a.elf)
