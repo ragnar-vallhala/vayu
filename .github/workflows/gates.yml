@@ -116,3 +116,53 @@ jobs:
       # constant compile and pass their own tests.
       - name: tools/dev/check_constants.sh
         run: tools/dev/check_constants.sh
+  # ---------------------------------------------------------------------------
+  # Fan-in. Branch protection requires THIS one context, not the dozen above.
+  #
+  # Separate from `CI required` because GitHub's `needs` cannot reach across
+  # workflows, so one fan-in per workflow file is the most that is possible.
+  #
+  # `if: always()` so it runs even when a dependency failed -- without it the
+  # job would be skipped, and a skipped required check blocks a PR forever
+  # rather than failing it, which looks like CI hanging. Skipped counts as ok,
+  # because a job gated on changed paths that legitimately did not run must not
+  # read as a failure.
+  required:
+    name: Gates required
+    runs-on: ubuntu-latest
+    if: always()
+    needs:
+      - trace-gate
+      - commit-msgs
+      - docs-links
+      - clang-format
+      - layering
+    steps:
+      # The aggregator verifies its OWN coverage first: a job added to this
+      # workflow but never added to `needs` below would report on the PR and be
+      # required by nothing. Checked here rather than in a job of its own,
+      # because the thing that claims the workflow is green is the right place
+      # to prove it is speaking for all of it.
+      - uses: actions/checkout@v5
+      - name: tools/dev/check_ci_required.sh
+        run: tools/dev/check_ci_required.sh
+      - name: Aggregate per-job results (success or skipped == ok)
+        run: |
+          fail=0
+          check() {
+            local name=$1 result=$2
+            case "$result" in
+              success|skipped) printf '  \033[32m%-9s\033[0m  %s\n' "$result" "$name" ;;
+              *)               printf '  \033[31m%-9s\033[0m  %s\n' "$result" "$name"; fail=1 ;;
+            esac
+          }
+          check trace-gate     "${{ needs.trace-gate.result }}"
+          check commit-msgs    "${{ needs.commit-msgs.result }}"
+          check docs-links     "${{ needs.docs-links.result }}"
+          check clang-format   "${{ needs.clang-format.result }}"
+          check layering       "${{ needs.layering.result }}"
+          if [ "$fail" -eq 0 ]; then
+            echo "all green."
+          fi
+          exit $fail
+
