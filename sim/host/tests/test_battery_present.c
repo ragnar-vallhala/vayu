@@ -147,6 +147,54 @@ int main(void) {
           "a railed acquisition is not believable end to end");
   }
 
+  printf("  [7] PRESENT waits out the rising edge\n");
+  {
+    /* Plugging a pack in charges the ESC capacitors through the path
+     * resistance, so the rail RAMPS. A sample caught part-way up reads above
+     * the floor and would otherwise be published as a settled pack voltage --
+     * the same phantom number the floor exists to stop, just briefly. PX4 waits
+     * 2 s for this reason; 8 samples at 250 ms is the same wait. */
+    const uint8_t good = BATTERY_F_PRESENT | BATTERY_F_CONVERTED;
+    for (uint32_t n = 1; n < BATTERY_PRESENT_SETTLE_SAMPLES; n++) {
+      CHECK((battery_flags_settled(good, n) & BATTERY_F_PRESENT) == 0u,
+            "PRESENT withheld before the rail has settled");
+      CHECK(!battery_flags_believable(battery_flags_settled(good, n)),
+            "and the reading is not believable yet");
+      /* Withheld, not erased: the conversion still happened and the volts and
+       * counts still go out, so a log shows the ramp rather than a hole. */
+      CHECK((battery_flags_settled(good, n) & BATTERY_F_CONVERTED) != 0u,
+            "CONVERTED is never debounced -- it describes this acquisition");
+    }
+    CHECK((battery_flags_settled(good, BATTERY_PRESENT_SETTLE_SAMPLES) &
+           BATTERY_F_PRESENT) != 0u,
+          "PRESENT asserted once settled");
+    CHECK(battery_flags_believable(
+              battery_flags_settled(good, BATTERY_PRESENT_SETTLE_SAMPLES)),
+          "and believable from then on");
+
+    /* A fault must not be masked by settling, and settling must not invent a
+     * PRESENT that the floor never granted. */
+    CHECK(battery_flags_settled(BATTERY_F_CONVERTED, 999u) ==
+              BATTERY_F_CONVERTED,
+          "a de-energised rail stays absent however long it is watched");
+    CHECK(battery_flags_settled(BATTERY_F_TIMEOUT, 999u) == BATTERY_F_TIMEOUT,
+          "a fault passes through untouched");
+    CHECK((battery_flags_settled(good | BATTERY_F_RAILED,
+                                 BATTERY_PRESENT_SETTLE_SAMPLES) &
+           BATTERY_F_RAILED) != 0u,
+          "RAILED survives settling");
+
+    /* The window asserted in TIME, not in samples. Everything above is
+     * parameterised on the constant, so it would all still pass with the window
+     * shrunk to a single sample -- the loop would simply run zero times. These
+     * two are what actually pin the duration: long enough to outlast a rail
+     * ramp, short enough not to blind the first seconds of a recording. */
+    CHECK(BATTERY_PRESENT_SETTLE_SAMPLES * BATTERY_SAMPLE_PERIOD_MS >= 1500u,
+          "the settle window is at least 1.5 s of real time");
+    CHECK(BATTERY_PRESENT_SETTLE_SAMPLES * BATTERY_SAMPLE_PERIOD_MS <= 4000u,
+          "and no more than 4 s, or a log starts blind");
+  }
+
   printf("\n  %d checks, %d failures\n", g_checks, g_fails);
   return g_fails ? 1 : 0;
 }

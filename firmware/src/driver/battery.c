@@ -207,16 +207,28 @@ void battery_debug(int32_t *init_rc, int32_t *read_rc, uint32_t *sr,
  * The task publishes to the hub and nothing else. Telemetry and the recorder
  * read it from there, so no gated section ever names this driver.
  * -------------------------------------------------------------------------*/
-#define BATTERY_SAMPLE_PERIOD_MS 250u
-
 /** @implements SNS-BATT-001 */
 void battery_task(void *args) {
   (void)args;
+
+  /* Consecutive samples the rail has read above the presence floor. Local to
+   * this task -- nothing else may advance it -- and it resets the moment the
+   * rail drops, so a pack that browns out has to settle again. */
+  uint32_t samples_above = 0u;
 
   while (1) {
     float v = 0.0f;
     const vayu_status_t rc = battery_read_volts(&v);
     const uint16_t counts = battery_last_counts();
+
+    const uint8_t raw = battery_flags_from(rc, v, counts);
+    if ((raw & BATTERY_F_PRESENT) != 0u) {
+      if (samples_above < BATTERY_PRESENT_SETTLE_SAMPLES) {
+        samples_above++;
+      }
+    } else {
+      samples_above = 0u;
+    }
 
     /* The flags say whether the volts may be read as a pack voltage, and when
      * they may not, which of the four reasons applies. A conversion completing
@@ -227,11 +239,15 @@ void battery_task(void *args) {
      * The measured volts and counts go out regardless, because they are the
      * evidence. A de-energised rail reads a low coherent voltage with plausible
      * counts; a broken converter reads zero or rails. Suppressing the number
-     * would discard the only thing that separates those. */
+     * would discard the only thing that separates those.
+     *
+     * PRESENT is additionally held back until the rail has been plausible for
+     * BATTERY_PRESENT_SETTLE_SAMPLES, so a sample caught on the rising edge of
+     * a pack being plugged in is not published as a settled pack voltage. */
     battery_sample_t s = {.volts = (rc == VAYU_OK) ? v : 0.0f,
                           .t_cyc = vayu_clock_cycles(),
                           .counts = counts,
-                          .flags = battery_flags_from(rc, v, counts),
+                          .flags = battery_flags_settled(raw, samples_above),
                           .instance = 0u};
     battery_publish(&s);
 

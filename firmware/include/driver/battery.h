@@ -89,6 +89,48 @@ static inline bool battery_pack_present(float volts) {
   return volts >= BOARD_VBAT_PRESENT_MIN_V;
 }
 
+/* Acquisition cadence. In the header because BATTERY_PRESENT_SETTLE_SAMPLES is
+ * a count of these and means nothing without it -- a reviewer checking the
+ * settle window is ~2 s needs both numbers in one place. A pack voltage that
+ * moves meaningfully faster than this is already failing. */
+#define BATTERY_SAMPLE_PERIOD_MS 250u
+
+/* Consecutive samples the rail must read above the floor before PRESENT is
+ * asserted. ~2 s at BATTERY_SAMPLE_PERIOD_MS, which is what PX4 waits before it
+ * trusts a battery: LITHIUM_BATTERY_RECOGNITION_VOLTAGE gates its _connected,
+ * but the rest of PX4 consumes _battery_initialized, which is _connected held
+ * for 2 s. Its comment gives the reason and it applies here identically --
+ * "avoid relying on a voltage sample from the rising edge".
+ *
+ * Plugging a pack in does not step the rail; it charges the ESC capacitors
+ * through whatever is in the path. Without this, one 250 ms sample taken
+ * part-way up that curve reads above the floor and is published as a believable
+ * pack voltage -- a phantom number of exactly the kind the floor exists to
+ * stop, just a brief one. */
+#define BATTERY_PRESENT_SETTLE_SAMPLES 8u
+
+/**
+ * Hold PRESENT back until the rail has been plausible long enough to believe,
+ * given how many consecutive samples -- including this one -- have read above
+ * the floor.
+ *
+ * Only PRESENT is withheld. CONVERTED and the fault bits describe THIS
+ * acquisition and are true the moment they are seen, so debouncing them would
+ * misreport the converter; it is only "a pack is on the rail" that a rising edge
+ * can fake.
+ *
+ * Pure, so the settling rule is testable without waiting two seconds of real
+ * time or owning an ADC.
+ */
+static inline uint8_t battery_flags_settled(uint8_t flags,
+                                            uint32_t samples_above) {
+  if ((flags & BATTERY_F_PRESENT) != 0u &&
+      samples_above < BATTERY_PRESENT_SETTLE_SAMPLES) {
+    return (uint8_t)(flags & (uint8_t)~BATTERY_F_PRESENT);
+  }
+  return flags;
+}
+
 /**
  * Build the BATTERY_F_* mask for one acquisition.
  *
