@@ -24,13 +24,23 @@
  * and NOTHING in a flight recording could tell those apart. This is the
  * instrument that makes that answerable.
  *
- * WHY THE REGISTERS ARE HERE. NavHAL has no ADC driver -- no hal_adc, no
- * adc_reg.h, nothing in its Kconfig -- so this file pokes ADC1 directly. That
- * is legal where it sits (silicon is what driver/ is for, and the layering gate
- * exempts it) but it is the wrong long-term home: an ADC belongs beside
- * hal_i2c and hal_uart, not in one vehicle's battery monitor. Filed as such;
- * when hal_adc lands, everything below the divider maths should move to it and
- * this file should shrink to a scale factor and a getter.
+ * WHY THE REGISTERS ARE HERE. An ADC belongs beside hal_i2c and hal_uart, not in
+ * one vehicle's battery monitor. This file pokes ADC1 directly anyway, which is
+ * legal where it sits (silicon is what driver/ is for, and the layering gate
+ * exempts it) but is the wrong long-term home.
+ *
+ * NavHAL 0.3.9 DOES now ship hal_adc (hal_adc_init + hal_adc_read, 12-bit,
+ * polled, bounded EOC spin) and it is otherwise a drop-in for everything below.
+ * It is still not usable here for one reason: it never programs SMPR, so the
+ * sample time stays at its reset value of 3 cycles. See the 480-cycle note in
+ * battery.c -- a 3-cycle sample cannot charge the sample-and-hold through this
+ * divider's ~3.6k source impedance, and the reading sags toward zero. Since
+ * s_volts_per_count is calibrated against the present front-end (0:batcal.bin),
+ * that would not read as a bug, it would read as a flat pack.
+ *
+ * So the move waits on a sample-time knob in hal_adc_config_t. When that lands,
+ * everything below the divider maths should move to it and this file should
+ * shrink to a scale factor and a getter. Nothing else blocks it.
  *
  * Deliberately polled and slow. A pack voltage that moves meaningfully inside
  * 100 ms is a pack that is already failing, and the whole reading -- sixteen
