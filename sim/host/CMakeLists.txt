@@ -102,6 +102,7 @@ set(VAYU_SOURCES
     ${VAYU_ROOT}/firmware/src/control/control_buffer.c
     ${VAYU_ROOT}/firmware/src/est/lpf.c
     ${VAYU_ROOT}/firmware/src/est/hover_estimate.c
+    ${VAYU_ROOT}/firmware/src/storage/battery_calib.c
     ${VAYU_ROOT}/firmware/src/storage/hover_store.c
     ${VAYU_ROOT}/firmware/src/maths/maths_interface.c
     ${VAYU_ROOT}/firmware/src/maths/fft.c              # m_rfft_* (dynamic-notch FFT analysis)
@@ -469,6 +470,11 @@ add_executable(test_esc tests/test_esc.c)
 target_link_libraries(test_esc PRIVATE vayu_sitl_core m)
 add_test(NAME esc COMMAND test_esc)
 
+# battery presence floor: pure predicate from driver/battery.h (no ADC needed).
+add_executable(test_battery_present tests/test_battery_present.c)
+target_link_libraries(test_battery_present PRIVATE vayu_sitl_core m)
+add_test(NAME battery_present COMMAND test_battery_present)
+
 add_executable(test_indicator tests/test_indicator.c)
 target_link_libraries(test_indicator PRIVATE vayu_sitl_core m)
 add_test(NAME indicator COMMAND test_indicator)
@@ -509,6 +515,10 @@ add_test(NAME rc_buffer COMMAND test_rc_buffer)
 add_executable(test_imu_buffer tests/test_imu_buffer.c)
 target_link_libraries(test_imu_buffer PRIVATE vayu_sitl_core m)
 add_test(NAME imu_buffer COMMAND test_imu_buffer)
+
+add_executable(test_battery_calib tests/test_battery_calib.c)
+target_link_libraries(test_battery_calib PRIVATE vayu_sitl_core m)
+add_test(NAME battery_calib COMMAND test_battery_calib)
 
 add_executable(test_hover_store tests/test_hover_store.c)
 target_link_libraries(test_hover_store PRIVATE vayu_sitl_core m)

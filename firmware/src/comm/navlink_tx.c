@@ -15,6 +15,9 @@
  * limitations under the License.
  */
 #include "comm/navlink_tx.h"
+
+#include "hub/sample.h" /* BATTERY_F_* -- reconciled with the wire enum below */
+
 #include "maths/maths_interface.h"    /* to_radians */
 #include "control/angle_controller.h" /* angle_controller_height_state */
 #include "storage/imu_hs_log.h"
@@ -251,6 +254,35 @@ void navlink_tx_attitude(const attitude_t *att_deg) {
 }
 
 /** @implements COMM-TEL-006 */
+/** @implements COMM-TEL-003 */
+/* The driver's BATTERY_F_* bits go on the wire unchanged, so they must BE
+ * navlink's battery_flags. driver/battery.h cannot include a navlink header --
+ * the layering gate forbids a driver naming the comm codec -- so the two are
+ * declared separately and reconciled HERE, the one place both are in scope. A
+ * silent divergence would mislabel the reason a reading was rejected, which is
+ * worse than no reason at all. */
+_Static_assert(BATTERY_F_PRESENT == NAVLINK_BATTERY_FLAGS_PRESENT, "PRESENT");
+_Static_assert(BATTERY_F_CONVERTED == NAVLINK_BATTERY_FLAGS_CONVERTED,
+               "CONVERTED");
+_Static_assert(BATTERY_F_TIMEOUT == NAVLINK_BATTERY_FLAGS_TIMEOUT, "TIMEOUT");
+_Static_assert(BATTERY_F_INIT_FAIL == NAVLINK_BATTERY_FLAGS_INIT_FAIL,
+               "INIT_FAIL");
+_Static_assert(BATTERY_F_RAILED == NAVLINK_BATTERY_FLAGS_RAILED, "RAILED");
+
+void navlink_tx_battery(float volts, uint16_t counts, uint8_t flags) {
+  /* v2 BATTERY (msgid 1050). counts goes on the wire beside the volts because
+   * the scale is a calibrated board constant: if a reading looks wrong, the
+   * raw count is what says whether the ADC or the constant is at fault. */
+  static uint8_t seq = 0;
+  navlink_battery_t b = {0};
+  b.voltage = volts;
+  b.counts = counts;
+  b.flags = flags;
+  uint8_t frame[NAVLINK_MAX_FRAME];
+  size_t n = navlink_battery_encode(frame, &b, seq++, get_device_id(), 1);
+  write_channel(g_telemetry_channel, frame, (uint16_t)n);
+}
+
 void navlink_tx_baro(float pressure_pa, float temperature_c, float humidity_rh,
                      float altitude_m) {
   /* v2 BARO (msgid 1039); BME280 baro/humidity. */

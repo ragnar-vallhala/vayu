@@ -163,6 +163,7 @@ void imu_buffer_init(void) {
 HUB_DEFINE_LATEST(mag, mag_sample_t)
 HUB_DEFINE_LATEST(baro, baro_sample_t)
 HUB_DEFINE_LATEST(range, range_sample_t)
+HUB_DEFINE_LATEST(battery, battery_sample_t)
 
 /** @noreq ISA barometric altitude; pure maths, see hub/sample.h. */
 float hub_altitude_m(float pressure_pa, float sea_level_pa) {

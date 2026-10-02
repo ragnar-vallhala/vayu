@@ -7,3 +7,8 @@
 [submodule "navlink"]
 	path = navlink
 	url = https://github.com/ragnar-vallhala/navlink.git
+	# navlink's README: a consumer pins a tag on stable, never a commit on
+	# main, because main carries work that has passed CI but has not been
+	# released, including changes to that repo's own tooling. This is what
+	# `submodule update --remote` follows; it does not stop a manual pin.
+	branch = stable

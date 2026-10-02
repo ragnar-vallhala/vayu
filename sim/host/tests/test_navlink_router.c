@@ -130,11 +130,13 @@ int main(void) {
     /* Garbage with NO sync byte in it — the realistic case of line noise ahead
      * of a frame. The parser must skip it and pick up the next real frame.
      *
-     * Deliberately NOT asserted: junk that happens to contain 0x56 followed by
-     * a large length byte makes the parser wait for that many payload bytes and
-     * swallow the frame that follows. That is inherent to a length-prefixed
-     * protocol (it recovers on the frame after), not a defect, so pinning it as
-     * a guarantee would be asserting an accident. */
+     * Still NOT asserted: junk shaped like a PLAUSIBLE header — 0x56, then the
+     * version byte, then a large length — makes the parser wait for that many
+     * payload bytes and swallow the frame behind it. That is inherent to a
+     * length-prefixed protocol (it recovers on the frame after), not a defect,
+     * so pinning it would be asserting an accident. A stray 0x56 followed by
+     * anything OTHER than the version is a different matter and is asserted
+     * below. */
     const uint8_t junk[] = {0x00, 0xFF, 0x11, 0x22, 0x33};
     feed(junk, sizeof junk);
     flight_mode_t want = (flight_mode_get() == FLIGHT_MODE_ANGLE)
@@ -143,6 +145,36 @@ int main(void) {
     size_t n = build_set_mode(frame, (uint8_t)want);
     feed(frame, n);
     CHECK(flight_mode_get() == want, "parser resynced after leading noise");
+  }
+
+  printf("  [6] a stray sync byte does not cost the frame behind it\n");
+  {
+    /* The §3.4 case, and the one that bites on a real link: the parser demuxes
+     * on byte 1 as soon as it arrives, so a 0x56 whose next byte is not the
+     * version is abandoned there -- and because that next byte may itself be
+     * the real sync, it is re-examined rather than eaten.
+     *
+     * Before this was fixed the parser accepted all ten header bytes and only
+     * then checked the version, so a stray 0x56 ahead of a frame consumed the
+     * real sync as its version byte and threw the real header away with it. A
+     * truncated v1 frame is exactly this shape, v1 and v2 sharing the sync. */
+    const uint8_t stray[] = {0x56u, 0x00u}; /* 0x00 is not NAVLINK_VERSION */
+    feed(stray, sizeof stray);
+    flight_mode_t want = (flight_mode_get() == FLIGHT_MODE_ANGLE)
+                             ? FLIGHT_MODE_ACRO
+                             : FLIGHT_MODE_ANGLE;
+    size_t n = build_set_mode(frame, (uint8_t)want);
+    feed(frame, n);
+    CHECK(flight_mode_get() == want,
+          "frame after a stray sync still dispatched");
+
+    /* And the stray byte being itself a sync must not swallow the frame. */
+    const uint8_t two[] = {0x56u, 0x56u};
+    feed(two, sizeof two);
+    want = (want == FLIGHT_MODE_ANGLE) ? FLIGHT_MODE_ACRO : FLIGHT_MODE_ANGLE;
+    n = build_set_mode(frame, (uint8_t)want);
+    feed(frame, n);
+    CHECK(flight_mode_get() == want, "doubled sync bytes resync, not consume");
   }
 
   printf("\n  %d checks, %d failures\n", g_checks, g_fails);
