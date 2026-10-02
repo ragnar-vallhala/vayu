@@ -227,10 +227,49 @@ void init_timer_callbacks(void) {
 }
 /* @noreq boot plumbing: spawns the heartbeat task + one-shot boot task. */
 void system_init_tasks(void) {
+  /* boot_task ONLY. It is the first and only thing the scheduler has to run, so
+   * it reaches its work immediately regardless of priority, and everything that
+   * needs a running kernel happens inside it.
+   *
+   * 2048, raised from 1 KiB: it now carries the blackbox prealloc and the PID
+   * restore, whose VFS path is the same depth that makes fs_owner_task peak at
+   * 956 B. Generosity is close to free here -- the task exits and the kernel GC
+   * returns the whole block -- but it is NOT in the steady-state perf view, so
+   * stack_peaks.py cannot measure it: its TCB is gone before any dump. */
+  task_create_named(boot_task, NULL, 2048, 0, "boot");
+}
+
+/* Everything that must not run until the scheduler is up, in order: the SD reads
+ * that take the VFS mutex, then the tasks, then the timer that paces them.
+ *
+ * Called from boot_task, so there is a current task and the VFS mutex behaves.
+ * The ordering is the point: a persisted PID tune has to be in force before the
+ * rate loop exists rather than racing it, and no sensor tick should fire before
+ * the task that drains it has been created.
+ *
+ * @noreq boot plumbing. */
+void system_boot_late_init(void) {
+  fs_owner_boot_init(); /* prealloc/open the blackbox log files */
+#ifdef EKF_SELFTEST
+  run_ekf_selftest();
+#endif
+  pid_config_init(); /* COMM-CMD-003: restore persisted PID tune from SD */
+  init_sensors();    /* the IMU's own init loads cal.bin */
+
+  /* Takes a pending ESC-calibration request -- which it reads from the card --
+   * and hands the flight state to it. It only SETS the phase; motor_task is what
+   * drives the outputs to maximum, and that task is created just below, so the
+   * order the ESCs actually see is unchanged by this living here rather than in
+   * main(). It still precedes every task, which is what mattered: the ESCs have
+   * to meet maximum while they are still waking, and a running FC cannot
+   * recreate that moment. Must stay after system_state_init (in main), which
+   * leaves the state at INIT -- the transition table carries {INIT, ESC_CALIB}
+   * for exactly this call. */
+  esc_calib_boot_init();
+
   task_create_named(heartbeat_task, NULL, 768, 0, "heartbeat"); // peak 260
-  // boot_task runs the one-shot boot sequence then exits (stack freed); left at
-  // 1 KiB since it is not in the steady-state perf view (no measured high-water).
-  task_create_named(boot_task, NULL, 1024, 0, "boot");
+  init_tasks();
+  init_timer_callbacks(); /* last: nothing ticks before its consumer exists */
 }
 /* Handed to the manager once at boot, which keeps its own copy -- nothing
  * else needs to see it. It was non-static so bmx160.c could extern it for bus
@@ -260,11 +299,13 @@ int main() {
   v_system_init(&cfg);
 
   init_i2c_manager(&i2c_config);
-  fs_owner_boot_init(); /* prealloc/open the blackbox log files */
-#ifdef EKF_SELFTEST
-  run_ekf_selftest(); /* report over UART before the scheduler starts */
-#endif
-  pid_config_init(); /* COMM-CMD-003: restore persisted PID tune from SD */
+  /* The SD reads that used to sit here (blackbox prealloc, persisted PID tune)
+   * now run in boot_task -- see system_boot_late_init(). They take the VFS
+   * mutex, and vaios's vfs_init says plainly "do not lock here: v_mutex_lock
+   * blocks indefinitely without a running scheduler". Pre-scheduler there is no
+   * current task, so the kernel wrote current->wait_mutex through a NULL TCB;
+   * on this part address 0x38 is flash-aliased, so it did nothing and nothing
+   * said so, until the MPU's NULL guard turned it into a MemManage fault. */
   system_state_init();
   /* Takes a pending ESC-calibration request and drives maximum from startup.
    * Must be AFTER system_state_init, which leaves the state at INIT -- the
@@ -282,11 +323,10 @@ int main() {
     vayu_log("batt: ADC did not come up");
   }
 
-  esc_calib_boot_init();
-  init_sensors();
+  /* Only boot_task, and nothing that touches the filesystem. init_sensors (the
+   * IMU reads cal.bin) and esc_calib_boot_init (it reads the request marker)
+   * moved into system_boot_late_init with the rest. */
   system_init_tasks();
-  init_tasks();
-  init_timer_callbacks();
 
   scheduler_start();
   while (1)

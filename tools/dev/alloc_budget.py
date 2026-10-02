@@ -160,9 +160,16 @@ def multiplicity(graph, roots, live):
 
     for r in roots:
         visit(r, frozenset())
+    rootset = set(roots)
     for f in reversed(order):          # callers before callees
         for callee, n in graph.get(f, {}).items():
-            if callee in live:
+            # A root is entered once, by definition -- it is a task entry or
+            # main. It ALSO appears as a callee wherever its address is taken to
+            # create the task, and counting both makes every allocation below it
+            # double. That stayed hidden while task creation sat on main's own
+            # path; it became a ~2.8x over-count the moment the task list moved
+            # into boot_task.
+            if callee in live and callee not in rootset:
                 mult[callee] = mult.get(callee, 0) + n * mult.get(f, 1)
     return mult
 
@@ -222,9 +229,23 @@ def main():
 
     # roots: main plus every task entry (a task's stack is its own allocation,
     # so a task body is reachable even though nothing calls it directly)
-    roots = ["main"] + [f for f in graph if f.endswith("_task")]
+    # system_boot_late_init runs exactly once, from boot_task. It is named here
+    # because GCC duplicated the call across boot_task's branches -- three static
+    # `bl` for one dynamic call -- and the call-site multiplier below cannot tell
+    # that from three genuine sites, so everything it allocates (the whole task
+    # list) came out counted 3x. Naming it a root says "entered once", which is
+    # the fact.
+    roots = ["main", "system_boot_late_init"] + [
+        f for f in graph if f.endswith("_task")]
     live = reachable(graph, roots)
-    boot = reachable(graph, ["main"])
+    # "boot" is main PLUS boot_task: the one-shot boot sequence moved into that
+    # task so its SD reads happen with a current task (the VFS mutex needs one).
+    # The task stacks it creates are boot-time demand, allocated once before
+    # anything flies -- exactly as they were when main() created them. Leaving
+    # boot_task out of this root set files ~17 KB of stacks under "runtime
+    # worst case", which then reads as tens of KB overcommitted when nothing
+    # about the real footprint has changed.
+    boot = reachable(graph, ["main", "boot_task"])
     mult = multiplicity(graph, roots, live)
 
     print()
