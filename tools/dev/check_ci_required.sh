@@ -51,6 +51,15 @@ needs = re.findall(r"-\s+(\S+)", nm.group(1)) if nm else []
 for j in jobs:
     if j != "required" and j not in needs:
         print("MISSING", j)
+
+# Second hole, same shape: a job can sit in `needs` and still never have its
+# result looked at. `needs` only makes the fan-in WAIT for it -- the aggregate
+# step has to inspect each result, or a failed dependency skips its siblings and
+# the fan-in reports green over the top of it.
+inspected = set(re.findall(r'check\s+(\S+)\s+"\$\{\{\s*needs\.', seg))
+for n in needs:
+    if n not in inspected:
+        print("UNINSPECTED", n)
 PY
 )
   name="${wf##*/}"
@@ -62,7 +71,10 @@ PY
     printf '  %-16s every job is required\n' "$name"
   else
     for line in "${out[@]}"; do
-      printf '  %-16s NOT REQUIRED: %s\n' "$name" "${line#MISSING }"
+      case "$line" in
+        MISSING' '*)     printf '  %-16s NOT REQUIRED: %s\n' "$name" "${line#MISSING }" ;;
+        UNINSPECTED' '*) printf '  %-16s RESULT NEVER CHECKED: %s\n' "$name" "${line#UNINSPECTED }" ;;
+      esac
     done
     rc=1
   fi
@@ -71,12 +83,16 @@ done
 if [ "$rc" != 0 ]; then
   cat >&2 <<'MSG'
 
-A job runs in CI but is not required to pass.
+A job is not actually enforced by its workflow's fan-in.
 
-Branch protection requires the fan-in context, so a job missing from its
-`needs:` list reports on the pull request and blocks nothing. Add it to the
-`required` job's `needs:` in the same workflow -- that is the whole list of
-what protection enforces.
+NOT REQUIRED
+  Missing from the `required` job's `needs:`. It reports on the pull request and
+  blocks nothing; that list is the whole of what protection enforces.
+
+RESULT NEVER CHECKED
+  In `needs:`, but the aggregate step does not inspect it. `needs:` only makes
+  the fan-in WAIT. Without a `check <job> "${{ needs.<job>.result }}"` line, a
+  failure there skips the siblings and the fan-in reports green over it.
 MSG
   exit 1
 fi
