@@ -74,8 +74,6 @@ static spsc_fifo_t _est_perf_queue;
  * two), so — like the calibration ring — give a little headroom so spsc_init's
  * alignment/empty-marker slots don't collapse usable capacity to zero. */
 #define VERTICAL_STATE_CAPACITY 4
-static vertical_state_t _vertical_state_buffer[VERTICAL_STATE_CAPACITY];
-static spsc_fifo_t _vertical_state_queue;
 
 /* attitude task -> VERT task input ring (synchronized {q, accel, dt}). */
 static vert_input_t _vert_input_buffer[IMU_BUFFER_INTERNAL_CAPACITY];
@@ -208,10 +206,6 @@ void imu_buffer_init(void) {
   spsc_init(&_est_perf_queue, _est_perf_buffer, EST_PERF_TELEMETRY_CAPACITY,
             sizeof(est_perf_telemetry_t));
   spsc_set_policy(&_est_perf_queue, SPSC_POLICY_OVERWRITE);
-
-  spsc_init(&_vertical_state_queue, _vertical_state_buffer,
-            VERTICAL_STATE_CAPACITY, sizeof(vertical_state_t));
-  spsc_set_policy(&_vertical_state_queue, SPSC_POLICY_OVERWRITE);
 
   spsc_init(&_vert_input_queue, _vert_input_buffer,
             IMU_BUFFER_INTERNAL_CAPACITY, sizeof(vert_input_t));
@@ -560,17 +554,80 @@ bool est_perf_queue_pop(est_perf_telemetry_t *out_perf) {
 #endif
 }
 
-/** @noreq Thin SPSC ring accessor. */
+/* ---------------------------------------------------------------------------
+ * vertical.state: ONE SLOT, not a queue.
+ *
+ * It never wanted to be a ring. Its two readers want different things and a depth
+ * of four served neither: angle_controller wants the NEWEST state at every control
+ * step and must not consume it, while telemetry wants to send only when there is
+ * something new -- so that a stalled estimator shows up as vert frames stopping
+ * rather than as the same numbers repeating.
+ *
+ * A plain latest-value slot (HUB_DEFINE_LATEST above) gives the first and breaks
+ * the second: it would answer true forever once populated, and telemetry would
+ * re-send stale state at its scheduled rate, masking exactly the fault a reader
+ * would want to see. A sequence counter gives both from one slot: peek reads it,
+ * pop reads it only when the sequence has moved.
+ *
+ * This is also why vertical.state is not a bus topic. The bus has no
+ * non-consuming peek -- v_bus_peek pins a slot and v_bus_release consumes it -- so
+ * a queue primitive of any shape is wrong for a reader that wants "the current
+ * value".
+ *
+ * ONE popper. _vs_seq_popped is a single reader's bookmark; a second consumer
+ * calling pop would share it and the two would steal each other's updates. Give
+ * the next one its own bookmark (or have it peek) rather than reusing this.
+ * ------------------------------------------------------------------------- */
+static vertical_state_t _vs_latest;
+static volatile uint32_t _vs_seq; /* bumped on every publish; 0 = never */
+static uint32_t _vs_seq_popped;   /* the sequence pop() last handed out */
+
+/** @noreq Publish the newest vertical state. */
 bool vertical_state_queue_push(const vertical_state_t *vs) {
-  return spsc_write(&_vertical_state_queue, vs, 1) == 1;
+  if (vs == NULL) {
+    return false;
+  }
+  /* Critical section for the same reason the latest-value topics above use one:
+   * without it a reader can splice a new field onto an old timestamp, which is
+   * precisely the pair that makes a stale sample look fresh. */
+  ENTER_CRITICAL();
+  _vs_latest = *vs;
+  _vs_seq++;
+  EXIT_CRITICAL();
+  return true;
 }
-/** @noreq Thin SPSC ring accessor. */
-bool vertical_state_queue_pop(vertical_state_t *out_vs) {
-  return spsc_read(&_vertical_state_queue, out_vs, 1) == 1;
-}
-/** @noreq Thin SPSC ring accessor. */
+
+/** @noreq The newest vertical state, consuming nothing. True once one exists. */
 bool vertical_state_queue_peek(vertical_state_t *out_vs) {
-  return spsc_peek(&_vertical_state_queue, out_vs, 1) == 1;
+  if (out_vs == NULL) {
+    return false;
+  }
+  bool had;
+  ENTER_CRITICAL();
+  had = (_vs_seq != 0u);
+  if (had) {
+    *out_vs = _vs_latest;
+  }
+  EXIT_CRITICAL();
+  return had;
+}
+
+/** @noreq The newest vertical state, but only if it is NEW since the last pop.
+ *  False means the producer has not published since -- which is what lets a
+ *  stalled estimator stop the telemetry stream instead of repeating itself. */
+bool vertical_state_queue_pop(vertical_state_t *out_vs) {
+  if (out_vs == NULL) {
+    return false;
+  }
+  bool fresh;
+  ENTER_CRITICAL();
+  fresh = (_vs_seq != _vs_seq_popped);
+  if (fresh) {
+    *out_vs = _vs_latest;
+    _vs_seq_popped = _vs_seq;
+  }
+  EXIT_CRITICAL();
+  return fresh;
 }
 
 /** @noreq Thin SPSC ring push (+ event wake). */

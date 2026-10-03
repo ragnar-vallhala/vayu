@@ -214,8 +214,15 @@ set(VAYU_SOURCES
 )
 
 # vaios kernel pieces that are pure C and portable.
+#
+# bus.c is here so the host tests exercise the REAL bus, not a stand-in: the hub's
+# topics are the firmware's central data path, and until this they had no host
+# coverage at all. Its fd half (v_bus_open/recv/wait) is gated on VAIOS_DEVFS,
+# which is off for the host, so what builds here is the pointer api -- publish,
+# subscribe, pop, peek -- which is exactly what the poll-side consumers use.
 set(VAIOS_HOST_SOURCES
     ${VAIOS_ROOT}/kernel/structure.c
+    ${VAIOS_ROOT}/kernel/bus.c
 )
 
 # ----------------------------------------------------------------------------
@@ -326,6 +333,7 @@ if(VAYU_SITL_RTOS_BUILD)
       # own critical_nesting; not linked here.
       ${VAYU_SOURCES}
       ${VAIOS_ROOT}/kernel/structure.c
+      ${VAIOS_ROOT}/kernel/bus.c
       ${VAIOS_ROOT}/kernel/task.c
       ${VAIOS_ROOT}/kernel/ipc.c
       # vaios 0.2.0 split the allocator: memory/memory.c is the public API and
