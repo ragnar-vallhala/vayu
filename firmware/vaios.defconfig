@@ -113,10 +113,16 @@ CONFIG_VAIOS_MPU_ENABLE=y
 # is independent of the watermark.
 # CONFIG_TASK_STACK_WATERMARK_ENABLE is not set
 
-# Kernel entry through SVC (vaios Phase 3 Stage 1). Tasks stay PRIVILEGED: the
-# unprivileged flip and the per-task MPU region set are not implemented in vaios
-# 0.2.0 ("off until complete"), so this buys no isolation on its own. It is on
-# because VAIOS_DEVFS depends on it, and the bus's only BLOCKING reader
+# Kernel entry through SVC (vaios Phase 3 Stage 1). Tasks stay PRIVILEGED by our
+# choice, not for want of a mechanism: vaios 0.2.0 does implement the unprivileged
+# flip and the per-task MPU region set (CONFIG_VAIOS_MPU_USER_SEPARATION), and they
+# are hardware-validated. We leave them off because every driver here reaches
+# peripheral registers from task context, and the MMIO region is privileged-RW, so
+# an unprivileged driver task would fault on its first register access. Flipping it
+# needs the drivers behind privileged service tasks first -- or
+# task_create_privileged() per driver task, which is the partial step. So this buys
+# no isolation on its own today. It is on because VAIOS_DEVFS depends on it, and the
+# bus's only BLOCKING reader
 # (v_bus_recv_wait) lives behind VAIOS_DEVFS -- the hub is event-driven, so
 # without it the FIFOs cannot leave their semaphores behind.
 #
