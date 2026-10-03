@@ -20,6 +20,7 @@
 #include "structure.h"
 #include "maths/maths_interface.h" /* m_pow, for hub_altitude_m */
 #include "port.h"                  /* ENTER/EXIT_CRITICAL */
+#include "utils.h"                 /* v_panic, behind PANIC */
 
 /* CTRL-RATE-101: binary semaphore the rate loop blocks on. Given once
  * per control-queue push so the loop is woken by IMU-sample arrival
