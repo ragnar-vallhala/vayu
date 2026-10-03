@@ -124,7 +124,23 @@ bool imu_queue_attitude_wait(uint32_t ticks_to_wait);
 /* Samples imu.attitude overwrote before its consumer read them. The SPSC ring
  * this replaced could not tell an overwrite from a message that was never
  * published, so keeping-up was an assumption; this makes it measurable. */
+/* PEEK AND THE BUS PATH. With VAYU_HUB_BUS on, the migrated topics' *_peek()
+ * entries still read their SPSC ring, which nothing publishes to any more, so
+ * they return false. That is deliberate rather than overlooked: the bus has no
+ * non-consuming peek -- v_bus_peek pins a slot and v_bus_release consumes it, so
+ * peek+release is a pop, and peek without release pins the slot and makes the
+ * next peek return V_BUS_EBUSY. Neither is what spsc_peek did.
+ *
+ * It is safe today because no firmware task peeks a migrated topic: the only peek
+ * on target is vertical_state_queue_peek (angle_controller), and vertical.state is
+ * deliberately NOT migrated for exactly this reason. The other peeks are exercised
+ * only by sim/host tests, which build with VAYU_HUB_BUS off.
+ *
+ * Before peeking a migrated topic from firmware, give that topic a latest-value
+ * slot (hub.h already has that pattern) instead of reaching for v_bus_peek.
+ */
 uint32_t hub_imu_attitude_missed(void);
+uint32_t hub_vert_input_missed(void);
 #endif
 
 bool attitude_queue_telemetry_push(const attitude_t *attitude);

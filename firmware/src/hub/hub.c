@@ -102,22 +102,80 @@ static SemaphoreHandle_t _vert_input_sema = NULL;
  * uniform when the rest follow.
  */
 #define HUB_BUS_BLOCK 64u
-#define HUB_BUS_BLOCKS 8u /* the pipe takes `reserve` of these at declare */
-#define HUB_T_IMU_ATTITUDE "imu.attitude"
+/* Every pipe takes its `reserve` out of the pool at declare, so this is the sum
+ * of the slot counts below -- 6+6+4+4+6+4+4+6. Short by one and the declare
+ * fails, which is why it PANICs rather than carrying on half-built. */
+#define HUB_BUS_BLOCKS 40u
 V_BUS_POOL(hub_pool, HUB_BUS_BLOCK, HUB_BUS_BLOCKS);
 static v_bus_t _hub_bus;
+
+#define HUB_T_IMU_ATTITUDE "imu.attitude"
+#define HUB_T_IMU_CONTROL "imu.control"
+#define HUB_T_IMU_TELEMETRY "imu.telemetry"
+#define HUB_T_ATT_TELEMETRY "att.telemetry"
+#define HUB_T_ATT_CONTROL "att.control"
+#define HUB_T_IMU_CALIB "imu.calib"
+#define HUB_T_EST_PERF "est.perf"
+#define HUB_T_VERT_INPUT "vert.input"
+
 static v_bus_topic_t _t_imu_attitude;
+static v_bus_topic_t _t_imu_control;
+static v_bus_topic_t _t_imu_telemetry;
+static v_bus_topic_t _t_att_telemetry;
+static v_bus_topic_t _t_att_control;
+static v_bus_topic_t _t_imu_calib;
+static v_bus_topic_t _t_est_perf;
+static v_bus_topic_t _t_vert_input;
+
+/* Poll-side subscriptions. These use the POINTER api (v_bus_subscribe +
+ * v_bus_pop), not an fd: a v_bus_sub_t is plain state, not per-task, so it can be
+ * set up once here, and the read costs no SVC trap. Only a consumer that has to
+ * BLOCK needs an fd, because v_bus_wait is behind the fd api -- v_bus_pop has no
+ * timeout. Two consumers block: attitude (imu.attitude) and vertical
+ * (vert.input). */
+static v_bus_sub_t _s_imu_control;
+static v_bus_sub_t _s_imu_telemetry;
+static v_bus_sub_t _s_att_telemetry;
+static v_bus_sub_t _s_att_control;
+static v_bus_sub_t _s_imu_calib;
+static v_bus_sub_t _s_est_perf;
 /* attitude_task's read handle. The fd table is PER TASK, so this is only valid
  * in the one task that consumes the topic; it is opened lazily on that task's
  * first wait() for exactly that reason -- opening it at init would put the fd in
  * whichever task ran imu_buffer_init (the boot task), where it is useless. */
 static int _fd_imu_attitude = -1;
+static int _fd_vert_input = -1;
 /* Samples the bus says this reader missed, i.e. slots overwritten before it got
  * to them. The SPSC ring it replaces could not report this at all: an overwrite
  * was indistinguishable from never having been published, so "the estimator is
  * keeping up" was an assumption. Here it is a number. Published through
  * hub_imu_attitude_missed() so a bench run can assert it is zero. */
 static volatile uint32_t _imu_attitude_missed;
+static volatile uint32_t _vert_input_missed;
+
+/* Declare one pipe topic: one producer context, one subscriber, a lock-free ring
+ * of `slots` single-block entries, newest-wins on overrun. That is the SPSC ring
+ * these replace, and `slots` is each ring's own capacity, so queue depth does not
+ * change with the mechanism. */
+static void hub_topic(v_bus_topic_t *t, const char *name, uint16_t slots) {
+  const v_bus_topic_cfg_t cfg = {
+      .overflow = V_BUS_OVERWRITE,
+      .reserve = slots,
+      .pipe = 1,
+  };
+  if (v_bus_topic_declare(&_hub_bus, t, name, &cfg) != VA_PASS) {
+    PANIC("hub: topic declare failed (pool short of blocks?)");
+  }
+}
+
+/* As hub_topic, plus the poll-side subscription for consumers that never block. */
+static void hub_topic_sub(v_bus_topic_t *t, v_bus_sub_t *sub, const char *name,
+                          uint16_t slots) {
+  hub_topic(t, name, slots);
+  if (v_bus_subscribe(t, sub) != VA_PASS) {
+    PANIC("hub: subscribe failed");
+  }
+}
 #endif
 
 /** @implements SNS-BUF-001 */
@@ -169,15 +227,23 @@ void imu_buffer_init(void) {
                  HUB_BUS_BLOCKS) != VA_PASS) {
     PANIC("hub: bus init failed");
   }
-  static const v_bus_topic_cfg_t imu_attitude_cfg = {
-      .overflow = V_BUS_OVERWRITE,
-      .reserve = IMU_BUFFER_INTERNAL_CAPACITY, /* the ring's slot count */
-      .pipe = 1,
-  };
-  if (v_bus_topic_declare(&_hub_bus, &_t_imu_attitude, HUB_T_IMU_ATTITUDE,
-                          &imu_attitude_cfg) != VA_PASS) {
-    PANIC("hub: imu.attitude declare failed");
-  }
+  /* Blocking consumers: declared only. Their reader opens an fd on first wait(),
+   * in the task that consumes the topic, because the fd table is per task. */
+  hub_topic(&_t_imu_attitude, HUB_T_IMU_ATTITUDE, IMU_BUFFER_INTERNAL_CAPACITY);
+  hub_topic(&_t_vert_input, HUB_T_VERT_INPUT, IMU_BUFFER_INTERNAL_CAPACITY);
+  /* Poll consumers: declared and subscribed here, once. */
+  hub_topic_sub(&_t_imu_control, &_s_imu_control, HUB_T_IMU_CONTROL,
+                IMU_BUFFER_INTERNAL_CAPACITY);
+  hub_topic_sub(&_t_imu_telemetry, &_s_imu_telemetry, HUB_T_IMU_TELEMETRY,
+                IMU_TELEMETRY_INTERNAL_CAPACITY);
+  hub_topic_sub(&_t_att_telemetry, &_s_att_telemetry, HUB_T_ATT_TELEMETRY,
+                IMU_TELEMETRY_INTERNAL_CAPACITY);
+  hub_topic_sub(&_t_att_control, &_s_att_control, HUB_T_ATT_CONTROL,
+                IMU_BUFFER_INTERNAL_CAPACITY);
+  hub_topic_sub(&_t_imu_calib, &_s_imu_calib, HUB_T_IMU_CALIB,
+                IMU_CALIBRATION_TELEMETRY_CAPACITY);
+  hub_topic_sub(&_t_est_perf, &_s_est_perf, HUB_T_EST_PERF,
+                EST_PERF_TELEMETRY_CAPACITY);
 #endif
   _vert_input_sema = v_semaphore_create_binary();
 }
@@ -266,12 +332,24 @@ int imu_buffer_perf_fifos(perf_fifo_row_t *rows, int max) {
 
 /** @noreq Thin SPSC ring accessor. */
 bool imu_queue_telemetry_push(const imu_sample_t *sample) {
+#if VAYU_HUB_BUS
+  return v_bus_publish(&_t_imu_telemetry, sample, (uint16_t)sizeof *sample) ==
+         VA_PASS;
+#else
   return spsc_write(&_imu_telemetry_queue, sample, 1) == 1;
+#endif
 }
 
 /** @noreq Thin SPSC ring accessor. */
 bool imu_queue_telemetry_pop(imu_sample_t *out_sample) {
+#if VAYU_HUB_BUS
+  uint16_t len = 0;
+  return v_bus_pop(&_s_imu_telemetry, out_sample, (uint16_t)sizeof *out_sample,
+                   &len, NULL) == VA_PASS &&
+         len == sizeof *out_sample;
+#else
   return spsc_read(&_imu_telemetry_queue, out_sample, 1) == 1;
+#endif
 }
 
 /** @noreq Thin SPSC ring accessor. */
@@ -281,6 +359,14 @@ bool imu_queue_telemetry_peek(imu_sample_t *out_sample) {
 
 /** @implements CTRL-RATE-101 */
 bool imu_queue_control_push(const imu_sample_t *sample) {
+#if VAYU_HUB_BUS
+  /* CTRL-RATE-101 still holds -- the rate loop must see every arrival -- but the
+   * ring and the wake are no longer two steps that can disagree: publish signals
+   * the subscription itself. The topic is OVERWRITE, so the loop still reads the
+   * latest sample on a burst. */
+  return v_bus_publish(&_t_imu_control, sample, (uint16_t)sizeof *sample) ==
+         VA_PASS;
+#else
   bool ok = spsc_write(&_imu_control_queue, sample, 1) == 1;
   /* CTRL-RATE-101: wake the rate loop on every arrival. Runs in the
    * IMU driver task context, not an ISR, so the plain
@@ -290,11 +376,19 @@ bool imu_queue_control_push(const imu_sample_t *sample) {
     v_semaphore_give(_imu_control_sema);
   }
   return ok;
+#endif
 }
 
 /** @noreq Thin SPSC ring accessor. */
 bool imu_queue_control_pop(imu_sample_t *out_sample) {
+#if VAYU_HUB_BUS
+  uint16_t len = 0;
+  return v_bus_pop(&_s_imu_control, out_sample, (uint16_t)sizeof *out_sample,
+                   &len, NULL) == VA_PASS &&
+         len == sizeof *out_sample;
+#else
   return spsc_read(&_imu_control_queue, out_sample, 1) == 1;
+#endif
 }
 
 /** @noreq Thin SPSC ring accessor. */
@@ -377,15 +471,29 @@ bool imu_queue_attitude_wait(uint32_t ticks_to_wait) {
  *  before it read them). Zero on a healthy bench run; a rising count means the
  *  estimator is not keeping up with the IMU. */
 uint32_t hub_imu_attitude_missed(void) { return _imu_attitude_missed; }
+/** @noreq As above, for vert.input (the vertical estimator's feed). */
+uint32_t hub_vert_input_missed(void) { return _vert_input_missed; }
 #endif
 
 /** @noreq Thin SPSC ring accessor. */
 bool attitude_queue_telemetry_push(const attitude_t *attitude) {
+#if VAYU_HUB_BUS
+  return v_bus_publish(&_t_att_telemetry, attitude,
+                       (uint16_t)sizeof *attitude) == VA_PASS;
+#else
   return spsc_write(&_attitude_telemetry_queue, attitude, 1);
+#endif
 }
 /** @noreq Thin SPSC ring accessor. */
 bool attitude_queue_telemetry_pop(attitude_t *out_attitude) {
+#if VAYU_HUB_BUS
+  uint16_t len = 0;
+  return v_bus_pop(&_s_att_telemetry, out_attitude,
+                   (uint16_t)sizeof *out_attitude, &len, NULL) == VA_PASS &&
+         len == sizeof *out_attitude;
+#else
   return spsc_read(&_attitude_telemetry_queue, out_attitude, 1);
+#endif
 }
 /** @noreq Thin SPSC ring accessor. */
 bool attitude_queue_telemetry_peek(attitude_t *out_attitude) {
@@ -393,6 +501,12 @@ bool attitude_queue_telemetry_peek(attitude_t *out_attitude) {
 }
 /** @noreq Thin SPSC ring push (+ event wake). */
 bool attitude_queue_control_push(const attitude_t *attitude) {
+#if VAYU_HUB_BUS
+  /* Wakes the outer (angle) loop on every attitude arrival; it decimates these to
+   * a clean fraction of the inner rate. Publish carries the wake. */
+  return v_bus_publish(&_t_att_control, attitude, (uint16_t)sizeof *attitude) ==
+         VA_PASS;
+#else
   bool ok = spsc_write(&_attitude_control_queue, attitude, 1);
   /* Wake the outer (angle) loop on every attitude arrival; it decimates
    * these to run at a clean fraction of the inner rate. Same pattern and
@@ -401,10 +515,18 @@ bool attitude_queue_control_push(const attitude_t *attitude) {
     v_semaphore_give(_attitude_control_sema);
   }
   return ok;
+#endif
 }
 /** @noreq Thin SPSC ring accessor. */
 bool attitude_queue_control_pop(attitude_t *out_attitude) {
+#if VAYU_HUB_BUS
+  uint16_t len = 0;
+  return v_bus_pop(&_s_att_control, out_attitude,
+                   (uint16_t)sizeof *out_attitude, &len, NULL) == VA_PASS &&
+         len == sizeof *out_attitude;
+#else
   return spsc_read(&_attitude_control_queue, out_attitude, 1);
+#endif
 }
 /** @noreq Thin SPSC ring accessor. */
 bool attitude_queue_control_peek(attitude_t *out_attitude) {
@@ -420,11 +542,22 @@ bool attitude_queue_control_wait(uint32_t ticks_to_wait) {
 
 /** @noreq Thin SPSC ring accessor. */
 bool est_perf_queue_push(const est_perf_telemetry_t *perf) {
+#if VAYU_HUB_BUS
+  return v_bus_publish(&_t_est_perf, perf, (uint16_t)sizeof *perf) == VA_PASS;
+#else
   return spsc_write(&_est_perf_queue, perf, 1) == 1;
+#endif
 }
 /** @noreq Thin SPSC ring accessor. */
 bool est_perf_queue_pop(est_perf_telemetry_t *out_perf) {
+#if VAYU_HUB_BUS
+  uint16_t len = 0;
+  return v_bus_pop(&_s_est_perf, out_perf, (uint16_t)sizeof *out_perf, &len,
+                   NULL) == VA_PASS &&
+         len == sizeof *out_perf;
+#else
   return spsc_read(&_est_perf_queue, out_perf, 1) == 1;
+#endif
 }
 
 /** @noreq Thin SPSC ring accessor. */
@@ -442,33 +575,74 @@ bool vertical_state_queue_peek(vertical_state_t *out_vs) {
 
 /** @noreq Thin SPSC ring push (+ event wake). */
 bool vert_input_queue_push(const vert_input_t *in) {
+#if VAYU_HUB_BUS
+  return v_bus_publish(&_t_vert_input, in, (uint16_t)sizeof *in) == VA_PASS;
+#else
   bool ok = spsc_write(&_vert_input_queue, in, 1) == 1;
   if (_vert_input_sema != NULL) {
     v_semaphore_give(_vert_input_sema);
   }
   return ok;
+#endif
 }
 /** @noreq Thin SPSC ring accessor. */
 bool vert_input_queue_pop(vert_input_t *out_in) {
+#if VAYU_HUB_BUS
+  if (_fd_vert_input < 0) {
+    return false; /* wait() opens the handle */
+  }
+  v_bus_rx_t rx = {.buf = out_in, .cap = (uint16_t)sizeof *out_in};
+  const bool ok =
+      v_bus_recv(_fd_vert_input, &rx) == VA_PASS && rx.len == sizeof *out_in;
+  if (rx.missed != 0u) {
+    _vert_input_missed += rx.missed;
+  }
+  return ok;
+#else
   return spsc_read(&_vert_input_queue, out_in, 1) == 1;
+#endif
 }
 /** @noreq Thin SPSC ring wait (event-driven). */
 bool vert_input_queue_wait(uint32_t ticks_to_wait) {
+#if VAYU_HUB_BUS
+  if (_fd_vert_input < 0) {
+    /* First call from the consuming task, the only task that may hold this fd.
+     * See imu_queue_attitude_wait for why it is opened here and not at init. */
+    _fd_vert_input = v_bus_open(HUB_T_VERT_INPUT, V_BUS_RD);
+    if (_fd_vert_input < 0) {
+      return false;
+    }
+  }
+  return v_bus_wait(_fd_vert_input, ticks_to_wait) == VA_PASS;
+#else
   if (_vert_input_sema == NULL) {
     return false;
   }
   return v_semaphore_take(_vert_input_sema, ticks_to_wait) == VA_PASS;
+#endif
 }
 
 /** @noreq Thin SPSC ring accessor. */
 bool imu_queue_calibration_telemetry_push(
     const imu_calibration_telemetry_t *sample) {
+#if VAYU_HUB_BUS
+  return v_bus_publish(&_t_imu_calib, sample, (uint16_t)sizeof *sample) ==
+         VA_PASS;
+#else
   return spsc_write(&_imu_calibration_telemetry_queue, sample, 1);
+#endif
 }
 /** @noreq Thin SPSC ring accessor. */
 bool imu_queue_calibration_telemetry_pop(
     imu_calibration_telemetry_t *out_sample) {
+#if VAYU_HUB_BUS
+  uint16_t len = 0;
+  return v_bus_pop(&_s_imu_calib, out_sample, (uint16_t)sizeof *out_sample,
+                   &len, NULL) == VA_PASS &&
+         len == sizeof *out_sample;
+#else
   return spsc_read(&_imu_calibration_telemetry_queue, out_sample, 1);
+#endif
 }
 /** @noreq Thin SPSC ring accessor. */
 bool imu_queue_calibration_telemetry_peek(
