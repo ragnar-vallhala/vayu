@@ -52,6 +52,9 @@ PREFIX = "arm-none-eabi-"
 
 # Thumb immediates that land a constant in a register, as objdump prints them.
 RE_IMM = re.compile(r"\b(?:movs?|mov\.w|movw)\s+r(\d+),\s*#(\d+)")
+# Call edges into these are not traversed: they report a fault and stop.
+PANIC_CUT = {"v_panic", "vayu_assert_fail", "v_port_halt"}
+
 RE_CALL = re.compile(r"\bbl(?:\.w)?\s+[0-9a-f]+\s+<([^>+]+)")
 BLOCK_HDR = 16                # sizeof(Heap_Mem_Block); payload is 8B-aligned
 RE_FUNC = re.compile(r"^([0-9a-f]+)\s+<([^>]+)>:")
@@ -115,6 +118,16 @@ def disassemble(elf):
         mc = RE_CALL.search(line)
         if mc:
             callee = mc.group(1).strip()
+            # A panic does not share the machine with the running system: it
+            # reports and halts. Allocations reachable ONLY through it are not
+            # part of the operating budget, and counting them is actively
+            # misleading -- VAYU_SPAWN put a PANIC beside all 15 task spawns, and
+            # because v_panic's formatter reaches v_malloc, the call-site
+            # multiplier then reported the whole task list 15x and declared a
+            # healthy board 19 KB overcommitted. Cut the edge, not the subtree:
+            # anything a live path also reaches is still counted through it.
+            if callee in PANIC_CUT:
+                continue
             graph[cur][callee] += 1
             if callee in ALLOC_ARG:
                 reg = ALLOC_ARG[callee]
@@ -229,13 +242,19 @@ def main():
 
     # roots: main plus every task entry (a task's stack is its own allocation,
     # so a task body is reachable even though nothing calls it directly)
-    # system_boot_late_init runs exactly once, from boot_task. It is named here
-    # because GCC duplicated the call across boot_task's branches -- three static
-    # `bl` for one dynamic call -- and the call-site multiplier below cannot tell
-    # that from three genuine sites, so everything it allocates (the whole task
-    # list) came out counted 3x. Naming it a root says "entered once", which is
-    # the fact.
-    roots = ["main", "system_boot_late_init"] + [
+    # The one-shot boot sequence. Each of these runs EXACTLY once, and saying so
+    # is the only way to get an honest number: the multiplier below counts static
+    # `bl` sites, and GCC duplicates calls across branches -- 3x for
+    # system_boot_late_init, 2x for init_tasks in this build -- which it cannot
+    # tell from genuinely repeated calls. Left unnamed, the whole task list came
+    # out counted 2-3x and a healthy board read as 19 KB overcommitted.
+    #
+    # The test for adding a name here is "does it run once per boot", not "is it
+    # convenient": a function that really can run twice must NOT be listed, or the
+    # budget under-reports, which is the dangerous direction.
+    ONE_SHOT = ["main", "system_boot_late_init", "system_init_tasks",
+                "init_tasks", "init_sensors", "init_timer_callbacks"]
+    roots = [f for f in ONE_SHOT if f in graph or f == "main"] + [
         f for f in graph if f.endswith("_task")]
     live = reachable(graph, roots)
     # "boot" is main PLUS boot_task: the one-shot boot sequence moved into that

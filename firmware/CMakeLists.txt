@@ -38,6 +38,13 @@ add_compile_definitions(VAIOS)
 # cortex-m4F target. Turning it OFF stubs gyro_notch to passthrough and lets
 # --gc-sections drop the notch/FFT code, reclaiming the flash on a size-tight
 # build. Runtime is still off until gyro_notch_set_enabled(true).
+# Deliberately overflow a task stack into its MPU guard region at boot, to prove
+# the guard faults on the access. Halts the FC by design -- a diagnostic, never a
+# flight build. See mpu_guard_selftest() in src/sys/heartbeat.c.
+option(VAYU_MPU_GUARD_SELFTEST "Fault-inject a stack overflow into the MPU guard" OFF)
+if(VAYU_MPU_GUARD_SELFTEST)
+  add_compile_definitions(VAYU_MPU_GUARD_SELFTEST)
+endif()
 option(VAYU_FFT_NOTCH "Compile the FFT dynamic gyro notch" ON)
 if(VAYU_FFT_NOTCH)
   add_compile_definitions(VAYU_FFT_NOTCH)

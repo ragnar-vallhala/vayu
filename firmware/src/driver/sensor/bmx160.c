@@ -2138,14 +2138,21 @@ static vayu_status_t _bmx160_calibrate_start(uint32_t imu_id, uint32_t type) {
   args->imu_id = (float)imu_id;
   args->type = (float)type;
 
-  /* Stack 3072, about 2x the measured requirement. The deepest chain is
-   * calibration_task(400) -> calib_engine_run(104) -> run_ellipsoid(488) ->
-   * calib_fit_ellipsoid(272) = 1264 B by -fstack-usage, plus ~200 B of
-   * exception frame. That number belongs beside the code it measures. */
-  _calib_task = task_create(calibration_task, args, 3072, 0);
+  /* Stack 4096. The deepest chain is calibration_task(400) ->
+   * calib_engine_run(104) -> run_ellipsoid(488) -> calib_fit_ellipsoid(272) =
+   * 1264 B by -fstack-usage, plus ~200 B of exception frame. That number belongs
+   * beside the code it measures.
+   *
+   * 4096 and not 3072, which is what it was: VAIOS_MPU_STACK_GUARD maps each
+   * stack onto one MPU region, so task_create REFUSES a size that is not a power
+   * of two. At 3072 this returned 0 every time and the error path below is all
+   * that ran -- IMU calibration quietly never started, and the one report of it
+   * goes through vayu_log, which this build has disabled. */
+  _calib_task = task_create(calibration_task, args, 4096, 0);
   if (_calib_task == 0) {
-    /* task_create returns 0 when the TCB alloc fails (a failed STACK alloc
-     * panics inside the kernel). Nothing will ever free the arg block. */
+    /* task_create returns 0 when the TCB alloc fails, and also when the kernel
+     * rejects the size outright (not a power of two under the MPU stack guard).
+     * Nothing will ever free the arg block. */
     v_free(args);
     vayu_log("[CALIB] out of heap for task; not starting");
     return VAYU_ERR_FAULT;
