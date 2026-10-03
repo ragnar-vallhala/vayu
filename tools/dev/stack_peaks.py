@@ -36,13 +36,48 @@ import argparse, bisect, os, struct, subprocess, sys, tempfile
 
 SRAM_BASE, SRAM_SIZE, FLASH_BASE = 0x20000000, 0x18000, 0x08000000
 TCB_MAGIC, STACK_FILL = 0x54434221, 0xC5C5C5C5
-# struct Task_Control_Block, from `gdb -ex "ptype /o struct Task_Control_Block"`.
-# Re-check these after a vaios bump that touches the TCB; MAGIC_OFF is the one
-# that matters most, since everything is found relative to it.
+# struct Task_Control_Block. These are FALLBACKS -- tcb_offsets() below reads the
+# real layout out of the ELF's debug info, because the layout moves when a feature
+# is switched on, not only when vaios is bumped: enabling VAIOS_MPU_STACK_GUARD
+# adds mpu_guard[2] at offset 120 and pushes `magic` to 132, so a hardcoded
+# MAGIC_OFF of 120 silently matches a guard word instead and the scan reports
+# "no TCBs found" on a perfectly healthy board.
 OFF = dict(sp=0, mem_block=4, entry=12, stack_size=16, task_id=20, name=28)
 MAGIC_OFF = 120
-GUARD = 256  # CONFIG_TASK_STACK_OVERFLOW_THRESHOLD
-FP_FRAME = 132  # an FP exception frame can land inside the guard band
+
+
+def tcb_offsets(elf):
+    """Field offsets from the ELF's DWARF, falling back to the constants above."""
+    off, magic = dict(OFF), MAGIC_OFF
+    try:
+        out = subprocess.run(
+            ["gdb-multiarch", "-batch", "-ex",
+             "ptype /o struct Task_Control_Block", elf],
+            capture_output=True, text=True, timeout=60).stdout
+    except Exception:
+        return off, magic
+    import re as _re
+    for line in out.splitlines():
+        m = _re.match(r"/\*\s*(\d+)\s*\|\s*\d+\s*\*/\s+.*?\b(\w+)\s*(?:\[\d+\])?;", line)
+        if not m:
+            continue
+        pos, nm = int(m.group(1)), m.group(2)
+        if nm == "magic":
+            magic = pos
+        elif nm in off:
+            off[nm] = pos
+    return off, magic
+# What a stack has to clear above its measured peak.
+MPU_GUARD = 32   # VAIOS_MPU_GUARD_SIZE: the no-access region at the block base.
+                 # Touching it faults in hardware, so this is the hard floor.
+FP_FRAME = 132   # an FP exception frame, if a preemption lands at peak depth
+LOG_DEPTH = 172  # vayu_log's worst-case depth, measured from the disassembly.
+                 # Only matters for a task that CAN reach it -- and a task that
+                 # logs on an error path only does not show that depth in a bench
+                 # peak, which is how motor_task's 704 B came to be too small.
+#
+# The software watermark's 256 B threshold used to be in this sum. It is gone:
+# TASK_STACK_WATERMARK_ENABLE is off, because the MPU guard region replaces it.
 
 
 def openocd_dump(port, run_s, out):
@@ -75,7 +110,7 @@ def symbolizer(elf):
     return f
 
 
-def measure(sram, flash, sym):
+def measure(sram, flash, sym, fo=OFF, magic_off=MAGIC_OFF):
     u32 = lambda b, o: struct.unpack_from("<I", b, o)[0]
 
     def cstr(ptr):
@@ -89,11 +124,11 @@ def measure(sram, flash, sym):
     for off in range(0, len(sram) - 4, 4):
         if u32(sram, off) != TCB_MAGIC:
             continue
-        base = off - MAGIC_OFF
+        base = off - magic_off
         if base < 0:
             continue
-        mem = u32(sram, base + OFF["mem_block"])
-        size = u32(sram, base + OFF["stack_size"])
+        mem = u32(sram, base + fo["mem_block"])
+        size = u32(sram, base + fo["stack_size"])
         # Reject a stray magic-looking word: a real TCB points its block into
         # SRAM and carries a plausible size.
         if not (SRAM_BASE <= mem < SRAM_BASE + len(sram)) or not 0 < size <= 16384:
@@ -106,8 +141,8 @@ def measure(sram, flash, sym):
         while j < words and u32(sram, mo + j * 4) == STACK_FILL:
             j += 1
         rows.append(dict(
-            name=cstr(u32(sram, base + OFF["name"])) or sym(u32(sram, base + OFF["entry"])),
-            tid=u32(sram, base + OFF["task_id"]), size=size,
+            name=cstr(u32(sram, base + fo["name"])) or sym(u32(sram, base + fo["entry"])),
+            tid=u32(sram, base + fo["task_id"]), size=size,
             peak=(words - j) * 4, saturated=(j == 0)))
     return sorted(rows, key=lambda r: -r["peak"])
 
@@ -143,7 +178,10 @@ def main():
 
     sram = open(path, "rb").read()
     flash = open(a.bin, "rb").read() if os.path.exists(a.bin) else b""
-    rows = measure(sram, flash, symbolizer(a.elf) if os.path.exists(a.elf) else (lambda x: "?"))
+    fo, magic_off = tcb_offsets(a.elf) if os.path.exists(a.elf) else (OFF, MAGIC_OFF)
+    rows = measure(sram, flash,
+                   symbolizer(a.elf) if os.path.exists(a.elf) else (lambda x: "?"),
+                   fo, magic_off)
     if tmp:
         os.unlink(tmp.name)
 
@@ -157,13 +195,19 @@ def main():
         free = r["size"] - r["peak"]
         if r["saturated"]:
             v = "SATURATED -- peak unmeasurable, grow it and re-run"
-        elif free < GUARD:
-            v = f"PANICS -- under the {GUARD} B guard band"
-        elif free < GUARD + FP_FRAME:
-            v = f"thin -- under guard + FP frame ({GUARD + FP_FRAME} B)"
+        elif free < MPU_GUARD:
+            v = f"FAULTS -- inside the {MPU_GUARD} B MPU guard region"
+        elif free < MPU_GUARD + FP_FRAME:
+            v = f"thin -- under guard + FP frame ({MPU_GUARD + FP_FRAME} B)"
+        elif free < MPU_GUARD + FP_FRAME + LOG_DEPTH:
+            # Not a fault: correct iff this task cannot reach vayu_log. Check the
+            # source for vayu_log / VAYU_ASSERT / PANIC and for an indirect call
+            # that could reach one -- a static bl-edge scan misses function
+            # pointers, which is exactly how motor_task reaches it.
+            v = "ok ONLY if this task cannot log"
         else:
             v = "ok"
-        if v != "ok":
+        if v.startswith(("FAULTS", "thin", "SATURATED")):
             worst.append(r["name"])
         print(f"{r['name']:<18}{r['size']:>7}{r['peak']:>7}{free:>7}"
               f"{100 * r['peak'] / r['size']:>5.0f}%  {v}")
@@ -172,10 +216,11 @@ def main():
           f"peak {sum(r['peak'] for r in rows)} B")
     if worst:
         print("needs attention:", ", ".join(worst))
-        print(f"size each at >= peak + {GUARD + FP_FRAME} B (the repo uses "
-              f"peak + 448, rounded up to 64 B)")
+        print(f"size each at >= peak + {MPU_GUARD + FP_FRAME} B, and + "
+              f"{LOG_DEPTH} B more if it can log. Sizes must be POWERS OF TWO "
+              f"with the MPU stack guard on.")
     else:
-        print(f"every task clears guard + FP frame ({GUARD + FP_FRAME} B)")
+        print(f"every task clears guard + FP frame ({MPU_GUARD + FP_FRAME} B)")
     return 1 if (a.check and worst) else 0
 
 

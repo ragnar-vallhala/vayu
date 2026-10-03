@@ -2177,7 +2177,7 @@ VAYU_SENSOR_DRIVER(bmx160_sensor) = {
     .probe = _bmx160_probe,
     .task = bmx160_initiate_read,
     .task_name = "imu_read",
-    .stack_words = 960,
+    .stack_words = 1024,
     .priority = 2,
     /* Accel/gyro reads are paced off the HF timer, which decouples the sensor
      * rate from the I2C free-run speed and frees the CPU above what the

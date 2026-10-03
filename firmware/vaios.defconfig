@@ -19,8 +19,12 @@
 # must match. See firmware/docs/plans/link-bandwidth-boost.md.
 CONFIG_CONSOLE_BAUDRATE=460800
 
-# 42 KiB. Was 40 KiB (0xA000); raised by 2 KiB on 2026-10-03 when the task stacks
-# were re-measured under vaios 0.2.0 and grew 1664 B in total. Task stacks are
+# 46 KiB. 40 KiB (0xA000) -> 42 KiB when the stacks were re-measured under vaios
+# 0.2.0, then -> 48 KiB when arming the MPU forced every stack to a power of two
+# (+5568 B), then back to 46 KiB once the watermark's 256 B came out of the sizing
+# rule and attitude/heartbeat dropped a step (-1536 B; see src/main.c).
+#
+# Earlier note, still the reason the number is not a vaios default: Task stacks are
 # v_malloc'd from this heap, so that growth came straight out of the margin:
 # alloc_budget.py's all-paths-coincide figure had fallen from 1984 B to 576 B,
 # and 0xA800 restores it to ~2.6 KiB. The SRAM ceiling has ~20 KiB spare at this
@@ -36,7 +40,7 @@ CONFIG_CONSOLE_BAUDRATE=460800
 # The host SITL has no 96 KiB limit and needs room for many 8 KiB task stacks,
 # so it passes -DHEAP_SIZE=0x180000; the generated macros are #ifndef-guarded,
 # so that -D still wins over this.
-CONFIG_HEAP_SIZE=0xA800
+CONFIG_HEAP_SIZE=0xB800
 
 # Boot/main stack, well above the 1 KiB default: main() runs the whole
 # composition root (driver init, calibration load, task spawn) before the
@@ -63,7 +67,7 @@ CONFIG_TASK_STACK_OVERFLOW_THRESHOLD=256
 # applies to it like any other task. Measured peak 236 B on 2026-10-03 under
 # vaios 0.2.0, which leaves only 276 B of the 512 B default -- inside the guard
 # band plus one FP exception frame. 704 leaves 468 B.
-CONFIG_IDLE_TASK_STACK_SIZE=704
+CONFIG_IDLE_TASK_STACK_SIZE=1024
 
 # The console is a NavLink byte stream, not a terminal: vaios logging would
 # interleave framed packets with ASCII and desync every peer. Colour codes would
@@ -81,3 +85,28 @@ CONFIG_LOG_BUFFER_STORAGE_SIZE=128
 # either way, which is what vayu asked for.
 CONFIG_MIN_LOG_LEVEL=0
 CONFIG_TERMINAL_LOG_LEVEL=0
+
+# Hardware memory protection. VAIOS_MPU_STATIC_PROTECT and _NULL_GUARD come on
+# with it and are the part that pays while tasks are still privileged, because
+# PRIVDEFENA otherwise leaves privileged access RWX over the whole map. The NULL
+# guard earned its keep immediately: it caught vayu taking the VFS mutex before
+# the scheduler existed, a write through a NULL TCB into flash-aliased 0x38 that
+# had been silent for as long as the blackbox logger has existed.
+#
+# VAIOS_MPU_STACK_GUARD comes on too: a 32 B no-access region at the base of each
+# task block. It is why every stack must be a power of two (see src/main.c).
+#
+# vaios ships this off, flagged "until the region programming is Renode-
+# validated". Validated here on the actual F401 instead.
+CONFIG_VAIOS_MPU_ENABLE=y
+
+# The software stack watermark is now redundant and off. It compared SP against
+# mem_block + 256 at every context switch, so it caught an overflow one switch
+# AFTER the damage; the MPU guard region faults on the access itself, in hardware,
+# at the instruction that did it. Keeping both would cost a compare per switch to
+# re-detect what the MPU already refused.
+#
+# NOTE: this does NOT affect stack measurement. tools/dev/stack_peaks.py reads the
+# V_PERF_STACK_FILL sentinel that VAIOS_MODULE_PERF paints at task create, which
+# is independent of the watermark.
+# CONFIG_TASK_STACK_WATERMARK_ENABLE is not set

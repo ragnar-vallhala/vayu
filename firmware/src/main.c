@@ -133,13 +133,13 @@ void init_tasks(void) {
   /* Stack, priority and entry point come from the driver's own descriptor. */
   VAYU_DISCARD(sensor_start_task(SENSOR_IMU));
   // Attitude estimation (fusion), split out of the IMU driver.
-  task_create_named(attitude_task, NULL, 1216, 1, "attitude"); // peak 732
+  task_create_named(attitude_task, NULL, 1024, 1, "attitude"); // peak 732
   // Vertical estimator (VERT): fuses baro + accel into altitude/climb_rate.
   /* 1024 not 832: the ToF ride-along (range read + quaternion tilt projection)
    * pushed this task's measured peak 428 -> 484 B, leaving 348 B free against a
    * 256 B guard band — under one FP exception frame (132 B) of true headroom.
    * See the rate_ctl note above for what that costs when it runs out. */
-  task_create_named(vertical_estimator_task, NULL, 1344, 1,
+  task_create_named(vertical_estimator_task, NULL, 2048, 1,
                     "vertical"); // peak 844 measured
                                  // 484 -> 708 when the hover estimator and its
                                  // boot-time hover_store_load (vfs_open+read)
@@ -155,8 +155,8 @@ void init_tasks(void) {
    * context switch and the kernel halted the whole system. Stacks come from
    * the vaios heap, so this does not move _heap_start. */
   task_create_named(battery_task, NULL, 1024, 0, "battery");
-  task_create_named(rc_ibus_task, NULL, 832, 0, "rc_ibus"); // peak 372
-  task_create_named(angle_controller_task, NULL, 896, 1,
+  task_create_named(rc_ibus_task, NULL, 1024, 0, "rc_ibus"); // peak 372
+  task_create_named(angle_controller_task, NULL, 1024, 1,
                     "angle_ctl"); // peak 436, control
   /* 1088 was marginal: a live SWD dump caught rate_ctl 956 B deep with a full
    * FP exception context (EXC_RETURN 0xFFFFFFED, S0-S31 = +132 B) on its stack,
@@ -165,7 +165,7 @@ void init_tasks(void) {
    * was enough to expose it); the depth itself is pre-existing. Measured peak
    * on hardware 2026-09-04: 956 B — at 1088 that left 132 B free, inside the
    * guard band; 1536 leaves 580 B. */
-  task_create_named(angle_rate_controller_task, NULL, 1536, 1,
+  task_create_named(angle_rate_controller_task, NULL, 2048, 1,
                     "rate_ctl"); // peak 956 measured, control
   /* 1024 not 704: motor_task drains esc_calib's deferred messages, and
    * vayu_log panics the kernel with under 320 bytes of stack free. 704 against
@@ -173,12 +173,12 @@ void init_tasks(void) {
    * formatter's own frame. Stacks come from the vaios heap, so this does not
    * move _heap_start. */
   task_create_named(motor_task, NULL, 1024, 1, "motor"); // peak 284, actuator
-  task_create_named(imu_telemetry_task, NULL, 1408, 0,
+  task_create_named(imu_telemetry_task, NULL, 2048, 0,
                     "imu_telemetry"); // peak 932
   VAYU_DISCARD(sensor_start_task(SENSOR_BARO));
   VAYU_DISCARD(sensor_start_task(SENSOR_RANGE));
-  task_create_named(flush_task, NULL, 896, 0, "flush"); // peak 428
-  task_create_named(perf_telemetry_task, NULL, 1472, 0,
+  task_create_named(flush_task, NULL, 1024, 0, "flush"); // peak 428
+  task_create_named(perf_telemetry_task, NULL, 2048, 0,
                     "perf_telemetry"); // peak 996
   // Centralised FS owner: sole runtime SD/VFS writer (blackbox logger + PID/calib
   // saves). Lowest band (prio 0); blocks on its queue so it only runs when there
@@ -197,7 +197,7 @@ void init_tasks(void) {
   // multi-chunk download overflowed the right-sized 832 and froze the FC
   // (heartbeat LED stopped). Restored to the known-good feat/centralised-fs-owner
   // size that did byte-perfect 64 KB downloads.
-  task_create_named(xfer_service_task, NULL, 3072, 0, "xfer"); // peak 404 idle
+  task_create_named(xfer_service_task, NULL, 4096, 0, "xfer"); // peak 540 idle
 }
 /**
  * Bring up the high-frequency timer and register its periodic callbacks: the
@@ -226,6 +226,37 @@ void init_timer_callbacks(void) {
   }
 }
 /* @noreq boot plumbing: spawns the heartbeat task + one-shot boot task. */
+/* STACK SIZES ARE POWERS OF TWO, and that is a hard requirement, not tidiness:
+ * with VAIOS_MPU_STACK_GUARD each stack maps onto a single MPU region, so
+ * task_create_named REFUSES any other size -- `(size & (size - 1)) != 0` returns
+ * 0 and only V_KLOGs, which vayu never sees because LOGGING_ENABLED is off. Every
+ * task silently failing to exist presents as a MemManage fault at address 0 in
+ * SVCall_Handler, because current_task stays NULL and the first-task launch reads
+ * NULL->sp. That is a long way from "wrong stack size".
+ *
+ * Each size is the SMALLEST power of two that clears the measured peak by:
+ *
+ *   32 B   the MPU guard region at the base of the block
+ * + 132 B  one FP exception frame, in case a preemption lands at peak depth
+ * + 172 B  vayu_log's worst-case depth -- ONLY for a task that can reach it
+ *
+ * The old rule carried 256 B for TASK_STACK_WATERMARK_ENABLE's threshold. That
+ * is gone: the watermark is off (the MPU guard replaces it), so the 256 B is not
+ * part of the budget any more. The vayu_log term is there because a task that
+ * logs only on an error path does NOT show that depth in a bench peak, which is
+ * what made motor_task's 704 B too small once -- see its note below.
+ *
+ * attitude and heartbeat take the smaller margin because neither file contains a
+ * vayu_log, VAYU_ASSERT or PANIC, nor an indirect call that could reach one.
+ * vl53l0x and motor do log, so they keep 1024 even though their peaks (276, 292)
+ * would otherwise fit 512.
+ *
+ * xfer and comm_processor are deliberately far above what their peaks ask (both
+ * measure ~540 B idle). Do NOT pull them down to 1024: their deep paths are a
+ * real multi-chunk download and the xfer-upload command path, which a bench run
+ * never reaches, and both have already frozen the FC when right-sized to a bench
+ * peak -- comm_processor at 2496, xfer at 832. Those numbers are field evidence.
+ */
 void system_init_tasks(void) {
   /* boot_task ONLY. It is the first and only thing the scheduler has to run, so
    * it reaches its work immediately regardless of priority, and everything that
@@ -267,7 +298,7 @@ void system_boot_late_init(void) {
    * for exactly this call. */
   esc_calib_boot_init();
 
-  task_create_named(heartbeat_task, NULL, 768, 0, "heartbeat"); // peak 260
+  task_create_named(heartbeat_task, NULL, 512, 0, "heartbeat"); // peak 260
   init_tasks();
   init_timer_callbacks(); /* last: nothing ticks before its consumer exists */
 }
