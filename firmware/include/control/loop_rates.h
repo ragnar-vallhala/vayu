@@ -54,7 +54,7 @@
 #define OUTER_LOOP_DECIM 4 /* outer = inner / OUTER_LOOP_DECIM */
 #define OUTER_LOOP_FREQ_HZ (INNER_LOOP_FREQ_HZ / OUTER_LOOP_DECIM)
 
-/* Periods in SysTick ticks (1 tick = SYSTICK_PERIOD us = 1 ms by default). */
+/* Periods in SysTick ticks (1 tick = TICK_PERIOD_US = 1 ms by default). */
 #define INNER_LOOP_PERIOD_TICKS MS_TO_TICKS(1000 / INNER_LOOP_FREQ_HZ)
 #define OUTER_LOOP_PERIOD_TICKS (INNER_LOOP_PERIOD_TICKS * OUTER_LOOP_DECIM)
 

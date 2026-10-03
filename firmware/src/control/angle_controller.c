@@ -31,6 +31,7 @@
 #include "structure.h"
 #include "sys/state.h"
 #include "vaios.h"
+#include "utils.h" /* v_get_ticks */
 #include "control/loop_rates.h"
 #include "control/tuning.h"
 

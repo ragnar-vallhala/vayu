@@ -130,41 +130,39 @@ int main(void) {
           "attitude-telemetry round trip");
   }
 
-  printf("  [3] peek returns the head without consuming it\n");
+  printf(
+      "  [3] the latest-value read gives the NEWEST, and leaves the stream\n");
   {
-    imu_sample_t in = sample(42.0f);
-    CHECK(imu_queue_control_push(&in), "push for peek");
-    CHECK(imu_queue_control_peek(&out) && out.gyr[0] == 42.0f,
-          "peek sees the head");
-    CHECK(imu_queue_control_peek(&out) && out.gyr[0] == 42.0f,
-          "peek did not consume");
-    CHECK(imu_queue_control_pop(&out) && out.gyr[0] == 42.0f,
-          "pop still gets it");
-    CHECK(!imu_queue_control_peek(&out), "peek on an empty ring fails");
+    /* There is no head-peek any more, on purpose. Peeking a single-consumer queue
+     * handed out the OLDEST unread item, so a reader that wanted "the current
+     * value" got one as stale as the real consumer was behind -- which is exactly
+     * what angle_controller was doing to vertical.state, ~3 publishes behind at
+     * all times. The replacement is a latest-value read, and these checks pin the
+     * difference that bug turned on. */
+    attitude_t a1 = att(46.0f), a2 = att(47.0f), aout;
 
-    in = sample(43.0f);
-    CHECK(imu_queue_telemetry_push(&in), "push for telemetry peek");
-    CHECK(imu_queue_telemetry_peek(&out) && out.gyr[0] == 43.0f,
-          "telemetry peek");
-    CHECK(imu_queue_telemetry_pop(&out), "telemetry drain");
+    CHECK(!attitude_telemetry_latest(&aout) || true,
+          "latest before any push must not crash");
 
-    /* The calibration sample ring moved into the IMU driver: it carries raw
-     * counts and rhall, which the hub's SI sample deliberately does not, and
-     * its producer and consumer are both inside that driver. The host does not
-     * build the driver, so there is nothing to exercise here. */
+    CHECK(attitude_queue_telemetry_push(&a1), "push 46");
+    CHECK(attitude_telemetry_latest(&aout) && aout.roll == 46.0f,
+          "latest sees it");
+    CHECK(attitude_telemetry_latest(&aout) && aout.roll == 46.0f,
+          "latest consumes nothing");
 
-    imu_calibration_telemetry_t cin = cal_frame(45), cout;
-    CHECK(imu_queue_calibration_telemetry_push(&cin),
-          "push for calib-tel peek");
-    CHECK(imu_queue_calibration_telemetry_peek(&cout) && cout.buffer[0] == 45,
-          "calib-telemetry peek");
-    CHECK(imu_queue_calibration_telemetry_pop(&cout), "calib-telemetry drain");
+    CHECK(attitude_queue_telemetry_push(&a2), "push 47");
+    CHECK(attitude_telemetry_latest(&aout) && aout.roll == 47.0f,
+          "latest is the NEWEST, not the oldest unread -- the staleness bug");
 
-    attitude_t ain = att(46.0f);
-    CHECK(attitude_queue_telemetry_push(&ain), "push for attitude peek");
-    CHECK(attitude_queue_telemetry_peek(&aout) && aout.roll == 46.0f,
-          "attitude peek");
-    CHECK(attitude_queue_telemetry_pop(&aout), "attitude drain");
+    /* And the stream the real consumer reads is untouched and still in order. */
+    CHECK(attitude_queue_telemetry_pop(&aout) && aout.roll == 46.0f,
+          "stream still FIFO: 46 first");
+    CHECK(attitude_queue_telemetry_pop(&aout) && aout.roll == 47.0f, "then 47");
+    CHECK(!attitude_queue_telemetry_pop(&aout), "stream drained");
+
+    /* The latest value survives draining: it is a current value, not a queue. */
+    CHECK(attitude_telemetry_latest(&aout) && aout.roll == 47.0f,
+          "latest outlives the drained stream");
   }
 
   printf("  [4] overrun costs the OLDEST sample, never the newest\n");
@@ -181,8 +179,10 @@ int main(void) {
       last = out.gyr[0];
       count++;
     }
-    CHECK(count >= IMU_BUFFER_SIZE - 1 && count <= IMU_BUFFER_SIZE,
-          "ring depth is SIZE-1 or SIZE, per spsc_init's alignment");
+    /* A bus pipe holds exactly its slot count, so the depth is now exact. It used
+     * to be SIZE-1 or SIZE because spsc_init could lose a slot to element
+     * alignment -- a quirk of the ring, not a property anything depended on. */
+    CHECK(count == IMU_BUFFER_SIZE + 1, "pipe depth is exactly its slot count");
     CHECK(last == (float)(200 + n - 1), "the freshest sample survived");
   }
 

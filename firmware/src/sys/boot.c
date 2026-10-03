@@ -30,6 +30,12 @@
  *
  * @implements SYS-STATE-003
  */
+/* The flight image defines this in main.c, which owns the init list. Images that
+ * reuse boot_task with their own entry point -- the on-hardware test firmware has
+ * its own main and builds its own world -- get this no-op instead of a link
+ * error, and say what they need explicitly. */
+__attribute__((weak)) void system_boot_late_init(void) {}
+
 void boot_task(void *args) {
   (void)args;
 
@@ -66,6 +72,16 @@ void boot_task(void *args) {
   // 3. SD Card Check
   boot_status |= BOOT_CHECK_SD_CARD_CHECK_PASS;
   system_boot_check_state_set((sys_boot_check_state_t)boot_status);
+
+  /* Everything that needed a running scheduler: the SD reads that take the VFS
+   * mutex, then the remaining tasks, then the sensor timer. This used to run in
+   * main() before scheduler_start(), where there is no current task -- so the
+   * VFS mutex wrote through a NULL TCB, silently, until the MPU NULL guard
+   * caught it. Here there is a current task and it behaves.
+   *
+   * Before the state evaluation below on purpose: STANDBY must not be announced
+   * until the tasks that honour it (motor_task above all) actually exist. */
+  system_boot_late_init();
 
   // ----------------------------------------------------
   // Evaluate Final Boot Result

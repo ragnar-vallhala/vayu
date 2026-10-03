@@ -38,6 +38,7 @@
 #include "hub/hub.h"
 #include "sys/state.h"
 #include "vaios.h"
+#include "utils.h" /* v_get_ticks/v_memcpy */
 #include "control/control_buffer.h"
 #include "control/loop_rates.h"
 #include "control/tuning.h"

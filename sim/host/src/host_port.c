@@ -22,3 +22,16 @@
 
 pthread_mutex_t host_critical_mutex = PTHREAD_MUTEX_INITIALIZER;
 volatile uint32_t critical_nesting = 0;
+
+/* Pend a context switch.
+ *
+ * kernel/bus.c calls this after a publish wakes a reader that was blocked on the
+ * topic, so the woken task runs promptly instead of at the next tick. The legacy
+ * SITL has no vaios scheduler to switch -- it runs the firmware's logic on host
+ * threads -- so there is nothing to pend and nothing is lost by saying so.
+ *
+ * Deliberately NOT the cooperative swapcontext that host_rtos_port.c does: that
+ * build runs the real scheduler and genuinely has to switch here. This one does
+ * not, and the two must not be linked together (host_rtos_port.c defines
+ * critical_nesting too). */
+void v_port_trigger_pendsv(void) {}

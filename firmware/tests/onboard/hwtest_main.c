@@ -77,13 +77,15 @@ const hw_check_t hwtest_registry[] = {
 
 /* ---- boot helpers (mirrors src/main.c; kept local to the test image) ------ */
 static void clock_setup(void) {
-  hal_pll_config_t pll_cfg_hse = {.input_src = HAL_CLOCK_SOURCE_HSE,
-                                  .pll_m = 8,
-                                  .pll_n = 336,
-                                  .pll_p = 4,
-                                  .pll_q = 7};
-  hal_clock_config_t cfg = {.source = HAL_CLOCK_SOURCE_PLL};
-  hal_clock_init(&cfg, &pll_cfg_hse);
+  /* NavHAL 0.3.x nests the PLL in the clock config; bus dividers left unset so
+     the backend keeps the tree src/main.c gets. See clock_setup() there. */
+  hal_clock_config_t cfg = {.source = HAL_CLOCK_SOURCE_PLL,
+                            .pll = {.input_src = HAL_CLOCK_SOURCE_HSE,
+                                    .pll_m = 8,
+                                    .pll_n = 336,
+                                    .pll_p = 4,
+                                    .pll_q = 7}};
+  hal_clock_init(&cfg);
 }
 
 static void init_sensors(void) {
@@ -93,7 +95,7 @@ static void init_sensors(void) {
   bme280_init();
   rc_buffer_init();
   serial_args_t uart_args = {
-      .baud_rate = UART_BAUDRATE, .uart = HAL_UART_6, .timeout = 100};
+      .baud_rate = CONSOLE_BAUDRATE, .uart = HAL_UART_6, .timeout = 100};
   get_handler(CHANNEL_TYPE_SERIAL, &g_telemetry_channel, &uart_args,
               uart2_packet_recv_callback);
 }

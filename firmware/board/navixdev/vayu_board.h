@@ -66,9 +66,6 @@ extern "C" {
 #define BOARD_I2C_BUS HAL_I2C_1
 #define BOARD_I2C_SCL GPIO_PB08
 #define BOARD_I2C_SDA GPIO_PB09
-/** I2C1->DR, the DMA peripheral address. F4 memory map; an H7 part moves it. */
-#define BOARD_I2C_DR_ADDR (uint32_t)(0x40005400 + 0x10)
-
 /** 7-bit address of the BMX160 on BOARD_I2C_BUS (SDO strap). */
 #define BOARD_IMU_I2C_ADDR 0x68
 

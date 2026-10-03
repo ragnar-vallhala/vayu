@@ -167,8 +167,14 @@ vayu_status_t sensor_start_task(sensor_kind_t kind) {
   if (d->task == NULL) {
     return VAYU_OK; /* a ride-along has no task of its own */
   }
-  (void)task_create_named(d->task, NULL, d->stack_words, d->priority,
-                          d->task_name);
+  /* The id, not void: task_create_named returns 0 on failure, and under the MPU
+   * stack guard it refuses any stack_words that is not a power of two -- telling
+   * nobody but V_KLOG. A sensor whose task never started still probes, publishes
+   * nothing, and reads as a dead sensor much later. */
+  if (task_create_named(d->task, NULL, d->stack_words, d->priority,
+                        d->task_name) == 0u) {
+    return VAYU_ERR_FAULT;
+  }
   return VAYU_OK;
 }
 

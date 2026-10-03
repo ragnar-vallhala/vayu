@@ -88,4 +88,32 @@ static inline void v_exit_critical_from_isr(uint32_t saved) {
  * gives ordering equivalent to ARM's `dmb`. */
 #define V_PORT_MB() __sync_synchronize()
 
+/* Arch facts the vaios 0.2.0 kernel reads from the port rather than from
+ * Kconfig. This shim stands in for portable/armv7e-m/port.h, so it has to carry
+ * them, and it carries the ARM values deliberately: SITL compiles the real
+ * firmware against the real kernel, so a task stack the FC would reject must be
+ * rejected here too, and a priority the FC would mask must be masked here.
+ * Keep in step with extern/vaios/portable/armv7e-m/port.h. */
+#ifndef NVIC_PRIO_BITS
+#define NVIC_PRIO_BITS 4
+#endif
+#ifndef __NVIC_PRIO_BITS
+#define __NVIC_PRIO_BITS NVIC_PRIO_BITS
+#endif
+#ifndef MAX_SYSCALL_INTERRUPT_PRIORITY
+#define MAX_SYSCALL_INTERRUPT_PRIORITY                                         \
+  (VAIOS_MAX_SYSCALL_PRIO_LEVEL << (8 - __NVIC_PRIO_BITS))
+#endif
+
+/* ARMv7-M has 16 system exceptions before IRQ0. */
+#define VAIOS_ARCH_FIRST_EXTERNAL_IRQ 16u
+
+/* Smallest stack that can hold an exception frame; the kernel rejects less. */
+#define VAIOS_ARCH_MIN_STACK 128u
+
+/* On ARM a numerically LOWER priority value is MORE urgent. */
+static inline int v_port_prio_is_more_urgent(uint32_t a, uint32_t b) {
+  return a < b;
+}
+
 #endif /* VAIOS_HOST_PORT_H */

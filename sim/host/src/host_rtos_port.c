@@ -44,6 +44,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <pthread.h>
 #include <ucontext.h>
 
 #include "host_clock.h"
@@ -58,6 +59,7 @@
 #define HOST_PORT_MAX_TASKS 32
 static ucontext_t task_ctx[HOST_PORT_MAX_TASKS];
 static ucontext_t stepper_ctx; /* the driver/stepper context */
+static pthread_t sched_thread; /* set by scheduler_start */
 static int in_scheduler = 0;   /* 1 while the scheduler is running */
 
 extern TCB *current_task;        /* kernel-owned */
@@ -67,7 +69,7 @@ extern int wake_up_delayed_tasks_isr(void); /* kernel: move due delayed→ready 
 
 /* ---- the sim clock for the RTOS path --------------------------------- *
  * The kernel's delay/timeout logic counts SysTick ticks (systick_count, 1 tick =
- * SYSTICK_PERIOD = 1 ms). On hardware a 1 kHz SysTick ISR bumps it; here the
+ * TICK_PERIOD_US = 1000). On hardware a 1 kHz SysTick ISR bumps it; here the
  * stepper bumps it one tick per IMU sample (the firmware's loop rate), so sim
  * time is exactly the sample count — fully deterministic. v_get_ticks reads it;
  * scheduler_running gates vaios.c's v_delay (busy-wait before start, task_delay
@@ -134,7 +136,8 @@ void load_next_task_from_isr(void) { task_yield(); }
 /* Start the scheduler: pick the first task and jump into it. Returns to the
  * stepper when the system goes idle (idle's cpu_relax swaps back). */
 void scheduler_start(void) {
-  scheduler_running = 1; /* gates v_delay onto cooperative task_delay */
+  sched_thread = pthread_self(); /* the only thread allowed to swapcontext */
+  scheduler_running = 1;         /* gates v_delay onto cooperative task_delay */
   set_next_task();
   in_scheduler = 1;
   swapcontext(&stepper_ctx, ctx_of(current_task));
@@ -165,14 +168,19 @@ void host_rtos_run_until_idle(void) {
 }
 
 /* ---- port: idle behaviour = reschedule, else yield to the stepper ----
- * vaios's idle task loops calling hal_cpu_idle() (its WFI hook). On hardware a
- * SysTick ISR preempts idle to run a woken task; cooperatively there is no
- * preemption, so hal_cpu_idle must do the reschedule itself: pick the highest-
+ * vaios's idle task loops calling v_port_hw_cpu_idle() (its WFI hook; it was
+ * hal_cpu_idle before 0.2.0 moved the facade out of NavHAL's namespace). On
+ * hardware a SysTick ISR preempts idle to run a woken task; cooperatively there
+ * is no preemption, so this must do the reschedule itself: pick the highest-
  * ready task and switch to it; if nothing but idle is ready the tick is
  * quiescent → swap back to the stepper. This makes "scheduler reached idle with
- * nothing ready" the race-free settle signal. (Overrides host_navhal's no-op.) */
+ * nothing ready" the race-free settle signal.
+ *
+ * It is therefore NOT a no-op, unlike every other port on host: a no-op here
+ * leaves the idle task spinning inside the kernel's while(1) and run_step()
+ * never returns. */
 extern TCB *idle_task;
-void hal_cpu_idle(void) {
+void v_port_hw_cpu_idle(void) {
   set_next_task(); /* may select a just-woken task */
   if (current_task != idle_task)
     swapcontext(ctx_of(idle_task), ctx_of(current_task));
@@ -196,8 +204,25 @@ void v_port_enable_interrupts(void) {
     crit_nesting--;
 }
 uint32_t v_port_get_psp(void) { return 0; }
-void v_port_trigger_pendsv(
-    void) { /* host switches synchronously in task_yield */ }
+/* Pend the context switch. vaios 0.2.0 ended the block-and-switch path here
+ * (ipc.c marks the task BLOCKED, leaves the critical section, then pends PendSV)
+ * where it used to call task_yield() itself -- which is why this was a documented
+ * no-op. A no-op now means semaphore_take_common marks the task blocked and then
+ * RETURNS INTO IT: the task spins in its own while(1) and no yield ever happens.
+ * Cooperatively there is no PendSV to pend, so the switch has to happen here.
+ *
+ * Only from the scheduler thread, and only once tasks are running: a give from
+ * the UART RX thread also lands here, and swapcontext there would hijack that
+ * thread into a task's stack. Those wakes are picked up by the next
+ * set_next_task() on the scheduler thread instead, which is the same deferral
+ * the hardware gets from an ISR that pends PendSV. */
+void v_port_trigger_pendsv(void) {
+  if (!in_scheduler || current_task == NULL)
+    return; /* pre-scheduler, or the stepper's own context */
+  if (!pthread_equal(pthread_self(), sched_thread))
+    return; /* another thread's give; the scheduler will see it */
+  task_yield();
+}
 void v_port_halt(void) { abort(); }
 
 /* ---- port: hardware bring-up (v_port_hw_*) --------------------------- */
@@ -216,3 +241,53 @@ void v_port_hw_console_init(uint32_t baud, void (*dma_cb)(void)) {
 }
 int v_port_hw_sdio_init(void) { return 0; }
 int v_port_hw_sdio_card_init(void) { return 0; }
+
+/* ---- Port surface vaios 0.2.0 added ---------------------------------------
+ *
+ * The kernel reaches hardware and the memory map only through these, so a port
+ * that does not define them fails at link. Each one answers for the host the
+ * way the ARM port answers for the F401, so SITL and the FC agree wherever the
+ * answer is a fact about the kernel rather than about silicon.
+ */
+
+/* On ARM this is the SRAM window [0x20000000, _estack). The host has no known
+ * map, so the only corruption this can still catch is a NULL -- which the ARM
+ * port rejects too, since 0 is outside its window. */
+int v_port_ptr_is_ram(const void *p) { return p != NULL; }
+
+/* Memory outside the task's own block that a task may reach. On ARM that is
+ * flash, read-only, granted by an MPU region. SITL runs no unprivileged tasks
+ * (nothing flips CONTROL.nPRIV), so syscall validation never consults this; it
+ * answers "no such region" rather than inventing a permission, which fails
+ * closed if that ever stops being true. */
+int v_port_user_region(uintptr_t a, int write, uintptr_t *end) {
+  (void)a;
+  (void)write;
+  (void)end;
+  return 0;
+}
+
+/* The kernel owns the task stack here: the ucontext runs on TCB.mem_block, which
+ * the kernel allocates and frees. Same as the ARM port, and unlike vaios's own
+ * host RUN port, which mmaps its stacks and must unmap them. */
+void v_port_free_task_stack(TCB *task) { (void)task; }
+
+/* No NVIC, and the single-threaded stepper never runs kernel code from a
+ * handler: always thread mode, so no priority and VECTACTIVE 0. */
+uint32_t v_port_hw_active_irq_priority(uint32_t *vectactive_out) {
+  if (vectactive_out != NULL) {
+    *vectactive_out = 0u;
+  }
+  return 0u;
+}
+
+void v_port_hw_debug_init(void) {} /* no debug block to keep clocked */
+void v_port_mpu_init(void) {}      /* no MPU */
+
+/* host_vfs.c backs the card with host files, so the slot is never empty --
+ * reporting 0 here would make the VFS bring-up report "no card" and skip. */
+int v_port_hw_sdio_card_present(void) { return 1; }
+
+/* Peripheral-bus teardown on task exit. kernel/periph_bus.c is not linked into
+ * SITL and nothing registers an endpoint, so there is nothing to tear down. */
+void v_pbus_task_teardown(struct Task_Control_Block *t) { (void)t; }

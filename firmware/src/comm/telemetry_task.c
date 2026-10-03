@@ -35,7 +35,12 @@
 #include "utils.h"
 #include "sys/math_utils.h"
 #include "vaios.h"
-#include "vaios_app_config.h"
+/* Telemetry loop granularity. Was in vaios_app_config.h, which is gone: it is a
+ * vayu scheduling choice, not a kernel knob, and this is its only user. #ifndef so
+ * a build can still -D it. */
+#ifndef TELEM_BASE_MS
+#define TELEM_BASE_MS 2
+#endif
 #include "control/control_buffer.h"
 #include "vfs.h"
 #include <stdint.h>
@@ -286,7 +291,7 @@ void imu_telemetry_task(void *args) {
     packet_counter++;
     /* Loop/flush granularity (~500 Hz at TELEM_BASE_MS=2). Per-stream rates are set by
      * the ms-based TELEM_GATE above and are independent of this tick — a smaller tick
-     * just flushes smaller bursts more often. See vaios_app_config.h. */
+     * just flushes smaller bursts more often. */
     v_delay(TELEM_BASE_MS);
   }
 }

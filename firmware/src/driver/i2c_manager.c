@@ -242,21 +242,13 @@ hal_status_t i2c_manager_read_async(uint8_t addr, uint8_t reg_addr,
   _current_trans.state = I2C_TRANS_BUSY;
   EXIT_CRITICAL();
 
-  hal_dma_config_t i2c_dma_cfg = {.controller = HAL_DMA_CONTROLLER_1,
-                                  .stream = 0,
-                                  .channel = 1,
-                                  .direction = HAL_DMA_DIR_P2M,
-                                  .src_addr = BOARD_I2C_DR_ADDR,
-                                  .dst_addr = (uint32_t)_rx_data,
-                                  .data_count = len,
-                                  .src_inc = 0,
-                                  .dst_inc = 1,
-                                  .data_width = HAL_DMA_DATA_WIDTH_8,
-                                  .priority = HAL_DMA_PRIORITY_VERY_HIGH,
-                                  .circular = 0};
-
-  hal_status_t ret = hal_i2c_read_regs_dma(HAL_I2C_1, addr, reg_addr,
-                                           &i2c_dma_cfg, i2c_manager_callback);
+  /* NavHAL 0.3.x owns the DMA wiring for the bus: which controller, stream and
+   * channel I2C1_RX lands on is a reference-manual property of the silicon, and
+   * the hardcoded DMA1/stream 0/channel 1 and peripheral address that used to be
+   * built here are exactly what a driver should not be asserting. Direction,
+   * widths, increments and priority come with it. */
+  hal_status_t ret = hal_i2c_read_regs_dma(HAL_I2C_1, addr, reg_addr, _rx_data,
+                                           (uint16_t)len, i2c_manager_callback);
 
   if (ret != HAL_OK) {
     i2c_manager_release_bus();

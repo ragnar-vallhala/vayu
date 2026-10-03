@@ -29,7 +29,7 @@
 #include "sys/sys_utils.h"
 #include "utils/v_fs.h"
 #include "vaios.h"
-#include "vaios_config_default.h"
+#include "vaios_config.h"
 #include "driver/timer_callbacks.h"
 #include "vayu_assert.h"
 #include "vayu_status.h"
@@ -68,17 +68,22 @@ static void run_ekf_selftest(void) {
  * @implements SYS-TIM-004
  */
 void clock_setup(void) {
-  hal_pll_config_t pll_cfg_hse = {
-      .input_src = HAL_CLOCK_SOURCE_HSE, /**< External 8 MHz crystal */
-      .pll_m = 8,                        /**< PLLM divider */
-      .pll_n = 336,                      /**< PLLN multiplier */
-      .pll_p = 4,                        /**< PLLP division factor */
-      .pll_q = 7                         /**< PLLQ division factor */
-  };
+  /* NavHAL 0.3.x folded the PLL parameters into the clock config -- one struct,
+   * one argument -- and exposed the bus dividers (hpre/ppre1/ppre2) that the
+   * backend used to hold privately. They are LEFT UNSET deliberately: the backend
+   * reads 0 as "the values this driver has always programmed" (APB1/2, APB2/2),
+   * so the clock tree is bit-for-bit what the flown firmware ran. Setting
+   * ppre2_div = 1, as some NavHAL samples do, would double APB2 and skew UART6's
+   * baud divisor -- the telemetry link -- for no gain here. */
   hal_clock_config_t cfg = {
-      .source = HAL_CLOCK_SOURCE_PLL /**< Use PLL as system clock */
+      .source = HAL_CLOCK_SOURCE_PLL,            /**< Use PLL as system clock */
+      .pll = {.input_src = HAL_CLOCK_SOURCE_HSE, /**< External 8 MHz crystal */
+              .pll_m = 8,                        /**< PLLM divider */
+              .pll_n = 336,                      /**< PLLN multiplier */
+              .pll_p = 4,                        /**< PLLP division factor */
+              .pll_q = 7}                        /**< PLLQ division factor */
   };
-  hal_clock_init(&cfg, &pll_cfg_hse);
+  hal_clock_init(&cfg);
 }
 
 /* @noreq boot plumbing: brings up sensor buffers + drivers and opens the
@@ -94,7 +99,7 @@ void init_sensors(void) {
 
   // Initialize global telemetry — USART6 (PC6 TX / PC7 RX) per Vayu PCB wiring.
   serial_args_t uart_args = {
-      .baud_rate = UART_BAUDRATE, .uart = HAL_UART_6, .timeout = 100};
+      .baud_rate = CONSOLE_BAUDRATE, .uart = HAL_UART_6, .timeout = 100};
 
   if (get_handler(CHANNEL_TYPE_SERIAL, &g_telemetry_channel, &uart_args,
                   uart2_packet_recv_callback) != NONE) {
@@ -112,6 +117,29 @@ void init_sensors(void) {
  * further. Peak at last measurement noted per line.
  *
  * @noreq boot plumbing: creates the steady-state RTOS task set. */
+/* Spawn a task and INSIST it exists.
+ *
+ * task_create_named returns the new task id, or 0 on failure -- and it fails for
+ * more than a flat heap: with VAIOS_MPU_STACK_GUARD on it refuses any stack size
+ * that is not a power of two, because each stack maps onto a single MPU region.
+ * It reports that through V_KLOG only, which this build does not have
+ * (LOGGING_ENABLED is off), so every call below used to throw the id away and a
+ * rejected task simply did not exist.
+ *
+ * That is a genuinely awful failure to debug: the symptom is a MemManage fault at
+ * address 0, raised much later in the first-task launch, because current_task
+ * stays NULL and SVCall_Handler does `ldr r0,[r1]` with r1 == 0. Nothing points
+ * at a stack size. PANIC names the file and line of the spawn that failed
+ * instead; a task that cannot be created is a build mistake, not a runtime
+ * condition, so stopping is the right answer. */
+#define VAYU_SPAWN(...)                                                        \
+  do {                                                                         \
+    if (task_create_named(__VA_ARGS__) == 0u) {                                \
+      PANIC("task_create_named refused this task -- stack size must be a "     \
+            "power of two under the MPU stack guard");                         \
+    }                                                                          \
+  } while (0)
+
 void init_tasks(void) {
   // Deepest dispatch on the system: the NavLink router runs the xfer + fs_query
   // handlers here, building large aligned message structs on-stack (XFER_DATA
@@ -122,26 +150,25 @@ void init_tasks(void) {
   // write-at hop on top of the router's buf[256] — which overflowed the
   // right-sized 2496 and wedged the FC. Restored to the known-good size from
   // feat/centralised-fs-owner (byte-perfect 64 KB round-trips).
-  task_create_named(
-      comm_processor_task, NULL, 4096, 0,
-      "comm_processor"); // peak 1884 idle; xfer-upload path deeper
+  VAYU_SPAWN(comm_processor_task, NULL, 4096, 0,
+             "comm_processor"); // peak 1884 idle; xfer-upload path deeper
   /* Stack, priority and entry point come from the driver's own descriptor. */
   VAYU_DISCARD(sensor_start_task(SENSOR_IMU));
   // Attitude estimation (fusion), split out of the IMU driver.
-  task_create_named(attitude_task, NULL, 1152, 1, "attitude"); // peak 700
+  VAYU_SPAWN(attitude_task, NULL, 1024, 1, "attitude"); // peak 732
   // Vertical estimator (VERT): fuses baro + accel into altitude/climb_rate.
   /* 1024 not 832: the ToF ride-along (range read + quaternion tilt projection)
    * pushed this task's measured peak 428 -> 484 B, leaving 348 B free against a
    * 256 B guard band — under one FP exception frame (132 B) of true headroom.
    * See the rate_ctl note above for what that costs when it runs out. */
-  task_create_named(vertical_estimator_task, NULL, 1280, 1,
-                    "vertical"); // peak 708 measured
-                                 // 484 -> 708 when the hover estimator and its
-                                 // boot-time hover_store_load (vfs_open+read)
-                                 // landed here. At 1024 that left 316 B free
-                                 // against the 256 B guard band -- under one FP
-                                 // exception frame (132 B) of real margin, i.e.
-                                 // the same shape as the rate_ctl panic.
+  VAYU_SPAWN(vertical_estimator_task, NULL, 2048, 1,
+             "vertical"); // peak 844 measured
+                          // 484 -> 708 when the hover estimator and its
+                          // boot-time hover_store_load (vfs_open+read)
+                          // landed here. At 1024 that left 316 B free
+                          // against the 256 B guard band -- under one FP
+                          // exception frame (132 B) of real margin, i.e.
+                          // the same shape as the rate_ctl panic.
   /* 1024, not the 512 that looked ample. The work is one conversion, a float
    * multiply and a struct copy -- but the float is the point: an exception
    * taken in a task that has touched the FPU stacks 104 bytes of FP context on
@@ -149,10 +176,10 @@ void init_tasks(void) {
    * (and below 320 for anything that logs). 512 measured 252 bytes free at a
    * context switch and the kernel halted the whole system. Stacks come from
    * the vaios heap, so this does not move _heap_start. */
-  task_create_named(battery_task, NULL, 1024, 0, "battery");
-  task_create_named(rc_ibus_task, NULL, 576, 0, "rc_ibus"); // peak 132
-  task_create_named(angle_controller_task, NULL, 832, 1,
-                    "angle_ctl"); // peak 404, control
+  VAYU_SPAWN(battery_task, NULL, 1024, 0, "battery");
+  VAYU_SPAWN(rc_ibus_task, NULL, 1024, 0, "rc_ibus"); // peak 372
+  VAYU_SPAWN(angle_controller_task, NULL, 1024, 1,
+             "angle_ctl"); // peak 436, control
   /* 1088 was marginal: a live SWD dump caught rate_ctl 956 B deep with a full
    * FP exception context (EXC_RETURN 0xFFFFFFED, S0-S31 = +132 B) on its stack,
    * inside the 256 B TASK_STACK_OVERFLOW_THRESHOLD guard band -> kernel panic
@@ -160,28 +187,28 @@ void init_tasks(void) {
    * was enough to expose it); the depth itself is pre-existing. Measured peak
    * on hardware 2026-09-04: 956 B — at 1088 that left 132 B free, inside the
    * guard band; 1536 leaves 580 B. */
-  task_create_named(angle_rate_controller_task, NULL, 1536, 1,
-                    "rate_ctl"); // peak 956 measured, control
+  VAYU_SPAWN(angle_rate_controller_task, NULL, 2048, 1,
+             "rate_ctl"); // peak 956 measured, control
   /* 1024 not 704: motor_task drains esc_calib's deferred messages, and
    * vayu_log panics the kernel with under 320 bytes of stack free. 704 against
    * a measured peak of 284 left 420 -- over the line, but by less than the
    * formatter's own frame. Stacks come from the vaios heap, so this does not
    * move _heap_start. */
-  task_create_named(motor_task, NULL, 1024, 1, "motor"); // peak 284, actuator
-  task_create_named(imu_telemetry_task, NULL, 1344, 0,
-                    "imu_telemetry"); // peak 908
+  VAYU_SPAWN(motor_task, NULL, 1024, 1, "motor"); // peak 284, actuator
+  VAYU_SPAWN(imu_telemetry_task, NULL, 2048, 0,
+             "imu_telemetry"); // peak 932
   VAYU_DISCARD(sensor_start_task(SENSOR_BARO));
   VAYU_DISCARD(sensor_start_task(SENSOR_RANGE));
-  task_create_named(flush_task, NULL, 640, 0, "flush"); // peak 188
-  task_create_named(perf_telemetry_task, NULL, 1216, 0,
-                    "perf_telemetry"); // peak 804
+  VAYU_SPAWN(flush_task, NULL, 1024, 0, "flush"); // peak 428
+  VAYU_SPAWN(perf_telemetry_task, NULL, 2048, 0,
+             "perf_telemetry"); // peak 996
   // Centralised FS owner: sole runtime SD/VFS writer (blackbox logger + PID/calib
   // saves). Lowest band (prio 0); blocks on its queue so it only runs when there
   // is work and never preempts control. Queues are created lazily on first run.
   // 2048 (was right-sized to 1152, peak 732 idle): the write-at lane during an
   // xfer upload + the blocking FatFS read during a download run deeper than the
   // idle peak. Restored to the known-good feat/centralised-fs-owner size.
-  task_create_named(fs_owner_task, NULL, 2048, 0, "fs_owner"); // peak 732 idle
+  VAYU_SPAWN(fs_owner_task, NULL, 2048, 0, "fs_owner"); // peak 732 idle
   // Bulk-transfer (FTP) substrate: runs the xfer SM off the comm + control
   // tasks (prio 0). Blocking SD reads + paced emission live here; the comm-task
   // handlers only touch session state (the C1->C3 invariant). fs_query_tick /
@@ -192,7 +219,7 @@ void init_tasks(void) {
   // multi-chunk download overflowed the right-sized 832 and froze the FC
   // (heartbeat LED stopped). Restored to the known-good feat/centralised-fs-owner
   // size that did byte-perfect 64 KB downloads.
-  task_create_named(xfer_service_task, NULL, 3072, 0, "xfer"); // peak 404 idle
+  VAYU_SPAWN(xfer_service_task, NULL, 4096, 0, "xfer"); // peak 540 idle
 }
 /**
  * Bring up the high-frequency timer and register its periodic callbacks: the
@@ -221,11 +248,81 @@ void init_timer_callbacks(void) {
   }
 }
 /* @noreq boot plumbing: spawns the heartbeat task + one-shot boot task. */
+/* STACK SIZES ARE POWERS OF TWO, and that is a hard requirement, not tidiness:
+ * with VAIOS_MPU_STACK_GUARD each stack maps onto a single MPU region, so
+ * task_create_named REFUSES any other size -- `(size & (size - 1)) != 0` returns
+ * 0 and only V_KLOGs, which vayu never sees because LOGGING_ENABLED is off. Every
+ * task silently failing to exist presents as a MemManage fault at address 0 in
+ * SVCall_Handler, because current_task stays NULL and the first-task launch reads
+ * NULL->sp. That is a long way from "wrong stack size".
+ *
+ * Each size is the SMALLEST power of two that clears the measured peak by:
+ *
+ *   32 B   the MPU guard region at the base of the block
+ * + 132 B  one FP exception frame, in case a preemption lands at peak depth
+ * + 172 B  vayu_log's worst-case depth -- ONLY for a task that can reach it
+ *
+ * The old rule carried 256 B for TASK_STACK_WATERMARK_ENABLE's threshold. That
+ * is gone: the watermark is off (the MPU guard replaces it), so the 256 B is not
+ * part of the budget any more. The vayu_log term is there because a task that
+ * logs only on an error path does NOT show that depth in a bench peak, which is
+ * what made motor_task's 704 B too small once -- see its note below.
+ *
+ * attitude and heartbeat take the smaller margin because neither file contains a
+ * vayu_log, VAYU_ASSERT or PANIC, nor an indirect call that could reach one.
+ * vl53l0x and motor do log, so they keep 1024 even though their peaks (276, 292)
+ * would otherwise fit 512.
+ *
+ * xfer and comm_processor are deliberately far above what their peaks ask (both
+ * measure ~540 B idle). Do NOT pull them down to 1024: their deep paths are a
+ * real multi-chunk download and the xfer-upload command path, which a bench run
+ * never reaches, and both have already frozen the FC when right-sized to a bench
+ * peak -- comm_processor at 2496, xfer at 832. Those numbers are field evidence.
+ */
 void system_init_tasks(void) {
-  task_create_named(heartbeat_task, NULL, 576, 0, "heartbeat"); // peak 124
-  // boot_task runs the one-shot boot sequence then exits (stack freed); left at
-  // 1 KiB since it is not in the steady-state perf view (no measured high-water).
-  task_create_named(boot_task, NULL, 1024, 0, "boot");
+  /* boot_task ONLY. It is the first and only thing the scheduler has to run, so
+   * it reaches its work immediately regardless of priority, and everything that
+   * needs a running kernel happens inside it.
+   *
+   * 2048, raised from 1 KiB: it now carries the blackbox prealloc and the PID
+   * restore, whose VFS path is the same depth that makes fs_owner_task peak at
+   * 956 B. Generosity is close to free here -- the task exits and the kernel GC
+   * returns the whole block -- but it is NOT in the steady-state perf view, so
+   * stack_peaks.py cannot measure it: its TCB is gone before any dump. */
+  VAYU_SPAWN(boot_task, NULL, 2048, 0, "boot");
+}
+
+/* Everything that must not run until the scheduler is up, in order: the SD reads
+ * that take the VFS mutex, then the tasks, then the timer that paces them.
+ *
+ * Called from boot_task, so there is a current task and the VFS mutex behaves.
+ * The ordering is the point: a persisted PID tune has to be in force before the
+ * rate loop exists rather than racing it, and no sensor tick should fire before
+ * the task that drains it has been created.
+ *
+ * @noreq boot plumbing. */
+void system_boot_late_init(void) {
+  fs_owner_boot_init(); /* prealloc/open the blackbox log files */
+#ifdef EKF_SELFTEST
+  run_ekf_selftest();
+#endif
+  pid_config_init(); /* COMM-CMD-003: restore persisted PID tune from SD */
+  init_sensors();    /* the IMU's own init loads cal.bin */
+
+  /* Takes a pending ESC-calibration request -- which it reads from the card --
+   * and hands the flight state to it. It only SETS the phase; motor_task is what
+   * drives the outputs to maximum, and that task is created just below, so the
+   * order the ESCs actually see is unchanged by this living here rather than in
+   * main(). It still precedes every task, which is what mattered: the ESCs have
+   * to meet maximum while they are still waking, and a running FC cannot
+   * recreate that moment. Must stay after system_state_init (in main), which
+   * leaves the state at INIT -- the transition table carries {INIT, ESC_CALIB}
+   * for exactly this call. */
+  esc_calib_boot_init();
+
+  VAYU_SPAWN(heartbeat_task, NULL, 512, 0, "heartbeat"); // peak 260
+  init_tasks();
+  init_timer_callbacks(); /* last: nothing ticks before its consumer exists */
 }
 /* Handed to the manager once at boot, which keeps its own copy -- nothing
  * else needs to see it. It was non-static so bmx160.c could extern it for bus
@@ -255,11 +352,13 @@ int main() {
   v_system_init(&cfg);
 
   init_i2c_manager(&i2c_config);
-  fs_owner_boot_init(); /* prealloc/open the blackbox log files */
-#ifdef EKF_SELFTEST
-  run_ekf_selftest(); /* report over UART before the scheduler starts */
-#endif
-  pid_config_init(); /* COMM-CMD-003: restore persisted PID tune from SD */
+  /* The SD reads that used to sit here (blackbox prealloc, persisted PID tune)
+   * now run in boot_task -- see system_boot_late_init(). They take the VFS
+   * mutex, and vaios's vfs_init says plainly "do not lock here: v_mutex_lock
+   * blocks indefinitely without a running scheduler". Pre-scheduler there is no
+   * current task, so the kernel wrote current->wait_mutex through a NULL TCB;
+   * on this part address 0x38 is flash-aliased, so it did nothing and nothing
+   * said so, until the MPU's NULL guard turned it into a MemManage fault. */
   system_state_init();
   /* Takes a pending ESC-calibration request and drives maximum from startup.
    * Must be AFTER system_state_init, which leaves the state at INIT -- the
@@ -277,11 +376,10 @@ int main() {
     vayu_log("batt: ADC did not come up");
   }
 
-  esc_calib_boot_init();
-  init_sensors();
+  /* Only boot_task, and nothing that touches the filesystem. init_sensors (the
+   * IMU reads cal.bin) and esc_calib_boot_init (it reads the request marker)
+   * moved into system_boot_late_init with the rest. */
   system_init_tasks();
-  init_tasks();
-  init_timer_callbacks();
 
   scheduler_start();
   while (1)

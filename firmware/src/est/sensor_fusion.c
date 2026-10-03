@@ -19,7 +19,7 @@
 #include "sys/state.h"
 #include "utils.h"            /* v_get_ticks (vaios) */
 #include "storage/fs_owner.h" /* vayu_log */
-#include "vaios_config_default.h"
+#include "vaios_config.h"
 #include "control/tuning.h"
 
 /* ----------------------------------------------------------------------------

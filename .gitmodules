@@ -1,6 +1,11 @@
 [submodule "extern/vaios"]
 	path = extern/vaios
 	url = https://github.com/ragnar-vallhala/vaios.git
+	# Same rule as navlink below, for the same reason: vaios's main carries work
+	# that has passed CI but has not been released. This pin was on main
+	# (9024aa4) until the 0.2.0 bump, which is how it came to sit 228 commits
+	# behind its own stable branch without anything saying so.
+	branch = stable
 [submodule "vtest"]
 	path = vtest
 	url = https://github.com/ragnar-vallhala/vtest.git
