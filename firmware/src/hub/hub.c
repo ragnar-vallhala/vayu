@@ -183,6 +183,7 @@ static void hub_stat_pop(hub_stat_t *st, bool ok, uint32_t missed) {
     st->popped++;
   }
 }
+#if VAIOS_DEVFS
 /* attitude_task's read handle. The fd table is PER TASK, so this is only valid
  * in the one task that consumes the topic; it is opened lazily on that task's
  * first wait() for exactly that reason -- opening it at init would put the fd in
@@ -196,6 +197,7 @@ static int _fd_vert_input = -1;
  * messages nobody receives. So where wait() uses an fd, pop() uses the same fd. */
 static int _fd_imu_control = -1;
 static int _fd_att_control = -1;
+#endif
 /* Samples the bus says this reader missed, i.e. slots overwritten before it got
  * to them. The SPSC ring it replaces could not report this at all: an overwrite
  * was indistinguishable from never having been published, so "the estimator is
