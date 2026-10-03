@@ -1422,6 +1422,14 @@ void bmx160_process_data(void) {
   if (_mag_fresh) {
     bmx160_process_mag(mx, my, mz, rhall, _is_mag_invalid);
     _mag_fresh = 0;
+    /* High-speed SD stream, once per actual refresh rather than per inertial
+     * sample -- logging the held value ~13 times would misstate the cadence the
+     * block stamps imply. Stamped with _sample_cyc, the same timebase the imu
+     * stream above uses, so a vibration peak and a field disturbance line up
+     * inside one file. The PRE-offset field: the hub gets the calibrated vector
+     * below, but an offline ellipsoid fit needs the input to that correction,
+     * not its output. RAM-only, no-op unless armed. */
+    imu_hs_log_mag(_bmx_data.converted.mag_compensated, _mag_valid, _sample_cyc);
     /* Publish on arrival, not on every inertial sample: the field only
      * changed here, and a consumer watching t_cyc can now tell a new reading
      * from the same one seen again. temp_c is the package temperature -- one

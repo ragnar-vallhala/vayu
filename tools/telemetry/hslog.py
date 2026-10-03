@@ -59,7 +59,7 @@ FTYPE = {1: ("h", 2), 2: ("H", 2), 3: ("i", 4), 4: ("f", 4), 5: ("B", 1)}
 
 # Stream ids, in the order the header's per-stream drop counters use.
 STREAM_NAME = {1: "imu", 2: "act", 3: "vrt", 4: "ctl",
-               5: "rx", 6: "txt", 7: "att", 8: "rc"}
+               5: "rx", 6: "txt", 7: "att", 8: "rc", 9: "mag"}
 
 
 class Stream:
@@ -112,15 +112,24 @@ def decode(data):
     else:
         gen, sentinel = None, SENTINEL_V1
     # Per-stream sectors dropped in the session that was open when the header
-    # was last flushed. Absent from files written before the header grew to 52
-    # bytes -- they declare 36, so `drops` is None there rather than garbage.
-    if hdr_len >= 52 and len(data) >= 52:
+    # was last flushed. The header has grown twice (36 -> 52 -> 56, one u16 per
+    # stream), so take the count from hdr_len and never from the stream table:
+    # a file written with 8 streams has 8 slots, and reading 9 would hand back
+    # the first FMT frame's bytes as a drop counter. Files declaring 36 have
+    # none, so `drops` is None there rather than garbage.
+    if hdr_len >= 56 and len(data) >= 56:
+        drops = dict(zip(
+            (STREAM_NAME.get(i + 1, "s%d" % (i + 1)) for i in range(9)),
+            struct.unpack_from("<9H", data, 36)))
+    elif hdr_len >= 52 and len(data) >= 52:
+        # Exactly 8: that header was written when there were 8 streams.
         drops = dict(zip(
             (STREAM_NAME.get(i + 1, "s%d" % (i + 1)) for i in range(8)),
             struct.unpack_from("<8H", data, 36)))
     else:
         drops = None
-    hdr = dict(version=version, clock_hz=clock_hz, ring_start=ring_start,
+    hdr = dict(version=version, hdr_len=hdr_len, clock_hz=clock_hz,
+               ring_start=ring_start,
                ring_sectors=ring_sectors, head_slot=head_slot,
                next_seq=next_seq, wraps=wraps, gen=gen, sentinel=sentinel,
                drops=drops)
@@ -456,6 +465,63 @@ def _build_test_file():
     return out
 
 
+def _build_mag_file():
+    """A v2 file with the 56-byte, 9-slot header and one mag block.
+
+    Separate from _build_test_file, which deliberately keeps a short legacy
+    header so the backward-compatible drops path stays covered. This one exists
+    to pin three things the firmware and this reader have to agree on: that the
+    first frame is found through hdr_len and not a constant, that nine drop
+    counters are read as nine, and that a mag record is 3x i16 at 0.1 uT per LSB
+    followed by a u16 flag word.
+    """
+    gen = 0x0C
+    sent = sentinel_for(gen)
+    sec = bytearray(SECTOR)
+    struct.pack_into("<IHHI", sec, 0, MAGIC, 2, 56, 84_000_000)
+    struct.pack_into("<IIIII", sec, 12, SECTOR, RING_SECTORS, 2, 3, 0)
+    struct.pack_into("<I", sec, 32, gen)
+    # nine drop counters; the 7th (mag) nonzero, so a reader that stops at eight
+    # silently loses it
+    for i, d in enumerate([0, 0, 0, 0, 0, 0, 0, 0, 5]):
+        struct.pack_into("<H", sec, 36 + i * 2, d)
+
+    fields = [("mx_pre", 1, 0.1), ("my_pre", 1, 0.1), ("mz_pre", 1, 0.1),
+              ("flags", 2, 1.0)]
+    pay = struct.pack("<BBHBBBB", 9, 8, 153, len(fields), 0, 0, 0)
+    for name, ft, scale in fields:
+        pay += name.encode().ljust(8, b"\0") + bytes([ft, 0, 0, 0]) + struct.pack("<f", scale)
+    struct.pack_into("<BBH", sec, 56, T_FMT, 0, len(pay))
+    sec[60:60 + len(pay)] = pay
+    off = 60 + len(pay)
+    struct.pack_into("<BBH", sec, off, T_PAD, 0, SECTOR - off - 4)
+
+    # ring: SESSION then one BLOCK of 3 mag records, 20/-30/45 uT and a 4th that
+    # is flagged invalid
+    session = 0x30C
+    ses = bytearray(SECTOR - 4)
+    ses[1] = session & 0xFF
+    struct.pack_into("<I", ses, 4, 1)
+    struct.pack_into("<I", ses, 8, session)
+    slot0 = struct.pack("<BBH", T_SESSION, sent, SECTOR - 4) + bytes(ses)
+
+    recs = [(20.0, -30.0, 45.0, 0), (0.0, 0.0, 0.0, 1), (-1300.0, 2500.0, 0.5, 0)]
+    blk = bytearray(SECTOR - 4)
+    blk[0] = 9
+    blk[1] = session & 0xFF
+    struct.pack_into("<H", blk, 2, len(recs))
+    struct.pack_into("<I", blk, 4, 2)
+    struct.pack_into("<II", blk, 8, 1000, 1000 + 2 * (84_000_000 // 153))
+    for i, (x, y, z, bad) in enumerate(recs):
+        struct.pack_into("<hhhH", blk, 16 + i * 8,
+                         int(round(x / 0.1)), int(round(y / 0.1)),
+                         int(round(z / 0.1)), 1 if bad else 0)
+    slot1 = struct.pack("<BBH", T_BLOCK, sent, SECTOR - 4) + bytes(blk)
+
+    empty = b"\xff" * SECTOR
+    return bytes(sec) + slot0 + slot1 + empty * (RING_SECTORS - 2), recs
+
+
 def selftest():
     import numpy as np
 
@@ -509,6 +575,32 @@ def selftest():
     assert abs(f0 - 200) < 20, "recovered tone at %.1f Hz, expected 200" % f0
 
     assert _u32d(5, 0xFFFFFFF0) == 21, _u32d(5, 0xFFFFFFF0)
+    # --- the 56-byte header and the mag stream -----------------------------
+    mdata, mrecs = _build_mag_file()
+    mhdr, mstreams, mframes = decode(mdata)
+    assert mhdr["hdr_len"] == 56, mhdr
+    assert mhdr["sentinel"] == sentinel_for(0x0C), mhdr
+    # Nine counters read as nine. The mag slot is last, so it is exactly what a
+    # reader stopping at eight loses -- and bytes 52..55 are where a reader that
+    # assumed the old 52-byte header would start looking for the first frame.
+    assert mhdr["drops"] is not None and mhdr["drops"].get("mag") == 5, mhdr["drops"]
+    # Finding the FMT at all proves hdr_len was honoured rather than assumed.
+    assert 9 in mstreams, list(mstreams)
+    ms = mstreams[9]
+    assert ms.name == "mag", ms.name
+    assert (ms.rec_bytes, ms.rate_hz) == (8, 153), (ms.rec_bytes, ms.rate_hz)
+    assert ms.names == ["mx_pre", "my_pre", "mz_pre", "flags"], ms.names
+    mt, mcols = samples(mhdr, mstreams, mframes, sid=9)
+    assert len(mt) == len(mrecs), (len(mt), len(mrecs))
+    for i, (x, y, z, bad) in enumerate(mrecs):
+        for col, want in (("mx_pre", x), ("my_pre", y), ("mz_pre", z)):
+            # 0.1 uT per LSB, so the quantum is the whole tolerance
+            assert abs(mcols[col][i] - want) <= 0.05, (col, i, mcols[col][i], want)
+        assert mcols["flags"][i] == (1 if bad else 0), (i, mcols["flags"][i])
+    print("selftest OK: mag 3x i16 @ 0.1 uT/LSB + flags, hdr_len 56 honoured, "
+          "9 drop counters, %+.1f/%+.1f/%+.1f uT round-tripped"
+          % tuple(mcols[c][0] for c in ("mx_pre", "my_pre", "mz_pre")))
+
     print("selftest OK: wrapped ring reordered, reboot gap %r split 2 arms, "
           "tone at %.1f Hz, fs %.1f Hz" % (hdr["gaps"], f0, fs))
 

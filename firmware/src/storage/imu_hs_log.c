@@ -84,6 +84,7 @@ static uint8_t s_rx_bufs[HSL_RX_BUFFERS][HSL_SECTOR_BYTES];
 static uint8_t s_txt_bufs[HSL_TXT_BUFFERS][HSL_SECTOR_BYTES];
 static uint8_t s_att_bufs[HSL_ATT_BUFFERS][HSL_SECTOR_BYTES];
 static uint8_t s_rc_bufs[HSL_RC_BUFFERS][HSL_SECTOR_BYTES];
+static uint8_t s_mag_bufs[HSL_MAG_BUFFERS][HSL_SECTOR_BYTES];
 
 enum {
   HSL_S_IMU = 0,
@@ -94,6 +95,7 @@ enum {
   HSL_S_TXT,
   HSL_S_ATT,
   HSL_S_RC,
+  HSL_S_MAG,
   HSL_N_STREAMS
 };
 
@@ -167,6 +169,18 @@ static hsl_stream_t s_streams[HSL_N_STREAMS] = {
                   .rec_bytes = HSL_RC_REC_BYTES,
                   .cap = HSL_BLOCK_PAYLOAD_BYTES / HSL_RC_REC_BYTES,
                   .decim_cyc = (uint32_t)SYS_CLOCK_FREQ / HSL_RC_RATE_HZ},
+
+    /* decim_cyc 0 -- no decimation here, unlike att: the caller already fires
+       only on a fresh BMM150 read, so the sensor's own refresh IS the rate. A
+       second divider would drop real samples. Armed-gated like imu, since the
+       field this is for is the one the motors distort. */
+    [HSL_S_MAG] = {.armed_only = 1u,
+                   .bufs = &s_mag_bufs[0][0],
+                   .n_bufs = HSL_MAG_BUFFERS,
+                   .stream_id = HSL_STREAM_MAG,
+                   .rec_bytes = HSL_MAG_REC_BYTES,
+                   .cap = HSL_BLOCK_PAYLOAD_BYTES / HSL_MAG_REC_BYTES,
+                   .decim_cyc = 0u},
 };
 
 /* Every stream's records must fit the block payload. cap is derived by
@@ -184,6 +198,12 @@ _Static_assert(HSL_FITS(HSL_CTL_REC_BYTES), "ctl records overrun the block");
 _Static_assert(HSL_FITS(HSL_RX_REC_BYTES), "rx records overrun the block");
 _Static_assert(HSL_FITS(HSL_TXT_REC_BYTES), "txt records overrun the block");
 _Static_assert(HSL_FITS(HSL_ATT_REC_BYTES), "att records overrun the block");
+_Static_assert(HSL_FITS(HSL_MAG_REC_BYTES), "mag records overrun the block");
+/* The nominal rate in the header is the mag's share of the split-rate state
+   machine. If either side moves, the FMT would advertise a cadence the file does
+   not have. */
+_Static_assert(HSL_MAG_RATE_HZ == IMU_SAMPLE_FREQ_HZ / 13,
+               "HSL_MAG_RATE_HZ no longer matches the driver's mag decimation");
 _Static_assert(HSL_FITS(HSL_RC_REC_BYTES), "rc records overrun the block");
 
 /* Set by the FS task from the flight state; read by producers via
@@ -553,11 +573,12 @@ static uint8_t s_preamble[HSL_PREAMBLE_BYTES];
 _Static_assert(HSL_FILE_HDR_BYTES + HSL_FMT_BYTES(6u) /* imu */
                        + HSL_FMT_BYTES(6u)            /* act */
                        + HSL_FMT_BYTES(6u)            /* ctl */
-                       + HSL_FMT_BYTES(8u)            /* vrt */
+                       + HSL_FMT_BYTES(9u)            /* vrt */
                        + HSL_FMT_BYTES(1u)            /* rx  */
                        + HSL_FMT_BYTES(1u)            /* txt */
                        + HSL_FMT_BYTES(4u)            /* att */
                        + HSL_FMT_BYTES(15u)           /* rc  */
+                       + HSL_FMT_BYTES(4u)            /* mag */
                    <= HSL_PREAMBLE_BYTES,
                "FMT declarations no longer fit the preamble");
 
@@ -577,6 +598,25 @@ void imu_hs_log_att(float roll, float pitch, float yaw, uint8_t degraded,
   put_u16(&r[2], (uint16_t)scaled_to_i16(pitch, HSL_ATT_DEG_PER_LSB));
   put_u16(&r[4], (uint16_t)scaled_to_i16(yaw, HSL_ATT_DEG_PER_LSB));
   put_u16(&r[6], degraded ? (uint16_t)HSL_ATT_F_DEGRADED : 0u);
+  stream_commit(st, t_cyc);
+}
+
+/** @noreq magnetometer capture for offline calibration and disturbance analysis */
+void imu_hs_log_mag(const float mag_uT[3], uint8_t valid, uint32_t t_cyc) {
+  if (mag_uT == NULL) {
+    return;
+  }
+  hsl_stream_t *st = &s_streams[HSL_S_MAG];
+  uint8_t *r = stream_claim(st, t_cyc);
+  if (r == NULL) {
+    return;
+  }
+  /* Second argument is the unit PER COUNT, as everywhere here -- not its
+     reciprocal. See the note in imu_hs_log_att. */
+  put_u16(&r[0], (uint16_t)scaled_to_i16(mag_uT[0], HSL_MAG_UT_PER_LSB));
+  put_u16(&r[2], (uint16_t)scaled_to_i16(mag_uT[1], HSL_MAG_UT_PER_LSB));
+  put_u16(&r[4], (uint16_t)scaled_to_i16(mag_uT[2], HSL_MAG_UT_PER_LSB));
+  put_u16(&r[6], valid ? 0u : (uint16_t)HSL_MAG_F_INVALID);
   stream_commit(st, t_cyc);
 }
 
@@ -747,6 +787,15 @@ static void build_preamble(void) {
                                      {"ch14", HSL_FTYPE_U16, 1.0f},
                                      {"flags", HSL_FTYPE_U16, 1.0f}},
                15u);
+  /* Field names say "pre-offset": a reader must not mistake these for the
+     calibrated vector that telemetry reports. */
+  f = emit_fmt(
+      f, HSL_STREAM_MAG, HSL_MAG_REC_BYTES, (uint16_t)HSL_MAG_RATE_HZ,
+      (const hsl_field_t[]){{"mx_pre", HSL_FTYPE_I16, HSL_MAG_UT_PER_LSB},
+                            {"my_pre", HSL_FTYPE_I16, HSL_MAG_UT_PER_LSB},
+                            {"mz_pre", HSL_FTYPE_I16, HSL_MAG_UT_PER_LSB},
+                            {"flags", HSL_FTYPE_U16, 1.0f}},
+      4u);
 
   /* PAD out to the sector. Skipped by the generic `len` rule, so no decoder
    * needs to know it exists. */
