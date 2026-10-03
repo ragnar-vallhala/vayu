@@ -19,10 +19,12 @@
 # must match. See firmware/docs/plans/link-bandwidth-boost.md.
 CONFIG_CONSOLE_BAUDRATE=460800
 
-# 46 KiB. 40 KiB (0xA000) -> 42 KiB when the stacks were re-measured under vaios
-# 0.2.0, then -> 48 KiB when arming the MPU forced every stack to a power of two
-# (+5568 B), then back to 46 KiB once the watermark's 256 B came out of the sizing
-# rule and attitude/heartbeat dropped a step (-1536 B; see src/main.c).
+# 48 KiB. 40 KiB (0xA000) -> 42 KiB when the stacks were re-measured under vaios
+# 0.2.0; -> 48 KiB when arming the MPU forced every stack to a power of two
+# (+5568 B); -> 46 KiB once the watermark's 256 B left the sizing rule and
+# attitude/heartbeat dropped a step (-1536 B; see src/main.c); -> 48 KiB again for
+# VAIOS_DEVFS, whose per-task fd table lives in the TCB and so comes out of this
+# heap. Each step was measured with tools/dev/alloc_budget.py, not estimated.
 #
 # Earlier note, still the reason the number is not a vaios default: Task stacks are
 # v_malloc'd from this heap, so that growth came straight out of the margin:
@@ -40,7 +42,7 @@ CONFIG_CONSOLE_BAUDRATE=460800
 # The host SITL has no 96 KiB limit and needs room for many 8 KiB task stacks,
 # so it passes -DHEAP_SIZE=0x180000; the generated macros are #ifndef-guarded,
 # so that -D still wins over this.
-CONFIG_HEAP_SIZE=0xB800
+CONFIG_HEAP_SIZE=0xC000
 
 # Boot/main stack, well above the 1 KiB default: main() runs the whole
 # composition root (driver init, calibration load, task spawn) before the
@@ -122,3 +124,15 @@ CONFIG_VAIOS_MPU_ENABLE=y
 # `svc 1`, not the whole API, so the cost is bounded. Measured on the board rather
 # than assumed, against the same 30 s window with it off -- see the commit.
 CONFIG_VAIOS_SYSCALL_SVC=y
+
+# Everything-is-a-file: a per-task fd table over v_file_ops, /dev nodes behind a
+# driver op-table, open/read/write/close as syscalls (vaios Phase 3 Stage 2).
+# Tasks stay privileged at this stage.
+#
+# On for one reason: the bus's blocking reader, v_bus_recv_wait, lives behind it.
+# vayu's hub is event-driven -- every consumer parks on a semaphore until its
+# producer publishes -- so without a blocking bus read the FIFOs would have to
+# keep their semaphores and be migrated a second time later.
+#
+# Costs 8 fds x 8 B inside every TCB (VAIOS_MAX_FDS, default 8).
+CONFIG_VAIOS_DEVFS=y
