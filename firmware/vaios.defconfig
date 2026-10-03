@@ -110,3 +110,15 @@ CONFIG_VAIOS_MPU_ENABLE=y
 # V_PERF_STACK_FILL sentinel that VAIOS_MODULE_PERF paints at task create, which
 # is independent of the watermark.
 # CONFIG_TASK_STACK_WATERMARK_ENABLE is not set
+
+# Kernel entry through SVC (vaios Phase 3 Stage 1). Tasks stay PRIVILEGED: the
+# unprivileged flip and the per-task MPU region set are not implemented in vaios
+# 0.2.0 ("off until complete"), so this buys no isolation on its own. It is on
+# because VAIOS_DEVFS depends on it, and the bus's only BLOCKING reader
+# (v_bus_recv_wait) lives behind VAIOS_DEVFS -- the hub is event-driven, so
+# without it the FIFOs cannot leave their semaphores behind.
+#
+# Stage 1 routes a SELECTED set of entry points (task_yield, task_delay) through
+# `svc 1`, not the whole API, so the cost is bounded. Measured on the board rather
+# than assumed, against the same 30 s window with it off -- see the commit.
+CONFIG_VAIOS_SYSCALL_SVC=y

@@ -35,7 +35,18 @@ add_compile_options(-Wall -Wextra -O2 -g -fno-strict-aliasing)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 set(VAIOS_AUTOCONF "${CMAKE_BINARY_DIR}/vaios_autoconf.h")
 set(_vaios_dotconfig "${CMAKE_BINARY_DIR}/.config")
-configure_file("${VAYU_ROOT}/firmware/vaios.defconfig" "${_vaios_dotconfig}" COPYONLY)
+# Seeded from the firmware's defconfig, then overridden for the host: SVC kernel
+# entry and the MPU are silicon features. There is no `svc` instruction and no MPU
+# here -- this build shims the ARM port through sim/host/include/ -- and leaving
+# VAIOS_SYSCALL_SVC on pulls in the port's port_syscall.h, which does not exist
+# for the host. Taking them off here, rather than keeping a second defconfig, is
+# what keeps SITL and the firmware from drifting on every OTHER knob.
+file(READ "${VAYU_ROOT}/firmware/vaios.defconfig" _vaios_seed)
+file(WRITE "${_vaios_dotconfig}" "${_vaios_seed}
+# --- host overrides (appended by sim/host/CMakeLists.txt) ---
+# CONFIG_VAIOS_SYSCALL_SVC is not set
+# CONFIG_VAIOS_MPU_ENABLE is not set
+")
 execute_process(
     COMMAND ${Python3_EXECUTABLE} "${VAIOS_ROOT}/tools/kconfig.py"
             --kconfig "${VAIOS_ROOT}/Kconfig"
