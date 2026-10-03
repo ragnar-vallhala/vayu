@@ -120,6 +120,12 @@ bool imu_queue_control_wait(uint32_t ticks_to_wait);
 bool imu_queue_attitude_push(const imu_sample_t *sample);
 bool imu_queue_attitude_pop(imu_sample_t *out_sample);
 bool imu_queue_attitude_wait(uint32_t ticks_to_wait);
+#if VAYU_HUB_BUS
+/* Samples imu.attitude overwrote before its consumer read them. The SPSC ring
+ * this replaced could not tell an overwrite from a message that was never
+ * published, so keeping-up was an assumption; this makes it measurable. */
+uint32_t hub_imu_attitude_missed(void);
+#endif
 
 bool attitude_queue_telemetry_push(const attitude_t *attitude);
 bool attitude_queue_telemetry_pop(attitude_t *out_attitude);

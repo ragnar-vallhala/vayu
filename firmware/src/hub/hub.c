@@ -81,6 +81,44 @@ static vert_input_t _vert_input_buffer[IMU_BUFFER_INTERNAL_CAPACITY];
 static spsc_fifo_t _vert_input_queue;
 static SemaphoreHandle_t _vert_input_sema = NULL;
 
+#if VAYU_HUB_BUS
+#include "bus.h"
+/* ---------------------------------------------------------------------------
+ * imu.attitude on the vaios bus (first topic of the FIFO migration).
+ *
+ * Declared as a PIPE: one producer context, one subscriber, a lock-free ring of
+ * `reserve` single-block slots with no critical sections, no ref counts and no
+ * shared-pool traffic. That is the same shape the SPSC ring it replaces had, and
+ * it is the only shape that belongs here -- the producer is the IMU DMA
+ * completion callback, in ISR context, inside a 1 kHz path.
+ *
+ * V_BUS_OVERWRITE matches SPSC_POLICY_OVERWRITE: on overrun the oldest sample
+ * goes and the newest survives, which is what an estimator wants. Readers are
+ * told how many they missed.
+ *
+ * 64 B blocks: the widest hub message is vertical_state_t at 48 B, and
+ * V_BUS_HDR_SIZE (12) rides along. One size for every topic keeps the pool
+ * uniform when the rest follow.
+ */
+#define HUB_BUS_BLOCK 64u
+#define HUB_BUS_BLOCKS 8u /* the pipe takes `reserve` of these at declare */
+#define HUB_T_IMU_ATTITUDE "imu.attitude"
+V_BUS_POOL(hub_pool, HUB_BUS_BLOCK, HUB_BUS_BLOCKS);
+static v_bus_t _hub_bus;
+static v_bus_topic_t _t_imu_attitude;
+/* attitude_task's read handle. The fd table is PER TASK, so this is only valid
+ * in the one task that consumes the topic; it is opened lazily on that task's
+ * first wait() for exactly that reason -- opening it at init would put the fd in
+ * whichever task ran imu_buffer_init (the boot task), where it is useless. */
+static int _fd_imu_attitude = -1;
+/* Samples the bus says this reader missed, i.e. slots overwritten before it got
+ * to them. The SPSC ring it replaces could not report this at all: an overwrite
+ * was indistinguishable from never having been published, so "the estimator is
+ * keeping up" was an assumption. Here it is a number. Published through
+ * hub_imu_attitude_missed() so a bench run can assert it is zero. */
+static volatile uint32_t _imu_attitude_missed;
+#endif
+
 /** @implements SNS-BUF-001 */
 void imu_buffer_init(void) {
   spsc_init(&_imu_telemetry_queue, _imu_telemetry_buffer,
@@ -125,6 +163,21 @@ void imu_buffer_init(void) {
   _imu_control_sema = v_semaphore_create_binary();
   _attitude_control_sema = v_semaphore_create_binary();
   _imu_attitude_sema = v_semaphore_create_binary();
+#if VAYU_HUB_BUS
+  if (v_bus_init(&_hub_bus, hub_pool_blocks, hub_pool_desc, HUB_BUS_BLOCK,
+                 HUB_BUS_BLOCKS) != VA_PASS) {
+    PANIC("hub: bus init failed");
+  }
+  static const v_bus_topic_cfg_t imu_attitude_cfg = {
+      .overflow = V_BUS_OVERWRITE,
+      .reserve = IMU_BUFFER_INTERNAL_CAPACITY, /* the ring's slot count */
+      .pipe = 1,
+  };
+  if (v_bus_topic_declare(&_hub_bus, &_t_imu_attitude, HUB_T_IMU_ATTITUDE,
+                          &imu_attitude_cfg) != VA_PASS) {
+    PANIC("hub: imu.attitude declare failed");
+  }
+#endif
   _vert_input_sema = v_semaphore_create_binary();
 }
 
@@ -259,25 +312,71 @@ bool imu_queue_control_wait(uint32_t ticks_to_wait) {
  * control queue; the OVERWRITE ring keeps only the latest sample on overrun. */
 /** @noreq Thin SPSC ring push (+ event wake). */
 bool imu_queue_attitude_push(const imu_sample_t *sample) {
+#if VAYU_HUB_BUS
+  /* No separate give: publish signals the subscription's own semaphore, from an
+   * ISR too, so the ring and the wakeup stop being two things that can disagree.
+   * That pairing is what the give/take race in this file used to be about. */
+  return v_bus_publish(&_t_imu_attitude, sample, sizeof *sample) == VA_PASS;
+#else
   bool ok = spsc_write(&_imu_attitude_queue, sample, 1) == 1;
   if (_imu_attitude_sema != NULL) {
     v_semaphore_give(_imu_attitude_sema);
   }
   return ok;
+#endif
 }
 
 /** @noreq Thin SPSC ring accessor. */
 bool imu_queue_attitude_pop(imu_sample_t *out_sample) {
+#if VAYU_HUB_BUS
+  if (_fd_imu_attitude < 0) {
+    return false; /* wait() opens the handle; nothing to read before that */
+  }
+  v_bus_rx_t rx = {.buf = out_sample, .cap = (uint16_t)sizeof *out_sample};
+  const bool ok = v_bus_recv(_fd_imu_attitude, &rx) == VA_PASS &&
+                  rx.len == sizeof *out_sample;
+  if (rx.missed != 0u) {
+    _imu_attitude_missed += rx.missed;
+  }
+  return ok;
+#else
   return spsc_read(&_imu_attitude_queue, out_sample, 1) == 1;
+#endif
 }
 
 /** @noreq Thin SPSC ring wait (event-driven). */
 bool imu_queue_attitude_wait(uint32_t ticks_to_wait) {
+#if VAYU_HUB_BUS
+  if (_fd_imu_attitude < 0) {
+    /* First call from the consuming task, which is the only task that may hold
+     * this fd. A subscriber sees messages published from now on, so the samples
+     * produced before this are simply not waited for -- correct for an
+     * overwrite topic, where only the newest matters. */
+    _fd_imu_attitude = v_bus_open(HUB_T_IMU_ATTITUDE, V_BUS_RD);
+    if (_fd_imu_attitude < 0) {
+      return false;
+    }
+  }
+  /* wait() then pop(), not v_bus_recv_wait, to keep hub.h's two-step API. The
+   * wake is a HINT: an overwrite topic can evict the slot between the signal and
+   * this task running, so a wake with nothing to read is normal and costs one
+   * more turn of the caller's loop. Every caller already tolerates
+   * wait()-true-then-pop()-false. */
+  return v_bus_wait(_fd_imu_attitude, ticks_to_wait) == VA_PASS;
+#else
   if (_imu_attitude_sema == NULL) {
     return false;
   }
   return v_semaphore_take(_imu_attitude_sema, ticks_to_wait) == VA_PASS;
+#endif
 }
+
+#if VAYU_HUB_BUS
+/** @noreq How many imu.attitude samples this consumer has missed (overwritten
+ *  before it read them). Zero on a healthy bench run; a rising count means the
+ *  estimator is not keeping up with the IMU. */
+uint32_t hub_imu_attitude_missed(void) { return _imu_attitude_missed; }
+#endif
 
 /** @noreq Thin SPSC ring accessor. */
 bool attitude_queue_telemetry_push(const attitude_t *attitude) {

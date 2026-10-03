@@ -41,6 +41,14 @@ add_compile_definitions(VAIOS)
 # Deliberately overflow a task stack into its MPU guard region at boot, to prove
 # the guard faults on the access. Halts the FC by design -- a diagnostic, never a
 # flight build. See mpu_guard_selftest() in src/sys/heartbeat.c.
+# Route the hub's imu.attitude FIFO through the vaios bus instead of its own SPSC
+# ring + semaphore. Gated so the two can be A/B'd on hardware: this is the central
+# data path of the flight controller, and "it still boots" is not the same as "the
+# estimator still sees every sample".
+option(VAYU_HUB_BUS "Hub FIFOs on the vaios bus" ON)
+if(VAYU_HUB_BUS)
+  add_compile_definitions(VAYU_HUB_BUS=1)
+endif()
 option(VAYU_MPU_GUARD_SELFTEST "Fault-inject a stack overflow into the MPU guard" OFF)
 if(VAYU_MPU_GUARD_SELFTEST)
   add_compile_definitions(VAYU_MPU_GUARD_SELFTEST)
@@ -55,6 +63,13 @@ endif()
 # below — vaios derives the -DVAIOS_MODULE_VFS compile-def from this variable, so
 # this is the single source of truth (don't also -D it, or it redefines).
 set(VAIOS_MODULE_VFS ON CACHE BOOL "vayu needs the vaios VFS" FORCE)
+# The bus IPC subsystem, for the hub's topics (VAYU_HUB_BUS). Same trap as the
+# VFS above and worth stating twice: VAIOS_MODULE_BUS exists BOTH as a Kconfig
+# symbol and as a CMake option, and it is the CMake one that decides whether
+# kernel/bus.c is compiled at all. Setting only CONFIG_VAIOS_MODULE_BUS=y in the
+# defconfig gets the headers and the -D, then fails at link on v_bus_init and
+# friends -- the symbol is set, the code is absent.
+set(VAIOS_MODULE_BUS ON CACHE BOOL "vayu needs the vaios bus" FORCE)
 set(NAVHAL ON)
 # The kernel configuration vayu builds with. vaios 0.2.0 replaced the
 # hand-written VAIOS_CONFIG_FILE header with Kconfig: VAIOS_DEFCONFIG seeds

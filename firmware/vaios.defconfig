@@ -136,3 +136,6 @@ CONFIG_VAIOS_SYSCALL_SVC=y
 #
 # Costs 8 fds x 8 B inside every TCB (VAIOS_MAX_FDS, default 8).
 CONFIG_VAIOS_DEVFS=y
+
+# The bus IPC subsystem: the hub's FIFOs move onto it (VAYU_HUB_BUS).
+CONFIG_VAIOS_MODULE_BUS=y
