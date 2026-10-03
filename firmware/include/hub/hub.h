@@ -90,11 +90,9 @@ bool battery_latest(battery_sample_t *out);
 
 bool imu_queue_telemetry_push(const imu_sample_t *sample);
 bool imu_queue_telemetry_pop(imu_sample_t *out_sample);
-bool imu_queue_telemetry_peek(imu_sample_t *out_sample);
 
 bool imu_queue_control_push(const imu_sample_t *sample);
 bool imu_queue_control_pop(imu_sample_t *out_sample);
-bool imu_queue_control_peek(imu_sample_t *out_sample);
 
 /**
  * @brief Block until a fresh IMU control sample is pushed, or the
@@ -120,36 +118,40 @@ bool imu_queue_control_wait(uint32_t ticks_to_wait);
 bool imu_queue_attitude_push(const imu_sample_t *sample);
 bool imu_queue_attitude_pop(imu_sample_t *out_sample);
 bool imu_queue_attitude_wait(uint32_t ticks_to_wait);
-#if VAYU_HUB_BUS
 /* Samples imu.attitude overwrote before its consumer read them. The SPSC ring
  * this replaced could not tell an overwrite from a message that was never
  * published, so keeping-up was an assumption; this makes it measurable. */
-/* PEEK AND THE BUS PATH. With VAYU_HUB_BUS on, the migrated topics' *_peek()
- * entries still read their SPSC ring, which nothing publishes to any more, so
- * they return false. That is deliberate rather than overlooked: the bus has no
- * non-consuming peek -- v_bus_peek pins a slot and v_bus_release consumes it, so
- * peek+release is a pop, and peek without release pins the slot and makes the
- * next peek return V_BUS_EBUSY. Neither is what spsc_peek did.
+/* THERE IS NO HEAD-PEEK ANY MORE, and that is deliberate.
  *
- * It is safe today because no firmware task peeks a migrated topic: the only peek
- * on target is vertical_state_queue_peek (angle_controller), and vertical.state is
- * deliberately NOT migrated for exactly this reason. The other peeks are exercised
- * only by sim/host tests, which build with VAYU_HUB_BUS off.
+ * The bus has no non-consuming read at all: v_bus_peek is the ZERO-COPY form of
+ * pop (it pins the message in place and v_bus_release then consumes it, "like a
+ * completed v_bus_pop" in its own words), so peek+release and pop differ only in
+ * whether the payload is copied. spsc_peek's oldest-unread, idempotent,
+ * fails-when-empty read has no counterpart.
  *
- * Before peeking a migrated topic from firmware, give that topic a latest-value
- * slot (hub.h already has that pattern) instead of reaching for v_bus_peek.
+ * It also should not have one. Every caller that peeked was a SECOND reader on a
+ * single-consumer queue, and the head of such a queue is the OLDEST item the real
+ * consumer has not taken yet -- so those readers got the stalest value, not the
+ * current one. On vertical.state that was a live defect: angle_controller ran the
+ * height controller on a state ~3 publishes old because telemetry drained the ring
+ * 13x slower than the estimator filled it.
+ *
+ * A reader wanting the current value now gets a latest-value slot --
+ * attitude_telemetry_latest(), vertical_state_queue_peek() -- and a queue is kept
+ * only where a consumer must see every item.
  */
 uint32_t hub_imu_attitude_missed(void);
 uint32_t hub_vert_input_missed(void);
-#endif
 
 bool attitude_queue_telemetry_push(const attitude_t *attitude);
 bool attitude_queue_telemetry_pop(attitude_t *out_attitude);
-bool attitude_queue_telemetry_peek(attitude_t *out_attitude);
+/* The newest attitude published to telemetry, consuming nothing. Replaces
+ * attitude_queue_telemetry_peek: peeking the queue handed out the OLDEST unread
+ * item, so a "current attitude" reader saw it as stale as telemetry was behind. */
+bool attitude_telemetry_latest(attitude_t *out_attitude);
 
 bool attitude_queue_control_push(const attitude_t *attitude);
 bool attitude_queue_control_pop(attitude_t *out_attitude);
-bool attitude_queue_control_peek(attitude_t *out_attitude);
 /* Block until the next attitude control sample is pushed (or timeout). Lets the
  * outer/angle loop pace itself off the inner-loop sample rate. */
 bool attitude_queue_control_wait(uint32_t ticks_to_wait);
@@ -186,8 +188,6 @@ bool vert_input_queue_wait(uint32_t ticks_to_wait);
 bool imu_queue_calibration_telemetry_push(
     const imu_calibration_telemetry_t *sample);
 bool imu_queue_calibration_telemetry_pop(
-    imu_calibration_telemetry_t *out_sample);
-bool imu_queue_calibration_telemetry_peek(
     imu_calibration_telemetry_t *out_sample);
 
 /* Board mounting tilt (degrees, roll/pitch), published by whoever owns the

@@ -41,14 +41,6 @@ add_compile_definitions(VAIOS)
 # Deliberately overflow a task stack into its MPU guard region at boot, to prove
 # the guard faults on the access. Halts the FC by design -- a diagnostic, never a
 # flight build. See mpu_guard_selftest() in src/sys/heartbeat.c.
-# Route the hub's imu.attitude FIFO through the vaios bus instead of its own SPSC
-# ring + semaphore. Gated so the two can be A/B'd on hardware: this is the central
-# data path of the flight controller, and "it still boots" is not the same as "the
-# estimator still sees every sample".
-option(VAYU_HUB_BUS "Hub FIFOs on the vaios bus" ON)
-if(VAYU_HUB_BUS)
-  add_compile_definitions(VAYU_HUB_BUS=1)
-endif()
 option(VAYU_MPU_GUARD_SELFTEST "Fault-inject a stack overflow into the MPU guard" OFF)
 if(VAYU_MPU_GUARD_SELFTEST)
   add_compile_definitions(VAYU_MPU_GUARD_SELFTEST)
