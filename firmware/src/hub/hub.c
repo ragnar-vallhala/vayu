@@ -184,17 +184,22 @@ static void hub_stat_pop(hub_stat_t *st, bool ok, uint32_t missed) {
   }
 }
 #if VAIOS_DEVFS
-/* attitude_task's read handle. The fd table is PER TASK, so this is only valid
- * in the one task that consumes the topic; it is opened lazily on that task's
- * first wait() for exactly that reason -- opening it at init would put the fd in
- * whichever task ran imu_buffer_init (the boot task), where it is useless. */
+/* attitude_task's read handle. The fd table is PER TASK, so this is only valid in
+ * the one task that consumes the topic; it is opened lazily on that task's first
+ * ACCESS -- pop or wait, whichever it makes -- for exactly that reason: opening it
+ * at init would put the fd in whichever task ran imu_buffer_init (the boot task),
+ * where it is useless. See hub_fd_ready(). */
 static int _fd_imu_attitude = -1;
 static int _fd_vert_input = -1;
 /* imu.control and att.control expose wait() too (no firmware task uses it, but the
  * API does and the host tests exercise it). A topic must be read through ONE
  * subscription: v_bus_open makes its own, so a wait on an fd and a pop on a
  * pointer subscription would be two different queues, and the fd's would fill with
- * messages nobody receives. So where wait() uses an fd, pop() uses the same fd. */
+ * messages nobody receives. So where wait() uses an fd, pop() uses the same fd --
+ * the SAME one, opened by whichever of the two the consumer calls first.
+ *
+ * Both of these are polled, never waited on, which is the whole reason this had to
+ * change: opening the handle in wait() alone meant their pop could never succeed. */
 static int _fd_imu_control = -1;
 static int _fd_att_control = -1;
 #endif
@@ -412,11 +417,41 @@ bool imu_queue_control_push(const imu_sample_t *sample) {
   return ok;
 }
 
+#if VAIOS_DEVFS
+/* Open a reader fd for `name` into *fd, once, in the CALLING task.
+ *
+ * The fd table is per task, so the handle has to be opened by the task that
+ * consumes the topic -- it cannot be opened for it at init, and a handle opened
+ * by another task is meaningless in this one's table. Every fd path therefore
+ * routes through here, pop as well as wait: the previous arrangement opened the
+ * handle only in wait(), which silently required every consumer of these topics
+ * to block rather than poll. Two of them poll, so their pop returned false on
+ * every call for the life of the board -- 61,775 samples published to
+ * imu.control and not one popped, which is the rate loop flying with no gyro.
+ *
+ * Each topic has a single subscriber (pipe mode), so one static fd per topic is
+ * right; it just has to be opened on the consumer's own first call, whichever
+ * call that is.
+ *
+ * Returns false if the topic cannot be opened. Deliberately silent: this module
+ * has no logging dependency and this runs in the 1 kHz pop path. The signal is the
+ * per-topic counters, where a reader that never reads is unmistakable -- a
+ * `published` that climbs against a `popped` of zero, which is exactly how this bug
+ * was finally found. They go out in the FIFOS perf rows. */
+static bool hub_fd_ready(int *fd, const char *name) {
+  if (*fd >= 0) {
+    return true;
+  }
+  *fd = v_bus_open(name, V_BUS_RD);
+  return *fd >= 0;
+}
+#endif
+
 /** @noreq Thin SPSC ring accessor. */
 bool imu_queue_control_pop(imu_sample_t *out_sample) {
 #if VAIOS_DEVFS
-  if (_fd_imu_control < 0) {
-    return false; /* wait() opens the handle */
+  if (!hub_fd_ready(&_fd_imu_control, HUB_T_IMU_CONTROL)) {
+    return false;
   }
   v_bus_rx_t rx = {.buf = out_sample, .cap = (uint16_t)sizeof *out_sample};
   const bool ok = v_bus_recv(_fd_imu_control, &rx) == VA_PASS &&
@@ -437,13 +472,8 @@ bool imu_queue_control_pop(imu_sample_t *out_sample) {
 
 bool imu_queue_control_wait(uint32_t ticks_to_wait) {
 #if VAIOS_DEVFS
-  if (_fd_imu_control < 0) {
-    /* See imu_queue_attitude_wait: per-task fd table, so it is opened by the task
-     * that consumes the topic, on its first wait. */
-    _fd_imu_control = v_bus_open(HUB_T_IMU_CONTROL, V_BUS_RD);
-    if (_fd_imu_control < 0) {
-      return false;
-    }
+  if (!hub_fd_ready(&_fd_imu_control, HUB_T_IMU_CONTROL)) {
+    return false;
   }
   return v_bus_wait(_fd_imu_control, ticks_to_wait) == VA_PASS;
 #else
@@ -475,8 +505,8 @@ bool imu_queue_attitude_push(const imu_sample_t *sample) {
 /** @noreq Thin SPSC ring accessor. */
 bool imu_queue_attitude_pop(imu_sample_t *out_sample) {
 #if VAIOS_DEVFS
-  if (_fd_imu_attitude < 0) {
-    return false; /* wait() opens the handle */
+  if (!hub_fd_ready(&_fd_imu_attitude, HUB_T_IMU_ATTITUDE)) {
+    return false;
   }
   v_bus_rx_t rx = {.buf = out_sample, .cap = (uint16_t)sizeof *out_sample};
   const bool ok = v_bus_recv(_fd_imu_attitude, &rx) == VA_PASS &&
@@ -500,15 +530,8 @@ bool imu_queue_attitude_pop(imu_sample_t *out_sample) {
 /** @noreq Thin SPSC ring wait (event-driven). */
 bool imu_queue_attitude_wait(uint32_t ticks_to_wait) {
 #if VAIOS_DEVFS
-  if (_fd_imu_attitude < 0) {
-    /* First call from the consuming task, the only task that may hold this fd:
-     * the fd table is per task, so opening it at init would file it under
-     * whichever task ran boot. A subscriber sees messages published from now on,
-     * correct for an overwrite topic where only the newest matters. */
-    _fd_imu_attitude = v_bus_open(HUB_T_IMU_ATTITUDE, V_BUS_RD);
-    if (_fd_imu_attitude < 0) {
-      return false;
-    }
+  if (!hub_fd_ready(&_fd_imu_attitude, HUB_T_IMU_ATTITUDE)) {
+    return false;
   }
   /* wait() then pop(), not v_bus_recv_wait, to keep this header's two-step API.
    * The wake is a HINT: an overwrite topic can evict the slot between the signal
@@ -594,8 +617,8 @@ bool attitude_queue_control_push(const attitude_t *attitude) {
 /** @noreq Thin SPSC ring accessor. */
 bool attitude_queue_control_pop(attitude_t *out_attitude) {
 #if VAIOS_DEVFS
-  if (_fd_att_control < 0) {
-    return false; /* wait() opens the handle */
+  if (!hub_fd_ready(&_fd_att_control, HUB_T_ATT_CONTROL)) {
+    return false;
   }
   v_bus_rx_t rx = {.buf = out_attitude, .cap = (uint16_t)sizeof *out_attitude};
   const bool ok = v_bus_recv(_fd_att_control, &rx) == VA_PASS &&
@@ -616,13 +639,8 @@ bool attitude_queue_control_pop(attitude_t *out_attitude) {
 /** @noreq Thin SPSC ring wait (event-driven). */
 bool attitude_queue_control_wait(uint32_t ticks_to_wait) {
 #if VAIOS_DEVFS
-  if (_fd_att_control < 0) {
-    /* See imu_queue_attitude_wait: per-task fd table, so it is opened by the task
-     * that consumes the topic, on its first wait. */
-    _fd_att_control = v_bus_open(HUB_T_ATT_CONTROL, V_BUS_RD);
-    if (_fd_att_control < 0) {
-      return false;
-    }
+  if (!hub_fd_ready(&_fd_att_control, HUB_T_ATT_CONTROL)) {
+    return false;
   }
   return v_bus_wait(_fd_att_control, ticks_to_wait) == VA_PASS;
 #else
@@ -735,8 +753,8 @@ bool vert_input_queue_push(const vert_input_t *in) {
 /** @noreq Thin SPSC ring accessor. */
 bool vert_input_queue_pop(vert_input_t *out_in) {
 #if VAIOS_DEVFS
-  if (_fd_vert_input < 0) {
-    return false; /* wait() opens the handle */
+  if (!hub_fd_ready(&_fd_vert_input, HUB_T_VERT_INPUT)) {
+    return false;
   }
   v_bus_rx_t rx = {.buf = out_in, .cap = (uint16_t)sizeof *out_in};
   const bool ok =
@@ -758,12 +776,8 @@ bool vert_input_queue_pop(vert_input_t *out_in) {
 /** @noreq Thin SPSC ring wait (event-driven). */
 bool vert_input_queue_wait(uint32_t ticks_to_wait) {
 #if VAIOS_DEVFS
-  if (_fd_vert_input < 0) {
-    /* See imu_queue_attitude_wait for why the handle is opened here. */
-    _fd_vert_input = v_bus_open(HUB_T_VERT_INPUT, V_BUS_RD);
-    if (_fd_vert_input < 0) {
-      return false;
-    }
+  if (!hub_fd_ready(&_fd_vert_input, HUB_T_VERT_INPUT)) {
+    return false;
   }
   return v_bus_wait(_fd_vert_input, ticks_to_wait) == VA_PASS;
 #else
