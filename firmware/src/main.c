@@ -303,22 +303,30 @@ void system_init_tasks(void) {
  * @noreq boot plumbing. */
 void system_boot_late_init(void) {
   fs_owner_boot_init(); /* prealloc/open the blackbox log files */
+
+  /* Directly after the card, because the request lives ON the card and this is
+   * the first moment it can be read. It takes that request and hands the flight
+   * state to it.
+   *
+   * Everything below -- the EKF self-test, the PID restore, a full I2C sensor
+   * bring-up including the BME280 mode set and the VL53L0X going continuous --
+   * used to run first. An ESC calibrates only if it SEES maximum while it is
+   * waking, and a running FC cannot recreate that moment, so spending that
+   * window on sensor init is spending the only thing the procedure needs.
+   *
+   * Note what this does NOT fix: esc_calib_boot_init only SETS the phase, and
+   * motor_task is what puts maximum on the pins. That task is still created in
+   * init_tasks() below, so the time from power-on to maximum is unchanged until
+   * the motor output comes up here too.
+   *
+   * Must stay after system_state_init (in main), which leaves the state at INIT
+   * -- the transition table carries {INIT, ESC_CALIB} for exactly this call. */
+  esc_calib_boot_init();
 #ifdef EKF_SELFTEST
   run_ekf_selftest();
 #endif
   pid_config_init(); /* COMM-CMD-003: restore persisted PID tune from SD */
   init_sensors();    /* the IMU's own init loads cal.bin */
-
-  /* Takes a pending ESC-calibration request -- which it reads from the card --
-   * and hands the flight state to it. It only SETS the phase; motor_task is what
-   * drives the outputs to maximum, and that task is created just below, so the
-   * order the ESCs actually see is unchanged by this living here rather than in
-   * main(). It still precedes every task, which is what mattered: the ESCs have
-   * to meet maximum while they are still waking, and a running FC cannot
-   * recreate that moment. Must stay after system_state_init (in main), which
-   * leaves the state at INIT -- the transition table carries {INIT, ESC_CALIB}
-   * for exactly this call. */
-  esc_calib_boot_init();
 
   VAYU_SPAWN(heartbeat_task, NULL, 512, 0, "heartbeat"); // peak 260
   init_tasks();

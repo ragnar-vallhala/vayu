@@ -45,11 +45,18 @@ void boot_task(void *args) {
    * not reachable from ESC_CALIB anyway, and STANDBY is -- which is how the
    * calibration used to end a few milliseconds after it started, as a flash of
    * all three LEDs and then a normal boot. */
-  const bool esc_calibrating = (system_state_get() == SYSTEM_STATE_ESC_CALIB);
+  /* Sampled HERE, so it answers "was a calibration already running when this
+   * task started" -- which is the only question the INIT reset below needs. It
+   * must NOT be reused for the decision at the end of this function: the
+   * calibration this boot starts is set up by system_boot_late_init(), far
+   * below, so by then this flag is stale by construction. That decision reads
+   * the state live. */
+  const bool esc_calibrating_on_entry =
+      (system_state_get() == SYSTEM_STATE_ESC_CALIB);
 
   // Start with a clean status
   system_boot_check_state_init();
-  if (!esc_calibrating) {
+  if (!esc_calibrating_on_entry) {
     VAYU_DISCARD(system_state_set(SYSTEM_STATE_INIT));
   }
   // We will accumulate status flags into a local bitmask variable
@@ -94,12 +101,20 @@ void boot_task(void *args) {
     /* A failed check wins over anything, calibration included: FAILSAFE is
      * always an allowed target and motor_task zeroes the outputs on it. */
     VAYU_DISCARD(system_state_set(SYSTEM_STATE_FAILSAFE));
-  } else if (!esc_calibrating) {
+  } else if (system_state_get() != SYSTEM_STATE_ESC_CALIB) {
     // All checks passed! Elevate system state out of INIT
     VAYU_DISCARD(system_state_set(SYSTEM_STATE_STANDBY));
   }
   /* Checks passed and a calibration is running: leave the state alone. It
-   * returns to STANDBY itself, on the closing gesture or its own timeout. */
+   * returns to STANDBY itself, on the closing gesture or its own timeout.
+   *
+   * Read LIVE, not from the flag sampled at the top of this function.
+   * esc_calib_boot_init() runs inside system_boot_late_init() above, so on the
+   * boot that actually performs a calibration the state becomes ESC_CALIB
+   * BETWEEN that sample and this test. Using the sample set STANDBY here, which
+   * is a transition ESC_CALIB allows, so every boot-time calibration was killed
+   * a few lines after it began -- the ESCs met maximum, then saw the state
+   * leave, and esc_calib_rc_step reported "aborted: state left ESC_CALIB". */
 
   // The boot sequence is complete. Remove this task from the scheduler.
   task_exit();
