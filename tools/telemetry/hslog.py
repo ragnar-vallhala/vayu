@@ -637,7 +637,7 @@ def verify_encoder_file(path):
     assert hdr["wraps"] >= 1, "test should have wrapped the ring: %r" % hdr
 
     # --- every stream declared, with its rate and layout -------------------
-    assert sorted(streams) == [1, 2, 3, 4, 5, 6, 7, 8], sorted(streams)
+    assert sorted(streams) == [1, 2, 3, 4, 5, 6, 7, 8, 9], sorted(streams)
     imu, act, vrt, ctl = streams[1], streams[2], streams[3], streams[4]
     assert (imu.rec_bytes, imu.rate_hz) == (12, 2000), vars(imu)
     assert (act.rec_bytes, act.rate_hz) == (12, 400), vars(act)
@@ -672,6 +672,15 @@ def verify_encoder_file(path):
     rc = streams[8]
     assert (rc.rec_bytes, rc.rate_hz) == (30, 10), vars(rc)
     assert rc.names[:2] == ["ch1", "ch2"] and rc.names[-1] == "flags", rc.names
+    # mag is declared by the preamble whether or not this test writes records
+    # to it -- the FMT frames describe the writer's whole stream set, which is
+    # what makes a card readable with no external schema. The field names end
+    # in _pre because these are pre-offset counts, not the calibrated vector
+    # telemetry reports, and a reader that confuses the two gets a hard-iron
+    # offset twice.
+    mag = streams[9]
+    assert (mag.rec_bytes, mag.rate_hz) == (8, 153), vars(mag)
+    assert mag.names == ["mx_pre", "my_pre", "mz_pre", "flags"], mag.names
     # "ctl" rates share the gyro's count scale so the two streams can be
     # differenced; "imu" carries the sensor->body sign map, "ctl" does not.
     assert ctl.fields[0][2] == abs(imu.fields[0][2]), (ctl.fields[0], imu.fields[0])
