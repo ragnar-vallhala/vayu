@@ -52,6 +52,9 @@ PREFIX = "arm-none-eabi-"
 
 # Thumb immediates that land a constant in a register, as objdump prints them.
 RE_IMM = re.compile(r"\b(?:movs?|mov\.w|movw)\s+r(\d+),\s*#(\d+)")
+# Call edges into these are not traversed: they report a fault and stop.
+PANIC_CUT = {"v_panic", "vayu_assert_fail", "v_port_halt"}
+
 RE_CALL = re.compile(r"\bbl(?:\.w)?\s+[0-9a-f]+\s+<([^>+]+)")
 BLOCK_HDR = 16                # sizeof(Heap_Mem_Block); payload is 8B-aligned
 RE_FUNC = re.compile(r"^([0-9a-f]+)\s+<([^>]+)>:")
@@ -115,6 +118,16 @@ def disassemble(elf):
         mc = RE_CALL.search(line)
         if mc:
             callee = mc.group(1).strip()
+            # A panic does not share the machine with the running system: it
+            # reports and halts. Allocations reachable ONLY through it are not
+            # part of the operating budget, and counting them is actively
+            # misleading -- VAYU_SPAWN put a PANIC beside all 15 task spawns, and
+            # because v_panic's formatter reaches v_malloc, the call-site
+            # multiplier then reported the whole task list 15x and declared a
+            # healthy board 19 KB overcommitted. Cut the edge, not the subtree:
+            # anything a live path also reaches is still counted through it.
+            if callee in PANIC_CUT:
+                continue
             graph[cur][callee] += 1
             if callee in ALLOC_ARG:
                 reg = ALLOC_ARG[callee]
@@ -160,9 +173,16 @@ def multiplicity(graph, roots, live):
 
     for r in roots:
         visit(r, frozenset())
+    rootset = set(roots)
     for f in reversed(order):          # callers before callees
         for callee, n in graph.get(f, {}).items():
-            if callee in live:
+            # A root is entered once, by definition -- it is a task entry or
+            # main. It ALSO appears as a callee wherever its address is taken to
+            # create the task, and counting both makes every allocation below it
+            # double. That stayed hidden while task creation sat on main's own
+            # path; it became a ~2.8x over-count the moment the task list moved
+            # into boot_task.
+            if callee in live and callee not in rootset:
                 mult[callee] = mult.get(callee, 0) + n * mult.get(f, 1)
     return mult
 
@@ -174,7 +194,7 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--elf", default=os.path.join(root, "firmware/build/main"))
     ap.add_argument("--heap-size", type=lambda s: int(s, 0), default=None,
-                    help="HEAP_SIZE; default reads it from vaios_app_config.h")
+                    help="HEAP_SIZE; default reads it from firmware/vaios.defconfig")
     ap.add_argument("--ram-top", type=lambda s: int(s, 0), default=RAM_TOP)
     ap.add_argument("--top", type=int, default=15)
     ap.add_argument("--fit", type=int, default=0, metavar="BYTES",
@@ -192,8 +212,12 @@ def main():
 
     heap_size = a.heap_size
     if heap_size is None:
-        cfg = os.path.join(root, "firmware/include/vaios_app_config.h")
-        m = re.search(r"^#define\s+HEAP_SIZE\s+(0x[0-9A-Fa-f]+|\d+)", open(cfg).read(), re.M)
+        # vaios 0.2.0 moved the kernel knobs from a header into Kconfig, so the
+        # authority is now firmware/vaios.defconfig. Read that rather than the
+        # generated <build>/vaios_autoconf.h: the defconfig is what review sees,
+        # and a build dir may not exist when this runs.
+        cfg = os.path.join(root, "firmware/vaios.defconfig")
+        m = re.search(r"^CONFIG_HEAP_SIZE=(0x[0-9A-Fa-f]+|\d+)", open(cfg).read(), re.M)
         heap_size = int(m.group(1), 0) if m else 0
 
     syms = symbols(a.elf)
@@ -218,9 +242,29 @@ def main():
 
     # roots: main plus every task entry (a task's stack is its own allocation,
     # so a task body is reachable even though nothing calls it directly)
-    roots = ["main"] + [f for f in graph if f.endswith("_task")]
+    # The one-shot boot sequence. Each of these runs EXACTLY once, and saying so
+    # is the only way to get an honest number: the multiplier below counts static
+    # `bl` sites, and GCC duplicates calls across branches -- 3x for
+    # system_boot_late_init, 2x for init_tasks in this build -- which it cannot
+    # tell from genuinely repeated calls. Left unnamed, the whole task list came
+    # out counted 2-3x and a healthy board read as 19 KB overcommitted.
+    #
+    # The test for adding a name here is "does it run once per boot", not "is it
+    # convenient": a function that really can run twice must NOT be listed, or the
+    # budget under-reports, which is the dangerous direction.
+    ONE_SHOT = ["main", "system_boot_late_init", "system_init_tasks",
+                "init_tasks", "init_sensors", "init_timer_callbacks"]
+    roots = [f for f in ONE_SHOT if f in graph or f == "main"] + [
+        f for f in graph if f.endswith("_task")]
     live = reachable(graph, roots)
-    boot = reachable(graph, ["main"])
+    # "boot" is main PLUS boot_task: the one-shot boot sequence moved into that
+    # task so its SD reads happen with a current task (the VFS mutex needs one).
+    # The task stacks it creates are boot-time demand, allocated once before
+    # anything flies -- exactly as they were when main() created them. Leaving
+    # boot_task out of this root set files ~17 KB of stacks under "runtime
+    # worst case", which then reads as tens of KB overcommitted when nothing
+    # about the real footprint has changed.
+    boot = reachable(graph, ["main", "boot_task"])
     mult = multiplicity(graph, roots, live)
 
     print()

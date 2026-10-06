@@ -227,7 +227,34 @@ static inline void _run_heartbeat(channel_t *channel, uint32_t period) {
   }
 }
 /* @implements SYS-HMI-001 */
+#ifdef VAYU_MPU_GUARD_SELFTEST
+/* Prove the MPU stack guard actually bites.
+ *
+ * Walks DOWNWARD from this task's current frame, byte by byte, past the bottom of
+ * its 512 B block. The guard is the lowest 32 B of that block and is programmed
+ * no-access, so the first write that reaches it must raise MemManage with MMFAR
+ * inside [mem_block, mem_block + VAIOS_MPU_GUARD_SIZE). If it does not, the guard
+ * is not armed and the only thing standing between a deep task and the heap below
+ * it is the software watermark this build switched off.
+ *
+ * Writes below the frame on purpose, rather than recursing: the MPU faults on the
+ * ADDRESS, so this reaches the guard without needing the compiler to move SP, and
+ * it reaches it at a predictable byte.
+ *
+ * Build-gated and NOT in any default build. It halts the FC by design.
+ */
+static void mpu_guard_selftest(void) {
+  volatile uint8_t *fp = (volatile uint8_t *)__builtin_frame_address(0);
+  for (uint32_t i = 0; i < 4096u; i++) {
+    fp[-(int32_t)i] = (uint8_t)i;
+  }
+}
+#endif
+
 void heartbeat_task(void *args) {
+#ifdef VAYU_MPU_GUARD_SELFTEST
+  mpu_guard_selftest();
+#endif
 
   // Configure Physical Heartbeat
   indicator_init();

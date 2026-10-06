@@ -19,6 +19,12 @@
 
 #include "comm/comm_types.h"
 
+/* The boot sequence boot_task runs once the scheduler is up: the SD reads that
+ * need the VFS mutex (and therefore a current task), then the rest of the tasks,
+ * then the timer that paces them. Defined in main.c, which owns the init list;
+ * called from boot_task, which owns the boot state machine. */
+void system_boot_late_init(void);
+
 void boot_task(void *args);
 void heartbeat_task(void *args);
 void comm_processor_task(void *args);

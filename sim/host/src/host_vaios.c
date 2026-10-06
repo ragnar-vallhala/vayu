@@ -123,7 +123,7 @@ void v_delay(uint32_t ms) {
 }
 
 /* The firmware also calls task_delay(ticks). On vaios ticks are usec; with
- * our SYSTICK_PERIOD=1000 us this maps to ms. */
+ * our TICK_PERIOD_US=1000 this maps to ms. */
 void task_delay(uint32_t ticks) { v_delay(ticks); }
 
 /* Drift-free periodic delay shim (cf. vaios task_delay_until). v_get_ticks() is

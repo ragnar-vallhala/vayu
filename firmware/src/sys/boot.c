@@ -30,6 +30,12 @@
  *
  * @implements SYS-STATE-003
  */
+/* The flight image defines this in main.c, which owns the init list. Images that
+ * reuse boot_task with their own entry point -- the on-hardware test firmware has
+ * its own main and builds its own world -- get this no-op instead of a link
+ * error, and say what they need explicitly. */
+__attribute__((weak)) void system_boot_late_init(void) {}
+
 void boot_task(void *args) {
   (void)args;
 
@@ -39,11 +45,18 @@ void boot_task(void *args) {
    * not reachable from ESC_CALIB anyway, and STANDBY is -- which is how the
    * calibration used to end a few milliseconds after it started, as a flash of
    * all three LEDs and then a normal boot. */
-  const bool esc_calibrating = (system_state_get() == SYSTEM_STATE_ESC_CALIB);
+  /* Sampled HERE, so it answers "was a calibration already running when this
+   * task started" -- which is the only question the INIT reset below needs. It
+   * must NOT be reused for the decision at the end of this function: the
+   * calibration this boot starts is set up by system_boot_late_init(), far
+   * below, so by then this flag is stale by construction. That decision reads
+   * the state live. */
+  const bool esc_calibrating_on_entry =
+      (system_state_get() == SYSTEM_STATE_ESC_CALIB);
 
   // Start with a clean status
   system_boot_check_state_init();
-  if (!esc_calibrating) {
+  if (!esc_calibrating_on_entry) {
     VAYU_DISCARD(system_state_set(SYSTEM_STATE_INIT));
   }
   // We will accumulate status flags into a local bitmask variable
@@ -67,6 +80,16 @@ void boot_task(void *args) {
   boot_status |= BOOT_CHECK_SD_CARD_CHECK_PASS;
   system_boot_check_state_set((sys_boot_check_state_t)boot_status);
 
+  /* Everything that needed a running scheduler: the SD reads that take the VFS
+   * mutex, then the remaining tasks, then the sensor timer. This used to run in
+   * main() before scheduler_start(), where there is no current task -- so the
+   * VFS mutex wrote through a NULL TCB, silently, until the MPU NULL guard
+   * caught it. Here there is a current task and it behaves.
+   *
+   * Before the state evaluation below on purpose: STANDBY must not be announced
+   * until the tasks that honour it (motor_task above all) actually exist. */
+  system_boot_late_init();
+
   // ----------------------------------------------------
   // Evaluate Final Boot Result
   // ----------------------------------------------------
@@ -78,12 +101,20 @@ void boot_task(void *args) {
     /* A failed check wins over anything, calibration included: FAILSAFE is
      * always an allowed target and motor_task zeroes the outputs on it. */
     VAYU_DISCARD(system_state_set(SYSTEM_STATE_FAILSAFE));
-  } else if (!esc_calibrating) {
+  } else if (system_state_get() != SYSTEM_STATE_ESC_CALIB) {
     // All checks passed! Elevate system state out of INIT
     VAYU_DISCARD(system_state_set(SYSTEM_STATE_STANDBY));
   }
   /* Checks passed and a calibration is running: leave the state alone. It
-   * returns to STANDBY itself, on the closing gesture or its own timeout. */
+   * returns to STANDBY itself, on the closing gesture or its own timeout.
+   *
+   * Read LIVE, not from the flag sampled at the top of this function.
+   * esc_calib_boot_init() runs inside system_boot_late_init() above, so on the
+   * boot that actually performs a calibration the state becomes ESC_CALIB
+   * BETWEEN that sample and this test. Using the sample set STANDBY here, which
+   * is a transition ESC_CALIB allows, so every boot-time calibration was killed
+   * a few lines after it began -- the ESCs met maximum, then saw the state
+   * leave, and esc_calib_rc_step reported "aborted: state left ESC_CALIB". */
 
   // The boot sequence is complete. Remove this task from the scheduler.
   task_exit();

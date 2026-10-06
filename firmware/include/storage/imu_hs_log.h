@@ -63,7 +63,7 @@
  *   FILE HEADER (36 B, at offset 0, inside the preamble sector)
  *     u32 magic         0x314C5348 = "HSL1"
  *     u16 version       2
- *     u16 hdr_len       36 -- skip this many bytes to reach the first preamble
+ *     u16 hdr_len       56 -- skip this many bytes to reach the first preamble
  *                          frame; a later header may be longer and old readers
  *                          still land on it
  *     u32 clock_hz      the unit of EVERY cycle stamp in this file
@@ -254,7 +254,15 @@
 /* Grown from 36 to 52 for the per-stream drop counters at [36..51]. Readers
  * find the FMT frames at this offset rather than assuming one, so a file that
  * declares 36 (no counters) and one that declares 52 both parse. */
-#define HSL_FILE_HDR_BYTES 52u
+/* 36 B of fixed fields + one u16 drop counter PER STREAM, 4-byte aligned. It
+ * must grow with HSL_N_STREAMS: the drops loop writes h[HSL_HDR_DROPS_OFF + i*2]
+ * for every stream, so a stream added without raising this writes past the
+ * header and into the first FMT frame's type/flags -- which a reader then
+ * misparses, taking the whole preamble with it. 36 + 9*2 = 54 -> 56.
+ * Readers are safe across the change because they take the first frame's offset
+ * from the header's own hdr_len; this is the second time it has grown (36 -> 52
+ * -> 56) and files from each still read. */
+#define HSL_FILE_HDR_BYTES 56u
 /** Per-stream sectors dropped THIS SESSION, u16 each, indexed by hsl_stream_t
  *  order. In the preamble so they are re-flushed every HSL_HDR_SYNC_FRAMES and
  *  survive the power cut that loses the close line entirely. */
@@ -338,6 +346,26 @@
  * and a failsafe that fires on the ground are all DISARMED events, and an
  * armed-only record of them would be empty exactly when it mattered. Low
  * enough rate to leave running -- see the idle-burn note on HSL_FILE_SIZE. */
+/* The magnetometer, pre-offset. Stored as the COMPENSATED field in microtesla
+ * before the hard-iron offset and soft-iron matrix are applied -- the same value
+ * the calibration engine consumes -- because that is what an offline ellipsoid
+ * fit needs, and the calibrated vector is recoverable from it with cal.bin while
+ * the reverse is not. Same reasoning as the imu stream storing raw counts and
+ * leaving the scale to this header.
+ *
+ * 0.1 uT per LSB puts full scale at +-3276.7 uT, comfortably past the BMM150's
+ * +-2500 uT axis, and the quantum is a third of the sensor's own ~0.3 uT
+ * resolution, so nothing is lost. */
+#define HSL_STREAM_MAG 9u
+#define HSL_MAG_REC_BYTES 8u /* 3x i16 field, u16 flags                      */
+#define HSL_MAG_UT_PER_LSB 0.1f
+/* Nominal only: IMU_SAMPLE_FREQ_HZ / 13, the magnetometer's share of the split-
+ * rate state machine (asserted against both in the .c). The BMM150 refreshes on
+ * its own clock, so a reader must take the real cadence from the block's
+ * t_first/t_last like any other stream rather than trusting this. */
+#define HSL_MAG_RATE_HZ 153u
+#define HSL_MAG_F_INVALID 0x0001u /* driver rejected this sample for fusion  */
+
 #define HSL_STREAM_RC 8u
 #define HSL_RC_REC_BYTES 30u /* 14x u16 channel, u16 flags                   */
 #define HSL_RC_F_FAILSAFE 0x0001u
@@ -479,6 +507,9 @@
  * sampled streams, so 2 apiece is ample. */
 #define HSL_ATT_BUFFERS 2u
 #define HSL_RC_BUFFERS 2u
+/* Two, like att: at ~153 Hz and 8 B a record, a 492 B block is ~4 s of field, so
+ * one buffer fills while the other is in flight with room to spare. */
+#define HSL_MAG_BUFFERS 2u
 
 /* A byte stream can sit half-full for a long time: nobody sends a command for
  * minutes, and a sector only publishes when it fills. Flush a partial sector
@@ -645,6 +676,19 @@ void imu_hs_log_att(float roll, float pitch, float yaw, uint8_t degraded,
                     uint32_t t_cyc);
 
 /** Pilot input as the FC saw it, recorded whether armed or not. */
+/**
+ * @brief Record one magnetometer sample (pre-offset compensated field, uT).
+ *
+ * Call it only when the BMM150 actually refreshed; the driver already tracks
+ * that, and repeating a held value would log the same field ~13 times and lie
+ * about the cadence in the block stamps.
+ *
+ * @param mag_uT  compensated field before offset/soft-iron, microtesla
+ * @param valid   0 if the driver rejected the sample for fusion -> F_INVALID
+ * @param t_cyc   cycle stamp of the sample
+ */
+void imu_hs_log_mag(const float mag_uT[3], uint8_t valid, uint32_t t_cyc);
+
 void imu_hs_log_rc(const uint16_t *channels, uint8_t n, uint8_t failsafe,
                    uint32_t t_cyc);
 

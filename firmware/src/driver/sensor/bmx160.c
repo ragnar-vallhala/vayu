@@ -1422,6 +1422,14 @@ void bmx160_process_data(void) {
   if (_mag_fresh) {
     bmx160_process_mag(mx, my, mz, rhall, _is_mag_invalid);
     _mag_fresh = 0;
+    /* High-speed SD stream, once per actual refresh rather than per inertial
+     * sample -- logging the held value ~13 times would misstate the cadence the
+     * block stamps imply. Stamped with _sample_cyc, the same timebase the imu
+     * stream above uses, so a vibration peak and a field disturbance line up
+     * inside one file. The PRE-offset field: the hub gets the calibrated vector
+     * below, but an offline ellipsoid fit needs the input to that correction,
+     * not its output. RAM-only, no-op unless armed. */
+    imu_hs_log_mag(_bmx_data.converted.mag_compensated, _mag_valid, _sample_cyc);
     /* Publish on arrival, not on every inertial sample: the field only
      * changed here, and a consumer watching t_cyc can now tell a new reading
      * from the same one seen again. temp_c is the package temperature -- one
@@ -2138,14 +2146,21 @@ static vayu_status_t _bmx160_calibrate_start(uint32_t imu_id, uint32_t type) {
   args->imu_id = (float)imu_id;
   args->type = (float)type;
 
-  /* Stack 3072, about 2x the measured requirement. The deepest chain is
-   * calibration_task(400) -> calib_engine_run(104) -> run_ellipsoid(488) ->
-   * calib_fit_ellipsoid(272) = 1264 B by -fstack-usage, plus ~200 B of
-   * exception frame. That number belongs beside the code it measures. */
-  _calib_task = task_create(calibration_task, args, 3072, 0);
+  /* Stack 4096. The deepest chain is calibration_task(400) ->
+   * calib_engine_run(104) -> run_ellipsoid(488) -> calib_fit_ellipsoid(272) =
+   * 1264 B by -fstack-usage, plus ~200 B of exception frame. That number belongs
+   * beside the code it measures.
+   *
+   * 4096 and not 3072, which is what it was: VAIOS_MPU_STACK_GUARD maps each
+   * stack onto one MPU region, so task_create REFUSES a size that is not a power
+   * of two. At 3072 this returned 0 every time and the error path below is all
+   * that ran -- IMU calibration quietly never started, and the one report of it
+   * goes through vayu_log, which this build has disabled. */
+  _calib_task = task_create(calibration_task, args, 4096, 0);
   if (_calib_task == 0) {
-    /* task_create returns 0 when the TCB alloc fails (a failed STACK alloc
-     * panics inside the kernel). Nothing will ever free the arg block. */
+    /* task_create returns 0 when the TCB alloc fails, and also when the kernel
+     * rejects the size outright (not a power of two under the MPU stack guard).
+     * Nothing will ever free the arg block. */
     v_free(args);
     vayu_log("[CALIB] out of heap for task; not starting");
     return VAYU_ERR_FAULT;
@@ -2177,7 +2192,7 @@ VAYU_SENSOR_DRIVER(bmx160_sensor) = {
     .probe = _bmx160_probe,
     .task = bmx160_initiate_read,
     .task_name = "imu_read",
-    .stack_words = 768,
+    .stack_words = 1024,
     .priority = 2,
     /* Accel/gyro reads are paced off the HF timer, which decouples the sensor
      * rate from the I2C free-run speed and frees the CPU above what the

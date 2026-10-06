@@ -44,7 +44,6 @@
 #include "hub/hub.h"
 #include "sys/state.h" /* system_state_get/set, SYSTEM_STATE_* */
 #include "vaios.h"
-#include "vaios_app_config.h"
 #include "vayu_tasks.h"
 #include <stdbool.h>
 

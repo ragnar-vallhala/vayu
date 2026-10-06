@@ -19,6 +19,21 @@ SECTIONS {
 
     *(.rodata*)
 
+    /* Reset copy/zero tables walked by NavHAL's Reset_Handler (boot.c). NavHAL
+       0.3.x moved to this CMSIS-style table-driven startup, so a linker script
+       that omits them does not fail to boot -- it fails to LINK, on
+       __copy_table_start__ and friends. Kept inside the read-only load segment
+       so no spurious RW segment appears. Copy triples {flash-src, ram-dst,
+       byte-len}; zero pairs {ram-dst, byte-len}. Matches NavHAL's own
+       src/arch/armv7e-m/link/cortex-m4.ld. */
+    . = ALIGN(4);
+    __copy_table_start__ = .;
+    LONG(_sidata); LONG(_sdata); LONG(_edata - _sdata);
+    __copy_table_end__ = .;
+    __zero_table_start__ = .;
+    LONG(_sbss); LONG(_ebss - _sbss);
+    __zero_table_end__ = .;
+
   } > FLASH
 
   /* Self-registering driver tables. Each entry is a const descriptor placed

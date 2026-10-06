@@ -51,6 +51,8 @@
 
 #include <math.h>
 
+#include "navhal.h" /* HAL_UART_2 */
+
 #include "comm/comm.h"
 #include "comm/ibus.h"
 #include "control/control.h"
@@ -219,7 +221,7 @@ static void test_tx_overflow(void) {
   channel_t ch;
   memset(&ch, 0, sizeof ch);
   serial_args_t args = {
-      .baud_rate = 115200, .uart = HAL_UART_1, .timeout = 100};
+      .baud_rate = 115200, .uart = HAL_UART_2, .timeout = 100};
   CHECK(get_handler(CHANNEL_TYPE_SERIAL, &ch, &args, NULL) == NONE,
         "serial channel opened");
 

@@ -43,7 +43,6 @@
 #include "storage/imu_hs_log.h"    /* blackbox attitude stream */
 #include "maths/maths_interface.h" /* m_sqrt, for the mag normalisation */
 #include "vaios.h"
-#include "vaios_app_config.h"
 #include "control/loop_rates.h"
 #include "control/tuning.h"
 #include "vayu_tasks.h"

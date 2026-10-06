@@ -47,7 +47,7 @@
 #include "control/control_buffer.h" /* control_telemetry_t */
 #include "est/est.h"                /* attitude_t */
 #include "host_rtos_engine.h" /* the reusable step engine (boot/set_rc/step_once/...) */
-#include "hub/hub.h"          /* attitude_queue_telemetry_peek */
+#include "hub/hub.h"          /* attitude_telemetry_latest */
 #include "sys/state.h" /* system_state_get, SYSTEM_STATE_* */
 
 extern uint32_t get_context_switch_count(void); /* kernel task.c */
@@ -422,7 +422,7 @@ static int run_hold(uint32_t seed, int N, double *out_wall, double *out_x) {
     mag_sample_t fp_mag = {0};
     (void)mag_latest(&fp_mag);
     imu_fp += (double)s.sample.gyr[0] + fp_mag.mag[0];
-    if (attitude_queue_telemetry_peek(&att))
+    if (attitude_telemetry_latest(&att))
       fp += (double)att.roll + att.pitch + att.yaw;
     if (realtime)
       rtos_pacer_wait(&pacer, 0.001);

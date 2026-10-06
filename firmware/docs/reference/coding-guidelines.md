@@ -140,7 +140,7 @@ up the firmware engineering standard.
 | ID    | Rule |
 |-------|------|
 | R10.1 | Function-like macros are avoided when an `inline` function would suffice. Macros that exist must be parenthesised and use `do { … } while (0)` when they expand to statements. |
-| R10.2 | `#ifdef` for feature selection is restricted to the HAL layer and the build-configuration header (`include/vaios_app_config.h` and equivalents). Upper layers select features through link-time stubs or runtime config, not preprocessing. |
+| R10.2 | `#ifdef` for feature selection is restricted to the HAL layer and the build configuration (`vaios.defconfig`/`navhal.config` and the headers they generate). Upper layers select features through link-time stubs or runtime config, not preprocessing. |
 | R10.3 | Magic numbers in code are prohibited; use named constants (`static const` or `enum`). | ✅ Phase 4 — per-module sweep done (e.g. NUM_MOTORS, MS_PER_SECOND, discrete-selector integer compares). Ongoing discipline for new code. |
 | R10.4 | `#pragma once` is preferred over include guards for new headers. |
 

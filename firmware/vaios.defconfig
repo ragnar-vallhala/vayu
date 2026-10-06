@@ -1,0 +1,147 @@
+#
+# vayu kernel configuration (vaios Kconfig defconfig).
+#
+# Replaces the old include/vaios_app_config.h: vaios 0.2.0 dropped the
+# hand-written config header (VAIOS_CONFIG_FILE) for Kconfig, so the knobs now
+# live here and reach the compiler through the generated vaios_autoconf.h.
+#
+# ONLY the values where vayu differs from a vaios default belong here. The other
+# ~25 macros the old header carried were restating defaults, which meant a vaios
+# default could change under us without the header showing a diff. An empty line
+# here now means "whatever vaios ships", deliberately.
+#
+# Seeded into <build>/.config, which is what the build actually reads. The root
+# CMakeLists drops a stale seed when this file is newer, so editing here is
+# enough -- see the note beside VAIOS_DEFCONFIG.
+
+# ~45 KiB/s telemetry. Raised from 230400 (the old ESP8266 cap); the bridge now
+# has a 4 KiB RX ring to absorb WiFi-TX stalls at this rate. The ESP's FC_BAUD
+# must match. See firmware/docs/plans/link-bandwidth-boost.md.
+CONFIG_CONSOLE_BAUDRATE=460800
+
+# 48 KiB. 40 KiB (0xA000) -> 42 KiB when the stacks were re-measured under vaios
+# 0.2.0; -> 48 KiB when arming the MPU forced every stack to a power of two
+# (+5568 B); -> 46 KiB once the watermark's 256 B left the sizing rule and
+# attitude/heartbeat dropped a step (-1536 B; see src/main.c); -> 48 KiB again for
+# VAIOS_DEVFS, whose per-task fd table lives in the TCB and so comes out of this
+# heap. Each step was measured with tools/dev/alloc_budget.py, not estimated.
+#
+# Earlier note, still the reason the number is not a vaios default: Task stacks are
+# v_malloc'd from this heap, so that growth came straight out of the margin:
+# alloc_budget.py's all-paths-coincide figure had fallen from 1984 B to 576 B,
+# and 0xA800 restores it to ~2.6 KiB. The SRAM ceiling has ~20 KiB spare at this
+# size, so this is bought with headroom we measurably have.
+#
+# vaios defaults this to 0x16000 (88 KiB), which does not fit: the kernel
+# memsets HEAP_SIZE bytes from _heap_start at boot under the hard constraint
+#     _heap_start + HEAP_SIZE <= 0x20018000   (top of the F401's 96 KiB SRAM)
+# and overrunning it HardFaults before main(). Holds the boot task stacks + IPC
+# (~18.6 KiB) plus the heaviest post-boot allocation, the calibration task's
+# 8 KiB stack v_malloc'd on CMD_CALIBRATE_IMU, leaving ~21 KiB free.
+#
+# The host SITL has no 96 KiB limit and needs room for many 8 KiB task stacks,
+# so it passes -DHEAP_SIZE=0x180000; the generated macros are #ifndef-guarded,
+# so that -D still wins over this.
+CONFIG_HEAP_SIZE=0xC000
+
+# Boot/main stack, well above the 1 KiB default: main() runs the whole
+# composition root (driver init, calibration load, task spawn) before the
+# scheduler takes over.
+CONFIG_MAIN_STACK_SIZE=10240
+
+# 256 B of headroom rather than 64. A stack overflow on this part corrupts
+# whatever sits below it in the vaios heap, and the kernel's own log formatter
+# needs room to report the fault at all.
+#
+# Every task stack is sized against a MEASURED peak plus this guard band plus one
+# FP exception frame (132 B) -- the peaks are recorded inline at each
+# task_create_named in src/main.c and in the sensor descriptors. They were
+# re-measured on hardware on 2026-10-03 after the vaios 0.2.0 bump, which cost
+# up to +240 B on the paths that reach the kernel console (flush 188 -> 428,
+# rc_ibus 132 -> 372, perf_telemetry 804 -> 996) and panicked the FC at boot on
+# flush_task until the stacks were grown. Method: vaios paints each stack with
+# V_PERF_STACK_FILL at create, so a bench run plus an SRAM dump gives every
+# peak at once -- scan up from the block base to the first non-sentinel word.
+# Re-measure after any vaios or NavHAL bump; a host test cannot see this.
+CONFIG_TASK_STACK_OVERFLOW_THRESHOLD=256
+
+# The idle task runs the log flush and the dead-task GC, and the watermark check
+# applies to it like any other task. Measured peak 236 B on 2026-10-03 under
+# vaios 0.2.0, which leaves only 276 B of the 512 B default -- inside the guard
+# band plus one FP exception frame. 704 leaves 468 B.
+CONFIG_IDLE_TASK_STACK_SIZE=1024
+
+# The console is a NavLink byte stream, not a terminal: vaios logging would
+# interleave framed packets with ASCII and desync every peer. Colour codes would
+# do the same, so they stay off even with logging disabled.
+# CONFIG_LOGGING_ENABLED is not set
+# CONFIG_COLOR_LOGGING is not set
+
+# Log sizing kept at vayu's historical values rather than vaios's larger
+# defaults (96 B / 256 B): this is static BSS on a RAM-starved part.
+CONFIG_LOG_MSG_MAX_LEN=64
+CONFIG_LOG_BUFFER_STORAGE_SIZE=128
+
+# vayu passed LOG_TRACE (enum value 0). vaios's Kconfig help labels 0 as DEBUG --
+# its range is 0..3 while Log_Type runs TRACE..FATAL -- but 0 is the most verbose
+# either way, which is what vayu asked for.
+CONFIG_MIN_LOG_LEVEL=0
+CONFIG_TERMINAL_LOG_LEVEL=0
+
+# Hardware memory protection. VAIOS_MPU_STATIC_PROTECT and _NULL_GUARD come on
+# with it and are the part that pays while tasks are still privileged, because
+# PRIVDEFENA otherwise leaves privileged access RWX over the whole map. The NULL
+# guard earned its keep immediately: it caught vayu taking the VFS mutex before
+# the scheduler existed, a write through a NULL TCB into flash-aliased 0x38 that
+# had been silent for as long as the blackbox logger has existed.
+#
+# VAIOS_MPU_STACK_GUARD comes on too: a 32 B no-access region at the base of each
+# task block. It is why every stack must be a power of two (see src/main.c).
+#
+# vaios ships this off, flagged "until the region programming is Renode-
+# validated". Validated here on the actual F401 instead.
+CONFIG_VAIOS_MPU_ENABLE=y
+
+# The software stack watermark is now redundant and off. It compared SP against
+# mem_block + 256 at every context switch, so it caught an overflow one switch
+# AFTER the damage; the MPU guard region faults on the access itself, in hardware,
+# at the instruction that did it. Keeping both would cost a compare per switch to
+# re-detect what the MPU already refused.
+#
+# NOTE: this does NOT affect stack measurement. tools/dev/stack_peaks.py reads the
+# V_PERF_STACK_FILL sentinel that VAIOS_MODULE_PERF paints at task create, which
+# is independent of the watermark.
+# CONFIG_TASK_STACK_WATERMARK_ENABLE is not set
+
+# Kernel entry through SVC (vaios Phase 3 Stage 1). Tasks stay PRIVILEGED by our
+# choice, not for want of a mechanism: vaios 0.2.0 does implement the unprivileged
+# flip and the per-task MPU region set (CONFIG_VAIOS_MPU_USER_SEPARATION), and they
+# are hardware-validated. We leave them off because every driver here reaches
+# peripheral registers from task context, and the MMIO region is privileged-RW, so
+# an unprivileged driver task would fault on its first register access. Flipping it
+# needs the drivers behind privileged service tasks first -- or
+# task_create_privileged() per driver task, which is the partial step. So this buys
+# no isolation on its own today. It is on because VAIOS_DEVFS depends on it, and the
+# bus's only BLOCKING reader
+# (v_bus_recv_wait) lives behind VAIOS_DEVFS -- the hub is event-driven, so
+# without it the FIFOs cannot leave their semaphores behind.
+#
+# Stage 1 routes a SELECTED set of entry points (task_yield, task_delay) through
+# `svc 1`, not the whole API, so the cost is bounded. Measured on the board rather
+# than assumed, against the same 30 s window with it off -- see the commit.
+CONFIG_VAIOS_SYSCALL_SVC=y
+
+# Everything-is-a-file: a per-task fd table over v_file_ops, /dev nodes behind a
+# driver op-table, open/read/write/close as syscalls (vaios Phase 3 Stage 2).
+# Tasks stay privileged at this stage.
+#
+# On for one reason: the bus's blocking reader, v_bus_recv_wait, lives behind it.
+# vayu's hub is event-driven -- every consumer parks on a semaphore until its
+# producer publishes -- so without a blocking bus read the FIFOs would have to
+# keep their semaphores and be migrated a second time later.
+#
+# Costs 8 fds x 8 B inside every TCB (VAIOS_MAX_FDS, default 8).
+CONFIG_VAIOS_DEVFS=y
+
+# The bus IPC subsystem: the hub's FIFOs move onto it (VAYU_HUB_BUS).
+CONFIG_VAIOS_MODULE_BUS=y
